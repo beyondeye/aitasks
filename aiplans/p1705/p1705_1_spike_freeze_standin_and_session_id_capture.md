@@ -988,3 +988,125 @@ respawn. Two-phase, acknowledged:
 (model flag per codex CLI), opencode → `RESUME_UNSUPPORTED:opencode` exit 2.
 Resolution stays single-sourced in `lib/agent_string.sh`. Restore-All iterates
 `frozen` records; per-record failures are reported, never abort the batch.
+
+---
+
+## Final Implementation Notes
+
+- **Actual work done:** Built `tests/test_frozen_standin_spike.sh` (the permanent
+  probe, also child 4's live acceptance control) covering P1 isolation
+  self-check, Cases 1/1b/1c, 2, 3, 4, 5a, 5b, 6 and 7; plus
+  `tests/lib/fake_agent.sh`, `tests/lib/observe_pane_died.sh`,
+  `tests/lib/validate_session_hook_fixtures.py`, and the committed fixture set
+  `tests/data/session_hooks/{schema.json,README.md,claude_sessionstart.json,codex_sessionstart.json}`.
+  Added the missing socketed-`respawn-pane` regression assertions to
+  `tests/test_guard_live_tmux.sh`. Appended
+  `## Spike findings (t1705_1) — PINNED` to the parent plan and amended
+  `p1705_3` step 7 to branch on `_fixture_status`. **No product code changed** —
+  the deliverable is evidence. Results: 41/41 with
+  `AITASKS_SPIKE_REAL_AGENTS=1`, 29/29 without (7.7s); `test_guard_live_tmux.sh`
+  24/24; `test_no_raw_tmux.sh` 5/5.
+
+- **Deviations from plan:** see the seven numbered items below.
+
+- **Issues encountered:** Case 6's planned codex config surfaces were both wrong
+  *and silent*; claude's folder-trust dialog blocked the only capture that may be
+  pinned; the resume leg needed the prior session to persist. All three are
+  detailed below and all three are now handled in-suite.
+
+- **Key decisions:** (a) Case 1's negative control was split into an unstamped
+  control **and** a positive lethality control, because with no abstention branch
+  in the repo the planned control was a no-op; (b) fixture validation is
+  schema-driven in a reusable helper rather than inlined in bash; (c)
+  `--refresh-fixtures` surfaces raw captures for deliberate redaction instead of
+  auto-rewriting committed JSON; (d) the codex verdict is recorded as
+  `unsupported` **scoped to the interactive path**, with the working `codex exec`
+  capability recorded alongside it, rather than as a blanket capability claim.
+
+- **Upstream defects identified:** None.
+
+- **Notes for sibling tasks:** The headline result is that `respawn-pane -k`
+  **does not fire `pane-died` at all**, so the parent's "stand-in hazard" and the
+  stamp-plus-abstention precondition do not apply to the freeze swap (child 4).
+  Keep the `@aitask_frozen` stamp for classification and for the cleanup script's
+  sibling-count rule. Child 5 inherits a hard constraint: **a freeze must let the
+  agent persist before respawning its pane**, or the recorded session id cannot
+  actually be resumed — a silent failure that only surfaces at restore time.
+  Child 3 must branch on `_fixture_status` and must not depend on codex
+  SessionStart for interactive launches. Platform rule for any sibling writing
+  process tests: macOS has no `/proc` and `ps eww`/`ps -E` return nothing under
+  SIP, so a foreign process's environment cannot be read — have the process
+  self-report to a path only that run knows, and never identify a process by a
+  `pgrep -f` pattern. The full cross-child contract is
+  `## Spike findings (t1705_1) — PINNED` in the parent plan.
+
+### Detail (2026-09-06)
+
+All cases implemented and green: **41/41** with
+`AITASKS_SPIKE_REAL_AGENTS=1`, **29/29** without (7.7s). Preflight was clean —
+not inside tmux, `-L ait` server idle — so every live case really ran. The
+end-of-run assertion confirms the user's `-L ait` server was untouched.
+
+### Deviations from the plan
+
+1. **Added `tests/lib/validate_session_hook_fixtures.py`** (not in the Files
+   list). Case 5a's contract is schema-driven, and a ~130-line validator inlined
+   as a bash heredoc would have been unreadable and unreusable. It is driven
+   entirely by `schema.json`, so the contract still has exactly one source, and
+   child 3 can call it directly instead of reimplementing the status branching.
+
+2. **Case 1's negative control became two controls.** The plan asks for "the
+   same sequence without the stamp-aware abstention". Since `@aitask_frozen` has
+   zero occurrences in the repo, no abstention branch exists — so "without the
+   abstention" is byte-identical to Case 1 and proves nothing on its own. Split
+   into: **1b** (unstamped respawn — window survives, so survival is a property
+   of `respawn-pane`, not of the stamp) and **1c** (a *positive* control: the
+   agent process really dies, `pane-died` fires, the window collapses). 1c is
+   what makes Case 1's negative result evidence rather than an unarmed-hook
+   artefact, and the plan's own warning — "if the window survives even without
+   abstention, that too is a finding" — is exactly what happened.
+
+3. **Case 6's config surfaces in the plan were both wrong**, and silently so.
+   `[hooks] session_start = "<cmd>"` and a flat
+   `{"SessionStart":[{"command":…}]}` are *accepted and ignored* by codex
+   0.153.4 — no error, no warning. Written as planned, the probe would have
+   produced a payload-free run and, but for P2's positive-control requirement,
+   a false `unsupported` verdict pinned into the parent plan. The real surfaces
+   were recovered empirically (deliberately malformed values, whose type errors
+   name the expected structs) and the probe rewritten against them. This is the
+   risk P2 was authored for, and it fired.
+
+4. **Case 5b needed a folder-trust bypass.** Claude refuses to start in an
+   untrusted folder and that dialog blocks `SessionStart` entirely, so the
+   interactive capture — the only one that may be pinned — was unreachable as
+   planned. Solved with a throwaway `CLAUDE_CONFIG_DIR` pre-trusting the scratch
+   project, keyed by **realpath**; the user's own `~/.claude.json` is never
+   touched. A `/tmp/...` key silently fails to match `/private/tmp/...`.
+
+5. **The resume leg needed the prior session to persist.** `claude --resume` on
+   a session whose pane was killed the instant its payload landed finds no
+   transcript and sits at a picker — which reads as "the hook does not fire on
+   resume". Exiting the first session cleanly first makes it fire with
+   `source: resume` and the same id. Recorded as a constraint child 5 inherits:
+   **a freeze must let the agent persist before respawning its pane.**
+
+6. **`--refresh-fixtures` surfaces raw captures rather than rewriting the JSON.**
+   Redaction requires judgement (which paths are shape-bearing, which are
+   leaks), and an automatic rewrite could commit an unredacted home path. The
+   flag reports where the raw captures are; redaction and the `README.md`
+   provenance update stay a deliberate, same-commit act.
+
+7. **The plan's verification snippet for `cwd` has a jq precedence bug.**
+   `jq -e 'has("cwd") | not or .cwd == "/REDACTED"'` pipes into `not` and errors
+   with *Cannot index boolean with string "cwd"*. Correct form:
+   `jq -e '(has("cwd") | not) or .cwd == "/REDACTED"'`. The suite's own
+   validator asserts this correctly and is the authoritative check.
+
+### Headline result
+
+`respawn-pane -k` **does not fire `pane-died` at all** — so the parent's
+"stand-in hazard", and the stamp-plus-abstention precondition built on it, does
+not apply to the freeze swap. The stamp is still needed for classification and
+for the cleanup script's sibling-count rule. Full consequences for children 2–5
+are in `## Spike findings (t1705_1) — PINNED` in the parent plan; child 3's
+step 7 was amended in the same commit.

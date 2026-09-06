@@ -561,3 +561,123 @@ plus the MV sibling (real agents); per-child tests cover their own seams.
 - timing: post-phase | name: cleanup_rule_parity_test | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: duplicated sibling rule | desc: one pane-record table driven through `aitask_companion_cleanup.sh` (isolated tmux) and `count_other_real_agents`, asserting agreement for every frozen/live/helper combination — lives in child 4's plan
 - timing: post-phase | name: fresh_install_hook_smoke | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: hook install surface invisible to unit tests; merge safety on upgrades | desc: `bash install.sh --dir <scratch>` + `ait setup`, assert the SessionStart entries in the installed `.claude/settings.json` and `.codex/config.toml`; plus fixtures with pre-existing user hooks in both formats that must survive, and `ait setup` run three times leaving exactly one aitasks entry — lives in child 3's plan
 - timing: pre-phase | name: pinned_block_in_every_child_plan | type: chore | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: cross-child contract drift | desc: verbatim PINNED contract block in every child plan, grep-verified before commit — parent pre-phase above
+
+## Spike findings (t1705_1) — PINNED
+
+Measured on 2026-09-06 (macOS 15.7.3 / Darwin 24.6.0, tmux 3.6a, claude 2.1.263,
+codex 0.153.4) by `tests/test_frozen_standin_spike.sh`, which is kept
+permanently as child 4's live acceptance control. Re-run it before relying on
+any line below; every line is reproduced in-suite, not from a one-off probe.
+
+- pane-died on respawn-pane -k: **does not fire**; stamp visible to hook: n/a (hook never ran)
+- pane options survive respawn: **yes** (and `#{pane_pid}` changes, as required)
+- env prefix keeps pane_pid = agent pid: **yes** (variable delivered to the process)
+- run-shell -b survives caller pane kill: **yes**
+- claude SessionStart: fields `cwd, hook_event_name, model, session_id, source, transcript_path`; fires on `--resume`: **yes** (matcher `startup|resume`)
+- codex hooks: **config.toml `[hooks]` AND project `.codex/hooks.json`** (both honoured, project must be trusted); codex resume: **present**
+- guard_live_tmux: socketed respawn **allowed** (regression assertion added to `tests/test_guard_live_tmux.sh`)
+- claude fixture: **captured**; interactive == headless keys: **no** (headless lacks `model`)
+- codex fixture: **provisional(no_interactive_capture)**
+- codex = re-pick only: **pinned for the INTERACTIVE launch path** (SessionStart proven working under `codex exec`)
+
+### What changes for children 2–5
+
+**1. The stand-in hazard does not exist as described — but the abstention is
+still needed, for a different event.** §"Freeze flow" step 2 assumes killing the
+agent's process would fire `pane-died` and collapse the window, and makes the
+`@aitask_frozen` stamp + cleanup-script abstention a precondition for freezing.
+Measured: `respawn-pane -k` **does not fire `pane-died` at all**. The window, the
+companion pane and the agent's own pane id all survive, and the stand-in runs in
+the same pane. This is a controlled result, not an unarmed-hook artefact: the
+same fixture, with the same shipped hook at the same index, **does** fire
+`pane-died` and collapse the window when the agent process really dies (Case 1c),
+and an unstamped respawn survives identically (Case 1b), so survival is a
+property of `respawn-pane`, not of the stamp.
+
+⇒ Child 4 may perform the freeze swap with a plain `respawn-pane -k` and does
+**not** need the abstention to protect the freeze itself. The stamp is still
+required for *classification* (minimonitor/monitor must recognise a frozen
+stand-in), and the cleanup script must still learn about frozen panes for the
+**sibling-count** rule — a frozen stand-in dying, or a live sibling dying beside
+one, still routes through `pane-died`. Keep the `@aitask_frozen` stamp; drop the
+claim that freezing without it destroys the window.
+
+**2. `env VAR=… <cmd>` is a safe launch prefix.** `#{pane_pid}` remains the
+launched process's pid and the variables reach it, so `launch_in_tmux`'s
+no-wrapper contract (the `pid_anchor` lock-liveness dependency, t1465) is
+preserved. Child 5's restore path may use it to pass `AITASK_RESTORE_*`.
+Note the platform constraint this had to be proved around: **macOS has no
+`/proc`, and `ps eww` / `ps -E` return nothing under SIP**, so a foreign
+process's environment cannot be read at all — the process must self-report. Do
+not write a test that reads `/proc/<pid>/environ`, and do not identify a process
+by a `pgrep -f` command-line pattern.
+
+**3. `run-shell -b` outlives the pane that started it**, so a freeze can hand
+off follow-up work from a pane it is about to respawn.
+
+**4. Codex has a working SessionStart hook — but not on the production path.**
+This replaces the parent's "codex = re-pick only" fallback with a sharper rule.
+The surface is a project-level `.codex/hooks.json` in the **Claude-compatible**
+shape, honoured when the project is trusted:
+
+```json
+{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"<abs> <out>","timeout":10}]}]}}
+```
+
+`[hooks]` in `config.toml` expresses the same contract in TOML
+(`SessionStart = [ MatcherGroup ]`). Trust is
+`[projects."<realpath>"] trust_level = "trusted"` in `$CODEX_HOME/config.toml`;
+`--dangerously-bypass-hook-trust` bypasses the hook-trust prompt per invocation.
+The delivered payload carries `session_id`, `transcript_path`, `cwd`,
+`hook_event_name`, `source`, `model`, `permission_mode`.
+
+**The catch:** it fires under `codex exec` and **never in the interactive TUI** —
+not at launch, and not after the first turn. The framework launches agents
+interactively, so **no session id is capturable via SessionStart on codex's
+production path**, and `codex = re-pick only` stands for that path. Child 3 must
+still ship the codex hook (it is real and may become viable), but must not
+depend on it for interactive launches.
+
+⚠ **A guessed codex schema fails silently.** A snake_case `session_start` key is
+accepted and ignored — no error, no warning — producing a payload-free run that
+is indistinguishable from "this agent has no hooks". That is exactly how an
+untested environment gets recorded as a capability limit. Any future codex hook
+work must establish a positive control (the capture script works; codex really
+ran and produced a session) before drawing a verdict.
+
+**5. Claude's authoritative payload is the interactive one.** `$TMUX_PANE` and
+`AITASK_AGENT_STRING` are both visible to the hook process, so the hook can bind
+its payload to the pane it ran in. A `claude -p` capture yields the same keys
+**minus `model`** — documented as a variant, never committed as the baseline.
+Gotcha: claude refuses to start in an untrusted folder and that dialog blocks
+`SessionStart` entirely; the probe pre-trusts a scratch project in a throwaway
+`CLAUDE_CONFIG_DIR`, keyed by **realpath** (`/private/tmp/...` on macOS — a
+`/tmp/...` key silently fails to match).
+
+**5b. `claude --resume <id>` re-fires the hook — but only if the prior session
+persisted.** A resumed launch in a respawned pane delivers a second payload with
+`source: "resume"` and the **same** `session_id` (its key set is the startup one
+minus `model`). This is the exact shape child 5's restore path uses, and it is
+now asserted in-suite rather than inferred from the `startup|resume` matcher.
+
+⚠ **Constraint child 5 inherits:** a session whose pane is killed the instant its
+`SessionStart` payload lands has not yet written a usable transcript, and
+`--resume <id>` then finds nothing and sits at a picker. Measured directly: the
+same resume that fails after an abrupt kill succeeds after the session is exited
+cleanly. **The freeze flow must let the agent persist before respawning its
+pane** — a freeze that respawns immediately produces a record whose session id
+cannot actually be resumed, which is a silent failure discovered only at restore
+time.
+
+**6. The fixtures are a three-status contract, not a payload.** Children 3 and 5
+must branch on `_fixture_status` (`captured` / `unsupported` / `provisional`)
+rather than assume a payload; an `unsupported` fixture carries no payload key at
+all. Contract: `tests/data/session_hooks/schema.json`; validator:
+`tests/lib/validate_session_hook_fixtures.py`; validated on **every** suite run,
+with no agent binary and no opt-in (Case 5a). `aiplans/p1705/p1705_3_*.md` step 7
+was amended in the same commit.
+
+**7. The freeze engine is not blocked by the live-tmux guard.**
+`.claude/hooks/guard_live_tmux.py` returns before any verb test when a socket is
+named, so a gateway-routed `respawn-pane` was already allowed; the missing
+regression assertion is now in `tests/test_guard_live_tmux.sh`.

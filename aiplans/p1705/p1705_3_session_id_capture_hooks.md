@@ -105,6 +105,33 @@ of file) fix what the hook writes.
    successful upsert. `tests/test_session_hook_install.sh` = the
    post-phase below.
 
+   **BRANCH ON `_fixture_status` — do NOT feed both fixtures in as if each
+   were a successful payload** (amended by the t1705_1 spike; see
+   `## Spike findings (t1705_1) — PINNED` in the parent plan). Each fixture
+   declares one of three statuses with different required and forbidden
+   fields, and an `unsupported` fixture carries **no payload key at all**, so
+   the argv assertions above are meaningless for it. Read
+   `tests/data/session_hooks/schema.json` (validator:
+   `tests/lib/validate_session_hook_fixtures.py`) and dispatch:
+
+   - **`captured`** → run the full `upsert` argv assertions as written above.
+   - **`unsupported`** → assert the *opposite* contract for that agent (no hook
+     installed, no `upsert` call) and record an **explicit skip** — never a
+     pass by absence.
+   - **`provisional`** → run the assertions as **advisory** only, and do not
+     treat `schema.json` as settled for that agent.
+
+   As of the spike: `claude_sessionstart.json` is `captured` (interactive,
+   authoritative) and `codex_sessionstart.json` is
+   `provisional(no_interactive_capture)`. **Codex hooks do work** — a
+   project-level `.codex/hooks.json` in the Claude-compatible shape is honoured
+   when the project is trusted — but `SessionStart` fires only under
+   `codex exec`, never in the interactive TUI, which is the framework's
+   production launch path. So this child must ship the codex hook *and* treat
+   the interactive path as yielding no session id (fallback: re-pick), rather
+   than assuming either that codex has no hooks or that installing one is
+   sufficient.
+
 ### Post-phase (risk mitigation — `fresh_install_hook_smoke`)
 
 `tests/test_session_hook_install.sh`:
