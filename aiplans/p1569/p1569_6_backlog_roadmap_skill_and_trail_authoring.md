@@ -624,3 +624,113 @@ End-to-end on the live repo:
    still resolves from the manifest independently of the owner's task file.
 
 Step 9 (Post-Implementation) handles cleanup, archival and merge.
+
+---
+
+## Implementation progress
+
+### Pre-phase mitigations — both complete
+
+**`share_replay_collection_seam`** — extracted `_run_replay`'s discipline into
+`parallel_admission_collect.collect_population()` + a `Population` holder;
+`_run_replay` now consumes it. Guard proven non-vacuous: forcing
+`exclude_self=True` inside the seam fails 2 of the 8 `ReplayInvariantTests`,
+while the unmutated code passes all 8.
+
+**`live_scale_smoke_first`** — measured on the live corpus: wide snapshot
+**2s**, origin facts **1s**, both far inside the gatherer's 30s in-flight
+budget; all three in-flight sources `ok`. No design change needed. It surfaced
+two facts the design had to absorb (below).
+
+### Findings from real execution
+
+1. **The gatherer expands a requested parent into parent + children** — 245
+   requested ids returned 255 members (t1157 alone contributed 10). Origin facts
+   must therefore be asked about the **members the snapshot returned**, not the
+   requested ids; asking about the request set tripped the incompleteness
+   refusal on the driver's own omission.
+2. **A task file with no task number exists** —
+   `t_refresh_codeagent_suite_default_model_expectations.md` (Ready since
+   2026-07-29, `anchor: 1162`). `ait ls` lists it but it has no id. Reported as
+   `UNPARSABLE_TASK_FILE:` and named in `method_note`, never silently dropped.
+   Pre-existing data defect, not caused by this task — see the follow-ups.
+3. **`roadmap_policy._overlapping_refs` emitted BARE refs** into
+   `relations[].to` and `observations[].affects`, which the schema's `task_ref`
+   pattern rejects. The t1569_5 fixture fed already-qualified `INFLIGHT_PATH:`
+   refs, so it validated happily; the live collector produces bare ones. Fixed
+   at source with idempotent qualification. This is precisely the failure
+   t1569_5 predicted ("the encoding contract is authored here but executed in
+   t1569_6") and deferred to this slice.
+4. **`scope.topics` must list the published members, not their anchor roots.**
+   Roots made every unpublished sibling in a covered topic a
+   `new_related_task` drift reason, so the trail was **born STALE** (29 reasons
+   at creation) and could never read `CURRENT`. Listing members is also the more
+   accurate scope claim for a capped trail.
+5. **The parallel-safe lane is empty on the live corpus** — 0 CLEAR across all
+   255 candidates (214 UNCHECKABLE, 41 CONFLICT). Cause is evidence
+   availability, not ranking: `no_plan=214`, the t1688 problem the parent task
+   records. 33 of the conflicts are against t1569_6 itself, in flight with a
+   broad declared surface. The driver reports `LANES:` / `PUBLISHED_LANES:` with
+   every lane named even at zero, so an empty safe lane cannot pass unremarked.
+
+### Verified end to end on the live repo
+
+`VALID:trail-backlog-roadmap` (`--expect-depth deep`) and
+`drift --trail <file>` → **`CURRENT`** immediately after creation.
+
+### Delivered
+
+| artifact | what |
+|---|---|
+| `lib/parallel_admission_collect.py` | `collect_population()` + `Population` — the shared seam; `_run_replay` re-pointed at it |
+| `lib/roadmap_run.py` | NEW — the impure driver |
+| `aitask_backlog_roadmap.sh` | NEW — wrapper, 5 whitelist touchpoints applied |
+| `lib/roadmap_policy.py` | `_overlapping_refs` now qualifies refs idempotently |
+| `.claude/skills/aitask-backlog-roadmap/SKILL.md` + 3 generated wrappers | the skill |
+| `tests/test_roadmap_run.py` | 21 tests — enumeration, narrative, method note, cap, parsing, lanes |
+| `tests/test_roadmap_drift_contract.py` | the freshness contract + 2 negative controls |
+| t1718 | standing artifact holder (`Postponed`) |
+| t1719 / t1720 / t1721 | follow-ups (t1343 adoption / gated `followup_origins` / numberless task file) |
+| docs | skills table row, new skill page, `docs/README.md`, a cross-reference section in `parallel-development.md` |
+
+**The workflows note was a cross-reference, not a new page.** t1569_4 already
+documents the preflight *and* its residual race at
+`website/content/docs/skills/aitask-pick/parallel-admission.md:51-52` ("The check
+observes; it does not reserve. Another agent can claim an overlapping file the
+instant after it passes"). Writing a second copy would have created two places
+to keep in sync, against the current-state-only convention, so
+`parallel-development.md` gained a section pointing at both that page and the
+new skill, and stating that neither reserves anything.
+
+### Deviations from the plan
+
+- **`--cap` semantics reached further than planned.** The plan specified
+  validation and fewer-than-cap behaviour; implementation also had to make
+  `method_note` state the cap *actually applied*, so a non-default run is
+  self-describing in the artifact rather than only in the invocation.
+- **A refusal exit (3) was added** beyond the plan's 0/2, so a refusal to
+  publish on unsound evidence is distinguishable from CLI misuse and from an
+  empty corpus.
+- **`_overlapping_refs` was fixed in `roadmap_policy`** (t1569_5's module)
+  rather than worked around in the driver. Qualifying in the driver would have
+  silently emptied `relations` via a bare-vs-qualified set intersection — which
+  it did, 28 -> 0, before the root cause was found.
+
+### Verification results
+
+| check | result |
+|---|---|
+| `aitask_skill_verify.sh` | OK — 13 templates, 3 agents, wrapper parity clean |
+| `shellcheck -S warning` on the new wrapper | clean |
+| roadmap + admission test modules | **289 passed** |
+| `check_links.py --build` | 29068 resolved, **0 broken**, SWEEP: PASSED |
+| end-to-end create | `HANDLE:art:trail-backlog-roadmap`, v1 |
+| `trail_depth.sh validate --expect-depth deep` | `VALID:trail-backlog-roadmap` |
+| `trail_gather.sh drift` after creation | **`CURRENT`** |
+| refresh | v2 created, v1 retained, holder task file untouched |
+| membership delta | computed from the fetched predecessor |
+
+Live run over **257 candidates**: `safe=0, coordination=37, unresolvable=220`;
+origin quality 72 exact / 163 topic / 22 unknown; `no_plan=220` dominates the
+UNCHECKABLE population. The empty parallel-safe lane is reported explicitly
+rather than by omission.
