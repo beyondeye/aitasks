@@ -6,7 +6,11 @@ issue_type: chore
 status: Postponed
 labels: [artifacts, backlog]
 created_at: 2026-09-06 17:03
-updated_at: 2026-09-06 17:03
+updated_at: 2026-09-06 17:10
+artifacts:
+  - handle: art:trail-backlog-roadmap
+    kind: implementation_trail
+    name: Background-work roadmap
 ---
 
 **This task is an artifact holder, not work. It is never implemented and never
