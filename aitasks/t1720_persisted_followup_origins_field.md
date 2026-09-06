@@ -1,12 +1,12 @@
 ---
 priority: low
 effort: high
-depends: []
+depends: [t1569_6]
 issue_type: enhancement
 status: Postponed
 labels: [backlog, metadata]
 created_at: 2026-09-06 17:07
-updated_at: 2026-09-06 17:07
+updated_at: 2026-09-06 17:08
 ---
 
 Add a persisted **direct-origin** frontmatter field (`followup_origins:`)
