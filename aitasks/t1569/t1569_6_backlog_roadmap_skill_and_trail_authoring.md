@@ -3,12 +3,13 @@ priority: high
 effort: high
 depends: [t1569_5]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [skills, artifacts, backlog, documentation]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1569
 created_at: 2026-08-27 11:29
-updated_at: 2026-08-27 11:29
+updated_at: 2026-09-06 09:32
 ---
 
 The `aitask-backlog-roadmap` skill and its trail artifact. Slice 6 of 6 for
