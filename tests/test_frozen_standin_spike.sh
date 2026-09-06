@@ -17,6 +17,7 @@
 #   1   a stand-in respawn keeps the window (+ two controls)
 #   2   pane user options survive `respawn-pane -k`; #{pane_pid} changes
 #   3   an `env VAR=... cmd` prefix keeps #{pane_pid} == the launched process
+#   3b  tmux's native `respawn-pane -e` does the same (the alternative)
 #   4   `run-shell -b` outlives the pane that started it
 #   5a  the committed SessionStart fixtures satisfy their schema  [ALWAYS RUNS]
 #   5b  claude SessionStart capture: refresh-and-diff           [opt-in]
@@ -494,6 +495,66 @@ section "Case 3 — env prefix keeps #{pane_pid} == the agent process"
             finding "env prefix keeps pane_pid = agent pid: yes (pid $pane_pid, variable delivered)"
         else
             finding "env prefix keeps pane_pid = agent pid: NO (pane_pid=$pane_pid, process pid=$reported_pid)"
+        fi
+    fi
+    ait_tmux kill-window -t "$(ait_tmux_window_target "$SESSION" "$W")" 2>/dev/null || true
+)
+
+# ---------------------------------------------------------------------------
+# Case 3b — tmux's NATIVE `respawn-pane -e VAR=value` env passing
+# ---------------------------------------------------------------------------
+section "Case 3b — respawn-pane -e keeps #{pane_pid} == the agent process"
+
+# Deliberately the same assertions as Case 3, with ONE variable changed: the
+# environment arrives via tmux's own `-e` flag instead of an `env VAR=... cmd`
+# prefix in the command string. Running both is what makes the comparison
+# meaningful — a single passing mechanism tells child 5 nothing about the other.
+#
+# Why this case exists: `respawn-pane` accepts `-e environment` (present on the
+# 3.6a this was measured against, per its own man page:
+#   respawn-pane [-k] [-c start-directory] [-e environment] [-t target-pane]
+#                [shell-command [argument ...]]
+# ). It is the more direct mechanism for the restore path — tmux sets the
+# variable in the spawned process's environment itself, so the command string
+# carries no wrapper at all and nothing has to exec through `env`. Case 3
+# proved the prefix works; this proves whether the native flag is equivalent,
+# so child 5 can choose on evidence rather than assumption.
+#
+# The pane_pid assertion is the load-bearing one either way: launch_in_tmux's
+# contract is that the pane's pid IS the agent process, because a wrapper that
+# OUTLIVES the agent would make a dead agent's lock keep reading as alive
+# (t1465). A mechanism that broke that would be unusable for restore no matter
+# how cleanly it delivered the variable.
+(
+    W="agent-pick-1705-c3b"
+    read -r AGENT COMPANION < <(make_agent_window "$W" "$FAKE_AGENT")
+    report="$(mktemp "$FIXTURE_DIR/envprobe3b.XXXXXX")"
+    rm -f "$report"
+
+    # No `env` prefix in the command string — the variable comes from -e alone.
+    ait_tmux respawn-pane -k -e "AITASK_RESTORE_RECORD=y" -t "$AGENT" \
+        "'$FAKE_AGENT' --report-env '$report'"
+
+    for _ in $(seq 1 40); do [ -s "$report" ] && break; sleep 0.1; done
+
+    if [ ! -s "$report" ]; then
+        # A tmux without -e support fails the respawn outright, which is itself
+        # the finding child 5 needs — recorded, not silently skipped.
+        assert_record_fail
+        echo "FAIL: the -e respawned process never self-reported to $report"
+        echo "      (tmux $(tmux -V); does this build support 'respawn-pane -e'?)"
+        finding "respawn-pane -e keeps pane_pid = agent pid: UNKNOWN (no self-report)"
+    else
+        reported_pid="$(sed -n 's/^pid=//p' "$report")"
+        reported_var="$(sed -n 's/^AITASK_RESTORE_RECORD=//p' "$report")"
+        pane_pid="$(pane_fmt "$AGENT" '#{pane_pid}')"
+        assert_eq "the -e self-reported pid IS the pane pid (no wrapper)" \
+            "$pane_pid" "$reported_pid"
+        assert_eq "the -e variable reached the process" "y" "$reported_var"
+        if [ "$pane_pid" = "$reported_pid" ] && [ "$reported_var" = "y" ]; then
+            finding "respawn-pane -e keeps pane_pid = agent pid: yes (pid $pane_pid, variable delivered) — native alternative to the env prefix"
+        else
+            finding "respawn-pane -e: pane_pid=$pane_pid, process pid=$reported_pid, variable='$reported_var'"
         fi
     fi
     ait_tmux kill-window -t "$(ait_tmux_window_target "$SESSION" "$W")" 2>/dev/null || true
