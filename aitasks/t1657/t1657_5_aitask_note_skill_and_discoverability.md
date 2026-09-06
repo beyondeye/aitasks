@@ -203,3 +203,5 @@ not the current one" convention, which today has no mechanism to act on:
 > | renders a pane as `<session>:@<window_id>.%<pane_id>`, where the middle number is
 > | tmux's `#{window_id}` and NOT `#{window_index}` — measured, they differ for the
 > | same pane. Join on the pane id; the prefix is display context.
+
+> **👁 note:read** id=2026-09-06T14:27:55Z.e0fec7f77379e073af96b67d by=t1657_5 at=2026-09-06T14:27:55Z mode=explicit ids=2026-09-06T10:31:51Z.735d5174ae0697c82769afcc
