@@ -85,6 +85,14 @@ assert_eq "an explicitly-socketed throwaway kill is allowed" "allow" "$(decision
 assert_eq "the attached -L form is recognised" "allow" "$(decision_for 'tmux -Lthrowaway kill-server')"
 assert_eq "-S counts as naming the server" "allow" "$(decision_for 'tmux -S /tmp/sock kill-server')"
 assert_eq "a deliberate, explicit kill on the live server is allowed" "allow" "$(decision_for 'tmux -L ait kill-pane -t %53')"
+# A socketed respawn-pane must stay allowed: the t1705 freeze engine replaces a
+# frozen agent's process in its own pane with `respawn-pane -k`, routed through
+# the tmux gateway (which always names the socket). `check()` returns before any
+# verb test when a socket is present, so `respawn-pane` being in
+# DESTRUCTIVE_VERBS never applies here — this pins that, since the bare form on
+# line 69 is the only respawn shape the file covered (t1705_1, Case 7).
+assert_eq "a socketed respawn-pane is allowed (the freeze engine's stand-in swap)" "allow" "$(decision_for 'tmux -L throwaway respawn-pane -k -t %1 sleep 1')"
+assert_eq "a socketed respawn-pane on the live ait server is allowed too" "allow" "$(decision_for 'tmux -L ait respawn-pane -k -t %53 ait frozen --record abc123')"
 assert_eq "socketed read-only calls are allowed" "allow" "$(decision_for 'tmux -L ait list-panes -a')"
 assert_eq "stripping TMUX makes the TMUX_TMPDIR redirect real, so it is allowed" "allow" "$(decision_for 'env -u TMUX TMUX_TMPDIR=/tmp/x tmux new-session -d -s probe')"
 assert_eq "a command with no tmux in it is allowed" "allow" "$(decision_for 'git status')"

@@ -1,0 +1,120 @@
+{
+  "version": 1,
+  "_comment": [
+    "Contract for the SessionStart hook payload fixtures in this directory.",
+    "Machine-read by tests/test_frozen_standin_spike.sh (Case 5a), which",
+    "validates every fixture on EVERY run - no agent binary and no opt-in",
+    "required. Child t1705_3 consumes these fixtures unconditionally, so their",
+    "presence, shape, status and redaction must be proved by a normal run and",
+    "not only by the opt-in real-agent lane that refreshes them.",
+    "",
+    "A single 'required keys' rule cannot be right for all three outcomes this",
+    "spike can legitimately reach: a proven-unsupported agent has no payload to",
+    "carry, and an inconclusive probe must not masquerade as a settled contract.",
+    "Hence three statuses with DIFFERENT required and forbidden fields."
+  ],
+
+  "status_field": "_fixture_status",
+
+  "statuses": {
+    "captured": {
+      "meaning": "A real, authoritative payload captured from the production (interactive) launch path. This is the only status children 3 and 5 may treat as a settled contract.",
+      "required": [
+        "session_id",
+        "transcript_path",
+        "cwd",
+        "source",
+        "_capture_mode",
+        "_agent_version",
+        "_captured_at"
+      ],
+      "required_non_empty": [
+        "session_id",
+        "transcript_path",
+        "cwd",
+        "source"
+      ],
+      "required_values": {
+        "_capture_mode": "interactive"
+      },
+      "forbidden_values": {
+        "_capture_mode": "headless"
+      },
+      "forbidden": []
+    },
+
+    "unsupported": {
+      "meaning": "The agent provably has no SessionStart hook: the positive control passed, a config surface was demonstrably accepted and trusted, and no payload was delivered. This is the ONLY status that may pin a capability limit into the parent plan.",
+      "required": [
+        "_reason",
+        "_evidence",
+        "_agent_version",
+        "_captured_at"
+      ],
+      "required_values": {
+        "_reason": "unsupported"
+      },
+      "required_evidence_keys": [
+        "capture_script_works",
+        "agent_session_created"
+      ],
+      "forbidden": [
+        "session_id",
+        "transcript_path",
+        "source",
+        "cwd"
+      ]
+    },
+
+    "provisional": {
+      "meaning": "Inconclusive - neither authoritative nor disproved. Payload keys MAY be present but are non-authoritative. Children 3 and 5 must not treat this agent's schema as settled.",
+      "required": [
+        "_reason",
+        "_agent_version",
+        "_captured_at"
+      ],
+      "reason_enum": [
+        "no_interactive_capture",
+        "unavailable",
+        "trust_blocked",
+        "config_unresolved"
+      ],
+      "forbidden_values": {
+        "_capture_mode": "interactive"
+      },
+      "forbidden": []
+    }
+  },
+
+  "redaction": {
+    "_comment": [
+      "Fixtures are committed to a public repository. Redaction is asserted on",
+      "every run, not only when a fixture is refreshed."
+    ],
+    "cwd_when_present_must_equal": "/REDACTED",
+    "forbidden_value_substrings": [
+      "$HOME",
+      "current user name",
+      "any absolute path under /Users/ or /home/"
+    ],
+    "forbidden_value_patterns": [
+      "^/Users/",
+      "^/home/",
+      "/Users/[^/]+/",
+      "/home/[^/]+/"
+    ]
+  },
+
+  "verdict_mapping": {
+    "_comment": [
+      "How the Case 6 (codex) preflight verdict taxonomy maps onto the statuses",
+      "above. Only ONE verdict pins anything - this mapping is what stops an",
+      "untested or misconfigured environment from being recorded as a",
+      "capability limit."
+    ],
+    "unsupported": "unsupported",
+    "unavailable": "provisional",
+    "trust_blocked": "provisional",
+    "config_unresolved": "provisional"
+  }
+}

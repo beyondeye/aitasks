@@ -1,0 +1,17 @@
+{
+  "_fixture_status": "captured",
+  "_capture_mode": "interactive",
+  "_agent_version": "2.1.263",
+  "_captured_at": "2026-09-06",
+  "session_id": "54c2810e-4722-4f6d-a531-c504c20e02c2",
+  "transcript_path": "/REDACTED/projects/-REDACTED-proj/54c2810e-4722-4f6d-a531-c504c20e02c2.jsonl",
+  "cwd": "/REDACTED",
+  "hook_event_name": "SessionStart",
+  "source": "startup",
+  "model": "claude-opus-5[1m]",
+  "_env_visible_to_hook": {
+    "TMUX_PANE": "%1",
+    "AITASK_AGENT_STRING": "claudecode/opus5"
+  },
+  "_headless_variant_note": "A `claude -p` capture yields the same keys MINUS `model`. The interactive payload above is the authoritative one: the framework launches agents interactively via launch_in_tmux, and a headless-only shape may never be pinned (see README.md)."
+}

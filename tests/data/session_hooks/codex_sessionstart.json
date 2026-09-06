@@ -1,0 +1,25 @@
+{
+  "_fixture_status": "provisional",
+  "_reason": "no_interactive_capture",
+  "_capture_mode": "exec",
+  "_agent_version": "0.153.4",
+  "_captured_at": "2026-09-06",
+  "session_id": "01a075d6-dc60-7e61-b3db-5dcfcd80f597",
+  "transcript_path": "/REDACTED/sessions/2026/09/06/rollout-2026-09-06T11-30-10-01a075d6-dc60-7e61-b3db-5dcfcd80f597.jsonl",
+  "cwd": "/REDACTED",
+  "hook_event_name": "SessionStart",
+  "source": "startup",
+  "model": "gpt-5.6-terra",
+  "permission_mode": "bypassPermissions",
+  "_env_visible_to_hook": {
+    "TMUX_PANE": "",
+    "AITASK_AGENT_STRING": ""
+  },
+  "_evidence": {
+    "capture_script_works": true,
+    "agent_session_created": true,
+    "config_surface_accepted": "project .codex/hooks.json, Claude-compatible shape, project marked trust_level = \"trusted\"",
+    "interactive_payload_delivered": false,
+    "note": "The payload above is REAL but was captured under `codex exec`, which is NOT the framework's production launch path. Codex delivers no SessionStart payload in the interactive TUI - not at launch and not after the first turn - so this fixture is provisional and children 3/5 must not treat its shape as settled for the interactive path."
+  }
+}
