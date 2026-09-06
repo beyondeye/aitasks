@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 plan_approved_at: 2026-09-06 10:58
 assigned_to: dario-e@beyond-eye.com
 anchor: 1705
+implemented_with: claudecode/opus5
 created_at: 2026-09-04 16:01
-updated_at: 2026-09-06 11:04
+updated_at: 2026-09-06 11:06
 ---
 
 ## Step 0 — tmux preflight (run BEFORE anything else; blocking)
@@ -184,3 +185,5 @@ tasks"). Never `kill-server` from an agent pane — `$TMUX` beats `TMUX_TMPDIR`.
 > **✅ gate:plan_approved** run=2026-09-06T07:58:41Z status=pass attempt=1 type=human
 >
 > Note: deferred
+
+> **✅ gate:plan_approved** run=2026-09-06T08:06:30Z status=pass attempt=2 type=human
