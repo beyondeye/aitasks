@@ -1,11 +1,12 @@
 ---
 Task: t1705_2_framework_session_store.md
 Parent Task: aitasks/t1705_frozen_codeagents_session_store_and_viewer_tui.md
-Sibling Tasks: aitasks/t1705/t1705_1_*.md, aitasks/t1705/t1705_3_*.md … aitasks/t1705/t1705_10_*.md
-Archived Sibling Plans: aiplans/archived/p1705/p1705_*_*.md
+Sibling Tasks: aitasks/t1705/t1705_10_freeze_restore_workflow_docs.md, aitasks/t1705/t1705_11_manual_verification_frozen_codeagents_session_store_and_view.md, aitasks/t1705/t1705_3_session_id_capture_hooks.md, aitasks/t1705/t1705_4_freeze_engine.md, aitasks/t1705/t1705_5_restore_and_repick_flows.md, aitasks/t1705/t1705_6_frozenagent_viewer_tui.md, aitasks/t1705/t1705_7_monitor_minimonitor_frozen_rows.md, aitasks/t1705/t1705_8_frozen_agents_acceptance_test.md, aitasks/t1705/t1705_9_frozenagent_tui_docs.md
+Archived Sibling Plans: aiplans/archived/p1705/p1705_1_spike_freeze_standin_and_session_id_capture.md
 Base branch: main
 Output branch: main
-plan_verified: []
+plan_verified:
+  - claudecode/opus5 @ 2026-09-06 16:46
 ---
 
 # t1705_2 — Framework session store
@@ -17,21 +18,227 @@ that every later t1705 child drives. Pure store + locked shell writer +
 lock-free reader, mirrored on `lib/agent_marks.py` / `aitask_agent_marks.sh`.
 The **PINNED contracts** block at the end of this plan is normative for the
 schema, identity, conflict policy, lease, state machine, verbs, wire lines,
-exit codes, purge policy and observation protocol. If t1705_1's
-`## Spike findings` in the parent plan amended any of it, that amendment is
-reproduced there. No tmux, no TUI — implementable from any shell.
+exit codes, purge policy and observation protocol. No tmux, no TUI —
+implementable from any shell.
+
+**This plan was re-verified against the codebase on 2026-09-06** (verify path,
+`plan_verified` empty). The pinned block is unchanged in content — a byte diff
+against the parent's §A–§D differs only in heading level. t1705_1's
+`## Spike findings` amends §C/§D (children 4 and 5) and touches **nothing** in
+§A, so this child's contracts stand as written *in content*. The verification
+surfaced **nine** concrete corrections (A1–A9), recorded below and folded into
+the steps; A7, A8 and A9 are blocking contract defects rather than tidy-ups.
+
+## Plan verification (2026-09-06) — amendments
+
+**A1 — `agent_marks._read_observed` line reference is stale, and the edit is
+smaller than the plan implies.** The function is at
+`.aitask-scripts/lib/agent_marks.py:587-620`, not `:623-654` (those lines are
+`_cli_cycle`). Every other reference-pattern line range checks out: `_parse`
+:209-270, `load`/`load_safe` :273-305, `_target_mode`/`dump` :308-362,
+`mark_key` :176-184, `sweep_liveness` :440-478, `MarksView` :506-584, CLI `main`
+:658-684. More importantly, its parser is an `if/elif` chain over `parts[0]`
+with **no else** — an unrecognized row kind is *already* dropped silently, so a
+`PANE` row is a no-op there today. The deliverable is therefore an explicit
+`elif kind == "PANE": continue` plus the docstring row, and — the real content —
+the regression test in `tests/test_agent_marks_liveness.py` that pins the
+behaviour so a future `else: raise` cannot break the shared observation file.
+
+**A2 — `dump()` must not use bare `atomic_write_text`.**
+`atomic_write.target_mode()` (`lib/atomic_write.py:62-73`) returns
+`0o666 & ~umask` for a file that does not exist yet — **not** 0600. Routing
+`dump()` through `atomic_write_text` would land the first-ever store at 0644
+under the default umask, and this file holds transcript paths and codeagent
+session ids; the PINNED contract says 0600. Use the split API so the mode is set
+on the temp **before** the rename (no window where the store is world-readable):
+
+```python
+resolved = os.path.realpath(sessions_path(path))          # prepare() does not follow symlinks
+mode = _target_mode(resolved)                             # existing st_mode, else _FILE_MODE (0o600)
+tmp = atomic_write.prepare(resolved, render)
+os.chmod(tmp, mode)
+atomic_write.commit(tmp, resolved)
+```
+
+Same class of trap for `capture_dir()`: `os.makedirs(..., mode=0o700)` has its
+mode masked by the umask, so follow it with an explicit `os.chmod(d, 0o700)`.
+
+**A3 — `standin_respawned` must also be legal from `freezing`.** PINNED §C's
+reconcile table has the row
+`freezing | @aitask_frozen==id, pane dead | respawn the stand-in (clear ready first), standin-respawned, then re-check`
+— it calls the verb on a `freezing` record. But §A's verb description and this
+plan's step-4 legal-from table admit only `aborting` and `frozen`, so
+implementing the table as written makes that reconcile row fail with
+`TRANSITION_REFUSED` when child 4 lands. Resolution (additive, nothing else
+changes): **`freezing → freezing`** — records `standin_pid` / `pane_id` /
+`pane_pid` and **keeps** the lease, because the freeze is still in flight; the
+re-check then matches the `freezing` + stand-in-up row and commits. Propagate to
+the parent plan's §A verb list and to `aiplans/p1705/p1705_4_freeze_engine.md`
+in this task's commit, per the pinned block's own "on any discrepancy" rule.
+
+**A4 — `upsert` refusal wire lines, disambiguated.** §A states both
+`UPSERT_REFUSED:<id>|<state>_unacknowledged` (rule 2, transitional records whose
+pane is the caller's) and `UPSERT_REFUSED:<id>|<state>` (the "freezing / frozen"
+other-branch), and the two overlap on `freezing`. Pin one deterministic shape:
+**select first, then gate on state.** A record is *selected* by `--id` (rule 1)
+or by pane identity (rule 2); a record that merely shares `(root, window)` is
+not a candidate at all and falls through to rule 3. Once selected:
+
+| state | outcome |
+|---|---|
+| `live` | proceed (update / relocate) |
+| `restoring` + `--restore-of` + `--nonce` | the ack path (§A) |
+| `restoring` | `UPSERT_REFUSED:<id>\|restoring_unacknowledged` |
+| `freezing` | `UPSERT_REFUSED:<id>\|freezing_unacknowledged` |
+| `aborting` | `UPSERT_REFUSED:<id>\|aborting_unacknowledged` |
+| `frozen` | `UPSERT_REFUSED:<id>\|frozen` |
+
+The `frozen` row is exactly §A's "a hook firing in a stand-in pane is a bug":
+the stand-in pane carries `@aitask_record`, so it arrives via `--id`. The one
+behavioural consequence is that `freezing` refuses with
+`freezing_unacknowledged`, not `freezing`. Propagate to the parent §A.
+
+**A5 — `agent_kind` has no Python derivation helper.**
+`lib/agent_string.sh:48 parse_agent_string` is bash-only and `die`s on a
+malformed string; there is no Python equivalent anywhere under
+`.aitask-scripts/`. Derive it locally and non-fatally:
+
+```python
+_AGENT_STRING_RE = re.compile(r"([a-z]+)/[a-z0-9_]+")
+m = _AGENT_STRING_RE.fullmatch(agent_string or "")
+agent_kind = m.group(1) if m else ""
+```
+
+Do **not** validate against `SUPPORTED_AGENTS`: the field is display-only and
+the store must not reject a record because a new agent shipped.
+
+**A6 — the `session` field needs a flag to be writable.** The PINNED schema
+carries `"session"` (tmux session name, display only) but no wrapper verb sets
+it, so it would be permanently `""`. Add an optional `--session <name>` to
+`upsert` (and the matching `session=None` kwarg). This is additive — it makes an
+existing pinned field writable rather than changing the schema. `list`'s wire
+line is unchanged (it does not carry `session`); `show` prints it.
+
+**A7 — the lease-minting verbs must carry the coordinator pid explicitly
+(blocking).** §A says `freeze-begin`, `restore-begin` and `lease-take` "record
+`op_owner_pid` (**the coordinator**)", and §C repeats it (`op_owner_pid` = this
+coordinator). But **none of the three wrapper forms has an argument for it**
+(§A's verb list: `freeze-begin <id> --capture-ansi … --lines <n> [--phase <t>]`,
+`restore-begin <id> --mode resume|repick`, `lease-take <id>`). The module-layout
+signatures do take `owner_pid`, so with no flag to supply it the wrapper would
+fall back to its own `$$` / `os.getpid()` — and that process **exits the instant
+the verb returns**, while the real coordinator (`aitask_frozen.sh`, detached via
+`run-shell -b`) keeps working.
+
+This does not merely lose information; it inverts the design. `_lease_stale` is
+`op_started_at + STALE_OP_GRACE_DEFAULT < now and not pid_alive(op_owner_pid)` —
+with an always-dead pid the conjunction collapses to a bare 60 s timer, so after
+the grace `reconcile` seizes a lease that §C says it must never touch ("Within
+the grace, or with a live owner, reconcile leaves the record alone"; "a
+`LEASE_HELD` answer means a live coordinator owns it and reconcile skips"). It
+then issues recovery actions against a live operation: respawning the stand-in
+over an in-flight restore, or `freeze-abort`ing a freeze that is still
+capturing. The coordinator's next verb fails `NONCE_MISMATCH` and bails, so the
+user's freeze or restore silently loses. And 60 s is well inside normal runtime:
+spike finding 5b requires the freeze flow to **let the agent persist before
+respawning its pane**, and §C's own indeterminate row waits `stale_op_grace × 2`.
+
+Fix: `--owner-pid <pid>` becomes a **required** argument on `freeze-begin`,
+`restore-begin` and `lease-take`; the wrapper validates it as a positive integer
+and exits 2 otherwise (never defaulting to `$$` — a silent default is exactly
+the failure above). The transition functions keep `owner_pid` required with no
+default. Test: a lease minted with the pid of a process the test keeps alive is
+**not** stale after the grace elapses, even though the process that ran the
+wrapper is long gone; the same lease with a dead pid **is** stale. Propagate to
+the parent §A verb list, and to `aiplans/p1705/p1705_4_freeze_engine.md` and
+`aiplans/p1705/p1705_5_restore_and_repick_flows.md` (both are lease minters).
+
+**A8 — `@aitask_record` stamping is the caller's obligation, not the store's
+(blocking).** §A:265 says "In every create/update branch the caller's pane is
+stamped `@aitask_record=<id>`", and the ack branch repeats it — in the passive
+voice, inside the store's own section. But this module is tmux-free by
+construction ("No tmux, no TUI — implementable from any shell"), and the
+framework permits raw `tmux` only from `lib/tmux_exec.py` / `lib/tmux_exec.sh`,
+enforced by `tests/test_no_raw_tmux.sh`. So the store **cannot** perform that
+side effect, and §B's table only hedges ("Set by `upsert` (hook or freeze
+engine)") without assigning it. Left unassigned, a caller persists a record and
+never establishes the pane→record join; the next `upsert` from that pane then
+arrives with no `--id`, and after a tmux restart (fresh `pane_id`s) rule 2 has
+nothing to match on — so the freeze engine's step-1 fallback creates a **second**
+record for an already-recorded agent, or an ambiguous relocation picks the wrong
+one.
+
+Pin it: **the store never touches tmux. The caller stamps
+`@aitask_record=<id>` on its own pane, through the tmux gateway, immediately
+after a successful `UPSERTED:<id>|…` line** — the id in that wire line is what
+makes this mechanically possible, and it is the caller (child 3's SessionStart
+hook on the normal path, child 4's freeze engine on the fallback path) that owns
+the pane. This child's deliverable for it is contract text, not code: state the
+obligation in `aitask_agent_sessions.sh`'s header beside the exit-code contract,
+and again in `lib/agent_sessions.sh` directly above `AIT_RECORD_OPTION` — which
+exists precisely so shell callers can perform the stamp. The end-to-end
+assertion that the pane option is actually set belongs to child 3's hook tests
+and to `t1705_8_frozen_agents_acceptance_test`. Propagate the assignment to the
+parent §A/§B and to `aiplans/p1705/p1705_3_session_id_capture_hooks.md` and
+`aiplans/p1705/p1705_4_freeze_engine.md`.
+
+**A9 — record ids and nonces must be validated as canonical 8-hex (blocking).**
+§A documents `id` as "8 hex, `os.urandom`" and `op_nonce` as "8 hex", but step 1
+requires only that fields be *type*-checked. Format is load-bearing here because
+both values escape the store into two dangerous sinks:
+
+- `capture_dir(id)` → `<frozen root>/<id>/`, and `drop` "also removes
+  `capture_dir(id)`". An `id` containing `../` — from a hand-edited store, or
+  from `--id` fed off a pane option a user can set with `tmux set-option -p` —
+  makes that deletion escape the frozen root.
+- `standin_command(id)` → `ait frozenagent --record <id>`, which §C step 5 hands
+  to `respawn-pane -k -t <pane> '<cmd>'`, i.e. a **shell command string**. A
+  quote plus metacharacters in `id` is command injection into the respawn.
+
+`os.urandom(4).hex()` can only ever emit `[0-9a-f]{8}`, so a well-formed store is
+safe — but `load()`'s whole posture is that the store is untrusted input (an
+unknown `state` is corruption, not a default), and `--id` / `--nonce` /
+`--restore-of` are CLI boundaries fed from pane options. Fix:
+
+- `_parse` rejects any `id` or `op_nonce` not matching `^[0-9a-f]{8}$` (empty
+  `op_nonce` stays legal — it means "no lease") with `MalformedSessionsError`.
+- the wrapper validates `--id`, `--nonce` and `--restore-of` against the same
+  pattern and exits 2 on a mismatch, **before** the value reaches Python.
+- `capture_dir()` asserts, defensively, that
+  `os.path.realpath(d).startswith(os.path.realpath(frozen_root) + os.sep)` and
+  raises otherwise — so a future caller that bypasses the boundary checks still
+  cannot delete outside the root.
+- tests: a store carrying `"id": "../../etc"` fails to load; `--id ../../x`
+  exits 2; `capture_dir` raises on an injected traversal id; `standin_command`
+  round-trips only hex ids.
+
+**Out of scope, flagged only:** `aiplans/p1705/p1705_5_restore_and_repick_flows.md`
+still describes the `env VAR=… <cmd>` prefix (lines 87, 470) and does not carry
+t1705_1's spike finding 2 ("prefer `respawn-pane -e`"). §D as reproduced in the
+pinned block below is likewise pre-spike. This child implements no part of §D,
+and t1705_5's own verify pass owns the amendment — noted here so it is not lost.
 
 ## Files
 
 - **New** `.aitask-scripts/lib/agent_sessions.py`
 - **New** `.aitask-scripts/aitask_agent_sessions.sh` (sole writer)
-- **New** `.aitask-scripts/lib/agent_sessions.sh` (constants + capture-dir resolver for shell callers)
-- **Edit** `.aitask-scripts/lib/agent_marks.py` — `_read_observed` (:623-654) skips `PANE` rows
+- **New** `.aitask-scripts/lib/agent_sessions.sh` (constants + capture-dir resolver + the `ait_stamp_record` helper of §C5, for shell callers)
+- **Edit** `.aitask-scripts/lib/agent_marks.py` — `_read_observed` (**:587-620**, see A1) skips `PANE` rows explicitly
+- **Edit** `aiplans/p1705_frozen_codeagents_session_store_and_viewer_tui.md` §A/§B — amendments A3, A4, A6, A7, A8, A9
+- **Edit** `aiplans/p1705/p1705_3_session_id_capture_hooks.md` — amendment A8 (the hook is the normal-path stamper)
+- **Edit** `aiplans/p1705/p1705_4_freeze_engine.md` — amendments A3, A7, A8 (its reconcile table is the caller)
+- **Edit** `aiplans/p1705/p1705_5_restore_and_repick_flows.md` — amendment A7 (it mints a restore lease)
 - **New tests** `tests/test_agent_sessions.py`, `tests/test_agent_sessions_identity.py`,
   `tests/test_agent_sessions_transitions.py`, `tests/test_agent_sessions_lease.py`,
   `tests/test_agent_sessions_observation.py`, `tests/test_agent_sessions_liveness.py`,
-  `tests/test_agent_sessions_concurrency.sh`
+  `tests/test_agent_sessions_concurrency.sh`, `tests/test_agent_sessions_stamp.sh`,
+  `tests/test_agent_sessions_contract_call_sites.py`
 - **Edit** `tests/test_agent_marks_liveness.py` — a `PANE` row in the observation file is ignored by the marks purge
+
+No allow-list or `ait` dispatcher entries: verified against
+`aidocs/framework/aitasks_extension_points.md` §"Adding a new helper script" —
+the whitelist applies only to helpers invoked from a `SKILL.md` closure, and
+these callers are Python TUIs, sibling scripts and the SessionStart hook.
 
 ## Module layout — `lib/agent_sessions.py`
 
@@ -60,14 +267,17 @@ class LeaseHeld(Exception): ...           # exit 8
 def record_key(root, window, slot) -> tuple[str, str, int]   # realpath(root) both sides
 def load(path=None) -> SessionsFile        # raises MalformedSessionsError; missing/empty file = empty store
 def load_safe(path=None) -> SessionsFile   # never raises
-def dump(sf, path=None) -> None            # atomic_write.atomic_write_text, target_mode preservation, realpath target first
+def dump(sf, path=None) -> None            # atomic_write prepare/chmod/commit — see A2
 def standin_command(record_id) -> str      # "ait frozenagent --record <id>" unless STANDIN_CMD_ENV
-def capture_dir(record_id) -> Path
+def capture_dir(record_id) -> Path         # makedirs + explicit chmod 0o700 (A2); asserts containment (A9)
+
+_ID_RE = re.compile(r"[0-9a-f]{8}")        # A9 — canonical record id / op_nonce
+def valid_id(s) -> bool                    # _ID_RE.fullmatch; "" is a valid EMPTY nonce, never a valid id
 
 # transitions — pure: (sf, **args) -> (sf, wire_line); the shell wrapper serialises + dumps
-def upsert(sf, *, root, window, pane, pane_pid, id=None, session_id=None, transcript=None,
-           agent_string=None, operation=None, task_id=None, restore_of=None, nonce=None,
-           now=None, pane_alive=None) -> (sf, str)
+def upsert(sf, *, root, window, pane, pane_pid, id=None, session=None, session_id=None,
+           transcript=None, agent_string=None, operation=None, task_id=None,
+           restore_of=None, nonce=None, now=None, pane_alive=None) -> (sf, str)   # --session per A6
 def freeze_begin(sf, id, *, capture_ansi, capture_txt, lines, phase="", owner_pid, now) -> (sf, str)
 def freeze_commit(sf, id, *, nonce, pane, pane_pid, now) -> (sf, str)
 def freeze_abort(sf, id, *, nonce, now) -> (sf, str)
@@ -86,9 +296,8 @@ def read_observation(path) -> Observation  # ROOT / WINDOW / PANE / INCOMPLETE
 class SessionsView: same shape as MarksView (mtime+size+inode), .records(), .frozen(), .by_id(), .invalidate()
 ```
 
-`pane_alive` / `pid_alive` are injectable predicates (default `os.kill(pid,
-0)` with `ESRCH` → dead, anything else → alive) so tests never depend on
-real pids.
+`pane_alive` / `pid_alive` are injectable predicates (default `os.kill(pid, 0)`
+with `ESRCH` → dead, anything else → alive) so tests never depend on real pids.
 
 ## Implementation steps
 
@@ -97,92 +306,380 @@ real pids.
    `[OLDEST_READABLE_VERSION, SCHEMA_VERSION]`, `sessions` list, every field
    type-checked, unknown `state` → `MalformedSessionsError`, duplicate `id`
    → first wins. `dump` sorts by `(root, window, window_slot)` with
-   `sort_keys=True` for a stable byte image. Tests: round-trip, every
-   rejection, empty/missing file = empty store, `load_safe` never raises.
-2. **Identity + `upsert`.** Implement the four-rule resolution from the
-   PINNED block exactly, in order, including `ambiguous_relocation`
-   (≥ 2 `live` dead-pane candidates → new slot, stale untouched),
-   `created_slot<N>` (lowest unused slot), the transitional-record refusal
-   (`UPSERT_REFUSED:<id>|<state>_unacknowledged` only when the caller's pane
-   *is* that record's pane; otherwise not a candidate), the
-   `freezing`/`frozen` refusal, and the `--restore-of` ack branch
-   (nonce check → `NonceMismatch`; `resume` mode session-id check →
-   persist `last_error="<nonce>:session_mismatch"` **then** raise
-   `SessionMismatch`; `repick` adopts; on success update
-   `pane_id`/`pane_pid`, `state=live`, `ack=hook`, delete `capture_dir`,
-   clear `capture_*`, clear lease). Wire lines exactly as PINNED. Tests in
+   `sort_keys=True` for a stable byte image, and lands 0600 per **A2**.
+   `agent_kind` is derived per **A5**. `id` and `op_nonce` are validated against
+   `^[0-9a-f]{8}$` per **A9** (an empty `op_nonce` is legal — it means "no
+   lease"; an empty `id` never is), and `capture_dir()` asserts containment
+   beneath the resolved frozen root. Tests: round-trip, every rejection,
+   empty/missing file = empty store, `load_safe` never raises, the
+   **0600-under-permissive-umask** case from A2, and the A9 traversal cases
+   (`"id": "../../etc"` fails to load; `capture_dir` raises on a traversal id;
+   `standin_command` round-trips only hex ids).
+2. **Identity + `upsert`.** Implement the four-rule resolution from the PINNED
+   block exactly, in order, including `ambiguous_relocation` (≥ 2 `live`
+   dead-pane candidates → new slot, stale untouched), `created_slot<N>` (lowest
+   unused slot), the **A4** select-then-gate refusal table, and the
+   `--restore-of` ack branch (nonce check → `NonceMismatch`; `resume` mode
+   session-id check → persist `last_error="<nonce>:session_mismatch"` **then**
+   raise `SessionMismatch`; `repick` adopts; on success update
+   `pane_id`/`pane_pid`, `state=live`, `ack=hook`, delete `capture_dir`, clear
+   `capture_*`, clear lease). Wire lines exactly as PINNED, amended by A4.
+   `--session` is accepted and stored (**A6**). Tests in
    `test_agent_sessions_identity.py` — one test per branch plus the negative
-   controls (a single dead-pane candidate *is* relocated; a recycled
-   `pane_id` on a fresh pane with no `--id` and no `(root, window)` match
-   creates, never attaches).
-3. **Lease.** `_mint_nonce()` = `os.urandom(4).hex()`; `_lease_stale(rec,
-   now, pid_alive)` = `op_started_at + STALE_OP_GRACE_DEFAULT < now and not
-   pid_alive(op_owner_pid)`. `lease_take` refuses with `LeaseHeld` unless
-   no lease or stale. `_require_nonce(rec, nonce)` → `NonceMismatch`.
-   Tests in `test_agent_sessions_lease.py`.
-4. **Transitions.** Legal-from table: `freeze_begin: live`,
-   `freeze_commit/abort: freezing`, `restore_begin: frozen` (**not**
-   `aborting`), `restore_launched/confirm/abort: restoring`,
-   `standin_respawned: aborting → frozen | frozen → frozen (leased)`,
-   `lease_take: any state with no live lease`, `drop: any`. Everything
-   else → `TransitionRefused` with the PINNED wire line. `restore_confirm`
-   additionally requires `launch_pid != 0 and launch_pid == pane_pid` and
-   sets `ack=liveness`, **keeps captures**. `freeze_abort` deletes captures.
-   `freeze_commit` writes `frozen_at`, `standin_pid=pane_pid`,
-   `pane_id=pane` (`""`/`0` allowed as a pair; mismatched pair is a usage
-   error in the wrapper). Tests in `test_agent_sessions_transitions.py`
-   enumerate the full state × verb matrix.
+   controls (a single dead-pane candidate *is* relocated; a recycled `pane_id`
+   on a fresh pane with no `--id` and no `(root, window)` match creates, never
+   attaches) and one assertion per row of the A4 table.
+3. **Lease.** `_mint_nonce()` = `os.urandom(4).hex()`; `_lease_stale(rec, now,
+   pid_alive)` = `op_started_at + STALE_OP_GRACE_DEFAULT < now and not
+   pid_alive(op_owner_pid)`. `lease_take` refuses with `LeaseHeld` unless no
+   lease or stale. `_require_nonce(rec, nonce)` → `NonceMismatch`.
+   `owner_pid` is **required, never defaulted**, on all three minting paths per
+   **A7** — the wrapper supplies the *coordinator's* pid, not its own. Tests in
+   `test_agent_sessions_lease.py`, including the A7 control: a lease whose
+   `op_owner_pid` names a process the test keeps alive is **not** stale once the
+   grace has elapsed (and the same lease with a dead pid **is**), which is the
+   assertion that fails if `owner_pid` ever silently falls back to the helper's
+   own pid.
+4. **Transitions.** Legal-from table: `freeze_begin: live`;
+   `freeze_commit/abort: freezing`; `restore_begin: frozen` (**not**
+   `aborting`); `restore_launched/confirm/abort: restoring`;
+   **`standin_respawned: freezing → freezing (lease kept, per A3) | aborting →
+   frozen (lease cleared) | frozen → frozen (leased)`**; `lease_take: any state
+   with no live lease`; `drop: any`. Everything else → `TransitionRefused` with
+   the PINNED wire line. `restore_confirm` additionally requires
+   `launch_pid != 0 and launch_pid == pane_pid` and sets `ack=liveness`,
+   **keeps captures**. `freeze_abort` deletes captures. `freeze_commit` writes
+   `frozen_at`, `standin_pid=pane_pid`, `pane_id=pane` (`""`/`0` allowed as a
+   pair; a mismatched pair is a usage error in the wrapper). Tests in
+   `test_agent_sessions_transitions.py` enumerate the full state × verb matrix.
 5. **Observation + purge.** `read_observation` parses the four row kinds
-   (tab-separated, unknown kinds → `MalformedSessionsError`), tracks
-   per-root `pane_complete` (a root with a `WINDOW` row but no `PANE` row
-   for that window is pane-incomplete). `purge`: `INCOMPLETE` → nothing;
-   `live` + root enumerated + window absent → `dead_window`; `live` + window
-   present + pane rows present + (pane absent or `pane_dead=1`) +
-   `pid_alive(pane_pid)` false → `dead_pane`; `frozen` + capture file
-   missing → `capture_missing`; transitional states never purged. Update
-   `agent_marks._read_observed` to skip `PANE` lines (keep its
-   `INCOMPLETE`/`ROOT`/`WINDOW` semantics byte-for-byte; add a test in
-   `tests/test_agent_marks_liveness.py`). Tests in
+   (tab-separated, unknown kinds → `MalformedSessionsError`), tracks per-root
+   `pane_complete` (a root with a `WINDOW` row but no `PANE` row for that window
+   is pane-incomplete). `purge`: `INCOMPLETE` → nothing; `live` + root
+   enumerated + window absent → `dead_window`; `live` + window present + pane
+   rows present + (pane absent or `pane_dead=1`) + `pid_alive(pane_pid)` false →
+   `dead_pane`; `frozen` + capture file missing → `capture_missing`;
+   transitional states never purged. Make `agent_marks._read_observed`
+   (**:587-620**) skip `PANE` lines explicitly per **A1**, keeping its
+   `INCOMPLETE`/`ROOT`/`WINDOW` semantics byte-for-byte, and add the regression
+   test to `tests/test_agent_marks_liveness.py`. Tests in
    `test_agent_sessions_observation.py` / `_liveness.py`.
-6. **`SessionsView`** — copy `MarksView` (:506-581) including the inode
+6. **`SessionsView`** — copy `MarksView` (:506-584) including the inode
    rationale comment; `frozen()` and `by_id()` helpers.
-7. **Shell wrapper** `aitask_agent_sessions.sh` — copy
-   `aitask_agent_marks.sh`'s skeleton: `SESSIONS_FILE="${AITASKS_AGENT_SESSIONS_FILE:-$HOME/.config/aitasks/agent_sessions.json}"`,
-   `LOCK_DIR="${SESSIONS_FILE}.lockd"`, `lock_or_busy` (never proceed
-   unlocked), `run_py` merging stderr, verbs dispatched to
-   `python3 lib/agent_sessions.py --file "$SESSIONS_FILE" <verb> …` which
-   does load → transition → dump → print wire line, mapping exceptions to
-   exit codes 4/5/6/7/8. `list`/`show` bypass the lock. `--pane`/`--pane-pid`
-   pairing validated in the wrapper (exit 2). `shellcheck` clean.
+7. **Shell wrapper** `aitask_agent_sessions.sh` — copy `aitask_agent_marks.sh`'s
+   skeleton: `SESSIONS_FILE="${AITASKS_AGENT_SESSIONS_FILE:-$HOME/.config/aitasks/agent_sessions.json}"`,
+   `LOCK_DIR="${SESSIONS_FILE}.lockd"`, `lock_or_busy` (never proceed unlocked;
+   `mkdir -p "$(dirname "$LOCK_DIR")"` first, as the marks wrapper does at
+   :87), `run_py` merging stderr into stdout, verbs dispatched to
+   `"$(require_ait_python)" lib/agent_sessions.py --file "$SESSIONS_FILE" <verb> …`
+   which does load → transition → dump → print wire line, mapping exceptions to
+   exit codes 4/5/6/7/8. `list`/`show` bypass the lock (2 s keypress timeout for
+   mutating verbs, 10 s for `purge`). Argument validation in the wrapper, all
+   exit 2: `--pane`/`--pane-pid` pairing; `--owner-pid` **required** on
+   `freeze-begin` / `restore-begin` / `lease-take` and a positive integer, with
+   no `$$` fallback (**A7**); `--id` / `--nonce` / `--restore-of` matching
+   `^[0-9a-f]{8}$` before the value reaches Python (**A9**). The header comment
+   carries the exit-code contract **and** the A8 stamping obligation: the store
+   never touches tmux, so the caller stamps `@aitask_record=<id>` on its own
+   pane via the tmux gateway immediately after a successful `UPSERTED:` line.
+   `shellcheck` clean.
 8. **`lib/agent_sessions.sh`** — `AIT_RECORD_OPTION="@aitask_record"`,
-   `AIT_FROZEN_OPTION="@aitask_frozen"`, `AIT_STANDIN_READY_OPTION="@aitask_standin_ready"`,
-   `AIT_AGENT_SESSION_OPTION="@aitask_agent_session"`, `ait_frozen_dir()`;
-   the Python constants live in `monitor/monitor_core.py` beside
-   `SHADOW_TARGET_OPTION` (t1705_4 adds them; this child adds a test
-   asserting the shell and Python spellings agree once both exist — write
-   it now against `lib/agent_sessions.py`'s own copies and let t1705_4
-   point it at `monitor_core`).
-9. **Concurrency suite** `tests/test_agent_sessions_concurrency.sh` — N
-   background `upsert`s on distinct windows + `wait`; assert record count
-   and each payload once; a paused writer (`SIGSTOP`) makes a second
-   `upsert` return `LOCK_BUSY` within the 2 s budget; `list` returns during
-   the pause (no lock).
+   `AIT_FROZEN_OPTION="@aitask_frozen"`,
+   `AIT_STANDIN_READY_OPTION="@aitask_standin_ready"`,
+   `AIT_AGENT_SESSION_OPTION="@aitask_agent_session"`, `ait_frozen_dir()`. The
+   Python constants live in `monitor/monitor_core.py` beside
+   `SHADOW_TARGET_OPTION` (**verified present at :385**); t1705_4 adds the four
+   new ones. Write the shell↔Python spelling-parity test **now** against
+   `lib/agent_sessions.py`'s own copies and let t1705_4 re-point it at
+   `monitor_core`. Also ship **`ait_stamp_record <pane> <id>`** here per **A8 /
+   §C5** — gateway-routed via `ait_tmux set-option -p`, mirroring
+   `aitask_shadow_capture.sh:369`, guarded by the 8-hex check — so the stamping
+   obligation is a function children 3 and 4 call rather than prose they must
+   remember. Document the obligation directly above `AIT_RECORD_OPTION`. Test it
+   without a live server (`tests/test_agent_sessions_stamp.sh`): a non-hex id
+   returns 2 and emits no tmux call; a well-formed call emits exactly
+   `set-option -p -t <pane> @aitask_record <id>` through the gateway.
+9. **Concurrency suite** `tests/test_agent_sessions_concurrency.sh` — modelled
+   on `tests/test_agent_marks_concurrency.sh`: N background `upsert`s on
+   distinct windows + `wait`; assert record count and each payload once; a
+   paused writer (`SIGSTOP`) makes a second `upsert` return `LOCK_BUSY` within
+   the 2 s budget; `list` returns during the pause (no lock). Scope everything
+   to a temp store via `AITASKS_AGENT_SESSIONS_FILE`. Per CLAUDE.md, this file's
+   test bodies must **not** run in `( … )` subshells unless it opts into
+   `assert_counters_init` / `assert_counters_load`.
+
+10. **Propagate the amendments.** In the same commit, per the pinned block's "if
+    a child must deviate, update the parent plan and every sibling plan in the
+    same commit" rule:
+    - parent plan `aiplans/p1705_frozen_codeagents_session_store_and_viewer_tui.md`
+      §A — A3, A4, A6, A7, A9; §A/§B — A8;
+    - `aiplans/p1705/p1705_3_session_id_capture_hooks.md` — A8: the hook calls
+      `ait_stamp_record` after a successful `UPSERTED:` line, **and owns the
+      integration test that observes the option on a real pane**;
+    - `aiplans/p1705/p1705_4_freeze_engine.md` — A3, A7 (its reconcile and
+      freeze paths mint leases and must pass the coordinator pid), A8 (its
+      fallback `upsert` stamps via `ait_stamp_record`);
+    - `aiplans/p1705/p1705_5_restore_and_repick_flows.md` — A7;
+    - `aitasks/t1705/t1705_8_frozen_agents_acceptance_test.md` — A8: the
+      end-to-end run asserts `@aitask_record` is present on the agent pane after
+      a real hook fire, and survives the freeze/restore cycle.
+
+    Each propagation is a small edit to the sibling's own contract text, not a
+    re-plan; §C1–C5 above is the text to copy from.
+
+### Post-phase (risk mitigations)
+
+- **`contract_call_site_audit`** — new `tests/test_agent_sessions_contract_call_sites.py`.
+  Transcribe PINNED §C's reconcile table and §D's restore flow into a literal
+  data table of `(record state, verb, args, expected outcome)` tuples — one row
+  per invocation those sections name — and check each row against **§C1–C4**,
+  which is the authoritative contract this audit enforces (the PINNED block is
+  provenance, not spec). Assert **two** things per row: (i) the `(state, verb)`
+  pair is legal per §C3, and refused rows carry the §C2 wire line; (ii) the
+  arguments the call site supplies are exactly what §C1 requires and accepts —
+  every required flag present, no unknown flag, so a `freeze-begin` row lacking
+  `--owner-pid` fails. Assertion (ii) is not optional and (i) is not sufficient:
+  A3 is a state-legality defect, but A7 is an argument-shape one and would sail
+  through a `(state, verb)`-only table. That is also why §C1 had to be written
+  down — an audit with no authoritative argument contract has nothing to
+  enforce. A row that cannot be satisfied is a contract bug to amend upstream
+  (as A3 and A7 were), not a test to relax.
+- **`store_permissions_regression`** — extend `tests/test_agent_sessions.py`.
+  Under `umask 000`, a first-ever `dump()` to a fresh path must land the store
+  at `0600`; a store pre-created `0640` must keep `0640` after a `dump()`; and
+  `capture_dir(<id>)` must land `0700` under the same umask. Guards the A2 trap
+  against a future "simplify to `atomic_write_text`" refactor.
 
 ## Verification
 
 ```bash
 bash tests/run_all_python_tests.sh --test-dir tests      # includes the six new modules
 bash tests/test_agent_sessions_concurrency.sh
+bash tests/test_agent_sessions_stamp.sh                   # §C5 helper, no live server
+bash tests/test_no_raw_tmux.sh                            # the new .sh must stay gateway-only
 bash tests/test_agent_marks_concurrency.sh                # unchanged behaviour
+bash tests/test_agent_marks_liveness.py-equivalent: covered by the suite above
 shellcheck .aitask-scripts/aitask_agent_sessions.sh .aitask-scripts/lib/agent_sessions.sh
-AITASKS_AGENT_SESSIONS_FILE=$PWD/.x.json ./.aitask-scripts/aitask_agent_sessions.sh upsert --root "$PWD" --window agent-pick-1 --pane %9 --pane-pid $$ && ./.aitask-scripts/aitask_agent_sessions.sh list; rm -f .x.json .x.json.lockd -r
+export AITASKS_AGENT_SESSIONS_FILE=$PWD/.x.json
+S=./.aitask-scripts/aitask_agent_sessions.sh
+$S upsert --root "$PWD" --window agent-pick-1 --pane %9 --pane-pid $$   # UPSERTED:<id>|created
+$S list && stat -f '%Lp' .x.json                                        # must print 600
+$S freeze-begin <id> --capture-ansi /tmp/a --capture-txt /tmp/b --lines 1; echo "want 2: $?"   # A7: --owner-pid required
+$S lease-take '../../x'; echo "want 2: $?"                              # A9: non-hex id refused
+rm -rf .x.json .x.json.lockd; unset AITASKS_AGENT_SESSIONS_FILE
 ```
 
-Step 9 (Post-Implementation) handles commit and archival. Before archiving,
-add the forward coordination note to t1389's task file if the parent's note
-is missing (`grep t1705 aitasks/t1389_*.md`).
+Read only the last line of the python-suite output for the verdict
+(`PYTHON SUITE: PASSED|FAILED (runner=…, exit=N)`); an earlier
+`Results: N passed, 0 failed` belongs to one script-style module, not the suite.
+Piping discards the status — use `set -o pipefail` or check `${PIPESTATUS[0]}`.
 
-## PINNED contracts (from p1705 — do not re-decide)
+Step 9 (Post-Implementation) handles commit and archival. The forward
+coordination note to t1389 is **already present** (`aitasks/t1389_stamped_agent_and_task_pane_identity.md:105,113`
+names t1705 and links back to this task file) — verified 2026-09-06, no action
+needed.
+
+## Risk
+
+Levels below are the **post-augmentation** reassessment (the two confirmed
+inline mitigations are already part of the plan above), per
+`risk-evaluation.md`'s reassessment note.
+
+### Code-health risk: low
+- The change is almost entirely additive — three new files with no existing
+  callers, mirroring a shipped, test-covered template (`lib/agent_marks.py` +
+  `aitask_agent_marks.sh`). The only touch to load-bearing code is the
+  `_read_observed` edit, which A1 established is a no-op made explicit and is
+  pinned by a new regression test. · severity: low
+  · → mitigation: inline post-phase store_permissions_regression
+- `lib/agent_sessions.py` is a large single module (schema + identity + lease +
+  state machine + observation + view + CLI), so its internal surface is wide
+  even though its external blast radius is nil. Mitigated by the six-module test
+  split, which mirrors how `agent_marks` splits store from liveness policy.
+  · severity: low · → mitigation: none (accepted)
+
+### Goal-achievement risk: high
+- The PINNED block is declared "do not re-decide", yet it has now yielded **six**
+  genuine internal inconsistencies (A3 `standin_respawned` from `freezing`, A4
+  overlapping refusal wire lines, A6 an unwritable schema field, A7 lease-mint
+  verbs with no way to pass the coordinator pid, A8 a tmux side effect assigned
+  to a tmux-free module, A9 unvalidated identifiers reaching a `rmtree` path and
+  a shell command string). Two independent passes over the same text found three
+  each, with no sign of saturation — and A7 in particular would have shipped a
+  lease that *looks* correct and silently degrades to a bare 60 s timer, letting
+  reconcile fight a live coordinator. This child is the store every later child
+  drives, and such defects surface only when those children are implemented.
+  · severity: high · → mitigation: inline post-phase contract_call_site_audit
+- Nothing consumes the store yet. Its contract is asserted only against its own
+  tests here; the first real integration is child 4's freeze engine, so a verb
+  that is individually correct but collectively unusable would pass this task's
+  verification unchallenged. · severity: medium · → mitigation: none — already
+  covered structurally by the decomposition: `t1705_8_frozen_agents_acceptance_test`
+  owns the end-to-end freeze → reconcile → restore cycle against the real store.
+
+**Why this was raised from `medium` to `high`.** The level tracks the *discovery
+rate*, not the residue of the fixes. Every one of the six defects is now closed
+in-plan and each was cheap and locally contained — but two passes finding three
+apiece is evidence the defect density is higher than any single pass detects,
+and the pinned block's own governing instruction ("do not re-decide") actively
+discourages the scrutiny that keeps finding them. That is a shaky core
+assumption — that the pinned contract is settled — rather than a bounded
+localized risk, which is `high` by the rubric. It does not change the work: the
+two mitigations were already confirmed and are folded in above.
+
+**Scope note on `contract_call_site_audit`.** A7 is an *argument-shape* defect,
+not a state-legality one: `standin-respawned` from `freezing` (A3) would fail a
+`(state, verb)` table, but a `freeze-begin` missing `--owner-pid` would pass one.
+The audit table therefore asserts **both** — that each §C/§D call site's
+`(state, verb)` pair is legal **and** that the arguments it supplies are exactly
+the ones the verb requires and accepts (every required flag present, no unknown
+flag). Without that second assertion the mitigation would not have caught the
+defect that motivated raising this level.
+
+### Planned mitigations
+- timing: post-phase | name: contract_call_site_audit | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement risk 1 (pinned-block internal inconsistencies) | desc: table-driven test asserting every §C/§D `aitask_agent_sessions.sh` call site is both state-legal and argument-shape-correct against the implemented verbs
+- timing: post-phase | name: store_permissions_regression | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health risk 1 (the A2 `atomic_write.target_mode` umask trap) | desc: assert the store lands 0600 on a first write under `umask 000`, preserves an existing mode, and that `capture_dir()` lands 0700
+## Corrected contracts — AUTHORITATIVE, supersedes the PINNED block below
+
+The PINNED block is reproduced verbatim from the parent and is left unedited so
+the provenance stays auditable. **Where this section and the PINNED block
+disagree, this section wins** — it is what the implementer codes to and what
+`contract_call_site_audit` enforces. Everything here is A1–A9 applied; nothing
+else in the PINNED block changes.
+
+### C1. Wrapper verb forms (replaces PINNED §A's verb list)
+
+Every mutating verb takes the lock; `list` / `show` do not. Exit codes are
+unchanged: `0` / `2` usage / `3 LOCK_BUSY` / `4 ERROR` / `5 TRANSITION_REFUSED`
+/ `6 NONCE_MISMATCH` / `7 RESTORE_SESSION_MISMATCH` / `8 LEASE_HELD`.
+
+```
+upsert  --root <r> --window <w> --pane <id> --pane-pid <pid>
+        [--id <rid>] [--session <name>] [--session-id <sid>] [--transcript <p>]
+        [--agent-string <s>] [--operation <op>] [--task-id <t>]
+        [--restore-of <rid> --nonce <n>]
+          -> UPSERTED:<id>|created | updated | created_slot<N>
+             | created_slot<N>|ambiguous_relocation | restored
+             | UPSERT_REFUSED:<id>|<reason>            (reasons: see C2)
+
+freeze-begin      <id> --owner-pid <pid> --capture-ansi <p> --capture-txt <p>
+                       --lines <n> [--phase <t>]      -> FREEZING:<id>|<nonce>
+restore-begin     <id> --owner-pid <pid> --mode resume|repick
+                                                      -> RESTORING:<id>|<nonce>
+lease-take        <id> --owner-pid <pid>              -> LEASED:<id>|<nonce>
+                                                       / LEASE_HELD:<id> exit 8
+
+freeze-commit     <id> --nonce <n> --pane <pane_id|""> --pane-pid <pid|0> -> FROZEN:<id>
+freeze-abort      <id> --nonce <n>                                       -> LIVE:<id>
+restore-launched  <id> --nonce <n> --pane <id> --pane-pid <pid>          -> LAUNCHED:<id>
+restore-confirm   <id> --nonce <n> --pane <id> --pane-pid <pid>          -> LIVE:<id>|liveness
+restore-abort     <id> --nonce <n>                                       -> ABORTING:<id>
+standin-respawned <id> --nonce <n> --pane <id> --pane-pid <pid>          -> STANDIN:<id>
+drop              <id>                                                   -> DROPPED:<id>
+list  [--state <s>] [--root <r>]  -> SESSION:<id>|<state>|<root>|<window>|<pane_id>|<task_id>|<agent_string>|<state_at>
+show  <id>                        -> KEY:value lines (includes `session`)
+purge --observed <file>           -> DROPPED:<id>|<reason> … then PURGED:<n>
+```
+
+**`--owner-pid` is REQUIRED on exactly the three lease-minting verbs** and is
+the pid of the **coordinator** — the detached `aitask_frozen.sh` process that
+outlives the respawn — never the wrapper's or the Python helper's own pid. The
+wrapper rejects a missing, non-numeric or non-positive value with exit 2 and
+**has no `$$` fallback**: a default here is indistinguishable from a correct
+call at the wire, and silently degrades `_lease_stale` to a bare 60 s timer
+(A7). `--owner-pid` appears on no other verb — the leased verbs authenticate
+with `--nonce` instead.
+
+**Identifier arguments are validated before they reach Python** (A9):
+`<id>`, `--id`, `--restore-of` and `--nonce` must match `^[0-9a-f]{8}$`, else
+exit 2.
+
+### C2. `upsert` refusal reasons (replaces the overlapping PINNED §A wording)
+
+Select first — by `--id`, else by pane identity — then gate on state. A record
+that merely shares `(root, window)` is not a candidate and falls through to the
+create rules.
+
+| selected record state | result |
+|---|---|
+| `live` | proceed (update / relocate) |
+| `restoring` + `--restore-of` + `--nonce` | the ack path |
+| `restoring` | `UPSERT_REFUSED:<id>\|restoring_unacknowledged` |
+| `freezing` | `UPSERT_REFUSED:<id>\|freezing_unacknowledged` |
+| `aborting` | `UPSERT_REFUSED:<id>\|aborting_unacknowledged` |
+| `frozen` | `UPSERT_REFUSED:<id>\|frozen` |
+
+### C3. State machine legal-from table (replaces PINNED §A's diagram edges)
+
+| verb | legal from | lease |
+|---|---|---|
+| `freeze-begin` | `live` | mints |
+| `freeze-commit` | `freezing` | clears |
+| `freeze-abort` | `freezing` | clears |
+| `restore-begin` | `frozen` (**not** `aborting`) | mints |
+| `restore-launched` | `restoring` | keeps |
+| `restore-confirm` | `restoring`, and `launch_pid != 0 and launch_pid == --pane-pid` | clears |
+| `restore-abort` | `restoring` → `aborting` | keeps (same nonce) |
+| `standin-respawned` | **`freezing` → `freezing` (keeps lease, A3)** \| `aborting` → `frozen` (clears) \| `frozen` → `frozen` (clears) | as noted |
+| `lease-take` | any state with no live lease | mints |
+| `drop` | any | n/a |
+
+Anything else → `TRANSITION_REFUSED:<id>|<from>|<verb>`, exit 5, nothing written.
+
+### C4. Schema field constraints (tightens PINNED §A's schema comments)
+
+- `id` — **required** `^[0-9a-f]{8}$`. A record failing this is corruption:
+  `load()` raises `MalformedSessionsError`, `load_safe()` returns empty.
+- `op_nonce` — `^[0-9a-f]{8}$` **or** `""` (empty = no lease). Any other value
+  is corruption.
+- `op_owner_pid` — int ≥ 0; `0` only when `op_nonce` is `""`.
+- `state` — one of `STATES`; unknown is corruption, never a default.
+- `agent_kind` — derived, never stored by a caller: the prefix of
+  `agent_string` when it matches `^[a-z]+/[a-z0-9_]+$`, else `""` (A5).
+- `session` — free-form tmux session name, display only, written via
+  `--session` (A6).
+
+### C5. `@aitask_record` stamping — assigned, and single-sourced (A8)
+
+The store performs **no** tmux side effect: `lib/agent_sessions.py` imports no
+tmux and `tests/test_no_raw_tmux.sh` forbids raw `tmux` outside the gateways.
+The stamp is the **caller's** obligation, performed **only after** a successful
+`UPSERTED:<id>|…` line (never on a refusal, never before), on the caller's own
+pane.
+
+To make that mechanical rather than advisory, **this child ships the helper**
+in `lib/agent_sessions.sh`, routed through the sanctioned shell gateway and
+mirroring the existing `shadow_stamp_analyzed_at` precedent
+(`aitask_shadow_capture.sh:369`):
+
+```bash
+# Stamp the pane->record join. Call ONLY after aitask_agent_sessions.sh printed
+# UPSERTED:<id>|… — a stamp without a stored record is a dangling join, and a
+# stored record without a stamp breaks the restart/restore identity handoff.
+ait_stamp_record() {
+    local pane="$1" record_id="$2"
+    [[ "$record_id" =~ ^[0-9a-f]{8}$ ]] || return 2
+    ait_tmux set-option -p -t "$pane" "$AIT_RECORD_OPTION" "$record_id"
+}
+```
+
+Responsibilities, so no caller can read this as someone else's job:
+
+| caller | when | child |
+|---|---|---|
+| SessionStart hook | after its `upsert` prints `UPSERTED:` (create, update **and** the `restored` ack branch) | t1705_3 |
+| freeze engine | after its fallback `upsert` prints `UPSERTED:` (hook never fired) | t1705_4 |
+
+**Tests.** This child asserts the helper's contract without a live server: the
+non-hex-id guard returns 2 and emits no tmux call, and a well-formed call emits
+exactly `set-option -p -t <pane> @aitask_record <id>` through the gateway (using
+`AITASKS_TMUX_SOCKET` isolation, the same seam `tests/test_no_raw_tmux.sh`
+assumes). The **observing** integration test — stamp present on the real pane
+after a real hook fire — belongs to t1705_3's hook suite and to
+`t1705_8_frozen_agents_acceptance_test`, which already own a live tmux server;
+propagating A8 to those two plans (step 10) is what books that work.
+
+## PINNED contracts (from p1705 — superseded above where they differ)
 
 Copied verbatim from `aiplans/p1705_frozen_codeagents_session_store_and_viewer_tui.md` §A–§D. On any discrepancy the parent plan wins; if a child must deviate, update the parent plan and every sibling plan in the same commit.
 
