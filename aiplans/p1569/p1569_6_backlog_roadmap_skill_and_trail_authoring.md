@@ -734,3 +734,89 @@ Live run over **257 candidates**: `safe=0, coordination=37, unresolvable=220`;
 origin quality 72 exact / 163 topic / 22 unknown; `no_plan=220` dominates the
 UNCHECKABLE population. The empty parallel-safe lane is reported explicitly
 rather than by omission.
+
+## Final Implementation Notes
+
+- **Actual work done:** All six plan steps plus both pre-phase and the
+  post-phase mitigation. The driver (`lib/roadmap_run.py`, 570 lines) and its
+  wrapper are new; `parallel_admission_collect.py` gained the shared
+  `collect_population()` / `Population.aim()` seam; `roadmap_policy.py` gained
+  idempotent ref qualification. The skill ships in all four trees, docs in four
+  places, and the roadmap is published live as `art:trail-backlog-roadmap` (v2)
+  owned by the standing holder **t1718**. Follow-ups **t1719** (t1343 adoption),
+  **t1720** (gated `followup_origins`) and **t1721** (numberless task file).
+  Committed as `15468d9a6`, 19 files, 1722 insertions.
+
+- **Deviations from plan:**
+  - **A refusal exit (3)** was added beyond the planned 0/2, so "refused to
+    publish on unsound evidence" is distinguishable from CLI misuse and from an
+    empty corpus.
+  - **`--cap` reached further than specified**: `method_note` states the cap
+    *actually applied*, so a non-default run is self-describing in the artifact
+    rather than only in the invocation.
+  - **`Population.aim()` was added** so the driver does not reach for the
+    private `_respin`. Without it the mitigation would only have half-removed
+    the private coupling it existed to remove.
+  - **The workflows note became a cross-reference, not a new page.** t1569_4
+    already documents the preflight and its residual race at
+    `website/content/docs/skills/aitask-pick/parallel-admission.md:51-52`. A
+    second copy would have created two places to keep in sync, against the
+    current-state-only convention.
+
+- **Issues encountered:**
+  1. **The plan's premise was wrong about the driver existing.** `roadmap_policy`
+     is pure with no `__main__`; `tests/test_roadmap_integration.py::run()` was
+     the only wiring. Caught during plan verification, before implementation.
+  2. **The gatherer expands a requested parent into parent + children** (245
+     requested -> 255 members). Origin facts had to be asked about the members
+     *returned*, not the ids *requested*; the first live run tripped the
+     incompleteness refusal on the driver's own omission.
+  3. **`_overlapping_refs` emitted bare refs** -> schema-invalid document. My
+     first fix qualified `inflight_refs` in the *driver*, which silently emptied
+     `relations` 28 -> 0 by making a set intersection miss. Fixing it at source
+     with idempotent qualification restored all 28. **A green validate can mean
+     a section vanished rather than a section became correct** — the count is
+     what caught it.
+  4. **`scope.topics` as anchor roots made the trail born STALE** (29 reasons at
+     creation). Listing published members is both correct for a capped trail and
+     what makes `drift` meaningful.
+  5. **A `project` variable was used before assignment** in the CONFLICT_WITH
+     block; hoisted.
+  6. **The drift-contract test's first shape was wrong**: siblings auto-depend
+     on each other, so `new_related_task` fires via the depends edge regardless
+     of `scope.topics`. Asserting the bare verdict would have measured the wrong
+     trigger; the test now filters on the topic-attributable reason.
+
+- **Key decisions:**
+  - **Top 40 by sort key, capped after scoring.** The cap's justification is
+    digest drift, not authorability — the encoder generates every rationale.
+  - **A standing holder task (t1718) owns the handle** so the roadmap outlives
+    t1569 and the `artifacts:` breadcrumb never moves into the archive.
+  - **Parents only** — children are gated by siblings, so ranking them as
+    independently startable would mislead.
+  - **Two snapshots**: wide for scoring/in-flight, narrow for `generation`.
+  - **Every lane is named even at zero.** The lane is not in the sort key, so a
+    capped run can publish no safe entry; reporting that only by omission would
+    read as "nothing to worry about" rather than "nothing was startable".
+  - **`CURRENT` is documented with both its limits** — published members only,
+    and task-record inputs only. Putting in-flight facts into the digest is not
+    merely undesirable, it is rejected by
+    `test_an_inflight_fact_in_an_input_record_is_rejected`.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_remote_drift_check.sh:211 — computes OVERLAP with two-dot `git diff BASE..origin/BASE`, which in git diff means endpoint-to-endpoint (not a commit range as in git log), so files changed by the user's own local-only commits are reported as remote overlap; measured 78 files reported vs 9 actually changed by the remote, producing a false strong-drift prompt`
+  - `aitasks/t_refresh_codeagent_suite_default_model_expectations.md — task file with no task number in its filename; `ait ls` lists it but no id can be derived (filed as t1721)`
+
+- **Notes for sibling tasks:**
+  - **t1569_7 (manual verification)**: the roadmap is live at
+    `art:trail-backlog-roadmap`. Its `[t1569_4]` items still need a profile
+    setting `parallel_admission: confirm` — under the shipped profiles the
+    preflight is a no-op and those checks would pass vacuously.
+  - **The parallel-safe lane is empty on the live corpus** (0 CLEAR of 257).
+    Verifying "a parallel-safe entry renders correctly" needs a synthetic
+    fixture or a corpus where `no_plan` does not dominate; do not treat the
+    empty lane as a rendering bug.
+  - **Fixtures that feed already-qualified refs hide bare-ref bugs.** t1569_5's
+    integration fixture validated happily against code that produced invalid
+    live documents. Prefer a fixture whose ref shape matches what the live
+    collector actually emits.
