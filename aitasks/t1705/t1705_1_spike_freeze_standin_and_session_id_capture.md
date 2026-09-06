@@ -176,3 +176,10 @@ grep -n 'Spike findings' aiplans/p1705_frozen_codeagents_session_store_and_viewe
 **Tmux-stress: implement and verify from a shell that is NOT inside the
 user's `-L ait` tmux server** (`aidocs/framework/tui_conventions.md` §"Tmux-stress
 tasks"). Never `kill-server` from an agent pane — `$TMUX` beats `TMUX_TMPDIR`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-06T07:58:41Z status=pass attempt=1 type=human
+>
+> Note: deferred
