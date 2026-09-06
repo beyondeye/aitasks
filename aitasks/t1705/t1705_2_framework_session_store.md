@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1705
+implemented_with: claudecode/opus5
 created_at: 2026-09-04 16:02
-updated_at: 2026-09-06 13:24
+updated_at: 2026-09-06 16:49
 ---
 
 ## Context
@@ -123,3 +124,8 @@ shellcheck .aitask-scripts/aitask_agent_sessions.sh .aitask-scripts/lib/agent_se
 AITASKS_AGENT_SESSIONS_FILE=/tmp/x.json ./.aitask-scripts/aitask_agent_sessions.sh upsert --root "$PWD" --window agent-pick-1 --pane %9 --pane-pid $$   # UPSERTED:<id>|created
 ```
 No tmux involvement — safe to implement from any shell.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-06T13:49:34Z status=pass attempt=1 type=human
