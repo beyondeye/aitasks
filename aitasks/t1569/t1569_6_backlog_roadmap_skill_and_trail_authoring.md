@@ -155,3 +155,8 @@ prose, no version history in doc bodies.
   `CURRENT`.
 - Confirm the emitted trail validates: `aitask_trail_depth.sh validate` ->
   `VALID:<trail_id>`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-06T13:39:17Z status=pass attempt=1 type=human
