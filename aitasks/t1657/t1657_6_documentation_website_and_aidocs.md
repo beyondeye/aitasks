@@ -166,3 +166,129 @@ reads the lock record.
 > | migrated note whose provenance was never measured ("not measured", never
 > | "clean"); display may abbreviate base, but the stored and machine-emitted value is
 > | always the full object id.
+
+> **✉ note:t1657_4** id=2026-09-06T14:19:36Z.b1c0206c9584310eed00c5c7 from=t1657_4 at=2026-09-06T14:19:36Z base=43287d477c5d8fea50443735cd4d521da316e2a6 base_branch=main dirty=yes host=omg16
+>
+> | Advisory input from the session that implemented t1657_4, not an instruction.
+> | t1657_4 landed on main and is archived. Your scope was authored 2026-09-01,
+> | before it was implemented, so several concrete answers your doc bullets ask for
+> | have changed. Nothing below invalidates your plan — it is all detail your pages
+> | would otherwise have to rediscover or would get wrong.
+> | 
+> | 1. "HOW TO ADD AN ADAPTER FOR A NEW AGENT RUNTIME" NOW HAS A CONCRETE ANSWER.
+> | 
+> |    It is a data change, not a code change: add a row to
+> |    `.aitask-scripts/live_delivery/agents.txt` and drop a procedure file beside
+> |    it. The resolver holds no agent literal of its own — the manifest is what
+> |    decides, which is also what keeps
+> |    `grep -rn 'ListAgents|SendMessage|claudecode' aitask_live_endpoint.sh`
+> |    empty (an acceptance criterion of t1657_4, and a test enforces it).
+> | 
+> |    Rules the doc should state, because each one is a real refusal:
+> |    - column 2 is a BARE FILENAME resolved inside the delivery directory. A '/'
+> |      or '..' is refused, not followed — the manifest is a data file.
+> |    - the file must be a readable REGULAR file (-f and -r). `-r` alone is true
+> |      for a directory, which is a readable path but not a readable procedure.
+> |    - a row failing any of that yields LIVE_NONE:agent_unsupported:<family>, NOT
+> |      LIVE_PANE. The reason is worth writing down: LIVE_PANE is a promise the
+> |      caller acts on — a live endpoint AND something to deliver through — and
+> |      breaking it one layer later leaves the caller with nothing to run after it
+> |      has already been told the endpoint is live.
+> | 
+> | 2. THE ADAPTER IS NOT WHERE THE PARENT PLAN SAID.
+> | 
+> |    It is `.aitask-scripts/live_delivery/claudecode.md`, NOT
+> |    `.claude/skills/task-workflow/live-delivery-claude.md`. Reason, worth a line
+> |    in aidocs: `aitask_skill_render.sh` is a reachability dep-walker, so an .md
+> |    under a skill dir that nothing references is never rendered into the
+> |    per-profile variants (`task-fold-content.md` is already such an orphan). The
+> |    adapter is profile-invariant and agent-neutral, so it belongs outside the
+> |    skill tree entirely. Any doc that repeats the old path is wrong.
+> | 
+> | 3. THE OUTPUT CONTRACT, FOR YOUR "OUTPUT SHAPES" BULLET.
+> | 
+> |        LIVE_PANE:<%pane>|<session>:<@win>.<%pane>|<pid>|agent=<family>  exit 0
+> |        LIVE_NONE:<reason>                                              exit 0
+> |        LIVE_ERROR:<reason>                                             exit 2
+> | 
+> |    LIVE_NONE exits 0 because a degradation IS a successful resolution — "there
+> |    is no live endpoint" is an answer. LIVE_ERROR is deliberately disjoint from
+> |    it so "no endpoint" and "the resolver broke" can never be confused. Exactly
+> |    one line on stdout, always, including on misuse: a usage error prints its
+> |    help to STDERR. `-h`/`--help` is the single documented exception, because
+> |    that invocation is addressed to a human.
+> | 
+> | 4. THE FULL DEGRADATION TABLE — 8 codes, one more than the task body listed.
+> | 
+> |        unlocked                   no lock record
+> |        remote_host                lock's hostname != this host
+> |        holder_dead                liveness -> dead
+> |        holder_unknown             liveness -> unknown, INCLUDING a legacy lock
+> |                                   with no `pid:` line at all (t259 is a real one
+> |                                   in this repo). Never collapsed into dead —
+> |                                   that conflation is the t1465 defect class.
+> |        agent_unknown              implemented_with empty (the Step 4 lock ->
+> |                                   Step 7 attribution window; NOT an error)
+> |        agent_unsupported:<agent>  family has no usable adapter in the manifest
+> |        no_pane                    holder alive, no gateway pane maps to it
+> |        no_session_match           ADAPTER-layer: pane verified, no listing row
+> |                                   matched
+> | 
+> |    The legacy-lock case is the one your table would otherwise miss.
+> | 
+> |    Also document the socket boundary honestly: only the gateway socket is
+> |    searched, so an agent on another tmux server reads as `no_pane`.
+> | 
+> | 5. THE TARGET STRING IS <session>:@<window_id>.%<pane> — NOT window_index.
+> | 
+> |    Measured: the agent-session listing renders pane %2 as `aitasks:@2.%2` while
+> |    tmux's `window_index` for that same pane is 3 and its `window_id` is `@2`.
+> |    `#{window_id}` already carries its own '@'. Using the index produces a target
+> |    that looks right and joins to nothing. This is worth stating because it is
+> |    the adapter's join key — and the adapter joins on the PANE ID alone, treating
+> |    the session:window prefix as display context, since the listing's rendering
+> |    is an observed contract of a model-facing tool rather than a documented API.
+> | 
+> | 6. ONE THING NOT TO DOCUMENT AS A RESOLVER GUARANTEE.
+> | 
+> |    Two of t1657_4's own stated acceptance criteria were relocated to t1657_5:
+> |    that `NOTE_APPENDED:` survives every reason code, and that a post-write
+> |    adapter failure reports success-with-live-delivery-unavailable. The resolver
+> |    neither appends notes nor calls SendMessage, so it cannot assert
+> |    durable-first ordering — only the composition owner can. Your verification
+> |    bullet "no stale claim survives" should treat those as properties of the
+> |    COMPOSITION (t1657_5), not of the resolver.
+> | 
+> | 7. DO NOT FIX THE EXTENSION-POINTS TOUCHPOINT COUNT — IT HAS ITS OWN TASK.
+> | 
+> |    `aidocs/framework/aitasks_extension_points.md:319` says "7-touchpoint
+> |    checklist" while its own table lists 5 rows. It was spawned at t1657_4's
+> |    Step 8b as **t1717** (upstream_defect), deliberately NOT folded into your
+> |    scope, because it is a different doc from this feature's own. t1717 also
+> |    flags that 5 may be an undercount rather than 7 an overcount, so it is not a
+> |    one-word fix. Leave it alone.
+> | 
+> | 8. TWO GAPS OUTSIDE YOUR WRITTEN SCOPE, FLAGGING RATHER THAN ASSIGNING.
+> | 
+> |    - `ait --help` ALREADY advertises `note  Send a durable note to another
+> |      task's inbox`. The command is discoverable and runnable today with no
+> |      reference page behind it — that is currently the widest-exposure gap, and
+> |      it argues for `commands/note.md` being the first page you write.
+> |    - CHANGELOG covers 2 of the 4 shipped children: a line for t1657_2, a
+> |      half-line for t1657_1, nothing for t1657_3 or t1657_4. Normally
+> |      /aitask-changelog sweeps this at release time; noting it in case it does
+> |      not.
+> | 
+> | 9. WHERE TO READ THE REAL CONTRACTS RATHER THAN RE-DERIVING THEM.
+> | 
+> |    - `.aitask-scripts/aitask_live_endpoint.sh` header — output contract,
+> |      resolution order, the tmux-is-discovery rule with its reason.
+> |    - `.aitask-scripts/live_delivery/claudecode.md` — the adapter procedure,
+> |      including its obligation to say WHICH pane it searched for when it reports
+> |      no_session_match (a bare reason code is indistinguishable from "that
+> |      session ended", so a format drift would be invisible).
+> |    - `aiplans/archived/p1657/p1657_4_*.md` — a "What verification changed"
+> |      table of 12 findings, and Final Implementation Notes.
+> |    - `tests/test_live_endpoint_no_sendkeys.sh` — encodes the transport
+> |      prohibition as an ALLOWLIST of the tmux verbs the resolver may issue, not
+> |      merely "no send-keys". If you document the rule, document it that way.
