@@ -373,3 +373,29 @@ becomes the only admissible basis for a **hard** conflict, and an absent or
 unclear declaration must require confirmation rather than a guess. t1569_4's
 Final Implementation Notes carry live verdict rates and the false-CONFLICT
 observation as calibration evidence for setting that threshold.
+
+## Coordination: t1719 adopts this model as the admission checker's backend
+
+**t1719** (`adopt_declared_claims_backend_for_admission_checker`,
+`depends: [1343, 1569_4]`) will swap the shared parallel-admission checker's
+evidence backend to this task's declared-claims model, behind an unchanged
+verdict contract.
+
+Two things changed since this task was written that make it more valuable, not
+less:
+
+- `depends: [1275]` is **satisfied** — t1275 landed 2026-08-25.
+- t1569_4's preflight and t1569_6's backlog roadmap are the **consumer surfaces
+  this task previously lacked**. Both currently hedge every verdict with "no
+  known conflict at check time, never safe to run in parallel", because the
+  present checker observes a surface rather than reserving it. A claim registry
+  is what closes that race.
+
+Measured 2026-09-06 over 255 roadmap candidates: **214 `UNCHECKABLE`, all
+`no_plan`**, and **zero** `CLEAR` — the in-flight surface is read from plan
+files, and most `Implementing` tasks have none. A claim store written at claim
+time covers exactly that window.
+
+Also coordinate with **t1688**, which widens the evidence available today (a
+task-body surface). Complementary to this task, not a duplicate — settle the
+sequencing before implementing either.
