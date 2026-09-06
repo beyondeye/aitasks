@@ -82,6 +82,7 @@ macos
 manual
 manual_verification
 memories
+metadata
 metrics
 minimonitor
 model_selection
