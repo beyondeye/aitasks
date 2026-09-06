@@ -3,11 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: test
-status: Ready
+status: Done
 labels: [tmux, test_infrastructure, session_persistence, codeagent]
 anchor: 1705
+implemented_with: claudecode/opus5
 created_at: 2026-09-06 13:15
-updated_at: 2026-09-06 13:15
+updated_at: 2026-09-06 13:16
+completed_at: 2026-09-06 13:16
 ---
 
 ## Summary
