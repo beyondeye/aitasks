@@ -7,6 +7,8 @@ status: Ready
 labels: [git, bash_scripts, robustness]
 created_at: 2026-09-04 17:02
 updated_at: 2026-09-04 17:02
+boardcol: now
+boardidx: 30790
 ---
 
 ## Problem
