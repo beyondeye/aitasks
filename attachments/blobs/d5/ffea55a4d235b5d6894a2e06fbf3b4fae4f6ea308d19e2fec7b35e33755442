@@ -1,0 +1,1916 @@
+{
+  "schema_version": "1.1.0",
+  "trail_id": "trail-backlog-roadmap",
+  "title": "Background-work roadmap",
+  "owner": "aitasks#1718",
+  "scope": {
+    "kind": "ad_hoc",
+    "topics": [
+      "aitasks#1157",
+      "aitasks#1157_1",
+      "aitasks#1157_2",
+      "aitasks#1157_3",
+      "aitasks#1157_4",
+      "aitasks#1157_5",
+      "aitasks#1157_6",
+      "aitasks#1157_7",
+      "aitasks#1157_8",
+      "aitasks#1157_9",
+      "aitasks#1331",
+      "aitasks#1332",
+      "aitasks#1333",
+      "aitasks#1345",
+      "aitasks#1450",
+      "aitasks#1454",
+      "aitasks#1455",
+      "aitasks#1478",
+      "aitasks#1516",
+      "aitasks#1521",
+      "aitasks#1567",
+      "aitasks#1568",
+      "aitasks#1579",
+      "aitasks#1584",
+      "aitasks#1589",
+      "aitasks#1591",
+      "aitasks#1593",
+      "aitasks#1600",
+      "aitasks#1604",
+      "aitasks#1623",
+      "aitasks#1628",
+      "aitasks#1635",
+      "aitasks#1649",
+      "aitasks#1655",
+      "aitasks#1678",
+      "aitasks#1695",
+      "aitasks#1710",
+      "aitasks#1712",
+      "aitasks#1713",
+      "aitasks#1714"
+    ]
+  },
+  "generation": {
+    "generated_at": "2026-09-06T14:11Z",
+    "generator": {
+      "agent_string": "claudecode/opus5",
+      "skill": "aitask-backlog-roadmap"
+    },
+    "input_digest": "0fc4748d909c42bb",
+    "inputs": [
+      {
+        "kind": "plan_file",
+        "ref": "aitasks:aiplans/p1157/p1157_1_workflow_config_host_registry.md"
+      },
+      {
+        "kind": "plan_file",
+        "ref": "aitasks:aiplans/p1157/p1157_2_workflow_session_attempt_model.md"
+      },
+      {
+        "kind": "plan_file",
+        "ref": "aitasks:aiplans/p1157/p1157_3_multi_workflow_daemon_router.md"
+      },
+      {
+        "kind": "plan_file",
+        "ref": "aitasks:aiplans/p1157/p1157_4_bug_intake_budget_resume.md"
+      },
+      {
+        "kind": "plan_file",
+        "ref": "aitasks:aiplans/p1157/p1157_5_remote_explore_core.md"
+      },
+      {
+        "kind": "plan_file",
+        "ref": "aitasks:aiplans/p1157/p1157_6_remote_explore_advanced_parity.md"
+      },
+      {
+        "kind": "plan_file",
+        "ref": "aitasks:aiplans/p1157/p1157_7_chatlink_tui_workflow_management.md"
+      },
+      {
+        "kind": "plan_file",
+        "ref": "aitasks:aiplans/p1157/p1157_8_chatlink_workflow_docs_migration.md"
+      },
+      {
+        "kind": "plan_file",
+        "ref": "aitasks:aiplans/p1157/p1157_9_chatlink_multi_workflow_verification.md"
+      },
+      {
+        "kind": "plan_file",
+        "ref": "aitasks:aiplans/p1157_chatlink_multi_workflow_remote_explore.md"
+      },
+      {
+        "kind": "plan_file",
+        "ref": "aitasks:aiplans/p1516_task_yaml_verifies_normalization_asymmetry.md"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1157"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1157_1"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1157_10"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1157_2"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1157_3"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1157_4"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1157_5"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1157_6"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1157_7"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1157_8"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1157_9"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1331"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1332"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1333"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1345"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1450"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1454"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1455"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1478"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1516"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1521"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1567"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1568"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1579"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1584"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1589"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1591"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1593"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1600"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1604"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1623"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1628"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1635"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1649"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1655"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1678"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1695"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1710"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1712"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1713"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1714"
+      }
+    ]
+  },
+  "freshness": {
+    "state": "current",
+    "checked_at": "2026-09-06T14:11Z"
+  },
+  "narrative": {
+    "problem_statement": "Auto-spawned follow-up work dominates the active backlog and is never picked proactively, so it grows, goes stale, and becomes the obstacle to choosing what to work on.",
+    "recommendation_summary": "A ranked, conflict-aware ordering of background-work candidates, split into a parallel-safe lane and an unresolvable lane. This is an estimate from origin/topic evidence and in-flight state as of the run; it reserves nothing, so a CLEAR entry means no known conflict at check time, not that a task is safe to run in parallel.",
+    "method_note": "Corpus: Ready tasks carrying a followup_kind, plus Ready genuine work at effort: low, parent tasks only. Ranked all 257 candidates by the policy sort key and published the top 40 (cap 40); the remaining 217 are not enumerated in this document. Lanes are an estimate from origin/topic evidence and in-flight state as of this run; the checker observes and reserves nothing, so CLEAR means no known conflict at check time. 1 listed task file(s) carry no task number and were excluded from the corpus: t_refresh_codeagent_suite_default_model_expectations.md."
+  },
+  "waves": [
+    {
+      "wave_id": "wave-1",
+      "ordinal": 1,
+      "title": "Coordination",
+      "purpose": "Overlaps the declared or derived surface of work already in flight. Fold into, or queue immediately after, the in-flight task rather than starting alongside it.",
+      "entries": [
+        {
+          "entry_id": "e1649",
+          "task": "aitasks#1649",
+          "topic": "aitasks#1569",
+          "position": 1,
+          "classification": "coordination_only",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "boardcol": "now",
+            "followup_kind": "risk_mitigation"
+          },
+          "rationale": "CONFLICT \u2014 Coordination. Risk band 3 (high) from code-health=high, goal-achievement=high across 1 origin(s) [active]; 2 axis/axes at that band. Origin risk read from: 1569. Origin quality: topic. Premise: SKIP. In-flight area affinity: yes. Priority medium (tie-break only); effort medium (capacity, not value). Spawned 2026-08-31 12:49.",
+          "confidence": "medium",
+          "caveats": [
+            "origin resolved by topic evidence, not an exact origin \u2014 the file set may be wider than, or disjoint from, the true origin"
+          ],
+          "evidence_refs": [
+            "ev-gather",
+            "ev-origin-facts",
+            "ev-admission"
+          ]
+        },
+        {
+          "entry_id": "e1655",
+          "task": "aitasks#1655",
+          "topic": "aitasks#1569",
+          "position": 2,
+          "classification": "coordination_only",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "followup_kind": "carry_over"
+          },
+          "rationale": "CONFLICT \u2014 Coordination. Risk band 3 (high) from code-health=high, goal-achievement=high across 1 origin(s) [active]; 2 axis/axes at that band. Origin risk read from: 1569. Origin quality: topic. Premise: SKIP. In-flight area affinity: yes. Priority medium (tie-break only); effort medium (capacity, not value). Spawned 2026-08-31 19:48.",
+          "confidence": "medium",
+          "caveats": [
+            "origin resolved by topic evidence, not an exact origin \u2014 the file set may be wider than, or disjoint from, the true origin"
+          ],
+          "evidence_refs": [
+            "ev-gather",
+            "ev-origin-facts",
+            "ev-admission"
+          ]
+        },
+        {
+          "entry_id": "e1635",
+          "task": "aitasks#1635",
+          "topic": "aitasks#1569",
+          "position": 3,
+          "classification": "coordination_only",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "boardcol": "now",
+            "followup_kind": "risk_mitigation"
+          },
+          "rationale": "CONFLICT \u2014 Coordination. Risk band 3 (high) from code-health=high, goal-achievement=high across 1 origin(s) [active]; 2 axis/axes at that band. Origin risk read from: 1569. Origin quality: topic. Premise: SKIP. In-flight area affinity: yes. Priority medium (tie-break only); effort medium (capacity, not value). Spawned 2026-08-28 17:52.",
+          "confidence": "medium",
+          "caveats": [
+            "origin resolved by topic evidence, not an exact origin \u2014 the file set may be wider than, or disjoint from, the true origin"
+          ],
+          "evidence_refs": [
+            "ev-gather",
+            "ev-origin-facts",
+            "ev-admission"
+          ]
+        },
+        {
+          "entry_id": "e1478",
+          "task": "aitasks#1478",
+          "topic": "aitasks#1468",
+          "position": 4,
+          "classification": "coordination_only",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "followup_kind": "upstream_defect"
+          },
+          "rationale": "CONFLICT \u2014 Coordination. Risk band 3 (high) from code-health=high, goal-achievement=medium across 1 origin(s) [archived]; 1 axis/axes at that band. Origin risk read from: 1468. Origin quality: topic. Premise: SKIP. In-flight area affinity: yes. Priority medium (tie-break only); effort low (capacity, not value). Spawned 2026-08-10 19:06.",
+          "confidence": "medium",
+          "caveats": [
+            "origin resolved by topic evidence, not an exact origin \u2014 the file set may be wider than, or disjoint from, the true origin"
+          ],
+          "evidence_refs": [
+            "ev-gather",
+            "ev-origin-facts",
+            "ev-admission"
+          ]
+        },
+        {
+          "entry_id": "e1516",
+          "task": "aitasks#1516",
+          "topic": "aitasks#1468",
+          "position": 5,
+          "classification": "coordination_only",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "followup_kind": "upstream_defect"
+          },
+          "rationale": "CONFLICT \u2014 Coordination. Risk band 3 (high) from code-health=high, goal-achievement=medium across 1 origin(s) [archived]; 1 axis/axes at that band. Origin risk read from: 1468. Origin quality: topic. Premise: SKIP. In-flight area affinity: yes. Priority medium (tie-break only); effort low (capacity, not value). Spawned 2026-08-13 23:29.",
+          "confidence": "medium",
+          "caveats": [
+            "origin resolved by topic evidence, not an exact origin \u2014 the file set may be wider than, or disjoint from, the true origin"
+          ],
+          "evidence_refs": [
+            "ev-gather",
+            "ev-origin-facts",
+            "ev-admission"
+          ]
+        },
+        {
+          "entry_id": "e1521",
+          "task": "aitasks#1521",
+          "topic": "aitasks#1468",
+          "position": 6,
+          "classification": "coordination_only",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "followup_kind": "upstream_defect"
+          },
+          "rationale": "CONFLICT \u2014 Coordination. Risk band 3 (high) from code-health=high, goal-achievement=medium across 1 origin(s) [archived]; 1 axis/axes at that band. Origin risk read from: 1468. Origin quality: topic. Premise: SKIP. In-flight area affinity: yes. Priority medium (tie-break only); effort low (capacity, not value). Spawned 2026-08-14 16:19.",
+          "confidence": "medium",
+          "caveats": [
+            "origin resolved by topic evidence, not an exact origin \u2014 the file set may be wider than, or disjoint from, the true origin"
+          ],
+          "evidence_refs": [
+            "ev-gather",
+            "ev-origin-facts",
+            "ev-admission"
+          ]
+        },
+        {
+          "entry_id": "e1567",
+          "task": "aitasks#1567",
+          "topic": "aitasks#1544",
+          "position": 7,
+          "classification": "coordination_only",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "followup_kind": "upstream_defect"
+          },
+          "rationale": "CONFLICT \u2014 Coordination. Risk band 3 (high) from code-health=high, goal-achievement=medium across 1 origin(s) [archived]; 1 axis/axes at that band. Origin risk read from: 1544. Origin quality: topic. Premise: SKIP. In-flight area affinity: yes. Priority medium (tie-break only); effort low (capacity, not value). Spawned 2026-08-18 12:29.",
+          "confidence": "medium",
+          "caveats": [
+            "origin resolved by topic evidence, not an exact origin \u2014 the file set may be wider than, or disjoint from, the true origin"
+          ],
+          "evidence_refs": [
+            "ev-gather",
+            "ev-origin-facts",
+            "ev-admission"
+          ]
+        },
+        {
+          "entry_id": "e1579",
+          "task": "aitasks#1579",
+          "topic": "aitasks#1544",
+          "position": 8,
+          "classification": "coordination_only",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "followup_kind": "upstream_defect"
+          },
+          "rationale": "CONFLICT \u2014 Coordination. Risk band 3 (high) from code-health=high, goal-achievement=medium across 1 origin(s) [archived]; 1 axis/axes at that band. Origin risk read from: 1544. Origin quality: topic. Premise: SKIP. In-flight area affinity: yes. Priority medium (tie-break only); effort low (capacity, not value). Spawned 2026-08-23 16:25.",
+          "confidence": "medium",
+          "caveats": [
+            "origin resolved by topic evidence, not an exact origin \u2014 the file set may be wider than, or disjoint from, the true origin"
+          ],
+          "evidence_refs": [
+            "ev-gather",
+            "ev-origin-facts",
+            "ev-admission"
+          ]
+        },
+        {
+          "entry_id": "e1584",
+          "task": "aitasks#1584",
+          "topic": "aitasks#1544",
+          "position": 9,
+          "classification": "coordination_only",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "followup_kind": "upstream_defect"
+          },
+          "rationale": "CONFLICT \u2014 Coordination. Risk band 3 (high) from code-health=high, goal-achievement=medium across 1 origin(s) [archived]; 1 axis/axes at that band. Origin risk read from: 1544. Origin quality: topic. Premise: SKIP. In-flight area affinity: yes. Priority medium (tie-break only); effort low (capacity, not value). Spawned 2026-08-24 16:17.",
+          "confidence": "medium",
+          "caveats": [
+            "origin resolved by topic evidence, not an exact origin \u2014 the file set may be wider than, or disjoint from, the true origin"
+          ],
+          "evidence_refs": [
+            "ev-gather",
+            "ev-origin-facts",
+            "ev-admission"
+          ]
+        },
+        {
+          "entry_id": "e1591",
+          "task": "aitasks#1591",
+          "topic": "aitasks#1544",
+          "position": 10,
+          "classification": "coordination_only",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "followup_kind": "risk_mitigation"
+          },
+          "rationale": "CONFLICT \u2014 Coordination. Risk band 3 (high) from code-health=high, goal-achievement=medium across 1 origin(s) [archived]; 1 axis/axes at that band. Origin risk read from: 1544. Origin quality: topic. Premise: SKIP. In-flight area affinity: yes. Priority medium (tie-break only); effort medium (capacity, not value). Spawned 2026-08-24 22:52.",
+          "confidence": "medium",
+          "caveats": [
+            "origin resolved by topic evidence, not an exact origin \u2014 the file set may be wider than, or disjoint from, the true origin"
+          ],
+          "evidence_refs": [
+            "ev-gather",
+            "ev-origin-facts",
+            "ev-admission"
+          ]
+        },
+        {
+          "entry_id": "e1568",
+          "task": "aitasks#1568",
+          "topic": "aitasks#1544",
+          "position": 11,
+          "classification": "coordination_only",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "low",
+            "effort": "low",
+            "followup_kind": "risk_mitigation"
+          },
+          "rationale": "CONFLICT \u2014 Coordination. Risk band 3 (high) from code-health=high, goal-achievement=medium across 1 origin(s) [archived]; 1 axis/axes at that band. Origin risk read from: 1544. Origin quality: topic. Premise: SKIP. In-flight area affinity: yes. Priority low (tie-break only); effort low (capacity, not value). Spawned 2026-08-18 12:30.",
+          "confidence": "medium",
+          "caveats": [
+            "origin resolved by topic evidence, not an exact origin \u2014 the file set may be wider than, or disjoint from, the true origin"
+          ],
+          "evidence_refs": [
+            "ev-gather",
+            "ev-origin-facts",
+            "ev-admission"
+          ]
+        },
+        {
+          "entry_id": "e1600",
+          "task": "aitasks#1600",
+          "topic": "aitasks#1544",
+          "position": 12,
+          "classification": "coordination_only",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "low",
+            "effort": "low",
+            "followup_kind": "upstream_defect"
+          },
+          "rationale": "CONFLICT \u2014 Coordination. Risk band 3 (high) from code-health=high, goal-achievement=medium across 1 origin(s) [archived]; 1 axis/axes at that band. Origin risk read from: 1544. Origin quality: topic. Premise: SKIP. In-flight area affinity: yes. Priority low (tie-break only); effort low (capacity, not value). Spawned 2026-08-25 12:18.",
+          "confidence": "medium",
+          "caveats": [
+            "origin resolved by topic evidence, not an exact origin \u2014 the file set may be wider than, or disjoint from, the true origin"
+          ],
+          "evidence_refs": [
+            "ev-gather",
+            "ev-origin-facts",
+            "ev-admission"
+          ]
+        },
+        {
+          "entry_id": "e1695",
+          "task": "aitasks#1695",
+          "topic": "aitasks#1685",
+          "position": 13,
+          "classification": "coordination_only",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "followup_kind": "risk_mitigation"
+          },
+          "rationale": "CONFLICT \u2014 Coordination. Risk band 3 (high) from code-health=high, goal-achievement=medium across 1 origin(s) [archived]; 1 axis/axes at that band. Origin risk read from: 1685. Origin quality: topic. Premise: ASK_STALE. In-flight area affinity: yes. Priority medium (tie-break only); effort medium (capacity, not value). Spawned 2026-09-02 18:35.",
+          "confidence": "low",
+          "caveats": [
+            "origin resolved by topic evidence, not an exact origin \u2014 the file set may be wider than, or disjoint from, the true origin",
+            "premise may no longer hold: 2 origin file(s) changed, 0 could not be checked since the origin landed"
+          ],
+          "evidence_refs": [
+            "ev-gather",
+            "ev-origin-facts",
+            "ev-admission"
+          ]
+        },
+        {
+          "entry_id": "e1623",
+          "task": "aitasks#1623",
+          "topic": "aitasks#1598",
+          "position": 14,
+          "classification": "coordination_only",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "boardcol": "now",
+            "followup_kind": "risk_mitigation"
+          },
+          "rationale": "CONFLICT \u2014 Coordination. Risk band 3 (high) from code-health=high, goal-achievement=medium across 1 origin(s) [archived]; 1 axis/axes at that band. Origin risk read from: 1598. Origin quality: topic. Premise: ASK_STALE. In-flight area affinity: yes. Priority medium (tie-break only); effort medium (capacity, not value). Spawned 2026-08-26 08:03.",
+          "confidence": "low",
+          "caveats": [
+            "origin resolved by topic evidence, not an exact origin \u2014 the file set may be wider than, or disjoint from, the true origin",
+            "premise may no longer hold: 14 origin file(s) changed, 0 could not be checked since the origin landed"
+          ],
+          "evidence_refs": [
+            "ev-gather",
+            "ev-origin-facts",
+            "ev-admission"
+          ]
+        },
+        {
+          "entry_id": "e1628",
+          "task": "aitasks#1628",
+          "topic": "aitasks#1598",
+          "position": 15,
+          "classification": "coordination_only",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "boardcol": "now",
+            "followup_kind": "upstream_defect"
+          },
+          "rationale": "CONFLICT \u2014 Coordination. Risk band 3 (high) from code-health=high, goal-achievement=medium across 1 origin(s) [archived]; 1 axis/axes at that band. Origin risk read from: 1598. Origin quality: topic. Premise: ASK_STALE. In-flight area affinity: yes. Priority medium (tie-break only); effort low (capacity, not value). Spawned 2026-08-26 17:35.",
+          "confidence": "low",
+          "caveats": [
+            "origin resolved by topic evidence, not an exact origin \u2014 the file set may be wider than, or disjoint from, the true origin",
+            "premise may no longer hold: 14 origin file(s) changed, 0 could not be checked since the origin landed"
+          ],
+          "evidence_refs": [
+            "ev-gather",
+            "ev-origin-facts",
+            "ev-admission"
+          ]
+        },
+        {
+          "entry_id": "e1678",
+          "task": "aitasks#1678",
+          "topic": "aitasks#1599",
+          "position": 16,
+          "classification": "coordination_only",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "high",
+            "effort": "high",
+            "followup_kind": "risk_mitigation"
+          },
+          "rationale": "CONFLICT \u2014 Coordination. Risk band 2 (medium) from code-health=medium, goal-achievement=medium across 1 origin(s) [active]; 2 axis/axes at that band. Origin risk read from: 1599. Origin quality: topic. Premise: SKIP. In-flight area affinity: yes. Priority high (tie-break only); effort high (capacity, not value). Spawned 2026-09-02 09:02.",
+          "confidence": "medium",
+          "caveats": [
+            "origin resolved by topic evidence, not an exact origin \u2014 the file set may be wider than, or disjoint from, the true origin"
+          ],
+          "evidence_refs": [
+            "ev-gather",
+            "ev-origin-facts",
+            "ev-admission"
+          ]
+        },
+        {
+          "entry_id": "e1710",
+          "task": "aitasks#1710",
+          "topic": "aitasks#1599",
+          "position": 17,
+          "classification": "coordination_only",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "boardcol": "now",
+            "followup_kind": "risk_mitigation"
+          },
+          "rationale": "CONFLICT \u2014 Coordination. Risk band 2 (medium) from code-health=medium, goal-achievement=medium across 1 origin(s) [active]; 2 axis/axes at that band. Origin risk read from: 1599. Origin quality: topic. Premise: SKIP. In-flight area affinity: yes. Priority medium (tie-break only); effort low (capacity, not value). Spawned 2026-09-04 15:53.",
+          "confidence": "medium",
+          "caveats": [
+            "origin resolved by topic evidence, not an exact origin \u2014 the file set may be wider than, or disjoint from, the true origin"
+          ],
+          "evidence_refs": [
+            "ev-gather",
+            "ev-origin-facts",
+            "ev-admission"
+          ]
+        },
+        {
+          "entry_id": "e1713",
+          "task": "aitasks#1713",
+          "topic": "aitasks#1599",
+          "position": 18,
+          "classification": "coordination_only",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "followup_kind": "risk_mitigation"
+          },
+          "rationale": "CONFLICT \u2014 Coordination. Risk band 2 (medium) from code-health=medium, goal-achievement=medium across 1 origin(s) [active]; 2 axis/axes at that band. Origin risk read from: 1599. Origin quality: topic. Premise: SKIP. In-flight area affinity: yes. Priority medium (tie-break only); effort low (capacity, not value). Spawned 2026-09-04 16:56.",
+          "confidence": "medium",
+          "caveats": [
+            "origin resolved by topic evidence, not an exact origin \u2014 the file set may be wider than, or disjoint from, the true origin"
+          ],
+          "evidence_refs": [
+            "ev-gather",
+            "ev-origin-facts",
+            "ev-admission"
+          ]
+        },
+        {
+          "entry_id": "e1714",
+          "task": "aitasks#1714",
+          "topic": "aitasks#1599",
+          "position": 19,
+          "classification": "coordination_only",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "high",
+            "followup_kind": "risk_mitigation"
+          },
+          "rationale": "CONFLICT \u2014 Coordination. Risk band 2 (medium) from code-health=medium, goal-achievement=medium across 1 origin(s) [active]; 2 axis/axes at that band. Origin risk read from: 1599. Origin quality: topic. Premise: SKIP. In-flight area affinity: yes. Priority medium (tie-break only); effort high (capacity, not value). Spawned 2026-09-04 16:56.",
+          "confidence": "medium",
+          "caveats": [
+            "origin resolved by topic evidence, not an exact origin \u2014 the file set may be wider than, or disjoint from, the true origin"
+          ],
+          "evidence_refs": [
+            "ev-gather",
+            "ev-origin-facts",
+            "ev-admission"
+          ]
+        },
+        {
+          "entry_id": "e1604",
+          "task": "aitasks#1604",
+          "topic": "aitasks#1599",
+          "position": 20,
+          "classification": "coordination_only",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "followup_kind": "risk_mitigation"
+          },
+          "rationale": "CONFLICT \u2014 Coordination. Risk band 2 (medium) from code-health=medium, goal-achievement=medium across 1 origin(s) [active]; 2 axis/axes at that band. Origin risk read from: 1599. Origin quality: topic. Premise: SKIP. In-flight area affinity: yes. Priority medium (tie-break only); effort low (capacity, not value). Spawned 2026-08-25 12:51.",
+          "confidence": "medium",
+          "caveats": [
+            "origin resolved by topic evidence, not an exact origin \u2014 the file set may be wider than, or disjoint from, the true origin"
+          ],
+          "evidence_refs": [
+            "ev-gather",
+            "ev-origin-facts",
+            "ev-admission"
+          ]
+        }
+      ]
+    },
+    {
+      "wave_id": "wave-2",
+      "ordinal": 2,
+      "title": "Unresolvable",
+      "purpose": "The comparison could not be made. Named causes below \u2014 these are surfaced hedged and are deliberately not in the safe lane.",
+      "entries": [
+        {
+          "entry_id": "e1157",
+          "task": "aitasks#1157",
+          "topic": "aitasks#1157",
+          "position": 1,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "high",
+            "effort": "high",
+            "followup_kind": "risk_mitigation"
+          },
+          "rationale": "UNCHECKABLE \u2014 Unresolvable. Risk band 3 (high) from code-health=high, goal-achievement=high across 0 origin(s) [absent]; 2 axis/axes at that band. Origin risk read from: the task itself. Origin quality: unknown. Premise: SKIP. In-flight area affinity: no. Priority high (tie-break only); effort high (capacity, not value). Spawned 2026-07-17 11:50.",
+          "confidence": "low",
+          "caveats": [
+            "origin resolved by unknown evidence, not an exact origin \u2014 the file set may be wider than, or disjoint from, the true origin",
+            "no origin resolved \u2014 risk is the task's own declaration only",
+            "inflight:1699: no_liveness_token",
+            "inflight:1705_2: cross_host_lock",
+            "inflight:259: stale_claim:191d",
+            "inflight:887: stale_claim:23d",
+            "locks: locks_cached:0d",
+            "candidate: unknown_origin",
+            "inflight:1699: no_plan"
+          ],
+          "evidence_refs": [
+            "ev-gather",
+            "ev-origin-facts",
+            "ev-admission"
+          ]
+        },
+        {
+          "entry_id": "e1157_1",
+          "task": "aitasks#1157_1",
+          "topic": "aitasks#1157",
+          "position": 2,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "high",
+            "effort": "high"
+          },
+          "rationale": "UNCHECKABLE \u2014 Unresolvable. Risk band 3 (high) from code-health=high, goal-achievement=high across 1 origin(s) [active]; 2 axis/axes at that band. Origin risk read from: 1157. Origin quality: topic. Premise: SKIP. In-flight area affinity: no. Priority high (tie-break only); effort high (capacity, not value). Spawned 2026-07-17 12:14.",
+          "confidence": "low",
+          "caveats": [
+            "origin resolved by topic evidence, not an exact origin \u2014 the file set may be wider than, or disjoint from, the true origin",
+            "candidate: recovered_only",
+            "inflight:1699: no_liveness_token",
+            "inflight:1705_2: cross_host_lock",
+            "inflight:259: stale_claim:191d",
+            "inflight:887: stale_claim:23d",
+            "locks: locks_cached:0d",
+            "candidate: unknown_history",
+            "inflight:1699: no_plan"
+          ],
+          "evidence_refs": [
+            "ev-gather",
+            "ev-origin-facts",
+            "ev-admission"
+          ]
+        },
+        {
+          "entry_id": "e1157_2",
+          "task": "aitasks#1157_2",
+          "topic": "aitasks#1157",
+          "position": 3,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "high",
+            "effort": "high"
+          },
+          "rationale": "UNCHECKABLE \u2014 Unresolvable. Risk band 3 (high) from code-health=high, goal-achievement=high across 1 origin(s) [active]; 2 axis/axes at that band. Origin risk read from: 1157. Origin quality: topic. Premise: SKIP. In-flight area affinity: no. Priority high (tie-break only); effort high (capacity, not value). Spawned 2026-07-17 12:15.",
+          "confidence": "low",
+          "caveats": [
+            "origin resolved by topic evidence, not an exact origin \u2014 the file set may be wider than, or disjoint from, the true origin",
+            "candidate: recovered_only",
+            "inflight:1699: no_liveness_token",
+            "inflight:1705_2: cross_host_lock",
+            "inflight:259: stale_claim:191d",
+            "inflight:887: stale_claim:23d",
+            "locks: locks_cached:0d",
+            "candidate: unknown_history",
+            "inflight:1699: no_plan"
+          ],
+          "evidence_refs": [
+            "ev-gather",
+            "ev-origin-facts",
+            "ev-admission"
+          ]
+        },
+        {
+          "entry_id": "e1157_3",
+          "task": "aitasks#1157_3",
+          "topic": "aitasks#1157",
+          "position": 4,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "high",
+            "effort": "high"
+          },
+          "rationale": "UNCHECKABLE \u2014 Unresolvable. Risk band 3 (high) from code-health=high, goal-achievement=high across 1 origin(s) [active]; 2 axis/axes at that band. Origin risk read from: 1157. Origin quality: topic. Premise: SKIP. In-flight area affinity: no. Priority high (tie-break only); effort high (capacity, not value). Spawned 2026-07-17 12:15.",
+          "confidence": "low",
+          "caveats": [
+            "origin resolved by topic evidence, not an exact origin \u2014 the file set may be wider than, or disjoint from, the true origin",
+            "candidate: recovered_only",
+            "inflight:1699: no_liveness_token",
+            "inflight:1705_2: cross_host_lock",
+            "inflight:259: stale_claim:191d",
+            "inflight:887: stale_claim:23d",
+            "locks: locks_cached:0d",
+            "candidate: unknown_history",
+            "inflight:1699: no_plan"
+          ],
+          "evidence_refs": [
+            "ev-gather",
+            "ev-origin-facts",
+            "ev-admission"
+          ]
+        },
+        {
+          "entry_id": "e1157_4",
+          "task": "aitasks#1157_4",
+          "topic": "aitasks#1157",
+          "position": 5,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "high",
+            "effort": "high"
+          },
+          "rationale": "UNCHECKABLE \u2014 Unresolvable. Risk band 3 (high) from code-health=high, goal-achievement=high across 1 origin(s) [active]; 2 axis/axes at that band. Origin risk read from: 1157. Origin quality: topic. Premise: SKIP. In-flight area affinity: no. Priority high (tie-break only); effort high (capacity, not value). Spawned 2026-07-17 12:17.",
+          "confidence": "low",
+          "caveats": [
+            "origin resolved by topic evidence, not an exact origin \u2014 the file set may be wider than, or disjoint from, the true origin",
+            "candidate: recovered_only",
+            "inflight:1699: no_liveness_token",
+            "inflight:1705_2: cross_host_lock",
+            "inflight:259: stale_claim:191d",
+            "inflight:887: stale_claim:23d",
+            "locks: locks_cached:0d",
+            "candidate: unknown_history",
+            "inflight:1699: no_plan"
+          ],
+          "evidence_refs": [
+            "ev-gather",
+            "ev-origin-facts",
+            "ev-admission"
+          ]
+        },
+        {
+          "entry_id": "e1157_5",
+          "task": "aitasks#1157_5",
+          "topic": "aitasks#1157",
+          "position": 6,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "high",
+            "effort": "high"
+          },
+          "rationale": "UNCHECKABLE \u2014 Unresolvable. Risk band 3 (high) from code-health=high, goal-achievement=high across 1 origin(s) [active]; 2 axis/axes at that band. Origin risk read from: 1157. Origin quality: topic. Premise: SKIP. In-flight area affinity: no. Priority high (tie-break only); effort high (capacity, not value). Spawned 2026-07-17 12:18.",
+          "confidence": "low",
+          "caveats": [
+            "origin resolved by topic evidence, not an exact origin \u2014 the file set may be wider than, or disjoint from, the true origin",
+            "candidate: recovered_only",
+            "inflight:1699: no_liveness_token",
+            "inflight:1705_2: cross_host_lock",
+            "inflight:259: stale_claim:191d",
+            "inflight:887: stale_claim:23d",
+            "locks: locks_cached:0d",
+            "candidate: unknown_history",
+            "inflight:1699: no_plan"
+          ],
+          "evidence_refs": [
+            "ev-gather",
+            "ev-origin-facts",
+            "ev-admission"
+          ]
+        },
+        {
+          "entry_id": "e1157_9",
+          "task": "aitasks#1157_9",
+          "topic": "aitasks#1157",
+          "position": 7,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "high",
+            "effort": "high"
+          },
+          "rationale": "UNCHECKABLE \u2014 Unresolvable. Risk band 3 (high) from code-health=high, goal-achievement=high across 1 origin(s) [active]; 2 axis/axes at that band. Origin risk read from: 1157. Origin quality: topic. Premise: SKIP. In-flight area affinity: no. Priority high (tie-break only); effort high (capacity, not value). Spawned 2026-07-17 16:54.",
+          "confidence": "low",
+          "caveats": [
+            "origin resolved by topic evidence, not an exact origin \u2014 the file set may be wider than, or disjoint from, the true origin",
+            "candidate: recovered_only",
+            "inflight:1699: no_liveness_token",
+            "inflight:1705_2: cross_host_lock",
+            "inflight:259: stale_claim:191d",
+            "inflight:887: stale_claim:23d",
+            "locks: locks_cached:0d",
+            "candidate: unknown_history",
+            "inflight:1699: no_plan"
+          ],
+          "evidence_refs": [
+            "ev-gather",
+            "ev-origin-facts",
+            "ev-admission"
+          ]
+        },
+        {
+          "entry_id": "e1157_6",
+          "task": "aitasks#1157_6",
+          "topic": "aitasks#1157",
+          "position": 8,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "high"
+          },
+          "rationale": "UNCHECKABLE \u2014 Unresolvable. Risk band 3 (high) from code-health=high, goal-achievement=high across 1 origin(s) [active]; 2 axis/axes at that band. Origin risk read from: 1157. Origin quality: topic. Premise: SKIP. In-flight area affinity: no. Priority medium (tie-break only); effort high (capacity, not value). Spawned 2026-07-17 16:50.",
+          "confidence": "low",
+          "caveats": [
+            "origin resolved by topic evidence, not an exact origin \u2014 the file set may be wider than, or disjoint from, the true origin",
+            "candidate: recovered_only",
+            "inflight:1699: no_liveness_token",
+            "inflight:1705_2: cross_host_lock",
+            "inflight:259: stale_claim:191d",
+            "inflight:887: stale_claim:23d",
+            "locks: locks_cached:0d",
+            "candidate: unknown_history",
+            "inflight:1699: no_plan"
+          ],
+          "evidence_refs": [
+            "ev-gather",
+            "ev-origin-facts",
+            "ev-admission"
+          ]
+        },
+        {
+          "entry_id": "e1157_7",
+          "task": "aitasks#1157_7",
+          "topic": "aitasks#1157",
+          "position": 9,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "high"
+          },
+          "rationale": "UNCHECKABLE \u2014 Unresolvable. Risk band 3 (high) from code-health=high, goal-achievement=high across 1 origin(s) [active]; 2 axis/axes at that band. Origin risk read from: 1157. Origin quality: topic. Premise: SKIP. In-flight area affinity: no. Priority medium (tie-break only); effort high (capacity, not value). Spawned 2026-07-17 16:53.",
+          "confidence": "low",
+          "caveats": [
+            "origin resolved by topic evidence, not an exact origin \u2014 the file set may be wider than, or disjoint from, the true origin",
+            "candidate: recovered_only",
+            "inflight:1699: no_liveness_token",
+            "inflight:1705_2: cross_host_lock",
+            "inflight:259: stale_claim:191d",
+            "inflight:887: stale_claim:23d",
+            "locks: locks_cached:0d",
+            "candidate: unknown_history",
+            "inflight:1699: no_plan"
+          ],
+          "evidence_refs": [
+            "ev-gather",
+            "ev-origin-facts",
+            "ev-admission"
+          ]
+        },
+        {
+          "entry_id": "e1157_8",
+          "task": "aitasks#1157_8",
+          "topic": "aitasks#1157",
+          "position": 10,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium"
+          },
+          "rationale": "UNCHECKABLE \u2014 Unresolvable. Risk band 3 (high) from code-health=high, goal-achievement=high across 1 origin(s) [active]; 2 axis/axes at that band. Origin risk read from: 1157. Origin quality: topic. Premise: SKIP. In-flight area affinity: no. Priority medium (tie-break only); effort medium (capacity, not value). Spawned 2026-07-17 16:53.",
+          "confidence": "low",
+          "caveats": [
+            "origin resolved by topic evidence, not an exact origin \u2014 the file set may be wider than, or disjoint from, the true origin",
+            "candidate: recovered_only",
+            "inflight:1699: no_liveness_token",
+            "inflight:1705_2: cross_host_lock",
+            "inflight:259: stale_claim:191d",
+            "inflight:887: stale_claim:23d",
+            "locks: locks_cached:0d",
+            "candidate: unknown_history",
+            "inflight:1699: no_plan"
+          ],
+          "evidence_refs": [
+            "ev-gather",
+            "ev-origin-facts",
+            "ev-admission"
+          ]
+        },
+        {
+          "entry_id": "e1331",
+          "task": "aitasks#1331",
+          "topic": "aitasks#1311",
+          "position": 11,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "followup_kind": "upstream_defect"
+          },
+          "rationale": "UNCHECKABLE \u2014 Unresolvable. Risk band 3 (high) from code-health=high, goal-achievement=medium across 1 origin(s) [archived]; 1 axis/axes at that band. Origin risk read from: 1311. Origin quality: topic. Premise: ASK_STALE. In-flight area affinity: no. Priority medium (tie-break only); effort low (capacity, not value). Spawned 2026-07-29 17:00.",
+          "confidence": "low",
+          "caveats": [
+            "origin resolved by topic evidence, not an exact origin \u2014 the file set may be wider than, or disjoint from, the true origin",
+            "premise may no longer hold: 24 origin file(s) changed, 0 could not be checked since the origin landed",
+            "inflight:1699: no_liveness_token",
+            "inflight:1705_2: cross_host_lock",
+            "inflight:259: stale_claim:191d",
+            "inflight:887: stale_claim:23d",
+            "locks: locks_cached:0d",
+            "inflight:1699: no_plan"
+          ],
+          "evidence_refs": [
+            "ev-gather",
+            "ev-origin-facts",
+            "ev-admission"
+          ]
+        },
+        {
+          "entry_id": "e1332",
+          "task": "aitasks#1332",
+          "topic": "aitasks#1311",
+          "position": 12,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "followup_kind": "risk_mitigation"
+          },
+          "rationale": "UNCHECKABLE \u2014 Unresolvable. Risk band 3 (high) from code-health=high, goal-achievement=medium across 1 origin(s) [archived]; 1 axis/axes at that band. Origin risk read from: 1311. Origin quality: topic. Premise: ASK_STALE. In-flight area affinity: no. Priority medium (tie-break only); effort medium (capacity, not value). Spawned 2026-07-29 17:03.",
+          "confidence": "low",
+          "caveats": [
+            "origin resolved by topic evidence, not an exact origin \u2014 the file set may be wider than, or disjoint from, the true origin",
+            "premise may no longer hold: 24 origin file(s) changed, 0 could not be checked since the origin landed",
+            "inflight:1699: no_liveness_token",
+            "inflight:1705_2: cross_host_lock",
+            "inflight:259: stale_claim:191d",
+            "inflight:887: stale_claim:23d",
+            "locks: locks_cached:0d",
+            "inflight:1699: no_plan"
+          ],
+          "evidence_refs": [
+            "ev-gather",
+            "ev-origin-facts",
+            "ev-admission"
+          ]
+        },
+        {
+          "entry_id": "e1333",
+          "task": "aitasks#1333",
+          "topic": "aitasks#1311",
+          "position": 13,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "followup_kind": "risk_mitigation"
+          },
+          "rationale": "UNCHECKABLE \u2014 Unresolvable. Risk band 3 (high) from code-health=high, goal-achievement=medium across 1 origin(s) [archived]; 1 axis/axes at that band. Origin risk read from: 1311. Origin quality: topic. Premise: ASK_STALE. In-flight area affinity: no. Priority medium (tie-break only); effort low (capacity, not value). Spawned 2026-07-29 17:04.",
+          "confidence": "low",
+          "caveats": [
+            "origin resolved by topic evidence, not an exact origin \u2014 the file set may be wider than, or disjoint from, the true origin",
+            "premise may no longer hold: 24 origin file(s) changed, 0 could not be checked since the origin landed",
+            "inflight:1699: no_liveness_token",
+            "inflight:1705_2: cross_host_lock",
+            "inflight:259: stale_claim:191d",
+            "inflight:887: stale_claim:23d",
+            "locks: locks_cached:0d",
+            "inflight:1699: no_plan"
+          ],
+          "evidence_refs": [
+            "ev-gather",
+            "ev-origin-facts",
+            "ev-admission"
+          ]
+        },
+        {
+          "entry_id": "e1345",
+          "task": "aitasks#1345",
+          "topic": "aitasks#1311",
+          "position": 14,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "followup_kind": "upstream_defect"
+          },
+          "rationale": "UNCHECKABLE \u2014 Unresolvable. Risk band 3 (high) from code-health=high, goal-achievement=medium across 1 origin(s) [archived]; 1 axis/axes at that band. Origin risk read from: 1311. Origin quality: topic. Premise: ASK_STALE. In-flight area affinity: no. Priority medium (tie-break only); effort low (capacity, not value). Spawned 2026-07-29 22:44.",
+          "confidence": "low",
+          "caveats": [
+            "origin resolved by topic evidence, not an exact origin \u2014 the file set may be wider than, or disjoint from, the true origin",
+            "premise may no longer hold: 24 origin file(s) changed, 0 could not be checked since the origin landed",
+            "inflight:1699: no_liveness_token",
+            "inflight:1705_2: cross_host_lock",
+            "inflight:259: stale_claim:191d",
+            "inflight:887: stale_claim:23d",
+            "locks: locks_cached:0d",
+            "inflight:1699: no_plan"
+          ],
+          "evidence_refs": [
+            "ev-gather",
+            "ev-origin-facts",
+            "ev-admission"
+          ]
+        },
+        {
+          "entry_id": "e1712",
+          "task": "aitasks#1712",
+          "topic": "aitasks#1599",
+          "position": 15,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "boardcol": "now",
+            "followup_kind": "manual_verification"
+          },
+          "rationale": "UNCHECKABLE \u2014 Unresolvable. Risk band 2 (medium) from code-health=medium, goal-achievement=medium across 1 origin(s) [archived]; 2 axis/axes at that band. Origin risk read from: 1704. Origin quality: exact. Premise: FRESH. In-flight area affinity: no. Priority medium (tie-break only); effort medium (capacity, not value). Spawned 2026-09-04 16:55.",
+          "confidence": "low",
+          "caveats": [
+            "inflight:1699: no_liveness_token",
+            "inflight:1705_2: cross_host_lock",
+            "inflight:259: stale_claim:191d",
+            "inflight:887: stale_claim:23d",
+            "locks: locks_cached:0d",
+            "inflight:1699: no_plan"
+          ],
+          "evidence_refs": [
+            "ev-gather",
+            "ev-origin-facts",
+            "ev-admission"
+          ]
+        },
+        {
+          "entry_id": "e1450",
+          "task": "aitasks#1450",
+          "topic": "aitasks#1243",
+          "position": 16,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "followup_kind": "upstream_defect"
+          },
+          "rationale": "UNCHECKABLE \u2014 Unresolvable. Risk band 2 (medium) from code-health=medium, goal-achievement=medium across 1 origin(s) [active]; 2 axis/axes at that band. Origin risk read from: 1243. Origin quality: topic. Premise: SKIP. In-flight area affinity: no. Priority medium (tie-break only); effort low (capacity, not value). Spawned 2026-08-07 11:26.",
+          "confidence": "low",
+          "caveats": [
+            "origin resolved by topic evidence, not an exact origin \u2014 the file set may be wider than, or disjoint from, the true origin",
+            "inflight:1699: no_liveness_token",
+            "inflight:1705_2: cross_host_lock",
+            "inflight:259: stale_claim:191d",
+            "inflight:887: stale_claim:23d",
+            "locks: locks_cached:0d",
+            "inflight:1699: no_plan"
+          ],
+          "evidence_refs": [
+            "ev-gather",
+            "ev-origin-facts",
+            "ev-admission"
+          ]
+        },
+        {
+          "entry_id": "e1454",
+          "task": "aitasks#1454",
+          "topic": "aitasks#1243",
+          "position": 17,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "followup_kind": "verification_failure"
+          },
+          "rationale": "UNCHECKABLE \u2014 Unresolvable. Risk band 2 (medium) from code-health=medium, goal-achievement=medium across 1 origin(s) [active]; 2 axis/axes at that band. Origin risk read from: 1243. Origin quality: topic. Premise: SKIP. In-flight area affinity: no. Priority medium (tie-break only); effort medium (capacity, not value). Spawned 2026-08-07 13:08.",
+          "confidence": "low",
+          "caveats": [
+            "origin resolved by topic evidence, not an exact origin \u2014 the file set may be wider than, or disjoint from, the true origin",
+            "inflight:1699: no_liveness_token",
+            "inflight:1705_2: cross_host_lock",
+            "inflight:259: stale_claim:191d",
+            "inflight:887: stale_claim:23d",
+            "locks: locks_cached:0d",
+            "inflight:1699: no_plan"
+          ],
+          "evidence_refs": [
+            "ev-gather",
+            "ev-origin-facts",
+            "ev-admission"
+          ]
+        },
+        {
+          "entry_id": "e1455",
+          "task": "aitasks#1455",
+          "topic": "aitasks#1243",
+          "position": 18,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "followup_kind": "verification_failure"
+          },
+          "rationale": "UNCHECKABLE \u2014 Unresolvable. Risk band 2 (medium) from code-health=medium, goal-achievement=medium across 1 origin(s) [active]; 2 axis/axes at that band. Origin risk read from: 1243. Origin quality: topic. Premise: SKIP. In-flight area affinity: no. Priority medium (tie-break only); effort medium (capacity, not value). Spawned 2026-08-07 13:08.",
+          "confidence": "low",
+          "caveats": [
+            "origin resolved by topic evidence, not an exact origin \u2014 the file set may be wider than, or disjoint from, the true origin",
+            "inflight:1699: no_liveness_token",
+            "inflight:1705_2: cross_host_lock",
+            "inflight:259: stale_claim:191d",
+            "inflight:887: stale_claim:23d",
+            "locks: locks_cached:0d",
+            "inflight:1699: no_plan"
+          ],
+          "evidence_refs": [
+            "ev-gather",
+            "ev-origin-facts",
+            "ev-admission"
+          ]
+        },
+        {
+          "entry_id": "e1589",
+          "task": "aitasks#1589",
+          "topic": "aitasks#1560",
+          "position": 19,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "followup_kind": "upstream_defect"
+          },
+          "rationale": "UNCHECKABLE \u2014 Unresolvable. Risk band 2 (medium) from code-health=medium, goal-achievement=medium across 1 origin(s) [archived]; 2 axis/axes at that band. Origin risk read from: 1560. Origin quality: topic. Premise: SKIP. In-flight area affinity: no. Priority medium (tie-break only); effort low (capacity, not value). Spawned 2026-08-24 22:24.",
+          "confidence": "low",
+          "caveats": [
+            "origin resolved by topic evidence, not an exact origin \u2014 the file set may be wider than, or disjoint from, the true origin",
+            "inflight:1699: no_liveness_token",
+            "inflight:1705_2: cross_host_lock",
+            "inflight:259: stale_claim:191d",
+            "inflight:887: stale_claim:23d",
+            "locks: locks_cached:0d",
+            "inflight:1699: no_plan"
+          ],
+          "evidence_refs": [
+            "ev-gather",
+            "ev-origin-facts",
+            "ev-admission"
+          ]
+        },
+        {
+          "entry_id": "e1593",
+          "task": "aitasks#1593",
+          "topic": "aitasks#1560",
+          "position": 20,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "followup_kind": "risk_mitigation"
+          },
+          "rationale": "UNCHECKABLE \u2014 Unresolvable. Risk band 2 (medium) from code-health=medium, goal-achievement=medium across 1 origin(s) [archived]; 2 axis/axes at that band. Origin risk read from: 1560. Origin quality: topic. Premise: SKIP. In-flight area affinity: no. Priority medium (tie-break only); effort medium (capacity, not value). Spawned 2026-08-24 23:05.",
+          "confidence": "low",
+          "caveats": [
+            "origin resolved by topic evidence, not an exact origin \u2014 the file set may be wider than, or disjoint from, the true origin",
+            "inflight:1699: no_liveness_token",
+            "inflight:1705_2: cross_host_lock",
+            "inflight:259: stale_claim:191d",
+            "inflight:887: stale_claim:23d",
+            "locks: locks_cached:0d",
+            "inflight:1699: no_plan"
+          ],
+          "evidence_refs": [
+            "ev-gather",
+            "ev-origin-facts",
+            "ev-admission"
+          ]
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    {
+      "evidence_id": "ev-gather",
+      "source_type": "command_output",
+      "ref": "aitask_trail_gather.sh snapshot --scope task --with-inflight",
+      "observed_at": "2026-09-06T14:11Z",
+      "summary": "Member and in-flight facts for 257 scanned candidate(s); the in-flight records are digest-excluded by construction."
+    },
+    {
+      "evidence_id": "ev-origin-facts",
+      "source_type": "command_output",
+      "ref": "aitask_backlog_origin_facts.sh",
+      "observed_at": "2026-09-06T14:11Z",
+      "summary": "Origin risk facts, one row per (task, origin) pair, over the 257 scanned candidate(s)."
+    },
+    {
+      "evidence_id": "ev-admission",
+      "source_type": "command_output",
+      "ref": "parallel_admission.decide (one collected snapshot, re-aimed per candidate)",
+      "observed_at": "2026-09-06T14:11Z",
+      "summary": "Collision verdicts for every scanned candidate against one in-flight population; 40 published. CLEAR means no known conflict at check time."
+    }
+  ],
+  "rendering_hints": {
+    "depth": "deep"
+  },
+  "relations": [
+    {
+      "from": "aitasks#1649",
+      "to": "aitasks#1569_6",
+      "type": "coordinates_with",
+      "provenance": "advisory",
+      "note": "shares a file surface with work in flight at check time; this is an estimate and reserves nothing"
+    },
+    {
+      "from": "aitasks#1655",
+      "to": "aitasks#1569_6",
+      "type": "coordinates_with",
+      "provenance": "advisory",
+      "note": "shares a file surface with work in flight at check time; this is an estimate and reserves nothing"
+    },
+    {
+      "from": "aitasks#1635",
+      "to": "aitasks#1569_6",
+      "type": "coordinates_with",
+      "provenance": "advisory",
+      "note": "shares a file surface with work in flight at check time; this is an estimate and reserves nothing"
+    },
+    {
+      "from": "aitasks#1478",
+      "to": "aitasks#1569_6",
+      "type": "coordinates_with",
+      "provenance": "advisory",
+      "note": "shares a file surface with work in flight at check time; this is an estimate and reserves nothing"
+    },
+    {
+      "from": "aitasks#1516",
+      "to": "aitasks#1569_6",
+      "type": "coordinates_with",
+      "provenance": "advisory",
+      "note": "shares a file surface with work in flight at check time; this is an estimate and reserves nothing"
+    },
+    {
+      "from": "aitasks#1521",
+      "to": "aitasks#1569_6",
+      "type": "coordinates_with",
+      "provenance": "advisory",
+      "note": "shares a file surface with work in flight at check time; this is an estimate and reserves nothing"
+    },
+    {
+      "from": "aitasks#1567",
+      "to": "aitasks#1569_6",
+      "type": "coordinates_with",
+      "provenance": "advisory",
+      "note": "shares a file surface with work in flight at check time; this is an estimate and reserves nothing"
+    },
+    {
+      "from": "aitasks#1579",
+      "to": "aitasks#1569_6",
+      "type": "coordinates_with",
+      "provenance": "advisory",
+      "note": "shares a file surface with work in flight at check time; this is an estimate and reserves nothing"
+    },
+    {
+      "from": "aitasks#1584",
+      "to": "aitasks#1569_6",
+      "type": "coordinates_with",
+      "provenance": "advisory",
+      "note": "shares a file surface with work in flight at check time; this is an estimate and reserves nothing"
+    },
+    {
+      "from": "aitasks#1591",
+      "to": "aitasks#1569_6",
+      "type": "coordinates_with",
+      "provenance": "advisory",
+      "note": "shares a file surface with work in flight at check time; this is an estimate and reserves nothing"
+    },
+    {
+      "from": "aitasks#1568",
+      "to": "aitasks#1569_6",
+      "type": "coordinates_with",
+      "provenance": "advisory",
+      "note": "shares a file surface with work in flight at check time; this is an estimate and reserves nothing"
+    },
+    {
+      "from": "aitasks#1600",
+      "to": "aitasks#1569_6",
+      "type": "coordinates_with",
+      "provenance": "advisory",
+      "note": "shares a file surface with work in flight at check time; this is an estimate and reserves nothing"
+    },
+    {
+      "from": "aitasks#1695",
+      "to": "aitasks#1705_2",
+      "type": "coordinates_with",
+      "provenance": "advisory",
+      "note": "shares a file surface with work in flight at check time; this is an estimate and reserves nothing"
+    },
+    {
+      "from": "aitasks#1623",
+      "to": "aitasks#1569_6",
+      "type": "coordinates_with",
+      "provenance": "advisory",
+      "note": "shares a file surface with work in flight at check time; this is an estimate and reserves nothing"
+    },
+    {
+      "from": "aitasks#1623",
+      "to": "aitasks#1705_2",
+      "type": "coordinates_with",
+      "provenance": "advisory",
+      "note": "shares a file surface with work in flight at check time; this is an estimate and reserves nothing"
+    },
+    {
+      "from": "aitasks#1628",
+      "to": "aitasks#1569_6",
+      "type": "coordinates_with",
+      "provenance": "advisory",
+      "note": "shares a file surface with work in flight at check time; this is an estimate and reserves nothing"
+    },
+    {
+      "from": "aitasks#1628",
+      "to": "aitasks#1705_2",
+      "type": "coordinates_with",
+      "provenance": "advisory",
+      "note": "shares a file surface with work in flight at check time; this is an estimate and reserves nothing"
+    },
+    {
+      "from": "aitasks#1678",
+      "to": "aitasks#1569_6",
+      "type": "coordinates_with",
+      "provenance": "advisory",
+      "note": "shares a file surface with work in flight at check time; this is an estimate and reserves nothing"
+    },
+    {
+      "from": "aitasks#1710",
+      "to": "aitasks#1569_6",
+      "type": "coordinates_with",
+      "provenance": "advisory",
+      "note": "shares a file surface with work in flight at check time; this is an estimate and reserves nothing"
+    },
+    {
+      "from": "aitasks#1713",
+      "to": "aitasks#1569_6",
+      "type": "coordinates_with",
+      "provenance": "advisory",
+      "note": "shares a file surface with work in flight at check time; this is an estimate and reserves nothing"
+    },
+    {
+      "from": "aitasks#1714",
+      "to": "aitasks#1569_6",
+      "type": "coordinates_with",
+      "provenance": "advisory",
+      "note": "shares a file surface with work in flight at check time; this is an estimate and reserves nothing"
+    },
+    {
+      "from": "aitasks#1604",
+      "to": "aitasks#1569_6",
+      "type": "coordinates_with",
+      "provenance": "advisory",
+      "note": "shares a file surface with work in flight at check time; this is an estimate and reserves nothing"
+    }
+  ],
+  "observations": [
+    {
+      "observation_id": "obs-conflict-1649",
+      "kind": "in_flight_conflict",
+      "statement": "aitasks#1649 overlaps the surface of work in flight at check time.",
+      "affects": [
+        "aitasks#1649",
+        "aitasks#1569_6"
+      ],
+      "evidence_refs": [
+        "ev-gather",
+        "ev-origin-facts",
+        "ev-admission"
+      ]
+    },
+    {
+      "observation_id": "obs-conflict-1655",
+      "kind": "in_flight_conflict",
+      "statement": "aitasks#1655 overlaps the surface of work in flight at check time.",
+      "affects": [
+        "aitasks#1655",
+        "aitasks#1569_6"
+      ],
+      "evidence_refs": [
+        "ev-gather",
+        "ev-origin-facts",
+        "ev-admission"
+      ]
+    },
+    {
+      "observation_id": "obs-conflict-1635",
+      "kind": "in_flight_conflict",
+      "statement": "aitasks#1635 overlaps the surface of work in flight at check time.",
+      "affects": [
+        "aitasks#1635",
+        "aitasks#1569_6"
+      ],
+      "evidence_refs": [
+        "ev-gather",
+        "ev-origin-facts",
+        "ev-admission"
+      ]
+    },
+    {
+      "observation_id": "obs-conflict-1478",
+      "kind": "in_flight_conflict",
+      "statement": "aitasks#1478 overlaps the surface of work in flight at check time.",
+      "affects": [
+        "aitasks#1478",
+        "aitasks#1569_6"
+      ],
+      "evidence_refs": [
+        "ev-gather",
+        "ev-origin-facts",
+        "ev-admission"
+      ]
+    },
+    {
+      "observation_id": "obs-conflict-1516",
+      "kind": "in_flight_conflict",
+      "statement": "aitasks#1516 overlaps the surface of work in flight at check time.",
+      "affects": [
+        "aitasks#1516",
+        "aitasks#1569_6"
+      ],
+      "evidence_refs": [
+        "ev-gather",
+        "ev-origin-facts",
+        "ev-admission"
+      ]
+    },
+    {
+      "observation_id": "obs-conflict-1521",
+      "kind": "in_flight_conflict",
+      "statement": "aitasks#1521 overlaps the surface of work in flight at check time.",
+      "affects": [
+        "aitasks#1521",
+        "aitasks#1569_6"
+      ],
+      "evidence_refs": [
+        "ev-gather",
+        "ev-origin-facts",
+        "ev-admission"
+      ]
+    },
+    {
+      "observation_id": "obs-conflict-1567",
+      "kind": "in_flight_conflict",
+      "statement": "aitasks#1567 overlaps the surface of work in flight at check time.",
+      "affects": [
+        "aitasks#1567",
+        "aitasks#1569_6"
+      ],
+      "evidence_refs": [
+        "ev-gather",
+        "ev-origin-facts",
+        "ev-admission"
+      ]
+    },
+    {
+      "observation_id": "obs-conflict-1579",
+      "kind": "in_flight_conflict",
+      "statement": "aitasks#1579 overlaps the surface of work in flight at check time.",
+      "affects": [
+        "aitasks#1579",
+        "aitasks#1569_6"
+      ],
+      "evidence_refs": [
+        "ev-gather",
+        "ev-origin-facts",
+        "ev-admission"
+      ]
+    },
+    {
+      "observation_id": "obs-conflict-1584",
+      "kind": "in_flight_conflict",
+      "statement": "aitasks#1584 overlaps the surface of work in flight at check time.",
+      "affects": [
+        "aitasks#1584",
+        "aitasks#1569_6"
+      ],
+      "evidence_refs": [
+        "ev-gather",
+        "ev-origin-facts",
+        "ev-admission"
+      ]
+    },
+    {
+      "observation_id": "obs-conflict-1591",
+      "kind": "in_flight_conflict",
+      "statement": "aitasks#1591 overlaps the surface of work in flight at check time.",
+      "affects": [
+        "aitasks#1591",
+        "aitasks#1569_6"
+      ],
+      "evidence_refs": [
+        "ev-gather",
+        "ev-origin-facts",
+        "ev-admission"
+      ]
+    },
+    {
+      "observation_id": "obs-conflict-1568",
+      "kind": "in_flight_conflict",
+      "statement": "aitasks#1568 overlaps the surface of work in flight at check time.",
+      "affects": [
+        "aitasks#1568",
+        "aitasks#1569_6"
+      ],
+      "evidence_refs": [
+        "ev-gather",
+        "ev-origin-facts",
+        "ev-admission"
+      ]
+    },
+    {
+      "observation_id": "obs-conflict-1600",
+      "kind": "in_flight_conflict",
+      "statement": "aitasks#1600 overlaps the surface of work in flight at check time.",
+      "affects": [
+        "aitasks#1600",
+        "aitasks#1569_6"
+      ],
+      "evidence_refs": [
+        "ev-gather",
+        "ev-origin-facts",
+        "ev-admission"
+      ]
+    },
+    {
+      "observation_id": "obs-conflict-1695",
+      "kind": "in_flight_conflict",
+      "statement": "aitasks#1695 overlaps the surface of work in flight at check time.",
+      "affects": [
+        "aitasks#1695",
+        "aitasks#1705_2"
+      ],
+      "evidence_refs": [
+        "ev-gather",
+        "ev-origin-facts",
+        "ev-admission"
+      ]
+    },
+    {
+      "observation_id": "obs-premise-1695",
+      "kind": "stale_premise",
+      "statement": "The origin files behind aitasks#1695 have changed since the origin landed, so the premise this follow-up was written against may no longer hold.",
+      "affects": [
+        "aitasks#1695"
+      ],
+      "evidence_refs": [
+        "ev-gather",
+        "ev-origin-facts",
+        "ev-admission"
+      ]
+    },
+    {
+      "observation_id": "obs-conflict-1623",
+      "kind": "in_flight_conflict",
+      "statement": "aitasks#1623 overlaps the surface of work in flight at check time.",
+      "affects": [
+        "aitasks#1623",
+        "aitasks#1569_6",
+        "aitasks#1705_2"
+      ],
+      "evidence_refs": [
+        "ev-gather",
+        "ev-origin-facts",
+        "ev-admission"
+      ]
+    },
+    {
+      "observation_id": "obs-premise-1623",
+      "kind": "stale_premise",
+      "statement": "The origin files behind aitasks#1623 have changed since the origin landed, so the premise this follow-up was written against may no longer hold.",
+      "affects": [
+        "aitasks#1623"
+      ],
+      "evidence_refs": [
+        "ev-gather",
+        "ev-origin-facts",
+        "ev-admission"
+      ]
+    },
+    {
+      "observation_id": "obs-conflict-1628",
+      "kind": "in_flight_conflict",
+      "statement": "aitasks#1628 overlaps the surface of work in flight at check time.",
+      "affects": [
+        "aitasks#1628",
+        "aitasks#1569_6",
+        "aitasks#1705_2"
+      ],
+      "evidence_refs": [
+        "ev-gather",
+        "ev-origin-facts",
+        "ev-admission"
+      ]
+    },
+    {
+      "observation_id": "obs-premise-1628",
+      "kind": "stale_premise",
+      "statement": "The origin files behind aitasks#1628 have changed since the origin landed, so the premise this follow-up was written against may no longer hold.",
+      "affects": [
+        "aitasks#1628"
+      ],
+      "evidence_refs": [
+        "ev-gather",
+        "ev-origin-facts",
+        "ev-admission"
+      ]
+    },
+    {
+      "observation_id": "obs-premise-1331",
+      "kind": "stale_premise",
+      "statement": "The origin files behind aitasks#1331 have changed since the origin landed, so the premise this follow-up was written against may no longer hold.",
+      "affects": [
+        "aitasks#1331"
+      ],
+      "evidence_refs": [
+        "ev-gather",
+        "ev-origin-facts",
+        "ev-admission"
+      ]
+    },
+    {
+      "observation_id": "obs-premise-1332",
+      "kind": "stale_premise",
+      "statement": "The origin files behind aitasks#1332 have changed since the origin landed, so the premise this follow-up was written against may no longer hold.",
+      "affects": [
+        "aitasks#1332"
+      ],
+      "evidence_refs": [
+        "ev-gather",
+        "ev-origin-facts",
+        "ev-admission"
+      ]
+    },
+    {
+      "observation_id": "obs-premise-1333",
+      "kind": "stale_premise",
+      "statement": "The origin files behind aitasks#1333 have changed since the origin landed, so the premise this follow-up was written against may no longer hold.",
+      "affects": [
+        "aitasks#1333"
+      ],
+      "evidence_refs": [
+        "ev-gather",
+        "ev-origin-facts",
+        "ev-admission"
+      ]
+    },
+    {
+      "observation_id": "obs-premise-1345",
+      "kind": "stale_premise",
+      "statement": "The origin files behind aitasks#1345 have changed since the origin landed, so the premise this follow-up was written against may no longer hold.",
+      "affects": [
+        "aitasks#1345"
+      ],
+      "evidence_refs": [
+        "ev-gather",
+        "ev-origin-facts",
+        "ev-admission"
+      ]
+    },
+    {
+      "observation_id": "obs-conflict-1678",
+      "kind": "in_flight_conflict",
+      "statement": "aitasks#1678 overlaps the surface of work in flight at check time.",
+      "affects": [
+        "aitasks#1678",
+        "aitasks#1569_6"
+      ],
+      "evidence_refs": [
+        "ev-gather",
+        "ev-origin-facts",
+        "ev-admission"
+      ]
+    },
+    {
+      "observation_id": "obs-conflict-1710",
+      "kind": "in_flight_conflict",
+      "statement": "aitasks#1710 overlaps the surface of work in flight at check time.",
+      "affects": [
+        "aitasks#1710",
+        "aitasks#1569_6"
+      ],
+      "evidence_refs": [
+        "ev-gather",
+        "ev-origin-facts",
+        "ev-admission"
+      ]
+    },
+    {
+      "observation_id": "obs-conflict-1713",
+      "kind": "in_flight_conflict",
+      "statement": "aitasks#1713 overlaps the surface of work in flight at check time.",
+      "affects": [
+        "aitasks#1713",
+        "aitasks#1569_6"
+      ],
+      "evidence_refs": [
+        "ev-gather",
+        "ev-origin-facts",
+        "ev-admission"
+      ]
+    },
+    {
+      "observation_id": "obs-conflict-1714",
+      "kind": "in_flight_conflict",
+      "statement": "aitasks#1714 overlaps the surface of work in flight at check time.",
+      "affects": [
+        "aitasks#1714",
+        "aitasks#1569_6"
+      ],
+      "evidence_refs": [
+        "ev-gather",
+        "ev-origin-facts",
+        "ev-admission"
+      ]
+    },
+    {
+      "observation_id": "obs-conflict-1604",
+      "kind": "in_flight_conflict",
+      "statement": "aitasks#1604 overlaps the surface of work in flight at check time.",
+      "affects": [
+        "aitasks#1604",
+        "aitasks#1569_6"
+      ],
+      "evidence_refs": [
+        "ev-gather",
+        "ev-origin-facts",
+        "ev-admission"
+      ]
+    }
+  ]
+}
