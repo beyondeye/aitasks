@@ -458,10 +458,10 @@ t1657_7.*
     reachability walk.
 
 - **Upstream defects identified:**
-  - `aidocs/framework/aitasks_extension_points.md:319 — prose says "7-touchpoint
-    checklist" while its own table lists 5; `aitask_note.sh` is whitelisted in
-    exactly those 5, so the count is stale. Handed to t1657_6 (the docs child),
-    not fixed here.
+  - `aidocs/framework/aitasks_extension_points.md:319` — prose says "7-touchpoint
+    checklist" while its own table lists 5 rows; `aitask_note.sh` is whitelisted
+    in exactly those 5, so the count is stale. Spawned as **t1717** at Step 8b
+    (not folded into t1657_6, whose scope is this feature's own docs).
 
 - **Notes for sibling tasks:**
   - **t1657_5 owns the composition** and has been sent a durable note with the
