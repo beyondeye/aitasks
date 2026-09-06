@@ -44,6 +44,8 @@ source "$SCRIPT_DIR/lib/stale_lock.sh"
 source "$SCRIPT_DIR/lib/ledger_block.sh"
 # shellcheck source=lib/pid_anchor.sh
 source "$SCRIPT_DIR/lib/pid_anchor.sh"
+# shellcheck source=lib/lock_record.sh
+source "$SCRIPT_DIR/lib/lock_record.sh"
 # shellcheck source=lib/git_utils.sh
 source "$SCRIPT_DIR/lib/git_utils.sh"
 # shellcheck source=lib/python_resolve.sh
@@ -311,21 +313,18 @@ note_capture_provenance() {
 # with the right fail-closed semantics. Returns 0 only when this very session
 # provably holds the sender task's lock.
 note_sender_is_self() {
-    local from_bare="$1" out pid token kind host
-    out="$("$SCRIPT_DIR/aitask_lock.sh" --check "$from_bare" 2>/dev/null || true)"
-    [[ -n "$out" ]] || return 1
+    local from_bare="$1"
+    # The record parse lives in lib/lock_record.sh — aitask_live_endpoint.sh asks
+    # a different question of the same four fields, and one reader is what keeps
+    # the two from drifting about what a lock says.
+    lock_record_read "$from_bare" || return 1
 
-    host="$(printf '%s\n' "$out" | sed -n 's/^hostname: //p' | head -n1)"
-    pid="$(printf '%s\n' "$out" | sed -n 's/^pid: //p' | head -n1)"
-    token="$(printf '%s\n' "$out" | sed -n 's/^pid_starttime: //p' | head -n1)"
-    kind="$(printf '%s\n' "$out" | sed -n 's/^pid_starttime_kind: //p' | head -n1)"
-
-    [[ "$host" == "$(hostname)" ]] || return 1
+    [[ "$LOCK_REC_HOST" == "$(hostname)" ]] || return 1
     # All three of pid, start-time token and token KIND must match — a recycled
     # PID carries the same number with a different token. An own-anchor this
     # process cannot resolve can never claim identity, so an unverifiable anchor
     # fails TOWARD the gate rather than around it.
-    lock_anchor_is_self "$pid" "${token:--}" "${kind:-proc}" || return 1
+    lock_anchor_is_self "$LOCK_REC_PID" "${LOCK_REC_TOKEN:--}" "${LOCK_REC_KIND:-proc}" || return 1
     return 0
 }
 

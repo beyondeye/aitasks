@@ -32,6 +32,7 @@
       "Bash(./.aitask-scripts/aitask_followup_backfill.sh:*)",
       "Bash(./.aitask-scripts/aitask_learn_wrappers.sh:*)",
       "Bash(./.aitask-scripts/aitask_ls.sh:*)",
+      "Bash(./.aitask-scripts/aitask_live_endpoint.sh:*)",
       "Bash(./.aitask-scripts/aitask_note.sh:*)",
       "Bash(./.aitask-scripts/aitask_merge_task.sh:*)",
       "Bash(./.aitask-scripts/aitask_parallel_admission:*)",
