@@ -32,6 +32,7 @@ All updates should be made there.
 | [/aitask-create](../website/content/docs/skills/aitask-create.md) | `skills/aitask-create.md` | Create a new task file interactively |
 | [/aitask-fold](../website/content/docs/skills/aitask-fold.md) | `skills/aitask-fold.md` | Identify and merge related tasks |
 | [/aitask-stats](../website/content/docs/skills/aitask-stats.md) | `skills/aitask-stats.md` | View task completion statistics |
+| [/aitask-backlog-roadmap](../website/content/docs/skills/aitask-backlog-roadmap.md) | `skills/aitask-backlog-roadmap.md` | Rank the background-work backlog into a conflict-aware implementation trail |
 | [/aitask-changelog](../website/content/docs/skills/aitask-changelog.md) | `skills/aitask-changelog.md` | Generate a changelog entry |
 | [/aitask-docs-gap](../website/content/docs/skills/aitask-docs-gap.md) | `skills/aitask-docs-gap.md` | Find release docs gaps, create one documentation task |
 | [/aitask-review](../website/content/docs/skills/aitask-review.md) | `skills/aitask-review.md` | Review code using configurable review guides |
