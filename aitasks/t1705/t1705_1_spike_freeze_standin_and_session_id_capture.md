@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: high
 effort: medium
 depends: []
 issue_type: test
@@ -10,7 +12,6 @@ active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
-plan_approved_at: 2026-09-06 10:58
 assigned_to: dario-e@beyond-eye.com
 anchor: 1705
 implemented_with: claudecode/opus5
@@ -187,3 +188,5 @@ tasks"). Never `kill-server` from an agent pane — `$TMUX` beats `TMUX_TMPDIR`.
 > Note: deferred
 
 > **✅ gate:plan_approved** run=2026-09-06T08:06:30Z status=pass attempt=2 type=human
+
+> **✅ gate:review_approved** run=2026-09-06T10:01:27Z status=pass attempt=1 type=human
