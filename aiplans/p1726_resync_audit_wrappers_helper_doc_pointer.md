@@ -213,3 +213,62 @@ Current-branch mode — nothing to merge. Step 9 commits the two paths
 (`.claude/skills/aitask-audit-wrappers/SKILL.md`,
 `tests/test_touchpoint_count_contract.sh`) as `bug: …(t1726)`, runs the
 `risk_evaluated` gate, and archives `t1726` + `p1726` once the gate passes.
+
+## Final Implementation Notes
+
+- **Actual work done:** Both stale pointers in
+  `.claude/skills/aitask-audit-wrappers/SKILL.md` (Overview line 15, `## See also`
+  line 181) now name `` `aidocs/framework/aitasks_extension_points.md` `` "Adding a
+  new helper script", matching the spelling `aitask_audit_wrappers.sh::usage()`
+  already uses. `tests/test_touchpoint_count_contract.sh` gained a `CLAUDE_MD`
+  constant and a Test 7 block of five assertions pinning section ownership and both
+  citations of it. No other file changed — confirmed by
+  `git status --short .agents .opencode` returning empty.
+
+- **Deviations from plan:** None in scope or outcome. One correction during
+  implementation: the plan's Test 7 draft passed `assert_contains` its arguments in
+  the order `(desc, haystack, needle)`, but the real signature in
+  `tests/lib/asserts.sh:179` is `(desc, needle, haystack)`. With a whole file as the
+  needle, `grep -qF` matches on any single line — including a blank one — so two of
+  the five assertions passed **vacuously**. Caught by the plan's own negative
+  control, which predicted two pre-fix failures and produced only one. All five
+  assertions were rewritten as `assert_eq` count comparisons, which keeps failure
+  output short and cannot pass vacuously. The rerun then failed exactly the two
+  predicted assertions. The plan's `|| true` note (`grep -c` exits 1 on zero matches
+  under this file's `set -u`-without-`-e` regime) carried over and is now a code
+  comment.
+
+- **Issues encountered:** The Remote Drift Check first reported `AHEAD:3` with
+  `OVERLAP` on both files this task targets. Investigation showed the overlap was
+  spurious — the three remote commits (t1705_2, t1716, t1705_1) touch neither file;
+  the flag came from local `main` being 12 commits ahead of a **stale** `origin/main`
+  ref, which put local-only t1717 content into the tip-to-tip diff. After
+  `git fetch origin main` the check returned `UP_TO_DATE`.
+
+- **Key decisions:**
+  - **Rerender and goldens skipped, deliberately.** The task's suggested fix called
+    for `aitask_skill_rerender.sh <profile>` across every profile plus goldens
+    regeneration. Neither applies: `.claude/skills/aitask-audit-wrappers/` holds no
+    `SKILL.md.j2` (it is a static skill), and `tests/golden/skills/` carries no
+    `aitask-audit-wrappers` entry. Running the rerender would have churned unrelated
+    skills' rendered variants for no effect on this fix.
+  - **The task's "replicated across the rendered Codex/OpenCode wrapper trees"
+    premise does not hold.** `.agents/skills/aitask-audit-wrappers/SKILL.md` (20
+    lines) and `.opencode/skills/aitask-audit-wrappers/SKILL.md` (17 lines) are thin
+    source-of-truth stubs, and `.opencode/commands/aitask-audit-wrappers.md`
+    `@`-includes the Claude file. A repo-wide grep for the stale phrase matched
+    exactly one path.
+  - **Line 180 left unchanged on purpose.** `CLAUDE.md "WORKING ON SKILLS / CUSTOM
+    COMMANDS"` names the right file and right section; only its casing drifted from
+    the real `## Working on Skills / Custom Commands`. Its twin lives at
+    `website/content/docs/development/skills/aitask-audit-wrappers.md:93`, so fixing
+    one and not the other would create drift where the two currently agree, and
+    fixing both would drag a Hugo build plus `check_links.py` into a prose-pointer
+    task.
+  - **Guard placed in the existing contract test, not a new file.** That file's own
+    header states its charter — the t1717 count "silently went stale … Nothing
+    failed, because nothing checked" — and this is the same class of defect on the
+    same surfaces. Test 7 also pins t1717's own `usage()` fix, which was previously
+    unguarded.
+
+- **Upstream defects identified:** None
