@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: medium
 depends: [t1657_2, t1657_4]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [framework, claudeskills, skills, agents_md, codeagent]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1657
 implemented_with: claudecode/opus5
 created_at: 2026-09-01 12:36
-updated_at: 2026-09-07 17:28
+updated_at: 2026-09-07 18:11
+completed_at: 2026-09-07 18:11
 ---
 
 # Discoverability: the `aitask-note` skill and the always-loaded surfaces
@@ -218,3 +219,14 @@ not the current one" convention, which today has no mechanism to act on:
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-09-07T14:28:18Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-07T15:11:21Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:1c63944733c2f638
+
+> **✅ gate:risk_evaluated** run=2026-09-07T15:11:21Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1657_5/risk_evaluated_2026-09-07T15:11:21Z-risk_evaluated-a1.log`
