@@ -15,7 +15,7 @@ grep -oE '[A-Za-z0-9_./-]+\.(sh|py|md|yaml|yml|json|toml)' "$PLAN_FILE" \
   | sort -u
 ```
 
-Its output is intersected with `git diff --name-only <base>..origin/<base>` by
+Its output is intersected with `git diff --name-only <base>...origin/<base>` by
 exact full-line match (`grep -Fxf`). The intersection is what makes the stage
 safe: a token that is not a real remote-changed path is discarded there. It is
 also what makes every finding below a **false negative** — a file the framework

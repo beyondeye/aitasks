@@ -117,6 +117,24 @@ portability quirks (BSD vs GNU tooling) live in
   artifact manifests (`lib/attachment_lock.sh`), agent marks, shadow
   rejections, `ait gates sync-registry`. (This lock family is distinct from
   `aitask_lock.sh`, the git-visible *task ownership* lock.)
+- **Two dots in `git diff` are not a commit range.** `git log A..B` means
+  "commits in B not in A", but `git diff A..B` is just `git diff A B` — an
+  endpoint-to-endpoint comparison — so it also reports files changed only by the
+  *local* side. Whenever the two endpoints can diverge, use three dots
+  (`git diff A...B`), which diffs from the merge base and yields "what B
+  changed". This is the t1724 bug: `aitask_remote_drift_check.sh` computed its
+  remote-changed file set with `<base>..origin/<base>` and reported the user's
+  own landed commits as remote drift, inflating `OVERLAP` — the *strong* half of
+  the check — and training the user to click past a real hit.
+
+  **The discriminator is whether the left side is an ancestor of the right.**
+  When it is, the two forms are identical by definition, so these existing sites
+  are correct as written and must not be "fixed": `aitask_revert_analyze.sh`
+  (`<hash>^..<hash>`), `.claude/skills/aitask-qa/change-analysis.md` and
+  `.claude/skills/aitask-shadow/impl-challenge.md` (`<first>^..<last>`), and
+  `.claude/skills/aitask-docs-gap/SKILL.md` (`<release-tag>..HEAD`). Because a
+  grep cannot tell an ancestor pair from a divergent one, there is deliberately
+  no scan guard for this — it would flag all four. Check the endpoints by hand.
 - **Avoid `claude -p` / `claude --print` (headless print mode) in scripts and
   skills.** Claude Code bills headless print mode at a higher per-token rate
   than interactive invocations against an existing session. Default to
