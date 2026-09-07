@@ -1266,6 +1266,244 @@ class SessionsView:
         return self._sf.by_id(record_id)
 
 
+# --- transcript fallback ----------------------------------------------------
+#
+# When the SessionStart hook never fired, the store has no codeagent session id
+# and the only remaining source is the agent's own transcript store. This is not
+# a rare path: codex 0.153.4 fires SessionStart under `codex exec` but NOT in
+# the interactive TUI, which is how the framework launches agents -- so for
+# interactive codex this IS the mechanism, not a backstop.
+#
+# The layouts below are pinned by tests/data/session_hooks/transcript_layout.json,
+# captured from real stores. Two of them contradicted the original plan:
+#
+#   * claude encodes BOTH '/' and '_' as '-' in the project directory name
+#     (the '/'-only rule matched 2 of 6 real directories), and whether '.' or
+#     ' ' are also encoded remains UNOBSERVED. So the computed name is a fast
+#     path only -- a candidate is always VERIFIED by reading cwd out of its
+#     transcripts, and a miss falls back to scanning the whole store. That is
+#     correct under every candidate escape rule, which is what stops an
+#     unobserved character from silently yielding "no session".
+#   * codex puts cwd and session_id under `payload`, not at the top level, and
+#     partitions by DATE rather than by project.
+
+MISS_NO_STORE_DIR = "no_store_dir"
+MISS_NO_PROJECT_DIR = "no_project_dir"
+MISS_NO_MATCH = "no_match"
+MISS_UNSUPPORTED_AGENT = "unsupported_agent"
+
+_CODEX_ROLLOUT_RE = re.compile(
+    r"^rollout-.+?-(?P<session_id>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-"
+    r"[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$"
+)
+
+
+def claude_project_dirname(root: str) -> str:
+    """Encode a project path the way Claude Code names its transcript directory.
+
+    Established rule: '/' and '_' both become '-'. Treat the result as a
+    CANDIDATE, never as truth -- see the module note above.
+    """
+    return root.replace("/", "-").replace("_", "-")
+
+
+def _claude_transcript_cwd(path: Path) -> str:
+    """The first non-empty top-level ``cwd`` in a claude transcript.
+
+    NOT on line 1 (observed at lines 2-5), so the file is scanned rather than
+    peeked. Bounded so a huge transcript cannot stall a keypress path.
+    """
+    try:
+        with path.open(encoding="utf-8", errors="replace") as fh:
+            for i, line in enumerate(fh):
+                if i > 50:
+                    break
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except (ValueError, TypeError):
+                    continue
+                if isinstance(obj, dict) and obj.get("cwd"):
+                    return str(obj["cwd"])
+    except OSError:
+        pass
+    return ""
+
+
+def _codex_session_meta(path: Path) -> tuple[str, str]:
+    """``(cwd, session_id)`` from a codex rollout's first line.
+
+    First line is ``type: session_meta`` and both values live under ``payload``
+    -- a top-level lookup returns nothing for every codex session.
+    """
+    try:
+        with path.open(encoding="utf-8", errors="replace") as fh:
+            first = fh.readline()
+    except OSError:
+        return "", ""
+    try:
+        obj = json.loads(first)
+    except (ValueError, TypeError):
+        return "", ""
+    payload = obj.get("payload") if isinstance(obj, dict) else None
+    if not isinstance(payload, dict):
+        return "", ""
+    return str(payload.get("cwd") or ""), str(payload.get("session_id") or "")
+
+
+def _newest(paths: list[Path]) -> list[Path]:
+    """Newest first. Ties break on name (descending) so tests cannot flake and
+    a reader can predict which of two same-mtime transcripts wins."""
+    return sorted(paths, key=lambda p: (p.stat().st_mtime, p.name), reverse=True)
+
+
+def _claude_store_roots(home: Path, env) -> list[Path]:
+    """Candidate claude transcript stores, most specific first.
+
+    CLAUDE_CONFIG_DIR relocates `.claude.json`, but whether it also relocates
+    `projects/` is NOT established: tests/test_frozen_standin_spike.sh always
+    launches with it set, yet its scratch projects appear under the DEFAULT
+    ~/.claude/projects (claude 2.1.263). So both are searched, override first.
+    Searching both is correct under either behaviour and cannot regress the
+    default path -- which guessing one root could.
+    """
+    roots: list[Path] = []
+    cfg = (env.get("CLAUDE_CONFIG_DIR") or "").strip()
+    if cfg:
+        roots.append(Path(cfg) / "projects")
+    roots.append(home / ".claude" / "projects")
+    return roots
+
+
+def _codex_store_roots(home: Path, env) -> list[Path]:
+    """Candidate codex transcript stores, most specific first.
+
+    CODEX_HOME relocating `sessions/` IS established -- the spike reads
+    `find "$CODEX_HOME_DIR/sessions"` directly. Without honouring it, an agent
+    launched with a custom CODEX_HOME writes its transcripts there while this
+    resolver scans ~/.codex/sessions and reports no_store_dir, forcing re-pick
+    on exactly the path the fallback exists to rescue.
+    """
+    roots: list[Path] = []
+    ch = (env.get("CODEX_HOME") or "").strip()
+    if ch:
+        roots.append(Path(ch) / "sessions")
+    roots.append(home / ".codex" / "sessions")
+    return roots
+
+
+def _existing(roots: list[Path]) -> list[Path]:
+    """Deduplicate (an override may equal the default) and keep real dirs."""
+    out: list[Path] = []
+    seen: set[str] = set()
+    for r in roots:
+        try:
+            key = str(r.resolve())
+        except OSError:
+            key = str(r)
+        if key in seen:
+            continue
+        seen.add(key)
+        if r.is_dir():
+            out.append(r)
+    return out
+
+
+def _claude_newest_transcript(root: str, home: Path, env) -> tuple[str, str, str]:
+    stores = _existing(_claude_store_roots(home, env))
+    if not stores:
+        return "", "", MISS_NO_STORE_DIR
+
+    # Fast path: the computed directory name, in each candidate store.
+    computed: list[Path] = []
+    for store in stores:
+        c = store / claude_project_dirname(root)
+        if c.is_dir():
+            computed.append(c)
+
+    # Verify the fast path, then fall back to scanning every store. The encode
+    # rule is only partially determined, so a computed miss is expected rather
+    # than exceptional.
+    everything: list[Path] = []
+    for store in stores:
+        try:
+            everything.extend(d for d in store.iterdir() if d.is_dir())
+        except OSError:
+            continue
+
+    for scope in (computed, everything):
+        if not scope:
+            continue
+        files: list[Path] = []
+        for d in scope:
+            try:
+                files.extend(p for p in d.glob("*.jsonl") if p.is_file())
+            except OSError:
+                continue
+        for path in _newest(files):
+            if _claude_transcript_cwd(path) == root:
+                return path.stem, str(path), ""
+    return "", "", (MISS_NO_MATCH if computed else MISS_NO_PROJECT_DIR)
+
+
+def _codex_newest_transcript(root: str, home: Path, env) -> tuple[str, str, str]:
+    stores = _existing(_codex_store_roots(home, env))
+    if not stores:
+        return "", "", MISS_NO_STORE_DIR
+    rollouts: list[Path] = []
+    for store in stores:
+        try:
+            rollouts.extend(p for p in store.glob("*/*/*/*.jsonl") if p.is_file())
+        except OSError:
+            continue
+    if not rollouts:
+        return "", "", MISS_NO_MATCH
+    for path in _newest(rollouts):
+        cwd, session_id = _codex_session_meta(path)
+        if cwd != root:
+            continue
+        if not session_id:
+            m = _CODEX_ROLLOUT_RE.match(path.name)
+            session_id = m.group("session_id") if m else ""
+        if session_id:
+            return session_id, str(path), ""
+    return "", "", MISS_NO_MATCH
+
+
+def newest_transcript_for(
+    root: str, agent_kind: str, *, home: Path | None = None, env=None
+) -> tuple[str, str, str]:
+    """Resolve ``(session_id, transcript_path, miss_reason)`` from the agent's
+    own transcript store, for use when the SessionStart hook never fired.
+
+    Honours each agent's store-root override (``CLAUDE_CONFIG_DIR`` /
+    ``CODEX_HOME``) IN ADDITION to the default under ``$HOME`` -- an agent
+    launched with a custom root writes its transcripts there, and scanning only
+    the default would report "no session" for exactly the sessions this
+    function exists to find.
+
+    ``home`` and ``env`` are test seams: ``home`` overrides ``$HOME`` for the
+    default roots, ``env`` overrides the environment consulted for the
+    override roots (pass ``{}`` for a hermetic run).
+
+    On success ``miss_reason`` is ``""``. On a miss BOTH ids are ``""`` and
+    ``miss_reason`` says which kind of miss it was -- that third value is the
+    whole point: without it a wrong layout assumption is indistinguishable from
+    "this agent genuinely has no session", and a store-layout change after an
+    agent release would look exactly like normal operation.
+    """
+    home = Path(os.path.expanduser("~")) if home is None else home
+    env = os.environ if env is None else env
+    croot = os.path.realpath(root)
+    if agent_kind == "claudecode":
+        return _claude_newest_transcript(croot, home, env)
+    if agent_kind == "codex":
+        return _codex_newest_transcript(croot, home, env)
+    return "", "", MISS_UNSUPPORTED_AGENT
+
+
 # --- CLI --------------------------------------------------------------------
 
 _LIST_FIELDS = (

@@ -28,3 +28,28 @@ justification = "Force push requires approval"
 pattern = [{ token = "git" }, { token = "reset" }, { token = "--hard" }]
 decision = "prompt"
 justification = "Hard reset requires approval"
+
+# SessionStart hook — records the codeagent session id into the framework
+# session store so a frozen agent can later be restored (`codex resume <id>`).
+#
+# LIMITATION (established 2026-09-06, codex 0.153.4): this fires under
+# `codex exec` but NOT in the interactive TUI, which is the framework's
+# production launch path. Interactive codex sessions therefore capture no
+# session id here — the framework falls back to scanning ~/.codex/sessions,
+# or to re-picking the task.
+#
+# The command is REPO-RELATIVE on purpose: .codex/config.toml is a tracked,
+# framework-committed file and codex has no $CLAUDE_PROJECT_DIR equivalent, so
+# an absolute path would commit a developer's home directory.
+#
+# The hook also requires the project to be trusted:
+#   [projects."<realpath>"] trust_level = "trusted"   in $CODEX_HOME/config.toml
+# which is outside `ait setup`'s remit — it never writes the user's codex home.
+
+[[hooks.SessionStart]]
+matcher = "startup|resume"
+
+[[hooks.SessionStart.hooks]]
+type = "command"
+command = ".aitask-scripts/aitask_session_hook.sh"
+timeout = 10

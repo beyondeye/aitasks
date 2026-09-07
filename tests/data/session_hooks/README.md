@@ -118,6 +118,38 @@ must also flip `_fixture_status` to `captured`, set
 `_capture_mode: interactive`, drop `_reason`, and update the findings block in
 `aiplans/p1705_frozen_codeagents_session_store_and_viewer_tui.md`.
 
+## `transcript_layout.json` — the fallback resolver's ground truth
+
+Added by t1705_3. `newest_transcript_for` in `lib/agent_sessions.py` recovers a
+session id from the agent's own transcript store when the hook never fired —
+which, for interactive codex, is the ONLY mechanism. This fixture records the
+real store layouts it is written against, captured from live stores on
+2026-09-07.
+
+It exists because **two of the planned assumptions were wrong**, and both fail
+*silently* (an empty result is indistinguishable from "this agent has no
+session"):
+
+| assumption | planned | actual |
+|---|---|---|
+| claude project-dir encoding | `/` → `-` | `/` **and `_`** → `-` (the planned rule matched 2 of 6 real dirs) |
+| codex cwd location | first line, top-level `cwd` | first line `payload.cwd` (top-level `cwd` absent in 10/10) |
+
+The claude rule is only **partially** determined — no observed directory
+contained a `.` or a space — which is why the resolver treats the computed
+directory name as a fast path and then VERIFIES the candidate by reading `cwd`
+out of its transcripts, falling back to a full-store scan. That design is
+correct under every candidate escape rule, so an unobserved character cannot
+silently produce "no session".
+
+Consumed by `tests/test_agent_sessions_transcripts.py`, which also asserts this
+file stays valid, redacted, and in agreement with the implemented rule.
+
+### How to refresh
+
+Re-probe the real stores and update the JSON and the table above in the same
+commit. Keep the redaction contract below: record the *rule*, never a path.
+
 ## Redaction contract
 
 Fixtures are committed to a public repository, and redaction is asserted on

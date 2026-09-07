@@ -1,0 +1,75 @@
+{
+  "_purpose": "Ground truth for lib/agent_sessions.py::newest_transcript_for, the fallback that resolves a code agent's session id when the SessionStart hook never fired. Captured by the t1705_3 verify_transcript_layouts pre-phase, which exists because the resolver's assumptions were WRONG (see _plan_assumptions_corrected).",
+  "_captured_at": "2026-09-07",
+  "_redaction": "Records the RULE, never a personal path. Every example path is redacted; no value names a real home directory or user account. Same contract as the sibling *_sessionstart.json fixtures -- see README.md.",
+  "_plan_assumptions_corrected": {
+    "claude_escape_rule": {
+      "planned": "'/' -> '-'",
+      "actual": "'/' -> '-' AND '_' -> '-'",
+      "evidence": "Checked against 6 real project directories resolved back to their cwd. The planned rule matched 2/6; it fails on every path containing an underscore. Both '/ and _ -> -' and 'every non-alphanumeric -> -' matched 6/6 and cannot be told apart from this sample (no directory contained a '.' or a space).",
+      "consequence_if_shipped": "A project whose path contains '_' resolves to a directory that does not exist, and the resolver returns the empty pair -- indistinguishable from 'this agent has no session'. The repo's own path has no underscore, so a positive control alone would NOT have caught this."
+    },
+    "codex_cwd_location": {
+      "planned": "first JSON line's top-level 'cwd'",
+      "actual": "first JSON line is type=session_meta; cwd and session_id live under 'payload'. Top-level 'cwd' is absent in 10/10 sessions.",
+      "consequence_if_shipped": "d.get('cwd') is always None, so no session ever matches and the resolver returns the empty pair for every codex agent -- the exact path where it is the ONLY mechanism, because codex fires no interactive SessionStart."
+    }
+  },
+  "claudecode": {
+    "status": "established",
+    "agent_version": "2.1.263",
+    "store_root": "~/.claude/projects",
+    "store_root_env_override": "CLAUDE_CONFIG_DIR \u2014 relocates .claude.json, but whether it relocates projects/ is NOT established: tests/test_frozen_standin_spike.sh always launches with it set, yet its scratch projects appear under the DEFAULT ~/.claude/projects (4 of them, claude 2.1.263). The resolver therefore searches the override root AND the default, which is correct either way.",
+    "project_dir": {
+      "shape": "<store_root>/<encoded-cwd>/",
+      "encode_rule": "replace '/' and '_' with '-'",
+      "encode_rule_confidence": "partial",
+      "undetermined_characters": [
+        ".",
+        " "
+      ],
+      "example": {
+        "cwd": "/REDACTED/ait_frozen_spike_X/claude_project",
+        "dir": "-REDACTED-ait-frozen-spike-X-claude-project"
+      }
+    },
+    "transcript": {
+      "shape": "<project_dir>/<session_id>.jsonl",
+      "filename_stem_is_session_id": true,
+      "filename_stem_is_session_id_evidence": "10/10 transcripts: basename minus .jsonl == the sessionId carried in the file",
+      "cwd_field": "cwd",
+      "cwd_on_first_line": false,
+      "cwd_first_seen_at_line": "2-5 (varies)",
+      "cwd_lookup_rule": "scan lines until the first object carrying a non-empty 'cwd'; do NOT read line 1 only"
+    },
+    "sibling_directories_present": "each <session_id>.jsonl may sit beside a <session_id>/ directory; ignore non-.jsonl entries"
+  },
+  "codex": {
+    "status": "established",
+    "agent_version": "0.153.4",
+    "store_root": "~/.codex/sessions",
+    "store_root_env_override": "CODEX_HOME (sessions/ lives under it) \u2014 ESTABLISHED: tests/test_frozen_standin_spike.sh reads `find \"$CODEX_HOME_DIR/sessions\"` directly. The resolver searches this root and the default.",
+    "project_dir": {
+      "shape": "none -- codex does NOT partition by project",
+      "note": "Sessions are partitioned by DATE, so the cwd must be read out of each file. This is why the codex side cannot use a computed-directory fast path at all."
+    },
+    "transcript": {
+      "shape": "<store_root>/<YYYY>/<MM>/<DD>/rollout-<timestamp>-<session_id>.jsonl",
+      "date_partition_verified": true,
+      "filename_regex": "^rollout-(?P<ts>.+?)-(?P<session_id>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\\.jsonl$",
+      "filename_session_id_matches_payload": true,
+      "filename_session_id_matches_payload_evidence": "10/10",
+      "first_line_type": "session_meta",
+      "cwd_field": "payload.cwd",
+      "session_id_field": "payload.session_id",
+      "cwd_on_first_line": true,
+      "originator_field": "payload.originator",
+      "originator_values": {
+        "codex-tui": "interactive TUI",
+        "codex_exec": "codex exec"
+      },
+      "originator_note": "Interactive (codex-tui) sessions DO write transcripts even though they fire no SessionStart hook. That is precisely what makes this fallback the only session-id source for interactive codex."
+    }
+  },
+  "_resolver_design_consequence": "Because the claude encode rule is only PARTIALLY determined ('.' and ' ' unobserved), newest_transcript_for must not trust a computed directory name. Compute it as a fast path, then VERIFY the candidate by reading cwd out of its transcripts; on a miss, scan the whole store and match on cwd. That is correct under every candidate escape rule, so an unobserved character cannot silently produce the empty pair. Store ROOT is resolved the same defensive way: each agent's override (CLAUDE_CONFIG_DIR / CODEX_HOME) is searched in addition to the default under $HOME, because an agent launched with a custom root writes its transcripts there and scanning only the default would report 'no session' for precisely the sessions this fallback exists to find."
+}

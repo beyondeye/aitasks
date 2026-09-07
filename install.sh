@@ -728,6 +728,25 @@ install_seed_claude_settings() {
     info "  Stored Claude Code permissions seed at aitasks/metadata/claude_settings.seed.json"
 }
 
+# --- Install seed Claude Code SessionStart hook ---
+# Kept separate from the permissions seed above: the hook is framework
+# infrastructure gated by its own consent prompt in `ait setup`, not a
+# permission grant. NOTE: aitask_setup.sh's ensure_agent_config_seeds() carries
+# the source-tree half of this manifest; tests/test_seed_manifest_drift.sh
+# fails when the two sides disagree.
+install_seed_claude_hooks() {
+    local src="$INSTALL_DIR/seed/claude_settings.hooks.json"
+    local dest="$INSTALL_DIR/aitasks/metadata/claude_settings.hooks.json"
+
+    if [[ ! -f "$src" ]]; then
+        warn "No seed/claude_settings.hooks.json in tarball — skipping"
+        return
+    fi
+
+    cp "$src" "$dest"
+    info "  Stored Claude Code session hook seed at aitasks/metadata/claude_settings.hooks.json"
+}
+
 # --- Store Codex CLI staging files ---
 install_codex_staging() {
     if [[ ! -d "$INSTALL_DIR/codex_skills" ]]; then
@@ -1010,6 +1029,7 @@ commit_installed_files() {
         "aireviewguides/"
         "ait"
         ".claude/skills/"
+        ".claude/settings.json"
         ".agents/"
         ".codex/"
         ".opencode/"
@@ -1322,6 +1342,9 @@ main() {
 
     info "Storing Claude Code permissions seed..."
     install_seed_claude_settings
+
+    info "Storing Claude Code session hook seed..."
+    install_seed_claude_hooks
 
     info "Storing Codex CLI staging files..."
     install_codex_staging
