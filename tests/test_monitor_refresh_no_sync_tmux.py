@@ -225,9 +225,11 @@ class MonitorRefreshNoSyncTmuxTests(unittest.TestCase):
                 if args[:4] == ["list-panes", "-s", "-t", "=sessA"]:
                     return (
                         0,
-                        # `_LIST_PANES_FORMAT` order, 11 fields (t1686):
+                        # `_LIST_PANES_FORMAT` order, 15 fields (t1705_4):
                         # …\t<shadow_target>\t<history_size>\t<monitor_kind>
-                        "0\tagent-1\t0\t%1\t12345\tbash\t80\t24\t\t0\t",
+                        # \t<frozen>\t<record>\t<standin_ready>\t<pane_dead>
+                        "0\tagent-1\t0\t%1\t12345\tbash\t80\t24\t\t0\t"
+                        "\t\t\t\t0",
                     )
                 if args[:1] == ["capture-pane"]:
                     return 0, "agent output\n"

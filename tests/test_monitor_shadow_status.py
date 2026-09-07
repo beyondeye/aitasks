@@ -121,11 +121,18 @@ def _list_panes_line(
     pane_id: str, window_name: str, *, shadow_target: str = "", pid: int = 99999999,
     monitor_kind: str = "",
 ) -> str:
-    """`_LIST_PANES_FORMAT` order, 11 fields (t1686 appended the monitor marker)."""
+    """`_LIST_PANES_FORMAT` order, 15 fields (t1705_4 appended the frozen block).
+
+    Built at the CURRENT arity rather than a legacy one. 9/10/11 all still parse
+    (`_LIST_PANES_ARITIES`), so a builder left behind would keep passing while
+    exercising a shape production no longer emits — the vacuous-pass hazard
+    `tests/test_list_panes_arity_characterization.py` exists to name.
+    """
     idx = pane_id.lstrip("%")
     return "\t".join([
         idx, window_name, "0", pane_id, str(pid), "bash", "80", "24",
         shadow_target, "0", monitor_kind,
+        "", "", "", "0",   # @aitask_frozen, @aitask_record, ready, pane_dead
     ])
 
 

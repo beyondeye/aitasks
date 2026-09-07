@@ -399,6 +399,38 @@ SHADOW_ANALYZED_AT_OPTION = "@aitask_shadow_analyzed_at"
 # offer. Advisory only: nothing may refuse an action because of what it holds.
 SHADOW_PHASE_OPTION = "@aitask_shadow_phase"
 
+# --- frozen code agents (t1705) ---------------------------------------------
+#
+# The pane-scoped join and lifecycle markers of the session store
+# (`lib/agent_sessions.py`). Mirrored for shell callers in
+# `lib/agent_sessions.sh` (`AIT_RECORD_OPTION` & co.) — the two spellings must
+# agree, which `tests/test_agent_sessions_stamp.sh` Test 6 pins by comparing
+# them. Two spellings of one option silently break the join: the stamper writes
+# one name, the reader looks for another, and the agent simply looks unrecorded.
+
+#: The pane-visible join to a store record. Stamped by whoever created the
+#: record (the SessionStart hook on the normal path, the freeze engine on its
+#: fallback path); cleared by `drop` and, implicitly, by pane death.
+RECORD_OPTION = "@aitask_record"
+
+#: Set by the freeze engine immediately before `respawn-pane`. THE authoritative
+#: "this pane is a frozen stand-in, not a live agent" classifier: a stand-in
+#: carries no helper marker and lives in an unchanged `agent-*` window, so
+#: nothing else distinguishes it.
+FROZEN_OPTION = "@aitask_frozen"
+
+#: Positive proof the stand-in viewer actually mounted. Stamped by the viewer
+#: ITSELF (the `mark_monitor_pane` rule — only an app stamps its own pane) and
+#: cleared by the freeze/restore coordinator before every respawn. It is the
+#: only signal separating "stamped, viewer up" from "stamped, agent still
+#: running", which is why reconcile treats its absence as indeterminate rather
+#: than as failure.
+STANDIN_READY_OPTION = "@aitask_standin_ready"
+
+#: The code-agent session id, recorded on `$TMUX_PANE` by the SessionStart hook
+#: (t1705_3). Read by the freeze engine when the store has no session id.
+AGENT_SESSION_OPTION = "@aitask_agent_session"
+
 
 def is_shadow_target(shadow_target: str) -> bool:
     """True when a pane's ``@aitask_shadow_target`` value marks it a shadow.
@@ -935,6 +967,26 @@ class TmuxPaneInfo:
     # leaves it unchanged, a plan revision grew it 28→61). None when the
     # constructing path did not supply it (older stubs, hand-built infos).
     history_size: int | None = None
+    # --- frozen code agents (t1705_4) ---------------------------------------
+    #
+    # Parsed and exposed here; no renderer reads them yet (the monitor /
+    # minimonitor frozen rows are t1705_7). Defaults match a pane that predates
+    # the fields, so a hand-built TmuxPaneInfo reads as an ordinary live agent.
+    #
+    # Non-empty ⇒ this pane is a frozen stand-in (`@aitask_frozen`), and the
+    # value is its store record id. Authoritative: a stand-in keeps the agent's
+    # window name and carries no helper marker, so nothing else tells it apart.
+    frozen_record: str = ""
+    # The pane's store record id (`@aitask_record`), whatever its state. Present
+    # on live agents too — it is the join, not a freeze marker.
+    record_id: str = ""
+    # `@aitask_standin_ready`: the record id the stand-in VIEWER stamped on
+    # itself after mounting. Empty means "not up (yet)", which reconcile treats
+    # as indeterminate rather than as failure.
+    standin_ready: str = ""
+    # `#{pane_dead}`: the pane's process exited but `remain-on-exit` kept the
+    # pane. A dead stand-in is what reconcile respawns.
+    pane_dead: bool = False
 
 
 #: Category ranks for the leading slot of :func:`tmux_index_key`. The category
@@ -1682,9 +1734,12 @@ class TmuxMonitor:
         self._parked_agents: frozenset = frozenset()
         # Discovery-derived liveness facts (t1326), keyed by capture generation
         # until that generation's commit wins. See _record_discovery_facts.
-        self._discovery_facts: dict[int, tuple[frozenset, frozenset]] = {}
+        self._discovery_facts: dict[int, tuple[frozenset, frozenset, dict]] = {}
         self._enumerated_sessions: frozenset[str] = frozenset()
         self._discovered_agents: frozenset = frozenset()
+        # Per-window pane inventory from the same discovery (t1705_4). See
+        # :meth:`last_discovered_panes`.
+        self._discovered_panes: dict[tuple[str, str], list[tuple[str, int, bool]]] = {}
         self._pane_cache: dict[str, TmuxPaneInfo] = {}
         # Companion-verdict memo (t1382): pane_id → (pane_pid, session, cached_at)
         # for panes CONFIRMED to be a monitor/minimonitor companion. Only
@@ -1854,7 +1909,20 @@ class TmuxMonitor:
             for p in panes
             if p.category == PaneCategory.AGENT and p.session_name
         )
-        self._discovery_facts[gen] = (sessions, agents)
+        # Per-window pane inventory (t1705_4). Shadows are INCLUDED: this feeds
+        # the session store's `PANE` observation rows, whose `dead_pane` purge
+        # rule asks "was this pane id present in the window at all", and a
+        # helper pane that is absent from the inventory would make a record
+        # pointing at it look dead. That is the opposite requirement to
+        # `agents` above, which is deliberately agent-facing only.
+        pane_map: dict[tuple[str, str], list[tuple[str, int, bool]]] = {}
+        for p in list(panes) + list(shadows):
+            if not p.session_name:
+                continue
+            pane_map.setdefault((p.session_name, p.window_name), []).append(
+                (p.pane_id, p.pane_pid, p.pane_dead)
+            )
+        self._discovery_facts[gen] = (sessions, agents, pane_map)
         # Prune anything older than the live reservation; those batches can no
         # longer commit, so their facts are unreachable.
         for stale in [g for g in self._discovery_facts if g < gen]:
@@ -1864,7 +1932,11 @@ class TmuxMonitor:
         """Promote a winning generation's facts. Called only past the guard."""
         facts = self._discovery_facts.pop(gen, None)
         if facts is not None:
-            self._enumerated_sessions, self._discovered_agents = facts
+            (
+                self._enumerated_sessions,
+                self._discovered_agents,
+                self._discovered_panes,
+            ) = facts
 
     def last_enumerated_sessions(self) -> frozenset[str]:
         """Sessions whose panes were listed in the last *committed* discovery.
@@ -1879,6 +1951,25 @@ class TmuxMonitor:
         """``(session_name, window_name)`` for every agent window discovered in
         the last committed cycle, including ones whose content capture failed."""
         return self._discovered_agents
+
+    def last_discovered_panes(self) -> dict[tuple[str, str], list[tuple[str, int, bool]]]:
+        """``(session, window) -> [(pane_id, pane_pid, pane_dead), ...]`` from
+        the last committed discovery.
+
+        The pane-level sibling of :meth:`last_discovered_agents`, and
+        deliberately a SUPERSET of it: helper panes (companions, shadows) are
+        included, because this feeds the session store's ``PANE`` observation
+        rows and its ``dead_pane`` purge rule asks whether a record's pane id
+        was present in the window *at all*. Filtering helpers out would make a
+        record pointing at one look dead and get it dropped.
+
+        **No consumer in this task.** ``monitor_shared._write_observation_file``
+        grows its ``panes=`` argument in t1705_7; ``aitask_frozen.sh reconcile``
+        builds the same rows from its own ``list-panes`` pass so retirement does
+        not depend on a TUI being open. Published here so that wiring is a
+        one-line change rather than a second discovery pass.
+        """
+        return self._discovered_panes
 
     @property
     def capture_generation(self) -> int:
@@ -2128,14 +2219,29 @@ class TmuxMonitor:
         # and make every existing 10-field record parse its history value as a
         # marker — a silent reinterpretation rather than a loud failure.
         f"#{{{MONITOR_KIND_OPTION}}}",
+        # Frozen-agent fields (t1705_4). APPENDED as a block, for the same
+        # reason the marker above was: any insertion shifts `history_size` and
+        # every field after it, which parses cleanly and silently reports the
+        # wrong values (pinned as a negative control in
+        # `tests/test_list_panes_arity_characterization.py`).
+        f"#{{{FROZEN_OPTION}}}",          # frozen stand-in marker; "" when live
+        f"#{{{RECORD_OPTION}}}",          # store record id; "" when unrecorded
+        f"#{{{STANDIN_READY_OPTION}}}",   # viewer-mounted proof; "" until mount
+        "#{pane_dead}",   # "1" under remain-on-exit after the process exited
     ])
 
-    #: Accepted `list-panes` record arities. 11 = current (t1686 marker); 10 =
-    #: pre-marker; 9 = pre-`history_size` (t1159_2). The set is CLOSED on
-    #: purpose: an unexpected arity is dropped whole, so a stub that drifts out
-    #: of the set fails loudly-by-absence instead of being reinterpreted
-    #: field-by-field.
-    _LIST_PANES_ARITIES = (9, 10, 11)
+    #: Accepted `list-panes` record arities. 15 = current (t1705_4's four frozen
+    #: fields); 11 = pre-frozen (t1686 marker); 10 = pre-marker; 9 =
+    #: pre-`history_size` (t1159_2). The set is CLOSED on purpose: an unexpected
+    #: arity is dropped whole, so a stub that drifts out of the set fails
+    #: loudly-by-absence instead of being reinterpreted field-by-field.
+    #:
+    #: **Extend this in the SAME change as any `_LIST_PANES_FORMAT` append.**
+    #: The closed set makes an un-extended append a TOTAL failure, not a partial
+    #: one: every record parses to a rejected arity, discovery returns nothing,
+    #: and monitor / minimonitor / board show no agents at all rather than
+    #: erroring. Pinned by `test_list_panes_arity_characterization.py`.
+    _LIST_PANES_ARITIES = (9, 10, 11, 15)
 
     def _parse_list_panes(
         self, stdout: str, session_name: str
@@ -2180,6 +2286,16 @@ class TmuxMonitor:
                     history_size = None
             # "" on a pre-t1686 record, and on every unmarked pane.
             monitor_kind = parts[10] if len(parts) > 10 else ""
+            # Frozen-agent fields (t1705_4). Guarded per index in the same style
+            # as `history_size` / `monitor_kind` above, so every legacy arity in
+            # `_LIST_PANES_ARITIES` keeps parsing into the pre-frozen defaults.
+            frozen_record = parts[11].strip() if len(parts) > 11 else ""
+            record_id = parts[12].strip() if len(parts) > 12 else ""
+            standin_ready = parts[13].strip() if len(parts) > 13 else ""
+            # tmux renders `#{pane_dead}` as "1"/"0"; anything else (a legacy
+            # record with no such field) reads as alive. Compared as a string on
+            # purpose — `bool("0")` is True.
+            pane_dead = (parts[14].strip() == "1") if len(parts) > 14 else False
             window_name = parts[1]
             seen.add(pane_id)
             if is_shadow_target(parts[8]):
@@ -2199,6 +2315,13 @@ class TmuxMonitor:
                     session_name=session_name,
                     shadow_target=parts[8].strip(),
                     history_size=history_size,
+                    # The shadow branch populates these too. Easy to miss, and
+                    # missing them would make a shadow pane read as never-frozen
+                    # and never-dead regardless of what tmux reported.
+                    frozen_record=frozen_record,
+                    record_id=record_id,
+                    standin_ready=standin_ready,
+                    pane_dead=pane_dead,
                 ))
                 continue
             category = self.classify_pane(window_name)
@@ -2230,6 +2353,10 @@ class TmuxMonitor:
                 category=category,
                 session_name=session_name,
                 history_size=history_size,
+                frozen_record=frozen_record,
+                record_id=record_id,
+                standin_ready=standin_ready,
+                pane_dead=pane_dead,
             )
             panes.append(pane)
             self._pane_cache[pane_id] = pane
@@ -3234,10 +3361,14 @@ class TmuxMonitor:
         # window; fall back to self.session for legacy single-session paths.
         target_session = pane.session_name or self.session
         window_target = tmux_window_target(target_session, pane.window_index)
+        # This format is this method's OWN — it does not share
+        # `_LIST_PANES_FORMAT` or `_LIST_PANES_ARITIES`, so its field count is
+        # pinned by the `len(parts) != 5` guard below and nowhere else. Keep the
+        # two in step.
         rc, stdout = self.tmux_run([
             "list-panes", "-t", window_target,
             "-F", "#{pane_id}\t#{pane_pid}\t#{@aitask_shadow_target}"
-                  f"\t#{{{MONITOR_KIND_OPTION}}}",
+                  f"\t#{{{MONITOR_KIND_OPTION}}}\t#{{{FROZEN_OPTION}}}",
         ])
         if rc != 0:
             return self.kill_pane(pane_id), False
@@ -3255,9 +3386,9 @@ class TmuxMonitor:
             if not line.strip():
                 continue          # blank lines are not records
             parts = line.split("\t")
-            if len(parts) != 4:
+            if len(parts) != 5:
                 continue
-            other_id, pid_str, shadow_target, monitor_kind = parts
+            other_id, pid_str, shadow_target, monitor_kind, frozen = parts
             try:
                 pid = int(pid_str)
             except ValueError:
@@ -3265,7 +3396,20 @@ class TmuxMonitor:
             # A pane is a helper (does NOT keep the window alive) when it is a
             # companion (marker first, cmdline second — t1686) OR a shadow bound
             # to an agent.
-            is_helper = (
+            #
+            # A `@aitask_frozen`-stamped pane is NEVER a helper (t1705_4): the
+            # window exists to hold that frozen agent's stand-in viewer, so
+            # killing a live sibling beside it must not collapse the window and
+            # destroy the only way back to a frozen session. Checked FIRST so it
+            # cannot be overridden by a stale companion marker left on the pane
+            # by whatever ran there before the respawn.
+            #
+            # Today this holds *incidentally* too — a stand-in carries neither
+            # `@aitask_shadow_target` nor a live `@aitask_monitor_kind` — but
+            # incidental is not pinned. `tests/test_cleanup_rule_parity.sh` is
+            # what keeps this rule and `aitask_companion_cleanup.sh`'s copy of
+            # it in agreement; change one and you must change the other.
+            is_helper = not frozen.strip() and (
                 is_shadow_target(shadow_target)
                 or is_live_companion_marker(monitor_kind)
                 or _is_companion_process(pid)
@@ -3273,9 +3417,40 @@ class TmuxMonitor:
             records.append((other_id, is_helper))
         others = count_other_real_agents(records, pane_id)
 
+        # Killing a FROZEN pane retires its record first (t1705_4). `drop`
+        # removes the capture files as well, which is exactly right here: the
+        # user asked for this stand-in to go, and a retained record whose pane
+        # no longer exists would be restored into a fresh window later. Ordered
+        # before the kill so a failure leaves the pane (and its record) intact
+        # rather than a dangling record with no pane.
+        target = self._pane_cache.get(pane_id)
+        if target is not None and target.frozen_record:
+            self._drop_session_record(target.frozen_record)
+
         if others == 0:
             return self.kill_window(pane_id), True
         return self.kill_pane(pane_id), False
+
+    def _drop_session_record(self, record_id: str) -> bool:
+        """Best-effort ``aitask_agent_sessions.sh drop <id>`` (t1705_4).
+
+        Routed through the shell wrapper because it is the store's SOLE writer
+        (it holds the mutex); importing `agent_sessions`' mutators here would
+        write unlocked. Best-effort by design: a store that is locked or
+        unreadable must not stop the user killing a pane — reconcile's
+        ``capture_missing`` / ``dead_pane`` rules retire the record later.
+        """
+        script = (
+            Path(__file__).resolve().parent.parent / "aitask_agent_sessions.sh"
+        )
+        try:
+            proc = subprocess.run(
+                [str(script), "drop", record_id],
+                capture_output=True, text=True, timeout=10,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return False
+        return proc.returncode == 0
 
     def spawn_tui(self, tui_name: str) -> bool:
         # SECURITY (t985): tmux `new-window`'s last arg is a shell command, so an

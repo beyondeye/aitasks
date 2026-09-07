@@ -13,6 +13,22 @@
 #      Otherwise kill both primary and companion, letting tmux close the window
 #      naturally.
 #
+# FROZEN CODE AGENTS (t1705_4). Two rules, and they must stay identical to
+# `monitor_core.kill_agent_pane_smart` / `count_other_real_agents` —
+# `tests/test_cleanup_rule_parity.sh` drives one pane table through BOTH and
+# asserts they agree:
+#
+#   a. When the DYING pane carries `@aitask_frozen`, this script abstains
+#      entirely — no kills at all. That pane is being *respawned* into a
+#      stand-in viewer, not departing, so every kill below would be wrong.
+#      (Belt-and-braces: t1705_1 measured that `respawn-pane -k` fires no
+#      `pane-died` at all, so on the freeze path this hook does not run. It
+#      still runs when a *sibling* dies, and the abstention keeps a
+#      hand-killed stand-in from taking the window with it.)
+#   b. A `@aitask_frozen`-stamped SIBLING counts as a real agent: the window
+#      exists to hold that stand-in, and collapsing it would destroy the only
+#      route back to a frozen session.
+#
 # Usage: aitask_companion_cleanup.sh <primary_pane_id> <companion_pane_id>
 #
 # Raw `tmux` (no gateway / socket flag) is correct here BY DESIGN: hook
@@ -24,15 +40,29 @@ set -euo pipefail
 primary="${1:?primary pane id required}"
 companion="${2:?companion pane id required}"
 
-window="$(tmux display-message -p -t "$primary" "#{window_id}" 2>/dev/null || true)"
-if [ -z "$window" ]; then
-    exit 0
-fi
-session="$(tmux display-message -p -t "$primary" "#{session_id}" 2>/dev/null || true)"
-
 # `|` is the field separator throughout, not a space: a marker value contains
 # `:` and IFS=' ' collapses runs, which silently shifts fields whenever a middle
 # column is empty. With IFS='|' empty fields are preserved.
+
+# One round trip for all three primary facts. `@aitask_frozen` is read HERE, and
+# not from the window-scoped pass further down, because rule (a) above must
+# abstain before job 1's shadow kills — not merely before job 2's.
+primary_facts="$(tmux display-message -p -t "$primary" \
+    '#{window_id}|#{session_id}|#{@aitask_frozen}' 2>/dev/null || true)"
+IFS='|' read -r window session primary_frozen <<EOF
+$primary_facts
+EOF
+if [ -z "$window" ]; then
+    exit 0
+fi
+
+# Rule (a): the dying pane is a frozen stand-in — it is being respawned, not
+# departing. Abstain entirely: no shadow kills, no companion kills, and above
+# all no `kill-pane -t "$primary"` at the bottom, which would take the pane the
+# freeze is in the middle of reusing.
+if [ -n "$primary_frozen" ]; then
+    exit 0
+fi
 
 # 1. Kill shadow panes bound to the dying agent. A shadow's
 #    @aitask_shadow_target holds the pane id of the agent it follows; match it
@@ -64,11 +94,21 @@ done < <(tmux list-panes -s -t "$shadow_scope" \
 #    Liveness is deliberately NOT consulted here: this runs at pane death and is
 #    killing panes, not deciding whether to launch. A stale-marked pane in a
 #    window whose last real agent just died should be closed regardless.
+#    Rule (b), t1705_4: a `@aitask_frozen`-stamped sibling is a REAL agent and
+#    is counted, whatever else it carries. Checked FIRST, before the companion
+#    and shadow rungs, so a stale `@aitask_monitor_kind` left on the pane by
+#    whatever ran there before the respawn cannot demote it to a helper. This
+#    ordering mirrors `kill_agent_pane_smart`'s `not frozen and (...)` — the
+#    parity test drives both.
 others=0
 companions=""
-while IFS='|' read -r pane target kind; do
+while IFS='|' read -r pane target kind frozen; do
     [ -n "$pane" ] || continue
     [ "$pane" = "$primary" ] && continue
+    if [ -n "$frozen" ]; then           # frozen stand-in: a real agent sibling
+        others=$((others + 1))
+        continue
+    fi
     if [ -n "$kind" ] || [ "$pane" = "$companion" ]; then
         companions="$companions $pane"
         continue
@@ -76,7 +116,8 @@ while IFS='|' read -r pane target kind; do
     [ -n "$target" ] && continue        # shadow helper
     others=$((others + 1))
 done < <(tmux list-panes -t "$window" \
-    -F '#{pane_id}|#{@aitask_shadow_target}|#{@aitask_monitor_kind}' 2>/dev/null)
+    -F '#{pane_id}|#{@aitask_shadow_target}|#{@aitask_monitor_kind}|#{@aitask_frozen}' \
+    2>/dev/null)
 
 if [ "$others" -eq 0 ]; then
     for pane in $companions; do

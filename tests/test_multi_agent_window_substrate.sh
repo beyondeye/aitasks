@@ -383,8 +383,12 @@ check("kill one of two real agents (shadow present) -> pane only",
       ok and not killed_window and window_exists("S2"))
 
 # == Scenario C: live discovery filters shadow panes (real format) =========
-# Exercises the actual _LIST_PANES_FORMAT (9 fields incl. @aitask_shadow_target)
-# against live tmux, through discover_panes() -> _parse_list_panes().
+# Exercises the actual _LIST_PANES_FORMAT against live tmux, through
+# discover_panes() -> _parse_list_panes(). No arity is asserted here — tmux
+# itself emits the format, so the count is whatever monitor_core defines
+# (15 since t1705_4). The arity pins live in
+# tests/test_list_panes_arity_characterization.py and
+# tests/test_monitor_companion_filter.py::ArityToleranceTests.
 d_agent = new_window("agent-pick-777")
 d_shadow = split("agent-pick-777")
 mark_shadow(d_shadow, d_agent)
