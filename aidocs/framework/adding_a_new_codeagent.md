@@ -811,11 +811,29 @@ When adding an agent:
    route it in `cmd_apply_helper_whitelist()`.
 4. Add the ID to the `for touchpoint in 1 3 4 6 7; do …` loops in
    `cmd_audit_helper_whitelist()` and `cmd_apply_helper_whitelist()`.
+   (`cmd_touchpoints()` needs no edit — it derives the live set by
+   probing `touchpoint_file()` up to `TOUCHPOINT_ID_MAX`; raise that
+   constant only if an ID ever exceeds it.)
 5. Update the Touchpoints table in `usage()`.
+6. Update the `Current touchpoints:` block in this section.
+7. Update **both** halves of
+   `aidocs/framework/aitasks_extension_points.md` "Adding a new helper
+   script": the touchpoint table **and the `N-touchpoint` count in the
+   prose sentence below it**. The count is the half that has silently
+   gone stale before — it survived the gemini retirement at 7 while the
+   table dropped to 5 (t1717).
+8. Update the live-ID list asserted by
+   `tests/test_touchpoint_count_contract.sh`, which pins every surface
+   above against `aitask_audit_wrappers.sh touchpoints`. It fails until
+   you do — that is the point.
 
 When **retiring** an agent's touchpoint(s): zero out the cases (no
 reuse) and drop the IDs from the iteration loops only — leave the
-numeric slots vacant.
+numeric slots vacant. Steps 6-8 above apply unchanged: the
+`Current touchpoints:` block, the table **and its prose count** in
+`aitasks_extension_points.md`, and the guard test's live-ID list all
+shrink with the set. Skipping the prose count is exactly what left a
+stale "7-touchpoint" behind when gemini's two were retired.
 
 ---
 
@@ -1243,7 +1261,7 @@ add/remove:
 
 | File | Surface | Edit on add/remove |
 |---|---|---|
-| `aidocs/framework/aitasks_extension_points.md` | Helper-script whitelist touchpoint table | Add/remove per-agent rows; renumber **only** by leaving retired slots vacant (numbering is stable). |
+| `aidocs/framework/aitasks_extension_points.md` | Helper-script whitelist touchpoint table **and the `N-touchpoint` count in the prose sentence below it** | Add/remove per-agent rows and update the count in the same edit; renumber **only** by leaving retired slots vacant (numbering is stable, so the highest ID is not the count). |
 | `aidocs/framework/model_reference_locations.md` | Inventory tables (model registry, supported agents) | Add/remove rows for `aitasks/metadata/models_<agent>.json` and the seed mirror. |
 | `aidocs/framework/stub-skill-pattern.md` | §3g per-agent surface table, §3b/§3d/§3e stub-form subsections, the "one stub per (skill, agent surface)" count, the dep-walker reference-resolution roots list | Add/remove a row, a subsection, and the bare agent-root reference (`.<agent>` literal). |
 | `aidocs/issue_type_vocabulary_duplication.md` | "agent-identification only" seed file list | Add/remove the `seed/<agent>_instructions.seed.md` entry. |

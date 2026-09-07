@@ -456,8 +456,10 @@ class SettingsPushResultScreen(_WizardScreen):
             with VerticalScroll(id="settings_body"):
                 yield Static(
                     f"{listed}\n\n"
-                    "Nothing was committed — review and commit the changed "
-                    "config in each destination repo.",
+                    "Each line above says what happened in that repo. A push "
+                    "commits there, path-scoped, and never pushes — so a "
+                    "destination whose data branch is behind its remote "
+                    "reconciles on its own next `ait sync`.",
                     id="settings_text",
                 )
             with Horizontal(id="settings_buttons"):

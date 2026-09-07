@@ -789,11 +789,31 @@ def _relations(scored, inflight_refs):
 
 
 def _overlapping_refs(scored):
-    """The in-flight refs the checker actually reported an overlap against."""
+    """The in-flight refs the checker actually reported an overlap against.
+
+    PROJECT-QUALIFIED, because every ref this document emits must satisfy the
+    schema's `task_ref` pattern (`<project>#<id>`) and these reach both
+    `relations[].to` and `observations[].affects`. The checker's own refs are
+    canonical BARE ids (`collect()` builds each claim as
+    `pa.canonical_ref(tid)`), so writing them through unqualified produced an
+    invalid document on the first real corpus -- while a fixture that fed
+    already-qualified `INFLIGHT_PATH:` refs validated happily, which is why the
+    gap survived to execution (t1569_5 predicted exactly this: the encoding
+    contract is authored there and executed here).
+
+    Qualification is IDEMPOTENT -- a ref that already carries `#` is left alone
+    -- so both shapes converge on the same value instead of one of them being
+    silently dropped by a set intersection. The project is taken from the
+    candidate's own ref, the same rule `_topic_ref` uses.
+    """
+    project = scored.candidate.ref.split("#", 1)[0]
     refs = set()
     for line in scored.admission_lines:
         if line.startswith("OVERLAP:"):
-            refs.add(line[len("OVERLAP:"):].split("|", 1)[0])
+            ref = line[len("OVERLAP:"):].split("|", 1)[0]
+            if "#" not in ref:
+                ref = "%s#%s" % (project, pa.canonical_ref(ref))
+            refs.add(ref)
     return refs
 
 

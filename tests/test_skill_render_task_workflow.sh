@@ -662,7 +662,10 @@ assert_contains "profiles.md warns that a bare off is a YAML boolean" \
 # the profile's render ceiling (rendered_gates if the key is present, else
 # default_gates, else []). `fast` declares default_gates: [risk_evaluated] →
 # machinery rendered; `default`/`remote` declare none → machinery OMITTED and
-# Step 8c routes straight to Step 9. Correctness is preserved at runtime by the
+# Step 8c routes past it, straight to the unconditional Step 8e (t1657_5 added
+# it AFTER the {% endif %}, so the note-an-existing-task offer renders for every
+# profile — it has nothing to do with risk gating). Correctness is preserved at
+# runtime by the
 # claim-time `materialize-active` tuple (ALWAYS rendered — never Jinja-gated),
 # which replaced the former Step-7 gates: backfill.
 echo "=== Test 5: risk machinery profile-conditional via rendered_set (t635_33) ==="
@@ -699,8 +702,16 @@ for profile in "${LEAN_PROFILES[@]}"; do
         'Risk-mitigation "before" creation' "$RS"
     assert_not_contains "SKILL.md $profile: Step 8d OMITTED" \
         'Step 8d: Risk-Mitigation' "$RS"
-    assert_contains "SKILL.md $profile: Step 8c routes straight to Step 9" \
-        'When the procedure returns, proceed to Step 9.' "$RS"
+    # The routing target moved from Step 9 to the unconditional Step 8e
+    # (t1657_5). What this guard is FOR is unchanged and is now asserted in both
+    # directions: a lean render must skip the omitted Step 8d, never route into
+    # it, and still reach a real successor.
+    assert_contains "SKILL.md $profile: Step 8c routes past 8d to Step 8e" \
+        'When the procedure returns, proceed to Step 8e.' "$RS"
+    assert_not_contains "SKILL.md $profile: …and never into the omitted Step 8d" \
+        'proceed to Step 8d' "$RS"
+    assert_contains "SKILL.md $profile: Step 8e itself is unconditional" \
+        'Step 8e: Note an Existing Task' "$RS"
 done
 for profile in "${PROFILES[@]}"; do
     RP="$($RENDER "$WORKFLOW_DIR/planning.md" "$PROFILES_DIR/$profile.yaml" claude 2>&1)"

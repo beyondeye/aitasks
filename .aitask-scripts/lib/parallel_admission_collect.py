@@ -4,10 +4,20 @@ This is the IMPURE half. It owns every subprocess, exactly as
 ``aitask_revert_analyze.sh`` owns them for ``task_file_sets.py``, and hands
 ``parallel_admission.decide()`` a frozen ``AdmissionInput``.
 
-t1569_5 (the roadmap) must NOT import this module -- it builds an
-``AdmissionInput`` from already-materialised records via
-``parallel_admission.input_from_records`` and calls the same ``decide``. One
-verdict logic, two consumers.
+The roadmap's PURE half -- ``roadmap_policy`` / ``roadmap_premise`` (t1569_5) --
+must NOT import this module. It builds an ``AdmissionInput`` from
+already-materialised records via ``parallel_admission.input_from_records`` and
+calls the same ``decide``. One verdict logic, two consumers.
+``tests/test_parallel_admission_purity.py`` enforces both halves of that:
+the pure modules import nothing impure, and the verdict path resolves with
+``parallel_admission_collect`` absent from ``sys.modules``.
+
+The roadmap's IMPURE driver (``roadmap_run``, t1569_6) is a different thing and
+DOES import this module, through ``collect_population`` -- it is the roadmap's
+equivalent of this file, and a driver that has to reach live state has the same
+need for one snapshot re-aimed per candidate that ``replay`` does. Sharing that
+seam is what keeps the two from drifting; it is not a purity exception, because
+the driver is impure by design and is deliberately absent from ``PURE_MODULES``.
 
 Every external interaction goes through a module-level seam (``_GATE_PROBE``,
 ``_LOCK_PROBE``, ...) so tests can rebind it, following the
@@ -976,46 +986,133 @@ def _rate_lines(prefix, threshold, n, counts, causes, cause_prefix):
     return out
 
 
-def _run_replay(opts):
-    cands, cand_source = _read_candidates(opts)
-    out = []
-    if not cands:
-        sys.stdout.write("RATES:0|0|0|0|0\n")
-        return 0
-    # ONE snapshot, resolved once and re-aimed per candidate (see _respin).
+class Population:
+    """One collected snapshot plus every candidate's surface, resolved once.
+
+    The return of :func:`collect_population`. Held together in one object
+    because the three fields are only meaningful as a set: `surfaces` was
+    resolved against `batch_lines`, and `base` was built from both, so pairing a
+    `base` from one collection with `surfaces` from another silently compares
+    candidates against different worlds.
+
+    `corpora` is carried so a caller can inspect corpus health without a second
+    `resolve_corpora` call -- the roadmap driver refuses to publish when a
+    corpus is `unavailable`, and re-resolving to find that out would ask a
+    different question than the one the snapshot was built from.
+    """
+
+    __slots__ = ("base", "surfaces", "batch_lines", "corpora", "tracked",
+                 "dirs")
+
+    def __init__(self, base, surfaces, batch_lines, corpora, tracked, dirs):
+        self.base = base
+        self.surfaces = surfaces
+        self.batch_lines = batch_lines
+        self.corpora = corpora
+        self.tracked = tracked
+        self.dirs = dirs
+
+    def aim(self, candidate_id, surface=None, exclude=()):
+        """Re-aim this snapshot at one candidate -> an ``AdmissionInput``.
+
+        The public face of `_respin`, so a consumer outside this module does not
+        have to reach for a private name to use the seam it was given. Pass the
+        result to `parallel_admission.decide`.
+
+        ``surface`` defaults to the one resolved for this candidate during
+        collection, which is almost always what a caller wants -- resolving a
+        second one would read the candidate's plan twice and could observe a
+        different state than the base was built against.
+        """
+        key = pa.canonical_ref(candidate_id)
+        if surface is None:
+            surface = self.surfaces.get(key)
+        if surface is None:
+            raise KeyError("no surface collected for %r; pass one explicitly"
+                           % candidate_id)
+        return _respin(self.base, candidate_id, surface, exclude=exclude)
+
+    def inflight_paths(self):
+        """Union of the in-flight claims' declared surfaces.
+
+        Read off the collected claims rather than re-parsing `INFLIGHT_*` lines:
+        the claims are what `decide` actually judged against, so a caller that
+        re-derived the set from the line protocol could disagree with the
+        verdicts it is reporting alongside.
+        """
+        paths = set()
+        for claim in self.base.inflight:
+            surface = getattr(claim, "surface", None)
+            if surface is not None:
+                paths.update(surface.paths)
+        return paths
+
+
+def collect_population(root, candidates, source="plan",
+                       freshness="allow-cached", max_lock_age_s=None,
+                       max_claim_age_s=pa.MAX_CLAIM_AGE_S,
+                       hub_threshold=pa.HUB_THRESHOLD, with_recovered=True):
+    """ONE snapshot for a whole candidate population, re-aimable per candidate.
+
+    Extracted from `_run_replay` (t1569_6) so the two callers that need this
+    discipline -- `replay` and the background-work roadmap's driver -- cannot
+    drift apart. The sequence below is subtle in three places and each one is a
+    measured decision, not a style choice; duplicating it would let a later
+    change to one copy diverge silently, because both copies would go on
+    emitting plausible output.
+
+    Callers pair this with `_respin` + `pa.decide` per candidate. `replay`
+    reports rates over the results; the roadmap ranks them.
+    """
     # The batch map and the corpora are resolved HERE and injected, so every
     # candidate is judged against the same world; deriving them per candidate
     # let a concurrent commit change the corpus mid-run and made the reported
     # rates incomparable. The SAME reasoning is why `--thresholds` sweeps inside
-    # this one invocation rather than by re-invoking the CLI per threshold.
-    batch_lines = _BATCH_MAP(opts["root"], with_recovered=True)
-    tracked, dirs, corpora = resolve_corpora(opts["root"])
+    # one invocation rather than by re-invoking the CLI per threshold.
+    batch_lines = _BATCH_MAP(root, with_recovered=with_recovered)
+    tracked, dirs, corpora = resolve_corpora(root)
+    # Resolve every candidate surface up front, BEFORE any verdict is computed.
+    # Reading plans inside the reporting loop would let a concurrent edit mix
+    # plan states across a single run, and would read the first candidate's plan
+    # twice (once for the base, once when its turn came).
+    surfaces, surface_cache = {}, {}
+    for c in candidates:
+        k = pa.canonical_ref(c)
+        if k not in surfaces:
+            surfaces[k] = resolve_candidate_surface(
+                root, k, source, batch_lines, tracked, dirs,
+                cache=surface_cache)
     # exclude_self=False: the base population must contain EVERY in-flight task.
     # Building it with self-exclusion would permanently drop whichever candidate
     # happened to be listed first, so every later candidate would be compared
     # against a world where that active task does not exist -- understating the
     # CONFLICT rate that t1569_4 uses as its entry criterion. Measured: listing a
     # live in-flight task first moved CONFLICT from 24 to 17 over 124 candidates.
-    # Resolve every candidate surface up front, BEFORE any verdict is computed.
-    # Reading plans inside the reporting loop would let a concurrent edit mix
-    # plan states across a single run, and would read the first candidate's plan
-    # twice (once for the base, once when its turn came).
-    surfaces, surface_cache = {}, {}
-    for c in cands:
-        k = pa.canonical_ref(c)
-        if k not in surfaces:
-            surfaces[k] = resolve_candidate_surface(
-                opts["root"], k, opts["from"], batch_lines, tracked, dirs,
-                cache=surface_cache)
-    base = collect(opts["root"], cands[0], source=opts["from"],
-                   plan_path=None, freshness=opts["lock_freshness"],
-                   max_lock_age_s=opts["max_lock_age"],
-                   max_claim_age_s=opts["max_claim_age"],
-                   hub_threshold=opts["hub_threshold"],
+    base = collect(root, candidates[0], source=source,
+                   plan_path=None, freshness=freshness,
+                   max_lock_age_s=max_lock_age_s,
+                   max_claim_age_s=max_claim_age_s,
+                   hub_threshold=hub_threshold,
                    exclude_self=False, batch_lines=batch_lines,
                    corpus=(tracked, dirs, corpora),
-                   candidate_surface=surfaces[pa.canonical_ref(cands[0])],
+                   candidate_surface=surfaces[pa.canonical_ref(candidates[0])],
                    surface_cache=surface_cache)
+    return Population(base=base, surfaces=surfaces, batch_lines=batch_lines,
+                      corpora=corpora, tracked=tracked, dirs=dirs)
+
+
+def _run_replay(opts):
+    cands, cand_source = _read_candidates(opts)
+    out = []
+    if not cands:
+        sys.stdout.write("RATES:0|0|0|0|0\n")
+        return 0
+    population = collect_population(
+        opts["root"], cands, source=opts["from"],
+        freshness=opts["lock_freshness"], max_lock_age_s=opts["max_lock_age"],
+        max_claim_age_s=opts["max_claim_age"],
+        hub_threshold=opts["hub_threshold"], with_recovered=True)
+    base, surfaces = population.base, population.surfaces
 
     # The exclusion set is derived from THIS snapshot, never from a prior run.
     exclude = set(opts["exclude"] or ())

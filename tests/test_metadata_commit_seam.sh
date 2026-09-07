@@ -308,6 +308,228 @@ assert_eq "exit 2 with no arguments" "2" "$MC_RC"
 assert_eq "the staged index was NOT committed" "$BASE11" "$(data_head "$TMP11")"
 
 # ==========================================================================
+# --preflight (t1704): INSPECT the destination, write nothing.
+#
+# The cross-repo config push has to decide what is safe in ANOTHER repo before
+# writing there. These pin the report; lib/cross_repo_settings.py turns it into
+# a decision.
+# ==========================================================================
+
+# --- Test 12: every per-path state the preflight can report ---------------
+echo "--- Test 12: --preflight reports clean/dirty/ignored/untracked/absent ---"
+TMP12="$(setup_repo)"
+seed_ignores "$TMP12"
+seed_tracked "$TMP12" "codeagent_config.json" '{"defaults":{}}'
+BASE12="$(data_head "$TMP12")"
+(
+    cd "$TMP12/local" || exit 1
+    printf 'dirtied\n' >> .aitask-data/aitasks/metadata/stats_config.json
+    printf '{"defaults":{}}\n' > .aitask-data/aitasks/metadata/codeagent_config.local.json
+    printf 'loose\n' > .aitask-data/aitasks/metadata/untracked_thing.json
+)
+_mc "$TMP12" --preflight \
+    aitasks/metadata/codeagent_config.json \
+    aitasks/metadata/stats_config.json \
+    aitasks/metadata/codeagent_config.local.json \
+    aitasks/metadata/untracked_thing.json \
+    aitasks/metadata/never_existed.json
+
+assert_eq "12: exit 0 — an inspection is not a refusal" "0" "$MC_RC"
+assert_contains "12: branch mode is reported" "MODE:branch" "$MC_OUT"
+assert_contains "12: the data branch is named" "BRANCH:aitask-data" "$MC_OUT"
+assert_contains "12: a tracked, unmodified path is clean" \
+    "STATE:aitasks/metadata/codeagent_config.json:clean" "$MC_OUT"
+assert_contains "12: a tracked, modified path is dirty" \
+    "STATE:aitasks/metadata/stats_config.json:dirty" "$MC_OUT"
+assert_contains "12: a user-layer path is ignored" \
+    "STATE:aitasks/metadata/codeagent_config.local.json:ignored" "$MC_OUT"
+assert_contains "12: an untracked-but-present path is untracked" \
+    "STATE:aitasks/metadata/untracked_thing.json:untracked" "$MC_OUT"
+assert_contains "12: a missing path is absent" \
+    "STATE:aitasks/metadata/never_existed.json:absent" "$MC_OUT"
+# The whole contract: it INSPECTS.
+assert_not_contains "12: nothing was committed" "COMMITTED" "$MC_OUT"
+assert_eq "12: the data branch did not move" "$BASE12" "$(data_head "$TMP12")"
+assert_eq "12: nothing was staged" "" "$(staged_paths "$TMP12")"
+assert_eq "12: the dirty file is STILL dirty (untouched)" "dirtied" \
+    "$(tail -n1 "$TMP12/local/.aitask-data/aitasks/metadata/stats_config.json")"
+
+# --- Test 13: MIDOP — a wedged destination is REPORTED, not fatal ----------
+# The discriminating case for running the preflight with the wedged-worktree
+# guard bypassed: assert_data_worktree_clean DIES on these states, and
+# check-ignore (which _is_ignored uses) is not on the readonly allowlist. A
+# preflight that died here could never report the very state it exists to find.
+echo "--- Test 13: --preflight reports MIDOP instead of dying ---"
+TMP13="$(setup_repo)"
+seed_tracked "$TMP13" "codeagent_config.json" '{"defaults":{}}'
+mkdir -p "$TMP13/local/.git/worktrees/-aitask-data"
+: > "$TMP13/local/.git/worktrees/-aitask-data/MERGE_HEAD"
+_mc "$TMP13" --preflight aitasks/metadata/codeagent_config.json
+
+assert_eq "13: exit 0 — a wedged destination is a report, not a crash" "0" "$MC_RC"
+assert_contains "13: the in-progress state is named" "MIDOP:MERGE_HEAD" "$MC_OUT"
+assert_contains "13: per-path state is still reported" \
+    "STATE:aitasks/metadata/codeagent_config.json:" "$MC_OUT"
+rm -f "$TMP13/local/.git/worktrees/-aitask-data/MERGE_HEAD"
+# Control: with the state cleared, no MIDOP line is emitted at all.
+_mc "$TMP13" --preflight aitasks/metadata/codeagent_config.json
+assert_not_contains "13: control — a clean destination emits no MIDOP" \
+    "MIDOP:" "$MC_OUT"
+
+# --- Test 14: a legacy-layout destination reports MODE:legacy -------------
+# cross_repo_settings refuses those before writing, so the report has to be able
+# to say so.
+echo "--- Test 14: --preflight reports MODE:legacy for a legacy layout ---"
+TMP14="$(mktemp -d)"
+(
+    cd "$TMP14" || exit 1
+    git init --quiet .
+    git config user.email t@t.com; git config user.name T
+    mkdir -p aitasks/metadata .aitask-scripts/lib
+    cp "$PROJECT_DIR/.aitask-scripts/aitask_metadata_commit.sh" .aitask-scripts/
+    ln -s "$PROJECT_DIR/.aitask-scripts/lib" .aitask-scripts/lib_real 2>/dev/null
+    rm -rf .aitask-scripts/lib && ln -s "$PROJECT_DIR/.aitask-scripts/lib" .aitask-scripts/lib
+    printf '{}\n' > aitasks/metadata/codeagent_config.json
+    git add -A && git commit -q -m init
+) >/dev/null 2>&1
+MC_RC=0
+MC_OUT="$(cd "$TMP14" && ./.aitask-scripts/aitask_metadata_commit.sh --preflight \
+    aitasks/metadata/codeagent_config.json 2>/dev/null)" || MC_RC=$?
+assert_eq "14: exit 0 in legacy mode" "0" "$MC_RC"
+assert_contains "14: legacy layout is reported as such" "MODE:legacy" "$MC_OUT"
+assert_contains "14: the path state is still reported" \
+    "STATE:aitasks/metadata/codeagent_config.json:clean" "$MC_OUT"
+rm -rf "$TMP14"
+
+# --- Test 15: the preflight shares the commit path's scope ladder ----------
+echo "--- Test 15: --preflight refuses an out-of-scope path ---"
+TMP15B="$(setup_repo)"
+_mc "$TMP15B" --preflight aitasks/t10_alpha.md
+assert_eq "15: exit 2 on an out-of-scope path" "2" "$MC_RC"
+assert_contains "15: refused by the same fail-closed rule" \
+    "REFUSED:out_of_scope:aitasks/t10_alpha.md" "$MC_OUT"
+_mc "$TMP15B" --preflight "aitasks/metadata/../../escape.json"
+assert_eq "15: exit 2 on a .. escape" "2" "$MC_RC"
+assert_contains "15: the escape is refused, never normalized" \
+    "REFUSED:out_of_scope:" "$MC_OUT"
+# A commit cannot be requested at the same time — answering an --expect with an
+# inspection would read as a successful commit.
+_mc "$TMP15B" --preflight --expect "aitasks/metadata/stats_config.json=/dev/null" \
+    aitasks/metadata/stats_config.json
+assert_eq "15: --preflight with --expect is rejected" "1" "$MC_RC"
+assert_contains "15: and says why" "cannot be combined" "$MC_ERR"
+
+# ==========================================================================
+# --expect (t1704): the compare-and-commit guard.
+#
+# The damaging race is not a lost edit — it is PUBLISHING a racer's bytes under
+# this helper's own "ait: Update <file>" message, i.e. the framework attributing
+# content it never wrote. Every case below is written so the control reproduces
+# exactly that.
+# ==========================================================================
+
+# --- Test 16: matching bytes commit exactly as before ----------------------
+echo "--- Test 16: --expect with matching bytes commits ---"
+TMP16="$(setup_repo)"
+(cd "$TMP16/local" && printf 'mine\n' >> .aitask-data/aitasks/metadata/stats_config.json)
+cp "$TMP16/local/.aitask-data/aitasks/metadata/stats_config.json" "$TMP16/expected16"
+_mc "$TMP16" --expect "aitasks/metadata/stats_config.json=$TMP16/expected16" \
+    aitasks/metadata/stats_config.json
+
+assert_eq "16: exit 0 — the guard passes through" "0" "$MC_RC"
+assert_contains "16: it committed" "COMMITTED:1:ait: Update stats_config.json" "$MC_OUT"
+assert_contains "16: the file is in the commit" "stats_config.json" "$(head_files "$TMP16")"
+
+# --- Test 17: stale bytes REFUSE, publishing nothing -----------------------
+echo "--- Test 17: --expect with stale bytes refuses and commits nothing ---"
+TMP17="$(setup_repo)"
+(cd "$TMP17/local" && printf 'mine\n' >> .aitask-data/aitasks/metadata/stats_config.json)
+cp "$TMP17/local/.aitask-data/aitasks/metadata/stats_config.json" "$TMP17/expected17"
+# A racer lands after our write and before our commit.
+(cd "$TMP17/local" && printf 'THEIRS\n' >> .aitask-data/aitasks/metadata/stats_config.json)
+BASE17="$(data_head "$TMP17")"
+_mc "$TMP17" --expect "aitasks/metadata/stats_config.json=$TMP17/expected17" \
+    aitasks/metadata/stats_config.json
+
+assert_eq "17: exit 2 on a raced path" "2" "$MC_RC"
+assert_contains "17: the refusal names the path" \
+    "REFUSED:changed:aitasks/metadata/stats_config.json" "$MC_OUT"
+assert_eq "17: the data branch did NOT move" "$BASE17" "$(data_head "$TMP17")"
+assert_eq "17: nothing was left staged" "" "$(staged_paths "$TMP17")"
+assert_eq "17: the racer's bytes survive untouched" "THEIRS" \
+    "$(tail -n1 "$TMP17/local/.aitask-data/aitasks/metadata/stats_config.json")"
+
+# The control that makes Test 17 mean something: the SAME raced state, without
+# --expect, commits — and the racer's line lands under our message. This is the
+# misattribution the guard exists to prevent, reproduced.
+echo "--- Test 17b: control — the same race WITHOUT --expect publishes it ---"
+_mc "$TMP17" aitasks/metadata/stats_config.json
+assert_eq "17b: control exit 0 — it committed" "0" "$MC_RC"
+assert_contains "17b: under the helper's own file-naming message" \
+    "ait: Update stats_config.json" "$(head_subject "$TMP17")"
+assert_contains "17b: and the racer's bytes are what got published" "THEIRS" \
+    "$(data_git "$TMP17" show "HEAD:aitasks/metadata/stats_config.json")"
+
+# --- Test 18: a vanished path is a change, not an absence ------------------
+echo "--- Test 18: --expect on a path that disappeared refuses ---"
+TMP18="$(setup_repo)"
+(cd "$TMP18/local" && printf 'mine\n' >> .aitask-data/aitasks/metadata/stats_config.json)
+cp "$TMP18/local/.aitask-data/aitasks/metadata/stats_config.json" "$TMP18/expected18"
+rm -f "$TMP18/local/.aitask-data/aitasks/metadata/stats_config.json"
+BASE18="$(data_head "$TMP18")"
+_mc "$TMP18" --expect "aitasks/metadata/stats_config.json=$TMP18/expected18" \
+    aitasks/metadata/stats_config.json
+assert_eq "18: exit 2" "2" "$MC_RC"
+assert_contains "18: reported as changed, not as an absence" \
+    "REFUSED:changed:aitasks/metadata/stats_config.json" "$MC_OUT"
+assert_eq "18: the deletion was NOT committed" "$BASE18" "$(data_head "$TMP18")"
+
+# --- Test 19: fail-closed completeness ------------------------------------
+# A partially-guarded commit is the shape that looks safe and is not: the
+# unguarded path is exactly where a racer's bytes would still be published.
+echo "--- Test 19: --expect naming only SOME committable paths is refused ---"
+TMP19="$(setup_repo)"
+seed_tracked "$TMP19" "codeagent_config.json" '{"defaults":{}}'
+(
+    cd "$TMP19/local" || exit 1
+    printf 'a\n' >> .aitask-data/aitasks/metadata/stats_config.json
+    printf 'b\n' >> .aitask-data/aitasks/metadata/codeagent_config.json
+)
+cp "$TMP19/local/.aitask-data/aitasks/metadata/stats_config.json" "$TMP19/expected19"
+BASE19="$(data_head "$TMP19")"
+_mc "$TMP19" --expect "aitasks/metadata/stats_config.json=$TMP19/expected19" \
+    aitasks/metadata/stats_config.json aitasks/metadata/codeagent_config.json
+
+assert_eq "19: exit 2" "2" "$MC_RC"
+assert_contains "19: refused as incomplete" "REFUSED:expect_incomplete" "$MC_OUT"
+assert_eq "19: nothing was committed" "$BASE19" "$(data_head "$TMP19")"
+assert_eq "19: nothing was left staged" "" "$(staged_paths "$TMP19")"
+
+# An expectation for a path NOT being committed is the same programmer error.
+_mc "$TMP19" \
+    --expect "aitasks/metadata/stats_config.json=$TMP19/expected19" \
+    --expect "aitasks/metadata/not_being_committed.json=$TMP19/expected19" \
+    aitasks/metadata/stats_config.json
+assert_eq "19: exit 2 for an expectation naming an uncommitted path" "2" "$MC_RC"
+assert_contains "19: also refused as incomplete" "REFUSED:expect_incomplete" "$MC_OUT"
+
+# --- Test 20: the guard does not disturb the pre-existing callers ----------
+# settings_app / aitask_board / chatlink wizard all pass no --expect. Their path
+# must be byte-for-byte the old behaviour, including on a raced file.
+echo "--- Test 20: no --expect keeps the original contract ---"
+TMP20="$(setup_repo)"
+(cd "$TMP20/local" && printf 'edit\n' >> .aitask-data/aitasks/metadata/stats_config.json)
+_mc "$TMP20" aitasks/metadata/stats_config.json
+assert_eq "20: exit 0" "0" "$MC_RC"
+assert_contains "20: committed exactly as before" \
+    "COMMITTED:1:ait: Update stats_config.json" "$MC_OUT"
+# And a user-layer path still SKIPs rather than being guarded into a refusal.
+seed_ignores "$TMP20"
+(cd "$TMP20/local" && printf '{}\n' > .aitask-data/aitasks/metadata/codeagent_config.local.json)
+_mc "$TMP20" aitasks/metadata/codeagent_config.local.json
+assert_contains "20: an ignored path is still SKIPPED" "SKIPPED:" "$MC_OUT"
+
+# ==========================================================================
 echo ""
 echo "=== Results: $PASS passed, $FAIL failed (of $TOTAL) ==="
 [[ "$FAIL" -eq 0 ]]

@@ -153,6 +153,20 @@ ait_cd_repo_root() {
     cd "$root" || die "Cannot cd to repo root $root"
 }
 
+# The git states that mean "this worktree is mid-operation". ONE named set: the
+# names were spelled out inline in both assert_data_worktree_clean and
+# task_git_health, and t1704 added a third reader (aitask_metadata_commit.sh's
+# --preflight, via ait_data_inprogress_state below) — a third copy of a list
+# whose members can only be verified against live git was not acceptable.
+#
+# Order is load-bearing for the FIRST-match readers: it is the order the two
+# pre-existing loops used, so the state a wedged worktree reports is unchanged.
+# rebase-merge and rebase-apply are directories; the other four are files —
+# `-e` covers both, which is why every reader uses it.
+AIT_GIT_INPROGRESS_STATES=(
+    rebase-merge rebase-apply MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD BISECT_LOG
+)
+
 # Resolve the data worktree's git-dir. Empty when in legacy mode or when the
 # git-dir cannot be resolved.
 #
@@ -175,6 +189,50 @@ _ait_data_gitdir() {
     # even though the data worktree is perfectly reachable through the
     # .aitask-data symlink. Ask git, which resolves it from anywhere.
     git -C "$_AIT_DATA_WORKTREE" rev-parse --absolute-git-dir 2>/dev/null || printf ''
+    return 0
+}
+
+# ait_data_mode — print `branch` or `legacy` for this repo's task-data layout.
+#
+# A named accessor rather than another reader of _AIT_DATA_WORKTREE: that global
+# is this library's cache, and a script outside it that reads the cache directly
+# inherits the responsibility for priming it. Callers want the classification,
+# not the path.
+#
+# ALWAYS returns 0, for the same `set -e` reason as _ait_data_gitdir.
+ait_data_mode() {
+    _ait_detect_data_worktree
+    if [[ "$_AIT_DATA_WORKTREE" == "." ]]; then
+        printf 'legacy'
+    else
+        printf 'branch'
+    fi
+    return 0
+}
+
+# ait_data_inprogress_state — print the FIRST in-progress git state the data
+# worktree is stuck in, or nothing when it is clean.
+#
+# Reports rather than refuses, which is what separates it from
+# assert_data_worktree_clean: a preflight has to be able to SAY "mid-merge"
+# without dying, and dying is that function's entire contract.
+#
+# Works in both modes — in legacy mode _ait_data_gitdir answers empty and this
+# prints nothing, which is the honest answer for "the data worktree" when there
+# is not a separate one.
+#
+# ALWAYS returns 0: an empty answer means clean-or-uninspectable, and every
+# caller distinguishes those by asking ait_data_mode as well.
+ait_data_inprogress_state() {
+    local gitdir state
+    gitdir="$(_ait_data_gitdir)"
+    [[ -z "$gitdir" ]] && return 0
+    for state in "${AIT_GIT_INPROGRESS_STATES[@]}"; do
+        if [[ -e "$gitdir/$state" ]]; then
+            printf '%s' "$state"
+            return 0
+        fi
+    done
     return 0
 }
 
@@ -240,7 +298,7 @@ assert_data_worktree_clean() {
     [[ -z "$gitdir" ]] && return 0
 
     local state hit=""
-    for state in rebase-merge rebase-apply MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD BISECT_LOG; do
+    for state in "${AIT_GIT_INPROGRESS_STATES[@]}"; do
         if [[ -e "$gitdir/$state" ]]; then hit="$state"; break; fi
     done
     [[ -z "$hit" ]] && return 0
@@ -285,7 +343,7 @@ task_git_health() {
         return 0
     fi
 
-    for state in rebase-merge rebase-apply MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD BISECT_LOG; do
+    for state in "${AIT_GIT_INPROGRESS_STATES[@]}"; do
         [[ -e "$gitdir/$state" ]] && hits+=("$state")
     done
 
@@ -373,6 +431,90 @@ task_git_commit_scoped() {
     # aitask_create.sh's stdout is a DATA channel (it prints the created task
     # file path), so this helper must never be able to contaminate it.
     task_git commit -o -m "$msg" --quiet -- "$@" >/dev/null || return 1
+}
+
+# --- Scoped commit with owned staging (t1702) ---
+#
+# Paths THIS invocation staged, in order. A GLOBAL rather than a local, so a
+# caller can arm `trap 'ait_unstage_staged_by_us' EXIT` before its first call and
+# still unwind a run that dies mid-flight — assert_data_worktree_clean EXITS the
+# process, and an entry left in the shared .aitask-data index is worse than a
+# dirty file: it is invisible to `ait sync`'s ownerless report and rides along in
+# whoever commits next.
+# shellcheck disable=SC2034  # read by ait_unstage_staged_by_us / callers' traps
+AIT_STAGED_BY_US=()
+
+# ait_unstage_staged_by_us — the ONE cleanup path, used by every failure exit and
+# by the callers' EXIT traps. Every recorded entry was verified untracked before
+# staging, so the reset has no HEAD version to restore. Idempotent: it empties
+# the list, so a trap firing after an explicit cleanup is a no-op.
+ait_unstage_staged_by_us() {
+    (( ${#AIT_STAGED_BY_US[@]} )) || return 0
+    task_git reset -q -- "${AIT_STAGED_BY_US[@]}" >/dev/null 2>&1 || true
+    AIT_STAGED_BY_US=()
+}
+
+# ait_commit_paths_staging_untracked <msg> <path>... — commit exactly these
+# paths, staging ONLY the ones git does not track yet and unstaging exactly those
+# again on ANY failure.
+# Returns 0 = committed, 2 = verified nothing to commit, 1 = failed.
+#
+# The .aitask-data index is SHARED by every session on the machine, so an
+# unconditional `add` of a TRACKED path can replace an entry another session
+# staged. `commit -o` takes worktree content and needs no staging for a tracked
+# path (verified: a tracked-but-deleted path commits its deletion with an empty
+# index), so only an UNTRACKED path is ever added — and only because a pathspec
+# cannot name a file git does not know (verified: `commit -o -- <untracked>`
+# fails with "did not match any file(s) known to git").
+#
+# Two rules make the cleanup total, because a partial staging run and an aborted
+# process leave the same wreckage:
+#   1. Pre-flight the abort. assert_data_worktree_clean treats add/commit/reset as
+#      non-readonly and DIES — exiting the process — while ls-files is readonly.
+#      The first `add` is therefore the first call that can abort, and it can
+#      abort mid-loop. Calling the guard up front lands that die with nothing
+#      staged.
+#   2. Fail fast, then clean. A failing `add` cleans up and returns immediately
+#      rather than continuing into a commit that could not succeed anyway.
+# The residue — a signal, or an exit this function cannot foresee — is covered by
+# the caller's EXIT trap.
+ait_commit_paths_staging_untracked() {
+    local msg="$1"; shift
+    # Load-bearing, same as in task_git_commit_scoped: an empty pathspec is what
+    # makes `git commit` take the whole shared index.
+    (( $# )) || return 2
+
+    assert_data_worktree_clean commit
+
+    local p rc=0
+    for p in "$@"; do
+        task_git ls-files --error-unmatch -- "$p" >/dev/null 2>&1 && continue
+        # Record ownership BEFORE the mutating `add`, never after. A signal
+        # landing in between would otherwise run the EXIT trap with an empty
+        # ownership list, leaving a path git has ALREADY staged in the shared
+        # index for someone else's commit to collect (reproduced: a shim that
+        # signals right after the real `add` left the file staged).
+        #
+        # Over-recording is free: this can only name a path whose `add` then
+        # failed, and `git reset -- <paths>` tolerates a path it never staged —
+        # verified rc 0, the genuinely staged entries in the same set are still
+        # unstaged, and the worktree is untouched.
+        AIT_STAGED_BY_US+=("$p")
+        if ! task_git add -- "$p" >/dev/null 2>&1; then
+            ait_unstage_staged_by_us
+            return 1
+        fi
+    done
+
+    task_git_commit_scoped --no-stage "$msg" "$@" || rc=$?
+    if [[ $rc -ne 0 ]]; then
+        ait_unstage_staged_by_us
+    else
+        # The commit consumed them (verified: the index is clean for the
+        # committed paths afterwards, and a foreign entry is untouched).
+        AIT_STAGED_BY_US=()
+    fi
+    return $rc
 }
 
 # --- Shared metadata commits (t1677) ---

@@ -404,6 +404,104 @@ ownerless-dirty-file state this rule exists to prevent.
 list, a last-selected item, a collapsed-set — put it in the `*.local.json` layer
 rather than committing it on every navigation.
 
+### Writing into ANOTHER repo (t1704)
+
+`commit_metadata(root=…)` targets a foreign root — it runs
+`<root>/.aitask-scripts/aitask_metadata_commit.sh` with `cwd=<root>`, i.e. the
+**destination's own copy** of the helper. The only production caller is
+`lib/cross_repo_settings.py::apply_push` (the syncer's Settings-tab push). If
+you add another, inherit this whole rule rather than re-deriving it — the
+commit is the easy half.
+
+**Scrub the environment.** Pass `env=resolver_env()`. The helper's
+`METADATA_PREFIX` reads `${TASK_DIR:-aitasks}`, and `lib/agent_string.sh`
+documents `TASK_DIR` / `METADATA_DIR` / `DEFAULT_AGENT_STRING` as caller
+overrides that outrank `cwd`, so an inherited value aims the destination's
+helper at the wrong tree.
+
+**Ask before you write, and refuse rather than guess.**
+`metadata_commit.preflight_metadata(paths, root=…, env=…)` inspects the
+destination through the same scope / ignore / tracked ladder the commit uses.
+Refuse **before writing** on every one of these — each means someone else's
+work is at stake, and a refusal they can see beats a commit they did not
+authorize:
+
+| Destination state | Why |
+|---|---|
+| the target file is tracked and **dirty** | their session is mid-edit |
+| the target file is present but **untracked** | unclassified foreign content |
+| the data worktree is mid rebase/merge/cherry-pick/revert/bisect | `MIDOP:` |
+| the data worktree is on a **detached HEAD** | the commit would be unreachable |
+| **legacy layout** (no `.aitask-data`) | the commit lands on its code branch |
+| the helper is missing, too old, or unrunnable | fail closed on version skew |
+
+A `PreflightResult.status` of `failed` is **not** evidence of a clean
+destination. Requiring the protocol's own `MODE:` line is what makes an older
+helper — which answers an unknown flag with usage text and exit 0 — land in
+`failed` rather than reading as a successful inspection.
+
+**Guard the commit with the bytes you wrote.** `commit -o -- <path>` takes the
+path's **worktree content at commit time**, so a racer who edits between your
+write and your commit gets their bytes published under
+`ait: Update <file>` — the framework attributing content it never wrote, which
+is the exact failure t1599_3's quarantine exists to stop. Pass
+`expect={path: file_holding_those_bytes}`; the helper re-compares immediately
+before committing and answers `raced`, having staged and committed nothing.
+It is fail-closed: once `expect` is given, every committable path needs an
+entry.
+
+**What this does not buy.** Detect-and-refuse, not mutual exclusion. Real
+exclusion needs every metadata writer in the *destination* repo — its own
+Settings TUI, board column CRUD, chatlink wizard — to take a shared
+`lib/stale_lock.sh` lock around write-and-commit. Until then a concurrent edit
+makes the push *fail* rather than succeed; it never makes it publish or
+discard.
+
+**Never push, and say so.** The seam's no-push rule holds across repos too. A
+destination whose data branch is behind its remote gets a local commit and
+reconciles on its own next `ait sync` — tell the user that, or they will go
+looking for a push that never happened.
+
+**Report every outcome, including the refusals.** A silent dirty file in
+someone else's repo is the ownerless state this section exists to end, merely
+relocated. Return a typed outcome (`ApplyOutcome`), never `None` and never a
+bare bool, and render one line per destination.
+
+**Order a dependent write after durability, not after the write.** `apply_push`
+clears a local override only when the project commit came back `committed` or
+`nochange`. Clearing it while the project file is uncommitted (or holds a
+racer's bytes) would leave that repo *using* a value that exists only as a dirty
+file — neither the promised outcome nor the safe partial.
+
+## Task and plan files: commit them path-scoped, and stage nothing you need not
+
+The same rule as above, for `aitasks/` and `aiplans/` rather than
+`aitasks/metadata/`. Always through
+`./.aitask-scripts/aitask_task_commit.sh` (Python:
+`lib/task_commit.commit_task_paths`), never a hand-rolled
+`subprocess.run([..., "commit", ...])`. A bare `git commit` takes the **whole
+shared `.aitask-data` index**, which every session on the machine writes to, so
+it publishes another session's staged work under your message (t1702; t1599 for
+the shell half).
+
+**Name every file the operation WROTE, not only the ones it removed.** A board
+delete also rewrites the parent's `children_to_implement` and revives each folded
+task; those go in the pathspec too. A write left out is an ownerless dirty file,
+which `ait sync`'s pre-sync sweep refuses to attribute and therefore defers
+forever.
+
+**Scoping the commit is only half of it.** `git rm` removes from the working tree
+**and from the index**, parking staged deletions in the shared index for the
+whole window before your own commit — where anyone's index-wide commit collects
+them. Delete from the worktree (`os.remove`) and let the scoped `commit -o`
+record the deletion from worktree state; it needs no index entry for a tracked
+path. Staging is unavoidable only for an *untracked* path, because a pathspec
+cannot name a file git does not know, and that residue is unwound on any failure
+(`ait_unstage_staged_by_us`, armed as the helper script's EXIT trap).
+
+**Still never push, and a failed commit must never be silent** — same reasons as
+above; render the remedy from `task_commit.remedy_command`.
+
 ## Contextual-footer ordering: keep uppercase sibling adjacent to its lowercase primary
 
 When a pane's footer includes both a lowercase primary action (e.g., `d` =

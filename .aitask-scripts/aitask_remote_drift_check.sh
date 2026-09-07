@@ -207,8 +207,16 @@ fi
 echo "AHEAD:$ahead"
 
 # --- Files touched by remote-only commits ---
+# THREE dots, deliberately. In `git diff` (unlike `git log`) `A..B` is plain
+# `git diff A B` -- an endpoint-to-endpoint comparison that also reports files
+# changed only by the user's OWN local commits. `A...B` diffs from the merge
+# base, which is what "files the remote changed" actually means. Inflating
+# OVERLAP -- the strong half of this check -- with the user's landed work is the
+# cry-wolf failure that trains the user to click past a real hit (t1724).
+# (The AHEAD count above uses `git rev-list`, where two dots ARE a commit range
+# and are correct.)
 remote_files=""
-remote_files=$(git diff --name-only "${BASE_BRANCH}..origin/${BASE_BRANCH}" 2>/dev/null) || remote_files=""
+remote_files=$(git diff --name-only "${BASE_BRANCH}...origin/${BASE_BRANCH}" 2>/dev/null) || remote_files=""
 
 if [[ -z "$remote_files" ]]; then
     debug "no remote-only file changes found"

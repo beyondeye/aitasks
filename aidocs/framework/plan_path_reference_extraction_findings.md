@@ -6,16 +6,36 @@ staleness detection), whose decision record has to answer the same question for
 task premises: *given a task or plan, which files is it about, and have they
 changed?*
 
-The single implementation today is the extraction stage of
-`.aitask-scripts/aitask_remote_drift_check.sh`:
+The grammar these findings are about lives in
+`.aitask-scripts/lib/plan_paths.py`, whose `extract()` returns every distinct
+matching token, `./`-stripped and codepoint-sorted:
 
-```bash
-grep -oE '[A-Za-z0-9_./-]+\.(sh|py|md|yaml|yml|json|toml)' "$PLAN_FILE" \
-  | sed 's|^\./||' \
-  | sort -u
+```python
+_EXTENSIONS = ("sh", "py", "md", "yaml", "yml", "json", "toml")
+_TOKEN = re.compile(
+    r"[A-Za-z0-9_./-]+\.(?:" + "|".join(_EXTENSIONS) + r")")
 ```
 
-Its output is intersected with `git diff --name-only <base>..origin/<base>` by
+**It is not the only extractor in the repository.** `aitask_change_surface.sh`
+carries its own, deliberately broader one (t1263) with no extension allowlist —
+so the findings below are about *this* grammar, not about the framework's every
+notion of "which files does a text mention". The module docstring is the
+authority on that split.
+
+Its consumers are `.aitask-scripts/aitask_remote_drift_check.sh` (through the
+lazy `lib/plan_paths_sh.sh` bridge), `lib/parallel_admission.py`,
+`lib/parallel_admission_collect.py` and `lib/trail_gather.py` — which is why the
+grammar is centralized rather than forked per call site.
+
+The findings below were originally measured against the equivalent shell
+pipeline this module replaced (`grep -oE … | sed 's|^\./||' | sort -u`); the
+regex is byte-identical in meaning, so every one of them still reproduces. The
+one behavioral difference is ordering — codepoint here, locale-collated `sort -u`
+before — which no verdict depends on, since the intersection below is
+`grep -Fxf`.
+
+In the drift check, that output is intersected with
+`git diff --name-only <base>...origin/<base>` by
 exact full-line match (`grep -Fxf`). The intersection is what makes the stage
 safe: a token that is not a real remote-changed path is discarded there. It is
 also what makes every finding below a **false negative** — a file the framework

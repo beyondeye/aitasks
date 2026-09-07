@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import ast
 import contextlib
+import copy
 import hashlib
 import io
 import json
@@ -913,6 +914,70 @@ class DriftableInputTests(TrailGatherCase):
                 self.assertIsNone(result["verdict"])
                 self.assertTrue(any(
                     e.startswith("undriftable_input:") for e in result["errors"]))
+
+    # -- Root merge provenance is not an input (t1647_2) ------------------
+
+    MERGED_FROM = [
+        {"handle": "art:trail-base", "version": "4e1c9a7b3d20",
+         "title": "Base, pre-merge", "merged_at": "2026-09-04T09:00:00Z"},
+        {"handle": "art:trail-folded", "version": "8f26b0c15ae4",
+         "title": "Folded source", "merged_at": "2026-09-04T09:00:00Z"},
+    ]
+
+    def _merged_shaped_trail(self, scope_kind="multi_topic"):
+        """A trail over the UNION of two roots, carrying merge provenance —
+        the shape /aitask-merge-trails emits.
+
+        Inputs AND digest come from ONE snapshot run: stored `{ref, kind}`
+        records lack the `exists`/state fields `_normalize_input_record`
+        requires, so a merged document's digest can never be derived from
+        them, nor combined from the two sources' digests.
+        """
+        self.repo.write_task("200", "folded-root")
+        snap_scope = "task" if scope_kind == "ad_hoc" else scope_kind
+        # --owner is mandatory on a multi-id snapshot: without it the gatherer
+        # emits OWNER:none and the document fails the owner pattern. The merge
+        # producer carries the base trail's owner for the same reason.
+        snap = self.snapshot("--scope", snap_scope, "--owner", "100",
+                             "100", "200")
+        trail = self.make_trail(snap, scope_kind=scope_kind,
+                                topics=[f"{self.LOCAL}#100", f"{self.LOCAL}#200"])
+        doc = json.loads(trail.read_text())
+        doc["merged_from"] = copy.deepcopy(self.MERGED_FROM)
+        self.assertEqual(trail_schema.validate_trail(doc), [],
+                         "the merged-shaped document must be schema-valid "
+                         "before its drift behaviour means anything")
+        trail.write_text(json.dumps(doc))
+        return trail
+
+    def test_merged_document_is_current_immediately_after_merge(self):
+        """Root-level merge provenance perturbs neither the digest nor the
+        verdict — which is why t1647_2 put `merged_from` at the root instead
+        of mirroring it into generation.inputs. The sibling test above pins
+        the other half: an `other` INPUT refuses the whole verdict."""
+        result = self.drift(self._merged_shaped_trail())
+        self.assertEqual(result["errors"], [])
+        self.assertEqual(result["verdict"], "CURRENT")
+
+    def test_merged_document_goes_stale_when_a_source_changes(self):
+        """Negative control: CURRENT above must be a live verdict over the
+        union, not an artefact of nothing being checked."""
+        trail = self._merged_shaped_trail()
+        self.repo.write_task("200", "folded-root", status="Done")
+        self.assertEqual(self.drift(trail)["verdict"], "STALE")
+
+    def test_ad_hoc_labelled_merged_document_drifts_normally(self):
+        """Mixed-scope merges resolve to `scope.kind: ad_hoc`, whose snapshot
+        call is `--scope task <union of member ids>` — there is no
+        `--scope ad_hoc`. Scoped honestly: this is a DOCUMENT/DRIFT
+        regression only. Drift reads generation.inputs and never scope.kind,
+        and this test builds its own snapshot, so it proves nothing about how
+        a producer *selects* that scope, its union, or its digest — that
+        proof belongs on the /aitask-merge-trails contract test."""
+        trail = self._merged_shaped_trail(scope_kind="ad_hoc")
+        self.assertEqual(self.drift(trail)["verdict"], "CURRENT")
+        self.repo.write_task("200", "folded-root", status="Done")
+        self.assertEqual(self.drift(trail)["verdict"], "STALE")
 
     def test_unparseable_plan_ref_fails_closed(self):
         trail = self._trail_with_extra_input(
@@ -2380,6 +2445,13 @@ class WrapperIntegrationTests(TrailGatherCase):
         subprocess.run(["git", "config", "user.name", "t"],
                        cwd=self.repo.root, check=True)
         self.repo.write_task("100", "root")
+        # `ait artifact create` STAGES the owner's task file, and since t1698 it
+        # refuses to start when a path it would stage has uncommitted changes —
+        # otherwise its commit absorbs whatever edit was in flight. write_task
+        # leaves t100 untracked, so commit it before the create below.
+        subprocess.run(["git", "add", "-A"], cwd=self.repo.root, check=True)
+        subprocess.run(["git", "commit", "-q", "-m", "fixture: tasks"],
+                       cwd=self.repo.root, check=True)
         snap = self.snapshot("--scope", "task", "100")
         trail = self.make_trail(snap)
         create = subprocess.run(

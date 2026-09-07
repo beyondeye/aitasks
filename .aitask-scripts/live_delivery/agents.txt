@@ -1,0 +1,26 @@
+# Live-delivery adapter registry (t1657_4).
+#
+# Which agent families the live lane can deliver to. Read by
+# aitask_live_endpoint.sh, which contains no agent literal of its own — a family
+# listed here resolves, a family absent from here answers
+# LIVE_NONE:agent_unsupported:<family>. Adding an agent is one row plus one
+# procedure file; no code change.
+#
+# Two whitespace-separated columns; '#' comments and blank lines are ignored.
+# Column 1 is the agent family as it appears before the '/' in a task's
+# `implemented_with:` (claudecode, codex, opencode). Column 2 is the adapter
+# procedure's FILENAME, resolved inside this directory — no '/' and no '..', so
+# a row in a data file cannot point the resolver somewhere else.
+#
+# A row whose procedure file is missing or unreadable does NOT make the family
+# supported: the resolver answers agent_unsupported rather than promising a live
+# endpoint the caller has no way to deliver through.
+#
+#   <agent-family>  <adapter procedure filename>
+claudecode          claudecode.md
+
+# Codex and OpenCode are ABSENT BY DECISION, not omission. Measured on
+# codex-cli 0.151.0: `codex queue --thread <UUID|exact name> --message` exists,
+# but `codex agents` is an interactive TUI with no --json — there is no
+# scriptable way to enumerate Codex sessions or map one to a pane, so nothing
+# could resolve a verified pane to a session. Revisit when that changes.

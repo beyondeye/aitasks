@@ -12,7 +12,7 @@ The aitasks framework keeps skills in one source-of-truth tree (`.claude/skills/
 - `.opencode/skills/<name>/SKILL.md` — OpenCode skill wrappers.
 - `.opencode/commands/<name>.md` — OpenCode command wrappers.
 
-This skill audits every source-of-truth `aitask-*` skill against the wrapper locations and offers to port any that are missing. Phase 2 (added in t691_2) extends the audit to helper-script whitelist coverage across the helper-permission touchpoints from CLAUDE.md "Adding a New Helper Script".
+This skill audits every source-of-truth `aitask-*` skill against the wrapper locations and offers to port any that are missing. Phase 2 (added in t691_2) extends the audit to helper-script whitelist coverage across the helper-permission touchpoints from `aidocs/framework/aitasks_extension_points.md` "Adding a new helper script".
 
 ## Usage
 
@@ -178,5 +178,5 @@ The helper script audits the source of truth (`.claude/skills/aitask-*/SKILL.md`
 
 - `aitask-add-model` — companion developer-facing skill for registering new code-agent models.
 - CLAUDE.md "WORKING ON SKILLS / CUSTOM COMMANDS" — defines source of truth + per-agent ports.
-- CLAUDE.md "Adding a New Helper Script" — defines the helper-script whitelist touchpoints scanned by Phase 2.
+- `aidocs/framework/aitasks_extension_points.md` "Adding a new helper script" — defines the helper-script whitelist touchpoints scanned by Phase 2.
 - `tests/test_opencode_setup.sh` and equivalent per-agent setup tests — verification of cross-agent counts (auto-adjust per t679).

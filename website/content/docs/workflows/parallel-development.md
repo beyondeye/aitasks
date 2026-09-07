@@ -36,6 +36,24 @@ Under `create_worktree: false` none of this applies: there is no task branch, th
 
 For what the mutex does and does not cover, see [Concepts: The merge mutex]({{< relref "/docs/concepts/locks#the-merge-mutex" >}}).
 
+## Choosing What to Run Alongside
+
+Worktrees keep concurrent tasks out of each other's *files*; they do not tell
+you which task is a sensible one to start right now. Two surfaces answer that:
+
+- [`/aitask-pick`]({{< relref "/docs/skills/aitask-pick/parallel-admission" >}})
+  runs a **parallel-admission preflight** before implementation, checking the
+  task you picked against the file surfaces of work already in flight.
+- [`/aitask-backlog-roadmap`]({{< relref "/docs/skills/aitask-backlog-roadmap" >}})
+  ranks the background-work backlog into parallel-safe and coordination lanes,
+  so the question can be answered before a task is picked at all.
+
+**Neither reserves anything.** Both observe the state at the moment they run, so
+overlapping work can begin the instant after either one passes — the preflight
+is a snapshot, not a claim, and the roadmap's lanes are an estimate. Treat a
+clear result as "no known conflict at check time", never as an assurance that a
+file will still be free when you reach it.
+
 ## Best Practices
 
 - Run `git pull` before starting `/aitask-pick` to see the latest task status and assignments

@@ -115,6 +115,22 @@
         }
       }
     },
+    "merged_from": {
+      "description": "DIRECT provenance of the trail-to-trail merge that produced this document version -- one hop, not an ancestry ledger. Written by /aitask-merge-trails; absent on any trail that never absorbed another. Exactly two records sharing one merged_at: the base's pre-merge snapshot and the folded source's. Written WHOLESALE -- a merge REPLACES any previous value rather than extending it, and inherited ancestry is deliberately NOT carried forward, so a document never accumulates stale history naming retired handles and superseded versions. Deeper ancestry needs no storage because it is walkable: each record's version is the exact key for `ait artifact get <handle> --version <version>`, so reading a merged document's base record and fetching that version yields the previous merge's own merged_from, and so on until a document carries none; a retired folded source's blob remains recoverable from data-branch git history. The recorded version of the folded (retired) source is what makes an interrupted retirement deterministically resumable, and it is a RETIREMENT OBLIGATION until that source stops resolving: because a later merge replaces this value wholesale, a producer MUST check every folded-source record here -- the record whose handle differs from this document's own -- before authoring any new merge, and complete a still-resolving source's retirement first, regardless of which trail the new merge names. The base's pre-merge record is the only place recording which version this document was authored from, because merge provenance is deliberately NOT mirrored into generation.inputs -- those are live-resolvable sources whose presence is drift-tracked, a retired trail has no resolver, and an unresolvable input kind refuses the document's entire staleness verdict.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["handle", "version", "merged_at"],
+        "properties": {
+          "handle": { "type": "string", "minLength": 1 },
+          "version": { "type": "string", "minLength": 1 },
+          "title": { "type": "string" },
+          "merged_at": { "$ref": "#/$defs/timestamp" }
+        }
+      }
+    },
     "freshness": {
       "description": "Last computed staleness verdict. Consumers recompute the input digest on demand and record named drift reasons here; timestamps and board repaints alone are never drift.",
       "type": "object",

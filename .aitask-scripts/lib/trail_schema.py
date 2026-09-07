@@ -418,6 +418,53 @@ def _check_lite_shape(doc, issues, force=False):
                     "key, or re-run with --deep"))
 
 
+def _check_merged_from(doc, issues):
+    """`merged_from` records ONE merge event: exactly two records, naming
+    distinct trails, sharing one `merged_at` (t1647_2).
+
+    The schema can express `minItems` but not this shape -- `maxItems` is not
+    in SUPPORTED_KEYWORDS, and adding it there would trip the unknown-keyword
+    RuntimeError rather than constrain anything. So the cardinality lives
+    here, with the cross-record rules the schema could never carry.
+
+    It is not cosmetic. The retirement-recovery consumer identifies the
+    folded source as *the record whose handle differs from the base's*, and
+    every malformed shape breaks that identification in a different way:
+    one record leaves either no base version or no folded source; three
+    records make the exclusion ambiguous; duplicate handles yield zero or two
+    candidates; a split `merged_at` describes two events in a field that is
+    written wholesale per merge. Each such document would otherwise load
+    cleanly and be discovered only by the recovery path it silently defeats.
+    """
+    records = doc.get("merged_from")
+    if not isinstance(records, list):
+        return  # absent (the common case) or type-checked in phase 1
+    if not all(isinstance(r, dict) for r in records):
+        return  # per-record shape is phase 1's job
+
+    if len(records) != 2:
+        issues.append(TrailIssue(
+            "$.merged_from", "merged_from_shape",
+            "a merge records exactly two sources -- the base's pre-merge "
+            "snapshot and the folded source's -- found %d" % len(records)))
+        return
+
+    handles = [r.get("handle") for r in records]
+    if handles[0] == handles[1]:
+        issues.append(TrailIssue(
+            "$.merged_from", "merged_from_shape",
+            "both records name %r; the folded source is identified by "
+            "differing from the base's handle, which a duplicate defeats"
+            % handles[0]))
+
+    stamps = {r.get("merged_at") for r in records}
+    if len(stamps) != 1:
+        issues.append(TrailIssue(
+            "$.merged_from", "merged_from_shape",
+            "both records describe one merge event and must share one "
+            "merged_at, found %s" % sorted(str(s) for s in stamps)))
+
+
 def _semantic_checks(doc, issues, expect_depth=None):
     waves = _dicts(doc.get("waves"))
     entries = []  # (wave, entry)
@@ -521,6 +568,7 @@ def _semantic_checks(doc, issues, expect_depth=None):
                     "snapshot.depends" % (src, dst, src, dst)))
 
     _check_no_anchor(doc, "$", issues)
+    _check_merged_from(doc, issues)
     _check_depth_contract(doc, expect_depth, issues)
     _check_lite_shape(doc, issues, force=(expect_depth == DEPTH_LITE))
 

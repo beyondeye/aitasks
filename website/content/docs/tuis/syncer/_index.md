@@ -266,11 +266,35 @@ These prompts appear after the layer step, one destination at a time. **Esc** he
 
 Model catalogs are per-repo. A value naming a model that is not in the destination's `models_<agent>.json` is rejected with a reason rather than written, as are a malformed agent string and a destination whose configuration cannot be read. Rejections are reported per destination, so one bad target does not abort the rest of the push.
 
-### The push writes files but commits nothing
+### The push commits in the destination, and never pushes
 
-A successful push leaves an **uncommitted change in the destination repo** that you must review and commit there.
+A successful push **commits the change in the destination repo**, path-scoped to the config file it wrote, under the message `ait: Update codeagent_config.json`. That repo's data worktree is clean afterwards — there is no dirty file left for you to find later.
 
-If the destination uses a separate `aitask-data` branch, that change is not visible from its main checkout: `aitasks/metadata/` is a symlink into `.aitask-data/`, which is a worktree on the data branch and is ignored by the main one. `git status` and `git diff` in the destination's main checkout will show nothing at all. Use [`ait git`]({{< relref "/docs/commands/sync" >}}#ait-git-push) in that repo to see and commit it.
+It **never pushes**. The commit is local to the destination, so a repo whose data branch is behind its remote is not a problem: it reconciles on its own the next time you run `ait sync` there. The result line says "not pushed" for exactly this reason.
+
+Pushing to the **local** layer commits nothing, because that layer is gitignored. The result line says so rather than reporting a failure.
+
+If the destination uses a separate `aitask-data` branch, the commit is not visible from its main checkout: `aitasks/metadata/` is a symlink into `.aitask-data/`, which is a worktree on the data branch and is ignored by the main one. `git status` and `git diff` in the destination's main checkout will show nothing at all. Use [`ait git`]({{< relref "/docs/commands/sync" >}}#ait-git-push) in that repo to go and look at it.
+
+### When a push refuses to write
+
+Because the push writes and commits in a repo you are not working in, it inspects that repo first and **refuses before writing** whenever committing there would not be safe. A refusal leaves the destination byte-for-byte as it was, and is reported on the results screen alongside the successes.
+
+| What the destination looked like | Why it is refused |
+|---|---|
+| Its `codeagent_config.json` has uncommitted changes | Someone is mid-edit there; writing would destroy their work |
+| That file is present but untracked | Unclassified content nobody has committed |
+| Its data worktree is mid rebase / merge / cherry-pick / revert / bisect | The repo is in a state where a commit would land somewhere unintended |
+| Its data worktree is on a detached HEAD | The commit would not be reachable from any branch |
+| It keeps task data on the code branch (no `aitask-data`) | The commit would land on whatever code branch is checked out |
+| Its framework copy cannot commit metadata | It predates the commit seam — upgrade it from the **Versions** tab |
+
+Two further outcomes are reported rather than refused, because the write did land:
+
+- **the commit failed there** — the file is written but uncommitted, and the result line carries the exact command to finish it.
+- **someone changed it there first** — a concurrent writer edited the file between the write and the commit, so **nothing was published**. Their bytes are still on disk. Retry once they are done.
+
+In both cases, a **Clear + project** push deliberately keeps the local override, so the destination's effective value is unchanged and a retry converges.
 
 ### Extending the synced set
 

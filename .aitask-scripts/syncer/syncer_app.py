@@ -65,6 +65,12 @@ from cross_repo_settings import (  # noqa: E402
     DestConfigUnreadable,
     OperationValue,
     PushPartialError,
+    REASON_DEST_COMMIT_UNAVAILABLE,
+    REASON_DEST_DETACHED_HEAD,
+    REASON_DEST_LEGACY_LAYOUT,
+    REASON_DEST_MID_OPERATION,
+    REASON_DEST_MID_WORK,
+    REASON_DEST_UNTRACKED_CONFIG,
     apply_push,
     diff_across_repos,
     plan_push,
@@ -202,6 +208,84 @@ STALE_MARKER = "*"
 # Empty pending-refresh slot sentinel (a pending fetch key may legitimately be
 # None, so the slot needs a distinct "unset" marker).
 PENDING_UNSET = object()
+
+
+#: One line per refusal reason (t1704). A refusal means NOTHING was written in
+#: that repo, so each of these has to say what the destination's state was —
+#: "rejected" alone would leave the user unable to tell a mid-edit from a repo
+#: that simply predates the commit seam.
+_APPLY_REFUSAL_TEXT = {
+    REASON_DEST_MID_WORK:
+        "not applied: that repo has uncommitted changes to its config",
+    REASON_DEST_UNTRACKED_CONFIG:
+        "not applied: its config exists there but is not tracked",
+    REASON_DEST_MID_OPERATION:
+        "not applied: its task-data worktree is mid-operation",
+    REASON_DEST_DETACHED_HEAD:
+        "not applied: its task-data worktree is on a detached HEAD",
+    REASON_DEST_LEGACY_LAYOUT:
+        "not applied: it keeps task data on the code branch",
+    REASON_DEST_COMMIT_UNAVAILABLE:
+        "not applied: its framework copy cannot commit metadata "
+        "(update it from the Versions tab)",
+}
+
+
+def _render_apply_outcome(outcome, write_layer: str) -> str:
+    """One result line for one destination (t1704).
+
+    Every outcome is reported, because a silent dirty file in someone else's
+    repo is the ownerless state this whole change exists to end — reporting it
+    is not a nicety, it is the deliverable.
+
+    "not pushed" is stated on the success line on purpose: the seam commits
+    locally and never pushes, and a user who assumed otherwise would not go and
+    push that repo.
+    """
+    detail = f" ({outcome.detail})" if outcome.detail else ""
+
+    if outcome.kind == "refused":
+        base = _APPLY_REFUSAL_TEXT.get(
+            outcome.reason, f"not applied: {outcome.reason}"
+        )
+        # The mapped sentence is the whole user-facing message. `outcome.detail`
+        # is a DIAGNOSTIC: for most reasons it restates the sentence, and for
+        # dest_commit_unavailable it is a raw exception string ("[Errno 2] No
+        # such file or directory: ...") that would read as a crash rather than
+        # as "that repo needs upgrading". The one exception is a mid-operation
+        # refusal, where the detail names WHICH state — the only thing that
+        # tells the user which `--abort` to run over there.
+        if outcome.reason == REASON_DEST_MID_OPERATION and outcome.detail:
+            return f"not applied: {outcome.detail}"
+        return base
+
+    if outcome.kind == "committed":
+        line = f"applied to the {write_layer} layer and committed there (not pushed)"
+    elif outcome.kind == "nothing_to_commit":
+        line = (
+            f"applied to the {write_layer} layer; that content was already "
+            "committed there"
+        )
+    elif outcome.kind == "user_layer_only":
+        line = (
+            f"applied to the {write_layer} layer (gitignored there — nothing "
+            "to commit)"
+        )
+    elif outcome.kind == "commit_raced":
+        line = (
+            "applied, but NOT committed: someone changed it there first, so "
+            "nothing was published"
+        )
+    elif outcome.kind == "commit_failed":
+        line = f"applied but the commit failed there{detail}"
+        detail = ""
+    else:
+        line = f"applied to the {write_layer} layer"
+
+    if outcome.mask_kept:
+        line += "; the local override was kept, so that repo's effective value " \
+                "is unchanged — retry to finish"
+    return f"{line}{detail}"
 
 
 def _format_clock(ts: float) -> str:
@@ -1970,18 +2054,24 @@ class SyncerApp(TuiSwitcherMixin, ShortcutsMixin, App):
             write_layer = "local" if kind == "apply_local" else layer
             clear_mask = kind == "apply_clear"
             try:
-                apply_push(
+                outcome = apply_push(
                     value, sess.project_root, operation, write_layer,
                     clear_mask=clear_mask,
                 )
-                results.append((label, f"applied to the {write_layer} layer"))
+                results.append((label, _render_apply_outcome(outcome, write_layer)))
             except PushPartialError as exc:
                 # Neither success nor plain failure: the project layer landed
                 # but the mask is still in place, so the repo's EFFECTIVE value
                 # is unchanged and a retry converges.
+                committed = exc.commit_kind in ("committed", "nothing_to_commit")
+                where = (
+                    "written and committed there"
+                    if committed
+                    else "written but NOT committed there"
+                )
                 results.append((
                     label,
-                    "partial — project written but the local override still "
+                    f"partial — project {where}, but the local override still "
                     f"sets {exc.masking_value!r}; retry to finish",
                 ))
             except Exception as exc:

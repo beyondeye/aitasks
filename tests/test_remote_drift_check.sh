@@ -659,6 +659,71 @@ archive_hits=$(printf '%s\n' "$result" | grep -c '^OVERLAP:\.aitask-scripts/aita
 assert_eq "14e: a duplicated token is deduped to one record" "1" "$archive_hits"
 
 # ============================================================
+# Test 15: local-only commits must not inflate OVERLAP (t1724)
+# ============================================================
+#
+# The bug: the helper used `git diff BASE..origin/BASE`, which in `git diff` is a
+# plain tip-to-tip comparison, so a file the USER changed locally was reported as
+# remote drift. The three-dot form diffs from the merge base.
+#
+# Both plan-referenced files are load-bearing here:
+#   - .aitask-scripts/aitask_archive.sh -- changed on the REMOTE only. It is the
+#     POSITIVE CONTROL: it must still be reported, so the test cannot pass by the
+#     overlap set having gone empty.
+#   - tests/test_archive.sh            -- changed LOCALLY only. It must NOT be
+#     reported. Without this local-only commit the fixture passes under BOTH diff
+#     forms and proves nothing.
+
+echo "--- Test 15: local-only commits do not inflate OVERLAP ---"
+pair=$(make_branch_mode_pair)
+root="${pair%|*}"
+default_branch="${pair##*|}"
+register_cleanup "$root"
+
+# Both sides share tests/test_archive.sh at a common base commit.
+(
+    cd "$root/local"
+    mkdir -p tests
+    echo "baseline" > tests/test_archive.sh
+    git add tests/test_archive.sh
+    git commit --quiet -m "add shared test file"
+    git push --quiet origin "$default_branch"
+)
+
+# Another PC pushes a change to a DIFFERENT plan-referenced file.
+git clone --quiet "$root/origin.git" "$root/other" 2>/dev/null
+(
+    cd "$root/other"
+    git config user.email "other@example.com"
+    git config user.name  "Other"
+    mkdir -p .aitask-scripts
+    echo "patched" > .aitask-scripts/aitask_archive.sh
+    git add .aitask-scripts/aitask_archive.sh
+    git commit --quiet -m "patch archive script"
+    git push --quiet origin "$default_branch"
+)
+
+# The user's OWN local commit touches the shared file. Never pushed.
+(
+    cd "$root/local"
+    echo "local edit" >> tests/test_archive.sh
+    git add tests/test_archive.sh
+    git commit --quiet -m "local-only change to the shared test file"
+)
+
+mark_branch_mode "$root/local"
+plan_path="$root/local/plan.md"
+write_plan_file "$plan_path"
+
+result=$(cd "$root/local" && "$HELPER" "$default_branch" "$plan_path" 2>&1)
+assert_contains "15a: remote-only commit count is unaffected" "AHEAD:1" "$result"
+assert_contains "15b: positive control -- remote-changed planned file still overlaps" \
+    "OVERLAP:.aitask-scripts/aitask_archive.sh" "$result"
+assert_not_contains "15c: locally-changed planned file is NOT reported as remote drift" \
+    "OVERLAP:tests/test_archive.sh" "$result"
+assert_not_contains "15d: no NO_OVERLAP when there is overlap" "NO_OVERLAP" "$result"
+
+# ============================================================
 # Summary
 # ============================================================
 

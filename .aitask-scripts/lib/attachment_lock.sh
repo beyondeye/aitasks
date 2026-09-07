@@ -59,10 +59,28 @@
 # every with_attach_lock callback (and the same-file helpers it calls) for this
 # rule, and pins the runtime behaviour with fault injection.
 #
-# NOT COVERED HERE -- see t1698: a callback that dies mid-transaction leaves its
-# completed mutations on disk, uncommitted. This contract stops a failure being
-# reported as SUCCESS; the residual working-tree state after an abort, and the
-# transaction-boundary defects around it, are t1698's.
+# THE OTHER HALF -- lib/txn_snapshot.sh (t1698). This contract stops a failure
+# being reported as SUCCESS; it says nothing about what the failed callback left
+# on disk. That is now owned by the shared transaction boundary, which every
+# `ait attach` / `ait artifact` callback opens with `txn_begin`:
+#
+#   * a fail-closed PREFLIGHT (txn_require_clean) refuses to start when a
+#     non-blob path the transaction would stage is already dirty -- `git add` is
+#     whole-path, so the commit would otherwise absorb the user's in-flight edit;
+#   * a snapshot-backed ROLLBACK restores pre-transaction BYTES AND INDEX
+#     ENTRIES (never HEAD, which is what destroyed a pre-existing dirty edit),
+#     fired from the EXIT trap so it covers every abort path rather than only
+#     the commit-failure branch.
+#
+# The two compose deliberately: `die` still exits, and the trap it fires now
+# leaves the tree as it found it. Invariant: a transaction either commits
+# completely, or restores its own paths to their pre-transaction state -- and
+# says so truthfully when it could not (txn_rollback_report).
+#
+# NOTE FOR A NEW CALLBACK: txn_begin must be the FIRST statement, so its EXIT
+# trap CHAINS over the lock-release handler registry_lock_acquire just
+# installed. A bare `trap ... EXIT` there would replace that handler and leak
+# this lock on every aborted verb.
 
 [[ -n "${_AIT_ATTACHMENT_LOCK_LOADED:-}" ]] && return 0
 _AIT_ATTACHMENT_LOCK_LOADED=1

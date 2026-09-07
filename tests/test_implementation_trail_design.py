@@ -10,6 +10,7 @@ validator and replace or extend these checks.
 Run:  python3 -m unittest tests.test_implementation_trail_design -v
 """
 
+import ast
 import json
 import re
 import unittest
@@ -23,7 +24,13 @@ FIXTURE_NAMES = [
     "shadow_review_loop.json",
     "gate_framework.json",
     "cross_topic_multiple_trails.json",
+    "merged_trail.json",
 ]
+
+#: The one fixture modelling a merged document (t1647_2). Named rather than
+#: discovered, so the checks below fail loudly if it is ever renamed away
+#: instead of silently finding nothing to assert on.
+MERGED_FIXTURE = "merged_trail.json"
 
 
 def load_json(path):
@@ -45,6 +52,41 @@ class SchemaAndFixturesParse(unittest.TestCase):
     def test_no_unexpected_fixture_files(self):
         found = sorted(p.name for p in EXAMPLES_DIR.glob("*.json"))
         self.assertEqual(found, sorted(FIXTURE_NAMES))
+
+    def test_fixture_name_lists_agree(self):
+        """The corpus is pinned by TWO independently maintained lists, and
+        only this file's fails loudly when a fixture is added to one alone.
+
+        tests/test_trail_schema.py's copy drives `ValidFixtures`, which runs
+        every fixture through the real validator — so a fixture added here
+        but not there is silently never validated, and nothing goes red.
+        Pin them to each other (t1647_2).
+
+        Read via `ast` rather than `import test_trail_schema`: there is no
+        tests/__init__.py, so whether that import resolves depends on which
+        backend the runner picked (pytest vs `unittest discover`) and what it
+        put on sys.path. Parsing the literal is deterministic under both.
+        """
+        sibling = Path(__file__).with_name("test_trail_schema.py")
+        tree = ast.parse(sibling.read_text(encoding="utf-8"))
+        sibling_names = None
+        for node in tree.body:
+            if not isinstance(node, ast.Assign):
+                continue
+            if any(isinstance(t, ast.Name) and t.id == "FIXTURE_NAMES"
+                   for t in node.targets):
+                sibling_names = ast.literal_eval(node.value)
+        self.assertIsNotNone(
+            sibling_names,
+            f"{sibling.name} no longer defines a module-level FIXTURE_NAMES "
+            "— this guard cannot compare what it cannot find",
+        )
+        self.assertEqual(
+            sorted(sibling_names), sorted(FIXTURE_NAMES),
+            "the two fixture-corpus lists diverged: a fixture added to one "
+            "and not the other is either an unexpected file here or an "
+            "unvalidated fixture there",
+        )
 
 
 class FixtureContract(unittest.TestCase):
@@ -239,6 +281,84 @@ class FixtureContract(unittest.TestCase):
                             walk(v)
 
                 walk(doc)
+
+
+class MergedProvenanceContract(unittest.TestCase):
+    """`merged_from` conventions the JSON Schema cannot express (t1647_2).
+
+    The schema pins the record shape; these pin the two decisions that make
+    the field usable:
+
+    1. **Direct, two-record provenance.** A merge records BOTH of its inputs
+       — the base's pre-merge snapshot and the folded source's — sharing one
+       `merged_at`. Recording only the folded source would lose the one fact
+       nothing else stores: which base version the document was authored
+       from. It is deliberately NOT an ancestry ledger; deeper history is
+       walkable because each `version` is the `ait artifact get --version`
+       key for the previous hop.
+    2. **Merge provenance never reaches `generation.inputs`.** Those are
+       live-resolvable drift sources, and `_classify_stored_inputs` refuses
+       the document's ENTIRE staleness verdict on any input kind without a
+       resolver (`trail_gather.py`, pinned by
+       tests/test_trail_gather.py::test_content_kinds_without_resolver_fail_closed).
+       Mirroring an artifact ref there — as `kind: other`, the only kind that
+       would accept it — would make every merged trail permanently
+       undriftable.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.doc = load_json(EXAMPLES_DIR / MERGED_FIXTURE)
+
+    def test_merged_fixture_actually_carries_merged_from(self):
+        """Guards the guards: every check below is vacuous if the fixture
+        stops modelling a merge."""
+        self.assertIn("merged_from", self.doc)
+        self.assertIsInstance(self.doc["merged_from"], list)
+
+    def test_records_both_inputs_of_one_merge(self):
+        records = self.doc["merged_from"]
+        self.assertEqual(
+            len(records), 2,
+            "a merge records exactly two sources: the base's pre-merge "
+            "snapshot and the folded source's",
+        )
+        handles = [r["handle"] for r in records]
+        self.assertEqual(
+            len(set(handles)), 2, f"records must name distinct trails: {handles}"
+        )
+        stamps = {r["merged_at"] for r in records}
+        self.assertEqual(
+            len(stamps), 1,
+            f"both records describe one merge event, so they share one "
+            f"merged_at: {stamps}",
+        )
+
+    def test_every_record_carries_a_walkable_version(self):
+        """`version` is both the retirement-recovery anchor and the fetch key
+        for the previous hop, so an empty one breaks the documented path."""
+        for record in self.doc["merged_from"]:
+            with self.subTest(handle=record["handle"]):
+                self.assertTrue(record["version"].strip())
+
+    def test_provenance_is_not_mirrored_into_generation_inputs(self):
+        inputs = self.doc["generation"]["inputs"]
+        self.assertNotIn(
+            "other", {i["kind"] for i in inputs},
+            "an input kind with no live resolver refuses the whole drift "
+            "verdict — merge provenance belongs in merged_from only",
+        )
+        refs = {i["ref"] for i in inputs}
+        for record in self.doc["merged_from"]:
+            handle, version = record["handle"], record["version"]
+            with self.subTest(handle=handle):
+                self.assertNotIn(handle, refs)
+                self.assertNotIn(f"{handle}@{version}", refs)
+
+    def test_depth_marker_is_recorded(self):
+        """The only fixture that records one, and the reason the
+        `--expect-depth deep` verification in the plan can pass at all."""
+        self.assertEqual(self.doc["rendering_hints"]["depth"], "deep")
 
 
 class ManualExampleFidelity(unittest.TestCase):

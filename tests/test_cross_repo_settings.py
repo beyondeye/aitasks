@@ -26,6 +26,9 @@ from unittest import mock
 REPO_ROOT = Path(__file__).resolve().parent.parent
 _LIB = REPO_ROOT / ".aitask-scripts" / "lib"
 sys.path.insert(0, str(_LIB))
+sys.path.insert(0, str(REPO_ROOT / "tests" / "lib"))
+
+import branch_mode_repo as bmr  # noqa: E402
 
 import config_utils  # noqa: E402
 import cross_repo_settings as crs  # noqa: E402
@@ -89,30 +92,11 @@ def make_repo(root: Path, project: dict | None = None, local: dict | None = None
             encoding="utf-8",
         )
     if wrapper:
-        scripts = root / ".aitask-scripts"
-        scripts.mkdir(parents=True, exist_ok=True)
-        sh = scripts / "aitask_codeagent.sh"
-        sh.write_text(
-            '#!/usr/bin/env bash\n'
-            'set -u\n'
-            '# Mirrors lib/agent_string.sh: these are caller overrides.\n'
-            'METADATA_DIR="${METADATA_DIR:-${TASK_DIR:-aitasks}/metadata}"\n'
-            'DEFAULT_AGENT_STRING="${DEFAULT_AGENT_STRING:-claudecode/opus5}"\n'
-            'op="$2"\n'
-            'for f in "$METADATA_DIR/codeagent_config.local.json" '
-            '"$METADATA_DIR/codeagent_config.json"; do\n'
-            '  if [[ -f "$f" ]]; then\n'
-            '    v=$(python3 -c "import json,sys;'
-            'd=json.load(open(sys.argv[1]));'
-            'print(d.get(\'defaults\',{}).get(sys.argv[2],\'\'))" '
-            '"$f" "$op" 2>/dev/null) || true\n'
-            '    if [[ -n "$v" ]]; then echo "AGENT_STRING:$v"; exit 0; fi\n'
-            '  fi\n'
-            'done\n'
-            'echo "AGENT_STRING:$DEFAULT_AGENT_STRING"\n',
-            encoding="utf-8",
-        )
-        sh.chmod(0o755)
+        # ONE definition of the stub, in tests/lib/branch_mode_repo.py — it must
+        # stay faithful to lib/agent_string.sh (env overrides) and to
+        # resolve_agent_string's AGENT_STRING: protocol, and a second copy here
+        # is how one of those two silently stops being true.
+        bmr.install_resolver_stub(root)
     return root
 
 
@@ -608,7 +592,11 @@ class PushOutcomeTests(TempDirCase):
         self.assertEqual(out.reason, crs.REASON_DEST_CONFIG_UNREADABLE)
 
     def test_apply_push_clear_mask_removes_override_and_prunes(self):
-        root = make_repo(
+        # A COMMITTABLE destination (t1704): apply_push now refuses to write
+        # into a repo it cannot own the commit in, so the clear-mask contract
+        # can only be exercised against a real branch-mode target. The contract
+        # itself is unchanged — an emptied local file is still deleted.
+        root = bmr.make_branch_mode_repo(
             self.tmp / "cm",
             project={"pick": "claudecode/opus5"},
             local={"pick": "claudecode/sonnet5"},
@@ -626,7 +614,7 @@ class PushOutcomeTests(TempDirCase):
         self.assertEqual(project["defaults"]["pick"], "claudecode/sonnet5")
 
     def test_apply_push_clear_mask_keeps_other_local_keys(self):
-        root = make_repo(
+        root = bmr.make_branch_mode_repo(
             self.tmp / "cm2",
             project={"pick": "claudecode/opus5"},
             local={"pick": "claudecode/sonnet5", "explore": "claudecode/opus5"},
@@ -643,7 +631,7 @@ class PushOutcomeTests(TempDirCase):
         Reversing it would drop the override and swing the effective value to
         something the user never chose.
         """
-        root = make_repo(
+        root = bmr.make_branch_mode_repo(
             self.tmp / "partial",
             project={"pick": "claudecode/opus5"},
             # A second local key keeps the file alive after `pick` is removed, so

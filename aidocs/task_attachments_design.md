@@ -358,6 +358,31 @@ would be a shared helper alongside it.
    attachments transfer to B? Yes — they should re-bind to B (the `rebind`
    subcommand updates every per-blob meta file's `refs`) at fold time.
 
+## 10b. Transaction boundary (t1698)
+
+- **The transaction boundary is isolated from the worktree** (t1698,
+  `lib/txn_snapshot.sh`). Staging is whole-path, so a verb whose commit touches
+  an already-dirty path would absorb the user's unrelated in-flight edit into an
+  `ait:` commit, and the old restore-from-HEAD rollback would DESTROY that edit
+  instead. Both halves are now shared by `ait attach`, `ait artifact` and
+  `ait fold`:
+  - a fail-closed **preflight** refuses to start when any NON-BLOB path the
+    transaction will stage is dirty, naming the path and the remedy. Blobs are
+    exempt — a blob's path is its content hash, so there is nothing to absorb.
+    This is a deliberate user-visible behaviour change: an attach/artifact verb
+    on a dirty path it would stage now refuses instead of absorbing the edit.
+  - a snapshot-backed **rollback** restores each path's pre-transaction bytes
+    AND its full index entry (every stage, so an unmerged path round-trips),
+    fired from the transaction's EXIT trap so it covers every abort path rather
+    than only the commit-failure branch. Blob paths keep HEAD restore /
+    backend-delete: they are content-addressed, and snapshotting one would copy
+    up to 25 MB with gc sweeping many.
+
+  Invariant: **a transaction either commits completely, or restores its own
+  paths to their pre-transaction bytes and index entries** — and when it cannot,
+  it says so, listing each un-restored item with its recovery instruction and
+  retaining the snapshot directory rather than claiming a clean rollback.
+
 ## 11. Suggested decomposition
 
 Parent: `tNNN_task_attachments` in this repo. Proposed children, in
