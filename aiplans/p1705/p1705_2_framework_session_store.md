@@ -763,6 +763,66 @@ rather than skip" under a busy machine; this run was fully serial because the
 pytest/xdist dev tier is not installed here (`ait setup --with-dev` installs it).
 None of the nine touches `agent_sessions` or `agent_marks`.
 
+## Final Implementation Notes
+
+- **Actual work done:** Shipped the store as three new files —
+  `.aitask-scripts/lib/agent_sessions.py` (schema v1, strict parse, atomic
+  0600-preserving `dump`, identity/conflict policy, lease, the full state
+  machine as pure transitions, observation reader, purge, `SessionsView`, CLI),
+  `.aitask-scripts/aitask_agent_sessions.sh` (sole locked writer; `list`/`show`
+  unlocked), and `.aitask-scripts/lib/agent_sessions.sh` (pane-option constants,
+  capture-dir resolver, `ait_stamp_record`). Edited
+  `lib/agent_marks.py::_read_observed` to skip `PANE` rows explicitly. Eight test
+  modules: `test_agent_sessions{,_identity,_transitions,_lease,_observation,_liveness,_contract_call_sites}.py`
+  plus `test_agent_sessions_stamp.sh` and `test_agent_sessions_concurrency.sh`,
+  and two new cases in `test_agent_marks_liveness.py`. Results: **235 Python
+  tests** green, `_stamp.sh` 22/22, `_concurrency.sh` 20/20,
+  `test_agent_marks_concurrency.sh` 25/25 unchanged, `test_no_raw_tmux.sh` 5/5,
+  shellcheck at parity with the shipped `aitask_agent_marks.sh`.
+
+- **Deviations from plan:** sixteen corrections, A1–A16 above. A1–A6 came from
+  the verify pass over the plan; A7–A9 from review of that plan; A10–A11 from
+  implementation; A12–A16 from review of the implemented code. The
+  shape-changing ones for siblings are A3 (`standin-respawned` is legal from
+  `freezing` and keeps the lease), A7 (`--owner-pid` is required on the three
+  lease-minting verbs), A8 (`@aitask_record` is the caller's job, via
+  `ait_stamp_record`) and A12 (`--pane`/`--pane-pid` must be a coherent pair).
+  A `## Corrected contracts` section (§C1–C5) was added and **supersedes the
+  reproduced PINNED block** — read that, not the pinned copy, when implementing
+  a caller.
+
+- **Issues encountered:** three defects were only findable by driving the
+  shipped wrapper end to end rather than the pure transitions — A11 (the CLI
+  discarded the one refusal required to persist), A12 (a mismatched pane pair
+  was accepted) and A16 (a non-empty but unparseable timestamp). The pure
+  functions were correct in all three cases; the layer above them was not.
+  `CliPersistenceTests` now covers that layer. Separately, one A10 test was
+  initially passing **vacuously** because its fixture used the raw temp path
+  where records store `realpath` (on macOS `/var` → `/private/var`), so the
+  purge skipped the root entirely and dropped nothing — fixed, and worth
+  checking for in any sibling test that keys on a root.
+
+- **Key decisions:** (a) `dump()` uses `atomic_write.prepare`/`chmod`/`commit`
+  rather than `atomic_write_text`, because the shared helper defaults a
+  not-yet-existing file to `0o666 & ~umask` and this store holds session ids and
+  transcript paths; (b) an empty `capture_ansi` on a `frozen` record is purged
+  rather than rejected at parse, so one corrupt record cannot make the store
+  unreadable for every other agent; (c) timestamp validation was applied to all
+  four stamp fields rather than only the load-bearing `op_started_at`, since
+  `state_at` feeds §C/§D's `restore_ack_grace` and "display only" is not a
+  stable category; (d) `agent_kind` is derived locally and never validated
+  against `SUPPORTED_AGENTS`, so a new agent cannot make the store reject a
+  record.
+
+- **For sibling tasks:** every mitigation and control in this task is
+  **mutation-verified** — reverting the fix must fail its test. Two of those
+  controls were initially non-discriminating (an A10 fixture, and a lease test
+  that used `os.getpid()` where a *foreign* live pid was needed), so when
+  writing a control here, check that it actually fails against the broken
+  implementation. Note also that `contract_call_site_audit` is **static** — it
+  reads signatures and state legality and cannot see a persistence bug; children
+  4 and 5 inherit that blind spot and need their own end-to-end coverage.
+
 ## Corrected contracts — AUTHORITATIVE, supersedes the PINNED block below
 
 The PINNED block is reproduced verbatim from the parent and is left unedited so
