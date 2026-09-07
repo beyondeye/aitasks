@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [backend]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -16,7 +16,8 @@ anchor: 1569
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5
 created_at: 2026-09-07 09:00
-updated_at: 2026-09-07 16:28
+updated_at: 2026-09-07 16:40
+completed_at: 2026-09-07 16:40
 ---
 
 `aitask_remote_drift_check.sh:211` computes the remote-changed file set with a
@@ -79,3 +80,14 @@ also makes the bug hard to notice by eye.
 > **✅ gate:plan_approved** run=2026-09-07T13:28:09Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-09-07T13:34:14Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-07T13:40:39Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:3b9f757900e555c1
+
+> **✅ gate:risk_evaluated** run=2026-09-07T13:40:39Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1724/risk_evaluated_2026-09-07T13:40:39Z-risk_evaluated-a1.log`
