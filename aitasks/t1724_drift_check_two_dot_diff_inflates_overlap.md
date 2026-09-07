@@ -3,12 +3,13 @@ priority: high
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [backend]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1569
 followup_kind: upstream_defect
 created_at: 2026-09-07 09:00
-updated_at: 2026-09-07 09:00
+updated_at: 2026-09-07 12:39
 ---
 
 `aitask_remote_drift_check.sh:211` computes the remote-changed file set with a
