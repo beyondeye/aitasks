@@ -3,7 +3,7 @@ priority: high
 effort: high
 depends: [t1705_3]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [tmux, tmux_destructive, codeagent, minimonitor, aitask_monitor, session_persistence, python, testing]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -11,9 +11,10 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 plan_approved_at: 2026-09-07 16:43
+assigned_to: dario-e@beyond-eye.com
 anchor: 1705
 created_at: 2026-09-04 16:04
-updated_at: 2026-09-07 16:43
+updated_at: 2026-09-07 16:51
 ---
 
 ## Step 0 — tmux preflight (run BEFORE anything else; blocking)
