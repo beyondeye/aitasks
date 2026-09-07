@@ -10,11 +10,11 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 file_references: [.aitask-scripts/aitask_sync.sh:1269-1280, .aitask-scripts/syncer/syncer_app.py:2264-2273, .aitask-scripts/lib/sync_action_runner.py:75-82]
-children_to_implement: [t1725_1, t1725_2, t1725_3]
+children_to_implement: [t1725_1, t1725_2, t1725_3, t1725_4]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1599
 created_at: 2026-09-07 10:58
-updated_at: 2026-09-07 16:38
+updated_at: 2026-09-07 16:39
 ---
 
 ## Problem
