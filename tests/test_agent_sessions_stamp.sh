@@ -94,17 +94,54 @@ assert_eq "frozen root follows the env override" "$TMP/frozen" "$(ait_frozen_dir
 assert_eq "per-record capture dir" "$TMP/frozen/7f3a2c1d" "$(ait_frozen_dir 7f3a2c1d)"
 
 echo "=== Test 6: shell and Python agree on every option spelling ==="
-# The Python copies live in lib/agent_sessions.sh's sibling module today; when
-# t1705_4 moves them to monitor/monitor_core.py beside SHADOW_TARGET_OPTION,
-# re-point this check there. Two spellings of one option would silently break
-# the join: the stamper would write one name and the reader would look for
-# another, and every affected agent would simply look unrecorded.
-py_record="$(python3 -c "
+# The Python copies now live in monitor/monitor_core.py beside
+# SHADOW_TARGET_OPTION (t1705_4), which is where the readers are: the
+# list-panes format, kill_agent_pane_smart and the freeze engine all take their
+# spellings from there. Two spellings of one option would silently break the
+# join — the stamper writes one name, the reader looks for another, and every
+# affected agent simply looks unrecorded — so the two sources are compared
+# rather than trusted to stay in step by review.
+#
+# monitor_core imports `yaml`, which a bare system python3 need not have, so
+# resolve the framework interpreter the same way tests/run_all_python_tests.sh
+# does. The check SKIPS rather than fails if the import still cannot happen:
+# this file's own contract is the argv and the id guard, and it must stay
+# runnable on a machine without the venv.
+# shellcheck source=../.aitask-scripts/lib/python_resolve.sh
+. "$PROJECT_DIR/.aitask-scripts/lib/python_resolve.sh"
+PYTHON_BIN="$(require_ait_python 2>/dev/null || echo python3)"
+
+py_options="$("$PYTHON_BIN" -c "
+import sys
+sys.path.insert(0, '$PROJECT_DIR/.aitask-scripts')
+sys.path.insert(0, '$PROJECT_DIR/.aitask-scripts/lib')
+from monitor.monitor_core import (
+    RECORD_OPTION, FROZEN_OPTION, STANDIN_READY_OPTION, AGENT_SESSION_OPTION,
+)
+print(RECORD_OPTION)
+print(FROZEN_OPTION)
+print(STANDIN_READY_OPTION)
+print(AGENT_SESSION_OPTION)
+" 2>/dev/null)"
+
+if [ -z "$py_options" ]; then
+    echo "SKIP: monitor_core is not importable with $PYTHON_BIN (missing deps)"
+else
+    { read -r py_record; read -r py_frozen; read -r py_ready; read -r py_session; } <<EOF
+$py_options
+EOF
+    assert_eq "record option agrees with monitor_core"       "$AIT_RECORD_OPTION"         "$py_record"
+    assert_eq "frozen option agrees with monitor_core"       "$AIT_FROZEN_OPTION"         "$py_frozen"
+    assert_eq "standin-ready option agrees with monitor_core" "$AIT_STANDIN_READY_OPTION" "$py_ready"
+    assert_eq "agent-session option agrees with monitor_core" "$AIT_AGENT_SESSION_OPTION" "$py_session"
+fi
+
+py_frozen_dir="$(python3 -c "
 import sys; sys.path.insert(0, '$PROJECT_DIR/.aitask-scripts/lib')
 import agent_sessions
 print(agent_sessions.DEFAULT_FROZEN_DIR)
 ")"
-assert_eq "python default frozen dir matches the shell default" "~/.config/aitasks/frozen" "$py_record"
+assert_eq "python default frozen dir matches the shell default" "~/.config/aitasks/frozen" "$py_frozen_dir"
 
 echo ""
 echo "=== Summary ==="

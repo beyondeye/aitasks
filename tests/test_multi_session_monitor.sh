@@ -69,8 +69,11 @@ fake_sessions = [
 
 # Build a synthetic list-panes stdout (one agent pane per session).
 def make_row(widx, wname, pidx, pane_id, pid):
-    # `_LIST_PANES_FORMAT` order, 11 fields (t1686 appended the monitor marker).
-    parts = [widx, wname, pidx, pane_id, str(pid), "bash", "80", "24", "", "0", ""]
+    # `_LIST_PANES_FORMAT` order, 15 fields (t1705_4 appended the frozen block).
+    # Kept at the CURRENT arity: the legacy ones still parse, so a stale builder
+    # would pass while exercising a shape production no longer emits.
+    parts = [widx, wname, pidx, pane_id, str(pid), "bash", "80", "24", "", "0", "",
+             "", "", "", "0"]
     return "\t".join(parts)
 
 rows_a = make_row("1", "agent-t42-claudecode", "0", "%1", 1001) + "\n"

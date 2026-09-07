@@ -100,16 +100,23 @@ def _row(
     shadow_target: str = "",
     history_size: str = "0",
     monitor_kind: str = "",
+    frozen: str = "",
+    record: str = "",
+    standin_ready: str = "",
+    pane_dead: str = "0",
 ) -> str:
-    """One scripted `list-panes` line in `_LIST_PANES_FORMAT` order (11 fields).
+    """One scripted `list-panes` line in `_LIST_PANES_FORMAT` order (15 fields).
 
-    11 is the current arity (t1686 appended `@aitask_monitor_kind`). A builder
-    left at an older count is silently dropped by `_parse_list_panes`, so every
-    assertion below it would pass vacuously — see `ArityToleranceTests`.
+    15 is the current arity (t1705_4 appended `@aitask_frozen`,
+    `@aitask_record`, `@aitask_standin_ready` and `#{pane_dead}` to t1686's 11).
+    A builder left at an older count is silently dropped by `_parse_list_panes`,
+    so every assertion below it would pass vacuously — see
+    `ArityToleranceTests`.
     """
     return "\t".join([
         window_index, window_name, pane_index, pane_id, str(pane_pid),
         command, "80", "24", shadow_target, history_size, monitor_kind,
+        frozen, record, standin_ready, pane_dead,
     ])
 
 
@@ -492,39 +499,66 @@ class ArityToleranceTests(unittest.TestCase):
 
     def test_current_arity_parses(self):
         row = _row(window_name="agent-pick-42", pane_id="%1", pane_pid=_AGENT_PID)
-        self.assertEqual(len(row.split("\t")), 11)
+        self.assertEqual(len(row.split("\t")), 15)
         self.assertEqual(self._parse(row), ["%1"])
 
     def test_legacy_arities_still_parse(self):
-        """9 and 10 remain accepted (t1159_2 / pre-t1686 records)."""
+        """9, 10 and 11 remain accepted (t1159_2 / pre-t1686 / pre-t1705_4)."""
         base = ["7", "agent-pick-42", "1", "%1", str(_AGENT_PID), "node",
                 "80", "24", ""]
         self.assertEqual(self._parse("\t".join(base)), ["%1"])
         self.assertEqual(self._parse("\t".join(base + ["500"])), ["%1"])
+        self.assertEqual(self._parse("\t".join(base + ["500", ""])), ["%1"])
 
     def test_over_and_under_length_rows_are_rejected(self):
         """The guard against a stub that drifts out of the accepted set."""
         row = _row(window_name="agent-pick-42", pane_id="%1", pane_pid=_AGENT_PID)
         parts = row.split("\t")
         self.assertEqual(self._parse("\t".join(parts + ["extra"])), [],
-                         "a 12-field record must be rejected, not truncated")
+                         "a 16-field record must be rejected, not truncated")
         self.assertEqual(self._parse("\t".join(parts[:8])), [],
                          "an 8-field record must be rejected")
+        self.assertEqual(self._parse("\t".join(parts[:12])), [],
+                         "a 12-field record — the shape a t1705_4 format change "
+                         "would emit with only SOME of its four fields — must "
+                         "be rejected too")
 
     def test_trailing_empty_marker_survives_on_the_last_record(self):
         """No `strip()` on the buffer: the last row's empty marker is a field.
 
-        tmux emits `…\\t\\n` for an unmarked final pane; a whole-buffer strip
-        would eat that tab and drop the record.
+        tmux emits `…\\t\\n` for a record whose final field is unset; a
+        whole-buffer strip eats that tab and drops the record.
+
+        Built at the LEGACY 11-field arity on purpose. Since t1705_4 the current
+        format ends in `#{pane_dead}`, which tmux always renders as "0"/"1", so
+        the current arity can no longer produce this shape — but the legacy
+        arities still can, the no-strip rule still governs them, and a 15-field
+        fixture would make this case pass for the wrong reason.
         """
-        stdout = "".join([
-            _row(window_name="agent-pick-42", pane_index="0", pane_id="%1",
-                 pane_pid=_AGENT_PID) + "\n",
-            _row(window_name="agent-pick-42", pane_index="1", pane_id="%2",
-                 pane_pid=_AGENT_PID) + "\n",
-        ])
+        def legacy(pane_index, pane_id):
+            return "\t".join(
+                _row(window_name="agent-pick-42", pane_index=pane_index,
+                     pane_id=pane_id, pane_pid=_AGENT_PID).split("\t")[:11]
+            )
+
+        stdout = legacy("0", "%1") + "\n" + legacy("1", "%2") + "\n"
         self.assertTrue(stdout.endswith("\t\n"))
         self.assertEqual(self._parse(stdout), ["%1", "%2"])
+
+    def test_empty_option_fields_mid_row_keep_the_current_arity(self):
+        """The shape tmux emits today: three empty `@option` fields, then "0".
+
+        The strip hazard moved from the tail to the middle when t1705_4 appended
+        `#{pane_dead}`. `line.split("\\t")` preserves interior empty fields, so
+        this must parse — and it is the ordinary, unfrozen pane, i.e. almost
+        every record in a real run.
+        """
+        row = _row(window_name="agent-pick-42", pane_id="%4",
+                   pane_pid=_AGENT_PID)
+        self.assertEqual(row.split("\t")[11:], ["", "", "", "0"],
+                         "precondition: the frozen fields must be at their "
+                         "unfrozen defaults")
+        self.assertEqual(self._parse(row + "\n"), ["%4"])
 
 
 class _TmuxStub:
@@ -603,11 +637,16 @@ class FindCompanionPaneIdTests(unittest.TestCase):
 class KillAgentPaneSmartTests(unittest.TestCase):
     """`kill_agent_pane_smart` — window-vs-pane, the behavioural half."""
 
-    #: `#{pane_id}\t#{pane_pid}\t#{@aitask_shadow_target}\t#{@aitask_monitor_kind}`
+    #: `kill_agent_pane_smart`'s OWN list-panes format — 5 fields since t1705_4
+    #: appended `@aitask_frozen`. It does not share `_LIST_PANES_FORMAT`, so its
+    #: arity is pinned by the method's `len(parts) != 5` guard and by this
+    #: builder; a builder left at 4 makes every row below drop and every
+    #: assertion pass vacuously.
+    #: `#{pane_id}\t#{pane_pid}\t#{@aitask_shadow_target}\t#{@aitask_monitor_kind}\t#{@aitask_frozen}`
     @staticmethod
     def _line(pane_id: str, pid: int, shadow: str = "",
-              monitor_kind: str = "") -> str:
-        return f"{pane_id}\t{pid}\t{shadow}\t{monitor_kind}"
+              monitor_kind: str = "", frozen: str = "") -> str:
+        return f"{pane_id}\t{pid}\t{shadow}\t{monitor_kind}\t{frozen}"
 
     def _kill(self, stdout: str, companion_pids: set[int], target="%1"):
         mon = _make_monitor()
@@ -692,6 +731,102 @@ class KillAgentPaneSmartTests(unittest.TestCase):
         ]) + "\n"
         killed, _ok, _kw = self._kill(stdout, set())
         self.assertEqual(killed, ["window"])
+
+
+class FrozenPaneKillRuleTests(unittest.TestCase):
+    """The t1705_4 cleanup contract, Python half.
+
+    `tests/test_cleanup_rule_parity.sh` is what keeps these rules identical to
+    `aitask_companion_cleanup.sh`'s copy; these unit cases pin the Python side
+    directly so a break here names the rule rather than a shell diff.
+    """
+
+    _line = staticmethod(KillAgentPaneSmartTests._line)
+
+    def _kill(self, stdout, *, target="%1", target_frozen="",
+              companion_pids=frozenset()):
+        mon = _make_monitor()
+        mon._pane_cache[target] = TmuxPaneInfo(
+            window_index="7", window_name="agent-pick-1705", pane_index="0",
+            pane_id=target, pane_pid=_AGENT_PID, current_command="node",
+            width=80, height=24, category=PaneCategory.AGENT,
+            session_name="demo", frozen_record=target_frozen,
+        )
+        mon.tmux_run = _TmuxStub(stdout)
+        killed: list[str] = []
+        dropped: list[str] = []
+        mon.kill_window = lambda pid_: (killed.append("window"), True)[1]
+        mon.kill_pane = lambda pid_: (killed.append("pane"), True)[1]
+        mon._drop_session_record = lambda rid: (dropped.append(rid), True)[1]
+        with patch("monitor.monitor_core._is_companion_process",
+                   _CompanionSpy(set(companion_pids))):
+            mon.kill_agent_pane_smart(target)
+        return killed, dropped
+
+    def test_frozen_sibling_counts_as_a_real_agent(self):
+        """Killing a live agent beside a frozen stand-in kills only the pane.
+
+        Collapsing the window here would destroy the stand-in and, with it, the
+        only route back to that frozen session.
+        """
+        stdout = "\n".join([
+            self._line("%1", _AGENT_PID),
+            self._line("%2", _SHELL_PID, frozen="7f3a2c1d"),
+        ]) + "\n"
+        killed, _dropped = self._kill(stdout)
+        self.assertEqual(killed, ["pane"])
+
+    def test_negative_control_unstamped_sibling_collapses_the_window(self):
+        """The same fixture WITHOUT the stamp — and with the pane looking like a
+        companion — kills the window.
+
+        This is what proves the assertion above tracks `@aitask_frozen` and not
+        the fixture shape.
+        """
+        stdout = "\n".join([
+            self._line("%1", _AGENT_PID),
+            self._line("%2", _SHELL_PID, monitor_kind=_marker(_LIVE_PID)),
+        ]) + "\n"
+        killed, _dropped = self._kill(stdout)
+        self.assertEqual(killed, ["window"])
+
+    def test_frozen_stamp_beats_a_stale_companion_marker(self):
+        """A stamped pane is a real agent even carrying a live companion marker.
+
+        A respawned pane keeps the pane-scoped options of whatever ran there
+        before, so a leftover `@aitask_monitor_kind` is a real possibility. The
+        frozen rung is checked FIRST precisely so it cannot be demoted.
+        """
+        stdout = "\n".join([
+            self._line("%1", _AGENT_PID),
+            self._line("%2", _SHELL_PID, monitor_kind=_marker(_LIVE_PID),
+                       frozen="7f3a2c1d"),
+        ]) + "\n"
+        killed, _dropped = self._kill(stdout)
+        self.assertEqual(killed, ["pane"])
+
+    def test_frozen_stamp_beats_a_shadow_marker(self):
+        stdout = "\n".join([
+            self._line("%1", _AGENT_PID),
+            self._line("%2", _SHELL_PID, shadow="%1", frozen="7f3a2c1d"),
+        ]) + "\n"
+        killed, _dropped = self._kill(stdout)
+        self.assertEqual(killed, ["pane"])
+
+    def test_killing_a_frozen_pane_drops_its_record_first(self):
+        """`drop` retires the record and removes the captures, then the kill."""
+        stdout = self._line("%1", _AGENT_PID, frozen="aabbccdd") + "\n"
+        killed, dropped = self._kill(stdout, target_frozen="aabbccdd")
+        self.assertEqual(dropped, ["aabbccdd"],
+                         "the target's record must be dropped exactly once")
+        self.assertEqual(killed, ["window"],
+                         "the sibling rule is unchanged: no other real agent "
+                         "remains, so the window still collapses")
+
+    def test_killing_an_unfrozen_pane_drops_nothing(self):
+        stdout = self._line("%1", _AGENT_PID) + "\n"
+        _killed, dropped = self._kill(stdout)
+        self.assertEqual(dropped, [])
 
 
 if __name__ == "__main__":

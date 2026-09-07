@@ -602,6 +602,32 @@ def _mint_nonce() -> str:
     return os.urandom(4).hex()
 
 
+def _stale_op_grace() -> float:
+    """The lease grace, with a TEST-ONLY override (t1705_4).
+
+    ``AITASKS_STALE_OP_GRACE`` is honoured **only** under
+    ``AITASKS_TEST_MODE=1``, and only for a positive float. Without the seam the
+    live lease-takeover cases would have to sleep past
+    ``STALE_OP_GRACE_DEFAULT`` (60 s) twice per run; with it they finish in
+    seconds. Gating on the test-mode flag is what stops a stray env var in a
+    developer's shell from reconfiguring a real coordinator's lease.
+
+    This shortens only the TIMER half of :func:`_lease_stale`. The liveness half
+    is deliberately untouched: the rule is ``grace elapsed AND owner dead``, and
+    a shortened grace must never become a way to seize a live owner.
+    """
+    if os.environ.get("AITASKS_TEST_MODE") != "1":
+        return STALE_OP_GRACE_DEFAULT
+    raw = os.environ.get("AITASKS_STALE_OP_GRACE", "")
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return STALE_OP_GRACE_DEFAULT
+    # Non-positive would make every lease instantly stale, which is the one
+    # value a test could set by accident and never notice.
+    return value if value > 0 else STALE_OP_GRACE_DEFAULT
+
+
 def _lease_stale(rec: SessionRecord, now: float, pid_alive=None) -> bool:
     """True when a lease may be taken over: grace elapsed AND owner gone.
 
@@ -614,7 +640,7 @@ def _lease_stale(rec: SessionRecord, now: float, pid_alive=None) -> bool:
     alive = pid_alive or _pid_alive
     if not rec.op_nonce:
         return True  # no lease at all
-    if _epoch(rec.op_started_at) + STALE_OP_GRACE_DEFAULT >= now:
+    if _epoch(rec.op_started_at) + _stale_op_grace() >= now:
         return False
     return not alive(rec.op_owner_pid)
 

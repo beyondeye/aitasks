@@ -1720,15 +1720,26 @@ def maybe_spawn_minimonitor(
     # Shadow helper panes (t986) carry @aitask_shadow_target and must NOT count
     # toward the overcrowding limit — a shadow following the agent should not
     # block the companion minimonitor from spawning for that same agent.
+    # A frozen stand-in (t1705_4) carries `@aitask_frozen` and no helper marker,
+    # so without this field it would count as an ordinary occupant. It IS a real
+    # occupant — counted below — but the marker is read explicitly so the
+    # occupancy rule states the case rather than getting it by accident, and so
+    # the field is available if a later change needs to treat it differently.
     rc, out = _TMUX.run(
         ["list-panes", "-t", tmux_window_target(session, win_index),
-         "-F", f"#{{pane_id}}|#{{{MONITOR_KIND_OPTION}}}|#{{@aitask_shadow_target}}"]
+         "-F", f"#{{pane_id}}|#{{{MONITOR_KIND_OPTION}}}|#{{@aitask_shadow_target}}"
+               "|#{@aitask_frozen}"]
     )
     if rc == 0:
         real_panes = 0
         for line in out.strip().splitlines():
             pane_id, _, rest = line.partition("|")
-            marker, _, shadow_target = rest.partition("|")
+            marker, _, rest2 = rest.partition("|")
+            shadow_target, _, frozen = rest2.partition("|")
+            if frozen.strip():
+                # A frozen stand-in occupies the window like any agent would.
+                real_panes += 1
+                continue
             if marker:
                 if monitor_marker_alive(marker):
                     return None

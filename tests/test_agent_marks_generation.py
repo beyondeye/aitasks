@@ -35,11 +35,12 @@ from monitor.monitor_core import (  # noqa: E402
 
 
 def pane(session: str, window: str, pane_id: str,
-         category: PaneCategory = PaneCategory.AGENT) -> TmuxPaneInfo:
+         category: PaneCategory = PaneCategory.AGENT,
+         *, pane_pid: int = 4242, pane_dead: bool = False) -> TmuxPaneInfo:
     return TmuxPaneInfo(
         window_index="1", window_name=window, pane_index="0", pane_id=pane_id,
-        pane_pid=4242, current_command="node", width=80, height=24,
-        category=category, session_name=session,
+        pane_pid=pane_pid, current_command="node", width=80, height=24,
+        category=category, session_name=session, pane_dead=pane_dead,
     )
 
 
@@ -107,6 +108,64 @@ class DiscoveryFactRecordingTests(unittest.TestCase):
         self.assertEqual(mon.last_enumerated_sessions(), {"demo"})
 
 
+class DiscoveredPanesTests(unittest.TestCase):
+    """`last_discovered_panes()` (t1705_4) — the pane-level sibling of
+    `last_discovered_agents()`.
+
+    It has no consumer in t1705_4: `monitor_shared._write_observation_file`
+    grows its `panes=` argument in t1705_7. Pinned here anyway, because its one
+    non-obvious property — that it is a SUPERSET of the agent view — is exactly
+    the kind of thing a later reader would "simplify" away.
+    """
+
+    def test_it_is_published_with_the_other_facts_and_not_before(self):
+        mon = _monitor()
+        mon._record_discovery_facts(1, [pane("demo", "agent-a", "%1")], [])
+        self.assertEqual(mon.last_discovered_panes(), {})
+        mon._publish_discovery_facts(1)
+        self.assertEqual(
+            mon.last_discovered_panes(),
+            {("demo", "agent-a"): [("%1", 4242, False)]},
+        )
+
+    def test_helper_panes_are_INCLUDED_unlike_the_agent_view(self):
+        """The store's `dead_pane` purge rule asks whether a record's pane id
+        was present in the window AT ALL. A helper pane missing from the
+        inventory would make a record pointing at it look dead and get dropped —
+        the opposite requirement to `last_discovered_agents()`, which is
+        deliberately agent-facing only.
+        """
+        mon = _monitor()
+        mon._record_discovery_facts(
+            1,
+            [pane("demo", "agent-a", "%1")],
+            [pane("demo", "agent-a", "%9", pane_pid=99)],   # a shadow
+        )
+        mon._publish_discovery_facts(1)
+        self.assertEqual(
+            sorted(mon.last_discovered_panes()[("demo", "agent-a")]),
+            [("%1", 4242, False), ("%9", 99, False)],
+        )
+        self.assertEqual(mon.last_discovered_agents(), {("demo", "agent-a")},
+                         "the agent view must NOT have gained the shadow")
+
+    def test_the_dead_flag_is_carried_through(self):
+        mon = _monitor()
+        mon._record_discovery_facts(
+            1, [pane("demo", "agent-a", "%1", pane_dead=True)], [])
+        mon._publish_discovery_facts(1)
+        self.assertEqual(mon.last_discovered_panes()[("demo", "agent-a")],
+                         [("%1", 4242, True)])
+
+    def test_a_superseded_generation_publishes_no_panes_either(self):
+        mon = _monitor()
+        mon._record_discovery_facts(1, [pane("sA", "agent-old", "%1")], [])
+        mon._record_discovery_facts(2, [pane("sB", "agent-new", "%2")], [])
+        mon._publish_discovery_facts(2)
+        mon._publish_discovery_facts(1)
+        self.assertEqual(list(mon.last_discovered_panes()), [("sB", "agent-new")])
+
+
 class GenerationInterleavingTests(unittest.TestCase):
     def test_superseded_generation_never_publishes(self):
         """Older discovery finishing AFTER a newer commit must be inert."""
@@ -156,15 +215,16 @@ class RealDiscoveryEnumerationTests(unittest.TestCase):
     exists to handle promptly.
     """
 
-    #: `_LIST_PANES_FORMAT`'s current field count (t1686 appended
-    #: `@aitask_monitor_kind`). A row built at an older arity is dropped whole
-    #: by `_parse_list_panes` — `assert_rows_parse` is what catches that.
-    _FIELDS = 11
+    #: `_LIST_PANES_FORMAT`'s current field count (t1705_4 appended
+    #: `@aitask_frozen`, `@aitask_record`, `@aitask_standin_ready` and
+    #: `#{pane_dead}` to t1686's 11). A row built at an older arity is dropped
+    #: whole by `_parse_list_panes` — `assert_rows_parse` is what catches that.
+    _FIELDS = 15
 
     def _row(self, window: str, pid: int, *, monitor_kind: str = "") -> str:
         return "\t".join(
             ["1", window, "0", "%1", str(pid), "node", "80", "24", "", "0",
-             monitor_kind]
+             monitor_kind, "", "", "", "0"]
         )
 
     def _monitor_with(self, stdout: str, *, companion: bool):

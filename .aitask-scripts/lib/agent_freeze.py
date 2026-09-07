@@ -1,0 +1,1075 @@
+#!/usr/bin/env python3
+"""Freeze engine for frozen code agents (t1705_4).
+
+Turns a live code-agent pane into a **frozen stand-in**: capture its scrollback,
+stamp the pane, drive the store's lease-owned states, and `respawn-pane -k` the
+agent's own pane into the stand-in viewer command — while the companion
+minimonitor and the window survive.
+
+Three entry points, all reachable through `aitask_frozen.sh`:
+
+* :func:`freeze_pane`  — one pane, the §C transaction below;
+* :func:`freeze_all`   — every agent-facing pane on every aitasks tmux session;
+* :func:`reconcile`    — the §C repair table, run after every freeze, from the
+  monitor maintenance tick, and by hand.
+
+Two hard boundaries, both load-bearing:
+
+1. **Every tmux call goes through `TmuxClient`** (`lib/tmux_exec.py`), the
+   sanctioned gateway. `tests/test_no_raw_tmux.sh` enforces it.
+2. **Every store WRITE goes through the shell wrapper**
+   (`aitask_agent_sessions.sh`), never by importing `agent_sessions`' mutators.
+   The wrapper is the store's sole writer because it holds the mutex around the
+   read-modify-write; importing the transition functions here would write
+   unlocked and lose updates. Reads (`show` / `list`) go through the same
+   wrapper for one parsing path, even though they take no lock.
+
+THE STAND-IN VIEWER DOES NOT EXIST YET. `standin_command()` names
+`ait frozenagent --record <id>`, which t1705_6 ships; until then the only
+exercised path is the `AITASKS_FROZEN_STANDIN_CMD` test seam. That is why
+reconcile treats "stamped, no ready mark, no known pid" as **indeterminate**
+rather than as failure: a viewer that boots slowly looks exactly like one that
+never will, and only positive evidence (`@aitask_standin_ready`, or a pid match)
+distinguishes them.
+
+Test seams, honoured **only** under ``AITASKS_TEST_MODE=1``:
+
+* ``AITASKS_FREEZE_FAIL_AT=capture|begin|stamp|respawn|commit`` — raise at that
+  stage so the rollback branch can be exercised;
+* ``AITASKS_FROZEN_PAUSE_AT=<stage>`` — ``SIGSTOP`` this process at that stage,
+  so a test can run a concurrent ``reconcile`` against a held lease and then
+  ``SIGCONT``;
+* ``AITASKS_STALE_OP_GRACE`` (in ``lib/agent_sessions.py``) — shorten the lease
+  grace so takeover races finish in seconds.
+"""
+
+from __future__ import annotations
+
+import os
+import signal
+import subprocess
+import sys
+import tempfile
+from dataclasses import dataclass
+from pathlib import Path
+
+_LIB_DIR = Path(__file__).resolve().parent
+_SCRIPTS_DIR = _LIB_DIR.parent
+for _p in (str(_SCRIPTS_DIR), str(_LIB_DIR)):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
+import agent_sessions  # noqa: E402
+from agent_launch_utils import (  # noqa: E402
+    discover_aitasks_sessions,
+    tmux_session_target,
+)
+from config_utils import load_yaml_config  # noqa: E402
+from monitor.ansi_utils import strip_ansi  # noqa: E402
+from monitor.monitor_core import (  # noqa: E402
+    FROZEN_OPTION,
+    PaneCategory,
+    RECORD_OPTION,
+    STANDIN_READY_OPTION,
+    AGENT_SESSION_OPTION,
+    TmuxMonitor,
+)
+from tmux_exec import TmuxClient  # noqa: E402
+
+_TMUX = TmuxClient()
+
+#: The store's sole writer. Invoked as a subprocess, never imported (see the
+#: module docstring).
+SESSIONS_SH = _SCRIPTS_DIR / "aitask_agent_sessions.sh"
+
+#: Default scrollback cap. Overridden by `frozen.capture_max_lines` in the
+#: project's `aitasks/metadata/project_config.yaml`; the shipped config has no
+#: `frozen:` section, so this default is the normal path.
+DEFAULT_CAPTURE_MAX_LINES = 50000
+
+#: Seconds a `restoring` record is given to be acknowledged by its agent's
+#: SessionStart hook before reconcile will liveness-confirm it (§C/§D). The hook
+#: ack is strictly better evidence (it verifies the resumed session id), so
+#: confirming early would throw away the stronger signal for the weaker one.
+RESTORE_ACK_GRACE = 20.0
+
+#: Wrapper exit codes this module branches on. The full table is in
+#: `aitask_agent_sessions.sh`'s header.
+EXIT_LOCK_BUSY = 3
+EXIT_TRANSITION_REFUSED = 5
+EXIT_NONCE_MISMATCH = 6
+EXIT_LEASE_HELD = 8
+
+#: `reconcile`'s own list-panes format. Deliberately NOT `_LIST_PANES_FORMAT`:
+#: reconcile must observe EVERY pane of a window — companions, stand-ins and
+#: dead panes included — to emit complete `PANE` observation rows, whereas
+#: `_LIST_PANES_FORMAT` feeds an agent-facing view that filters helpers out.
+#: The two passes have opposite requirements; do not unify them.
+_RECONCILE_FORMAT = "\t".join([
+    "#{session_name}", "#{window_name}", "#{pane_id}", "#{pane_pid}",
+    "#{pane_dead}", "#{pane_current_path}",
+    f"#{{{FROZEN_OPTION}}}", f"#{{{STANDIN_READY_OPTION}}}",
+    f"#{{{RECORD_OPTION}}}",
+])
+_RECONCILE_ARITY = 9
+
+#: Stages of the §C freeze transaction, in order. Named so the fail/pause seams
+#: and the `FREEZE_FAILED:<stage>` wire line agree on one vocabulary.
+STAGES = ("resolve", "capture", "begin", "stamp", "respawn", "commit")
+
+
+class _StageFailure(Exception):
+    """Injected failure at a named stage (test seam only)."""
+
+    def __init__(self, stage: str) -> None:
+        super().__init__(f"injected failure at {stage}")
+        self.stage = stage
+
+
+@dataclass
+class FreezeResult:
+    """One pane's outcome. ``line`` is the wire line callers print."""
+
+    record_id: str
+    ok: bool
+    stage: str
+    line: str
+
+
+# --- seams ------------------------------------------------------------------
+
+
+def _test_mode() -> bool:
+    return os.environ.get("AITASKS_TEST_MODE") == "1"
+
+
+def _fail_at(stage: str) -> None:
+    """Raise when the fail seam names this stage. No-op outside test mode."""
+    if _test_mode() and os.environ.get("AITASKS_FREEZE_FAIL_AT") == stage:
+        raise _StageFailure(stage)
+
+
+def _pause_at(stage: str) -> None:
+    """SIGSTOP self when the pause seam names this stage.
+
+    Stopping THIS process (rather than sleeping) is what makes the paused-owner
+    lease case honest: `_pid_alive` is fail-closed and a stopped process is
+    alive, so a concurrent `reconcile` must refuse takeover no matter how much
+    grace has elapsed. A sleep would prove the same thing only by accident.
+    """
+    if _test_mode() and os.environ.get("AITASKS_FROZEN_PAUSE_AT") == stage:
+        os.kill(os.getpid(), signal.SIGSTOP)
+
+
+# --- store wrapper ----------------------------------------------------------
+
+
+def _store(*argv: str, timeout: float = 20.0) -> tuple[int, str]:
+    """Run the store wrapper. Returns ``(rc, output)``; never raises.
+
+    The wrapper folds its stderr into stdout already, so one stream carries both
+    the success line and the refusal line. A spawn failure is reported as
+    ``(1, "ERROR:...")`` rather than propagating, because every caller here is
+    mid-transaction and needs to reach its rollback rather than a traceback.
+    """
+    try:
+        proc = subprocess.run(
+            [str(SESSIONS_SH), *argv],
+            capture_output=True, text=True, timeout=timeout,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return 1, f"ERROR:{exc}"
+    out = (proc.stdout or "") + (proc.stderr or "")
+    return proc.returncode, out.strip()
+
+
+def _store_show(record_id: str) -> dict[str, str]:
+    """``show <id>`` as a dict; ``{}`` when the record is gone or unreadable."""
+    rc, out = _store("show", record_id)
+    if rc != 0:
+        return {}
+    fields: dict[str, str] = {}
+    for line in out.splitlines():
+        key, sep, value = line.partition(":")
+        if sep:
+            fields[key.strip()] = value.strip()
+    return fields
+
+
+def _nonce_from(line: str) -> str:
+    """The nonce in a ``FREEZING:<id>|<nonce>`` / ``LEASED:<id>|<nonce>`` line."""
+    _, _, tail = line.partition("|")
+    return tail.strip()
+
+
+# --- tmux helpers -----------------------------------------------------------
+
+_PANE_FACT_FORMAT = "\t".join([
+    "#{session_name}", "#{window_name}", "#{pane_id}", "#{pane_pid}",
+    "#{pane_dead}", "#{pane_current_path}",
+    f"#{{{RECORD_OPTION}}}", f"#{{{FROZEN_OPTION}}}",
+    f"#{{{STANDIN_READY_OPTION}}}", f"#{{{AGENT_SESSION_OPTION}}}",
+])
+_PANE_FACT_KEYS = (
+    "session", "window", "pane_id", "pane_pid", "pane_dead", "path",
+    "record", "frozen", "standin_ready", "agent_session",
+)
+
+
+def _pane_facts(pane_id: str) -> dict[str, str]:
+    """Every fact the transaction needs about a pane, in ONE round trip.
+
+    `display-message -p` against a specific `-t` target is the shape
+    `aitask_shadow_capture.sh` established for self-identification: one call, a
+    tab-joined format, positional read. Returns ``{}`` when the pane is gone —
+    which is a legitimate observation, not an error.
+    """
+    rc, out = _TMUX.run(["display-message", "-p", "-t", pane_id,
+                         _PANE_FACT_FORMAT])
+    if rc != 0:
+        return {}
+    line = out.splitlines()[0] if out.splitlines() else ""
+    parts = line.split("\t")
+    if len(parts) != len(_PANE_FACT_KEYS):
+        return {}
+    return {k: v.strip() for k, v in zip(_PANE_FACT_KEYS, parts)}
+
+
+def _pane_location(pane_id: str) -> tuple[str, int]:
+    """``(pane_id, pane_pid)`` after a respawn; ``("", 0)`` when the pane is gone.
+
+    ``("", 0)`` is exactly the gone-pane pair `freeze-commit` documents, so the
+    caller can pass this through unmodified.
+    """
+    rc, out = _TMUX.run(["display-message", "-p", "-t", pane_id,
+                         "#{pane_id}\t#{pane_pid}"])
+    if rc != 0:
+        return "", 0
+    parts = (out.splitlines() or [""])[0].split("\t")
+    if len(parts) != 2 or not parts[0].strip():
+        return "", 0
+    try:
+        return parts[0].strip(), int(parts[1].strip())
+    except ValueError:
+        return "", 0
+
+
+def _set_option(pane_id: str, option: str, value: str) -> bool:
+    rc, _ = _TMUX.run(["set-option", "-p", "-t", pane_id, option, value])
+    return rc == 0
+
+
+def _unset_option(pane_id: str, option: str) -> bool:
+    rc, _ = _TMUX.run(["set-option", "-pu", "-t", pane_id, option])
+    return rc == 0
+
+
+def _respawn(pane_id: str, command: str) -> bool:
+    """`respawn-pane -k` the pane into ``command``.
+
+    ``-k`` kills whatever is running there first. t1705_1 measured that this
+    fires NO `pane-died` hook — window, companion pane and the pane id all
+    survive — which is why the freeze can reuse the agent's own pane at all.
+    """
+    rc, _ = _TMUX.run(["respawn-pane", "-k", "-t", pane_id, command])
+    return rc == 0
+
+
+# --- capture ----------------------------------------------------------------
+
+
+def capture_max_lines(root: str | os.PathLike | None = None) -> int:
+    """`frozen.capture_max_lines` from the project config, else the default.
+
+    Read with the real YAML parser (`config_utils.load_yaml_config`), never
+    hand-parsed. A missing file, a missing section, or a non-positive value all
+    resolve to :data:`DEFAULT_CAPTURE_MAX_LINES` — a cap of 0 would capture
+    nothing and silently make every freeze lossy.
+    """
+    base = Path(root) if root else Path.cwd()
+    cfg_path = base / "aitasks" / "metadata" / "project_config.yaml"
+    try:
+        cfg = load_yaml_config(cfg_path, {})
+    except Exception:
+        # Broad on purpose: this runs mid-freeze, and a malformed or unreadable
+        # project config must degrade to the default cap rather than abort a
+        # transaction that is about to respawn the user's agent pane.
+        return DEFAULT_CAPTURE_MAX_LINES
+    section = cfg.get("frozen") if isinstance(cfg, dict) else None
+    if not isinstance(section, dict):
+        return DEFAULT_CAPTURE_MAX_LINES
+    try:
+        value = int(section.get("capture_max_lines", DEFAULT_CAPTURE_MAX_LINES))
+    except (TypeError, ValueError):
+        return DEFAULT_CAPTURE_MAX_LINES
+    return value if value > 0 else DEFAULT_CAPTURE_MAX_LINES
+
+
+def _capture(pane_id: str, record_id: str, cap: int) -> tuple[str, str, int]:
+    """Capture the pane's scrollback. Returns ``(ansi_path, txt_path, lines)``.
+
+    ``-e`` keeps escape sequences (the viewer replays colour), ``-J`` rejoins
+    wrapped lines, ``-S -<cap>`` starts ``cap`` lines back in history. The
+    stripped ``.txt`` sibling is what greps and diffs read.
+
+    Both files are written 0600 inside the 0700 per-record directory: a capture
+    is a verbatim transcript of someone's coding session, including whatever
+    secrets scrolled past.
+    """
+    rc, out = _TMUX.run(
+        ["capture-pane", "-p", "-e", "-J", "-t", pane_id, "-S", f"-{cap}"],
+        timeout=30.0,
+    )
+    if rc != 0:
+        raise OSError(f"capture-pane failed for {pane_id}")
+    directory = agent_sessions.ensure_capture_dir(record_id)
+    ansi_path = directory / "capture.ansi"
+    txt_path = directory / "capture.txt"
+    _write_private(ansi_path, out)
+    _write_private(txt_path, strip_ansi(out))
+    # tmux ends the buffer with a newline; count real lines, not the split's
+    # trailing empty element.
+    return str(ansi_path), str(txt_path), len(out.splitlines())
+
+
+def _write_private(path: Path, text: str) -> None:
+    """Write 0600. The mode is set explicitly — `open` is masked by the umask."""
+    fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+    except Exception:
+        raise
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+
+
+# --- record resolution ------------------------------------------------------
+
+
+def _walk_up_to_project(path: str) -> str:
+    """Nearest ancestor of ``path`` holding `aitasks/metadata/project_config.yaml`.
+
+    Falls back to the realpath of ``path`` itself: an `upsert` still needs a
+    root, and a wrong-but-stable root produces a record that reconcile can find
+    and purge, whereas no root at all loses the agent entirely.
+    """
+    try:
+        current = Path(os.path.realpath(path or os.getcwd()))
+    except OSError:
+        return os.path.realpath(os.getcwd())
+    for candidate in [current, *current.parents]:
+        if (candidate / "aitasks" / "metadata" / "project_config.yaml").is_file():
+            return str(candidate)
+    return str(current)
+
+
+def _resolve_record(facts: dict[str, str]) -> tuple[str, str]:
+    """``(record_id, wire_line)`` for the pane described by ``facts``.
+
+    Two paths, in the §C order:
+
+    1. the pane carries `@aitask_record` and the store still knows that id —
+       use it. This is the normal case: the SessionStart hook (t1705_3) recorded
+       the agent at launch.
+    2. otherwise `upsert` a record and stamp the pane (amendment A8). The hook
+       may never have fired (an agent started before the hook shipped, a CLI
+       without hook support), and freezing an unrecorded agent must still work.
+
+    A stamped id the store does NOT know falls through to (2) deliberately: the
+    stamp is a dangling join — the record was dropped, or the store was reset —
+    and reusing the id would `freeze-begin` a record that does not exist.
+    """
+    stamped = facts.get("record", "")
+    if stamped and agent_sessions.valid_id(stamped) and _store_show(stamped):
+        return stamped, f"RECORD:{stamped}|stamped"
+
+    root = _walk_up_to_project(facts.get("path", ""))
+    session_id = facts.get("agent_session", "")
+    rc, out = _store(
+        "upsert",
+        "--root", root,
+        "--window", facts.get("window", ""),
+        "--pane", facts.get("pane_id", ""),
+        "--pane-pid", facts.get("pane_pid", "0"),
+        "--session", facts.get("session", ""),
+        "--session-id", session_id,
+        "--agent-string", "",
+    )
+    if rc != 0:
+        raise OSError(f"upsert failed: {out}")
+    # `UPSERTED:<id>|<how>`
+    payload = out.splitlines()[-1] if out.splitlines() else ""
+    _, _, rest = payload.partition(":")
+    record_id = rest.partition("|")[0].strip()
+    if not agent_sessions.valid_id(record_id):
+        raise OSError(f"upsert returned no usable record id: {out!r}")
+
+    # A8: the store never touches tmux, so establishing the join is the
+    # caller's obligation — and only after a success line, which is why this
+    # sits below the rc check rather than beside the upsert.
+    _set_option(facts.get("pane_id", ""), RECORD_OPTION, record_id)
+    return record_id, f"RECORD:{record_id}|created"
+
+
+# --- freeze -----------------------------------------------------------------
+
+
+def freeze_pane(pane_id: str, *, cap: int | None = None) -> FreezeResult:
+    """Freeze one agent pane. Implements §C 1-6 in order.
+
+    Each step is persisted before the next irreversible one, so every crash
+    point leaves a state `reconcile` can settle from server-observable facts
+    alone. The rollback for each stage is stated inline; the shape is always
+    "undo what this process did, leave the agent running".
+    """
+    facts = _pane_facts(pane_id)
+    if not facts:
+        return FreezeResult("", False, "resolve",
+                            f"FREEZE_FAILED:resolve|{pane_id}|pane not found")
+    if facts.get("frozen"):
+        return FreezeResult(facts["frozen"], False, "resolve",
+                            f"FREEZE_SKIPPED:{facts['frozen']}|already frozen")
+
+    # --- 1. resolve the record ---------------------------------------------
+    try:
+        _fail_at("resolve")
+        record_id, _line = _resolve_record(facts)
+    except (_StageFailure, OSError) as exc:
+        return FreezeResult("", False, "resolve",
+                            f"FREEZE_FAILED:resolve|{pane_id}|{exc}")
+    _pause_at("resolve")
+
+    # --- 2. capture ---------------------------------------------------------
+    # BEFORE `freeze-begin`, because `freeze-begin` persists the capture paths
+    # and the line count. A failure here has nothing to undo but temp files.
+    if cap is None:
+        cap = capture_max_lines(_walk_up_to_project(facts.get("path", "")))
+    try:
+        _fail_at("capture")
+        ansi_path, txt_path, lines = _capture(pane_id, record_id, cap)
+    except (_StageFailure, OSError, ValueError) as exc:
+        agent_sessions.remove_captures(record_id)
+        return FreezeResult(record_id, False, "capture",
+                            f"FREEZE_FAILED:capture|{record_id}|{exc}")
+    _pause_at("capture")
+
+    # --- 3. freeze-begin: state `freezing`, lease minted --------------------
+    # `--owner-pid` is THIS process (A7): the coordinator that outlives the
+    # respawn. Never a subshell's `$$` — a pid that is already dead collapses
+    # the lease's staleness test to a bare timer and lets a later reconcile
+    # seize this very freeze.
+    try:
+        _fail_at("begin")
+    except _StageFailure as exc:
+        agent_sessions.remove_captures(record_id)
+        return FreezeResult(record_id, False, "begin",
+                            f"FREEZE_FAILED:begin|{record_id}|{exc}")
+    rc, out = _store(
+        "freeze-begin", record_id,
+        "--owner-pid", str(os.getpid()),
+        "--capture-ansi", ansi_path,
+        "--capture-txt", txt_path,
+        "--lines", str(lines),
+    )
+    if rc != 0:
+        agent_sessions.remove_captures(record_id)
+        return FreezeResult(record_id, False, "begin",
+                            f"FREEZE_FAILED:begin|{record_id}|{out}")
+    nonce = _nonce_from(out.splitlines()[-1])
+    _pause_at("begin")
+
+    # --- 4. stamp the pane --------------------------------------------------
+    # `@aitask_frozen` is the authoritative classifier; clearing
+    # `@aitask_standin_ready` first matters because pane options SURVIVE
+    # `respawn-pane`, so a ready mark from a previous freeze/restore cycle
+    # would read as "this cycle's viewer is already up".
+    try:
+        _fail_at("stamp")
+        if not _set_option(pane_id, FROZEN_OPTION, record_id):
+            raise OSError(f"could not stamp {FROZEN_OPTION} on {pane_id}")
+        _unset_option(pane_id, STANDIN_READY_OPTION)
+    except (_StageFailure, OSError) as exc:
+        # Unlike the shadow spawner (which kills the pane when its stamp
+        # fails), the freeze must leave the AGENT RUNNING: nothing has been
+        # respawned yet, and the user's session is still live in that pane.
+        _unset_option(pane_id, FROZEN_OPTION)
+        _store("freeze-abort", record_id, "--nonce", nonce)
+        return FreezeResult(record_id, False, "stamp",
+                            f"FREEZE_FAILED:stamp|{record_id}|{exc}")
+    _pause_at("stamp")
+
+    # --- 5. respawn into the stand-in --------------------------------------
+    try:
+        _fail_at("respawn")
+        command = agent_sessions.standin_command(record_id)
+        if not _respawn(pane_id, command):
+            raise OSError(f"respawn-pane refused for {pane_id}")
+    except (_StageFailure, OSError, ValueError) as exc:
+        _unset_option(pane_id, FROZEN_OPTION)
+        _unset_option(pane_id, STANDIN_READY_OPTION)
+        _store("freeze-abort", record_id, "--nonce", nonce)
+        return FreezeResult(record_id, False, "respawn",
+                            f"FREEZE_FAILED:respawn|{record_id}|{exc}")
+    _pause_at("respawn")
+
+    # --- 6. freeze-commit ---------------------------------------------------
+    # The stand-in's location is read AFTER the respawn: `respawn-pane`
+    # preserves the pane id but replaces the process, so `#{pane_pid}` is the
+    # only thing that proves the swap happened.
+    new_pane, new_pid = _pane_location(pane_id)
+    _pause_at("commit")
+    try:
+        _fail_at("commit")
+    except _StageFailure as exc:
+        # Deliberately NO rollback: the agent is already gone (step 5 killed
+        # it), so aborting here would strand a `live` record with no agent.
+        # Leaving the record `freezing` is the correct state — reconcile
+        # commits it once the lease goes stale.
+        return FreezeResult(record_id, False, "commit",
+                            f"FREEZE_FAILED:commit|{record_id}|{exc}")
+    rc, out = _store(
+        "freeze-commit", record_id,
+        "--nonce", nonce,
+        "--pane", new_pane,
+        "--pane-pid", str(new_pid),
+    )
+    if rc == EXIT_NONCE_MISMATCH:
+        # reconcile already resolved this record. Report and exit WITHOUT
+        # touching the pane: whatever settled it owns the pane's state now, and
+        # a second actor writing here is exactly what the nonce prevents.
+        return FreezeResult(record_id, False, "commit",
+                            f"NONCE_MISMATCH:{record_id}")
+    if rc != 0:
+        # LOCK_BUSY and friends: the record stays `freezing` and reconcile
+        # finishes it. Not a rollback — the swap already happened.
+        return FreezeResult(record_id, False, "commit",
+                            f"FREEZE_FAILED:commit|{record_id}|{out}")
+    return FreezeResult(record_id, True, "commit", f"FROZEN:{record_id}")
+
+
+# --- freeze all -------------------------------------------------------------
+
+
+def _agent_panes_for(session: str) -> list:
+    """Agent-facing panes of one session, via the documented discovery contract.
+
+    **`TmuxMonitor.discover_panes()`, never `list-panes` + `classify_pane`.**
+    `classify_pane` reads only the WINDOW NAME, so every pane in an `agent-*`
+    window classifies as AGENT — including the companion minimonitor that
+    `maybe_spawn_minimonitor` splits into that same window. Selecting on the
+    category alone would make Freeze-All `respawn-pane -k` the companion of
+    every agent it froze, destroying the exact pane the freeze design goes out
+    of its way to preserve. Companion exclusion is a separate identity check
+    (`_is_companion_pane`) applied inside `_parse_list_panes`, and
+    `discover_panes()` is the contract that applies both it and the shadow
+    filter — plus the correct `-t tmux_session_target()` targeting.
+    """
+    monitor = TmuxMonitor(session=session, multi_session=False, exclude_pane="")
+    return monitor.discover_panes()
+
+
+def freeze_all() -> list[FreezeResult]:
+    """Freeze every live agent pane on every aitasks session.
+
+    Sequential: each freeze is one `respawn-pane`, and parallel respawns are not
+    worth the tmux churn. Per-pane failures are reported and the batch
+    continues — one unfreezable agent must not strand the rest.
+    """
+    results: list[FreezeResult] = []
+    for session in discover_aitasks_sessions():
+        try:
+            panes = _agent_panes_for(session.session)
+        except Exception as exc:   # a session that vanished mid-scan
+            results.append(FreezeResult(
+                "", False, "resolve",
+                f"FREEZE_FAILED:resolve|{session.session}|{exc}"))
+            continue
+        for pane in panes:
+            if pane.category != PaneCategory.AGENT:
+                continue
+            if pane.frozen_record:
+                continue          # already a stand-in
+            results.append(freeze_pane(pane.pane_id))
+    return results
+
+
+# --- reconcile --------------------------------------------------------------
+
+
+@dataclass
+class _Observed:
+    """One pane as reconcile saw it."""
+
+    session: str
+    window: str
+    pane_id: str
+    pane_pid: int
+    pane_dead: bool
+    path: str
+    frozen: str
+    standin_ready: str
+    record: str
+
+
+def _enumerate_session(session: str) -> tuple[bool, list[_Observed]]:
+    """``(ok, panes)`` for one session's EXPLICITLY TARGETED `list-panes -s`.
+
+    **`-t` is not optional.** An untargeted `list-panes -s` resolves to the
+    *current* session, and reconcile runs detached (`run-shell -b`, or a plain
+    shell with no attached client) where "current" is arbitrary or absent — so
+    the loop would enumerate one session N times. The consequence is data loss,
+    not merely missed repair: `purge` drops any `live` record whose root is in
+    `observed.roots` but whose window was not observed, so a `ROOT` row written
+    for an unenumerated root deletes every live record in every other project.
+
+    ``ok`` is the rc of that call and nothing else. It is what the caller uses
+    to decide whether the root may be asserted as covered.
+    """
+    rc, out = _TMUX.run([
+        "list-panes", "-s", "-t", tmux_session_target(session),
+        "-F", _RECONCILE_FORMAT,
+    ])
+    if rc != 0:
+        return False, []
+    panes: list[_Observed] = []
+    # NOT `out.strip().splitlines()`: the format's last field is an option that
+    # is empty on every unstamped pane, and a whole-buffer strip would eat the
+    # final tab and drop the last record (the t1686 shape).
+    for line in out.splitlines():
+        parts = line.split("\t")
+        if len(parts) != _RECONCILE_ARITY:
+            continue
+        try:
+            pane_pid = int(parts[3])
+        except ValueError:
+            continue
+        panes.append(_Observed(
+            session=parts[0], window=parts[1], pane_id=parts[2],
+            pane_pid=pane_pid, pane_dead=parts[4].strip() == "1",
+            path=parts[5], frozen=parts[6].strip(),
+            standin_ready=parts[7].strip(), record=parts[8].strip(),
+        ))
+    return True, panes
+
+
+def _write_observation(
+    roots: dict[str, bool], panes_by_root: dict[str, list[_Observed]]
+) -> str:
+    """Write the observation file `purge --observed` consumes.
+
+    Protocol (a superset of the marks one): ``ROOT``, ``WINDOW``, ``PANE``,
+    ``INCOMPLETE``.
+
+    **Fail-closed rule.** A ``ROOT`` row is an ASSERTION OF COVERAGE, not a list
+    of roots we meant to visit. It is emitted only for a root every one of whose
+    sessions returned ``rc == 0``; any failure suppresses the row and writes
+    ``INCOMPLETE`` instead, which suppresses every sweep. Without this, a
+    targeting regression would not merely under-report — it would present an
+    unenumerated root as fully observed and let `purge`'s `dead_window` rule
+    delete another project's live records.
+    """
+    fd, path = tempfile.mkstemp(prefix="ait_reconcile_", suffix=".obs")
+    incomplete = any(not ok for ok in roots.values())
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        for root, ok in sorted(roots.items()):
+            if not ok:
+                continue
+            handle.write(f"ROOT\t{root}\n")
+            windows: dict[str, list[_Observed]] = {}
+            for pane in panes_by_root.get(root, []):
+                windows.setdefault(pane.window, []).append(pane)
+            for window, panes in sorted(windows.items()):
+                handle.write(f"WINDOW\t{root}\t{window}\n")
+                for pane in panes:
+                    handle.write(
+                        f"PANE\t{root}\t{window}\t{pane.pane_id}"
+                        f"\t{pane.pane_pid}\t{1 if pane.pane_dead else 0}\n"
+                    )
+        if incomplete:
+            handle.write("INCOMPLETE\n")
+    return path
+
+
+class _LeaseUnavailable(Exception):
+    """A lease could not be taken; ``line`` is what reconcile should report."""
+
+    def __init__(self, line: str) -> None:
+        super().__init__(line)
+        self.line = line
+
+
+class _Lease:
+    """A LAZY ``lease-take``, taken at most once, only when a verb is due.
+
+    Leasing every non-`live` record up front looks tidier and is wrong in two
+    ways. `lease-take` WRITES — it mints a nonce, stamps this process as owner
+    and resets `op_started_at` — so a reconcile pass that merely observes a
+    healthy `frozen` record and reports ``KEEP`` would still rewrite it every
+    600 s. Worse, nothing clears that lease: reconcile exits, its pid dies, and
+    the record is left leased by a dead owner. Any real coordinator needing a
+    nonce for that record (a `standin-respawned` on a `frozen` record, say) then
+    gets `LEASE_HELD` until the grace elapses — reconcile would be locking out
+    the very work it exists to enable.
+
+    So the §C rule "every reconcile ACTION on a leased record is preceded by
+    `lease-take`" is read literally: no action, no lease. Each handler asks for
+    the nonce at the point it is about to issue a verb.
+    """
+
+    def __init__(self, record_id: str) -> None:
+        self._record_id = record_id
+        self._nonce: str | None = None
+        self.taken = False
+
+    def __call__(self) -> str:
+        """The nonce, taking the lease on first use.
+
+        Raises :class:`_LeaseUnavailable` when the lease is held by a live
+        coordinator (`LEASE_HELD`, exit 8 — a normal outcome, not a failure) or
+        when the store refused for any other reason.
+        """
+        if self._nonce is not None:
+            return self._nonce
+        rc, out = _store("lease-take", self._record_id,
+                         "--owner-pid", str(os.getpid()))
+        if rc == EXIT_LEASE_HELD:
+            raise _LeaseUnavailable(f"LEASE_HELD:{self._record_id}")
+        if rc != 0:
+            raise _LeaseUnavailable(
+                f"RECONCILE_FAILED:{self._record_id}|{out}")
+        self._nonce = _nonce_from(out.splitlines()[-1])
+        self.taken = True
+        return self._nonce
+
+
+def _respawn_standin(pane_id: str, record_id: str, lease: _Lease) -> str:
+    """Clear the ready mark, respawn the stand-in, record the new location.
+
+    The order is fixed: `@aitask_standin_ready` must be cleared BEFORE the
+    respawn, or the previous viewer's mark would make the next pass believe the
+    new one is already up.
+
+    The lease is taken FIRST, before anything is touched: a respawn we cannot
+    then acknowledge would leave the record describing a stand-in that no longer
+    exists.
+    """
+    nonce = lease()
+    _unset_option(pane_id, STANDIN_READY_OPTION)
+    try:
+        command = agent_sessions.standin_command(record_id)
+    except ValueError as exc:
+        return f"RECONCILE_FAILED:{record_id}|{exc}"
+    if not _respawn(pane_id, command):
+        return f"RECONCILE_FAILED:{record_id}|respawn refused"
+    new_pane, new_pid = _pane_location(pane_id)
+    rc, out = _store("standin-respawned", record_id, "--nonce", nonce,
+                     "--pane", new_pane, "--pane-pid", str(new_pid))
+    if rc != 0:
+        return f"RECONCILE_FAILED:{record_id}|{out}"
+    return f"STANDIN:{record_id}"
+
+
+def _reconcile_freezing(rec: dict, observed: _Observed | None, lease: _Lease) -> str:
+    """The `freezing` rows of the §C table.
+
+    Three of the table's rows deliberately make NO transition. That is the
+    contract, not an oversight: a stamped pane with no ready mark and no
+    recognisable pid may be a viewer that is still booting, and transitioning it
+    would either abort a freeze that is about to succeed or commit one whose
+    viewer never arrives. They are re-checked on the next pass.
+    """
+    record_id = rec["id"]
+    if observed is None:
+        # Pane gone (the whole window was closed): commit with the gone-pane
+        # pair so the record becomes restorable into a NEW window.
+        rc, out = _store("freeze-commit", record_id, "--nonce", lease(),
+                         "--pane", "", "--pane-pid", "0")
+        return (f"FROZEN:{record_id}|pane_gone" if rc == 0
+                else f"RECONCILE_FAILED:{record_id}|{out}")
+
+    stamped = observed.frozen == record_id
+    ready = observed.standin_ready == record_id
+    agent_alive = observed.pane_pid == _int(rec.get("pane_pid"))
+
+    if stamped and ready:
+        rc, out = _store("freeze-commit", record_id, "--nonce", lease(),
+                         "--pane", observed.pane_id,
+                         "--pane-pid", str(observed.pane_pid))
+        return (f"FROZEN:{record_id}" if rc == 0
+                else f"RECONCILE_FAILED:{record_id}|{out}")
+
+    if stamped and observed.pane_dead:
+        return _respawn_standin(observed.pane_id, record_id, lease)
+
+    if agent_alive and not ready:
+        # The agent is still running: the freeze died before the respawn. Undo
+        # both stamps and put the record back to `live` — captures deleted.
+        # The lease FIRST: the two unstamps below are visible to every other
+        # observer, so taking them before we know we may act would leave a pane
+        # unstamped under a live coordinator's freeze.
+        nonce = lease()
+        _unset_option(observed.pane_id, FROZEN_OPTION)
+        _unset_option(observed.pane_id, STANDIN_READY_OPTION)
+        rc, out = _store("freeze-abort", record_id, "--nonce", nonce)
+        return (f"LIVE:{record_id}" if rc == 0
+                else f"RECONCILE_FAILED:{record_id}|{out}")
+
+    return f"INDETERMINATE:{record_id}|freezing"
+
+
+def _reconcile_frozen(rec: dict, observed: _Observed | None, lease: _Lease) -> str:
+    """The `frozen` rows: keep a gone pane, respawn a dead stand-in."""
+    record_id = rec["id"]
+    if observed is None:
+        return f"KEEP:{record_id}|pane_gone"
+    if observed.frozen == record_id and observed.pane_dead:
+        return _respawn_standin(observed.pane_id, record_id, lease)
+    return f"KEEP:{record_id}|frozen"
+
+
+def _reconcile_restoring(
+    rec: dict, observed: _Observed | None, lease: _Lease, now: float
+) -> str:
+    """The `restoring` rows of the §C table.
+
+    The restore COORDINATOR is t1705_5; this is only the repair side, and it is
+    here because reconcile owns the whole §C table — a `restoring` record whose
+    coordinator died has to be settled by somebody, and until t1705_5 lands that
+    somebody is the only thing that runs.
+
+    Every branch that gives up ends the same way: `restore-abort` (→ `aborting`,
+    still owned by this nonce), then get the STAND-IN back and
+    `standin-respawned` (→ `frozen`). The record stays restorable and the
+    capture survives — a failed restore must never cost the user the session it
+    was trying to bring back.
+
+    Confirming requires POSITIVE evidence: `launch_pid` must be set and must
+    equal the observed pid. A viewer, a shell, or an unrelated process in that
+    pane is not a restored agent, and the store refuses to treat it as one.
+    """
+    record_id = rec["id"]
+    launch_pid = _int(rec.get("launch_pid"))
+    standin_pid = _int(rec.get("standin_pid"))
+    agent_pid = _int(rec.get("pane_pid"))
+    last_error = rec.get("last_error", "")
+    # `last_error` is stamped with the ORIGINAL coordinator's nonce, which is
+    # why `rec` must be the PRE-lease read: after `lease-take` the record's
+    # `op_nonce` is ours and the prefix would never match.
+    mismatch = bool(last_error) and last_error.startswith(
+        f"{rec.get('op_nonce', '')}:")
+
+    def _abort_back_to_frozen(pane_id: str | None) -> str:
+        nonce = lease()
+        rc, out = _store("restore-abort", record_id, "--nonce", nonce)
+        if rc != 0:
+            return f"RECONCILE_FAILED:{record_id}|{out}"
+        if pane_id is None:
+            rc, out = _store("standin-respawned", record_id, "--nonce", nonce,
+                             "--pane", "", "--pane-pid", "0")
+            return (f"STANDIN:{record_id}|pane_gone" if rc == 0
+                    else f"RECONCILE_FAILED:{record_id}|{out}")
+        return _respawn_standin(pane_id, record_id, lease)
+
+    if observed is None:
+        # The window is gone. Abort and record the gone-pane location so the
+        # record stays restorable into a NEW window.
+        return _abort_back_to_frozen(None)
+
+    if mismatch:
+        # The hook reported a DIFFERENT session in `resume` mode. The record is
+        # the coordinator's only return channel, and this is what it said:
+        # never liveness-confirm past it.
+        return _abort_back_to_frozen(observed.pane_id)
+
+    if observed.pane_dead:
+        return _abort_back_to_frozen(observed.pane_id)
+
+    if standin_pid and observed.pane_pid == standin_pid:
+        # The viewer is still in the pane: the coordinator died before or during
+        # its respawn, whether or not the ready mark survived.
+        return _abort_back_to_frozen(observed.pane_id)
+
+    if launch_pid and observed.pane_pid == launch_pid:
+        # The replacement agent is here. Confirm only once the ack grace has
+        # elapsed — before that the hook may still be about to ack, and a
+        # liveness confirm would discard the stronger evidence.
+        if _epoch(rec.get("state_at", "")) + RESTORE_ACK_GRACE > now:
+            return f"INDETERMINATE:{record_id}|restoring_ack_grace"
+        rc, out = _store("restore-confirm", record_id, "--nonce", lease(),
+                         "--pane", observed.pane_id,
+                         "--pane-pid", str(observed.pane_pid))
+        return (f"LIVE:{record_id}|liveness" if rc == 0
+                else f"RECONCILE_FAILED:{record_id}|{out}")
+
+    if not launch_pid and observed.pane_pid not in (standin_pid, agent_pid):
+        # Nothing was recorded as launched and the pane holds something we do
+        # not recognise: the respawn may be mid-flight. Indeterminate until
+        # TWICE the grace, then give up and put the viewer back.
+        if _epoch(rec.get("state_at", "")) + 2 * _stale_grace() > now:
+            return f"INDETERMINATE:{record_id}|restoring"
+        return _abort_back_to_frozen(observed.pane_id)
+
+    return f"INDETERMINATE:{record_id}|restoring"
+
+
+def _reconcile_aborting(rec: dict, observed: _Observed | None, lease: _Lease) -> str:
+    """The `aborting` rows: get the stand-in back, then `frozen`."""
+    record_id = rec["id"]
+    if observed is not None and observed.standin_ready == record_id:
+        rc, out = _store("standin-respawned", record_id, "--nonce", lease(),
+                         "--pane", observed.pane_id,
+                         "--pane-pid", str(observed.pane_pid))
+        return (f"STANDIN:{record_id}" if rc == 0
+                else f"RECONCILE_FAILED:{record_id}|{out}")
+    if observed is None:
+        rc, out = _store("standin-respawned", record_id, "--nonce", lease(),
+                         "--pane", "", "--pane-pid", "0")
+        return (f"STANDIN:{record_id}|pane_gone" if rc == 0
+                else f"RECONCILE_FAILED:{record_id}|{out}")
+    return _respawn_standin(observed.pane_id, record_id, lease)
+
+
+def _int(value) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _epoch(iso: str) -> float:
+    """`agent_sessions`' timestamp parser, reused rather than re-derived."""
+    return agent_sessions._epoch(iso or "")
+
+
+def _stale_grace() -> float:
+    """The store's lease grace, honouring its test seam (t1705_4 step 4a)."""
+    return agent_sessions._stale_op_grace()
+
+
+def reconcile() -> list[str]:
+    """Resolve every non-`live` record from server-observable facts (§C).
+
+    Idempotent and safe to call every 600 s (t1705_7 dispatches it from the
+    monitor maintenance tick). Returns the wire lines it produced.
+
+    The whole §C table is here, `restoring` rows included, even though the
+    restore COORDINATOR is t1705_5: a `restoring` record whose coordinator died
+    has to be settled by something, and reconcile is the only thing that runs.
+    Nothing can produce such a record until t1705_5 ships `restore-begin`'s
+    caller, so those rows are unreachable today — but they are unit-tested, and
+    writing them later would mean re-deriving the table from the plan twice.
+    """
+    lines: list[str] = []
+    now = agent_sessions._now()
+
+    # 1. One explicitly targeted pass per session; remember which SUCCEEDED.
+    roots: dict[str, bool] = {}
+    panes_by_root: dict[str, list[_Observed]] = {}
+    observed_by_pane: dict[str, _Observed] = {}
+    for session in discover_aitasks_sessions():
+        root = os.path.realpath(str(session.project_root))
+        ok, panes = _enumerate_session(session.session)
+        # A root covered by two sessions is fully observed only if BOTH
+        # enumerations succeeded — `and` never upgrades a prior failure.
+        roots[root] = roots.get(root, True) and ok
+        if not ok:
+            continue
+        panes_by_root.setdefault(root, []).extend(panes)
+        for pane in panes:
+            observed_by_pane[pane.pane_id] = pane
+
+    # 2. Apply the §C table to every non-`live` record whose lease is takeable.
+    rc, out = _store("list")
+    if rc != 0:
+        lines.append(f"RECONCILE_FAILED:list|{out}")
+    else:
+        for line in out.splitlines():
+            if not line.startswith("SESSION:"):
+                continue
+            fields = line[len("SESSION:"):].split("|")
+            if len(fields) < 2:
+                continue
+            record_id, state = fields[0], fields[1]
+            if state == agent_sessions.STATE_LIVE:
+                continue
+            # READ BEFORE LEASING. `lease-take` overwrites `op_nonce`, and the
+            # `restoring` mismatch row matches `last_error` against the ORIGINAL
+            # coordinator's nonce — after a lease that comparison can never
+            # match, and a reported session mismatch would be silently ignored.
+            rec = _store_show(record_id)
+            if not rec:
+                continue
+            observed = observed_by_pane.get(rec.get("pane_id", ""))
+            # LAZY: the handlers take the lease only if they are about to issue
+            # a verb, so a healthy `frozen` record is observed and reported
+            # without being written to. See `_Lease`.
+            lease = _Lease(record_id)
+            try:
+                if state == agent_sessions.STATE_FREEZING:
+                    lines.append(_reconcile_freezing(rec, observed, lease))
+                elif state == agent_sessions.STATE_FROZEN:
+                    lines.append(_reconcile_frozen(rec, observed, lease))
+                elif state == agent_sessions.STATE_RESTORING:
+                    lines.append(_reconcile_restoring(rec, observed, lease, now))
+                elif state == agent_sessions.STATE_ABORTING:
+                    lines.append(_reconcile_aborting(rec, observed, lease))
+            except _LeaseUnavailable as exc:
+                # A live coordinator owns this record (or the store refused).
+                # Reported, never worked around.
+                lines.append(exc.line)
+
+    # 3. Retire dead records. LAST, so the repairs above are already reflected.
+    obs_path = _write_observation(roots, panes_by_root)
+    try:
+        rc, out = _store("purge", "--observed", obs_path)
+        if rc == 0:
+            lines.extend(out.splitlines())
+        else:
+            lines.append(f"RECONCILE_FAILED:purge|{out}")
+    finally:
+        try:
+            os.unlink(obs_path)
+        except OSError:
+            pass
+    return lines
+
+
+# --- CLI --------------------------------------------------------------------
+
+
+def main(argv: list[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if not argv:
+        print("usage: agent_freeze.py freeze <pane>|--all | reconcile",
+              file=sys.stderr)
+        return 2
+    verb, rest = argv[0], argv[1:]
+
+    if verb == "freeze":
+        if rest and rest[0] == "--all":
+            results = freeze_all()
+        elif rest:
+            results = [freeze_pane(rest[0])]
+        else:
+            print("usage: agent_freeze.py freeze <pane_id>|--all",
+                  file=sys.stderr)
+            return 2
+        for result in results:
+            print(result.line)
+        # An empty batch is a success: there was nothing to freeze.
+        return 0 if all(r.ok for r in results) else 1
+
+    if verb == "reconcile":
+        for line in reconcile():
+            print(line)
+        return 0
+
+    print(f"unknown verb: {verb}", file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

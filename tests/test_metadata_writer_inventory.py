@@ -164,6 +164,11 @@ PINNED_FILES = frozenset(
     ".aitask-scripts/chatlink/paths.py",
     ".aitask-scripts/chatlink/sessions_store.py",
     ".aitask-scripts/lib/agent_command_screen.py",
+    # Reads `aitasks/metadata/project_config.yaml` for `frozen.capture_max_lines`
+    # and writes only capture files under `~/.config/aitasks/frozen/` (t1705_4).
+    # Flagged because the path literal and the write primitives sit in one file,
+    # not because anything under aitasks/metadata is written.
+    ".aitask-scripts/lib/agent_freeze.py",
     ".aitask-scripts/lib/artifact_backends/dir.sh",
     ".aitask-scripts/lib/gate_verifier_lib.sh",
     ".aitask-scripts/lib/userconfig_persist.py",
