@@ -796,10 +796,30 @@ When the procedure returns, proceed to Step 8d.
 
 Entered from Step 8c. At this point the code and plan files have already been committed. This step applies only when the task was risk-gated; if the approved plan has a `### Planned mitigations` subsection with ≥1 `after` line (authored during planning by the Risk-Mitigation Follow-up Procedure; inline `pre-phase`/`post-phase` lines are not spawn candidates and are skipped), execute **Part 3 (Step 8d "after" creation)** of that procedure now (see `risk-mitigation-followup.md`) with `task_id`, `task_num`, `plan_file`, `is_child`, `parent_id`, and `active_profile` from the current context. If the plan has no such subsection (the common case for non-risk-gated tasks), this step is a no-op.
 
-It creates each "after" mitigation as an independent follow-up task and records it in the original's `risk_mitigation_tasks`. "After" mitigations block nothing, so the workflow continues normally. When the procedure returns, proceed to Step 9.
+It creates each "after" mitigation as an independent follow-up task and records it in the original's `risk_mitigation_tasks`. "After" mitigations block nothing, so the workflow continues normally. When the procedure returns, proceed to Step 8e.
 {%- else %}
-When the procedure returns, proceed to Step 9.
+When the procedure returns, proceed to Step 8e.
 {%- endif %}
+
+### Step 8e: Note an Existing Task
+
+Entered from Step 8d (or from Step 8c when 8d did not render). Step 8b and 8c
+offer to create *new* tasks; this is the other half of the same moment — a
+finding that belongs to a task that **already exists**, which is the repo's
+standing "hand findings to the owning task, not the current one" convention.
+
+If the work surfaced context an existing task needs — a stale assumption in its
+body, a wider blast radius than it records, a decision here that changes its
+approach — **offer** (never automatically) to send it there with `/aitask-note`.
+Skip silently when there is no such finding, which is the common case.
+
+This is an offer, not an action: a note is advisory input the recipient chooses
+to consume, and sending one is never a substitute for creating a task when the
+content is itself work. Proceed to Step 9 in either case.
+
+**Deliberately outside the `risk_evaluated` conditional above.** Placing it
+inside would render the offer only for risk-gated tasks and silently drop it for
+every other profile — the offer has nothing to do with risk gating.
 
 ### Step 9: Post-Implementation
 

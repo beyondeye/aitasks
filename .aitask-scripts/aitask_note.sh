@@ -14,11 +14,13 @@
 #
 # Usage:
 #   aitask_note.sh <target-task-id> --from <id> [--text ... | --file ...]
+#                  [--with-live]
 #   aitask_note.sh <target-task-id> --migrate --claimed-from <ref> \
 #                  --claimed-at <date> --base <oid> [--base-branch <b>] \
 #                  (--text ... | --file ...)
 #
-# OUTPUT CONTRACT — exactly ONE line on stdout, always:
+# OUTPUT CONTRACT — one line per LANE. Without --with-live there is exactly ONE
+# line on stdout, always. The DURABLE lane:
 #   NOTE_APPENDED:<note-id>|<path>                       appended + committed
 #   NOTE_APPENDED_UNCOMMITTED:<note-id>|<path>|<reason>  appended, commit failed
 #   NOTE_TARGET_MISSING:<id>
@@ -30,6 +32,17 @@
 # "was a note created?" is answerable from stdout alone. Every advisory — the
 # recovery hint, git noise — goes to stderr via warn(), mirroring
 # aitask_gate.sh's MATERIALIZED / MATERIALIZED_UNCOMMITTED split.
+#
+# With --with-live a SECOND line follows, but ONLY after NOTE_APPENDED: — every
+# other durable outcome short-circuits the live lane and still prints one line.
+# The LIVE lane (t1657_5), passed through from aitask_live_endpoint.sh verbatim:
+#   LIVE_PANE:<%pane>|<session>:<@win>.<%pane>|<pid>|agent=<family>
+#   LIVE_NONE:<reason>                 no live endpoint — a successful answer
+#   LIVE_ERROR:<reason>                the resolver could not run
+#
+# THE DURABLE RESULT IS AUTHORITATIVE, and the exit status follows it alone: a
+# LIVE_NONE or LIVE_ERROR after NOTE_APPENDED: is a SUCCESS with live delivery
+# unavailable (exit 0), never a partial failure and never a reason to resend.
 
 set -euo pipefail
 
@@ -93,6 +106,20 @@ NOTE_MAX_BODY_BYTES=8192
 # Id-collision retry bound. The in-lock uniqueness check re-mints on collision;
 # this bounds it so a degenerate generator terminates instead of spinning.
 NOTE_ID_RETRIES=8
+
+# --- Live lane (--with-live, t1657_5) ---------------------------------------
+#
+# The generic half of the LIVE lane. This script owns the DURABLE write and
+# nothing else; the resolver decides whether a live endpoint exists, and the
+# per-agent adapter — a model-facing procedure, since ListAgents/SendMessage
+# have no CLI — does the delivery. Fusing the first two here is what makes
+# "the note is committed BEFORE any live attempt exists" structural rather
+# than a sentence in a skill an agent may or may not follow in order.
+#
+# AIT_LIVE_ENDPOINT_SH is the documented test seam, mirroring the resolver's
+# own AIT_LIVE_DELIVERY_DIR: point it at a stub to force a specific result
+# code, an exit status, or an unparseable answer.
+LIVE_ENDPOINT_SH="${AIT_LIVE_ENDPOINT_SH:-$SCRIPT_DIR/aitask_live_endpoint.sh}"
 
 # --- Canonical task-id representation (t1657_2 §0) --------------------------
 #
@@ -174,6 +201,7 @@ note_die() {
 show_help() {
     cat <<EOF
 Usage: aitask_note.sh <target-task-id> --from <id> [--text ... | --file ...]
+                            [--with-live]
        aitask_note.sh read <task-id> --by <id> --ids <csv> [--mode auto|explicit]
 
 Append an attributed note to <target-task-id>'s "## Inbox" section and commit
@@ -184,6 +212,14 @@ Options:
   --from <id>        Sender task id (local only; 349 or t349, 1657_2 or t1657_2)
   --text <text>      Note body, inline
   --file <path>      Note body, from a file ('-' for stdin)
+  --with-live        After the durable write lands, also resolve whether the
+                     target is held by a live agent on this host, and report it
+                     on a SECOND stdout line. The resolver runs ONLY after a
+                     successful append+commit, so the note is durable before any
+                     live attempt exists. Delivery itself is not done here: the
+                     per-agent adapter is a model-facing procedure (see
+                     live_delivery/agents.txt), so this reports an ENDPOINT, not
+                     a delivery.
 
 Migration (for content that predates the mailbox):
   --migrate                Enable the migration path
@@ -221,12 +257,28 @@ Reading (acknowledgement receipts):
   irreplaceable): a receipt that is on disk but uncommitted would hide a note
   locally with nothing durable to show for it.
 
-Output (exactly one line on stdout; advisories go to stderr):
+Output (one line per lane; advisories go to stderr):
   NOTE_APPENDED:<note-id>|<path>
   NOTE_APPENDED_UNCOMMITTED:<note-id>|<path>|<reason>
   NOTE_TARGET_MISSING:<id>
   NOTE_SELF:<id>
   NOTE_ERROR:<reason>
+
+  Without --with-live that is exactly ONE line, always. With --with-live a
+  SECOND line follows, but only after NOTE_APPENDED: — every other outcome
+  short-circuits the live lane and still prints one line:
+  LIVE_PANE:<%pane>|<session>:<@win>.<%pane>|<pid>|agent=<family>
+  LIVE_NONE:<reason>              no live endpoint (unlocked, remote_host,
+                                  holder_dead, holder_unknown, agent_unknown,
+                                  agent_unsupported:<f>, no_pane)
+  LIVE_ERROR:<reason>             the resolver itself could not run;
+                                  resolver_unavailable means it produced no
+                                  parseable answer at all
+
+  THE DURABLE RESULT IS AUTHORITATIVE. The exit status follows the note, not
+  the live lane: a LIVE_NONE or LIVE_ERROR after a NOTE_APPENDED: is a SUCCESS
+  with live delivery unavailable, exit 0 — never a partial failure, and never a
+  reason to resend the note.
 
   read:
   READ_RECORDED:<receipt-id>|<path>|<n-ids>            committed
@@ -240,6 +292,9 @@ Output (exactly one line on stdout; advisories go to stderr):
 
 Example:
   aitask_note.sh 357 --from 349 --text "the line numbers in your task are stale"
+  aitask_note.sh 357 --from 349 --with-live --file - <<'NOTE_BODY'
+  multi-line body; the quoted heredoc keeps the shell out of it
+  NOTE_BODY
   aitask_note.sh read 357 --by 357 --ids 2026-09-01T15:59:51Z.ffc6cbc52b41e6e70ad5fa49
 EOF
 }
@@ -791,13 +846,14 @@ main() {
     local target_raw="$1"; shift
     local from_raw="" body_text="" body_file="" migrate=0
     local claimed_from="" claimed_at="" cli_base="" cli_base_branch=""
+    local with_live=0
 
     # Every flag is counted, not just captured. A last-one-wins parser turns a
     # contradictory command line into a silently different note: `--text a
     # --file b` would drop the inline text, and `--text a --text b` would keep
     # only b — both without a word to the caller (F19).
     local n_from=0 n_text=0 n_file=0 n_claimed_from=0 n_claimed_at=0
-    local n_base=0 n_base_branch=0
+    local n_base=0 n_base_branch=0 n_with_live=0
     while [[ $# -gt 0 ]]; do
         # A value-taking flag must HAVE its value before we shift past it.
         # `shift 2` with one argument left fails, and under `set -e` that exits
@@ -813,6 +869,7 @@ main() {
             --text)          body_text="$2";       n_text=$((n_text+1));       shift 2 ;;
             --file)          body_file="$2";       n_file=$((n_file+1));       shift 2 ;;
             --migrate)       migrate=1; shift ;;
+            --with-live)     with_live=1; n_with_live=$((n_with_live+1)); shift ;;
             --claimed-from)  claimed_from="$2";    n_claimed_from=$((n_claimed_from+1)); shift 2 ;;
             --claimed-at)    claimed_at="$2";      n_claimed_at=$((n_claimed_at+1));     shift 2 ;;
             --base)          cli_base="$2";        n_base=$((n_base+1));       shift 2 ;;
@@ -838,6 +895,7 @@ main() {
     (( n_claimed_at <= 1 ))   || note_die "duplicate-option:--claimed-at"
     (( n_base <= 1 ))         || note_die "duplicate-option:--base"
     (( n_base_branch <= 1 ))  || note_die "duplicate-option:--base-branch"
+    (( n_with_live <= 1 ))    || note_die "duplicate-option:--with-live"
 
     if (( migrate )); then
         # --from is IGNORED on this path (the proof is never run), so accepting
@@ -1015,7 +1073,50 @@ main() {
 
     task_push >/dev/null 2>&1 || true
     printf 'NOTE_APPENDED:%s|%s\n' "$NOTE_ID" "$file"
+
+    # --- LIVE lane (opt-in) -------------------------------------------------
+    #
+    # Reached ONLY from here, i.e. only after a fully successful durable write.
+    # Every other outcome above returns before this point, so the resolver is
+    # never invoked when there is no committed note to tell anyone about. That
+    # placement IS the write-before-live guarantee.
+    (( with_live )) || return 0
+    note_emit_live "$target_bare"
+    # The DURABLE result is authoritative: a live lane that found nothing — or
+    # that could not run at all — is still a successfully delivered note.
+    # Returned explicitly rather than as $?, so no later edit can let the live
+    # lane leak into the exit status.
     return 0
+}
+
+# note_emit_live <bare-target-id>
+#
+# Prints exactly one LIVE_* line. The resolver DELIBERATELY exits 2 on
+# LIVE_ERROR:* (aitask_live_endpoint.sh), and this script runs under
+# `set -euo pipefail` — so a bare invocation or a plain "$( )" would abort here,
+# AFTER the note is already appended and committed, leaving the caller with a
+# NOTE_APPENDED: line, no second line, and a non-zero status. Three traps, all
+# avoided below:
+#   - declare-then-assign: `local x="$(...)"` masks the status in `local`'s own
+#     exit code, so `|| rc=$?` would never fire;
+#   - no pipe: `... | head -n1` hands the resolver's 2 straight back via pipefail;
+#   - a reason code is passed through VERBATIM, never remapped — LIVE_NONE and
+#     LIVE_ERROR are disjoint by design, and collapsing them would make "no live
+#     endpoint" and "the resolver broke" indistinguishable.
+note_emit_live() {
+    local target_bare="$1"
+    local live_out="" live_line=""
+    local live_rc=0
+    live_out="$("$LIVE_ENDPOINT_SH" "$target_bare" 2>/dev/null)" || live_rc=$?
+    live_line="${live_out%%$'\n'*}"
+    case "$live_line" in
+        LIVE_PANE:*|LIVE_NONE:*|LIVE_ERROR:*) ;;
+        # No parseable answer is NOT "no live endpoint" — the resolver is
+        # missing, not executable, or its contract changed. Say so.
+        *)  warn "live endpoint unreadable (exit $live_rc) — the note is durable"
+            live_line="LIVE_ERROR:resolver_unavailable" ;;
+    esac
+    printf '%s\n' "$live_line"
 }
 
 main "$@"

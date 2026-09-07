@@ -68,6 +68,11 @@ This variable controls which steps and sub-steps execute. Each step and sub-step
 
 > **Full procedure:** Read `follow-up-task-creation.md` for the complete Step 6 details.
 
+If a gap belongs to a task that **already exists** rather than to a new one,
+**offer** (never automatically) to send it there with `/aitask-note` — the
+repo's "hand findings to the owning task, not the current one" convention. A
+note carries context; if the gap is itself work, it stays a task.
+
 Proceed to Step 7.
 
 ### Step 7: Satisfaction Feedback

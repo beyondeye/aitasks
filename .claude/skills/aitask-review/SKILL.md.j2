@@ -167,6 +167,12 @@ Then use `AskUserQuestion` multiSelect: "Select findings to address:"
 
 If the user selects no findings: inform "No findings selected. Ending review." and stop.
 
+If a selected finding belongs to a task that **already exists** rather than to a
+new one, **offer** (never automatically) to send it there with `/aitask-note` —
+the repo's "hand findings to the owning task, not the current one" convention. A
+note carries context about existing work; a finding that is itself work stays a
+task, so this replaces nothing below.
+
 ### Step 4: Task Creation
 
 Use `AskUserQuestion`: "How should the selected findings become tasks?"

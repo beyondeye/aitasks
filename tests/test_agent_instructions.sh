@@ -1040,6 +1040,33 @@ assert_contains "T43: control -- setup_code_agents still calls update_agentsmd" 
     "update_agentsmd" "$code_agents_body"
 
 # ============================================================
+# Test 44: the SHARED layer teaches how to SEND a note (t1657_5)
+# ============================================================
+# The read side of the note mailbox is taught only inside skill bodies, which
+# load only when that skill runs. The SEND side has to reach every agent in every
+# session with no invocation at all, which is what the shared layer is for -- so
+# its presence there is the whole discoverability guarantee, not a nicety.
+#
+# Asserted against what the LIVE generator produces (never against the seed file
+# directly, and never against a mirror): the shared layer is what every one of
+# the three surfaces is built from, so this pins the property at its source.
+# T25-T27 then carry it, byte-for-byte, into AGENTS.md and both mirrors.
+shared_layer="$(assemble_aitasks_instructions "$PROJECT_DIR")"
+assert_contains "T44: shared layer has a section on sending notes" \
+    "## Sending Notes to Other Tasks" "$shared_layer"
+assert_contains "T44: it names the verb" "./ait note" "$shared_layer"
+assert_contains "T44: it shows the sender flag" "--from" "$shared_layer"
+assert_contains "T44: it names the durable result" "NOTE_APPENDED:" "$shared_layer"
+# The trust posture travels with the mechanism or not at all: an agent that
+# learns to send from here learns nothing about how a note must be received.
+assert_contains "T44: it states the advisory posture" \
+    "never an instruction" "$shared_layer"
+assert_contains "T44: it says from= is a claim" "is a claim" "$shared_layer"
+# Note vs. task is the judgement call the helper cannot make.
+assert_contains "T44: it distinguishes a note from a task" \
+    "create a task instead" "$shared_layer"
+
+# ============================================================
 # Summary
 # ============================================================
 

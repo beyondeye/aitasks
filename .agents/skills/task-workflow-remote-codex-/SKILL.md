@@ -698,7 +698,27 @@ Entered from Step 8b (or directly from Step 8 if 8b was a no-op). At this point 
 Execute the **Manual Verification Follow-up Procedure** (see `manual-verification-followup.md`) with:
 - `task_file`, `task_id`, `is_child`, `active_profile`, `parent_id` from the current context.
 - `task_slug` — filename stem with the `t<id>_` prefix stripped (e.g. `aitasks/t42_add_login.md` → `add_login`).
-When the procedure returns, proceed to Step 9.
+When the procedure returns, proceed to Step 8e.
+
+### Step 8e: Note an Existing Task
+
+Entered from Step 8d (or from Step 8c when 8d did not render). Step 8b and 8c
+offer to create *new* tasks; this is the other half of the same moment — a
+finding that belongs to a task that **already exists**, which is the repo's
+standing "hand findings to the owning task, not the current one" convention.
+
+If the work surfaced context an existing task needs — a stale assumption in its
+body, a wider blast radius than it records, a decision here that changes its
+approach — **offer** (never automatically) to send it there with `/aitask-note`.
+Skip silently when there is no such finding, which is the common case.
+
+This is an offer, not an action: a note is advisory input the recipient chooses
+to consume, and sending one is never a substitute for creating a task when the
+content is itself work. Proceed to Step 9 in either case.
+
+**Deliberately outside the `risk_evaluated` conditional above.** Placing it
+inside would render the offer only for risk-gated tasks and silently drop it for
+every other profile — the offer has nothing to do with risk gating.
 
 ### Step 9: Post-Implementation
 
