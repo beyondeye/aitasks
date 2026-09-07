@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -15,7 +17,7 @@ anchor: 1657
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5
 created_at: 2026-09-06 16:55
-updated_at: 2026-09-07 09:11
+updated_at: 2026-09-07 09:12
 ---
 
 ## Origin
@@ -64,3 +66,5 @@ If neither adds a row, the fix is a one-word correction to the prose.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-09-07T06:11:43Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-09-07T07:51:25Z status=pass attempt=1 type=human
