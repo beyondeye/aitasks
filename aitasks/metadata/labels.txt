@@ -119,6 +119,7 @@ skill_optiomizations
 skills
 statistics
 stats_ui
+syncer
 task-archive
 task-planning
 task-workflow
