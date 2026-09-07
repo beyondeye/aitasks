@@ -5,6 +5,10 @@ depends: []
 issue_type: bug
 status: Implementing
 labels: [git, bash_scripts, robustness, syncer]
+active_gates: [risk_evaluated]
+active_gates_filtered: []
+active_gates_profile: fast
+active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 file_references: [.aitask-scripts/aitask_sync.sh:1269-1280, .aitask-scripts/syncer/syncer_app.py:2264-2273, .aitask-scripts/lib/sync_action_runner.py:75-82]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1599
