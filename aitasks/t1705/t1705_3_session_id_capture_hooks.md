@@ -138,3 +138,8 @@ bash install.sh --dir /tmp/claude-1000/scratch_hooks && (cd /tmp/claude-1000/scr
 ```
 No tmux-stress; the hook's tmux calls are read-only `display-message` /
 `set-option -p` on the caller's own pane.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-07T10:51:30Z status=pass attempt=1 type=human
