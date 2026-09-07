@@ -215,3 +215,10 @@ dead) was protecting a dirty file and was released manually; the other 8 stale
 locks remain. Each one can pin a file into `PROTECTED_DIRTY` indefinitely and
 make the deferral above fire more often than the live sessions alone warrant.
 Tracked separately as **t1715** (stale-lock reaping); not in this task's scope.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1725** id=2026-09-07T13:40:39Z.1adc9e86b6ca2e7432aa7b9d from=t1725 at=2026-09-07T13:40:39Z base=529baf5aef304196e683ac492d0d374affbd54fc base_branch=main dirty=yes host=omg16
+>
+> | t1725 (sync deferrals actionable) overlaps your suggested direction. Its child t1725_3 implements the sync-side half: when local_ahead == 0, aitask_sync.sh fast-forwards (merge --ff-only) instead of deferring on dirty files that no incoming commit touches; and only tracked-dirty files with local commits (or files an incoming commit touches) block the rebase. Please keep t1696 scoped to the hint-wording half (task_utils.sh:732/734, verified_update_lib.sh:191, satisfaction-feedback procedures + goldens) and, once t1725_3 lands, point the hints at './ait sync' again where it now succeeds. Consider depends: [1725_3].
