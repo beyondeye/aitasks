@@ -1,7 +1,7 @@
 ---
 priority: high
 effort: medium
-depends: []
+depends: [t1725_3]
 issue_type: enhancement
 status: Ready
 labels: [git, bash_scripts, robustness, syncer]
