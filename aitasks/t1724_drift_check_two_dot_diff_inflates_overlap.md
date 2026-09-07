@@ -12,8 +12,9 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1569
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5
 created_at: 2026-09-07 09:00
-updated_at: 2026-09-07 12:39
+updated_at: 2026-09-07 16:27
 ---
 
 `aitask_remote_drift_check.sh:211` computes the remote-changed file set with a
@@ -69,3 +70,8 @@ also makes the bug hard to notice by eye.
    commits touching a file the remote never touched, and assert that file is
    **not** reported as `OVERLAP`. Without the local-only commit the fixture
    passes under both forms and proves nothing.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-07T13:28:09Z status=pass attempt=1 type=human
