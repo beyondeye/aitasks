@@ -3,12 +3,13 @@ priority: high
 effort: medium
 depends: [t1705_2]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [codeagent, claudecode, codexcli, install, ait_setup, seed, session_persistence, testing]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1705
 created_at: 2026-09-04 16:03
-updated_at: 2026-09-04 16:03
+updated_at: 2026-09-07 10:55
 ---
 
 ## Context
