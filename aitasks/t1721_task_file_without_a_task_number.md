@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [backend]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-09-06 17:08
-updated_at: 2026-09-06 17:08
+updated_at: 2026-09-07 17:06
 ---
 
 `aitasks/t_refresh_codeagent_suite_default_model_expectations.md` has **no task
