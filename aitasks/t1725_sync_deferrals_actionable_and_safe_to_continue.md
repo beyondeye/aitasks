@@ -3,12 +3,13 @@ priority: high
 effort: high
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [git, bash_scripts, robustness, syncer]
 file_references: [.aitask-scripts/aitask_sync.sh:1269-1280, .aitask-scripts/syncer/syncer_app.py:2264-2273, .aitask-scripts/lib/sync_action_runner.py:75-82]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1599
 created_at: 2026-09-07 10:58
-updated_at: 2026-09-07 10:58
+updated_at: 2026-09-07 11:01
 ---
 
 ## Problem
