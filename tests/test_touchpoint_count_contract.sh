@@ -36,6 +36,7 @@ AUDIT_SH=".aitask-scripts/aitask_audit_wrappers.sh"
 EXT_POINTS="aidocs/framework/aitasks_extension_points.md"
 NEW_AGENT="aidocs/framework/adding_a_new_codeagent.md"
 AUDIT_SKILL=".claude/skills/aitask-audit-wrappers/SKILL.md"
+CLAUDE_MD="CLAUDE.md"
 
 # ---------------------------------------------------------------------------
 # Probe guard -- run FIRST, and abort rather than continue.
@@ -157,6 +158,39 @@ done < <(grep -oE 'for touchpoint in [0-9 ]+; do' "$AUDIT_SH" \
            | sed -e 's/^for touchpoint in //' -e 's/; do$//')
 
 assert_eq "both iteration loops were found in $AUDIT_SH" "2" "$loop_count"
+
+# --- Test 7: the helper-script section pointer names its real owner ---
+#
+# The "Adding a new helper script" section moved out of CLAUDE.md into
+# aidocs/framework/aitasks_extension_points.md. Both the helper's usage() text
+# and the audit-wrappers skill cite it by name, and the skill's citation stayed
+# pointed at CLAUDE.md for months (t1726). These assertions pin the ownership
+# and both citations of it.
+
+# Every check below compares counts rather than passing a whole file as a
+# haystack: assert_contains takes (desc, NEEDLE, HAYSTACK), and a multi-line
+# needle makes `grep -F` match on any single line -- including a blank one --
+# so a file-as-needle assertion passes vacuously. grep -c also exits 1 on zero
+# matches, and this file runs under `set -u` without `-e`, so each substitution
+# ends in `|| true` to yield "0" rather than the empty string.
+
+assert_eq "$EXT_POINTS owns the 'Adding a new helper script' section" "1" \
+    "$(grep -c '^## Adding a new helper script$' "$EXT_POINTS" || true)"
+
+assert_eq "$CLAUDE_MD no longer carries that section as a heading" "0" \
+    "$(grep '^#' "$CLAUDE_MD" | grep -ci 'adding a new helper script' || true)"
+
+skill_cites=0
+grep -q 'aitasks_extension_points\.md' "$AUDIT_SKILL" && skill_cites=1
+assert_eq "$AUDIT_SKILL cites $EXT_POINTS for the touchpoints" "1" "$skill_cites"
+
+helper_cites=0
+grep -q 'aitasks_extension_points\.md' "$AUDIT_SH" && helper_cites=1
+assert_eq "$AUDIT_SH usage() cites $EXT_POINTS for the touchpoints" "1" "$helper_cites"
+
+# Prose only -- the `[^|]*` keeps the skill's markdown tables out of scope.
+assert_eq "$AUDIT_SKILL attributes no helper-script prose to CLAUDE.md" "0" \
+    "$(grep -ci 'CLAUDE\.md[^|]*helper' "$AUDIT_SKILL" || true)"
 
 # --- Summary ---
 
