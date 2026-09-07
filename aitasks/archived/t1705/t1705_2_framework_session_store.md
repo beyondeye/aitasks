@@ -5,7 +5,7 @@ risk_goal_achievement: high
 effort: medium
 depends: [t1705_1]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [session_persistence, codeagent, agent_marks, python, concurrency, testing]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1705
 implemented_with: claudecode/opus5
 created_at: 2026-09-04 16:02
-updated_at: 2026-09-06 16:49
+updated_at: 2026-09-07 10:50
+completed_at: 2026-09-07 10:50
 ---
 
 ## Context
@@ -131,3 +132,14 @@ No tmux involvement — safe to implement from any shell.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-09-06T13:49:34Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-07T07:49:28Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:f333b096566dfe9b
+
+> **✅ gate:risk_evaluated** run=2026-09-07T07:49:28Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1705_2/risk_evaluated_2026-09-07T07:49:28Z-risk_evaluated-a1.log`
