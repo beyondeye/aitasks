@@ -591,10 +591,19 @@ def _read_observed(path: str) -> tuple[dict[str, set[str]], set[str], bool]:
 
         ``ROOT<TAB><canonical-root>``            -- a successfully enumerated root
         ``WINDOW<TAB><canonical-root><TAB><name>`` -- an observed agent window
+        ``PANE<TAB><root><TAB><window><TAB><id><TAB><pid><TAB><dead>``
+                                                  -- IGNORED HERE; see below
         ``INCOMPLETE``                            -- suppress the liveness sweep
 
     Roots are declared separately from windows precisely so a *zero-window*
     enumerated root can be expressed; a windows-only format could not say it.
+
+    ``PANE`` rows belong to the session store's purge (``lib/agent_sessions.py``,
+    t1705_2), which needs pane-level detail this sweep does not: ONE observation
+    file serves both purges, so the producer writes the superset and each reader
+    takes its own subset. The skip is written out explicitly rather than left to
+    the ``if/elif`` chain's silent fall-through, so that adding a strict
+    ``else: raise`` here later cannot quietly break the session store.
     """
     observed: dict[str, set[str]] = {}
     roots: set[str] = set()
@@ -613,6 +622,8 @@ def _read_observed(path: str) -> tuple[dict[str, set[str]], set[str], bool]:
             elif kind == "WINDOW" and len(parts) == 3:
                 root = os.path.realpath(parts[1])
                 observed.setdefault(root, set()).add(parts[2])
+            elif kind == "PANE":
+                continue  # the session store's rows, not ours (see docstring)
     return observed, roots, complete
 
 

@@ -224,6 +224,41 @@ class ObservationFileTests(unittest.TestCase):
         )
         self.assertEqual((observed, roots), ({}, set()))
 
+    def test_pane_rows_are_ignored(self):
+        """One observation file serves TWO purges (t1705_2).
+
+        The session store (`lib/agent_sessions.py`) needs pane-level rows this
+        sweep does not, so the producer writes the superset and each reader
+        takes its subset. Today the `if/elif` chain drops an unknown kind
+        silently, so this passes by construction -- which is exactly why it is
+        pinned: adding a strict `else: raise` here later would break the
+        session store's purge with no failing test in THIS module to catch it,
+        and the breakage would surface as agents' records vanishing.
+        """
+        observed, roots, complete = agent_marks._read_observed(
+            self._write(
+                f"ROOT\t{self.tmp}\n"
+                f"WINDOW\t{self.tmp}\tagent-t1\n"
+                f"PANE\t{self.tmp}\tagent-t1\t%1\t4242\t0\n"
+            )
+        )
+        self.assertEqual(roots, {str(self.tmp.resolve())})
+        self.assertEqual(observed, {str(self.tmp.resolve()): {"agent-t1"}})
+        self.assertTrue(complete)
+
+    def test_a_pane_row_never_invents_a_window(self):
+        """A PANE row alone must not make its window look observed.
+
+        If it did, a record whose window really is gone would survive the
+        sweep -- the sweep would see the window as present purely because a
+        pane row mentioned it.
+        """
+        observed, roots, _ = agent_marks._read_observed(
+            self._write(f"ROOT\t{self.tmp}\nPANE\t{self.tmp}\tghost\t%1\t1\t0\n")
+        )
+        self.assertEqual(observed, {})
+        self.assertEqual(roots, {str(self.tmp.resolve())})
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=1)
