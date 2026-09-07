@@ -43,3 +43,4 @@ archived; Defer is allowed but creates a carry-over task.
 - [ ] [t1657_5] Invoking the skill with an explicit target sends a note end-to-end with zero prompts.
 - [ ] [t1657_5] Invoking the skill without a target routes through Related Task Discovery to pick the recipient.
 - [ ] [t1657_5] A live-delivery failure after a successful durable write is reported as success with live delivery unavailable, not as a partial failure.
+- [ ] [t1657_5] With a second live Claude session holding the target task on this host, invoking /aitask-note end-to-end resolves LIVE_PANE, the adapter payload names the exact note id appended to that task's ## Inbox, and the result is reported as LIVE_QUEUED - enqueued, never read or delivered.
