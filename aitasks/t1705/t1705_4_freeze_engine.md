@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: high
+risk_goal_achievement: high
 effort: high
 depends: [t1705_3]
 issue_type: feature
@@ -10,7 +12,6 @@ active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
-plan_approved_at: 2026-09-07 16:43
 assigned_to: dario-e@beyond-eye.com
 anchor: 1705
 implemented_with: claudecode/claude-opus-5[1m]
@@ -192,3 +193,5 @@ shellcheck .aitask-scripts/aitask_frozen.sh .aitask-scripts/aitask_companion_cle
 > Note: deferred
 
 > **✅ gate:plan_approved** run=2026-09-07T13:56:15Z status=pass attempt=2 type=human
+
+> **✅ gate:review_approved** run=2026-09-07T15:13:20Z status=pass attempt=1 type=human
