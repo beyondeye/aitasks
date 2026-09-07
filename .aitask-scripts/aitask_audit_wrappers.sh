@@ -416,7 +416,13 @@ cmd_apply_wrapper() {
 # Phase 2: helper-script whitelist audit
 # -----------------------------------------------------------------------------
 
-# Map a touchpoint number (1-7) to its file path. IDs 2 and 5 are retired
+# Upper bound for the touchpoint-ID probe below. Touchpoint IDs are assigned
+# sequentially and retired slots are left vacant (never reused), so scanning
+# 1..MAX against touchpoint_file() itself enumerates the live set without
+# duplicating the ID list anywhere. Raise it only if IDs ever exceed it.
+TOUCHPOINT_ID_MAX=32
+
+# Map a touchpoint number to its file path. IDs 2 and 5 are retired
 # (formerly the gemini runtime/seed policies); the numeric IDs are kept
 # stable so other touchpoints don't silently shift.
 touchpoint_file() {
@@ -443,6 +449,19 @@ helper_present_in_touchpoint() {
         7)   grep -qF "\"./.aitask-scripts/${helper} *\": \"allow\"" "$file" ;;
         *)   return 1 ;;
     esac
+}
+
+# touchpoints -> emit TOUCHPOINT:<id>:<file> for each live touchpoint.
+# The set is derived by probing touchpoint_file() itself, so this subcommand
+# cannot drift from the map it reports. Consumed by
+# tests/test_touchpoint_count_contract.sh, which pins every doc surface that
+# enumerates or counts touchpoints against this output.
+cmd_touchpoints() {
+    local id file
+    for ((id = 1; id <= TOUCHPOINT_ID_MAX; id++)); do
+        file=$(touchpoint_file "$id") || continue
+        printf 'TOUCHPOINT:%d:%s\n' "$id" "$file"
+    done
 }
 
 # discover-helpers -> emit HELPER:<basename> for each .aitask-scripts/aitask_*.sh
@@ -649,11 +668,13 @@ Phase 1 subcommands (skill wrapper audit + port):
 
 Phase 2 subcommands (helper-script whitelist audit):
   discover-helpers                      List HELPER:<basename> for each helper referenced by aitask-* skills or shared procedures.
+  touchpoints                           List TOUCHPOINT:<id>:<file> for each live helper-permission touchpoint.
   audit-helper-whitelist <helper>       Emit MISSING:<touchpoint>:<helper> for each helper touchpoint not covered.
   apply-helper-whitelist <helper> [--touchpoint N]
                                         Insert the helper into missing touchpoints (or just touchpoint N if specified).
 
-Touchpoints (per CLAUDE.md "Adding a New Helper Script"; IDs 2 and 5 retired):
+Touchpoints (per aidocs/framework/aitasks_extension_points.md "Adding a new
+helper script"; IDs 2 and 5 retired -- run `touchpoints` for the live list):
   1 = .claude/settings.local.json                            (Bash permission)
   3 = .codex/rules/default.rules                             (prefix_rule allow)
   4 = seed/claude_settings.local.json                        (mirror of #1)
@@ -681,6 +702,7 @@ main() {
         parity)                  cmd_parity "$@" ;;
         render-wrapper)          cmd_render_wrapper "$@" ;;
         apply-wrapper)           cmd_apply_wrapper "$@" ;;
+        touchpoints)             cmd_touchpoints "$@" ;;
         discover-helpers)        cmd_discover_helpers "$@" ;;
         audit-helper-whitelist)  cmd_audit_helper_whitelist "$@" ;;
         apply-helper-whitelist)  cmd_apply_helper_whitelist "$@" ;;

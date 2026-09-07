@@ -315,8 +315,24 @@ Codex command allow rules live in `.rules` files, not `.codex/config.toml`.
 The feature is experimental in Codex CLI, so keep the rules format aligned
 with the current OpenAI Codex Rules documentation.
 
+**Count rows, not IDs.** The rows above are the live set.
+`aitask_audit_wrappers.sh::touchpoint_file()` numbers them `1, 3, 4, 6, 7` and
+keeps 2 and 5 vacant so numeric IDs stay stable across additions and removals —
+so the highest ID is not the number of touchpoints. Run
+`./.aitask-scripts/aitask_audit_wrappers.sh touchpoints` for the live list;
+`tests/test_touchpoint_count_contract.sh` pins this table, the count in the
+sentence below, and the enumeration in
+`aidocs/framework/adding_a_new_codeagent.md` §13 against it.
+
+There is deliberately no **runtime** OpenCode row to pair with the seed one.
+`<project>/opencode.json` is generated: `ait setup` copies the seed into it, or
+merges the seed's entries into an existing file. Editing the seed is therefore
+the whole write path, and this repository carries no `opencode.json` of its own.
+`.agents/` — the shared Codex/agy skill root — holds skills only and carries no
+permission surface; Codex permissions live in `.codex/rules/default.rules`.
+
 When splitting a plan that introduces one or more new helper scripts, surface
-this 7-touchpoint checklist as an explicit deliverable per helper.
+this 5-touchpoint checklist as an explicit deliverable per helper.
 
 **This whitelist applies ONLY to helpers invoked from a skill.** A helper whose
 only callers are Python TUIs (via `subprocess.run([...])`), other
