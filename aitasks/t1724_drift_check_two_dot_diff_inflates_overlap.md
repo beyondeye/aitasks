@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -14,7 +16,7 @@ anchor: 1569
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5
 created_at: 2026-09-07 09:00
-updated_at: 2026-09-07 16:27
+updated_at: 2026-09-07 16:28
 ---
 
 `aitask_remote_drift_check.sh:211` computes the remote-changed file set with a
@@ -75,3 +77,5 @@ also makes the bug hard to notice by eye.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-09-07T13:28:09Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-09-07T13:34:14Z status=pass attempt=1 type=human
