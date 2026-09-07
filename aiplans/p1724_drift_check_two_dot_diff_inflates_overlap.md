@@ -358,3 +358,36 @@ Test 15 is the whole of the proof.
     how plan paths are extracted. Noticed while correcting the diff form two lines
     below it; deliberately left out of scope here to keep this a bug fix rather
     than a doc refresh.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-09-07 16:40)
+
+- **Requested by user:** At the Step-8b upstream-defect offer, the user chose
+  "fit it here" — fix the stale extractor snippet in this task rather than
+  spawning a follow-up. This reverses the plan's explicit "out of scope here"
+  scoping decision for that one item, by the user's call.
+- **Changes made:** Replaced the stale block in
+  `aidocs/framework/plan_path_reference_extraction_findings.md` (which presented
+  the pre-`lib/plan_paths.py` shell pipeline as "the single implementation
+  today") with the current `_EXTENSIONS` / `_TOKEN` grammar from
+  `.aitask-scripts/lib/plan_paths.py`, plus three facts the old text omitted or
+  got wrong:
+  - it is **not** the only extractor — `aitask_change_surface.sh` carries a
+    broader, allowlist-free one (t1263), so the findings are scoped to *this*
+    grammar;
+  - its four consumers are named (drift check via the lazy `plan_paths_sh.sh`
+    bridge, `parallel_admission.py`, `parallel_admission_collect.py`,
+    `trail_gather.py`), which is why it is centralized;
+  - the findings were measured against the replaced pipeline and still
+    reproduce, because the regex is byte-identical in meaning; the only
+    behavioral delta is codepoint vs locale-collated ordering, which no verdict
+    depends on since the intersection is `grep -Fxf`.
+
+  Every claim was checked against source before writing (grammar lines,
+  `extract()` docstring, `aitask_change_surface.sh:226`, and the three importing
+  modules) rather than carried over from the plan.
+- **Files affected:** `aidocs/framework/plan_path_reference_extraction_findings.md`
+- **Effect on the canonical bullet:** the defect listed under **Upstream defects
+  identified** above is now **fixed in this task**, not deferred. It is left in
+  place as the provenance record of how it was found.
