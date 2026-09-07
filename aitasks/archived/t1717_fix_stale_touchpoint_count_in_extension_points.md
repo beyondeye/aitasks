@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [framework, documentation]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 1657
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5
 created_at: 2026-09-06 16:55
-updated_at: 2026-09-07 09:12
+updated_at: 2026-09-07 12:19
+completed_at: 2026-09-07 12:19
 ---
 
 ## Origin
@@ -68,3 +69,14 @@ If neither adds a row, the fix is a one-word correction to the prose.
 > **✅ gate:plan_approved** run=2026-09-07T06:11:43Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-09-07T07:51:25Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-07T09:19:24Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:08b88964dd906757
+
+> **✅ gate:risk_evaluated** run=2026-09-07T09:19:24Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1717/risk_evaluated_2026-09-07T09:19:24Z-risk_evaluated-a1.log`
