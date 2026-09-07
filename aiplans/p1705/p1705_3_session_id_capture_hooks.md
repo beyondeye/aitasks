@@ -131,6 +131,25 @@ accepted; all five are now folded into step 1 and the test list.
   hook read `sess` from `display-message` and dropped it, diverging from A6.
   Now passed and asserted in the exact-argv test.
 
+- **C6 (blocking, review round 2) — the resolver ignored both store-root
+  overrides.** `newest_transcript_for` derived everything from
+  `expanduser("~")`, while `transcript_layout.json` itself recorded
+  `CLAUDE_CONFIG_DIR` and `CODEX_HOME` as the store-root overrides — documented
+  and then not honoured. An agent launched with a custom `CODEX_HOME` writes its
+  transcripts there; the resolver scanned `~/.codex/sessions`, returned
+  `no_store_dir`, and forced re-pick on exactly the path the fallback exists to
+  rescue. **`CODEX_HOME` is established** — `test_frozen_standin_spike.sh:926`
+  reads `find "$CODEX_HOME_DIR/sessions"` directly. Verifying it also **corrected
+  the fixture**: `CLAUDE_CONFIG_DIR` relocates `.claude.json` but is NOT
+  established to relocate `projects/` — the spike always launches with it set,
+  yet 4 of its scratch projects sit under the DEFAULT `~/.claude/projects`. So
+  each agent's override root is searched **in addition to** the default rather
+  than instead of it: correct under either behaviour, and it cannot regress the
+  working default path the way committing to one root could. An `env=` test seam
+  joins `home=`, and every existing resolver test now passes `env={}` so a
+  developer whose shell exports either variable does not have the suite scan
+  their real store.
+
 Unchanged and re-confirmed: the `upsert` argv (`aitask_agent_sessions.sh:35-38`
 — `--session <name>` present per A6), the exit codes (`3` = `LOCK_BUSY`),
 `ait_stamp_record` and the `AIT_*_OPTION` spellings in `lib/agent_sessions.sh`,
@@ -196,7 +215,11 @@ fixture's rule, covering all three behaviours:
   a bare `("", "")`;
 - **multiple-candidate ordering** — deterministic and documented when two
   transcripts share an mtime (tie-break on name, so a test cannot flake and a
-  reader knows which wins).
+  reader knows which wins);
+- **store-root overrides** (C6) — a transcript written under a custom
+  `CODEX_HOME` / `CLAUDE_CONFIG_DIR` is found, the default root still resolves
+  when an override is set, and a blank, duplicate or non-existent override
+  neither masks nor double-scans the default.
 
 1. **Hook script** (`aitask_session_hook.sh`, `#!/usr/bin/env bash`, `set -uo pipefail` — **not** `-e`; every failure path must reach `exit 0`):
    ```bash
@@ -1013,3 +1036,95 @@ respawn. Two-phase, acknowledged:
 Resolution stays single-sourced in `lib/agent_string.sh`. Restore-All iterates
 `frozen` records; per-record failures are reported, never abort the batch.
 
+
+## Final Implementation Notes
+
+- **Actual work done:** All six planned steps plus both inline mitigations. New
+  `.aitask-scripts/aitask_session_hook.sh`; `seed/claude_settings.hooks.json`;
+  a `[hooks]` block in `seed/codex_config.seed.toml`; `install.sh`
+  (`install_seed_claude_hooks`, call site before the seed cleanup,
+  `.claude/settings.json` in the framework paths); `aitask_setup.sh`
+  (`merge_claude_hooks`, `setup_claude_hooks` + its consent prompt wired into
+  `setup_code_agents`, the codex prompt wording, the seed pair,
+  `_ait_framework_paths`); this repo's `.claude/settings.json`; and
+  `newest_transcript_for` in `lib/agent_sessions.py`. Tests:
+  `test_session_hook.sh` (66), `test_session_hook_live.sh` (16, real pane +
+  real store), `test_session_hook_install.sh` (22),
+  `test_agent_sessions_transcripts.py` (27), and the new
+  `tests/lib/pty_drive.py` harness.
+
+- **Deviations from plan:**
+  - **`ait setup` now ASKS before installing the hook** (user decision during
+    plan review). The plan had it unconditional. It is still its own function
+    rather than a branch in `setup_claude_code` — declining *permissions* must
+    not suppress the hook *offer* — but consent is now explicit. Non-interactive
+    auto-accepts and a decline is not persisted, per the house convention.
+  - **`tests/lib/pty_drive.py` was added** and was not in the original plan. It
+    is a prerequisite for the above: every setup prompt is gated on `[[ -t 0 ]]`,
+    so piped stdin takes the auto-accept branch and the decline path is
+    unreachable. Shipping a consent prompt whose "no" branch no test can reach
+    would be consent in name only. It also retires the standing gap recorded at
+    `tests/test_agent_instructions.sh:930`.
+  - **`toml_serialize` needed no change** (V1) — verified by round-tripping the
+    real `.codex/config.toml`. The plan had left this open.
+  - **Resolver returns a third value, a miss reason** (the
+    `fallback_resolver_reports_why` post-phase), rather than a bare `("", "")`.
+
+- **Issues encountered:**
+  - The pre-phase probe **invalidated both of the plan's resolver assumptions**.
+    Claude encodes `/` *and* `_` as `-`: the planned `/`-only rule matched 2 of
+    6 real directories, and this repo's own path has no underscore, so a
+    positive control alone would have passed while every underscore-containing
+    project silently resolved to nothing. Codex carries `cwd`/`session_id` under
+    `payload`, not top level, so the planned lookup would have matched nothing
+    for every codex session. Both are pinned as regressions.
+  - The claude encode rule is still only **partially** determined (`.` and ` `
+    unobserved), so the resolver verifies a computed directory by reading `cwd`
+    from its transcripts and falls back to a full-store scan.
+  - Review round 2 (C6) found the resolver ignored `CLAUDE_CONFIG_DIR` /
+    `CODEX_HOME` although the fixture documented them. Fixing it also corrected
+    the fixture: `CODEX_HOME` relocating `sessions/` is established, but
+    `CLAUDE_CONFIG_DIR` relocating `projects/` is NOT — the spike always sets it
+    and its scratch projects still landed in `~/.claude/projects`.
+  - `test_session_hook_live.sh` initially skipped: macOS caps unix socket paths
+    at ~104 bytes and `$TMPDIR` is `/var/folders/<long>/T/`, so a socket dir
+    there overflows. It uses a short `/tmp` socket dir.
+  - Two test-authoring bugs caught and fixed: a substring grep for
+    `@aitask_record` matched the `display-message` **format string** (so a
+    "stamp happened" assertion could pass without a stamp), and an empty
+    `stored_id` made the live A8 assertions pass vacuously. Both now assert
+    precisely and guard against pass-by-absence.
+
+- **Key decisions:**
+  - Store-root overrides are searched **in addition to** the default, not
+    instead of it — correct whichever way each agent behaves, and it cannot
+    regress the working default path.
+  - The codex hook command stays **repo-relative**: `.codex/config.toml` is
+    tracked and framework-committed, so an absolute path would commit a
+    developer's home directory.
+  - `merge_claude_hooks` treats hook identity as *which script runs*, collapsing
+    `$CLAUDE_PROJECT_DIR/...`, an absolute path, and a relative path to the same
+    `.aitask-scripts/` tail, so a user who hardcoded the path does not get the
+    hook installed twice.
+
+- **Upstream defects identified:** None.
+
+- **Verification results (2026-09-07):** `test_session_hook.sh` 66/66;
+  `test_session_hook_live.sh` 16/16; `test_session_hook_install.sh` 22/22;
+  `test_agent_sessions_transcripts.py` 27/27; the 168 pre-existing
+  `agent_sessions` tests still pass (195 total in that group);
+  `test_seed_manifest_drift.sh` 44/44; `test_no_raw_tmux.sh` 5/5;
+  `test_guard_live_tmux.sh` 24/24; `test_setup_agent_config_seeds.sh` 22/22;
+  shellcheck clean on the hook, with no new findings in `install.sh` or
+  `aitask_setup.sh` (3 and 21 respectively, identical to baseline).
+
+  **Full Python suite: FAILED — every failure is pre-existing.** 5 modules fail
+  (`test_agent_keys` ×5, `test_prompt_scoping_live` setUpClass,
+  `test_codebrowser_startup_focus_live`,
+  `test_settings_project_config_value_types` "could not create a temporary log
+  file", `test_tmux_exec::test_spawn_and_list_through_gateway`). Verified by
+  running the same five modules in a detached worktree at the pre-task commit
+  `b669858ab`: **identical failures, identical counts.** They are environmental
+  — this session runs inside tmux, which the live suites refuse, plus a temp-dir
+  issue. `test_frozen_standin_spike.sh` likewise cannot run here (it calls
+  `require_clean_ait_server`); the new live suite deliberately does not, per V4.
