@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1657
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5
 created_at: 2026-09-07 10:58
-updated_at: 2026-09-07 10:59
+updated_at: 2026-09-07 13:20
 ---
 
 ## Origin
@@ -61,3 +62,8 @@ regenerate any affected goldens in the same commit. Run
 `./.aitask-scripts/aitask_skill_verify.sh` before committing. Re-grep for
 `CLAUDE.md "Adding a New Helper Script"` afterwards to confirm no wrapper tree
 still carries it.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-07T10:20:39Z status=pass attempt=1 type=human
