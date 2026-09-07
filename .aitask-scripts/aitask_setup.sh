@@ -2240,6 +2240,7 @@ ensure_agent_config_seeds() {
         "codex_rules.default.rules:codex_rules.default.rules"
         "opencode_config.seed.json:opencode_config.seed.json"
         "claude_settings.local.json:claude_settings.seed.json"
+        "claude_settings.hooks.json:claude_settings.hooks.json"
     )
 
     # Only create the destination when it is genuinely absent. A dangling
@@ -2526,6 +2527,143 @@ print(json.dumps(existing, indent=2))
     fi
 }
 
+# --- Merge the aitasks SessionStart hook into an existing .claude/settings.json ---
+# Merges ONLY hooks.SessionStart, deduping by (matcher, command). Every other
+# key -- other hook events, permissions, env, anything the user added -- is
+# preserved verbatim. Mirrors merge_claude_settings' availability ladder, but
+# python3-only: the merge is a nested structural edit that jq would express far
+# less readably, and python3 is already a hard framework dependency.
+merge_claude_hooks() {
+    local seed_file="$1"
+    local dest_file="$2"
+
+    local python_cmd=""
+    if [[ -x "$VENV_DIR/bin/python" ]]; then
+        python_cmd="$VENV_DIR/bin/python"
+    elif command -v python3 &>/dev/null; then
+        python_cmd="python3"
+    else
+        warn "python3 not found. Cannot merge Claude Code session hook automatically."
+        warn "Please manually merge $seed_file into $dest_file"
+        return
+    fi
+
+    local merged=""
+    merged="$("$python_cmd" - "$dest_file" "$seed_file" <<'PYEOF'
+import json, sys
+
+dest_path, seed_path = sys.argv[1], sys.argv[2]
+with open(dest_path) as f:
+    existing = json.load(f)
+with open(seed_path) as f:
+    seed = json.load(f)
+
+def norm(cmd):
+    # Identity of a hook command = which script it runs, not how it spells the
+    # path. $CLAUDE_PROJECT_DIR is expanded by the agent, and a user may have
+    # hardcoded an absolute path to the SAME script -- installing a second copy
+    # would run the hook twice per session. Collapse every spelling that ends in
+    # the same repo-relative .aitask-scripts/ path.
+    cmd = (cmd or "").replace("$CLAUDE_PROJECT_DIR", "").replace("${CLAUDE_PROJECT_DIR}", "").strip()
+    marker = ".aitask-scripts/"
+    idx = cmd.rfind(marker)
+    if idx != -1:
+        return cmd[idx:]
+    return cmd.lstrip("/")
+
+hooks = existing.setdefault("hooks", {})
+if not isinstance(hooks, dict):
+    raise SystemExit("hooks is not an object")
+groups = hooks.setdefault("SessionStart", [])
+if not isinstance(groups, list):
+    raise SystemExit("hooks.SessionStart is not an array")
+
+for seed_group in seed.get("hooks", {}).get("SessionStart", []):
+    matcher = seed_group.get("matcher")
+    target = None
+    for g in groups:
+        if isinstance(g, dict) and g.get("matcher") == matcher:
+            target = g
+            break
+    if target is None:
+        groups.append(json.loads(json.dumps(seed_group)))
+        continue
+    entries = target.setdefault("hooks", [])
+    have = {norm(h.get("command")) for h in entries if isinstance(h, dict)}
+    for h in seed_group.get("hooks", []):
+        if norm(h.get("command")) not in have:
+            entries.append(json.loads(json.dumps(h)))
+            have.add(norm(h.get("command")))
+
+print(json.dumps(existing, indent=2))
+PYEOF
+)" || {
+        warn "  Session hook merge failed — existing .claude/settings.json unchanged"
+        return
+    }
+
+    if [[ -n "$merged" ]]; then
+        echo "$merged" > "$dest_file"
+        info "  Merged aitasks session hook into .claude/settings.json"
+    else
+        warn "  Merge produced empty output — existing settings unchanged"
+    fi
+}
+
+# --- Claude Code SessionStart hook (own consent prompt) ---
+# DELIBERATELY NOT part of setup_claude_code(): that function early-returns when
+# the permissions seed is absent and is gated behind the "Install these Claude
+# Code permissions?" prompt. The hook and the permission allowlist are different
+# consents -- a user who declines permissions, or a project with no permissions
+# seed, must still be OFFERED the hook.
+#
+# The answer is not persisted: a decline is re-asked on the next `ait setup`,
+# matching every other setup prompt (no new config field, no new drift surface).
+setup_claude_hooks() {
+    local project_dir="$SCRIPT_DIR/.."
+    local seed_file="$project_dir/aitasks/metadata/claude_settings.hooks.json"
+    local dest_dir="$project_dir/.claude"
+    local dest_file="$dest_dir/settings.json"
+
+    if [[ ! -f "$seed_file" ]]; then
+        return
+    fi
+
+    echo ""
+    info "aitasks can install a Claude Code SessionStart hook:"
+    info "  .aitask-scripts/aitask_session_hook.sh"
+    info "It runs when a Claude Code session starts in this project and records the"
+    info "session id, so an agent you freeze can later be restored instead of"
+    info "re-started. It writes nothing to the session and always exits 0."
+    echo ""
+
+    local answer
+    if [[ -t 0 ]]; then
+        printf "  Install the session hook? [Y/n] "
+        read -r answer
+    else
+        info "(non-interactive: auto-accepting default)"
+        answer="Y"
+    fi
+    case "${answer:-Y}" in
+        [Yy]*|"") ;;
+        *)
+            info "Skipped Claude Code session hook."
+            return
+            ;;
+    esac
+
+    mkdir -p "$dest_dir"
+
+    if [[ ! -f "$dest_file" ]]; then
+        cp "$seed_file" "$dest_file"
+        info "  Created .claude/settings.json with the aitasks session hook"
+    else
+        info "  Existing .claude/settings.json found — merging session hook..."
+        merge_claude_hooks "$seed_file" "$dest_file"
+    fi
+}
+
 # --- Claude Code setup (settings, permissions) ---
 setup_claude_code() {
     local project_dir="$SCRIPT_DIR/.."
@@ -2742,6 +2880,9 @@ setup_codex_cli() {
 
     echo ""
     info "Found $count Codex CLI skill wrappers ready for installation."
+    info "This also installs a SessionStart hook (.aitask-scripts/aitask_session_hook.sh)"
+    info "into .codex/config.toml, which records the session id so a frozen agent can"
+    info "be restored. Note: codex fires it under \`codex exec\` only, not in the TUI."
     echo ""
 
     if [[ -t 0 ]]; then
@@ -2959,6 +3100,13 @@ setup_code_agents() {
 
     # Claude Code settings are always installed (core framework infrastructure)
     setup_claude_code
+
+    # The SessionStart hook carries its OWN consent prompt (it is executable
+    # code that runs at every session start, not a permission grant), so it is
+    # called unconditionally here rather than folded into setup_claude_code --
+    # which early-returns without the permissions seed and is gated behind the
+    # permissions prompt.
+    setup_claude_hooks
 
     # AGENTS.md is a cross-agent convention (codex reads it at repo root;
     # other agents may too). Install unconditionally so it is in place
@@ -3393,6 +3541,7 @@ _ait_framework_paths() {
         "aireviewguides/"
         "ait"
         ".claude/skills/"
+        ".claude/settings.json"
         ".agents/"
         ".codex/"
         ".opencode/"

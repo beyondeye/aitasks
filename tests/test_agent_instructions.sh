@@ -926,9 +926,15 @@ assert_file_contains "T39: sentinel still present in the resolved shared seed" \
 # (setup_tmpdir already IS a legacy layout -- real aitasks/, no .aitask-data/ --
 # and nothing in setup_code_agents' call graph reads .aitask-data/, symlinks or
 # branch mode, so such a test could not distinguish any implementation from any
-# other). The legacy-mode DECLINE branch cannot be driven at all: it needs
-# [[ -t 0 ]] true and tests/ has no pty harness. T43 is what generalizes T40-T42
-# to every setup_data_branch early return, decline included.
+# other). T43 is what generalizes T40-T42 to every setup_data_branch early
+# return, decline included.
+#
+# NOTE (t1705_3): this comment used to close with "the legacy-mode DECLINE
+# branch cannot be driven at all: it needs [[ -t 0 ]] true and tests/ has no
+# pty harness". That caveat is RETIRED -- tests/lib/pty_drive.py is now that
+# harness (see tests/test_session_hook_install.sh Group E, which drives real
+# setup decline branches under a PTY). T43 remains the cheaper check here,
+# but a decline path is no longer untestable in this repo.
 
 echo "--- CLAUDE.md refresh lifecycle via setup_code_agents (t1612) ---"
 
