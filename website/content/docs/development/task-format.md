@@ -10,6 +10,8 @@ depth: [advanced]
 
 Tasks are markdown files with YAML frontmatter in the `aitasks/` directory. Task files use the naming convention `t<number>_<name>.md`. Executed task files are stored in `aitasks/archived/` and their associated plan files in `aiplans/archived/`.
 
+The number in the filename is the task's identity, so the convention is load-bearing rather than cosmetic: it is how a listing row, a board card, a lock, an archive entry and a dependency reference all resolve back to the file. `ait create` always assigns one. A file written into `aitasks/` by hand can end up without it, and such a file is unaddressable — [`ait ls`]({{< relref "/docs/commands/task-management" >}}#ait-ls) skips it and warns rather than listing a row nothing can act on.
+
 ```yaml
 ---
 priority: high

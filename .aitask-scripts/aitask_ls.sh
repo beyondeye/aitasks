@@ -721,6 +721,23 @@ process_task_file() {
     local filename
     filename=$(basename "$file_path")
 
+    # A listing row whose filename carries no task id cannot be addressed: every
+    # consumer that maps a row back to an id either skips it or derives an empty
+    # id, and an empty id passed onward asks about a task that cannot exist
+    # (t1721). Drop it from stdout and say so on stderr — a silent skip would
+    # hide a Ready task instead of surfacing the data defect.
+    #
+    # The guard lives here rather than in the four call-site globs so it covers
+    # every mode from one place, and so it only ever NARROWS what this script
+    # lists — which is what keeps the "the boardcol scan globs a strict superset
+    # of what this script lists" invariant documented at lookup_boardcol intact.
+    local id_pattern='^t[0-9]+_'
+    [[ "$task_type" == "child" ]] && id_pattern='^t[0-9]+_[0-9]+_'
+    if [[ ! "$filename" =~ $id_pattern ]]; then
+        warn "task file without a task number, skipped: $file_path"
+        return
+    fi
+
     # Parse metadata (sets global variables)
     parse_task_metadata "$file_path"
 
