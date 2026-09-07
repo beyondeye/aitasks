@@ -193,6 +193,36 @@ bash tests/test_kill_agent_pane_smart.sh tests/test_multi_agent_window_substrate
 shellcheck .aitask-scripts/aitask_frozen.sh .aitask-scripts/aitask_companion_cleanup.sh
 ```
 
+## Amendments from t1705_2 (store implementation, 2026-09-06)
+
+**A3 — `standin-respawned` is legal from `freezing`, and KEEPS the lease.** The
+reconcile row "`freezing` / `@aitask_frozen==id`, pane dead → respawn the
+stand-in (clear ready first), `standin-respawned`, then re-check" calls the verb
+on a `freezing` record, which the original verb list did not admit. The store now
+implements `freezing → freezing` with the lease retained (the freeze is still in
+flight; the re-check then matches the "stand-in up" row and commits). Nothing
+else about the row changes — but do not "fix" a `TRANSITION_REFUSED` here by
+committing early: the retained lease is what makes the re-check safe.
+
+**A7 — `freeze-begin` and `lease-take` REQUIRE `--owner-pid <pid>`.** Pass the
+**coordinator's** pid — this detached `aitask_frozen.sh` process — never `$$` of
+a subshell that exits when the verb returns. The wrapper rejects a missing or
+non-positive value with exit 2 and has no fallback, deliberately: a defaulted
+pid is dead immediately, which turns the lease's staleness test into a bare 60 s
+timer and lets a later reconcile pass seize this coordinator's own in-flight
+freeze. Note the freeze flow can easily exceed 60 s — spike finding 5b requires
+letting the agent persist before respawning its pane.
+
+**A8 — the freeze engine stamps `@aitask_record` on its fallback path.** When the
+hook never fired and step 1 falls back to `upsert`, call
+`ait_stamp_record "<pane>" "<id>"` from `lib/agent_sessions.sh` after the
+`UPSERTED:` line. (`@aitask_frozen` stamping in step 4 is unchanged and is this
+child's own.)
+
+**A4 — refusal wire lines.** A stray `upsert` in a transacting pane now returns
+`UPSERT_REFUSED:<id>|freezing_unacknowledged` (not `…|freezing`); `frozen`
+still returns `…|frozen`.
+
 ## PINNED contracts (from p1705 — do not re-decide)
 
 Copied verbatim from `aiplans/p1705_frozen_codeagents_session_store_and_viewer_tui.md` §A–§D. On any discrepancy the parent plan wins; if a child must deviate, update the parent plan and every sibling plan in the same commit.

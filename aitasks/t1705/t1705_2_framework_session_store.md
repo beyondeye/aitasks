@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: low
+risk_goal_achievement: high
 effort: medium
 depends: [t1705_1]
 issue_type: feature

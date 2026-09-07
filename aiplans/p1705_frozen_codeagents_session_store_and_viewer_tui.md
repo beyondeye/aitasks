@@ -131,7 +131,14 @@ self-contained plan. The parent writes no code.
     "started_at": "2026-09-04T09:12:03Z",
     "state": "live",                  // live | freezing | frozen | restoring | aborting
     "state_at": "2026-09-04T09:12:03Z",
-    "op_nonce": "", "op_owner_pid": 0, "op_started_at": "",   // LEASE of the in-flight freeze/restore (see below)
+    "op_nonce": "", "op_owner_pid": 0, "op_started_at": "",   // LEASE of the in-flight freeze/restore (see below).
+                                      // ALL THREE set or ALL THREE empty — a half-lease is corruption,
+                                      // and every timestamp must PARSE as %Y-%m-%dT%H:%M:%SZ, not merely
+                                      // be non-empty (amended t1705_2 A16: an unparseable stamp epochs to
+                                      // 0.0, which is the same fail-open as a missing one)
+                                      // (amended t1705_2 A13: a 0 pid is never alive and an empty
+                                      // op_started_at epochs to 0.0, so either broken half makes a
+                                      // genuinely leased record read as stale and reconcile steals it)
     "frozen_at": "", "capture_ansi": "", "capture_txt": "",
     "capture_lines": 0, "last_phase": "",
     "standin_pid": 0,                 // #{pane_pid} of the stand-in viewer, written at freeze-commit and every stand-in respawn
@@ -147,6 +154,12 @@ self-contained plan. The parent writes no code.
   nothing on its own — attachment needs either `@aitask_record` on the pane
   (options die with the pane, so a recycled pane never carries a stale one)
   or a `(root, window)` match under the conflict policy below.
+  **`id` and `op_nonce` are VALIDATED as `^[0-9a-f]{8}$`, not merely
+  documented as such** (amended t1705_2 A9) — at `_parse` and again at every
+  CLI boundary (`--id`, `--nonce`, `--restore-of`), because both values flow
+  into `capture_dir()`, whose `drop` DELETES the directory tree, and into
+  `standin_command()`, whose output is handed to `respawn-pane` as a shell
+  command string. An empty `op_nonce` stays legal and means "no lease".
   Unknown `state` = corruption (not a default). `load()` raises
   `MalformedSessionsError`; `load_safe()` returns empty. Generation normalised
   to `SCHEMA_VERSION` on read.
@@ -155,6 +168,13 @@ self-contained plan. The parent writes no code.
   order for a caller without `--restore-of`:
   1. `--id <rid>` (from `@aitask_record` on the caller's pane) → that record,
      whatever its `(root, window)` (a renamed window keeps its record).
+     **The caller's `(root, window)` is written BACK to the record when it
+     differs, re-allocating `window_slot` under the new pair** (amended
+     t1705_2 A10: `id` is the PRIMARY KEY, and a record left naming the
+     pre-rename window is dropped by the very next liveness purge as
+     `dead_window` — so without the write-back "keeps its record" holds
+     only until the next monitor tick, after which the agent is
+     unfreezable and unrestorable).
   2. Else, **among `live` records only** with the caller's `(root, window)`,
      the relocation candidates are: the one whose `pane_id` equals the
      caller's pane, else those whose `pane_pid` is dead or whose pane no
@@ -184,15 +204,27 @@ self-contained plan. The parent writes no code.
      window (`unique_window_name` disambiguates) and is listed distinctly by
      its `frozen_at`.
   4. Else → create (`state=live`, `window_slot=0`), print `UPSERTED:<id>|created`.
-  In every create/update branch the caller's pane is stamped
-  `@aitask_record=<id>`.
+  In every create/update branch **the CALLER stamps its own pane**
+  `@aitask_record=<id>` — via `ait_stamp_record` in `lib/agent_sessions.sh`,
+  and **only after** a successful `UPSERTED:<id>|…` line (amended t1705_2 A8:
+  the store is tmux-free by construction and `tests/test_no_raw_tmux.sh`
+  permits raw `tmux` only from the two gateways, so `upsert` *cannot* do
+  this itself; left unassigned, a record is stored with no pane join and the
+  freeze engine's fallback later creates a SECOND record for the same agent).
+  The stampers are the SessionStart hook (child 3, normal path) and the
+  freeze engine (child 4, fallback path); children 3 and 8 own the
+  integration test that observes the option on a real pane.
   Other branches:
   - record exists in `restoring` **and** the caller passes
     `--restore-of <id> --nonce <n>` (the hook forwards them from the
     replacement agent's environment, §D) → the **restore acknowledgement**:
     nonce must equal `op_nonce`; in `resume` mode `--session-id` must equal
     `codeagent_session_id` — else the store **persists**
-    `last_error="<nonce>:session_mismatch"` (state unchanged) and prints
+    `last_error="<nonce>:session_mismatch"` (state unchanged) and prints — **and that write must reach DISK before the
+    non-zero exit is returned** (amended t1705_2 A11: this is the only
+    refusal that persists anything, so it cannot share the write-nothing
+    exit path the other refusals use; dropped, the coordinator polls, times
+    out, and takes the liveness branch it must never take) —
     `RESTORE_SESSION_MISMATCH:<id>` exit 7. The hook has no return channel to
     the detached coordinator, so the record *is* the channel: the coordinator
     and `reconcile` both read `last_error` for the current nonce and take the
@@ -203,8 +235,17 @@ self-contained plan. The parent writes no code.
   - record exists in `restoring` without `--restore-of`/`--nonce` → refuse,
     print `UPSERT_REFUSED:<id>|restoring_unacknowledged` (a stray session in
     a restoring pane is never an ack);
-  - record exists in `freezing` / `frozen` → refuse, print
-    `UPSERT_REFUSED:<id>|<state>` (a hook firing in a stand-in pane is a bug).
+  - **Refusal table (amended t1705_2 A4 — select first, then gate on state,
+    replacing the two overlapping formulations above).** A record is
+    *selected* by `--id` or by pane identity; one that merely shares
+    `(root, window)` is not a candidate and falls through to the create
+    rules. Once selected: `live` → proceed; `restoring` + `--restore-of` +
+    `--nonce` → the ack path; `restoring` →
+    `UPSERT_REFUSED:<id>|restoring_unacknowledged`; `freezing` →
+    `UPSERT_REFUSED:<id>|freezing_unacknowledged`; `aborting` →
+    `UPSERT_REFUSED:<id>|aborting_unacknowledged`; `frozen` →
+    `UPSERT_REFUSED:<id>|frozen` (a hook firing in a stand-in pane is a bug —
+    that pane carries `@aitask_record`, so it arrives via `--id`).
   Two callers: the SessionStart hook (child 3, normal path) and the freeze
   engine (child 4, fallback when the hook never fired). Both read
   `@aitask_record` off the pane first and pass `--id` when present, so a pane
@@ -213,7 +254,12 @@ self-contained plan. The parent writes no code.
   in the environment, never on the pane, so it selects the old record instead
   of creating a second one.
 - **Operation lease.** `freeze-begin`, `restore-begin` and `lease-take` mint
-  `op_nonce` (8 hex), record `op_owner_pid` (the coordinator) and
+  `op_nonce` (8 hex), record `op_owner_pid` — supplied by the caller as
+  **`--owner-pid <pid>`, a REQUIRED argument on all three, never defaulted**
+  (amended t1705_2 A7: it is the pid of the *detached coordinator*, and a
+  wrapper that fell back to its own `$$` would record a pid that dies the
+  instant the verb returns, collapsing the staleness test below into a bare
+  60 s timer and letting reconcile seize a live coordinator's operation) — and
   `op_started_at`, and print the nonce. **Every verb that mutates a record
   holding a lease** (`freeze-commit`, `freeze-abort`, `restore-launched`,
   `restore-confirm`, `restore-abort`, `standin-respawned`, the ack form of
@@ -252,16 +298,16 @@ self-contained plan. The parent writes no code.
 - Wrapper verbs (sole writer; `list`/`show` take no lock; exit 0/2/3
   `LOCK_BUSY`/4 `ERROR`/5 `TRANSITION_REFUSED`/6 `NONCE_MISMATCH`/7
   `RESTORE_SESSION_MISMATCH`/8 `LEASE_HELD`):
-  `upsert --root <r> --window <w> --pane <id> --pane-pid <pid> [--id <rid>] [--session-id <sid>] [--transcript <p>] [--agent-string <s>] [--operation <op>] [--task-id <t>] [--restore-of <rid> --nonce <n>]`;
-  `freeze-begin <id> --capture-ansi <p> --capture-txt <p> --lines <n> [--phase <t>]` → `FREEZING:<id>|<nonce>`;
-  `freeze-commit <id> --nonce <n> --pane <pane_id|""> --pane-pid <pid|0>` → `FROZEN:<id>` (writes the stand-in's location: `pane_id`/`standin_pid` from the arguments; `--pane "" --pane-pid 0` is the gone-pane commit used by reconcile; `--pane` without `--pane-pid` or vice versa → usage error exit 2);
+  `upsert --root <r> --window <w> --pane <id> --pane-pid <pid> [--id <rid>] [--session <name>] [--session-id <sid>] [--transcript <p>] [--agent-string <s>] [--operation <op>] [--task-id <t>] [--restore-of <rid> --nonce <n>]`;
+  `freeze-begin <id> --owner-pid <pid> --capture-ansi <p> --capture-txt <p> --lines <n> [--phase <t>]` → `FREEZING:<id>|<nonce>`;
+  `freeze-commit <id> --nonce <n> --pane <pane_id|""> --pane-pid <pid|0>` → `FROZEN:<id>` (writes the stand-in's location: `pane_id`/`standin_pid` from the arguments; `--pane "" --pane-pid 0` is the gone-pane commit used by reconcile; the pair must be COHERENT — exactly `%N` + a positive pid, or `""` + `0` — and `--pane` without `--pane-pid`, vice versa, **or a mismatched pair such as `--pane "" --pane-pid 123`** → usage error exit 2, amended t1705_2 A12: a mismatched pair persists a live pid at no pane, and since all three of `pane_id`/`pane_pid`/`standin_pid` are written from it, reconcile could never match the record to a real pane again);
   `freeze-abort <id> --nonce <n>` → `LIVE:<id>` (captures deleted);
-  `restore-begin <id> --mode resume|repick` → `RESTORING:<id>|<nonce>` (captures **retained**, `restore_attempts`+1, `launch_pid=0`, `last_error=""`);
+  `restore-begin <id> --owner-pid <pid> --mode resume|repick` → `RESTORING:<id>|<nonce>` (captures **retained**, `restore_attempts`+1, `launch_pid=0`, `last_error=""`);
   `restore-launched <id> --nonce <n> --pane <id> --pane-pid <pid>` → `LAUNCHED:<id>` (records the replacement's `launch_pid` + location; written by the coordinator right after `respawn-pane`/`launch_in_tmux` returns — the nonce-bound evidence that the respawn happened);
   `restore-confirm <id> --nonce <n> --pane <id> --pane-pid <pid>` → `LIVE:<id>|liveness` (captures **kept**; refused with `TRANSITION_REFUSED` unless `launch_pid != 0` and equals `--pane-pid`);
-  `standin-respawned <id> --nonce <n> --pane <id> --pane-pid <pid>` → `STANDIN:<id>` (records the stand-in's `standin_pid` + location; from `aborting` it also transitions to `frozen` and clears the lease; from `frozen` (a `lease-take`n relaunch of a dead stand-in) it just updates and clears the lease; `freeze-commit` folds the same write in);
+  `standin-respawned <id> --nonce <n> --pane <id> --pane-pid <pid>` → `STANDIN:<id>` (records the stand-in's `standin_pid` + location; **from `freezing` it stays `freezing` and KEEPS the lease** — amended t1705_2 A3, because §C's reconcile row "`freezing` / pane dead → respawn the stand-in, `standin-respawned`, then re-check" calls it on a `freezing` record and the freeze is still in flight, so a later pass commits it; without this edge that row is unimplementable; from `aborting` it also transitions to `frozen` and clears the lease; from `frozen` (a `lease-take`n relaunch of a dead stand-in) it just updates and clears the lease; `freeze-commit` folds the same write in);
   `restore-abort <id> --nonce <n>` → `ABORTING:<id>` (captures retained; lease kept by the same nonce);
-  `lease-take <id>` → `LEASED:<id>|<nonce>` / `LEASE_HELD:<id>` exit 8;
+  `lease-take <id> --owner-pid <pid>` → `LEASED:<id>|<nonce>` / `LEASE_HELD:<id>` exit 8;
   `drop <id>` → `DROPPED:<id>`;
   `list [--state <s>] [--root <r>]` → `SESSION:<id>|<state>|<root>|<window>|<pane_id>|<task_id>|<agent_string>|<state_at>`;
   `show <id>` → `KEY:value` lines;
@@ -295,7 +341,10 @@ self-contained plan. The parent writes no code.
   retirement does not depend on a TUI being open. `freezing` / `frozen` / `restoring` /
   `aborting` records are never purged by liveness — they are reconciled by
   `aitask_frozen.sh reconcile` (§C/§D). A frozen record whose capture file is
-  missing → `DROPPED:…|capture_missing`.
+  missing — **an empty `capture_ansi` counts as missing** (amended t1705_2
+  A14: frozen records are exempt from `dead_window`/`dead_pane`, so one with
+  no capture path has nothing to show, nothing to restore from, and nothing
+  that would ever collect it) → `DROPPED:…|capture_missing`.
 - `SessionsView` (mtime+size+inode gated) for the TUIs; `invalidate()` after
   every write. `standin_command(record_id) -> str` returns
   `ait frozenagent --record <id>` unless `AITASKS_FROZEN_STANDIN_CMD` is set
@@ -305,7 +354,7 @@ self-contained plan. The parent writes no code.
 
 | Option | Set by | Cleared by | Read by | Meaning |
 |---|---|---|---|---|
-| `@aitask_record=<id>` | `upsert` (hook or freeze engine) | `drop`; pane death | freeze engine, restore coordinator, hook (`--id`) | the pane-visible join to its store record |
+| `@aitask_record=<id>` | the CALLER, via `ait_stamp_record`, after a successful `upsert` — the hook (child 3) or the freeze engine (child 4); NEVER `upsert` itself, which is tmux-free (t1705_2 A8) | `drop`; pane death | freeze engine, restore coordinator, hook (`--id`) | the pane-visible join to its store record |
 | `@aitask_frozen=<id>` | freeze engine, immediately before `respawn-pane` | `restore-confirm` path (coordinator), `drop` | `_LIST_PANES_FORMAT` (appended), `kill_agent_pane_smart` format, `aitask_companion_cleanup.sh`, `maybe_spawn_minimonitor` occupancy | this pane is a frozen stand-in — **authoritative** classifier |
 | `@aitask_standin_ready=<id>` | **the viewer itself**, after mount (only the app stamps its own pane — `mark_monitor_pane` rule) | freeze engine + restore coordinator (`set-option -pu`) immediately **before** every `respawn-pane`; `drop` | `reconcile` | positive proof that the stand-in is up — the only signal that distinguishes "stamped, viewer running" from "stamped, agent still running" |
 | `@aitask_agent_session=<sid>` | SessionStart hook on `$TMUX_PANE` | pane death | freeze engine fallback when the store has no session id | codeagent session id |

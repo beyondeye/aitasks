@@ -160,6 +160,28 @@ bash tests/test_setup_verify_venv_imports.sh        # setup still boots
 shellcheck .aitask-scripts/aitask_session_hook.sh .aitask-scripts/aitask_setup.sh install.sh
 ```
 
+## Amendments from t1705_2 (store implementation, 2026-09-06)
+
+**A8 — the hook OWNS the `@aitask_record` stamp, and the test that proves it.**
+`upsert` cannot stamp the pane: `lib/agent_sessions.py` is tmux-free and
+`tests/test_no_raw_tmux.sh` permits raw `tmux` only from the two gateways. So
+after the hook's `aitask_agent_sessions.sh upsert` prints `UPSERTED:<id>|…` —
+and **only** on that success line, never on a refusal — the hook must call
+`ait_stamp_record "$TMUX_PANE" "<id>"` from `lib/agent_sessions.sh`.
+
+This child also owns the **observing** integration test: after a real hook fire,
+`@aitask_record` is actually present on the pane and equals the stored record id.
+t1705_2 ships only the helper's argv contract and id guard
+(`tests/test_agent_sessions_stamp.sh`, no live server); the "is it really set"
+assertion needs the live tmux this child already has.
+
+Skipping the stamp is silent: the record stores fine, and the damage appears
+later as the freeze engine creating a SECOND record for an agent that was
+already recorded.
+
+**A6 — `upsert` now accepts `--session <name>`** (the tmux session name, display
+only). Pass it when the hook knows it.
+
 ## PINNED contracts (from p1705 — do not re-decide)
 
 Copied verbatim from `aiplans/p1705_frozen_codeagents_session_store_and_viewer_tui.md` §A–§D. On any discrepancy the parent plan wins; if a child must deviate, update the parent plan and every sibling plan in the same commit.

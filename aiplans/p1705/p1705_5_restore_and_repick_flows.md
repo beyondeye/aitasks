@@ -155,6 +155,21 @@ bash tests/test_freeze_engine_live.sh                    # still green
 bash tests/test_no_raw_tmux.sh; shellcheck .aitask-scripts/aitask_codeagent.sh .aitask-scripts/aitask_frozen.sh
 ```
 
+## Amendments from t1705_2 (store implementation, 2026-09-06)
+
+**A7 — `restore-begin` REQUIRES `--owner-pid <pid>`.** Pass the **coordinator's**
+pid — the detached `run-shell -b` process that outlives the respawn — never the
+wrapper's own. The store uses it to answer "is the coordinator still working?",
+and reconcile skips a record whose lease has a live owner. A defaulted pid is
+dead the instant the verb returns, so the lease degrades to a bare 60 s timer and
+reconcile can abort this restore mid-flight while it is still polling for the
+ack; the coordinator's next verb then fails `NONCE_MISMATCH` and the user's
+restore is silently lost. The wrapper rejects a missing value with exit 2.
+
+**A4 — refusal wire lines.** The unacknowledged-restore refusal is unchanged
+(`UPSERT_REFUSED:<id>|restoring_unacknowledged`); the sibling transitional states
+now use the same `<state>_unacknowledged` shape.
+
 ## PINNED contracts (from p1705 — do not re-decide)
 
 Copied verbatim from `aiplans/p1705_frozen_codeagents_session_store_and_viewer_tui.md` §A–§D. On any discrepancy the parent plan wins; if a child must deviate, update the parent plan and every sibling plan in the same commit.

@@ -26,8 +26,12 @@ implementable from any shell.
 against the parent's §A–§D differs only in heading level. t1705_1's
 `## Spike findings` amends §C/§D (children 4 and 5) and touches **nothing** in
 §A, so this child's contracts stand as written *in content*. The verification
-surfaced **nine** concrete corrections (A1–A9), recorded below and folded into
-the steps; A7, A8 and A9 are blocking contract defects rather than tidy-ups.
+surfaced **sixteen** concrete corrections (A1–A16), recorded below and folded into
+the steps; A7–A14 and A16 are blocking defects rather than tidy-ups. A12–A16 came
+from review of the implemented code and were each reproduced before being
+fixed. A16 is a defect in A13's own fix — evidence that a validation rule
+needs its *own* review pass, not just the bug it was written for. A10 was found during implementation by tracing rule 1 against the
+purge rule — the same cross-section reading that found A3 and A4.
 
 ## Plan verification (2026-09-06) — amendments
 
@@ -86,7 +90,7 @@ not a candidate at all and falls through to rule 3. Once selected:
 
 | state | outcome |
 |---|---|
-| `live` | proceed (update / relocate) |
+| `live` | proceed (update / relocate; a differing `(root, window)` is written back and the slot re-allocated — A10) |
 | `restoring` + `--restore-of` + `--nonce` | the ack path (§A) |
 | `restoring` | `UPSERT_REFUSED:<id>\|restoring_unacknowledged` |
 | `freezing` | `UPSERT_REFUSED:<id>\|freezing_unacknowledged` |
@@ -212,6 +216,111 @@ unknown `state` is corruption, not a default), and `--id` / `--nonce` /
   exits 2; `capture_dir` raises on an injected traversal id; `standin_command`
   round-trips only hex ids.
 
+**A10 — a renamed window must be written back to its record (found during
+implementation; blocking).** §A rule 1 says `--id` selects "that record,
+whatever its `(root, window)` (a renamed window keeps its record)". Implemented
+literally — select by id, update pane and descriptive fields, leave `root` /
+`window` alone — the record *is* kept, and looks entirely healthy: still `live`,
+still pointing at the right pane. The damage lands one purge later. The liveness
+rule drops a `live` record whose `(root, window)` is absent from a successfully
+enumerated root, so a record still naming the pre-rename window is dropped as
+`dead_window`, and the agent silently becomes unfreezable and unrestorable.
+
+Reproduced before fixing: rename → `upsert --id` → purge against an observation
+naming the new window → `DROPPED:<id>|dead_window`.
+
+Fix: on the selected path, when the caller's `(root, window)` differs from the
+record's, write both back and **re-allocate `window_slot`** to the lowest unused
+slot under the new pair — the old slot number is meaningless under a new key and
+reusing it can collide with a record already sitting there. `id` is the schema's
+declared PRIMARY KEY, so this is the reading that makes rule 1 true end to end;
+`(root, window, window_slot)` remains the durable *lookup* identity for callers
+that arrive without an id.
+
+**A11 — `SessionMismatch` must persist before it reports (found during
+implementation; blocking).** §A says the store "**persists** `last_error` (state
+unchanged) and prints `RESTORE_SESSION_MISMATCH:<id>` exit 7", and §D has the
+coordinator poll `show <id>` until `last_error` carries the current nonce. The
+transition did mutate the record before raising — but the CLI's exception
+handler returned the exit code for *every* refusal without dumping, so the
+mutation was computed and then discarded. Exit 7 was reported; `last_error`
+stayed empty.
+
+This is a different defect class from A1–A10: not a contract ambiguity but a
+**layering gap**. The transitions are pure and their tests assert against the
+in-memory store, so no unit test could see a CLI that decided correctly and
+failed to persist. Found only by driving the shipped wrapper end to end.
+
+Consequence if shipped: the hook's mismatch report never reaches the
+coordinator, which waits out `restore_ack_grace` and takes the **liveness**
+branch — confirming as `live` a pane running a *different* session than the one
+being restored. That is exactly the outcome §A's mismatch check exists to
+prevent, and §C's reconcile table calls out ("**never** liveness-confirm").
+
+Fix: `SessionMismatch` gets its own handler that calls `dump()` before
+returning 7; every other refusal keeps the write-nothing contract. Pinned by a
+new `CliPersistenceTests` class that drives `main()` and reads the file back —
+covering the persist-on-mismatch case and the write-nothing case for
+`TRANSITION_REFUSED`, `NONCE_MISMATCH` and usage errors.
+
+**A12 — `--pane` / `--pane-pid` must be a COHERENT pair, not merely both
+present (review finding; blocking).** §A allows `""`/`0` "as a pair" and calls a
+mismatched pair a usage error, but the wrapper only checked that both flags were
+supplied. Reproduced: `freeze-commit --pane '' --pane-pid 123` **succeeded** and
+persisted a frozen record with `pane_id=""`, `pane_pid=123`, `standin_pid=123` —
+a live process at no pane at all. `freeze_commit` writes all three from that one
+pair, so reconcile can never match the stored location against a real pane
+again and the record is stranded in `frozen` with no way back. Exactly two
+shapes are legal: `%N` + a positive pid, or `""` + `0`. Enforced in **both** the
+wrapper and the Python CLI — the latter is a documented direct entry point, not
+merely the wrapper's private backend.
+
+**A13 — the lease triple must be coherent at parse (review finding; blocking).**
+§A's schema says `op_owner_pid` is `0` only when there is no lease, but `_parse`
+type-checked the fields independently. Reproduced: a record with
+`op_nonce="11223344"` and `op_owner_pid=0` loaded fine and then read as **stale**
+the moment the grace elapsed. That is the A7 failure reached through a
+hand-edited store instead of through the wrapper — `_lease_stale` is
+`grace elapsed AND owner dead`, and a zero pid is never alive. The same collapse
+happens with an empty `op_started_at`, which epochs to `0.0` so the grace is
+always long past. All three fields are written and cleared as a unit by
+`_mint_lease` / `_clear_lease`, so the store now requires them all-set or
+all-empty and treats a half-lease as corruption.
+
+**A14 — an empty capture path is a MISSING capture (review finding; blocking).**
+`purge` only checked `capture_ansi` when it was non-empty, so a frozen record
+with `capture_ansi=""` survived every purge forever. Frozen records are
+deliberately exempt from the `dead_window` and `dead_pane` rules, so nothing
+else would ever collect it — and a frozen record with no capture path has
+nothing to display and nothing to restore from, which is precisely what the
+`capture_missing` rule exists to retire. Purged rather than rejected at parse:
+one corrupt record must not make the whole store unreadable for every other
+agent.
+
+**A15 — the direct CLI path must bounds-check `--file` (review finding).**
+`--file` is parsed *above* the try block, so `agent_sessions.py --file` with no
+value raised an uncaught `IndexError` and handed automation a traceback instead
+of the documented usage exit 2.
+
+**A16 — a timestamp must PARSE, not merely be non-empty (review finding;
+blocking).** A13 made the lease triple all-set-or-all-empty, but "set" was
+checked as "non-empty string". `_epoch()` maps an unparseable stamp to `0.0`, so
+a lease with a valid nonce and a *live* owner pid but
+`op_started_at="not-a-timestamp"` loaded fine and read as **stale** on the first
+check — a grace measured from epoch 0 has always elapsed. Reconcile would then
+take over an operation a live coordinator still owns: the same fail-open outcome
+as A13's zero pid, reached through the third field of the same triple.
+Reproduced before fixing.
+
+Fixed as a **class rather than an instance**: every timestamp field
+(`op_started_at`, `state_at`, `started_at`, `frozen_at`) must be empty or match
+`_TS_FMT` exactly. All four are written by `_iso()`, which emits nothing else,
+so any other value is a hand-edit — and `state_at` is not safely "display only"
+either, since §C/§D measure `restore_ack_grace` from it. The regression tests
+cover obvious garbage *and* the plausible near-misses that a hand-edit actually
+produces (`2026-01-01 00:00:00`, a missing `Z`, an explicit `+00:00` offset, an
+out-of-range month).
+
 **Out of scope, flagged only:** `aiplans/p1705/p1705_5_restore_and_repick_flows.md`
 still describes the `env VAR=… <cmd>` prefix (lines 87, 470) and does not carry
 t1705_1's spike finding 2 ("prefer `respawn-pane -e`"). §D as reproduced in the
@@ -319,7 +428,8 @@ with `ESRCH` → dead, anything else → alive) so tests never depend on real pi
    block exactly, in order, including `ambiguous_relocation` (≥ 2 `live`
    dead-pane candidates → new slot, stale untouched), `created_slot<N>` (lowest
    unused slot), the **A4** select-then-gate refusal table, and the
-   `--restore-of` ack branch (nonce check → `NonceMismatch`; `resume` mode
+   write-back of a changed `(root, window)` with slot re-allocation (**A10**),
+   and the `--restore-of` ack branch (nonce check → `NonceMismatch`; `resume` mode
    session-id check → persist `last_error="<nonce>:session_mismatch"` **then**
    raise `SessionMismatch`; `repick` adopts; on success update
    `pane_id`/`pane_pid`, `state=live`, `ack=hook`, delete `capture_dir`, clear
@@ -358,7 +468,7 @@ with `ESRCH` → dead, anything else → alive) so tests never depend on real pi
    is pane-incomplete). `purge`: `INCOMPLETE` → nothing; `live` + root
    enumerated + window absent → `dead_window`; `live` + window present + pane
    rows present + (pane absent or `pane_dead=1`) + `pid_alive(pane_pid)` false →
-   `dead_pane`; `frozen` + capture file missing → `capture_missing`;
+   `dead_pane`; `frozen` + capture file missing, **including an empty `capture_ansi`** (A14) → `capture_missing`;
    transitional states never purged. Make `agent_marks._read_observed`
    (**:587-620**) skip `PANE` lines explicitly per **A1**, keeping its
    `INCOMPLETE`/`ROOT`/`WINDOW` semantics byte-for-byte, and add the regression
@@ -444,6 +554,10 @@ with `ESRCH` → dead, anything else → alive) so tests never depend on real pi
   down — an audit with no authoritative argument contract has nothing to
   enforce. A row that cannot be satisfied is a contract bug to amend upstream
   (as A3 and A7 were), not a test to relax.
+  **Known limit:** this audit is static — signatures and state legality over the
+  pure transitions. It cannot catch a CLI layer that computes the right result
+  and then fails to persist it (A11). `CliPersistenceTests` in
+  `tests/test_agent_sessions.py` covers that layer; keep both.
 - **`store_permissions_regression`** — extend `tests/test_agent_sessions.py`.
   Under `umask 000`, a first-ever `dump()` to a fresh path must land the store
   at `0600`; a store pre-created `0640` must keep `0640` after a `dump()`; and
@@ -539,6 +653,116 @@ defect that motivated raising this level.
 ### Planned mitigations
 - timing: post-phase | name: contract_call_site_audit | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement risk 1 (pinned-block internal inconsistencies) | desc: table-driven test asserting every §C/§D `aitask_agent_sessions.sh` call site is both state-legal and argument-shape-correct against the implemented verbs
 - timing: post-phase | name: store_permissions_regression | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health risk 1 (the A2 `atomic_write.target_mode` umask trap) | desc: assert the store lands 0600 on a first write under `umask 000`, preserves an existing mode, and that `capture_dir()` lands 0700
+## Implementation notes (2026-09-06)
+
+All ten steps and both post-phase mitigations landed as planned. Deviations and
+findings worth carrying forward:
+
+- **A1 was smaller than planned, as predicted.** `agent_marks._read_observed`
+  already dropped unknown row kinds silently, so the code change is an explicit
+  `elif kind == "PANE": continue` plus the docstring row. The real deliverable is
+  the pair of regression tests in `tests/test_agent_marks_liveness.py` — one
+  pinning that `PANE` rows are ignored, one pinning that a `PANE` row never
+  *invents* a window (which would make a genuinely dead window look observed and
+  defeat the marks sweep).
+- **A2's control is only meaningful under `umask 000`.** At the default 022 a
+  broken implementation yields 0644, which looks merely odd; at 000 it yields
+  0666 and the intent is unmistakable. Verified by mutation: routing `dump()`
+  through `atomic_write_text` makes `StoreModeTests` fail with `420 != 384`.
+- **`_target_mode` is local, not `atomic_write.target_mode`.** The shared helper
+  defaults a not-yet-existing file to `0o666 & ~umask`; the store needs 0600.
+  The mode is applied to the staged temp *before* `commit`, so there is no window
+  in which the store is world-readable.
+- **A7 needed a discriminating test, not just a passing one.** A lease minted
+  with `os.getpid()` passes even under a timer-only implementation, because the
+  test process is alive. The control is
+  `test_a_live_foreign_owner_is_never_stale`, which owns a real child process:
+  mutating `_lease_stale` to ignore the owner fails 2 tests.
+- **`LEASE_HELD` is not a contract violation.** The call-site audit treats it as
+  a legitimate §C answer ("a live coordinator owns it and reconcile skips"),
+  not a refused transition. Only `TRANSITION_REFUSED` fails a row.
+- **State is checked before the nonce**, deliberately: `TRANSITION_REFUSED`
+  (exit 5) means "wrong state, retry is pointless" while `NONCE_MISMATCH`
+  (exit 6) means "reconcile got here first", and they route a coordinator down
+  different recovery branches. Pinned by
+  `test_state_is_checked_before_the_nonce`.
+- **Both mitigations were mutation-verified**, each against the defect class it
+  was written for: removing the A3 `freezing` edge fails the audit's state-legality
+  assertion; making `owner_pid` defaultable fails its argument-shape assertion.
+  Neither assertion catches the other's defect, which is why the audit needs both.
+- **shellcheck parity**: `aitask_agent_sessions.sh` emits only the same three
+  SC1091 source-follow infos the shipped `aitask_agent_marks.sh` does.
+  `lib/agent_sessions.sh` carries three `SC2034` disables for constants consumed
+  by children 4/6/7, following the `lib/agent_string.sh` precedent.
+- **A10 was found by tracing rule 1 against the purge rule**, not by running
+  anything — the same cross-section reading that produced A3 and A4, which is
+  the argument for `contract_call_site_audit` existing at all. Its end-to-end
+  test initially passed VACUOUSLY: the fixture's `self.root` was the raw temp
+  path while records store `realpath`, so on macOS (`/var` → `/private/var`) the
+  purge skipped the root entirely and dropped nothing. Fixed the fixture; all
+  three A10 tests now fail under mutation.
+
+- **A11 exposed a blind spot in `contract_call_site_audit`.** That mitigation
+  checks signatures and state legality — both static properties of the pure
+  transitions — so it cannot see a CLI that decides correctly and then fails to
+  persist. Nothing in the planned test set drove the shipped wrapper end to end;
+  A11 was found by hand, running the real `aitask_agent_sessions.sh` and reading
+  the store back. `CliPersistenceTests` now closes that layer: it drives
+  `main()` and asserts against the file on disk, for both the persist-on-
+  mismatch case and the write-nothing cases. Worth carrying into children 4/5:
+  a pure-function test suite over this store proves less than it appears to.
+
+- **A12–A16 all shared one shape: a rule stated in prose but enforced only
+  partially.** The pair rule checked presence but not coherence; the lease
+  fields were type-checked but not checked *against each other*; the capture
+  rule guarded a path it never applied to the empty case; the `--file` parse sat
+  outside the handler that was supposed to catch it. None is a contract
+  ambiguity — the contract was clear in all four cases — which is why the
+  call-site audit could not have found them either. What found them was reading
+  the implemented code against the contract, and the lesson for children 4/5 is
+  that "the contract says X" and "the code enforces X" need separate checks.
+  A16 sharpens it further: it is a hole in A13's *own* fix, so a newly added
+  validation rule deserves the same scrutiny as the code it guards.
+
+- **Propagation (step 10) also reached `aitasks/t1705/t1705_8_*.md`**, not just
+  the plans: the observing "is `@aitask_record` really on the pane" assertion
+  needs a live agent, which only that acceptance task has.
+
+## Verification results (2026-09-06)
+
+- **New/changed modules: 235 tests, all pass.** `test_agent_sessions` (63),
+  `_identity` (26), `_transitions` (25), `_lease` (16), `_observation` (13),
+  `_liveness` (18), `_contract_call_sites` (7), plus the unchanged
+  `test_agent_marks` / `_liveness` (67).
+- **Shell suites:** `test_agent_sessions_stamp.sh` 22/22,
+  `test_agent_sessions_concurrency.sh` 20/20,
+  `test_agent_marks_concurrency.sh` 25/25 (unchanged),
+  `test_no_raw_tmux.sh` 5/5 — the new `.sh` files stay gateway-only.
+- **shellcheck:** `aitask_agent_sessions.sh` emits only the same three SC1091
+  source-follow infos the shipped `aitask_agent_marks.sh` does;
+  `lib/agent_sessions.sh` is clean with three documented SC2034 disables.
+- **Exit-code contract, driven through the real wrapper:** 2 / 5 / 6 / 7 / 8 all
+  observed, and every refusal except `SessionMismatch` leaves the store
+  byte-identical.
+
+**Full suite: `PYTHON SUITE: FAILED (runner=unittest, exit=1)` — 6728 tests,
+3 failures + 6 errors, ALL PRE-EXISTING.** Verified by stashing this task's
+changes and re-running the failing modules on a clean tree; every one fails
+identically without this work:
+
+| module | on a clean tree |
+|---|---|
+| `test_agent_keys.RungTwoTest` (5 errors) | same 5 errors |
+| `test_tmux_exec.TestGatewayIntegration` | same failure |
+| `test_settings_project_config_value_types` | same failure |
+| `test_prompt_scoping_live` (setUpClass) | same error |
+| `test_codebrowser_startup_focus_live` | same failure |
+
+The last two are live-TUI modules in CLAUDE.md's serial carve-out, which "fail
+rather than skip" under a busy machine; this run was fully serial because the
+pytest/xdist dev tier is not installed here (`ait setup --with-dev` installs it).
+None of the nine touches `agent_sessions` or `agent_marks`.
+
 ## Corrected contracts — AUTHORITATIVE, supersedes the PINNED block below
 
 The PINNED block is reproduced verbatim from the parent and is left unedited so
@@ -594,6 +818,14 @@ with `--nonce` instead.
 `<id>`, `--id`, `--restore-of` and `--nonce` must match `^[0-9a-f]{8}$`, else
 exit 2.
 
+**`--pane` / `--pane-pid` is a coherent pair** (A12): exactly `%N` + a positive
+pid, or `""` + `0` (the gone-pane commit). Both present but mismatched → exit 2.
+Enforced in the wrapper **and** the Python CLI, which is a documented direct
+entry point.
+
+**`--file` is bounds-checked** (A15): a bare `--file` is exit 2, never a
+traceback.
+
 ### C2. `upsert` refusal reasons (replaces the overlapping PINNED §A wording)
 
 Select first — by `--id`, else by pane identity — then gate on state. A record
@@ -632,7 +864,14 @@ Anything else → `TRANSITION_REFUSED:<id>|<from>|<verb>`, exit 5, nothing writt
   `load()` raises `MalformedSessionsError`, `load_safe()` returns empty.
 - `op_nonce` — `^[0-9a-f]{8}$` **or** `""` (empty = no lease). Any other value
   is corruption.
-- `op_owner_pid` — int ≥ 0; `0` only when `op_nonce` is `""`.
+- `op_nonce` / `op_owner_pid` / `op_started_at` — the lease **triple**: all
+  three set, or all three empty (A13). A half-lease is corruption, because
+  `_lease_stale` collapses to "stale" on any broken part and reconcile then
+  steals a live coordinator's operation.
+- **every timestamp** (`op_started_at`, `state_at`, `started_at`, `frozen_at`) —
+  empty, or exactly `%Y-%m-%dT%H:%M:%SZ` (A16). Non-empty is not sufficient:
+  `_epoch()` maps an unparseable stamp to `0.0`, which is the same fail-open as
+  a missing one.
 - `state` — one of `STATES`; unknown is corruption, never a default.
 - `agent_kind` — derived, never stored by a caller: the prefix of
   `agent_string` when it matches `^[a-z]+/[a-z0-9_]+$`, else `""` (A5).

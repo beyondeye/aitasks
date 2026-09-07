@@ -114,6 +114,22 @@ script tears down the isolated server in a trap. Budget: the whole run must
 finish in < 3 min with `restore_ack_grace=5` and `stale_op_grace=2` set via
 the scratch project's `project_config.yaml` `frozen:` block.
 
+## Amendment from t1705_2 (2026-09-06) — assert the pane->record join
+
+Add a case asserting `@aitask_record` is present on the agent's pane after a
+real hook fire, equals the stored record id, and **survives the freeze/restore
+cycle** (pane user options survive `respawn-pane`, so it must still be there on
+the stand-in pane and on the restored agent).
+
+Why it lands here rather than in t1705_2: the store is tmux-free by construction
+(`tests/test_no_raw_tmux.sh` permits raw `tmux` only from the two gateways), so
+`upsert` cannot stamp the pane — the caller does, via `ait_stamp_record` in
+`lib/agent_sessions.sh`. t1705_2 ships that helper's argv contract and id guard
+against a stubbed tmux; t1705_3 asserts the hook stamps at all. Only this task
+has a live agent going through the whole cycle, which is where a *missing* stamp
+actually bites: the record stores fine, and the damage shows up later as the
+freeze engine creating a second record for an already-recorded agent.
+
 ## Key files
 
 - **New** `tests/test_frozen_agents_acceptance.sh`; **edit**
