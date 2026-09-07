@@ -1080,3 +1080,191 @@ respawn. Two-phase, acknowledged:
 (model flag per codex CLI), opencode → `RESUME_UNSUPPORTED:opencode` exit 2.
 Resolution stays single-sourced in `lib/agent_string.sh`. Restore-All iterates
 `frozen` records; per-record failures are reported, never abort the batch.
+
+## Implementation progress (2026-09-07)
+
+Step 0 preflight re-run at implementation time from a shell **outside** tmux
+with the `-L ait` server idle: `PREFLIGHT_OK` on both lines. Every suite in
+`## Verification` was therefore actually executed — see the Final
+Implementation Notes below for results, which replace the 2026-09-07
+verification pass's "specification, not a result" caveat.
+
+Steps landed in plan order: pre-phase characterization (green against the
+unmodified `monitor_core.py` before the format change, then updated in the same
+change), constants + format + arity set, the three ad-hoc formats, the cleanup
+contract, `lib/agent_freeze.py`, the `AITASKS_STALE_OP_GRACE` seam,
+`reconcile()`, `aitask_frozen.sh`, Freeze-All, and the post-phase parity test.
+
+## Final Implementation Notes
+
+- **Actual work done:** The whole plan landed, in plan order. New:
+  `.aitask-scripts/lib/agent_freeze.py` (`freeze_pane` / `freeze_all` /
+  `reconcile`), `.aitask-scripts/aitask_frozen.sh`,
+  `tests/test_list_panes_arity_characterization.py` (pre-phase),
+  `tests/test_agent_freeze.py` (unit, fake `TmuxClient` + a fake wrapper that
+  dispatches to the REAL store transitions), `tests/test_freeze_engine_live.sh`,
+  `tests/test_cleanup_rule_parity.sh` (post-phase), `tests/lib/fake_standin.sh`.
+  Edited: `monitor/monitor_core.py` (the four option constants beside
+  `SHADOW_TARGET_OPTION`; `_LIST_PANES_FORMAT` 11 → 15 **with**
+  `_LIST_PANES_ARITIES` → `(9, 10, 11, 15)`; the parser and BOTH
+  `TmuxPaneInfo` construction sites; `frozen_record` / `record_id` /
+  `standin_ready` / `pane_dead`; `last_discovered_panes()` recorded in
+  `_record_discovery_facts`; `kill_agent_pane_smart`'s own format 4 → 5 fields
+  plus the frozen rung and the drop-then-kill branch),
+  `aitask_companion_cleanup.sh` (rules a and b),
+  `lib/agent_launch_utils.py` (`maybe_spawn_minimonitor` occupancy),
+  `lib/agent_sessions.py` (`AITASKS_STALE_OP_GRACE` seam at its single call
+  site), and the arity pins.
+
+- **Deviations from plan:**
+  1. **Reconcile's `restoring` rows were implemented, not deferred.** The first
+     pass skipped them with a `SKIPPED:<id>|restoring (t1705_5)` line on the
+     grounds that the restore coordinator is t1705_5. That was wrong: Deliverable
+     3 says "the §C table", every verb the rows need already shipped in t1705_2,
+     and a `restoring` record whose coordinator died has to be settled by
+     something — reconcile is the only thing that runs. They are unreachable
+     until t1705_5 ships `restore-begin`'s caller, so they carry unit coverage
+     (`ReconcileRestoringTests`) and no live coverage, and that is stated in the
+     function's docstring.
+  2. **Reconcile takes its lease LAZILY** (`_Lease`), not once per record before
+     dispatch. The plan's wording ("for every non-`live` record apply the §C
+     table **only after** `lease-take` succeeds") reads as an up-front lease, and
+     implementing it that way is a defect: `lease-take` WRITES — it mints a
+     nonce, stamps the caller as owner and resets `op_started_at` — and nothing
+     clears it afterwards. Every 600 s tick would therefore rewrite every healthy
+     `frozen` record and leave it leased by a pid that exits moments later, so a
+     real coordinator needing a nonce for that record (a `standin-respawned` on a
+     `frozen` record) would get `LEASE_HELD` until the grace elapsed — reconcile
+     locking out the work it exists to enable. §C's actual rule is "every
+     reconcile **action** on a leased record is preceded by `lease-take`", and it
+     is now read literally: no action, no lease. Pinned by
+     `test_a_healthy_frozen_record_is_never_leased` and live Case 8b.
+     A consequence worth keeping: the record is read via `show` BEFORE any lease,
+     because the `restoring` mismatch row matches `last_error` against the
+     ORIGINAL coordinator's nonce, which `lease-take` would overwrite.
+  3. **Three further row builders were bumped to the current arity** beyond the
+     plan's list: `test_monitor_shadow_status.py`, `test_multi_session_monitor.sh`
+     and `test_monitor_refresh_no_sync_tmux.py` all built 11-field rows. Those
+     still PARSE (11 is a legacy arity), so nothing was red — which is exactly
+     the vacuous-pass hazard the pre-phase test exists to name: they claimed to
+     exercise `_LIST_PANES_FORMAT` while exercising a shape production no longer
+     emits. Comments corrected too.
+  4. **`agent_freeze.py` was added to `test_metadata_writer_inventory.py`'s
+     `PINNED_FILES`.** Its new-writer tripwire flagged the file because it names
+     `aitasks/metadata/project_config.yaml` (which it only READS, for
+     `frozen.capture_max_lines`) in a file that also contains write primitives.
+     Classified with the reason, per that test's own instruction.
+
+- **Issues encountered:**
+  - **`display-message -p -t <gone pane>` exits ZERO with EMPTY output** (tmux
+    3.x, measured). The live suite's first `pane_exists` helper checked only the
+    exit status and so reported a killed pane as alive. The engine was already
+    correct — `_pane_facts` validates the field count and `_pane_location`
+    checks for an empty pane id — but the helper was rewritten to test the
+    OUTPUT, and the reason is recorded beside it. Every framework
+    `display-message` consumer was audited: all already guard on emptiness or
+    field count, so this is not a live defect anywhere else.
+  - **`respawn-pane` runs its command in the TMUX SERVER's environment**, not
+    the caller's, so `FAKE_STANDIN_NO_STAMP=1` never reached the stand-in. Fixed
+    by riding it on the command string (`env VAR=1 <cmd>`), the same prefix
+    idiom the restore coordinator will use for its identity variables.
+  - **`AITASKS_FROZEN_PAUSE_AT=commit` did nothing** — `_pause_at` was called for
+    five of the six stages. Found by live Case 3c, which silently passed through
+    a completed freeze instead of a killed coordinator. The missing call was
+    added.
+  - **The cleanup parity table needs a companion pane in every row.** The bash
+    script never calls `kill-window`; it kills the companions and then the
+    primary, and tmux closes the window when the last pane goes — so with no
+    companion present its kill set is IDENTICAL whether `others` is 0 or not and
+    the decision is unobservable. Stated in the file's header.
+  - **The parity negative control needed a `frozen_marked` role.** Patching the
+    frozen-sibling rule out of a *bare* stand-in changes nothing, because a bare
+    stand-in carries no helper marker either — the plan's own "holds
+    incidentally" observation. The control uses a stand-in that ALSO carries a
+    live companion marker, which is the residue a `respawn-pane` really leaves,
+    and is the only shape where the rule is load-bearing.
+
+- **Key decisions:**
+  - `_LIST_PANES_ARITIES` extended in the same change as the format, and the
+    characterization test asserts the emitted arity is a MEMBER of the set — the
+    single assertion that catches the total-blanking failure mode.
+  - `kill_agent_pane_smart`'s frozen rung is `not frozen and (...)`, checked
+    BEFORE the companion/shadow rungs, mirrored by the bash script's ordering, so
+    a stale marker left on a respawned pane cannot demote a stand-in to a helper.
+  - `count_other_real_agents` keeps its pure `(pane_id, is_helper)` signature;
+    the change is entirely in the caller, per the verification pass's correction.
+  - Freeze-All selects through `TmuxMonitor.discover_panes()`, never
+    `classify_pane`; the live fixture asserts the companion's `#{pane_pid}` (not
+    just its id, which `respawn-pane -k` preserves) and ships a negative control
+    proving a category-only selection would have picked it up.
+  - Reconcile keeps its own targeted `list-panes` pass rather than reusing
+    discovery: it must see EVERY pane (helpers, stand-ins, dead panes) for the
+    `PANE` rows, the opposite of `discover_panes()`'s contract.
+  - A `ROOT` row is emitted only for a root whose every session enumerated with
+    `rc == 0`; any failure writes `INCOMPLETE` instead. Live Case 8 forces
+    session B's enumeration to fail and asserts B's live records SURVIVE.
+  - The stale-nonce guard is a UNIT test, not a live one, for the reason the
+    verification pass gave: `freeze_commit` checks state before nonce, so the
+    live shape would pin the wrong guard. It ships with the negative control.
+
+- **Upstream defects identified:**
+  - `tests/test_agent_keys.py:43 — shutil.copy2 of /bin/sleep raises
+    PermissionError (chflags) under macOS SIP, erroring 5 tests` (same helper
+    shape in `tests/test_prompt_scoping_live.py`, which errors in `setUpClass`).
+    `shutil.copy` would not copy the restricted flags. Pre-existing: both fail
+    identically on a stashed clean tree.
+  - `tests/test_tmux_exec.py:512 — the fixture's TMUX_TMPDIR path exceeds the
+    ~104-byte unix-socket limit on macOS ("File name too long")`. Pre-existing on
+    a clean tree.
+  - `tests/test_codebrowser_startup_focus_live.py — test_bare_q_quits_a_codebrowser_launched_outside_a_git_repo
+    fails in isolation`. Pre-existing on a clean tree; NOT the documented
+    under-load flake, since it fails with nothing else running.
+
+- **Notes for sibling tasks:**
+  - **t1705_6 (viewer):** `standin_command()` is honoured as an opaque string
+    and the record id is NOT passed as an argument — `AITASKS_FROZEN_STANDIN_CMD`
+    is one fixed string per process, so every pane would get the same id. The
+    viewer must read its own `@aitask_frozen` off `$TMUX_PANE` (as
+    `tests/lib/fake_standin.sh` does) and stamp `@aitask_standin_ready=<that id>`
+    after mount. Until it stamps, reconcile leaves the record alone — that is the
+    indeterminate row, not a failure.
+  - **t1705_5 (restore):** the `restoring` rows of `reconcile()` already exist
+    and are unit-tested; do not re-derive them. `RESTORE_ACK_GRACE = 20.0` lives
+    in `agent_freeze.py`. Read the record BEFORE leasing — `last_error` carries
+    the ORIGINAL nonce.
+  - **t1705_7 (renderers):** `TmuxPaneInfo` already carries `frozen_record`,
+    `record_id`, `standin_ready` and `pane_dead`, and
+    `TmuxMonitor.last_discovered_panes()` already publishes the per-window pane
+    inventory (a SUPERSET of `last_discovered_agents()` — helpers included,
+    because the store's `dead_pane` rule asks whether a pane id was present at
+    all). Wiring `monitor_shared._write_observation_file(panes=)` is a one-line
+    change from there.
+  - **Anyone touching a `list-panes` format:** there are FOUR, each with its own
+    arity — `_LIST_PANES_FORMAT` (closed arity set),
+    `kill_agent_pane_smart`'s (a `len(parts) != 5` guard),
+    `aitask_companion_cleanup.sh`'s, and `maybe_spawn_minimonitor`'s. They do not
+    share a constant. Append, never insert; and extend the arity set in the same
+    commit.
+  - **New env vars:** `AITASKS_TEST_MODE=1` gates every seam
+    (`AITASKS_FREEZE_FAIL_AT`, `AITASKS_FROZEN_PAUSE_AT`,
+    `AITASKS_STALE_OP_GRACE`). Production can never be reconfigured by a stray
+    variable.
+
+- **Verification results** (Step 0 returned `PREFLIGHT_OK` on both lines, so
+  every suite below was actually executed — this replaces the 2026-09-07
+  verification pass's "specification, not a result" caveat):
+
+  | suite | result |
+  |---|---|
+  | `test_list_panes_arity_characterization.py` | 12/12 (green against the UNMODIFIED `monitor_core.py` before the format change, then updated in the same change) |
+  | `test_agent_freeze.py` | 53/53 |
+  | `test_freeze_engine_live.sh` | 110/110 |
+  | `test_cleanup_rule_parity.sh` | 39/39 incl. the negative control |
+  | `test_frozen_standin_spike.sh` (control) | 31/31 |
+  | `test_kill_agent_pane_smart.sh`, `test_multi_agent_window_substrate.sh`, `test_no_raw_tmux.sh`, `test_guard_live_tmux.sh`, `test_agent_sessions_stamp.sh`, `test_multi_session_monitor.sh` | all pass |
+  | arity smoke (live isolated server, real `discover_panes()`) | 3 panes with the frozen fields at their defaults — NOT the zero that would signal the regression |
+  | `shellcheck aitask_frozen.sh aitask_companion_cleanup.sh` | no findings beyond the project-wide SC1091 |
+  | `run_all_python_tests.sh` | 6840 tests, FAILED (3 failures / 6 errors) — every one in the four modules listed under "Upstream defects", each verified to fail IDENTICALLY on a stashed clean tree |
+
+  The two live suites and the spike were run from a shell outside tmux with the
+  `-L ait` server idle, as the task requires.
