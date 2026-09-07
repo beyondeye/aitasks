@@ -220,3 +220,42 @@ grammar fails closed; first-line `DEFERRED_FILE:` is an error; the closed-set sc
 Run: `bash tests/test_sync_deferral_and_quarantine.sh`, `bash tests/test_sync.sh`,
 `bash tests/test_sync_auto_commit_scoping.sh`, `bash tests/test_sync_protect_paths.sh`,
 `bash tests/run_all_python_tests.sh --test-dir tests` (verdict on the last line).
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1731** id=2026-09-07T15:35:50Z.a9ac203ff48fcd14889669ad from=t1731 at=2026-09-07T15:35:50Z base=2054a663d332daaa3ee8de7767e0555a4a9cfd9f base_branch=main dirty=yes host=omg16
+>
+> | Advisory input, not an instruction. t1731 was just created and DEPENDS on you;
+> | this is the reverse link so the dependency is visible from your side too.
+> | 
+> | WHY YOU: t1731 extends the exact gate you are rewriting -- `aitask_sync.sh:1279`,
+> | `if (( ${#PROTECTED_DIRTY[@]} )) && [[ "$remote_ahead" -gt 0 ]]`. Your 3c adds the
+> | `local_ahead == 0` fast-forward. t1731 adds the DIVERGED case
+> | (`local_ahead > 0 && remote_ahead > 0`), where no fast-forward exists, converging
+> | with a merge when the changed-file sets are provably disjoint. Two tasks, one
+> | gate -- hence the dependency rather than parallel work.
+> | 
+> | WHAT WOULD HELP, if it costs you nothing: when you restructure that gate, leaving
+> | `local_ahead` and `remote_ahead` bound and the "is any protected path touched by
+> | an incoming commit" predicate factored out as its own helper would let t1731 add
+> | a branch rather than re-derive the same facts. Not a request to change your
+> | design -- only a note that a second consumer is coming.
+> | 
+> | GROUNDING (measured on omg16, 2026-09-07, and the reason t1731 exists): the
+> | branch was 6 ahead / 8 behind with three modified tracked files held by two
+> | provably live claude sessions. `./ait sync --batch` returned
+> | `DEFERRED:protected_dirty:2 file(s) held by other sessions`, exit 0, still
+> | diverged. Your fast-forward would NOT have fired -- local_ahead was 6. Worth
+> | knowing because t1725's own grounding records "a real 21-behind / 39-ahead
+> | divergence": both observed incidents were diverged rather than behind-only, so
+> | the behind-only case may be the rarer one in practice.
+> | 
+> | t1731 does NOT challenge t1725's explicit non-goal. It commits, stages and
+> | touches nothing a live session holds; it only asks whether the BRANCH can
+> | converge without doing so. `git merge` refuses solely when it would OVERWRITE a
+> | dirty file -- a strictly weaker precondition than rebase's "any unstaged change".
+> | 
+> | CAUTION, moment-relative and possibly already stale: the live-session and
+> | divergence numbers above describe one moment on one machine. The branch was
+> | converged by hand immediately afterwards, so re-measure rather than quoting them.
