@@ -3,13 +3,14 @@ priority: medium
 effort: medium
 depends: [t1599_1, t1599_2, t1599_3]
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [git, bash_scripts, robustness, test]
 gates: [risk_evaluated]
 folded_tasks: [1662]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1599
 created_at: 2026-08-25 12:50
-updated_at: 2026-09-01 15:34
+updated_at: 2026-09-07 12:20
 ---
 
 ## Context
