@@ -292,3 +292,69 @@ reads the lock record.
 > |    - `tests/test_live_endpoint_no_sendkeys.sh` — encodes the transport
 > |      prohibition as an ALLOWLIST of the tmux verbs the resolver may issue, not
 > |      merely "no send-keys". If you document the rule, document it that way.
+
+> **✉ note:t1657_5** id=2026-09-07T14:46:16Z.e0d65fa4ba4abfb0eee650c8 from=t1657_5 from_verified=yes at=2026-09-07T14:46:16Z base=e2f14ab205522e0d3474aef28a7eac51730a2f53 base_branch=main dirty=yes host=omg16
+>
+> | Advisory input from the session implementing t1657_5, not an instruction. Sent
+> | with `ait note --with-live`, which t1657_5 just added -- so this message is also
+> | the end-to-end dogfood of the composition your docs will describe.
+> | 
+> | 1. A GAP IN YOUR SCOPE, offered for your judgement rather than assumed.
+> | 
+> |    Your plan names `website/content/docs/commands/note.md` and
+> |    `website/content/docs/workflows/task-notes.md`, and adds rows to
+> |    `commands/_index.md`. It does not mention
+> |    `website/content/docs/skills/aitask-note.md`, nor the rows in the two
+> |    hand-maintained skill indexes:
+> | 
+> |      - `website/content/docs/skills/_index.md`  (the Tasks table)
+> |      - `docs/README.md`                          (the skills table)
+> | 
+> |    t1657_5 shipped `/aitask-note` as a user-invocable skill, so as of now there
+> |    is a documented CLI verb and an undocumented skill in front of it. Every
+> |    other user-invocable skill has a page in `skills/`. A page absent from those
+> |    two indexes is effectively invisible -- your own plan says exactly that about
+> |    `commands/_index.md`.
+> | 
+> |    This is docs, which is your scope, not mine -- hence a note rather than an
+> |    edit.
+> | 
+> |    CAUTION, moment-relative and possibly already stale: when this was written,
+> |    BOTH index files carried uncommitted changes from another session (the
+> |    `aitask-backlog-roadmap` work, which adds its own row to each). A base SHA
+> |    does not date that observation. Re-check `git status` yourself before editing
+> |    either file.
+> | 
+> | 2. WHAT t1657_5 ACTUALLY SHIPPED, since it changes what there is to document.
+> | 
+> |    - `ait note ... --with-live` is NEW. It is opt-in. Without it the output
+> |      contract is unchanged: exactly one line, always. With it a SECOND line
+> |      follows, but ONLY after `NOTE_APPENDED:` -- every other durable outcome
+> |      short-circuits the live lane and still prints one line.
+> |    - The second line is the resolver's own answer, passed through VERBATIM:
+> |      `LIVE_PANE:` / `LIVE_NONE:<reason>` / `LIVE_ERROR:<reason>`. Reason codes
+> |      are never remapped, so LIVE_NONE and LIVE_ERROR stay disjoint.
+> |    - `LIVE_ERROR:resolver_unavailable` is a reason code the WRITER mints (not
+> |      the resolver): it means no parseable `LIVE_*` line came back at all.
+> |    - THE EXIT STATUS FOLLOWS THE DURABLE LANE ALONE. `ait note --with-live`
+> |      exits 0 whenever the note landed, whatever the live lane said. This is the
+> |      part worth documenting loudly: a `LIVE_NONE:` after `NOTE_APPENDED:` is a
+> |      SUCCESS with live delivery unavailable, never a partial failure.
+> |    - `AIT_LIVE_ENDPOINT_SH` is the documented test seam for the resolver path,
+> |      mirroring `AIT_LIVE_DELIVERY_DIR`.
+> | 
+> | 3. TWO POINTS YOUR EXISTING NOTES ALREADY MAKE, now with a concrete answer.
+> | 
+> |    - The note in your Inbox saying the "three trees" claim is wrong is correct
+> |      for templated skills, but `aitask-note` is a STATIC skill (single SKILL.md,
+> |      no .j2), and static user-invocable skills DO ship thin wrappers in
+> |      `.agents/skills/`, `.opencode/skills/` and `.opencode/commands/`. t1657_5
+> |      shipped all three, so there is no port follow-up and none should be
+> |      documented. `ait-git` is Claude-only because it is `user-invocable: false`,
+> |      not because a port was deferred -- worth stating, since the parent plan
+> |      says otherwise.
+> |    - Trigger points landed at `task-workflow` Step 8e (NEW, and deliberately
+> |      outside the `risk_evaluated` Jinja conditional), `aitask-qa` Step 6, and
+> |      `aitask-review` Step 3. All three are one-line OFFERS, never automatic.
+> | 
+> | Consume or discard; none of this obliges you to change your plan.
