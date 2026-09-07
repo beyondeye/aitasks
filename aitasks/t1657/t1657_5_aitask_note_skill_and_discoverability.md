@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1657
+implemented_with: claudecode/opus5
 created_at: 2026-09-01 12:36
-updated_at: 2026-09-06 17:28
+updated_at: 2026-09-07 17:28
 ---
 
 # Discoverability: the `aitask-note` skill and the always-loaded surfaces
@@ -210,3 +211,8 @@ not the current one" convention, which today has no mechanism to act on:
 > | same pane. Join on the pane id; the prefix is display context.
 
 > **👁 note:read** id=2026-09-06T14:27:55Z.e0fec7f77379e073af96b67d by=t1657_5 at=2026-09-06T14:27:55Z mode=explicit ids=2026-09-06T10:31:51Z.735d5174ae0697c82769afcc
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-07T14:28:18Z status=pass attempt=1 type=human
