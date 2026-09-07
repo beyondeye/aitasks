@@ -181,3 +181,10 @@ bash tests/test_frozen_standin_spike.sh          # still green (control)
 bash tests/test_kill_agent_pane_smart.sh tests/test_multi_agent_window_substrate.sh tests/test_no_raw_tmux.sh
 shellcheck .aitask-scripts/aitask_frozen.sh .aitask-scripts/aitask_companion_cleanup.sh
 ```
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-07T13:43:07Z status=pass attempt=1 type=human
+>
+> Note: deferred
