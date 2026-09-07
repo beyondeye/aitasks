@@ -3,12 +3,14 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Done
+archived_reason: superseded
 labels: [backend]
 gates: [risk_evaluated]
 anchor: 1162
 created_at: 2026-07-29 09:55
-updated_at: 2026-07-29 09:55
+updated_at: 2026-09-07 18:20
+completed_at: 2026-09-07 18:20
 boardidx: 118784
 ---
 
