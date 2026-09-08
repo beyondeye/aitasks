@@ -3,7 +3,7 @@ priority: low
 effort: low
 depends: []
 issue_type: manual_verification
-status: Implementing
+status: Done
 labels: []
 active_gates: []
 active_gates_filtered: []
@@ -14,7 +14,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1199
 followup_kind: manual_verification
 created_at: 2026-07-21 17:54
-updated_at: 2026-09-08 17:11
+updated_at: 2026-09-08 17:12
+completed_at: 2026-09-08 17:12
 boardcol: tests
 boardidx: 2118
 ---
