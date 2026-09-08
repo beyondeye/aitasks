@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [git, bash_scripts, robustness]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-09-07 18:40
-updated_at: 2026-09-07 18:40
+updated_at: 2026-09-08 12:28
 ---
 
 ## Defect
