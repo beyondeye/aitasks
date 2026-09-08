@@ -22,6 +22,14 @@ flake the carve-out documents, and it has a latent twin in
 
 Goal: the four modules pass on macOS.
 
+**Scope grew during implementation, on an explicit user decision.** Three further
+defects surfaced that the task body's "entire non-green residue" claim missed —
+two of them only *because* the planned fix removed the error that was hiding
+them. See the Implementation Record for what changed and why. The largest,
+folded in at the user's direction, is a BSD `mktemp` bug in the repo's own
+documented portability idiom, spanning 32 call sites and the doc that recommends
+it.
+
 **Scope of the completion claim — deliberately narrowed.** This session can
 prove the macOS half only. There is no Linux box reachable from here (no
 container runtime: `docker`, `podman`, `colima`, `lima`, `orbctl`, `multipass`
@@ -315,6 +323,145 @@ exactly what `verify_macos_fixes_on_linux` is scoped to check.
 level: it is a read-only measurement that touches no file and alters no step.
 Code-health stays `low`, goal-achievement stays `low`.
 
+## Implementation Record (deviations from the approved plan)
+
+All five planned changes landed. Two of them turned out to be **necessary but
+not sufficient**, and the shape of steps 1-2 changed materially. Recorded here
+because the plan's own text is now wrong about them.
+
+### Deviation A — `copy2` -> `copy` fixed the error and exposed two real failures
+
+With the `chflags` error gone, `test_agent_keys` ran its 5 previously-erroring
+tests and **2 of them failed**; `test_prompt_scoping_live` ran its 4 and all 4
+failed. Neither failure was visible to t1705_4, because `setUpClass`/the fixture
+helper died before any assertion executed. Root cause, measured:
+
+> macOS refuses to **execute** a copy of `/bin/sleep` at all. It is a
+> platform-signed binary on the signed system volume; a copy anywhere else is
+> SIGKILLed on exec (exit 137). Clearing the file flags, `codesign
+> --remove-signature`, and an ad-hoc `codesign -f -s -` all leave it dead — the
+> constraint is on where the binary lives, not on its signature.
+
+So the fixture could not produce a working fake agent at all on macOS, and
+`shutil.copy` alone only moved the failure one step later.
+
+### Deviation B — the fixture is now a verified ladder in `tests/lib/`
+
+The plan said "same one-word change" in two files. What was actually needed is a
+shared helper, `tests/lib/fake_agent_binary.py`, which tries three rungs and
+**verifies each by running it** rather than branching on `sys.platform`:
+
+1. copy the system `sleep` — the historical fixture; what Linux uses;
+2. copy a locally compiled sleeper (`cc`/`clang`/`gcc`, compiled once per
+   process) — macOS, where rung 1 cannot run;
+3. symlink to the system `sleep` — **opt-in**, because the two readers disagree
+   about a symlink (measured):
+   - `ps -o comm=` reports the *invoked* path, so the basename is the agent
+     name and a symlink works -> `test_agent_keys` passes `allow_symlink=True`;
+   - tmux's `pane_current_command` reports the *resolved* executable, so a
+     symlink named `claude` reads `sleep` -> `test_prompt_scoping_live` must not
+     allow it, and raises `FakeAgentBinaryUnavailable` -> `SkipTest` when no
+     rung produces a real file (its documented skip-vs-fail rule).
+
+`exec -a claude /bin/sleep` was also measured and rejected: both readers name a
+process after the file it executed, never after `argv[0]`.
+
+Single-sourced rather than duplicated: this is a ~15-line platform workaround
+with a subtle rationale, and two independent copies would drift.
+
+### Deviation C — the negative control was inconclusive as written
+
+The plan's step-2 control ("revert the predicate, confirm it fails") does **not**
+fail, so it proves nothing. The full 2x2 was run instead:
+
+| | no poll | with poll |
+|---|---|---|
+| **old predicate** | **FAILED** (the original defect) | OK |
+| **new predicate** | **OK** | OK (shipped) |
+
+The predicate fix is **sufficient on its own** — it is the real fix. The poll
+alone also goes green, but by *tolerating* the premature return rather than
+removing it, which is exactly the masking the control existed to detect. Both
+ship: with the correct predicate, `_wait_for_shell` establishes the quit within
+its 20s budget before the 5s screen poll runs, so the poll cannot mask a slow
+quit — it only absorbs tmux's alternate-screen drain.
+
+### Deviation D — a fifth defect, folded in on the user's decision
+
+The full suite left **one** failure that was **not** in any of the four modules:
+`test_settings_project_config_value_types.TheReportedDefectTests.test_the_saved_hook_actually_runs`,
+`DIAG:could not create a temporary log file`. Verified pre-existing (fails
+identically with this task's changes stashed), so the task body's "entire
+non-green residue ... all in these four modules" was incomplete.
+
+Root cause, and it is much wider than one test:
+
+> BSD `mktemp` only substitutes `XXXXXX` when the placeholder **ends** the
+> template. `mktemp "$TMPDIR/foo_XXXXXX.log"` therefore does not fail on macOS —
+> it creates a file named literally `foo_XXXXXX.log` and exits 0. Every later
+> call dies with `mkstemp failed: File exists`, **permanently**, because that
+> fixed name persists in `$TMPDIR`. GNU `mktemp` substitutes, so Linux never
+> sees it.
+
+Proven by experiment: with the stale name removed, run 1 passed and run 2
+failed. A stale `aitask_resource_admission_XXXXXX.log` dated two days earlier was
+already sitting in `$TMPDIR`.
+
+**This was the repo's documented idiom.** `aidocs/framework/sed_macos_issues.md`
+explicitly recommended `mktemp "${TMPDIR:-/tmp}/prefix_XXXXXX.ext"` as the
+portable replacement for GNU-only `mktemp --suffix` (introduced by t213). It
+appeared at 32 sites across 20 files. Beyond the test failure it broke real
+behaviour: `ait`'s resource-admission hook and project-command logging fail after
+first use on any macOS machine, and each wrote to a fixed, predictable path.
+
+The user was asked whether to fold this in, file it, or patch only the one
+blocking site, and chose **fold the full fix**. Delivered:
+
+- `.aitask-scripts/lib/terminal_compat.sh`: new `mktemp_suffixed`, a **drop-in**
+  taking the same single template argument (so migration is a rename). It splits
+  at the last `XXXXXX`, lets `mktemp` pick a unique name, then renames to carry
+  the suffix — the rename cannot collide, because the chosen base is already
+  exclusive. Sits beside `sed_inplace` / `portable_date`, the established home
+  for this class.
+- 15 sites across 10 production scripts, and 17 across 6 bash tests, migrated;
+  four tests gained a `terminal_compat.sh` source line (already in the
+  `test_scaffold.sh` baseline, so no scaffold change was needed).
+- `.claude/skills/task-workflow/manual-verification.md`: the **no-suffix** form,
+  because a skill procedure is executed by an agent with no framework libs in
+  scope. Rendered variants for all three profiles and all three agent trees
+  re-rendered; the three procedure goldens regenerated — their diff is exactly
+  the one intended line.
+- `aidocs/framework/sed_macos_issues.md`: the recommendation corrected, the
+  superseded t213 row annotated so nobody copies it, and a "Files Fixed in t1729"
+  section added.
+- `tests/test_sed_compat.sh` Test 14 rewritten. The old version is *why this
+  survived*: it made a single `mktemp` call and asserted the file existed and
+  ended in `.md` — both true on macOS while broken. It now pins the properties
+  that were actually violated: the placeholder is substituted, and a second call
+  yields a distinct file.
+
+### Deviation E — one more BSD/GNU footgun, in a file this task already touched
+
+`tests/test_skill_render_task_workflow.sh:193` used `find -printf`, GNU-only;
+BSD/macOS errors with "unknown primary or operator" and Test 0's orphan-golden
+check failed. Verified pre-existing (identical 294/293/1 on a stashed tree), and
+the only broken site — the repo already documents this footgun in the two places
+it was fixed before (`tests/test_seed_manifest_drift.sh`,
+`.aitask-scripts/aitask_followup_backfill.sh`). Fixed with that same `sed`
+prefix-strip idiom; the module now runs 294/294. Called out separately because it
+is a *different* footgun from the mktemp one, fixed only because it sat in a file
+this task had to modify and regenerate goldens for.
+
+### Out of scope, filed rather than fixed
+
+`tests/test_minimonitor_concern_smoke.py` builds its fake agents with
+`shutil.copy2(sys.executable, ...)` and states that `pane_current_command` must
+really be the agent name. On macOS it is **not**: a copied framework CPython
+re-execs the app bundle and tmux reports `Python`. That module is green, so the
+assertions resting on that premise are passing vacuously. It is not one of
+t1729's four modules and fixing it is a behavioural change to a passing test —
+filed as a follow-up instead.
+
 ## Post-Implementation
 
 Step 9 applies as usual: current-branch mode (profile `fast`), so nothing is
@@ -322,3 +469,70 @@ merged; commit with type `test` (`test: … (t1729)`), then archive the task and
 this plan. Step 8d creates the confirmed spawned "after" mitigation
 (`verify_macos_fixes_on_linux`); the `risk_evaluated` gate is the task's single
 active gate and is recorded post-approval at Step 7.
+
+## Final Implementation Notes
+
+- **Actual work done:** All five planned edits landed (two `shutil.copy2` fixture
+  sites, the tmux socket dir, the codebrowser interpreter predicate + polled
+  screen assertion, the board latent twin). Two of them proved necessary but not
+  sufficient, so the fixture became a shared verified ladder in
+  `tests/lib/fake_agent_binary.py`. Beyond the plan, and on an explicit user
+  decision, a BSD `mktemp` defect was fixed across 32 call sites in 20 files plus
+  the doc that recommended it, and one GNU-only `find -printf` site was fixed in
+  a file this task already had to modify.
+
+- **Deviations from plan:** Five, recorded in full under "Implementation Record"
+  above (A: `copy` exposed two real failures beneath the error; B: the fixture is
+  now a verified three-rung ladder, single-sourced; C: the planned negative
+  control was inconclusive and was replaced by a 2x2 matrix; D: the folded-in
+  `mktemp` sweep; E: the `find -printf` fix). The plan's step-1/2 text ("same
+  one-word change") and its step-2 control no longer describe what shipped.
+
+- **Issues encountered:**
+  - macOS will not **execute** a copy of `/bin/sleep`: it is a platform binary on
+    the signed system volume, so a copy elsewhere is SIGKILLed on exec (exit
+    137). Clearing file flags, `codesign --remove-signature` and an ad-hoc
+    `codesign -f -s -` were all measured and none rescues it. `exec -a` was also
+    measured and rejected — neither reader names a process after `argv[0]`.
+  - The two readers disagree about a symlink, which is why the ladder's rung 3 is
+    opt-in: `ps -o comm=` reports the invoked path (basename is the agent name),
+    tmux's `pane_current_command` reports the resolved executable (reads `sleep`).
+  - A copy of `sys.executable` — the pattern `tests/test_minimonitor_concern_smoke.py`
+    uses — reports `Python` under tmux, so it could not serve either.
+  - BSD `mktemp` does not substitute `XXXXXX` unless it ends the template, and
+    does not fail when it doesn't. Proven by experiment: with the stale fixed
+    name removed, run 1 passed and run 2 failed.
+
+- **Key decisions:**
+  - The ladder decides by **running** each candidate rather than branching on
+    `sys.platform`, so a future OS change needs no edit here.
+  - `mktemp_suffixed` takes the **same single argument** as the broken calls, so
+    the 32-site migration is a mechanical rename and stays reviewable.
+  - The skill procedure got the no-suffix form, not the helper: an agent
+    executing it has no framework libs in scope.
+  - `tests/test_sed_compat.sh` Test 14 was rewritten rather than extended — the
+    old single-call version is *why* the defect survived, so leaving it as the
+    regression test would have preserved the blind spot.
+
+- **Verification:** `PYTHON SUITE: PASSED (runner=unittest, exit=0)`, 6954 tests,
+  0 failures, 10 skipped (exit status captured directly, not through a pipe).
+  Pre-phase baseline `baseline_exit=0`. Codebrowser 2x2 control: old predicate +
+  no poll FAILED, new predicate alone OK — the predicate is the fix, the poll is
+  tolerance for tmux's alternate-screen drain. `mktemp`: the previously-failing
+  module passes 3 consecutive runs and leaves no `*XXXXXX*` artifacts.
+  `test_skill_render_task_workflow` 293/1 -> 294/294; `test_sed_compat` 42/42;
+  `aitask_skill_verify.sh` OK (13 templates, 3 agents, wrapper parity clean);
+  seed-manifest drift 44/44; `shellcheck` on every touched script shows no new
+  findings.
+
+- **Completion claim (deliberately narrowed):** proved here — the suite passes
+  **on macOS**. Argued but NOT proved — unchanged behaviour on Linux: no Linux
+  box or container runtime is reachable from this session (`docker`, `podman`,
+  `colima`, `lima`, `orbctl`, `multipass`, `vagrant` all absent) and no CI runs
+  the Python suite. The per-change invariance argument is in the Cross-platform
+  audit section; the outstanding proof is the spawned `verify_macos_fixes_on_linux`
+  task. This is not a cross-platform claim.
+
+- **Upstream defects identified:**
+  - `tests/test_minimonitor_concern_smoke.py:541 — builds fake agents with shutil.copy2(sys.executable, ...) and documents that pane_current_command "must really be the agent name"; on macOS a copied framework CPython re-execs the app bundle and tmux reports `Python`, so every assertion resting on that premise passes vacuously. The module is green, which is why it went unnoticed.`
+  - `aidocs/framework/sed_macos_issues.md:363 — the t213 row records `mktemp "${TMPDIR:-/tmp}/aitask_XXXXXX.md"` as the fix for GNU-only `mktemp --suffix`; that replacement is itself broken on BSD. Annotated in place rather than rewritten, since the section is a historical audit record.`
