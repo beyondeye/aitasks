@@ -134,6 +134,8 @@ An unknown column id is **rejected**, naming the configured ids. That matters be
 - **All levels** (`--all-levels`) — Flat list of all parents and children
 - **Tree** (`--tree`) — Parents with children indented using `└─` prefix
 
+**Unnumbered task files.** A file under `aitasks/` whose name carries no task id — `t_something.md` rather than `t<number>_something.md` — is **skipped**, and a warning naming the path is written to stderr. A listing row has to be addressable: everything downstream of `ait ls` maps a row back to a task id, and a row with no id yields an empty one, which then asks about a task that cannot exist. Skipping it silently would be no better, because the file is usually a real task nobody can reach, so the warning is what makes the defect visible. Rename the file to the [naming convention]({{< relref "/docs/development/task-format" >}}) to bring it back into the listing.
+
 **Metadata format:** Supports both YAML frontmatter (primary) and legacy single-line format (`--- priority:high effort:low depends:1,4`).
 
 ---
