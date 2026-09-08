@@ -339,8 +339,8 @@ own git-dir resolution. `ait note` at Step 8, alongside the notes above.
 
 ### Planned mitigations
 - timing: pre-phase | name: characterize_wedge_guard | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — delegating assert_data_worktree_clean's loop | desc: capture tests/test_task_git.sh Test 16's six-state verdict as a pre-refactor baseline and require it unchanged after
-- timing: after | name: gateway_pull_policy | type: bug | priority: medium | effort: medium | inline_risk: high | added_complexity: high | addresses: goal — ./ait git pull leaves a wedge, and the argv parser it needs also fixes the refused `-c … rebase --abort` recovery | desc: add ait_git_subcmd_index, route gateway pulls through the guarded cleanup, retrofit the two subcommand classifiers, and state the merge-mode bound
-- timing: after | name: crew_pull_cleanup | type: bug | priority: medium | effort: medium | inline_risk: medium | added_complexity: medium | addresses: goal — crew worktrees abort unconditionally with no serialization | desc: apply the ownership-checked cleanup and a per-gitdir lock to the two crew pull sites
+- timing: after | name: gateway_pull_policy | type: bug | priority: medium | effort: medium | inline_risk: high | added_complexity: high | addresses: goal — ./ait git pull leaves a wedge, and the argv parser it needs also fixes the refused `-c … rebase --abort` recovery | desc: add ait_git_subcmd_index, route gateway pulls through the guarded cleanup, retrofit the two subcommand classifiers, and state the merge-mode bound | created: t1739
+- timing: after | name: crew_pull_cleanup | type: bug | priority: medium | effort: medium | inline_risk: medium | added_complexity: medium | addresses: goal — crew worktrees abort unconditionally with no serialization | desc: apply the ownership-checked cleanup and a per-gitdir lock to the two crew pull sites | created: t1740
 
 ## Final Implementation Notes
 
