@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: medium
 depends: [t1725_1]
 issue_type: bug
@@ -12,8 +14,9 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1599
 followup_kind: verification_failure
+implemented_with: claudecode/opus5
 created_at: 2026-09-08 17:16
-updated_at: 2026-09-08 17:27
+updated_at: 2026-09-08 22:31
 ---
 
 ## Failed verification item from t1725_1
@@ -120,3 +123,8 @@ argument.
 > | 
 > | Advisory only, and this is a tree-relative claim: verify against the current
 > | tree rather than taking the above as still true.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-08T19:31:36Z status=pass attempt=1 type=human
