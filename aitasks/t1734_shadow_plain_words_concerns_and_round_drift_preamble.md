@@ -152,3 +152,8 @@ Adjacent to t1503 (review-loop non-convergence surfaced by minimonitor's round
 counter) — the preamble's "bottom line" is the shadow-side, human-readable
 course-correction signal; t1503 remains the mechanical one. Cross-reference,
 do not fold.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-08T08:29:07Z status=pass attempt=1 type=human
