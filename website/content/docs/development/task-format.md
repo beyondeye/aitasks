@@ -44,6 +44,7 @@ Detailed description of what needs to be done.
 | `created_at` | `YYYY-MM-DD HH:MM` | Creation timestamp |
 | `updated_at` | `YYYY-MM-DD HH:MM` | Last modification timestamp |
 | `completed_at` | `YYYY-MM-DD HH:MM` | Completion timestamp (set on archival) |
+| `archived_reason` | `superseded` | Why the task was archived for a reason other than completion. Written only by `ait archive --superseded`; absent ⇒ archived as completed. Distinct from folding — a folded task is **merged** into its primary (see [Folded tasks]({{< relref "/docs/concepts/folded-tasks" >}})), not superseded |
 | `assigned_to` | email address | Developer working on the task |
 | `issue` | URL | Linked GitHub/GitLab/Bitbucket issue |
 | `children_to_implement` | `[t10_1, t10_2]` | Remaining child tasks (parent tasks only) |

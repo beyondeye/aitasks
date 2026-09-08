@@ -16,10 +16,12 @@
 #   E  supplemental: no task file carries a frontmatter key no known writer
 #      emits
 #
-# Test 1 runs the scan against the real repository. Tests 2+ are negative
+# Test 1 runs the scan against the real repository. Tests 2+ are mostly negative
 # controls: each mutates one thing in a throwaway fixture and asserts the
 # corresponding check flips to FAIL. Without them the scan could be green
-# because it checks nothing.
+# because it checks nothing. Test 12b is the one control in the other direction
+# — it asserts the scan still PASSES on a registered key, which is what a fix
+# that silenced check E wholesale would break.
 #
 # The fixture is built from the scanner's own `--list-inputs`, so a site added
 # to SITES joins the fixture automatically and cannot silently fall out of the
@@ -142,6 +144,25 @@ assert_control() {
         assert_record_pass
     fi
     assert_contains "$desc names $expect_tag" "$expect_tag" "$out"
+}
+
+# The mirror of assert_control: mutate a fresh fixture and assert the scan still
+# PASSES. A negative control proves a check can fail; this proves it does not
+# fire on input it is supposed to accept -- the direction that catches a fix
+# which silences the diagnostic wholesale.
+assert_positive_control() {
+    local desc="$1" mutate_fn="$2"
+    local dir out
+    dir="$(make_fixture)"
+    "$mutate_fn" "$dir"
+    out="$(run_scan "$dir")"
+    if scan_rc "$dir"; then
+        assert_record_pass
+    else
+        assert_record_fail
+        echo "FAIL: $desc — scan failed on input it should accept:"
+        echo "$out"
+    fi
 }
 
 # --------------------------------------------------------------------------
@@ -293,6 +314,78 @@ test_control_corpus_unknown_key() {
 }
 
 # --------------------------------------------------------------------------
+# Test 12b - check E, positive control: a REGISTERED key on disk is accepted
+#
+# The mirror of Test 12 on the same axis. `archived_reason` is written by
+# `ait archive --superseded` and registered in OTHER_WRITERS (t1732); it must
+# not be reported as an unknown key. Doing this in the fixture rather than
+# leaning on the live corpus matters: the live repo currently proves it via a
+# single archived file, and that file will eventually be folded into an
+# `old.tar.zst` bundle, taking the coverage with it. Also the only fixture that
+# reaches the `aitasks/archived/` arm of the check_corpus_supplemental walk.
+# --------------------------------------------------------------------------
+mutate_corpus_archived_reason() {
+    mkdir -p "$1/aitasks/archived"
+    cat > "$1/aitasks/archived/t2_superseded.md" <<'EOF'
+---
+priority: low
+effort: low
+issue_type: chore
+status: Done
+archived_reason: superseded
+created_at: 2026-01-01 00:00
+updated_at: 2026-01-01 00:00
+completed_at: 2026-01-01 00:00
+---
+
+Superseded sample task.
+EOF
+}
+test_positive_control_corpus_archived_reason() {
+    echo "=== Test 12b: positive control — a registered archived_reason is accepted ==="
+    assert_positive_control "registered archived_reason key" \
+        mutate_corpus_archived_reason
+}
+
+# --------------------------------------------------------------------------
+# Test 12c - check D: the archived_reason writer loses its write
+#
+# What makes the OTHER_WRITERS needle a real guard rather than an assertion
+# about itself. The mutation deletes the awk insertion but LEAVES the
+# `--superseded` help line, which also contains the string `archived_reason` --
+# so this fails only because the registry pins the write expression. A registry
+# keyed on the bare field name would stay green here.
+# --------------------------------------------------------------------------
+mutate_archive_writer_dropped() {
+    local f="$1/.aitask-scripts/aitask_archive.sh"
+    grep -v 'print "archived_reason: ' "$f" > "$f.tmp"
+    mv "$f.tmp" "$f"
+    # Two recorded assertions, not a bare `|| echo`: `echo` exits 0, so a
+    # warning would let the run continue and the control would still "pass"
+    # for the wrong reason. Both are preconditions of what 12c claims to
+    # prove, and both must be able to fail the suite.
+    #
+    # (a) the mutation landed — otherwise D/writers firing would mean
+    #     something else entirely;
+    assert_not_contains "12c precondition: the awk write is gone" \
+        "archived_reason" "$(grep -F 'print "archived_reason: ' "$f" || true)"
+    # (b) the *intended* non-write occurrence survived. Checked explicitly on
+    #     the `--superseded` help line rather than as "any occurrence
+    #     anywhere": that line is what a bare field-name needle would match,
+    #     and it is the sole reason this control discriminates. If a later
+    #     archive-script refactor drops it, 12c degrades to "the field
+    #     vanished entirely" — which any needle catches — and must fail loudly
+    #     rather than keep claiming to pin the needle.
+    assert_contains "12c precondition: the --superseded help line survives" \
+        "archived_reason" "$(grep -- '--superseded' "$f" || true)"
+}
+test_control_archive_writer_dropped() {
+    echo "=== Test 12c: control — dropping the archived_reason write is caught ==="
+    assert_control "dropped archived_reason writer" "D/writers" \
+        mutate_archive_writer_dropped
+}
+
+# --------------------------------------------------------------------------
 # Test 13 - the scanner itself parses
 # --------------------------------------------------------------------------
 test_syntax_check() {
@@ -323,6 +416,8 @@ test_control_zero_instance_field
 test_control_zero_instance_row_removal
 test_control_new_patch_caller
 test_control_corpus_unknown_key
+test_positive_control_corpus_archived_reason
+test_control_archive_writer_dropped
 test_syntax_check
 
 echo ""

@@ -172,9 +172,28 @@ DRAFT_ONLY_KEYS = {
     "parent",  # the draft's future parent, consumed at finalize time
 }
 
-# Writers that do not use the `echo "<field>: "` shape.
+# Writers that do not use the `echo "<field>: "` shape. Each value is
+# (path, needle): the file, and the fragment that proves it still performs the
+# write. The needle is the *write expression*, not the bare field name --
+# `archived_reason` also appears in aitask_archive.sh's --superseded help line,
+# so a field-name substring would keep this guard green after the awk insertion
+# itself was deleted. Same reasoning as the anchor tripwire in check_sites(): a
+# write that is reshaped or removed must fail loudly rather than silently stop
+# being checked.
+#
+# Both entries are registered here rather than added to ECHO_WRITERS: that list
+# asserts an `echo "<field>: ` emission (see the "emitted no field names" check
+# in writer_fields()), and aitask_archive.sh has none -- it inserts frontmatter
+# with awk. Registering the field names the writer and pins the write, where
+# widening the echo regex to also match awk-embedded `print` would loosen the
+# derivation for every writer to discover one field.
 OTHER_WRITERS = {
-    "completed_at": ".aitask-scripts/aitask_archive.sh",
+    "completed_at": (".aitask-scripts/aitask_archive.sh",
+                     'print "completed_at: '),
+    # `ait archive --superseded`. Same script and same awk-insertion shape as
+    # completed_at, one line below it.
+    "archived_reason": (".aitask-scripts/aitask_archive.sh",
+                        'print "archived_reason: '),
 }
 
 # Callers of frontmatter_patch.py, which writes the nested mapping fields.
@@ -365,11 +384,11 @@ def writer_fields(root, failures):
             failures.append("D/writers: %s emitted no field names -- "
                             "the writer shape changed" % rel)
         fields |= found
-    for field, rel in OTHER_WRITERS.items():
+    for field, (rel, needle) in OTHER_WRITERS.items():
         if not os.path.exists(os.path.join(root, rel)):
             failures.append("D/writers: %s missing (writes %s)" % (rel, field))
             continue
-        if field not in read(root, rel):
+        if needle not in read(root, rel):
             failures.append("D/writers: %s no longer writes %s" % (rel, field))
         fields.add(field)
 
@@ -472,7 +491,7 @@ def main(argv):
         inputs = {TASK_TYPES, SEED_TASK_TYPES, FIELD_TABLE}
         inputs |= {rel for rel, _a, _s, _c in SITES}
         inputs |= set(ECHO_WRITERS)
-        inputs |= set(OTHER_WRITERS.values())
+        inputs |= {rel for rel, _needle in OTHER_WRITERS.values()}
         inputs |= PATCH_CALLERS
         for rel in sorted(inputs):
             print(rel)
