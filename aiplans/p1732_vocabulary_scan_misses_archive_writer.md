@@ -176,11 +176,28 @@ about itself. Delete the `archived_reason` awk line from the fixture's
 `aitask_archive.sh` (leaving the `--superseded` help line, which is the case a
 field-name substring would miss) and assert `D/writers` fires:
 
+Both facts 12c depends on must be **recorded assertions that can fail the
+suite**, not a `|| echo` warning: `echo` exits 0, so a violated precondition
+would print and the control would still report green while no longer proving
+anything (raised in Step-8 review, confirmed empirically — see Final
+Implementation Notes).
+
 ```bash
 mutate_archive_writer_dropped() {
     local f="$1/.aitask-scripts/aitask_archive.sh"
     grep -v 'print "archived_reason: ' "$f" > "$f.tmp"
     mv "$f.tmp" "$f"
+    # (a) the mutation landed
+    assert_not_contains "12c precondition: the awk write is gone" \
+        "archived_reason" "$(grep -F 'print "archived_reason: ' "$f" || true)"
+    # (b) the INTENDED non-write occurrence survived — checked explicitly on
+    #     the `--superseded` help line, not as "any occurrence anywhere". That
+    #     line is what a bare field-name needle would match and is the sole
+    #     reason this control discriminates; if a later archive-script refactor
+    #     drops it, 12c degrades to "the field vanished entirely" (which any
+    #     needle catches) and must fail loudly.
+    assert_contains "12c precondition: the --superseded help line survives" \
+        "archived_reason" "$(grep -- '--superseded' "$f" || true)"
 }
 test_control_archive_writer_dropped() {
     echo "=== Test 12c: control — dropping the archived_reason write is caught ==="
@@ -188,6 +205,10 @@ test_control_archive_writer_dropped() {
         mutate_archive_writer_dropped
 }
 ```
+
+`assert_contains` / `assert_not_contains` both return 0 (they record via
+`assert_record_fail`), so neither trips the file's `set -e`; the recorded FAIL
+reaches the footer's `[[ "$FAIL" -eq 0 ]] || exit 1`.
 
 Register all three new functions in the test-runner call list at the file
 footer (after `test_control_corpus_unknown_key`), and update the header comment
@@ -252,3 +273,69 @@ Step 9 (Post-Implementation) handles commit, cleanup, and archival.
   the fix is validated by an existing failing test flipping green, the "which
   option" decision is grounded in an in-file precedent (`completed_at`), and
   the requested sweep is discharged with mechanical evidence across four axes.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented as planned across the three named files.
+  `OTHER_WRITERS` in `tests/lib/docs_vocabulary_scan.py` gained
+  `archived_reason` and changed shape from `{field: path}` to
+  `{field: (path, needle)}`; its two call sites (`writer_fields()`,
+  `main()` `--list-inputs`) were updated. `website/content/docs/development/task-format.md`
+  gained the `archived_reason` row after `completed_at`.
+  `tests/test_docs_vocabulary_coverage.sh` gained an `assert_positive_control`
+  helper, Test 12b (positive control) and Test 12c (negative control). Suite
+  went from 23/25 to **30/30**; the scanner's writable-field count went 40 → 41.
+
+- **Deviations from plan:** One, added during Step-8 review. Test 12c's mutator
+  originally guarded its surviving-occurrence precondition with
+  `grep -q 'archived_reason' "$f" || echo "FIXTURE BUG: ..."`. Because `echo`
+  exits 0, a violated precondition would only print — the control would still
+  report green while no longer proving that a bare field-name needle is
+  inadequate. Replaced with two recorded assertions
+  (`assert_not_contains` that the write is gone, `assert_contains` that the
+  `--superseded` help line survives), which pushes the suite to 30 assertions.
+
+- **Issues encountered:** None in the fix itself. Two verification mechanics
+  were worth solving properly rather than shortcutting:
+  - Every mutation-discrimination check was run against **scratch copies**
+    (a mutated scanner, and a scratch project root built from symlinks to the
+    real repo with a real `tests/` dir), so the shared, concurrently-edited
+    working tree was never left in a mutated state. `make_fixture` uses `cp`,
+    which follows symlinks, so the symlinked root builds identical fixtures.
+    One artifact: Test 13 hard-codes `test_docs_vocabulary_coverage.sh`, so a
+    mutant must keep that filename or Test 13 alone fails.
+  - `origin/main` was ahead by 2 commits touching `aitask_archive.sh` — a real
+    file-level overlap with this plan. Verified inert at line level: the change
+    is t1729's one-line `mktemp` → `mktemp_suffixed` swap, and the two `awk`
+    write lines this scanner reads are byte-identical on both sides. `main` also
+    advanced twice mid-session; the suite was re-run green against the new HEAD
+    and none of the new commits touch this task's inputs.
+
+- **Key decisions:**
+  - **Registered the field (task's option 2) rather than extending `ECHO_WRITERS`
+    (option 1).** Rationale is in the code comment: `ECHO_WRITERS` membership
+    *asserts* an `echo "<field>: ` emission that `aitask_archive.sh` does not
+    have, and widening the echo regex to match awk-embedded `print` would loosen
+    the derivation for every writer in order to discover one field.
+  - **Pinned the write expression, not the field name.** `archived_reason` also
+    appears in the `--superseded` help line, so a field-name substring would
+    keep `D/writers` green after the awk insertion was deleted. Measured: under
+    a loose needle, Test 12c's mutation passes cleanly; under the tightened one
+    it fails with `D/writers`. The cost is a deliberate tripwire — reformatting
+    those two `awk` lines now fails loudly, matching the scanner's existing
+    `check_sites()` anchor-tripwire philosophy.
+  - **No other documentation surface updated.** `completed_at`, the same
+    archival-only class of field, appears in none of `CLAUDE.md`, the
+    `seed/aitasks_agent_instructions.seed.md` "Task File Format" block (or its
+    `AGENTS.md` / `.codex` / `.opencode` mirrors), or `aitask_merge.py`'s
+    `merge_frontmatter()`. `archived_reason` is written once at archive time,
+    immediately before the file moves to `aitasks/archived/`, so it has no
+    concurrent-edit exposure and needs no merge rule.
+  - **Every new check was proven able to fail.** Forced-failure runs confirmed:
+    dropping the registration fails both the live scan and Test 12b's fixture;
+    a loose needle makes Test 12c vacuous; and each of 12c's two new
+    preconditions fails the suite when violated. The pre-review `|| echo` form
+    was demonstrated to report `28/28 passed, 0 failed` on the very mutant that
+    invalidates the control.
+
+- **Upstream defects identified:** None.
