@@ -33,6 +33,16 @@
 # the high-water mark survives. `list` decides emptiness on "no `### r` entries",
 # not on file absence.
 #
+# ROUND SNAPSHOTS (t1734). The same task directory also holds the text a review
+# round read, so a later round's "Where this is heading" preamble can compare
+# against it: `<kind>_r<N>.md` — `plan_r<N>.md` (the plan as read at round N)
+# and `diff_r<N>.md` (the composite diff an implementation round reviewed).
+# A repeat of the same (kind, round) overwrites: the newest read of that round
+# is the record. A snapshot whose completeness the producer could not verify
+# (a delimited terminal capture) carries the marker line `<!-- partial -->` as
+# its first line, and `snapshots` reports it as `partial`. `prune` sweeps them
+# with the rest of the directory's regular files.
+#
 # CONCURRENCY. `ait monitor` and `ait minimonitor` can both be open against the
 # same followed agent, so every mutation is a read-modify-write on a shared file.
 # `lib/atomic_write.sh` gives readers a whole-old-or-whole-new view but
@@ -66,6 +76,14 @@
 #                         TUI-invoked machinery, not a user-facing CLI.
 #   prune <task_id>     - Delete the task's store dir. Prints PRUNED:<task_id> or
 #                         PRUNED:absent. Called at archival, best-effort.
+#   snapshot <task_id> <round> [--kind plan|diff] [--partial]
+#                       - Text on stdin, stored as <kind>_r<round>.md (default
+#                         kind: plan). Prints
+#                         SNAPSHOT:<kind>|<round>|<complete|partial>|<path>
+#                         (path LAST — it may contain `|`; split('|', 3)).
+#   snapshots <task_id> - One SNAPSHOT:<kind>|<round>|<complete|partial>|<path>
+#                         per stored snapshot, kinds in SNAPSHOT_KINDS order and
+#                         rounds numeric within a kind; NO_SNAPSHOTS when none.
 #
 # Exit codes:
 #   0  success
@@ -90,6 +108,11 @@ SHADOW_DIR="${AITASK_SHADOW_DIR:-.aitask-shadow}"
 MUTATE_LOCK_TIMEOUT=10
 PRUNE_LOCK_TIMEOUT=2
 
+# Closed vocabulary of snapshot kinds — the single source for `snapshot`'s
+# --kind validation and `snapshots`' listing order.
+SNAPSHOT_KINDS="plan diff"
+SNAPSHOT_PARTIAL_MARKER='<!-- partial -->'
+
 # Populated by resolve_task_id / store_paths_for.
 TASK_ID=""
 STORE_DIR=""
@@ -102,6 +125,8 @@ Usage: aitask_shadow_rejected.sh add <task_id> [--producer <name>]   (markers on
        aitask_shadow_rejected.sh list <task_id> [--machine]
        aitask_shadow_rejected.sh remove <task_id> <id>...
        aitask_shadow_rejected.sh prune <task_id>
+       aitask_shadow_rejected.sh snapshot <task_id> <round> [--kind plan|diff] [--partial]   (text on stdin)
+       aitask_shadow_rejected.sh snapshots <task_id>
 EOF
     exit 2
 }
@@ -461,17 +486,125 @@ cmd_prune() {
     echo "PRUNED:$TASK_ID"
 }
 
+# --- snapshot ---------------------------------------------------------------
+
+# True when $1 is one of SNAPSHOT_KINDS.
+_is_snapshot_kind() {
+    local k
+    for k in $SNAPSHOT_KINDS; do
+        [[ "$1" == "$k" ]] && return 0
+    done
+    return 1
+}
+
+# Renderer for cmd_snapshot. Reads the caller's `partial` and `content`
+# locals; a pure printf sequence, so no per-command guards are needed (see
+# lib/atomic_write.sh on renderers).
+_snapshot_body() {
+    if [[ "$partial" == true ]]; then
+        printf '%s\n\n' "$SNAPSHOT_PARTIAL_MARKER"
+    fi
+    printf '%s\n' "$content"
+}
+
+cmd_snapshot() {
+    resolve_task_id "${1:-}"
+    shift || true
+
+    local round="${1:-}"
+    [[ -n "$round" ]] || err_usage "snapshot requires a round number"
+    shift
+    # Same grammar as the block's round header: a positive decimal with no
+    # leading zero (`0` and `07` are rejected, never silently normalized).
+    if [[ ! "$round" =~ ^[1-9][0-9]*$ ]]; then
+        err_usage "invalid round: '$round' (expected a positive integer, no leading zero)"
+    fi
+
+    local kind="plan" partial=false
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --kind)
+                [ $# -ge 2 ] || err_usage "--kind requires a value"
+                kind="$2"; shift 2 ;;
+            --partial) partial=true; shift ;;
+            *) usage ;;
+        esac
+    done
+    _is_snapshot_kind "$kind" \
+        || err_usage "invalid snapshot kind: '$kind' (expected one of: $SNAPSHOT_KINDS)"
+
+    # Read and validate stdin BEFORE taking the lock, so an empty input never
+    # acquires the mutex and never reports a success-shaped result. The
+    # trailing-newline trim of $( ) is harmless: the renderer re-terminates.
+    local content
+    content="$(cat)"
+    if [[ "$content" =~ ^[[:space:]]*$ ]]; then
+        err_usage "no $kind text on stdin"
+    fi
+
+    store_paths_for
+    local snap_file="$STORE_DIR/${kind}_r${round}.md"
+    lock_or_busy "$MUTATE_LOCK_TIMEOUT"
+
+    if ! ait_atomic_render "$snap_file" _snapshot_body; then
+        echo "Error: could not write $snap_file" >&2
+        exit 4
+    fi
+    local state=complete
+    [[ "$partial" == true ]] && state=partial
+    # Path LAST: it is the only field that can carry `|`.
+    printf 'SNAPSHOT:%s|%s|%s|%s\n' "$kind" "$round" "$state" "$snap_file"
+}
+
+# --- snapshots --------------------------------------------------------------
+
+cmd_snapshots() {
+    resolve_task_id "${1:-}"
+    shift || true
+    [ $# -eq 0 ] || usage
+
+    store_paths_for
+
+    # No lock: every snapshot lands via rename, so a reader always observes one
+    # whole generation. All resolution outcomes exit 0.
+    local kind f n m state any=0 first
+    if [[ -d "$STORE_DIR" ]]; then
+        for kind in $SNAPSHOT_KINDS; do
+            # Numeric order within a kind: extract N, sort -n, re-derive the
+            # path — a lexical glob would place r10 before r2.
+            for n in $(
+                for f in "$STORE_DIR/${kind}_r"[1-9]*.md; do
+                    [[ -f "$f" ]] || continue
+                    m="${f##*/"${kind}"_r}"; m="${m%.md}"
+                    [[ "$m" =~ ^[1-9][0-9]*$ ]] || continue
+                    printf '%s\n' "$m"
+                done | sort -n
+            ); do
+                f="$STORE_DIR/${kind}_r${n}.md"
+                first="$(head -n1 "$f" 2>/dev/null || true)"
+                state=complete
+                [[ "$first" == "$SNAPSHOT_PARTIAL_MARKER" ]] && state=partial
+                printf 'SNAPSHOT:%s|%s|%s|%s\n' "$kind" "$n" "$state" "$f"
+                any=1
+            done
+        done
+    fi
+    [[ "$any" -eq 1 ]] || echo "NO_SNAPSHOTS"
+}
+
 main() {
     local verb="${1:-}"
     [ -n "$verb" ] || usage
     shift
     case "$verb" in
-        add)    cmd_add "$@" ;;
-        list)   cmd_list "$@" ;;
-        remove) cmd_remove "$@" ;;
-        prune)  cmd_prune "$@" ;;
+        add)       cmd_add "$@" ;;
+        list)      cmd_list "$@" ;;
+        remove)    cmd_remove "$@" ;;
+        prune)     cmd_prune "$@" ;;
+        snapshot)  cmd_snapshot "$@" ;;
+        snapshots) cmd_snapshots "$@" ;;
         -h|--help) usage ;;
-        *)      usage ;;
+        *)         usage ;;
     esac
 }
 

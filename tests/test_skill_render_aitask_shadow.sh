@@ -58,7 +58,7 @@ PROFILES_DIR="aitasks/metadata/profiles"
 PROFILES=(default fast remote)
 AGENTS=(claude codex opencode)
 
-# impl-challenge is the only procedure carrying Jinja; the other eight are
+# impl-challenge is the only procedure carrying Jinja; the other nine are
 # identity transforms and are covered by the invariance sweep in Test 1i.
 PROC_FILES_VARYING=(impl-challenge)
 PROC_FILES_INVARIANT=(
@@ -69,6 +69,7 @@ PROC_FILES_INVARIANT=(
     plan-diagnose-errors
     plan-explain
     plan-socratic
+    round-preamble
     spawn-learn-skill
 )
 PROC_FILES=("${PROC_FILES_VARYING[@]}" "${PROC_FILES_INVARIANT[@]}")

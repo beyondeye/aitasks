@@ -85,6 +85,18 @@ the parser-safety guard in `tests/test_concern_parser.py`.
 - The header intentionally changes `concern_block_signature` — a round bump
   re-hashes the monitor's freshness badge even when the items are unchanged.
 
+### Prose around the block that is not parsed
+
+Two things every producer now emits are **prose for the human, not part of
+this format**: the `In plain words:` line that ends each item of the
+human-readable findings list, and the "Where this is heading" preamble that
+opens every round after the first. Both live **before** the block, neither is
+ever a `- [` line or inside the fences, and the parser never sees them — the
+block body stays byte-identical to what the picker forwards. Owning spec:
+`.claude/skills/aitask-shadow/round-preamble.md` (audience rule, the six
+preamble headings and their fixed verdict rule, and the per-round snapshot
+protocol behind the preamble's comparisons).
+
 ### Concern markers
 
 - One concern per line of the form `- [priority | region] body`.

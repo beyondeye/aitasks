@@ -21,6 +21,20 @@ agent's pane.
 1. **Read the plan in full** and form a clear model of what it intends to do and
    how.
 
+   **Snapshot the plan you read.** Save the plan text under this round's
+   number N (the same N the block header will carry) so a later round's
+   preamble can compare against it — round 2 reads back `plan_r1.md`:
+   ```bash
+   ./.aitask-scripts/aitask_shadow_rejected.sh snapshot <task_id> <N> < <plan text>
+   ```
+   Take the text from the first source that applies — the externalized plan
+   file, else the followed agent's single visible draft-plan file, else a
+   widened capture delimited to the latest rendering (and `--partial` when
+   that cannot be verified) — exactly as the snapshot protocol in
+   `.claude/skills/aitask-shadow/round-preamble.md` specifies. A skipped
+   snapshot (`LOCK_BUSY`, exit 2, exit 4, no task id) is reported in one
+   sentence and never blocks the review.
+
 2. **Attack it along these axes** (skip any that don't apply; add others the plan
    invites):
    - **Regressions / breakage** — what existing behavior could this change break?
@@ -45,6 +59,22 @@ agent's pane.
    vocabulary and the grammar are in the emit section below; the same vector is
    what the block carries, so decide it once here. Be specific to this plan — no
    generic "consider adding tests" filler.
+
+   **Open every round after the first with the "Where this is heading" preamble.**
+   From round 2 on, before this list: the six fixed headings (since last
+   round / since the original plan / is it still doing what was asked / how
+   much bigger did it get / was each change worth it / bottom line) with
+   their plain labels and the fixed bottom-line rule, compared by you against
+   the round-1 and previous-round snapshots — per
+   `.claude/skills/aitask-shadow/round-preamble.md`. Round 1 emits none. It
+   is prose for the human, before the list and therefore before the block.
+
+   **Add a plain-words line to every concern.** Each item of this list ends
+   with `In plain words: …` — a non-expert restatement of the concern's full
+   block body (compose the body with its trailer first, then derive the line
+   from it, so the two never diverge). Written for a reader who will not read
+   the plan: outcomes, not mechanisms; no paths or function names. Prose only
+   — it never goes on a `- [` line or inside the block.
 
 4. **Give each finding a disposition**, grounded in its vector rather than in
    how alarming it sounds — `blocking`, `follow-up`, or `informational`:
@@ -218,3 +248,14 @@ Rules — all load-bearing for minimonitor's parser; match them exactly:
   between them (say so in the prose). Minimonitor reads the header to show
   the round, to re-offer the picker when a later round repeats the same
   concerns, and to judge concern freshness.
+- **Plain-words line.** Prose-only, and therefore **not** in this block: each
+  item of the human-readable list above ends with `In plain words: …`, a
+  non-expert restatement derived from the block body after the body is
+  composed. It is never a `- [` line and never inside the fences — the block
+  body stays byte-identical to what the picker forwards. Rules in
+  `.claude/skills/aitask-shadow/round-preamble.md`.
+- **Round preamble.** Prose-only, and emitted **before** the findings list
+  and the block: every round after the first opens with the
+  "Where this is heading" preamble (six fixed headings, fixed bottom-line
+  rule) from `round-preamble.md`; round 1 emits none. Nothing of it goes
+  inside the fences.

@@ -561,6 +561,12 @@ judgement about the concern, not about which round raised it.
 lock-coordinated, guards that the directory resolves under its own root, removes
 regular files and then `rmdir`s — never `rm -rf`.
 
+**Round snapshots share the directory.** The same `.aitask-shadow/<task_id>/`
+also holds `plan_r<N>.md` / `diff_r<N>.md` — the text a review round read,
+written by the `snapshot` verb and listed by `snapshots`, under the same mutex
+and the same archive-time prune. They exist for the round preamble; see
+"Where this is heading" under the review-loop section below.
+
 ## Review-loop automation (auto-recheck)
 
 Minimonitor's `L` key arms an **auto-recheck loop** (t1159_2): when the
@@ -899,6 +905,81 @@ rules live there and are not repeated here. What matters at this level:
   shadow counts from 1 again; and the auto-recheck loop, which derives the
   round it names in the injected prompt as `parse_block_meta(previous
   block).round + 1`.
+
+### "Where this is heading" — the human-readable drift signal (t1734)
+
+The loop above tells the user *that* rounds keep coming; nothing in it says
+*what the rounds are doing to the plan*. Two prose additions, emitted by every
+producer **before** the concern block and never inside it, give the human that
+picture without reading the plan or the concerns in detail. The owning spec is
+`.claude/skills/aitask-shadow/round-preamble.md` — audience rule, headings,
+verdict rule, snapshot protocol — referenced by all four producers because a
+recheck re-runs whichever producer ran last.
+
+- **`In plain words:` per concern (every round).** Each item of the prose
+  findings list ends with a one-line non-expert restatement, derived from the
+  block body *after* the body is composed so the two cannot diverge. The block
+  body is untouched — `build_clipboard_payload` still forwards it verbatim.
+- **The round preamble (rounds ≥ 2).** Every recheck round — manual, or the
+  `L` loop's injected `refetch and recheck round N` — opens with six fixed
+  headings in plain language: *Since last round* · *Since the original plan* ·
+  *Is it still doing what was asked?* (`same thing` / `does less` /
+  `does more` / `does something different`, always with the explicit "It no
+  longer will" / "It now also will" lists) · *How much bigger did it get?*
+  (`not at all` / `a little` / `noticeably` / `a lot`) · *Was each change worth
+  it?* (`needed` / `nice to have` / `not worth it` / `nobody asked`, with a
+  count line) · *Bottom line* (`on track` / `drifting` / `getting over-built`
+  plus "I'd undo …"). The bottom line follows a **fixed rule** the agent
+  applies rather than re-judges: over-built if any change was `not worth it`,
+  any `nobody asked` change is `noticeably`+ in size, or the plan now does
+  more / something different; drifting if it does less, or only nice-to-haves
+  drove `noticeably`+ growth; otherwise on track.
+- **Grounded in the impact vector, never in its vocabulary.** The plain labels
+  map onto the concern price every producer quotes (`needed` ⇔ an obligation
+  dimension was improved, i.e. `Disposition: blocking`; `nice to have` ⇔
+  `follow-up`; `not worth it` ⇔ realized `simplicity` cost exceeded the quoted
+  `Worsens:`, or the concern was `informational`; heading 3 is `goal`, heading
+  4 is realized `simplicity`). The preamble closes the loop: did the plan pay
+  the price each concern quoted, only that price, and nothing nobody quoted?
+  The mapping is for the agent; the output names outcomes, never dimensions,
+  paths or functions.
+- **The comparison is done by the agent reading texts.** No diff machinery.
+  For plan reviews the earlier texts come from the **round snapshots** below;
+  for implementation reviews the load-bearing comparison is the approved plan
+  (committed) against the change as it now stands — implementation is
+  uncommitted until Step 8 and every revision overwrites the tree, so "since
+  last round" is best-effort from a round-keyed diff snapshot; the error
+  diagnoser compares its own earlier findings and snapshots nothing.
+
+**Not a gate, not a parser change.** The parser, the picker and
+`compose_recheck_prompt` are untouched (`concern-format.md` → "Prose around
+the block that is not parsed"). Guards: `tests/test_concern_parser.py`
+(`TestProducerPlainWordsRule`, `TestProducerRoundPreambleRule`,
+`TestPlanProducerSnapshotStep`, `TestRoundPreambleContract`, and their
+rendered-surface twins).
+
+**Relationship to t1503.** t1503 makes non-convergence *mechanically* visible
+(the round counter and its course-correction hook); the preamble's bottom line
+is the *narrative* course-correction signal on the shadow side. They are
+adjacent, not duplicates: one measures, the other explains, and neither
+replaces the other.
+
+**Round snapshots.** The preamble needs what earlier rounds read, and a plan
+under review usually exists only on the followed pane (plan-phase reviews run
+before `ExitPlanMode`; plan commits exist only after externalization). So the
+shadow saves it: `aitask_shadow_rejected.sh snapshot <task_id> <N> [--kind
+plan|diff] [--partial]` (text on stdin) stores
+`.aitask-shadow/<task_id>/<kind>_r<N>.md`, and `snapshots <task_id>` lists them
+as `SNAPSHOT:<kind>|<N>|<complete|partial>|<path>` (path last — split on at
+most three `|`). Same task-id validation, same mutex, same atomic write as the
+rejection store; a repeat of the same (kind, round) overwrites; `prune` sweeps
+them at archive. Plan producers snapshot at the start of every round from the
+first clean source that applies — the externalized plan, else the followed
+agent's single visible draft-plan file, else a widened deep capture delimited
+to the *latest* rendering and verified to hold each top-level heading exactly
+once — and mark the file `--partial` when that verification fails, so a
+round-2 comparison against an incomplete or generation-mixed baseline is
+announced rather than silent. `tests/test_shadow_snapshot.sh` pins the verbs.
 
 ### Spin-off triage arm
 

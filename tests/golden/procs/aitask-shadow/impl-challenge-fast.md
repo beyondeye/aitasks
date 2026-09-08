@@ -57,6 +57,18 @@ governs the *followed pane*, not your own repo reads.)
 
    Throughout this procedure and the angle catalog, "the diff" means this
    **resolved composite diff source** — there is no separate diff-gathering phase.
+
+   **Snapshot the diff you reviewed.** Once the composite is resolved, save
+   that same text under this round's number N (the same N the block header
+   will carry), so a later round's preamble can say what changed since this
+   one — the working tree is overwritten between rounds and git only ever
+   shows the current diff:
+   ```bash
+   <the composite diff text> | ./.aitask-scripts/aitask_shadow_rejected.sh snapshot <task_id> <N> --kind diff
+   ```
+   A skipped snapshot (`LOCK_BUSY`, exit 2, exit 4, no task id) is reported
+   in one sentence and never blocks the review. Protocol and read-back in
+   `.claude/skills/aitask-shadow/round-preamble.md`.
 3. **The plan's `## Final Implementation Notes`** — the agent's own narrative
    (*Actual work done*, *Deviations from plan*, *Issues encountered*, *Key
    decisions*), written by task-workflow Step 8 at end of implementation. This is
@@ -338,6 +350,24 @@ give:
   angle, never by verdict);
 - in Advanced/Deep: its **verdict** (CONFIRMED or PLAUSIBLE).
 
+**Open every round after the first with the "Where this is heading" preamble.**
+From round 2 on, before this list: the six fixed headings (since last round /
+since the original plan / is it still doing what was asked / how much bigger
+did it get / was each change worth it / bottom line) with their plain labels
+and the fixed bottom-line rule — here "the plan" is the code change, heading 2
+reads "since implementation started" and compares the approved plan against
+the change as it now stands, and heading 1 uses the previous round's diff
+snapshot when present — per `.claude/skills/aitask-shadow/round-preamble.md`.
+Round 1 emits none. It is prose for the human, before the list and therefore
+before the block.
+
+**Add a plain-words line to every concern.** Each finding in this list ends
+with `In plain words: …` — a non-expert restatement of the finding's full
+block body (compose the body with its trailer first, then derive the line from
+it, so the two never diverge). Written for a reader who will not read the plan
+or the code: outcomes, not mechanisms; no paths or function names. Prose only
+— it never goes on a `- [` line or inside the block.
+
 If anything was left out — by the tier's cap or for any other reason — disclose
 it per the catalog's **no-silent-omission rule**.
 
@@ -509,6 +539,17 @@ Rules — all load-bearing for minimonitor's parser; match them exactly:
   so in the prose). Minimonitor reads the header to show the round, to re-offer
   the picker when a later round repeats the same concerns, and to judge concern
   freshness.
+- **Plain-words line.** Prose-only, and therefore **not** in this block: each
+  item of the human-readable list above ends with `In plain words: …`, a
+  non-expert restatement derived from the block body after the body is
+  composed. It is never a `- [` line and never inside the fences — the block
+  body stays byte-identical to what the picker forwards. Rules in
+  `.claude/skills/aitask-shadow/round-preamble.md`.
+- **Round preamble.** Prose-only, and emitted **before** the findings list
+  and the block: every round after the first opens with the
+  "Where this is heading" preamble (six fixed headings, fixed bottom-line
+  rule) from `round-preamble.md`; round 1 emits none. Nothing of it goes
+  inside the fences.
 
 **What minimonitor does with it (current behavior):** the picker derives each
 finding's disposition from the trailer above and splits the list into a

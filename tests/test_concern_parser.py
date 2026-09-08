@@ -1868,13 +1868,14 @@ class TestProducerImpactVectorRule(unittest.TestCase):
         self.assertEqual(_assigns_priority_from_another_source(compliant), [])
 
 
-def _example_item_lines(text: str) -> list:
-    """The ``- [`` item lines of a producer's first fenced example block.
+def _fence_bodies(text: str) -> list:
+    """Bodies of every markdown code fence in ``text``, walked line-wise.
 
-    Walks the lines toggling on ``` rather than pairing fences with a regex: a
-    ```bash block preceding the example makes findall mispair (the closing
-    fence of one block matches as the opening fence of the next). Same walk as
-    :meth:`TestProducerRoundHeaderRule.test_example_block_opens_with_the_header`.
+    A findall over ``` pairs mispairs when a ```bash block precedes an
+    example (the closing fence of one block matches as the opening fence of
+    the next), so walk the lines and toggle instead. Shared by
+    :func:`_example_item_lines` and the prose-only-line guard in
+    :class:`TestProducerPlainWordsRule` (t1734).
     """
     bodies = []
     current = None
@@ -1887,7 +1888,18 @@ def _example_item_lines(text: str) -> list:
                 current = None
         elif current is not None:
             current.append(line)
-    for body in bodies:
+    return bodies
+
+
+def _example_item_lines(text: str) -> list:
+    """The ``- [`` item lines of a producer's first fenced example block.
+
+    Walks the lines toggling on ``` rather than pairing fences with a regex: a
+    ```bash block preceding the example makes findall mispair (the closing
+    fence of one block matches as the opening fence of the next). Same walk as
+    :meth:`TestProducerRoundHeaderRule.test_example_block_opens_with_the_header`.
+    """
+    for body in _fence_bodies(text):
         items = [line.strip() for line in body if line.lstrip().startswith("- [")]
         if items:
             return items
@@ -2085,6 +2097,444 @@ class TestProducerExampleTrailerShape(unittest.TestCase):
         self.assertEqual(len(_example_item_lines(text)), 1)
 
 
+#: The bolded pre-list directive for the plain-words rule, verbatim (t1734).
+_PLAIN_WORDS_DIRECTIVE = "**Add a plain-words line to every concern.**"
+
+#: The bolded pre-list directive for the round preamble, verbatim (t1734).
+_ROUND_PREAMBLE_DIRECTIVE = (
+    '**Open every round after the first with the "Where this is heading" '
+    "preamble.**"
+)
+
+#: The two prose-only phrases that must never appear inside a concern block —
+#: the reason the rules-list bullets say "prose-only" at all.
+_PROSE_ONLY_PHRASES = ("In plain words:", "Where this is heading")
+
+
+def _states_plain_words_rule(text: str) -> bool:
+    """True when a producer states the plain-words rule in BOTH placements.
+
+    Same shape as :func:`_states_round_header_rule`: whitespace is collapsed
+    (the phrase straddles line breaks in hand-wrapped markdown) and the count
+    tells the two placements apart — the bolded directive at the head of the
+    findings step plus the rules-list bullet each carry ``In plain words:``.
+    """
+    flat = " ".join(text.split())
+    return (_PLAIN_WORDS_DIRECTIVE in flat
+            and flat.count("In plain words:") >= 2)
+
+
+def _states_round_preamble_rule(text: str) -> bool:
+    """True when a producer states the round-preamble rule in BOTH placements
+    and points at the shared procedure that owns the substance.
+
+    ``Where this is heading`` is counted (directive + rules bullet); the
+    reference to ``round-preamble.md`` is what makes the six headings and the
+    fixed verdict rule reachable — a producer that names the preamble but not
+    the file leaves the agent to invent the headings.
+    """
+    flat = " ".join(text.split())
+    return (_ROUND_PREAMBLE_DIRECTIVE in flat
+            and flat.count("Where this is heading") >= 2
+            and "round-preamble.md" in flat)
+
+
+def _states_snapshot_step(text: str) -> bool:
+    """True when a plan producer instructs the round-1 plan snapshot.
+
+    Both the command and the file round 2 reads back must be named: the
+    command alone could be a mention in a rules bullet, and ``plan_r1.md``
+    is what ties the instruction to the baseline the preamble needs.
+    """
+    flat = " ".join(text.split())
+    return ("aitask_shadow_rejected.sh snapshot" in flat
+            and "plan_r1.md" in flat)
+
+
+def _example_prose_only_offences(text: str) -> list:
+    """Lines inside any example *concern-block* fence carrying a prose-only
+    phrase — the shape the rules forbid (t1734 mitigation
+    ``example_blocks_never_carry_prose_only_lines``).
+
+    Scans every fence with a ``- [`` item (not just the first), because a
+    partial capture can isolate any of them and the example is what the agent
+    pattern-matches against.
+    """
+    offences = []
+    for body in _fence_bodies(text):
+        if not any(line.lstrip().startswith("- [") for line in body):
+            continue
+        for line in body:
+            if any(phrase in line for phrase in _PROSE_ONLY_PHRASES):
+                offences.append(line.strip())
+    return offences
+
+
+class TestProducerPlainWordsRule(unittest.TestCase):
+    """Every producer must state the plain-words rule (t1734).
+
+    The ``In plain words:`` line is what lets a reviewer who has not read the
+    plan follow a concern. It exists only if the producers emit it, and it is
+    derived from the block body *after* the body is composed — so the rule
+    lives twice in each producer (bolded directive at the head of the findings
+    step + rules-list bullet), mirroring the round-header rule and guarded the
+    same way. The negative half pins that the example block never carries the
+    prose-only phrases: the example is what the agent pattern-matches against,
+    and an example contradicting the "prose-only" bullet beside it is guidance
+    the agent may copy into a concern body.
+    """
+
+    SHADOW_DIR = TestProducerShortRegionRule.SHADOW_DIR
+    PRODUCER_MARKER = TestProducerShortRegionRule.PRODUCER_MARKER
+    KNOWN_PRODUCERS = TestProducerShortRegionRule.KNOWN_PRODUCERS
+
+    _producers = TestProducerShortRegionRule._producers
+
+    def test_producer_set_is_the_known_set(self):
+        self.assertEqual(sorted(self._producers()), self.KNOWN_PRODUCERS)
+
+    def test_every_producer_states_the_plain_words_rule(self):
+        offenders = [
+            name
+            for name, text in self._producers().items()
+            if not _states_plain_words_rule(text)
+        ]
+        self.assertEqual(
+            offenders,
+            [],
+            "producer doc(s) do not state the plain-words rule in both "
+            "placements (bolded directive AND rules-list entry), so the agent "
+            "may emit concerns a non-expert cannot follow: "
+            + ", ".join(offenders),
+        )
+
+    def test_no_producer_example_block_carries_a_prose_only_line(self):
+        for name, text in self._producers().items():
+            with self.subTest(producer=name):
+                self.assertEqual(
+                    _example_prose_only_offences(text),
+                    [],
+                    f"{name}: an example concern-block fence carries a "
+                    f"prose-only phrase — the example contradicts the "
+                    f"prose-only rule stated beside it",
+                )
+
+    def test_guard_flags_a_producer_missing_the_rule(self):
+        """Negative control: placement-aware, per placement. Synthetic text —
+        this worktree is shared with concurrent sessions."""
+        directive = (
+            _PLAIN_WORDS_DIRECTIVE + " Each item of this list ends with\n"
+            "`In plain words: …` derived from the block body.\n"
+        )
+        rules_entry = (
+            "- **Plain-words line.** Prose-only: each item of the list above\n"
+            "  ends with `In plain words: …`; never inside the fences.\n"
+        )
+        base = "Rules — all " + self.PRODUCER_MARKER + "; match them exactly:\n"
+        self.assertFalse(_states_plain_words_rule(base))
+        self.assertFalse(_states_plain_words_rule(base + rules_entry))
+        self.assertFalse(_states_plain_words_rule(base + directive))
+        self.assertTrue(_states_plain_words_rule(base + directive + rules_entry))
+
+    def test_prose_only_guard_flags_an_offending_example(self):
+        """Negative control for the example scan: a fence with an item line
+        AND a prose-only phrase is caught; a prose-only phrase in ordinary
+        prose (outside any fence) or in an item-free fence is not."""
+        clean = (
+            "Prose says: In plain words: this is fine here.\n"
+            "```bash\necho 'Where this is heading' # not a concern fence\n```\n"
+            "```\nRound: 1 @ 2026-08-11T14:03:27Z\n"
+            "- [low | axis] Body. Improves: simplicity(low). "
+            "Worsens: nothing. Effort: low.\n```\n"
+        )
+        self.assertEqual(_example_prose_only_offences(clean), [])
+        for phrase in _PROSE_ONLY_PHRASES:
+            with self.subTest(phrase=phrase):
+                offending = clean + (
+                    "```\nRound: 2 @ 2026-08-11T14:03:27Z\n"
+                    "- [low | axis] Body. Worsens: nothing. Effort: low.\n"
+                    + phrase + " leaked into the block.\n```\n"
+                )
+                self.assertEqual(
+                    _example_prose_only_offences(offending),
+                    [phrase + " leaked into the block."],
+                )
+
+    def test_production_assertion_fails_on_a_real_offender(self):
+        """Runs the production methods themselves against a fixture dir (see
+        the rationale on
+        :meth:`TestProducerRejectionSuppressionRule.test_production_assertion_fails_on_a_real_offender`)."""
+        import tempfile
+        from unittest import mock
+
+        marker_line = "Rules — all " + self.PRODUCER_MARKER + "; match them exactly:\n"
+        directive = (
+            _PLAIN_WORDS_DIRECTIVE + " Each item ends with\n"
+            "`In plain words: …`.\n"
+        )
+        rules_entry = (
+            "- **Plain-words line.** Ends with `In plain words: …`.\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(os.path.join(tmp, "good.md"), "w", encoding="utf-8") as fh:
+                fh.write(marker_line + directive + rules_entry)
+            with open(os.path.join(tmp, "bad.md"), "w", encoding="utf-8") as fh:
+                fh.write(marker_line + rules_entry)
+            with open(os.path.join(tmp, "leak.md"), "w", encoding="utf-8") as fh:
+                fh.write(marker_line + directive + rules_entry
+                         + "```\nRound: 1 @ 2026-08-11T14:03:27Z\n"
+                         "- [low | axis] Body. Worsens: nothing. Effort: low.\n"
+                         "In plain words: inside the block.\n```\n")
+            with open(os.path.join(tmp, "notaproducer.md"), "w",
+                      encoding="utf-8") as fh:
+                fh.write("Prose with no producer marker and no rule.\n")
+
+            with mock.patch.object(TestProducerPlainWordsRule, "SHADOW_DIR", tmp):
+                self.assertEqual(sorted(self._producers()),
+                                 ["bad.md", "good.md", "leak.md"])
+                with self.assertRaises(AssertionError) as missing:
+                    self.test_every_producer_states_the_plain_words_rule()
+                with self.assertRaises(AssertionError) as leaked:
+                    self.test_no_producer_example_block_carries_a_prose_only_line()
+
+        message = str(missing.exception)
+        self.assertIn("bad.md", message)
+        self.assertNotIn("good.md", message)
+        self.assertIn("leak.md", str(leaked.exception))
+
+
+class TestProducerRoundPreambleRule(unittest.TestCase):
+    """Every producer must state the round-preamble rule (t1734).
+
+    A recheck re-runs whichever producer ran last, so the "Where this is
+    heading" preamble only exists on round ≥ 2 if every producer instructs
+    it. Two placements (bolded directive + rules bullet), plus the reference
+    to the shared procedure that owns the six headings and the verdict rule.
+    """
+
+    SHADOW_DIR = TestProducerShortRegionRule.SHADOW_DIR
+    PRODUCER_MARKER = TestProducerShortRegionRule.PRODUCER_MARKER
+    KNOWN_PRODUCERS = TestProducerShortRegionRule.KNOWN_PRODUCERS
+
+    _producers = TestProducerShortRegionRule._producers
+
+    def test_producer_set_is_the_known_set(self):
+        self.assertEqual(sorted(self._producers()), self.KNOWN_PRODUCERS)
+
+    def test_every_producer_states_the_round_preamble_rule(self):
+        offenders = [
+            name
+            for name, text in self._producers().items()
+            if not _states_round_preamble_rule(text)
+        ]
+        self.assertEqual(
+            offenders,
+            [],
+            "producer doc(s) do not state the round-preamble rule in both "
+            "placements (bolded directive AND rules-list entry) with a "
+            "reference to round-preamble.md, so a recheck round may open "
+            "without the drift preamble: " + ", ".join(offenders),
+        )
+
+    def test_guard_flags_a_producer_missing_the_rule(self):
+        """Negative control: per placement, plus the missing reference."""
+        directive = (
+            _ROUND_PREAMBLE_DIRECTIVE + " From round 2 on, before this list,\n"
+            "the six fixed headings.\n"
+        )
+        rules_entry = (
+            "- **Round preamble.** Every round after the first opens with the\n"
+            "  \"Where this is heading\" preamble; round 1 emits none.\n"
+        )
+        ref = "See `.claude/skills/aitask-shadow/round-preamble.md`.\n"
+        base = "Rules — all " + self.PRODUCER_MARKER + "; match them exactly:\n"
+        self.assertFalse(_states_round_preamble_rule(base))
+        self.assertFalse(_states_round_preamble_rule(base + rules_entry + ref))
+        self.assertFalse(_states_round_preamble_rule(base + directive + ref))
+        # Both placements but no pointer to the owning procedure.
+        self.assertFalse(_states_round_preamble_rule(base + directive + rules_entry))
+        self.assertTrue(
+            _states_round_preamble_rule(base + directive + rules_entry + ref)
+        )
+
+    def test_production_assertion_fails_on_a_real_offender(self):
+        import tempfile
+        from unittest import mock
+
+        marker_line = "Rules — all " + self.PRODUCER_MARKER + "; match them exactly:\n"
+        directive = _ROUND_PREAMBLE_DIRECTIVE + " Six headings.\n"
+        rules_entry = (
+            "- **Round preamble.** \"Where this is heading\" before the list.\n"
+        )
+        ref = "See `.claude/skills/aitask-shadow/round-preamble.md`.\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(os.path.join(tmp, "good.md"), "w", encoding="utf-8") as fh:
+                fh.write(marker_line + directive + rules_entry + ref)
+            with open(os.path.join(tmp, "bad.md"), "w", encoding="utf-8") as fh:
+                fh.write(marker_line + rules_entry + ref)
+            with open(os.path.join(tmp, "notaproducer.md"), "w",
+                      encoding="utf-8") as fh:
+                fh.write("Prose with no producer marker and no rule.\n")
+
+            with mock.patch.object(TestProducerRoundPreambleRule, "SHADOW_DIR", tmp):
+                self.assertEqual(sorted(self._producers()), ["bad.md", "good.md"])
+                with self.assertRaises(AssertionError) as caught:
+                    self.test_every_producer_states_the_round_preamble_rule()
+
+        message = str(caught.exception)
+        self.assertIn("bad.md", message)
+        self.assertNotIn("good.md", message)
+
+
+class TestPlanProducerSnapshotStep(unittest.TestCase):
+    """The two plan producers must instruct the round-1 plan snapshot (t1734
+    mitigation ``pin_snapshot_step_in_plan_producers``).
+
+    Without the snapshot, the round-2 preamble silently loses its "since the
+    original plan" baseline. The subset is fixed on purpose: the
+    implementation producer snapshots a *diff*, not a plan, and the error
+    diagnoser snapshots nothing — neither may be required to name
+    ``plan_r1.md``.
+    """
+
+    SHADOW_DIR = TestProducerShortRegionRule.SHADOW_DIR
+    PLAN_PRODUCERS = ["plan-assumptions.md", "plan-challenge.md"]
+    NON_PLAN_PRODUCERS = ["impl-challenge.md", "plan-diagnose-errors.md"]
+
+    def _text(self, name):
+        with open(os.path.join(self.SHADOW_DIR, name), encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_subsets_partition_the_known_producers(self):
+        self.assertEqual(
+            sorted(self.PLAN_PRODUCERS + self.NON_PLAN_PRODUCERS),
+            TestProducerShortRegionRule.KNOWN_PRODUCERS,
+        )
+
+    def test_every_plan_producer_states_the_snapshot_step(self):
+        offenders = [n for n in self.PLAN_PRODUCERS
+                     if not _states_snapshot_step(self._text(n))]
+        self.assertEqual(
+            offenders, [],
+            "plan producer(s) no longer instruct the round-1 plan snapshot, so "
+            "the round-2 preamble has no original-plan baseline: "
+            + ", ".join(offenders),
+        )
+
+    def test_non_plan_producers_are_not_required_to(self):
+        """Documents the boundary: the guard is a subset guard, not a sweep."""
+        for name in self.NON_PLAN_PRODUCERS:
+            with self.subTest(producer=name):
+                self.assertNotIn("plan_r1.md", self._text(name))
+
+    def test_guard_flags_a_missing_snapshot_step(self):
+        """Negative control: the round-preamble rule alone is not enough."""
+        with_rule = (
+            _ROUND_PREAMBLE_DIRECTIVE + " See `round-preamble.md`.\n"
+            "- **Round preamble.** \"Where this is heading\".\n"
+        )
+        self.assertTrue(_states_round_preamble_rule(with_rule))
+        self.assertFalse(_states_snapshot_step(with_rule))
+        self.assertFalse(_states_snapshot_step(
+            with_rule + "./.aitask-scripts/aitask_shadow_rejected.sh snapshot 1 1\n"))
+        self.assertFalse(_states_snapshot_step(with_rule + "reads plan_r1.md\n"))
+        self.assertTrue(_states_snapshot_step(
+            with_rule + "./.aitask-scripts/aitask_shadow_rejected.sh snapshot 1 1 "
+            "— round 2 reads plan_r1.md\n"))
+
+
+#: The fixed contract of the shared round-preamble procedure (t1734): every
+#: literal a producer relies on by reference. Deleting a section from the
+#: procedure must fail here even while every producer guard stays green.
+ROUND_PREAMBLE_HEADINGS = (
+    "Since last round",
+    "Since the original plan",
+    "Is it still doing what was asked?",
+    "How much bigger did it get?",
+    "Was each change worth it?",
+    "Bottom line",
+)
+ROUND_PREAMBLE_CONTRACT = ROUND_PREAMBLE_HEADINGS + (
+    # heading 3 labels
+    "same thing", "does less", "does more", "does something different",
+    # the two mandatory explicit lists
+    "It no longer will:", "It now also will:",
+    # heading 4 growth labels
+    "not at all", "a little", "noticeably", "a lot",
+    # heading 5 worth labels
+    "needed", "nice to have", "not worth it", "nobody asked",
+    # heading 6 verdicts and the undo line
+    "on track", "drifting", "getting over-built", "I'd undo",
+    # the audience rule, the plain-words shape, the snapshot seam
+    "will not read the plan", "In plain words:",
+    "aitask_shadow_rejected.sh snapshot",
+)
+
+
+def _round_preamble_contract_offences(text: str) -> list:
+    flat = " ".join(text.split())
+    return [lit for lit in ROUND_PREAMBLE_CONTRACT if lit not in flat]
+
+
+def _round_preamble_headings_in_order(text: str) -> bool:
+    flat = " ".join(text.split())
+    positions = [flat.find(h) for h in ROUND_PREAMBLE_HEADINGS]
+    return all(p >= 0 for p in positions) and positions == sorted(positions)
+
+
+class TestRoundPreambleContract(unittest.TestCase):
+    """The shared procedure carries its complete fixed contract (t1734).
+
+    The producer guards prove each producer *points at*
+    ``round-preamble.md``; nothing else pins what is inside it. A partial
+    rewrite could drop a heading, a mandatory list, or the verdict rule while
+    every other test in this file stayed green.
+    """
+
+    PATH = os.path.join(TestProducerShortRegionRule.SHADOW_DIR, "round-preamble.md")
+
+    def _text(self):
+        with open(self.PATH, encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_contract_is_complete(self):
+        self.assertEqual(
+            _round_preamble_contract_offences(self._text()), [],
+            "round-preamble.md lost part of its fixed contract",
+        )
+
+    def test_headings_are_in_order(self):
+        self.assertTrue(_round_preamble_headings_in_order(self._text()))
+
+    def test_it_is_not_a_producer_and_embeds_no_block(self):
+        """It is read by producers, never a producer itself, and (like every
+        shadow doc) must not embed a parser-live block."""
+        text = self._text()
+        self.assertNotIn(TestProducerShortRegionRule.PRODUCER_MARKER, text)
+        self.assertFalse(contains_any_concern_block(text))
+        self.assertFalse(any(line.lstrip().startswith("- [")
+                             for line in text.splitlines()))
+
+    def test_guard_fails_when_a_section_is_deleted(self):
+        """Negative control: for every literal, a synthetic text carrying all
+        the others fails the check — and the order check fails on a swap."""
+        full = " ".join(ROUND_PREAMBLE_CONTRACT)
+        self.assertEqual(_round_preamble_contract_offences(full), [])
+        for lit in ROUND_PREAMBLE_CONTRACT:
+            with self.subTest(literal=lit):
+                without = " ".join(x for x in ROUND_PREAMBLE_CONTRACT if x != lit)
+                # A literal that is a substring of another survives removal by
+                # construction (e.g. "a lot" inside "a lot of"); assert on the
+                # ones the check can actually see missing.
+                if lit in without:
+                    continue
+                self.assertEqual(_round_preamble_contract_offences(without), [lit])
+        swapped = " ".join(reversed(ROUND_PREAMBLE_HEADINGS))
+        self.assertFalse(_round_preamble_headings_in_order(swapped))
+        self.assertTrue(_round_preamble_headings_in_order(
+            " ".join(ROUND_PREAMBLE_HEADINGS)))
+
+
 class TestRenderedShadowDocsKeepTheGuarantees(unittest.TestCase):
     """The same guarantees must survive rendering (t1311).
 
@@ -2262,6 +2712,38 @@ class TestRenderedShadowDocsKeepTheGuarantees(unittest.TestCase):
             "rendered producer(s) still instruct omitting the block on a clean "
             "review: " + ", ".join(offenders),
         )
+
+    def test_every_rendered_producer_states_the_plain_words_rule(self):
+        """Same rationale (t1734): the rendered tree is what the agent reads."""
+        offenders = [n for n, t in self._rendered_producers().items()
+                     if not _states_plain_words_rule(t)]
+        self.assertEqual(offenders, [], "rendered producer(s) lost the "
+                                        "plain-words rule: " + ", ".join(offenders))
+
+    def test_every_rendered_producer_states_the_round_preamble_rule(self):
+        offenders = [n for n, t in self._rendered_producers().items()
+                     if not _states_round_preamble_rule(t)]
+        self.assertEqual(offenders, [], "rendered producer(s) lost the "
+                                        "round-preamble rule: " + ", ".join(offenders))
+
+    def test_every_rendered_plan_producer_states_the_snapshot_step(self):
+        offenders = [n for n, t in self._rendered_producers().items()
+                     if n in TestPlanProducerSnapshotStep.PLAN_PRODUCERS
+                     and not _states_snapshot_step(t)]
+        self.assertEqual(offenders, [], "rendered plan producer(s) lost the "
+                                        "snapshot step: " + ", ".join(offenders))
+
+    def test_rendered_round_preamble_keeps_the_contract(self):
+        """The shared procedure must reach the rendered closure intact — a
+        producer referencing a file the walker did not copy is a producer
+        pointing at nothing at runtime."""
+        path = os.path.join(self.RENDERED_DIR, "round-preamble.md")
+        self.assertTrue(os.path.isfile(path),
+                        "round-preamble.md was not rendered into the closure")
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+        self.assertEqual(_round_preamble_contract_offences(text), [])
+        self.assertTrue(_round_preamble_headings_in_order(text))
 
 
 class TestParseReviewedAtEpoch(unittest.TestCase):

@@ -53,6 +53,24 @@ pane — never the followed pane.
    below — emit it before continuing to step 5, which asks the user to choose
    among the concerns it contains.
 
+   **Open every round after the first with the "Where this is heading" preamble.**
+   From round 2 on, before this list: the six fixed headings (since last
+   round / since the original plan / is it still doing what was asked / how
+   much bigger did it get / was each change worth it / bottom line) with
+   their plain labels and the fixed bottom-line rule — here "the plan" is the
+   error picture on the followed screen, compared by you against your own
+   round-1 and previous-round findings (no snapshot is taken for this
+   producer) — per `.claude/skills/aitask-shadow/round-preamble.md`. Round 1
+   emits none. It is prose for the human, before the list and therefore
+   before the block.
+
+   **Add a plain-words line to every concern.** Each item of this list ends
+   with `In plain words: …` — a non-expert restatement of the concern's full
+   block body (compose the body with its trailer first, then derive the line
+   from it, so the two never diverge). Written for a reader who will not read
+   the plan or the code: outcomes, not mechanisms; no paths or function names.
+   Prose only — it never goes on a `- [` line or inside the block.
+
 5. **Let the user choose which concerns to act on, then offer ONE action.** See
    the step of that name after the emit section below.
 
@@ -211,6 +229,17 @@ Format rules — all load-bearing for minimonitor's parser; match them exactly:
   prose). Minimonitor reads the header to show the round, to re-offer the
   picker when a later round repeats the same concerns, and to judge concern
   freshness.
+- **Plain-words line.** Prose-only, and therefore **not** in this block: each
+  item of the human-readable list above ends with `In plain words: …`, a
+  non-expert restatement derived from the block body after the body is
+  composed. It is never a `- [` line and never inside the fences — the block
+  body stays byte-identical to what the picker forwards. Rules in
+  `.claude/skills/aitask-shadow/round-preamble.md`.
+- **Round preamble.** Prose-only, and emitted **before** the findings list
+  and the block: every round after the first opens with the
+  "Where this is heading" preamble (six fixed headings, fixed bottom-line
+  rule) from `round-preamble.md`; round 1 emits none. Nothing of it goes
+  inside the fences.
 
 ## Step 5 — Let the user choose which concerns to act on, then offer ONE action
 
