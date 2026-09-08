@@ -189,6 +189,55 @@ ait_ledger_marker() {
 
 # --- Section ensure-and-append ----------------------------------------------
 
+# _ait_ledger_swap_tmp <producer_status> <tmp> <file>
+#
+# The ONLY sanctioned tempfile->target swap in this file. Every write path in
+# ait_ledger_append_section routes through it, because the three that did their
+# own `mv` unconditionally DESTROYED the target whenever the producer failed
+# (t1741): BSD awk rejects a newline inside a `-v` assignment, exits 2 with EMPTY
+# output, and the following `mv` published that emptiness over an 11KB task file
+# while the function still returned 0 and `ait note` printed NOTE_APPENDED.
+#
+# Fails closed in every direction: on a producer failure, an empty result, or a
+# failed rename, the target is left BYTE-FOR-BYTE untouched, the tempfile is
+# removed, and the status is non-zero so the caller can report a real failure.
+_ait_ledger_swap_tmp() {
+    local st="$1" tmp="$2" file="$3" why=""
+
+    # Test-only fault injection through a documented seam. The three callers of
+    # the seam are separate PROCESSES, so their failure contracts cannot be
+    # driven by shadowing a command in a test shell; this is how
+    # tests/test_ledger_block_append_integrity.sh reaches them. Placed here
+    # rather than at the top of the function so the real guard below still runs
+    # — the forced failure exercises the cleanup and the untouched target, not
+    # just the return status. Never set in normal operation; mirrors
+    # AIT_NOTE_FAIL_AFTER_APPEND in aitask_note.sh.
+    [[ -z "${AIT_LEDGER_FAIL_APPEND:-}" ]] || st=99
+
+    if [[ "$st" -ne 0 ]]; then
+        why="block producer exited $st"
+    elif [[ ! -s "$tmp" ]]; then
+        # Unreachable on success: every path reprints the whole input plus at
+        # least a marker line, so an empty result IS a producer that failed
+        # without saying so — the BSD-awk shape, which exits non-zero AND
+        # empties the file, but which a future producer might reach silently.
+        why="block producer wrote an empty file"
+    fi
+
+    if [[ -n "$why" ]]; then
+        rm -f "$tmp"
+        warn "ait_ledger_append_section: $why — '$file' left unchanged"
+        return 1
+    fi
+
+    if ! mv "$tmp" "$file"; then
+        rm -f "$tmp"
+        warn "ait_ledger_append_section: could not replace '$file' — left unchanged"
+        return 1
+    fi
+    return 0
+}
+
 # ait_ledger_append_section <file> <header> <comment> <marker> <body> \
 #                           [create_before] [append_at]
 #
@@ -204,6 +253,13 @@ ait_ledger_marker() {
 #                   section, and preserved exactly so this extraction changes no
 #                   bytes. "section_end" appends at the end of the section
 #                   itself, which a non-terminal ledger requires.
+#
+# RETURNS 0 when the block was written, non-zero when it was NOT — and in the
+# non-zero case <file> is byte-for-byte unchanged (t1741). Callers must branch
+# on it: reporting success for a failed append is what let a truncation be
+# committed. NOTHING from the caller reaches awk through `-v`, which runs escape
+# processing (`C:\temp` -> `C:<TAB>emp` even on GNU awk) and rejects a literal
+# newline; values are passed through ENVIRON, which is POSIX and does neither.
 ait_ledger_append_section() {
     local file="$1" header="$2" comment="$3" marker="$4" body="$5"
     local create_before="${6:-}" append_at="${7:-eof}"
@@ -224,8 +280,15 @@ ait_ledger_append_section() {
         # Create the section immediately BEFORE the anchor header.
         local anchor_re="^##[[:space:]]+${create_before#\#\# }[[:space:]]*$"
         if grep -qE "$anchor_re" "$file"; then
-            awk -v anchor="$anchor_re" -v hdr="$header" -v cmt="$comment" \
-                -v mk="$marker" -v body="$body" '
+            local st=0
+            AIT_LB_ANCHOR="$anchor_re" AIT_LB_HDR="$header" AIT_LB_CMT="$comment" \
+            AIT_LB_MK="$marker" AIT_LB_BODY="$body" \
+            awk '
+                BEGIN {
+                    anchor = ENVIRON["AIT_LB_ANCHOR"]; hdr = ENVIRON["AIT_LB_HDR"]
+                    cmt    = ENVIRON["AIT_LB_CMT"];    mk  = ENVIRON["AIT_LB_MK"]
+                    body   = ENVIRON["AIT_LB_BODY"]
+                }
                 $0 ~ anchor && !done {
                     print hdr; print cmt; print "";
                     print mk;
@@ -234,8 +297,8 @@ ait_ledger_append_section() {
                     done = 1
                 }
                 { print }
-            ' "$file" > "$tmp"
-            mv "$tmp" "$file"
+            ' "$file" > "$tmp" || st=$?
+            _ait_ledger_swap_tmp "$st" "$tmp" "$file" || return 1
             return 0
         fi
         # Anchor absent: fall through to EOF creation.
@@ -243,8 +306,14 @@ ait_ledger_append_section() {
 
     if [[ $have_section -eq 1 && "$append_at" == "section_end" ]]; then
         # Insert before the next '##' header after ours; EOF when it is last.
-        awk -v hdr="$header_re" -v mk="$marker" -v body="$body" '
-            BEGIN { inside = 0; done = 0 }
+        local st=0
+        AIT_LB_HDRRE="$header_re" AIT_LB_MK="$marker" AIT_LB_BODY="$body" \
+        awk '
+            BEGIN {
+                inside = 0; done = 0
+                hdr  = ENVIRON["AIT_LB_HDRRE"]; mk = ENVIRON["AIT_LB_MK"]
+                body = ENVIRON["AIT_LB_BODY"]
+            }
             !done && inside && /^##[[:space:]]/ {
                 print mk;
                 if (body != "") { print ">"; print body }
@@ -260,28 +329,46 @@ ait_ledger_append_section() {
                     if (body != "") { print ">"; print body }
                 }
             }
-        ' "$file" > "$tmp"
-        mv "$tmp" "$file"
+        ' "$file" > "$tmp" || st=$?
+        _ait_ledger_swap_tmp "$st" "$tmp" "$file" || return 1
         return 0
     fi
 
-    {
-        cat "$file"
-        # Ensure a trailing newline before appending.
-        [[ -n "$(tail -c1 "$file" 2>/dev/null)" ]] && echo
-        if [[ $have_section -eq 0 ]]; then
-            echo
-            echo "$header"
-            echo "$comment"
-        fi
-        echo
-        echo "$marker"
-        if [[ -n "$body" ]]; then
-            echo ">"
-            printf '%s\n' "$body"
-        fi
-    } > "$tmp"
-    mv "$tmp" "$file"
+    # Build the appended tail FIRST, so the producer below is two guarded
+    # commands rather than six unguarded ones. Byte-for-byte the same output.
+    local suffix="" last_byte="" st_tail=0
+    # Ensure a trailing newline before appending. A `tail` that FAILS is
+    # indistinguishable from a file that already ends in one — both yield an
+    # empty capture — so treat it as a producer failure rather than guessing and
+    # renaming that guess over the target. Captured declare-first: `local x=$(…)`
+    # returns `local`'s status, not the command's.
+    last_byte="$(tail -c1 "$file" 2>/dev/null)" || st_tail=$?
+    if [[ "$st_tail" -ne 0 ]]; then
+        warn "ait_ledger_append_section: could not read the final byte of '$file' — left unchanged"
+        return 1
+    fi
+    if [[ -n "$last_byte" ]]; then suffix=$'\n'; fi
+    if [[ $have_section -eq 0 ]]; then
+        suffix="${suffix}"$'\n'"${header}"$'\n'"${comment}"$'\n'
+    fi
+    suffix="${suffix}"$'\n'"${marker}"$'\n'
+    if [[ -n "$body" ]]; then
+        suffix="${suffix}>"$'\n'"${body}"$'\n'
+    fi
+
+    local st=0
+    (
+        # NO `set -e` here: bash suppresses errexit for a compound command on the
+        # left of `||`, and setting it inside the subshell does NOT restore it
+        # (measured) — a failing `cat` would sail past it. A brace group is worse
+        # still: it reports only its LAST command's status, so a failed `cat`
+        # used to be masked by the echoes that followed and the file's whole
+        # content was replaced by a lone marker block. Guard each producer.
+        cat "$file"           || exit 90
+        printf '%s' "$suffix" || exit 91
+    ) > "$tmp" || st=$?
+    _ait_ledger_swap_tmp "$st" "$tmp" "$file" || return 1
+    return 0
 }
 
 fi

@@ -378,10 +378,15 @@ _gate_append_locked() {
     # Ensure the section exists and append. create_before="" / append_at="eof"
     # reproduce this ledger's historical placement exactly: Gate Runs is the
     # file's terminal section, so both points are EOF (t1657_1).
+    # The seam fails closed — nothing written, task file byte-for-byte untouched
+    # (t1741). Same `|| die` spelling as the python branch above, so the two
+    # backends fail identically and the echo below never claims a block that
+    # does not exist. The gate lock is released by the caller's EXIT trap.
     ait_ledger_append_section "$file" \
         "## Gate Runs" \
         "<!-- Appended by the gate framework. Do not edit by hand; use \`./.aitask-scripts/aitask_gate.sh append\` for corrections. -->" \
-        "$marker" "$body" "" "eof"
+        "$marker" "$body" "" "eof" \
+        || die "gate ledger append failed for $gate (task file left unchanged)"
 
     # Echo the appended block (marker + body) for caller confirmation.
     printf '%s\n' "$marker"

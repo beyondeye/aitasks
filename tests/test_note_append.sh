@@ -148,6 +148,67 @@ assert_contains "2f. '## Inbox' neutralized"     "> | ## Inbox" "$body"
 # The section boundary is unchanged: no real '## Gate Runs' header was created.
 assert_eq "2g. no bare '## Gate Runs' header" "0" "$(grep -c '^## Gate Runs$' <<<"$body")"
 
+# --- 2b. Multiline + backslash body, end to end (t1741) --------------------
+#
+# THE INCIDENT this pins. The append seam passed the body through `awk -v`,
+# which runs escape processing and rejects a literal newline. On BSD awk a
+# multiline body exited 2 with EMPTY output, and the unconditional `mv` that
+# followed published that emptiness — a real 11KB task file went to 0 bytes and
+# was COMMITTED, while this CLI printed NOTE_APPENDED. On GNU awk the same `-v`
+# silently rewrote backslashes (`C:\temp` -> `C:<TAB>emp`), so the body was
+# corrupted on every platform.
+#
+# `--file -` with a heredoc is the documented multiline interface (CLAUDE.md,
+# the /aitask-note skill), so this is the documented happy path, not an edge
+# case. Driving it through the real CLI is what makes the fix's blast radius —
+# a seam shared by the note mailbox AND the gate ledger — covered end to end
+# rather than only at the function boundary.
+# TWO notes, deliberately. The FIRST note on a task finds neither '## Inbox' nor
+# the '## Gate Runs' anchor, so it is created at EOF by a plain shell printf —
+# a path that never touches awk and is therefore green even against the broken
+# seam. Only the SECOND note appends into an existing '## Inbox', which is the
+# awk `section_end` branch where the corruption lives. A single-note version of
+# this test passes pre-fix and proves nothing.
+make_task 707
+run_note 707 --from 701 --text "first note, plain" >/dev/null 2>&1
+before="$(task_body 707)"
+assert_eq "2g1. precondition: the Inbox exists, so the next note takes the awk path" \
+    "1" "$(grep -c '^## Inbox$' <<<"$before")"
+out="$(run_note 707 --from 701 --with-live --file - 2>/dev/null <<'EOF'
+first line, path C:\temp\new
+second line with a literal \\ pair
+third line ending in a backslash \
+EOF
+)"
+assert_contains "2h. multiline heredoc body lands" "NOTE_APPENDED:" "$out"
+body="$(task_body 707)"
+# The task's own content survived — the truncation half of the defect.
+assert_contains "2i. pre-existing task content survives" "Body for t707." "$body"
+assert_eq "2j. frontmatter survives" "1" "$(grep -c '^status: Ready$' <<<"$body")"
+assert_eq "2j2. the earlier note survives alongside the new one" "1" \
+    "$(grep -cFx '> | first note, plain' <<<"$body")"
+# The marker's name is the SENDER id (`note:t701`), not a literal like "new".
+assert_eq "2j3. both notes are in the Inbox" "2" \
+    "$(grep -c '^> \*\*.*note:t701\*\*' <<<"$body")"
+# Every line round-trips VERBATIM — the escape-rewriting half. grep -F so the
+# backslashes are data, and -x so a partial match cannot pass for the whole line.
+assert_eq "2k1. line 1 verbatim" "1" \
+    "$(grep -cFx '> | first line, path C:\temp\new' <<<"$body")"
+assert_eq "2k2. line 2 verbatim" "1" \
+    "$(grep -cFx '> | second line with a literal \\ pair' <<<"$body")"
+assert_eq "2k3. line 3 verbatim" "1" \
+    "$(grep -cFx '> | third line ending in a backslash \' <<<"$body")"
+# No TAB may appear in a body line: that is what `C:\temp` decays into when the
+# value is passed through `awk -v`. awk, not `grep -P`, which is a GNU
+# extension this repo cannot rely on.
+assert_eq "2k4. no escape-rewritten TAB in the body" "0" \
+    "$(awk '/^> \| / && index($0, "\t") { c++ } END { print c+0 }' \
+        "$DATA/aitasks/t707_x.md")"
+# And the append is additive: nothing the file already had was dropped.
+assert_eq "2k5. no original line lost" "0" \
+    "$(comm -23 <(printf '%s\n' "$before" | sort -u) \
+                <(printf '%s\n' "$body" | sort -u) | grep -c .)"
+
 # --- 3. Body limits (§5) ---------------------------------------------------
 
 big="$(head -c 9000 /dev/zero | tr '\0' 'a')"

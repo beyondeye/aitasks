@@ -481,9 +481,19 @@ _note_append_inner() {
     marker="$(ait_ledger_marker "$NOTE_NAMESPACE" "$name" "$NOTE_ICON" \
         "id=$NOTE_ID" "${extra_kv[@]}")"
 
-    ait_ledger_append_section "$file" "$NOTE_SECTION_HEADER" \
-        "$NOTE_SECTION_COMMENT" "$marker" "$body" \
-        "$NOTE_ANCHOR_HEADER" "section_end"
+    if ! ait_ledger_append_section "$file" "$NOTE_SECTION_HEADER" \
+            "$NOTE_SECTION_COMMENT" "$marker" "$body" \
+            "$NOTE_ANCHOR_HEADER" "section_end"; then
+        # The seam fails closed: nothing was written and the target is
+        # byte-for-byte untouched (t1741). So this is a PRE-append failure and
+        # owes the id-less NOTE_ERROR half of the contract — the same shape, and
+        # the same release-then-retrap spelling, as the collision exhaustion
+        # above. Reporting NOTE_APPENDED here is exactly how a truncated task
+        # file once got committed as a success.
+        ait_ledger_lock_release || true
+        trap note_cleanup_body EXIT
+        note_die "append-write-failed"
+    fi
 
     # THE NOTE HAS LANDED. Publish the id NOW, before anything that can still
     # fail (F22). ait_ledger_lock_release_checked below genuinely can `die` —
@@ -657,9 +667,13 @@ _note_read_inner() {
     # dirty/host are rejected on one.
     marker="$(ait_ledger_marker "$NOTE_NAMESPACE" "read" "$READ_ICON" \
         "id=$NOTE_ID" "by=$by" "at=$(note_iso_now)" "mode=$mode" "ids=$ids_csv")"
+    # No receipt was written and the target is untouched (the seam fails closed,
+    # t1741), so the notes stay UNREAD — the documented fail-safe direction, and
+    # cheaper than a receipt that hides a note nobody has seen.
     ait_ledger_append_section "$file" "$NOTE_SECTION_HEADER" \
         "$NOTE_SECTION_COMMENT" "$marker" "" \
-        "$NOTE_ANCHOR_HEADER" "section_end"
+        "$NOTE_ANCHOR_HEADER" "section_end" \
+        || note_read_die "append-write-failed"
     printf '%s' "$NOTE_ID" > "$NOTE_ID_FILE"
 
     # --- Commit, INSIDE the lock -------------------------------------------
