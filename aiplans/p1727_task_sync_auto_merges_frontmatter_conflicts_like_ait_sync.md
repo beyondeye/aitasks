@@ -447,3 +447,122 @@ radius — this is still the one conflict-resolution seam every machine shares.
 - timing: pre-phase | name: sentinel_single_constant | type: refactor | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — a drifted sentinel leaves TASK_*_AUTOMERGED unset while the merge worked | desc: declare the auto-merge sentinel once in task_utils.sh and have the emitter and both matchers reference that constant
 - timing: pre-phase | name: bound_automerge_loop_iterations | type: enhancement | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — a looping resolver holding the pull mutex blocks every session's pull; the lengthened mutex window | desc: hard-cap ait_automerge_rebase_loop at 50 rounds, returning stuck-with-remaining on exhaustion so the caller aborts normally
 - timing: post-phase | name: push_grant_termination_test | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — the push progress grant adds a second termination condition to a retry loop | desc: fixture with a persistently re-conflicting remote asserting task_push stops at 5 push attempts and reports failed, counting attempts through an argv-keyed git shim
+
+---
+
+## Implementation notes (as landed)
+
+All plan steps completed. Deviations and discoveries, in order:
+
+**Pre-phase 1 — baseline (`baseline_sync_automerge_before_extraction`).** Measured
+on the untouched tree before any edit: `tests/test_sync.sh` **42 passed / 0
+failed**, `tests/test_sync_branch_mode_automerge.sh` **43 / 0**,
+`tests/test_task_push.sh` **257 / 0**. No pre-existing failures, so every later
+red would have been extraction damage. Post-extraction the first two read
+**42 / 0** and **43 / 0** — identical — confirming the sync side is
+behaviour-preserving. `shellcheck` was also baselined via
+`git show HEAD:<file>`: the `CONTRIBUTE_*` SC2034 warnings in `task_utils.sh`
+(17 of them) are pre-existing, and the change adds none.
+
+**Progress channel — one deviation from the plan.** The plan said `iinfo_err`
+"becomes plain stderr writes". That would have made the per-file
+`Auto-merged: <f>` lines print on every pick, where the workflow pull must not
+narrate. The library instead routes non-failure progress through an overridable
+`AIT_AUTOMERGE_PROGRESS_FN`, defaulting to a no-op; `aitask_sync.sh` points it
+at `iinfo_err`, so interactive `ait sync` keeps its per-file lines and `--batch`
+stays silent exactly as before. Real failures were never on that channel — they
+go through `warn()` and remain unsuppressible.
+
+**A gap the plan missed: the notices were being swallowed.** The plan's stderr
+sentinel works for *setting* `TASK_SYNC_AUTOMERGED`, but both callers capture
+`_task_pull_rebase 2>&1` into a variable for `_task_push_classify`, so the
+notice never reached a human — success was completely silent, and a fired round
+cap was indistinguishable from an ordinary unmergeable conflict. Fixed by adding
+`_task_pull_report_automerge`, which re-emits the two sentinel lines on the
+*caller's* stderr (`task_sync` on both its success and failure paths, `task_push`
+after each retry pull). Caught by tests 48/54/55/57, which failed against the
+first implementation.
+
+**Second sentinel constant.** The round cap needed the same
+emitter/matcher-drift protection as the auto-merge line, so
+`AIT_AUTOMERGE_GAVE_UP_SENTINEL` joins `AIT_PULL_AUTOMERGED_SENTINEL` in
+`task_utils.sh`. Both live there rather than in the library because the matchers
+run whether or not the library was ever loaded, and a matcher against an unset
+variable matches every string.
+
+**Scaffold rule: nothing owed.** `aitask_sync.sh` sources the new library at
+startup, but no test scaffolds that script through
+`setup_fake_aitask_repo` — every test that runs it copies the whole
+`.aitask-scripts` tree. `task_utils.sh` loads the library lazily, so the
+standalone fixtures are unaffected (pinned by test 51, which first asserts the
+fixture really lacks the library so the check cannot be vacuous).
+
+**Tests added.** `tests/test_task_push.sh` 48–58 (257 → **324** assertions) and
+`tests/test_sync_branch_mode_automerge.sh` Test 9 (43 → **48**). Test 54's
+discriminator reads `(2 file(s))` in the sentinel — a count of 1 would mean the
+fixture degenerated into a single round.
+
+**Docs.** `website/content/docs/commands/sync.md` only: a cross-reference in
+"Auto-Merge Conflict Resolution" and a paragraph under "Task-data pull before
+task selection". The batch-protocol table is untouched, and
+`aitask_pick_own.sh --sync` still prints bare `SYNCED` as planned.
+`check_links.py --build`: 29074 resolved, **0 broken**.
+
+## Final Implementation Notes
+
+- **Actual work done:** Extracted `ait sync`'s conflict resolver into
+  `.aitask-scripts/lib/task_automerge.sh` (281 lines) and wired both `pull
+  --rebase` paths to it. `aitask_sync.sh` lost `try_auto_merge`,
+  `_rebase_advance`, `_resolve_conflict_path` and its hand-rolled advance loop
+  (−172 lines) with every `--batch` token unchanged. `lib/task_utils.sh` gained
+  the two sentinel constants, the `ait_rebase_is_ours` ownership-proof split, the
+  lazy library loader, resolve-then-abort in `_task_pull_rebase_cleanup`,
+  `TASK_SYNC_AUTOMERGED` / `TASK_PUSH_AUTOMERGED`, and the bounded push progress
+  grant. All four planned inline risk mitigations landed. Tests: 257 → 324 in
+  `test_task_push.sh`, 43 → 48 in `test_sync_branch_mode_automerge.sh`.
+
+- **Deviations from plan:**
+  - *Progress channel.* The plan turned `iinfo_err` into plain stderr writes;
+    that would have made per-file `Auto-merged: <f>` lines print on every pick.
+    Replaced with an overridable `AIT_AUTOMERGE_PROGRESS_FN` (no-op by default,
+    `iinfo_err` in `aitask_sync.sh`), preserving both surfaces exactly.
+  - *Second sentinel.* The round cap needed the same emitter/matcher-drift
+    protection as the auto-merge line, so `AIT_AUTOMERGE_GAVE_UP_SENTINEL` was
+    added next to `AIT_PULL_AUTOMERGED_SENTINEL`. Both live in `task_utils.sh`,
+    not the library: the matchers run whether or not the library was loaded, and
+    a matcher against an unset variable matches every string.
+  - *Test 54's assertion string.* Written for a phrasing the emitter does not
+    use; the assertion was corrected to the real text, which still carries the
+    `(2 file(s))` discriminator. The behaviour was right, the assertion was not.
+
+- **Issues encountered:** The plan's stderr sentinel set `TASK_*_AUTOMERGED`
+  correctly but never reached a human — both callers capture `_task_pull_rebase
+  2>&1` into a variable for `_task_push_classify`, so a successful auto-merge was
+  entirely silent and a fired round cap was indistinguishable from an ordinary
+  unmergeable conflict. Fixed with `_task_pull_report_automerge`, which re-emits
+  the two sentinel lines on the *caller's* stderr (`task_sync` on both its
+  success and failure paths, `task_push` after each retry pull). Tests 48, 54, 55
+  and 57 failed against the first implementation and pass against the fix.
+
+- **Key decisions:**
+  - The library runs git through `_ait_data_git`, not `task_git` +
+    `AIT_GIT_SKIP_STATE_CHECK=1`. Same worktree, same argv; it retires a
+    documented guard-bypass rather than carrying it into a second caller.
+    `test_sync_branch_mode_automerge.sh` Tests 2/3/7 still cover the
+    staging-failure route because their shim keys on argv.
+  - The auto-merge sits *behind* the same five-signal ownership gate as the
+    abort. Auto-merging a rebase this call did not start is as dangerous as
+    aborting one, so `ait_rebase_is_ours` was split out and is shared rather
+    than duplicated.
+  - `aitask_pick_own.sh --sync` still prints bare `SYNCED`; no
+    `SYNCED:automerged`. The token is matched exactly by the pick skill and three
+    existing assertions, the detail is actionable to none of them, and the human
+    gets the stderr notice instead. The `ait sync --batch` protocol table is
+    therefore unchanged.
+  - `aitask_sync.sh` sources the library at startup while `task_utils.sh` loads
+    it lazily. No `setup_fake_aitask_repo` entry is owed: no test scaffolds
+    `aitask_sync.sh` itemized (they all copy the whole tree), and the lazy load
+    is exactly what lets the standalone `task_utils.sh` fixtures degrade to "no
+    auto-merge" instead of breaking.
+
+- **Upstream defects identified:** None
