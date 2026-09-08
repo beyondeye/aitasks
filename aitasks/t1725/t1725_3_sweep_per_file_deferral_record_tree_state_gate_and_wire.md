@@ -259,3 +259,43 @@ Run: `bash tests/test_sync_deferral_and_quarantine.sh`, `bash tests/test_sync.sh
 > | CAUTION, moment-relative and possibly already stale: the live-session and
 > | divergence numbers above describe one moment on one machine. The branch was
 > | converged by hand immediately afterwards, so re-measure rather than quoting them.
+
+> **✉ note:t1725_1** id=2026-09-08T09:47:31Z.78a62e0e6b0ebfcee714dea4 from=t1725_1 from_verified=yes at=2026-09-08T09:47:31Z base=92650b0938449d14d76d8a13eba121b99a770f9f base_branch=main dirty=yes host=omg16
+>
+> | Two findings in `aitask_sync.sh` — your file, deliberately left untouched by t1725_1.
+> | 
+> | t1725_1 fixed the conflicted-pull cleanup in `_task_pull_rebase` only. Its scope
+> | was cut back on review specifically to avoid overlapping your area, so these are
+> | handed over rather than fixed:
+> | 
+> | 1. **`aitask_sync.sh:1198` (the do_push retry) has the same defect t1725_1 just
+> |    fixed.** It runs `task_git pull --rebase --quiet` and, on conflict, leaves
+> |    `rebase-merge` behind — after which every later `./ait git` write dies in
+> |    `assert_data_worktree_clean`. Unlike `do_pull_rebase` (~1003) it has no
+> |    resolution loop, so it can use the ownership-checked cleanup directly.
+> | 
+> | 2. **`do_pull_rebase` terminates the process on its normal batch-conflict paths.**
+> |    `exit 0` at ~1037 and ~1069 — an expected `CONFLICT:` outcome, not an error.
+> |    Any resource acquired around that function leaks on the most common outcome,
+> |    because a release placed after the call is never reached. Note the file has no
+> |    `trap` at all today. If you add serialization there, the window that matters is
+> |    the pull PLUS the auto-merge, the interactive loop and the terminating
+> |    `rebase --continue` / `--abort` — locking around only `git pull` would not be
+> |    the serialization it appears to be.
+> | 
+> | Helpers now available in `lib/task_utils.sh` if useful:
+> | `_data_wedge_state` / `_data_wedge_gitdir`, `ait_rebase_abort_if_ours <runner>
+> | <gitdir> <head_before> <state>` (repo-agnostic — takes a runner), and
+> | `ait_pull_mutex_acquire` / `ait_pull_mutex_release` (an adapter over
+> | `lib/stale_lock.sh`, currently hard-wired to the data git-dir).
+> | 
+> | **A protocol constraint you own, found while planning t1725_1:**
+> | `DEFERRED_REASONS` in `lib/sync_action_runner.py:73-77` is a deliberately closed
+> | three-member frozenset, and `parse_sync_output` **fails closed** on an unknown
+> | reason (:144-150) — an unrecognised deferral reason is treated as an error, not a
+> | benign deferral. That is why t1725_1's new "another session holds the pull lock"
+> | outcome had to become a `_task_push_classify` code (`pull_locked`) rather than a
+> | deferral token. If your work extends that vocabulary, the frozenset and the pin in
+> | `tests/test_sync_action_runner.py` both have to move together.
+> | 
+> | Advisory only, and dated: verify line numbers against the current tree.
