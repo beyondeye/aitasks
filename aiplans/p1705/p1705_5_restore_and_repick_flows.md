@@ -744,6 +744,139 @@ an edit to an already-shipped reconcile path. Goal-achievement **stays medium**;
 its drivers are untouched by t1738. Mitigation selection **was** reopened, to add
 `baseline_live_suite_before_edits` (user-confirmed).
 
+
+## Final Implementation Notes
+
+- **Actual work done:** All six deliverables landed as planned, plus Step A and
+  the three pre-phase mitigations.
+  - **Step A** — amendments **B1–B7** written into the parent plan (resolving its
+    internal §D-vs-spike-findings contradiction in favour of `-e`) and a tailored
+    supersession banner added to all five pending sibling plans. Archived plans
+    deliberately untouched. Committed together (`6f072aea9`).
+  - **Pre-phase 0 `baseline_live_suite_before_edits`** (added at re-verification)
+    — against the unmodified tree at `c623a7e0d`: `test_freeze_engine_live.sh`
+    **110/110** and `test_frozen_standin_spike.sh` **31/31**. This was t1738's
+    FIRST live run; it is green, so W5 is discharged with evidence and every
+    later failure in this task was measured against a known-good baseline.
+  - **Pre-phase 1 `measure_repeated_respawn_e`** — spike **Case 3c**: four `-e`
+    flags, all four delivered, `#{pane_pid}` still the agent pid. V11 is now a
+    measured fact, so step 3 uses `-e` per variable; the `env` prefix stays as
+    the documented fallback (and is what the gone-pane branch actually uses,
+    since `launch_in_tmux` takes a command string and has no `-e`).
+  - **Pre-phase 2 `assert_grace_seam_effective`** — written RED first
+    (2 failures + 16 errors), then step 0 made it green.
+  - **Pre-phase 3 `pin_pick_argv_behaviour`** — `tests/test_pick_launch_argv.py`,
+    4 pass + 3 skip before the extraction, **7/7 after, with the file unchanged**.
+    That is the property the plan asked for.
+  - Steps 0–6, `--resume-session`, `agent_restore.py`, the shell dispatch, the
+    reconcile-by-test obligation and Restore-All all as specified.
+
+- **Deviations from plan:**
+  1. **`restore_ack_grace()` lives in `lib/agent_frozen_ops.py`, not
+     `agent_freeze.py`** (amendment **B6**, user-confirmed). Removes the
+     `agent_restore -> agent_freeze` edge t1738's mitigation existed to remove;
+     `agent_freeze.py`'s change is one import plus the call-site swap.
+  2. **`frozen_ops.respawn()` gained `env=`** (one `-e` per entry). The plan put
+     `-e` construction in the coordinator; putting it in the shared module keeps
+     all tmux command construction on one side of the gateway boundary, where
+     `tests/test_no_raw_tmux.sh` polices it.
+  3. **New pause stage `ack`.** `AITASKS_FROZEN_PAUSE_AT=respawn` only reaches
+     the `launch_pid == 0` indeterminate row, so a takeover test written against
+     it would pass even if `--owner-pid` were dropped — the exact regression the
+     case exists to catch. `ack` pauses with `launch_pid` recorded and the
+     replacement running, which is the state reconcile actually wants to act on.
+  4. **`pick_launch_argv` has THREE call sites, not two** (**W3**):
+     `minimonitor_app.py:3013`, `monitor_app.py:3599`, and the previously
+     unlisted `monitor_app.py:3683` (`_on_restart_confirmed`). All three migrated
+     and all three pinned.
+  5. `restore()` takes `repick=` (per the plan's own step-3 signature); the
+     plan's unused `grace=` parameter was dropped.
+  6. **Gone-pane branch resolves the new pane id** via `resolve_pane_id_by_pid`.
+     The store REFUSES `--pane "" --pane-pid <n>` — `("", 0)` is reserved to mean
+     "pane gone" — so returning the pid alone made `restore-launched` fail. Found
+     by live case 13.
+  7. **Test seam re-points** (mechanical, same shape as t1738's own `_install`
+     re-point, no assertion weakened): `tests/test_agent_freeze.py` ×2 now read
+     `agent_frozen_ops.restore_ack_grace()`; `test_minimonitor_pick_by_number.py`
+     and `test_minimonitor_pick_next_characterization.py` patch
+     `mm.pick_launch_argv` instead of `mm.resolve_dry_run_command`. Their stubs
+     **compute** the real `agent-pick-<id>` name rather than returning a literal,
+     so the golden assertions keep testing the convention and not the stub.
+
+- **Issues encountered:** Four defects in code written this session, every one
+  caught by the live suite and invisible to the unit tests:
+  1. **`fake_agent.sh` resolved the shipped hook via `BASH_SOURCE`**, which in a
+     live fixture is the `claude` SYMLINK on `PATH` — so `../..` landed in the
+     temp bin dir, the hook never ran, and **every restore silently degraded to
+     the liveness fallback while still reporting success**. This is precisely the
+     silent-success failure the acknowledgement protocol exists to prevent, and
+     it would have shipped green on unit tests alone. Now walks the symlink chain
+     (bash 3.2-safe: macOS has no `readlink -f`).
+  2. **A pane that VANISHES was ignored.** `pane_facts` returns `{}` for a gone
+     pane and only `pane_dead=1` was treated as an exit, so the poll ran to the
+     grace and liveness-confirmed a dead agent. Both shapes now end the wait.
+  3. **The liveness fallback confirmed on pre-wait pane facts.** Because those
+     stale values still equalled `launch_pid`, the store accepted them —
+     confirming a replacement that was no longer there. It now re-reads and
+     refuses when the pane is gone.
+  4. **`pause_at("aborting")` fired BEFORE `restore-abort`**, so the record was
+     still `restoring` and a test waiting for `aborting` waited forever.
+  Two fixture facts also had to change: per-case agent environment cannot be set
+  in the test shell (`respawn-pane` runs its command in the TMUX SERVER's
+  environment, captured at server start), so it travels through a control file
+  sourced by a `claude` wrapper that `exec`s the fixture agent (preserving
+  `#{pane_pid}`); and "no session id" is no longer a deterministic fixture,
+  because the fixture agent now runs the REAL hook the moment its window is
+  created and legitimately records one — case 13's failing record fails at the
+  binary preflight instead.
+
+- **Key decisions:**
+  - **The accessor's home** (B6) — shared module over repair module, to keep the
+    one-way dependency arrow t1738 established.
+  - **`-e` per variable, not the `env` prefix**, now that Case 3c measures four
+    repeated flags. The prefix remains the documented fallback and is what the
+    gone-pane branch uses, because `launch_in_tmux` has no `-e`.
+  - **`_settle()` centralises the rollback a failing verdict owes**, so the poll
+    loop and the refused-verb re-read cannot drift into treating one verdict two
+    ways — the drift that leaves a `restoring` record with no stand-in.
+  - **The real repo is the live suite's project root**, not a synthetic one: the
+    hook walks up to a real `project_config.yaml` and execs that root's wrapper,
+    and every copied fixture is a chance to diverge from what ships. The store,
+    capture tree and tmux server are all redirected into the fixture dir.
+  - **Records are dropped per case.** One store is shared (the hook, running
+    inside the pane, reads the SERVER's `AITASKS_AGENT_SESSIONS_FILE`, so a
+    per-case store file would be written by the coordinator and ignored by the
+    hook), so leftovers would otherwise leak into `restore --all`.
+
+- **Upstream defects identified:** None. (t1738's `ait note` multiline
+  truncation — `lib/ledger_block.sh:227`/`:246`, BSD awk rejecting a newline in
+  `-v` followed by an unconditional `mv` — was verified still present, but it is
+  already tracked by **t1741** `fix_ledger_block_awk_body_truncates_task_file`
+  (`followup_kind: upstream_defect`, spawned from t1738). No duplicate spawned.)
+
+- **Notes for sibling tasks:**
+  - **t1705_6 (viewer)** — shell out with
+    `run-shell -b "<repo>/.aitask-scripts/aitask_frozen.sh restore <id> [--repick]"`,
+    never inline: the coordinator respawns the very pane your keybinding runs in.
+    Parse the wire lines: `RESTORED:<id>|hook`, `RESTORED:<id>|liveness …`,
+    `RESTORE_FAILED:<id>|<reason>`. **`liveness` is a SUCCESS**, not an error —
+    it means the session id was never verified and the captures were KEPT. For a
+    codex record it is the only reachable success, and the line says so.
+  - **t1705_7 (monitor rows)** — `pick_launch_argv(root, task_id,
+    agent_string=None)` is in `lib/agent_launch_utils.py`. Call it WITHOUT an
+    agent string to preserve today's behaviour; there are **three** call sites,
+    not two. `tests/test_pick_launch_argv.py` pins it.
+  - **t1705_8 (acceptance test)** — assert **B1–B4**, not the PINNED §D prose.
+    In particular `restore-begin` requires `--owner-pid`, and the wire format is
+    `respawn-pane -e` (four flags), not the `env` prefix.
+  - **Everyone** — `AITASKS_RESTORE_ACK_GRACE` (test-mode only) is what makes any
+    timing assertion about the ack window non-vacuous. A test that asserts "the
+    liveness fallback did not fire" without shortening the grace is asserting
+    nothing; `tests/test_restore_flows_live.sh` guards this by keeping the
+    effective grace short and measuring elapsed time.
+  - The live fixture's `claude`-wrapper + control-file pattern is reusable for
+    any sibling that needs per-case behaviour from a respawned process.
+
 ## Amendments from t1705_2 (store implementation, 2026-09-06)
 
 **A7 — `restore-begin` REQUIRES `--owner-pid <pid>`.** Pass the **coordinator's**
