@@ -218,6 +218,80 @@ assert_contains "wget path uses the deterministic CDN URL" \
 assert_not_contains "wget happy path makes no api.github.com call" \
     "api.github.com" "$wlog"
 
+echo "--- Test 7: install.sh's git-tag resolver is time-bounded (t1244) ---"
+# Parity (Tests 2b/2c) only compares PARSED OUTPUT from an instant stub, so a
+# divergence in install.sh's copied process-management code would leave the
+# `curl | bash` installer hanging while every parity assertion still passed.
+# Drive install.sh's own resolver directly against a hanging stub instead.
+#
+# The stub reproduces the real process shape — `git ls-remote` runs the transfer
+# in a `git-remote-https` grandchild, and that descendant is what the fix has to
+# reach. `bash -c 'sleep 30'` would not do: bash exec-optimizes a sole simple
+# command, so the process *becomes* `sleep` and there is no grandchild at all.
+STUB_PIDS="$WORK/stub_pids"
+export STUB_PIDS
+
+# The nested shell records its own pid and its child's itself — nothing polls
+# `pgrep -P` for a grandchild it has to observe before the watchdog fires. See
+# tests/test_github_release.sh for the full note.
+git() {
+    printf 'git %s\n' "$*" >> "$GIT_LOG"
+    if [[ "${1:-}" == "ls-remote" ]]; then
+        bash -c 'sleep 30 & printf "%s\n%s\n" "$$" "$!" > "$STUB_PIDS"; wait' &
+        wait
+        return 0
+    fi
+    command git "$@"
+}
+
+# install.sh's runner MUST keep a name of its own. This file sources install.sh
+# and THEN lib/github_release.sh; bash resolves calls dynamically and a later
+# definition wins, so a shared name would make resolve_latest_version_gittags()
+# silently exercise the LIBRARY's runner and this test would pass on a broken
+# installer.
+assert_eq "install.sh carries its own bounded runner" "yes" \
+    "$( declare -F _install_ls_remote_tags >/dev/null && echo yes || echo no )"
+
+reset_logs
+start=$SECONDS
+out="$(AIT_GIT_LSREMOTE_TIMEOUT=3 resolve_latest_version_gittags)"; rc=$?
+elapsed=$(( SECONDS - start ))
+assert_eq "hanging ls-remote yields no version" "" "$out"
+# Captured here, not at install.sh:280 — that call site masks the status
+# with `|| true`.
+assert_eq "hanging ls-remote still exits 0" "0" "$rc"
+assert_eq "installer resolver is bounded, not hanging" "yes" \
+    "$( [[ $elapsed -le 8 ]] && echo yes || echo no )"
+
+nested_pid="$(sed -n 1p "$STUB_PIDS")"
+grandchild_pid="$(sed -n 2p "$STUB_PIDS")"
+assert_eq "fixture actually produced a grandchild" "yes" \
+    "$( [[ -n "$grandchild_pid" ]] && echo yes || echo no )"
+sleep 0.5   # let the signals land and the orphans get reaped
+assert_eq "nested shell was killed" "gone" \
+    "$( kill -0 "$nested_pid" 2>/dev/null && echo alive || echo gone )"
+assert_eq "its grandchild was killed too" "gone" \
+    "$( [[ -n "$grandchild_pid" ]] && kill -0 "$grandchild_pid" 2>/dev/null \
+        && echo alive || echo gone )"
+
+# Same repair, same proof, in the installer's own copy: with `pgrep` shadowed
+# away, only the process-group kill can reach the tree. A pgrep-only walk leaves
+# both processes running on any system without procps.
+pgrep() { return 1; }
+: > "$STUB_PIDS"
+out="$(AIT_GIT_LSREMOTE_TIMEOUT=3 resolve_latest_version_gittags)"
+nested_pid="$(sed -n 1p "$STUB_PIDS")"
+grandchild_pid="$(sed -n 2p "$STUB_PIDS")"
+assert_eq "installer fixture produced a grandchild (no-pgrep case)" "yes" \
+    "$( [[ -n "$grandchild_pid" ]] && echo yes || echo no )"
+sleep 0.5
+assert_eq "installer kills the nested shell without pgrep" "gone" \
+    "$( kill -0 "$nested_pid" 2>/dev/null && echo alive || echo gone )"
+assert_eq "installer kills the grandchild without pgrep" "gone" \
+    "$( [[ -n "$grandchild_pid" ]] && kill -0 "$grandchild_pid" 2>/dev/null \
+        && echo alive || echo gone )"
+unset -f pgrep
+
 # --- Summary ---
 echo ""
 echo "==============================="

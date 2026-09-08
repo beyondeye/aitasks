@@ -203,21 +203,98 @@ download_url() {
     fi
 }
 
+# --- Bounded `git ls-remote` (mirror of lib/github_release.sh, t1244) ---
+# These two helpers are install.sh's private copy of the bounded runner in
+# .aitask-scripts/lib/github_release.sh. They carry DISTINCT names on purpose:
+# tests/test_install_tarball_download.sh sources install.sh and then the library,
+# bash resolves function calls dynamically, and a later definition wins — with
+# shared names the library's copy would silently replace this one and the
+# installer's own code would never be exercised.
+_install_kill_descendants() {
+    local pid="$1" child
+    for child in $(pgrep -P "$pid" 2>/dev/null || true); do
+        _install_kill_descendants "$child"
+        kill "$child" 2>/dev/null || true
+    done
+}
+
+# Process group first — it needs no external binary and reaches the whole tree.
+# `pgrep` alone is not enough: minimal systems ship no procps, and there the
+# walk silently degrades to a depth-1 kill that leaves every descendant running.
+_install_kill_process_tree() {
+    local pid="$1"
+    kill -- "-$pid" 2>/dev/null || true
+    _install_kill_descendants "$pid"
+    kill "$pid" 2>/dev/null || true
+}
+
+# _install_ls_remote_tags <url>
+# Time-bounded `git ls-remote`; prints nothing on timeout, always returns 0.
+# A background job plus a polling watchdog rather than `timeout(1)` (macOS ships
+# none, and the tests stub `git` as a shell function), writing to a temp file
+# rather than a pipe so a surviving `git-remote-https` grandchild cannot keep a
+# reader blocked. AIT_GIT_LSREMOTE_TIMEOUT overrides the 10s default; anything
+# empty, zero, negative or non-numeric normalizes back to it — see the library
+# copy for the full rationale.
+_install_ls_remote_tags() {
+    local url="$1"
+    local timeout_s tmp pid deadline timed_out=0
+
+    timeout_s="${AIT_GIT_LSREMOTE_TIMEOUT:-10}"
+    if [[ "$timeout_s" =~ ^[0-9]+$ ]] && (( 10#$timeout_s > 0 )); then
+        timeout_s=$(( 10#$timeout_s ))
+    else
+        timeout_s=10
+    fi
+
+    tmp="$(mktemp "${TMPDIR:-/tmp}/ait_lsremote.XXXXXX" 2>/dev/null)" || return 0
+
+    # Job control for the launch only — it is what gives the job its own process
+    # group, which is what makes the group kill above reach every descendant.
+    local had_monitor=0
+    case "$-" in *m*) had_monitor=1 ;; esac
+    set -m
+    GIT_TERMINAL_PROMPT=0 \
+    GIT_HTTP_LOW_SPEED_LIMIT=1 \
+    GIT_HTTP_LOW_SPEED_TIME="$timeout_s" \
+    git ls-remote --tags --refs "$url" 'v*' >"$tmp" 2>/dev/null &
+    pid=$!
+    [[ "$had_monitor" -eq 1 ]] || set +m
+
+    deadline=$(( SECONDS + timeout_s ))
+    while kill -0 "$pid" 2>/dev/null && (( SECONDS < deadline )); do
+        sleep 0.2 2>/dev/null || sleep 1
+    done
+    if kill -0 "$pid" 2>/dev/null; then
+        timed_out=1
+        _install_kill_process_tree "$pid"
+    fi
+    wait "$pid" 2>/dev/null || true
+
+    if [[ "$timed_out" -eq 0 ]]; then
+        cat "$tmp" 2>/dev/null || true
+    fi
+    rm -f "$tmp"
+    return 0
+}
+
 # Resolve the latest release version from git tags — NO GitHub REST API call
 # (the git protocol is exempt from the REST rate limit). install.sh runs
 # standalone via `curl | bash`, so it CANNOT source
 # .aitask-scripts/lib/github_release.sh (the lib is not on disk until we extract
 # the tarball). This mirrors github_latest_tag_version() in that file — keep the
-# two in sync. Portable: ERE sed/grep + numeric sort, no GNU-isms (see
+# two in sync, INCLUDING the time bound: without it a wedged network (a
+# connection that blackholes instead of refusing) hangs the installer forever.
+# Portable: ERE sed/grep + numeric sort, no GNU-isms (see
 # aidocs/framework/sed_macos_issues.md). Prints the highest version (no 'v'), or
-# nothing if git is unavailable or no tag matches.
+# nothing if git is unavailable, the lookup times out, or no tag matches.
 resolve_latest_version_gittags() {
     command -v git &>/dev/null || return 0
-    git ls-remote --tags --refs "https://github.com/$REPO" 'v*' 2>/dev/null \
+    _install_ls_remote_tags "https://github.com/$REPO" \
         | sed -E 's#.*refs/tags/v?##' \
         | grep -E '^[0-9]+(\.[0-9]+)*$' \
         | sort -t. -k1,1n -k2,2n -k3,3n \
-        | tail -1
+        | tail -1 || true
 }
 
 # Discover the release tarball URL via the GitHub REST API. This is the

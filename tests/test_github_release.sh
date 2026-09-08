@@ -101,6 +101,136 @@ out="$(github_resolve_latest_version beyondeye/aitasks 2>/dev/null)"; rc=$?
 assert_eq "returns API version directly" "1.2.3" "$out"
 assert_eq "exit 0" "0" "$rc"
 
+# --- Test 8-11: the bounded `git ls-remote` fallback (t1244) ---------------
+# The defect these cover is a fallback with no time bound: on a wedged network
+# (a connection that blackholes instead of refusing) it hangs forever, freezing
+# `ait upgrade` / `ait setup`. Both curl paths above already carry --max-time.
+
+STUB_PIDS="$(mktemp "${TMPDIR:-/tmp}/ait_stub_pids.XXXXXX")"
+export STUB_PIDS
+trap 'rm -f "$STUB_PIDS"' EXIT
+
+# Hanging `git` stub. It must reproduce the real PROCESS SHAPE, not just the
+# hang: the failure being fixed is a surviving *descendant* (git runs the
+# transfer in a `git-remote-https` grandchild), so a stub that sleeps inline
+# would only prove the direct child was killed. `bash -c 'sleep 30'` is not
+# usable either — bash exec-optimizes a sole simple command and the process
+# *becomes* `sleep`, leaving no grandchild.
+#
+# The NESTED shell records its own pid (`$$`) and its child's (`$!`) itself, the
+# moment both exist. An earlier version had the parent poll `pgrep -P` for the
+# grandchild instead, which made the fixture a race it had to win against the
+# watchdog — observed failing as "fixture actually produced a grandchild = no".
+# Nothing here polls or searches: the write is a single printf microseconds
+# after the fork, against a multi-second watchdog.
+git() {
+    if [[ "${1:-}" == "ls-remote" ]]; then
+        bash -c 'sleep 30 & printf "%s\n%s\n" "$$" "$!" > "$STUB_PIDS"; wait' &
+        wait
+        return 0
+    fi
+    command git "$@"
+}
+
+echo "--- Test 8: a hanging ls-remote is bounded, empty and non-fatal ---"
+# 3s rather than 1s: the assertion below only needs to separate "bounded" from a
+# 30s hang, and the headroom keeps the fixture's record comfortably ahead of the
+# watchdog on a loaded machine.
+start=$SECONDS
+out="$(AIT_GIT_LSREMOTE_TIMEOUT=3 github_latest_tag_version beyondeye/aitasks)"; rc=$?
+elapsed=$(( SECONDS - start ))
+assert_eq "hanging ls-remote yields no version" "" "$out"
+assert_eq "hanging ls-remote still exits 0" "0" "$rc"
+assert_eq "bounded well inside the 30s stub hang" "yes" \
+    "$( [[ $elapsed -le 8 ]] && echo yes || echo no )"
+
+echo "--- Test 9: the watchdog kills the whole descendant tree ---"
+nested_pid="$(sed -n 1p "$STUB_PIDS")"
+grandchild_pid="$(sed -n 2p "$STUB_PIDS")"
+# Guard the fixture itself: an empty grandchild means the nested shape stopped
+# being produced and the cleanup assertion below would be vacuously true.
+assert_eq "fixture actually produced a grandchild" "yes" \
+    "$( [[ -n "$grandchild_pid" ]] && echo yes || echo no )"
+sleep 0.5   # let the signals land and the orphans get reaped
+assert_eq "nested shell was killed" "gone" \
+    "$( kill -0 "$nested_pid" 2>/dev/null && echo alive || echo gone )"
+assert_eq "its grandchild was killed too" "gone" \
+    "$( [[ -n "$grandchild_pid" ]] && kill -0 "$grandchild_pid" 2>/dev/null \
+        && echo alive || echo gone )"
+
+echo "--- Test 9b: descendants die even when pgrep is unavailable ---"
+# THE REGRESSION THIS PINS: a tree-walk built on `pgrep -P` alone silently
+# degrades to a depth-1 kill on any system without procps (minimal containers
+# ship none), leaving every descendant running — the exact leak the helper
+# exists to prevent, measured as "nested ALIVE / grandchild ALIVE". Shadowing
+# `pgrep` here proves the process GROUP kill, not the walk, is what does the
+# work. A shell function shadows the unqualified `pgrep` the helper calls, and
+# subshells inherit it, so no PATH surgery is needed.
+pgrep() { return 1; }
+: > "$STUB_PIDS"
+out="$(AIT_GIT_LSREMOTE_TIMEOUT=3 github_latest_tag_version beyondeye/aitasks)"
+nested_pid="$(sed -n 1p "$STUB_PIDS")"
+grandchild_pid="$(sed -n 2p "$STUB_PIDS")"
+assert_eq "fixture produced a grandchild (no-pgrep case)" "yes" \
+    "$( [[ -n "$grandchild_pid" ]] && echo yes || echo no )"
+sleep 0.5
+assert_eq "nested shell killed without pgrep" "gone" \
+    "$( kill -0 "$nested_pid" 2>/dev/null && echo alive || echo gone )"
+assert_eq "its grandchild killed without pgrep" "gone" \
+    "$( [[ -n "$grandchild_pid" ]] && kill -0 "$grandchild_pid" 2>/dev/null \
+        && echo alive || echo gone )"
+unset -f pgrep
+
+# Back to the instant stub for the remaining tests.
+git() {
+    if [[ "$1" == "ls-remote" ]]; then
+        printf '%s\t%s\n' \
+            'abc123' 'refs/tags/v0.9.0' \
+            'def456' 'refs/tags/v0.10.0' \
+            'ghi789' 'refs/tags/v0.2.1'
+        return 0
+    fi
+    command git "$@"
+}
+
+echo "--- Test 10: a malformed AIT_GIT_LSREMOTE_TIMEOUT falls back to the default ---"
+# Unnormalized, "abc" aborts the helper under `set -u` ("abc: unbound variable")
+# and takes the caller's command substitution with it; "" and 0 make the
+# deadline expire instantly, silently disabling the fallback for good.
+#
+# Run under the CALLER's shell settings, not this file's. Tests run with
+# `set +euo pipefail`, which suppresses exactly the `set -u` abort this guards
+# against — the real callers (aitask_upgrade.sh, aitask_setup.sh) all run
+# `set -euo pipefail`. `rc` is the subshell's status, so a strict-mode death
+# shows up as a non-zero here instead of being silently absorbed.
+for bad in abc "" 0 -5; do
+    out="$(
+        set -euo pipefail
+        AIT_GIT_LSREMOTE_TIMEOUT="$bad" github_latest_tag_version beyondeye/aitasks 2>/dev/null
+    )"; rc=$?
+    assert_eq "timeout='$bad' still resolves the version" "0.10.0" "$out"
+    assert_eq "timeout='$bad' survives set -euo pipefail" "0" "$rc"
+done
+
+echo "--- Test 11: no matching tag is an empty string with exit 0, not a failure ---"
+# Under `pipefail` a grep that matches nothing makes the pipeline exit 1, and
+# aitask_upgrade.sh:67 / github_resolve_latest_version capture this in an
+# unguarded $( ) under `set -e` — the script would die with no message instead
+# of reaching its own error handling.
+#
+# THIS ASSERTION IS ONLY MEANINGFUL WITH `pipefail` ON. This file runs
+# `set +euo pipefail`, under which the pipeline's status is `tail`'s 0 and the
+# trailing `|| true` is never exercised at all — the test would pass with or
+# without the fix. So mirror the caller's shell inside a subshell (and leave
+# this file's own settings untouched).
+git() { return 1; }
+out="$(
+    set -euo pipefail
+    github_latest_tag_version beyondeye/aitasks 2>/dev/null
+)"; rc=$?
+assert_eq "no tags yields an empty version" "" "$out"
+assert_eq "no tags survives set -euo pipefail" "0" "$rc"
+
 # --- Summary ---
 echo ""
 echo "==============================="
