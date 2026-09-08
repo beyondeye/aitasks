@@ -245,6 +245,18 @@ Line ~126 names `agent_freeze._pane_facts` and `_pane_location`; re-point to
    `agent_freeze.py`, since the latter would make the coordinator import the
    repair module for one accessor. Verify the output carries
    `NOTE_APPENDED:<id>|<path>`.
+
+   **The note MUST also carry the unrun live suite** (user-requested at the
+   Step-8 review): `tests/test_freeze_engine_live.sh` could not be run in t1738
+   — `require_clean_ait_server` refuses from inside tmux, and the implementing
+   session ran inside the `-L ait` server with live agent panes, where forcing
+   it would arm real `pane-died` hooks against the user's own panes. t1705_5
+   already has that suite in its own preflight and will be working the same
+   engine, so it is the natural place for the first live run of the extracted
+   plumbing. Say plainly that the refactor is **unverified against real tmux**,
+   name the command, and state which suites *did* pass (the full Python suite,
+   the freeze unit suite with unchanged assertions, `test_no_raw_tmux.sh`) so
+   the gap is scoped rather than open-ended.
 2. `[align_p1705_5_plan_with_shared_module]` Edit
    `aiplans/p1705/p1705_5_restore_and_repick_flows.md` so its durable record
    matches the shipped module: in step 3's seam bullet (~line 439) replace
@@ -334,3 +346,85 @@ Step 9 (Post-Implementation) applies as usual: commit, merge, archive.
 
 - timing: inline post-phase | name: note_shared_surface_to_t1705_5 | type: chore | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — t1705_5's record still points at `agent_freeze` privates | desc: `ait note` to t1705_5 carrying the shared module path, its surface, the seam/install rule, the `make_fail_at` idiom, and the `restore_ack_grace()` placement question
 - timing: inline post-phase | name: align_p1705_5_plan_with_shared_module | type: documentation | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — the durable sibling plan still names `agent_freeze._test_mode` / `_fail_at` / `_pause_at` | desc: Update `aiplans/p1705/p1705_5_restore_and_repick_flows.md` step 3's seam bullet and `## Files` to name `lib/agent_frozen_ops.py`
+
+## Post-Review Changes
+
+### Change Request 1 (2026-09-08 12:05)
+- **Requested by user:** At the Step-8 review, send a note to t1705_5 asking it
+  to run the tmux live suite that this task could not run.
+- **Changes made:** The `note_shared_surface_to_t1705_5` post-phase step now
+  *requires* the note to carry the unrun-live-suite item: that
+  `tests/test_freeze_engine_live.sh` was refused by `require_clean_ait_server`
+  (the implementing session ran inside the `-L ait` server with live agent
+  panes, where `AIT_LIVE_TMUX_TEST_FORCE=1` would have armed real `pane-died`
+  hooks against those panes), that the refactor is therefore unverified against
+  real tmux, and which suites did pass. No code change.
+- **Files affected:** `aiplans/p1738_extract_freeze_store_helpers.md` only.
+- **Ordering:** the note is sent immediately after the code commit rather than
+  now, so `ait note` records the SHA that actually contains
+  `lib/agent_frozen_ops.py`. Sending it from the current dirty tree would stamp
+  it with a base commit in which the module does not exist.
+
+## Final Implementation Notes
+
+- **Actual work done:** `.aitask-scripts/lib/agent_frozen_ops.py` created with
+  the full promised surface; `agent_freeze.py` reduced by 230 lines / 96 added
+  (definitions removed, 46 call sites routed through `frozen_ops.`, docstring
+  rewritten, `signal` + `subprocess` imports dropped);
+  `tests/test_agent_frozen_ops.py` added (28 tests, six case groups);
+  `tests/test_agent_freeze.py` `_install` re-pointed to the shared module
+  (+ import, + docstring) with **no assertion changed**; one comment fixed in
+  `tests/test_freeze_engine_live.sh`.
+- **Deviations from plan:** none of substance. The plan estimated "~60 call
+  sites"; the actual mechanical rewrite touched 46 (`_store` 17, `_unset_option`
+  7, `_pause_at` 6, `_int` 5, `_store_show`/`_nonce_from`/`_pane_location`/
+  `_set_option`/`_respawn` 2 each, `_pane_facts` 1) plus the two direct
+  `_TMUX.run` sites in `_capture` / `_enumerate_session`.
+- **Issues encountered:**
+  - The scripted rename also matched the surviving `def _int(value)` (it sits
+    below the excised seams/store/tmux block, not inside it), producing
+    `def frozen_ops.int_or_zero(...)`. Caught immediately by `py_compile`; the
+    definition was deleted, which is correct — `int_or_zero` moved.
+    `_respawn_standin` was correctly left alone by the `\b(?!_)` anchor.
+  - `run(args, timeout=None)` forwards the timeout only when one is given, so
+    the gateway keeps ownership of its own default rather than having 20.0/30.0
+    hard-coded at two abstraction levels.
+- **Key decisions:**
+  - **Seam shape.** `store` and `_TMUX` stay module-level mutables in the shared
+    module and every engine reaches them by late binding
+    (`frozen_ops.<name>(...)`). This preserves the shipped seam style, and one
+    swap now covers both engines — a class or per-call injection would have
+    changed far more call sites for no additional guarantee.
+  - **`make_fail_at(env_var)` factory** rather than `fail_at(stage, env)`: keeps
+    all 7 `_fail_at("stage")` sites byte-identical and gives t1705_5 a one-line
+    binding. `fail_at.env_var` is set for introspection; nothing branches on it.
+  - **Scope held to the risk bullet** plus inseparable companions.
+    `_epoch` / `_stale_grace` / `RESTORE_ACK_GRACE` stay in `agent_freeze.py`;
+    the note to t1705_5 flags `restore_ack_grace()` as belonging in the shared
+    module instead, since placing it in `agent_freeze.py` (as p1705_5 currently
+    plans) would make the coordinator import the repair module for one accessor.
+- **Verification actually run:**
+  - `python3 tests/test_agent_frozen_ops.py` — 28 passed.
+  - `python3 tests/test_agent_freeze.py` — 53 passed, assertions unchanged.
+  - `bash tests/run_all_python_tests.sh` — **6982 tests, PASSED**
+    (`runner=unittest, exit=0`; pytest/xdist not installed on this box, so the
+    serial lane ran).
+  - `bash tests/test_no_raw_tmux.sh` — 5 passed.
+  - Both negative controls from the plan's Verification section were executed
+    and **failed as designed**: renaming `test_mode` → `_test_mode` tripped the
+    surface pin; adding `_store = frozen_ops.store` to `agent_freeze` tripped
+    the alias guard. The tree was restored from a scratchpad copy after each.
+  - The metadata-writer discovery patterns were replayed by hand against both
+    modules: `agent_frozen_ops.py` is not flagged (no metadata path literal, no
+    write primitive), `agent_freeze.py` is still flagged and still pinned — so
+    `tests/test_metadata_writer_inventory.py` needed no edit, as planned.
+- **NOT run — `bash tests/test_freeze_engine_live.sh`.** `require_clean_ait_server`
+  refused: the implementing session ran **inside** the `-L ait` tmux server with
+  five live panes. `AIT_LIVE_TMUX_TEST_FORCE=1` was deliberately not used — that
+  suite arms real `pane-died` hooks and `aitask_companion_cleanup.sh` runs raw
+  `tmux` with no socket flag by design, so forcing it would have reached the
+  user's own agent panes. **This refactor is therefore unverified against real
+  tmux.** The gap is carried forward to t1705_5 in the post-phase note (user
+  request at the Step-8 review), and can be closed by anyone with
+  `bash tests/test_freeze_engine_live.sh` from a shell outside tmux.
+- **Upstream defects identified:** None
