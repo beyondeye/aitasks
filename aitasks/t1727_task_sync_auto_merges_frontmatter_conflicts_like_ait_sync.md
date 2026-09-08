@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1599
+implemented_with: claudecode/opus5
 created_at: 2026-09-07 17:51
-updated_at: 2026-09-08 15:44
+updated_at: 2026-09-08 16:20
 boardcol: now
 boardidx: 31814
 ---
@@ -126,3 +127,8 @@ failure).
 - t1725_3 (fast-forward instead of rebase when nothing local is ahead) — removes
   the conflict-free half of the same pulls.
 - t1676 (Done) — the sync-side conflict loop dying mid-rebase.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-08T13:20:21Z status=pass attempt=1 type=human
