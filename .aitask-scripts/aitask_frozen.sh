@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# aitask_frozen.sh - Freeze / reconcile entry point for frozen code agents (t1705_4).
+# aitask_frozen.sh - Freeze / restore / reconcile entry point for frozen code
+# agents (t1705_4, restore added by t1705_5).
 #
-# A thin shell face over `lib/agent_freeze.py`. It exists so the engine can be
+# A thin shell face over the two frozen-agent engines. It exists so they can be
 # reached from places that can only run a command string:
 #
 #   * a TUI keybinding (t1705_7 wires the minimonitor / monitor keys);
@@ -10,11 +11,24 @@
 #     started — a detached tmux server job, not a child of the dying pane.
 #
 # Verbs:
-#   freeze <pane_id>   freeze one agent pane into a stand-in viewer
-#   freeze --all       freeze every agent-facing pane on every aitasks session
-#   reconcile          settle every non-`live` record from observable facts
+#   freeze <pane_id>          freeze one agent pane into a stand-in viewer
+#   freeze --all              freeze every agent-facing pane on every session
+#   restore <id> [--repick]   relaunch one frozen agent in its stand-in's pane
+#   restore --all [--repick]  relaunch every frozen agent, sequentially
+#   reconcile                 settle every non-`live` record from observable facts
 #
-# `restore` arrives in t1705_5.
+# TUIs MUST invoke `restore` through `run-shell -b`, never inline: the
+# coordinator respawns the very pane a TUI keybinding would be running in, so a
+# child of that pane would be killed mid-transaction — leaving a `restoring`
+# record for reconcile to clean up and, to the user, a dead pane. `run-shell -b`
+# is a detached tmux server job and outlives the respawn (measured, t1705_1).
+#
+# Two engines, dispatched HERE rather than inside one module: `restore` execs
+# `lib/agent_restore.py`, everything else execs `lib/agent_freeze.py`. That keeps
+# each module's `main()` owning exactly its own verbs, and — the load-bearing
+# half — avoids `agent_freeze` importing `agent_restore`. Reconcile is the repair
+# side: it must settle an abandoned restore with NO coordinator present, so it
+# cannot depend on the coordinator module.
 #
 # NOT SKILL-INVOKED. Callers are TUIs, sibling scripts and tmux jobs — never a
 # SKILL.md — so per `aidocs/framework/aitasks_extension_points.md` this script
@@ -43,11 +57,14 @@ source "$SCRIPT_DIR/lib/terminal_compat.sh"
 source "$SCRIPT_DIR/lib/python_resolve.sh"
 
 FREEZE_PY="$SCRIPT_DIR/lib/agent_freeze.py"
+RESTORE_PY="$SCRIPT_DIR/lib/agent_restore.py"
 
 usage() {
     cat >&2 <<'EOF'
 Usage: aitask_frozen.sh freeze <pane_id>
        aitask_frozen.sh freeze --all
+       aitask_frozen.sh restore <id> [--repick]
+       aitask_frozen.sh restore --all [--repick]
        aitask_frozen.sh reconcile
 EOF
     exit 2
@@ -55,9 +72,18 @@ EOF
 
 [ $# -ge 1 ] || usage
 
+ENGINE="$FREEZE_PY"
+
 case "$1" in
     freeze)
         [ $# -eq 2 ] || usage
+        ;;
+    restore)
+        # `restore <id>` / `restore --all`, each optionally with `--repick`.
+        # Arity is validated in the module (it owns the flag vocabulary); this
+        # only rejects the no-argument form so `usage` stays the shell's answer.
+        [ $# -ge 2 ] || usage
+        ENGINE="$RESTORE_PY"
         ;;
     reconcile)
         [ $# -eq 1 ] || usage
@@ -74,4 +100,4 @@ esac
 # `exec` on purpose: the Python module's exit status IS this script's contract,
 # and for the `run-shell -b` coordinator case there is no reason to keep a shell
 # alive around it.
-exec "$(require_ait_python)" "$FREEZE_PY" "$@"
+exec "$(require_ait_python)" "$ENGINE" "$@"

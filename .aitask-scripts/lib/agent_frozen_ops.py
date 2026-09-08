@@ -81,6 +81,7 @@ from monitor.monitor_core import (  # noqa: E402
     AGENT_SESSION_OPTION,
 )
 from tmux_exec import TmuxClient  # noqa: E402
+from config_utils import load_yaml_config  # noqa: E402
 
 #: The gateway client. SWAPPED BY TESTS — read it through :func:`run` (or as a
 #: module global from inside this file), never by import-aliasing it elsewhere.
@@ -104,6 +105,69 @@ class StageFailure(Exception):
     def __init__(self, stage: str) -> None:
         super().__init__(f"injected failure at {stage}")
         self.stage = stage
+
+
+# --- the restore acknowledgement grace --------------------------------------
+
+#: Seconds a `restoring` record is given to be acknowledged by its replacement
+#: agent's SessionStart hook before it may be liveness-confirmed instead (§C/§D).
+#: The hook ack is strictly better evidence — it verifies the resumed session id,
+#: which is what permits deleting the only copy of the capture — so confirming
+#: early would trade the strong signal for the weak one.
+RESTORE_ACK_GRACE = 20.0
+
+
+def restore_ack_grace(root: "str | os.PathLike | None" = None) -> float:
+    """`frozen.restore_ack_grace`, with a TEST-ONLY env seam (t1705_5).
+
+    Precedence: ``AITASKS_RESTORE_ACK_GRACE`` (only under
+    ``AITASKS_TEST_MODE=1``) > ``frozen.restore_ack_grace`` in the project's
+    ``aitasks/metadata/project_config.yaml`` > :data:`RESTORE_ACK_GRACE`.
+    Non-positive and unparseable values at either layer fall back to the default.
+
+    **It lives here, in the SHARED module, on purpose.** Both the restore
+    coordinator (`agent_restore`) and reconcile (`agent_freeze`) read it, and
+    they must not be able to disagree: if reconcile used a longer grace than the
+    coordinator, it could liveness-confirm a record the coordinator is still
+    polling for, moving it to `live` behind the coordinator's back so its next
+    verb fails `NONCE_MISMATCH` and the user's restore is silently lost. Hosting
+    it in `agent_freeze` instead would force the coordinator to import the repair
+    module for one function — the exact one-way-arrow violation this module
+    exists to prevent (t1738; parent-plan amendment B6).
+
+    The env seam is gated on test mode for the same reason
+    ``agent_sessions._stale_op_grace`` is: a stray variable in a developer's
+    shell must never reconfigure a real coordinator's ack window. It shortens
+    only the *waiting* half — it is not a way to skip the hook ack, which is
+    still strictly preferred whenever it arrives first.
+    """
+    if test_mode():
+        raw = os.environ.get("AITASKS_RESTORE_ACK_GRACE", "")
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            value = 0.0
+        if value > 0:
+            return value
+
+    base = Path(root) if root else Path.cwd()
+    cfg_path = base / "aitasks" / "metadata" / "project_config.yaml"
+    try:
+        cfg = load_yaml_config(cfg_path, {})
+    except Exception:
+        # Broad on purpose, mirroring `agent_freeze.capture_max_lines`: this runs
+        # mid-restore, and a malformed or unreadable project config must degrade
+        # to the default rather than abort a transaction that has already
+        # respawned the user's agent pane.
+        return RESTORE_ACK_GRACE
+    section = cfg.get("frozen") if isinstance(cfg, dict) else None
+    if not isinstance(section, dict):
+        return RESTORE_ACK_GRACE
+    try:
+        configured = float(section.get("restore_ack_grace", RESTORE_ACK_GRACE))
+    except (TypeError, ValueError):
+        return RESTORE_ACK_GRACE
+    return configured if configured > 0 else RESTORE_ACK_GRACE
 
 
 # --- seams ------------------------------------------------------------------
@@ -260,14 +324,28 @@ def unset_option(pane_id: str, option: str) -> bool:
     return rc == 0
 
 
-def respawn(pane_id: str, command: str) -> bool:
+def respawn(pane_id: str, command: str, env: dict[str, str] | None = None) -> bool:
     """`respawn-pane -k` the pane into ``command``.
 
     ``-k`` kills whatever is running there first. t1705_1 measured that this
     fires NO `pane-died` hook — window, companion pane and the pane id all
     survive — which is why the freeze can reuse the agent's own pane at all.
+
+    ``env`` adds one ``-e NAME=value`` flag per entry (t1705_5), which is how the
+    restore coordinator delivers the four ``AITASK_RESTORE_*`` identity variables
+    to the replacement agent. tmux sets them in the spawned process's own
+    environment, so the command string carries no wrapper and nothing execs
+    through ``env`` — and crucially ``#{pane_pid}`` still names the agent itself,
+    which is the property the task-lock liveness anchor depends on (t1465).
+    Measured for one variable by spike Case 3b and for four repeated flags by
+    Case 3c; the ``env VAR=… <cmd>`` command-string prefix remains the proven
+    fallback for a tmux build without ``-e``.
     """
-    rc, _ = run(["respawn-pane", "-k", "-t", pane_id, command])
+    args = ["respawn-pane", "-k"]
+    for name, value in (env or {}).items():
+        args += ["-e", f"{name}={value}"]
+    args += ["-t", pane_id, command]
+    rc, _ = run(args)
     return rc == 0
 
 

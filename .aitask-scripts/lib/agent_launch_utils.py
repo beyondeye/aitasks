@@ -236,6 +236,7 @@ def resolve_dry_run_command(
     operation: str,
     *args: str,
     agent_string: str | None = None,
+    extra_global_flags: list[str] | None = None,
 ) -> str | None:
     """Resolve the full agent command via --dry-run.
 
@@ -244,11 +245,19 @@ def resolve_dry_run_command(
     `--agent-string <value>` before --dry-run so the wrapper resolves the
     command for a non-default agent/model. Returns the command string or
     None on failure.
+
+    `extra_global_flags` carries further **global** wrapper flags — currently
+    `["--resume-session", "<sid>"]` for the frozen-agent restore coordinator
+    (t1705_5). They must go here rather than in `*args`: positional `*args` land
+    AFTER `invoke <operation>`, where the wrapper reads them as *operation*
+    arguments, whereas a global flag has to precede `--dry-run`.
     """
     wrapper = str(project_root / ".aitask-scripts" / "aitask_codeagent.sh")
     cmd = [wrapper]
     if agent_string:
         cmd += ["--agent-string", agent_string]
+    if extra_global_flags:
+        cmd += list(extra_global_flags)
     cmd += ["--dry-run", "invoke", operation] + list(args)
     try:
         result = subprocess.run(
@@ -262,6 +271,40 @@ def resolve_dry_run_command(
         return None
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
         return None
+
+
+def pick_launch_argv(
+    project_root: Path,
+    task_id: str,
+    agent_string: str | None = None,
+) -> tuple[str | None, str]:
+    """The `pick` launch command and its window name.
+
+    Returns ``(full_cmd, window_name)``; ``full_cmd`` is None when the wrapper
+    could not resolve a command (no agent binary, bad agent string), and callers
+    branch on that exactly as they did before this helper existed.
+
+    Extracted (t1705_5) so the restore coordinator's ``--repick`` mode shares one
+    definition with the TUIs instead of forking it. Three call sites consume it —
+    `monitor/minimonitor_app.py`, and `monitor/monitor_app.py` twice (the pick
+    launch and `_on_restart_confirmed`).
+
+    **`agent_string` defaults to None on purpose, and that default is the whole
+    contract.** None of the three TUI sites passed an agent string before the
+    extraction, so they must keep resolving the operation's *configured* agent —
+    a helper that defaulted this to anything else would silently change which
+    agent and model every `pick` launch starts, with no error and no log line.
+    `agent_restore` is the one caller that passes a value: the frozen record's
+    own agent string, so a restored agent comes back as the agent it was.
+    `tests/test_pick_launch_argv.py` pins both halves.
+
+    ``agent-pick-<task_id>`` is a convention other code parses back out
+    (`task_id_from_window_name`, `classify_pane`) and the session store keeps as
+    durable record identity, so it is defined here rather than at each call site.
+    """
+    full_cmd = resolve_dry_run_command(
+        project_root, "pick", task_id, agent_string=agent_string)
+    return full_cmd, f"agent-pick-{task_id}"
 
 
 def resolve_agent_string(

@@ -615,7 +615,13 @@ class SharedLaunchImplementationTests(unittest.TestCase):
             snapshots=[own], pane_to_task={"%own": "77"},
         )
         del app._launch_pick  # exercise the real implementation, not the spy
-        with patch.object(mm, "resolve_dry_run_command", return_value="cmd --go"), \
+        # Seam re-pointed in t1705_5 (see the note in
+        # test_minimonitor_pick_next_characterization.py): the pick argv and
+        # window name come from the shared `pick_launch_argv`. The stub computes
+        # the real window-name convention so assertions on it keep their teeth.
+        with patch.object(mm, "pick_launch_argv",
+                          lambda root, task_id, agent_string=None: (
+                              "cmd --go", f"agent-pick-{task_id}")), \
              patch.object(mm, "resolve_agent_string", return_value="claudecode/x"), \
              patch.object(mm, "resolve_skill_profile", return_value="fast"), \
              patch.object(mm, "AgentCommandScreen", _FakeScreen):

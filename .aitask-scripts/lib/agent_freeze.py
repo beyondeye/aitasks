@@ -106,11 +106,11 @@ _fail_at = frozen_ops.make_fail_at("AITASKS_FREEZE_FAIL_AT")
 #: `frozen:` section, so this default is the normal path.
 DEFAULT_CAPTURE_MAX_LINES = 50000
 
-#: Seconds a `restoring` record is given to be acknowledged by its agent's
-#: SessionStart hook before reconcile will liveness-confirm it (§C/§D). The hook
-#: ack is strictly better evidence (it verifies the resumed session id), so
-#: confirming early would throw away the stronger signal for the weaker one.
-RESTORE_ACK_GRACE = 20.0
+# The restore ack grace lives in `agent_frozen_ops` (t1705_5, amendment B6), not
+# here: the restore COORDINATOR needs it too, and hosting it in this module would
+# make the coordinator import the repair engine for one accessor — the one-way
+# dependency arrow the shared module exists to protect. Read it as
+# `frozen_ops.restore_ack_grace()`.
 
 #: `reconcile`'s own list-panes format. Deliberately NOT `_LIST_PANES_FORMAT`:
 #: reconcile must observe EVERY pane of a window — companions, stand-ins and
@@ -761,7 +761,11 @@ def _reconcile_restoring(
         # The replacement agent is here. Confirm only once the ack grace has
         # elapsed — before that the hook may still be about to ack, and a
         # liveness confirm would discard the stronger evidence.
-        if _epoch(rec.get("state_at", "")) + RESTORE_ACK_GRACE > now:
+        # Through the shared module (t1705_5, amendment B6): the restore
+        # coordinator reads the SAME accessor, so the two engines cannot
+        # disagree about how long the hook has to ack. A longer grace here would
+        # let reconcile confirm a record its coordinator is still polling for.
+        if _epoch(rec.get("state_at", "")) + frozen_ops.restore_ack_grace() > now:
             return f"INDETERMINATE:{record_id}|restoring_ack_grace"
         rc, out = frozen_ops.store("restore-confirm", record_id, "--nonce", lease(),
                          "--pane", observed.pane_id,

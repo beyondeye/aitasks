@@ -18,6 +18,7 @@
 #   2   pane user options survive `respawn-pane -k`; #{pane_pid} changes
 #   3   an `env VAR=... cmd` prefix keeps #{pane_pid} == the launched process
 #   3b  tmux's native `respawn-pane -e` does the same (the alternative)
+#   3c  FOUR repeated `-e` flags all arrive (what restore actually passes)
 #   4   `run-shell -b` outlives the pane that started it
 #   5a  the committed SessionStart fixtures satisfy their schema  [ALWAYS RUNS]
 #   5b  claude SessionStart capture: refresh-and-diff           [opt-in]
@@ -555,6 +556,74 @@ section "Case 3b — respawn-pane -e keeps #{pane_pid} == the agent process"
             finding "respawn-pane -e keeps pane_pid = agent pid: yes (pid $pane_pid, variable delivered) — native alternative to the env prefix"
         else
             finding "respawn-pane -e: pane_pid=$pane_pid, process pid=$reported_pid, variable='$reported_var'"
+        fi
+    fi
+    ait_tmux kill-window -t "$(ait_tmux_window_target "$SESSION" "$W")" 2>/dev/null || true
+)
+
+# ---------------------------------------------------------------------------
+# Case 3c — FOUR repeated `-e` flags all arrive (t1705_5)
+# ---------------------------------------------------------------------------
+section "Case 3c — four repeated respawn-pane -e flags all arrive"
+
+# Case 3b proved ONE `-e` works. The restore coordinator passes FOUR — the
+# record id, the nonce, the mode and the expected session id — and tmux's man
+# page documents `-e` as repeatable but this repo had never measured it.
+#
+# Why a dropped variable is worse than an outright failure: the nonce is what
+# binds the replacement agent's SessionStart hook ack to THIS restore attempt.
+# If a tmux build honoured only the last `-e`, AITASK_RESTORE_NONCE would arrive
+# empty, every hook ack would be refused as a NONCE_MISMATCH, and every restore
+# would silently fall through to the 20 s liveness fallback — which still
+# reports success (`RESTORED:<id>|liveness`) and still KEEPS the captures. The
+# user sees a restore that "worked"; what they actually lost is the verified
+# acknowledgement that the resumed session is the one they asked for.
+#
+# The pane_pid assertion is repeated here for the same reason it exists in
+# Cases 3 and 3b: `launch_in_tmux`'s contract is that the pane's pid IS the
+# agent process (t1465). Four flags must not change that either.
+(
+    W="agent-pick-1705-c3c"
+    read -r AGENT COMPANION < <(make_agent_window "$W" "$FAKE_AGENT")
+    report="$(mktemp "$FIXTURE_DIR/envprobe3c.XXXXXX")"
+    rm -f "$report"
+
+    # Four separate -e flags, exactly as lib/agent_restore.py builds them.
+    ait_tmux respawn-pane -k \
+        -e "AITASK_RESTORE_RECORD=r1" \
+        -e "AITASK_RESTORE_NONCE=n2" \
+        -e "AITASK_RESTORE_MODE=resume" \
+        -e "AITASK_RESTORE_EXPECT_SESSION=s4" \
+        -t "$AGENT" "'$FAKE_AGENT' --report-env '$report'"
+
+    for _ in $(seq 1 40); do [ -s "$report" ] && break; sleep 0.1; done
+
+    if [ ! -s "$report" ]; then
+        assert_record_fail
+        echo "FAIL: the 4x-e respawned process never self-reported to $report"
+        echo "      (tmux $(tmux -V); does this build accept repeated 'respawn-pane -e'?)"
+        finding "four repeated respawn-pane -e flags: UNKNOWN (no self-report)"
+    else
+        reported_pid="$(sed -n 's/^pid=//p' "$report")"
+        got_record="$(sed -n 's/^AITASK_RESTORE_RECORD=//p' "$report")"
+        got_nonce="$(sed -n 's/^AITASK_RESTORE_NONCE=//p' "$report")"
+        got_mode="$(sed -n 's/^AITASK_RESTORE_MODE=//p' "$report")"
+        got_expect="$(sed -n 's/^AITASK_RESTORE_EXPECT_SESSION=//p' "$report")"
+        pane_pid="$(pane_fmt "$AGENT" '#{pane_pid}')"
+
+        assert_eq "4x-e: self-reported pid IS the pane pid (no wrapper)" \
+            "$pane_pid" "$reported_pid"
+        assert_eq "4x-e: 1st flag AITASK_RESTORE_RECORD arrived" "r1" "$got_record"
+        assert_eq "4x-e: 2nd flag AITASK_RESTORE_NONCE arrived" "n2" "$got_nonce"
+        assert_eq "4x-e: 3rd flag AITASK_RESTORE_MODE arrived" "resume" "$got_mode"
+        assert_eq "4x-e: 4th flag AITASK_RESTORE_EXPECT_SESSION arrived" "s4" "$got_expect"
+
+        if [ "$pane_pid" = "$reported_pid" ] && [ "$got_record" = "r1" ] \
+           && [ "$got_nonce" = "n2" ] && [ "$got_mode" = "resume" ] \
+           && [ "$got_expect" = "s4" ]; then
+            finding "four repeated respawn-pane -e flags: ALL FOUR delivered, pane_pid still = agent pid ($pane_pid) — restore may use -e per variable"
+        else
+            finding "four repeated respawn-pane -e flags: INCOMPLETE (record='$got_record' nonce='$got_nonce' mode='$got_mode' expect='$got_expect', pane_pid=$pane_pid, process pid=$reported_pid) — restore must fall back to the env prefix WHOLESALE"
         fi
     fi
     ait_tmux kill-window -t "$(ait_tmux_window_target "$SESSION" "$W")" 2>/dev/null || true

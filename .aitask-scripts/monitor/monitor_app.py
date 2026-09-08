@@ -74,7 +74,7 @@ from shortcuts_mixin import ShortcutsMixin  # noqa: E402
 from tui_clipboard import copy_to_system_clipboard  # noqa: E402
 
 import subprocess  # noqa: E402
-from agent_launch_utils import resolve_dry_run_command, resolve_agent_string, TmuxLaunchConfig, launch_in_tmux, maybe_spawn_minimonitor, mark_monitor_pane, tmux_session_target, unmark_monitor_pane  # noqa: E402
+from agent_launch_utils import resolve_dry_run_command, pick_launch_argv, resolve_agent_string, TmuxLaunchConfig, launch_in_tmux, maybe_spawn_minimonitor, mark_monitor_pane, tmux_session_target, unmark_monitor_pane  # noqa: E402
 from agent_command_screen import AgentCommandScreen, resolve_skill_profile  # noqa: E402
 from tmux_exec import TmuxClient  # noqa: E402
 
@@ -3596,7 +3596,9 @@ class MonitorApp(
         current_info = self._task_cache.get_task_info(task_id, sess)
 
         target_root = self._root_for_snap(snap)
-        full_cmd = resolve_dry_run_command(target_root, "pick", target_id)
+        # Shared helper (t1705_5), called WITHOUT agent_string exactly as before
+        # the extraction — this launch resolves the operation's configured agent.
+        full_cmd, window_name = pick_launch_argv(target_root, target_id)
         if not full_cmd:
             self.notify(f"Failed to resolve pick command for t{target_id}", severity="error")
             return
@@ -3609,7 +3611,6 @@ class MonitorApp(
             self.notify(f"Killed {old_name}")
 
         prompt_str = f"/aitask-pick {target_id}"
-        window_name = f"agent-pick-{target_id}"
         agent_string = resolve_agent_string(target_root, "pick")
         screen = AgentCommandScreen(
             f"Pick Task t{target_id}", full_cmd, prompt_str,
@@ -3680,7 +3681,9 @@ class MonitorApp(
             return
 
         target_root = self._root_for_snap(snap)
-        full_cmd = resolve_dry_run_command(target_root, "pick", task_id)
+        # Shared helper (t1705_5), called WITHOUT agent_string exactly as before
+        # the extraction — this launch resolves the operation's configured agent.
+        full_cmd, window_name = pick_launch_argv(target_root, task_id)
         if not full_cmd:
             self.notify(
                 f"Failed to resolve pick command for t{task_id}",
@@ -3689,7 +3692,6 @@ class MonitorApp(
             return
 
         prompt_str = f"/aitask-pick {task_id}"
-        window_name = f"agent-pick-{task_id}"
         agent_string = resolve_agent_string(target_root, "pick")
         screen = AgentCommandScreen(
             f"Pick Task t{task_id}", full_cmd, prompt_str,

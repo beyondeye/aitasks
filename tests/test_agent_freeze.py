@@ -938,7 +938,7 @@ class ReconcileRestoringTests(_FreezeTestCase):
         self.assertEqual(line, f"INDETERMINATE:{self.rid}|restoring_ack_grace")
         self.assertEqual(self.rec().state, agent_sessions.STATE_RESTORING)
 
-        later = time.time() + agent_freeze.RESTORE_ACK_GRACE + 1
+        later = time.time() + agent_frozen_ops.restore_ack_grace() + 1
         line = agent_freeze._reconcile_restoring(rec, observed, _FixedLease(nonce), later)
         self.assertEqual(line, f"LIVE:{self.rid}|liveness")
         confirmed = self.rec()
@@ -954,7 +954,7 @@ class ReconcileRestoringTests(_FreezeTestCase):
             pane_pid=7777)
         agent_freeze._reconcile_restoring(
             self._rec(), self._observed(pane_pid=7777), _FixedLease(nonce),
-            time.time() + agent_freeze.RESTORE_ACK_GRACE + 1)
+            time.time() + agent_frozen_ops.restore_ack_grace() + 1)
         self.assertEqual(self.rec().ack, "liveness")
         self.assertTrue(
             (Path(os.environ[agent_sessions.FROZEN_DIR_ENV]) / self.rid).exists())

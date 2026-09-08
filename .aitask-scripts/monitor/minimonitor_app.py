@@ -88,6 +88,7 @@ from tui_clipboard import copy_to_system_clipboard  # noqa: E402
 from agent_launch_utils import (  # noqa: E402
     DEFAULT_TMUX_SESSION,
     resolve_dry_run_command,
+    pick_launch_argv,
     resolve_agent_string,
     TmuxLaunchConfig,
     launch_in_tmux,
@@ -3010,7 +3011,11 @@ class MiniMonitorApp(
         """
         if self._monitor is None:
             return
-        full_cmd = resolve_dry_run_command(target_root, "pick", target_id)
+        # Shared with monitor_app and the restore coordinator's --repick mode
+        # (t1705_5). Called WITHOUT agent_string, exactly as before the
+        # extraction, so this launch keeps resolving the operation's configured
+        # agent rather than a record's.
+        full_cmd, window_name = pick_launch_argv(target_root, target_id)
         if not full_cmd:
             self.notify(
                 f"Failed to resolve pick command for t{target_id}", severity="error"
@@ -3018,7 +3023,6 @@ class MiniMonitorApp(
             return
 
         prompt_str = f"/aitask-pick {target_id}"
-        window_name = f"agent-pick-{target_id}"
         agent_string = resolve_agent_string(target_root, "pick")
         screen = AgentCommandScreen(
             f"Pick Task t{target_id}", full_cmd, prompt_str,

@@ -34,6 +34,13 @@ OPT_DRY_RUN=false
 # refuses without it); a no-op for every other agent/operation. Opt-in,
 # because Claude Code bills headless print mode at a higher per-token rate.
 OPT_HEADLESS=false
+# Resume an existing code-agent session instead of starting a fresh one
+# (t1705_5, frozen-agent restore). Carries the agent's own session id, which is
+# captured by the SessionStart hook and stored on the frozen record. Legal ONLY
+# with `invoke raw`: every other operation appends a slash command / composer
+# prompt, and a resumed session must come back to exactly where it was rather
+# than being handed new instructions.
+OPT_RESUME_SESSION=""
 
 # --- explore-relay constants (chat-native explore; t1120_4) ---
 # Env contract pinned in aiplans/p1120/p1120_4_chat_native_explore.md:
@@ -519,6 +526,12 @@ build_invoke_command() {
                         "--allowedTools" "$EXPLORE_RELAY_ALLOWED_TOOLS")
                     ;;
                 raw)
+                    # `--resume <sid>` goes AFTER the model flag (already
+                    # pre-seeded into CMD) and BEFORE any positional — the same
+                    # ordering hazard `explore-relay` documents above.
+                    if [[ -n "$OPT_RESUME_SESSION" ]]; then
+                        CMD+=("--resume" "$OPT_RESUME_SESSION")
+                    fi
                     CMD+=("${args[@]}")
                     ;;
             esac
@@ -526,6 +539,13 @@ build_invoke_command() {
         codex)
             case "$operation" in
                 batch-review|raw)
+                    if [[ -n "$OPT_RESUME_SESSION" ]]; then
+                        # `codex resume <sid>` needs `resume` as the LEADING
+                        # positional, but CMD was pre-seeded as
+                        # (binary, model_flag, cli_id) — so rebuild rather than
+                        # append.
+                        CMD=("$binary" resume "$OPT_RESUME_SESSION" "$model_flag" "$cli_id")
+                    fi
                     CMD+=("${args[@]}")
                     ;;
                 *)
@@ -576,6 +596,14 @@ build_invoke_command() {
                     CMD+=("--prompt" "/aitask-trail ${args[*]}")
                     ;;
                 batch-review|raw)
+                    if [[ -n "$OPT_RESUME_SESSION" ]]; then
+                        # Exit 2 (usage), not `die`'s 1: the restore coordinator
+                        # branches on this to report RESTORE_FAILED without ever
+                        # touching the store, and 1 is its "some records failed"
+                        # code. A machine-readable token, on stderr like `die`.
+                        echo "Error: RESUME_UNSUPPORTED:opencode" >&2
+                        exit 2
+                    fi
                     CMD+=("${args[@]}")
                     ;;
             esac
@@ -594,6 +622,13 @@ cmd_invoke() {
         [[ "$op" == "$operation" ]] && valid=true
     done
     $valid || die "Unknown operation: '$operation'. Supported: ${SUPPORTED_OPERATIONS[*]}"
+
+    # A resumed session picks up its own history; every operation but `raw`
+    # appends a slash command or composer prompt, which would hand the restored
+    # agent fresh instructions instead of returning it to where it was.
+    if [[ -n "$OPT_RESUME_SESSION" && "$operation" != "raw" ]]; then
+        die "--resume-session requires 'invoke raw' (got '$operation')"
+    fi
 
     local CMD=()
     build_invoke_command "$operation" "$@"
@@ -638,6 +673,14 @@ Options:
                          headless-only and refuses without it. No-op for
                          other agents/operations. Default is interactive
                          (avoids Claude Code's headless billing surcharge).
+  --resume-session SID   Resume an existing agent session instead of starting a
+                         fresh one (frozen-agent restore). Legal ONLY with
+                         `invoke raw` — every other operation appends a slash
+                         command, which would hand the resumed agent new
+                         instructions instead of returning it where it was.
+                         claudecode: `claude --model <id> --resume <sid>`;
+                         codex: `codex resume <sid> --model <id>`;
+                         opencode: refused with RESUME_UNSUPPORTED:opencode (2).
   -h, --help             Show this help
 
 Operations: pick, explain, batch-review, qa, explore, explore-relay, raw,
@@ -688,6 +731,16 @@ main() {
             --headless)
                 OPT_HEADLESS=true
                 shift
+                ;;
+            --resume-session)
+                [[ $# -lt 2 ]] && die "--resume-session requires a value"
+                # The value reaches an argv that tmux respawns, so constrain it
+                # to the shape real agent session ids actually take. Anything
+                # else is a bug in the caller, not something to pass through.
+                [[ "$2" =~ ^[A-Za-z0-9._-]+$ ]] \
+                    || die "--resume-session value is not a valid session id: '$2'"
+                OPT_RESUME_SESSION="$2"
+                shift 2
                 ;;
             -h|--help)
                 show_help

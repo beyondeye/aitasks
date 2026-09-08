@@ -167,8 +167,16 @@ class _Harness:
 
     def run(self):
         """Invoke the action; return (screen, callback) for the pushed dialog."""
-        with patch.object(mm, "resolve_dry_run_command",
-                          return_value=self.dry_run), \
+        # Seam re-pointed in t1705_5: the pick argv + window name now come from
+        # the shared `pick_launch_argv` (extracted so the frozen-agent restore
+        # coordinator's --repick mode shares one definition with the TUIs). The
+        # stub still COMPUTES the real `agent-pick-<id>` window name rather than
+        # returning a fixed string, so the golden assertion below keeps testing
+        # the convention instead of testing the stub. Only the subprocess is
+        # faked here — exactly what patching resolve_dry_run_command faked before.
+        with patch.object(mm, "pick_launch_argv",
+                          lambda root, task_id, agent_string=None: (
+                              self.dry_run, f"agent-pick-{task_id}")), \
              patch.object(mm, "resolve_agent_string", return_value="claudecode/x"), \
              patch.object(mm, "resolve_skill_profile", return_value="fast"), \
              patch.object(mm, "AgentCommandScreen", _FakeScreen), \
