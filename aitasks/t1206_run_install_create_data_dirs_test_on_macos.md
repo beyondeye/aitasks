@@ -14,7 +14,7 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1199
 followup_kind: manual_verification
 created_at: 2026-07-21 17:54
-updated_at: 2026-09-08 17:08
+updated_at: 2026-09-08 17:11
 boardcol: tests
 boardidx: 2118
 ---
@@ -33,4 +33,4 @@ Low priority: the fix itself is verified on Linux and by a real branch-mode repr
 
 ## Verification Checklist
 
-- [ ] Run `bash tests/test_install_create_data_dirs.sh` on a macOS/BSD host — expect 40/40 pass, and in particular confirm Test 3 (negative control) still exits non-zero, i.e. BSD `mkdir -p` also fails through a dangling symlink
+- [x] Run `bash tests/test_install_create_data_dirs.sh` on a macOS/BSD host — expect 40/40 pass, and in particular confirm Test 3 (negative control) still exits non-zero, i.e. BSD `mkdir -p` also fails through a dangling symlink — PASS 2026-09-08 17:11 auto: macOS 15.7.3 (Darwin 24.6.0, arm64) -- 40/40 pass, exit 0, under both PATH bash 5.3.9 and system bash 3.2.57. Test 3 negative control non-vacuous: BSD mkdir -p through a dangling symlink exits 1 (ENOENT 'No such file or directory', not the predicted EEXIST 'File exists' -- non-zero either way, which is all T3 asserts).
