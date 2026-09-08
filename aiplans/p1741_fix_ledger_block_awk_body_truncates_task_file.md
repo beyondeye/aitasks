@@ -354,7 +354,7 @@ window must never reach a commit.
 - The headline defect (BSD awk rejecting a newline in `-v`) **cannot be executed
   on this Linux box** — GNU awk accepts it. The fix's macOS behaviour is argued
   from POSIX `ENVIRON` support, not measured here. · severity: medium ·
-  → mitigation: verify_on_macos
+  → mitigation: t1743
 - Mitigated in part by design: the GNU-awk backslash corruption, the producer-
   failure control and the rename-failure control are all discriminating on this
   box, so nothing ships on an unexecuted claim. · severity: low · → mitigation: none
@@ -365,7 +365,7 @@ above (code-health medium, goal-achievement medium).
 
 ### Planned mitigations
 - timing: post-phase | name: live_note_roundtrip | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: shared-seam blast radius (code-health) | desc: drive the real `./ait note --file -` CLI in a throwaway fixture with a multiline + backslash body and assert prior bytes intact and body verbatim
-- timing: after | name: verify_on_macos | type: manual_verification | priority: medium | effort: low | inline_risk: low | added_complexity: high | addresses: unexecutable BSD-awk path (goal-achievement) | desc: run tests/test_ledger_block_append_integrity.sh and the note suite on macOS/BSD awk to confirm the multiline body now round-trips instead of truncating
+- timing: after | name: verify_on_macos | type: manual_verification | priority: medium | effort: low | inline_risk: low | added_complexity: high | addresses: unexecutable BSD-awk path (goal-achievement) | desc: run tests/test_ledger_block_append_integrity.sh and the note suite on macOS/BSD awk to confirm the multiline body now round-trips instead of truncating | created: t1743
 
 ### Post-phase (risk mitigations)
 
