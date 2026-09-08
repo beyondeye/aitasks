@@ -406,14 +406,22 @@ tests, so the 3.2 runtime is paid only by a deliberate manual audit.
 rewritten in place; bash reads a script incrementally, so that process's state
 was corrupted by the edit. It was killed and is not cited as evidence.
 
-## Follow-up to file at Step 8
+## Follow-ups filed at Step 8
 
-`enhancement`: extend the launching-interpreter convention to the ~90 sites that
-invoke **production** framework scripts as bare `bash "$SCRIPT"` (test_codeagent,
-test_revert_analyze, test_t167_integration, install.sh tests, …), so a
-deliberate 3.2 run of the suite exercises framework scripts under 3.2 too.
-Needs its own verification pass across ~10 test files and a decision on whether
-the knob belongs in a shared `tests/lib/` helper.
+- **t1751** (`bug`, upstream_defect) — `tests/test_stale_lock.sh:470` and `:671`
+  compare exact strings against BSD `wc -l` output; the file is red on macOS at
+  HEAD. Fix with `assert_eq_trim`, and sweep `tests/` for the same shape.
+- **t1752** (`performance`, upstream_defect) — `.aitask-scripts/lib/yaml_utils.sh:146-147`
+  counts bracket depth with two full pattern substitutions per line; cubic under
+  bash 3.2 (~15h on a 77KB inline flow list vs 0.30s/16KB under 5.3.9). Fixing it
+  is what re-enables `tests/test_yaml_utils.sh`'s 3.2 lane and lets the header
+  warning added here be removed.
+- **t1753** (`enhancement`) — extend the launching-interpreter convention to the
+  ~90 sites that invoke **production** framework scripts as bare `bash "$SCRIPT"`.
+  Carries the three open decisions: whether a 3.2 run should audit production
+  scripts at all, whether the knob belongs in a shared `tests/lib/` helper (which
+  would need its own contract test), and whether the existing `TEST_BASH` sites
+  converge on it.
 
 ## Step 9 (Post-Implementation)
 
