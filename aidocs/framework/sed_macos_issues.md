@@ -383,6 +383,37 @@ Note that BSD `readlink` also prints nothing (exit 1) for a non-symlink, whereas
 GNU `readlink -f` prints the path itself — so the two are not drop-in equivalents
 even where `-f` exists.
 
+## `mkdir -p` Through a Dangling Symlink
+
+`mkdir -p` fails when a leading path component is a **dangling** symlink — the
+`-p` "already exists, that's fine" clause does not cover it, because the
+component does not exist as far as `mkdir` is concerned. Both platforms fail and
+both exit non-zero, but **the errno and the message differ**:
+
+| Platform | errno | Message |
+|----------|-------|---------|
+| Linux (GNU coreutils) | `EEXIST` | `File exists` |
+| macOS (BSD) | `ENOENT` | `No such file or directory` |
+
+```bash
+d=$(mktemp -d); ln -s "$d/gone" "$d/aitasks"
+mkdir -p "$d/aitasks/metadata"; echo "rc=$?"
+# Linux: mkdir: cannot create directory '…/aitasks': File exists            rc=1
+# macOS: mkdir: …/aitasks: No such file or directory                        rc=1
+```
+
+**Assert on the exit status, never on the message.** A test that greps for
+`File exists` — the natural thing to write from a Linux console session — is a
+macOS-only failure that never fires in CI. This is the whole class the entry
+exists for: the *behaviour* is portable, the *diagnostic* is not.
+
+This bites the install path specifically. `install.sh` runs under
+`set -euo pipefail`, so an unguarded `mkdir -p` on a repo whose gitignored
+`aitasks -> .aitask-data/aitasks` symlinks were captured in a tarball aborts the
+entire install with an opaque diagnostic — the regression `ensure_data_root`
+(t1193) exists to repair. Anything that writes through a path a user may have
+symlinked needs the same guard, not a `2>/dev/null ||` that swallows the errno.
+
 ## Shebang Convention
 
 Always use `#!/usr/bin/env bash`, never `#!/bin/bash`. macOS system bash is 3.2 which lacks `declare -A`, `local -n`, `${var^}`. The `env bash` form picks up brew-installed bash 5.x from PATH.
@@ -553,3 +584,31 @@ permissions. Every framework caller is `#!/usr/bin/env bash`, so this is
 unreachable in practice; it is recorded because an agent verifying by hand in an
 interactive zsh will reproduce it and mistake it for a defect. Verify shell libs
 with `bash -c '...'`, never a bare interactive shell.
+
+## Files Audited in t1206
+
+macOS run of `tests/test_install_create_data_dirs.sh`, on macOS 15.7.3 arm64
+(Darwin 24.6.0, BSD `mkdir`/`readlink`). t1193 added `ensure_data_root` to
+`install.sh`'s `create_data_dirs()`; t1201 ran the suite green on Linux but had
+no macOS host, leaving one assumption open — **Test 3**, the negative control,
+asserts that an *unguarded* `mkdir -p` through a dangling symlink exits
+non-zero. If BSD behaved otherwise, Test 3 would pass vacuously and stop
+attributing Test 2's success to the guard.
+
+**No BSD-vs-GNU divergence found — nothing to fix.**
+
+- **40/40 assertions pass, exit 0**, under both PATH bash 5.3.9 and macOS system
+  bash 3.2.57. The 3.2 run was not required by the checklist; it closes t1201's
+  other substitute-evidence assumption (no bash-4-only constructs in the test,
+  `tests/lib/asserts.sh`, or `ensure_data_root`) by execution rather than by
+  inspection.
+- **Test 3 is non-vacuous.** Probed standalone rather than trusted green: BSD
+  `mkdir -p` through a dangling symlink exits `1`, so Test 2 remains attributable
+  to `ensure_data_root`.
+
+**One divergence in the diagnostic, not the behaviour.** t1201 predicted BSD
+`mkdir(1)`'s `build()` would go `stat()` → `ENOENT` → `mkdir()` → `EEXIST` and
+report `File exists`, matching GNU. It reports **`No such file or directory`
+(`ENOENT`)** instead. `assert_exit_nonzero_rc` checks only the status, so the
+test is correct as written — but tightening it to match GNU's message would be
+a macOS-only failure. See `mkdir -p` Through a Dangling Symlink above.
