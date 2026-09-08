@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [framework, bash_scripts, testing]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1681
 followup_kind: verification_failure
 created_at: 2026-09-08 17:35
-updated_at: 2026-09-08 17:35
+updated_at: 2026-09-08 17:57
 ---
 
 ## Origin
