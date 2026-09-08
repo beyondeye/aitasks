@@ -568,7 +568,7 @@ shellcheck .aitask-scripts/aitask_codeagent.sh .aitask-scripts/aitask_frozen.sh
   private helpers from `agent_freeze.py` (`_store`, `_pane_facts`, `_respawn`,
   `_set_option`, the test seams). Copying them forks two engines that must stay
   in agreement about the store wire protocol; importing them couples the
-  coordinator to a module deliberately written to work without it · severity: medium (residual — deferred to a blocking "before" task, so this plan does not land the duplication) · → mitigation: extract_freeze_store_helpers
+  coordinator to a module deliberately written to work without it · severity: medium (residual — deferred to a blocking "before" task, so this plan does not land the duplication) · → mitigation: t1738
 - The store's transitional verbs are state-guarded, so a lost race returns a
   refusal rather than an error — and a coordinator that reads a refusal as
   failure rolls back, `respawn-pane -k`ing a **successfully restored agent**
