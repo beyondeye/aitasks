@@ -3,13 +3,14 @@ priority: medium
 effort: medium
 depends: []
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [tmux, tmux_destructive, codeagent, session_persistence, python, testing]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1705
 followup_kind: risk_mitigation
 created_at: 2026-09-08 11:41
-updated_at: 2026-09-08 11:41
+updated_at: 2026-09-08 11:49
 ---
 
 ## Origin
