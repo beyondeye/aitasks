@@ -208,11 +208,10 @@ shellcheck .aitask-scripts/aitask_fold_mark.sh
   `_rebase_advance` (a failed `diff --diff-filter=U` reads as "no conflicts" and
   proceeds to `rebase --skip`, which **discards a commit**) and
   `aitask_setup.sh:3585-3596` (a failed dirtiness probe reads as clean). Fixing
-  only this site leaves the class alive. · severity: medium · → mitigation:
-  sweep_failopen_git_probes
+  only this site leaves the class alive. · severity: medium · → mitigation: t1747
 
 ### Planned mitigations
-- timing: after | name: sweep_failopen_git_probes | type: bug | priority: medium | effort: medium | inline_risk: high | added_complexity: high | addresses: goal-achievement — the fail-open git-probe class survives at other authorization sites | desc: Audit every framework site where a fail-open (or-true suppressed) git probe gates a destructive or authorizing action and apply the capture-the-status-separately rule; known candidates are aitask_sync.sh::_rebase_advance (failed conflict probe reads as no-conflicts, then rebase --skip discards a commit) and aitask_setup.sh:3585-3596 (failed dirtiness probe reads as clean)
+- timing: after | name: sweep_failopen_git_probes | type: bug | priority: medium | effort: medium | inline_risk: high | added_complexity: high | addresses: goal-achievement — the fail-open git-probe class survives at other authorization sites | desc: Audit every framework site where a fail-open (or-true suppressed) git probe gates a destructive or authorizing action and apply the capture-the-status-separately rule; known candidates are aitask_sync.sh::_rebase_advance (failed conflict probe reads as no-conflicts, then rebase --skip discards a commit) and aitask_setup.sh:3585-3596 (failed dirtiness probe reads as clean) | created: t1747
 
 ## Implementation record
 
