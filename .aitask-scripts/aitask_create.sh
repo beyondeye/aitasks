@@ -805,6 +805,12 @@ enforce_manual_verification_gate_invariant() {
 _register_task_labels() {
     local filepath="$1"
     local raw csv
+    # Every exit path must leave a TRUTHFUL signal. The three early returns below
+    # never reach add_labels_csv_to_file (which is what normally resets these), and
+    # finalize_all_drafts loops finalize_draft in ONE process -- so without this a
+    # later draft would inherit an earlier draft's AIT_LABELS_ADDED and stage
+    # labels.txt under the wrong commit (t1599_4 / t1662).
+    AIT_LABELS_ADDED=()
     [[ -f "$filepath" ]] || return 0
     raw=$(grep -m1 '^labels:' "$filepath" 2>/dev/null | sed 's/^labels: *//' || true)
     [[ -z "$raw" ]] && return 0
@@ -846,6 +852,12 @@ finalize_draft() {
         sed '/^draft: true$/d; /^parent: .*$/d' "$draft_path" > "$filepath"
         enforce_manual_verification_gate_invariant "$filepath"
         _register_task_labels "$filepath"
+        # Did THIS draft append to the shared vocabulary? Read per-call, right after
+        # the registration that produced it (t1599_4 / t1662).
+        local _stage_labels=false
+        if (( ${#AIT_LABELS_ADDED[@]} > 0 )); then
+            _stage_labels=true
+        fi
 
         # Update parent's children_to_implement
         update_parent_children_to_implement "$parent_num" "$task_id"
@@ -857,14 +869,26 @@ finalize_draft() {
         fi
 
         # Git commit
-        task_git add "$filepath"
         local parent_file
         parent_file=$(get_parent_task_file "$parent_num")
-        [[ -n "$parent_file" ]] && task_git add "$parent_file" 2>/dev/null || true
-        task_git add "$LABELS_FILE" 2>/dev/null || true
+        # labels.txt joins the pathspec ONLY when this invocation actually appended
+        # to the vocabulary. `commit -- <paths>` commits worktree content, so naming
+        # it unconditionally would carry a concurrent session's append (t1662).
+        local -a commit_paths=( "$filepath" )
+        [[ -n "$parent_file" ]] && commit_paths+=( "$parent_file" )
+        if [[ "$_stage_labels" == true ]]; then
+            commit_paths+=( "$LABELS_FILE" )
+        fi
         local humanized_name
         humanized_name=$(echo "$task_name" | tr '_' ' ')
-        task_git commit -m "ait: Add child task ${task_id}: ${humanized_name}"
+        local crc=0
+        task_git_commit_scoped "ait: Add child task ${task_id}: ${humanized_name}" \
+            "${commit_paths[@]}" || crc=$?
+        if [[ "$crc" -eq 2 ]]; then
+            warn "nothing to commit for ${task_id}"
+        elif [[ "$crc" -ne 0 ]]; then
+            die "commit failed for ${task_id}"
+        fi
 
         run_auto_merge_if_needed "${parent_num}_${child_num}" "$filepath"
 
@@ -882,6 +906,11 @@ finalize_draft() {
         sed '/^draft: true$/d' "$draft_path" > "$filepath"
         enforce_manual_verification_gate_invariant "$filepath"
         _register_task_labels "$filepath"
+        # Per-call, read immediately after the registration (t1599_4 / t1662).
+        local _stage_labels=false
+        if (( ${#AIT_LABELS_ADDED[@]} > 0 )); then
+            _stage_labels=true
+        fi
 
         rm -f "$draft_path"
 
@@ -896,15 +925,23 @@ finalize_draft() {
             success "Finalized: $filepath (ID: $task_id)"
         fi
 
-        # Git commit
-        task_git add "$filepath"
-        task_git add "$LABELS_FILE" 2>/dev/null || true
+        # Git commit. labels.txt joins the pathspec only when this invocation
+        # appended to the vocabulary (t1662); the helper is always --quiet, which
+        # is why the old silent/non-silent fork collapses to one call -- that fork
+        # existed only to keep git's own summary out of the --silent stdout channel.
+        local -a commit_paths=( "$filepath" )
+        if [[ "$_stage_labels" == true ]]; then
+            commit_paths+=( "$LABELS_FILE" )
+        fi
         local humanized_name
         humanized_name=$(echo "$task_name" | tr '_' ' ')
-        if [[ "$silent" == "true" ]]; then
-            task_git commit --quiet -m "ait: Add task ${task_id}: ${humanized_name}" >&2
-        else
-            task_git commit -m "ait: Add task ${task_id}: ${humanized_name}"
+        local crc=0
+        task_git_commit_scoped "ait: Add task ${task_id}: ${humanized_name}" \
+            "${commit_paths[@]}" || crc=$?
+        if [[ "$crc" -eq 2 ]]; then
+            warn "nothing to commit for ${task_id}"
+        elif [[ "$crc" -ne 0 ]]; then
+            die "commit failed for ${task_id}"
         fi
 
         run_auto_merge_if_needed "$claimed_id" "$filepath"
@@ -2044,30 +2081,13 @@ create_task_file() {
     echo "$filepath"
 }
 
-# --- Step 7: Git Commit ---
-
-commit_task() {
-    local filepath="$1"
-    local task_num="$2"
-    local task_name="$3"
-
-    read -rp "Commit to git? [Y/n] " commit_choice
-
-    if [[ "$commit_choice" != "n" && "$commit_choice" != "N" ]]; then
-        local humanized_name
-        humanized_name=$(echo "$task_name" | tr '_' ' ')
-
-        task_git add "$filepath"
-        task_git add "$LABELS_FILE" 2>/dev/null || true
-        task_git commit -m "ait: Add task t${task_num}: ${humanized_name}"
-
-        local commit_hash
-        commit_hash=$(task_git rev-parse --short HEAD)
-        echo "$commit_hash"
-    else
-        echo ""
-    fi
-}
+# commit_task() was removed in t1599_4. It was unreachable: the interactive flow
+# creates a DRAFT and commits nothing, and both committing menu branches route to
+# finalize_draft(). Keeping it would have meant carrying a fifth unconditional
+# labels.txt staging site plus a revival hazard -- it establishes no per-invocation
+# state, so a future caller would have inherited whatever AIT_LABELS_ADDED an
+# earlier registration left behind. Any revived commit path must build its own
+# _stage_labels from its own registration call, as finalize_draft does.
 
 # --- Batch Mode ---
 
@@ -2179,13 +2199,18 @@ run_batch_mode() {
 
     if [[ "$BATCH_COMMIT" == true ]]; then
         # Register new labels in the vocabulary BEFORE the parent/child split, so
-        # the existing `task_git add "$LABELS_FILE"` at each commit site carries
-        # labels.txt in the very same task-creation commit.
+        # labels.txt rides in the very same task-creation commit when -- and only
+        # when -- this invocation actually appended to it.
         # >&2 is load-bearing: info() writes to stdout, and --silent promises
         # exactly one stdout line that callers parse.
+        #
+        # ONE gate shared by both commit sites below: they are both downstream of
+        # this single registration, in this same scope (t1599_4 / t1662).
+        local _stage_labels=false
         if [[ -n "$BATCH_LABELS" ]]; then
             add_labels_csv_to_file "$BATCH_LABELS"
             if (( ${#AIT_LABELS_ADDED[@]} > 0 )); then
+                _stage_labels=true
                 info "Added to label vocabulary: $(IFS=','; echo "${AIT_LABELS_ADDED[*]}")" >&2
             fi
         fi
@@ -2233,13 +2258,18 @@ run_batch_mode() {
 
             local humanized_name
             humanized_name=$(echo "$task_name" | tr '_' ' ')
-            task_git add "$filepath"
-            task_git add "$parent_file" 2>/dev/null || true
-            task_git add "$LABELS_FILE" 2>/dev/null || true
-            if [[ "$BATCH_SILENT" == true ]]; then
-                task_git commit --quiet -m "ait: Add child task ${task_id}: ${humanized_name}" >&2
-            else
-                task_git commit -m "ait: Add child task ${task_id}: ${humanized_name}"
+            local -a commit_paths=( "$filepath" )
+            [[ -n "$parent_file" ]] && commit_paths+=( "$parent_file" )
+            if [[ "$_stage_labels" == true ]]; then
+                commit_paths+=( "$LABELS_FILE" )
+            fi
+            local crc=0
+            task_git_commit_scoped "ait: Add child task ${task_id}: ${humanized_name}" \
+                "${commit_paths[@]}" || crc=$?
+            if [[ "$crc" -eq 2 ]]; then
+                warn "nothing to commit for ${task_id}"
+            elif [[ "$crc" -ne 0 ]]; then
+                die "commit failed for ${task_id}"
             fi
 
             run_auto_merge_if_needed "${BATCH_PARENT}_${child_num}" "$filepath"
@@ -2266,12 +2296,17 @@ run_batch_mode() {
 
             local humanized_name
             humanized_name=$(echo "$task_name" | tr '_' ' ')
-            task_git add "$filepath"
-            task_git add "$LABELS_FILE" 2>/dev/null || true
-            if [[ "$BATCH_SILENT" == true ]]; then
-                task_git commit --quiet -m "ait: Add task ${task_id}: ${humanized_name}" >&2
-            else
-                task_git commit -m "ait: Add task ${task_id}: ${humanized_name}"
+            local -a commit_paths=( "$filepath" )
+            if [[ "$_stage_labels" == true ]]; then
+                commit_paths+=( "$LABELS_FILE" )
+            fi
+            local crc=0
+            task_git_commit_scoped "ait: Add task ${task_id}: ${humanized_name}" \
+                "${commit_paths[@]}" || crc=$?
+            if [[ "$crc" -eq 2 ]]; then
+                warn "nothing to commit for ${task_id}"
+            elif [[ "$crc" -ne 0 ]]; then
+                die "commit failed for ${task_id}"
             fi
 
             run_auto_merge_if_needed "$claimed_id" "$filepath"

@@ -591,6 +591,137 @@ import_single_issue() {
 
 # --- Merge Issues Mode ---
 
+# Refusal reason set by _import_amend_guard; read by _import_commit_frontmatter.
+_import_amend_refusal=""
+
+# _import_amend_guard <created_file> -- decide whether HEAD is the create commit
+# this import is entitled to rewrite. 0 = safe to amend, 1 = refuse (reason in
+# _import_amend_refusal).
+#
+# DEFAULT-DENY, mirroring the SHAPE of _fold_amend_guard in aitask_fold_mark.sh
+# (t1599_2) rather than its code -- that one classifies by task id because a fold
+# touches many tasks, whereas here the accepted set is exactly the three paths
+# aitask_create.sh stages for one creation, so exact path membership is both
+# simpler and tighter.
+#
+# It never die()s: the caller falls back to a fresh scoped commit, because
+# refusing outright would leave the injected frontmatter dirty in the worktree --
+# precisely the bystander state the next unscoped commit sweeps up, which is the
+# defect this change exists to close.
+_import_amend_guard() {
+    local created_file="$1"
+    local p head_short ups
+    local -a foreign=()
+    local -A accepted=()
+
+    accepted["$created_file"]=1
+    accepted["$(labels_file_path)"]=1
+
+    # A child creation co-commits its parent file (children_to_implement).
+    #
+    # Accept THE parent file, not every same-prefix match. `tP_*.md` should
+    # resolve to exactly one file; if it resolves to several, the tree is
+    # malformed or a concurrent session added another, and we cannot prove which
+    # one this child's creation legitimately co-committed. Accepting the whole
+    # glob there would let a foreign `aitasks/tP_something_else.md` ride into a
+    # history-rewriting amend, which is precisely what default-deny exists to
+    # stop -- so ambiguity accepts NONE and the amend is refused.
+    if [[ "$created_file" =~ /t([0-9]+)/t[0-9]+_[0-9]+_.*\.md$ ]]; then
+        # Bind the capture immediately: BASH_REMATCH is global and any later
+        # regex match in this block would silently change what these lines mean.
+        local parent_num="${BASH_REMATCH[1]}"
+        local parent_glob
+        local -a parent_matches=()
+        for parent_glob in "$TASK_DIR"/t"${parent_num}"_*.md; do
+            # `-e` also filters the literal, unexpanded glob when nothing matches.
+            if [[ -e "$parent_glob" ]]; then
+                parent_matches+=( "$parent_glob" )
+            fi
+        done
+        if (( ${#parent_matches[@]} == 1 )); then
+            accepted["${parent_matches[0]}"]=1
+        elif (( ${#parent_matches[@]} > 1 )); then
+            warn "ambiguous parent for ${created_file}: ${#parent_matches[@]} files match ${TASK_DIR}/t${parent_num}_*.md; accepting none"
+        fi
+    fi
+
+    head_short="$(task_git rev-parse --short HEAD 2>/dev/null || echo "HEAD")"
+
+    # Capture the probe's exit status separately, and treat an EMPTY path list as
+    # unverified rather than as "nothing foreign". Same rule as
+    # task_git_commit_scoped's `git status` handling: a failing probe must never
+    # read as clean. Both cases are fail-OPEN if ignored -- `|| true` on a failed
+    # `git show` would hand back an empty list and permit the rewrite. An empty
+    # list is also what `git show --name-only` prints for a MERGE commit, which is
+    # emphatically not something this should amend.
+    local head_paths="" show_rc=0
+    head_paths="$(task_git show --name-only --format='' HEAD 2>/dev/null)" || show_rc=$?
+    if (( show_rc != 0 )); then
+        _import_amend_refusal="could not read the path list of HEAD (${head_short}); git exited ${show_rc}. Refusing to amend a commit whose contents are unverified."
+        return 1
+    fi
+    if [[ -z "${head_paths//[[:space:]]/}" ]]; then
+        _import_amend_refusal="HEAD (${head_short}) reports no paths — an empty or merge commit. Refusing to amend a commit whose contents cannot be verified."
+        return 1
+    fi
+
+    while IFS= read -r p; do
+        [[ -n "$p" ]] || continue
+        [[ -n "${accepted[$p]:-}" ]] && continue
+        foreign+=( "$p" )
+    done <<< "$head_paths"
+
+    if (( ${#foreign[@]} > 0 )); then
+        _import_amend_refusal="HEAD (${head_short}) carries paths outside this import:
+$(printf '  %s\n' "${foreign[@]}")"
+        return 1
+    fi
+
+    # Rewriting a published commit changes its SHA under everyone who has it.
+    #
+    # ACCEPTED RESIDUAL: this reads the LOCAL remote-tracking ref and deliberately
+    # does not fetch. A push made elsewhere since the last fetch is missed, so it
+    # can UNDER-detect a published commit; it can never wrongly refuse an
+    # unpublished one.
+    ups="$(task_git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || true)"
+    if [[ -n "$ups" ]] && task_git merge-base --is-ancestor HEAD "$ups" 2>/dev/null; then
+        _import_amend_refusal="HEAD (${head_short}) is already published on ${ups}; amending would rewrite pushed history."
+        return 1
+    fi
+
+    return 0
+}
+
+# _import_commit_frontmatter <created_file> -- commit the injected merge
+# frontmatter, amending the create commit when HEAD is ours and otherwise making
+# a fresh scoped commit. Extracted from the call site so it is drivable by tests:
+# the batch import flow around it needs the `gh` CLI, which is why this path had
+# no coverage before t1599_4.
+_import_commit_frontmatter() {
+    local created_file="$1"
+    local crc=0
+
+    if _import_amend_guard "$created_file"; then
+        # `add` only so an untracked path can be named by a pathspec.
+        task_git add -- "$created_file" >/dev/null 2>&1 || true
+        if task_git commit --amend --no-edit -o --quiet -- "$created_file" >/dev/null 2>&1; then
+            return 0
+        fi
+        die "amend of the import commit failed for ${created_file}"
+    fi
+
+    warn "not amending: ${_import_amend_refusal}
+Committing the imported frontmatter as a separate commit instead."
+    task_git_commit_scoped "ait: Record merge frontmatter for $(basename "$created_file" .md)" \
+        "$created_file" || crc=$?
+    if [[ "$crc" -eq 2 ]]; then
+        warn "no frontmatter changes to commit for ${created_file}"
+    elif [[ "$crc" -ne 0 ]]; then
+        die "fallback commit of imported frontmatter failed for ${created_file}"
+    fi
+    return 0
+}
+
 merge_issues() {
     local issue_nums_csv="$1"
     local -a issue_nums
@@ -786,10 +917,10 @@ merge_issues() {
     # Inject merge-specific frontmatter fields
     inject_merge_frontmatter "$created_file" "$related_issues_yaml" "$contributors_yaml"
 
-    # If --commit was used, amend the commit to include frontmatter changes
+    # If --commit was used, fold the frontmatter changes into the create commit --
+    # but only when HEAD actually IS that commit (t1599_4).
     if [[ "$BATCH_COMMIT" == true ]]; then
-        task_git add "$created_file"
-        task_git commit --amend --no-edit
+        _import_commit_frontmatter "$created_file"
     fi
 
     # Post notification comment on each source issue

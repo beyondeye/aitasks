@@ -1802,14 +1802,26 @@ run_interactive_mode() {
     if [[ "$commit_choice" != "n" && "$commit_choice" != "N" ]]; then
         local humanized_name
         humanized_name=$(basename "$final_path" .md | sed -E 's/^t[0-9]*_([0-9]*_)?//' | tr '_' ' ')
-        task_git add "$final_path"
+        # The pathspec must inherit the staging gate, not just the `add`:
+        # `commit -- <paths>` commits WORKTREE content, so naming labels.txt
+        # unconditionally would carry a concurrent session's append even when this
+        # update did not touch the vocabulary (t1599_4).
+        local -a commit_paths=( "$final_path" )
         if [[ "$LABELS_VOCAB_DIRTY" == true ]]; then
-            task_git add "$LABELS_FILE" 2>/dev/null || true
+            commit_paths+=( "$LABELS_FILE" )
         fi
-        task_git commit -m "ait: Update task t${task_num}: ${humanized_name}"
-        local commit_hash
-        commit_hash=$(task_git rev-parse --short HEAD)
-        success "Committed: $commit_hash"
+        local crc=0
+        task_git_commit_scoped "ait: Update task t${task_num}: ${humanized_name}" \
+            "${commit_paths[@]}" || crc=$?
+        if [[ "$crc" -eq 0 ]]; then
+            local commit_hash
+            commit_hash=$(task_git rev-parse --short HEAD)
+            success "Committed: $commit_hash"
+        elif [[ "$crc" -eq 2 ]]; then
+            warn "nothing to commit for t${task_num}"
+        else
+            die "commit failed for t${task_num}"
+        fi
     fi
 }
 
@@ -2263,13 +2275,22 @@ run_batch_mode() {
     if [[ "$BATCH_COMMIT" == true ]]; then
         local humanized_name
         humanized_name=$(basename "$final_path" .md | sed -E 's/^t[0-9]*_([0-9]*_)?//' | tr '_' ' ')
-        task_git add "$final_path"
         # Only when this update actually appended to the vocabulary — otherwise
         # labels.txt would be left dirty for an unrelated commit to sweep up.
+        # The same gate drives the PATHSPEC: `commit -- <paths>` commits worktree
+        # content, so an unconditional labels.txt would re-open that hole (t1599_4).
+        local -a commit_paths=( "$final_path" )
         if [[ "$_stage_labels" == true ]]; then
-            task_git add "$LABELS_FILE" 2>/dev/null || true
+            commit_paths+=( "$LABELS_FILE" )
         fi
-        task_git commit -m "ait: Update task t${BATCH_TASK_NUM}: ${humanized_name}"
+        local crc=0
+        task_git_commit_scoped "ait: Update task t${BATCH_TASK_NUM}: ${humanized_name}" \
+            "${commit_paths[@]}" || crc=$?
+        if [[ "$crc" -eq 2 ]]; then
+            warn "nothing to commit for t${BATCH_TASK_NUM}"
+        elif [[ "$crc" -ne 0 ]]; then
+            die "commit failed for t${BATCH_TASK_NUM}"
+        fi
     fi
 
     # Output

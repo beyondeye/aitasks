@@ -266,11 +266,15 @@ archive_parent() {
 
     # Git staging and commit
     if [[ "$DRY_RUN" != true ]]; then
+        # The staging below is already narrow; the pathspec on the commit is what
+        # stops a concurrent session's *staged* file riding along (t1599_4).
+        local -a commit_paths=( "$ARCHIVED_DIR/$task_basename" "$task_file" )
         task_git add "$ARCHIVED_DIR/$task_basename"
         if [[ -n "$plan_file" ]]; then
             local plan_basename
             plan_basename=$(basename "$plan_file")
             task_git add "$ARCHIVED_PLAN_DIR/$plan_basename" 2>/dev/null || true
+            commit_paths+=( "$ARCHIVED_PLAN_DIR/$plan_basename" "$plan_file" )
         fi
         # Stage deletion of original task/plan paths (files already moved by archive_move).
         # Narrow to specific paths so we don't sweep in unrelated in-progress edits by sibling agents.
@@ -280,10 +284,24 @@ archive_parent() {
         fi
 
         if [[ "$NO_COMMIT" != true ]]; then
-            task_git commit -m "ait: Archive completed t${task_num} task and plan files" --quiet
-            local commit_hash
-            commit_hash=$(task_git rev-parse --short HEAD)
-            echo "COMMITTED:$commit_hash"
+            # --no-stage: the `add -u` above is deliberate (it stages the deletion of
+            # the moved-from paths without adding anything else); letting the helper
+            # re-stage would be a no-op at best and widen the set at worst.
+            local crc=0
+            task_git_commit_scoped --no-stage \
+                "ait: Archive completed t${task_num} task and plan files" \
+                "${commit_paths[@]}" || crc=$?
+            if [[ "$crc" -eq 0 ]]; then
+                local commit_hash
+                commit_hash=$(task_git rev-parse --short HEAD)
+                echo "COMMITTED:$commit_hash"
+            elif [[ "$crc" -eq 2 ]]; then
+                # Verified nothing to commit. Say so: the pre-t1599_4 code aborted
+                # here under `set -e`, so silence would be a new failure mode.
+                warn "nothing to commit for t${task_num} archival — no commit made"
+            else
+                die "archive commit failed for t${task_num}"
+            fi
         fi
     fi
 }
@@ -530,12 +548,20 @@ archive_child() {
 
     # Git staging and commit
     if [[ "$DRY_RUN" != true ]]; then
+        # Every staged path is also collected into commit_paths: the pathspec on the
+        # commit is what stops a concurrent session's *staged* file riding along,
+        # which the narrow staging alone cannot do (t1599_4).
+        local -a commit_paths=( "$child_archive_dir/$child_task_basename" \
+                                "$child_task_file" "$parent_task_file" )
+
         # Stage archived child files
         task_git add "$child_archive_dir/$child_task_basename"
         if [[ -n "${child_plan_file:-}" ]]; then
             local child_plan_basename
             child_plan_basename=$(basename "$child_plan_file")
             task_git add "$ARCHIVED_PLAN_DIR/p${parent_num}/$child_plan_basename" 2>/dev/null || true
+            commit_paths+=( "$ARCHIVED_PLAN_DIR/p${parent_num}/$child_plan_basename" \
+                            "$child_plan_file" )
         fi
 
         # Stage deletion of original child task/plan paths (files already moved by archive_move).
@@ -551,9 +577,11 @@ archive_child() {
         # Stage parent archival if applicable
         if [[ "$parent_archived" == true ]]; then
             task_git add "$ARCHIVED_DIR/$parent_task_basename" 2>/dev/null || true
+            commit_paths+=( "$ARCHIVED_DIR/$parent_task_basename" )
             if [[ -n "$parent_plan_basename" ]]; then
                 task_git add "$ARCHIVED_PLAN_DIR/$parent_plan_basename" 2>/dev/null || true
                 task_git add -u "$parent_plan_file" 2>/dev/null || true
+                commit_paths+=( "$ARCHIVED_PLAN_DIR/$parent_plan_basename" "$parent_plan_file" )
             fi
         fi
 
@@ -562,10 +590,19 @@ archive_child() {
             if [[ "$parent_archived" == true ]]; then
                 commit_msg="ait: Archive completed t${task_id} and parent t${parent_num} task and plan files"
             fi
-            task_git commit -m "$commit_msg" --quiet
-            local commit_hash
-            commit_hash=$(task_git rev-parse --short HEAD)
-            echo "COMMITTED:$commit_hash"
+            # --no-stage: the `add -u` calls above deliberately stage the moved-from
+            # deletions and the parent's in-place edit; re-staging would widen the set.
+            local crc=0
+            task_git_commit_scoped --no-stage "$commit_msg" "${commit_paths[@]}" || crc=$?
+            if [[ "$crc" -eq 0 ]]; then
+                local commit_hash
+                commit_hash=$(task_git rev-parse --short HEAD)
+                echo "COMMITTED:$commit_hash"
+            elif [[ "$crc" -eq 2 ]]; then
+                warn "nothing to commit for t${task_id} archival — no commit made"
+            else
+                die "archive commit failed for t${task_id}"
+            fi
         fi
     fi
 }
@@ -641,8 +678,16 @@ create_carryover_task() {
     fi
 
     if [[ "$NO_COMMIT" != true ]]; then
-        task_git add "$new_file"
-        task_git commit -m "ait: Seed carry-over checklist on t${new_id}" --quiet
+        # Scoped: the seed edit is this task's own file and nothing else (t1599_4).
+        local crc=0
+        task_git_commit_scoped "ait: Seed carry-over checklist on t${new_id}" \
+            "$new_file" || crc=$?
+        if [[ "$crc" -eq 2 ]]; then
+            warn "nothing to commit for the t${new_id} carry-over seed"
+        elif [[ "$crc" -ne 0 ]]; then
+            rm -f "$items_tmp"
+            die "carry-over seed commit failed for t${new_id}"
+        fi
     fi
 
     rm -f "$items_tmp"

@@ -260,6 +260,185 @@ test_silent_stdout_single_line() {
     teardown
 }
 
+# --- t1599_4 / t1662: labels.txt must not ride along -----------------------
+#
+# THE DISCRIMINATING SEED IS A DIRTY labels.txt. `git add` on an UNCHANGED file
+# stages nothing, which is exactly why Test 3 above passes against the pre-fix
+# code and cannot see this bug. Every case below dirties the vocabulary first, to
+# stand in for a concurrent session that appended a label and has not committed.
+FOREIGN_LABEL="someone_elses_pending_label"
+dirty_vocab() { printf '%s\n' "$FOREIGN_LABEL" >> "$VOCAB"; }
+
+files_in() { git show --name-only --pretty=format: "$1" | grep -v '^$' | sort | tr '\n' ' '; }
+
+# Shared assertions for "this creation must not have swallowed the foreign edit".
+assert_foreign_edit_survived() {   # <label-prefix> <commit-files>
+    local tag="$1" commit_files="$2"
+    assert_not_contains "$tag: commit does NOT contain labels.txt" \
+        "aitasks/metadata/labels.txt" "$commit_files"
+    assert_contains "$tag: foreign edit is still pending" \
+        "$VOCAB" "$(git status --porcelain -- "$VOCAB")"
+    assert_contains "$tag: foreign label is still on disk" \
+        "$FOREIGN_LABEL" "$(cat "$VOCAB")"
+}
+
+# --- T7: batch parent, already-known label, dirty vocabulary ---------------
+test_batch_parent_does_not_sweep_dirty_vocab() {
+    echo "=== T7: batch parent with a known label leaves a dirty labels.txt alone ==="
+    setup_project
+    dirty_vocab
+
+    local f
+    f=$(bash .aitask-scripts/aitask_create.sh --batch --commit --silent \
+            --name t7_parent --desc x --labels "preexisting_label" 2>/dev/null)
+    assert_file_exists "T7: task file created" "$f"
+    local commit_files; commit_files=$(head_files)
+    assert_contains "T7: commit contains the task file" "$f" "$commit_files"
+    assert_foreign_edit_survived "T7" "$commit_files"
+
+    teardown
+}
+
+# --- T8: batch child — a parent-only fix passes T7 and misses this ---------
+test_batch_child_does_not_sweep_dirty_vocab() {
+    echo "=== T8: batch child with a known label leaves a dirty labels.txt alone ==="
+    setup_project
+
+    local parent
+    parent=$(bash .aitask-scripts/aitask_create.sh --batch --commit --silent \
+                 --name t8_parent --desc x 2>/dev/null)
+    local pid; pid=$(parent_id_of "$parent"); pid="${pid#t}"
+
+    dirty_vocab
+    local child
+    child=$(bash .aitask-scripts/aitask_create.sh --batch --commit --silent \
+                --parent "$pid" --name t8_child --desc x --labels "preexisting_label" 2>/dev/null)
+    assert_file_exists "T8: child file created" "$child"
+    local commit_files; commit_files=$(head_files)
+    assert_contains "T8: commit contains the child file" "$child" "$commit_files"
+    assert_foreign_edit_survived "T8" "$commit_files"
+
+    teardown
+}
+
+# --- T9: the finalize path (a different pair of commit sites) --------------
+test_finalize_does_not_sweep_dirty_vocab() {
+    echo "=== T9: --finalize with a known label leaves a dirty labels.txt alone ==="
+    setup_project
+
+    local draft
+    draft=$(bash .aitask-scripts/aitask_create.sh --batch --silent \
+                --name t9_parent --desc x --labels "preexisting_label" 2>/dev/null)
+    dirty_vocab
+    local f
+    f=$(bash .aitask-scripts/aitask_create.sh --batch --silent --finalize "$draft" 2>/dev/null)
+    assert_file_exists "T9: finalized file exists" "$f"
+    assert_foreign_edit_survived "T9" "$(head_files)"
+
+    teardown
+}
+
+# --- T10: the cross-draft stale signal (the _register_task_labels reset) ---
+#
+# The naive two-draft version does NOT discriminate: draft A's commit would leave
+# labels.txt clean, so draft B's stale-signal add is a no-op on an unchanged file.
+# A post-commit hook injects a foreign append AFTER THE FIRST COMMIT ONLY, so the
+# vocabulary is dirty exactly when draft B is committed. Draft B carries no labels
+# at all, so labels.txt must not appear in its commit — it only can if B read a
+# stale AIT_LABELS_ADDED left behind by A.
+test_finalize_all_no_stale_label_signal() {
+    echo "=== T10: a later draft does not inherit an earlier draft's label signal ==="
+    setup_project
+
+    # Draft A carries a NEW label; draft B carries none. Names pin the glob order.
+    bash .aitask-scripts/aitask_create.sh --batch --silent \
+        --name aaa_first --desc x --labels "t10_brand_new" >/dev/null 2>&1
+    bash .aitask-scripts/aitask_create.sh --batch --silent \
+        --name zzz_second --desc x >/dev/null 2>&1
+
+    # Hooks live in the COMMON git dir, which a .aitask-data worktree also shares.
+    local hookdir; hookdir="$(git rev-parse --git-dir)/hooks"
+    mkdir -p "$hookdir"
+    cat > "$hookdir/post-commit" <<HOOKEOF
+#!/bin/sh
+marker="\$(git rev-parse --git-dir)/.t10_fired"
+[ -e "\$marker" ] && exit 0
+: > "\$marker"
+printf '%s\n' "$FOREIGN_LABEL" >> "$VOCAB"
+exit 0
+HOOKEOF
+    chmod +x "$hookdir/post-commit"
+
+    bash .aitask-scripts/aitask_create.sh --batch --silent --finalize-all >/dev/null 2>&1
+    rm -f "$hookdir/post-commit"
+
+    # HEAD is draft B's commit (it finalized second).
+    local b_files; b_files=$(head_files)
+    assert_contains "T10: HEAD is the second draft's commit" "zzz_second" "$b_files"
+    assert_not_contains "T10: the label-less draft did NOT commit labels.txt" \
+        "aitasks/metadata/labels.txt" "$b_files"
+    assert_contains "T10: the injected foreign label is still uncommitted" \
+        "$FOREIGN_LABEL" "$(cat "$VOCAB")"
+
+    teardown
+}
+
+# --- T11: a PRE-STAGED foreign edit is not absorbed either -----------------
+#
+# Asserted in its SAFE form only. The staging gate alone cannot fix this case
+# (refraining from `git add` changes nothing once another session has staged the
+# file) — it is closed by the pathspec on the commit. Both land together, so
+# there is no interim state in which absorption would be correct and no
+# characterization of today's behaviour is committed.
+test_prestaged_foreign_edit_not_absorbed() {
+    echo "=== T11: a foreign labels.txt edit that is ALREADY STAGED is not absorbed ==="
+    setup_project
+    dirty_vocab
+    git add -- "$VOCAB"          # the other session staged it
+
+    local f
+    f=$(bash .aitask-scripts/aitask_create.sh --batch --commit --silent \
+            --name t11_parent --desc x --labels "preexisting_label" 2>/dev/null)
+    local commit_files; commit_files=$(head_files)
+    assert_contains "T11: commit contains the task file" "$f" "$commit_files"
+    assert_not_contains "T11: pre-staged labels.txt is NOT in the commit" \
+        "aitasks/metadata/labels.txt" "$commit_files"
+    assert_contains "T11: the foreign label is still on disk" \
+        "$FOREIGN_LABEL" "$(cat "$VOCAB")"
+
+    teardown
+}
+
+# --- T12: co-change POSITIVE controls (post-phase risk mitigation) ---------
+#
+# The permit direction of the scoping. These pass before and after the fix by
+# construction — their job is to fail if the pathspec is drawn too tight. Tests
+# 1, 2 and 5 already cover "a genuinely new label IS committed"; the child's
+# parent file is the co-change a naive "only the task file" pathspec would drop.
+test_cochange_positive_controls() {
+    echo "=== T12: legitimate co-changes still land in the commit ==="
+    setup_project
+
+    local parent
+    parent=$(bash .aitask-scripts/aitask_create.sh --batch --commit --silent \
+                 --name t12_parent --desc x 2>/dev/null)
+    local pid; pid=$(parent_id_of "$parent"); pid="${pid#t}"
+
+    local child
+    child=$(bash .aitask-scripts/aitask_create.sh --batch --commit --silent \
+                --parent "$pid" --name t12_child --desc x --labels "t12_brand_new" 2>/dev/null)
+    local commit_files; commit_files=$(head_files)
+
+    assert_contains "T12: child creation commits the child file" "$child" "$commit_files"
+    assert_contains "T12: child creation ALSO commits the parent file (children_to_implement)" \
+        "$parent" "$commit_files"
+    assert_contains "T12: a genuinely new label DOES commit labels.txt" \
+        "aitasks/metadata/labels.txt" "$commit_files"
+    assert_eq_trim "T12: nothing left dirty" "" "$(git status --porcelain)"
+
+    teardown
+}
+
 teardown_all() {
     local d
     for d in "${CLEANUP_DIRS[@]}"; do
@@ -274,6 +453,12 @@ test_preexisting_label
 test_normalization_and_edges
 test_draft_defers_to_finalize
 test_silent_stdout_single_line
+test_batch_parent_does_not_sweep_dirty_vocab
+test_batch_child_does_not_sweep_dirty_vocab
+test_finalize_does_not_sweep_dirty_vocab
+test_finalize_all_no_stale_label_signal
+test_prestaged_foreign_edit_not_absorbed
+test_cochange_positive_controls
 
 echo ""
 echo "=========================="

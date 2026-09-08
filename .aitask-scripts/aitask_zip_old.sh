@@ -543,7 +543,27 @@ main() {
 Tasks archived: $tasks_archived
 Plans archived: $plans_archived"
 
-        task_git commit -m "$commit_msg" 2>/dev/null || warn "Nothing to commit (no changes detected)"
+        # Directory pathspecs, not a file list: the bundled set is not enumerable
+        # here (archive_files returns only counts). This is a legitimately broad
+        # scope -- but still far narrower than the whole index, which is what a
+        # bare `task_git commit` writes (t1599_4).
+        #
+        # --no-stage is LOAD-BEARING. The helper's own staging is `add -- <paths>`,
+        # and `git add -- <dir>/` stages UNTRACKED files under that directory
+        # (probed) -- which would sweep in a concurrent session's new archive file.
+        # The two `add` calls above are deliberately narrower: a glob for the new
+        # bundles, then `add -u` for the tracked deletions they replace.
+        local crc=0
+        task_git_commit_scoped --no-stage "$commit_msg" \
+            "$TASK_ARCHIVED_DIR/" "$PLAN_ARCHIVED_DIR/" || crc=$?
+        # 2 (verified nothing to commit) and 1 (the commit actually failed) were
+        # conflated before: `2>/dev/null || warn "Nothing to commit"` reported a
+        # real failure as a clean no-op.
+        if [[ "$crc" -eq 2 ]]; then
+            warn "Nothing to commit (no changes detected)"
+        elif [[ "$crc" -ne 0 ]]; then
+            die "bundle commit failed"
+        fi
     else
         info "Skipping git commit (--no-commit)"
     fi

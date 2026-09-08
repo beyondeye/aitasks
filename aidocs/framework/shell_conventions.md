@@ -60,6 +60,35 @@ portability quirks (BSD vs GNU tooling) live in
   that can fail on its own (`awk`, a helper function, a `[[ … ]] && echo` as the
   *last* line) does. The full contract is documented at the top of
   `lib/atomic_write.sh`; `lib/atomic_write.py` is the Python sibling.
+- **Committing task-data paths: use `task_git_commit_scoped`, never a bare
+  `task_git commit`.** A `task_git commit -m "…"` with no `--` pathspec commits
+  the **entire index**, not the paths you staged. The task-data branch is shared
+  by every concurrent session, so whatever another agent has staged at that
+  instant lands in a commit whose message names *your* task — provenance is lost
+  and half-finished work gets pushed. Staging narrowly is not enough: the race is
+  between your `add` and your `commit`.
+  ```bash
+  source "$SCRIPT_DIR/lib/task_utils.sh"
+
+  local -a paths=( "$task_file" )
+  [[ "$_stage_labels" == true ]] && paths+=( "$LABELS_FILE" )
+
+  local crc=0
+  task_git_commit_scoped "ait: Update task t42" "${paths[@]}" || crc=$?
+  # 0 = committed, 2 = verified nothing to commit, 1 = failed. Do not conflate
+  # 2 and 1: reporting a real failure as "nothing to commit" hides it.
+  ```
+  Pass `--no-stage` when the call site has already staged deliberately (an
+  `add -u` that stages only tracked deletions, say) — the helper's own
+  `add -- <paths>` stages **untracked** files under a directory pathspec, which
+  would widen the set. **Build the pathspec conditionally**, exactly like the
+  staging: `commit -- <paths>` commits *worktree* content, so naming a shared
+  file such as `labels.txt` unconditionally carries a concurrent session's edit
+  even when you never staged it.
+  `tests/test_no_unscoped_task_commit.sh` enforces this. Its limits are stated in
+  its header and worth repeating: it reassembles `\`-continued lines and greps
+  them, so it will **not** see a commit built through a variable, and it does
+  **not** scan the separate `./ait git commit` seam.
 - **System libs added to `./ait`'s source-on-startup chain must also be added
   to `tests/lib/test_scaffold.sh::setup_fake_aitask_repo()` in the same PR.**
   43 tests scaffold a fake `.aitask-scripts/lib/` via that helper; a missing
