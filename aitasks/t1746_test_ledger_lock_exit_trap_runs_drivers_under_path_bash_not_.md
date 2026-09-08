@@ -5,6 +5,10 @@ depends: []
 issue_type: bug
 status: Implementing
 labels: [framework, bash_scripts, testing]
+active_gates: [risk_evaluated]
+active_gates_filtered: []
+active_gates_profile: fast
+active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1681
 followup_kind: verification_failure
