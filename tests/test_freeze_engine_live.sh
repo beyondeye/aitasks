@@ -124,8 +124,8 @@ pane_fmt() { tm display-message -p -t "$1" "$2" 2>/dev/null; }
 
 # `display-message -p -t <gone pane>` exits ZERO with EMPTY output (measured on
 # tmux 3.x), so the exit status says nothing about whether the pane exists. The
-# output is the only usable signal — and it is why `agent_freeze._pane_facts`
-# and `_pane_location` both validate the field count rather than the rc.
+# output is the only usable signal — and it is why `agent_frozen_ops.pane_facts`
+# and `pane_location` both validate the field count rather than the rc.
 pane_exists() { [ -n "$(pane_fmt "$1" '#{pane_id}')" ]; }
 window_exists() {
     tm list-windows -t "=$2" -F '#{window_name}' 2>/dev/null | grep -qxF "$1"

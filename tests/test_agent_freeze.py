@@ -1,11 +1,16 @@
 """Unit tests for the freeze engine (t1705_4).
 
 No tmux and no store file: :class:`_FakeTmux` records every gateway call and
-replays scripted answers, and :func:`agent_freeze._store` is replaced by a fake
-wrapper that drives a real in-memory :class:`agent_sessions.SessionsFile`
+replays scripted answers, and :func:`agent_frozen_ops.store` is replaced by a
+fake wrapper that drives a real in-memory :class:`agent_sessions.SessionsFile`
 through the SAME transition functions the wrapper would. That keeps the state
 machine honest — a refusal here is a real ``TransitionRefused``, not a string a
 stub decided to return — while leaving the process boundary out of it.
+
+Both seams live on the SHARED module (`lib/agent_frozen_ops.py`, t1738), not on
+`agent_freeze` — the engines reach them by late binding, so one swap covers the
+freeze engine and the restore coordinator alike. `tests/test_agent_frozen_ops.py`
+pins that contract; this file consumes it.
 
 Two things this file owns that the live suite deliberately does not:
 
@@ -44,6 +49,7 @@ os.environ.pop("TMUX_PANE", None)
 
 import agent_sessions  # noqa: E402
 import agent_freeze  # noqa: E402
+import agent_frozen_ops  # noqa: E402
 
 AGENT_PANE = "%1"
 AGENT_PID = 4242
@@ -319,12 +325,14 @@ class _FreezeTestCase(unittest.TestCase):
         self._install(self.tmux, self.store)
 
     def _install(self, tmux, store) -> None:
-        prev_tmux = agent_freeze._TMUX
-        prev_store = agent_freeze._store
-        agent_freeze._TMUX = tmux
-        agent_freeze._store = store
-        self.addCleanup(setattr, agent_freeze, "_TMUX", prev_tmux)
-        self.addCleanup(setattr, agent_freeze, "_store", prev_store)
+        # The seams live on the shared module, and every engine reaches them by
+        # late binding — see `tests/test_agent_frozen_ops.py`.
+        prev_tmux = agent_frozen_ops._TMUX
+        prev_store = agent_frozen_ops.store
+        agent_frozen_ops._TMUX = tmux
+        agent_frozen_ops.store = store
+        self.addCleanup(setattr, agent_frozen_ops, "_TMUX", prev_tmux)
+        self.addCleanup(setattr, agent_frozen_ops, "store", prev_store)
 
     def rec(self):
         return self.store.sf.by_id(self.rid)
