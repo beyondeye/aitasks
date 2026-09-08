@@ -798,6 +798,148 @@ for launch_32 in subdir unrelated; do
     rm -rf "$TMPDIR_32"
 done
 
+echo "--- Test 33: commit_metadata_update_local is safe on the SHARED index (t1728) ---"
+# The site used to run `./ait git add "$models_file"` and then a bare
+# `./ait git commit`, which commits the WHOLE index. On the shared task-data
+# branch that swallows whatever a concurrent session has staged. Two distinct
+# hazards live at this one call site and each gets its own control, because
+# neither can see the other:
+#   A — the COMMIT's scope: an unrelated staged path must not ride along.
+#   B — the STAGING write: an `add` of the TRACKED target replaces the index
+#       entry another session staged for that same path, and it does so even
+#       when the commit then fails. Control A cannot detect this; it is about a
+#       different path.
+# Both are driven at helper level, the same way Test 29 drives the out-params.
+
+MF="aitasks/metadata/models_claudecode.json"
+
+# --- 33A: an unrelated staged path is neither committed nor unstaged ---------
+TMPDIR_33A="$(setup_repo)"
+(
+    cd "$TMPDIR_33A"
+    # A concurrent session's work, staged and not yet committed.
+    printf 'concurrent session work\n' > foreign.txt
+    git add foreign.txt
+    # Our own pending change to the metadata file.
+    printf '\n' >> "$MF"
+)
+out33a="$(cd "$TMPDIR_33A" && bash -c '
+set -uo pipefail
+SCRIPT_DIR="$PWD/.aitask-scripts"
+SILENT=true
+source .aitask-scripts/lib/terminal_compat.sh
+source .aitask-scripts/lib/task_utils.sh
+source .aitask-scripts/lib/verified_update_lib.sh
+_AIT_COMMIT_PREFIX="ait: Update verified score"
+trap "ait_unstage_staged_by_us" EXIT
+commit_metadata_update_local aitasks/metadata/models_claudecode.json claudecode/opus4_6 pick >/dev/null 2>&1
+echo "rc=$?"
+echo "committed=[$(git show --name-only --format= HEAD | tr "\n" " ")]"
+echo "still_staged=[$(git diff --cached --name-only | tr "\n" " ")]"
+')"
+assert_contains "33A: the metadata file IS committed" \
+    "aitasks/metadata/models_claudecode.json" "$(printf '%s\n' "$out33a" | grep '^committed=')"
+assert_not_contains "33A: the foreign staged file is NOT swallowed into the commit" \
+    "foreign.txt" "$(printf '%s\n' "$out33a" | grep '^committed=')"
+assert_contains "33A: the foreign file is still staged afterwards" \
+    "foreign.txt" "$out33a"
+rm -rf "$TMPDIR_33A"
+
+# --- 33B: the TARGET's own staged version survives a failed commit -----------
+# Verified against real git: `add` + a failing `commit -o` leaves the index at
+# the worktree content (the foreign staged version is destroyed), while
+# `commit -o` alone leaves it untouched. That difference is the whole control.
+TMPDIR_33B="$(setup_repo)"
+(
+    cd "$TMPDIR_33B"
+    # A concurrent session staged version A of the SAME path...
+    printf '{"models": [], "_marker": "STAGED_BY_OTHER_SESSION"}\n' > "$MF"
+    git add "$MF"
+    # ...and the worktree has since moved on to version B.
+    printf '{"models": [], "_marker": "OUR_WORKTREE_VERSION"}\n' > "$MF"
+    # Force the commit to fail through a documented git seam.
+    mkdir -p .git/hooks
+    printf '#!/bin/sh\nexit 1\n' > .git/hooks/pre-commit
+    chmod +x .git/hooks/pre-commit
+)
+out33b="$(cd "$TMPDIR_33B" && bash -c '
+set -uo pipefail
+SCRIPT_DIR="$PWD/.aitask-scripts"
+SILENT=true
+source .aitask-scripts/lib/terminal_compat.sh
+source .aitask-scripts/lib/task_utils.sh
+source .aitask-scripts/lib/verified_update_lib.sh
+_AIT_COMMIT_PREFIX="ait: Update verified score"
+trap "ait_unstage_staged_by_us" EXIT
+crc=0
+commit_metadata_update_local aitasks/metadata/models_claudecode.json claudecode/opus4_6 pick >/dev/null 2>&1 || crc=$?
+echo "rc=$crc"
+echo "converged=${AIT_METADATA_LOCAL_CONVERGED:-UNSET}"
+echo "staged_now=$(git show :aitasks/metadata/models_claudecode.json | tr -d "\n")"
+')"
+assert_contains "33B: the other session's STAGED version of the target survives" \
+    "STAGED_BY_OTHER_SESSION" "$(printf '%s\n' "$out33b" | grep '^staged_now=')"
+assert_not_contains "33B: our worktree version did not replace it in the index" \
+    "OUR_WORKTREE_VERSION" "$(printf '%s\n' "$out33b" | grep '^staged_now=')"
+# 33C rides on the same fixture: a real commit FAILURE must not be absorbed.
+assert_not_contains "33C: a failed commit does not return 0" "rc=0" "$out33b"
+assert_contains "33C: a failed commit retracts the convergence verdict" \
+    "converged=0" "$out33b"
+rm -rf "$TMPDIR_33B"
+
+# --- 33D: end-to-end — a failed commit must never print UPDATED: ------------
+# The out-param exists so the caller can tell "saved" from "not saved". If the
+# helper absorbed rc 1, aitask_verified_update.sh would take its success branch
+# and announce a score that is on no branch at all.
+TMPDIR_33D="$(setup_repo)"
+(
+    cd "$TMPDIR_33D"
+    mkdir -p .git/hooks
+    printf '#!/bin/sh\nexit 1\n' > .git/hooks/pre-commit
+    chmod +x .git/hooks/pre-commit
+)
+set +e
+out33d=$(cd "$TMPDIR_33D" && ./.aitask-scripts/aitask_verified_update.sh \
+    --agent-string claudecode/opus4_6 --skill pick --score 4 --silent 2>/dev/null)
+rc33d=$?
+set -e
+assert_not_contains "33D: no UPDATED: line when the commit failed" "UPDATED:" "$out33d"
+if [[ "$rc33d" -ne 0 ]]; then
+    TOTAL=$((TOTAL + 1)); PASS=$((PASS + 1))
+    echo "PASS: 33D: a failed commit exits non-zero"
+else
+    TOTAL=$((TOTAL + 1)); FAIL=$((FAIL + 1))
+    echo "FAIL: 33D: a failed commit exited 0 (out: $out33d)"
+fi
+rm -rf "$TMPDIR_33D"
+
+# --- 33E: the rc-2 path is absorbed and does NOT abort under set -e ---------
+# `ait_commit_paths_staging_untracked` returns 2 for "verified nothing to
+# commit" — a normal outcome. An unabsorbed 2 would kill the caller under
+# `set -euo pipefail`, so the witness is a side effect AFTER the call, not the
+# exit status alone.
+TMPDIR_33E="$(setup_repo)"
+out33e="$(cd "$TMPDIR_33E" && bash -c '
+set -euo pipefail
+SCRIPT_DIR="$PWD/.aitask-scripts"
+SILENT=true
+source .aitask-scripts/lib/terminal_compat.sh
+source .aitask-scripts/lib/task_utils.sh
+source .aitask-scripts/lib/verified_update_lib.sh
+_AIT_COMMIT_PREFIX="ait: Update verified score"
+trap "ait_unstage_staged_by_us" EXIT
+AIT_METADATA_VALUE="SENTINEL"
+commit_metadata_update_local aitasks/metadata/models_claudecode.json claudecode/opus4_6 pick >/dev/null 2>&1
+echo "AFTER_THE_CALL"
+echo "value=${AIT_METADATA_VALUE}"
+echo "converged=${AIT_METADATA_LOCAL_CONVERGED}"
+' 2>&1)"
+assert_contains "33E: nothing-to-commit does not abort the caller under set -e" \
+    "AFTER_THE_CALL" "$out33e"
+assert_contains "33E: nothing-to-commit still reports converged" "converged=1" "$out33e"
+assert_contains "33E: nothing-to-commit preserves the caller's value" "value=SENTINEL" "$out33e"
+rm -rf "$TMPDIR_33E"
+
 
 echo ""
 echo "==============================="

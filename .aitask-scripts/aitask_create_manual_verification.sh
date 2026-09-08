@@ -20,6 +20,12 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/terminal_compat.sh
 source "$SCRIPT_DIR/lib/terminal_compat.sh"
+# task_utils.sh carries ait_commit_paths_staging_untracked, the seam the
+# post-seed commit below goes through (t1728). Sourcing it is idempotent -- it
+# is double-source guarded and sources terminal_compat.sh itself -- and its top
+# level is pure definitions plus `${VAR:-default}` assignments.
+# shellcheck source=lib/task_utils.sh
+source "$SCRIPT_DIR/lib/task_utils.sh"
 
 NAME=""
 VERIFIES=""
@@ -84,11 +90,22 @@ strip_t_prefix() {
     echo "${1#t}"
 }
 
+# The one EXIT handler. Both halves must run: the seam's unstage cleanup for any
+# path it staged, and the temp file this script owns.
+mv_create_cleanup() {
+    ait_unstage_staged_by_us
+    rm -f "${tmp_desc:-}"
+}
+
 main() {
     parse_args "$@"
 
     tmp_desc=$(mktemp_suffixed "${TMPDIR:-/tmp}/mv_desc_XXXXXX.md")
-    trap 'rm -f "${tmp_desc:-}"' EXIT
+    # Composed, not replaced. The commit seam's unstage cleanup is armed by the
+    # CALLER by design (lib/task_utils.sh), but a bare
+    # `trap 'ait_unstage_staged_by_us' EXIT` here would clobber the temp-file
+    # cleanup instead. One function, both jobs.
+    trap 'mv_create_cleanup' EXIT
 
     # Build description body.
     {
@@ -173,8 +190,21 @@ main() {
 
     # Commit the seeded checklist (aitask_create.sh --commit only covered the
     # frontmatter + description body; the seed edited the file post-commit).
-    ./ait git add "$new_path" >/dev/null 2>&1 || true
-    ./ait git commit -m "ait: Seed verification checklist for t${new_id}" >/dev/null 2>&1 || true
+    # `./ait git commit` with no `--` pathspec commits the WHOLE index, so a
+    # concurrent session's staged work on the shared task-data branch would land
+    # in a commit whose message names this task (t1728). `./ait git` is
+    # `task_git` in a subprocess, so the same seam serves it.
+    #
+    # Best-effort, as before -- but the status is absorbed deliberately rather
+    # than by `|| true`: under `set -e` a bare call returning 2 ("nothing to
+    # commit") would abort after the checklist was already seeded.
+    local crc=0
+    ait_commit_paths_staging_untracked \
+        "ait: Seed verification checklist for t${new_id}" \
+        "$new_path" || crc=$?
+    if (( crc == 1 )); then
+        warn "checklist seeded into $new_path but not committed"
+    fi
 
     echo "MANUAL_VERIFICATION_CREATED:${new_id}:${new_path}"
 }

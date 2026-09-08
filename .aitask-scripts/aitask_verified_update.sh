@@ -294,6 +294,14 @@ main() {
     _AIT_UPDATE_MODEL_FILE_FN=update_model_file
     _AIT_COMMIT_PREFIX="ait: Update verified score"
 
+    # The commit seam (ait_commit_paths_staging_untracked, reached via
+    # commit_metadata_update_local) stages untracked paths into the SHARED
+    # task-data index. Its cleanup trap is armed by the caller by design, so the
+    # library cannot clobber a caller's own EXIT handler -- this script has none
+    # of its own, so a bare arm is correct here (t1728).
+    trap 'ait_unstage_staged_by_us' EXIT
+
+
     local new_score
     AIT_METADATA_VALUE=""
     AIT_METADATA_LOCAL_CONVERGED=""

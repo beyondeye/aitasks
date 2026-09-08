@@ -255,6 +255,111 @@ test_syntax_check() {
     fi
 }
 
+# The wrapper's post-seed commit used to be `./ait git add <path>` followed by a
+# bare `./ait git commit`, which commits the WHOLE index. On the shared
+# task-data branch that swallows whatever a concurrent session has staged. Two
+# hazards, two controls — neither can see the other (t1728).
+test_post_seed_commit_is_scoped() {
+    echo "=== Test: the post-seed commit does not swallow a concurrent session's work (t1728) ==="
+    setup_project
+
+    # A concurrent session's work, staged and not yet committed.
+    printf 'concurrent session work\n' > foreign.txt
+    git add foreign.txt
+
+    local items
+    items="$(mktemp)"
+    printf 'Button opens the modal cleanly\n' > "$items"
+
+    local out rc
+    out=$(bash .aitask-scripts/aitask_create_manual_verification.sh \
+            --name mv_scoped \
+            --verifies 42 \
+            --related 42 \
+            --items "$items" 2>&1) && rc=0 || rc=$?
+    rm -f "$items"
+
+    assert_eq "wrapper still exits 0" "0" "$rc"
+
+    local new_path committed still_staged
+    new_path=$(created_path_from_output "$out")
+    committed=$(git show --name-only --format= HEAD | tr '\n' ' ')
+    still_staged=$(git diff --cached --name-only | tr '\n' ' ')
+
+    assert_contains "the seeded task file IS committed" "$new_path" "$committed"
+    assert_not_contains "the foreign staged file is NOT swallowed" "foreign.txt" "$committed"
+    assert_contains "the foreign file is still staged afterwards" "foreign.txt" "$still_staged"
+
+    teardown
+}
+
+# The absorb, and the composed EXIT trap (t1728 post-phase control).
+#
+# The post-seed commit now goes through a seam that returns a non-zero status
+# for outcomes the old `|| true` swallowed wholesale, and this script runs under
+# `set -euo pipefail` — so an unabsorbed status would kill it AFTER the checklist
+# was already seeded. Two things must survive a failing commit:
+#   1. the statements after it still run — witnessed by the stdout contract;
+#   2. the EXIT trap still removes the temp file this script owns. The seam's
+#      cleanup has to be COMPOSED into that trap; a naive `trap ... EXIT` would
+#      replace it and leak `mv_desc_*.md` on every run.
+test_post_seed_commit_failure_is_absorbed() {
+    echo "=== Test: a failed post-seed commit neither aborts the wrapper nor leaks its temp file (t1728) ==="
+    setup_project
+
+    # Scoped to the commit under test. A blanket `pre-commit` hook is too blunt:
+    # it also fails aitask_create.sh's own commit, so the script would die before
+    # the seed step and this control would pass vacuously.
+    mkdir -p .git/hooks
+    cat > .git/hooks/commit-msg <<'HOOKEOF'
+#!/bin/sh
+grep -q "Seed verification checklist" "$1" && exit 1
+exit 0
+HOOKEOF
+    chmod +x .git/hooks/commit-msg
+
+    local items privtmp
+    items="$(mktemp)"
+    printf 'Button opens the modal cleanly\n' > "$items"
+    privtmp="$(mktemp -d)"
+    CLEANUP_DIRS+=("$privtmp")
+
+    local out rc
+    out=$(TMPDIR="$privtmp" bash .aitask-scripts/aitask_create_manual_verification.sh \
+            --name mv_absorb \
+            --verifies 42 \
+            --related 42 \
+            --items "$items" 2>&1) && rc=0 || rc=$?
+    rm -f "$items" .git/hooks/commit-msg
+
+    assert_eq "a failed post-seed commit does not abort the wrapper" "0" "$rc"
+    assert_contains "the statements after the commit still run" \
+        "MANUAL_VERIFICATION_CREATED:" "$out"
+
+    # The seed itself must still have landed — the commit is best-effort, the
+    # on-disk edit is not.
+    local new_path
+    new_path=$(created_path_from_output "$out")
+    assert_contains "the checklist is still seeded on disk" \
+        "- [ ] Button opens the modal cleanly" "$(cat "$new_path" 2>/dev/null)"
+
+    local leaked
+    leaked=$(find "$privtmp" -maxdepth 1 -name 'mv_desc_*.md' | wc -l | tr -d ' ')
+    assert_eq "the composed EXIT trap still removes the temp file" "0" "$leaked"
+
+    teardown
+}
+
+# NOT COVERED HERE, deliberately: the "staged version of the commit's own
+# target" hazard (t1728 Control B) is unreachable at this call site. The commit
+# target is the task file THIS process just created a moment earlier, so no
+# concurrent session can be holding a different staged version of it. A control
+# for it could only ever pass vacuously — verified: one written against a
+# *previous* task file passed against the pre-fix code, because the path it
+# staged was not the path the site commits. That hazard is covered where it is
+# reachable, on a pre-existing shared file: tests/test_verified_update.sh
+# Test 33B and tests/test_verification_followup.sh.
+
 teardown_all() {
     local d
     for d in "${CLEANUP_DIRS[@]}"; do
@@ -266,6 +371,8 @@ trap teardown_all EXIT
 test_happy_path_related_mode
 test_related_mode_anchors_to_resolvable_origin
 test_empty_items_file_errors_cleanly
+test_post_seed_commit_is_scoped
+test_post_seed_commit_failure_is_absorbed
 test_syntax_check
 
 echo ""

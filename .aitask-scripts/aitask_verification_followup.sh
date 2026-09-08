@@ -88,11 +88,23 @@ find_origin_archived_plan() {
     echo "$match"
 }
 
+# The one EXIT handler. Both halves must run: the seam's unstage cleanup for
+# any path it staged, and the temp file this script owns.
+followup_cleanup() {
+    ait_unstage_staged_by_us
+    rm -f "${tmp:-}"
+}
+
 main() {
     parse_args "$@"
 
     tmp=$(mktemp_suffixed "${TMPDIR:-/tmp}/followup_XXXXXX.md")
-    trap 'rm -f "${tmp:-}"' EXIT
+    # Composed, not replaced. Step 10 commits through
+    # ait_commit_paths_staging_untracked, whose unstage cleanup is armed by the
+    # CALLER by design (lib/task_utils.sh) so the library cannot clobber a
+    # caller's own handler -- but a bare `trap 'ait_unstage_staged_by_us' EXIT`
+    # here would clobber the temp-file cleanup instead. One function, both jobs.
+    trap 'followup_cleanup' EXIT
 
     # Step 2: resolve source task file
     local from_file
@@ -247,8 +259,24 @@ main() {
         else
             printf '\n## Final Implementation Notes\n\n%s\n' "$note" >> "$origin_plan"
         fi
-        ./ait git add "$origin_plan" 2>/dev/null || true
-        ./ait git commit -m "ait: Back-reference manual-verification failure on t${origin}" 2>/dev/null || true
+        # `./ait git commit` with no `--` pathspec commits the WHOLE index, so
+        # whatever a concurrent session has staged on the shared task-data
+        # branch lands in a commit whose message names this task (t1728).
+        # `./ait git` is `task_git` in a subprocess, so the same seam serves it:
+        # ait_commit_paths_staging_untracked scopes the commit AND leaves the
+        # index alone for an already-tracked path, which an archived plan is.
+        #
+        # The status is absorbed because this whole step is best-effort -- but 1
+        # and 2 are not conflated, and it must be absorbed: under `set -e` a
+        # bare call returning 2 ("nothing to commit") would abort here, after
+        # the plan file was already appended to.
+        local crc=0
+        ait_commit_paths_staging_untracked \
+            "ait: Back-reference manual-verification failure on t${origin}" \
+            "$origin_plan" || crc=$?
+        if (( crc == 1 )); then
+            warn "back-reference appended to $origin_plan but not committed"
+        fi
     fi
 
     # Step 11: structured success output

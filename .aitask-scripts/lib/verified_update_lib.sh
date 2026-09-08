@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # Shared helpers for aitask_verified_update.sh and aitask_usage_update.sh.
-# Caller scripts must source terminal_compat.sh and task_utils.sh first, and
-# must set the following globals before invoking commit_metadata_update:
+# Caller scripts must source terminal_compat.sh and task_utils.sh first, must
+# arm `trap 'ait_unstage_staged_by_us' EXIT` before the first call (the commit
+# seam's cleanup is armed by the CALLER by design, so this library cannot
+# clobber a caller's own EXIT handler -- see lib/task_utils.sh), and must set
+# the following globals before invoking commit_metadata_update:
 #   _AIT_UPDATE_MODEL_FILE_FN  — name of the caller's update_model_file function
 #   _AIT_COMMIT_PREFIX         — commit message prefix (e.g. "ait: Update verified score")
 # The caller's update_model_file callback is invoked with positional args:
@@ -25,7 +28,8 @@ MAX_REMOTE_RETRIES=5
 # BEFORE calling commit_metadata_update_local — so that helper must never touch
 # AIT_METADATA_VALUE, including on its early "nothing staged" return.
 AIT_METADATA_VALUE=""            # the new count / score (remote path only)
-AIT_METADATA_LOCAL_CONVERGED=""  # 1 = local branch has the commit, 0 = origin only
+AIT_METADATA_LOCAL_CONVERGED=""  # 1 = local branch has the commit, 0 = not on it
+                                 #     (origin-only, or the local commit failed)
 
 run_git_quiet() {
     if [[ "${SILENT:-false}" == "true" ]]; then
@@ -119,13 +123,36 @@ commit_metadata_update_local() {
 
     AIT_METADATA_LOCAL_CONVERGED=1
 
-    ./ait git add "$models_file"
+    # `./ait git commit` with no `--` pathspec commits the WHOLE index, and the
+    # `add` of a TRACKED path replaces an index entry another session staged --
+    # both fatal on the shared task-data branch (t1728). `./ait git` is
+    # `task_git` in a subprocess, so the same seam serves it: this one stages
+    # only paths git does not track yet and scopes the commit to $models_file.
+    local crc=0
+    ait_commit_paths_staging_untracked \
+        "${_AIT_COMMIT_PREFIX} for ${agent_string} ${skill_name}" \
+        "$models_file" || crc=$?
 
-    if ./ait git diff --cached --quiet -- "$models_file"; then
-        return
+    # 2 = verified nothing to commit: the local branch already carries what the
+    # caller wanted, so convergence holds. This replaces the old
+    # `diff --cached --quiet` early return, and it is the ONLY status absorbed.
+    # Written as an `if`, never `(( crc == 2 )) && return 0` -- that is a
+    # complete `&&` list, so a false test makes it the failing last command and
+    # `set -e` returns 1 from here.
+    if (( crc == 2 )); then
+        return 0
     fi
 
-    run_git_quiet ./ait git commit -m "${_AIT_COMMIT_PREFIX} for ${agent_string} ${skill_name}"
+    # Anything else genuinely failed. Propagate it, exactly as the pre-t1728
+    # bare `commit` did as this function's last command, and retract the verdict
+    # first: a caller that saw 0 with CONVERGED=1 would print UPDATED: for a
+    # value that is on no branch at all.
+    if (( crc != 0 )); then
+        AIT_METADATA_LOCAL_CONVERGED=0
+        return "$crc"
+    fi
+
+    return 0
 }
 
 commit_and_push_from_remote_clone() {

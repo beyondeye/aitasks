@@ -10,7 +10,11 @@
 # The cure is `task_git_commit_scoped` (lib/task_utils.sh), which carries the two
 # non-obvious parts: the empty-pathspec guard (`git commit --` with no pathspec
 # commits the whole index anyway) and a separately-captured `git status` exit, so
-# a failing status reads as *unverified* rather than *clean*.
+# a failing status reads as *unverified* rather than *clean*. On a path that may
+# already be TRACKED and staged by another session, prefer its caller
+# `ait_commit_paths_staging_untracked` (t1702): the scoped helper's own default
+# `add` would replace that session's index entry, which is a second shared-index
+# hazard this guard does not detect.
 #
 # Detection scope (documented on purpose — a guard that overclaims is worse than
 # one with a known boundary):
@@ -32,10 +36,25 @@
 #   * NOT SEEN: a commit assembled through a variable (`$cmd commit …`) or built
 #     up across separate statements. This is a grep over reassembled lines, so it
 #     catches the common single-command shape and nothing subtler.
-#   * OUT OF DETECTION SCOPE: `./ait git commit`. That is a different seam with
-#     the same hazard; the two unscoped sites on it (aitask_verification_followup.sh,
-#     lib/verified_update_lib.sh) are owned by a separate follow-up task, and this
-#     guard deliberately makes no claim about them.
+#   * ALSO SCANNED (t1728): `./ait git commit`. `./ait git <args>` is literally
+#     `task_git <args>` in a subprocess (`ait` sources lib/task_utils.sh and
+#     dispatches to it), so it carries the identical hazard and the identical
+#     cure. It gets its own pattern because it needs its own matching rule:
+#     * it is matched against the QUOTE-STRIPPED line, not the raw one. Five
+#       occurrences in the tree are recovery-hint PROSE inside message strings
+#       (aitask_sync.sh, aitask_setup.sh, lib/txn_snapshot.sh, and two in
+#       aitask_note.sh), not commands. Stripping balanced quoted spans before
+#       matching removes three of them for free, because a command's own
+#       `./ait git commit` always sits outside the quotes.
+#     * the remaining two are continuation PHYSICAL lines of multi-line `warn`
+#       strings in aitask_note.sh. Only `\`-continuations are reassembled, so
+#       those lines carry unbalanced quoting and fail closed -- correctly, since
+#       relaxing that is what `aitask_unbalanced_quote.sh` below exists to
+#       forbid. They are suppressed by AIT_GIT_ALLOWLIST instead, which applies
+#       to THIS PATTERN ONLY: aitask_note.sh stays fully guarded for
+#       `task_git commit`, which is how it actually commits task data. The hole
+#       is one file, one pattern, and it closes when those two hint strings are
+#       restructured onto a single logical line.
 #
 # It is a regression tripwire, NOT a proof of absence.
 #
@@ -78,6 +97,32 @@ is_allowed() {
     return 1
 }
 
+# Files exempt from the `./ait git commit` pattern ONLY. Deliberately separate
+# from ALLOWLIST above: an entry here suppresses one seam in one file and leaves
+# `task_git commit` fully guarded there, so it is a far smaller concession than
+# an ALLOWLIST entry. It is NOT a place to park a real unscoped command -- the
+# one entry is prose that the scanner cannot parse, and the header says exactly
+# why. Adding another means saying, in the comment, why the match is not a
+# command.
+AIT_GIT_ALLOWLIST=(
+    # Two recovery HINTS inside multi-line `warn` strings (both already written
+    # with a `-- $file` pathspec, for anyone who copies them). They are
+    # continuation physical lines, so their quoting is unparseable and the
+    # fail-closed rule reports them. aitask_note.sh issues no `./ait git commit`
+    # command of its own; its real task-data commits go through `task_git` and
+    # are still scanned by the primary pattern.
+    ".aitask-scripts/aitask_note.sh"
+)
+ACTIVE_AIT_GIT_ALLOWLIST=(${AIT_GIT_ALLOWLIST[@]+"${AIT_GIT_ALLOWLIST[@]}"})
+
+is_ait_git_allowed() {
+    local f="$1" a
+    for a in ${ACTIVE_AIT_GIT_ALLOWLIST[@]+"${ACTIVE_AIT_GIT_ALLOWLIST[@]}"}; do
+        [[ "$f" == "$a" ]] && return 0
+    done
+    return 1
+}
+
 # --- Scanner -----------------------------------------------------------------
 # Reassemble `\`-continued lines, reporting the line number the command STARTS on.
 # Load-bearing: aitask_note.sh:623 and :995 put their `-- "$file"` on the
@@ -95,6 +140,10 @@ JOIN_AWK='
 
 # A `task_git commit` invocation (NOT task_git_commit_scoped, which has no space).
 COMMIT_RE='task_git[[:space:]]+commit'
+# The second seam: `./ait git commit` / `ait git commit`. The leading class
+# rejects a longer identifier ending in "ait", and `(\./)?` lets the class match
+# the whitespace before the `./` rather than the `/` itself.
+AIT_GIT_COMMIT_RE='(^|[^[:alnum:]_/.])(\./)?ait[[:space:]]+git[[:space:]]+commit'
 # `--` as a standalone token = a pathspec separator is present.
 SCOPED_RE='[[:space:]]--([[:space:]]|$)'
 
@@ -117,10 +166,17 @@ SCOPED_RE='[[:space:]]--([[:space:]]|$)'
 # After removal no quote character should remain. One that does means the quoting
 # is unbalanced or beyond this scanner (a here-doc body, an expansion that emits
 # a quote), and the line is treated as unparseable — reported, never trusted.
+# strip_quoted <line> — the line with escapes collapsed and balanced quoted
+# spans removed. Shared by is_scoped and by the `./ait git commit` match, so the
+# two can never disagree about what counts as "inside a string".
+strip_quoted() {
+    printf '%s\n' "$1" \
+        | sed -e 's/\\./_/g' -e "s/'[^']*'//g" -e 's/"[^"]*"//g'
+}
+
 is_scoped() {
     local bare
-    bare="$(printf '%s\n' "$1" \
-        | sed -e 's/\\./_/g' -e "s/'[^']*'//g" -e 's/"[^"]*"//g')"
+    bare="$(strip_quoted "$1")"
     # Unbalanced / unparseable quoting: fail closed.
     case "$bare" in *\"*|*\'*) return 1 ;; esac
     [[ "$bare" =~ $SCOPED_RE ]]
@@ -130,14 +186,29 @@ scan_dir() {
     local root="$1" f rel
     while IFS= read -r -d '' f; do
         rel="${f#"$root"/}"
-        is_allowed "$rel" && continue
         awk "$JOIN_AWK" "$f" 2>/dev/null | while IFS= read -r entry; do
-            local lineno text
+            local lineno text bare
             lineno="${entry%%:*}"
             text="${entry#*:}"
             # Skip comment lines.
             [[ "$text" =~ ^[[:space:]]*# ]] && continue
-            [[ "$text" =~ $COMMIT_RE ]] || continue
+
+            # Seam 1: `task_git commit`, matched on the RAW line. A mention
+            # inside a string is vanishingly rare for this spelling, and
+            # matching raw is what the existing controls pin.
+            if ! is_allowed "$rel" && [[ "$text" =~ $COMMIT_RE ]]; then
+                if ! is_scoped "$text"; then
+                    printf '%s:%s:%s\n' "$rel" "$lineno" "$text"
+                    continue
+                fi
+            fi
+
+            # Seam 2: `./ait git commit`, matched on the QUOTE-STRIPPED line so
+            # the recovery-hint prose in message strings is not mistaken for a
+            # command. See the detection-scope note in the header.
+            is_ait_git_allowed "$rel" && continue
+            bare="$(strip_quoted "$text")"
+            [[ "$bare" =~ $AIT_GIT_COMMIT_RE ]] || continue
             is_scoped "$text" && continue
             printf '%s:%s:%s\n' "$rel" "$lineno" "$text"
         done
@@ -149,10 +220,10 @@ violations="$(scan_dir "$PROJECT_DIR")"
 TOTAL=$((TOTAL + 1))
 if [[ -z "$violations" ]]; then
     PASS=$((PASS + 1))
-    echo "PASS: no unscoped task_git commit in .aitask-scripts/"
+    echo "PASS: no unscoped task_git commit / ./ait git commit in .aitask-scripts/"
 else
     FAIL=$((FAIL + 1))
-    echo "FAIL: unscoped task_git commit(s) found — these commit the WHOLE index:"
+    echo "FAIL: unscoped task-data commit(s) found — these commit the WHOLE index:"
     printf '  UNSCOPED: %s\n' "$violations"
     echo "  -> use task_git_commit_scoped <msg> <path>... (lib/task_utils.sh), or add"
     echo "     an explicit '-- <paths>' pathspec. Reference patterns:"
@@ -251,6 +322,55 @@ run() {
 }
 EOF
 
+# --- `./ait git commit` fixtures (t1728) -------------------------------------
+
+# The rogue shape on the second seam. `./ait git` is task_git in a subprocess,
+# so this commits the whole shared index exactly as the first seam does.
+cat > "$TMP/.aitask-scripts/aitask_ait_git_rogue.sh" <<'EOF'
+#!/usr/bin/env bash
+run() {
+    ./ait git add "$file"
+    ./ait git commit -m "ait: rogue unscoped ait-git commit"
+}
+EOF
+
+# Invoked without the `./` prefix — same command, same hazard.
+cat > "$TMP/.aitask-scripts/aitask_ait_git_bare_prefix.sh" <<'EOF'
+#!/usr/bin/env bash
+run() {
+    ait git commit -m "ait: rogue without the dot-slash"
+}
+EOF
+
+# The scoped shape must NOT be flagged: `-- <paths>` is a valid cure, and the
+# guard's own failure hint offers it.
+cat > "$TMP/.aitask-scripts/aitask_ait_git_scoped.sh" <<'EOF'
+#!/usr/bin/env bash
+run() {
+    ./ait git commit -m "ait: fine" -- "$file"
+    ait_commit_paths_staging_untracked "ait: also fine" "$file"
+}
+EOF
+
+# A recovery HINT inside a message string is prose, not a command, and must NOT
+# be flagged. This is why the second seam matches on the quote-stripped line —
+# five such occurrences exist in the real tree and none of them is a call.
+cat > "$TMP/.aitask-scripts/aitask_ait_git_hint.sh" <<'EOF'
+#!/usr/bin/env bash
+run() {
+    die "path has uncommitted changes. Commit it (./ait git commit -- $p) or revert it."
+}
+EOF
+
+# The seam must not be blinded by a longer identifier that merely ENDS in "ait":
+# `portrait git commit` is not an `ait` invocation.
+cat > "$TMP/.aitask-scripts/aitask_ait_git_lookalike.sh" <<'EOF'
+#!/usr/bin/env bash
+run() {
+    portrait git commit -m "not the ait dispatcher"
+}
+EOF
+
 neg="$(scan_dir "$TMP")"
 
 assert_contains "negative: a rogue unscoped commit IS flagged" \
@@ -272,10 +392,23 @@ assert_not_contains "an escaped quote plus a REAL separator is not flagged" \
 assert_contains "unbalanced quoting is unparseable and fails CLOSED" \
     "aitask_unbalanced_quote.sh" "$neg"
 
-# Exactly four violations across the nine fixtures — pins that the scan is
-# neither over- nor under-matching.
+assert_contains "negative: a rogue unscoped ./ait git commit IS flagged" \
+    "aitask_ait_git_rogue.sh" "$neg"
+assert_contains "negative: the same command without ./ IS flagged" \
+    "aitask_ait_git_bare_prefix.sh" "$neg"
+assert_not_contains "an ./ait git commit carrying -- <paths> is NOT flagged" \
+    "aitask_ait_git_scoped.sh" "$neg"
+assert_not_contains "a recovery hint inside a message string is NOT flagged" \
+    "aitask_ait_git_hint.sh" "$neg"
+assert_not_contains "a longer identifier ending in 'ait' is NOT flagged" \
+    "aitask_ait_git_lookalike.sh" "$neg"
+
+# Exactly six violations across the fourteen fixtures — pins that the scan is
+# neither over- nor under-matching. Four come from the `task_git commit` seam
+# and two from `./ait git commit`; a fixture that stopped being detected, or one
+# that started being over-detected, moves this number.
 neg_count="$(printf '%s\n' "$neg" | grep -c 'aitask_' || true)"
-assert_eq "negative: exactly four violations across the fixture tree" "4" "$neg_count"
+assert_eq "negative: exactly six violations across the fixture tree" "6" "$neg_count"
 
 # The reported location is the line the command STARTS on.
 assert_contains "negative: violation names file:line" "aitask_rogue.sh:4" "$neg"
@@ -285,6 +418,33 @@ ACTIVE_ALLOWLIST=(".aitask-scripts/aitask_rogue.sh")
 neg_allow="$(scan_dir "$TMP")"
 assert_not_contains "an allowlisted file is suppressed" "aitask_rogue.sh" "$neg_allow"
 ACTIVE_ALLOWLIST=(${ALLOWLIST[@]+"${ALLOWLIST[@]}"})
+
+# The two allowlists are INDEPENDENT, and that independence is the whole reason
+# aitask_note.sh can be exempted from one seam without losing the other. Pin
+# both directions with a synthetic entry.
+ACTIVE_AIT_GIT_ALLOWLIST=(".aitask-scripts/aitask_ait_git_rogue.sh")
+neg_ait_allow="$(scan_dir "$TMP")"
+assert_not_contains "an ait-git-allowlisted file is suppressed for THAT seam" \
+    "aitask_ait_git_rogue.sh" "$neg_ait_allow"
+assert_contains "…and the task_git seam is still guarded everywhere else" \
+    "aitask_rogue.sh" "$neg_ait_allow"
+ACTIVE_AIT_GIT_ALLOWLIST=(${AIT_GIT_ALLOWLIST[@]+"${AIT_GIT_ALLOWLIST[@]}"})
+
+# The converse: a file on the ait-git allowlist must still be flagged for an
+# unscoped `task_git commit`. This is the claim the header makes about
+# aitask_note.sh, so it is asserted rather than asserted-in-prose.
+cat > "$TMP/.aitask-scripts/aitask_both_seams.sh" <<'EOF'
+#!/usr/bin/env bash
+run() {
+    task_git commit -m "ait: unscoped on the primary seam"
+}
+EOF
+ACTIVE_AIT_GIT_ALLOWLIST=(".aitask-scripts/aitask_both_seams.sh")
+neg_both="$(scan_dir "$TMP")"
+assert_contains "an ait-git-allowlisted file is STILL guarded for task_git commit" \
+    "aitask_both_seams.sh" "$neg_both"
+ACTIVE_AIT_GIT_ALLOWLIST=(${AIT_GIT_ALLOWLIST[@]+"${AIT_GIT_ALLOWLIST[@]}"})
+rm -f "$TMP/.aitask-scripts/aitask_both_seams.sh"
 
 echo
 echo "Results: $PASS passed, $FAIL failed, $TOTAL total"

@@ -66,6 +66,21 @@ setup_project() {
     cp "$PROJECT_DIR/.aitask-scripts/lib/archive_scan.sh" .aitask-scripts/lib/
     chmod +x .aitask-scripts/*.sh
 
+    # Stub `./ait git` as a pass-through to plain git. Without it the wrapper's
+    # Step-10 back-reference commit is silently a no-op (both lines end in
+    # `|| true`), so the commit path had NO coverage at all — the shape t1728's
+    # controls exist to exercise (same stub as
+    # tests/test_create_manual_verification.sh).
+    cat > ./ait <<'AITEOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "git" ]]; then
+    shift
+    exec git "$@"
+fi
+exit 0
+AITEOF
+    chmod +x ./ait
+
     printf 'bug\nchore\ndocumentation\nenhancement\nfeature\nperformance\nrefactor\nstyle\ntest\nmanual_verification\n' \
         > aitasks/metadata/task_types.txt
     : > aitasks/metadata/labels.txt
@@ -345,6 +360,198 @@ test_syntax_check() {
     fi
 }
 
+# The Step-10 back-reference commit used to be `./ait git add <plan>` followed
+# by a bare `./ait git commit`, which commits the WHOLE index. The origin plan
+# lives on the shared task-data branch, so both halves of the hazard are
+# reachable here and each gets its own control (t1728).
+test_backref_commit_is_scoped() {
+    echo "=== Test: the back-reference commit does not swallow concurrent work (t1728) ==="
+    setup_project
+
+    seed_origin_commit 42 > /dev/null
+    write_mv_task aitasks/t99_manual.md "[42]"
+    mkdir -p aiplans/archived
+    cat > aiplans/archived/p42_origin.md <<'EOF'
+---
+Task: t42_origin.md
+---
+
+# Plan: origin
+
+## Final Implementation Notes
+
+- **Actual work done:** initial implementation
+EOF
+    git add -A && git commit -m "seed mv task + archived plan" --quiet
+
+    # A concurrent session's work, staged and not yet committed.
+    printf 'concurrent session work\n' > foreign.txt
+    git add foreign.txt
+
+    local out rc
+    out=$(bash .aitask-scripts/aitask_verification_followup.sh --from 99 --item 1 2>&1) && rc=0 || rc=$?
+    assert_eq "wrapper still exits 0" "0" "$rc"
+
+    local committed still_staged
+    committed=$(git show --name-only --format= HEAD | tr '\n' ' ')
+    still_staged=$(git diff --cached --name-only | tr '\n' ' ')
+
+    assert_contains "the origin plan IS committed" "aiplans/archived/p42_origin.md" "$committed"
+    assert_not_contains "the foreign staged file is NOT swallowed" "foreign.txt" "$committed"
+    assert_contains "the foreign file is still staged afterwards" "foreign.txt" "$still_staged"
+
+    teardown
+}
+
+# The staging half. Unlike the freshly-created task file in
+# tests/test_create_manual_verification.sh, the origin plan is a PRE-EXISTING
+# shared file, so another session genuinely can hold a staged version of the
+# very path this site commits. Verified against real git: `add` + a failing
+# `commit -o` leaves the index at the worktree content, while `commit -o` alone
+# leaves it untouched — that difference is the whole control.
+test_backref_commit_preserves_staged_target() {
+    echo "=== Test: the back-reference commit does not clobber a staged version of the origin plan (t1728) ==="
+    setup_project
+
+    seed_origin_commit 42 > /dev/null
+    write_mv_task aitasks/t99_manual.md "[42]"
+    mkdir -p aiplans/archived
+    cat > aiplans/archived/p42_origin.md <<'EOF'
+---
+Task: t42_origin.md
+---
+
+# Plan: origin
+
+## Final Implementation Notes
+
+- **Actual work done:** initial implementation
+EOF
+    git add -A && git commit -m "seed mv task + archived plan" --quiet
+
+    # A concurrent session staged version A of the SAME path. The two versions
+    # REPLACE each other rather than accumulating: with an append chain the
+    # index would contain both markers whatever happened, and the "survives"
+    # assertion could not discriminate.
+    cat > aiplans/archived/p42_origin.md <<'EOF'
+---
+Task: t42_origin.md
+---
+
+# Plan: origin
+
+## Final Implementation Notes
+
+- STAGED_BY_OTHER_SESSION
+EOF
+    git add aiplans/archived/p42_origin.md
+    # ...and the worktree has since moved on to version B.
+    cat > aiplans/archived/p42_origin.md <<'EOF'
+---
+Task: t42_origin.md
+---
+
+# Plan: origin
+
+## Final Implementation Notes
+
+- OUR_WORKTREE_VERSION
+EOF
+
+    # Force ONLY the back-reference commit to fail, through a documented git
+    # seam. A blanket `pre-commit` hook is too blunt: it also fails
+    # aitask_create.sh's own commit, so the script dies before Step 10 ever runs
+    # and this control passes vacuously (observed). `commit-msg` receives the
+    # message file, so it can single out the one commit under test.
+    mkdir -p .git/hooks
+    cat > .git/hooks/commit-msg <<'HOOKEOF'
+#!/bin/sh
+grep -q "Back-reference manual-verification failure" "$1" && exit 1
+exit 0
+HOOKEOF
+    chmod +x .git/hooks/commit-msg
+
+    bash .aitask-scripts/aitask_verification_followup.sh --from 99 --item 1 >/dev/null 2>&1 || true
+    rm -f .git/hooks/commit-msg
+
+    local staged_now
+    staged_now=$(git show :aiplans/archived/p42_origin.md 2>/dev/null || echo "<unreadable>")
+
+    assert_contains "the other session's STAGED version of the origin plan survives" \
+        "STAGED_BY_OTHER_SESSION" "$staged_now"
+    assert_not_contains "our worktree version did not replace it in the index" \
+        "OUR_WORKTREE_VERSION" "$staged_now"
+
+    teardown
+}
+
+# The absorb, and the composed EXIT trap (t1728 post-phase control).
+#
+# Two things this script must keep doing once the commit goes through the seam,
+# which returns a non-zero status for outcomes the old `|| true` swallowed
+# wholesale. This script runs under `set -euo pipefail`, so an unabsorbed status
+# would kill it AFTER the plan file was already appended to:
+#   1. the statements after the commit still run — witnessed by the stdout
+#      contract (FOLLOWUP_CREATED:), which is emitted further down;
+#   2. the EXIT trap still removes the temp file it owned. The seam's cleanup
+#      has to be COMPOSED into that trap, and a naive `trap ... EXIT` would
+#      replace it — leaking `followup_*.md` on every run.
+# The commit is forced to FAIL here, which is the status most likely to escape.
+test_backref_commit_failure_is_absorbed() {
+    echo "=== Test: a failed back-reference commit neither aborts the script nor leaks its temp file (t1728) ==="
+    setup_project
+
+    seed_origin_commit 42 > /dev/null
+    write_mv_task aitasks/t99_manual.md "[42]"
+    mkdir -p aiplans/archived
+    cat > aiplans/archived/p42_origin.md <<'EOF'
+---
+Task: t42_origin.md
+---
+
+# Plan: origin
+
+## Final Implementation Notes
+
+- **Actual work done:** initial implementation
+EOF
+    git add -A && git commit -m "seed mv task + archived plan" --quiet
+
+    # Scoped to the back-reference commit alone — see the note in
+    # test_backref_commit_preserves_staged_target.
+    mkdir -p .git/hooks
+    cat > .git/hooks/commit-msg <<'HOOKEOF'
+#!/bin/sh
+grep -q "Back-reference manual-verification failure" "$1" && exit 1
+exit 0
+HOOKEOF
+    chmod +x .git/hooks/commit-msg
+
+    # A private TMPDIR makes the leak check exact rather than a scan of /tmp.
+    local privtmp
+    privtmp="$(mktemp -d)"
+    CLEANUP_DIRS+=("$privtmp")
+
+    local out rc
+    out=$(TMPDIR="$privtmp" bash .aitask-scripts/aitask_verification_followup.sh \
+            --from 99 --item 1 2>&1) && rc=0 || rc=$?
+    rm -f .git/hooks/commit-msg
+
+    assert_eq "a failed back-reference commit does not abort the script" "0" "$rc"
+    assert_contains "the statements after the commit still run" "FOLLOWUP_CREATED:" "$out"
+
+    # The append itself must still have landed — the commit is best-effort, the
+    # edit is not.
+    assert_contains "the back-reference is still written to the plan" \
+        "Manual-verification failure" "$(cat aiplans/archived/p42_origin.md)"
+
+    local leaked
+    leaked=$(find "$privtmp" -maxdepth 1 -name 'followup_*.md' | wc -l | tr -d ' ')
+    assert_eq "the composed EXIT trap still removes the temp file" "0" "$leaked"
+
+    teardown
+}
+
 teardown_all() {
     local d
     for d in "${CLEANUP_DIRS[@]}"; do
@@ -359,6 +566,9 @@ test_ambiguous_origin
 test_explicit_origin_resolves_ambiguity
 test_backref_appended_to_existing_notes
 test_backref_creates_section_when_missing
+test_backref_commit_is_scoped
+test_backref_commit_preserves_staged_target
+test_backref_commit_failure_is_absorbed
 test_syntax_check
 
 echo ""

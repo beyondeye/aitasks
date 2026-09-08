@@ -85,10 +85,36 @@ portability quirks (BSD vs GNU tooling) live in
   staging: `commit -- <paths>` commits *worktree* content, so naming a shared
   file such as `labels.txt` unconditionally carries a concurrent session's edit
   even when you never staged it.
-  `tests/test_no_unscoped_task_commit.sh` enforces this. Its limits are stated in
-  its header and worth repeating: it reassembles `\`-continued lines and greps
-  them, so it will **not** see a commit built through a variable, and it does
-  **not** scan the separate `./ait git commit` seam.
+
+  **`./ait git commit` is the same seam, not a different one** (t1728). `ait`
+  sources `lib/task_utils.sh` and dispatches `git` straight to `task_git`, so a
+  `./ait git commit` with no `--` pathspec commits the whole index exactly as
+  above. There is no separate `ait_git_commit_scoped` and none is needed: source
+  `task_utils.sh` and call the same helpers. Absorb the status with `|| crc=$?`
+  — under `set -euo pipefail` a bare call returning 2 aborts the script *after*
+  your file was written — and write the follow-up branch as a real `if … fi`, not
+  `(( crc == 1 )) && warn …`, which is a complete `&&` list and fails the script
+  whenever the test is false.
+
+  **When the path may already be tracked *and* staged by another session, reach
+  for `ait_commit_paths_staging_untracked` instead** (t1702, in the same file).
+  The scoped helper's default `add` fixes the commit but introduces a second
+  shared-index hazard: an `add` of a **tracked** path replaces the index entry
+  another session staged for that same path, and it does so even when your
+  commit then fails. The t1702 caller stages only paths git does not track yet,
+  unstages exactly those on failure, and delegates to
+  `task_git_commit_scoped --no-stage`. Arm its cleanup **in the caller** —
+  `trap 'ait_unstage_staged_by_us' EXIT` — and **compose** it with any EXIT trap
+  the script already has, or you will silently drop that one.
+
+  `tests/test_no_unscoped_task_commit.sh` enforces both seams. Its limits are
+  stated in its header and worth repeating: it reassembles `\`-continued lines
+  and greps them, so it will **not** see a commit built through a variable; the
+  `./ait git commit` pattern is matched against the quote-stripped line so
+  recovery-hint prose inside message strings is ignored, and it carries a
+  second, seam-specific allowlist holding one file whose hints span multiple
+  physical lines. Neither pattern detects the tracked-path staging hazard above
+  — that one is covered by behavioural controls, not by the scanner.
 - **System libs added to `./ait`'s source-on-startup chain must also be added
   to `tests/lib/test_scaffold.sh::setup_fake_aitask_repo()` in the same PR.**
   43 tests scaffold a fake `.aitask-scripts/lib/` via that helper; a missing
