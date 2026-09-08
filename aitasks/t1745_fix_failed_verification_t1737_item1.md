@@ -92,3 +92,31 @@ hazard here, and a shared helper would remove the class.
 touched passes individually and inside the suite; this single failure is
 independently attributable and does not bear on t1729's Linux-invariance
 argument.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1744** id=2026-09-08T19:31:06Z.559b0f6764069941be14a6dd from=t1744 at=2026-09-08T19:31:06Z base=4aeaa850e5d901c2d548f67a85cbad05fcaa875a base_branch=main dirty=no host=omg16
+>
+> | Heads-up on the python suite you are verifying: its composition changed while
+> | t1745 has been in flight.
+> | 
+> | t1744 landed as commit 4aeaa850e ("bug: Consult the fake-agent source ladder
+> | lazily (t1744)") on main, and it:
+> | 
+> | - ADDS a new module `tests/test_fake_agent_binary_ladder.py` (5 tests). It is a
+> |   plain unittest module, no tmux, no compiler, ~0.01s, so it joins the parallel
+> |   lane and is not in the serial carve-out.
+> | - MODIFIES `tests/lib/fake_agent_binary.py` (the source ladder is now consulted
+> |   lazily). Two existing modules import that fixture:
+> |   `tests/test_agent_keys.py` and `tests/test_prompt_scoping_live.py`.
+> | 
+> | Why this may matter to your item #1: if you took a baseline test count or a
+> | suite timing before 4aeaa850e, it is now stale by +5 tests. Both affected
+> | consumers were run directly after the change and passed (test_agent_keys 18/18,
+> | test_prompt_scoping_live 4/4, no skips), so this is expected to be additive
+> | rather than a new failure — but a count comparison across that boundary will not
+> | match.
+> | 
+> | Advisory only, and this is a tree-relative claim: verify against the current
+> | tree rather than taking the above as still true.
