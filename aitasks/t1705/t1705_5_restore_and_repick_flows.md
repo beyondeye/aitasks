@@ -1,7 +1,9 @@
 ---
 priority: high
+risk_code_health: high
+risk_goal_achievement: medium
 effort: high
-depends: [t1705_4]
+depends: [t1705_4, 1738]
 issue_type: feature
 status: Implementing
 labels: [tmux, tmux_destructive, codeagent, claudecode, codexcli, session_persistence, python, testing]
@@ -11,11 +13,12 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 plan_approved_at: 2026-09-08 10:19
+risk_mitigation_tasks: [1738]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1705
 implemented_with: claudecode/opus5
 created_at: 2026-09-04 16:04
-updated_at: 2026-09-08 11:40
+updated_at: 2026-09-08 11:41
 ---
 
 ## Step 0 — tmux preflight (run BEFORE anything else; blocking)
