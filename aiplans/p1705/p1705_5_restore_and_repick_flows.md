@@ -7,6 +7,7 @@ Base branch: main
 Output branch: main
 plan_verified:
   - claudecode/opus5 @ 2026-09-08 10:18
+  - claudecode/opus5 @ 2026-09-08 15:33
 ---
 
 # t1705_5 — Restore and re-pick flows
@@ -36,7 +37,11 @@ tmux -L ait list-panes -a -F '#{pane_id} #{window_name}' 2>/dev/null && echo "NO
 > **Preflight history.** The 2026-09-07 planning session ran this check and got
 > `PREFLIGHT_BLOCKED` (inside the `-L ait` server itself, 5 panes). Planning
 > proceeded — it writes no code and runs no tmux — and stopped at plan approval.
-> Implementation still requires a clean, non-tmux shell.
+> **The 2026-09-08 re-verification session ran it again and got
+> `PREFLIGHT_OK` on both halves** (not inside tmux; `-L ait` server idle). The
+> live suites are runnable in this session — which is what makes the W5
+> baseline step below possible, and removes the previously-recorded
+> high-severity "cannot verify from this machine" code-health concern.
 
 ## Context
 
@@ -51,145 +56,170 @@ acknowledgement path is the real one.
 
 **Tmux-stress** — implement and verify from a shell outside the `-L ait` server.
 
-## Verification findings (re-verified 2026-09-07, against `954f6738a`)
+## Verification findings (re-verified 2026-09-08, against `c623a7e0d`)
 
-This plan was written at parent-decomposition time, **before** t1705_2 (store),
-t1705_3 (hooks), t1705_4 (freeze engine + reconcile) and t1716 (env-passing
-evidence) landed. Every anchor and assumption below was re-checked against the
-tree. Anchors that verified clean are not re-listed; these are the deltas that
-change the work.
+The second re-verification pass, forced because the blocking risk-mitigation
+task **t1738 landed** (completed 2026-09-08 15:00) after the first
+verification at 10:18. Only the deltas are listed; every anchor not named here
+was re-checked and verifies clean — including all of V2, V3, V5, V7, V8 and
+V12 below.
 
-**V1 — Deliverable 4 is already implemented; it becomes test-only.**
-`_reconcile_restoring` (`lib/agent_freeze.py:833`) and `_reconcile_aborting`
-(`:918`) already implement **every** `restoring` / `aborting` row of the §C
-table: pane-gone, mismatch-by-`last_error`, pane-dead, viewer-here by
-`standin_pid`, replacement-here by `launch_pid` + ack grace, and the
-`launch_pid==0` indeterminate → `2 × stale_op_grace` → abort path. t1705_4's own
-docstring says so: *"The restore COORDINATOR is t1705_5; this is only the repair
-side."* → **Implementation step 5 changes from "implement" to "verify by test."**
-The only production edit left in `agent_freeze.py` is the grace accessor in V2.
+**W1 — t1738 landed, and the shared module is exactly what this plan assumed.**
+`.aitask-scripts/lib/agent_frozen_ops.py` (287 lines) exports the full surface
+this plan's `## Files` names. Verified present: `store` (`:164`), `store_show`
+(`:183`), `nonce_from` (`:196`), `run` (`:149`), `pane_facts` (`:216`),
+`pane_location` (`:234`), `set_option` (`:253`), `unset_option` (`:258`),
+`respawn` (`:263`), `int_or_zero` (`:277`), `test_mode` (`:112`),
+`make_fail_at` (`:116`), `pause_at` (`:134`), `StageFailure` (`:101`),
+`SESSIONS_SH` (`:91`), `PANE_FACT_FORMAT` (`:204`), `PANE_FACT_KEYS` (`:210`),
+and the four exit codes (`:95-98`). `_TMUX` is the module-level swappable
+gateway at `:87`. **The step-3 seam rules in this plan stand verbatim** — call
+every shared function through the module, never by import alias.
 
-**V2 — The plan's test grace knobs do not exist. This is the load-bearing fix.**
-The old test spec said "`restore_ack_grace=5`, `stale_op_grace=2` via a scratch
-`project_config.yaml`". Neither half is real:
+`tests/test_agent_frozen_ops.py` already lists `agent_restore` in
+`ENGINE_MODULES` (`:60`) and skips it while unshipped (`:244`), so it begins
+enforcing the no-alias rule the moment `lib/agent_restore.py` exists, with no
+edit to that test. That is a free contract test — do not weaken it.
 
-- `stale_op_grace` is overridden by the **env** seam `AITASKS_STALE_OP_GRACE`,
-  honoured only under `AITASKS_TEST_MODE=1` (`lib/agent_sessions.py:605-628`).
-  `tests/test_freeze_engine_live.sh:102` uses `AITASKS_STALE_OP_GRACE=1`.
-- `RESTORE_ACK_GRACE = 20.0` is a **hardcoded module constant**
-  (`lib/agent_freeze.py:94`, read at `:899`). There is **no** override — not
-  config, not env.
+**W2 — line anchors moved; locate by name, not by number.** t1738 shifted
+`agent_freeze.py` upward. This plan predicted it; these are the measured
+values:
 
-A test written to the old spec would silently run at 20 s / 60 s: the
-`test_freeze_engine_live.sh`-style timings would blow out, and the
-`session_mismatch` case's "**the liveness fallback must not fire** (assert
-elapsed < grace)" assertion would pass **vacuously** — it would be asserting
-against a grace it never shortened. Fix in step 0 below, before any test is
-written.
+| anchor | this plan said | actual (`c623a7e0d`) |
+|---|---|---|
+| `RESTORE_ACK_GRACE` | `:94` | **`:113`** |
+| its read site (in `_reconcile_restoring`) | `:899` | **`:764`** |
+| `capture_max_lines` (the accessor precedent) | `:281` | **`:146`** |
+| `_reconcile_restoring` | `:833` | **`:698`** |
+| `_reconcile_aborting` | `:918` | **`:783`** |
+| `_epoch` / `_stale_grace` | — | `:800` / `:805` |
 
-**V3 — `restore-begin` and `lease-take` both require `--owner-pid`.** The
-shipped surface is `restore-begin <id> --owner-pid <pid> --mode resume|repick`
-and `lease-take <id> --owner-pid <pid>`. Amendment A7 records this for
-`restore-begin`, but the plan body and PINNED §A/§D still show both verbs
-without it. A defaulted or omitted pid is a usage error (exit 2); a *wrong* one
-degrades the lease to a bare 60 s timer and lets reconcile abort a restore
-that is still polling.
-
-**V4 — Env passing: `respawn-pane -e` is now preferred over the `env` prefix.**
-PINNED §D step 3 specifies the `env VAR=… <argv>` prefix. t1716 measured the
-native flag (spike Case 3b) and the parent's PINNED spike findings now read
-*"Prefer `-e`"*, with the prefix kept as the fallback for a build without it.
-Both preserve `#{pane_pid} == agent pid`, which is the assertion that actually
-matters (the `pid_anchor` lock-liveness contract, t1465). Exact measured shape:
-
-```
-respawn-pane -k -e "VAR=value" -t <pane> "<command>"
-```
-
-**V5 — Only two of the four `AITASK_RESTORE_*` variables are consumed.** The
-shipped hook (`aitask_session_hook.sh:144-146`) forwards **only**
-`--restore-of "$AITASK_RESTORE_RECORD"` and `--nonce "$AITASK_RESTORE_NONCE"`.
-The store reads the mode and the expected session **off the record**, not off
-the environment (`lib/agent_sessions.py:781`:
-`rec.restore_mode == "resume" and session_id != rec.codeagent_session_id`).
-`AITASK_RESTORE_MODE` and `AITASK_RESTORE_EXPECT_SESSION` are inert today.
-**Decision: export all four anyway**, but as *diagnostics* — they cost two extra
-`-e` flags, they make a frozen pane's environment self-describing when a restore
-has to be debugged by hand, and t1705_6's viewer may surface them. The plan no
-longer implies the hook reads them.
-
-**V6 — `setsid` contradiction, resolved in favour of the plan.** The task body's
-deliverable 3 says the coordinator "`setsid`s itself"; this plan's step 4 says it
-does not. The plan is right: spike finding #3 measured that **`run-shell -b`
-outlives the pane that started it**, and the shipped `aitask_frozen.sh` header
-already documents `run-shell -b` as the mechanism "how a coordinator that must
-OUTLIVE the pane it respawns gets started". No `setsid`.
-
-**V7 — `fake_agent.sh` is further along than the plan assumed, and further
-behind in one place.** Already shipped: `--resume <id>`, bare `resume <id>`,
-`FAKE_AGENT_EXIT=1`, `--report-env <file>`. Genuinely new:
-`FAKE_AGENT_SESSION=<other>`, `FAKE_AGENT_NO_HOOK=1`, and — the substantial
-one — **it never invokes the hook at all today**. Making it exec the shipped
-`aitask_session_hook.sh` with a synthetic payload is the largest single test-
-fixture item in this task, and it is what makes the ack path *real* rather than
-simulated.
-
-**V8 — `aitask_frozen.sh` dispatch needs a decision the plan never made.** The
-script currently ends in `exec "$(require_ait_python)" "$FREEZE_PY" "$@"` —
-unconditional. Adding `restore` requires routing that verb to a different
-module. **Decision: dispatch in the shell** — `restore` execs `agent_restore.py`,
-`freeze`/`reconcile` keep execing `agent_freeze.py`. That keeps each module's
-`main()` owning exactly its own verbs and avoids `agent_freeze` importing
-`agent_restore` (which would make the repair side depend on the coordinator it
-was deliberately written to work without). Its documented exit codes (0 all-ok /
-1 some-failed / 2 usage) extend to restore unchanged.
-
-**V9 — `pick_launch_argv` is thinner than described, and carries a silent
-behaviour-change risk.** Both cited call sites
-(`monitor/minimonitor_app.py:3013`, `monitor/monitor_app.py:3598` — the plan's
-`:3021` / `:3612` point inside the same blocks) reduce to:
+**W3 — NEW: `pick_launch_argv` has THREE call sites, not two.** V9 names
+`minimonitor_app.py:3013` and `monitor_app.py:3598`. Measured: the minimonitor
+site is `:3013` (correct), the monitor site is `:3599` (off by one), and there
+is a **third, unlisted** site at **`monitor_app.py:3683`** inside
+`_on_restart_confirmed`. It is the same shape as the other two:
 
 ```python
-full_cmd = resolve_dry_run_command(target_root, "pick", target_id)   # NO agent_string
-window_name = f"agent-pick-{target_id}"
+full_cmd = resolve_dry_run_command(target_root, "pick", task_id)   # no agent_string
+window_name = f"agent-pick-{task_id}"
 agent_string = resolve_agent_string(target_root, "pick")
 ```
 
-Note they **do not** pass `agent_string` into `resolve_dry_run_command`. A shared
-helper whose signature is `(root, task_id, agent_string=None)` must therefore
-default to `None` at those two sites, or the TUIs would silently start launching
-a different agent/model than they do today. The extraction is still worth doing
-(t1705_7 consumes it for its restore keys), but it is a *three-line* helper, not
-a shape — scope it honestly and pin behaviour-preservation with the existing
-pick tests.
+It likewise does **not** pass `agent_string`, so it carries the identical
+silent-behaviour-change hazard V9 describes. Step 2 migrates all three, and
+the `pin_pick_argv_behaviour` pre-phase test must pin all three.
 
-**V10 — `resolve_dry_run_command` genuinely needs the new parameter.** Its
-signature is `(project_root, operation, *args, agent_string=None)` and it builds
-`[wrapper] + [--agent-string s] + [--dry-run, invoke, operation] + args`
-(`:234-264`). `*args` land **after** `invoke <operation>`, so they are operation
-arguments; `--resume-session` is a **global** flag and must precede `--dry-run`.
-The plan's `extra_global_flags` extension is correct and required.
+**W4 — accessor placement decided: `agent_frozen_ops.py`** (user-confirmed
+2026-09-08). This plan's `## Files` line proposed `agent_freeze.py` while
+flagging it for reconsideration, and t1738's note explicitly left the call
+here. Measured input: `agent_frozen_ops.py` does **not** import `config_utils`
+today; `agent_freeze.py` does (`:89`). Putting `restore_ack_grace()` in the
+shared module costs one import there and **removes the
+`agent_restore → agent_freeze` edge that t1738's mitigation existed to
+eliminate**. `agent_freeze.py`'s only remaining change becomes one import plus
+the call-site swap at `:764`. This supersedes the `## Files` line below.
+
+**W5 — t1738 shipped WITHOUT a live run; this task performs the first one.**
+`tests/test_freeze_engine_live.sh` was never run for t1738 —
+`require_clean_ait_server` refused because that session ran inside the `-L ait`
+server with five live agent panes. So the extracted store/tmux plumbing both
+engines now import has **never been exercised against real tmux**. This
+session's preflight is clean, so we can and must run it. Consequence for
+sequencing: run it as a **baseline before any edit** (new pre-phase mitigation
+`baseline_live_suite_before_edits`), because without a baseline a pre-existing
+regression in t1738's plumbing is indistinguishable from a defect this task
+introduces — and the debugging time would be spent on the wrong code.
+
+### Findings carried forward from the 2026-09-07 verification (all re-confirmed)
+
+**V1 — Deliverable 4 is already implemented; it becomes test-only.**
+`_reconcile_restoring` (now `:698`) and `_reconcile_aborting` (now `:783`)
+already implement **every** `restoring` / `aborting` row of the §C table:
+pane-gone, mismatch-by-`last_error`, pane-dead, viewer-here by `standin_pid`,
+replacement-here by `launch_pid` + ack grace, and the `launch_pid==0`
+indeterminate → `2 × stale_op_grace` → abort path. → **Implementation step 5
+is "verify by test", not "implement."**
+
+**V2 — The plan's test grace knobs do not exist. Still the load-bearing fix.**
+Re-confirmed by a tree-wide grep: **`restore_ack_grace` and
+`AITASKS_RESTORE_ACK_GRACE` appear nowhere** in `.aitask-scripts/` or `tests/`.
+`RESTORE_ACK_GRACE = 20.0` is a hardcoded module constant (`:113`, read at
+`:764`) with no config and no env override. `stale_op_grace` *is* overridable
+via `AITASKS_STALE_OP_GRACE` under `AITASKS_TEST_MODE=1`
+(`lib/agent_sessions.py:605-628`), which `tests/test_freeze_engine_live.sh:102`
+uses. A test written to the old spec would silently run at 20 s and the
+`session_mismatch` case's "the liveness fallback must not fire" assertion would
+pass **vacuously**. Fix in step 0, before any test is written.
+
+**V3 — `restore-begin` and `lease-take` both require `--owner-pid`.** Shipped
+surface: `restore-begin <id> --owner-pid <pid> --mode resume|repick`. A
+defaulted or omitted pid is a usage error (exit 2); a *wrong* one degrades the
+lease to a bare timer and lets reconcile abort a restore that is still polling.
+
+**V4 — Env passing: `respawn-pane -e` is preferred over the `env` prefix.**
+Measured by spike Case 3b (`tests/test_frozen_standin_spike.sh:504-560`,
+re-confirmed present). Both preserve `#{pane_pid} == agent pid` — the
+`pid_anchor` contract (t1465) that actually matters. Shape:
+`respawn-pane -k -e "VAR=value" -t <pane> "<command>"`.
+
+**V5 — Only two of the four `AITASK_RESTORE_*` variables are consumed.**
+Re-confirmed: `aitask_session_hook.sh:144-145` forwards **only**
+`--restore-of "$AITASK_RESTORE_RECORD"` and `--nonce "$AITASK_RESTORE_NONCE"`.
+The store reads mode and expected session off the record
+(`lib/agent_sessions.py:781`). **Decision unchanged: export all four**, as
+diagnostics — two extra `-e` flags that make a frozen pane's environment
+self-describing when a restore must be debugged by hand.
+
+**V6 — No `setsid`.** `run-shell -b` is measured to outlive the pane that
+started it; the shipped `aitask_frozen.sh` header already documents it as the
+mechanism. The task body's "setsid"s itself" is superseded by this plan.
+
+**V7 — `fake_agent.sh` re-measured (86 lines).** Already shipped: `--resume
+<id>` (`:46`), `--resume=<id>` (`:50`), bare `resume <id>` (`:54`),
+`FAKE_AGENT_EXIT=1` (`:36`), `--report-env <file>` (`:59`). Genuinely new work:
+`FAKE_AGENT_SESSION=<other>`, `FAKE_AGENT_NO_HOOK=1`, `FAKE_AGENT_HOOK_DELAY`,
+and — the substantial one — **it never invokes the hook at all today** (grep
+for `hook` matches only the header comment). Making it exec the shipped
+`aitask_session_hook.sh` is the largest single test-fixture item here, and it
+is what makes the ack path *real* rather than simulated.
+
+**V8 — `aitask_frozen.sh` dispatch decision stands.** Re-confirmed: the script
+still ends in an unconditional `exec "$(require_ait_python)" "$FREEZE_PY" "$@"`
+and its verb `case` accepts only `freeze` / `reconcile` / `-h`. **Dispatch in
+the shell**: `restore` execs `agent_restore.py`; the existing verbs keep
+execing `agent_freeze.py`. Exit codes (0 all-ok / 1 some-failed / 2 usage)
+extend to restore unchanged.
+
+**V9 — `pick_launch_argv` is a three-line helper — see W3 for the corrected
+call-site count.** A shared helper whose signature is
+`(root, task_id, agent_string=None)` must default to `None` at all three TUI
+sites, or they would silently start launching a different agent/model.
+
+**V10 — `resolve_dry_run_command` genuinely needs the new parameter.**
+Signature `(project_root, operation, *args, agent_string=None)` at `:234`;
+`*args` land **after** `invoke <operation>`, so they are operation arguments.
+`--resume-session` is a **global** flag and must precede `--dry-run`. The
+`extra_global_flags` extension is correct and required.
 
 **V11 — repeated `-e` is unmeasured.** Spike Case 3b passed exactly **one**
-`-e`. tmux documents the flag as repeatable, but this task will pass four, so
-the new live test must assert that **all** of them arrive — otherwise a
-silently-dropped `AITASK_RESTORE_NONCE` would turn every hook ack into a
-`NONCE_MISMATCH` and route every restore down the liveness fallback.
+`-e`; this task passes four. A build that accepted only the last one would drop
+the nonce and route every restore to the liveness fallback — a silent
+degradation that still *looks* like success.
 
-**V12 — The hook can beat `restore-launched`, and the naive handling kills a
-restored agent.** `restore_launched` is state-guarded to `restoring`
-(`lib/agent_sessions.py:1011`), and so is `restore_abort` (`:1055`). The
+**V12 — The hook can beat `restore-launched`, and naive handling kills a
+restored agent.** Re-confirmed exactly: `_require_state(rec,
+"restore-launched", STATE_RESTORING)` at `lib/agent_sessions.py:1011` and
+`_require_state(rec, "restore-abort", STATE_RESTORING)` at `:1055`. The
 replacement agent's SessionStart hook acks by moving the record
 `restoring → live` with `ack=hook`, and it can do so before the coordinator
-completes its `display-message` round-trip plus a wrapper subprocess spawn — in
-the live fixture, where the fake agent execs the hook immediately, it will do so
-most of the time. `restore-launched` is then refused with
+completes its `display-message` round-trip plus a wrapper subprocess spawn.
+`restore-launched` is then refused with
 `TRANSITION_REFUSED:<id>|live|restore-launched`. A coordinator that reads that
 refusal as failure takes the abort branch and `respawn-pane -k`s the pane back
-to the stand-in — **killing an agent that was successfully restored**, which is
-strictly worse than never restoring. The fix is a re-read rule binding every
-store verb in the sequence (step 3), plus a test that forces the ordering
-instead of hoping for it. The original plan specified neither.
+to the stand-in — **killing an agent that was successfully restored.** The fix
+is the re-read rule binding every store verb in the sequence (step 3), plus a
+test that forces the ordering.
 
 ## Files
 
@@ -201,11 +231,20 @@ instead of hoping for it. The original plan specified neither.
   `StageFailure` / `SESSIONS_SH` / the four `EXIT_*` codes. Do **not** copy them
   and do **not** import `agent_freeze`'s privates — that was the risk this
   task's mitigation removed
+- **Edit** `.aitask-scripts/lib/agent_frozen_ops.py` — **add `restore_ack_grace()`
+  here (W4, supersedes the earlier `agent_freeze.py` placement)**, plus the
+  `RESTORE_ACK_GRACE = 20.0` default moved with it and a new `config_utils`
+  import
 - **Edit** `.aitask-scripts/aitask_frozen.sh` — `restore <id> [--repick]`, `restore --all`; shell-level verb dispatch (V8)
 - **Edit** `.aitask-scripts/aitask_codeagent.sh` — `--resume-session <sid>` (global flag, `build_invoke_command`, `show_help`)
-- **Edit** `.aitask-scripts/lib/agent_freeze.py` — **grace accessor only** (V1/V2): add `restore_ack_grace()`, switch the `RESTORE_ACK_GRACE` read in `_reconcile_restoring` to it (t1738 moved code above it, so re-locate by name rather than by the old `:899`). **Reconsider the placement:** putting the accessor here makes `agent_restore` import the repair module for one function — the exact coupling t1738's mitigation removed. `lib/agent_frozen_ops.py` is the natural home; t1738 deliberately left `RESTORE_ACK_GRACE` / `_epoch` / `_stale_grace` in `agent_freeze.py` because the call is this task's to make
+- **Edit** `.aitask-scripts/lib/agent_freeze.py` — **one import + one call-site
+  swap only** (W4): read the grace through `frozen_ops.restore_ack_grace()` at
+  the former `RESTORE_ACK_GRACE` site (now `:764`, locate by name), and drop the
+  local constant
 - **Edit** `.aitask-scripts/lib/agent_launch_utils.py` — `resolve_dry_run_command(..., extra_global_flags=None)` (V10) and `pick_launch_argv(root, task_id, agent_string=None)` (V9)
-- **Edit** `monitor/minimonitor_app.py`, `monitor/monitor_app.py` — switch to `pick_launch_argv`, behaviour-identical (V9)
+- **Edit** `monitor/minimonitor_app.py` (`:3013`), `monitor/monitor_app.py`
+  (`:3599` **and `:3683`** — W3) — switch all three to `pick_launch_argv`,
+  behaviour-identical
 - **Edit** `tests/lib/fake_agent.sh` — `FAKE_AGENT_SESSION`, `FAKE_AGENT_NO_HOOK`, `FAKE_AGENT_HOOK_DELAY` (V12 race forcing), **exec the shipped hook** (V7)
 - **New tests** `tests/test_codeagent_resume_session.sh`, `tests/test_restore_flows_live.sh`, `tests/test_agent_restore.py` (unit, fake `TmuxClient` + fake wrapper)
 
@@ -237,32 +276,37 @@ Actions:
    pending sibling plans above.
 3. **Do not touch `aiplans/archived/p1705/p1705_1..4`** or the archived task
    file. Those are historical records of what was true at implementation time;
-   rewriting them would falsify the record. B1/B4 are not deviations anyway —
-   they are the shipped reality that t1705_2 / t1705_4 established, and the
-   archived plans correctly describe their own moment.
+   rewriting them would falsify the record.
 4. Commit the parent + five siblings together (`./ait git`), per the
    same-commit rule.
 
-> **This plan file itself is fixed by approval, not by step A.** `aiplans/p1705/
-> p1705_5_restore_and_repick_flows.md` on disk is still the pre-verification
-> draft; the verify path writes it only when `ExitPlanMode` externalizes, which
-> is why a reviewer reading the checked-in file sees none of V1–V12. Step A
+> **This plan file itself is fixed by approval, not by step A.** The verify path
+> writes it only when `ExitPlanMode` externalizes, which is why a reviewer
+> reading the checked-in file sees none of V1–V12 or W1–W5 until then. Step A
 > covers the *other* eight files, which no externalization will touch.
-
-### The rest of the implementation
-
-> **One blocking "before" task precedes all of this.**
-> `extract_freeze_store_helpers` (see `### Planned mitigations`) is confirmed as
-> a spawned *before* mitigation: workflow Step 7 creates it, wires it into this
-> task's `depends:`, and stops this task until it lands. Step 3 then imports the
-> shared helpers instead of copying them. Expect the first post-approval session
-> to create that task and stop — that is the confirmed design, not a failure.
 
 ### Pre-phase (risk mitigations)
 
 These run **before** step 0. Each is a confirmed inline mitigation from the
-`### Planned mitigations` block below; each is test-first, so it fails against
-the current tree and passes once the step it guards has landed.
+`### Planned mitigations` block below.
+
+0. `[baseline_live_suite_before_edits]` **(NEW — W5; runs before every other
+   step, including the other pre-phase items.)** Against the **unmodified**
+   tree, from a shell outside the `-L ait` server, run:
+
+   ```bash
+   bash tests/test_freeze_engine_live.sh
+   bash tests/test_frozen_standin_spike.sh
+   ```
+
+   Record both verdicts verbatim in the Final Implementation Notes. t1738
+   extracted the store/tmux plumbing both engines import and **never ran the
+   live suite** (`require_clean_ait_server` refused inside the `-L ait`
+   server), so this is the first real-tmux exercise of that refactor. If either
+   suite is already red, **stop and report it before writing any code** — it is
+   a t1738 regression, belongs in a follow-up against t1738, and must not be
+   debugged as if this task caused it. If both are green, that verdict is the
+   baseline every later failure in this task is measured against.
 
 1. `[measure_repeated_respawn_e]` Add **Case 3c** to
    `tests/test_frozen_standin_spike.sh`, alongside Case 3b (`:504-560`): respawn
@@ -288,17 +332,18 @@ the current tree and passes once the step it guards has landed.
      assertion passes while testing nothing.
 
 3. `[pin_pick_argv_behaviour]` Before the step-2 extraction, capture the exact
-   command string both TUIs produce today. Add a characterization test that
-   calls the current `resolve_dry_run_command(root, "pick", task_id)` path and
-   pins the result, plus the `agent-pick-<id>` window-name convention. The
-   extraction in step 2 must leave this test green **unchanged** — that is what
-   proves the two call sites did not silently start resolving a different
-   agent/model (V9).
+   command string **all three** TUI sites produce today (W3:
+   `minimonitor_app.py:3013`, `monitor_app.py:3599`, `monitor_app.py:3683`).
+   Add a characterization test that calls the current
+   `resolve_dry_run_command(root, "pick", task_id)` path and pins the result,
+   plus the `agent-pick-<id>` window-name convention. The extraction in step 2
+   must leave this test green **unchanged** — that is what proves the three call
+   sites did not silently start resolving a different agent/model (V9).
 
-**0. Grace accessor first (V2) — nothing else is testable until this lands.**
-In `lib/agent_freeze.py`, add beside `capture_max_lines` (`:281`, the existing
-`frozen.*` precedent, read with `config_utils.load_yaml_config` — never
-hand-parsed):
+**0. Grace accessor first (V2 / W4) — nothing else is testable until this lands.**
+In **`lib/agent_frozen_ops.py`** (W4 — *not* `agent_freeze.py`), following the
+`capture_max_lines` precedent (`agent_freeze.py:146`, read with
+`config_utils.load_yaml_config` — never hand-parsed):
 
 ```python
 RESTORE_ACK_GRACE = 20.0          # keep as the default
@@ -311,28 +356,34 @@ def restore_ack_grace(root=None) -> float:
     # 3. else RESTORE_ACK_GRACE; non-positive / unparseable -> the default
 ```
 
-Then **switch `agent_freeze.py:899` from the constant to this accessor**, and
-have `agent_restore` read the same function. Coordinator and reconcile must not
-be able to disagree about the grace — if they do, reconcile can liveness-confirm
-a restore the coordinator is still waiting on.
+This adds a `config_utils` import to `agent_frozen_ops.py`, which does not have
+one today. Then in `agent_freeze.py`, **locate the `RESTORE_ACK_GRACE` read by
+name** (t1738 moved it from `:899` to `:764`) and swap it to
+`frozen_ops.restore_ack_grace()`, dropping the local constant. Coordinator and
+reconcile must not be able to disagree about the grace — if they do, reconcile
+can liveness-confirm a restore the coordinator is still waiting on.
+
+Call it through the module (`frozen_ops.restore_ack_grace()`), consistent with
+the seam rule — even though this particular function is not swapped by the
+tests, mixing styles in the same module invites the alias mistake next door.
 
 1. **`--resume-session`** in `aitask_codeagent.sh`: `OPT_RESUME_SESSION=""`
    beside `OPT_HEADLESS` (`:36`); parse in `main` beside `--headless` (`:688`)
    as `--resume-session) OPT_RESUME_SESSION="$2"; shift 2 ;;`; validate
    `^[A-Za-z0-9._-]+$` (`die` otherwise — the value reaches an argv);
    `cmd_invoke` (`:586`) refuses it for any operation but `raw`
-   (`die "--resume-session requires 'invoke raw'"`). In `build_invoke_command`,
-   which pre-seeds `CMD=("$binary" "$model_flag" "$cli_id")` at `:443`:
+   (`die "--resume-session requires 'invoke raw'"`). In `build_invoke_command`
+   (`:405`), which pre-seeds `CMD=("$binary" "$model_flag" "$cli_id")`:
    - `claudecode` → **append**: `CMD+=(--resume "$OPT_RESUME_SESSION")` — after
      the model flag, before any prompt positional (the `explore-relay` ordering
-     hazard, `:510-513`);
+     hazard, `:489-520`);
    - `codex` → **rebuild** (the pre-seed puts the model flag first, but `resume`
      must be the leading positional):
      `CMD=("$binary" resume "$OPT_RESUME_SESSION" "$model_flag" "$cli_id")`;
    - `opencode` → `die "RESUME_UNSUPPORTED:opencode"` (exit 2).
 
-   `show_help` documents it in the Options block (`:633-641`). `--dry-run`
-   prints `DRY_RUN:` + `%q` args as today.
+   `show_help` documents it in the Options block (`:618`, options around
+   `:637`). `--dry-run` prints `DRY_RUN:` + `%q` args as today.
 
    > **Codex reality check (t1705_1 PINNED).** Codex's SessionStart hook fires
    > under `codex exec` and **never in the interactive TUI**, which is the
@@ -342,11 +393,13 @@ a restore the coordinator is still waiting on.
    > path. Build it, pin it with a dry-run test, and do not write a live codex
    > resume case.
 
-2. **`pick_launch_argv`** (V9) — pure refactor, own commit, both TUIs green.
-   `pick_launch_argv(root, task_id, agent_string=None) -> tuple[str | None, str]`
+2. **`pick_launch_argv`** (V9 / W3) — pure refactor, own commit, all three sites
+   green. `pick_launch_argv(root, task_id, agent_string=None) -> tuple[str | None, str]`
    returning `(full_cmd, window_name)` where `window_name = f"agent-pick-{task_id}"`.
-   The two TUI sites call it **without** `agent_string` so their behaviour is
-   byte-identical; `agent_restore` calls it **with** the record's agent string.
+   The **three** TUI sites — `minimonitor_app.py:3013`, `monitor_app.py:3599`,
+   `monitor_app.py:3683` — call it **without** `agent_string` so their behaviour
+   is byte-identical; `agent_restore` calls it **with** the record's agent
+   string. The pre-phase characterization test must stay green unchanged.
 
 3. **`lib/agent_restore.py`.**
    ```python
@@ -389,10 +442,10 @@ a restore the coordinator is still waiting on.
      `-e`, selected once at module import, not per call.
    - `set-option -pu @aitask_standin_ready` → `respawn-pane -k -e … -t <pane>
      '<argv>'` — or, when `rec.pane_id == ""`, `launch_in_tmux` into
-     `unique_window_name(existing, rec.window)` in the session hosting `rec.root`
-     (first match of `discover_aitasks_sessions`; none →
-     `RESTORE_FAILED:<id>|no_session_for_root`, then `restore-abort` +
-     `standin-respawned --nonce --pane "" --pane-pid 0`).
+     `unique_window_name(existing, rec.window)` (`agent_launch_utils.py:1452`)
+     in the session hosting `rec.root` (first match of
+     `discover_aitasks_sessions`; none → `RESTORE_FAILED:<id>|no_session_for_root`,
+     then `restore-abort` + `standin-respawned --nonce --pane "" --pane-pid 0`).
    - Read `#{pane_id}\t#{pane_pid}` → `restore-launched --nonce --pane --pane-pid`.
 
      **⚠ The hook can win this race (V12). Handle it explicitly.**
@@ -417,18 +470,19 @@ a restore the coordinator is still waiting on.
 
      **This rule binds every verb in the sequence, not just this one.** The
      abort branch itself calls `restore-abort`, which is guarded identically
-     (`:1055`), and the branch's *next* action is `respawn-pane -k` back to the
-     stand-in. Rolling back without checking `restore-abort`'s exit status would
-     **kill a successfully restored agent** — the single worst outcome this task
-     can produce, and strictly worse than never restoring at all. So: check the
-     exit status of every store verb, and enter the rollback only once the store
-     has confirmed the record actually moved to `aborting`.
+     (`lib/agent_sessions.py:1055`), and the branch's *next* action is
+     `respawn-pane -k` back to the stand-in. Rolling back without checking
+     `restore-abort`'s exit status would **kill a successfully restored agent**
+     — the single worst outcome this task can produce, and strictly worse than
+     never restoring at all. So: check the exit status of every store verb, and
+     enter the rollback only once the store has confirmed the record actually
+     moved to `aborting`.
 
    - Poll loop (0.5 s) against `show <id>` until one of the four §D outcomes:
      `state==live and ack==hook` → clear `@aitask_frozen` → `RESTORED:<id>|hook`;
      `last_error` starts with this nonce → abort branch `session_mismatch`;
      `pane_dead == 1` → abort branch `agent_exited`;
-     elapsed ≥ `restore_ack_grace()` and `pane_pid == launch_pid` →
+     elapsed ≥ `frozen_ops.restore_ack_grace()` and `pane_pid == launch_pid` →
      `restore-confirm --nonce --pane --pane-pid` → clear stamp →
      `RESTORED:<id>|liveness`.
    - Abort branch = `restore-abort --nonce` → `set-option -pu
@@ -448,23 +502,25 @@ a restore the coordinator is still waiting on.
      — the factory exists so this engine's injected failures cannot fire in the
      freeze engine — and call `frozen_ops.pause_at` / `frozen_ops.test_mode`
      directly. **Call every shared function through the module**, never
-     `from agent_frozen_ops import store as _store`: `store` and `_TMUX` are
-     swapped in place by the tests, and an import-time alias binds the original
-     object and bypasses the swap. `tests/test_agent_frozen_ops.py` fails on any
-     engine module that holds such an alias, and it already looks up
-     `agent_restore` dynamically.
+     `from agent_frozen_ops import store as _store`: `store` (`:164`) and
+     `_TMUX` (`:87`) are swapped in place by the tests, and an import-time alias
+     binds the original object and bypasses the swap. `tests/test_agent_frozen_ops.py`
+     fails on any engine module that holds such an alias, and it already looks
+     up `agent_restore` dynamically (`ENGINE_MODULES`, `:60`) — so it starts
+     enforcing this the moment the module exists.
 
 4. **Detached entry** — `aitask_frozen.sh restore <id> [--repick] | --all`.
-   Dispatch in the shell (V8): `restore` execs `lib/agent_restore.py`, the
-   existing verbs keep execing `lib/agent_freeze.py`. **No `setsid` (V6)** — the
-   caller detaches via `run-shell -b`, which is measured to outlive the pane;
-   running in the foreground means a shell user also sees the result line.
-   Document in the header that TUIs must use `run-shell -b`, and update the
-   header's "`restore` arrives in t1705_5" note and the `usage()` block.
+   Dispatch in the shell (V8): add `restore` to the verb `case` and exec
+   `lib/agent_restore.py` for it; the existing verbs keep execing
+   `lib/agent_freeze.py`. **No `setsid` (V6)** — the caller detaches via
+   `run-shell -b`, which is measured to outlive the pane; running in the
+   foreground means a shell user also sees the result line. Document in the
+   header that TUIs must use `run-shell -b`, and update the header's
+   "`restore` arrives in t1705_5" note and the `usage()` block.
 
 5. **Reconcile rows — verify, do not implement (V1).** `_reconcile_restoring`
-   and `_reconcile_aborting` already cover the §C table. This step's only
-   production change is step 0's grace accessor at `:899`. The obligation is a
+   (`:698`) and `_reconcile_aborting` (`:783`) already cover the §C table. This
+   step's only production change is step 0's call-site swap. The obligation is a
    **test** one: the two coordinator-death cases below must prove the shipped
    repair side actually settles a record this task's coordinator abandoned.
 
@@ -478,11 +534,13 @@ agents (ordering vs the model flag: `--resume` *after* it for claudecode,
 `resume` *first* for codex), refusal with `invoke pick`, invalid session id
 rejected, `RESUME_UNSUPPORTED:opencode` exit 2.
 
-**`tests/test_agent_restore.py`** — unit, fake `TmuxClient` + fake wrapper:
-`build_resume_argv` / `build_repick_argv`; the `no_session` and `binary`
-preflights write **nothing** to the store; `NONCE_MISMATCH` issues no tmux call;
-`restore_ack_grace()` precedence (env seam under test mode > config > default,
-non-positive → default).
+**`tests/test_agent_restore.py`** — unit, fake `TmuxClient` + fake wrapper.
+Seam install is `agent_frozen_ops.store = fake_wrapper; agent_frozen_ops._TMUX
+= fake_tmux` (per t1738's note). Cases: `build_resume_argv` /
+`build_repick_argv`; the `no_session` and `binary` preflights write **nothing**
+to the store; `NONCE_MISMATCH` issues no tmux call; `restore_ack_grace()`
+precedence (env seam under test mode > config > default, non-positive →
+default).
 
 **`tests/test_restore_flows_live.sh`** — isolated server. Fixture, mirroring
 `tests/test_freeze_engine_live.sh:58-102`:
@@ -555,12 +613,21 @@ fake agent on `PATH` as `claude`, real hook, real store. Cases:
 
 ## Verification
 
+**Baseline (pre-phase 0, before any edit — W5):**
+
+```bash
+bash tests/test_freeze_engine_live.sh                    # outside -L ait; t1738's FIRST live run
+bash tests/test_frozen_standin_spike.sh                  # ~8s, the -e evidence this plan rests on
+```
+
+**Post-implementation:**
+
 ```bash
 bash tests/test_codeagent_resume_session.sh
-bash tests/run_all_python_tests.sh                       # agent_restore unit + pick argv pins
+bash tests/run_all_python_tests.sh                       # agent_restore unit + pick argv pins + test_agent_frozen_ops
 bash tests/test_restore_flows_live.sh                    # outside -L ait
-bash tests/test_freeze_engine_live.sh                    # still green (grace accessor touched :899)
-bash tests/test_frozen_standin_spike.sh                  # the -e evidence this plan rests on
+bash tests/test_freeze_engine_live.sh                    # still green (grace call-site swapped)
+bash tests/test_frozen_standin_spike.sh                  # now includes Case 3c
 bash tests/test_no_raw_tmux.sh
 shellcheck .aitask-scripts/aitask_codeagent.sh .aitask-scripts/aitask_frozen.sh
 ```
@@ -569,65 +636,82 @@ shellcheck .aitask-scripts/aitask_codeagent.sh .aitask-scripts/aitask_frozen.sh
 
 ### Code-health risk: high
 
-- Editing `lib/agent_freeze.py:899` to read a configurable grace changes the
-  behaviour of the **already-shipped, already-green** reconcile path (t1705_4).
-  A wrong default or a mis-scoped env seam would alter reconcile timing for
-  every frozen record, not just this task's · severity: medium · → mitigation: none (covered by re-running `tests/test_freeze_engine_live.sh` in Verification)
-- The `pick_launch_argv` extraction touches two live TUIs
-  (`minimonitor_app.py`, `monitor_app.py`) for a three-line helper. The specific
-  hazard is measured, not hypothetical: the call sites do **not** pass
-  `agent_string` today, so a helper that defaults it wrongly silently changes
-  which agent/model every `pick` launch starts · severity: low (residual — the
-  pre-extraction characterization test makes any behaviour change a test
-  failure) · → mitigation: inline pre-phase pin_pick_argv_behaviour
-- `agent_restore.py` is a new ~400-line coordinator that duplicates several
-  private helpers from `agent_freeze.py` (`_store`, `_pane_facts`, `_respawn`,
-  `_set_option`, the test seams). Copying them forks two engines that must stay
-  in agreement about the store wire protocol; importing them couples the
-  coordinator to a module deliberately written to work without it · severity: medium (residual — deferred to a blocking "before" task, so this plan does not land the duplication) · → mitigation: t1738
+- The grace-accessor change alters the behaviour of the **already-shipped,
+  already-green** reconcile path (t1705_4). W4 shrinks the blast radius —
+  `agent_freeze.py` now takes one import plus one call-site swap at `:764`
+  instead of hosting the accessor — but a wrong default or a mis-scoped env
+  seam would still alter reconcile timing for every frozen record, not just
+  this task's · severity: medium · → mitigation: none (covered by re-running
+  `tests/test_freeze_engine_live.sh` both as the pre-phase baseline and in
+  Verification)
+- **t1738's extracted store/tmux plumbing has never been exercised against real
+  tmux** (W5). Both engines now import `lib/agent_frozen_ops.py`, and the only
+  suite that would catch a regression in it was refused at t1738 time. This
+  task inherits that exposure and is the first session able to discharge it ·
+  severity: medium (residual — the pre-phase baseline run makes an inherited
+  regression distinguishable from one this task introduces, instead of
+  surfacing as a mysterious failure mid-implementation) · → mitigation: inline
+  pre-phase baseline_live_suite_before_edits
+- The `pick_launch_argv` extraction touches two live TUIs across **three** call
+  sites (W3 — one more than the approved plan recorded). The specific hazard is
+  measured, not hypothetical: none of the three passes `agent_string` today, so
+  a helper that defaults it wrongly silently changes which agent/model every
+  `pick` launch starts · severity: low (residual — the pre-extraction
+  characterization test now covers all three sites, making any behaviour change
+  a test failure) · → mitigation: inline pre-phase pin_pick_argv_behaviour
+- `agent_restore.py` is a new ~400-line coordinator that would otherwise
+  duplicate several private helpers from `agent_freeze.py` · severity: low
+  (**discharged** — t1738 landed 2026-09-08 15:00 and shipped
+  `lib/agent_frozen_ops.py` with the full surface verified in W1; this plan
+  imports rather than forks, and `tests/test_agent_frozen_ops.py` enforces it
+  automatically once the module exists) · → mitigation: t1738
 - The store's transitional verbs are state-guarded, so a lost race returns a
   refusal rather than an error — and a coordinator that reads a refusal as
   failure rolls back, `respawn-pane -k`ing a **successfully restored agent**
   back to the stand-in and destroying the session the user was trying to
   recover (V12). This was found on review, not during planning, which is the
   real signal here: the acknowledgement protocol's failure modes are not fully
-  enumerated by the §D prose, and a second unenumerated one is plausible
-  · severity: medium (residual — the step-3 re-read rule binds every verb in
-  the sequence and the immediate-hook test forces the ordering) · → mitigation: none (addressed in-plan; no separate mitigation confirmed)
+  enumerated by the §D prose, and a second unenumerated one is plausible ·
+  severity: medium (residual — the step-3 re-read rule binds every verb in the
+  sequence and the immediate-hook test forces the ordering) · → mitigation:
+  none (addressed in-plan; no separate mitigation confirmed)
 - The amended contract (B1–B4) initially existed only in this child's plan while
   the parent and five pending sibling plans — including the acceptance test and
   both docs tasks — still carried the obsolete §D. A sibling picked before this
-  task lands would implement, test, or *document* the superseded protocol
-  · severity: low (residual — implementation step A propagates and commits all
-  six live files before any code is written) · → mitigation: none (addressed in-plan; no separate mitigation confirmed)
-- Implementation cannot be verified from this machine's current shell (Step 0
-  preflight blocked), so the live suite — the only thing that exercises the real
-  tmux/hook/store path — is the easiest step to skip under time pressure · severity: high · → mitigation: none (procedural; the aggregate manual-verification sibling t1705_11 already carries the end-to-end check)
+  task lands would implement, test, or *document* the superseded protocol ·
+  severity: low (residual — implementation step A propagates and commits all
+  six live files before any code is written) · → mitigation: none (addressed
+  in-plan; no separate mitigation confirmed)
 
 ### Goal-achievement risk: medium
 
 - The four-outcome acknowledgement protocol is the whole point of the task, and
   its most important negative assertion ("the liveness fallback must not fire on
-  a session mismatch") was **unreachable as originally specified** (V2). The
-  same class of defect — an assertion that passes without testing anything —
-  could recur in the coordinator-death cases, which depend on `SIGSTOP`/`SIGKILL`
-  timing against a shortened lease · severity: medium (residual — the inline
-  guard closes the grace case specifically and fails the file loudly; the
-  coordinator-death cases remain unguarded by it) · → mitigation: inline pre-phase assert_grace_seam_effective
+  a session mismatch") was **unreachable as originally specified** (V2), and is
+  still unbuilt in the tree (re-confirmed 2026-09-08: no `restore_ack_grace`
+  anywhere). The same class of defect — an assertion that passes without testing
+  anything — could recur in the coordinator-death cases, which depend on
+  `SIGSTOP`/`SIGKILL` timing against a shortened lease · severity: medium
+  (residual — the inline guard closes the grace case specifically and fails the
+  file loudly; the coordinator-death cases remain unguarded by it) · →
+  mitigation: inline pre-phase assert_grace_seam_effective
 - Codex cannot capture a session id on the interactive launch path (t1705_1
   PINNED), so the codex half of `--resume-session` is unexercisable end-to-end
   and is pinned only by dry-run argv. If codex's hook later becomes viable, the
-  live behaviour is unproven · severity: low · → mitigation: none (accepted; no live path exists to test)
+  live behaviour is unproven · severity: low · → mitigation: none (accepted; no
+  live path exists to test)
 - Repeated `respawn-pane -e` is unmeasured (V11): the spike proved one variable,
   this task passes four. A tmux build that accepted only the last `-e` would
   drop the nonce and route every restore to the liveness fallback — a silent
   degradation that still *looks* like success · severity: low (residual —
-  measured by the pre-phase spike case before step 3 relies on it) · → mitigation: inline pre-phase measure_repeated_respawn_e
+  measured by the pre-phase spike case before step 3 relies on it) · →
+  mitigation: inline pre-phase measure_repeated_respawn_e
 
 ### Planned mitigations
+- timing: pre-phase | name: baseline_live_suite_before_edits | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — t1738's extracted plumbing never ran against real tmux | desc: Run test_freeze_engine_live.sh and test_frozen_standin_spike.sh against the unmodified tree before any edit and record both verdicts, so an inherited t1738 regression is distinguishable from a defect this task introduces
 - timing: pre-phase | name: measure_repeated_respawn_e | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — repeated `-e` unmeasured | desc: Spike Case 3c asserting four `-e` variables all arrive and `#{pane_pid}` still equals the agent pid
 - timing: pre-phase | name: assert_grace_seam_effective | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — the "liveness fallback must not fire" assertion was unreachable | desc: Red-first unit test for `restore_ack_grace()` precedence plus a live-fixture guard aborting if the effective grace is not < 10s
-- timing: pre-phase | name: pin_pick_argv_behaviour | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — `pick_launch_argv` extraction touches two live TUIs | desc: Characterization test pinning the pick command and window-name convention before the extraction, which must stay green unchanged after it
+- timing: pre-phase | name: pin_pick_argv_behaviour | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — `pick_launch_argv` extraction touches three live TUI call sites | desc: Characterization test pinning the pick command and window-name convention at all three sites before the extraction, which must stay green unchanged after it
 - timing: before | name: extract_freeze_store_helpers | type: refactor | priority: medium | effort: medium | inline_risk: medium | added_complexity: medium | addresses: code-health — new coordinator duplicates private helpers from agent_freeze.py | desc: Extract `_store` / `_pane_facts` / `_respawn` / `_set_option` / the test seams into a module both engines import, so `agent_restore.py` shares rather than forks the store wire protocol | created: t1738
 
 **Post-inline reassessment (single pass, 2026-09-07).** Levels re-assessed
@@ -644,9 +728,21 @@ Not because the new race is unaddressed — step 3 handles it and a test forces 
 carries two high-severity code-health concerns at once: a failure mode whose
 naive handling destroys the user's session, and a live suite that cannot be run
 from the machine this was planned on. Those compound: the test that would catch a
-regression here is exactly the test that is easiest to skip. Mitigation selection
-was **not** reopened (the review's own dispositions were blocking-fix-in-plan,
-not new mitigations).
+regression here is exactly the test that is easiest to skip.
+
+**Post-t1738 reassessment (2026-09-08, this pass).** Two of the previously
+recorded concerns are **discharged**: the helper duplication (t1738 landed, W1)
+and the "live suite cannot be run from this machine" procedural gap (preflight
+is clean this session, so the suite is runnable and is now a mandatory
+pre-phase step). One concern is **newly recorded** — t1738's plumbing has never
+met real tmux (W5) — and one is **slightly widened** — the `pick_launch_argv`
+extraction has three call sites, not two (W3). Code-health **stays high**: the
+discharged verification gap is offset by the inherited-unverified-refactor it
+was replaced with, and the dominant driver is unchanged — a destructive tmux
+protocol whose worst failure mode kills the user's restored agent, combined with
+an edit to an already-shipped reconcile path. Goal-achievement **stays medium**;
+its drivers are untouched by t1738. Mitigation selection **was** reopened, to add
+`baseline_live_suite_before_edits` (user-confirmed).
 
 ## Amendments from t1705_2 (store implementation, 2026-09-06)
 
@@ -689,6 +785,29 @@ same commit*. Eight files currently carry the obsolete §D contract; five of the
 are pending sibling plans, including the acceptance test (t1705_8) and both docs
 tasks (t1705_9/10). **Implementation step A** discharges this and must run before
 any code. Archived plans are deliberately excluded.
+
+## Amendments from re-verification (2026-09-08, post-t1738)
+
+**B6 — the restore-ack grace accessor lives in `lib/agent_frozen_ops.py`, not
+`lib/agent_freeze.py`** (see W4; user-confirmed 2026-09-08). t1738 shipped the
+shared module and deliberately left `RESTORE_ACK_GRACE` / `_epoch` /
+`_stale_grace` in `agent_freeze.py`, noting that the placement call belonged to
+this task. Hosting `restore_ack_grace()` in the repair module would force
+`agent_restore` to import it for a single function — the exact
+coordinator→repair coupling t1738's mitigation existed to remove. The accessor
+and its `RESTORE_ACK_GRACE = 20.0` default therefore move to
+`agent_frozen_ops.py` (which gains a `config_utils` import); `agent_freeze.py`
+keeps only the call-site swap. This supersedes the `## Files` line of the
+2026-09-07 plan, which proposed `agent_freeze.py` while explicitly flagging it
+for reconsideration.
+
+**B7 — `pick_launch_argv` has three call sites** (see W3). V9's two-site count
+is superseded: `monitor_app.py` carries a second pick launch at `:3683`
+(`_on_restart_confirmed`) in addition to `:3599`, alongside
+`minimonitor_app.py:3013`. All three take the extraction and all three are
+pinned by the characterization test. Sibling t1705_7, which also consumes
+`pick_launch_argv`, should read this rather than V9's count.
+
 ## PINNED contracts (from p1705 — do not re-decide)
 
 Copied verbatim from `aiplans/p1705_frozen_codeagents_session_store_and_viewer_tui.md` §A–§D. On any discrepancy the parent plan wins; if a child must deviate, update the parent plan and every sibling plan in the same commit.
