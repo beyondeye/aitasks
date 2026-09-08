@@ -44,7 +44,7 @@ website/node_modules/
 website/.hugo_build.lock
 
 # Task data (lives on aitask-data branch, accessed via symlinks)
-.aitask-data/
+.aitask-data
 aitasks
 aiplans
 
