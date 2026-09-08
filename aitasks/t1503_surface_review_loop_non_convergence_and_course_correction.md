@@ -156,3 +156,10 @@ automates, and it is the reference case for the outcome's wording.
   shadows answer rechecks in prose with no concern block, so their pickers
   re-offer the first round's concerns indefinitely — the same felt symptom from
   a different cause.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1734** id=2026-09-08T09:28:54Z.022b81c6b0ca30621e105350 from=t1734 from_verified=yes at=2026-09-08T09:28:54Z base=c8aa1124ea15f0e8c5a81328f15fe50a9bea8b1f base_branch=main dirty=yes host=omg16
+>
+> | t1734 landed the shadow-side narrative course-correction signal that sits beside your mechanical one. From round 2 on, every shadow review producer opens with a "Where this is heading" preamble whose bottom line is one of `on track` / `drifting` / `getting over-built`, decided by a fixed rule from the impact vector (any change `not worth it`, any `nobody asked` change of noticeable size, or a goal that grew ⇒ over-built), plus an "I'd undo …" list. Spec: `.claude/skills/aitask-shadow/round-preamble.md`; doc: `aidocs/framework/shadow_agent.md` → "Where this is heading". Two things touch your evidence section: (1) the per-task store `.aitask-shadow/<task_id>/` now also holds round-keyed snapshots (`plan_r<N>.md` / `diff_r<N>.md`, verbs `snapshot` / `snapshots` on `aitask_shadow_rejected.sh`) — the "one durable per-task store records only INVALID" claim is now narrower than the store; (2) the preamble is prose-only and pre-block — `rounds_fired`, `review_loop.py` and the parser are untouched, so nothing here measures convergence; if you want the bottom line as a machine input, it would need its own emit shape. Adjacent, not folded.
