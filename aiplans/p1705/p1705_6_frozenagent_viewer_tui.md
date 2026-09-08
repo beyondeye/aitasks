@@ -1,522 +1,945 @@
 ---
 Task: t1705_6_frozenagent_viewer_tui.md
 Parent Task: aitasks/t1705_frozen_codeagents_session_store_and_viewer_tui.md
-Sibling Tasks: aitasks/t1705/t1705_1_*.md … aitasks/t1705/t1705_5_*.md, aitasks/t1705/t1705_7_*.md … aitasks/t1705/t1705_10_*.md
-Archived Sibling Plans: aiplans/archived/p1705/p1705_*_*.md
+Sibling Tasks: aitasks/t1705/t1705_10_freeze_restore_workflow_docs.md, aitasks/t1705/t1705_11_manual_verification_frozen_codeagents_session_store_and_view.md, aitasks/t1705/t1705_7_monitor_minimonitor_frozen_rows.md, aitasks/t1705/t1705_8_frozen_agents_acceptance_test.md, aitasks/t1705/t1705_9_frozenagent_tui_docs.md
+Archived Sibling Plans: aiplans/archived/p1705/p1705_1_spike_freeze_standin_and_session_id_capture.md, aiplans/archived/p1705/p1705_2_framework_session_store.md, aiplans/archived/p1705/p1705_3_session_id_capture_hooks.md, aiplans/archived/p1705/p1705_4_freeze_engine.md, aiplans/archived/p1705/p1705_5_restore_and_repick_flows.md
 Base branch: main
 Output branch: main
-plan_verified: []
+plan_verified:
+  - claudecode/opus5 @ 2026-09-08 18:10
 ---
 
 # t1705_6 — `ait frozenagent` viewer TUI
 
+*Re-verified 2026-09-08 against the shipped tree (t1705_5 landed at `c4499ed7c`).
+Findings are listed in `## Re-verification findings` at the bottom; the steps
+below already incorporate them.*
+
 ## Context
 
-The stand-in TUI that takes over a frozen agent's pane. Name `frozenagent`,
-switcher key `f` (user decisions, PINNED). Two rules from the PINNED block are
-this child's: the viewer **stamps `@aitask_standin_ready=<record-id>` on its
-own pane after mount and only then**, and it **never mutates the store or
-respawns anything itself** — restore / re-pick / drop go through
-`aitask_frozen.sh` via `run-shell -b` (t1705_5), because the coordinator
-replaces this very pane. Builds on logview (ANSI render, search, focus trap),
-codebrowser's `code_viewer.py` (range selection) and the clipboard seam.
+Sixth child of t1705 (frozen code agents). t1705_1..t1705_5 shipped the session
+store, the session-id hooks, the freeze engine and the restore coordinator. What
+is missing is the thing the user actually looks at: when an agent is frozen, its
+pane is respawned into `ait frozenagent --record <id>` — a **stand-in viewer**
+that renders the agent's persisted terminal output in place and offers the way
+back (restore / re-pick / drop).
 
-Not tmux-stress (read-only + self-stamp), but the stamp test runs on an
-isolated server.
+Nothing renders those captures today. `lib/agent_sessions.standin_command()`
+already returns `ait frozenagent --record <id>`, and live freeze tests run
+against `tests/lib/fake_standin.sh`, a placeholder that only reproduces the
+self-stamp. Until this task lands, freezing an agent leaves a pane running a
+stub, and `t1705_7` (monitor/minimonitor frozen rows) is blocked on it.
+
+Name `frozenagent` and switcher key `f` are **PINNED** user decisions. Two rules
+from the parent plan's §B/§D are this child's own responsibility:
+
+- the viewer stamps `@aitask_standin_ready=<record-id>` **on its own pane, after
+  mount and only then** (the `mark_monitor_pane` rule — an app stamps its own
+  pane, never another's);
+- the viewer **never mutates the store and never respawns anything itself**.
+  Restore / re-pick / drop shell out to `aitask_frozen.sh` via
+  `tmux run-shell -b`, because the coordinator replaces this very pane and a
+  child of it would be killed mid-transaction.
+
+Build against the **amended** four-outcome restore contract (parent plan
+amendments B1–B4): a `liveness` confirm is a **success that keeps the captures**,
+and a codex record can only ever reach `liveness` — the UI must not present that
+as an error.
 
 ## Files
 
-- **New** `.aitask-scripts/frozenagent/__init__.py`, `.aitask-scripts/frozenagent/frozenagent_app.py`, `.aitask-scripts/aitask_frozenagent.sh`
-- **Edit** `ait` — usage `TUI:` block (:27-38), update-check bypass list (:190), dispatcher case beside `diffviewer` (:208)
-- **Edit** `.aitask-scripts/lib/tui_registry.py` (:17-29), `.aitask-scripts/lib/tui_switcher.py` (`_TUI_SHORTCUTS` :216-226, `_QUICK_JUMP_BINDINGS` :393-407, `action_shortcut_frozenagent` beside :1086-1128, `_HINT_ITEMS` :242-255 if the footer fits), `.aitask-scripts/lib/shortcut_scopes.py` (`KNOWN_BINDING_SOURCES`)
-- **Edit** `tests/test_shortcuts_registry_coverage.sh` (`TUIS`), `tests/test_no_lib_to_tui_import.sh` (`TUI_PACKAGES`), `tests/test_textual_markup_structure.py` (header pin)
-- **New tests** `tests/test_frozenagent_app.py`, `tests/test_frozenagent_standin_stamp.sh`, `tests/data/frozen_capture/sample.ansi` + `sample.txt`
+- **New** `.aitask-scripts/frozenagent/__init__.py`,
+  `.aitask-scripts/frozenagent/frozenagent_app.py`,
+  `.aitask-scripts/frozenagent/capture_log.py`,
+  `.aitask-scripts/aitask_frozenagent.sh`
+- **Edit** `ait` — usage `TUI:` block (`:27-38`), update-check bypass alternation
+  (`:190`), dispatcher case beside `diffviewer` (`:208`)
+- **Edit** `.aitask-scripts/lib/tui_registry.py` (`TUI_REGISTRY`, `:18-29`),
+  `.aitask-scripts/lib/tui_switcher.py` (`_TUI_SHORTCUTS` `:216-226`,
+  `_HINT_ITEMS` `:244-256`, `_QUICK_JUMP_BINDINGS` `:393-407`,
+  `action_shortcut_frozenagent` beside `:1086-1128`),
+  `.aitask-scripts/lib/shortcut_scopes.py` (`KNOWN_BINDING_SOURCES` `:47-64`)
+- **Edit** `.aitask-scripts/lib/agent_freeze.py` (new `drop` verb),
+  `.aitask-scripts/aitask_frozen.sh` (its usage + dispatch),
+  `.aitask-scripts/lib/agent_sessions.py` (`drop --nonce`; new `lease-release`
+  verb), `.aitask-scripts/aitask_agent_sessions.sh` (`cmd_drop` forwards its
+  flags; `lease-release` case + usage),
+  `.aitask-scripts/lib/agent_frozen_ops.py` (`AITASKS_DROP_FAIL_AT` seam,
+  `drop_pre_store` pause stage),
+  `.aitask-scripts/monitor/monitor_core.py` (extract
+  `FROZEN_AWARE_PANE_FORMAT` + `classify_window_panes`; reorder
+  `kill_agent_pane_smart`'s frozen branch to kill-then-drop)
+- **Edit** `tests/test_no_lib_to_tui_import.sh` (`TUI_PACKAGES` `:46-49`),
+  `tests/test_shortcuts_registry_coverage.sh` (`TUIS` `:54`),
+  `tests/test_textual_markup_structure.py` (header-escaping pin),
+  `tests/test_agent_freeze.py` (the `drop` verb), `tests/test_kill_agent_pane_smart.sh`
+  and `tests/test_cleanup_rule_parity.sh` (the reordered frozen branch),
+  `tests/test_agent_sessions_lease.py` (`lease-release`),
+  `tests/test_agent_sessions_transitions.py` (`drop --nonce`)
+- **New tests** `tests/test_frozenagent_app.py`,
+  `tests/test_frozenagent_standin_stamp.sh`,
+  `tests/data/frozen_capture/sample.ansi` + `sample.txt`
 
 ## Implementation steps
 
-1. **Launcher + dispatcher.** Copy `aitask_diffviewer.sh` → `aitask_frozenagent.sh`
-   (`require_ait_python`, textual/yaml probe, `ait_warn_if_incapable_terminal`,
-   `exec "$PYTHON" "$SCRIPT_DIR/frozenagent/frozenagent_app.py" "$@"`).
-   `ait`: `frozenagent    Launch the frozen-agent viewer TUI` in the usage
-   block; `frozenagent) shift; exec "$SCRIPTS_DIR/aitask_frozenagent.sh" "$@" ;;`;
-   add `frozenagent` to the update-check bypass alternation (:190) — a
-   stand-in respawned by the freeze engine must never block on a version
-   check.
-2. **App skeleton.**
+### Pre-phase (risk mitigations)
+
+1. `[verify_standin_respawn_argv]` **Before writing the app**, prove the
+   respawn contract the whole stand-in design rests on. Land the first half of
+   `tests/test_frozenagent_standin_stamp.sh` against a minimal
+   `frozenagent_app.py` that does nothing but mount and stamp: on an isolated
+   tmux server (`tests/lib/tmux_isolation.sh` → `require_isolated_tmux`), stamp
+   a pane `@aitask_frozen=<id>` and
+   `respawn-pane -k -t <pane> "$(standin_command <id>)"`, then assert
+   `#{@aitask_standin_ready} == <id>` on **that** pane within 5 s and empty on a
+   sibling. This proves (a) the `ait frozenagent --record <id>` argv survives
+   `respawn-pane`'s single-string quoting, (b) `ait` resolves on the respawned
+   pane's PATH, and (c) the self-stamp lands on the right pane. If any of the
+   three fails, the fix belongs in `standin_command` / the launcher — not in
+   1000 lines of already-written app.
+
+### Main implementation
+
+1. **Launcher + dispatcher.** `aitask_frozenagent.sh` is a verbatim clone of
+   `aitask_diffviewer.sh` (`aitask_path.sh` / `python_resolve.sh` /
+   `terminal_compat.sh` sourcing, `require_ait_python`, the textual+yaml probe,
+   `ait_warn_if_incapable_terminal`, then
+   `exec "$PYTHON" "$SCRIPT_DIR/frozenagent/frozenagent_app.py" "$@"`). CPython,
+   not PyPy — only `ait board` is routed through the fast path
+   (`aidocs/framework/python_tui_performance.md`).
+
+   `ait`: add `frozenagent    Launch the frozen-agent viewer TUI` to the `TUI:`
+   usage block (alphabetical, after `diffviewer`);
+   `frozenagent)  shift; exec "$SCRIPTS_DIR/aitask_frozenagent.sh" "$@" ;;`
+   beside the `diffviewer` case; and add `frozenagent` to the update-check
+   bypass alternation at `:190` — a stand-in respawned by the freeze engine must
+   never stall on a version check.
+
+2. **`CaptureLog(RichLog)`** (`frozenagent/capture_log.py`) — RichLog with the
+   three selection overrides Textual's own `Log` has and `RichLog` does not (see
+   finding **V1**). Mirror `textual/widgets/_log.py:265-345`:
+
+   ```python
+   class CaptureLog(RichLog):
+       """RichLog + the native-selection support RichLog lacks (t1705_6, V1)."""
+
+       def __init__(self, *args, **kwargs):
+           super().__init__(*args, **kwargs)
+           self._plain: list[str] = []      # ANSI-stripped, one per source line
+
+       def get_selection(self, selection: Selection) -> tuple[str, str] | None:
+           return selection.extract("\n".join(self._plain)), "\n"
+
+       def selection_updated(self, selection: Selection | None) -> None:
+           self._line_cache.clear()
+           self.refresh()
+
+       def render_line(self, y: int) -> Strip:
+           scroll_x, scroll_y = self.scroll_offset
+           strip = self._render_line(scroll_y + y, scroll_x,
+                                     self.scrollable_content_region.width)
+           strip = strip.apply_style(self.rich_style)
+           strip = strip.apply_offsets(scroll_x, scroll_y + y)
+           selection = self.text_selection
+           if selection is not None:
+               span = selection.get_span(scroll_y + y)
+               if span is not None:
+                   strip = self._paint_span(strip, span)
+           return strip
+   ```
+
+   `_paint_span` uses `Strip.divide([start, end])` → restyle the middle strip
+   with the selection style → `Strip.join`; `end == -1` means "to end of line".
+   `apply_offsets` is what lets the compositor map a mouse position back to a
+   text offset — without it a drag selects nothing, which is precisely the
+   defect V1 records. `_plain` is set alongside every `write()` so extraction
+   always matches what is on screen.
+
+3. **App skeleton** (`frozenagent/frozenagent_app.py`). Module-level import must
+   be side-effect free — `lib/shortcut_scopes.py` imports it to sweep bindings.
+
    ```python
    class FrozenAgentApp(TuiSwitcherMixin, ShortcutsMixin, App):
        _shortcuts_scope = "frozenagent"
        TITLE = "ait frozenagent"
-       BINDINGS = [*TuiSwitcherMixin.SWITCHER_BINDINGS, *ShortcutsMixin.SHORTCUTS_MIXIN_BINDINGS,
-                   Binding("q","quit","Quit"), Binding("r","toggle_plain","Plain/ANSI"),
-                   Binding("m","markdown","Markdown"), Binding("slash","search","Search"),
-                   Binding("n","search_next","Next", show=False), Binding("escape","cancel","Cancel", show=False),
-                   Binding("shift+up","select_up","", show=False), Binding("shift+down","select_down","", show=False),
-                   Binding("y","copy","Copy"), Binding("g","scroll_top","", show=False), Binding("G","scroll_bottom","", show=False),
-                   Binding("R","restore","Restore"), Binding("p","repick","Re-pick"), Binding("k","drop","Drop")]
-       def __init__(self, record_id: str | None): super().__init__(); self.current_tui_name = "frozenagent"; ...
+       BINDINGS = [
+           *TuiSwitcherMixin.SWITCHER_BINDINGS,
+           *ShortcutsMixin.SHORTCUTS_MIXIN_BINDINGS,
+           Binding("q", "quit", "Quit"),
+           Binding("r", "toggle_plain", "Plain/ANSI"),
+           Binding("m", "markdown", "Markdown"),
+           Binding("slash", "search", "Search"),
+           Binding("n", "search_next", "Next", show=False),
+           Binding("escape", "cancel", "Cancel", show=False),
+           Binding("shift+up", "select_up", "", show=False),
+           Binding("shift+down", "select_down", "", show=False),
+           Binding("y", "copy", "Copy"),
+           Binding("g", "scroll_top", "", show=False),
+           Binding("G", "scroll_bottom", "", show=False),
+           Binding("R", "restore", "Restore"),
+           Binding("p", "repick", "Re-pick"),
+           Binding("k", "drop", "Drop"),
+       ]
+
+       def __init__(self, record_id: str | None = None) -> None:
+           super().__init__()
+           self.current_tui_name = "frozenagent"
+           self._record_id = record_id
+           self._view = SessionsView()
    ```
-   `main()` parses `--record <id>`; absent → list mode. Record via
-   `agent_sessions.SessionsView().by_id(id)`; unknown → print
-   `frozenagent: unknown record <id>` to stderr, exit 2.
-3. **Viewer screen.** `compose`: `Static(id="fa-header", markup=True)`,
-   `RichLog(highlight=False, markup=False, wrap=False, id="fa-log")`,
-   `Input(id="fa-search", classes="hidden")`. `on_mount`: `log.focus()`
-   **first on every path** (t1486), then load: `capture.ansi` bytes →
-   `Text.from_ansi(decoded)`; `.txt` lines kept in `self._lines` for search
-   and selection; header from the record + `TaskInfoCache`-style task title
-   lookup (`aitasks/t<id>_*.md` first line after frontmatter; `""` when
-   unbound); escape `[`/`]` in every interpolated field
-   (`rich.markup.escape`). Then — and only then —
-   `_TMUX.run(["set-option","-p","-t",os.environ["TMUX_PANE"], STANDIN_READY_OPTION, record_id])`
-   when `TMUX_PANE` is set (never elsewhere; log a warning on failure).
-   Missing capture file → header `capture missing`, log shows one dim line,
-   `R`/`p`/`k` still bound.
-4. **Plain / markdown.** `r` re-renders from `.txt` (`Text(decoded)`) and
-   back; header shows `\[plain]` escaped. `m` opens a `ModalScreen` with a
-   `Markdown` (from `lib/section_viewer` or `textual.widgets.Markdown`) of
-   the selected range if any, else the whole `.txt`; `escape` closes.
-5. **Search.** Port `logview_app.py:170-205` onto `self._lines`
-   (case-insensitive substring), wrap with `notify`, scroll to the line and
-   highlight it by re-writing that line's `Text` with a `reverse` style
-   (keep the previous highlighted index to restore it).
-6. **Selection + copy.** Keyboard range on the `_lines` index
-   (`_selection_start/_end/_active`, `extend_selection`, `move_cursor`
-   semantics from `code_viewer.py:411-452`), rendered by re-styling the
-   affected `RichLog` lines; `ALLOW_SELECT = True` on the log widget for
-   mouse selection. `action_copy`: keyboard range → `"\n".join(lines[a:b+1])`;
-   else `self.query_one("#fa-log").text_selection` → `get_selection`; else
-   notify "nothing selected". Only `copy_to_system_clipboard(self, text)`.
-7. **Actions.** `R` → `_run_frozen(["restore", id])`; `p` → refuse with a
-   notify when `task_id == ""`, else `_run_frozen(["restore", id, "--repick"])`;
-   `k` → confirm modal ("Remove frozen record and its capture?") →
-   `_run_frozen(["drop", id])` (`drop` verb added to `aitask_frozen.sh` here:
-   `aitask_agent_sessions.sh drop` + `kill_agent_pane_smart` rule).
-   `_run_frozen(argv)` = `_TMUX.run(["run-shell","-b", shlex.join([str(FROZEN_SH), *argv])])`
-   (never `subprocess` — the coordinator must outlive this pane). Then set
-   header state `restoring…` and start `set_interval(1.0, _poll_record)`:
-   `frozen` again with a bumped `restore_attempts` or a `last_error` for
-   the new nonce → header `restore failed: <reason> — capture kept`, stop
-   polling; `live` → do nothing (the pane is about to be replaced; if it is
-   not within `restore_ack_grace + 5`, show `restored elsewhere`);
-   `ack=liveness` → `restored, unverified — capture kept`.
-8. **List mode.** `DataTable` of `SessionsView().frozen()` rows
-   (`project` = `compact_root`, `window`, `t<task_id>`, `agent_string`,
-   `frozen_at`, `capture_lines`); `enter` pushes the viewer screen for that
-   id; `R`/`p`/`k` act on the highlighted row through the same `_run_frozen`.
-   The switcher launches this mode.
-9. **Registration.** `tui_registry.py` row after `monitor`:
-   `("frozenagent","Frozen Agent","ait frozenagent",True)`;
-   `_TUI_SHORTCUTS["frozenagent"] = "f"`; `Binding("f","shortcut_frozenagent","Frozen Agent",show=False)`;
-   `def action_shortcut_frozenagent(self): self._shortcut_switch("frozenagent")`;
-   `_HINT_ITEMS` entry only if `tests/test_tui_switcher_footer_fit.sh`
-   stays green; `KNOWN_BINDING_SOURCES += ("frozenagent_app","frozenagent/frozenagent_app.py",("frozenagent",))`;
-   `TUIS` and `TUI_PACKAGES` test lists.
+
+   `main()` parses `--record <id>`; absent → list mode. `--record` resolves via
+   `SessionsView().by_id(id)` (the lock-free reader); unknown id → print
+   `frozenagent: unknown record <id>` to stderr and exit 2.
+
+4. **Viewer screen.** `compose`: `Static(id="fa-header", markup=True)`,
+   `CaptureLog(highlight=False, markup=False, wrap=False, id="fa-log")`,
+   `Input(id="fa-search", classes="hidden")`, `Footer()`.
+
+   `on_mount`, in this order:
+   - `self.query_one("#fa-log", CaptureLog).focus()` **first, on every path
+     including the missing-capture early return** — Textual otherwise focuses
+     the hidden search `Input`, which swallows every binding key (t1486; the
+     exact trap `logview_app.py:88-99` documents).
+   - load: `capture.ansi` bytes → `Text.from_ansi(decoded)` into the log,
+     `capture.txt` lines into `self._lines` (search + keyboard selection) and
+     into `log._plain` (native extraction).
+   - header from the record + task title.
+   - **then and only then** stamp:
+     `TmuxClient().run(["set-option", "-p", "-t", os.environ["TMUX_PANE"], STANDIN_READY_OPTION, record_id])`,
+     guarded on `TMUX_PANE` being set (outside tmux: no call at all, log a
+     debug line). `STANDIN_READY_OPTION` comes from
+     `monitor.monitor_core` — a TUI package importing `monitor` is established
+     (`applink/server.py:25`), and `test_no_lib_to_tui_import.sh` only guards
+     `lib/` → TUI.
+
+   Header line:
+   `<project> · <window> · t<task_id> <title> · <agent_string> · frozen <frozen_at> · <capture_lines> lines · <state>`
+   — `<project>` via `agent_launch_utils.compact_root(Path(rec.root))`, `<title>`
+   via `TaskInfoCache(project_root=Path(rec.root)).get_task_info(rec.task_id)`
+   (`monitor_core.py:3970`; `""` when the record is unbound). **Escape every
+   interpolated field with `rich.markup.escape`** — a window name containing
+   `[x]` is read as an unknown tag and silently vanishes (t1486; pin it in
+   `tests/test_textual_markup_structure.py`).
+
+   Missing capture file → header says `capture missing`, the log shows one dim
+   line, and `R` / `p` / `k` stay bound (the record is still restorable).
+
+5. **Plain / markdown.** `r` re-renders from `capture.txt` (`Text(decoded)`) and
+   back to `Text.from_ansi`; the header shows an escaped `\[plain]`. `m` pushes a
+   `ModalScreen` containing `VerticalScroll > Markdown` over the keyboard-selected
+   range if one is active, else the whole `.txt`; `escape` closes. Use plain
+   `textual.widgets.Markdown` — **not** `lib/section_viewer.SectionAwareMarkdown`,
+   which is a minimap/section-navigation widget (finding **V7**).
+
+6. **Search.** Port `logview_app.py:173-205` onto `self._lines`
+   (case-insensitive substring): `/` reveals the `Input`, `n` advances,
+   `escape` cancels and returns focus to the log. Wrap with a
+   `Search wrapped to top` notify and a `Not found: <term>` warning. Add what
+   logview lacks: highlight the current match by restyling that line with
+   `reverse`, remembering the previous index so it can be restored.
+
+7. **Keyboard range selection + copy.** Port the model from
+   `codebrowser/code_viewer.py:381-452` onto the `self._lines` index —
+   `_selection_start` / `_selection_end` / `_selection_active`,
+   `extend_selection(±1)`, `clear_selection()`, `get_selected_range()`
+   (1-indexed) — and render it by restyling the affected log lines.
+   `action_copy` resolves in this order: an active keyboard range →
+   `"\n".join(self._lines[a-1:b])`; else `log.text_selection` →
+   `log.get_selection(sel)` (the mouse path, working because of step 2); else
+   `notify("Nothing selected")`. The copy goes through
+   `lib/tui_clipboard.copy_to_system_clipboard(self, text)` and **nothing else**
+   — `tests/test_tui_clipboard_seam.sh` fails any direct
+   `app.copy_to_clipboard(` call anywhere under `.aitask-scripts/`.
+
+8. **Actions (both modes, on the current record).** All three dispatch the same
+   way and **never** block the event loop:
+
+   ```python
+   def _run_frozen(self, argv: list[str]) -> None:
+       self._tmux.run(["run-shell", "-b",
+                       shlex.join([str(FROZEN_SH), *argv])])
+   ```
+
+   Never `subprocess` — the coordinator replaces this pane and must outlive it.
+   `run-shell -b` only *schedules* the job: it returns immediately, returns
+   nothing, and the coordinator may not have started when the first poll fires.
+   Both outcome paths below are built around that fact (findings **V10**,
+   **V11**).
+
+   - `R` → restore; `p` → re-pick (`notify("This record has no task id — restore
+     instead", severity="warning")` and do nothing when `rec.task_id == ""`);
+     `k` → drop, behind a confirm modal ("Remove the frozen record and its
+     capture? This cannot be undone.") shaped like
+     `monitor_shared.KillConfirmDialog:2019` (copy the shape, do **not** import
+     that module).
+
+   **Single-flight, per record (finding V13).** All three dispatch detached
+   coordinators, and the store's `drop` is legal from **any** state and takes no
+   nonce — so it is not refused by the lease that `restore-begin` mints. Nothing
+   otherwise stops a user pressing `R` and then `k` before `restore-begin` runs,
+   at which point the drop coordinator deletes the record and the only capture
+   out from under an in-flight restore.
+
+   Hold `self._pending: dict[str, str]` — record id → the action in flight —
+   set at dispatch and cleared on **every** terminal outcome, including both
+   grace expiries. Keyed per record, not globally, so list mode can legitimately
+   have several in flight (`restore --all` does exactly that). While a record is
+   pending, `check_action` returns `False` for `restore` / `repick` / `drop` on
+   it, so Textual greys the key in the footer rather than silently swallowing
+   the press, and an attempt notifies
+   `"<action> already in flight for t<id>"`. A second `R` is refused here rather
+   than left to the store, where it would surface as an opaque
+   `TRANSITION_REFUSED`.
+
+   The in-app guard covers one viewer; the coordinator's own in-flight refusal
+   (step 9.0) is what covers two — a list-mode viewer in another window and the
+   stand-in can both reach the same record.
+
+   **`R` / `p` — the restore outcome path.** Before dispatch, snapshot
+   `pre = (state, restore_attempts, op_nonce)` from the current record. Header
+   goes to `dispatching…` — *not* `restoring…`, which would be a claim the
+   viewer has no evidence for yet. Then `set_interval(1.0, self._poll_restore)`
+   (`self._view.invalidate()` each tick):
+
+   - **Pre-begin gate.** Until `rec.restore_attempts > pre.restore_attempts`
+     (the only field `restore_begin` bumps monotonically — `agent_sessions.py:989`),
+     the coordinator has not started. **Ignore `last_error` entirely** in this
+     window: on a record whose previous restore failed it still holds that
+     older attempt's `<old-nonce>:<reason>`, and reading it here would report
+     the *new* restore as failed before it began. Keep showing `dispatching…`.
+   - If the gate never opens within `DISPATCH_GRACE = 10 s`, stop polling and
+     show `restore did not start — run 'ait frozenagent' or reconcile` (covers a
+     `run-shell` job that never ran: missing binary, un-resolvable `ait`).
+   - Once the gate opens, bind `nonce = rec.op_nonce` and interpret only against
+     it. `last_error` counts **only** when it starts with `f"{nonce}:"` — the
+     store's documented `"<nonce>:<reason>"` shape (`agent_sessions.py:786`),
+     and the exact prefix test the coordinator itself uses
+     (`agent_restore.py:519`):
+     - back to `frozen` with a matching `last_error` → header
+       `restore failed: <reason> — capture kept`; stop polling.
+     - `live` → the pane is about to be replaced; do nothing. If it is not
+       replaced within `frozen_ops.restore_ack_grace() + 5` s, show
+       `restored elsewhere`.
+     - `ack == "liveness"` → `restored, unverified — capture kept`. **This is a
+       success, not a failure** (amendment B4), and it is the *only* outcome a
+       codex record can reach — style it neutrally, never as an error.
+
+   **`k` — its own completion path, never the restore interpreter.** A dropped
+   record does not pass through `restoring` or `live`; it *disappears*. Routing
+   `k` into `_poll_restore` would leave the app stuck on a state it can never
+   observe. So: header → `dropping…`, then `set_interval(1.0, self._poll_drop)`:
+   - `self._view.by_id(rid) is None` → **success**: `dropped — capture removed`;
+     stop polling. In viewer mode the pane is about to be killed anyway; in list
+     mode drop the row and return focus to the table.
+   - record still present after `DROP_GRACE = 10 s` → `drop failed — record kept`
+     (warning); stop polling. The coordinator's `DROP_FAILED:` line goes to a
+     `run-shell` job whose stdout the viewer cannot read, so the record's
+     continued existence is the observable.
+
+   Stop every timer in `on_unmount` — a live `set_interval` at
+   `App.run_test` exit fails the enclosing test
+   (`aidocs/framework/testing_conventions.md`).
+
+9. **`drop` verb** (`aitask_frozen.sh` + `lib/agent_freeze.py`), **kill-first
+   and fail-closed**. The verb does not exist today (finding **V2**).
+
+   **Ordering is the whole design here (finding V9).** The store's `drop`
+   (`agent_sessions.py:1116`) removes the record *and its capture files* — the
+   only copy of that session's output. Sequence it so the irreversible step is
+   last and every intermediate state is one `reconcile` already repairs:
+
+   **`drop` becomes a leased verb — an atomic claim, not a value comparison
+   (finding V14).** Two weaker designs were considered and rejected:
+
+   - *Pre-checking with `show`* is unsound: `show` is explicitly lock-free
+     (`aitask_agent_sessions.sh:265-270`), so a `restore-begin` can land between
+     the read and the delete.
+   - *Comparing a snapshotted `(state, op_nonce)` under the lock* is **ABA-
+     vulnerable**: `standin_respawned` from `aborting` calls `_set_state(FROZEN)`
+     **and** `_clear_lease()` (`agent_sessions.py:1090-1094`), which zeroes
+     `op_nonce`. So `(frozen, "")` → `(restoring, n)` → `(aborting, n)` →
+     `(frozen, "")` restores the identical pair — and that final transition is
+     precisely the one that records a **newly respawned stand-in viewer**.
+     Comparing values would accept the stale delete and leave a live stamped
+     viewer whose record and capture are gone: the exact V9 state this whole
+     protocol exists to prevent.
+
+   The store already has the right primitive, and the plan's §A contract already
+   states the rule — *"every verb that mutates a record holding a lease requires
+   `--nonce`"*. `drop` is the sole exception. Close it:
+
+   - `drop <id>` — **unchanged**: any state, no nonce. This is
+     `kill_agent_pane_smart`'s contract, where the user has explicitly killed
+     the pane and it is going away regardless.
+   - `drop <id> --nonce <n>` — `_require_nonce` (`agent_sessions.py:648`) inside
+     the existing write lock; a mismatch prints `NONCE_MISMATCH:<id>` and exits
+     **6**, the code the store already uses for exactly this. No new exit code,
+     no new comparison semantics.
+   - `lease-release <id> --nonce <n>` → `RELEASED:<id>` — the missing
+     counterpart to `lease-take` (`_require_nonce` + `_clear_lease`). Without it
+     an aborted drop leaves the record leased until the 60 s grace expires,
+     making an immediate retry impossible.
+
+   `cmd_drop` must forward its extra arguments; it currently discards them.
+
+   0. **Claim the record.** `lease-take <id>`, which is atomic under the write
+      lock and already encapsulates the staleness rule — it refuses with
+      `LEASE_HELD:<id>` (exit 8) while a live or fresh lease exists, and takes
+      over a stale one whose owner is gone, so a crashed coordinator can never
+      make a record permanently undroppable. On `LEASE_HELD` print
+      `DROP_REFUSED:<id>|in_flight`, exit non-zero, **kill nothing**. Otherwise
+      bind the returned `nonce` and read `show <id>` for the pane inventory
+      below.
+
+      This replaces the earlier advisory `show`-based fast-fail entirely, and
+      with it the promotion of `_lease_stale` / `_stale_op_grace` and the
+      derived `lease_in_flight:` field — `lease-take` *is* that check, done
+      atomically and in one place.
+
+   1. **Preflight the pane inventory** — one `list-panes` over the record's
+      window, which is also what the kill rule needs. Resolve the target
+      (finding **V12**):
+      - `pane_id == ""` (the gone-pane commit) → **gone**;
+      - `pane_id` absent from the listing → **gone**. This is *not* an edge
+        case: `_reconcile_frozen` (`agent_freeze.py:688-695`) returns
+        `KEEP:<id>|pane_gone` and writes nothing, so a frozen record keeps its
+        original nonempty `pane_id` indefinitely after a tmux server restart.
+        Treating that as a kill failure would make exactly the records a user
+        most wants to remove undroppable;
+      - `pane_id` present but its `@aitask_frozen` is not this record id →
+        **not ours** (a recycled `%N`). Treat as gone and **never kill it** —
+        pane options die with the pane, so a recycled pane cannot carry our
+        stamp, which is what makes the stamp the authoritative identity join
+        (parent plan §B);
+      - `pane_id` present and stamped ours → **kill it**, whether `pane_dead`
+        is `0` or `1`. A dead pane is still a real pane object holding the
+        window open under `remain-on-exit`; skipping it would leave the
+        stand-in's corpse behind.
+
+   2. **Kill**, by the shared rule (below). Pane user options are pane-scoped
+      and die with the pane, so this also retires `@aitask_frozen` /
+      `@aitask_record` / `@aitask_standin_ready` — there is no unstamp step to
+      fail. If the kill fails: print `DROP_FAILED:<id>|kill:<reason>`, exit
+      non-zero, **change nothing**. The user still has a working viewer and an
+      intact capture.
+
+   3. Only after the target is **verified gone** — either the preflight said so,
+      or a re-read of the pane list shows the id absent — proceed.
+
+   4. **The leased delete.** `frozen_ops.pause_at("drop_pre_store")`, then
+      `aitask_agent_sessions.sh drop <id> --nonce <n>` with the nonce claimed in
+      step 0.
+      - success → `DROPPED:<id>`;
+      - `NONCE_MISMATCH:<id>` (exit 6) → someone minted a new lease over ours
+        while we were killing the pane. Print `DROP_ABORTED:<id>|raced`, exit
+        non-zero. **The record and the capture survive** — this is the whole
+        point, and unlike a value comparison it cannot be fooled by an
+        ABA cycle, because any intervening transition mints or clears a nonce
+        and our specific `<n>` never comes back;
+      - any other failure → `lease-release <id> --nonce <n>`, then report. The
+        record stays `frozen` with its pane gone, which is reconcile's benign
+        `frozen | pane gone | keep (restorable into a new window)` row.
+        Re-running `drop` converges immediately, because the lease was released.
+
+   5. **Release on every abort path** after step 0 (`lease-release <id>
+      --nonce <n>`, best-effort). A leaked lease is self-healing — it goes stale
+      once our pid exits — but only after the 60 s grace, which would make a
+      user's retry appear to hang.
+
+   **Two residuals, accepted and documented in the verb's docstring** so nobody
+   "fixes" them by reordering:
+
+   - **Holding the lease detects a concurrent restore; it does not prevent one.**
+     `restore_begin` (`agent_sessions.py:970-996`) checks only the state and
+     mints its lease unconditionally — it does not consult an existing one. That
+     asymmetry is pre-existing store behaviour (t1705_2/_5 territory) and is
+     deliberately not changed here: reconcile's takeover flows depend on the
+     current semantics. It is sufficient for this protocol, because the
+     requirement is that `drop` never deletes under an in-flight operation, and
+     a stolen lease makes our `--nonce` fail closed. Against **reconcile**
+     specifically the lease *is* true mutual exclusion — it honours
+     `LEASE_HELD`.
+   - **The pane kill in step 2 cannot be made conditional.** If a restore begins
+     between the kill and the delete, the user loses the *stand-in pane* — never
+     the record and never the capture. The record remains restorable into a
+     fresh window (`_reconcile_frozen`'s `KEEP:<id>|pane_gone`). Losing a
+     replaceable viewer is the correct trade against losing the only copy of a
+     session's output.
+
+   The reverse order — the one **shipped** in `kill_agent_pane_smart`
+   (`monitor_core.py:3419-3427`) — produces the one unrecoverable state: a live
+   pane still stamped with an id whose record and capture are gone. `reconcile`
+   iterates *records*, so it cannot see that pane at all. Flip that branch to
+   kill-then-drop in the same commit and correct its comment; two opposite
+   orderings for one operation is precisely the drift
+   `tests/test_cleanup_rule_parity.sh` exists to prevent. Send `./ait note
+   1705_7 --from 1705_6` recording the reorder, since t1705_7 owns the monitor
+   keys that reach this path.
+
+   **The kill rule is reused, not reimplemented (finding V9b).** There are
+   already three implementations of "does this window still hold a real agent?"
+   (`aitask_companion_cleanup.sh`, `kill_agent_pane_smart`, and the parity
+   fixture); a fourth is the wrong answer. The rule is already decomposed:
+   `count_other_real_agents` (`monitor_core.py:928`) is pure and import-free,
+   and `is_shadow_target` / `is_live_companion_marker` / `_is_companion_process`
+   are module-level. Extract only the two pieces still trapped inside
+   `kill_agent_pane_smart` — the 5-field `list-panes` format and the `is_helper`
+   composition (frozen checked **first**, so a stale companion marker cannot
+   override it) — into module-level `FROZEN_AWARE_PANE_FORMAT` and
+   `classify_window_panes(stdout) -> list[tuple[str, bool]]` in `monitor_core`,
+   and have `kill_agent_pane_smart` call them. The coordinator then calls the
+   same two functions plus `count_other_real_agents`: one rule, two Python call
+   sites, **zero** new implementations. `agent_frozen_ops` already imports
+   `monitor.monitor_core`, so the arrow stays one-way.
+
+   Wire-up: add `drop <id>` to `aitask_frozen.sh`'s header comment, `usage()`
+   and its `case` (dispatching to `FREEZE_PY` — the coordinator module must not
+   depend on `agent_restore`), and to `agent_freeze.main()`'s verb table. Add
+   the failure-injection seam `AITASKS_DROP_FAIL_AT=kill|verify|store` via the
+   existing `frozen_ops.make_fail_at` (honoured only under `AITASKS_TEST_MODE=1`)
+   so a test can fire between every irreversible step. Route every tmux call
+   through `agent_frozen_ops` (`run` / `set_option` / `unset_option`) so
+   `tests/test_no_raw_tmux.sh` stays green.
+
+10. **List mode.** Bare `ait frozenagent` → a `DataTable` over
+    `SessionsView().frozen()`, one row per record
+    (`compact_root(rec.root)`, `rec.window`, `t<task_id>`, `rec.agent_string`,
+    `rec.frozen_at`, `rec.capture_lines`). `enter` pushes the viewer screen for
+    the highlighted id; `R` / `p` / `k` act on the highlighted row through the
+    same `_run_frozen`; `q` quits. **List mode never stamps** — it is not a
+    stand-in. This is the mode the switcher launches.
+
+11. **Registration — the four-part atomic change**
+    (`aidocs/framework/tui_conventions.md:583-602`), plus three test lists:
+    - `tui_registry.py`: `("frozenagent", "Frozen Agent", "ait frozenagent", True)`
+      positioned **after `monitor`** (grouped by function, not alphabetically).
+    - `tui_switcher.py`: `_TUI_SHORTCUTS["frozenagent"] = "f"`;
+      `Binding("f", "shortcut_frozenagent", "Frozen Agent", show=False)` in
+      `_QUICK_JUMP_BINDINGS`;
+      `def action_shortcut_frozenagent(self): self._shortcut_switch("frozenagent")`.
+      `f` is free — the taken set is `a l b m c s t y r x X g n e` (finding
+      **V3**) — and these bindings live on `TuiSwitcherOverlay`, not on the host
+      App, so `f` cannot collide with a per-TUI `f`.
+    - `_HINT_ITEMS`: add `("shortcut_frozenagent", "frozen", "f")` **only if**
+      `tests/test_tui_switcher_footer_fit.sh` stays green with 13 items; drop it
+      otherwise (the registry row and the key still work without a hint).
+    - `shortcut_scopes.py`: `("frozenagent_app", "frozenagent/frozenagent_app.py", ("frozenagent",))`.
+    - `tests/test_no_lib_to_tui_import.sh` `TUI_PACKAGES` += `frozenagent`;
+      `tests/test_shortcuts_registry_coverage.sh` `TUIS` += the app with
+      `lambda C: C()`.
+
+### Post-phase (risk mitigations)
+
+1. `[pin_textual_selection_internals]` Add an upgrade guard to
+   `tests/test_frozenagent_app.py`: assert that `Strip.apply_offsets`,
+   `Selection.get_span`, `Strip.divide`, `Strip.join` and `RichLog._line_cache`
+   all still exist, and that `"get_selection" not in RichLog.__dict__` (the
+   premise `CaptureLog` exists for). `CaptureLog` reaches into Textual internals
+   that carry no compatibility promise; without this, a Textual upgrade breaks
+   mouse selection **silently** — the drag still runs, it just copies nothing.
+   The guard turns that into a named test failure.
+
+2. `[cover_drop_destructive_path]` Cover the new `drop` verb end to end, driving
+   `AITASKS_DROP_FAIL_AT` between **every** irreversible step. In
+   `tests/test_agent_freeze.py` (fake tmux + temp store):
+   - happy path: pane killed, verified gone, *then* record and capture directory
+     removed — assert the order, not just the end state;
+   - `AITASKS_DROP_FAIL_AT=kill` → `DROP_FAILED:<id>|kill:…`, non-zero exit, and
+     **the record, the captures and the pane options are all still there**. This
+     is the assertion that pins the whole fail-closed protocol;
+   - `AITASKS_DROP_FAIL_AT=verify` → the kill was issued but not confirmed:
+     nothing is dropped;
+   - `AITASKS_DROP_FAIL_AT=store` → pane gone, record still `frozen`; re-running
+     `drop` converges, and `reconcile` leaves it alone (its
+     `frozen | pane gone | keep` row);
+   - **preflight (V12)**, three rows: `pane_id == ""` → no kill, dropped;
+     `pane_id` **nonempty but absent from the listing** → no kill, dropped
+     *successfully* (the post-server-restart record — assert it is not reported
+     as a kill failure); `pane_id` present but stamped with a **different**
+     record id → no kill (assert no kill argv was issued at all) and the record
+     dropped. Plus `pane_dead=1` on our own stamped pane → it **is** killed;
+   - **claim refusal (V13)**: a record in `restoring` with a fresh lease →
+     `lease-take` returns `LEASE_HELD` → `DROP_REFUSED:<id>|in_flight`, non-zero
+     exit, **no kill argv issued**, record and capture untouched. The same
+     record with a stale lease (grace elapsed via `AITASKS_STALE_OP_GRACE` under
+     `AITASKS_TEST_MODE=1`, owner pid dead) → claimed and dropped;
+   - **the ABA race (V14) — the test the whole design exists for.** Drive the
+     exact interleaving with the existing SIGSTOP seam: run the drop coordinator
+     with `AITASKS_FROZEN_PAUSE_AT=drop_pre_store` so it stops *after* the kill
+     and *before* the store call. While it is stopped, run a **complete
+     restore-and-recovery cycle** back to the starting values —
+     `restore-begin` → `restore-abort` → `standin-respawned`, which returns the
+     record to `frozen` with `op_nonce` cleared *and registers a new stand-in
+     viewer*. `SIGCONT`. Assert `DROP_ABORTED:<id>|raced`, a non-zero exit, and
+     that **the record and every capture file still exist**. This is the case a
+     `(state, op_nonce)` comparison would have accepted;
+   - the simpler races too: `lease-take` alone during the pause (state
+     unchanged, nonce replaced), and `restore-begin` alone (both changed);
+   - store-level unit tests in `tests/test_agent_sessions_transitions.py`:
+     `drop --nonce` with the held nonce → deleted; with any other nonce →
+     `NONCE_MISMATCH`, exit 6, nothing written; against a record with **no**
+     lease → `NONCE_MISMATCH` (an empty stored nonce must never match);
+     plain `drop <id>` with no flags → unchanged any-state behaviour (the
+     `kill_agent_pane_smart` contract). Plus `lease-release`: correct nonce →
+     `RELEASED` and the record is immediately `lease-take`-able; wrong nonce →
+     `NONCE_MISMATCH`, lease intact.
+
+   In `tests/test_frozenagent_standin_stamp.sh` (isolated server): the stand-in
+   pane is actually killed, and the companion minimonitor **survives** when a
+   real agent sibling remains in the window. Add a parity row to
+   `tests/test_cleanup_rule_parity.sh` covering the coordinator's call site, so
+   the third and fourth users of the rule cannot drift.
+
+   Also assert the abort paths **release the claim**, so a retry is immediate
+   rather than waiting out the 60 s lease grace.
+
+   `drop` deletes the only copy of a frozen agent's output and kills a pane; it
+   is the one irreversible thing this task adds.
 
 ## Tests
 
-`tests/test_frozenagent_app.py` (`App.run_test`, fake `TmuxClient` recording
-argv, temp store via `AITASKS_AGENT_SESSIONS_FILE`, fixture capture): ANSI
-vs plain render text; search hit/wrap/not-found + highlight; keyboard range
-`shift+down`×2 then `y` → the exact three lines (monkeypatched
-`copy_to_system_clipboard`); native selection path; markdown modal shows
-the range; header escapes `[x]` in a window name; startup focus is the log
-on the happy and missing-file paths; `R`/`p`/`k` produce the exact
-`run-shell -b` argv and `p` is refused without a task id; a store change to
-`frozen` + `last_error` flips the header; list mode rows and `enter`;
-`ALLOW_SELECT` true on the log. `tests/test_frozenagent_standin_stamp.sh`:
-on an isolated server, `respawn-pane -k … 'ait frozenagent --record <id>'`
-→ within 5 s `#{@aitask_standin_ready}` == id on that pane and empty on a
-sibling pane; with `TMUX_PANE` unset (run outside tmux) no `set-option` is
-attempted (assert via a logging `tmux` on `PATH`).
+`tests/test_frozenagent_app.py` — `App.run_test`, headless, fake `TmuxClient`
+recording argv, temp store via `AITASKS_AGENT_SESSIONS_FILE` + `AITASKS_FROZEN_DIR`,
+fixture capture in `tests/data/frozen_capture/`:
+
+- ANSI render vs `r` plain render (assert rendered plain text, never `.spans`);
+- search: hit, wrap, not-found, and the current-match highlight;
+- keyboard range: `shift+down` ×2 then `y` copies exactly those three lines
+  (monkeypatch `copy_to_system_clipboard`, assert the text);
+- native mouse path: `log.get_selection(Selection(...))` returns the expected
+  text — the direct regression pin for finding **V1** — plus `apply_offsets` is
+  applied and a covered line is painted;
+- markdown modal renders the selected range;
+- header escapes `[x]` in a window name; startup focus is the log on **both**
+  the happy and the missing-capture paths;
+- `R` / `p` / `k` produce the exact `run-shell -b` argv, and `p` is refused with
+  a notify when `task_id == ""`;
+- **restore correlation (V11):** with the record pre-seeded `frozen` and
+  carrying a **stale** `last_error` from an earlier attempt, dispatch `R` and
+  tick the poll *before* the coordinator runs — the header must read
+  `dispatching…`, **not** `restore failed`. Then bump `restore_attempts` with a
+  fresh `op_nonce` and only then does the interpreter engage; an error carrying
+  the *old* nonce is still ignored, one carrying the new nonce is reported. Also
+  test the `DISPATCH_GRACE` expiry (`restore did not start`);
+- a store change to `frozen` + a new-nonce `last_error` flips the header to
+  `restore failed: …`, and `ack=liveness` renders as a **success** line;
+- **drop completion (V10):** `k` → confirm → the record vanishes from the store
+  → header reads `dropped — capture removed` and the timer is stopped; the
+  restore interpreter is never entered. Separately, a record that is still there
+  after `DROP_GRACE` yields `drop failed — record kept`;
+- **single-flight (V13):** dispatch `R`, then press `k` before the gate opens —
+  **no** `drop` argv is issued, the user is notified, and `check_action` reports
+  the drop binding as unavailable. Repeated `R` likewise issues exactly one
+  `run-shell` argv. Then reach a terminal outcome and confirm the bindings are
+  live again. In list mode, an action on a *different* record is **not**
+  blocked;
+- list-mode rows and `enter`;
+- the `pin_textual_selection_internals` upgrade guard.
+
+Beware the `@work`-worker rule: a worker still in flight at
+`async with app.run_test()` exit fails the *enclosing* test
+(`aidocs/framework/testing_conventions.md`) — the poll uses `set_interval`, so
+stop the timer in `on_unmount`.
+
+`tests/test_frozenagent_standin_stamp.sh` — isolated tmux server
+(`tests/lib/tmux_isolation.sh`). Grown from the pre-phase smoke: the respawn
+argv round-trips; `@aitask_standin_ready == <id>` lands on **that** pane within
+5 s and on no sibling; with `TMUX_PANE` unset no `set-option` is attempted
+(assert via a logging `tmux` shim on `PATH`); list mode stamps nothing.
+
+Existing guards that must stay green: `test_tui_clipboard_seam.sh`,
+`test_no_raw_tmux.sh`, `test_shortcut_scopes.py`,
+`test_shortcuts_registry_coverage.sh`, `test_no_lib_to_tui_import.sh`,
+`test_tui_switcher_hint_text.py`, `test_tui_switcher_footer_fit.sh`,
+`test_textual_markup_structure.py`, `test_agent_freeze.py`,
+`test_agent_frozen_ops.py`, `test_cleanup_rule_parity.sh`,
+`test_kill_agent_pane_smart.sh`.
 
 ## Verification
 
 ```bash
-bash tests/run_all_python_tests.sh
-bash tests/test_frozenagent_standin_stamp.sh
-bash tests/test_tui_clipboard_seam.sh tests/test_shortcuts_registry_coverage.sh tests/test_no_lib_to_tui_import.sh tests/test_tui_switcher_footer_fit.sh tests/test_no_raw_tmux.sh
-shellcheck .aitask-scripts/aitask_frozenagent.sh
-./ait frozenagent; ./ait frozenagent --record <id>      # manual look with a test store
+bash tests/run_all_python_tests.sh                 # read the LAST line only
+bash tests/test_frozenagent_standin_stamp.sh       # isolated tmux server
+bash tests/test_cleanup_rule_parity.sh             # the reordered frozen branch
+bash tests/test_kill_agent_pane_smart.sh
+# test_agent_sessions_lease.py / test_agent_freeze.py / test_frozenagent_app.py
+# run inside the python suite above.
+bash tests/test_tui_clipboard_seam.sh
+bash tests/test_no_raw_tmux.sh
+bash tests/test_shortcuts_registry_coverage.sh
+bash tests/test_no_lib_to_tui_import.sh
+bash tests/test_tui_switcher_footer_fit.sh
+shellcheck .aitask-scripts/aitask_frozenagent.sh .aitask-scripts/aitask_frozen.sh
+./ait frozenagent                                  # list mode, manual look
+./ait frozenagent --record <id-from-a-test-store>  # viewer mode, manual look
 ```
 
-## PINNED contracts (from p1705 — do not re-decide)
+Not a tmux-stress task (the viewer only reads and self-stamps), but the stamp
+test runs on an isolated server regardless.
 
-Copied verbatim from `aiplans/p1705_frozen_codeagents_session_store_and_viewer_tui.md` §A–§D. On any discrepancy the parent plan wins; if a child must deviate, update the parent plan and every sibling plan in the same commit.
+Post-implementation cleanup, archival and merge follow **Step 9
+(Post-Implementation)** of the task workflow.
 
-> **⚠ PARTLY SUPERSEDED — read the parent plan's `## Amendments from
-> re-verification (t1705_5, 2026-09-07 / 2026-09-08)` block (B1–B7) BEFORE
-> implementing anything from §A–§D below.** t1705_5 re-verified the §D restore
-> contract against the shipped tree and amended it; the parent plan carries the
-> authoritative list. The text below is retained as the unedited parent contract.
->
-> The four that change §D's wire protocol:
->
-> - **B1** — `restore-begin` and `lease-take` both REQUIRE `--owner-pid <pid>`.
-> - **B2** — §D step 3's `env VAR=…` prefix is superseded by **`respawn-pane -e`**
->   (one `-e` per variable). The prefix is now the documented *fallback* for a
->   tmux build without `-e`, not the primary mechanism.
-> - **B3** — the hook consumes only `AITASK_RESTORE_RECORD` and
->   `AITASK_RESTORE_NONCE`; the other two are exported as diagnostics only.
-> - **B4** — §C's `restoring`/`aborting` reconcile rows are already SHIPPED
->   (t1705_4), so §C is a specification of existing behaviour.
->
-> **Why this matters for this task specifically.** The viewer shells out to
-> `aitask_frozen.sh restore <id>` via `run-shell -b` and surfaces the restore
-> outcome. Build against the amended four-outcome contract; in particular a
-> `liveness` confirm KEEPS the captures, and a codex record can only ever reach
-> `liveness` — the UI must not present that as an error.
+## Re-verification findings (2026-09-08)
 
+**V1 — `RichLog` has no native text selection. The PINNED premise is wrong.**
+The parent plan §Viewer and this plan's original step 6 both state
+"Textual 8.2.7 native mouse selection (`ALLOW_SELECT`, `get_selection` —
+`Log`/`RichLog` implement it)". Only `Log`, `Markdown` and `Digits` override
+`get_selection` in Textual 8.2.7. `RichLog` inherits `Widget.get_selection`
+(`textual/widget.py:4213`), which calls `self._render()` — a no-op for a
+ScrollView — so it returns `None`; measured headlessly:
+`RichLog.get_selection(Selection(Offset(0,0), Offset(5,1))) -> None`.
+`RichLog.render_line` (`_rich_log.py:301`) also never calls
+`Strip.apply_offsets` and never paints a selection span, so a mouse drag
+neither highlights nor extracts. **Resolution (user-confirmed):** ship
+`CaptureLog(RichLog)` with the three overrides `Log` uses (step 2), and pin the
+premise with a test. *Rejected alternative:* a `Static` in a scroll container
+gets selection free — verified working, extraction plus automatic highlight via
+`Visual.to_strips(apply_selection=True)` — but `DEFAULT_CAPTURE_MAX_LINES` is
+**50000** (`lib/agent_freeze.py:108`) and one 50k-line `Static` renders every
+line on each layout; `RichLog` is O(visible rows).
 
+**V2 — `aitask_frozen.sh` has no `drop` verb**, confirmed against its `usage()`
+(freeze / restore / reconcile only). The plan already scoped adding it here;
+re-verification adds *what it must do beyond the store call*: `agent_sessions.drop()`
+removes the record and captures but touches no pane options, so the coordinator
+must also unstamp the three pane options and kill the stand-in pane — and must
+run detached, exactly like restore, because it kills the viewer's own pane
+(step 9).
 
-#### A. Session store — `lib/agent_sessions.py` + `aitask_agent_sessions.sh`
+**V3 — `f` is free.** `_TUI_SHORTCUTS` holds `b m c s t y g a l`;
+`_QUICK_JUMP_BINDINGS` adds `r x X n e`. The quick-jumps are declared on
+`TuiSwitcherOverlay.BINDINGS`, not on the host App, so `f` cannot collide with
+any per-TUI `f`.
 
-- Path `~/.config/aitasks/agent_sessions.json`, env override
-  `AITASKS_AGENT_SESSIONS_FILE`, lock dir derived from the resolved path
-  (`<file>.lockd`), 0600 with `_target_mode` preservation, write via
-  `lib/atomic_write.py`. Captures under `~/.config/aitasks/frozen/<id>/`
-  (0700 dir; `capture.ansi`, `capture.txt`), env `AITASKS_FROZEN_DIR`.
-- Schema v1:
-  ```json
-  {"version": 1, "sessions": [{
-    "id": "7f3a2c1d",                 // record id (8 hex, os.urandom) — PRIMARY KEY
-    "root": "/real/path/project",     // realpath, both sides         ┐ DURABLE IDENTITY
-    "window": "agent-pick-1705",      //                               │ (root, window, window_slot)
-    "window_slot": 0,                 // assigned once; >0 only for a 2nd agent in the same window ┘
-    "pane_id": "%104", "pane_pid": 41233,   // LOCATION / GENERATION data — replaceable, never identity
-    "session": "aitasks",             // tmux session name — display only
-    "operation": "pick", "task_id": "1705",          // task_id "" when unbound
-    "agent_string": "claudecode/opus5", "agent_kind": "claudecode",
-    "codeagent_session_id": "", "transcript_path": "",  // "" = unknown → re-pick only
-    "started_at": "2026-09-04T09:12:03Z",
-    "state": "live",                  // live | freezing | frozen | restoring | aborting
-    "state_at": "2026-09-04T09:12:03Z",
-    "op_nonce": "", "op_owner_pid": 0, "op_started_at": "",   // LEASE of the in-flight freeze/restore (see below)
-    "frozen_at": "", "capture_ansi": "", "capture_txt": "",
-    "capture_lines": 0, "last_phase": "",
-    "standin_pid": 0,                 // #{pane_pid} of the stand-in viewer, written at freeze-commit and every stand-in respawn
-    "launch_pid": 0,                  // #{pane_pid} of the replacement agent, written by restore-launched (nonce-bound)
-    "restore_attempts": 0, "restore_mode": "",   // "" | resume | repick (current attempt)
-    "ack": "",                        // "" | hook | liveness — how the last restore was confirmed
-    "last_error": ""                  // "" | "<nonce>:session_mismatch" | "<nonce>:<reason>" — coordinator-readable outcome channel
-  }]}
-  ```
-  `pane_id` / `pane_pid` are **location and generation data**: a tmux server
-  restart, a reattach or a respawn replaces them on the same record. They
-  are never part of the identity key and a recycled `%N` can attach to
-  nothing on its own — attachment needs either `@aitask_record` on the pane
-  (options die with the pane, so a recycled pane never carries a stale one)
-  or a `(root, window)` match under the conflict policy below.
-  Unknown `state` = corruption (not a default). `load()` raises
-  `MalformedSessionsError`; `load_safe()` returns empty. Generation normalised
-  to `SCHEMA_VERSION` on read.
-- **Record ownership (one allocator) and the `(root, window)` conflict
-  policy.** The `upsert` verb is the *only* creator of records. Resolution
-  order for a caller without `--restore-of`:
-  1. `--id <rid>` (from `@aitask_record` on the caller's pane) → that record,
-     whatever its `(root, window)` (a renamed window keeps its record).
-  2. Else, **among `live` records only** with the caller's `(root, window)`,
-     the relocation candidates are: the one whose `pane_id` equals the
-     caller's pane, else those whose `pane_pid` is dead or whose pane no
-     longer exists. **Exactly one candidate** → it is the same agent slot:
-     replace `pane_id`/`pane_pid`, update session id / transcript / agent
-     string, print `UPSERTED:<id>|updated` (the tmux-restart and reattach
-     case — no second record). **More than one candidate** (two agents shared
-     the window before a server restart; nothing on the caller's side can
-     tell them apart) → **fail closed on relocation**: fall through to rule 3
-     and print `UPSERTED:<id>|created_slot<N>|ambiguous_relocation`; the stale
-     records are left for purge (rule: a `live` record whose `pane_pid` is
-     dead and whose `pane_id` is absent from an enumerated window →
-     `DROPPED:…|dead_pane`), never guessed.
-     Transitional records (`freezing`/`restoring`/`aborting`) are **never**
-     relocated or updated by an unstamped caller: they are touched only by
-     `--restore-of` + the current nonce, or by `reconcile`. If the caller's
-     pane *is* a transitional record's pane → refuse
-     (`UPSERT_REFUSED:<id>|<state>_unacknowledged`, a stray session in a
-     transacting pane); otherwise they are simply not candidates.
-  3. Else every `(root, window)` record is `live` in **another** pane (a
-     second agent split into the same window), transitional, or `frozen`
-     (retained state whose window name is being reused, e.g. the same task
-     re-picked after a tmux restart) → **create beside it**: new record,
-     `window_slot` = lowest unused slot for that `(root, window)`, print
-     `UPSERTED:<id>|created_slot<N>`. A retained frozen record never blocks a
-     live launch and is never attached to; it stays restorable into a fresh
-     window (`unique_window_name` disambiguates) and is listed distinctly by
-     its `frozen_at`.
-  4. Else → create (`state=live`, `window_slot=0`), print `UPSERTED:<id>|created`.
-  In every create/update branch the caller's pane is stamped
-  `@aitask_record=<id>`.
-  Other branches:
-  - record exists in `restoring` **and** the caller passes
-    `--restore-of <id> --nonce <n>` (the hook forwards them from the
-    replacement agent's environment, §D) → the **restore acknowledgement**:
-    nonce must equal `op_nonce`; in `resume` mode `--session-id` must equal
-    `codeagent_session_id` — else the store **persists**
-    `last_error="<nonce>:session_mismatch"` (state unchanged) and prints
-    `RESTORE_SESSION_MISMATCH:<id>` exit 7. The hook has no return channel to
-    the detached coordinator, so the record *is* the channel: the coordinator
-    and `reconcile` both read `last_error` for the current nonce and take the
-    abort branch, never the liveness fallback. In `repick` mode the new
-    session id is adopted. On success: `pane_id`/`pane_pid` updated from the
-    caller's pane, `@aitask_record` stamped on it, state `live`, `ack=hook`,
-    capture files deleted, print `UPSERTED:<id>|restored`;
-  - record exists in `restoring` without `--restore-of`/`--nonce` → refuse,
-    print `UPSERT_REFUSED:<id>|restoring_unacknowledged` (a stray session in
-    a restoring pane is never an ack);
-  - record exists in `freezing` / `frozen` → refuse, print
-    `UPSERT_REFUSED:<id>|<state>` (a hook firing in a stand-in pane is a bug).
-  Two callers: the SessionStart hook (child 3, normal path) and the freeze
-  engine (child 4, fallback when the hook never fired). Both read
-  `@aitask_record` off the pane first and pass `--id` when present, so a pane
-  that was already recorded is never duplicated even after a `pane_id`
-  recycle. A restore into a **new** pane (window gone) carries the record id
-  in the environment, never on the pane, so it selects the old record instead
-  of creating a second one.
-- **Operation lease.** `freeze-begin`, `restore-begin` and `lease-take` mint
-  `op_nonce` (8 hex), record `op_owner_pid` (the coordinator) and
-  `op_started_at`, and print the nonce. **Every verb that mutates a record
-  holding a lease** (`freeze-commit`, `freeze-abort`, `restore-launched`,
-  `restore-confirm`, `restore-abort`, `standin-respawned`, the ack form of
-  `upsert`) requires `--nonce <n>`; a mismatch prints `NONCE_MISMATCH:<id>`
-  exit 6 and writes nothing — a coordinator that lost the race to
-  `reconcile` fails closed instead of double-acting. `lease-take <id>` →
-  `LEASED:<id>|<nonce>` is how `reconcile` (or a stand-in relaunch on a
-  `frozen` record) acquires ownership: it is refused (`LEASE_HELD:<id>`)
-  while a lease exists whose `op_started_at` is younger than
-  `stale_op_grace` (default 60 s) **or** whose `op_owner_pid` is alive; a
-  stale lease with a dead/unverifiable owner is taken over. Within the grace,
-  or with a live owner, reconcile leaves the record alone. Lease-clearing
-  transitions (`freeze-commit`, `freeze-abort`, `restore-confirm`, hook ack,
-  `standin-respawned` out of `aborting`) clear the lease.
-- **State machine** (every transition is one locked verb; illegal transitions
-  print `TRANSITION_REFUSED:<id>|<from>|<verb>` exit 5 and write nothing):
-  ```
-  live ──freeze-begin──▶ freezing ──freeze-commit──▶ frozen ◀────────────────┐
-   ▲                        │                          │                      │
-   └────freeze-abort────────┘                          │ restore-begin        │ standin-respawned
-   ▲                                                   ▼                      │ (same nonce)
-   └──upsert (hook ack) / restore-confirm── restoring ──restore-abort──▶ aborting
-  drop: any state → record removed + capture files removed
-  ```
-  `aborting` is **nonce-owned**: the record stays leased by the aborting
-  attempt until its stand-in is back (`standin-respawned --nonce` → `frozen`,
-  lease cleared). `restore-begin` on `aborting` → `TRANSITION_REFUSED`, so a
-  user or a second controller cannot start another restore in the gap and
-  an old coordinator cannot respawn over a newer attempt: its `standin-respawned`
-  carries a stale nonce and is refused.
-  **Captures are deleted only on a verified ack** (`ack=hook`). A
-  liveness-only `restore-confirm` transitions to `live` but **keeps** the
-  capture files (`ack=liveness`); they are removed on `drop` or liveness
-  purge. This is what stops a malformed resume that starts a fresh session
-  from destroying the only copy.
-- Wrapper verbs (sole writer; `list`/`show` take no lock; exit 0/2/3
-  `LOCK_BUSY`/4 `ERROR`/5 `TRANSITION_REFUSED`/6 `NONCE_MISMATCH`/7
-  `RESTORE_SESSION_MISMATCH`/8 `LEASE_HELD`):
-  `upsert --root <r> --window <w> --pane <id> --pane-pid <pid> [--id <rid>] [--session-id <sid>] [--transcript <p>] [--agent-string <s>] [--operation <op>] [--task-id <t>] [--restore-of <rid> --nonce <n>]`;
-  `freeze-begin <id> --capture-ansi <p> --capture-txt <p> --lines <n> [--phase <t>]` → `FREEZING:<id>|<nonce>`;
-  `freeze-commit <id> --nonce <n> --pane <pane_id|""> --pane-pid <pid|0>` → `FROZEN:<id>` (writes the stand-in's location: `pane_id`/`standin_pid` from the arguments; `--pane "" --pane-pid 0` is the gone-pane commit used by reconcile; `--pane` without `--pane-pid` or vice versa → usage error exit 2);
-  `freeze-abort <id> --nonce <n>` → `LIVE:<id>` (captures deleted);
-  `restore-begin <id> --mode resume|repick` → `RESTORING:<id>|<nonce>` (captures **retained**, `restore_attempts`+1, `launch_pid=0`, `last_error=""`);
-  `restore-launched <id> --nonce <n> --pane <id> --pane-pid <pid>` → `LAUNCHED:<id>` (records the replacement's `launch_pid` + location; written by the coordinator right after `respawn-pane`/`launch_in_tmux` returns — the nonce-bound evidence that the respawn happened);
-  `restore-confirm <id> --nonce <n> --pane <id> --pane-pid <pid>` → `LIVE:<id>|liveness` (captures **kept**; refused with `TRANSITION_REFUSED` unless `launch_pid != 0` and equals `--pane-pid`);
-  `standin-respawned <id> --nonce <n> --pane <id> --pane-pid <pid>` → `STANDIN:<id>` (records the stand-in's `standin_pid` + location; from `aborting` it also transitions to `frozen` and clears the lease; from `frozen` (a `lease-take`n relaunch of a dead stand-in) it just updates and clears the lease; `freeze-commit` folds the same write in);
-  `restore-abort <id> --nonce <n>` → `ABORTING:<id>` (captures retained; lease kept by the same nonce);
-  `lease-take <id>` → `LEASED:<id>|<nonce>` / `LEASE_HELD:<id>` exit 8;
-  `drop <id>` → `DROPPED:<id>`;
-  `list [--state <s>] [--root <r>]` → `SESSION:<id>|<state>|<root>|<window>|<pane_id>|<task_id>|<agent_string>|<state_at>`;
-  `show <id>` → `KEY:value` lines;
-  `purge --observed <file>` → `DROPPED:<id>|<reason>` + `PURGED:<n>`.
-  **Observation protocol (superset of the marks one, backward-compatible):**
-  ```
-  ROOT<TAB><root>                                   -- successfully enumerated root
-  WINDOW<TAB><root><TAB><window>                    -- observed agent window
-  PANE<TAB><root><TAB><window><TAB><pane_id><TAB><pane_pid><TAB><pane_dead>   -- every pane of that window
-  INCOMPLETE                                        -- suppress every sweep
-  ```
-  `monitor_shared._write_observation_file()` gains a `panes=` argument and
-  writes the `PANE` rows from `TmuxMonitor.last_discovered_panes()` (the
-  `_LIST_PANES_FORMAT` already carries `pane_id` and `pane_pid`; `pane_dead`
-  is appended to the format — see §B arity rule). The marks reader
-  (`agent_marks._read_observed`) is extended to **skip** `PANE` rows so one
-  file serves both purges; `agent_sessions` requires them. A file with
-  `ROOT`/`WINDOW` but no `PANE` rows for an enumerated root is treated as
-  pane-incomplete for that root: `dead_window` still applies, `dead_pane`
-  does not (fail closed).
-- **Purge policy** (fail-closed on `INCOMPLETE`, mirrors `sweep_liveness`):
-  a `live` record whose `(root, window)` is absent from a successfully
-  enumerated root → `DROPPED:…|dead_window`; a `live` record whose window has
-  a `WINDOW` row **and** `PANE` rows, but whose `pane_id` appears in none of
-  them (or appears with `pane_dead=1`) and whose `pane_pid` is dead
-  (`os.kill(pid, 0)` → `ESRCH`; an `EPERM`/unverifiable pid is treated as
-  alive) → `DROPPED:…|dead_pane` — this is what retires the stale candidates
-  left behind by an ambiguous relocation. Two producers feed `purge`: the
-  monitor maintenance tick (observation file above) and `aitask_frozen.sh
-  reconcile`, which builds the same file from its own `list-panes` pass so
-  retirement does not depend on a TUI being open. `freezing` / `frozen` / `restoring` /
-  `aborting` records are never purged by liveness — they are reconciled by
-  `aitask_frozen.sh reconcile` (§C/§D). A frozen record whose capture file is
-  missing → `DROPPED:…|capture_missing`.
-- `SessionsView` (mtime+size+inode gated) for the TUIs; `invalidate()` after
-  every write. `standin_command(record_id) -> str` returns
-  `ait frozenagent --record <id>` unless `AITASKS_FROZEN_STANDIN_CMD` is set
-  (documented **test seam**; production never sets it).
+**V4 — every line number in the original plan's `## Files` still resolves**
+(`tui_registry` rows 18-29, `_TUI_SHORTCUTS` 216-226, `_QUICK_JUMP_BINDINGS`
+393-407, `_HINT_ITEMS` 244-256, `action_shortcut_*` 1086-1128; `ait` usage
+27-38, bypass 190, diffviewer case 208). `_HINT_ITEMS` is 244-256, one line
+later than the plan's `242-255`.
 
-#### B. Pane options (tmux user options, pane-scoped)
+**V5 — the store side is ready.** `standin_command()`
+(`lib/agent_sessions.py:265`) already returns `ait frozenagent --record <id>`;
+`SessionsView.frozen()` / `.by_id()` exist (`:1287`, `:1290`).
+`tests/lib/fake_standin.sh` is the current placeholder and reads its id from
+`@aitask_frozen`; the real viewer takes it from `--record`, which is what
+`standin_command` passes.
 
-| Option | Set by | Cleared by | Read by | Meaning |
-|---|---|---|---|---|
-| `@aitask_record=<id>` | `upsert` (hook or freeze engine) | `drop`; pane death | freeze engine, restore coordinator, hook (`--id`) | the pane-visible join to its store record |
-| `@aitask_frozen=<id>` | freeze engine, immediately before `respawn-pane` | `restore-confirm` path (coordinator), `drop` | `_LIST_PANES_FORMAT` (appended), `kill_agent_pane_smart` format, `aitask_companion_cleanup.sh`, `maybe_spawn_minimonitor` occupancy | this pane is a frozen stand-in — **authoritative** classifier |
-| `@aitask_standin_ready=<id>` | **the viewer itself**, after mount (only the app stamps its own pane — `mark_monitor_pane` rule) | freeze engine + restore coordinator (`set-option -pu`) immediately **before** every `respawn-pane`; `drop` | `reconcile` | positive proof that the stand-in is up — the only signal that distinguishes "stamped, viewer running" from "stamped, agent still running" |
-| `@aitask_agent_session=<sid>` | SessionStart hook on `$TMUX_PANE` | pane death | freeze engine fallback when the store has no session id | codeagent session id |
+**V6 — reuse `TaskInfoCache`, do not hand-roll a title reader.**
+`monitor/monitor_core.py:3970`, and importing that module costs 45 ms measured.
+A TUI package importing `monitor` is established precedent
+(`applink/server.py:25`, `applink/pusher.py:47`), and
+`test_no_lib_to_tui_import.sh` only guards `lib/` → TUI.
 
-**Pane user options survive `respawn-pane`** (they are pane-scoped, not
-process-scoped), which is why `@aitask_standin_ready` must be explicitly unset
-before each respawn and why `@aitask_record` stays valid across freeze/restore
-on the same pane. `#{pane_current_command}` is a process basename and is
-**never** used as identity; `#{pane_pid}` (stored as `pane_pid`) and the
-options above are the only server-observable identities reconcile reads.
+**V7 — `SectionAwareMarkdown` is the wrong tool for `m`.**
+`lib/section_viewer.py:357` is a minimap/section-navigation widget with a TOC
+correlation pipeline; the deliverable needs "render this text as markdown".
+Use a plain `ModalScreen` + `VerticalScroll > Markdown`.
 
-Constants live in `monitor/monitor_core.py` beside `SHADOW_TARGET_OPTION`
-(`RECORD_OPTION`, `FROZEN_OPTION`, `STANDIN_READY_OPTION`,
-`AGENT_SESSION_OPTION`) and are mirrored in `lib/agent_sessions.sh` for shell
-callers.
+**V8 — `DataTable.ALLOW_SELECT = False`** in Textual 8.2.7, so list mode is
+unaffected by V1.
 
-#### C. Freeze — `lib/agent_freeze.py` + `aitask_frozen.sh freeze <pane>|--all`
+**V9 — the shipped frozen-drop ordering has an unrecoverable failure mode.**
+`kill_agent_pane_smart` (`monitor_core.py:3419-3427`) calls
+`_drop_session_record` **before** the kill, and its comment argues that ordering
+leaves "the pane (and its record) intact" on failure. That does not hold:
+`_drop_session_record` is best-effort and the kill runs regardless, so a *kill*
+failure leaves a live pane still stamped `@aitask_frozen=<id>` whose record and
+capture files are gone. `reconcile` iterates **records**, so it cannot see that
+pane — nothing repairs it. The docstring's own rationale ("reconcile's
+`capture_missing` / `dead_pane` rules retire the record later") in fact argues
+for the opposite order: *record without pane* is the state reconcile handles
+(`frozen | pane gone | keep`), *pane without record* is the state it cannot.
+Hence the kill-first, fail-closed protocol in step 9, and the matching reorder
+of that branch.
 
-Runs **out of the agent pane** (from a TUI, a shell, or `run-shell -b`).
-Every step is persisted before the next irreversible one:
+**V9b — the kill rule must be reused, not reimplemented.** "Does this window
+still hold a real agent?" already exists three times
+(`aitask_companion_cleanup.sh`, `kill_agent_pane_smart`, and the fixture in
+`tests/test_cleanup_rule_parity.sh`, which exists *because* of that
+duplication). A coordinator-side fourth copy is the wrong answer. It is not
+needed: `count_other_real_agents` (`monitor_core.py:928`) is deliberately pure
+and import-free, and the three helper predicates are module-level
+(`:315`, `:341`, `:435`). Only the `list-panes` format and the `is_helper`
+composition are still trapped inside the method — extract those two, and the
+coordinator becomes a second *call site*, not a second implementation.
 
-1. Resolve the record: `@aitask_record` → `show`; else `upsert` (fallback).
-   Read `codeagent_session_id`; if empty, try `@aitask_agent_session`.
-2. `capture-pane -p -e -J -t <pane> -S -<cap>` via `TmuxClient.run` →
-   `capture.ansi`; strip via `monitor/ansi_utils` → `capture.txt`.
-3. `freeze-begin` → state `freezing`, capture paths persisted, **lease
-   minted** (`op_nonce`, `op_owner_pid`=this coordinator).
-4. `set-option -p -t <pane> @aitask_frozen <id>`; `set-option -pu -t <pane>
-   @aitask_standin_ready` (clear any stale ready mark from a previous cycle).
-5. `respawn-pane -k -t <pane> '<standin_command(id)>'` via the gateway.
-   Window name unchanged, so `classify_pane` / `task_id_from_window_name`
-   keep working. The viewer stamps `@aitask_standin_ready=<id>` on mount.
-6. `freeze-commit --nonce <n> --pane <pane> --pane-pid <stand-in pid>` →
-   state `frozen`, `standin_pid` + location recorded (read via
-   `display-message -p -t <pane> '#{pane_id}\t#{pane_pid}'` after the
-   respawn), lease cleared.
+**V10 — `drop` has no terminal state in the restore poll.** `drop` removes the
+record outright; it never enters `restoring` or `live`. A shared post-action
+poll would therefore never reach a terminal branch after `k`, leaving the header
+stuck on `restoring…` — reporting the wrong outcome for the one action that
+succeeded. `drop` needs its own completion path keyed on record *disappearance*
+(step 8).
 
-Failure at 1–3 → nothing to undo beyond temp files (`FREEZE_FAILED:<stage>`).
-Failure at 4 → `freeze-abort --nonce`. Failure at 5 (tmux refused) → unstamp +
-`freeze-abort --nonce`; the agent is still running. Failure at 6 (store busy)
-→ the record stays `freezing`; **reconcile** completes it once the lease is
-stale. A `NONCE_MISMATCH` at 6 means reconcile already resolved the record;
-the coordinator reports it and exits without touching the pane.
+**V11 — `run-shell -b` gives the viewer no nonce, and a pre-begin poll reads a
+stale error.** The viewer cannot know the new attempt's nonce: `run-shell -b`
+only schedules the coordinator and returns nothing. Meanwhile `restore_begin`
+(`agent_sessions.py:970-996`) is what bumps `restore_attempts` and clears
+`last_error` — so between dispatch and that call, a record whose *previous*
+restore failed still carries `<old-nonce>:<reason>`. A poll in that window would
+label the new restore as failed before it started. The fix is a
+snapshot-and-gate on `restore_attempts` (the only monotonically bumped field),
+then nonce-prefix matching on `last_error` — the same `f"{nonce}:"` test the
+coordinator already uses at `agent_restore.py:519`.
 
-**`aitask_frozen.sh reconcile`** (idempotent; run by the coordinator after
-every freeze/restore, by the monitor maintenance tick beside
-`_maybe_purge_marks`, and manually) resolves every non-`live` record **whose
-lease is stale** (`op_started_at` + `stale_op_grace` elapsed **and**
-`op_owner_pid` dead/unverifiable — otherwise the record is skipped as
-in-flight) from server-observable facts only
-(`list-panes -F '#{pane_id}\t#{pane_pid}\t#{pane_dead}\t#{@aitask_frozen}\t#{@aitask_standin_ready}\t#{@aitask_record}'`;
-"agent alive" = `pane_pid == record.pane_pid`; "viewer here" =
-`pane_pid == record.standin_pid`; "replacement here" =
-`pane_pid == record.launch_pid`; "stand-in up" = `@aitask_standin_ready == id`;
-"mismatch" = `last_error` begins with the current `op_nonce`):
+**V12 — a frozen record keeps a stale *nonempty* `pane_id` forever.**
+`_reconcile_frozen` (`agent_freeze.py:688-695`) returns `KEEP:<id>|pane_gone`
+and writes nothing when the pane is not observed, so `pane_id` is never cleared
+on this path — only `freeze-commit --pane "" --pane-pid 0` (the `freezing`
+gone-pane row) ever empties it. After a tmux server restart every retained
+frozen record therefore carries a `%N` that no longer exists. A drop protocol
+that keys "nothing to kill" on `pane_id == ""` would treat those as kill
+failures and, being fail-closed, make them permanently undroppable — the
+records users most want to remove. The preflight must resolve the target
+against the live pane inventory, and must also reject a **recycled** `%N` whose
+`@aitask_frozen` is not this record's id.
 
-| record state | pane observation | action |
-|---|---|---|
-| `freezing` | `@aitask_frozen==id` **and** stand-in up | `freeze-commit --pane <pane> --pane-pid <observed pid>` |
-| `freezing` | agent alive, stand-in not up | unstamp both options, `freeze-abort` (captures deleted) |
-| `freezing` | `@aitask_frozen==id`, stand-in not up, neither agent nor viewer pid, pane not dead | **indeterminate — no transition** (viewer may still be booting); re-checked next pass |
-| `freezing` | `@aitask_frozen==id`, pane dead | respawn the stand-in (clear ready first), `standin-respawned`, then re-check |
-| `freezing` | pane gone | `freeze-commit --pane "" --pane-pid 0` |
-| `frozen` | pane gone | keep (restorable into a new window) |
-| `frozen` | `@aitask_frozen==id`, pane dead | `lease-take`, respawn the stand-in, `standin-respawned --nonce` |
-| `restoring` | mismatch recorded for this nonce | `restore-abort` (→ `aborting`), kill the wrong agent via `respawn-pane -k` back to the stand-in, `standin-respawned --nonce` (→ `frozen`) — **never** liveness-confirm |
-| `restoring` | viewer here (`pane_pid==standin_pid`) — the coordinator died before or during the respawn, whether or not the ready mark survived | `restore-abort`; respawn the stand-in so it re-stamps ready; `standin-respawned --nonce` |
-| `restoring` | `launch_pid==0` and pane pid is neither the viewer's nor the agent's | **indeterminate — no transition** (respawn may be mid-flight); after `stale_op_grace` ×2 → `restore-abort` + respawn stand-in + `standin-respawned --nonce` |
-| `restoring` | replacement here (`pane_pid==launch_pid`), pane not dead, no mismatch, `state_at` + `restore_ack_grace` (default 20 s) elapsed | `restore-confirm --pane --pane-pid` (`ack=liveness`, captures kept) |
-| `restoring` | pane dead | `restore-abort`, clear ready, respawn the stand-in, `standin-respawned --nonce` |
-| `restoring` | pane gone | `restore-abort` with `pane_id=""`, then `standin-respawned --nonce --pane "" --pane-pid 0` (→ `frozen`, restorable into a new window) |
-| `aborting` (stale lease taken over) | stand-in up (`@aitask_standin_ready==id`) | `standin-respawned --nonce` (→ `frozen`) |
-| `aborting` (stale lease taken over) | anything else | clear ready, respawn the stand-in, `standin-respawned --nonce` (→ `frozen`) |
+**V13 — `drop` bypasses the lease, so concurrent actions can race.** Unlike
+`freeze-begin` / `restore-begin` / `standin-respawned`, the store's `drop`
+(`agent_sessions.py:1116`) is legal from **any** state and requires **no
+nonce** — it is the one verb that does not consult `op_nonce` at all. A `drop`
+dispatched while a restore coordinator is mid-transaction removes the record and
+the capture the restore's abort path depends on. Two independent guards are
+needed because they cover different scopes: a per-record single-flight gate in
+the app (one viewer, immediate feedback) and an in-flight refusal in the
+coordinator keyed on a non-stale lease (any number of viewers, and the durable
+one). `kill_agent_pane_smart`'s direct store call is deliberately left
+unguarded — there the user has explicitly killed the pane and it is going away
+regardless; the guard belongs on the `aitask_frozen.sh drop` path that both
+TUIs' `k` routes through.
 
-Every reconcile action on a leased record is preceded by `lease-take`; a
-`LEASE_HELD` answer means a live coordinator owns it and reconcile skips.
+**V14 — `drop` must be a leased verb; no pre-check and no value comparison is
+sound.** Three designs were evaluated, and only the third survives:
 
-A liveness confirm therefore requires **positive evidence** that the
-process in the pane is the one the coordinator launched (`launch_pid`), and
-a viewer whose ready mark was cleared is still recognised by `standin_pid`.
+1. *Pre-checking with `show`.* Unsound — both V13 guards are reads. The app's
+   `_pending` map is process-local, and `show` is explicitly lock-free
+   (`aitask_agent_sessions.sh:265-270`, "NO LOCK for the two read verbs"), so a
+   `restore-begin` can land between the read and the delete.
+2. *Comparing a snapshotted `(state, op_nonce)` inside the write lock.* Atomic,
+   but **ABA-vulnerable**. `standin_respawned` from `aborting` performs
+   `_set_state(FROZEN)` **and** `_clear_lease()` (`agent_sessions.py:1090-1094`),
+   and `_clear_lease` zeroes `op_nonce` (`:675-678`). A full
+   `frozen → restoring → aborting → frozen` cycle therefore restores the exact
+   pair, and that closing transition is the one that registers a **newly
+   respawned stand-in viewer**. The comparison would accept the stale delete and
+   leave a live stamped viewer whose record and capture are gone — the V9 state
+   the protocol exists to prevent, reached by a different route.
+3. *An atomic claim.* `lease-take` is already the store's admission primitive:
+   it is evaluated under the write lock, encapsulates the two-term staleness
+   rule, and refuses with `LEASE_HELD` (exit 8). Pairing it with
+   `drop <id> --nonce <n>` makes `drop` obey the rule the §A contract already
+   states for every other mutating verb — *"every verb that mutates a record
+   holding a lease requires `--nonce`"* — of which `drop` is currently the sole
+   exception. A nonce is a fresh 8-hex token per claim (`_mint_nonce`), so
+   unlike a value comparison it cannot recur; ABA is structurally impossible.
+   It also needs no new exit code, and it retires the `_lease_stale` promotion
+   and the derived `lease_in_flight:` field the previous design required.
 
-Failure injection: `AITASKS_FREEZE_FAIL_AT=capture|begin|stamp|respawn|commit`,
-`AITASKS_RESTORE_FAIL_AT=begin|respawn|ack`, and `AITASKS_FROZEN_PAUSE_AT=<stage>`
-(the coordinator `SIGSTOP`s itself so a test can run a concurrent
-`reconcile` and then `SIGCONT`) — documented test seams, honoured only under
-`AITASKS_TEST_MODE=1`.
+The one gap it does **not** close is that `restore_begin` mints its lease
+without consulting an existing one (`:970-996`) — so the claim *detects* a
+concurrent restore rather than preventing it. That is sufficient here (we fail
+closed) and is pre-existing store behaviour that reconcile's takeover flows
+depend on; changing it belongs to t1705_2/_5, not here.
 
-**Cleanup contract** (`aitask_companion_cleanup.sh` + `count_other_real_agents`
-must agree — pinned by the parity test):
-- a `@aitask_frozen`-stamped pane **counts as a real agent sibling** (the
-  window exists to hold it; killing agent B must not destroy frozen A's viewer);
-- when the *dying* pane is the stamped one, the cleanup script **abstains
-  entirely** (it is being respawned, not departing);
-- `kill_agent_pane_smart` on a frozen pane = `drop` + kill by the same rule.
+## Risk
 
-#### D. Restore — `lib/agent_restore.py` + `aitask_frozen.sh restore <id> [--repick] | --all`
+### Code-health risk: medium
 
-**Never runs inside the pane it replaces.** The viewer's `R`/`p` keys and the
-minimonitor keys invoke `run-shell -b "<repo>/.aitask-scripts/aitask_frozen.sh restore <id>"`
-through the gateway; the coordinator is a detached process that outlives the
-respawn. Two-phase, acknowledged:
+- The change edits four pieces of **shared TUI infrastructure**
+  (`tui_registry.py`, `tui_switcher.py`, `shortcut_scopes.py`, `ait`) that every
+  other TUI reads; a mistake in the four-part registration is felt outside this
+  task · severity: medium · → mitigation: covered by the existing guards
+  (`test_shortcuts_registry_coverage.sh`, `test_no_lib_to_tui_import.sh`,
+  `test_tui_switcher_footer_fit.sh`, `test_shortcut_scopes.py`)
+- `CaptureLog` depends on Textual internals with no compatibility promise
+  (`RichLog._line_cache`, `Strip.apply_offsets`, `Selection.get_span`,
+  `Strip.divide`/`join`). A Textual upgrade can break mouse selection
+  **silently** — the drag still runs, it just copies nothing · severity: medium
+  · → mitigation: inline post-phase `pin_textual_selection_internals`
+- The new `drop` verb is **pane-destructive and capture-destructive**: it
+  deletes the only copy of a frozen agent's output and kills a pane. It lands in
+  `agent_freeze.py`, a module whose reconcile path must keep working with no
+  coordinator present · severity: **high** (raised from medium: finding **V9**
+  showed the shipped ordering already reaches an unrecoverable state, so this is
+  a demonstrated defect class, not a hypothetical one) · → mitigation: inline
+  post-phase `cover_drop_destructive_path`
+- The task reorders a **shipped** branch of `kill_agent_pane_smart` and extracts
+  two helpers from it — code owned by t1705_4 and exercised by t1705_7's keys.
+  A mistake there is destructive (a window holding a live agent, or a frozen
+  stand-in, gets killed) · severity: medium · → mitigation: covered by
+  `tests/test_cleanup_rule_parity.sh` (extended with the coordinator call site)
+  and `tests/test_kill_agent_pane_smart.sh`, plus an `ait note` to t1705_7
 
-1. Build the argv: `aitask_codeagent.sh --agent-string <s> --resume-session <sid> --dry-run invoke raw`
-   (resume) or the existing pick launch argv (`--repick`, task id required).
-   Empty session id and no `--repick` → `RESTORE_FAILED:no_session` (nothing changes).
-2. `restore-begin --mode <m>` → state `restoring`, lease minted (nonce `n`);
-   captures and `@aitask_frozen` retained.
-3. Prefix the argv with the **restore identity environment** (the
-   `explore-relay` `env` precedent — `env` execs into the agent, so the pane
-   pid is still the agent's):
-   `env AITASK_RESTORE_RECORD=<id> AITASK_RESTORE_NONCE=<n> AITASK_RESTORE_MODE=<m> AITASK_RESTORE_EXPECT_SESSION=<sid> <argv>`.
-   Then `set-option -pu @aitask_standin_ready` and
-   `respawn-pane -k -t <stand-in> '<env argv>'` — or, when `pane_id=""`,
-   `launch_in_tmux` into a new window with the recorded name. Immediately
-   after tmux returns, read the new `#{pane_pid}` and write
-   `restore-launched --nonce --pane --pane-pid` — the nonce-bound evidence
-   that a replacement was actually started. The replacement agent's
-   SessionStart hook forwards the four variables as `upsert --restore-of
-   --nonce --session-id` (§A ack rules), which is what selects the **old**
-   record from a brand-new pane, verifies the resumed session id, and stamps
-   `@aitask_record` there.
-4. Wait for the ack: poll `show <id>` until `state=live`, `last_error`
-   carries this nonce, **or** `restore_ack_grace` elapses.
-   - `live` with `ack=hook` → clear `@aitask_frozen`, print `RESTORED:<id>|hook`
-     (captures already deleted by the ack).
-   - `last_error="<nonce>:session_mismatch"` (the hook reported a different
-     session in `resume` mode; persisted by the store because the hook has
-     no channel to this process) → `restore-abort --nonce` (→ `aborting`,
-     still owned by this nonce), `set-option -pu @aitask_standin_ready`,
-     `respawn-pane -k` back to the stand-in, then `standin-respawned --nonce
-     --pane --pane-pid` (→ `frozen`), print `RESTORE_FAILED:<id>|session_mismatch`;
-     **capture intact**. The same abort → respawn → `standin-respawned --nonce`
-     sequence is used by every failure branch below; a `NONCE_MISMATCH` at
-     any step means reconcile already finished the abort.
-   - grace elapsed, pane alive, `pane_pid == launch_pid`, no hook ack and no
-     error → `restore-confirm --nonce --pane --pane-pid` → `live` with
-     `ack=liveness`, **captures kept**, clear the stamp, print
-     `RESTORED:<id>|liveness` (the viewer/minimonitor show "restored,
-     unverified — capture kept").
-   - pane dead at any poll (invalid session, binary missing, immediate exit)
-     → `restore-abort --nonce`, clear ready, respawn the stand-in,
-     `standin-respawned --nonce`, print `RESTORE_FAILED:<id>|agent_exited` —
-     **the capture is intact and the viewer is back**.
-   - `NONCE_MISMATCH` on any verb → reconcile already settled it; exit
-     without touching the pane.
-5. Coordinator crash between 2 and 4 → `reconcile` (§C table) settles it
-   once the lease is stale.
+### Goal-achievement risk: medium
 
-`aitask_codeagent.sh` gains a global `--resume-session <sid>` (template
-`OPT_HEADLESS`): `claude --model <id> --resume <sid>`, `codex resume <sid>`
-(model flag per codex CLI), opencode → `RESUME_UNSUPPORTED:opencode` exit 2.
-Resolution stays single-sourced in `lib/agent_string.sh`. Restore-All iterates
-`frozen` records; per-record failures are reported, never abort the batch.
+- The deliverable is wide (two modes, search, two selection models, a markdown
+  modal, three store-mutating actions with outcome polling, an engine verb, and
+  the four-part registration). Partial delivery is the most likely failure mode
+  · severity: medium · → mitigation: none — the step order front-loads the
+  contract-critical work, and each numbered step is independently verifiable
+- The stand-in contract — `respawn-pane -k` into `ait frozenagent --record <id>`
+  round-tripping through tmux's single-string quoting, `ait` resolving on the
+  respawned pane's PATH, and the self-stamp landing on the right pane — is
+  provable **only live**. It is also the one assumption that would invalidate
+  the whole design rather than a detail of it · severity: high
+  · → mitigation: inline pre-phase `verify_standin_respawn_argv`
+- Restore-outcome surfacing must follow the *amended* four-outcome contract
+  (B1–B4). Presenting `ack=liveness` as an error would mislabel the only outcome
+  a codex record can ever reach · severity: medium · → mitigation: covered by
+  the `ack=liveness` renders-as-success assertion in `tests/test_frozenagent_app.py`
+- The viewer reports an outcome it observes only indirectly, through a store the
+  detached coordinator writes asynchronously. Three ways to report or do the
+  wrong thing were found in the original design: a stale `last_error` read
+  before `restore-begin` (**V11**), a `drop` that never reaches a terminal state
+  (**V10**), and concurrent actions racing because `drop` bypasses the lease
+  (**V13**) · severity: medium · → mitigation: covered by the
+  restore-correlation, drop-completion and single-flight tests in
+  `tests/test_frozenagent_app.py`, plus the coordinator's claim refusal and the
+  `drop_pre_store` ABA-race test in `tests/test_agent_freeze.py`
+- The task makes `drop` a **leased verb** and adds `lease-release` — changes to
+  the one module every frozen-agent path writes through, whose plain `drop`
+  must keep its any-state contract for `kill_agent_pane_smart` · severity:
+  medium · → mitigation: covered by the store-level `drop --nonce` and
+  `lease-release` unit tests in `tests/test_agent_sessions_transitions.py` and
+  `tests/test_agent_sessions_lease.py`, including an explicit
+  unchanged-plain-`drop` case
+- A frozen record's `pane_id` is durable but not authoritative: it survives the
+  pane it names (**V12**). Any pane-targeting logic that trusts it without
+  checking the live inventory either kills the wrong pane or refuses to act on
+  a perfectly valid record · severity: medium · → mitigation: the preflight in
+  step 9.1 and its three test rows in `cover_drop_destructive_path`
 
+### Planned mitigations
+- timing: pre-phase | name: verify_standin_respawn_argv | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — the stand-in respawn/PATH/self-stamp contract is provable only live | desc: land the isolated-tmux stamp smoke against a mount-and-stamp-only app before building the rest of the viewer
+- timing: post-phase | name: pin_textual_selection_internals | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — CaptureLog reaches into Textual internals with no compatibility promise | desc: assert Strip.apply_offsets / Selection.get_span / Strip.divide / Strip.join / RichLog._line_cache still exist and RichLog still lacks get_selection
+- timing: post-phase | name: cover_drop_destructive_path | type: test | priority: high | effort: medium | inline_risk: low | added_complexity: low | addresses: code-health — the new drop verb deletes the only capture and kills a pane, and the shipped ordering (V9) already reaches an unrecoverable state | desc: drive AITASKS_DROP_FAIL_AT between every irreversible step (kill / verify / store), assert the fail-closed protocol keeps record+capture+options intact on a kill failure, cover the three preflight target-resolution rows (V12) and the in-flight refusal (V13), plus the live companion-survival case and a coordinator parity row
+
+### Reassessment after inlining
+
+Re-run of the two-dimension assessment against the augmented plan (the three
+mitigations are now steps of it, not deferred work, and the plan has since
+absorbed findings V9–V11):
+
+- **Code-health risk: medium** — held, but for a different reason than before.
+  It rose on substance: V9 turned the destructive-verb bullet from a
+  hypothetical into a demonstrated defect class, and the plan now also edits
+  shipped `monitor_core` code. It came back down on coverage: the drop protocol
+  is now fail-closed by construction (nothing irreversible happens until the
+  target is *verified gone*), every irreversible step has an injectable failure,
+  concurrency is closed by an **atomic claim** rather than by pre-checks or a
+  value comparison (V14), and both the kill rule and the admission primitive are
+  reused rather than reimplemented — no fourth copy of the kill rule, no second
+  copy of the staleness rule. The genuine increase is surface: the plan now
+  modifies `agent_sessions.py` and its shell wrapper — the store every
+  frozen-agent path writes through — to make `drop` a leased verb and to add
+  `lease-release`. That is a smaller change than the design it replaced, and it
+  moves `drop` *toward* the store's stated §A contract rather than adding a
+  bespoke mechanism beside it.
+- **Goal-achievement risk: medium** — down from the pre-inlining reading. The
+  `high`-severity bullet was the only one carrying the level upward, and moving
+  its proof to a **pre-phase** means an invalid stand-in contract now surfaces
+  before the app is written rather than after. V10/V11 added a second
+  goal-achievement bullet, but both are now closed by named tests. What keeps it
+  at medium is breadth, not soundness.
