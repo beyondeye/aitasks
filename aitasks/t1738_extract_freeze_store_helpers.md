@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1705
 followup_kind: risk_mitigation
+implemented_with: claudecode/opus5
 created_at: 2026-09-08 11:41
-updated_at: 2026-09-08 11:49
+updated_at: 2026-09-08 12:35
 ---
 
 ## Origin
@@ -101,3 +102,8 @@ Inherits t1705_5's constraint: `test_freeze_engine_live.sh` calls
 `require_clean_ait_server`, which refuses to run from inside tmux or while the
 dedicated `-L ait` server has any pane. Verify from a shell **outside** that
 server.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-08T09:35:09Z status=pass attempt=1 type=human
