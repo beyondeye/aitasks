@@ -72,6 +72,14 @@ write_task "$REPO/aitasks/t10/t10_1_child.md"         "well-formed child"
 write_task "$REPO/aitasks/t_no_number_here.md"        "parent with no id"
 write_task "$REPO/aitasks/t10/t10_x_not_a_number.md"  "child with no id"
 
+# Outside the discovery glob entirely: `t*_*.md` requires an underscore, so
+# `tbroken.md` is never visited and therefore never warned about. That limit is
+# deliberate — widening ls's glob to hunt for files it does not otherwise list
+# would be runtime work for a case tests/test_task_filename_invariant.sh already
+# catches by scanning the data. Present here so the shape is exercised rather
+# than merely described.
+write_task "$REPO/aitasks/tbroken.md"                 "no underscore at all"
+
 # Clean fixture: the same shape, every filename conforming.
 write_task "$CLEAN/aitasks/t10_numbered.md"           "well-formed parent"
 write_task "$CLEAN/aitasks/t10/t10_1_child.md"        "well-formed child"
@@ -116,6 +124,15 @@ assert_contains "default mode warns about the unnumbered parent" \
     "task file without a task number" "$ERR"
 assert_contains "the warning names the offending path" \
     "t_no_number_here.md" "$ERR"
+# A name with no underscore is outside the `t*_*.md` discovery glob, so it is
+# absent from stdout for a different reason than the guard: nothing visits it.
+# This assertion pins "never appears as a listing row", which is what callers
+# depend on — it deliberately does NOT pin the reason. Widening ls's glob would
+# route the same file through the guard and still keep it off stdout, so this
+# stays green either way; the boundary itself is covered by
+# tests/test_task_filename_invariant.sh, whose scan sees the file that ls cannot.
+assert_not_contains "a name outside the discovery glob is not listed either" \
+    "tbroken.md" "$OUT"
 
 # --- Test 2: --all-levels (children reachable) --------------------------
 
@@ -167,6 +184,13 @@ assert_eq_trim "--children lists exactly 1 child" "1" "$(count_lines "$OUT")"
 assert_contains "--children lists the numbered child" "t10_1_child.md" "$OUT"
 assert_not_contains "--children drops the unnumbered child" \
     "t10_x_not_a_number.md" "$OUT"
+# Absence from stdout is only half the contract. Assert the warning here too:
+# every mode routes through the same shared function today, but a mode-specific
+# early return or an output redirection in this direct child-listing path could
+# suppress the warning while the absence assertion above still passed — turning
+# a reported data defect back into a silent one.
+assert_contains "--children warns about the unnumbered child" \
+    "t10_x_not_a_number.md" "$ERR"
 
 # --- Test 5: negative control — a clean repo warns about nothing ---------
 
