@@ -401,3 +401,239 @@ in the guard's comment; no further action
 ### Planned mitigations
 - timing: pre-phase | name: probe_commit_pathspec_semantics | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: blast radius + zip_old directory scope | desc: Empirically pin commit -o -- <dir> untracked behaviour, helper staging width, and worktree-vs-index semantics before converting any site.
 - timing: post-phase | name: cochange_positive_controls | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: silently dropping a legitimate co-change | desc: Assert the child-creation parent file and the genuinely-new labels.txt still land in their commits, so the scoping cannot over-narrow.
+
+## Final Implementation Notes
+
+- **Actual work done.** All 15 audited sites are gone: 14 converted to
+  `task_git_commit_scoped`, 1 removed with the dead `commit_task`.
+  - `aitask_archive.sh` — 3 sites. All pass `--no-stage`: their existing
+    `add -u` deliberately stages only the moved-from deletions, and letting the
+    helper re-stage would widen the set. Path arrays are accumulated alongside
+    the existing `add` calls so staging and pathspec cannot drift.
+  - `aitask_update.sh` — 2 sites. The `_stage_labels` / `LABELS_VOCAB_DIRTY`
+    gates already existed on the *staging*; the change is that the **pathspec**
+    now inherits them.
+  - `aitask_zip_old.sh` — 1 site, `--no-stage` with the two archive directory
+    pathspecs (see the probe below for why `--no-stage` is load-bearing here).
+    Its `2` and `1` return codes are no longer conflated.
+  - `aitask_create.sh` — 7 sites collapse to 4 calls: the silent/non-silent
+    forks existed only to keep git's own summary out of the `--silent` stdout
+    channel, which the helper's unconditional `--quiet` handles uniformly.
+    Plus the t1662 gate and the `_register_task_labels` entry reset.
+  - `aitask_issue_import.sh` — the unscoped `--amend`, now guarded and scoped.
+  - `aidocs/framework/shell_conventions.md` — the rule, the `--no-stage` and
+    conditional-pathspec caveats, and the guard's two stated limits.
+
+- **Pre-phase mitigation `probe_commit_pathspec_semantics` — all four answers
+  confirmed, and one changed the design:**
+  1. `git commit -o -- <dir>/` does **not** commit an untracked, unstaged file
+     under `<dir>`.
+  2. `git add -- <dir>/` **does** stage untracked files under it. This is why
+     `aitask_zip_old.sh` must pass `--no-stage` — the helper's own staging would
+     have widened the scope it was being called to narrow.
+  3. `commit -o -- <paths>` commits **worktree** content, ignoring the index
+     entry (t1599_1's finding still holds).
+  4. Control: a bare `git commit -m` commits the whole index.
+  A fifth case was probed after the fact because archival depends on it: a
+  newly-**staged untracked** path (the archived copy) IS carried by
+  `commit -o -- <both paths>`, and a foreign staged file stays staged and out.
+
+- **Deviations from plan.** Two, both additive.
+  1. `aitask_zip_old.sh`'s `2`-vs-`1` conflation was fixed rather than
+     preserved. The plan said "preserve each site's existing failure behaviour",
+     but the existing behaviour reported a real commit failure as "Nothing to
+     commit"; preserving that would have kept a silent-failure bug inside a
+     change whose whole point is not hiding what a commit did.
+  2. Every converted site gained an explicit `2` (verified nothing to commit)
+     branch that `warn`s. Pre-fix, `set -euo pipefail` made a no-op commit abort
+     the script; silently continuing would have been a new failure mode, so the
+     no-op is now said out loud instead.
+
+- **Issues encountered.**
+  - The `MULTIPLE_CANDIDATES` from `aitask_plan_externalize.sh` did not include
+    this session's own internal plan (two other sessions' plans were newer), so
+    the retry passed `--internal` explicitly, preserving `--force` and the full
+    branch flags.
+  - `grep` is a shell **function** in the agent's interactive shell (Claude Code
+    routes it to `claude -G`), which rejects `-Eo`. It is not exported, so test
+    subprocesses use the real binary and no test result was affected — but
+    interactive result-scraping must use `command grep`.
+
+- **Key decisions.**
+  - **Reuse over re-derivation.** The task file specified hand-rolling
+    `add <paths>` + `commit -m <msg> -- <paths>`; t1626 had since promoted that
+    exact shape into `task_git_commit_scoped`, which also carries the
+    empty-pathspec guard and the "a failing `git status` is *unverified*, never
+    *clean*" rule. Calling it beats reimplementing it 14 times.
+  - **The pathspec is conditional, not just the staging.** This is the whole
+    reason t1662 was folded here: `commit -- <paths>` commits worktree content,
+    so a naive `-- "$filepath" "$LABELS_FILE"` would have re-opened t1662 in
+    full while appearing to fix it.
+  - **`commit_task` deleted, not gated** (user decision). Verified unreachable
+    by word-boundary grep across `.aitask-scripts/` and `tests/`; deleting it
+    removed a site and the stale-`AIT_LABELS_ADDED`-on-revival hazard together.
+    The rule a revival must follow is recorded as a comment where it stood.
+  - **The tripwire reassembles `\`-continued lines.** Without this it reports
+    `aitask_note.sh:623` and `:995` — both correctly scoped on their
+    continuation line — as violations. Proven: a naive per-line scan flags
+    line 3 of the continuation fixture; the joining scan does not.
+  - **The guard's allowlist is empty, deliberately**, and the file says what
+    would justify an entry.
+  - **`./ait git commit` is out of detection scope**, stated in the test header
+    and the docs, and owned by **t1728** (`upstream_defect`, anchored to 1599).
+  - **`_import_commit_frontmatter` was extracted for testability.** The amend sat
+    at the end of a `gh`-dependent flow, which is why it had no coverage at all;
+    the extraction is what makes A1-A4 writable.
+  - **The amend refusal falls back to a fresh scoped commit** rather than
+    stopping. Refusing outright would leave the injected frontmatter dirty —
+    exactly the bystander state the next unscoped commit sweeps up, i.e. this
+    task's defect re-created by its own guard.
+
+- **Regression scope actually run.** Every shell suite in `tests/` that
+  references any of the five changed scripts — **84 suites, all passing, 0
+  failures** — plus `tests/test_metadata_writer_inventory.py` (whose pinned
+  reason *"labels.txt is staged by its callers' `_stage_labels` gate
+  (create/update)"* was **false for create** before this task and is now true),
+  and `shellcheck` on all five: finding-for-finding identical to pre-fix, no
+  new warnings.
+
+- **Verification evidence (beyond the suites passing).**
+  - **Negative controls against real pre-fix code, not fixtures.** Running the
+    T7 / T10 / T11 scenarios against `HEAD:.aitask-scripts/aitask_create.sh`
+    reproduces the defect every time: `labels.txt` is absorbed into the creation
+    commit and, in the unstaged case, `git status` comes back **clean** — the
+    silent swallow. So the new tests discriminate.
+  - **T10 pins the entry reset specifically.** Against pre-fix code T10 fails
+    for the *staging* reason, so it was re-run against a **naive-gate build**
+    (the gate with `AIT_LABELS_ADDED=()` deleted, with the mutation verified to
+    have landed): the label-less second draft commits `labels.txt` purely from
+    the stale array. That is the control the plan required.
+  - **The tripwire catches real regressions.** Pointed at a tree containing the
+    pre-fix `aitask_create.sh` and `aitask_zip_old.sh`, it reports exactly their
+    9 sites at the audited line numbers, and does not flag the fixed
+    `aitask_archive.sh`.
+  - **Production evidence.** The follow-up task t1728 was created with the fixed
+    `aitask_create.sh` while `aitask_ls.sh` (t1721, another live session) and
+    `.gitignore` were dirty in the same worktree. Its creation commit contains
+    **exactly one file**, and `labels.txt` is absent because all three of its
+    labels already existed. Pre-fix, both would have ridden along.
+
+- **Review round 2 — two blocking defects found and fixed.** Both were real; both
+  are now pinned by tests that fail against the pre-fix shape.
+  1. **The child-parent accept branch was a glob, not a resolution.**
+     `_import_amend_guard` accepted *every* file matching `aitasks/tP_*.md`, so a
+     second same-prefix file — a malformed tree, or a concurrent session's
+     `aitasks/tP_foreign.md` — was marked accepted and the guard **permitted the
+     amend**, rewriting foreign work. That contradicted the guard's own stated
+     contract of exact membership. Fixed by accepting the match **only when the
+     glob resolves to exactly one file**; ambiguity now accepts nothing, warns,
+     and falls through to the refusal + fresh-commit path. There is no more
+     precise source for the parent (`aitask_create.sh`'s own
+     `get_parent_task_file` does the same glob), so default-deny on ambiguity is
+     the tightening. Pinned by **A5**, which fails on 8 assertions against the
+     accept-all shape — decisively, the amended HEAD carries `t900_foreign.md`.
+  2. **The tripwire treated a `--` inside a commit MESSAGE as a pathspec.**
+     `task_git commit -m "ait: title -- annotation"` matched both `COMMIT_RE` and
+     `SCOPED_RE`, so an index-wide commit would have passed the guard — a false
+     negative, the one direction this guard must never fail in. No such message
+     exists today, but nothing prevented one. Fixed with `strip_quoted`, which
+     blanks quoted spans before the separator test (a real `-- <paths>` always
+     sits outside the quotes). Two fixtures added: the quoted-`--` shape must be
+     flagged, and the quoted-`--`-plus-real-separator shape must not. Proven
+     load-bearing: bypassing `strip_quoted` fails both.
+
+- **Review round 3 — a third defect of the same class, found in my own guard.**
+  `_import_amend_guard` read HEAD's path list as
+  `… HEAD 2>/dev/null || true`, which **fails open twice over**: a failed probe
+  hands back an empty list and the guard permits the rewrite, and
+  `git show --name-only` prints an empty list for a **merge commit** too. Fixed
+  by capturing the exit status separately and treating an empty list as
+  unverified — the rule `task_git_commit_scoped` already states for `git status`.
+  Pinned by **A6a** (unborn HEAD) and **A6b** (merge HEAD); against the fail-open
+  shape four assertions fail, and A6b shows the merge commit actually being
+  rewritten.
+
+- **Review round 4 — the quoted-span stripper failed open on an escaped quote.**
+  `s/"[^"]*"/""/g` ends the span early at `\"`, so
+  `-m "ait: escaped \" -- annotation"` stripped to `-m "" -- annotation"` and the
+  `--` still inside the shell string read as a pathspec — an index-wide commit
+  walking past the guard. Round 3's header had disclaimed escaped quotes as a
+  "known limit"; that was the wrong call. A documented limit is acceptable for
+  under-*detection* of exotic shapes, not for **failing open on an ordinary shell
+  form**. Fixed by collapsing `\.` escapes before removing quoted spans, and by
+  refusing outright when any quote character survives (unbalanced or
+  expansion-produced quoting is unparseable, and unparseable is now reported
+  rather than trusted). `strip_quoted` became `is_scoped`, whose contract is
+  fail-closed.
+
+  **Both halves are pinned by fixtures that fail without them** — and the first
+  attempt at the fail-closed fixture was **vacuous**, which the mutant caught:
+  a stray-quote line is flagged with or without the check, because it has no
+  `--` outside the quotes either way. It was replaced with a **multi-line**
+  message, the realistic source of an unterminated quote on a logical line (only
+  `\`-continuations are reassembled), whose `--` sits inside the unterminated
+  string. Dropping either safeguard now fails two assertions apiece.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_fold_mark.sh:916` — `_fold_amend_guard` reads HEAD's
+    path list as `… HEAD 2>/dev/null || true`, so a failed probe **or** a merge
+    commit (whose `--name-only` output is empty) yields an empty list and the
+    guard permits a history-rewriting `--amend`. Fail-open in a default-deny
+    guard. Not fixed here: t1599_2 owns that file and this child's task forbids
+    cross-boundary edits. **Already spawned as t1733.**
+  - `tests/lib/docs_vocabulary_scan.py:162-165` — `ECHO_WRITERS` lists only
+    `aitask_update.sh` and `aitask_create.sh`, so `archived_reason` (written by
+    `aitask_archive.sh:163` via an `awk` insertion since t400) can never be
+    discovered as a known writer field. Latent until the first task file carrying
+    it appeared; `tests/test_docs_vocabulary_coverage.sh` now fails on the live
+    repo. **Already spawned as t1732.**
+  - `.aitask-scripts/aitask_verification_followup.sh:251` and
+    `.aitask-scripts/lib/verified_update_lib.sh:128` — unscoped `./ait git commit`
+    after a single-path `add`: the same index-wide swallow on a second seam this
+    task's tripwire deliberately does not scan. **Already spawned as t1728.**
+
+  All three already have tasks, so no further follow-up creation is needed.
+
+- **Notes for sibling tasks:** t1599_1/2/3 are all archived and this is the last
+  child, so these are for the topic, not a pending sibling.
+  - **Call `task_git_commit_scoped`; do not hand-roll a scoped commit.** It owns
+    the empty-pathspec guard and the "a failing `git status` is *unverified*,
+    never *clean*" rule. Pass `--no-stage` whenever the call site has already
+    staged deliberately — the helper's `add -- <paths>` stages **untracked** files
+    under a directory pathspec and will silently widen a scope you called it to
+    narrow.
+  - **Gate the pathspec, not just the staging.** `commit -- <paths>` commits
+    *worktree* content, so naming a shared file (`labels.txt`) unconditionally
+    carries a concurrent session's edit even when you never staged it. This is
+    the whole reason t1662 could not be fixed by a staging gate alone.
+  - **A guard's probe must fail closed.** Three of the four review findings on
+    this task were the same defect class: an unreadable/ambiguous input treated
+    as a safe negative. `|| true` on a probe, a glob accepted wholesale, and a
+    quote-stripper that ends early at `\"` all read "I could not tell" as "there
+    is nothing wrong".
+  - **Check the control can fail.** One fail-closed fixture here was vacuous —
+    flagged with or without the check it claimed to pin — and only a mutant run
+    exposed it.
+
+- **Adjacent findings — recorded, deliberately NOT fixed here.**
+  - `aitask_fold_mark.sh:916` has the identical fail-open probe in
+    `_fold_amend_guard`, a guard that rewrites history. It is t1599_2's file and
+    this child's task forbids cross-boundary edits → **t1733**.
+  - `tests/test_docs_vocabulary_coverage.sh` fails on the live repo with
+    `E/corpus: … ['archived_reason']`. Not caused by this task: the field has
+    been written by `aitask_archive.sh` since t400, but the scanner's
+    `ECHO_WRITERS` lists only `aitask_update.sh` and `aitask_create.sh`, and the
+    write is an `awk` insertion the extractor cannot match. The gap was latent
+    until the first task file carrying the field appeared (another session
+    archived `t1730` with `--superseded` at 18:20 today). Natural experiment: the
+    same suite passed a full sweep earlier that afternoon and failed the next,
+    with no scanner or writer change between → **t1732**. My diff adds or removes
+    no frontmatter emission (its only removed `echo` lines are `echo "$commit_hash"`
+    and `echo ""` from the deleted dead function), so the derived writer set is
+    untouched.
+
+- **Ownership boundary held.** `git diff --name-only` lists none of
+  `aitask_pick_own.sh`, `aitask_fold_mark.sh`, `aitask_sync.sh`,
+  `aitask_lock.sh`. Two files in the worktree are **not** part of this task and
+  must not be committed with it: `.aitask-scripts/aitask_ls.sh` (t1721, in
+  flight) and `.gitignore` (dirty before this session started).
