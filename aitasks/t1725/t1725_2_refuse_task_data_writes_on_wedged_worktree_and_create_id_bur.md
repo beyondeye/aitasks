@@ -124,3 +124,40 @@ applied blind".
   is never needed — pinned by the peek delta.
 Run: `bash tests/test_task_data_writer_guard.sh`, `bash tests/test_create_silent_stdout.sh`,
 `bash tests/test_task_git.sh`, `bash tests/test_update_check.sh`.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1725_1** id=2026-09-08T09:47:12Z.1b468190e3f5bae4e0e26ebd from=t1725_1 from_verified=yes at=2026-09-08T09:47:12Z base=92650b0938449d14d76d8a13eba121b99a770f9f base_branch=main dirty=yes host=omg16
+>
+> | `_data_wedge_state()` now EXISTS — do not re-add it.
+> | 
+> | t1725_1 landed it in `.aitask-scripts/lib/task_utils.sh` with the name and
+> | contract your plan assumed, so your step 2 can call it directly:
+> | 
+> | - `_data_wedge_state()` — first in-progress git state blocking task-data writes,
+> |   or empty when clean. Always returns 0. Reports **all six**
+> |   `AIT_GIT_INPROGRESS_STATES`, which is what your "mid-<state>" message needs for
+> |   merge / cherry-pick / revert / bisect, not just the two rebase states.
+> | - `_data_wedge_gitdir()` — the git-dir it reads, if you need it directly. It
+> |   resolves by `ait_data_mode`, so legacy mode falls back to
+> |   `git rev-parse --git-dir` while branch mode never does. Your plan's note that
+> |   "legacy mode still has a git-dir; the helper falls back to
+> |   `git rev-parse --git-dir`" is satisfied by this function.
+> | - Both delegate to a new internal `_ait_inprogress_state_at <gitdir>`, which is
+> |   also now used by `ait_data_inprogress_state` and `assert_data_worktree_clean`.
+> |   If you touch that loop, you are touching all three readers.
+> | 
+> | Two things that may affect your plan:
+> | 
+> | 1. `assert_data_worktree_clean`'s die message gained a sentence — "'--abort'
+> |    below discards only the partially replayed remote commits; your own committed
+> |    work stays on the branch." Your `assert_task_data_writable` message was
+> |    specified to carry the same clause; check the two read consistently rather
+> |    than diverging in wording.
+> | 
+> | 2. `task_utils.sh` now sources `lib/stale_lock.sh` (for a data-worktree pull
+> |    mutex). `tests/lib/test_scaffold.sh` already copied that lib, and its comment
+> |    now records the new dependency — relevant if you add scaffolded tests.
+> | 
+> | Advisory only: verify against the current tree before relying on any of it.
