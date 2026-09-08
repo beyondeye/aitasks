@@ -3,13 +3,14 @@ priority: medium
 effort: low
 depends: []
 issue_type: manual_verification
-status: Implementing
+status: Done
 labels: [testing, python]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1705
 followup_kind: risk_mitigation
 created_at: 2026-09-08 11:31
-updated_at: 2026-09-08 17:16
+updated_at: 2026-09-08 17:19
+completed_at: 2026-09-08 17:19
 ---
 
 ## Origin
