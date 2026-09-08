@@ -197,3 +197,10 @@ bash tests/test_freeze_engine_live.sh               # still green
 bash tests/run_all_python_tests.sh
 bash tests/test_no_raw_tmux.sh; shellcheck .aitask-scripts/aitask_codeagent.sh .aitask-scripts/aitask_frozen.sh
 ```
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-08T07:18:52Z status=pass attempt=1 type=human
+>
+> Note: deferred
