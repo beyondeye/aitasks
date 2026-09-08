@@ -299,3 +299,53 @@ Run: `bash tests/test_sync_deferral_and_quarantine.sh`, `bash tests/test_sync.sh
 > | `tests/test_sync_action_runner.py` both have to move together.
 > | 
 > | Advisory only, and dated: verify line numbers against the current tree.
+
+> **✉ note:t1727** id=2026-09-08T13:49:04Z.ecee5ba007969d0b8ec0ae31 from=t1727 from_verified=yes at=2026-09-08T13:49:04Z base=dfbcc0f2a2cd5054573796a8262eebc407bb169a base_branch=main dirty=no host=omg16
+>
+> | t1727 landed and reshaped both files your "Key files" section indexes by line
+> | number. Every `aitask_sync.sh` line you cite above ~900 has moved, and the two
+> | `task_utils.sh` ones have moved as well. Re-derive before you plan against them.
+> | 
+> | `aitask_sync.sh` is now 1202 lines (was ~1374): `try_auto_merge`,
+> | `_rebase_advance` and `_resolve_conflict_path` were extracted into the new
+> | `lib/task_automerge.sh`, and `do_pull_rebase`'s hand-rolled auto-merge/advance
+> | loop collapsed into one call. Measured now:
+> | 
+> |   show_help 75 | batch_out 175 | _sync_test_seam 280 | _protect 289
+> |   _pct_encode 317 | _pct_decode 330 | _lock_snapshot 404 | _holder_verdict 434
+> |   _sweep_dirty 609 | _commit_group 763 | report_skipped 866
+> |   count_local_ahead 898 | count_remote_ahead 902 | do_pull_rebase 909
+> |   do_push 1027 | main 1096
+> | 
+> | So your `do_pull_rebase (~998)` is 909, `do_push (~1152)` is 1027, and
+> | `main (~1221)` is 1096 — the gate you cite at ~1269-1280 and the do_push retry
+> | branch at ~1186-1205 shifted by roughly the same -125.
+> | 
+> | `lib/task_utils.sh` is now 2626 lines (was ~2462): `task_data_converge (~943)`
+> | is 1394, `get_user_email (~1533)` is 1985, `_task_pull_rebase` is 1100 and
+> | `_task_pull_rebase_cleanup` is 1140.
+> | 
+> | Two substantive changes, not just movement, that touch what this task plans:
+> | 
+> | 1. `_task_pull_rebase_cleanup` no longer always returns 0. It returns 10 when it
+> |    auto-merged the conflict and completed the rebase, and `_task_pull_rebase`
+> |    maps that back to rc=0. Anything you add around that call must absorb the
+> |    status (`|| rc=$?`) — both files run under `set -euo pipefail`, so a bare
+> |    call now exits the shell on the SUCCESS path.
+> | 
+> | 2. `do_pull_rebase`'s conflict branch is now
+> |    `ait_automerge_rebase_loop || loop_rc=$?` with a `case` on 0/2 and a
+> |    fall-through to the existing batch/interactive handling for 1. The `exit 0`
+> |    sites you cite at ~1037 and ~1069 collapsed to one, in the surviving
+> |    batch branch.
+> | 
+> | Bearing on this task's own goal: t1727 only changed the CONFLICT path of
+> | `_task_pull_rebase`. The fast-forward-when-nothing-is-local-ahead idea is
+> | untouched and still stands — if anything it is now strictly complementary, since
+> | the pull that does conflict holds the data-worktree pull mutex for longer than
+> | it used to (the auto-merge runs inside it, capped at 50 rounds via
+> | AIT_AUTOMERGE_MAX_ROUNDS). Removing the conflict-free pulls therefore also
+> | shortens contention on that mutex, which is worth stating in your rationale.
+> | 
+> | Advisory only — verify each number against the tree yourself; this was written
+> | against the commit named below and the file may have moved again since.
