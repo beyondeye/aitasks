@@ -800,7 +800,24 @@ task_push() {
         return 0
     fi
 
-    local before_count push_err="" rebase_err="" out="" detail=""
+    # TWO accumulators, deliberately (t1727). `rebase_err` keeps EVERYTHING the
+    # pulls said and feeds the user-facing `unknown` detail line. `rebase_block`
+    # keeps only what a pull that FAILED said, and is the sole input to the
+    # blocker classification.
+    #
+    # They must be separate because a pull can now succeed BY RESOLVING a
+    # conflict: `_task_pull_rebase` still forwards git's own "CONFLICT (content)"
+    # text even when the auto-merge then completed the rebase. Classifying that
+    # blob would hit _task_push_classify's `rebase_conflict` arm — which is
+    # ordered ahead of the remote/diverged arms — so a later push failing on an
+    # unreachable remote would be reported as a conflict that no longer exists,
+    # with a hint telling the user to reconcile a divergence that is not there.
+    #
+    # The rule is "a pull that succeeded describes no blocker", keyed on the exit
+    # status rather than on the auto-merge sentinel: it is the general statement,
+    # and it is behaviour-preserving for every pre-t1727 case, where rc 0 already
+    # implied git printed no conflict text.
+    local before_count push_err="" rebase_err="" rebase_block="" out="" detail=""
     before_count="$(_task_push_unpushed_count)"
 
     local max_attempts=3
@@ -820,8 +837,12 @@ task_push() {
         # Accumulate every attempt's output: attempt 1 carries the real
         # blocker, later attempts only echo the state it left behind.
         if [[ $attempt -lt $max_attempts ]]; then
-            out="$(_task_pull_rebase 2>&1)" || true
+            local pull_rc=0
+            out="$(_task_pull_rebase 2>&1)" || pull_rc=$?
             rebase_err+="${out}"$'\n'
+            # Only a FAILED pull contributes to the blocker classification; see
+            # the two-accumulator note above.
+            [[ $pull_rc -ne 0 ]] && rebase_block+="${out}"$'\n'
             _task_pull_report_automerge "$out"
             case "$out" in
                 *"$AIT_PULL_AUTOMERGED_SENTINEL"*)
@@ -843,7 +864,7 @@ task_push() {
     # All attempts exhausted — best-effort, so don't fail the workflow, but
     # don't report silent success either.
     TASK_PUSH_STATUS="failed"
-    TASK_PUSH_REASON="$(_task_push_classify "$push_err" "$rebase_err")"
+    TASK_PUSH_REASON="$(_task_push_classify "$push_err" "$rebase_block")"
     TASK_PUSH_UNPUSHED="$(_task_push_unpushed_count)"
     if [[ "$TASK_PUSH_REASON" == "unknown" ]]; then
         detail="$(_task_push_first_line "${push_err}"$'\n'"${rebase_err}")"

@@ -1885,8 +1885,14 @@ TASKEOF
 
 # Push a conflicting edit to aitasks/t1_sample.md from a second clone.
 # Args are the same as write_sample_task's, minus the path.
+# VERIFIES that it actually advanced the remote. The clone and the push used to
+# swallow their errors with 2>/dev/null; when either silently failed the remote
+# was never ahead, the pull under test found nothing to conflict with, and the
+# test failed on its BEHAVIOUR assertions instead of naming the broken fixture.
+# A precondition that can fail silently is not a precondition.
 advance_remote_task() {   # <boardcol> <labels> <updated_at> [body]
-    local tmp
+    local tmp before after
+    before="$(git -C "$TEST_REMOTE" rev-list --count HEAD 2>/dev/null || echo 0)"
     tmp="$(mktemp -d "${TMPDIR:-/tmp}/ait_push_am_XXXXXX")"
     git clone --quiet "$TEST_REMOTE" "$tmp/other" 2>/dev/null
     git -C "$tmp/other" config user.email "other@test.com"
@@ -1896,6 +1902,14 @@ advance_remote_task() {   # <boardcol> <labels> <updated_at> [body]
     git -C "$tmp/other" commit -m "pc2: conflicting frontmatter edit" --quiet
     git -C "$tmp/other" push --quiet 2>/dev/null
     rm -rf "$tmp"
+    after="$(git -C "$TEST_REMOTE" rev-list --count HEAD 2>/dev/null || echo 0)"
+    TOTAL=$((TOTAL + 1))
+    if [[ "$after" -gt "$before" ]]; then
+        PASS=$((PASS + 1))
+    else
+        FAIL=$((FAIL + 1))
+        echo "FAIL: fixture: advance_remote_task did not advance the remote ($before -> $after)"
+    fi
 }
 
 # Seed + push the shared starting point both sides diverge from.
@@ -2245,31 +2259,69 @@ assert_contains "57: both sides merged (remote label)" "ui" "$merged57"
 
 popd > /dev/null || exit 1
 
-# --- Test 58: the push progress grant TERMINATES ---
-echo "--- Test 58: a persistently conflicting remote stops at the hard cap ---"
+# --- Test 58: the push progress grant is REACHED and terminates ---
+echo "--- Test 58: every retry auto-merges a fresh conflict; stops at the cap ---"
 
+# The grant only fires when a retry pull actually AUTO-MERGES something, so the
+# remote must hand each retry a NEW frontmatter conflict. A fixture that merely
+# rejects pushes never reaches the grant at all and would pass against the old
+# three-attempt loop — which is exactly what the first version of this test did.
+#
+# The shim therefore does two things per push: advance the remote with a fresh
+# conflicting `boardcol` edit, and reject the push. Every subsequent pull then
+# finds a real conflict, auto-merges it, and returns an attempt to the budget —
+# until the budget runs out.
 setup_remote_and_clone
 pushd "$TEST_LOCAL" > /dev/null || exit 1
 reload_task_utils
 _AIT_DATA_WORKTREE="."
 
 seed_sample_task
+# One local commit on an ADJACENT field, so every replay overlaps the remote's
+# boardcol hunk.
 write_sample_task aitasks/t1_sample.md backlog "[api, ui]" "2026-01-01 10:00"
 git add -A
 git commit -m "local claim" --quiet
 
-# An argv-keyed shim (the install_failing_add_shim shape): every push is
-# rejected, so the grant is offered a conflict it can never clear. Attempts are
-# COUNTED, so the cap is asserted as a number rather than inferred from the
-# test merely returning.
+REAL_GIT="$(command -v git)"
+SIDE58="$TEST_TMPDIR/side58"
+git clone --quiet "$TEST_REMOTE" "$SIDE58" 2>/dev/null
+git -C "$SIDE58" config user.email "other@test.com"
+git -C "$SIDE58" config user.name "Other"
+
+# Advance the remote by one conflicting commit. Calls git by ABSOLUTE path so it
+# is never intercepted by the shim below.
+cat > "$TEST_TMPDIR/bump58.sh" <<BUMPEOF
+#!/usr/bin/env bash
+n="\$1"
+"$REAL_GIT" -C "$SIDE58" pull --quiet --rebase >/dev/null 2>&1
+mkdir -p "$SIDE58/aitasks"
+cat > "$SIDE58/aitasks/t1_sample.md" <<TASKEOF
+---
+priority: high
+status: Ready
+boardcol: col\$n
+labels: [ui]
+updated_at: 2026-01-01 10:00
+---
+Task body stays the same
+TASKEOF
+"$REAL_GIT" -C "$SIDE58" add -A
+"$REAL_GIT" -C "$SIDE58" commit -q -m "remote bump \$n"
+"$REAL_GIT" -C "$SIDE58" push -q
+BUMPEOF
+chmod +x "$TEST_TMPDIR/bump58.sh"
+
+: > "$TEST_TMPDIR/push_attempts.txt"
 SHIM58="$TEST_TMPDIR/shim58"
 mkdir -p "$SHIM58"
-REAL_GIT="$(command -v git)"
 cat > "$SHIM58/git" <<SHIMEOF
 #!/usr/bin/env bash
 for _a in "\$@"; do
     if [[ "\$_a" == "push" ]]; then
         echo x >> "$TEST_TMPDIR/push_attempts.txt"
+        n=\$(wc -l < "$TEST_TMPDIR/push_attempts.txt" | tr -d ' ')
+        bash "$TEST_TMPDIR/bump58.sh" "\$n" >/dev/null 2>&1
         echo "error: failed to push some refs (non-fast-forward)" >&2
         exit 1
     fi
@@ -2277,7 +2329,6 @@ done
 exec "$REAL_GIT" "\$@"
 SHIMEOF
 chmod +x "$SHIM58/git"
-: > "$TEST_TMPDIR/push_attempts.txt"
 
 PATH="$SHIM58:$PATH" task_push 2>/dev/null
 push_rc=$?
@@ -2285,15 +2336,100 @@ attempts58="$(wc -l < "$TEST_TMPDIR/push_attempts.txt" | tr -d ' ')"
 
 assert_success "58: task_push returns 0 (best-effort contract)" "$push_rc"
 assert_eq "58: TASK_PUSH_STATUS is failed" "failed" "$TASK_PUSH_STATUS"
-# max_attempts(3) + _AIT_PUSH_PROGRESS_GRANTS(2) = 5. The grant must be bounded;
-# an unbounded one loops forever against a remote that keeps re-conflicting.
-TOTAL=$((TOTAL + 1))
-if [[ "$attempts58" -ge 1 && "$attempts58" -le 5 ]]; then
-    PASS=$((PASS + 1))
-else
-    FAIL=$((FAIL + 1))
-    echo "FAIL: 58: push attempts out of the hard cap (got $attempts58, expected 1..5)"
-fi
+# The grant was actually REACHED — without this the attempt count below could
+# be right for the wrong reason.
+assert_eq "58: the retries really did auto-merge" "1" "$TASK_PUSH_AUTOMERGED"
+# EXACTLY max_attempts(3) + _AIT_PUSH_PROGRESS_GRANTS(2) = 5. Asserting the
+# exact number is what discriminates: the pre-grant implementation stops at 3,
+# and an unbounded grant never stops at all.
+assert_eq "58: stops at exactly the hard cap (3 attempts + 2 grants)" \
+    "5" "$attempts58"
+assert_eq_trim "58: no rebase left behind" "" "$(probe_wedge)"
+
+popd > /dev/null || exit 1
+
+# --- Test 59: a RECOVERED conflict must not classify a later failure ---
+echo "--- Test 59: post-recovery network failure is not called rebase_conflict ---"
+
+# _task_pull_rebase forwards git's own "CONFLICT (content)" text even when the
+# auto-merge then completes the rebase. If that output reached the classifier,
+# its rebase_conflict arm — ordered AHEAD of the remote/diverged arms — would
+# win over the real blocker and tell the user to reconcile a divergence that no
+# longer exists. Only a FAILED pull may contribute to the classification.
+setup_remote_and_clone
+pushd "$TEST_LOCAL" > /dev/null || exit 1
+reload_task_utils
+_AIT_DATA_WORKTREE="."
+
+seed_sample_task
+advance_remote_task now "[ui]" "2026-01-01 10:00"
+write_sample_task aitasks/t1_sample.md backlog "[api, ui]" "2026-01-01 10:00"
+git add -A
+git commit -m "local claim" --quiet
+
+REAL_GIT59="$(command -v git)"
+SHIM59="$TEST_TMPDIR/shim59"
+mkdir -p "$SHIM59"
+: > "$TEST_TMPDIR/push59.txt"
+# Push 1 goes through to the real git and is genuinely rejected (the remote is
+# ahead), so the retry pull runs and auto-merges. Every LATER push fails as an
+# unreachable remote — the blocker the classifier must actually report.
+cat > "$SHIM59/git" <<SHIMEOF
+#!/usr/bin/env bash
+for _a in "\$@"; do
+    if [[ "\$_a" == "push" ]]; then
+        echo x >> "$TEST_TMPDIR/push59.txt"
+        n=\$(wc -l < "$TEST_TMPDIR/push59.txt" | tr -d ' ')
+        if [[ \$n -gt 1 ]]; then
+            echo "fatal: Could not read from remote repository." >&2
+            exit 128
+        fi
+        break
+    fi
+done
+exec "$REAL_GIT59" "\$@"
+SHIMEOF
+chmod +x "$SHIM59/git"
+
+PATH="$SHIM59:$PATH" task_push 2>/dev/null
+push_rc=$?
+
+assert_success "59: task_push returns 0" "$push_rc"
+assert_eq "59: TASK_PUSH_STATUS is failed" "failed" "$TASK_PUSH_STATUS"
+# Precondition, so the assertion below cannot pass vacuously: the run really did
+# recover a conflict before the network failed.
+assert_eq "59: a conflict WAS auto-merged during the retries" "1" "$TASK_PUSH_AUTOMERGED"
+# THE DISCRIMINATOR. Pre-fix this reads rebase_conflict, because the recovered
+# pull's CONFLICT text was still in the classification blob.
+assert_eq "59: the real blocker is reported, not the recovered conflict" \
+    "remote_unreachable" "$TASK_PUSH_REASON"
+assert_contains "59: and the hint names the network, not a divergence" \
+    "remote unreachable" "$(_task_push_reason_hint "$TASK_PUSH_REASON")"
+
+popd > /dev/null || exit 1
+
+# --- Test 60: an UNRECOVERED conflict still classifies as rebase_conflict ---
+echo "--- Test 60: negative control - a real conflict is still a real blocker ---"
+
+# The other direction of Test 59: narrowing the classifier input must not make
+# it blind to a conflict that genuinely did not resolve.
+setup_remote_and_clone
+pushd "$TEST_LOCAL" > /dev/null || exit 1
+reload_task_utils
+_AIT_DATA_WORKTREE="."
+
+seed_sample_task
+# Diverging BODIES: the driver answers PARTIAL, the pull fails and aborts.
+advance_remote_task backlog "[ui]" "2026-01-01 10:00" "remote rewrote the body"
+write_sample_task aitasks/t1_sample.md backlog "[ui]" "2026-01-01 10:00" "local rewrote the body"
+git add -A
+git commit -m "local claim" --quiet
+
+task_push 2>/dev/null
+assert_eq "60: TASK_PUSH_STATUS is failed" "failed" "$TASK_PUSH_STATUS"
+assert_eq "60: an unresolved conflict is still rebase_conflict" \
+    "rebase_conflict" "$TASK_PUSH_REASON"
+assert_eq "60: and nothing claims an auto-merge" "" "$TASK_PUSH_AUTOMERGED"
 
 popd > /dev/null || exit 1
 
