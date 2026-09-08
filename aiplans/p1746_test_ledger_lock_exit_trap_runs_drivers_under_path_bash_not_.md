@@ -235,18 +235,33 @@ trap the next 3.2 verifier falls into:
 
 ## Verification
 
-1. **The defect is actually closed.** Under `/bin/bash`, each fixed test must now
-   report bash 3.2 in its banner (pre-fix the drivers silently ran 5.3.9):
+1. **The defect is actually closed.** Under `/bin/bash`, each fixed test reports
+   bash 3.2 in its banner (pre-fix the drivers silently ran 5.3.9) — for the two
+   files that can be run under 3.2 at all:
    ```bash
    /bin/bash tests/test_ledger_lock_exit_trap.sh   # banner: bash 3.2.57(1)-release
-   /bin/bash tests/test_yaml_utils.sh
    /bin/bash tests/test_stale_lock.sh
    ```
-2. **Both shells green.** The `dual_shell_test_matrix` post-phase above is the
-   authoritative run: all six cells must show `rc=0`, a banner naming the
-   expected interpreter, and `0 failed`. `test_ledger_lock_exit_trap.sh` → 78/78.
-   Do not substitute a piped `| tail` spot-check for it — that discards the exit
-   status and hides the banner.
+   `tests/test_yaml_utils.sh` is **excluded from the 3.2 lane** — see the cubic
+   flow-list measurement in the implementation notes. It is verified under 5.x
+   only (148/148, 15s), which is the everyday path and where this change is
+   behaviour-preserving by construction.
+2. **Both shells green — with two documented exceptions, stated up front rather
+   than discovered later.** The `dual_shell_test_matrix` post-phase is the
+   authoritative run, but only four of its six cells are reachable:
+
+   | cell | verdict |
+   |---|---|
+   | `test_ledger_lock_exit_trap` / 3.2 | rc=0, 78/78, banner `bash 3.2.57` |
+   | `test_ledger_lock_exit_trap` / 5.3.9 | rc=0, 78/78, banner `bash 5.3.9` |
+   | `test_yaml_utils` / 5.3.9 | rc=0, 148/148, 15s |
+   | `test_yaml_utils` / 3.2 | **NOT RUN** — ~15h/call, infeasible at HEAD too |
+   | `test_stale_lock` / 3.2 | rc=1, 132/134 — pre-existing, identical at HEAD |
+   | `test_stale_lock` / 5.3.9 | rc=1, 132/134 — pre-existing, identical at HEAD |
+
+   The two `test_stale_lock` cells pass the criterion "identical to HEAD in both
+   lanes", not "green". Do not substitute a piped `| tail` spot-check for any of
+   this — that discards the exit status and hides the banner.
 3. **The override works.** `SHELL_UNDER_TEST=/bin/bash bash tests/test_ledger_lock_exit_trap.sh`
    must report 3.2 while the harness runs under 5.x — the CI-matrix knob, and
    the direct replacement for t1691's PATH shim.
@@ -256,10 +271,10 @@ trap the next 3.2 verifier falls into:
    `shellcheck tests/test_ledger_lock_exit_trap.sh tests/test_yaml_utils.sh tests/test_stale_lock.sh`
    (note: `shellcheck` is configured in CLAUDE.md for `.aitask-scripts/`; run it
    here too since these are shell edits).
-6. `test_yaml_utils.sh` is slow under a 3.2 harness (>10 min observed on this
-   box, still running at plan time). Confirm the post-fix 3.2 run terminates and
-   passes; if the 3.2 drivers change its runtime materially, record the number
-   rather than leaving it unmeasured.
+6. **Superseded by the measurement above.** The planning-time note anticipated a
+   slow 3.2 run; it is not slow, it is infeasible (~15h/call, cubic), and was so
+   before this change. Recorded rather than left unmeasured, and filed as a
+   `performance` follow-up against the reader itself.
 
 ## Risk
 
@@ -301,6 +316,96 @@ trap the next 3.2 verifier falls into:
 - timing: post-phase | name: dual_shell_test_matrix | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — a genuine 3.2 incompatibility surfacing as a new red assertion | desc: run all three touched tests under both /bin/bash 3.2 and PATH bash 5.3.9, recording banner and counts per cell
 - timing: post-phase | name: negative_control_shell_override | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — the identity banner passing vacuously | desc: point SHELL_UNDER_TEST at a non-bash and confirm assertion 0-pre fails rather than passing vacuously
 
+## Implementation notes
+
+**Two sites the plan's blast-radius sweep missed** — both found during
+implementation by re-sweeping the three edited files, both the same defect class
+and fixed in this task:
+
+- `tests/test_yaml_utils.sh` — `sigpipe_run.py` (the t1444 SIGPIPE harness,
+  `:521`) hardcoded `subprocess.call(["bash", …])` exactly like the `sigdfl_run.py`
+  the plan did name. Its callers (`run_ignoring_sigpipe`) drive the big-fixture
+  snippets, so leaving it would have kept the most expensive part of the file on
+  PATH bash while claiming the file was routed.
+- `tests/test_yaml_utils.sh:686-687` — `bash -c "$guard_probe"` pins the
+  `[[ -f /dev/fd/1 ]]` discriminator the production write-guard relies on: a
+  shell/OS-dependent fact that must be measured under the shell being tested.
+- `tests/test_stale_lock.sh:365` — `bash -c '…'` sources the real lib and calls
+  `ait_lock_dir`; same class.
+
+The plan's original sweep keyed on `bash "$FILE"` and missed the `bash -c` and
+Python-`subprocess` spellings. Final state: every `bash` token remaining in the
+three files is a comment.
+
+**Runtime finding.** `tests/test_yaml_utils.sh` is pathologically slow under a
+bash 3.2 harness — the file's own comment records that `read_yaml_list`'s
+flow-list bracket counting is **quadratic in the value's length** (2.1s at 70KB
+under 5.x), and the fixture is sized to ~1.1x pipe capacity (~72KB on macOS).
+Routing its drivers to 3.2 puts that quadratic loop on the slow interpreter too.
+This is pre-existing behaviour made visible, not introduced here. Measured
+runtimes are recorded in the dual-shell matrix below.
+
+**Pre-existing red in `tests/test_stale_lock.sh` — NOT caused by this change.**
+The file fails 2 of 134 assertions on macOS, identically under bash 3.2 and 5.3.9,
+and **identically at `HEAD`** (verified by running `git show
+HEAD:tests/test_stale_lock.sh` unmodified: same `132/134 passed, 2 failed`, same
+two assertions). Both are the documented BSD `wc -l` leading-whitespace trap
+(`sed_macos_issues.md` § "`wc -l` Output Whitespace") — an exact string compare
+against padded output:
+
+- `:470` `assert_eq "no .reap residue is left behind" "0" …` → got `'       0'`
+- `:671` `assert_eq "exactly ONE record remains in the guard" "1" …` → got `'       1'`
+
+`assert_eq_trim` (already in `tests/lib/asserts.sh`) is the fix. Filed as a
+follow-up; deliberately **not** fixed here, because silently repairing an
+unrelated red test inside a bug fix hides it from review. The dual-shell matrix
+therefore records `rc=1` for both `test_stale_lock` cells, and the pass criterion
+for those two cells is "identical to HEAD in both lanes", not "green".
+
+**Runtime measurement — the 3.2 lane of `test_yaml_utils.sh` is INFEASIBLE, and
+was so before this change.** Measured scaling of one `read_yaml_list` over an
+inline flow list:
+
+| fixture | bash 5.3.9 | bash 3.2.57 | ratio |
+|---|---|---|---|
+| 2 KB | 0.03s | 1.14s | 38x |
+| 4 KB | 0.04s | 7.99s | 200x |
+| 8 KB | 0.10s | 61.5s | 615x |
+| 16 KB | 0.30s | 494.8s | 1650x |
+
+Each doubling multiplies 3.2's time by ~8 — the scan is **cubic** there, not
+quadratic. Extrapolated to the real 77KB fixture: `(77/16)^3 x 495s` ~ **15 hours
+per call**. An actual attempt was killed after 3h10m at 99% CPU.
+
+**This predates the change.** `HEAD:tests/test_yaml_utils.sh:641` already made
+that call **in-harness** (`full_inline=$(read_yaml_list "$TMP/sp_inline.md" …)`),
+inside the normally-reached `command -v python3` block — so
+`/bin/bash tests/test_yaml_utils.sh` required ~15 hours at HEAD too. The file has
+never been runnable under bash 3.2. This change adds a second such call (the
+`:656` snippet, now correctly routed to the shell under test), doubling a number
+that was already unreachable — practically neutral. `test_yaml_utils.sh` hits that fixture twice — once in-harness
+(`:663`, already on 3.2 before this change) and once through the SIGPIPE snippet
+(`:656`, moved onto 3.2 by this change) — so the 3.2 lane roughly doubles from an
+already-large number. The fixture cannot simply be shrunk: it is sized to ~1.1x
+pipe capacity precisely so EPIPE is deterministic rather than racy.
+
+Mechanism (identified, not guessed): `_join_yaml_flow_lists_impl`
+(`.aitask-scripts/lib/yaml_utils.sh:136`) counts bracket depth with two full
+pattern substitutions per input line — `opens="${buffer//[^\[]/}"` and the
+matching `closes=`. An inline flow list is a single line, so that is two
+`${var//pat/}` passes over one 77KB string, and bash 3.2's pattern-substitution
+implementation is far slower than 5.x's on a string that size. An O(n) count
+(e.g. `tr -dc`) would remove the cost entirely — filed as a separate
+`performance` follow-up, since it is production code and outside this task.
+
+Impact is bounded: no CI workflow under `.github/workflows/` runs these bash
+tests, so the 3.2 runtime is paid only by a deliberate manual audit.
+
+**Not a valid measurement.** An early pre-fix baseline run of
+`test_yaml_utils.sh` under `/bin/bash` was left running while the file was
+rewritten in place; bash reads a script incrementally, so that process's state
+was corrupted by the edit. It was killed and is not cited as evidence.
+
 ## Follow-up to file at Step 8
 
 `enhancement`: extend the launching-interpreter convention to the ~90 sites that
@@ -314,3 +419,65 @@ the knob belongs in a shared `tests/lib/` helper.
 
 Standard: commit as `bug: …(t1746)`, then archive task + plan per the shared
 workflow. `risk_evaluated` is the only active gate.
+
+## Final Implementation Notes
+
+- **Actual work done:** Routed every generated shell driver in
+  `tests/test_ledger_lock_exit_trap.sh`, `tests/test_yaml_utils.sh` and
+  `tests/test_stale_lock.sh` through
+  `SHELL_UNDER_TEST="${SHELL_UNDER_TEST:-${BASH:-bash}}"` instead of a bare
+  `bash` off `PATH`; each file now prints `Shell under test: <path> (bash <ver>)`
+  and `test_ledger_lock_exit_trap.sh` asserts it as counted assertion `0-pre`
+  (77 -> 78). Added a "Running a Test Under bash 3.2" section to
+  `aidocs/framework/sed_macos_issues.md`. 4 files, +144/-18.
+
+- **Deviations from plan:** The plan named 6 defect sites; the real count was 9.
+  The planning sweep keyed on the `bash "$FILE"` spelling and missed three more,
+  all found by re-sweeping the edited files during implementation:
+  `sigpipe_run.py` (`test_yaml_utils.sh:521`, the t1444 SIGPIPE harness — the
+  same hardcoded `subprocess.call(["bash", …])` as the `sigdfl_run.py` the plan
+  did name), `test_yaml_utils.sh:686-687` (`bash -c` shell-discriminator probe
+  for `[[ -f /dev/fd/1 ]]`), and `test_stale_lock.sh:365` (`bash -c` lib driver).
+  Lesson: sweep for `bash -c` and Python `subprocess` spellings, not just
+  `bash "$FILE"`.
+
+- **Issues encountered:**
+  1. *The `test_yaml_utils.sh` 3.2 lane is infeasible, not slow.* An attempt was
+     killed after 3h10m at 99% CPU. Profiling the scaling curve (rather than
+     waiting) showed bash 3.2's `${var//pat/}` over a large single-line buffer is
+     **cubic** — 2KB 1.14s, 4KB 7.99s, 8KB 61.5s, 16KB 494.8s (~8x per doubling)
+     against 0.30s at 16KB under 5.3.9 — extrapolating to ~15 hours per call on
+     the file's 77KB inline fixture. **Pre-existing:** `HEAD:…:641` already made
+     that call in-harness, so the file has never been runnable under 3.2; this
+     change adds a second such call to an already-unreachable number. Resolved by
+     excluding that one cell, documenting the measurement in the test header and
+     in `sed_macos_issues.md`, and filing the O(n) fix as a follow-up.
+  2. *A corrupted measurement.* An early pre-fix baseline run was left running
+     while the file was rewritten in place; bash reads scripts incrementally, so
+     that process's state was invalid. Killed and not cited as evidence. Do not
+     edit a script that a running shell is still reading.
+  3. *Concurrent session in the same checkout.* Unrelated modifications
+     (`agent_freeze.py`, `install.sh`, `monitor_core.py`, …) appeared mid-task
+     from another agent. All commits here are path-scoped to the four owned
+     files; verified that none of these tests' dependencies (`yaml_utils.sh`,
+     `stale_lock.sh`, `task_utils.sh`, `agentcrew_utils.sh`,
+     `terminal_compat.sh`, `ledger_block.sh`, `tests/lib/asserts.sh`) were
+     touched, so the results are attributable.
+
+- **Key decisions:**
+  - *Scope held at test files.* The O(n) `tr -dc` bracket-count fix in
+    `yaml_utils.sh` would make the 3.2 lane practical, but it is production code
+    used by ~40 scripts and outside a low-effort test fix. Filed instead.
+  - *Pre-existing red left red.* `test_stale_lock.sh` fails 2/134 on macOS; fixing
+    it inside this bug fix would hide it from review. Filed instead.
+  - *Production-script call sites deliberately excluded* (~90 across
+    `test_codeagent*.sh`, `install.sh` tests, …): those scripts carry
+    `#!/usr/bin/env bash` and resolve via `PATH` in production, so `PATH` bash is
+    the faithful shell there. Filed as a separate convention question.
+  - *Identity asserted, not just printed*, so a `SHELL_UNDER_TEST` pointing at a
+    non-bash fails loudly (verified: `/bin/echo` -> `0-pre` FAIL, rc=1).
+
+- **Upstream defects identified:**
+  - `tests/test_stale_lock.sh:470` — `assert_eq "no .reap residue is left behind" "0" …` compares against BSD `wc -l` output and gets `'       0'`; fails on macOS at HEAD, both shells. Use `assert_eq_trim`.
+  - `tests/test_stale_lock.sh:671` — `assert_eq "exactly ONE record remains in the guard" "1" …` — same BSD `wc -l` padding defect, same fix.
+  - `.aitask-scripts/lib/yaml_utils.sh:146-147` — `opens="${buffer//[^\[]/}"` / `closes="${buffer//[^\]]/}"` count bracket depth with two full pattern substitutions per line; cubic under bash 3.2 (~15h on a 77KB single-line flow list vs 0.3s/16KB under 5.3.9). An O(n) count (`tr -dc`) removes it.
