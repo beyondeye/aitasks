@@ -650,6 +650,30 @@ in the guard's comment; no further action
     and `echo ""` from the deleted dead function), so the derived writer set is
     untouched.
 
+- **POST-ARCHIVAL DEFECT — found by using the change, fixed in `ca3d51969`.**
+  Archiving this task exercised its own new code and exposed the risk the `##
+  Risk` section named first: *silently dropping a legitimate co-change*.
+  `handle_folded_tasks` stages folded-task removals with `task_git rm`, and the
+  new path-scoped commit did not name them — so `aitasks/t1662_*.md` was deleted
+  from disk with its deletion **staged but uncommitted**, left in the shared
+  index for an unrelated session's commit to absorb. The index-wide commit used
+  to carry it for free; scoping removed that accident without replacing it.
+
+  Fixed by recording every removed path in `FOLDED_DELETED_PATHS` (accumulated,
+  not reset per call — the child flow invokes the function for the child and
+  again for the parent before one commit) and adding it to both commit
+  pathspecs; the folded plan is now removed one glob match at a time so each path
+  is known individually. The stranded live deletion was committed separately in
+  `c6c13999c`.
+
+  **Why the tests missed it:** `tests/test_archive_folded.sh` Tests A-C asserted
+  the folded file was gone from disk and that `FOLDED_DELETED:` was printed —
+  never that the removal reached the commit. Test D now asserts both the deletion
+  is in the commit and that nothing is left staged; it fails three assertions
+  against the pre-fix pathspec. The general lesson matches the one already
+  recorded above: an "is it gone?" assertion is not a "was it committed?"
+  assertion, and only the second one covers the shared index.
+
 - **Ownership boundary held.** `git diff --name-only` lists none of
   `aitask_pick_own.sh`, `aitask_fold_mark.sh`, `aitask_sync.sh`,
   `aitask_lock.sh`. Two files in the worktree are **not** part of this task and
