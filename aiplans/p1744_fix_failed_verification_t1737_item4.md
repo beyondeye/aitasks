@@ -172,6 +172,56 @@ Run once, in order:
    returned path still a non-symlink copy of the system `sleep`. This is the
    original verification item, now passing.
 
+## Implementation record
+
+All plan steps completed as written; no deviations from the approved approach.
+
+1. `tests/lib/fake_agent_binary.py` — loop rewritten over thunks, plus the
+   docstring clause making the lazy contract explicit.
+2. `tests/test_fake_agent_binary_ladder.py` — the five cases as planned.
+
+### Post-review change (Step 8 iteration 1)
+
+`setUp` created a `mkdtemp` per case with no matching cleanup, leaking five
+`ait-ladder-test-*` directories per run. Fixed with
+`self.addCleanup(shutil.rmtree, self.tmp, True)` registered immediately after
+the `mkdtemp` — `addCleanup` rather than `tearDown` so it also fires after a
+failing assertion. Measured both ways: 25 stragglers had accumulated from the
+five verification runs above; after the fix a passing run and a deliberately
+failing run (eager mutant re-applied) each added **0**. The 25 were removed.
+
+Verification results:
+
+1. `python3 tests/test_fake_agent_binary_ladder.py` — **5/5 OK** (0.007s).
+2. **Mutation check** — three mutants applied and reverted in place (by edit, not
+   `git restore`, since this worktree is shared and dirty):
+   - the literal pre-fix eager tuple → **1 failure**, case 1 only;
+   - the subtler *callable-but-eagerly-bound* form
+     `(_sleep_binary, lambda v=_compiled_sleeper_path(): v)` — a genuine callable
+     that still pays the compile → **1 failure**, case 1 only. This is the
+     regression a `callable()` assertion or a type annotation would miss;
+   - `if _runs(dest): return dest` → unconditional `return dest` (path B removed)
+     → **3 failures**: cases 2, 4 and 5. Recorded because it is the mutant the
+     originally planned positive control (a nonexistent rung-1 source, path A
+     only) would **not** have detected — the plan-review concern that added the
+     `fail_stub` was correct, and this is the evidence it is closed.
+
+   The module was byte-identical to its pre-mutation state after each revert.
+3. `python3 tests/test_agent_keys.py` — **18/18 OK** (5.2s).
+4. `python3 tests/test_prompt_scoping_live.py` — **4/4 OK** (0.3s), no skips.
+5. **The original t1737 item #4 measurement, re-run in a fresh process on this
+   Linux box:**
+
+   ```
+   returned path is a copy of /usr/bin/sleep : True
+   returned path is a symlink                : False
+   rung-2 (_compiled_sleeper_path) CALL COUNT: 0   (t1737 measured 1)
+   mode                                      : 0o755
+   ```
+
+   The verification item now holds in full: rung 1 is taken, the compiled and
+   symlink rungs are not, and rung 2 is no longer evaluated at all.
+
 ## Risk
 
 ### Code-health risk: low
@@ -195,3 +245,39 @@ code path is touched, and the change is two lines within a single function.
 None. The single identified risk is already mitigated by an explicit step of this
 plan (cases 4 and 5), so there is no candidate left to spawn or to inline as a
 separate phase.
+
+## Final Implementation Notes
+
+- **Actual work done:** Exactly the approved plan. `tests/lib/fake_agent_binary.py`
+  now iterates the source ladder over thunks (`for get_source in (_sleep_binary,
+  _compiled_sleeper_path): source = get_source()`), so rung 2's C compile is paid
+  for only when rung 1 has failed; the module docstring states that lazy contract
+  explicitly. New `tests/test_fake_agent_binary_ladder.py` pins it at the
+  production boundary with five cases (163 lines), none of which invokes a real
+  compiler.
+- **Deviations from plan:** None in approach. One post-review addition (Step 8
+  iteration 1): `addCleanup(shutil.rmtree, ...)` for the per-case `mkdtemp`.
+- **Issues encountered:** None during implementation. The plan itself was
+  strengthened twice by review before and during Step 8 — see "Key decisions".
+- **Key decisions:**
+  - **Thunks over a `sys.platform` branch.** The module's stated design is to
+    verify each rung by running it rather than branching on the platform; making
+    the tuple lazy preserves that and changes only *when* a rung is built.
+  - **Cover the loop's two fall-through paths separately.** `fake_agent_binary`
+    can leave a rung either because `shutil.copy` raised (path A) or because the
+    copy landed and `_runs()` rejected it (path B). Path B is the macOS case the
+    module exists for. An earlier draft of the plan used only a nonexistent
+    rung-1 source — path A — and mutation testing confirmed that draft would have
+    missed a regression removing the `if _runs(dest)` check entirely: that mutant
+    fails cases 2, 4 and 5, all of which exist because of the path-B control.
+  - **`sh` stubs rather than the system `sleep`** as rung sources in tests. A
+    copy of the platform `sleep` will not execute on macOS, so a stub is what
+    makes each case deterministic on both platforms; an `exit 1` stub is what
+    produces a path-B failure with the *real* `_runs`.
+  - **Independent ground truth for rung 3.** Case 5 stubs `_runs` to False to
+    reach the symlink rung, so the module's own verdict cannot be the evidence;
+    the test executes the link under a real `subprocess.run` instead.
+  - **Mutation-verified.** Three mutants, each reverted by an exact inverse edit
+    rather than `git restore` (this worktree is shared and carries unrelated
+    in-flight work from another session).
+- **Upstream defects identified:** None
