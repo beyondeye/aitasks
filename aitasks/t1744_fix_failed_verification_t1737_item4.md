@@ -12,8 +12,9 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1705
 followup_kind: verification_failure
+implemented_with: claudecode/opus5
 created_at: 2026-09-08 17:16
-updated_at: 2026-09-08 17:27
+updated_at: 2026-09-08 21:57
 ---
 
 ## Failed verification item from t1729
@@ -121,3 +122,8 @@ for get_source in (_sleep_binary, _compiled_sleeper_path):
 **Negative control:** forcing rung 1's copy to be unrunnable (patching `_runs` to
 return `False` for the first dest) does fall through to rung 2 and returns the
 compiled sleeper — so the fallback path itself is sound.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-08T18:57:58Z status=pass attempt=1 type=human
