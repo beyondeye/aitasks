@@ -566,3 +566,70 @@ task selection". The batch-protocol table is untouched, and
     auto-merge" instead of breaking.
 
 - **Upstream defects identified:** None
+
+## Post-Archival Corrections
+
+Two defects found in review after t1727 archived, both confirmed and fixed in a
+follow-up commit tagged `(t1727)`.
+
+### 1. A recovered conflict poisoned the push failure classification (code defect)
+
+`task_push` appended **every** `_task_pull_rebase` capture to `rebase_err`,
+including git's own `CONFLICT (content)` text from a pull that then auto-merged
+**successfully** — `_task_pull_rebase` forwards that text regardless of the
+eventual outcome. `_task_push_classify` checks its `rebase_conflict` arm *ahead*
+of the remote/diverged arms, so a later push failing on an unreachable remote
+was reported as `rebase_conflict`, with the hint "rebase hit conflicts and was
+aborted … local and remote diverge — reconcile with 'ait syncer'". Both halves
+were false: the rebase had succeeded, and the real blocker was the network.
+
+This was **introduced by t1727**. Before it, a conflicted pull never
+auto-recovered, so `CONFLICT` in `rebase_err` always meant a genuinely
+unresolved conflict.
+
+Fixed by splitting the accumulator in two: `rebase_err` still collects
+everything and feeds the user-facing `unknown` detail line, while a new
+`rebase_block` — fed **only** by pulls that returned non-zero — is the sole
+input to `_task_push_classify`. The rule is keyed on the pull's exit status
+("a pull that succeeded describes no blocker"), not on the auto-merge sentinel,
+because that is the general statement and is behaviour-preserving for every
+pre-t1727 case, where rc 0 already implied git printed no conflict text.
+
+### 2. Test 58 never reached the progress grant (vacuous test)
+
+The original fixture rejected every push but created **no** remote conflict, so
+`_task_pull_rebase` succeeded cleanly, emitted no sentinel, and the grant branch
+was never entered. Its `1..5` range assertion also accepted the pre-grant
+three-attempt loop, so it could not have detected the grant being absent.
+
+Rebuilt: the push shim now advances the remote with a fresh conflicting
+`boardcol` edit on every rejection, so each retry pull finds a real conflict and
+auto-merges it. The assertion is now the **exact** count `5`
+(`max_attempts` 3 + `_AIT_PUSH_PROGRESS_GRANTS` 2), plus
+`TASK_PUSH_AUTOMERGED=1` as the precondition that the grant was actually
+reached.
+
+### Mutation-verified
+
+Neither test is a tautology; each was run against a mutant of the half it covers:
+
+| mutant | expected | observed |
+|---|---|---|
+| classify against `$rebase_err` again | Test 59 fails | `expected 'remote_unreachable', got 'rebase_conflict'` + the wrong hint (2 assertions) |
+| `_AIT_PUSH_PROGRESS_GRANTS=0` | Test 58 fails | `expected '5', got '3'` — confirming the old `1..5` range accepted the pre-grant loop |
+
+### Also added
+
+- **Test 60** — the other direction of Test 59: an *unrecovered* body conflict
+  must still classify as `rebase_conflict`. Narrowing the classifier's input
+  must not make it blind to a conflict that genuinely did not resolve.
+- **`advance_remote_task` now verifies it advanced the remote.** Its clone and
+  push swallowed errors with `2>/dev/null`; when either silently failed, the
+  remote was never ahead and the test failed on its *behaviour* assertions
+  instead of naming the broken fixture. This was observed once as a transient
+  2-failure run. A precondition that can fail silently is not a precondition.
+
+`tests/test_task_push.sh`: 324 → **346** assertions, stable across three
+consecutive runs. `test_sync.sh` 42/0, `test_sync_branch_mode_automerge.sh`
+48/0, `test_task_git.sh` 105/0, `test_sync_deferral_and_quarantine.sh` 52/0,
+`test_task_commit_scoped.sh` 63/0. No new shellcheck warnings.
