@@ -3,11 +3,12 @@ priority: medium
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [shadow, aitask_monitormini, skills, tests]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-09-08 09:53
-updated_at: 2026-09-08 09:53
+updated_at: 2026-09-08 09:54
 ---
 
 Make the shadow agent's review output understandable to a human reviewer who
