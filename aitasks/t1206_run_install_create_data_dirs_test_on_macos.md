@@ -3,13 +3,14 @@ priority: low
 effort: low
 depends: []
 issue_type: manual_verification
-status: Ready
+status: Implementing
 labels: []
 verifies: [1193]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1199
 followup_kind: manual_verification
 created_at: 2026-07-21 17:54
-updated_at: 2026-08-13 23:06
+updated_at: 2026-09-08 17:08
 boardcol: tests
 boardidx: 2118
 ---
