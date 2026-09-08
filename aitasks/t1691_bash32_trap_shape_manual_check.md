@@ -9,7 +9,7 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1681
 followup_kind: risk_mitigation
 created_at: 2026-09-02 17:06
-updated_at: 2026-09-08 17:15
+updated_at: 2026-09-08 17:24
 ---
 
 ## Origin
@@ -74,3 +74,11 @@ merely detectable).
 - Test: `tests/test_ledger_lock_exit_trap.sh`
 - Consumer using the chained spelling: `.aitask-scripts/aitask_note.sh`
 - Portability notes: `aidocs/framework/sed_macos_issues.md`
+
+## Verification Checklist
+
+- [x] On a macOS machine (system bash 3.2 at `/bin/bash`), run `/bin/bash tests/test_ledger_lock_exit_trap.sh` — PASS 2026-09-08 17:24 auto: ran under /bin/bash 3.2.57 (arm64-apple-darwin24) on Darwin 24.6.0 - 77 passed, 0 failed, exit 0. NOTE: the harness invokes drivers via bare `bash`, so a re-run with /bin/bash shimmed first on PATH was also done (also 77/77) - that second run is the one that truly exercised 3.2.
+- [x] Confirm group 0 (0a-0d) passes — the `trap -- '…' EXIT` rendering is what the guard parses — PASS 2026-09-08 17:24 auto: 0a-0d pass under bash 3.2. Direct probe confirms both facts: trap -p EXIT inside $() reports the parent trap, and the handler renders single-quoted verbatim - bare/quoted => trap -- 'show' EXIT; chained => trap -- 'c; show' EXIT; multiline keeps its newline.
+- [x] Confirm case 2 / 2b-i passes — the guard fires and warns on the naive chain, proving it is live on that shell rather than silently degraded — PASS 2026-09-08 17:24 auto: 2 / 2a / 2b / 2b-i / 2c pass under bash 3.2. Direct probe of the naive chain (trap "cleanup; ait_ledger_lock_exit_trap" EXIT; exit 3) emits the warning naming ait_ledger_lock_exit_trap and exits exactly 1 - the guard is live on 3.2, not silently degraded.
+- [x] Confirm cases 1 / 2b / 2c exit exactly 1 and case 3 preserves 7 / 255 exactly — PASS 2026-09-08 17:24 auto: cases 1 / 2b / 2c exit exactly 1; case 3 preserves 7 (3) and 255 (3b) exactly, and 3a confirms silence. All green under bash 3.2.
+- [x] Confirm cases 8-11 behave (0-255 accepted verbatim; 256/512/010/08 rejected with exactly one stderr line and no `value too great for base` / `integer expected` diagnostic) — PASS 2026-09-08 17:24 auto: 8 / 8-i accept 0-255 verbatim and silently; 8b / 8b-i reject 256 and 512 with a warning; 9 rejects leading zeros (010, 08); 10 / 10a reject empty and malformed; 11 emits exactly one stderr line and 11a / 11b confirm no "value too great for base" or "integer expected" diagnostic. All green under bash 3.2.
