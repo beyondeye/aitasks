@@ -341,3 +341,115 @@ own git-dir resolution. `ait note` at Step 8, alongside the notes above.
 - timing: pre-phase | name: characterize_wedge_guard | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — delegating assert_data_worktree_clean's loop | desc: capture tests/test_task_git.sh Test 16's six-state verdict as a pre-refactor baseline and require it unchanged after
 - timing: after | name: gateway_pull_policy | type: bug | priority: medium | effort: medium | inline_risk: high | added_complexity: high | addresses: goal — ./ait git pull leaves a wedge, and the argv parser it needs also fixes the refused `-c … rebase --abort` recovery | desc: add ait_git_subcmd_index, route gateway pulls through the guarded cleanup, retrofit the two subcommand classifiers, and state the merge-mode bound
 - timing: after | name: crew_pull_cleanup | type: bug | priority: medium | effort: medium | inline_risk: medium | added_complexity: medium | addresses: goal — crew worktrees abort unconditionally with no serialization | desc: apply the ownership-checked cleanup and a per-gitdir lock to the two crew pull sites
+
+## Final Implementation Notes
+
+- **Actual work done:** All ten main steps landed in `lib/task_utils.sh`, plus the
+  `aitask_pick_own.sh` header contract and the tests.
+  - `_ait_inprogress_state_at <gitdir>` is now the single in-progress-state loop.
+    Three readers share it: `ait_data_inprogress_state` (contract unchanged —
+    still empty in legacy mode), `assert_data_worktree_clean` (its loop was
+    byte-equivalent), and the new `_data_wedge_state`. `task_git_health` keeps its
+    own loop deliberately — it collects ALL hits, not the first.
+  - `_data_wedge_gitdir()` resolves by `ait_data_mode`, so legacy mode falls back
+    to `git rev-parse --git-dir` while branch mode never does (that would inspect
+    the wrong repository). `_data_wedge_state()` = the two composed. Both are what
+    sibling t1725_2 consumes.
+  - `ait_pull_mutex_acquire` / `ait_pull_mutex_release`: a seconds-deadline
+    adapter over `stale_lock_acquire`/`stale_lock_release` with a private token
+    slot, lock dir `<data git-dir>/aitask-pull.lock`. `task_utils.sh` now sources
+    `lib/stale_lock.sh`.
+  - `ait_rebase_abort_if_ours <runner> <gitdir> <head_before> <state>` returns
+    `aborted` / `abort_failed` / `not_ours`, re-reading the state after the abort
+    so a swallowed `|| true` failure cannot be reported as success.
+  - `_task_pull_rebase` acquires the mutex, snapshots state + HEAD, pulls, and
+    delegates the decision to `_task_pull_rebase_cleanup` (split out purely to
+    keep a single exit point around the release). Five fail-closed signals.
+  - Three new reason codes (`rebase_in_progress`, `data_midop`, `pull_locked`)
+    with classifier arms ordered before the CONFLICT arm, matching hints, and the
+    `rebase_conflict` hint rewritten (it no longer advertises `rebase --abort`
+    for a rebase that has already been aborted). `_task_sync_warn`'s local-blocker
+    case extended to all three.
+  - `assert_data_worktree_clean`'s die text gained the "what `--abort` discards"
+    sentence.
+
+- **Deviations from plan:**
+  - The plan sketched `_task_pull_rebase` as one function with a single exit
+    point. It shipped as two — `_task_pull_rebase` (mutex + pull) and
+    `_task_pull_rebase_cleanup` (the five signals). Same single-exit property,
+    and the seam turned out to be load-bearing for testing: signals 3 and 5 need
+    a rebase to appear *during* our own pull, which no single-process fixture can
+    stage, so Tests 46 and 47 drive that seam directly.
+  - The plan asserted the abort sentinel would be on `task_sync`'s stderr. It is
+    not, and must not be: `task_sync` captures `_task_pull_rebase 2>&1` into
+    `pull_err` to feed the classifier, so the user sees one `warn()` line rather
+    than two overlapping messages. The sentinel is pinned at the function that
+    emits it instead (Test 19).
+  - `tests/lib/test_scaffold.sh` was edited (not anticipated in the plan): it
+    already copied `stale_lock.sh`, but its comment justified that by
+    `aitask_create.sh` / `aitask_gate.sh` only. Per the source-on-startup ↔
+    test-scaffold rule the new `task_utils.sh` dependency had to be recorded, or
+    the next person removing a caller would delete a still-needed copy.
+  - Scope was cut back mid-task by explicit user direction after review. The
+    gateway, merge-mode, crew and `aitask_sync.sh` work is deferred — see
+    "Deferred, with owners" above and the mitigations below.
+
+- **Issues encountered:**
+  - Two existing assertions failed by design and were re-pinned: the
+    `rebase_conflict` hint check (`:361`) and Test 19's `rebase --abort` warning
+    check. Test 19's trailing `git rebase --abort || true` — commented "leave the
+    fixture recoverable" — *was* the bug being performed by the test; it is now
+    the assertion.
+  - Three failures were mine, in test scaffolding, not in the product: a stub
+    runner that removed only `rebase-merge` (not `rebase-apply`); a hand-written
+    lock file using `owner`-with-`pid=` lines when a published `stale_lock` is
+    `<dir>/pid` + `<dir>/owner` (which made the live-holder assertion pass
+    vacuously — it read as a tokenless legacy lock); and Test 44 omitting the
+    `_AIT_DATA_WORKTREE=".aitask-data"` pin every other branch-mode test here uses.
+  - `assert_next_commit_succeeds` originally reported only "was refused", which
+    cannot distinguish the wedge it exists to detect from a broken fixture; it now
+    reports rc, worktree and git's own output.
+
+- **Key decisions:**
+  - Reuse `stale_lock.sh`, not `registry_lock.sh`. The latter keeps ONE lock per
+    process in a single slot and installs its own `EXIT` trap; `aitask_sync.sh`
+    already holds one (`:573-591`), so a second acquire would overwrite the slot
+    and lose that release.
+  - Fail closed everywhere: an unacquirable mutex means no pull is attempted
+    (`pull_locked`), and any unproven ownership signal leaves the worktree
+    untouched. The pre-fix behaviour is the floor, never undercut.
+  - Signal 4 (is the state actually a rebase) is separate from signal 5
+    (ownership) so a `MERGE_HEAD` is never described as a rebase nor handed
+    `rebase --abort`.
+  - Both directions were mutation-tested rather than trusted green: removing the
+    abort trips 16 assertions (including Test 44 reproducing the original
+    incident's `stuck mid-rebase-merge`), removing the ownership check trips 7.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/task_utils.sh:253 — _ait_git_subcmd_is_readonly keys on ${1:-} with no git global-option handling, so `./ait git -c core.pager=cat status` is not recognised as read-only`
+  - `.aitask-scripts/lib/task_utils.sh:274 — _ait_git_subcmd_is_recovery has the same defect, so `./ait git -c core.pager=cat rebase --abort` — the recovery command assert_data_worktree_clean's own die message advertises — is refused by the guard`
+  - `.aitask-scripts/aitask_sync.sh:1198 — the do_push retry runs `task_git pull --rebase` and leaves rebase-merge behind on conflict; the same defect this task fixes in _task_pull_rebase`
+  - `.aitask-scripts/aitask_sync.sh:1037,1069 — do_pull_rebase's batch-conflict paths call `exit 0` rather than returning, so any resource acquired around that function leaks on the most common outcome`
+  - `.aitask-scripts/aitask_crew_setmode.sh:125 — `git pull --rebase --quiet 2>/dev/null || true` leaves a conflicted rebase in the crew worktree, and there is no lock anywhere in the crew family while brainstorm_session.py drives these scripts programmatically`
+  - `.aitask-scripts/aitask_crew_addwork.sh:328 — same defect as above`
+  - `ait:333-345 — `./ait git pull --rebase` dispatches to task_git and runs the pull directly, so the supported gateway still leaves a wedge on conflict`
+
+- **Notes for sibling tasks:**
+  - **t1725_2:** `_data_wedge_state()` exists now with the agreed name and
+    contract — do **not** re-add it. It reports all six
+    `AIT_GIT_INPROGRESS_STATES` (so "mid-<state>" wording works for merge /
+    cherry-pick / revert / bisect) and delegates to `_ait_inprogress_state_at`,
+    shared with `ait_data_inprogress_state` and `assert_data_worktree_clean`.
+    `_data_wedge_gitdir()` is also available if you need the git-dir itself.
+  - **t1725_3:** `aitask_sync.sh` was deliberately left untouched — its two pull
+    sites and the `exit 0` paths are listed under upstream defects. Also relevant:
+    `DEFERRED_REASONS` (`lib/sync_action_runner.py:73-77`) is a closed
+    three-member frozenset that fails closed on an unknown reason, which is why
+    `pull_locked` had to be a classifier code rather than a deferral token.
+  - **t1725_6:** `website/content/docs/commands/sync.md:199` (the
+    `FAILED:<reason>:<count>` table) and `:181` (the prose list) document the
+    reason set as closed and are now three codes out of date:
+    `rebase_in_progress`, `data_midop`, `pull_locked`.
+  - The mutation-testing pattern used here (neuter the fix, confirm the intended
+    assertions fail, revert) is cheap and caught a vacuous lock assertion — worth
+    repeating for the siblings' guards.
