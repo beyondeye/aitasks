@@ -12,8 +12,9 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1681
 followup_kind: verification_failure
+implemented_with: claudecode/opus5
 created_at: 2026-09-08 17:35
-updated_at: 2026-09-08 17:57
+updated_at: 2026-09-08 18:36
 ---
 
 ## Origin
@@ -83,3 +84,8 @@ share the defect and the fix should be applied consistently.
   (`ait_ledger_lock_exit_trap`, `_ait_ledger_exit_trap_is_first`)
 - Evidence: `aiplans/p1691_manual_verification_auto.md`
 - Portability notes: `aidocs/framework/sed_macos_issues.md`
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-08T15:36:38Z status=pass attempt=1 type=human
