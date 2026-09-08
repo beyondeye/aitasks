@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: medium
 depends: [1729]
 issue_type: bug
-status: Implementing
+status: Done
 labels: [verification, bug]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -16,7 +16,8 @@ anchor: 1705
 followup_kind: verification_failure
 implemented_with: claudecode/opus5
 created_at: 2026-09-08 17:16
-updated_at: 2026-09-08 21:58
+updated_at: 2026-09-08 22:31
+completed_at: 2026-09-08 22:31
 ---
 
 ## Failed verification item from t1729
@@ -131,3 +132,14 @@ compiled sleeper — so the fallback path itself is sound.
 > **✅ gate:plan_approved** run=2026-09-08T18:57:58Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-09-08T19:27:51Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-08T19:31:28Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:9622c60d7e671d6f
+
+> **✅ gate:risk_evaluated** run=2026-09-08T19:31:28Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1744/risk_evaluated_2026-09-08T19:31:28Z-risk_evaluated-a1.log`
