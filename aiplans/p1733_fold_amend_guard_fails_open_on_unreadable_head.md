@@ -213,3 +213,97 @@ shellcheck .aitask-scripts/aitask_fold_mark.sh
 
 ### Planned mitigations
 - timing: after | name: sweep_failopen_git_probes | type: bug | priority: medium | effort: medium | inline_risk: high | added_complexity: high | addresses: goal-achievement — the fail-open git-probe class survives at other authorization sites | desc: Audit every framework site where a fail-open (or-true suppressed) git probe gates a destructive or authorizing action and apply the capture-the-status-separately rule; known candidates are aitask_sync.sh::_rebase_advance (failed conflict probe reads as no-conflicts, then rebase --skip discards a commit) and aitask_setup.sh:3585-3596 (failed dirtiness probe reads as clean)
+
+## Implementation record
+
+Landed as planned; no deviations from the approved design.
+
+- `.aitask-scripts/aitask_fold_mark.sh` — `_fold_amend_guard`: `head_short`
+  resolution moved above the probe; the `|| true` process substitution replaced
+  by a status-capturing read plus the two refusals (`show_rc != 0` ⇒
+  "unverified", empty path list ⇒ "reports no paths"); loop fed from
+  `<<< "$head_paths"`. Function header records that default-deny now extends to
+  the probe itself.
+- `tests/test_fold_mark.sh` — `install_prefix_amend_probe()` (mutant installer
+  that regresses **only** the probe and verifies the substitution landed, while
+  asserting the rest of the guard survived), the `PATH`-shim helper, the
+  precondition asserts, and 3 tests + 3 negative controls, registered under a
+  `# t1733` footer block.
+
+**One rename beyond the plan:** the plan's `_head_parent_count` used a local
+array named `f`, which collided with a later `local f=` in the mutant installer
+(shellcheck SC2178/SC2128). Renamed to `parts` / `script`.
+
+### Verification results
+
+- `bash tests/test_fold_mark.sh` → **270/270 passed** (was 264 before; +6).
+  Permit direction unchanged: `test_amend_permits_labels_file_in_head`,
+  `test_amend_permits_child_primary_parent_file`, `test_fresh_mode_full_flow`.
+- `bash tests/test_issue_import_amend_guard.sh` → **44/44 passed**.
+- All 18 other test files referencing `aitask_fold_mark` → exit 0.
+- `shellcheck .aitask-scripts/aitask_fold_mark.sh` → only pre-existing SC1091 /
+  SC2012 informational findings; none in the new code.
+
+**Controls discriminate.** Measured against the pre-fix shape in a scratch repo
+before the fix, and re-confirmed by the mutant controls:
+
+| fixture | pre-fix | post-fix |
+|---|---|---|
+| merge HEAD | `AMENDED`; **merge commit SHA rewritten** | refused; SHA intact |
+| failed probe (shim) | `AMENDED`; HEAD rewritten | refused; HEAD intact |
+| unborn HEAD | permitted, then died `fold amend-commit failed` | refused by the guard as "unverified" |
+
+## Final Implementation Notes
+
+- **Actual work done:** Exactly the approved plan. `_fold_amend_guard` in
+  `.aitask-scripts/aitask_fold_mark.sh` now resolves `head_short` before the
+  probe, captures `git show --name-only --format='' HEAD` with its exit status
+  held separately, and refuses on two distinct conditions — a non-zero probe
+  ("contents are unverified") and an empty path list ("reports no paths — an
+  empty or merge commit"). The `foreign` loop is fed from the captured string.
+  `tests/test_fold_mark.sh` gained `install_prefix_amend_probe()`,
+  `install_failing_show_shim()`, the fixture-precondition helpers, three tests
+  and three negative controls (264 → 270 assertions).
+- **Deviations from plan:** One. The plan's `_head_parent_count` used a local
+  array named `f`, colliding with a `local f=` in the mutant installer and
+  tripping shellcheck SC2178/SC2128. Renamed to `parts` and `script`
+  respectively. No behavioral difference.
+- **Issues encountered:** The orphan-branch fixture that `tests/test_issue_import_amend_guard.sh`
+  A6a uses does **not** discriminate behaviorally here: on an unborn branch the
+  amend cannot succeed anyway, so pre-fix and post-fix both exit 1 and roll back
+  — only the message differs. That is why the third test exists: a `PATH` shim
+  that fails **only** `git show --name-only`, over a HEAD the guard would
+  otherwise permit, is the only fixture where the amend *would* have succeeded,
+  and therefore the only one that proves a failed probe does not authorise a
+  rewrite. Its control confirms the pre-fix build prints `AMENDED` and rewrites
+  HEAD under that shim.
+- **Key decisions:**
+  - Refusals `die` and roll back rather than falling back to `--commit-mode
+    fresh`, matching the guard's three existing refusals; both messages name
+    `fresh` as the recovery route.
+  - The mutant installer regresses **only the probe** and asserts that
+    `_fold_amend_guard` and the foreign-path refusal survive — the existing
+    `install_prefix_commit_block` excises the whole guard and so cannot tell a
+    fail-open guard from no guard at all.
+  - Every fixture asserts its precondition before invoking the fold (merge HEAD:
+    two parents *and* an empty path list; unborn: probe fails *and* HEAD does not
+    resolve; shim: probe fails *and* the unshimmed HEAD lists exactly the fold's
+    own primary). "git show printed nothing" is the symptom the guard keys on,
+    and unrelated fixture accidents produce it — without the preconditions a test
+    could satisfy the refusal for the wrong reason and its control could
+    "observe the defect" with no merge commit involved.
+  - No legitimate fold is newly refused: a root commit *does* list its paths
+    (verified empirically), and the production callers of `--commit-mode amend`
+    (`aitask-explore`, `aitask-pr-import`, `aitask-contribution-review`) all
+    amend a single-parent task-creation commit they just made.
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_sync.sh:988` — `_rebase_advance` reads unresolved
+    paths as `task_git diff --name-only --diff-filter=U 2>/dev/null || true`, so
+    a failed probe yields an empty list, is taken as "no unresolved files", and
+    the function proceeds to `rebase --skip`, which discards a commit. Same
+    fail-open shape as this task's defect, at a destructive call site.
+  - `.aitask-scripts/aitask_setup.sh:3591-3594` — the dirtiness probe suppresses
+    `git ls-files --others/--modified` and `git diff --cached --name-only`
+    failures with `|| true`, so an unreadable worktree reads as clean.
+  Both are the mitigation task `sweep_failopen_git_probes` recorded under
+  `## Risk` → `### Planned mitigations` (timing: after).
