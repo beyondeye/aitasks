@@ -6,10 +6,14 @@ issue_type: enhancement
 status: Implementing
 labels: [git, bash_scripts, robustness, syncer]
 gates: [risk_evaluated]
+active_gates: [risk_evaluated]
+active_gates_filtered: []
+active_gates_profile: fast
+active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1599
 created_at: 2026-09-07 17:51
-updated_at: 2026-09-08 15:43
+updated_at: 2026-09-08 15:44
 boardcol: now
 boardidx: 31814
 ---
