@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1223
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5
 created_at: 2026-07-26 00:15
-updated_at: 2026-09-08 17:25
+updated_at: 2026-09-08 18:11
 boardidx: 36864
 ---
 
@@ -51,3 +52,8 @@ watchdog (`timeout(1)` where available, falling back to a background-kill
 pattern — mind macOS which lacks GNU coreutils `timeout` by default; see
 aidocs/framework/shell_conventions.md). Keep the fix inside the helper so all
 callers inherit it.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-08T15:11:28Z status=pass attempt=1 type=human
