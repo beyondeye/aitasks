@@ -32,7 +32,7 @@ Parse the output for `TOTAL:<N>`.
   **If "Seed from plan":**
   1. Locate the plan file. Prefer the active plan at `aiplans/p<parent>/p<parent>_<child>_*.md` (for child tasks) or `aiplans/p<task_id>_*.md` (for parent tasks). Fall back to archived plans at `aiplans/archived/…` if no active plan exists.
   2. Read the plan file and extract the bullet list under the `## Verification` H2 (the contiguous block of `-` / `*` lines immediately following the heading, until the next H2 or EOF).
-  3. Write each bullet (one per line, without leading `- `) to a temp file: `mktemp "${TMPDIR:-/tmp}/verify_seed_XXXXXX.txt"`.
+  3. Write each bullet (one per line, without leading `- `) to a temp file: `mktemp "${TMPDIR:-/tmp}/verify_seed_XXXXXX"`. **Keep `XXXXXX` last — do not append a `.txt` suffix.** BSD/macOS `mktemp` only substitutes the placeholder when it ends the template; with a suffix it silently creates a file named literally `verify_seed_XXXXXX.txt` and then fails on every later run with "File exists" (t1729).
   4. Seed the task:
      ```bash
      ./.aitask-scripts/aitask_verification_parse.sh seed <task_file> --items <tmp_file>

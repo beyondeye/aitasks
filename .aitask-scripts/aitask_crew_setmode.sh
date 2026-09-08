@@ -99,7 +99,7 @@ fi
 # launch_mode is always present in status files emitted by t461_1's
 # aitask_crew_addwork.sh, but we still handle the missing-line case
 # defensively in case an older agent file is encountered.
-tmpfile="$(mktemp "${TMPDIR:-/tmp}/ait_setmode_XXXXXX.yaml")"
+tmpfile="$(mktemp_suffixed "${TMPDIR:-/tmp}/ait_setmode_XXXXXX.yaml")"
 found=false
 while IFS= read -r line || [[ -n "$line" ]]; do
     if [[ "$line" == launch_mode:* ]]; then

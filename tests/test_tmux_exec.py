@@ -53,6 +53,20 @@ def _clear_socket_env():
     return env
 
 
+def _short_socket_tmpdir(prefix: str) -> str:
+    """A TMUX_TMPDIR short enough for AF_UNIX's ~104-byte ``sun_path`` limit.
+
+    tmux appends ``tmux-<uid>/<socket>`` to TMUX_TMPDIR, and on macOS $TMPDIR is
+    ``/private/var/folders/<hash>/<hash>/T/`` — ~53 bytes before this fixture
+    adds anything, which pushes the socket path to 106 and makes every connect
+    fail with "File name too long" (t1729). ``/tmp`` is short and present on
+    every platform this suite runs on; fall back to the platform default if it
+    somehow is not.
+    """
+    base = "/tmp" if os.path.isdir("/tmp") else None
+    return tempfile.mkdtemp(prefix=prefix, dir=base)
+
+
 class TestSocketArgs(unittest.TestCase):
     def test_unset_is_dedicated_default(self):
         # Unset env → the dedicated ait socket (t953).
@@ -479,7 +493,7 @@ class TestGatewayIntegration(unittest.TestCase):
     SOCK = "ait_t952_1_test"
 
     def setUp(self):
-        self._tmpdir = tempfile.mkdtemp(prefix="ait_t952_1_tmux_")
+        self._tmpdir = _short_socket_tmpdir("ait_t952_1_tmux_")
         # AIT_NO_SYSTEMD_RUN forces the setsid/plain rung of new_session_argv:
         # systemd-run --user spawns the server in a transient unit that does not
         # inherit this test's TMUX_TMPDIR, which would land the server on a

@@ -576,7 +576,7 @@ create_carryover_task() {
     local orig_file="$1"
 
     local items_tmp
-    items_tmp=$(mktemp "${TMPDIR:-/tmp}/ait_verify_defer_XXXXXX.txt")
+    items_tmp=$(mktemp_suffixed "${TMPDIR:-/tmp}/ait_verify_defer_XXXXXX.txt")
 
     ./.aitask-scripts/aitask_verification_parse.sh parse "$orig_file" \
         | awk -F: '$3 == "defer" { sub(/^ITEM:[0-9]+:defer:[0-9]+:/, ""); print }' \

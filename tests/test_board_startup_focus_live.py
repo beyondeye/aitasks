@@ -113,6 +113,23 @@ def _tmux(*args: str) -> subprocess.CompletedProcess:
                           capture_output=True, text=True, check=False)
 
 
+def _is_interpreter(command: str) -> bool:
+    """Is ``pane_current_command`` still the app's interpreter?
+
+    Matched case-insensitively and by prefix, not against an exact lowercase
+    list: a macOS framework CPython reports ``Python`` (capital P), and a
+    versioned build can report ``python3.13`` / ``pypy3.11``. This module does
+    not fail on the old exact tuple only because `ait board` takes the PyPy fast
+    path, whose binary is named ``python3`` — on a box without PyPy the wait
+    below would return on its first poll and the relaunch assertions would pass
+    vacuously against a board that never quit (t1729).
+
+    `tests/test_codebrowser_startup_focus_live.py` carries the same predicate
+    for the same reason; keep the two in step.
+    """
+    return command.lower().startswith(("python", "pypy"))
+
+
 @unittest.skipUnless(shutil.which("tmux"), "tmux not available")
 class BoardStartupFocusLiveTests(unittest.TestCase):
     """A freshly launched board quits on a bare `q`, and relaunches cleanly."""
@@ -265,7 +282,7 @@ class BoardStartupFocusLiveTests(unittest.TestCase):
         deadline = time.monotonic() + QUIT_TIMEOUT_S
         while time.monotonic() < deadline:
             command = self._pane_command()
-            if command and command not in ("python", "python3", "pypy", "pypy3"):
+            if command and not _is_interpreter(command):
                 return
             time.sleep(POLL_INTERVAL_S)
         capture = self._capture()

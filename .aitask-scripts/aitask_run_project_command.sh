@@ -115,7 +115,7 @@ if [[ -z "$log_path" ]]; then
         mkdir -p "$logdir" || infra_error "could not create log directory: $logdir"
         log_path="${logdir}/${config_key}_legacy_$(date -u +%Y%m%dT%H%M%SZ)_$$.log"
     else
-        log_path="$(mktemp "${TMPDIR:-/tmp}/aitask_${config_key}_XXXXXX.log")" \
+        log_path="$(mktemp_suffixed "${TMPDIR:-/tmp}/aitask_${config_key}_XXXXXX.log")" \
             || infra_error "could not create a temporary log file"
     fi
 else

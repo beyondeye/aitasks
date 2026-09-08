@@ -91,7 +91,7 @@ find_origin_archived_plan() {
 main() {
     parse_args "$@"
 
-    tmp=$(mktemp "${TMPDIR:-/tmp}/followup_XXXXXX.md")
+    tmp=$(mktemp_suffixed "${TMPDIR:-/tmp}/followup_XXXXXX.md")
     trap 'rm -f "${tmp:-}"' EXIT
 
     # Step 2: resolve source task file

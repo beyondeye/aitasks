@@ -34,8 +34,13 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts"))
+sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
 
 from monitor.monitor_core import PaneCategory, TmuxMonitor  # noqa: E402
+from fake_agent_binary import (  # noqa: E402
+    FakeAgentBinaryUnavailable,
+    fake_agent_binary,
+)
 
 SOCKET = f"ait_t1467_scope_{os.getpid()}"
 SESSION = "t1467_scoping"
@@ -62,16 +67,21 @@ class PromptScopingLiveTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmpdir = tempfile.mkdtemp(prefix="t1467-scope-")
-        sleep_bin = shutil.which("sleep") or "/bin/sleep"
 
         def fake(name: str) -> str:
-            dest = os.path.join(cls.tmpdir, name)
-            shutil.copy2(sleep_bin, dest)
-            os.chmod(dest, 0o755)
-            return dest
+            # NOT `allow_symlink=True`: this module reads pane commands through
+            # tmux, and `pane_current_command` reports the *resolved*
+            # executable — a symlink named `claude` would read `sleep`, the
+            # panes would never settle, and the module would fail for a reason
+            # that has nothing to do with prompt scoping. Being unable to build
+            # a real one is environment unavailability, so it skips (t1729).
+            return fake_agent_binary(cls.tmpdir, name)
 
-        cls.claude_bin = fake("claude")
-        cls.codex_bin = fake("codex")
+        try:
+            cls.claude_bin = fake("claude")
+            cls.codex_bin = fake("codex")
+        except FakeAgentBinaryUnavailable as exc:
+            raise unittest.SkipTest(str(exc))
 
         # Window names must carry the `agent-` prefix: PaneCategory.AGENT comes
         # from the window name, and prompt matching runs only for AGENT panes.

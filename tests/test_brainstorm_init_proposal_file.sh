@@ -9,6 +9,9 @@ THIS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$THIS_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
+# `mktemp_suffixed` (BSD-safe suffixed temp files, t1729) lives here.
+source "$REPO_ROOT/.aitask-scripts/lib/terminal_compat.sh"
+
 PASS=0
 FAIL=0
 
@@ -35,7 +38,7 @@ assert_dies_with "missing proposal file" "Proposal file not found" \
     ./.aitask-scripts/aitask_brainstorm_init.sh 999999 --proposal-file /nonexistent/path.md
 
 # 2. Empty proposal file.
-EMPTY="$(mktemp "${TMPDIR:-/tmp}/br_empty_XXXXXX.md")"
+EMPTY="$(mktemp_suffixed "${TMPDIR:-/tmp}/br_empty_XXXXXX.md")"
 trap 'rm -f "$EMPTY"' EXIT
 assert_dies_with "empty proposal file" "Proposal file is empty" \
     ./.aitask-scripts/aitask_brainstorm_init.sh 999999 --proposal-file "$EMPTY"

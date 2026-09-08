@@ -299,19 +299,68 @@ owner=$(echo "$lock_output" | grep -o 'already locked by [^ ]*' | sed 's/already
 assert_eq "fallback to unknown on no match" "unknown" "$owner"
 
 # ============================================================
-# Test 14: mktemp with template pattern (replaces --suffix) (t213)
+# Test 14: mktemp_suffixed — a suffixed temp file that is really unique (t1729)
 # ============================================================
-echo "--- mktemp: template pattern without --suffix ---"
+# This test used to make ONE `mktemp "…_XXXXXX.md"` call and assert the result
+# existed and ended in `.md`. Both held on macOS while the call was broken: BSD
+# mktemp only substitutes the placeholder when it ENDS the template, so it
+# created a file named literally `aitask_XXXXXX.md`, returned 0, and satisfied
+# every assertion. The failure only appears on the SECOND call, which then dies
+# with "File exists" forever, because that fixed name persists in $TMPDIR.
+#
+# So the properties pinned here are the ones that were actually violated:
+# substitution happened, and repeated calls do not collide.
+echo "--- mktemp_suffixed: unique, suffixed, repeatable ---"
 
-tmpfile=$(mktemp "${TMPDIR:-/tmp}/aitask_XXXXXX.md")
+first=$(mktemp_suffixed "${TMPDIR:-/tmp}/aitask_XXXXXX.md")
+second=$(mktemp_suffixed "${TMPDIR:-/tmp}/aitask_XXXXXX.md")
+
 TOTAL=$((TOTAL + 1))
-if [[ -f "$tmpfile" && "$tmpfile" == *.md ]]; then
+if [[ -f "$first" && "$first" == *.md ]]; then
     PASS=$((PASS + 1))
 else
     FAIL=$((FAIL + 1))
-    echo "FAIL: mktemp template pattern (got: '$tmpfile')"
+    echo "FAIL: mktemp_suffixed did not create a .md file (got: '$first')"
 fi
-rm -f "$tmpfile"
+
+# The placeholder must have been SUBSTITUTED, not carried through literally.
+TOTAL=$((TOTAL + 1))
+if [[ "$first" != *XXXXXX* ]]; then
+    PASS=$((PASS + 1))
+else
+    FAIL=$((FAIL + 1))
+    echo "FAIL: XXXXXX survived into the filename (got: '$first')"
+fi
+
+# The property the old single-call test could not see.
+TOTAL=$((TOTAL + 1))
+if [[ -f "$second" && "$second" != "$first" ]]; then
+    PASS=$((PASS + 1))
+else
+    FAIL=$((FAIL + 1))
+    echo "FAIL: a second call did not produce a distinct file (got: '$second', first was '$first')"
+fi
+
+# A template with no placeholder is a caller bug, not something to paper over.
+TOTAL=$((TOTAL + 1))
+if mktemp_suffixed "${TMPDIR:-/tmp}/aitask_no_placeholder.md" >/dev/null 2>&1; then
+    FAIL=$((FAIL + 1))
+    echo "FAIL: mktemp_suffixed accepted a template with no XXXXXX"
+else
+    PASS=$((PASS + 1))
+fi
+
+# No-suffix templates still work (the plain mktemp case).
+bare=$(mktemp_suffixed "${TMPDIR:-/tmp}/aitask_XXXXXX")
+TOTAL=$((TOTAL + 1))
+if [[ -f "$bare" && "$bare" != *XXXXXX* ]]; then
+    PASS=$((PASS + 1))
+else
+    FAIL=$((FAIL + 1))
+    echo "FAIL: mktemp_suffixed broke the no-suffix case (got: '$bare')"
+fi
+
+rm -f "$first" "$second" "$bare"
 
 # ============================================================
 # Summary

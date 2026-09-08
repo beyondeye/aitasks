@@ -161,7 +161,7 @@ if [[ -f "aitasks/metadata/userconfig.yaml" ]]; then
 fi
 
 # --- Write task spec to temp file ---
-SPEC_FILE=$(mktemp "${TMPDIR:-/tmp}/brainstorm_spec_XXXXXX.md")
+SPEC_FILE=$(mktemp_suffixed "${TMPDIR:-/tmp}/brainstorm_spec_XXXXXX.md")
 trap 'rm -f "$SPEC_FILE"' EXIT
 cat "$TASK_FILE" > "$SPEC_FILE"
 

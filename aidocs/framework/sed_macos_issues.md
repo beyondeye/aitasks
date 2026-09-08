@@ -285,15 +285,29 @@ assert_eq() {
 
 ## `mktemp` Portability
 
-macOS BSD `mktemp` does not support the `--suffix` option (GNU coreutils extension).
+macOS BSD `mktemp` does not support the `--suffix` option (GNU coreutils extension), **and it only substitutes the `XXXXXX` placeholder when the placeholder ends the template.**
 
 ```bash
 # GNU only (fails on macOS):
 tmpfile=$(mktemp --suffix=.md)
 
-# Portable (works on both):
+# ALSO BROKEN on macOS -- and it does not fail, which is why it survived:
 tmpfile=$(mktemp "${TMPDIR:-/tmp}/prefix_XXXXXX.ext")
+
+# Portable, no suffix needed:
+tmpfile=$(mktemp "${TMPDIR:-/tmp}/prefix_XXXXXX")
+
+# Portable, suffix preserved (source lib/terminal_compat.sh):
+tmpfile=$(mktemp_suffixed "${TMPDIR:-/tmp}/prefix_XXXXXX.ext")
 ```
+
+**The middle form is a trap, and this document used to recommend it (t1729).** With anything after the `XXXXXX`, BSD `mktemp` does not substitute — it creates a file named *literally* `prefix_XXXXXX.ext` and **exits 0**. The caller looks fine, and on Linux it genuinely is fine, because GNU `mktemp` substitutes. On macOS the second call and every one after it fails with `mkstemp failed: File exists`, permanently, because that fixed name persists in `$TMPDIR`. Two further consequences: the path is predictable rather than unguessable, and two concurrent runs share one file.
+
+Symptom to recognise: a script that worked once and now reports a temp-file infrastructure error on a machine where nothing changed. Check `ls "$TMPDIR"/*XXXXXX*`.
+
+`mktemp_suffixed` (in `.aitask-scripts/lib/terminal_compat.sh`) takes the **same single argument**, so migrating a call site is just `mktemp` → `mktemp_suffixed`. It splits the template at the last `XXXXXX`, lets `mktemp` pick a genuinely unique name, then renames it to carry the suffix. Use it whenever the extension matters (an editor's syntax mode, a parser that sniffs it); otherwise just put `XXXXXX` last.
+
+For a skill procedure or any other instruction an agent executes without sourcing the framework libs, use the no-suffix form — the helper will not be in scope there.
 
 **Note:** `TMPDIR` is set on macOS (typically `/var/folders/...`), so using `"${TMPDIR:-/tmp}"` respects the platform's temp directory. The `XXXXXX` template is required on both platforms. Plain `mktemp` (no arguments) and `mktemp -d` work identically on both.
 
@@ -346,7 +360,7 @@ Always use `#!/usr/bin/env bash`, never `#!/bin/bash`. macOS system bash is 3.2 
 | File | Line | Issue | Fix Applied |
 |------|------|-------|-------------|
 | `.aitask-scripts/aitask_pick_own.sh` | 159 | `grep -oP` with `\K` (PCRE) | `grep -o` + `sed` pipe |
-| `.aitask-scripts/aitask_update.sh` | 926 | `mktemp --suffix=.md` (GNU-only) | Template pattern `mktemp "${TMPDIR:-/tmp}/aitask_XXXXXX.md"` |
+| `.aitask-scripts/aitask_update.sh` | 926 | `mktemp --suffix=.md` (GNU-only) | Template pattern `mktemp "${TMPDIR:-/tmp}/aitask_XXXXXX.md"` — **this replacement was itself broken on BSD; superseded by t1729, see the `mktemp` Portability section. Do not copy this row.** |
 
 ## Files Fixed in t658
 
@@ -362,6 +376,27 @@ Test suite delta (98 bash tests, run on macOS):
 - Post-fix: 77 PASS, 21 FAIL (no regressions; the two fixes above account for the entire delta).
 
 The 21 remaining FAILs are unrelated to macOS portability: missing system-Python dependencies (`yaml`/`textual`/`rich` outside the `~/.aitask/venv/`), missing `codex` CLI, stale hand-curated copy lists in a few test setups (`tests/test_crew_groups.sh`, `tests/test_crew_report.sh`, `tests/test_data_branch_migration.sh` no longer copy `lib/launch_modes_sh.sh` / `lib/archive_scan.sh`), stale skill-count expectations in `test_gemini_setup.sh` / `test_opencode_setup.sh`, and other preexisting issues. They reproduce on Linux too and are out of scope for this audit; track them as separate follow-up tasks if/when needed.
+
+## Files Fixed in t1729
+
+The `mktemp "…_XXXXXX.ext"` pattern this document itself recommended is broken on
+BSD: the placeholder is only substituted when it ends the template, so macOS
+created a file named literally `…_XXXXXX.ext`, returned 0, and then failed every
+subsequent call with `mkstemp failed: File exists` — permanently, because the
+fixed name persists in `$TMPDIR`. Invisible on Linux, where GNU `mktemp`
+substitutes. Found via `tests/test_settings_project_config_value_types.py`, whose
+`test_the_saved_hook_actually_runs` failed on every run after the first.
+
+| File | Sites | Fix Applied |
+|------|-------|-------------|
+| `.aitask-scripts/lib/terminal_compat.sh` | new | Added `mktemp_suffixed`, a drop-in taking the same single template argument |
+| 10 scripts under `.aitask-scripts/` | 15 | `mktemp` → `mktemp_suffixed` (all already source `terminal_compat.sh`) |
+| 6 bash tests under `tests/` | 17 | Same substitution; four gained a `terminal_compat.sh` source line |
+| `.claude/skills/task-workflow/manual-verification.md` | 1 | No-suffix form — a skill procedure runs without the framework libs in scope; rendered variants and procedure goldens regenerated |
+
+Because the previous "portable" form failed *silently and only on the second
+run*, a static sweep could not have found it: only running a suite twice on one
+macOS machine exposes it.
 
 ## Files Fixed in t931
 

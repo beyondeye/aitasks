@@ -272,7 +272,7 @@ if [[ -z "$log_path" ]]; then
         mkdir -p "$logdir" || diag_exit "could not create log directory: $logdir"
         log_path="${logdir}/resource_admission_$(date -u +%Y%m%dT%H%M%SZ)_$$.log"
     else
-        log_path="$(mktemp "${TMPDIR:-/tmp}/aitask_resource_admission_XXXXXX.log")" \
+        log_path="$(mktemp_suffixed "${TMPDIR:-/tmp}/aitask_resource_admission_XXXXXX.log")" \
             || diag_exit "could not create a temporary log file"
     fi
 else

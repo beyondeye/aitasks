@@ -7,6 +7,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
+# `mktemp_suffixed` (BSD-safe suffixed temp files, t1729) lives here.
+source "$REPO_ROOT/.aitask-scripts/lib/terminal_compat.sh"
+
 PASS=0
 FAIL=0
 
@@ -88,7 +91,7 @@ else
     assert_fail "ait stats (text report) exits 0" "non-zero exit"
 fi
 
-CSV_OUT=$(mktemp "${TMPDIR:-/tmp}/test_stats_data_XXXXXX.csv")
+CSV_OUT=$(mktemp_suffixed "${TMPDIR:-/tmp}/test_stats_data_XXXXXX.csv")
 trap 'rm -f "$CSV_OUT"' EXIT
 if ./.aitask-scripts/aitask_stats.sh --csv "$CSV_OUT" >/dev/null 2>&1 \
         && [ -s "$CSV_OUT" ]; then

@@ -7,6 +7,9 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+# `mktemp_suffixed` (BSD-safe suffixed temp files, t1729) lives here.
+source "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh"
+
 PASS=0
 FAIL=0
 TOTAL=0
@@ -261,7 +264,7 @@ echo "--- Test 19: cmd_post_comment mocked ---"
 
 # Mock source_post_comment to capture args via temp file
 _mock_file="${TMPDIR:-/tmp}/test_post_comment_XXXXXX"
-_mock_file=$(mktemp "${TMPDIR:-/tmp}/test_post_comment_XXXXXX.txt")
+_mock_file=$(mktemp_suffixed "${TMPDIR:-/tmp}/test_post_comment_XXXXXX.txt")
 source_post_comment() {
     echo "ISSUE=$1" > "$_mock_file"
     echo "BODY=$2" >> "$_mock_file"

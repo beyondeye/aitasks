@@ -29,20 +29,22 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / ".aitask-scripts" / "lib"))
+sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
 
 import agent_keys as ak  # noqa: E402
+from fake_agent_binary import fake_agent_binary  # noqa: E402
 
 
 def _fake_agent_binary(tmpdir: str, name: str) -> str:
-    """A copy of /bin/sleep named `name`, so its `comm` IS `name`.
+    """An executable named `name`, so its `comm` IS `name`.
 
-    A copy rather than a symlink: `ps -o comm=` reports the executable's name,
-    and a symlink would report the target's on some platforms.
+    `allow_symlink=True`: this module reads the process name through
+    `ps -o comm=` (`agent_keys._child_commands`), which reports the *invoked*
+    path, so a symlink's basename is still the agent name. A tmux-based reader
+    would not be — see `tests/lib/fake_agent_binary.py`, which also explains why
+    the old `shutil.copy2` of `/bin/sleep` cannot work on macOS (t1729).
     """
-    dest = os.path.join(tmpdir, name)
-    shutil.copy2(shutil.which("sleep") or "/bin/sleep", dest)
-    os.chmod(dest, 0o755)
-    return dest
+    return fake_agent_binary(tmpdir, name, allow_symlink=True)
 
 
 class _Tree:

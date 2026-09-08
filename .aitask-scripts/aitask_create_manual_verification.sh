@@ -87,7 +87,7 @@ strip_t_prefix() {
 main() {
     parse_args "$@"
 
-    tmp_desc=$(mktemp "${TMPDIR:-/tmp}/mv_desc_XXXXXX.md")
+    tmp_desc=$(mktemp_suffixed "${TMPDIR:-/tmp}/mv_desc_XXXXXX.md")
     trap 'rm -f "${tmp_desc:-}"' EXIT
 
     # Build description body.

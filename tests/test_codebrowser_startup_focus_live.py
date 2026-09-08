@@ -33,6 +33,16 @@ Each layer is therefore pinned individually — and headlessly — in
 ``tests/test_codebrowser_startup_focus.py``. Do not "strengthen" this file by
 asserting a layer it structurally cannot see.
 
+**`_is_interpreter` is load-bearing, and the obvious simplification breaks it.**
+Everything this module asserts after a `q` depends on `_wait_for_shell` really
+waiting, and that in turn depends on recognising the interpreter by name. A
+macOS framework CPython reports ``pane_current_command`` as ``Python`` — capital
+P — so the exact lowercase tuple this predicate replaced matched nothing, the
+wait returned on its first poll, and the post-quit capture read the app's own
+still-drawn screen. The module then failed for a defect that was not there, on
+macOS only (t1729). Match by lowercased prefix; do not narrow it back to a list
+of literal names.
+
 Unlike t1491's board, the headless module *can* reproduce this one: measured at
 Textual 8.2.7, ``App.run_test`` picks ``Input#file_search_input`` in the non-git
 branch exactly as a real terminal does — that branch has too few focusable
@@ -81,6 +91,10 @@ PANE_HEIGHT = 50
 BOOT_TIMEOUT_S = 45.0
 #: Budget for the pane to fall back to the shell after `q`.
 QUIT_TIMEOUT_S = 20.0
+#: After the pane leaves the interpreter, tmux may still be draining the
+#: alternate-screen restore. Short, because the two normally flip in the same
+#: poll — exceeding it is a genuine "the app's screen is still drawn" FAILURE.
+SCREEN_CLEAR_TIMEOUT_S = 5.0
 POLL_INTERVAL_S = 0.25
 
 #: What this compose branch renders — see `codebrowser_app.py`'s `compose()`
@@ -125,6 +139,23 @@ ALPHA_SOURCE = (
 def _tmux(*args: str) -> subprocess.CompletedProcess:
     return subprocess.run(["tmux", "-L", SOCKET, *args],
                           capture_output=True, text=True, check=False)
+
+
+def _is_interpreter(command: str) -> bool:
+    """Is ``pane_current_command`` still the app's interpreter?
+
+    Matched case-insensitively and by prefix, not against an exact lowercase
+    list: a macOS framework CPython reports ``Python`` (capital P), and a
+    versioned build can report ``python3.13`` / ``pypy3.11``. The old exact
+    tuple matched none of those, so `_wait_for_shell` returned on its FIRST poll
+    while the app was still running — and the post-quit capture then read the
+    app's own screen, failing an assertion about a defect that was not there
+    (t1729).
+
+    `tests/test_board_startup_focus_live.py` carries the same predicate for the
+    same reason; keep the two in step.
+    """
+    return command.lower().startswith(("python", "pypy"))
 
 
 @unittest.skipUnless(shutil.which("tmux"), "tmux not available")
@@ -271,7 +302,7 @@ class CodebrowserStartupFocusLiveTests(unittest.TestCase):
         deadline = time.monotonic() + QUIT_TIMEOUT_S
         while time.monotonic() < deadline:
             command = self._pane_command(pane)
-            if command and command not in ("python", "python3", "pypy", "pypy3"):
+            if command and not _is_interpreter(command):
                 return
             time.sleep(POLL_INTERVAL_S)
         capture = self._capture(pane)
@@ -305,11 +336,21 @@ class CodebrowserStartupFocusLiveTests(unittest.TestCase):
         # mounting the box in this branch, so a placeholder assertion here could
         # no longer fail and would have quietly stopped checking anything. The
         # branch marker is what this compose arm actually renders.
+        #
+        # Polled, not sampled once: the pane leaving the interpreter and tmux
+        # draining the alternate-screen restore are two different events. They
+        # flipped within the same poll in every measurement, but a single
+        # sample makes that a coin toss on a loaded machine. Exhausting the
+        # budget still FAILS, with the same message (t1729).
+        deadline = time.monotonic() + SCREEN_CLEAR_TIMEOUT_S
         final = self._capture(pane)
+        while BOOT_MARKER in final and time.monotonic() < deadline:
+            time.sleep(POLL_INTERVAL_S)
+            final = self._capture(pane)
         self.assertNotIn(
             BOOT_MARKER, final,
             "the app is gone from the process table but its screen is still "
-            f"drawn in the pane:\n{final}")
+            f"drawn in the pane after {SCREEN_CLEAR_TIMEOUT_S}s:\n{final}")
 
     def test_hot_handoff_still_lands_its_file_and_line_after_the_claim(self):
         """`AITASK_CODEBROWSER_FOCUS` survives the new startup focus claim.

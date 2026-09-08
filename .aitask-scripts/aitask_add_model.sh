@@ -123,7 +123,7 @@ cmd_add_json() {
     fi
 
     local tmp_metadata
-    tmp_metadata=$(mktemp "${TMPDIR:-/tmp}/aitask_add_model_meta_XXXXXX.json")
+    tmp_metadata=$(mktemp_suffixed "${TMPDIR:-/tmp}/aitask_add_model_meta_XXXXXX.json")
     jq \
         --arg name "$name" \
         --arg cli_id "$cli_id" \
@@ -144,7 +144,7 @@ cmd_add_json() {
             rm -f "$tmp_metadata"
             die "Model '$name' already exists in $seed_rel"
         fi
-        tmp_seed=$(mktemp "${TMPDIR:-/tmp}/aitask_add_model_seed_XXXXXX.json")
+        tmp_seed=$(mktemp_suffixed "${TMPDIR:-/tmp}/aitask_add_model_seed_XXXXXX.json")
         jq \
             --arg name "$name" \
             --arg cli_id "$cli_id" \
@@ -210,7 +210,7 @@ cmd_promote_config() {
     # per-file — e.g. seed has only the canonical 6 ops, so brainstorm-* keys
     # are skipped in seed without failing the command.
     local tmp_metadata
-    tmp_metadata=$(mktemp "${TMPDIR:-/tmp}/aitask_add_model_cfg_XXXXXX.json")
+    tmp_metadata=$(mktemp_suffixed "${TMPDIR:-/tmp}/aitask_add_model_cfg_XXXXXX.json")
     jq \
         --argjson ops "$ops_json" \
         --arg new_value "$new_value" \
@@ -223,7 +223,7 @@ cmd_promote_config() {
 
     local tmp_seed=""
     if [[ -f "$seed_file" ]]; then
-        tmp_seed=$(mktemp "${TMPDIR:-/tmp}/aitask_add_model_cfg_seed_XXXXXX.json")
+        tmp_seed=$(mktemp_suffixed "${TMPDIR:-/tmp}/aitask_add_model_cfg_seed_XXXXXX.json")
         jq \
             --argjson ops "$ops_json" \
             --arg new_value "$new_value" \
@@ -289,7 +289,7 @@ cmd_promote_default_agent_string() {
     # Preserve the ${DEFAULT_AGENT_STRING:-...} parameter-expansion shape so the
     # caller-override capability survives; only swap the default value.
     local tmp_lib
-    tmp_lib=$(mktemp "${TMPDIR:-/tmp}/aitask_add_model_lib_XXXXXX.sh")
+    tmp_lib=$(mktemp_suffixed "${TMPDIR:-/tmp}/aitask_add_model_lib_XXXXXX.sh")
     cp "$lib_file" "$tmp_lib"
     sed_inplace "s|^DEFAULT_AGENT_STRING=\"\${DEFAULT_AGENT_STRING:-.*}\"|DEFAULT_AGENT_STRING=\"\${DEFAULT_AGENT_STRING:-${new_value}}\"|" "$tmp_lib"
     if ! grep -q "^DEFAULT_AGENT_STRING=\"\${DEFAULT_AGENT_STRING:-${new_value}}\"\$" "$tmp_lib"; then
@@ -299,7 +299,7 @@ cmd_promote_default_agent_string() {
 
     # --- Patch 2: resolution-chain note in aitask_codeagent.sh ---
     local tmp_note
-    tmp_note=$(mktemp "${TMPDIR:-/tmp}/aitask_add_model_note_XXXXXX.sh")
+    tmp_note=$(mktemp_suffixed "${TMPDIR:-/tmp}/aitask_add_model_note_XXXXXX.sh")
     cp "$note_file" "$tmp_note"
     sed_inplace "s|^\(  4\. Hardcoded default: \).*|\1${new_value}|" "$tmp_note"
     if ! grep -q "^  4\. Hardcoded default: ${new_value}\$" "$tmp_note"; then

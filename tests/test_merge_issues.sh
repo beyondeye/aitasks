@@ -58,7 +58,7 @@ inject_merge_frontmatter() {
     fi
 
     local tmpfile
-    tmpfile=\$(mktemp "\${TMPDIR:-/tmp}/ait_merge_XXXXXX.md")
+    tmpfile=\$(mktemp_suffixed "\${TMPDIR:-/tmp}/ait_merge_XXXXXX.md")
     local injected=false
     while IFS= read -r line; do
         printf '%s\n' "\$line" >> "\$tmpfile"
@@ -138,7 +138,7 @@ echo "--- Test 4: inject_merge_frontmatter after contributor_email ---"
 FUNC_DIR="$(setup_functions)"
 source "$FUNC_DIR/source_funcs.sh"
 
-tmpfile_4=$(mktemp "${TMPDIR:-/tmp}/ait_test_XXXXXX.md")
+tmpfile_4=$(mktemp_suffixed "${TMPDIR:-/tmp}/ait_test_XXXXXX.md")
 cat > "$tmpfile_4" << 'EOF'
 ---
 priority: medium
@@ -174,7 +174,7 @@ echo "--- Test 5: inject_merge_frontmatter after issue (no contributor) ---"
 FUNC_DIR="$(setup_functions)"
 source "$FUNC_DIR/source_funcs.sh"
 
-tmpfile_5=$(mktemp "${TMPDIR:-/tmp}/ait_test_XXXXXX.md")
+tmpfile_5=$(mktemp_suffixed "${TMPDIR:-/tmp}/ait_test_XXXXXX.md")
 cat > "$tmpfile_5" << 'EOF'
 ---
 priority: medium
@@ -201,7 +201,7 @@ echo "--- Test 6: inject_merge_frontmatter YAML list format ---"
 FUNC_DIR="$(setup_functions)"
 source "$FUNC_DIR/source_funcs.sh"
 
-tmpfile_6=$(mktemp "${TMPDIR:-/tmp}/ait_test_XXXXXX.md")
+tmpfile_6=$(mktemp_suffixed "${TMPDIR:-/tmp}/ait_test_XXXXXX.md")
 cat > "$tmpfile_6" << 'EOF'
 ---
 status: Ready
@@ -219,7 +219,7 @@ echo "--- Test 7: inject_merge_frontmatter with contributors YAML block ---"
 FUNC_DIR="$(setup_functions)"
 source "$FUNC_DIR/source_funcs.sh"
 
-tmpfile_7=$(mktemp "${TMPDIR:-/tmp}/ait_test_XXXXXX.md")
+tmpfile_7=$(mktemp_suffixed "${TMPDIR:-/tmp}/ait_test_XXXXXX.md")
 cat > "$tmpfile_7" << 'EOF'
 ---
 status: Ready
@@ -280,7 +280,7 @@ source "$FUNC_DIR/source_funcs.sh"
 
 # Simulate what merge_issues produces: a task file created by aitask_create.sh
 # with primary contributor, then inject_merge_frontmatter adds merge-specific fields
-tmpfile_12=$(mktemp "${TMPDIR:-/tmp}/ait_test_XXXXXX.md")
+tmpfile_12=$(mktemp_suffixed "${TMPDIR:-/tmp}/ait_test_XXXXXX.md")
 cat > "$tmpfile_12" << 'EOF'
 ---
 priority: medium

@@ -153,7 +153,7 @@ cmd_send() {
     fi
 
     local tmpfile
-    tmpfile=$(mktemp "${TMPDIR:-/tmp}/ait_cmd_XXXXXX.yaml")
+    tmpfile=$(mktemp_suffixed "${TMPDIR:-/tmp}/ait_cmd_XXXXXX.yaml")
 
     if $has_entries; then
         # Append to existing block-style list

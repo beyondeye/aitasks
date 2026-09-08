@@ -85,6 +85,43 @@ sed_inplace() {
     fi
 }
 
+# --- Portable suffixed temp file ---
+# BSD mktemp only substitutes the XXXXXX placeholder when it is the LAST thing
+# in the template. `mktemp "$TMPDIR/foo_XXXXXX.log"` therefore does NOT fail
+# loudly on macOS -- it creates a file named literally `foo_XXXXXX.log` and
+# exits 0. Every later call then fails with "File exists", permanently, because
+# that fixed name persists in $TMPDIR. GNU mktemp substitutes happily, so the
+# bug is invisible on Linux and the caller looks correct on both (t1729).
+#
+# This wrapper takes the SAME single argument the broken calls already pass, so
+# migrating a call site is just `mktemp` -> `mktemp_suffixed`. It splits the
+# template at the last XXXXXX, lets mktemp create a genuinely unique file, then
+# renames it to carry the suffix. The rename cannot collide: the name mktemp
+# chose is already exclusive, so appending a fixed suffix to it is too.
+#
+# Usage: tmpfile=$(mktemp_suffixed "${TMPDIR:-/tmp}/prefix_XXXXXX.ext")
+mktemp_suffixed() {
+    local template="$1"
+    if [[ "$template" != *XXXXXX* ]]; then
+        echo "mktemp_suffixed: template has no XXXXXX: $template" >&2
+        return 1
+    fi
+    local head="${template%XXXXXX*}"
+    local suffix="${template##*XXXXXX}"
+    local base
+    base="$(mktemp "${head}XXXXXX")" || return 1
+    if [[ -z "$suffix" ]]; then
+        printf '%s\n' "$base"
+        return 0
+    fi
+    if mv "$base" "${base}${suffix}"; then
+        printf '%s\n' "${base}${suffix}"
+    else
+        rm -f "$base"
+        return 1
+    fi
+}
+
 # --- Portable date wrapper ---
 # macOS BSD date does not support 'date -d'. Use gdate (from brew coreutils) on macOS.
 # Usage: portable_date -d "2026-01-01" +%s  (same args as GNU date)
