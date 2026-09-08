@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [framework, bash_scripts, testing]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -16,7 +16,8 @@ anchor: 1681
 followup_kind: verification_failure
 implemented_with: claudecode/opus5
 created_at: 2026-09-08 17:35
-updated_at: 2026-09-08 18:36
+updated_at: 2026-09-08 22:35
+completed_at: 2026-09-08 22:35
 ---
 
 ## Origin
@@ -93,3 +94,14 @@ share the defect and the fix should be applied consistently.
 > **✅ gate:plan_approved** run=2026-09-08T15:36:38Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-09-08T19:24:07Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-08T19:35:26Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:d668565ef58083cf
+
+> **✅ gate:risk_evaluated** run=2026-09-08T19:35:26Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1746/risk_evaluated_2026-09-08T19:35:26Z-risk_evaluated-a1.log`
