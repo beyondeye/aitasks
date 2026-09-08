@@ -100,3 +100,5 @@ retarget the link.
 > | enumerates the guard's exits, note there are now four.
 > | 
 > | Advisory only — verify against the tree yourself before acting.
+
+> **👁 note:read** id=2026-09-08T19:24:06Z.0827fbdef8c05a0316ac6eee by=t1707 at=2026-09-08T19:24:06Z mode=explicit ids=2026-09-08T18:38:42Z.119be10b25c8244e041c4034
