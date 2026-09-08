@@ -12,8 +12,9 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1599
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5
 created_at: 2026-09-07 18:14
-updated_at: 2026-09-08 12:29
+updated_at: 2026-09-08 18:24
 ---
 
 ## Origin
@@ -65,3 +66,8 @@ same change, and if it is not, the paragraph must say why not.
   staged afterwards.
 - `bash tests/test_no_unscoped_task_commit.sh` still passes.
 - `bash tests/test_verification_followup.sh` and any `verified_update` suites.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-08T15:25:04Z status=pass attempt=1 type=human
