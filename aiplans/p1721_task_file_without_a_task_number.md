@@ -340,3 +340,106 @@ Record Final Implementation Notes in `aitasks/t1721_*.md` including the three
 `listing_parity_check` before/after counts and the verbatim pre-disposition failure
 output of `tests/test_task_filename_invariant.sh`, then archive t1721 (`gates:
 [risk_evaluated]` must be `pass` first).
+
+## Final Implementation Notes
+
+- **Actual work done:** All five planned changes landed as planned.
+  `aitask_ls.sh`'s `process_task_file()` gained a 17-line guard that drops a row
+  whose filename carries no task id and reports it via the existing `warn()` on
+  stderr (`^t[0-9]+_` for parents, `^t[0-9]+_[0-9]+_` for children).
+  `tests/test_ls_unnumbered_task_file.sh` (27 assertions) covers default,
+  `--all-levels`, `--tree`, `--children` and a clean-repo negative control.
+  `tests/test_task_filename_invariant.sh` (9 assertions) scans the whole of
+  `aitasks/` with `find -L`, carries a fixture negative control and a
+  vacuous-pass guard. The unnumbered file was renumbered to **t1730** with a
+  `## Resolution` section and archived with `archived_reason: superseded`. Two
+  doc sites updated (`ait ls` section of `task-management.md`; the naming
+  convention in `task-format.md`).
+
+  Code landed on `main` as `43d924596` + `a3e900820`; the renumber and archive
+  landed on `aitask-data` as `eb20c47aa` + `35a91c2df`.
+
+- **Deviations from plan:**
+  - **The plan's absolute row counts were stale by the time they were used.** It
+    predicted 380 → 379 / 527 → 526 / 527 → 526. Measured at implementation time
+    the *baseline* was 382 / 528 / 527 — two parent tasks had been created by
+    concurrent sessions in the interval. Comparing against a number recorded
+    earlier is the wrong instrument for a live tree. `listing_parity_check` was
+    executed instead as a **simultaneous** comparison: the committed
+    `aitask_ls.sh` was extracted with `git show HEAD:…` to a temporary copy and
+    run against the same tree in the same minute, then diffed against the patched
+    script. Result: 382→381, 528→527, 527→526, and the set difference in every
+    mode was exactly `t_refresh_codeagent_suite_default_model_expectations.md`.
+    The temporary copy was removed immediately.
+  - **Two review findings applied after the first review round** (`a3e900820`):
+    the `--children` case asserted stdout absence but not the stderr warning, and
+    the `ait ls` doc paragraph over-claimed its scope.
+  - A `tbroken.md` fixture was added that the plan did not call for, to exercise
+    the shape that falls outside the discovery glob.
+
+- **Issues encountered:**
+  - `aitask_ls.sh` prints help when given no arguments, so the first fixture run
+    asserted against a help screen. Fixed by passing an explicit limit.
+  - `assert_record_pass` / `assert_record_fail` take **no arguments** and print
+    nothing; the two bespoke checks in the invariant test print their own `FAIL:`
+    lines.
+  - `grep` is a shell function in the interactive agent environment (a `claude -G`
+    wrapper honoring `.gitignore`) and errors on the gitignored `aitasks/` tree.
+    Interactive verification used `command grep`. Test scripts are unaffected —
+    they run non-interactively and get the real binary.
+  - The worktree is shared with other concurrent sessions and was dirty with
+    their changes throughout. Every commit used `git commit --only -- <paths>`
+    with the stat verified afterwards; no `git stash`, no `git restore`, and no
+    index-wide commit was used at any point.
+
+- **Key decisions:**
+  - **Disposition: renumber + archive as superseded, not delete.** The content is
+    obsolete — commit `173a51698` (t1318) fixed all three tests it names, and
+    re-running them gave 28/28, 27/27, 22/22 — but archiving keeps the record
+    where the framework expects it. `--ignore-gates` was required and used
+    deliberately: the file declared `gates: [risk_evaluated]` with no gate ever
+    run, so the guard reported `GATE_PENDING:risk_evaluated`, confirmed by the
+    `archive_dry_run` pre-phase as the *only* blocker before overriding.
+  - **Guard placed in the shared `process_task_file()`, not in the four call-site
+    globs.** One site covers every view mode, and it only ever narrows what is
+    listed, preserving the "the boardcol scan globs a strict superset of what
+    this script lists" invariant at `lookup_boardcol`.
+  - **Skip *and* warn, never a silent skip.** The file is usually a real task
+    nobody can reach; dropping it quietly would hide it rather than surface it.
+  - **Guard the data, not each consumer.** `aitask_claim_id.sh`,
+    `aitask_attach.sh`, `aitask_artifact.sh` and `aitask_find_by_file.sh` all
+    still glob `t*.md` loosely. Chasing each is a long tail; one scan over
+    `aitasks/` covers the whole class. **What this does not buy:** it is a
+    test-time check for this repo, not a runtime guarantee at every consumer.
+    Accepted, and the doc prose is worded to match.
+  - **The `tbroken.md` assertion pins "never appears as a listing row" and
+    deliberately not the reason.** Mutant testing showed widening the glob to
+    `t*.md` routes the file through the guard and still keeps it off stdout, so
+    the assertion is green either way. Pinning the no-warning behavior would have
+    frozen a known limit into a contract.
+  - **Commit sequencing.** The invariant test is red until the disposition lands.
+    Code was therefore held uncommitted until after the renumber/archive commits
+    on `aitask-data`, so `main` never carried a knowingly-red test. Residual,
+    accepted: checking out the `main` commit against an older `aitask-data` sees
+    the test fail — correct, since it asserts a property of the task data.
+
+- **Verification evidence:**
+  - Pre-disposition, `tests/test_task_filename_invariant.sh` failed 1/9 with
+    `every task file name carries a task id — unaddressable task file(s) found.`
+    naming `…/aitasks/t_refresh_codeagent_suite_default_model_expectations.md`,
+    while its 8 fixture assertions passed. Post-disposition: 9/9.
+  - Forced-failure controls, each restored by reverting only the mutation:
+    parent-half `id_pattern` → `^t` = 9 failures; child-half → `^t[0-9]+_` = 7
+    failures; `warn()` suppressed = 5 failures; `find -L` → `find` = the
+    vacuous-pass guard fires naming `find -L` as the suspect. Widening the
+    default-mode glob to `t*.md` = 0 failures, which is what corrected the
+    `tbroken.md` comment.
+  - Regressions green: `test_ls_display_and_filters.sh` 89/89,
+    `test_ls_boardcol_filter.sh` 99/99, `test_task_levels.sh` 12/12.
+  - `shellcheck` on the changed and new scripts: only SC1091 (unfollowable
+    `source`), the norm in this tree. All eight `aitask_ls.sh` findings are
+    pre-existing and outside the added lines.
+  - `website/check_links.py --build`: 29070 resolved, 0 broken, SWEEP PASSED.
+
+- **Upstream defects identified:** None
+
