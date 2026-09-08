@@ -364,7 +364,7 @@ task workflow.
 
 ## Risk
 
-### Code health — high
+### Code-health risk — high
 
 Raised from medium on this verify pass: the blast radius is 14 call sites across
 five scripts on the highest-frequency task-data write paths, and the change adds a
@@ -389,7 +389,7 @@ of that guard's failure modes are silent.
   (A1–A4 + negative controls), and the `_import_commit_frontmatter` extraction
   that makes the path reachable at all
 
-### Goal achievement — low
+### Goal-achievement risk — low
 
 The approach is fixed by three landed siblings and a canonical helper, and the
 site inventory was re-derived rather than trusted. Residual: the guard's
