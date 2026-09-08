@@ -74,6 +74,66 @@ advance_remote() {
     rm -rf "$other_tmpdir"
 }
 
+# --- t1725_1 helpers -------------------------------------------------------
+
+# Commit <file> locally, then push a DIFFERENT body for the same file from a
+# second clone. The next `pull --rebase` is then guaranteed to stop on a
+# content conflict. Mirrors the inline fixture Test 19 has always used.
+force_remote_conflict() {
+    local file="${1:-conflict.txt}" tmp
+    echo "local" > "$file"
+    git add "$file"
+    git commit -m "local conflicting commit" --quiet
+
+    tmp="$(mktemp -d "${TMPDIR:-/tmp}/ait_push_conflict_XXXXXX")"
+    git clone --quiet "$TEST_REMOTE" "$tmp/other" 2>/dev/null
+    git -C "$tmp/other" config user.email "other@test.com"
+    git -C "$tmp/other" config user.name "Other"
+    echo "remote" > "$tmp/other/$file"
+    git -C "$tmp/other" add "$file"
+    git -C "$tmp/other" commit -m "remote conflicting commit" --quiet
+    git -C "$tmp/other" push --quiet 2>/dev/null
+    rm -rf "$tmp"
+}
+
+# Echo the in-progress state present in <gitdir> (or the cwd's), or "" when
+# clean. Deliberately re-implemented from `ls` rather than calling the library
+# helper under test — a probe that shares the implementation it is checking
+# cannot detect that implementation being wrong.
+probe_wedge() {
+    local gd="${1:-}" s
+    [[ -z "$gd" ]] && gd="$(git rev-parse --git-dir 2>/dev/null || echo .git)"
+    for s in rebase-merge rebase-apply MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD BISECT_LOG; do
+        [[ -e "$gd/$s" ]] && { printf '%s' "$s"; return 0; }
+    done
+    printf ''
+}
+
+# Assert that a later task_git commit succeeds — the literal AC3 clause
+# ("the task's next ./ait git commit succeeds"), which is what a leftover
+# rebase-merge breaks via assert_data_worktree_clean.
+assert_next_commit_succeeds() {
+    local desc="$1" name="ac3_probe_$$_${RANDOM}.txt" wt
+    # task_git runs `git -C "$_AIT_DATA_WORKTREE"`, so the probe file has to be
+    # created inside that worktree — in branch mode that is not the cwd.
+    wt="${_AIT_DATA_WORKTREE:-.}"
+    echo "after-recovery" > "$wt/$name"
+    local out rc=0
+    TOTAL=$((TOTAL + 1))
+    out="$(task_git add "$name" 2>&1)" || rc=$?
+    if [[ $rc -eq 0 ]]; then
+        out="$(task_git commit -m "ait: AC3 probe" --quiet 2>&1)" || rc=$?
+    fi
+    if [[ $rc -eq 0 ]]; then
+        PASS=$((PASS + 1))
+    else
+        FAIL=$((FAIL + 1))
+        # Say WHY: a bare "was refused" cannot distinguish the wedge this
+        # assertion exists to detect from a broken fixture.
+        echo "FAIL: $desc (rc=$rc, worktree='$wt': ${out:-<no output>})"
+    fi
+}
+
 # Setup branch mode: move TEST_LOCAL into a .aitask-data subdirectory
 # Sets: TEST_MAIN_DIR (the parent directory to cd into)
 setup_branch_mode() {
@@ -345,6 +405,51 @@ assert_eq "classify: rebase stopped on conflicts" "rebase_conflict" \
     "$(_task_push_classify "$reject_err" "CONFLICT (content): Merge conflict in t42.md
 error: could not apply 1a2b3c4... local commit")"
 
+# --- t1725_1: _task_pull_rebase's own sentinels ---
+# These are contract text: the classifier is the only consumer, and the hint the
+# user sees is chosen from the code it returns.
+sent_locked="aitask: another session is reconciling the task data right now; pull skipped"
+sent_inprog="aitask: a rebase is already in progress in the data worktree (rebase-merge)"
+sent_stillin="aitask: rebase --abort failed - a rebase is still in progress in the data worktree"
+sent_foreign="aitask: a rebase started outside this pull is in progress in the data worktree - leaving it untouched"
+sent_appeared="aitask: a rebase appeared in the data worktree during a pull that failed for another reason - leaving it untouched"
+sent_midop="aitask: the data worktree is mid-MERGE_HEAD; leaving it untouched"
+sent_aborted="aitask: rebase aborted after conflict - worktree restored, local commits kept"
+conflict_text="CONFLICT (content): Merge conflict in t42.md
+error: could not apply 1a2b3c4... local commit"
+
+assert_eq "classify: pull skipped because another session holds the lock" "pull_locked" \
+    "$(_task_push_classify "" "$sent_locked")"
+assert_eq "classify: a rebase was already in progress" "rebase_in_progress" \
+    "$(_task_push_classify "" "$sent_inprog")"
+assert_eq "classify: the abort did not land" "rebase_in_progress" \
+    "$(_task_push_classify "" "$sent_stillin")"
+assert_eq "classify: someone else's rebase" "rebase_in_progress" \
+    "$(_task_push_classify "" "$sent_foreign")"
+assert_eq "classify: a rebase appeared during an unrelated failure" "rebase_in_progress" \
+    "$(_task_push_classify "" "$sent_appeared")"
+assert_eq "classify: a non-rebase mid-operation" "data_midop" \
+    "$(_task_push_classify "" "$sent_midop")"
+# The abort sentinel means the rebase is GONE: it must stay rebase_conflict, so
+# the hint tells the user to reconcile rather than to abort something.
+assert_eq "classify: an aborted conflict is still rebase_conflict" "rebase_conflict" \
+    "$(_task_push_classify "" "${conflict_text}
+${sent_aborted}")"
+
+# Ordering. task_push accumulates every attempt's output, so these blobs are the
+# real shape: attempt 1 conflicts, attempt 2 finds what it left behind.
+assert_eq "classify: in-progress beats a co-occurring conflict" "rebase_in_progress" \
+    "$(_task_push_classify "" "${conflict_text}
+${sent_stillin}")"
+assert_eq "classify: pull_locked beats everything — no pull was attempted" "pull_locked" \
+    "$(_task_push_classify "" "${sent_locked}
+${conflict_text}
+${sent_inprog}")"
+# Git's own "already a rebase-merge directory" text keeps its historical
+# rebase_conflict verdict when no sentinel accompanies it (nothing else changed).
+assert_eq "classify: git's bare rebase-merge text is unchanged" "rebase_conflict" \
+    "$(_task_push_classify "" "fatal: It seems that there is already a rebase-merge directory")"
+
 assert_eq "classify: remote unreachable" "remote_unreachable" \
     "$(_task_push_classify "fatal: '/nonexistent/path/repo.git' does not appear to be a git repository" "")"
 
@@ -357,8 +462,43 @@ assert_eq "classify: unrecognised output falls back to unknown" "unknown" \
 # Each code must map to a distinct, non-empty hint.
 assert_contains "hint: dirty worktree points at the syncer" "ait syncer" \
     "$(_task_push_reason_hint dirty_worktree)"
-assert_contains "hint: rebase conflict points at --abort" "rebase --abort" \
+# Since t1725_1 a conflicted pull aborts itself, so rebase_conflict means the
+# rebase is GONE and the two sides still diverge. Naming 'rebase --abort' here
+# would advertise a recovery for a state that no longer exists — so this
+# assertion is the inverse of the one it replaces, and both halves matter.
+assert_contains "hint: rebase conflict says the rebase was aborted" \
+    "was aborted (nothing left in progress)" \
     "$(_task_push_reason_hint rebase_conflict)"
+TOTAL=$((TOTAL + 1))
+if [[ "$(_task_push_reason_hint rebase_conflict)" == *"rebase --abort"* ]]; then
+    FAIL=$((FAIL + 1))
+    echo "FAIL: rebase_conflict hint still advertises 'rebase --abort' for a rebase that was already aborted"
+else
+    PASS=$((PASS + 1))
+fi
+
+# The three codes t1725_1 adds. Each names a recovery that matches its state:
+# only the rebase one may say 'rebase --abort'.
+assert_contains "hint: rebase in progress offers the abort/continue pair" \
+    "./ait git rebase --abort" "$(_task_push_reason_hint rebase_in_progress)"
+assert_contains "hint: rebase in progress says what --abort discards" \
+    "discards only the partially replayed remote commits" \
+    "$(_task_push_reason_hint rebase_in_progress)"
+assert_contains "hint: data_midop points at git-health for the exact state" \
+    "./ait git-health" "$(_task_push_reason_hint data_midop)"
+# Discriminator: a merge / cherry-pick / revert / bisect must NOT be handed a
+# rebase remedy. This is the assertion that fails if data_midop is ever folded
+# back into rebase_in_progress.
+TOTAL=$((TOTAL + 1))
+if [[ "$(_task_push_reason_hint data_midop)" == *"rebase"* ]]; then
+    FAIL=$((FAIL + 1))
+    echo "FAIL: data_midop hint mentions a rebase, but the state is not one"
+else
+    PASS=$((PASS + 1))
+fi
+assert_contains "hint: pull_locked says nothing was changed" \
+    "nothing was changed" "$(_task_push_reason_hint pull_locked)"
+
 assert_contains "hint: unreachable remote mentions connectivity" "connectivity" \
     "$(_task_push_reason_hint remote_unreachable)"
 
@@ -682,20 +822,11 @@ pushd "$TEST_LOCAL" > /dev/null || exit 1
 reload_task_utils
 _AIT_DATA_WORKTREE="."
 
-echo "local" > conflict.txt
-git add conflict.txt
-git commit -m "local conflicting commit" --quiet
+# Control FIRST: with nothing to conflict with, the fixture must be clean. Without
+# this, "no wedge afterwards" below could pass because nothing ever wedged.
+assert_eq_trim "19: control — a clean fixture has no in-progress state" "" "$(probe_wedge)"
 
-# Same file, different content, from "another user".
-conflict_tmp="$(mktemp -d "${TMPDIR:-/tmp}/ait_push_conflict_XXXXXX")"
-git clone --quiet "$TEST_REMOTE" "$conflict_tmp/other" 2>/dev/null
-git -C "$conflict_tmp/other" config user.email "other@test.com"
-git -C "$conflict_tmp/other" config user.name "Other"
-echo "remote" > "$conflict_tmp/other/conflict.txt"
-git -C "$conflict_tmp/other" add conflict.txt
-git -C "$conflict_tmp/other" commit -m "remote conflicting commit" --quiet
-git -C "$conflict_tmp/other" push --quiet 2>/dev/null
-rm -rf "$conflict_tmp"
+force_remote_conflict conflict.txt
 
 task_sync 2>"$TEST_TMPDIR/sync_conflict_err.txt"
 sync_rc=$?
@@ -704,11 +835,36 @@ sync_err="$(cat "$TEST_TMPDIR/sync_conflict_err.txt")"
 assert_success "task_sync returns 0 on rebase conflict" "$sync_rc"
 assert_eq "TASK_SYNC_STATUS is failed (conflict)" "failed" "$TASK_SYNC_STATUS"
 assert_eq "TASK_SYNC_REASON is rebase_conflict" "rebase_conflict" "$TASK_SYNC_REASON"
-assert_contains "warning offers the rebase recovery" "rebase --abort" "$sync_err"
 
-# Leave the fixture recoverable (counts mid-rebase are meaningless, so they
-# are deliberately not asserted above).
-git rebase --abort 2>/dev/null || true
+# t1725_1: the conflicted rebase must be gone. This block used to END with
+# `git rebase --abort || true` to "leave the fixture recoverable" — that cleanup
+# WAS the bug, performed by the test instead of by the code under test.
+assert_eq_trim "19: the conflicted rebase was aborted, not left behind" "" "$(probe_wedge)"
+assert_contains "19: the warning says the rebase was aborted" \
+    "was aborted (nothing left in progress)" "$sync_err"
+
+# The sentinel itself is NOT on task_sync's stderr, and must not be: task_sync
+# captures `_task_pull_rebase 2>&1` into pull_err to feed the classifier, so the
+# user gets one warn() line rather than two overlapping messages. Pin the
+# sentinel where it is actually observable — at the function that emits it.
+# The fixture still diverges after the abort, so this conflicts again.
+pull_out="$(_task_pull_rebase 2>&1)"
+assert_contains "19: _task_pull_rebase announces the abort on its own stderr" \
+    "rebase aborted after conflict - worktree restored, local commits kept" "$pull_out"
+assert_contains "19: it also passes git's own conflict text through" \
+    "CONFLICT" "$pull_out"
+assert_eq_trim "19: and the second conflict is cleaned up too" "" "$(probe_wedge)"
+
+# AC3, literally: "the task's next ./ait git commit succeeds".
+assert_next_commit_succeeds "19: the next task_git commit succeeds after the abort"
+
+# The lock must not outlive the call, or every later pull reports pull_locked.
+TOTAL=$((TOTAL + 1))
+if [[ -e ".git/aitask-pull.lock" ]]; then
+    FAIL=$((FAIL + 1)); echo "FAIL: 19: the pull mutex was left behind"
+else
+    PASS=$((PASS + 1))
+fi
 
 popd > /dev/null || exit 1
 
@@ -1328,6 +1484,377 @@ assert_contains "the previously-dirty edit survived into a commit" "MINE CHANGED
     "$(git show HEAD:aitasks/t2_shared.md 2>/dev/null || cat aitasks/t2_shared.md)"
 
 popd > /dev/null || exit 1
+
+# --- Test 39: a pre-existing rebase is never touched (t1725_1) ---
+# The discriminating case for "clean up after YOURSELF": the wedge is planted
+# with a FOREIGN orig-head, so ownership cannot be proven and the abort must not
+# run. Test 19 is its positive control — same code path, provable ownership.
+echo "--- Test 39: pre-existing foreign rebase -> left in place ---"
+
+setup_remote_and_clone
+pushd "$TEST_LOCAL" > /dev/null || exit 1
+reload_task_utils
+_AIT_DATA_WORKTREE="."
+
+force_remote_conflict conflict.txt
+
+# Plant a rebase-merge whose orig-head names a commit that is not our HEAD.
+mkdir -p .git/rebase-merge
+echo "0000000000000000000000000000000000000000" > .git/rebase-merge/orig-head
+assert_eq_trim "39: the planted wedge is present before the call" \
+    "rebase-merge" "$(probe_wedge)"
+
+pull_out="$(_task_pull_rebase 2>&1)"
+assert_eq_trim "39: the foreign rebase is still there afterwards" \
+    "rebase-merge" "$(probe_wedge)"
+assert_contains "39: it is reported as already in progress" \
+    "already in progress in the data worktree" "$pull_out"
+assert_eq "39: and classified as rebase_in_progress" "rebase_in_progress" \
+    "$(_task_push_classify "" "$pull_out")"
+
+rm -rf .git/rebase-merge
+popd > /dev/null || exit 1
+
+# --- Test 40: a pre-existing NON-rebase state gets non-rebase wording ---
+# A merge / cherry-pick / revert must not be announced as a rebase, nor handed
+# `rebase --abort`. Before t1725_1 this text matched no classifier arm at all
+# (`*CONFLICT*` is case-sensitive) and landed on `unknown`.
+echo "--- Test 40: pre-existing MERGE_HEAD -> data_midop, no rebase advice ---"
+
+setup_remote_and_clone
+pushd "$TEST_LOCAL" > /dev/null || exit 1
+reload_task_utils
+_AIT_DATA_WORKTREE="."
+
+force_remote_conflict conflict.txt
+: > .git/MERGE_HEAD
+assert_eq_trim "40: MERGE_HEAD is present before the call" "MERGE_HEAD" "$(probe_wedge)"
+
+pull_out="$(_task_pull_rebase 2>&1)"
+midop_reason="$(_task_push_classify "" "$pull_out")"
+
+assert_eq_trim "40: MERGE_HEAD survives untouched" "MERGE_HEAD" "$(probe_wedge)"
+assert_contains "40: the message names the actual state" "mid-MERGE_HEAD" "$pull_out"
+assert_eq "40: classified as data_midop, not rebase_in_progress" "data_midop" "$midop_reason"
+# The discriminator. Asserting only "MERGE_HEAD survived" would also pass if the
+# state were described as a rebase — which is exactly the defect this guards.
+TOTAL=$((TOTAL + 1))
+if [[ "$pull_out" == *"rebase"* ]]; then
+    FAIL=$((FAIL + 1))
+    echo "FAIL: 40: a MERGE_HEAD was described using the word 'rebase'"
+else
+    PASS=$((PASS + 1))
+fi
+TOTAL=$((TOTAL + 1))
+if [[ "$(_task_push_reason_hint "$midop_reason")" == *"rebase --abort"* ]]; then
+    FAIL=$((FAIL + 1))
+    echo "FAIL: 40: a MERGE_HEAD was handed 'rebase --abort'"
+else
+    PASS=$((PASS + 1))
+fi
+
+rm -f .git/MERGE_HEAD
+popd > /dev/null || exit 1
+
+# --- Test 41: a failed abort is reported as such, never as "restored" ---
+# The branch a real conflict never reaches: `rebase --abort … || true` swallows
+# its own failure, and the rebase_conflict hint claims "nothing left in
+# progress". Force it through the documented seam — _ait_data_git is the single
+# runner every data-worktree git call goes through.
+echo "--- Test 41: rebase --abort fails -> rebase_in_progress, no false claim ---"
+
+setup_remote_and_clone
+pushd "$TEST_LOCAL" > /dev/null || exit 1
+reload_task_utils
+_AIT_DATA_WORKTREE="."
+
+force_remote_conflict conflict.txt
+
+_ait_data_git() {
+    if [[ "${1:-}" == "rebase" && "${2:-}" == "--abort" ]]; then
+        return 1                      # the abort fails AND changes nothing
+    fi
+    LC_ALL=C git "$@"
+}
+
+pull_out="$(_task_pull_rebase 2>&1)"
+fail_reason="$(_task_push_classify "" "$pull_out")"
+
+assert_eq_trim "41: the wedge survives a failed abort" "rebase-merge" "$(probe_wedge)"
+assert_eq "41: classified as rebase_in_progress" "rebase_in_progress" "$fail_reason"
+assert_contains "41: the failure is named" "rebase --abort failed" "$pull_out"
+# The claim that must NOT appear. Test 19 is the negative control: identical
+# fixture, real runner, and it asserts this exact string IS present.
+TOTAL=$((TOTAL + 1))
+if [[ "$pull_out" == *"worktree restored"* ]]; then
+    FAIL=$((FAIL + 1))
+    echo "FAIL: 41: claimed the worktree was restored after the abort failed"
+else
+    PASS=$((PASS + 1))
+fi
+# And the hint must point at a recovery for a state that IS still there.
+assert_contains "41: the hint offers the abort/continue pair" "rebase --abort" \
+    "$(_task_push_reason_hint "$fail_reason")"
+
+unset -f _ait_data_git
+reload_task_utils
+_AIT_DATA_WORKTREE="."
+git rebase --abort 2>/dev/null || true
+popd > /dev/null || exit 1
+
+# --- Test 42: ait_rebase_abort_if_ours verdict table (t1725_1) ---
+# Unit level, against a fabricated git-dir and a stub runner, so every branch —
+# including the ones a live fixture cannot reach — is deterministic. The stub
+# records whether it ran: for every not_ours verdict it must NOT have.
+echo "--- Test 42: ait_rebase_abort_if_ours verdicts ---"
+
+reload_task_utils
+GD_42="$(mktemp -d "${TMPDIR:-/tmp}/ait_own_XXXXXX")"
+CLEANUP_DIRS+=("$GD_42")
+OURS_42="1111111111111111111111111111111111111111"
+THEIRS_42="2222222222222222222222222222222222222222"
+
+# Stub runners. Each records its invocation in $GD_42/ran.
+stub_removes() { : > "$GD_42/ran"; rm -rf "${GD_42:?}/rebase-merge" "${GD_42:?}/rebase-apply"; return 0; }
+stub_fails()   { : > "$GD_42/ran"; return 1; }
+
+plant_42() {   # <state> <orig-head-or-"none">
+    rm -rf "${GD_42:?}/rebase-merge" "${GD_42:?}/rebase-apply"
+    rm -f "${GD_42:?}/MERGE_HEAD" "$GD_42/ran"
+    case "$1" in
+        MERGE_HEAD) : > "$GD_42/MERGE_HEAD" ;;
+        *) mkdir -p "$GD_42/$1"
+           [[ "${2:-none}" != "none" ]] && echo "$2" > "$GD_42/$1/orig-head" ;;
+    esac
+}
+ran_42() { [[ -e "$GD_42/ran" ]] && echo yes || echo no; }
+
+plant_42 rebase-merge "$OURS_42"
+assert_eq_trim "42: ours + abort lands -> aborted" "aborted" \
+    "$(ait_rebase_abort_if_ours stub_removes "$GD_42" "$OURS_42" rebase-merge)"
+
+plant_42 rebase-merge "$OURS_42"
+assert_eq_trim "42: ours + abort fails -> abort_failed" "abort_failed" \
+    "$(ait_rebase_abort_if_ours stub_fails "$GD_42" "$OURS_42" rebase-merge)"
+
+plant_42 rebase-merge "$THEIRS_42"
+assert_eq_trim "42: foreign orig-head -> not_ours" "not_ours" \
+    "$(ait_rebase_abort_if_ours stub_removes "$GD_42" "$OURS_42" rebase-merge)"
+assert_eq_trim "42: and the runner was never invoked" "no" "$(ran_42)"
+
+plant_42 rebase-merge none
+assert_eq_trim "42: missing orig-head -> not_ours" "not_ours" \
+    "$(ait_rebase_abort_if_ours stub_removes "$GD_42" "$OURS_42" rebase-merge)"
+assert_eq_trim "42: missing orig-head never invokes the runner" "no" "$(ran_42)"
+
+plant_42 rebase-apply "$OURS_42"
+assert_eq_trim "42: the apply backend is honoured too" "aborted" \
+    "$(ait_rebase_abort_if_ours stub_removes "$GD_42" "$OURS_42" rebase-apply)"
+
+plant_42 MERGE_HEAD
+assert_eq_trim "42: a non-rebase state -> not_ours" "not_ours" \
+    "$(ait_rebase_abort_if_ours stub_removes "$GD_42" "$OURS_42" MERGE_HEAD)"
+assert_eq_trim "42: a non-rebase state never invokes the runner" "no" "$(ran_42)"
+
+plant_42 rebase-merge "$OURS_42"
+assert_eq_trim "42: an empty head_before proves nothing -> not_ours" "not_ours" \
+    "$(ait_rebase_abort_if_ours stub_removes "$GD_42" "" rebase-merge)"
+assert_eq_trim "42: an empty head_before never invokes the runner" "no" "$(ran_42)"
+
+unset -f stub_removes stub_fails plant_42 ran_42
+
+# --- Test 43: the pull mutex (t1725_1) ---
+# Serialization is the reason the ownership evidence is trustworthy at all, so
+# assert it against a real concurrent holder, not a mock.
+echo "--- Test 43: pull mutex busy / reclaim / release ---"
+
+setup_remote_and_clone
+pushd "$TEST_LOCAL" > /dev/null || exit 1
+reload_task_utils
+_AIT_DATA_WORKTREE="."
+
+force_remote_conflict conflict.txt
+LOCK_43=".git/aitask-pull.lock"
+
+# A published stale_lock is <dir>/pid (the holder) + <dir>/owner (the release
+# token). Writing anything else would make this lock read as legacy/tokenless,
+# which is reclaimable on age alone — the assertion below would then pass
+# without ever exercising the live-holder rule.
+plant_lock_43() {   # <pid>
+    mkdir -p "$LOCK_43"
+    printf '%s\n' "$1" > "$LOCK_43/pid"
+    printf 'not-our-token-%s\n' "$RANDOM" > "$LOCK_43/owner"
+}
+
+# A LIVE holder is never displaced: this shell is by definition running.
+plant_lock_43 "$$"
+
+busy_out="$(ait_pull_mutex_acquire 1 2>&1; echo "rc=$?")"
+assert_contains "43: acquiring a live-held lock reports busy" "rc=1" "$busy_out"
+
+task_sync 2>/dev/null
+assert_eq "43: TASK_SYNC_REASON is pull_locked" "pull_locked" "$TASK_SYNC_REASON"
+assert_eq "43: sync still returns a non-fatal failed status" "failed" "$TASK_SYNC_STATUS"
+assert_eq_trim "43: no rebase was started while the lock was held" "" "$(probe_wedge)"
+TOTAL=$((TOTAL + 1))
+if [[ -d "$LOCK_43" ]]; then
+    PASS=$((PASS + 1))          # the holder's lock is intact
+else
+    FAIL=$((FAIL + 1)); echo "FAIL: 43: a live holder's lock was displaced"
+fi
+
+# Release it and re-run: the control proving the previous block was the lock and
+# not a broken fixture.
+rm -rf "$LOCK_43"
+task_sync 2>/dev/null
+assert_eq "43: with the lock free the pull runs and conflicts" "rebase_conflict" \
+    "$TASK_SYNC_REASON"
+assert_eq_trim "43: and cleans up after itself" "" "$(probe_wedge)"
+TOTAL=$((TOTAL + 1))
+if [[ -e "$LOCK_43" ]]; then
+    FAIL=$((FAIL + 1)); echo "FAIL: 43: the mutex was not released"
+else
+    PASS=$((PASS + 1))
+fi
+
+# A DEAD holder is reclaimed rather than waited out. PID 2^22-1 is above every
+# Linux/macOS default pid_max, so it cannot name a running process.
+plant_lock_43 4194303
+TOTAL=$((TOTAL + 1))
+if ait_pull_mutex_acquire 5 >/dev/null 2>&1; then
+    PASS=$((PASS + 1))
+    ait_pull_mutex_release
+else
+    FAIL=$((FAIL + 1)); echo "FAIL: 43: a dead holder's lock was not reclaimed"
+fi
+rm -rf "$LOCK_43"
+
+popd > /dev/null || exit 1
+
+# --- Test 44: the push retry loop cleans up too, in BRANCH mode (t1725_1) ---
+# task_push reaches _task_pull_rebase through a different caller and, in branch
+# mode, through the other git-dir resolution path (_ait_data_gitdir rather than
+# the legacy `git rev-parse --git-dir` fallback). Both must clean up.
+echo "--- Test 44: task_push retry conflict -> no wedge (branch mode) ---"
+
+setup_remote_and_clone
+setup_branch_mode
+pushd "$TEST_MAIN_DIR" > /dev/null || exit 1
+reload_task_utils
+# Pinned exactly as every other branch-mode test here does: TEST_MAIN_DIR is not
+# itself a git repo, so leaving detection to run from a transient cwd is what the
+# other tests avoid by setting this explicitly.
+_AIT_DATA_WORKTREE=".aitask-data"
+
+pushd .aitask-data > /dev/null || exit 1
+force_remote_conflict conflict.txt
+popd > /dev/null || exit 1
+_AIT_DATA_WORKTREE=".aitask-data"
+
+GD_44="$(git -C .aitask-data rev-parse --absolute-git-dir)"
+assert_eq_trim "44: control — clean before the push cycle" "" "$(probe_wedge "$GD_44")"
+
+task_push 2>/dev/null
+assert_eq "44: the push cycle reports failed" "failed" "$TASK_PUSH_STATUS"
+assert_eq_trim "44: no rebase is left behind by the retry loop" "" "$(probe_wedge "$GD_44")"
+TOTAL=$((TOTAL + 1))
+if [[ -e "$GD_44/aitask-pull.lock" ]]; then
+    FAIL=$((FAIL + 1)); echo "FAIL: 44: the mutex was left behind in branch mode"
+else
+    PASS=$((PASS + 1))
+fi
+# AC3 through the branch-mode gateway: the next write must not be refused.
+assert_next_commit_succeeds "44: the next task_git commit succeeds (branch mode)"
+
+popd > /dev/null || exit 1
+
+# --- Test 45: aitask_pick_own.sh --sync under a conflict (t1725_1, AC3 e2e) ---
+# The real entry point that runs at every pick — a real process, not a sourced
+# function, so it also proves task_utils.sh's new startup dependency resolves.
+echo "--- Test 45: pick_own --sync conflict -> SYNC_FAILED, no wedge ---"
+
+setup_remote_and_clone
+pushd "$TEST_LOCAL" > /dev/null || exit 1
+setup_pick_own_cli
+force_remote_conflict conflict.txt
+
+assert_eq_trim "45: control — clean before the sync" "" "$(probe_wedge)"
+sync_out="$(./.aitask-scripts/aitask_pick_own.sh --sync 2>/dev/null)"
+sync_rc=$?
+
+assert_success "45: --sync still exits 0 (best-effort contract)" "$sync_rc"
+assert_eq_trim "45: it reports the conflict reason" "SYNC_FAILED:rebase_conflict" "$sync_out"
+assert_eq_trim "45: and leaves no wedge behind" "" "$(probe_wedge)"
+
+popd > /dev/null || exit 1
+
+# --- Test 46: a wedge that appeared during a NON-conflict failure (t1725_1) ---
+# Signal 3. Unreachable from a single-process fixture — it needs a rebase to
+# appear while our own pull is failing for an unrelated reason — so drive the
+# decide-and-clean seam directly with exactly that combination. Without this
+# signal, a concurrent session's rebase could be aborted by a pull that never
+# conflicted at all.
+echo "--- Test 46: rebase appeared during an unrelated failure -> untouched ---"
+
+reload_task_utils
+GD_46="$(mktemp -d "${TMPDIR:-/tmp}/ait_sig3_XXXXXX")"
+CLEANUP_DIRS+=("$GD_46")
+OURS_46="1111111111111111111111111111111111111111"
+mkdir -p "$GD_46/rebase-merge"
+# orig-head MATCHES, so signals 4 and 5 would both pass: only the non-conflict
+# output stops the abort. That is what makes this discriminating.
+echo "$OURS_46" > "$GD_46/rebase-merge/orig-head"
+
+sig3_out="$(_task_pull_rebase_cleanup "$GD_46" "" "$OURS_46" \
+    "error: cannot pull with rebase: You have unstaged changes." 2>&1)"
+
+assert_eq_trim "46: the rebase is still there" "rebase-merge" "$(probe_wedge "$GD_46")"
+assert_contains "46: and is reported as not ours to clean up" \
+    "appeared in the data worktree during a pull that failed for another reason" "$sig3_out"
+assert_eq "46: classified as rebase_in_progress" "rebase_in_progress" \
+    "$(_task_push_classify "" "$sig3_out")"
+
+# Positive control: the SAME state and orig-head, but conflict-shaped output —
+# now it is ours and must be cleaned up. Proves signal 3 is what discriminated,
+# not some unrelated refusal.
+ctrl_runner() { rm -rf "${GD_46:?}/rebase-merge"; return 0; }
+assert_eq_trim "46: control — conflict-shaped output makes it ours" "aborted" \
+    "$(ait_rebase_abort_if_ours ctrl_runner "$GD_46" "$OURS_46" rebase-merge)"
+unset -f ctrl_runner
+
+# --- Test 47: signal 5 at the integration level (t1725_1) ---
+# Test 39's foreign rebase is caught by signal 1 (it was there BEFORE the pull),
+# so it never reaches the ownership check. The case that does is a rebase that
+# appears DURING a conflicted pull and carries someone else's orig-head — the
+# concurrent-session race the mutex narrows but cannot make impossible. Drive it
+# through the same seam as Test 46.
+echo "--- Test 47: foreign rebase appearing during our own conflict -> untouched ---"
+
+GD_47="$(mktemp -d "${TMPDIR:-/tmp}/ait_sig5_XXXXXX")"
+CLEANUP_DIRS+=("$GD_47")
+mkdir -p "$GD_47/rebase-merge"
+echo "2222222222222222222222222222222222222222" > "$GD_47/rebase-merge/orig-head"
+
+sig5_out="$(_task_pull_rebase_cleanup "$GD_47" "" \
+    "1111111111111111111111111111111111111111" \
+    "CONFLICT (content): Merge conflict in t42.md
+error: could not apply 1a2b3c4... local commit" 2>&1)"
+
+assert_eq_trim "47: another session's rebase is left in place" \
+    "rebase-merge" "$(probe_wedge "$GD_47")"
+assert_contains "47: and is named as started outside this pull" \
+    "started outside this pull" "$sig5_out"
+assert_eq "47: classified as rebase_in_progress" "rebase_in_progress" \
+    "$(_task_push_classify "" "$sig5_out")"
+# Discriminator: everything except orig-head is identical to the ours case, so a
+# gate that stopped checking ownership would abort here.
+TOTAL=$((TOTAL + 1))
+if [[ "$sig5_out" == *"worktree restored"* ]]; then
+    FAIL=$((FAIL + 1))
+    echo "FAIL: 47: aborted a rebase this pull did not start"
+else
+    PASS=$((PASS + 1))
+fi
 
 # --- Summary ---
 echo ""

@@ -33,7 +33,8 @@
 #                                date, or no remote configured)
 #   SYNC_FAILED:<reason>         Sync-only mode: the pull failed; <reason> is a
 #                                task_utils.sh classifier code (dirty_worktree,
-#                                rebase_conflict, no_upstream,
+#                                rebase_conflict, rebase_in_progress,
+#                                data_midop, pull_locked, no_upstream,
 #                                remote_unreachable, diverged, unknown).
 #                                Still exits 0 — sync is best-effort; details
 #                                and a recovery hint go to stderr.

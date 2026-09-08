@@ -23,6 +23,12 @@ source "${SCRIPT_DIR}/lib/python_resolve.sh"
 # it too.
 # shellcheck source=data_symlinks.sh
 source "${SCRIPT_DIR}/lib/data_symlinks.sh"
+# stale_lock.sh provides the framework's ONE mutex protocol (.gc-guarded
+# single-winner reclaim, live PIDs never displaced, owner-token release). The
+# data-worktree pull mutex below is an adapter over it, not a second protocol.
+# It is self-anchored via its own BASH_SOURCE and double-source guarded.
+# shellcheck source=stale_lock.sh
+source "${SCRIPT_DIR}/lib/stale_lock.sh"
 
 # --- Default directory variables (override before sourcing if needed) ---
 TASK_DIR="${TASK_DIR:-aitasks}"
@@ -210,6 +216,32 @@ ait_data_mode() {
     return 0
 }
 
+# Internal: print the FIRST AIT_GIT_INPROGRESS_STATES member present under
+# <gitdir>, or nothing when the dir is clean or <gitdir> is empty.
+#
+# The ONE loop. It used to be spelled out in ait_data_inprogress_state and again
+# in assert_data_worktree_clean; t1725_1 added a third reader (_data_wedge_state,
+# below) and a fourth copy of a list whose members can only be verified against
+# live git was not acceptable — the same reasoning that made
+# AIT_GIT_INPROGRESS_STATES one named set. task_git_health keeps its own loop on
+# purpose: it collects ALL hits rather than the first.
+#
+# The callers differ only in WHICH git-dir they hand it, which is exactly the
+# policy each one owns.
+#
+# ALWAYS returns 0: an empty answer means clean-or-uninspectable.
+_ait_inprogress_state_at() {
+    local gitdir="${1:-}" state
+    [[ -z "$gitdir" ]] && return 0
+    for state in "${AIT_GIT_INPROGRESS_STATES[@]}"; do
+        if [[ -e "$gitdir/$state" ]]; then
+            printf '%s' "$state"
+            return 0
+        fi
+    done
+    return 0
+}
+
 # ait_data_inprogress_state — print the FIRST in-progress git state the data
 # worktree is stuck in, or nothing when it is clean.
 #
@@ -219,21 +251,43 @@ ait_data_mode() {
 #
 # Works in both modes — in legacy mode _ait_data_gitdir answers empty and this
 # prints nothing, which is the honest answer for "the data worktree" when there
-# is not a separate one.
+# is not a separate one. That is a DELIBERATE contract, not an oversight: when
+# you need a legacy-mode answer too, use _data_wedge_state() below.
 #
 # ALWAYS returns 0: an empty answer means clean-or-uninspectable, and every
 # caller distinguishes those by asking ait_data_mode as well.
 ait_data_inprogress_state() {
-    local gitdir state
-    gitdir="$(_ait_data_gitdir)"
-    [[ -z "$gitdir" ]] && return 0
-    for state in "${AIT_GIT_INPROGRESS_STATES[@]}"; do
-        if [[ -e "$gitdir/$state" ]]; then
-            printf '%s' "$state"
-            return 0
-        fi
-    done
-    return 0
+    _ait_inprogress_state_at "$(_ait_data_gitdir)"
+}
+
+# Internal: the git-dir whose in-progress state describes where THIS PROCESS's
+# task-data git commands actually land — i.e. wherever _ait_data_git runs.
+#
+# Resolved by MODE, never by emptiness. _ait_data_gitdir answers empty for two
+# different situations — legacy mode, and a branch-mode git-dir that would not
+# resolve — and they need opposite handling: in legacy mode _ait_data_git runs
+# plain `git` in the code repo, so the code repo's git-dir IS the right answer;
+# in branch mode falling back to it would inspect the WRONG repository.
+#
+# ALWAYS returns 0 (same set -e reason as _ait_data_gitdir).
+_data_wedge_gitdir() {
+    if [[ "$(ait_data_mode)" == "legacy" ]]; then
+        git rev-parse --git-dir 2>/dev/null || printf ''
+        return 0
+    fi
+    _ait_data_gitdir
+}
+
+# _data_wedge_state — the first in-progress git state blocking task-data writes,
+# or nothing when clean. The legacy-aware sibling of ait_data_inprogress_state.
+#
+# Reports ALL SIX states, not just the two rebase ones: callers word their
+# message as "mid-<state>", and a merge or cherry-pick announced as a rebase
+# would be handed a recovery command that does not apply.
+#
+# ALWAYS returns 0.
+_data_wedge_state() {
+    _ait_inprogress_state_at "$(_data_wedge_gitdir)"
 }
 
 # Internal: run git against the task-data worktree (branch mode) or the current
@@ -293,18 +347,14 @@ assert_data_worktree_clean() {
     _ait_git_subcmd_is_recovery "$@" && return 0
     _ait_git_subcmd_is_readonly "$@" && return 0
 
-    local gitdir
-    gitdir="$(_ait_data_gitdir)"
-    [[ -z "$gitdir" ]] && return 0
-
-    local state hit=""
-    for state in "${AIT_GIT_INPROGRESS_STATES[@]}"; do
-        if [[ -e "$gitdir/$state" ]]; then hit="$state"; break; fi
-    done
+    local hit
+    hit="$(ait_data_inprogress_state)"
     [[ -z "$hit" ]] && return 0
 
     die "$(cat <<EOF
 Data worktree (.aitask-data) is stuck mid-${hit}.
+'--abort' below discards only the partially replayed remote commits; your own
+committed work stays on the branch.
 Recover with one of:
   ./ait git rebase --abort        (discard the in-progress rebase)
   ./ait git rebase --continue     (resume if you were editing)
@@ -681,7 +731,7 @@ _task_sync_warn() {
     # Nothing is pending, but a local-state blocker keeps every future sync AND
     # push failing, so it is still worth reporting.
     case "$TASK_SYNC_REASON" in
-        dirty_worktree|rebase_conflict)
+        dirty_worktree|rebase_conflict|rebase_in_progress|data_midop|pull_locked)
             warn "task data sync failed — ${hint}${detail}" ;;
     esac
     return 0
@@ -782,9 +832,228 @@ _task_push_once() {
     _ait_data_git push --quiet
 }
 
-# Internal: pull with rebase to catch up with remote
+# --- The data-worktree pull mutex (t1725_1) ---------------------------------
+#
+# Serializes the pull-and-cleanup window in _task_pull_rebase. It exists because
+# the ownership evidence below cannot, on its own, separate two pulls that
+# started from the IDENTICAL HEAD: both record the same orig-head, so without
+# serialization either could abort the other's in-progress reconciliation. The
+# data worktree is shared by every session on the host, which is exactly the
+# incident this task fixes.
+#
+# An ADAPTER over stale_lock.sh, never a second protocol — that core already
+# has .gc-guarded single-winner reclaim, never displaces a live PID, and
+# releases by owner token.
+#
+# NOT registry_lock.sh, deliberately: that adapter keeps ONE lock per process in
+# a single slot and installs its own EXIT trap. aitask_sync.sh already holds one
+# (its "sync auto-commit" section), so a second acquire there would overwrite
+# the slot and lose that lock's release. This lib keeps its own private slot and
+# installs no trap.
+#
+# SCOPE — what this does and does NOT guarantee. It serializes _task_pull_rebase
+# against other _task_pull_rebase calls: the pick-time sync and the push retry,
+# which are by far the most frequent pulls. It does NOT cover aitask_sync.sh,
+# the `./ait git` gateway, or a raw `git` run by hand; for those the ownership
+# gate below still fails closed, and the remaining exposure is documented on
+# _task_pull_rebase itself.
+_AIT_PULL_MUTEX_DIR=""
+_AIT_PULL_MUTEX_TOKEN=""
+
+# ait_pull_mutex_acquire [<timeout_secs>] -> 0 held, 1 busy.
+#
+# MUST NOT be called inside $( ): stale_lock_acquire returns its owner token in
+# the STALE_LOCK_TOKEN global, and a command substitution runs in a subshell
+# whose assignment to it is discarded — the lock would be held with no token to
+# release it by (stale_lock.sh documents this).
+ait_pull_mutex_acquire() {
+    local timeout="${1:-10}" gitdir deadline remaining retries
+    gitdir="$(_data_wedge_gitdir)"
+    # No inspectable git-dir means no lock path; the caller's ownership gate is
+    # then the only protection, which is the pre-existing behaviour.
+    [[ -z "$gitdir" ]] && return 0
+    local dir="$gitdir/aitask-pull.lock"
+
+    deadline=$(( $(date +%s) + timeout ))
+    while :; do
+        remaining=$(( deadline - $(date +%s) ))
+        (( remaining < 0 )) && remaining=0
+        retries=$(( remaining * 20 ))
+        # Floor of 3, for the same reason registry_lock.sh documents: a reclaim
+        # consumes an attempt without acquiring, and there can be two (the
+        # guard, then the lock dir) before the acquiring mkdir.
+        (( retries < 3 )) && retries=3
+        if stale_lock_acquire "$dir" "$retries" 0.05 "task-data pull"; then
+            _AIT_PULL_MUTEX_DIR="$dir"
+            _AIT_PULL_MUTEX_TOKEN="$STALE_LOCK_TOKEN"
+            return 0
+        fi
+        # Re-arm until the deadline actually passes: stale_lock budgets ATTEMPTS,
+        # and a burst of dead-holder reclaims spends them without sleeping.
+        if (( $(date +%s) >= deadline )); then
+            return 1        # a live holder kept it — fail closed, pull nothing
+        fi
+    done
+}
+
+# ait_pull_mutex_release — release the lock this process holds, if any.
+# Idempotent and always returns 0 (a retained lock is warned about by the core).
+ait_pull_mutex_release() {
+    [[ -n "$_AIT_PULL_MUTEX_DIR" ]] || return 0
+    stale_lock_release "$_AIT_PULL_MUTEX_DIR" "$_AIT_PULL_MUTEX_TOKEN" \
+        || warn "ait_pull_mutex: '$_AIT_PULL_MUTEX_DIR' not fully released"
+    _AIT_PULL_MUTEX_DIR=""
+    _AIT_PULL_MUTEX_TOKEN=""
+    return 0
+}
+
+# ait_rebase_abort_if_ours <runner> <gitdir> <head_before> <state>
+#
+# The ownership gate: abort a conflicted rebase ONLY when this call can prove it
+# started it. Prints exactly one verdict token and ALWAYS returns 0:
+#
+#   aborted       we started it, aborted it, and the worktree is now clean
+#   abort_failed  we started it, ran the abort, and the state SURVIVED
+#   not_ours      no proof — nothing was touched, and the runner was never run
+#
+# <runner> is a command invoked as `"$runner" rebase --abort`, so this works for
+# the data worktree (_ait_data_git) and for a plain repo (git) alike.
+#
+# The evidence is <gitdir>/<state>/orig-head, which git writes with the commit
+# HEAD was at when the rebase started — for both the merge and the apply
+# backend. Equal to the HEAD we read immediately before our own pull => ours.
+#
+# The "state is not a rebase" arm below is currently unreachable from
+# _task_pull_rebase, which checks that itself so it can emit a state-accurate
+# message. Keep it: it is the defensive half of this function's contract, it is
+# what makes the function safe for any future caller, and the unit tests drive
+# it directly.
+ait_rebase_abort_if_ours() {
+    local runner="$1" gitdir="$2" head_before="$3" state="$4" recorded
+    case "$state" in
+        rebase-merge|rebase-apply) ;;
+        *) printf 'not_ours'; return 0 ;;
+    esac
+    recorded="$(cat "$gitdir/$state/orig-head" 2>/dev/null || true)"
+    if [[ -z "$head_before" || -z "$recorded" || "$recorded" != "$head_before" ]]; then
+        printf 'not_ours'
+        return 0
+    fi
+    "$runner" rebase --abort >/dev/null 2>&1 || true
+    # Verify the mutation landed. `|| true` above swallows a failed abort, and
+    # the rebase_conflict hint claims "nothing left in progress" — a false
+    # claim if the state is still there.
+    if [[ -n "$(_ait_inprogress_state_at "$gitdir")" ]]; then
+        printf 'abort_failed'
+    else
+        printf 'aborted'
+    fi
+    return 0
+}
+
+# Internal: pull with rebase to catch up with remote, cleaning up after ITSELF.
+#
+# The contract is symmetric and both halves matter: a conflict this call created
+# is aborted (otherwise every later ./ait git write dies in
+# assert_data_worktree_clean — the t1725 finding-5 incident), and anything this
+# call did NOT create is left strictly alone.
+#
+# Ownership is proven, never assumed. Five signals, evaluated in order, and ANY
+# miss leaves the worktree untouched:
+#
+#   0. the pull mutex was acquired (else no pull is even attempted);
+#   1. nothing was in progress before the pull;
+#   2. something is in progress after it;
+#   3. the pull's OWN output is conflict-shaped — a pull that refused before
+#      fetching (dirty worktree, no upstream) cannot have created what we see,
+#      so it belongs to somebody else;
+#   4. that state is a rebase — a merge-mode conflict leaving MERGE_HEAD must
+#      not be described as a rebase nor handed `rebase --abort`;
+#   5. its recorded orig-head is the HEAD we read just before pulling.
+#
+# RESIDUAL: the mutex covers this function only. A concurrent `ait sync`, a
+# `./ait git pull`, or a raw `git` can still start a rebase inside our window,
+# and if it started from an identical HEAD signals 1-5 cannot tell it from ours.
+# Even then `rebase --abort` restores orig-head, so no COMMITTED work is lost —
+# the exposure is conflict-resolution progress. Closing it needs the sync-side
+# and gateway changes tracked as t1725_1 follow-ups.
+#
+# The pull's exit status is returned unchanged whenever a pull ran; the sentinels
+# go to stderr, which every caller captures with 2>&1 for _task_push_classify.
 _task_pull_rebase() {
-    _ait_data_git pull --rebase --quiet
+    local before after out rc=0 head_before gitdir verdict
+
+    if ! ait_pull_mutex_acquire; then
+        printf 'aitask: another session is reconciling the task data right now; pull skipped\n' >&2
+        return 1
+    fi
+
+    gitdir="$(_data_wedge_gitdir)"
+    before="$(_ait_inprogress_state_at "$gitdir")"
+    # Read HEAD through the git-dir we will read orig-head from, so the two are
+    # answers about the same repository.
+    head_before="$(git --git-dir="$gitdir" rev-parse HEAD 2>/dev/null || true)"
+
+    out="$(_ait_data_git pull --rebase --quiet 2>&1)" || rc=$?
+    [[ -n "$out" ]] && printf '%s\n' "$out" >&2
+
+    if [[ $rc -ne 0 ]]; then
+        _task_pull_rebase_cleanup "$gitdir" "$before" "$head_before" "$out"
+    fi
+
+    ait_pull_mutex_release
+    return $rc
+}
+
+# Internal: the decide-and-clean half of _task_pull_rebase, split out only so
+# that function keeps a single exit point around the mutex.
+#   $1 gitdir  $2 state before the pull  $3 HEAD before the pull  $4 pull output
+_task_pull_rebase_cleanup() {
+    local gitdir="$1" before="$2" head_before="$3" out="$4" after verdict
+
+    # Signal 1: something was already in progress — not ours, whatever it is.
+    if [[ -n "$before" ]]; then
+        case "$before" in
+            rebase-merge|rebase-apply)
+                printf 'aitask: a rebase is already in progress in the data worktree (%s)\n' "$before" >&2 ;;
+            *)
+                printf 'aitask: the data worktree is mid-%s; leaving it untouched\n' "$before" >&2 ;;
+        esac
+        return 0
+    fi
+
+    # Signal 2: the pull failed without wedging anything (e.g. dirty_worktree).
+    after="$(_ait_inprogress_state_at "$gitdir")"
+    [[ -z "$after" ]] && return 0
+
+    # Signal 3: our pull must actually have hit a conflict. Anything else means
+    # the state appeared from elsewhere while we were failing for another reason.
+    case "$out" in
+        *CONFLICT*|*"could not apply"*|*"Resolve all conflicts"*) ;;
+        *)
+            printf 'aitask: a rebase appeared in the data worktree during a pull that failed for another reason - leaving it untouched\n' >&2
+            return 0 ;;
+    esac
+
+    # Signal 4: only a rebase gets rebase wording and a rebase remedy.
+    case "$after" in
+        rebase-merge|rebase-apply) ;;
+        *)
+            printf 'aitask: the data worktree is mid-%s; leaving it untouched\n' "$after" >&2
+            return 0 ;;
+    esac
+
+    # Signal 5: prove it is ours, then abort and verify the abort landed.
+    verdict="$(ait_rebase_abort_if_ours _ait_data_git "$gitdir" "$head_before" "$after")"
+    case "$verdict" in
+        aborted)
+            printf 'aitask: rebase aborted after conflict - worktree restored, local commits kept\n' >&2 ;;
+        abort_failed)
+            printf 'aitask: rebase --abort failed - a rebase is still in progress in the data worktree\n' >&2 ;;
+        *)
+            printf 'aitask: a rebase started outside this pull is in progress in the data worktree - leaving it untouched\n' >&2 ;;
+    esac
+    return 0
 }
 
 # --- task_push probes (each returns 0: they are consumed via "$(...)" inside
@@ -829,10 +1098,31 @@ _task_push_classify() {
     local push_err="$1" rebase_err="$2"
     local blob="${push_err}"$'\n'"${rebase_err}"
 
+    # _task_pull_rebase's own sentinels come FIRST, and among them pull_locked is
+    # first of all: it means no pull was even attempted, so nothing git said
+    # afterwards describes this cycle. The three patterns are disjoint.
+    case "$rebase_err" in
+        *"reconciling the task data right now"*)
+            echo "pull_locked"; return 0 ;;
+    esac
+    case "$rebase_err" in
+        *"in progress in the data worktree"*|*"appeared in the data worktree during a pull that failed"*)
+            echo "rebase_in_progress"; return 0 ;;
+    esac
+    case "$rebase_err" in
+        *"the data worktree is mid-"*)
+            echo "data_midop"; return 0 ;;
+    esac
     case "$rebase_err" in
         *"cannot pull with rebase"*|*"unstaged changes"*|*"uncommitted changes"*|*"local changes"*"would be overwritten"*)
             echo "dirty_worktree"; return 0 ;;
     esac
+    # Git's own "rebase-merge directory" / "rebase-apply" texts stay HERE rather
+    # than moving to the rebase_in_progress arm: when a wedge pre-existed, our
+    # sentinel is present too and the earlier arm already won. That ordering is
+    # also what task_push's accumulated rebase_err needs — an attempt-1 abort
+    # that failed makes attempt 2 report rebase_in_progress, the actionable
+    # verdict, rather than rebase_conflict.
     case "$rebase_err" in
         *CONFLICT*|*"could not apply"*|*"Resolve all conflicts"*|*"rebase-merge directory"*|*"rebase-apply"*)
             echo "rebase_conflict"; return 0 ;;
@@ -874,8 +1164,18 @@ _task_push_reason_hint() {
             echo "local edits to the same file(s) block the fast-forward; commit them or reconcile with './ait sync'" ;;
         local_diverged)
             echo "local data branch has both unpushed and unpulled commits; reconcile with './ait sync'" ;;
+        # Since t1725_1 a conflicted pull ABORTS itself, so this code no longer
+        # means "a rebase is sitting there" — it means the rebase is gone and the
+        # two sides still diverge. Pointing at 'rebase --abort' here would name a
+        # recovery for a state that no longer exists.
         rebase_conflict)
-            echo "rebase stopped on conflicts; recover with './ait git rebase --abort' (or resolve and './ait git rebase --continue')" ;;
+            echo "rebase hit conflicts and was aborted (nothing left in progress); local and remote diverge — reconcile with 'ait syncer' or './ait sync'" ;;
+        rebase_in_progress)
+            echo "a rebase is in progress in the data worktree; './ait git rebase --abort' discards only the partially replayed remote commits (your committed work stays on the branch), or resolve and './ait git rebase --continue'" ;;
+        data_midop)
+            echo "the data worktree is mid-operation (merge, cherry-pick, revert or bisect); run './ait git-health' for the exact state, then finish it or abort it with the matching './ait git <op> --abort'" ;;
+        pull_locked)
+            echo "another session is reconciling the task data right now; nothing was changed — retry in a moment, or run './ait git-health' if it persists" ;;
         no_upstream)
             # MUST be the './ait git' gateway form: in branch mode the branch
             # needing an upstream is aitask-data inside .aitask-data, and a bare
