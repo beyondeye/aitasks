@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [git, bash_scripts, robustness]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -17,7 +17,8 @@ anchor: 1599
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5
 created_at: 2026-09-07 18:14
-updated_at: 2026-09-08 22:19
+updated_at: 2026-09-08 22:21
+completed_at: 2026-09-08 22:21
 ---
 
 ## Origin
@@ -76,3 +77,14 @@ same change, and if it is not, the paragraph must say why not.
 > **✅ gate:plan_approved** run=2026-09-08T15:25:04Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-09-08T19:04:10Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-08T19:21:28Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:87b22ddaefd0522d
+
+> **✅ gate:risk_evaluated** run=2026-09-08T19:21:28Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1728/risk_evaluated_2026-09-08T19:21:28Z-risk_evaluated-a1.log`
