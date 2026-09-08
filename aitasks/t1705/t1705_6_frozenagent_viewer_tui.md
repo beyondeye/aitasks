@@ -3,12 +3,13 @@ priority: high
 effort: high
 depends: [t1705_5]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [tui, textual, tui_switcher, custom_shortcuts, codeagent, session_persistence, python]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1705
 created_at: 2026-09-04 16:05
-updated_at: 2026-09-04 16:05
+updated_at: 2026-09-08 16:42
 ---
 
 ## Context
