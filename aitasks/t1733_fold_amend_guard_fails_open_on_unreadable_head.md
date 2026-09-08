@@ -10,8 +10,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5
 created_at: 2026-09-07 18:40
-updated_at: 2026-09-08 12:28
+updated_at: 2026-09-08 18:10
 ---
 
 ## Defect
@@ -71,3 +72,8 @@ Mirror the controls already written for the issue-import guard in
   issue-import guard rewrote the merge commit before the fix.
 - The existing permit-direction tests (7 and 11 in `test_fold_mark.sh`) must keep
   passing, so the tightening does not start refusing legitimate folds.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-08T15:10:55Z status=pass attempt=1 type=human
