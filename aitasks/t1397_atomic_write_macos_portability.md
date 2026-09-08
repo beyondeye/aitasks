@@ -3,11 +3,12 @@ priority: medium
 effort: low
 depends: []
 issue_type: manual_verification
-status: Ready
+status: Implementing
 labels: [script-performance]
+assigned_to: dario-e@beyond-eye.com
 followup_kind: risk_mitigation
 created_at: 2026-08-03 22:42
-updated_at: 2026-08-13 23:07
+updated_at: 2026-09-08 16:50
 boardidx: 3584
 ---
 
