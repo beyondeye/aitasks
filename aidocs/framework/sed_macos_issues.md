@@ -333,6 +333,56 @@ fi
 
 **In skill files / AI instructions:** Document both flags side by side: `base64 -d` (Linux) or `base64 -D` (macOS).
 
+## `stat` Portability
+
+There is no portable `stat` format flag. GNU uses `-c`, BSD uses `-f`, and the
+format strings themselves differ:
+
+| Platform | Octal mode | Size |
+|----------|------------|------|
+| Linux (GNU coreutils) | `stat -c '%a'` | `stat -c '%s'` |
+| macOS (BSD) | `stat -f '%Lp'` | `stat -f '%z'` |
+
+`%Lp` (not `%p`) is what yields the bare permission bits on BSD — `%p` includes
+the file type in the high bits.
+
+The repo idiom is a fallback chain, not a `uname` branch (`lib/atomic_write.sh`,
+`aitask_gate.sh`, `aitask_create.sh`):
+
+```bash
+ait_file_mode() {
+    stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1" 2>/dev/null || true
+}
+```
+
+The chain is safe in both directions: on macOS `stat -c` exits 1 and the BSD form
+answers; on GNU the first form answers and the second is never reached. `stat -f`
+means "print filesystem status" on GNU, but it is only ever reached there when the
+file is absent, where it fails too.
+
+## `readlink` Portability
+
+BSD `readlink` had **no `-f`** before macOS 12.3. Code that must run on older
+macOS walks the symlink chain by hand rather than calling `readlink -f`:
+
+```bash
+# GNU / macOS >= 12.3 only:
+resolved=$(readlink -f "$path")
+
+# Portable: walk the chain with bare `readlink`, bounded, resolving
+# relative targets against the link's own directory (lib/atomic_write.sh:
+# ait_atomic_resolve, bounded at 40 hops).
+```
+
+A hand-walked chain needs three things a naive loop omits: a **hop bound** with an
+explicit failure (otherwise a symlink cycle spins forever), resolution of
+**relative** targets against the *link's* directory rather than `$PWD`, and
+`cd -P` on the final directory so the returned path is fully physical.
+
+Note that BSD `readlink` also prints nothing (exit 1) for a non-symlink, whereas
+GNU `readlink -f` prints the path itself — so the two are not drop-in equivalents
+even where `-f` exists.
+
 ## Shebang Convention
 
 Always use `#!/usr/bin/env bash`, never `#!/bin/bash`. macOS system bash is 3.2 which lacks `declare -A`, `local -n`, `${var^}`. The `env bash` form picks up brew-installed bash 5.x from PATH.
@@ -466,3 +516,40 @@ socket), t937 (low-priority cleanup: switch the two fragile bare-`sed -i` +
 `test_fold_file_refs_union.sh:162` to `sed_inplace`). No production-code
 portability bug was found — the prior audits (t186/t209/t211/t213/t658/t931/t932)
 have absorbed the platform-specific patterns.
+
+## Files Audited in t1397
+
+Targeted macOS re-run of t1379's atomic-write conversion, on macOS 15.7.3 arm64
+(Darwin 24.6.0, bash 5.3.9, BSD `stat`/`mktemp`/`readlink`). t1379 introduced
+`.aitask-scripts/lib/atomic_write.sh`, whose BSD branches Linux CI never reaches.
+
+**No BSD-vs-GNU divergence found — nothing to fix.** Every BSD path behaved as
+the GNU path does:
+
+- `ait_file_mode` — `stat -c '%a'` exits 1 on this box, so the `stat -f '%Lp'`
+  fallback is genuinely the branch under test (not merely present). An existing
+  `0640` file keeps `640` across a rewrite; a new file lands `0666 & ~umask`
+  (`644` at `umask 022`) and `600` under `umask 0077` — the assertion that
+  separates a derived mode from a hardcoded `0644`.
+- `ait_atomic_tmp` — the BSD-safe `mktemp …XXXXXX` template form (placeholder
+  last, no suffix) substitutes correctly; no literal-`XXXXXX` residue.
+- `ait_atomic_resolve` — the hand-walked chain resolves a relative symlink, a
+  3-hop chain, and the `/var` → `/private/var` prefix link; a symlink cycle exits
+  1 with `too many symlink levels` instead of looping; the 40-hop bound holds (30
+  hops resolve, 44 fail). `readlink -f` *is* available on macOS 15, but the manual
+  walk is retained deliberately for macOS < 12.3 — see `readlink` above.
+
+**Suites run — all green.** `test_atomic_write_sh.sh` 30/30,
+`test_atomic_task_file_writes.sh` 62/62, plus the converted scripts' own suites:
+`test_plan_verified.sh` 49/49, `test_plan_externalize.sh`,
+`test_issue_import_contributor.sh`, `test_update_risk.sh` 21/21,
+`test_create_silent_stdout.sh`, `test_projects_cmd.sh` 42/42.
+
+**Sourcing caveat (not a code bug).** `lib/atomic_write.sh` computes its
+default mode with `$(( 0666 & ~0$(umask) ))`, which is bash arithmetic. Sourced
+from **zsh** — where a leading `0` is not octal unless `setopt octalzeroes` —
+that expression yields `1210` instead of `644`, and the file lands with the wrong
+permissions. Every framework caller is `#!/usr/bin/env bash`, so this is
+unreachable in practice; it is recorded because an agent verifying by hand in an
+interactive zsh will reproduce it and mistake it for a defect. Verify shell libs
+with `bash -c '...'`, never a bare interactive shell.
