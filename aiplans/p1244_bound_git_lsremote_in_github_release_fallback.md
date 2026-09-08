@@ -1,0 +1,265 @@
+---
+Task: t1244_bound_git_lsremote_in_github_release_fallback.md
+Base branch: main
+Output branch: main
+plan_verified: []
+---
+
+# t1244 — Bound `git ls-remote` in the GitHub release fallback
+
+## Context
+
+`github_latest_tag_version()` (`.aitask-scripts/lib/github_release.sh:92`) is the
+rate-limit-free fallback used when the GitHub REST API is unavailable. Both curl
+paths in the same file carry an explicit time bound (`--max-time 10` for the
+release lookup, `--max-time 5` for the rate-limit probe), but the `git ls-remote`
+fallback has none. On a wedged network — a connection that blackholes instead of
+refusing — the call can hang indefinitely, freezing whatever attended command
+reached it.
+
+This was found during the t1223_2 plan review: the Python wrapper
+`framework_version.resolve_latest_version` had to add `start_new_session=True`
+plus a process-group `SIGKILL` precisely because a timed-out helper could leave a
+live `git ls-remote` **grandchild** behind. The bash-side callers have no
+equivalent bound at all.
+
+**Correction to the task body** (verified while planning): `ait`'s
+`check_for_updates` (`ait:124-186`) does *not* reach this helper — it runs its own
+inline `curl -sS --max-time 5` in a disowned background subshell and never sources
+`lib/github_release.sh`. The genuinely exposed attended callers are:
+
+| caller | path |
+|---|---|
+| `ait upgrade` | `aitask_upgrade.sh:67` → `github_latest_tag_version` (rate-limit branch) |
+| `ait setup` | `aitask_setup.sh:2466` → `github_resolve_latest_version` → `github_latest_tag_version` |
+| `install.sh` (`curl \| bash`) | `resolve_latest_version_gittags()` at `install.sh:214` — a deliberate copy of the same helper, with a "keep the two in sync" comment |
+| `lib/framework_version.py` | already bounded on its own side (10s + process-group kill); the fix is belt-and-braces there |
+
+A second, related defect surfaced while prototyping: under `set -o pipefail` the
+helper's pipeline returns **1** whenever `grep` matches nothing (measured). Today
+that only bites on the no-tags path; adding a timeout makes empty output routine,
+so `aitask_upgrade.sh:67` and `github_release.sh:114` — both unguarded command
+substitutions under `set -euo pipefail` — would start dying silently instead of
+reaching their own error messages. Fixing the return status is therefore part of
+this change, not a separate cleanup.
+
+## Approach
+
+Add a private, self-contained bounded runner inside `lib/github_release.sh` and
+route the fallback through it, so every caller inherits the bound.
+
+**Three constraints shape the implementation:**
+
+1. **No `timeout(1)`.** Both test suites stub `git` as a *shell function*
+   (`tests/test_github_release.sh:37`, `tests/test_install_tarball_download.sh:84`),
+   and an exec'd `timeout` would bypass the stub and turn those tests into live
+   network calls. macOS also ships no `timeout` by default. So the bound is a
+   background job plus a polling watchdog — the same shape as
+   `aitask_sync.sh:_git_with_timeout` and
+   `aitask_remote_drift_check.sh:_git_fetch_with_timeout`.
+2. **Output to a temp file, not a pipe.** Killing the direct child leaves a
+   `git-remote-https` grandchild holding the write end of a pipe, which keeps the
+   reader blocked for the full hang — exactly what t1223_2 measured. A file has no
+   such reader.
+3. **Kill the whole process tree.** A recursive `pgrep -P` walk reaps the
+   transport helper too. Prototyped and confirmed: a stubbed 30-second
+   `git ls-remote` returned empty at the 2s bound with **zero** leftover
+   descendants.
+
+`lib/github_release.sh` must stay dependency-free — `tests/test_setup_help_flag.sh:43`
+and `tests/test_init_data.sh:94` copy it into fixtures standalone — so the runner
+is local to the file rather than extracted into a new shared lib.
+
+### 1. `.aitask-scripts/lib/github_release.sh`
+
+- Document the new knob in the file header and add a default near the top:
+  `AIT_GIT_LSREMOTE_TIMEOUT` (default `10`, matching the file's `--max-time 10`
+  and the framework-wide `NETWORK_TIMEOUT=10`).
+- **Normalize the knob before it is used anywhere.** It is externally set, and
+  every malformed shape fails badly (all measured during planning):
+
+  | value | unguarded behavior |
+  |---|---|
+  | `abc` | `$(( SECONDS + t ))` under `set -u` → `abc: unbound variable`, aborting the function *and* the caller's command substitution |
+  | `""` | `deadline=0` → instant "timeout": the fallback silently returns empty **forever** |
+  | `0`, `-5` | same silent disable |
+  | `a[0$(id)]` | arithmetic array-subscript evaluation — command substitution inside `$(( … ))` |
+
+  Guard once, at the top of the runner, and normalize anything unsupported back
+  to the documented default rather than failing:
+
+  ```bash
+  local timeout_s="${AIT_GIT_LSREMOTE_TIMEOUT:-10}"
+  if [[ "$timeout_s" =~ ^[0-9]+$ ]] && (( 10#$timeout_s > 0 )); then
+      timeout_s=$(( 10#$timeout_s ))
+  else
+      timeout_s=10
+  fi
+  ```
+
+  `10#` is required — `(( 08 > 0 ))` is an "invalid octal" error. The `if`/`else`
+  form (not `[[ … ]] && (( … ))`) is required too: a false `&&` list is a
+  non-zero statement and trips `set -e`. After this the value is a plain positive
+  integer, safe for both the arithmetic and `GIT_HTTP_LOW_SPEED_TIME`.
+- Add `_ait_ls_remote_kill_tree()` — recursive `pgrep -P` walk, `kill` each pid,
+  all best-effort (`|| true`).
+- Add `_github_ls_remote_tags <url>` — the bounded runner. **`$AIT_GIT_LSREMOTE_TIMEOUT`
+  is never referenced again after the normalization above; every use below is the
+  normalized `timeout_s`** — otherwise the raw malformed value stays on the
+  execution path and the validation guarantees nothing:
+  - `mktemp "${TMPDIR:-/tmp}/ait_lsremote.XXXXXX"` (portable form; no
+    `mktemp --suffix`, per `aidocs/framework/sed_macos_issues.md`);
+  - run `git ls-remote --tags --refs "$url" 'v*' >"$tmp" 2>/dev/null &` with
+    `GIT_TERMINAL_PROMPT=0`, `GIT_HTTP_LOW_SPEED_LIMIT=1`,
+    `GIT_HTTP_LOW_SPEED_TIME="$timeout_s"` so git aborts a stalled transfer
+    itself and tears its helper down cleanly, with the watchdog as the hard
+    backstop for the phases the low-speed timer does not cover (DNS / TCP
+    connect);
+  - poll with `sleep 0.2 2>/dev/null || sleep 1` against
+    `deadline=$(( SECONDS + timeout_s ))` — using bash's `SECONDS` keeps the
+    bound correct whichever sleep granularity the platform accepts;
+  - on timeout: tree-kill, `wait`, print nothing; otherwise `cat "$tmp"`;
+  - always `rm -f "$tmp"` and `return 0`.
+  - Every fallible step guarded (`if`/`then`, `|| true`) so the function is
+    `set -euo pipefail`-safe when sourced.
+- Rewrite `github_latest_tag_version()` to pipe `_github_ls_remote_tags` through
+  the unchanged `sed`/`grep`/`sort -t. -k…n`/`tail -1` filter chain, appending
+  `|| true` to the pipeline so an empty result is exit **0**, not a `pipefail` 1.
+
+### 2. `install.sh` — keep the documented mirror honest
+
+`resolve_latest_version_gittags()` carries an explicit "This mirrors
+`github_latest_tag_version()` … keep the two in sync" comment and has the identical
+unbounded hang on the highest-blast-radius path (`curl | bash`). Port the same
+bounded runner, knob normalization and tree-kill helper into install.sh (it cannot
+source the lib — the lib is not on disk until the tarball is extracted) and update
+the sync comment to say the bound is part of what is mirrored. Its call site
+already has `|| true` (`install.sh:280`), so no status change is needed there.
+
+**The install.sh helpers MUST carry distinct names** — `_install_ls_remote_tags`
+and `_install_kill_process_tree`, not the library's `_github_*` names.
+`tests/test_install_tarball_download.sh` sources install.sh (line 26) and *then*
+`lib/github_release.sh` (line 28); bash resolves function calls dynamically and a
+later definition wins (verified). With shared names the library's copy would
+silently replace install.sh's, so `resolve_latest_version_gittags()` would exercise
+the *library* runner and the new installer test below would pass on a broken
+installer. Distinct names make that impossible regardless of source order.
+
+### 3. `tests/test_github_release.sh` — new coverage
+
+Add tests alongside the existing ones (same in-file `git()` stub pattern, `PASS`/
+`FAIL` counters — no subshell bodies, so no `assert_counters_init` needed).
+
+**The hanging stub must reproduce the real process shape**, because the defect
+being fixed is a surviving *descendant*, not a surviving direct child. A stub
+that merely calls `sleep 30` inline only proves the direct child was killed. So
+the stub spawns a nested shell that has its own child, records **both** PIDs to a
+file, and the test asserts each exact PID is gone afterwards:
+
+**`bash -c 'sleep 30'` will not work as the fixture** — bash exec-optimizes a sole
+simple command, so the process *becomes* `sleep` with no children (verified:
+`comm=sleep`, `pgrep -P` empty). The fixture must force a real shell parent, e.g.
+`bash -c 'sleep 30 & wait'` (verified: `comm=bash` with one child):
+
+```bash
+git() {
+    if [[ "${1:-}" == "ls-remote" ]]; then
+        bash -c 'sleep 30 & wait' &     # nested shell (depth 2 from the watchdog)
+        local nested=$! gc="" i=0       # its own `sleep` is depth 3
+        while [[ -z "$gc" && $i -lt 25 ]]; do
+            gc="$(pgrep -P "$nested" 2>/dev/null | head -1)"
+            [[ -z "$gc" ]] && sleep 0.1
+            i=$(( i + 1 ))
+        done
+        printf '%s\n%s\n' "$nested" "$gc" > "$STUB_PIDS"
+        wait
+        return 0
+    fi
+    command git "$@"
+}
+```
+
+The test asserts a non-empty `<grandchild>` was actually recorded before checking
+cleanup — an empty one means the fixture stopped producing the nested shape and
+the cleanup assertion has become vacuous.
+
+Tests to add:
+
+- **timeout**: hanging stub, `AIT_GIT_LSREMOTE_TIMEOUT=1` → empty output, exit 0,
+  elapsed wall time `<= 5s`.
+- **recursive descendant cleanup**: after that call, assert `kill -0 <nested>`
+  **and** `kill -0 <grandchild>` both fail — exact PIDs, not a `pgrep -f` name
+  match. This is the assertion that actually pins `pgrep -P` recursion; a
+  depth-1-only kill leaves the grandchild orphaned and alive.
+- **malformed knob**: `AIT_GIT_LSREMOTE_TIMEOUT=abc` (and one of `""` / `0`) with
+  the *instant* stub → still returns `0.10.0`, exit 0. Without the normalization
+  the first aborts on `unbound variable` and the others return empty.
+- **empty result is exit 0**: `git` stub returns nothing → `rc` is 0 (the
+  `pipefail` regression guard).
+- Existing Test 5 / Test 6 (numeric sort, resolver fallback) must still pass
+  unchanged — they are the proof the happy path is untouched.
+
+### 4. `tests/test_install_tarball_download.sh` — test install.sh's copy directly
+
+`assert_gittag_resolver_parity` compares only *parsed output* from an instant
+stub, so any divergence in install.sh's copied process-management code leaves the
+`curl | bash` installer hanging while every test above still passes. The copy
+therefore needs its own behavioral test, not parity alone.
+
+Add a test that drives `resolve_latest_version_gittags()` **directly** with the
+same hanging/nested stub shape and `AIT_GIT_LSREMOTE_TIMEOUT=1`, asserting:
+bounded elapsed time (`<= 5s`), empty output, exit status **0** (captured at the
+function call — install.sh's own call site masks it with `|| true` at
+`install.sh:280`), and both recorded descendant PIDs gone.
+
+Also assert `declare -F _install_ls_remote_tags` succeeds, pinning the distinct-name
+isolation above: if the installer's runner is ever renamed back to a library name,
+this test fails loudly instead of silently exercising the library's copy.
+
+The existing parity assertions stay and must remain green.
+
+## Files
+
+- `.aitask-scripts/lib/github_release.sh` — knob normalization + bounded runner + rewritten fallback (primary)
+- `install.sh` — mirrored bound in `resolve_latest_version_gittags()`
+- `tests/test_github_release.sh` — timeout / descendant-cleanup / malformed-knob / exit-status tests
+- `tests/test_install_tarball_download.sh` — direct bounded-hang test for install.sh's copy
+
+## Verification
+
+```bash
+shellcheck .aitask-scripts/lib/github_release.sh install.sh
+bash tests/test_github_release.sh
+bash tests/test_install_tarball_download.sh
+bash tests/test_setup_help_flag.sh     # copies the lib into a fixture standalone
+bash tests/test_init_data.sh           # same
+```
+
+End-to-end, against the real network:
+
+```bash
+# happy path unchanged — prints the current release version
+bash -c 'source .aitask-scripts/lib/github_release.sh && github_latest_tag_version beyondeye/aitasks'
+
+# hard bound observed — a blackholed host returns empty in ~3s, not never
+time bash -c 'source .aitask-scripts/lib/github_release.sh &&
+  AIT_GIT_LSREMOTE_TIMEOUT=3 github_latest_tag_version 10.255.255.1/x; echo "rc=$?"'
+```
+
+## Risk
+
+### Code-health risk: medium
+- The watchdog + tree-kill is process-management code whose failure mode is
+  silent: a bug makes version resolution return empty and both `ait upgrade` and
+  `ait setup` degrade quietly rather than erroring. · severity: medium · → mitigation: covered by the timeout / leak / exit-status tests in plan step 3
+- `install.sh` is the highest-blast-radius file in the repo, and the change adds
+  ~25 lines of process handling to a `curl | bash` path that output-parity tests
+  cannot see through. · severity: medium · → mitigation: covered by plan step 4 — a direct bounded-hang test on `resolve_latest_version_gittags()`, not parity alone
+- Adds a third near-copy of the portable-timeout pattern (`aitask_sync.sh`,
+  `aitask_remote_drift_check.sh`, now here). Extracting a shared helper is
+  deliberately **not** done: the lib must stay standalone for the fixture
+  copies. · severity: low · → mitigation: none needed — recorded in the file comment
+
+### Goal-achievement risk: low
+- None identified. The defect, the callers, the kill semantics and the `pipefail`
+  side effect were each verified empirically during planning.
