@@ -144,6 +144,30 @@ shellcheck .aitask-scripts/aitask_frozenagent.sh
 
 Copied verbatim from `aiplans/p1705_frozen_codeagents_session_store_and_viewer_tui.md` §A–§D. On any discrepancy the parent plan wins; if a child must deviate, update the parent plan and every sibling plan in the same commit.
 
+> **⚠ PARTLY SUPERSEDED — read the parent plan's `## Amendments from
+> re-verification (t1705_5, 2026-09-07 / 2026-09-08)` block (B1–B7) BEFORE
+> implementing anything from §A–§D below.** t1705_5 re-verified the §D restore
+> contract against the shipped tree and amended it; the parent plan carries the
+> authoritative list. The text below is retained as the unedited parent contract.
+>
+> The four that change §D's wire protocol:
+>
+> - **B1** — `restore-begin` and `lease-take` both REQUIRE `--owner-pid <pid>`.
+> - **B2** — §D step 3's `env VAR=…` prefix is superseded by **`respawn-pane -e`**
+>   (one `-e` per variable). The prefix is now the documented *fallback* for a
+>   tmux build without `-e`, not the primary mechanism.
+> - **B3** — the hook consumes only `AITASK_RESTORE_RECORD` and
+>   `AITASK_RESTORE_NONCE`; the other two are exported as diagnostics only.
+> - **B4** — §C's `restoring`/`aborting` reconcile rows are already SHIPPED
+>   (t1705_4), so §C is a specification of existing behaviour.
+>
+> **Why this matters for this task specifically.** The viewer shells out to
+> `aitask_frozen.sh restore <id>` via `run-shell -b` and surfaces the restore
+> outcome. Build against the amended four-outcome contract; in particular a
+> `liveness` confirm KEEPS the captures, and a codex record can only ever reach
+> `liveness` — the UI must not present that as an error.
+
+
 
 #### A. Session store — `lib/agent_sessions.py` + `aitask_agent_sessions.sh`
 

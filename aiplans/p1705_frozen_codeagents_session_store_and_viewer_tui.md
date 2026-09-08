@@ -107,6 +107,68 @@ self-contained plan. The parent writes no code.
   the same `list-panes` format and sibling count and must rebase on it.
   t1389 (Ready) is the identity-stamping successor — coordination note only.
 
+## Amendments from re-verification (t1705_5, 2026-09-07 / 2026-09-08)
+
+> **Read this before §A–§D below.** These amendments supersede the PINNED text
+> where they conflict. They were produced by t1705_5's re-verification of the
+> §D restore contract against the shipped tree, after t1705_2 (store), t1705_3
+> (hooks), t1705_4 (freeze engine), t1716 (env-passing evidence) and t1738
+> (shared store/tmux plumbing) landed. In each case the parent's **own** later
+> evidence — the t1705_1/t1716 spike findings below — is what supersedes the
+> earlier §D prose. Per the PINNED rule ("if a child must deviate, update the
+> parent plan and every sibling plan in the same commit"), the same banner is
+> carried in every pending sibling plan.
+
+**B1 — §D step 2 / §A `lease-take`: add `--owner-pid`.** The shipped wrapper
+surface is `restore-begin <id> --owner-pid <pid> --mode resume|repick` and
+`lease-take <id> --owner-pid <pid>`. The §D/§A text shows both verbs without it.
+A defaulted or omitted pid is a usage error (exit 2); a *wrong* one degrades the
+lease to a bare timer and lets `reconcile` abort a restore that is still polling
+for its ack.
+
+**B2 — §D step 3: `respawn-pane -e` replaces the `env` prefix.** Measured by
+spike Case 3b (t1716). The prefix remains the documented **fallback** for a tmux
+build without `-e`. This also resolves what was, until this amendment, an
+**internal contradiction in this very file**: §D step 3 specified the `env`
+prefix while `## Spike findings (t1705_1) — PINNED` below said *"Prefer `-e`"*.
+§D has now been corrected in place; `-e` is the primary mechanism.
+
+**B3 — §D step 3: the hook consumes only `RECORD` and `NONCE`.** The shipped
+hook (`aitask_session_hook.sh:144-145`) forwards only `--restore-of
+"$AITASK_RESTORE_RECORD"` and `--nonce "$AITASK_RESTORE_NONCE"`. The store reads
+the mode and the expected session **off the record**, not off the environment.
+All four variables are still exported, as **diagnostics** — they make a frozen
+pane's environment self-describing when a restore must be debugged by hand.
+
+**B4 — §C `restoring` / `aborting` rows are implemented.** `_reconcile_restoring`
+and `_reconcile_aborting` in `lib/agent_freeze.py` already cover every row of the
+§C table (shipped by t1705_4). The table is now a specification of *shipped*
+behaviour; a child's obligation against it is a **testing** one, not an
+implementation one.
+
+**B5 — B1–B4 are not self-executing: they must be propagated.** Eight files
+carried the obsolete §D contract. The five pending sibling plans — including the
+acceptance test (t1705_8) and both docs tasks (t1705_9/10) — would otherwise
+implement, test, or *publish* the superseded protocol. Archived plans
+(`aiplans/archived/p1705/p1705_1..4`) are **deliberately excluded**: they are
+historical records of what was true at their own implementation time, and
+rewriting them would falsify the record.
+
+**B6 — the restore-ack grace accessor lives in `lib/agent_frozen_ops.py`.**
+t1738 shipped the shared module and deliberately left `RESTORE_ACK_GRACE` in
+`agent_freeze.py`, leaving the placement call to t1705_5. Hosting
+`restore_ack_grace()` in the repair module would force `agent_restore` to import
+it for a single function — the exact coordinator→repair coupling t1738's
+mitigation existed to remove. The accessor and its `20.0` default therefore live
+in `agent_frozen_ops.py`; `agent_freeze.py` keeps only the call-site swap.
+
+**B7 — `pick_launch_argv` has three call sites.** `minimonitor_app.py:3013`,
+`monitor_app.py:3599`, and `monitor_app.py:3683` (`_on_restart_confirmed`).
+None of the three passes `agent_string` today, so the shared helper must default
+it to `None` at all three or every `pick` launch would silently start a
+different agent/model. **t1705_7 also consumes this helper — use this count, not
+any earlier two-site statement.**
+
 ## Architecture — PINNED contracts (copied verbatim into every child plan)
 
 ### A. Session store — `lib/agent_sessions.py` + `aitask_agent_sessions.sh`
@@ -462,12 +524,21 @@ respawn. Two-phase, acknowledged:
    Empty session id and no `--repick` → `RESTORE_FAILED:no_session` (nothing changes).
 2. `restore-begin --mode <m>` → state `restoring`, lease minted (nonce `n`);
    captures and `@aitask_frozen` retained.
-3. Prefix the argv with the **restore identity environment** (the
-   `explore-relay` `env` precedent — `env` execs into the agent, so the pane
-   pid is still the agent's):
-   `env AITASK_RESTORE_RECORD=<id> AITASK_RESTORE_NONCE=<n> AITASK_RESTORE_MODE=<m> AITASK_RESTORE_EXPECT_SESSION=<sid> <argv>`.
+3. Deliver the **restore identity environment** with tmux's native
+   `respawn-pane -e` (**amended — B2**; see `## Amendments from
+   re-verification` above), one `-e` per variable:
+   `-e AITASK_RESTORE_RECORD=<id> -e AITASK_RESTORE_NONCE=<n> -e AITASK_RESTORE_MODE=<m> -e AITASK_RESTORE_EXPECT_SESSION=<sid>`.
+   tmux sets them in the spawned process's own environment, so the command
+   string carries no wrapper and nothing execs through `env` — while
+   `#{pane_pid}` still equals the agent pid, which is the property that matters
+   (the `pid_anchor` lock-liveness contract, t1465). The original `env VAR=…
+   <argv>` prefix (the `explore-relay` precedent — `env` execs into the agent,
+   so the pane pid is likewise the agent's) remains **proven and is the
+   documented fallback** for a tmux build without `-e`. Only `RECORD` and
+   `NONCE` are actually consumed by the hook (**B3**); the other two are
+   exported as diagnostics.
    Then `set-option -pu @aitask_standin_ready` and
-   `respawn-pane -k -t <stand-in> '<env argv>'` — or, when `pane_id=""`,
+   `respawn-pane -k -e … -t <stand-in> '<argv>'` — or, when `pane_id=""`,
    `launch_in_tmux` into a new window with the recorded name. Immediately
    after tmux returns, read the new `#{pane_pid}` and write
    `restore-launched --nonce --pane --pane-pid` — the nonce-bound evidence
