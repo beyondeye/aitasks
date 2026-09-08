@@ -241,10 +241,87 @@ End-to-end, against the real network:
 # happy path unchanged — prints the current release version
 bash -c 'source .aitask-scripts/lib/github_release.sh && github_latest_tag_version beyondeye/aitasks'
 
-# hard bound observed — a blackholed host returns empty in ~3s, not never
-time bash -c 'source .aitask-scripts/lib/github_release.sh &&
-  AIT_GIT_LSREMOTE_TIMEOUT=3 github_latest_tag_version 10.255.255.1/x; echo "rc=$?"'
+# hard bound observed against a REAL hang. Note the internal helper is called
+# directly with a full URL: github_latest_tag_version prefixes
+# `https://github.com/`, so passing a blackhole address as the *repo* argument
+# only produces a fast github.com 404 and proves nothing.
+time bash -c 'set -euo pipefail; source .aitask-scripts/lib/github_release.sh
+  out="$(AIT_GIT_LSREMOTE_TIMEOUT=3 _github_ls_remote_tags https://10.255.255.1/x.git)"
+  echo "out=[$out] rc=$?"'
 ```
+
+## Implementation notes (as landed)
+
+Implemented as planned; no deviations from the approved approach.
+
+Measured results:
+
+- **Real-hang bound.** `git ls-remote https://10.255.255.1/x.git` alone runs past
+  12s (verified with an external watchdog). Through the new runner at
+  `AIT_GIT_LSREMOTE_TIMEOUT=3` it returns empty, exit 0, in ~3s, with **zero**
+  leftover processes for that host.
+- **Falsifiability controls.** Both new assertions were checked against pre-fix
+  copies of the code:
+  - replacing `_github_kill_process_tree "$pid"` with a plain `kill "$pid"`
+    leaves **both** the nested shell and its grandchild `alive` — the recursive
+    walk is what the test pins;
+  - removing the knob normalization makes `AIT_GIT_LSREMOTE_TIMEOUT=abc` and
+    `=0` return empty instead of the version;
+  - the pre-t1244 installer resolver takes the full 8s against a hanging stub
+    (fails the `<= 5s` bound) and has no `_install_ls_remote_tags`.
+  Note `AIT_GIT_LSREMOTE_TIMEOUT=""` is *not* discriminating on its own — the
+  `${…:-default}` expansion already covers empty. It stays as a regression guard
+  in case that expansion is ever changed to `${…-default}`.
+- **Tests 10 and 11 run under the caller's shell, not the test file's** (review
+  round 2). `tests/test_github_release.sh` executes `set +euo pipefail` near its
+  top, which silently defeated both assertions: without `pipefail` the pipeline's
+  status is `tail`'s 0, so the trailing `|| true` was never exercised and Test 11
+  passed with *or* without the fix; without `set -u` the malformed-knob abort
+  cannot happen either. Both now wrap the call in a `set -euo pipefail` subshell —
+  the real callers (`aitask_upgrade.sh`, `aitask_setup.sh`) all run with those
+  settings — and the file's own settings are left untouched. Re-verified against
+  pre-fix copies: dropping `|| true` makes Test 11 return `rc=1` (FAILS), and
+  dropping the normalization makes Test 10's `abc` case return empty (FAILS).
+- **The descendant fixture is deterministic, not a race** (review round 3). The
+  first version had the *parent* poll `pgrep -P` for the grandchild, which made
+  the fixture a race it had to win against the watchdog — reported failing as
+  "fixture actually produced a grandchild = no" (not reproducible here: 6 clean
+  runs, plus 3 more at load average 9.2 — but a test that must win a race is
+  wrong whether or not this machine loses it). The nested shell now records its
+  own pid (`$$`) and its child's (`$!`) itself, in one `printf` microseconds
+  after the fork; nothing polls or searches, and the stub timeout moved 1s → 3s
+  for headroom (the elapsed assertion only has to separate "bounded" from the
+  30s stub hang, so its bound moved 5s → 8s). Re-verified: 12/12 clean runs
+  (8 unloaded, 4 at load average ~9.5) plus the installer test under load, and
+  the depth-1-only control still leaves **both** processes `alive` → Test 9
+  FAILS, so the assertion still pins the recursive walk.
+- **Cleanup no longer depends on `pgrep`** (review round 4, and the real
+  defect). A reviewer's run reported both descendants still alive after the
+  cleanup. Root cause, reproduced by removing `pgrep` from `PATH`: the walk was
+  built on `pgrep -P` alone, and on a system without procps (minimal containers
+  ship none) that degrades silently to a depth-1 kill — leaving exactly the
+  descendants this task exists to reap. **The process group is now the primary
+  mechanism**, and it needs no external binary: the runner enables job control
+  for the launch only (`set -m`, restored immediately, and only when the shell
+  did not already have it), which makes the background job its own group leader,
+  and cleanup signals the group with `kill -- "-$pid"`. The `pgrep` walk stays as
+  a secondary fallback for a shell that could not give the job its own group.
+  This is safe by construction: if the job never became a group leader, no group
+  carries that id and the signal is refused with ESRCH — it can never reach the
+  calling shell's own group, whose id is that shell's pid.
+  Mirrored in `install.sh`. New **Test 9b** in both suites shadows `pgrep` with a
+  failing shell function and asserts both recorded PIDs are gone; the pgrep-only
+  control leaves both `alive` → Test 9b FAILS, so it pins the repair rather than
+  the environment. Verified with `pgrep` both present and absent from `PATH`.
+  `set -m` leaks no job-control notices to stderr (checked: empty).
+- **Strict-mode knob sweep.** Under `set -euo pipefail`, `abc`, `""`, `0`, `-5`,
+  `a[0$(id)]` and `08` all normalize to the 10s default and still resolve the
+  live version — no abort, no arithmetic evaluation of the value, no octal error.
+- **Suites green.** `test_github_release.sh` 30/30, `test_install_tarball_download.sh`
+  35/35, `test_setup_help_flag.sh` 23/23, `test_init_data.sh` 140/140.
+  `shellcheck` clean on `lib/github_release.sh`; the three findings it reports on
+  `install.sh` (lines 678, 828, 1434) are pre-existing and untouched by this
+  change.
 
 ## Risk
 
@@ -263,3 +340,59 @@ time bash -c 'source .aitask-scripts/lib/github_release.sh &&
 ### Goal-achievement risk: low
 - None identified. The defect, the callers, the kill semantics and the `pipefail`
   side effect were each verified empirically during planning.
+
+## Final Implementation Notes
+
+- **Actual work done:** `git ls-remote` in the release fallback is now hard-bounded.
+  `.aitask-scripts/lib/github_release.sh` gained `_github_ls_remote_tags` (a
+  background job + polling watchdog writing to a temp file, launched under job
+  control so it owns a process group), `_github_kill_process_tree` /
+  `_github_kill_descendants` (process-group kill, with a `pgrep -P` walk as
+  fallback), normalization of the new `AIT_GIT_LSREMOTE_TIMEOUT` knob, and a
+  `|| true` on the resolver pipeline. `install.sh`'s documented mirror
+  `resolve_latest_version_gittags()` got the same treatment under distinct
+  helper names. Tests: 5 new cases in `tests/test_github_release.sh` and 1 new
+  case (7 assertions) in `tests/test_install_tarball_download.sh`.
+- **Deviations from plan:** none in approach. Two things were added during
+  review that the approved plan did not anticipate — see "Issues encountered".
+- **Issues encountered:**
+  - *The cleanup depended on an external binary.* The first implementation walked
+    the process tree with `pgrep -P` alone. A reviewer's run reported both
+    descendants still alive; reproduced here by removing `pgrep` from `PATH`. On
+    a system without procps the walk degrades silently to a depth-1 kill and
+    leaks exactly the descendants this task exists to reap. Fixed by making the
+    **process group** the primary mechanism (`set -m` for the launch only,
+    restored immediately; `kill -- "-$pid"` for cleanup), keeping the `pgrep`
+    walk as a secondary fallback. Pinned by Test 9b in both suites, which
+    shadows `pgrep` with a failing shell function.
+  - *Two tests were vacuous.* `tests/test_github_release.sh` runs
+    `set +euo pipefail`, which defeated both the `pipefail` guard (the pipeline's
+    status is `tail`'s 0, so the trailing `|| true` was never exercised) and the
+    malformed-knob guard (the `set -u` abort cannot happen). Both now run the
+    call inside a `set -euo pipefail` subshell, matching the real callers.
+  - *The descendant fixture was a race.* Its first version had the parent poll
+    `pgrep -P` for a grandchild that had to appear before the watchdog fired.
+    The nested shell now records its own pid and its child's itself, in one
+    `printf`.
+  - *A misleading early measurement.* `github_latest_tag_version 10.255.255.1/x`
+    does not test a blackholed host — the helper prefixes `https://github.com/`,
+    so it hits a fast 404. The real bound is measured by calling
+    `_github_ls_remote_tags` with a full URL; `git` alone runs past 12s there.
+- **Key decisions:**
+  - **No `timeout(1)`.** Both suites stub `git` as a shell *function*, which an
+    exec'd `timeout` would bypass into a live network call; macOS also ships
+    none. The watchdog shape matches `aitask_sync.sh:_git_with_timeout`.
+  - **Temp file, not a pipe.** A surviving transport grandchild holding a pipe's
+    write end blocks the reader for the full hang (t1223_2). A file cannot.
+  - **Distinct helper names in `install.sh`.** `tests/test_install_tarball_download.sh`
+    sources install.sh and *then* the library; bash resolves calls dynamically
+    and a later definition wins, so shared names would make the installer's test
+    silently exercise the library's runner.
+  - **No shared extraction.** This is a third near-copy of the portable-timeout
+    pattern, accepted deliberately: `lib/github_release.sh` must stay
+    dependency-free because `test_setup_help_flag.sh` and `test_init_data.sh`
+    copy it into fixtures standalone, and `install.sh` cannot source anything.
+  - **Group kill is safe unguarded.** If the job never became a group leader, no
+    group carries that id and the signal is refused with ESRCH; it can never
+    reach the calling shell's group, whose id is that shell's own pid.
+- **Upstream defects identified:** None
