@@ -291,8 +291,7 @@ exactly what `verify_macos_fixes_on_linux` is scoped to check.
      (quote the verdict banner), plus the pre-phase `baseline_exit`;
    - argued but **not** proved here: unchanged behaviour on Linux — no Linux box
      is reachable from this session and no CI runs the Python suite. The
-     outstanding proof is the spawned `verify_macos_fixes_on_linux` task, named
-     by its real `t<id>`.
+     outstanding proof is the spawned `verify_macos_fixes_on_linux` task, **t1737**.
 
    Do not write "fixed on macOS and Linux", "cross-platform", or "no regressions
    anywhere" in the notes or the commit message.
@@ -312,12 +311,11 @@ exactly what `verify_macos_fixes_on_linux` is scoped to check.
   regression would not be caught anywhere. The task cannot close this itself (no
   Linux box or container runtime is reachable), so it is handled by **narrowing
   the completion claim** — see Context and Verification step 4 — with the spawned
-  task as the named outstanding proof · severity: low · → mitigation:
-  verify_macos_fixes_on_linux
+  task as the named outstanding proof · severity: low · → mitigation: t1737
 
 ### Planned mitigations
 - timing: pre-phase | name: baseline_board_focus_live | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health risk (the predicate fix makes previously vacuous waits real) | desc: Record test_board_startup_focus_live's result before editing it, so a post-fix failure can be attributed.
-- timing: after | name: verify_macos_fixes_on_linux | type: manual_verification | priority: medium | effort: low | inline_risk: high | added_complexity: low | addresses: goal-achievement risk (macOS-only verification, no Python-suite CI) | desc: On a Linux box, run the five touched modules and the full Python suite; this is t1729's named outstanding proof, so its checklist must falsify the per-change invariance argument (especially the /tmp socket dir), not merely re-run the suite.
+- timing: after | name: verify_macos_fixes_on_linux | type: manual_verification | priority: medium | effort: low | inline_risk: high | added_complexity: low | addresses: goal-achievement risk (macOS-only verification, no Python-suite CI) | desc: On a Linux box, run the five touched modules and the full Python suite; this is t1729's named outstanding proof, so its checklist must falsify the per-change invariance argument (especially the /tmp socket dir), not merely re-run the suite. | created: t1737
 
 **Reassessment after inlining.** Adding the pre-phase baseline changes neither
 level: it is a read-only measurement that touches no file and alters no step.
@@ -531,7 +529,13 @@ active gate and is recorded post-approval at Step 7.
   `colima`, `lima`, `orbctl`, `multipass`, `vagrant` all absent) and no CI runs
   the Python suite. The per-change invariance argument is in the Cross-platform
   audit section; the outstanding proof is the spawned `verify_macos_fixes_on_linux`
-  task. This is not a cross-platform claim.
+  task, **t1737**. This is not a cross-platform claim.
+
+- **Follow-ups created:** t1735 (upstream defect — vacuous fake-agent assertions
+  in `test_minimonitor_concern_smoke.py`), t1736 (manual verification — the ten
+  production scripts whose temp-file creation changed, each to be run **twice**),
+  t1737 (risk mitigation "after" — the Linux verification that is this task's
+  named outstanding proof).
 
 - **Upstream defects identified:**
   - `tests/test_minimonitor_concern_smoke.py:541 — builds fake agents with shutil.copy2(sys.executable, ...) and documents that pane_current_command "must really be the agent name"; on macOS a copied framework CPython re-execs the app bundle and tmux reports `Python`, so every assertion resting on that premise passes vacuously. The module is green, which is why it went unnoticed.`
