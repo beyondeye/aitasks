@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: medium
 depends: [1729]
 issue_type: bug
@@ -14,7 +16,7 @@ anchor: 1705
 followup_kind: verification_failure
 implemented_with: claudecode/opus5
 created_at: 2026-09-08 17:16
-updated_at: 2026-09-08 21:57
+updated_at: 2026-09-08 21:58
 ---
 
 ## Failed verification item from t1729
@@ -127,3 +129,5 @@ compiled sleeper — so the fallback path itself is sound.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-09-08T18:57:58Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-09-08T19:27:51Z status=pass attempt=1 type=human
