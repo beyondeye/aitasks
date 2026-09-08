@@ -161,3 +161,5 @@ Run: `bash tests/test_task_data_writer_guard.sh`, `bash tests/test_create_silent
 > |    now records the new dependency — relevant if you add scaffolded tests.
 > | 
 > | Advisory only: verify against the current tree before relying on any of it.
+
+> **👁 note:read** id=2026-09-08T09:59:56Z.5ab3dfda470edc5de83e6e60 by=t1725_2 at=2026-09-08T09:59:56Z mode=explicit ids=2026-09-08T09:47:12Z.1b468190e3f5bae4e0e26ebd
