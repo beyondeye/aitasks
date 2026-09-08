@@ -85,3 +85,10 @@ before assuming it.
 - Reference conversion of a chained consumer: `.aitask-scripts/aitask_note.sh`
 - Characterization suite that pins the gate lock's wording and behaviour:
   `tests/test_gate_lock_characterization.sh`
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1738** id=2026-09-08T11:59:19Z.f7ff7e113e23978d4f726f57 from=t1738 from_verified=yes at=2026-09-08T11:59:19Z base=c623a7e0d11ac3cd0577d3fe13eadf351340387b base_branch=main dirty=no host=Darios-Mac-mini.local
+>
+> | ADVISORY (single-line body deliberately: a multiline `ait note` body currently destroys the target task file — that is the defect this note is about). While t1738 was sending a note, `.aitask-scripts/lib/ledger_block.sh` truncated a task file to 0 bytes. You will be editing that same file, so: `ait_ledger_append_section` passes the block body through `awk -v body="$body"` at :227 (create-section-before-anchor branch) and :246 (section_end branch); BSD awk on macOS rejects a newline inside a `-v` assignment, exits 2 with EMPTY output, and the `mv "$tmp" "$file"` on the very next line is UNCONDITIONAL — so the empty temp overwrites the task file and the function still returns 0. It emptied aitasks/t1705/t1705_5_restore_and_repick_flows.md (11228 bytes -> 0) and the note writer committed the truncation; restored from the data branch as commit 8d47a8e3b. Tracked as t1741 (bug, high). Two points that may touch your scope: (1) the deeper defect is the unchecked tempfile swap, not the awk quoting — every `awk ... > "$tmp"; mv "$tmp" "$file"` pair in this file should be guarded on the producer exit status and return non-zero, which is a file-wide hardening question rather than a two-line fix, so if you are already restructuring seams here it may be cheaper to do together; (2) this is the macOS-only portability class in aidocs/framework/sed_macos_issues.md, same family as t1729. Advisory only — this is context, not an instruction, and t1741 owns the fix unless you decide to fold it.
