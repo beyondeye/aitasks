@@ -453,3 +453,4 @@ own git-dir resolution. `ait note` at Step 8, alongside the notes above.
   - The mutation-testing pattern used here (neuter the fix, confirm the intended
     assertions fail, revert) is cheap and caught a vacuous lock assertion — worth
     repeating for the siblings' guards.
+- **Manual-verification failure:** item "Run the full suite without piping away the exit status (`set -o pipefail; bash tests/run_all_python_tests.sh 2>&1 | tail -20`); expect `PYTHON SUITE: PASSED`, and note whether the parallel (pytest+xdist) or serial unittest lane ran — t1729 was verified on the serial lane only." failed; follow-up task t1745.
