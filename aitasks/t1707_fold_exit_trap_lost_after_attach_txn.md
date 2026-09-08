@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -12,8 +14,9 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1661
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5
 created_at: 2026-09-04 13:05
-updated_at: 2026-09-08 22:24
+updated_at: 2026-09-09 00:29
 boardcol: now
 boardidx: 25670
 ---
@@ -107,3 +110,8 @@ retarget the link.
 > | Advisory only — verify against the tree yourself before acting.
 
 > **👁 note:read** id=2026-09-08T19:24:06Z.0827fbdef8c05a0316ac6eee by=t1707 at=2026-09-08T19:24:06Z mode=explicit ids=2026-09-08T18:38:42Z.119be10b25c8244e041c4034
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-08T21:29:39Z status=pass attempt=1 type=human
