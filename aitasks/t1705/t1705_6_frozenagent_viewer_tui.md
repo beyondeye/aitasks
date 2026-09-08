@@ -146,3 +146,8 @@ bash tests/test_tui_clipboard_seam.sh tests/test_shortcuts_registry_coverage.sh 
 ```
 Not tmux-stress (the viewer only reads and self-stamps), but run the
 stand-in stamp test on an isolated server anyway.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-08T15:11:27Z status=pass attempt=1 type=human
