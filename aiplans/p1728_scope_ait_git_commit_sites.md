@@ -328,7 +328,7 @@ controlled by a pre- or post-phase step, so the level is `low` as approved.
   code path · severity: low · → mitigation: inline pre-phase red_control_proof
 - The `AIT_GIT_ALLOWLIST` entry leaves `aitask_note.sh` unguarded for the new
   pattern — a documented hole that only closes if its two multi-line hint
-  strings are restructured · severity: low · → mitigation: note_hint_restructure
+  strings are restructured · severity: low · → mitigation: t1750
 
 ### Goal-achievement risk: low
 - The task scopes "two sites"; the fix covers three. If the third is unwanted
@@ -338,7 +338,7 @@ controlled by a pre- or post-phase step, so the level is `low` as approved.
 ### Planned mitigations
 - timing: pre-phase | name: red_control_proof | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health "a never-executed commit starts executing" + goal-achievement "the control could be vacuous" | desc: Run each new negative control against the unmodified source first and record the observed failure, so a control that passes for the wrong reason is caught before the fix lands.
 - timing: post-phase | name: set_e_abort_control | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health "hot-path return-code contract change" + code-health "composed EXIT trap could drop temp-file cleanup" | desc: Drive each converted site under set -euo pipefail with nothing to commit, asserting exit 0 and that a side effect after the seam call still lands; additionally assert rc 1 is not absorbed at site 2 (non-zero return, CONVERGED=0, no UPDATED: line) and that sites 1 and 3 still remove their temp file.
-- timing: after | name: note_hint_restructure | type: refactor | priority: low | effort: low | inline_risk: medium | added_complexity: medium | addresses: code-health "allowlist leaves aitask_note.sh unguarded for the new pattern" | desc: Restructure aitask_note.sh's two multi-line recovery-hint warn strings so their ./ait git commit text is parseable on one logical line, then delete the AIT_GIT_ALLOWLIST entry and its fixture.
+- timing: after | name: note_hint_restructure | type: refactor | priority: low | effort: low | inline_risk: medium | added_complexity: medium | addresses: code-health "allowlist leaves aitask_note.sh unguarded for the new pattern" | desc: Restructure aitask_note.sh's two multi-line recovery-hint warn strings so their ./ait git commit text is parseable on one logical line, then delete the AIT_GIT_ALLOWLIST entry and its fixture. | created: t1750
 
 ## Final Implementation Notes
 
