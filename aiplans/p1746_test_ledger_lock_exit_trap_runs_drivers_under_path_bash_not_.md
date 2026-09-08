@@ -485,6 +485,34 @@ workflow. `risk_evaluated` is the only active gate.
   - *Identity asserted, not just printed*, so a `SHELL_UNDER_TEST` pointing at a
     non-bash fails loudly (verified: `/bin/echo` -> `0-pre` FAIL, rc=1).
 
+- **Pre-fix control (the defect reproduced, not merely inferred):** the fixed
+  behaviour alone is not evidence — the broken behaviour was demonstrated first,
+  on this box, both at the idiom level and at the file level.
+
+  Idiom level, harness launched with `/bin/bash`:
+
+  ```
+  harness runs under             : 3.2.57(1)-release
+  HEAD idiom   bash $f           : 5.3.9(1)-release     <- THE BUG
+  fixed idiom  "${BASH:-bash}" $f: 3.2.57(1)-release    <- the fix
+  ```
+
+  Launched with PATH bash instead, both idioms return `5.3.9` — so the change is
+  a no-op on the everyday path and only bites where the invoker asked for a
+  specific shell.
+
+  File level, `/bin/bash tests/test_ledger_lock_exit_trap.sh`:
+
+  ```
+  pre-fix (HEAD):  Results: 77 passed, 0 failed (of 77)
+  post-fix:        Shell under test: /bin/bash (bash 3.2.57(1)-release)
+                   Results: 78 passed, 0 failed (of 78) [bash 3.2.57(1)-release]
+  ```
+
+  The pre-fix run is confidently green and offers no way to discover that its 77
+  assertions executed under 5.3.9. That silent false pass is the defect; the
+  banner is what converts the claim into evidence.
+
 - **Upstream defects identified:**
   - `tests/test_stale_lock.sh:470` — `assert_eq "no .reap residue is left behind" "0" …` compares against BSD `wc -l` output and gets `'       0'`; fails on macOS at HEAD, both shells. Use `assert_eq_trim`.
   - `tests/test_stale_lock.sh:671` — `assert_eq "exactly ONE record remains in the guard" "1" …` — same BSD `wc -l` padding defect, same fix.
