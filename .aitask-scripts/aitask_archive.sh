@@ -36,6 +36,15 @@ WITH_DEFERRED_CARRYOVER=false
 IGNORE_GATES=false
 TASK_NUM=""
 
+# Paths whose DELETION handle_folded_tasks staged. They must reach the archival
+# commit's pathspec: `task_git rm` stages the removal, but a path-scoped commit
+# only commits the paths it names, so omitting these leaves the deletion staged
+# in the shared index for an unrelated session's commit to sweep up — the exact
+# defect t1599_4 exists to close. Accumulated, never reset per call: the child
+# flow calls handle_folded_tasks for the child and again for the parent, and both
+# precede the single commit (t1599_4).
+FOLDED_DELETED_PATHS=()
+
 # --- Help ---
 show_help() {
     cat <<'EOF'
@@ -269,6 +278,9 @@ archive_parent() {
         # The staging below is already narrow; the pathspec on the commit is what
         # stops a concurrent session's *staged* file riding along (t1599_4).
         local -a commit_paths=( "$ARCHIVED_DIR/$task_basename" "$task_file" )
+        # Folded-task deletions were staged by handle_folded_tasks; name them or
+        # the removals stay in the shared index (t1599_4).
+        commit_paths+=( ${FOLDED_DELETED_PATHS[@]+"${FOLDED_DELETED_PATHS[@]}"} )
         task_git add "$ARCHIVED_DIR/$task_basename"
         if [[ -n "$plan_file" ]]; then
             local plan_basename
@@ -385,16 +397,28 @@ handle_folded_tasks() {
             "$SCRIPT_DIR/aitask_update.sh" --batch "$fold_parent" --remove-child "t${folded_id}" --silent 2>/dev/null || true
         fi
 
-        # Delete folded task file and plan
+        # Delete folded task file and plan. Every removed path is recorded so the
+        # archival commit's pathspec can name it (see FOLDED_DELETED_PATHS).
         task_git rm "$folded_file" --quiet
-        # Delete plan file (handles both parent and child task IDs)
-        # shellcheck disable=SC2086
+        FOLDED_DELETED_PATHS+=( "$folded_file" )
+        # Delete plan file (handles both parent and child task IDs). Iterate the
+        # glob rather than passing it straight to `task_git rm`, so each removed
+        # path is known individually; `-e` also filters the unexpanded glob.
+        local _folded_plan
         if [[ "$folded_id" =~ ^([0-9]+)_([0-9]+)$ ]]; then
             local fp="${BASH_REMATCH[1]}"
             local fc="${BASH_REMATCH[2]}"
-            task_git rm "$PLAN_DIR"/p"${fp}"/p"${fp}"_"${fc}"_*.md --quiet 2>/dev/null || true
+            for _folded_plan in "$PLAN_DIR"/p"${fp}"/p"${fp}"_"${fc}"_*.md; do
+                [[ -e "$_folded_plan" ]] || continue
+                task_git rm "$_folded_plan" --quiet 2>/dev/null || continue
+                FOLDED_DELETED_PATHS+=( "$_folded_plan" )
+            done
         else
-            task_git rm "$PLAN_DIR"/p${folded_id}_*.md --quiet 2>/dev/null || true
+            for _folded_plan in "$PLAN_DIR"/p"${folded_id}"_*.md; do
+                [[ -e "$_folded_plan" ]] || continue
+                task_git rm "$_folded_plan" --quiet 2>/dev/null || continue
+                FOLDED_DELETED_PATHS+=( "$_folded_plan" )
+            done
         fi
         echo "FOLDED_DELETED:$folded_id:$folded_file"
 
@@ -553,6 +577,8 @@ archive_child() {
         # which the narrow staging alone cannot do (t1599_4).
         local -a commit_paths=( "$child_archive_dir/$child_task_basename" \
                                 "$child_task_file" "$parent_task_file" )
+        # As above: staged folded-task deletions must be in the pathspec.
+        commit_paths+=( ${FOLDED_DELETED_PATHS[@]+"${FOLDED_DELETED_PATHS[@]}"} )
 
         # Stage archived child files
         task_git add "$child_archive_dir/$child_task_basename"

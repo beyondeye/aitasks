@@ -291,10 +291,94 @@ TASK
     teardown
 }
 
+# --- Test D: the folded deletion is COMMITTED, not just staged (t1599_4) ---
+#
+# Tests A-C assert the folded file is gone from disk and that FOLDED_DELETED is
+# printed, but never that the removal reached the commit. `task_git rm` stages the
+# deletion, and once the archival commit became path-scoped, a path missing from
+# the pathspec stays staged in the SHARED index — where an unrelated session's
+# commit sweeps it up. That is the very defect the scoping exists to prevent, so
+# the co-change has to be pinned positively.
+test_folded_deletion_is_committed() {
+    echo "=== Test D: folded task deletion lands in the archival commit ==="
+    setup_archive_project
+
+    cat > aitasks/t70_target.md << 'TASK'
+---
+priority: high
+effort: low
+depends: []
+issue_type: feature
+status: Implementing
+labels: []
+folded_tasks: [71]
+created_at: 2026-01-01 10:00
+updated_at: 2026-01-01 10:00
+---
+
+Target task with a folded task
+TASK
+
+    cat > aitasks/t71_folded.md << 'TASK'
+---
+priority: medium
+effort: low
+depends: []
+issue_type: feature
+status: Folded
+labels: []
+folded_into: 70
+created_at: 2026-01-01 10:00
+updated_at: 2026-01-01 10:00
+---
+
+Folded into t70
+TASK
+
+    cat > aiplans/p71_folded.md << 'TASK'
+---
+Task: t71_folded.md
+---
+
+Plan for the folded task
+TASK
+
+    git add -A
+    git commit -m "Setup test D" --quiet
+
+    local output
+    output=$(bash .aitask-scripts/aitask_archive.sh 70 2>&1)
+    assert_contains "Test D: folded task reported deleted" "FOLDED_DELETED:71" "$output"
+
+    local hash
+    hash=$(echo "$output" | grep -oE '^COMMITTED:[a-f0-9]+' | head -1 | cut -d: -f2)
+    if [[ -z "$hash" ]]; then
+        FAIL=$((FAIL + 1)); TOTAL=$((TOTAL + 1))
+        echo "FAIL: Test D: no COMMITTED hash in output: $output"
+        teardown; return
+    fi
+
+    local commit_files
+    commit_files=$(git show --name-status --pretty=format: -M0 "$hash")
+    assert_contains "Test D: the folded task's DELETION is in the commit" \
+        "aitasks/t71_folded.md" "$commit_files"
+    assert_contains "Test D: the folded PLAN's deletion is in the commit" \
+        "aiplans/p71_folded.md" "$commit_files"
+
+    # The load-bearing half: nothing may be left behind in the shared index.
+    # A staged-but-uncommitted deletion is exactly what the next unrelated
+    # commit would absorb.
+    assert_eq_trim "Test D: no deletion left staged afterwards" \
+        "" "$(git status --porcelain -- aitasks/t71_folded.md aiplans/p71_folded.md)"
+
+    teardown
+}
+
 # --- Run all tests ---
 test_child_archive_with_folded_tasks
 test_parent_auto_archive_with_folded_tasks
 test_folded_child_task_id_resolution
+test_folded_deletion_is_committed
 
 # Cleanup
 for dir in "${CLEANUP_DIRS[@]}"; do
