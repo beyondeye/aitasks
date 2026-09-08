@@ -427,4 +427,18 @@ Step 9 (Post-Implementation) applies as usual: commit, merge, archive.
   tmux.** The gap is carried forward to t1705_5 in the post-phase note (user
   request at the Step-8 review), and can be closed by anyone with
   `bash tests/test_freeze_engine_live.sh` from a shell outside tmux.
-- **Upstream defects identified:** None
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/ledger_block.sh:227 — ait_ledger_append_section passes the block body through `awk -v body="$body"`; BSD awk (macOS) rejects a newline inside a `-v` assignment, exits 2 with EMPTY output, and the `mv "$tmp" "$file"` on the very next line is unconditional — so a multiline `ait note` body TRUNCATES THE TARGET TASK FILE TO 0 BYTES and the function still returns 0`
+  - `.aitask-scripts/lib/ledger_block.sh:246 — the same `awk -v body=` + unconditional `mv` pair in the `section_end` branch, so the defect fires whether or not the target already has an `## Inbox` section`
+
+  Found while executing this plan's `note_shared_surface_to_t1705_5` post-phase
+  step: the multiline note destroyed `aitasks/t1705/t1705_5_restore_and_repick_flows.md`
+  (11228 bytes → 0), and `ait note` still printed `NOTE_APPENDED:`. Restored from
+  the data branch (`ait git` commit `8d47a8e3b`) and re-sent with a single-line
+  body, which lands correctly. Reproduced in isolation:
+  `awk -v body=$'a\nb' '{print}' file` → `awk: newline in string`, exit 2, no
+  output (`awk version 20200816`). GNU awk accepts it, so this is the
+  macOS-only class covered by `aidocs/framework/sed_macos_issues.md` — and every
+  note previously sent in this repo happens to have a single-line body, which is
+  why it had not fired. Unrelated to the extraction; pre-existing in t1657_1's
+  ledger-block extraction.
