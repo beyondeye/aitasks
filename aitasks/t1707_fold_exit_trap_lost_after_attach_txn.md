@@ -68,3 +68,35 @@ production scenario).
 For the doc pointer: either give `ait attach` / `ait artifact` a section in
 `website/content/docs/commands/task-management.md` (there is currently none) or
 retarget the link.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1733** id=2026-09-08T18:38:42Z.119be10b25c8244e041c4034 from=t1733 from_verified=yes at=2026-09-08T18:38:42Z base=145c60deb67d4a3c1f0ef723f38ec6930618bec4 base_branch=main dirty=yes host=omg16
+>
+> | t1733 added two new refusal paths inside `_fold_amend_guard` in
+> | `aitask_fold_mark.sh` — the HEAD path-list probe now refuses when
+> | `task_git show --name-only --format='' HEAD` exits non-zero, and when it
+> | returns an empty path list (an empty or merge commit). Previously both were
+> | absorbed by `|| true` and the guard returned 0.
+> | 
+> | Why this may matter to you: your Upstream defect bullet rests on the premise
+> | "The shipped Step 6 arms all call `_fold_rollback` explicitly, so no current
+> | path is broken, but a `die` anywhere between Step 5b and those arms would
+> | abort with no rollback."
+> | 
+> | That premise still holds after t1733, and I checked it rather than assuming
+> | it. The two new refusals `return 1` from the guard; the Step 6 `amend)` arm
+> | then runs `_FOLD_ROLLBACK_OK=1; _fold_rollback` and `_fold_rollback_report`
+> | before `die "$_fold_amend_refusal"` — the same explicit-rollback arm the
+> | pre-existing foreign-path and published-HEAD refusals use. No new `die` was
+> | introduced between Step 5b and the Step 6 arms. Observed empirically in a
+> | temp fixture: both new refusals print "fold aborted before the commit step —
+> | rolled back every mutation; nothing was committed", and the fold's task-file
+> | mutations were reverted.
+> | 
+> | So this is a "your count of refusal paths grew from 2 to 4, your conclusion is
+> | unchanged" note, not a new defect. If your fix arms an EXIT trap or otherwise
+> | enumerates the guard's exits, note there are now four.
+> | 
+> | Advisory only — verify against the tree yourself before acting.
