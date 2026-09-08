@@ -193,10 +193,17 @@ instead of hoping for it. The original plan specified neither.
 
 ## Files
 
-- **New** `.aitask-scripts/lib/agent_restore.py`
+- **New** `.aitask-scripts/lib/agent_restore.py` — imports the SHARED
+  `.aitask-scripts/lib/agent_frozen_ops.py` (shipped by t1738) for the store
+  wire protocol and tmux plumbing: `store` / `store_show` / `nonce_from` /
+  `run` / `pane_facts` / `pane_location` / `set_option` / `unset_option` /
+  `respawn` / `int_or_zero` / `test_mode` / `make_fail_at` / `pause_at` /
+  `StageFailure` / `SESSIONS_SH` / the four `EXIT_*` codes. Do **not** copy them
+  and do **not** import `agent_freeze`'s privates — that was the risk this
+  task's mitigation removed
 - **Edit** `.aitask-scripts/aitask_frozen.sh` — `restore <id> [--repick]`, `restore --all`; shell-level verb dispatch (V8)
 - **Edit** `.aitask-scripts/aitask_codeagent.sh` — `--resume-session <sid>` (global flag, `build_invoke_command`, `show_help`)
-- **Edit** `.aitask-scripts/lib/agent_freeze.py` — **grace accessor only** (V1/V2): add `restore_ack_grace()`, switch `:899` to it
+- **Edit** `.aitask-scripts/lib/agent_freeze.py` — **grace accessor only** (V1/V2): add `restore_ack_grace()`, switch the `RESTORE_ACK_GRACE` read in `_reconcile_restoring` to it (t1738 moved code above it, so re-locate by name rather than by the old `:899`). **Reconsider the placement:** putting the accessor here makes `agent_restore` import the repair module for one function — the exact coupling t1738's mitigation removed. `lib/agent_frozen_ops.py` is the natural home; t1738 deliberately left `RESTORE_ACK_GRACE` / `_epoch` / `_stale_grace` in `agent_freeze.py` because the call is this task's to make
 - **Edit** `.aitask-scripts/lib/agent_launch_utils.py` — `resolve_dry_run_command(..., extra_global_flags=None)` (V10) and `pick_launch_argv(root, task_id, agent_string=None)` (V9)
 - **Edit** `monitor/minimonitor_app.py`, `monitor/monitor_app.py` — switch to `pick_launch_argv`, behaviour-identical (V9)
 - **Edit** `tests/lib/fake_agent.sh` — `FAKE_AGENT_SESSION`, `FAKE_AGENT_NO_HOOK`, `FAKE_AGENT_HOOK_DELAY` (V12 race forcing), **exec the shipped hook** (V7)
@@ -436,7 +443,16 @@ a restore the coordinator is still waiting on.
      downgrade.
    - Seams: `AITASKS_RESTORE_FAIL_AT=begin|respawn|ack` and
      `AITASKS_FROZEN_PAUSE_AT=respawn|aborting`, both under `AITASKS_TEST_MODE=1`,
-     reusing `agent_freeze._test_mode` / `_fail_at` / `_pause_at` shapes.
+     from the SHARED module `lib/agent_frozen_ops` (t1738), not from
+     `agent_freeze`: bind `_fail_at = frozen_ops.make_fail_at("AITASKS_RESTORE_FAIL_AT")`
+     — the factory exists so this engine's injected failures cannot fire in the
+     freeze engine — and call `frozen_ops.pause_at` / `frozen_ops.test_mode`
+     directly. **Call every shared function through the module**, never
+     `from agent_frozen_ops import store as _store`: `store` and `_TMUX` are
+     swapped in place by the tests, and an import-time alias binds the original
+     object and bypasses the swap. `tests/test_agent_frozen_ops.py` fails on any
+     engine module that holds such an alias, and it already looks up
+     `agent_restore` dynamically.
 
 4. **Detached entry** — `aitask_frozen.sh restore <id> [--repick] | --all`.
    Dispatch in the shell (V8): `restore` execs `lib/agent_restore.py`, the
