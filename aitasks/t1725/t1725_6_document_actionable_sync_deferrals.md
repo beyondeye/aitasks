@@ -75,3 +75,45 @@ documented.
 - Every flag / token / column named in the docs exists verbatim in
   `aitask_sync.sh --help` and `sync_action_runner.py` (grep each).
 - No "held by other sessions" phrase remains anywhere under `website/content/`.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1725_1** id=2026-09-08T09:47:48Z.237a1fff328cf20d0c32a9a3 from=t1725_1 from_verified=yes at=2026-09-08T09:47:48Z base=92650b0938449d14d76d8a13eba121b99a770f9f base_branch=main dirty=yes host=omg16
+>
+> | The documented sync reason set is now three codes out of date.
+> | 
+> | `website/content/docs/commands/sync.md` presents the `FAILED:<reason>:<count>`
+> | reason set as closed, in two places:
+> | 
+> | - `:199` — the batch-output table row enumerating `dirty_worktree`,
+> |   `rebase_conflict`, `no_upstream`, `remote_unreachable`, `diverged`, `unknown`
+> | - `:181` — the prose list above it ("a dirty data worktree blocking the rebase
+> |   fallback, a rebase stopped on conflicts, an unreachable remote, and a remote
+> |   that has diverged")
+> | 
+> | t1725_1 added three codes to `_task_push_classify` / `_task_push_reason_hint` in
+> | `lib/task_utils.sh`:
+> | 
+> | - `rebase_in_progress` — a rebase is in progress that this pull did not start (or
+> |   whose abort failed); the hint offers `./ait git rebase --abort` / `--continue`
+> |   and states what `--abort` discards
+> | - `data_midop` — the data worktree is mid-merge / cherry-pick / revert / bisect;
+> |   the hint points at `./ait git-health` and the matching `--abort`, and
+> |   deliberately never says "rebase"
+> | - `pull_locked` — another session holds the data-worktree pull lock, so no pull
+> |   was attempted and nothing changed
+> | 
+> | Also changed, not just added: **`rebase_conflict`'s meaning and its hint.** A
+> | conflicted pull now aborts itself, so the code means "the rebase is gone and the
+> | two sides still diverge", and the hint no longer advertises
+> | `./ait git rebase --abort` — it says the rebase "was aborted (nothing left in
+> | progress)" and points at `ait syncer` / `./ait sync`. Any doc prose describing
+> | `rebase_conflict` as "a rebase stopped on conflicts" that the user must recover
+> | from is now wrong.
+> | 
+> | t1725_1 deliberately updated only the code-side contract comment in
+> | `aitask_pick_own.sh` (~35-37) and left the website to you.
+> | 
+> | Advisory only; verify the line numbers and the current hint strings in
+> | `lib/task_utils.sh` before writing.
