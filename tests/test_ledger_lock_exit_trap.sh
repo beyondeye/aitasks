@@ -14,6 +14,9 @@
 #
 # Coverage map:
 #
+#   0-pre     the interpreter the drivers actually run under (t1746) —
+#             pins that $SHELL_UNDER_TEST is a real bash, so a green run is
+#             evidence about a named shell rather than about PATH
 #   group 0   the `trap -p EXIT` rendering the guard parses      (inline
 #             pre-phase mitigation pin_trap_p_rendering_matrix — pins the
 #             assumption so a shell that renders differently fails HERE rather
@@ -28,11 +31,13 @@
 # Cases 1, 2, 2b and 3 FAIL against the pre-t1681 library (all exit 0) — they
 # are the discriminating cases, not a post-hoc restatement of the fix.
 #
-# Drivers are written into a mktemp fixture and run with `bash`; every assertion
-# stays in THIS shell, so the file-backed counters (CLAUDE.md / t1207) are not
-# needed.
+# Drivers are written into a mktemp fixture and run with `$SHELL_UNDER_TEST` —
+# the interpreter THIS harness was launched with, never a bare `bash` off PATH
+# (t1746); every assertion stays in THIS shell, so the file-backed counters
+# (CLAUDE.md / t1207) are not needed.
 #
 # Run: bash tests/test_ledger_lock_exit_trap.sh
+#      SHELL_UNDER_TEST=/bin/bash bash tests/test_ledger_lock_exit_trap.sh   # 3.2
 
 set -u
 
@@ -48,6 +53,28 @@ LIB="$PROJECT_DIR/.aitask-scripts/lib"
 FIX="$(mktemp -d "${TMPDIR:-/tmp}/test_ledger_trap_XXXXXX")"
 trap 'rm -rf "$FIX"' EXIT
 
+# --- the shell under test ---------------------------------------------------
+#
+# Drivers must run under the interpreter THIS harness was launched with, not
+# whatever `bash` PATH resolves to. On a Homebrew macOS box /opt/homebrew/bin
+# (bash 5.x) precedes /bin (bash 3.2), so `/bin/bash tests/<this file>` would
+# run the harness under 3.2 and every assertion under 5.x — a green "3.2
+# result" that never touched 3.2 (t1746, found by t1691's manual verification).
+# bash sets $BASH to its own path, in 3.2 as well as 5.x. The explicit override
+# lets a CI matrix point one run at 3.2 and another at 5.x with no PATH shim:
+#
+#     SHELL_UNDER_TEST=/bin/bash bash tests/test_ledger_lock_exit_trap.sh
+SHELL_UNDER_TEST="${SHELL_UNDER_TEST:-${BASH:-bash}}"
+
+# State which interpreter was actually used — "did this pass on 3.2?" should be
+# readable off the output, not taken on trust. Asserted, not merely printed, so
+# an override pointing at something that is not a bash fails loudly here instead
+# of running every driver under a stand-in.
+SUT_VERSION="$("$SHELL_UNDER_TEST" -c 'printf %s "$BASH_VERSION"' 2>/dev/null)"
+echo "Shell under test: $SHELL_UNDER_TEST (bash ${SUT_VERSION:-UNKNOWN})"
+assert_contains_re "0-pre. the shell under test is a runnable bash" \
+    '^[0-9]+\.[0-9]+' "$SUT_VERSION"
+
 # --- driver scaffolding -----------------------------------------------------
 #
 # Every driver sources the REAL library trio. stale_lock.sh is sourced because
@@ -55,6 +82,10 @@ trap 'rm -rf "$FIX"' EXIT
 # file is about the trap's status arithmetic, and ait_ledger_lock_release is
 # stubbed so a driver never touches a real lock directory.
 
+# The generated `#!/usr/bin/env bash` shebang below is inert: drivers are always
+# invoked as `"$SHELL_UNDER_TEST" <file>`, so the interpreter comes from the
+# argument, not from the shebang's PATH lookup. It is kept for readability and
+# for anyone who runs a fixture file by hand.
 driver_prelude() {
     cat <<EOF
 #!/usr/bin/env bash
@@ -70,7 +101,7 @@ RC=0
 OUT_ERR=""
 run_driver() {
     local f="$1"; shift
-    OUT_ERR="$(bash "$f" "$@" 2>&1 >/dev/null)"
+    OUT_ERR="$("$SHELL_UNDER_TEST" "$f" "$@" 2>&1 >/dev/null)"
     RC=$?
 }
 
@@ -106,7 +137,7 @@ esac
 exit 0
 EOF
 
-render_of() { bash "$FIX/render.sh" "$1" 2>/dev/null; }
+render_of() { "$SHELL_UNDER_TEST" "$FIX/render.sh" "$1" 2>/dev/null; }
 
 assert_eq "0a. bare word handler renders single-quoted" \
     "SPEC=[trap -- 'show' EXIT]" "$(render_of bare)"
@@ -254,5 +285,5 @@ done
 
 # --- summary ---------------------------------------------------------------
 echo
-echo "Results: $PASS passed, $FAIL failed (of $TOTAL)"
+echo "Results: $PASS passed, $FAIL failed (of $TOTAL) [bash ${SUT_VERSION:-UNKNOWN}]"
 [[ "$FAIL" -eq 0 ]]

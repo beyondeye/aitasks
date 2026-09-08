@@ -12,7 +12,18 @@
 # frontmatter (crew *_status.yaml) — read_yaml_list, and a regression guard
 # against a second copy of read_yaml_field being re-introduced.
 #
-# Run: bash tests/test_yaml_utils.sh
+# Run: bash tests/test_yaml_utils.sh          (~15s under bash 5.x)
+#
+# DO NOT run this file under bash 3.2 — not "slow", infeasible. The inline
+# flow-list fixture below is ~77KB on one line, and _join_yaml_flow_lists_impl
+# counts bracket depth with two `${buffer//…/}` passes over the whole buffer.
+# That scan is CUBIC under 3.2 (measured: 2KB 1.1s, 4KB 8.0s, 8KB 61.5s, 16KB
+# 495s — ~8x per doubling), extrapolating to ~15 HOURS per call at 77KB, versus
+# 0.3s at 16KB under 5.3.9. An attempt was killed after 3h10m at 99% CPU.
+# This is pre-existing, not a property of the SHELL_UNDER_TEST routing below:
+# the in-harness call further down already ran under the harness's own shell.
+# Fixing it means an O(n) count (`tr -dc`) in yaml_utils.sh — tracked separately.
+# Until then this file's 3.2 lane is deliberately not exercised (t1746).
 
 set -u
 
@@ -20,6 +31,24 @@ TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$TEST_DIR/.." && pwd)"
 . "$PROJECT_DIR/tests/lib/asserts.sh"
 LIB_DIR="$PROJECT_DIR/.aitask-scripts/lib"
+
+# --- the shell under test ---------------------------------------------------
+#
+# The generated drivers below pin SIGPIPE disposition, PIPE-trap leakage and
+# `set -e` behaviour, and the syntax-check loop at the end parse-checks four
+# real libraries — all of it shell-version-sensitive. They must therefore run
+# under the interpreter THIS harness was launched with, not whatever `bash`
+# PATH resolves to: on a Homebrew macOS box /opt/homebrew/bin (bash 5.x)
+# precedes /bin (bash 3.2), so `/bin/bash tests/<this file>` would run the
+# harness under 3.2 and every driver under 5.x — a green "3.2 result" that
+# never touched 3.2 (t1746). bash sets $BASH to its own path, in 3.2 as well
+# as 5.x; the explicit override lets a CI matrix pick a shell without a PATH
+# shim:
+#
+#     SHELL_UNDER_TEST=/bin/bash bash tests/test_yaml_utils.sh
+SHELL_UNDER_TEST="${SHELL_UNDER_TEST:-${BASH:-bash}}"
+SUT_VERSION="$("$SHELL_UNDER_TEST" -c 'printf %s "$BASH_VERSION"' 2>/dev/null)"
+echo "Shell under test: $SHELL_UNDER_TEST (bash ${SUT_VERSION:-UNKNOWN})"
 
 # Source both libs, in the same order aitask_archive.sh does. Both source
 # yaml_utils.sh; the double-source guard must make the second a no-op.
@@ -501,7 +530,10 @@ if command -v python3 >/dev/null 2>&1; then
 
     cat > "$TMP/sigpipe_run.py" <<'PYEOF'
 import signal, subprocess, sys
-sys.exit(subprocess.call(["bash", sys.argv[1]],
+# argv[1] is the shell under test, passed in rather than looked up on PATH
+# (t1746): a bare "bash" here would resolve to 5.x even when the harness runs
+# under 3.2.
+sys.exit(subprocess.call([sys.argv[1], sys.argv[2]],
     preexec_fn=lambda: signal.signal(signal.SIGPIPE, signal.SIG_IGN)))
 PYEOF
 
@@ -574,7 +606,7 @@ PYEOF
     # run_ignoring_sigpipe <snippet-file> -> sets SP_OUT / SP_ERR / SP_RC
     run_ignoring_sigpipe() {
         local snippet="$1" errfile="$TMP/sp_stderr.txt"
-        SP_OUT="$(python3 "$TMP/sigpipe_run.py" "$snippet" 2>"$errfile")"
+        SP_OUT="$(python3 "$TMP/sigpipe_run.py" "$SHELL_UNDER_TEST" "$snippet" 2>"$errfile")"
         SP_RC=$?
         SP_ERR="$(cat "$errfile")"
     }
@@ -661,8 +693,8 @@ PYEOF
     # Pin both directions of the discriminator this relies on.
     guard_probe='if [[ -f /dev/fd/1 ]]; then echo REGULAR_FILE; else echo NOT_REGULAR; fi'
     assert_eq "write-guard boundary: pipe stdout is not a regular file (guard active)" \
-        "NOT_REGULAR" "$(bash -c "$guard_probe" | cat)"
-    bash -c "$guard_probe" > "$TMP/guard_probe.out"
+        "NOT_REGULAR" "$("$SHELL_UNDER_TEST" -c "$guard_probe" | cat)"
+    "$SHELL_UNDER_TEST" -c "$guard_probe" > "$TMP/guard_probe.out"
     assert_eq "write-guard boundary: file stdout is a regular file (guard inactive)" \
         "REGULAR_FILE" "$(cat "$TMP/guard_probe.out")"
 
@@ -691,7 +723,10 @@ SIGDFL_AVAILABLE=false
 if command -v python3 >/dev/null 2>&1; then
     cat > "$TMP/sigdfl_run.py" <<'PYEOF'
 import signal, subprocess, sys
-sys.exit(subprocess.call(["bash", sys.argv[1]],
+# argv[1] is the shell under test, passed in rather than looked up on PATH
+# (t1746): a bare "bash" here would resolve to 5.x even when the harness runs
+# under 3.2.
+sys.exit(subprocess.call([sys.argv[1], sys.argv[2]],
     preexec_fn=lambda: signal.signal(signal.SIGPIPE, signal.SIG_DFL)))
 PYEOF
     SIGDFL_AVAILABLE=true
@@ -700,9 +735,9 @@ fi
 # Emit the script's stdout with SIGPIPE guaranteed to be at its default.
 run_with_default_sigpipe() {
     if [[ "$SIGDFL_AVAILABLE" == true ]]; then
-        python3 "$TMP/sigdfl_run.py" "$1"
+        python3 "$TMP/sigdfl_run.py" "$SHELL_UNDER_TEST" "$1"
     else
-        bash "$1"
+        "$SHELL_UNDER_TEST" "$1"
     fi
 }
 
@@ -853,7 +888,7 @@ read_yaml_mappings '$TMP/task.md' attachments    > /dev/null
 printf '%s\n' 'depends: [1, 2]' | join_yaml_flow_lists > /dev/null
 echo SMOKE_OK
 EOF
-smoke_out="$(bash "$TMP/set_e_smoke.sh" 2>&1)"; smoke_rc=$?
+smoke_out="$("$SHELL_UNDER_TEST" "$TMP/set_e_smoke.sh" 2>&1)"; smoke_rc=$?
 assert_eq "set -e smoke: all readers survive set -euo pipefail on hit and miss paths" \
     "SMOKE_OK" "$smoke_out"
 assert_eq "set -e smoke: exit 0" "0" "$smoke_rc"
@@ -862,7 +897,7 @@ assert_eq "set -e smoke: exit 0" "0" "$smoke_rc"
 
 for f in lib/yaml_utils.sh lib/task_utils.sh lib/agentcrew_utils.sh aitask_archive.sh; do
     TOTAL=$((TOTAL + 1))
-    if bash -n "$PROJECT_DIR/.aitask-scripts/$f"; then
+    if "$SHELL_UNDER_TEST" -n "$PROJECT_DIR/.aitask-scripts/$f"; then
         PASS=$((PASS + 1))
     else
         FAIL=$((FAIL + 1))

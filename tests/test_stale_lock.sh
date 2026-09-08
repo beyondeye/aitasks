@@ -9,6 +9,7 @@
 #   6. cleanup failures propagated (verified removals)
 #
 # Run: bash tests/test_stale_lock.sh
+#      SHELL_UNDER_TEST=/bin/bash bash tests/test_stale_lock.sh   # 3.2
 # Expected runtime: ~3s (several sub-second exhaustion budgets + one 2s
 # release guard-wait). A run of ~60s+ against near-zero CPU means a fixture is
 # blocked in `wait` on a child that never received its kill — see
@@ -24,6 +25,22 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 PASS=0
 FAIL=0
 TOTAL=0
+
+# --- the shell under test ---------------------------------------------------
+#
+# The errexit harness generated further down runs a real `set -euo pipefail`
+# driver against the real lib, so it must execute under the interpreter THIS
+# harness was launched with, not whatever `bash` PATH resolves to. On a
+# Homebrew macOS box /opt/homebrew/bin (bash 5.x) precedes /bin (bash 3.2), so
+# `/bin/bash tests/<this file>` would run the harness under 3.2 and the driver
+# under 5.x — a green "3.2 result" that never touched 3.2 (t1746). bash sets
+# $BASH to its own path, in 3.2 as well as 5.x; the explicit override lets a CI
+# matrix pick a shell without a PATH shim:
+#
+#     SHELL_UNDER_TEST=/bin/bash bash tests/test_stale_lock.sh
+SHELL_UNDER_TEST="${SHELL_UNDER_TEST:-${BASH:-bash}}"
+SUT_VERSION="$("$SHELL_UNDER_TEST" -c 'printf %s "$BASH_VERSION"' 2>/dev/null)"
+echo "Shell under test: $SHELL_UNDER_TEST (bash ${SUT_VERSION:-UNKNOWN})"
 
 # The lib needs warn() from terminal_compat.sh (callers source it first).
 . "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh"
@@ -345,7 +362,7 @@ assert_eq "fresh default base is owner-only (0700)" "700" "$perms"
 FAKE_ROOT="$T/fakerepo"
 mkdir -p "$FAKE_ROOT/.aitask-scripts/lib"
 cp "$PROJECT_DIR/.aitask-scripts/lib/stale_lock.sh" "$FAKE_ROOT/.aitask-scripts/lib/"
-p2="$(unset AITASKS_LOCK_DIR; TMPDIR="$D1" bash -c '
+p2="$(unset AITASKS_LOCK_DIR; TMPDIR="$D1" "$SHELL_UNDER_TEST" -c '
     . "'"$PROJECT_DIR"'/.aitask-scripts/lib/terminal_compat.sh"
     . "'"$FAKE_ROOT"'/.aitask-scripts/lib/stale_lock.sh"
     ait_lock_dir defcheck')"
@@ -393,7 +410,7 @@ stale_lock_acquire "\$L" 3 0.05 "harness lock"
 stale_lock_release "\$L" "\$STALE_LOCK_TOKEN"
 echo "HARNESS_OK"
 EOF
-out="$(bash "$T/harness.sh" 2>&1)"; rc=$?
+out="$("$SHELL_UNDER_TEST" "$T/harness.sh" 2>&1)"; rc=$?
 assert_exit_zero_rc "errexit harness completes" "$rc"
 assert_contains "errexit harness reaches the end" "HARNESS_OK" "$out"
 

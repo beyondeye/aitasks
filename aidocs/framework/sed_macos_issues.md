@@ -418,6 +418,49 @@ symlinked needs the same guard, not a `2>/dev/null ||` that swallows the errno.
 
 Always use `#!/usr/bin/env bash`, never `#!/bin/bash`. macOS system bash is 3.2 which lacks `declare -A`, `local -n`, `${var^}`. The `env bash` form picks up brew-installed bash 5.x from PATH.
 
+## Running a Test Under bash 3.2
+
+`/bin/bash tests/<file>.sh` runs only the **harness** under 3.2. Any driver the
+test spawns as a bare `bash …` resolves through `PATH` and lands on Homebrew
+bash 5.x, so the run reports a green "3.2 result" without 3.2 ever being
+exercised (t1746 — found when t1691's manual verification produced a 77/77 "3.2"
+pass whose every assertion had run under 5.3.9). Python-invoked drivers have the
+same hole: `subprocess.call(["bash", …])` is a `PATH` lookup too. So is
+`bash -n` — a 5.x parse check green-lights syntax 3.2 rejects.
+
+A test whose subject is shell semantics routes every driver through the
+launching interpreter:
+
+```bash
+SHELL_UNDER_TEST="${SHELL_UNDER_TEST:-${BASH:-bash}}"
+SUT_VERSION="$("$SHELL_UNDER_TEST" -c 'printf %s "$BASH_VERSION"' 2>/dev/null)"
+echo "Shell under test: $SHELL_UNDER_TEST (bash ${SUT_VERSION:-UNKNOWN})"
+```
+
+bash sets `$BASH` to its own path, in 3.2 as well as 5.x. The override lets a CI
+matrix (or a hand check) pick a shell with no PATH shim:
+`SHELL_UNDER_TEST=/bin/bash bash tests/<file>.sh`.
+
+**Verify by reading the banner, not by trusting the invocation.** Carrying it on
+the summary line too (`Results: … [bash 3.2.57(1)-release]`) keeps the evidence
+in a captured log. Files following this convention:
+`tests/test_ledger_lock_exit_trap.sh` (which also asserts the identity, so an
+override pointing at a non-bash fails loudly), `tests/test_yaml_utils.sh`,
+`tests/test_stale_lock.sh`.
+
+**A 3.2 run can be infeasible, not merely slow — measure before assuming.**
+`tests/test_yaml_utils.sh` is excluded from its own 3.2 lane: bash 3.2's
+`${var//pat/}` over a large single-line buffer is **cubic**, measured at 2KB
+1.1s / 4KB 8.0s / 8KB 61.5s / 16KB 495s (~8x per doubling) against 0.3s at 16KB
+under 5.3.9. Its 77KB inline fixture extrapolates to ~15 hours per call. When a
+3.2 run makes no progress, profile the scaling curve on small fixtures rather
+than waiting it out.
+
+Tests that invoke **production** framework scripts (`bash "$CODEAGENT" …`,
+`bash install.sh …`) deliberately still use `PATH` bash: those scripts carry
+`#!/usr/bin/env bash` and resolve through `PATH` in production, so `PATH` bash is
+the faithful shell there.
+
 ## Files Fixed in t211
 
 | File | Issue | Fix Applied |
