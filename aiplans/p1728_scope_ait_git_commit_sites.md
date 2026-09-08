@@ -339,3 +339,97 @@ controlled by a pre- or post-phase step, so the level is `low` as approved.
 - timing: pre-phase | name: red_control_proof | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health "a never-executed commit starts executing" + goal-achievement "the control could be vacuous" | desc: Run each new negative control against the unmodified source first and record the observed failure, so a control that passes for the wrong reason is caught before the fix lands.
 - timing: post-phase | name: set_e_abort_control | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health "hot-path return-code contract change" + code-health "composed EXIT trap could drop temp-file cleanup" | desc: Drive each converted site under set -euo pipefail with nothing to commit, asserting exit 0 and that a side effect after the seam call still lands; additionally assert rc 1 is not absorbed at site 2 (non-zero return, CONVERGED=0, no UPDATED: line) and that sites 1 and 3 still remove their temp file.
 - timing: after | name: note_hint_restructure | type: refactor | priority: low | effort: low | inline_risk: medium | added_complexity: medium | addresses: code-health "allowlist leaves aitask_note.sh unguarded for the new pattern" | desc: Restructure aitask_note.sh's two multi-line recovery-hint warn strings so their ./ait git commit text is parseable on one logical line, then delete the AIT_GIT_ALLOWLIST entry and its fixture.
+
+## Final Implementation Notes
+
+- **Actual work done:** All **three** unscoped `./ait git commit` command sites in
+  `.aitask-scripts/` now commit through `ait_commit_paths_staging_untracked`
+  (`lib/task_utils.sh`, the t1702 seam):
+  `aitask_verification_followup.sh` (back-reference on the origin's archived plan),
+  `lib/verified_update_lib.sh::commit_metadata_update_local` (shared models file),
+  and `aitask_create_manual_verification.sh` (post-seed checklist commit) — the
+  third was not named by the task and was found by re-deriving the site list.
+  `aitask_create_manual_verification.sh` gained a `source lib/task_utils.sh`;
+  the other two files already had it. `tests/test_no_unscoped_task_commit.sh`
+  grew a second pattern for the `./ait git commit` seam, and
+  `aidocs/framework/shell_conventions.md` records both the seam equivalence and
+  the staging distinction.
+- **Deviations from plan:** Three, all discovered by running the controls rather
+  than by reasoning.
+  1. **Site 3's Control B was dropped, not written.** The plan called for the
+     "staged version of the commit's own target" control at all applicable
+     sites. At `aitask_create_manual_verification.sh` the commit target is a task
+     file *this same process created seconds earlier*, so no concurrent session
+     can hold a different staged version of it. A control written against a
+     *previous* task file passed against the pre-fix code — it was measuring
+     Control A's hazard on a path the site does not commit. Rather than ship a
+     green no-op, the file carries a comment naming the gap and pointing at the
+     two places the hazard *is* reachable. This is the plan's own "must be
+     replaced rather than kept as a green no-op" clause firing.
+  2. **The forced-failure seam changed from `pre-commit` to `commit-msg`.** A
+     blanket `pre-commit` hook is too blunt for sites 1 and 3: it also fails
+     `aitask_create.sh`'s own commit, so the script dies *before* the site under
+     test runs and the control passes vacuously (observed, not predicted).
+     `commit-msg` receives the message file, so the hook can single out the one
+     commit under test by matching its subject.
+  3. **Site 1's Control B fixture was rewritten from append to replace.** With an
+     append chain the index contains both markers whatever happens, so the
+     "the other session's version survives" assertion could not discriminate;
+     only its `not_contains` twin could. Writing the two versions as full
+     replacements makes both assertions bite.
+- **Issues encountered:**
+  - `tests/test_verification_followup.sh` had **no `./ait` stub**, so the
+    back-reference commit was silently a no-op (`|| true` on both lines) and the
+    commit path had zero coverage. A pass-through stub was added, matching the
+    one in `tests/test_create_manual_verification.sh`.
+  - `git diff --check` flagged trailing whitespace on a line added by Test 33A;
+    removed during review.
+  - `tests/test_verified_update_flags.sh` exits 3 (`UPDATED_REMOTE_ONLY`). This
+    is **pre-existing and environmental** — measured red both with and without
+    this change, back to back — and is caused by the local task-data branch
+    sitting behind `origin/aitask-data`. Not addressed here.
+- **Key decisions:**
+  - **No `ait_git_commit_scoped` helper was added.** `ait` sources
+    `lib/task_utils.sh` and dispatches `git` straight to `task_git`, so
+    `./ait git` *is* `task_git` in a subprocess and the existing seams already
+    serve it. This answers the question the task posed.
+  - **`ait_commit_paths_staging_untracked`, not bare `task_git_commit_scoped`.**
+    The latter's default `add` of a **tracked** path replaces the index entry
+    another session staged for that same path — verified against real git: with
+    the `add`, a *failing* `commit -o` still leaves the index at the worktree
+    content; without it, the foreign staged version survives. Fixing the
+    pathspec while introducing that write would have traded one shared-index
+    hazard for another, and the foreign-*file* controls could not have seen it.
+  - **The guard's second pattern matches the quote-stripped line.** Five of the
+    eight `ait git commit` occurrences in the tree are recovery-hint prose inside
+    message strings; stripping balanced quoted spans removes three for free. The
+    remaining two are continuation physical lines of multi-line `warn` strings in
+    `aitask_note.sh`, whose unbalanced quoting correctly fails closed — they are
+    suppressed by a **separate** `AIT_GIT_ALLOWLIST` that applies to that pattern
+    only, so `aitask_note.sh` stays fully guarded for `task_git commit`. Both
+    directions of that independence are asserted.
+  - **rc 2 is absorbed; rc 1 is not.** In `commit_metadata_update_local` the bare
+    `commit` was the function's last command, so a failure propagated and
+    `set -e` aborted the caller. Absorbing it would have made
+    `aitask_verified_update.sh` print `UPDATED:` for a score on no branch. Only
+    "verified nothing to commit" is absorbed; a real failure sets
+    `AIT_METADATA_LOCAL_CONVERGED=0` and propagates.
+  - Every absorb branch is a real `if … fi`. A trailing `(( crc == 1 )) && warn …`
+    is a complete `&&` list whose status is 1 when the test is false, which
+    `set -e` turns into a spurious failure.
+  - The seam's unstage trap is armed by the caller by design, so at sites 1 and 3
+    it is **composed** with the temp-file trap already there. Both compositions
+    are pinned by a test that goes red under the naive `trap … EXIT` form.
+- **Upstream defects identified:**
+  - `.claude/skills/task-workflow/plan-externalization.md:134 — instructs the agent to run an unscoped "./ait git commit", the exact defect this task fixes, at the instruction layer`
+  - `.claude/skills/task-workflow/plan-approved-stop.md:69,127 — same unscoped ./ait git commit instruction`
+  - `.claude/skills/task-workflow/planning.md:305 — same, for the child-plans commit`
+  - `.claude/skills/task-workflow/risk-mitigation-followup.md:398 — same, for the mitigation witness commit`
+  - `.claude/skills/task-workflow/auto-verification.md:146 — same`
+  - `.claude/skills/aitask-contribute/SKILL.md:60,274 — same`
+  - `.claude/skills/aitask-add-model/SKILL.md:141 — same`
+  - `.claude/skills/aitask-web-merge/SKILL.md:123 — same`
+  - `.claude/skills/aitask-contribution-review/SKILL.md:294 — same`
+  - `.claude/skills/aitask-refresh-code-models/SKILL.md:146 — same`
+  - `.claude/skills/aitask-wrap/SKILL.md.j2:277 — same`
+  - `.claude/skills/ait-git/SKILL.md:15 — teaches the unscoped form as the canonical example`
