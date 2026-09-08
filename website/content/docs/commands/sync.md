@@ -115,6 +115,8 @@ The sync flow follows these steps:
 
 When `git pull --rebase` encounters conflicts in task files, `ait sync` automatically invokes a Python merge script (`aitask_merge.py`) to resolve frontmatter conflicts using deterministic rules. This avoids manual resolution for the most common multi-machine editing scenarios (e.g., one PC moves a task on the board while another changes labels).
 
+The same resolver runs on the task-data pull that happens when you pick a task and on the pull `ait git push` retries with, so a frontmatter-only collision is cleared automatically wherever it appears rather than only under `ait sync` — see [Task-data pull before task selection](#task-data-pull-before-task-selection).
+
 #### Merge Rules
 
 | Field | Rule | Details |
@@ -227,6 +229,21 @@ Two cases stay quiet here as well: no remote configured, or a failed pull with
 nothing unreconciled in either direction. A blocked local worktree (a dirty data
 worktree or a stopped rebase) always warns, because it keeps every later sync
 and push failing until it is cleared.
+
+That pull resolves conflicts, not just reports them. When it stops on a
+frontmatter-only collision — the common two-machine case, such as one PC moving
+a task on the board while another edits its labels — it runs the same
+[auto-merge rules](#auto-merge-conflict-resolution) `ait sync` uses, completes
+the rebase, and continues, naming what it merged on stderr:
+
+```
+auto-merged task-data conflict(s) during pull (1 file(s)) - rebase completed
+```
+
+Anything it cannot merge — a conflict in the task body, or a file that is not a
+task or plan — is left to a human exactly as before: the rebase is aborted so
+nothing is left in progress, and the pull reports `rebase_conflict` with its
+recovery hint.
 
 The one case where `ait git push` does **not** exit 0 is a data worktree left
 stuck mid-rebase, merge, cherry-pick, revert, or bisect. That is a broken

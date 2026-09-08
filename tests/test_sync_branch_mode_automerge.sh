@@ -571,6 +571,60 @@ assert_no_rebase_wedge "Test 8" "$TMP8/local"
 
 rm -rf "$TMP8"
 
+# --- Test 9: the advance-failure path (t1727 loop rc 2) ---------------------
+# ait_automerge_rebase_loop's OTHER non-zero result: every conflict merged and
+# staged, nothing left unresolved, yet neither `rebase --continue` nor
+# `rebase --skip` works. No natural fixture produces it, so it is injected
+# through the same argv-keyed PATH shim seam Tests 2/3/7 use.
+#
+# It is also the regression test for the `set -euo pipefail` absorbing capture:
+# aitask_sync.sh calls the loop as `ait_automerge_rebase_loop || loop_rc=$?`,
+# and a bare call would exit the shell on this very rc before the
+# ERROR:rebase_continue_failed token was ever printed.
+echo "--- Test 9: advance failure -> ERROR token, no wedge ---"
+
+install_failing_advance_shim() {
+    local bindir="$1" real_git
+    real_git="$(command -v git)"
+    mkdir -p "$bindir"
+    # Fails ONLY the two advance verbs. `--abort` must still work, or the
+    # cleanup this test asserts could not run and the assertion would pass for
+    # the wrong reason.
+    cat > "$bindir/git" <<SHIMEOF
+#!/usr/bin/env bash
+_saw_rebase=0
+for _a in "\$@"; do
+    [[ "\$_a" == "rebase" ]] && _saw_rebase=1
+    if [[ \$_saw_rebase -eq 1 && ( "\$_a" == "--continue" || "\$_a" == "--skip" ) ]]; then
+        echo "fatal: simulated advance failure (test shim)" >&2
+        exit 128
+    fi
+done
+exec "$real_git" "\$@"
+SHIMEOF
+    chmod +x "$bindir/git"
+}
+
+TMP9="$(setup_branch_mode_repos)"
+install_failing_advance_shim "$TMP9/shimbin"
+
+rc9=0
+out9=$(cd "$TMP9/local" && PATH="$TMP9/shimbin:$PATH" ./ait sync --batch 2>"$TMP9/err.txt") || rc9=$?
+clean9=$(printf '%s' "$out9" | strip_ansi)
+
+# The token is the whole point: reaching it proves the shell did NOT exit on
+# the loop's rc 2.
+assert_eq_trim "advance failure reports ERROR:rebase_continue_failed" \
+    "ERROR:rebase_continue_failed" "$clean9"
+assert_exit_nonzero_rc "advance failure exits non-zero" "$rc9"
+# Negative control: it must NOT be mistaken for an unresolvable conflict — the
+# files DID merge, so a CONFLICT: token here would name files that are fine.
+assert_not_contains "advance failure is not reported as CONFLICT" \
+    "CONFLICT:" "$clean9"
+assert_no_rebase_wedge "Test 9" "$TMP9/local"
+
+rm -rf "$TMP9"
+
 # --- Summary ---
 echo ""
 echo "=== Results: $PASS passed, $FAIL failed (of $TOTAL) ==="

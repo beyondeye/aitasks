@@ -643,6 +643,12 @@ TASK_SYNC_STATUS=""     # synced | up-to-date | no-remote | failed
 TASK_SYNC_REASON=""     # classifier code when failed (see _task_push_classify)
 TASK_SYNC_UNPUSHED=""   # local commits not on upstream; "" when undeterminable
 TASK_SYNC_UNPULLED=""   # cached upstream commits not merged; "" when undeterminable
+# 1 when THIS call's pull hit conflicts and auto-merged them all; "" otherwise.
+# Reset on entry like every field above — this is a process global and
+# aitask_pick_own.sh calls task_sync and task_push in the same process, so a
+# value left behind would make the NEXT, ordinary call report a merge that never
+# happened. "" (not 0) is the did-not-happen value, matching its siblings.
+TASK_SYNC_AUTOMERGED=""
 
 # Sync task data from remote (independent of code sync in branch mode)
 # Uses --rebase instead of --ff-only so sync succeeds even when local has
@@ -658,6 +664,7 @@ task_sync() {
     TASK_SYNC_REASON=""
     TASK_SYNC_UNPUSHED=""
     TASK_SYNC_UNPULLED=""
+    TASK_SYNC_AUTOMERGED=""
 
     # No remote at all (solo / offline-only repo): nothing to reconcile.
     if ! _task_push_has_remote; then
@@ -669,6 +676,10 @@ task_sync() {
     before_head="$(_task_sync_head)"
 
     if pull_err="$(_task_pull_rebase 2>&1)"; then
+        case "$pull_err" in
+            *"$AIT_PULL_AUTOMERGED_SENTINEL"*) TASK_SYNC_AUTOMERGED=1 ;;
+        esac
+        _task_pull_report_automerge "$pull_err"
         after_head="$(_task_sync_head)"
         if [[ "$before_head" == "$after_head" ]]; then
             TASK_SYNC_STATUS="up-to-date"
@@ -679,6 +690,10 @@ task_sync() {
         TASK_SYNC_UNPULLED="$(_task_sync_unpulled_count)"
         return 0
     fi
+
+    # Failure path: the notices still matter — a cap that gave up is the reason
+    # this sync failed, and _task_sync_warn's hint alone cannot say so.
+    _task_pull_report_automerge "$pull_err"
 
     TASK_SYNC_STATUS="failed"
     TASK_SYNC_REASON="$(_task_push_classify "" "$pull_err")"
@@ -756,6 +771,16 @@ _task_sync_warn() {
 TASK_PUSH_STATUS=""     # pushed | up-to-date | no-remote | failed
 TASK_PUSH_REASON=""     # classifier code when failed (see _task_push_classify)
 TASK_PUSH_UNPUSHED=""   # unpushed commit count; "" when undeterminable
+# 1 when a pull during THIS push cycle's retries auto-merged conflicts; ""
+# otherwise. Reset on entry, for the same reason TASK_SYNC_AUTOMERGED is.
+TASK_PUSH_AUTOMERGED=""
+
+# An auto-merged rebase is PROGRESS, not a failed attempt (t1727): it cleared
+# the very conflict that made the push bounce, so the next push has a real
+# chance. Each such pull returns one attempt to the budget, up to this many —
+# bounded, so a persistently re-conflicting remote still terminates, at
+# max_attempts + this many pushes.
+_AIT_PUSH_PROGRESS_GRANTS=2
 
 # Push task data to remote with automatic pull-rebase on conflict.
 # Retries up to 3 times. Failures are non-fatal, but they are reported: a
@@ -765,6 +790,7 @@ task_push() {
     TASK_PUSH_STATUS=""
     TASK_PUSH_REASON=""
     TASK_PUSH_UNPUSHED=""
+    TASK_PUSH_AUTOMERGED=""
     assert_data_worktree_clean push
 
     # No remote at all (solo / offline-only repo): nothing to push to and
@@ -778,6 +804,7 @@ task_push() {
     before_count="$(_task_push_unpushed_count)"
 
     local max_attempts=3
+    local grants_left=$_AIT_PUSH_PROGRESS_GRANTS
     local attempt
     for (( attempt=1; attempt<=max_attempts; attempt++ )); do
         if push_err="$(_task_push_once 2>&1)"; then
@@ -795,6 +822,21 @@ task_push() {
         if [[ $attempt -lt $max_attempts ]]; then
             out="$(_task_pull_rebase 2>&1)" || true
             rebase_err+="${out}"$'\n'
+            _task_pull_report_automerge "$out"
+            case "$out" in
+                *"$AIT_PULL_AUTOMERGED_SENTINEL"*)
+                    # shellcheck disable=SC2034  # a TASK_PUSH_* result global, read by callers in other files
+                    TASK_PUSH_AUTOMERGED=1
+                    # Progress: this pull cleared the conflict the push bounced
+                    # on, so give the attempt back rather than spending the
+                    # budget on a blocker that no longer exists. Strictly
+                    # bounded by grants_left, so the loop still terminates.
+                    if (( grants_left > 0 )); then
+                        grants_left=$((grants_left - 1))
+                        attempt=$((attempt - 1))
+                    fi
+                    ;;
+            esac
         fi
     done
 
@@ -928,14 +970,28 @@ ait_pull_mutex_release() {
 # message. Keep it: it is the defensive half of this function's contract, it is
 # what makes the function safe for any future caller, and the unit tests drive
 # it directly.
-ait_rebase_abort_if_ours() {
-    local runner="$1" gitdir="$2" head_before="$3" state="$4" recorded
+# ait_rebase_is_ours <gitdir> <head_before> <state>
+#
+# The ownership PROOF alone — signals 4 and 5 — with no side effect. 0 = this
+# call started the in-progress rebase; 1 = no proof.
+#
+# Split out of ait_rebase_abort_if_ours (t1727) because auto-merging and
+# `rebase --continue`-ing a rebase we did not start is exactly as dangerous as
+# aborting one, so the auto-merge path must clear the SAME gate. One
+# implementation, two consumers — never a second copy of the evidence rule.
+ait_rebase_is_ours() {
+    local gitdir="$1" head_before="$2" state="$3" recorded
     case "$state" in
         rebase-merge|rebase-apply) ;;
-        *) printf 'not_ours'; return 0 ;;
+        *) return 1 ;;
     esac
     recorded="$(cat "$gitdir/$state/orig-head" 2>/dev/null || true)"
-    if [[ -z "$head_before" || -z "$recorded" || "$recorded" != "$head_before" ]]; then
+    [[ -n "$head_before" && -n "$recorded" && "$recorded" == "$head_before" ]]
+}
+
+ait_rebase_abort_if_ours() {
+    local runner="$1" gitdir="$2" head_before="$3" state="$4"
+    if ! ait_rebase_is_ours "$gitdir" "$head_before" "$state"; then
         printf 'not_ours'
         return 0
     fi
@@ -949,6 +1005,67 @@ ait_rebase_abort_if_ours() {
         printf 'aborted'
     fi
     return 0
+}
+
+# --- Auto-merge during the workflow pull (t1727) -----------------------------
+#
+# THE one spelling of the "this pull auto-merged" sentinel. The emitter in
+# _task_pull_rebase_cleanup and BOTH matchers (task_sync, task_push) read this
+# constant — _task_pull_rebase runs inside `$( … 2>&1 )` in both callers, so a
+# global set there dies in the subshell and stderr is the only channel out. A
+# literal repeated in any of the three sites could drift and silently leave
+# TASK_*_AUTOMERGED unset while the merge itself worked.
+#
+# Lower-case "conflict(s)" is load-bearing: _task_push_classify matches
+# `*CONFLICT*` case-sensitively, so this text must never be classified as a
+# failure reason.
+AIT_PULL_AUTOMERGED_SENTINEL="auto-merged task-data conflict(s) during pull"
+
+# The companion sentinel for the round cap. Same rule, same reason: emitted by
+# lib/task_automerge.sh, matched here. Kept in THIS file rather than the library
+# because the matchers run whether or not the library was ever loaded, and a
+# matcher against an unset variable would match every string.
+AIT_AUTOMERGE_GAVE_UP_SENTINEL="auto-merge gave up after"
+
+# Internal: re-emit the pull's auto-merge notices on the CALLER's stderr.
+#
+# _task_pull_rebase writes them to its own stderr, but every caller captures
+# that with `$( … 2>&1 )` to feed _task_push_classify — so without this the
+# human sees nothing at all on the one path that silently rewrote their task
+# files, and nothing about a cap that gave up. Exactly one line each, only when
+# the corresponding sentinel is present.
+#   $1 = the captured blob
+_task_pull_report_automerge() {
+    local blob="$1" line
+    case "$blob" in
+        *"$AIT_PULL_AUTOMERGED_SENTINEL"*)
+            # Forward the emitted line verbatim: it carries the file count.
+            line="$(printf '%s\n' "$blob" | grep -F -m1 -- "$AIT_PULL_AUTOMERGED_SENTINEL" || true)"
+            [[ -n "$line" ]] && printf '%s\n' "${line#aitask: }" >&2
+            ;;
+    esac
+    case "$blob" in
+        *"$AIT_AUTOMERGE_GAVE_UP_SENTINEL"*)
+            line="$(printf '%s\n' "$blob" | grep -F -m1 -- "$AIT_AUTOMERGE_GAVE_UP_SENTINEL" || true)"
+            [[ -n "$line" ]] && printf '%s\n' "${line#aitask: }" >&2
+            ;;
+    esac
+    return 0
+}
+
+# Internal: load lib/task_automerge.sh on demand. 0 = available.
+#
+# LAZY, the pid_anchor.sh::_anchor_tmux_pane_pid pattern: task_utils.sh is
+# copied standalone into test fixtures (tests/lib/test_scaffold.sh) that carry
+# neither this library nor board/aitask_merge.py, so a missing library must
+# degrade to "no auto-merge" and never break sourcing. It also keeps a pull that
+# never conflicts from paying for the source at all.
+_ait_load_automerge() {
+    declare -F ait_automerge_rebase_loop >/dev/null 2>&1 && return 0
+    [[ -r "${SCRIPT_DIR}/lib/task_automerge.sh" ]] || return 1
+    # shellcheck source=task_automerge.sh disable=SC1091
+    source "${SCRIPT_DIR}/lib/task_automerge.sh" || return 1
+    declare -F ait_automerge_rebase_loop >/dev/null 2>&1
 }
 
 # Internal: pull with rebase to catch up with remote, cleaning up after ITSELF.
@@ -998,7 +1115,15 @@ _task_pull_rebase() {
     [[ -n "$out" ]] && printf '%s\n' "$out" >&2
 
     if [[ $rc -ne 0 ]]; then
-        _task_pull_rebase_cleanup "$gitdir" "$before" "$head_before" "$out"
+        # ABSORBING CAPTURE: this library is sourced into scripts running
+        # `set -euo pipefail`, and the cleanup now returns 10 ("auto-merged, the
+        # pull effectively succeeded"). A bare call would abort the caller on
+        # exactly the successful path.
+        local recover_rc=0
+        _task_pull_rebase_cleanup "$gitdir" "$before" "$head_before" "$out" || recover_rc=$?
+        # 10 is the resolve-verdict, not a failure: the conflict was merged and
+        # the rebase ran to completion, so the pull is a success to both callers.
+        [[ $recover_rc -eq 10 ]] && rc=0
     fi
 
     ait_pull_mutex_release
@@ -1008,6 +1133,10 @@ _task_pull_rebase() {
 # Internal: the decide-and-clean half of _task_pull_rebase, split out only so
 # that function keeps a single exit point around the mutex.
 #   $1 gitdir  $2 state before the pull  $3 HEAD before the pull  $4 pull output
+#
+# Returns 0 in every case EXCEPT one: 10 means the conflict was auto-merged and
+# the rebase completed, so the caller must treat the pull as successful. Callers
+# must absorb the status — see _task_pull_rebase above.
 _task_pull_rebase_cleanup() {
     local gitdir="$1" before="$2" head_before="$3" out="$4" after verdict
 
@@ -1043,7 +1172,30 @@ _task_pull_rebase_cleanup() {
             return 0 ;;
     esac
 
-    # Signal 5: prove it is ours, then abort and verify the abort landed.
+    # Signal 5: prove it is ours. Auto-merging and `rebase --continue`-ing a
+    # rebase started elsewhere is exactly as dangerous as aborting one, so the
+    # resolve attempt below clears the SAME gate the abort does.
+    if ait_rebase_is_ours "$gitdir" "$head_before" "$after"; then
+        # RESOLVE FIRST, abort only what is left (t1727). This is what makes the
+        # workflow pull resolve the frontmatter-only collisions `ait sync`
+        # already resolves — through the same driver and the same advance logic.
+        # A missing library degrades to "no auto-merge" and falls straight
+        # through to the abort below.
+        if _ait_load_automerge; then
+            local loop_rc=0
+            ait_automerge_rebase_loop || loop_rc=$?
+            if [[ $loop_rc -eq 0 ]]; then
+                printf 'aitask: %s (%d file(s)) - rebase completed\n' \
+                    "$AIT_PULL_AUTOMERGED_SENTINEL" "$AIT_AUTOMERGE_RESOLVED" >&2
+                return 10
+            fi
+            # rc 1 (conflicts we cannot merge) and rc 2 (advance failed for a
+            # non-conflict reason) both fall through to the abort: the rebase is
+            # ours, so leaving it in progress is the one thing we must not do.
+        fi
+    fi
+
+    # Abort, and verify the abort landed.
     verdict="$(ait_rebase_abort_if_ours _ait_data_git "$gitdir" "$head_before" "$after")"
     case "$verdict" in
         aborted)

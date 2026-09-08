@@ -1856,6 +1856,448 @@ else
     PASS=$((PASS + 1))
 fi
 
+# ============================================================================
+# t1727 — the workflow pull auto-merges what `ait sync` auto-merges
+# ============================================================================
+#
+# Before t1727 `_task_pull_rebase` was a bare `pull --rebase`: the SAME
+# frontmatter-only collision `ait sync` resolves silently made every pick fail
+# with rebase_conflict. These fixtures drive the shared engine
+# (lib/task_automerge.sh) through the two callers that now use it.
+
+# Seed a task file with the four ADJACENT frontmatter fields the driver merges
+# by three different rules — boardcol (keep-local), labels (union), updated_at
+# (newest wins). Adjacency is load-bearing: far-apart edits merge TEXTUALLY and
+# never reach the driver at all (test_sync_branch_mode_automerge.sh Test 4).
+write_sample_task() {   # <path> <boardcol> <labels> <updated_at> [body]
+    mkdir -p "$(dirname "$1")"
+    cat > "$1" <<TASKEOF
+---
+priority: high
+status: Ready
+boardcol: $2
+labels: $3
+updated_at: $4
+---
+${5:-Task body stays the same}
+TASKEOF
+}
+
+# Push a conflicting edit to aitasks/t1_sample.md from a second clone.
+# Args are the same as write_sample_task's, minus the path.
+advance_remote_task() {   # <boardcol> <labels> <updated_at> [body]
+    local tmp
+    tmp="$(mktemp -d "${TMPDIR:-/tmp}/ait_push_am_XXXXXX")"
+    git clone --quiet "$TEST_REMOTE" "$tmp/other" 2>/dev/null
+    git -C "$tmp/other" config user.email "other@test.com"
+    git -C "$tmp/other" config user.name "Other"
+    write_sample_task "$tmp/other/aitasks/t1_sample.md" "$1" "$2" "$3" "${4:-}"
+    git -C "$tmp/other" add -A
+    git -C "$tmp/other" commit -m "pc2: conflicting frontmatter edit" --quiet
+    git -C "$tmp/other" push --quiet 2>/dev/null
+    rm -rf "$tmp"
+}
+
+# Seed + push the shared starting point both sides diverge from.
+seed_sample_task() {
+    write_sample_task aitasks/t1_sample.md backlog "[ui]" "2026-01-01 10:00"
+    git add -A
+    git commit -m "seed sample task" --quiet
+    git push --quiet 2>/dev/null
+}
+
+# --- Test 48: task_sync auto-merges a frontmatter-only conflict ---
+echo "--- Test 48: task_sync frontmatter conflict -> auto-merged, converged ---"
+
+setup_remote_and_clone
+pushd "$TEST_LOCAL" > /dev/null || exit 1
+reload_task_utils
+_AIT_DATA_WORKTREE="."
+
+seed_sample_task
+advance_remote_task now "[ui]" "2026-01-01 10:00"
+# Local: a different adjacent field, identical body.
+write_sample_task aitasks/t1_sample.md backlog "[api, ui]" "2026-01-01 10:00"
+git add -A
+git commit -m "local: change labels" --quiet
+
+task_sync 2>"$TEST_TMPDIR/am48_err.txt"
+sync_rc=$?
+sync_err="$(cat "$TEST_TMPDIR/am48_err.txt")"
+
+assert_success "48: task_sync returns 0" "$sync_rc"
+assert_eq "48: TASK_SYNC_STATUS is synced" "synced" "$TASK_SYNC_STATUS"
+assert_eq "48: TASK_SYNC_AUTOMERGED is set" "1" "$TASK_SYNC_AUTOMERGED"
+assert_eq "48: TASK_SYNC_REASON stays empty" "" "$TASK_SYNC_REASON"
+assert_contains "48: the sentinel names the auto-merge" \
+    "auto-merged task-data conflict(s) during pull" "$sync_err"
+# BOTH sides' values survive — the merge really merged, it did not pick a side.
+merged48="$(cat aitasks/t1_sample.md)"
+assert_contains "48: local boardcol kept (keep-local rule)" "boardcol: backlog" "$merged48"
+assert_contains "48: local label survives (union rule)" "api" "$merged48"
+assert_contains "48: remote-side label survives (union rule)" "ui" "$merged48"
+# Fully converged in BOTH directions, and nothing left in progress.
+assert_eq_trim "48: nothing left to pull" "0" \
+    "$(git rev-list --count 'HEAD..@{u}' 2>/dev/null)"
+assert_eq_trim "48: nothing left unpushed after the later push" "1" \
+    "$(git rev-list --count '@{u}..HEAD' 2>/dev/null)"
+assert_eq_trim "48: no rebase left behind" "" "$(probe_wedge)"
+assert_next_commit_succeeds "48: the next task_git commit succeeds"
+
+popd > /dev/null || exit 1
+
+# --- Test 49: the same conflict cleared through task_push's retry ---
+echo "--- Test 49: task_push retry auto-merges, then pushes ---"
+
+setup_remote_and_clone
+pushd "$TEST_LOCAL" > /dev/null || exit 1
+reload_task_utils
+_AIT_DATA_WORKTREE="."
+
+seed_sample_task
+advance_remote_task now "[ui]" "2026-01-01 10:00"
+write_sample_task aitasks/t1_sample.md backlog "[api, ui]" "2026-01-01 10:00"
+git add -A
+git commit -m "ait: Start work on t1: set status to Implementing" --quiet
+
+task_push 2>"$TEST_TMPDIR/am49_err.txt"
+push_rc=$?
+
+assert_success "49: task_push returns 0" "$push_rc"
+assert_eq "49: TASK_PUSH_STATUS is pushed" "pushed" "$TASK_PUSH_STATUS"
+assert_eq "49: TASK_PUSH_AUTOMERGED is set" "1" "$TASK_PUSH_AUTOMERGED"
+assert_eq "49: nothing left unpushed" "0" "$TASK_PUSH_UNPUSHED"
+# The COUNT, not just the status: a green run must not be able to mean
+# "nothing was pushed".
+assert_eq_trim "49: the claim commit reached the remote" "1" \
+    "$(git -C "$TEST_REMOTE" log --oneline --grep='Start work on t1' | wc -l | tr -d ' ')"
+assert_eq_trim "49: no rebase left behind" "" "$(probe_wedge)"
+
+popd > /dev/null || exit 1
+
+# --- Test 50: negative control — a BODY conflict on a task file still aborts ---
+echo "--- Test 50: task-file body conflict -> t1725_1 abort, no auto-merge ---"
+
+setup_remote_and_clone
+pushd "$TEST_LOCAL" > /dev/null || exit 1
+reload_task_utils
+_AIT_DATA_WORKTREE="."
+
+seed_sample_task
+# Same frontmatter, DIVERGING bodies: this is the discriminating case — it
+# enters the auto-merge branch and the driver answers PARTIAL. (Test 19's
+# conflict.txt is the non-task-file control, which never reaches the driver.)
+advance_remote_task backlog "[ui]" "2026-01-01 10:00" "remote rewrote the body"
+write_sample_task aitasks/t1_sample.md backlog "[ui]" "2026-01-01 10:00" "local rewrote the body"
+git add -A
+git commit -m "local: rewrite body" --quiet
+
+task_sync 2>"$TEST_TMPDIR/am50_err.txt"
+sync_rc=$?
+sync_err="$(cat "$TEST_TMPDIR/am50_err.txt")"
+
+assert_success "50: task_sync still returns 0" "$sync_rc"
+assert_eq "50: TASK_SYNC_STATUS is failed" "failed" "$TASK_SYNC_STATUS"
+assert_eq "50: TASK_SYNC_REASON is rebase_conflict" "rebase_conflict" "$TASK_SYNC_REASON"
+assert_eq "50: TASK_SYNC_AUTOMERGED stays unset" "" "$TASK_SYNC_AUTOMERGED"
+assert_not_contains "50: no auto-merge sentinel on a body conflict" \
+    "auto-merged task-data conflict(s) during pull" "$sync_err"
+assert_eq_trim "50: the rebase was aborted (t1725_1 behaviour intact)" "" "$(probe_wedge)"
+assert_next_commit_succeeds "50: the next task_git commit succeeds after the abort"
+
+popd > /dev/null || exit 1
+
+# --- Test 51: library absent -> degrade to no auto-merge, never break ---
+echo "--- Test 51: task_utils.sh without task_automerge.sh still works ---"
+
+setup_remote_and_clone
+pushd "$TEST_LOCAL" > /dev/null || exit 1
+
+# The standalone-fixture case: setup_fake_aitask_repo copies neither
+# lib/task_automerge.sh nor board/aitask_merge.py.
+setup_fake_aitask_repo "$PWD"
+cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh"    .aitask-scripts/lib/
+cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" .aitask-scripts/lib/
+TOTAL=$((TOTAL + 1))
+if [[ -e .aitask-scripts/lib/task_automerge.sh || -e .aitask-scripts/board/aitask_merge.py ]]; then
+    FAIL=$((FAIL + 1))
+    echo "FAIL: 51: fixture is not actually missing the library — test would be vacuous"
+else
+    PASS=$((PASS + 1))
+fi
+
+# Source the copied task_utils.sh the way a scaffolded script would.
+unset _AIT_TASK_UTILS_LOADED
+_AIT_DATA_WORKTREE=""
+SCRIPT_DIR="$PWD/.aitask-scripts"
+source_rc=0
+# shellcheck disable=SC1091
+source "$PWD/.aitask-scripts/lib/task_utils.sh" || source_rc=$?
+set +euo pipefail
+assert_success "51: sourcing task_utils.sh without the library succeeds" "$source_rc"
+_AIT_DATA_WORKTREE="."
+
+seed_sample_task
+advance_remote_task now "[ui]" "2026-01-01 10:00"
+write_sample_task aitasks/t1_sample.md backlog "[api, ui]" "2026-01-01 10:00"
+git add -A
+git commit -m "local: change labels" --quiet
+
+task_sync 2>"$TEST_TMPDIR/am51_err.txt"
+assert_eq "51: without the library the conflict fails as before" \
+    "failed" "$TASK_SYNC_STATUS"
+assert_eq "51: reason is still rebase_conflict" "rebase_conflict" "$TASK_SYNC_REASON"
+assert_eq "51: and nothing claims an auto-merge" "" "$TASK_SYNC_AUTOMERGED"
+assert_eq_trim "51: the rebase was still aborted" "" "$(probe_wedge)"
+
+popd > /dev/null || exit 1
+# Restore the real library for the tests that follow.
+reload_task_utils
+
+# --- Test 52: the sentinel is inert to the failure classifier ---
+echo "--- Test 52: the auto-merge sentinel is not a failure reason ---"
+
+sentinel52="aitask: auto-merged 2 task-data conflict(s) during pull - rebase completed"
+assert_eq "52: the sentinel alone classifies as unknown, not a failure mode" \
+    "unknown" "$(_task_push_classify "" "$sentinel52")"
+# Named negative controls: these are the two arms an ill-chosen wording would
+# have collided with.
+TOTAL=$((TOTAL + 1))
+cls52="$(_task_push_classify "" "$sentinel52")"
+if [[ "$cls52" == "rebase_conflict" || "$cls52" == "rebase_in_progress" ]]; then
+    FAIL=$((FAIL + 1))
+    echo "FAIL: 52: the sentinel was classified as $cls52"
+else
+    PASS=$((PASS + 1))
+fi
+
+# --- Test 53: the flags RESET between calls in one shell ---
+echo "--- Test 53: TASK_*_AUTOMERGED do not leak into the next call ---"
+
+setup_remote_and_clone
+pushd "$TEST_LOCAL" > /dev/null || exit 1
+reload_task_utils
+_AIT_DATA_WORKTREE="."
+
+seed_sample_task
+advance_remote_task now "[ui]" "2026-01-01 10:00"
+write_sample_task aitasks/t1_sample.md backlog "[api, ui]" "2026-01-01 10:00"
+git add -A
+git commit -m "local: change labels" --quiet
+
+task_sync 2>/dev/null
+assert_eq "53: first sync auto-merged" "1" "$TASK_SYNC_AUTOMERGED"
+# Second call in the SAME shell, nothing to do. aitask_pick_own.sh calls
+# task_sync and task_push in one process, so a leaked flag would make an
+# ordinary call report a merge that never happened.
+task_sync 2>/dev/null
+assert_eq "53: second sync is up-to-date" "up-to-date" "$TASK_SYNC_STATUS"
+assert_eq "53: and TASK_SYNC_AUTOMERGED was reset" "" "$TASK_SYNC_AUTOMERGED"
+
+task_push 2>/dev/null
+assert_eq "53: the push had no conflict to merge" "" "$TASK_PUSH_AUTOMERGED"
+
+popd > /dev/null || exit 1
+
+# --- Test 54: multi-round replay — TWO conflicting local commits ---
+echo "--- Test 54: two replayed commits both auto-merge (loop, not one shot) ---"
+
+setup_remote_and_clone
+pushd "$TEST_LOCAL" > /dev/null || exit 1
+reload_task_utils
+_AIT_DATA_WORKTREE="."
+
+seed_sample_task
+advance_remote_task now "[ui]" "2026-01-01 10:00"
+# TWO separate local commits, each touching a different adjacent field, so the
+# rebase replays two patches and BOTH overlap the remote's boardcol hunk.
+write_sample_task aitasks/t1_sample.md backlog "[api, ui]" "2026-01-01 10:00"
+git add -A
+git commit -m "local A: change labels" --quiet
+write_sample_task aitasks/t1_sample.md backlog "[api, ui]" "2026-03-02 09:15"
+git add -A
+git commit -m "local B: change updated_at" --quiet
+
+task_sync 2>"$TEST_TMPDIR/am54_err.txt"
+sync_rc=$?
+sync_err="$(cat "$TEST_TMPDIR/am54_err.txt")"
+
+assert_success "54: task_sync returns 0" "$sync_rc"
+assert_eq "54: TASK_SYNC_STATUS is synced" "synced" "$TASK_SYNC_STATUS"
+assert_eq "54: TASK_SYNC_AUTOMERGED is set" "1" "$TASK_SYNC_AUTOMERGED"
+# THE DISCRIMINATOR. A count of 1 means only one round ran and this fixture
+# degenerated into Test 48 — fix the fixture, never this assertion.
+assert_contains "54: the sentinel reports TWO merged conflicts (both rounds ran)" \
+    "auto-merged task-data conflict(s) during pull (2 file(s))" "$sync_err"
+assert_eq_trim "54: both local commits were replayed and kept" "2" \
+    "$(git rev-list --count '@{u}..HEAD' 2>/dev/null)"
+merged54="$(cat aitasks/t1_sample.md)"
+assert_contains "54: local boardcol kept" "boardcol: backlog" "$merged54"
+assert_contains "54: local label survives" "api" "$merged54"
+assert_contains "54: commit B's updated_at survives" "2026-03-02 09:15" "$merged54"
+assert_eq_trim "54: no rebase left behind" "" "$(probe_wedge)"
+# Negative control for the round cap: a cap that tripped early would satisfy
+# every abort-free assertion above for the wrong reason.
+assert_not_contains "54: the round cap did not fire on a healthy replay" \
+    "auto-merge gave up after" "$sync_err"
+
+popd > /dev/null || exit 1
+
+# --- Test 55: the round cap FIRES, and fails safe when it does ---
+echo "--- Test 55: AIT_AUTOMERGE_MAX_ROUNDS exhaustion -> clean abort ---"
+
+setup_remote_and_clone
+pushd "$TEST_LOCAL" > /dev/null || exit 1
+reload_task_utils
+_AIT_DATA_WORKTREE="."
+
+seed_sample_task
+advance_remote_task now "[ui]" "2026-01-01 10:00"
+write_sample_task aitasks/t1_sample.md backlog "[api, ui]" "2026-01-01 10:00"
+git add -A
+git commit -m "local A" --quiet
+write_sample_task aitasks/t1_sample.md backlog "[api, ui]" "2026-03-02 09:15"
+git add -A
+git commit -m "local B" --quiet
+write_sample_task aitasks/t1_sample.md backlog "[api, ui, web]" "2026-03-02 09:15"
+git add -A
+git commit -m "local C" --quiet
+before_head_55="$(git rev-parse HEAD)"
+
+AIT_AUTOMERGE_MAX_ROUNDS=1 task_sync 2>"$TEST_TMPDIR/am55_err.txt"
+sync_rc=$?
+sync_err="$(cat "$TEST_TMPDIR/am55_err.txt")"
+
+assert_success "55: task_sync still returns 0 (best-effort contract)" "$sync_rc"
+assert_contains "55: the cap diagnostic names the round budget" \
+    "auto-merge gave up after 1 rounds" "$sync_err"
+assert_eq "55: TASK_SYNC_STATUS is failed" "failed" "$TASK_SYNC_STATUS"
+assert_eq "55: TASK_SYNC_REASON is rebase_conflict" "rebase_conflict" "$TASK_SYNC_REASON"
+# A partially auto-merged run that then gave up is NOT an auto-merge.
+assert_eq "55: TASK_SYNC_AUTOMERGED stays unset" "" "$TASK_SYNC_AUTOMERGED"
+# The whole point of the cap: the shared worktree is not left blocked.
+assert_eq_trim "55: the rebase was aborted, nothing left in progress" "" "$(probe_wedge)"
+assert_eq_trim "55: the abort restored orig-head — all three local commits kept" \
+    "$before_head_55" "$(git rev-parse HEAD)"
+assert_next_commit_succeeds "55: the next task_git commit succeeds"
+
+popd > /dev/null || exit 1
+
+# --- Test 56: a malformed cap override FAILS CLOSED to the default ---
+echo "--- Test 56: AIT_AUTOMERGE_MAX_ROUNDS junk/0 cannot disable the cap ---"
+
+for bad_cap in abc 0; do
+    setup_remote_and_clone
+    pushd "$TEST_LOCAL" > /dev/null || exit 1
+    reload_task_utils
+    _AIT_DATA_WORKTREE="."
+
+    seed_sample_task
+    advance_remote_task now "[ui]" "2026-01-01 10:00"
+    write_sample_task aitasks/t1_sample.md backlog "[api, ui]" "2026-01-01 10:00"
+    git add -A
+    git commit -m "local A" --quiet
+    write_sample_task aitasks/t1_sample.md backlog "[api, ui]" "2026-03-02 09:15"
+    git add -A
+    git commit -m "local B" --quiet
+
+    AIT_AUTOMERGE_MAX_ROUNDS="$bad_cap" task_sync 2>"$TEST_TMPDIR/am56_err.txt"
+    sync_err="$(cat "$TEST_TMPDIR/am56_err.txt")"
+
+    # A cap of "abc"/0 taken literally would give up on round 1 (or never run);
+    # falling closed to the default 50 lets the two-round replay converge.
+    assert_eq "56 ($bad_cap): falls closed to the default, so the replay converges" \
+        "synced" "$TASK_SYNC_STATUS"
+    assert_not_contains "56 ($bad_cap): the cap did not fire" \
+        "auto-merge gave up after" "$sync_err"
+
+    popd > /dev/null || exit 1
+done
+
+# --- Test 57: pick_own --sync converges and still prints exactly SYNCED ---
+echo "--- Test 57: aitask_pick_own.sh --sync auto-merges, token unchanged ---"
+
+setup_remote_and_clone
+pushd "$TEST_LOCAL" > /dev/null || exit 1
+
+# The whole tree, as tests/test_sync.sh does: the merge driver lives under
+# board/ and imports from lib/, so the itemized scaffold cannot supply it.
+cp -r "$PROJECT_DIR/.aitask-scripts" ./.aitask-scripts
+mkdir -p aitasks aiplans
+seed_sample_task
+advance_remote_task now "[ui]" "2026-01-01 10:00"
+write_sample_task aitasks/t1_sample.md backlog "[api, ui]" "2026-01-01 10:00"
+git add -A
+git commit -m "local: change labels" --quiet
+
+sync_out="$(./.aitask-scripts/aitask_pick_own.sh --sync 2>"$TEST_TMPDIR/am57_err.txt")"
+sync_rc=$?
+sync_err="$(cat "$TEST_TMPDIR/am57_err.txt")"
+
+assert_success "57: pick_own --sync returns 0" "$sync_rc"
+# The cross-process token is DELIBERATELY unchanged — no SYNCED:automerged.
+assert_eq "57: stdout is still exactly SYNCED" "SYNCED" "$sync_out"
+assert_contains "57: the human notice goes to stderr" \
+    "auto-merged task-data conflict(s) during pull" "$sync_err"
+merged57="$(cat aitasks/t1_sample.md)"
+assert_contains "57: both sides merged" "api" "$merged57"
+assert_contains "57: both sides merged (remote label)" "ui" "$merged57"
+
+popd > /dev/null || exit 1
+
+# --- Test 58: the push progress grant TERMINATES ---
+echo "--- Test 58: a persistently conflicting remote stops at the hard cap ---"
+
+setup_remote_and_clone
+pushd "$TEST_LOCAL" > /dev/null || exit 1
+reload_task_utils
+_AIT_DATA_WORKTREE="."
+
+seed_sample_task
+write_sample_task aitasks/t1_sample.md backlog "[api, ui]" "2026-01-01 10:00"
+git add -A
+git commit -m "local claim" --quiet
+
+# An argv-keyed shim (the install_failing_add_shim shape): every push is
+# rejected, so the grant is offered a conflict it can never clear. Attempts are
+# COUNTED, so the cap is asserted as a number rather than inferred from the
+# test merely returning.
+SHIM58="$TEST_TMPDIR/shim58"
+mkdir -p "$SHIM58"
+REAL_GIT="$(command -v git)"
+cat > "$SHIM58/git" <<SHIMEOF
+#!/usr/bin/env bash
+for _a in "\$@"; do
+    if [[ "\$_a" == "push" ]]; then
+        echo x >> "$TEST_TMPDIR/push_attempts.txt"
+        echo "error: failed to push some refs (non-fast-forward)" >&2
+        exit 1
+    fi
+done
+exec "$REAL_GIT" "\$@"
+SHIMEOF
+chmod +x "$SHIM58/git"
+: > "$TEST_TMPDIR/push_attempts.txt"
+
+PATH="$SHIM58:$PATH" task_push 2>/dev/null
+push_rc=$?
+attempts58="$(wc -l < "$TEST_TMPDIR/push_attempts.txt" | tr -d ' ')"
+
+assert_success "58: task_push returns 0 (best-effort contract)" "$push_rc"
+assert_eq "58: TASK_PUSH_STATUS is failed" "failed" "$TASK_PUSH_STATUS"
+# max_attempts(3) + _AIT_PUSH_PROGRESS_GRANTS(2) = 5. The grant must be bounded;
+# an unbounded one loops forever against a remote that keeps re-conflicting.
+TOTAL=$((TOTAL + 1))
+if [[ "$attempts58" -ge 1 && "$attempts58" -le 5 ]]; then
+    PASS=$((PASS + 1))
+else
+    FAIL=$((FAIL + 1))
+    echo "FAIL: 58: push attempts out of the hard cap (got $attempts58, expected 1..5)"
+fi
+
+popd > /dev/null || exit 1
+
+# --- Summary ---
 # --- Summary ---
 echo ""
 echo "=== Results: $PASS passed, $FAIL failed, $TOTAL total ==="

@@ -45,6 +45,12 @@ source "$SCRIPT_DIR/lib/pid_anchor.sh"        # lock_holder_liveness (the t1466 
 source "$SCRIPT_DIR/lib/stale_lock.sh"        # ait_lock_dir
 # shellcheck source=lib/registry_lock.sh
 source "$SCRIPT_DIR/lib/registry_lock.sh"     # registry_lock_acquire/release
+# task_automerge.sh is THE conflict-resolution engine, shared with
+# lib/task_utils.sh::_task_pull_rebase since t1727. It depends on _ait_data_git
+# and _ait_detect_data_worktree from task_utils.sh (sourced above) and on
+# resolve_python; both are already loaded by the time we get here.
+# shellcheck source=lib/task_automerge.sh
+source "$SCRIPT_DIR/lib/task_automerge.sh"
 
 # --- Configuration ---
 BATCH_MODE=false
@@ -57,10 +63,13 @@ ASSUME_UNLOCKED=false
 RELEASE_QUARANTINE=false
 
 # --- Auto-merge support (best-effort) ---
-# resolve_python may return empty in fully-stripped environments; try_auto_merge
-# already guards on $_MERGE_PYTHON being non-empty before invoking it.
-_MERGE_PYTHON="$(resolve_python)"
-_MERGE_SCRIPT="$SCRIPT_DIR/board/aitask_merge.py"
+# The engine lives in lib/task_automerge.sh and resolves its own python + driver
+# lazily. Point its progress channel at iinfo_err so interactive `ait sync`
+# keeps its per-file "Auto-merged: <f>" lines and `--batch` stays silent —
+# unchanged from when those lines were emitted inline. Failures never come
+# through here; they go to warn() and are never suppressed.
+# shellcheck disable=SC2034  # consumed by lib/task_automerge.sh via indirect call
+AIT_AUTOMERGE_PROGRESS_FN=iinfo_err
 
 # --- Help ---
 show_help() {
@@ -177,9 +186,10 @@ iinfo() {
 }
 
 # Interactive info routed to STDERR. For use inside functions whose STDOUT is a
-# data channel — `try_auto_merge` returns the unresolved-file list on stdout, so
-# a progress line written there is parsed by the caller as a conflicted
-# filename and the interactive loop then opens $EDITOR on it.
+# data channel — a progress line written there is parsed by the caller as a
+# conflicted filename and the interactive loop then opens $EDITOR on it. This is
+# what AIT_AUTOMERGE_PROGRESS_FN points at, so lib/task_automerge.sh's per-file
+# notices keep landing on stderr and stay silent in --batch.
 iinfo_err() {
     if [[ "$BATCH_MODE" == false ]]; then
         info "$1" >&2
@@ -893,105 +903,6 @@ count_remote_ahead() {
     task_git rev-list --count "HEAD..@{u}" 2>/dev/null || echo "0"
 }
 
-# --- Auto-merge conflicted task/plan files ---
-# try_auto_merge <conflicted_files_newline_separated>
-# Attempts auto-merge for each task/plan file using Python merge script.
-# Outputs remaining unresolved files (newline-separated) to stdout.
-# Returns 0 if ALL resolved, 1 if any remain unresolved.
-try_auto_merge() {
-    local conflicted="$1"
-    local unresolved=""
-    local resolved_count=0
-
-    if [[ -z "$_MERGE_PYTHON" ]] || [[ ! -f "$_MERGE_SCRIPT" ]]; then
-        echo "$conflicted"
-        return 1
-    fi
-
-    while IFS= read -r f; do
-        [[ -z "$f" ]] && continue
-        case "$f" in
-            aitasks/*.md|aiplans/*.md)
-                local file_path merge_exit=0
-                file_path="$(_resolve_conflict_path "$f")"
-                # Supply the MERGE BASE from git's conflicted index (stage 1 =
-                # base, 2 = ours, 3 = theirs). The diff3 marker base is not an
-                # option: `merge.conflictStyle` is configured nowhere, so git
-                # emits 2-way markers and the parser has no ancestor to read.
-                # `$f` (repo-relative), never `$file_path` — a `:1:` pathspec is
-                # resolved against the repo, not the filesystem.
-                # `show` is on assert_data_worktree_clean's read-only allowlist,
-                # so this works while the rebase is wedged. An add/add conflict
-                # has no stage 1; the extraction fails, no flag is passed, and
-                # base-aware fields fail closed to PARTIAL.
-                local base_tmp base_args=()
-                base_tmp="$(mktemp)"
-                if task_git show ":1:$f" > "$base_tmp" 2>/dev/null; then
-                    base_args=(--base-file "$base_tmp")
-                else
-                    rm -f "$base_tmp"
-                    base_tmp=""
-                fi
-                # STDOUT of this function IS the unresolved-file list its caller
-                # parses, so the driver's own stdout ("RESOLVED" / "PARTIAL:...")
-                # must not leak into it — it was being reported as a conflicted
-                # filename (`CONFLICT:RESOLVED`). Only the exit status matters.
-                PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$SCRIPT_DIR/board" "$_MERGE_PYTHON" "$_MERGE_SCRIPT" "$file_path" --batch --rebase ${base_args[@]+"${base_args[@]}"} >/dev/null 2>&1 || merge_exit=$?
-                if [[ -n "$base_tmp" ]]; then rm -f "$base_tmp"; fi
-                if [[ $merge_exit -eq 0 ]]; then
-                    # The state-check guard rejects mutating verbs while the data
-                    # worktree is mid-rebase — but staging a resolved conflict is
-                    # exactly what this code path exists to do, and it owns that
-                    # rebase. Scope the documented bypass to this one call.
-                    local add_err add_rc=0
-                    add_err="$(AIT_GIT_SKIP_STATE_CHECK=1 task_git add "$f" 2>&1)" || add_rc=$?
-                    if [[ $add_rc -eq 0 ]]; then
-                        resolved_count=$((resolved_count + 1))
-                        iinfo_err "Auto-merged: $f"
-                    else
-                        # A file we could not stage is an UNRESOLVED merge, not a
-                        # resolved one: `rebase --continue` would fail later with
-                        # the diagnostic already discarded. warn() -> stderr,
-                        # never info()/iinfo(), which write to the data channel.
-                        warn "auto-merge could not stage $f (git add rc=$add_rc): ${add_err:-<no output>}"
-                        unresolved="${unresolved}${unresolved:+$'\n'}$f"
-                    fi
-                else
-                    unresolved="${unresolved}${unresolved:+$'\n'}$f"
-                fi
-                ;;
-            *)
-                unresolved="${unresolved}${unresolved:+$'\n'}$f"
-                ;;
-        esac
-    done <<< "$conflicted"
-
-    if [[ -z "$unresolved" ]]; then
-        iinfo_err "Auto-merged $resolved_count file(s)"
-        return 0
-    else
-        [[ $resolved_count -gt 0 ]] && iinfo_err "Auto-merged $resolved_count file(s), remaining conflicts need manual resolution"
-        echo "$unresolved"
-        return 1
-    fi
-}
-
-# --- Rebase advancement helper ---
-# Try rebase --continue, fall back to --skip for empty patches (when
-# auto-merge result matches the current HEAD exactly, git sees "nothing to commit").
-_rebase_advance() {
-    if GIT_EDITOR=true task_git rebase --continue &>/dev/null; then
-        return 0
-    fi
-    # If no unresolved files remain, this is an empty patch — skip it
-    local unresolved
-    unresolved=$(task_git diff --name-only --diff-filter=U 2>/dev/null || true)
-    if [[ -z "$unresolved" ]] && task_git rebase --skip &>/dev/null; then
-        return 0
-    fi
-    return 1
-}
-
 # --- Pull with rebase ---
 # Returns: 0 = normal pull, 1 = failure, 2 = automerged
 _PULL_AUTOMERGED=false
@@ -1008,57 +919,32 @@ do_pull_rebase() {
         conflicted=$(task_git diff --name-only --diff-filter=U 2>/dev/null || true)
 
         if [[ -n "$conflicted" ]]; then
-            # Try auto-merge first
+            # The whole resolve-and-advance cycle — including the multi-commit
+            # replay — lives in lib/task_automerge.sh, shared with
+            # task_utils.sh::_task_pull_rebase (t1727).
+            #
+            # ABSORBING CAPTURE, never a bare call: this script runs
+            # `set -euo pipefail`, so `ait_automerge_rebase_loop; rc=$?` would
+            # exit the shell on the loop's own documented rc 1 (unresolved) and
+            # rc 2 (advance failed) — bypassing the CONFLICT: token and the
+            # interactive fallback exactly when they are needed. `local` on its
+            # own line so the declaration's status never masks the call's.
             local remaining=""
-            local merge_rc=1
-            remaining=$(try_auto_merge "$conflicted") && merge_rc=0 || merge_rc=$?
+            local loop_rc=0
+            ait_automerge_rebase_loop || loop_rc=$?
 
-            if [[ $merge_rc -eq 0 ]]; then
-                # All conflicts auto-resolved — advance rebase (may loop for multi-commit)
-                local continue_ok=true
-                while true; do
-                    if _rebase_advance; then
-                        break  # rebase complete
-                    fi
-                    # Check for new conflicts from next commit
-                    local new_conflicted
-                    new_conflicted=$(task_git diff --name-only --diff-filter=U 2>/dev/null || true)
-                    if [[ -n "$new_conflicted" ]]; then
-                        local new_remaining=""
-                        local new_merge_rc=1
-                        new_remaining=$(try_auto_merge "$new_conflicted") && new_merge_rc=0 || new_merge_rc=$?
-                        if [[ $new_merge_rc -ne 0 ]]; then
-                            # Can't auto-merge this round
-                            if [[ "$BATCH_MODE" == true ]]; then
-                                task_git rebase --abort 2>/dev/null || true
-                                local conflict_list
-                                conflict_list=$(echo "$new_remaining" | tr '\n' ',' | sed 's/,$//')
-                                batch_out "CONFLICT:${conflict_list}"
-                                exit 0
-                            else
-                                warn "Auto-merged earlier commits, but new conflicts in:"
-                                echo "$new_remaining" | while IFS= read -r f; do echo "  - $f"; done
-                                remaining="$new_remaining"
-                                continue_ok=false
-                                break
-                            fi
-                        fi
-                        # new conflicts also auto-merged, loop to advance rebase
-                    else
-                        # rebase advance failed for non-conflict reason
-                        task_git rebase --abort 2>/dev/null || true
-                        batch_out "ERROR:rebase_continue_failed"
-                        return 1
-                    fi
-                done
-
-                if [[ "$continue_ok" == true ]]; then
+            case $loop_rc in
+                0)
                     _PULL_AUTOMERGED=true
                     isuccess "All conflicts auto-merged successfully"
-                    return 0
-                fi
-                # If continue_ok=false, fall through to interactive handling with $remaining
-            fi
+                    return 0 ;;
+                2)
+                    # Advance failed for a non-conflict reason.
+                    task_git rebase --abort 2>/dev/null || true
+                    batch_out "ERROR:rebase_continue_failed"
+                    return 1 ;;
+            esac
+            remaining="$AIT_AUTOMERGE_REMAINING"
 
             # Some files unresolved (or auto-merge unavailable)
             if [[ "$BATCH_MODE" == true ]]; then
@@ -1085,7 +971,7 @@ do_pull_rebase() {
                     [[ -z "$f" ]] && continue
                     echo ""
                     info "Editing: $f"
-                    if $editor "$(_resolve_conflict_path "$f")"; then
+                    if $editor "$(ait_automerge_conflict_path "$f")"; then
                         # Staging a resolved conflict is exactly what this loop
                         # exists to do, and it owns the rebase it is resolving —
                         # so scope the documented bypass to this one call, as
@@ -1113,7 +999,7 @@ do_pull_rebase() {
                 done <<< "$remaining"
 
                 if [[ "$all_resolved" == true ]]; then
-                    if ! _rebase_advance; then
+                    if ! ait_automerge_advance; then
                         warn "Rebase continue failed. Aborting rebase."
                         task_git rebase --abort 2>/dev/null || true
                         return 1
@@ -1135,17 +1021,6 @@ do_pull_rebase() {
         fi
     fi
     return 0
-}
-
-# Resolve the file path for editing during conflict resolution
-_resolve_conflict_path() {
-    local file="$1"
-    _ait_detect_data_worktree
-    if [[ "$_AIT_DATA_WORKTREE" != "." ]]; then
-        echo "$_AIT_DATA_WORKTREE/$file"
-    else
-        echo "$file"
-    fi
 }
 
 # --- Push with retry ---
