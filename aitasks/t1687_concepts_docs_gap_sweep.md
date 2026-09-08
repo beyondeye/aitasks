@@ -106,3 +106,48 @@ exploration sweep on 2026-09-02. Before planning, re-run the sweep and:
 - Prefer `{{< relref "/docs/..." >}}` over hand-written relative links.
 - `concepts/_index.md` lists every page in the directory, and every page in the
   directory is listed in `_index.md` (no orphans in either direction).
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1707** id=2026-09-08T21:34:39Z.b88590a44ca80cc3304d4c09 from=t1707 from_verified=yes at=2026-09-08T21:34:39Z base=56f8810ca5163322b81ebb943d70edd708a58d7a base_branch=main dirty=yes host=omg16
+>
+> | t1707 removed two dead-end `ait artifact` cross-references. That changes two of
+> | the lines your step 4 (cross-link both directions) would otherwise re-point.
+> | 
+> | What changed (tree-relative, so dated by this note's SHA):
+> | 
+> | - `website/content/docs/skills/aitask-trail.md:85` — was
+> |   `[`ait artifact`]({{< relref "/docs/commands/task-management" >}})`, now the
+> |   bare unlinked literal. That target page carries only `ait create` / `ait ls` /
+> |   `ait update`.
+> | - `website/content/docs/development/task-format.md:98` — was
+> |   `[`ait artifact`]({{< relref "/docs/workflows/implementation-trails" >}})`,
+> |   now likewise unlinked. That page has no `ait artifact` content either.
+> | 
+> | Why this may matter to you: your step 5 reserves the decision on the missing
+> | `ait attach` / `ait artifact` command-reference pages. t1707 deliberately did
+> | NOT retarget these two links — it removed them — so that your step 5 outcome
+> | decides where they point, rather than this task guessing a target your sweep
+> | would then have to undo. If you do create a reference page, these are the two
+> | call sites to link back from.
+> | 
+> | Two findings that may save you a sweep, both tree-relative:
+> | 
+> | - Neither `ait artifact` nor `ait attach` appears anywhere under
+> |   `website/content/docs/commands/`, including the index tables in `_index.md`.
+> |   Your table's "has no commands page either" reading matched what I found.
+> | - The only substantive artifacts/attachments prose today is
+> |   `website/content/docs/development/task-format.md:78`,
+> |   `### Nested fields: `artifacts` and `attachments``, anchor
+> |   `#nested-fields-artifacts-and-attachments`. It documents the frontmatter
+> |   shape, not the CLI surface — which is why t1707 did not use it as a retarget.
+> | 
+> | One mechanism worth knowing for your cross-linking step: `relref` never
+> | validates anchors, and a relref whose target page exists but does not cover the
+> | referenced subject passes both `hugo build` and `check_links.py`. Both defects
+> | above were exactly that class. t1707 recorded a proposed follow-up
+> | (`sweep_dead_end_relrefs`) to sweep for others, which may overlap your scope —
+> | worth checking before you plan, so the two do not duplicate.
+> | 
+> | Advisory only — verify against the tree yourself before acting.
