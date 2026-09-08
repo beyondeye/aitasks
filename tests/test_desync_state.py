@@ -17,7 +17,9 @@ CHANGELOG_SRC = PROJECT_DIR / ".aitask-scripts" / "aitask_changelog.sh"
 LIB_SRC = PROJECT_DIR / ".aitask-scripts" / "lib"
 
 sys.path.insert(0, str(LIB_SRC))
+sys.path.insert(0, str(PROJECT_DIR / "tests" / "lib"))
 from desync_state import physical_main_branch  # noqa: E402
+from shell_startup_closure import copy_startup_closure  # noqa: E402
 
 
 def run(cmd: list[str], cwd: Path, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -49,17 +51,19 @@ def copy_changelog(project: Path) -> Path:
     script_dir = project / ".aitask-scripts"
     lib_dir = script_dir / "lib"
     lib_dir.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(CHANGELOG_SRC, script_dir / "aitask_changelog.sh")
-    # This list is task_utils.sh's startup source chain — it sources every one
-    # of these unconditionally, so a missing entry fails the fixture at source
-    # time rather than at the assertion. data_symlinks.sh joined the chain in
-    # t1658_2 (ait_main_worktree_root backs rung 3 of the data-worktree
-    # resolution ladder). The shell suites get this from
-    # tests/lib/test_scaffold.sh; this fixture keeps its own list, so it must be
-    # extended by hand whenever that chain grows.
-    for name in ["desync_state.py", "task_utils.sh", "terminal_compat.sh", "python_resolve.sh", "archive_utils.sh", "yaml_utils.sh", "data_symlinks.sh"]:
-        shutil.copy2(LIB_SRC / name, lib_dir / name)
-    return script_dir / "aitask_changelog.sh"
+    changelog = script_dir / "aitask_changelog.sh"
+    shutil.copy2(CHANGELOG_SRC, changelog)
+    # The startup source chain is DERIVED from the scripts themselves
+    # (tests/lib/shell_startup_closure.py) — never hand-listed here. A hand
+    # list is what missed stale_lock.sh when it joined task_utils.sh's chain in
+    # t1725_1, failing this fixture at source time rather than at an assertion
+    # (t1745). The shell suites get the same guarantee from
+    # tests/lib/test_scaffold.sh.
+    copy_startup_closure(LIB_SRC, lib_dir, roots=[changelog])
+    # Not part of the shell source chain: task_utils.sh shells out to this
+    # Python helper, so it is an explicit extra.
+    shutil.copy2(HELPER_SRC, lib_dir / "desync_state.py")
+    return changelog
 
 
 def make_main_project(root: Path) -> tuple[Path, Path]:

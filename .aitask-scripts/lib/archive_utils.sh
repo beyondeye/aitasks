@@ -18,6 +18,7 @@ _AIT_ARCHIVE_UTILS_LOADED=1
 
 # Ensure terminal_compat.sh is loaded (for die/warn helpers)
 SCRIPT_DIR="${SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+# Startup sources — contract: aidocs/framework/shell_conventions.md (source-on-startup); scanner: tests/lib/shell_startup_closure.py
 # shellcheck source=terminal_compat.sh
 source "${SCRIPT_DIR}/lib/terminal_compat.sh"
 

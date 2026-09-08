@@ -126,6 +126,30 @@ portability quirks (BSD vs GNU tooling) live in
   `followup_kinds.py`, `stale_lock.sh`, `registry_lock.sh`. A lib with a runtime sibling in another language (the
   bridge pattern — `followup_kinds_sh.sh` shells out to `followup_kinds.py`)
   must have **both** copied, or it fails closed inside every scaffolded test.
+
+  **Python fixtures get the same guarantee by derivation, not by a list.**
+  `tests/lib/shell_startup_closure.py` reads the startup chain out of the
+  scripts themselves and copies its transitive closure, so a Python fixture
+  cannot drift the way `tests/test_desync_state.py` did when `stale_lock.sh`
+  joined `lib/task_utils.sh` in t1725_1 (t1745). Never hand-list the chain in a
+  Python fixture; call `copy_startup_closure()`.
+
+  That derivation rests on a **format contract**, enforced by
+  `tests/test_shell_startup_closure.py`: a lib needed at startup is sourced
+  **unconditionally, at column 0**, in one of three spellings —
+  `source "${SCRIPT_DIR}/lib/x.sh"`,
+  `source "$(dirname "${BASH_SOURCE[0]}")/x.sh"`, or
+  `source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/x.sh"`. A lazy or
+  conditional source stays **indented** (the framework's live ones sit inside
+  function bodies). Bash itself attaches no meaning to indentation, so this is a
+  convention the contract test enforces rather than something the tooling can
+  infer — classifying by lexical function-body depth was tried and rejected, as
+  it falsely flags the idiomatic
+  `if [[ -r … ]]; then source …; fi`. Consequences when you edit a scanned lib:
+  a column-0 source through a *variable* path (`source "$dir/x.sh"`) fails the
+  contract test by design; and a source that must genuinely be conditional yet
+  is required at startup will **not** be derived — add it to the consuming
+  fixture's explicit extras.
 - **Ephemeral cross-process mutexes: use `lib/stale_lock.sh`, never a
   hand-rolled `/tmp` mkdir lock.** `stale_lock_acquire <dir> <retries>
   <sleep> <label>` / `stale_lock_release <dir> <token>` (the token comes back

@@ -46,6 +46,7 @@ PYPY_VENV_DIR="${PYPY_VENV_DIR:-$HOME/.aitask/pypy_venv}"
 # names that install these: pyyaml->yaml, linkify-it-py->linkify_it).
 AIT_PYPY_RUNTIME_IMPORTS=(textual yaml linkify_it tomli)
 
+# Startup sources — contract: aidocs/framework/shell_conventions.md (source-on-startup); scanner: tests/lib/shell_startup_closure.py
 # shellcheck source=terminal_compat.sh
 source "$(dirname "${BASH_SOURCE[0]}")/terminal_compat.sh"
 

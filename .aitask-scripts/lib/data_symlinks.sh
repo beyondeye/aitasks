@@ -33,6 +33,7 @@ _AIT_DATA_SYMLINKS_LOADED=1
 # warn() comes from terminal_compat.sh. Source it here rather than relying on
 # the caller having done so — this lib is sourced by two scripts and must not
 # depend on their ordering.
+# Startup sources — contract: aidocs/framework/shell_conventions.md (source-on-startup); scanner: tests/lib/shell_startup_closure.py
 # shellcheck source=terminal_compat.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/terminal_compat.sh"
 
