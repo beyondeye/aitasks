@@ -28,7 +28,9 @@ becoming visible once the first is fixed:
 So this module tries a ladder and **verifies each rung by running it**, rather
 than branching on `sys.platform`: what matters is whether the result executes,
 and that is directly testable. A future OS that fixes — or newly breaks — any of
-this then needs no change here.
+this then needs no change here. The rungs are consulted **lazily**: a later rung
+is built only once every earlier one has failed, so the platform that wins on
+rung 1 never pays for rung 2's compile (t1744).
 
     1. copy the system `sleep`         — the historical fixture; what Linux uses
     2. copy a locally compiled sleeper — macOS, where rung 1 cannot run
@@ -131,7 +133,12 @@ def fake_agent_binary(tmpdir: str, name: str, *,
     """
     dest = os.path.join(tmpdir, name)
 
-    for source in (_sleep_binary(), _compiled_sleeper_path()):
+    # Thunks, not values: rung 2 compiles a C sleeper, and an eagerly built
+    # `(_sleep_binary(), _compiled_sleeper_path())` pays for that compile on
+    # every platform — including Linux, where rung 1 always wins and the
+    # compiled binary is discarded unused (t1744).
+    for get_source in (_sleep_binary, _compiled_sleeper_path):
+        source = get_source()
         if not source:
             continue
         if os.path.lexists(dest):
