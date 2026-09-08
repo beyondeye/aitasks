@@ -868,6 +868,10 @@ _fold_amend_refusal=""
 # that commit 21219b0b4 actually swallowed, which is the failure this exists to
 # stop.
 #
+# That default-deny extends to the HEAD probe itself (t1733): an unreadable HEAD
+# and an empty path list both refuse, because neither is evidence of "nothing
+# foreign" -- they are evidence that nothing was read. See the probe below.
+#
 # It never die()s. Steps 3-5b have already written every fold mutation to disk
 # by the time Step 6 runs, so a bare die() here would leave the primary and
 # folded task files dirty -- and a dirty task-file set is exactly what the next
@@ -898,6 +902,30 @@ _fold_amend_guard() {
     local labels_path
     labels_path="$(labels_file_path)"
 
+    head_short="$(task_git rev-parse --short HEAD 2>/dev/null || echo "HEAD")"
+
+    # Capture the probe's exit status separately, and treat an EMPTY path list as
+    # unverified rather than as "nothing foreign". Same rule as
+    # task_git_commit_scoped's `git status` handling: a failing probe must never
+    # read as clean. The `|| true` this replaces was fail-OPEN in both directions
+    # -- a failed `git show` handed back an empty list, so `foreign` stayed empty
+    # and the guard authorised rewriting a commit whose contents were never read;
+    # and an empty list is also exactly what `git show --name-only` prints for a
+    # MERGE commit, which measurably got rewritten (t1733). t1599_4 closed the
+    # identical shape in aitask_issue_import.sh:657-666.
+    local head_paths="" show_rc=0
+    head_paths="$(task_git show --name-only --format='' HEAD 2>/dev/null)" || show_rc=$?
+    if (( show_rc != 0 )); then
+        _fold_amend_refusal="refusing --commit-mode amend: could not read the path list of HEAD (${head_short}); git exited ${show_rc}. Refusing to amend a commit whose contents are unverified.
+Re-run with --commit-mode fresh."
+        return 1
+    fi
+    if [[ -z "${head_paths//[[:space:]]/}" ]]; then
+        _fold_amend_refusal="refusing --commit-mode amend: HEAD (${head_short}) reports no paths — an empty or merge commit, whose contents cannot be verified.
+Re-run with --commit-mode fresh."
+        return 1
+    fi
+
     while IFS= read -r p; do
         [[ -n "$p" ]] || continue
         [[ -n "${own_paths[$p]:-}" ]] && continue
@@ -913,9 +941,7 @@ _fold_amend_guard() {
             continue
         fi
         foreign+=( "$p" )
-    done < <(task_git show --name-only --format='' HEAD 2>/dev/null || true)
-
-    head_short="$(task_git rev-parse --short HEAD 2>/dev/null || echo "HEAD")"
+    done <<< "$head_paths"
 
     if (( ${#foreign[@]} > 0 )); then
         _fold_amend_refusal="refusing --commit-mode amend: HEAD (${head_short}) carries paths outside this fold:

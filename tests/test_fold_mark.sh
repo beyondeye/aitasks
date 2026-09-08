@@ -31,6 +31,14 @@
 #     Step 4, inside the Step 5b attach transaction (both a die and a bare
 #     non-zero return through with_attach_lock), and Step 6 -- plus
 #     argument-parse-time --commit-mode validation.
+#   - t1733: the amend guard's HEAD probe FAILS CLOSED. `git show --name-only`
+#     prints nothing both when it fails and when HEAD is a merge commit; the
+#     pre-fix `|| true` absorbed both into "nothing foreign" and permitted the
+#     rewrite (a merge HEAD was measurably rewritten). Three fixtures — merge
+#     HEAD, unborn HEAD, and a PATH-shimmed probe failure over an otherwise
+#     permitted HEAD — each assert their PRECONDITION before invoking the fold,
+#     since "printed nothing" is the symptom the guard keys on and several
+#     unrelated fixture accidents produce it.
 #
 # Partial-commit semantics inherited from t1599_1: `commit -o -- <paths>`
 # commits those paths' WORKTREE content and ignores their index entry, and
@@ -1773,6 +1781,292 @@ test_negative_control_amend() {
     teardown
 }
 
+# =============================================================================
+# t1733 — the HEAD probe FAILS CLOSED, both ways
+# =============================================================================
+# `git show --name-only` prints nothing both when it FAILS and when HEAD is a
+# MERGE commit. The pre-fix probe absorbed both with `|| true`, so `foreign`
+# stayed empty and _fold_amend_guard returned 0 — authorising a rewrite of a
+# commit whose contents were never read. Measured before the fix: a merge HEAD
+# was actually rewritten.
+#
+# Fixture preconditions are ASSERTED, not assumed. "git show printed nothing" is
+# the symptom the guard keys on, and several unrelated fixture accidents produce
+# it — a test that only asserts the refusal could be passing through a different
+# empty-or-unreadable condition, proving nothing about merge commits, and its
+# control could "observe the defect" with no merge commit involved at all.
+
+# Number of parents of HEAD (2 == a merge commit); -1 if HEAD does not resolve.
+_head_parent_count() {
+    local line
+    line="$(git rev-list --parents -n1 HEAD 2>/dev/null)" || { echo "-1"; return 0; }
+    local -a parts=()
+    read -r -a parts <<< "$line" || true
+    echo $(( ${#parts[@]} - 1 ))
+}
+
+# The non-empty path lines `git show --name-only` prints for HEAD ("" for a merge).
+_head_name_only_paths() { git show --name-only --format='' HEAD 2>/dev/null | sed '/^$/d'; }
+
+_head_show_succeeds() { git show --name-only --format='' HEAD >/dev/null 2>&1; }
+
+# Subshell body so the PATH override cannot leak into the caller.
+_head_show_succeeds_shimmed() ( PATH="$FAKE_GIT_BIN:$PATH"; _head_show_succeeds; )
+
+# Render a predicate's outcome as a comparable value for assert_eq.
+_yn() { if "$@"; then echo yes; else echo no; fi; }
+
+_contains_needle() { printf '%s' "$2" | grep -qF -- "$1"; }
+_lacks_needle()    { ! _contains_needle "$1" "$2"; }
+
+# The documented merge-output shape: HEAD really is a merge AND it really does
+# print no path list. Both halves matter — the guard refuses on the empty list,
+# so without the parent count the test would not be about merges at all.
+assert_merge_head_fixture() {
+    local desc="$1"
+    assert_eq "$desc: HEAD is a merge (two parents)" "2" "$(_head_parent_count)"
+    assert_eq "$desc: merge HEAD prints no paths" "" "$(_head_name_only_paths)"
+}
+
+assert_unreadable_head_fixture() {
+    local desc="$1"
+    assert_eq "$desc: git show HEAD fails" "no" "$(_yn _head_show_succeeds)"
+    assert_eq "$desc: HEAD does not resolve" "-1" "$(_head_parent_count)"
+}
+
+# A `git` on PATH that fails ONLY the guard's HEAD path-list probe and hands
+# everything else to the real binary. This is the one case where the amend WOULD
+# have succeeded, so it is the only fixture that proves a failed probe does not
+# authorise a rewrite — on an unborn branch the amend cannot succeed anyway.
+# Lives outside the fixture repo so it cannot show up as a stray untracked path.
+FAKE_GIT_BIN=""
+install_failing_show_shim() {
+    local real_git
+    real_git="$(command -v git)"
+    FAKE_GIT_BIN="$(dirname "$PWD")/fakebin"
+    mkdir -p "$FAKE_GIT_BIN"
+    cat > "$FAKE_GIT_BIN/git" <<EOF
+#!/usr/bin/env bash
+# Only \`git show … --name-only\` fails; the guard's probe is the sole call site
+# combining those two, so nothing else in the fold is affected.
+_has_show=0; _has_nameonly=0
+for _a in "\$@"; do
+    [[ "\$_a" == "show" ]] && _has_show=1
+    [[ "\$_a" == "--name-only" ]] && _has_nameonly=1
+done
+if (( _has_show == 1 && _has_nameonly == 1 )); then
+    echo "fatal: simulated object read failure" >&2
+    exit 128
+fi
+exec "$real_git" "\$@"
+EOF
+    chmod +x "$FAKE_GIT_BIN/git"
+}
+
+# Rebuild the fixture's copy with the PRE-FIX probe: the status capture and both
+# refusals removed, the loop fed from the `|| true` process substitution again.
+# install_prefix_commit_block is unusable here — it excises the guard entirely,
+# so it cannot tell the fail-open probe apart from having no guard at all.
+install_prefix_amend_probe() {
+    python3 - "$PWD/.aitask-scripts/aitask_fold_mark.sh" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+
+start = '    local head_paths="" show_rc=0\n'
+stop  = '    while IFS= read -r p; do\n'
+fixed_loop_end  = '    done <<< "$head_paths"\n'
+prefix_loop_end = "    done < <(task_git show --name-only --format='' HEAD 2>/dev/null || true)\n"
+
+for anchor in (start, stop, fixed_loop_end):
+    if anchor not in s:
+        sys.stderr.write("FATAL: anchor has gone stale: %r\n" % anchor)
+        sys.exit(1)
+
+i = s.index(start)
+j = s.index(stop, i)
+s = s[:i] + s[j:]
+s = s.replace(fixed_loop_end, prefix_loop_end, 1)
+open(p, 'w').write(s)
+PY
+    # Prove the mutation landed. Without this the controls below could pass
+    # vacuously against an unmutated build.
+    local script=".aitask-scripts/aitask_fold_mark.sh"
+    grep -q 'show_rc' "$script" \
+        && { echo "FAIL: negative control left the status capture in place"; FAIL=$((FAIL+1)); TOTAL=$((TOTAL+1)); return 1; }
+    grep -q 'head_paths' "$script" \
+        && { echo "FAIL: negative control left the captured path list in place"; FAIL=$((FAIL+1)); TOTAL=$((TOTAL+1)); return 1; }
+    grep -qF "done < <(task_git show --name-only --format='' HEAD 2>/dev/null || true)" "$script" \
+        || { echo "FAIL: negative control did not install the fail-open probe"; FAIL=$((FAIL+1)); TOTAL=$((TOTAL+1)); return 1; }
+    # Only the PROBE regresses — the rest of the guard must survive, or these
+    # controls would be observing "no guard" rather than "fail-open guard".
+    grep -q '^_fold_amend_guard() {' "$script" \
+        || { echo "FAIL: negative control excised the amend guard itself"; FAIL=$((FAIL+1)); TOTAL=$((TOTAL+1)); return 1; }
+    grep -qF 'carries paths outside this fold' "$script" \
+        || { echo "FAIL: negative control excised the foreign-path refusal"; FAIL=$((FAIL+1)); TOTAL=$((TOTAL+1)); return 1; }
+    TOTAL=$((TOTAL + 1)); PASS=$((PASS + 1))
+    return 0
+}
+
+# HEAD is a real merge commit sitting on top of a normal amend target.
+_setup_merge_head_fixture() {
+    _setup_amend_fixture
+
+    local orig_branch
+    orig_branch="$(git rev-parse --abbrev-ref HEAD)"
+    git checkout -q -b side HEAD~1
+    printf 'side\n' > side.txt
+    git add side.txt
+    git commit -m "side" --quiet
+    git checkout -q "$orig_branch"
+    git merge -q --no-ff -m "merge side" side
+}
+
+# HEAD does not resolve at all: a fresh orphan branch has no commits.
+_setup_unborn_head_fixture() {
+    setup_project
+
+    write_task aitasks/t10_primary.md
+    write_task aitasks/t20_a.md
+    git add -A
+    git commit -m "Setup" --quiet
+
+    FOLD_PATHS=( aitasks/t10_primary.md aitasks/t20_a.md )
+    git checkout -q --orphan unborn
+}
+
+test_amend_refuses_merge_head() {
+    echo "=== Test: amend REFUSES a MERGE HEAD (empty path list) ==="
+    _setup_merge_head_fixture
+    assert_merge_head_fixture "merge fixture"
+
+    local before rc=0 output
+    before=$(git rev-parse HEAD)
+    output=$(bash .aitask-scripts/aitask_fold_mark.sh --commit-mode amend 10 20 2>&1) || rc=$?
+
+    assert_eq "exits non-zero" "1" "$rc"
+    assert_contains "error says HEAD reports no paths" "reports no paths" "$output"
+    assert_contains "error points at fresh mode" "--commit-mode fresh" "$output"
+    # The load-bearing half: the merge commit's history is intact.
+    assert_eq "the merge commit was NOT rewritten" "$before" "$(git rev-parse HEAD)"
+    assert_no_fold_residue "merge-HEAD refusal" "$before"
+    assert_eq "folded task reverted to Ready" "Ready" \
+        "$(read_frontmatter_field aitasks/t20_a.md status)"
+    assert_eq "primary has no folded_tasks" "" \
+        "$(read_frontmatter_field aitasks/t10_primary.md folded_tasks)"
+
+    teardown
+}
+
+test_amend_refuses_unreadable_head() {
+    echo "=== Test: amend REFUSES an unreadable HEAD (unborn branch) ==="
+    _setup_unborn_head_fixture
+    assert_unreadable_head_fixture "unborn fixture"
+
+    local rc=0 output
+    output=$(bash .aitask-scripts/aitask_fold_mark.sh --commit-mode amend 10 20 2>&1) || rc=$?
+
+    assert_eq "exits non-zero" "1" "$rc"
+    assert_contains "error says the HEAD contents are unverified" "unverified" "$output"
+    assert_contains "error points at fresh mode" "--commit-mode fresh" "$output"
+    # The discriminator. Pre-fix the guard PERMITTED and the run died later, on
+    # the amend itself — same exit status, same rollback, wrong reason. Here the
+    # refusal must come from the guard, before anything is staged.
+    assert_not_contains "it did NOT fall through to the amend" \
+        "amend-commit failed" "$output"
+    assert_eq "folded task reverted to Ready" "Ready" \
+        "$(read_frontmatter_field aitasks/t20_a.md status)"
+
+    teardown
+}
+
+test_amend_refuses_failed_head_probe() {
+    echo "=== Test: amend REFUSES a FAILED HEAD probe (would otherwise permit) ==="
+    _setup_amend_fixture
+    install_failing_show_shim
+
+    # Precondition A: without the shim this is a HEAD the guard PERMITS — a
+    # single-parent commit carrying only the fold's own primary.
+    assert_eq "fixture: HEAD is a single-parent commit" "1" "$(_head_parent_count)"
+    assert_eq "fixture: HEAD lists only the fold's own primary" \
+        "aitasks/t10_primary.md" "$(_head_name_only_paths)"
+    # Precondition B: under the shim the probe genuinely fails. With A, the only
+    # difference from a permitted amend is the failed probe.
+    assert_eq "fixture: the probe fails under the shim" "no" \
+        "$(_yn _head_show_succeeds_shimmed)"
+
+    local before rc=0 output
+    before=$(git rev-parse HEAD)
+    output=$(PATH="$FAKE_GIT_BIN:$PATH" bash .aitask-scripts/aitask_fold_mark.sh \
+        --commit-mode amend 10 20 2>&1) || rc=$?
+
+    assert_eq "exits non-zero" "1" "$rc"
+    assert_contains "error says the HEAD contents are unverified" "unverified" "$output"
+    assert_eq "HEAD was NOT rewritten" "$before" "$(git rev-parse HEAD)"
+    assert_no_fold_residue "failed-probe refusal" "$before"
+    assert_eq "folded task reverted to Ready" "Ready" \
+        "$(read_frontmatter_field aitasks/t20_a.md status)"
+
+    teardown
+}
+
+test_negative_control_merge_head_rewritten() {
+    echo "=== Negative control: pre-fix amend DOES rewrite a merge HEAD ==="
+    _setup_merge_head_fixture
+    assert_merge_head_fixture "pre-fix merge fixture"
+    install_prefix_amend_probe || { teardown; return; }
+
+    local before
+    before=$(git rev-parse HEAD)
+    bash .aitask-scripts/aitask_fold_mark.sh --commit-mode amend 10 20 >/dev/null 2>&1 || true
+
+    assert_defect_present "pre-fix: the merge commit IS rewritten" \
+        test "$before" != "$(git rev-parse HEAD)"
+
+    teardown
+}
+
+test_negative_control_failed_probe_amends() {
+    echo "=== Negative control: pre-fix amend DOES proceed on a failed HEAD probe ==="
+    _setup_amend_fixture
+    install_failing_show_shim
+    assert_eq "fixture: HEAD lists only the fold's own primary" \
+        "aitasks/t10_primary.md" "$(_head_name_only_paths)"
+    assert_eq "fixture: the probe fails under the shim" "no" \
+        "$(_yn _head_show_succeeds_shimmed)"
+    install_prefix_amend_probe || { teardown; return; }
+
+    local before out
+    before=$(git rev-parse HEAD)
+    out=$(PATH="$FAKE_GIT_BIN:$PATH" bash .aitask-scripts/aitask_fold_mark.sh \
+        --commit-mode amend 10 20 2>&1) || true
+
+    assert_defect_present "pre-fix: the amend proceeds despite the unread HEAD" \
+        _contains_needle "AMENDED" "$out"
+    assert_defect_present "pre-fix: HEAD IS rewritten" \
+        test "$before" != "$(git rev-parse HEAD)"
+
+    teardown
+}
+
+test_negative_control_unborn_head_wrong_reason() {
+    echo "=== Negative control: pre-fix gives the WRONG reason on an unreadable HEAD ==="
+    _setup_unborn_head_fixture
+    assert_unreadable_head_fixture "pre-fix unborn fixture"
+    install_prefix_amend_probe || { teardown; return; }
+
+    local out
+    out=$(bash .aitask-scripts/aitask_fold_mark.sh --commit-mode amend 10 20 2>&1) || true
+
+    # Pre-fix the guard permits, so the failure surfaces from the amend instead.
+    assert_defect_present "pre-fix: the guard PERMITS and the amend fails instead" \
+        _contains_needle "amend-commit failed" "$out"
+    assert_defect_present "pre-fix: no 'unverified' guard refusal is emitted" \
+        _lacks_needle "unverified" "$out"
+
+    teardown
+}
+
 teardown_all() {
     local d
     for d in "${CLEANUP_DIRS[@]}"; do
@@ -1832,6 +2126,15 @@ test_negative_control_amend_sweeps
 test_negative_control_amend
 test_negative_control_unbuffered_on_refusal
 test_negative_control_unbuffered_on_commit_failure
+
+# t1733 — the HEAD probe fails closed: an unreadable HEAD and a merge commit's
+# empty path list both refuse instead of authorising a history rewrite
+test_amend_refuses_merge_head
+test_amend_refuses_unreadable_head
+test_amend_refuses_failed_head_probe
+test_negative_control_merge_head_rewritten
+test_negative_control_failed_probe_amends
+test_negative_control_unborn_head_wrong_reason
 
 echo ""
 echo "=========================="
