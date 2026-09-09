@@ -75,3 +75,70 @@ bash tests/run_all_python_tests.sh    # read the LAST line; expect PASSED
 
 Each fix should also be checked with its own pre-fix control — revert the fix
 and watch the specific assertion fail — so the repair is evidenced, not assumed.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1745** id=2026-09-09T07:28:56Z.67433831440241f22366e442 from=t1745 at=2026-09-09T07:28:56Z base=21ad464fee91b1bf0ade12e1c1d2e47ed73fe7e5 base_branch=main dirty=no host=omg16
+>
+> | Re-scoping evidence for the three failures. Advisory input — measured on ONE
+> | machine, and the whole point below is that the result is machine-dependent, so
+> | please re-check on the box you filed from before acting.
+> | 
+> | Measured at code-branch HEAD 21ad464fe (main, after 13e5b3d78 landed).
+> | Interpreter: Python 3.14.7 both for `~/.aitask/venv/bin/python` and system
+> | `python3`. **This box HAS the dev tier**: pytest 8.4.2 + xdist 3.8.0 installed
+> | and `~/.aitask/dev_tier` present.
+> | 
+> | Item-by-item:
+> | 
+> | - **#2 `test_desync_state.py::test_changelog_warns_for_data_desync_and_ignores_bad_helper_output`
+> |   is FIXED — remove it from this task.** It was t1745's whole subject: the
+> |   fixture's private copy list had gone stale on `stale_lock.sh` since t1725_1,
+> |   so the fixture died at source time. Fixed in `13e5b3d78`
+> |   (`bug: Derive the fixture startup-source closure instead of hand-listing it
+> |   (t1745)`), which replaces the hand list with a derivation
+> |   (`tests/lib/shell_startup_closure.py`). Verified with a negative control: with
+> |   the derivation neutered the ORIGINAL error returns verbatim; restored, the
+> |   module is 10 passed. Note your task text cites t1398/t702 as mentioning this
+> |   module "only for its fixture copy-list" — that copy list WAS the defect.
+> | 
+> | - **#1 `test_concern_parser.py` reproduces, but only on ONE of the two runner
+> |   lanes.** Same file, same commit, opposite verdicts here:
+> |     `python -m pytest tests/test_concern_parser.py`  -> 184 passed
+> |     `python3 -m unittest tests.test_concern_parser`  -> FAILED (failures=2)
+> |   The unittest failures match your description exactly — reported twice, one
+> |   carrying `producer='leak.md'`, `AssertionError: Lists differ:
+> |   ['In plain words: inside the block.'] != []`, and the paired
+> |   `AssertionError: AssertionError not raised`.
+> | 
+> |   **This may be the mechanism behind the cross-machine disagreement.**
+> |   `tests/run_all_python_tests.sh` uses pytest when importable and falls back to
+> |   `unittest discover` otherwise. A machine WITH the dev tier reports the suite
+> |   green; a machine WITHOUT it takes the fallback lane and sees this module red —
+> |   same commit. If that is what you hit, the finding is sharper than "red on a
+> |   clean checkout": the suite's verdict depends on whether the opt-in dev tier is
+> |   installed, which is squarely your "cannot be used as a pass/fail gate" concern
+> |   but a different root cause. Worth confirming whether your filing machine has
+> |   `~/.aitask/dev_tier` / pytest.
+> | 
+> |   A same-commit, runner-dependent result also points at cross-test state
+> |   leakage (differing execution order between the two backends) rather than a
+> |   plainly broken rule — which matters, because your Approach section is right
+> |   that "make the test pass" is the wrong instinct here.
+> | 
+> | - **#3 `test_prompt_detection.py::ScriptChecksTest.test_all_checks_pass` does NOT
+> |   reproduce here** — 22/22 internal checks pass under BOTH lanes, where you
+> |   recorded 2/22 failing. I am NOT claiming it is stale: the two checks you name
+> |   (`codex_yes_proceed on current_command='node'`, and the unresolved-pane
+> |   scoping check) both read live pane/tmux state, so they are plausibly
+> |   environment-sensitive; and if your machine's framework sources were not in
+> |   sync with this one, we may simply be running different code. Please re-verify
+> |   it there. Unverified is not disproved.
+> | 
+> | Suggested re-scope: drop #2 as done; re-file #1 around the runner-lane
+> | divergence (and check the dev tier on the filing box); hold #3 pending
+> | re-verification on the machine that saw it.
+> | 
+> | Caveat on freshness: these are readings at one commit on one host. The
+> | dev-tier/lane facts are host state, not tree state, so no SHA dates them.
