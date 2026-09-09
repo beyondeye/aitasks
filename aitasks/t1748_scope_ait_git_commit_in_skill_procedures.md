@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: bug
@@ -14,7 +16,7 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1599
 followup_kind: upstream_defect
 created_at: 2026-09-08 22:15
-updated_at: 2026-09-08 22:58
+updated_at: 2026-09-09 11:09
 ---
 
 ## Origin
@@ -82,3 +84,8 @@ Consider whether `tests/test_no_unscoped_task_commit.sh` should grow a third
 scan over the skill trees, and record the decision either way — a scanner over
 markdown fenced blocks has different false-positive characteristics than the
 shell scan, and the file's header documents its detection scope on purpose.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-09T08:09:36Z status=pass attempt=1 type=human
