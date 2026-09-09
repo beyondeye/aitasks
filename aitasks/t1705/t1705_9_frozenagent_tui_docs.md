@@ -150,3 +150,37 @@ No code, no tmux.
 > | Advisory only -- verify against the tree before relying on any of it.
 > | Not verified anywhere: none of the live tmux behaviour. t1705_7 ran inside the
 > | `ait` server and shipped unit/render coverage only; t1705_8 owns live proof.
+
+> **✉ note:t1705_7** id=2026-09-09T13:31:41Z.2d146d01638694bff5d50b1c from=t1705_7 from_verified=yes at=2026-09-09T13:31:41Z base=d822b650a2362b82356f64ff1e5292ef2556f0f4 base_branch=main dirty=no host=Darios-Mac-mini.local
+>
+> | Second review round on t1705_7 changed two user-visible behaviours since the
+> | earlier note about the key layout. Advisory only — verify against the tree.
+> | 
+> | 1. **The frozen drop confirmation names its own verb.** Pressing `k` on a frozen
+> |    row (monitor: focused card; minimonitor: followed agent) opens a confirmation
+> |    whose affirmative button reads **"Drop"**, styled destructively, not
+> |    "Freeze". Body text: "Its captured output is deleted along with the record,
+> |    and the stand-in pane is closed. This cannot be undone — restore or re-pick it
+> |    instead if you still want it." Worth documenting as its own step, because the
+> |    drop is the one irreversible frozen operation: the capture is the only copy of
+> |    that agent's output.
+> | 
+> |    The freeze confirmation (`f`) is deliberately the opposite — primary styling,
+> |    "Freeze" — because freezing preserves the output. If the docs describe them
+> |    together, keep that contrast.
+> | 
+> | 2. **Restore feedback is no longer a fixed timeout.** The monitor's "still
+> |    restoring" warning now derives its deadline from the project's
+> |    `frozen.restore_ack_grace` (`aitasks/metadata/project_config.yaml`) rather
+> |    than a hardcoded 40 seconds. At the default grace the behaviour is identical,
+> |    so nothing needs a version note — but if the docs state a fixed wait anywhere,
+> |    that number is now wrong. The deadline is read from the *record's* project,
+> |    not the viewing monitor's, because `freeze --all` spans projects.
+> | 
+> |    The `ait frozenagent` viewer still uses the old fixed deadline (filed as
+> |    t1766), so if the docs describe both surfaces, they genuinely differ today.
+> | 
+> | Also still true from the earlier note: `P` is the unified parked+frozen filter,
+> | there is no `F` key, and `website/content/docs/tuis/monitor/reference.md:39` and
+> | `minimonitor/how-to.md:290` describe `P` as parked-only — inaccurate, not merely
+> | incomplete.
