@@ -649,10 +649,11 @@ After implementation is complete, the user MUST be given the opportunity to revi
        Only include implementation files — never include `aitasks/` or `aiplans/` paths. Skip this commit if there are no code changes. If neither attribution procedure returns content, the code commit can remain a single-line subject.
     2. **Plan file commit** — Stage and commit the updated plan file:
        ```bash
-       ./ait git add aiplans/<plan_file>
-       ./ait git commit -m "ait: Update plan for t<task_id>"
+       ./.aitask-scripts/aitask_task_commit.sh -m "ait: Update plan for t<task_id>" aiplans/<plan_file>
        ```
-       Skip if the plan file was not modified.
+       Skip if the plan file was not modified. `aiplans/<plan_file>` is
+       **required**; parse the output per the **outcome contract** in
+       `.opencode/skills/ait-git-remote-/SKILL.md`.
   - **IMPORTANT — Commit message conventions:**
     - **Code commits** MUST use `<issue_type>: <description> (t<task_id>)` format, where `<issue_type>` comes from the task's `issue_type` frontmatter (one of: `bug`, `chore`, `documentation`, `enhancement`, `feature`, `performance`, `refactor`, `style`, `test` — deliberately one short of `task_types.txt`, because there is no `manual_verification:` commit type: a manual-verification task records its outcome with `ait:` and spawns any code change as a follow-up under that follow-up's type). The `(t<task_id>)` suffix is used by `aitask_issue_update.sh` to find commits. Examples: `feature: Add channel settings screen (t16)`, `bug: Fix login validation (t16_2)`.
     - **When attribution is present,** compose one final multiline commit message: subject first, imported contributor block second, code-agent trailer last. For PR-imported tasks the contributor block includes `Based on PR:`; for issue-imported contributor metadata it may be only the contributor trailer.

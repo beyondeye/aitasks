@@ -41,9 +41,15 @@ here — see the Notes. For a rejected plan see `task-abort.md`.
   Externalization Procedure already committed it):
 
   ```bash
-  ./ait git add aiplans/<plan_file>
-  ./ait git commit -m "ait: Add plan for t<task_id>" 2>/dev/null || true
+  ./.aitask-scripts/aitask_task_commit.sh -m "ait: Add plan for t<task_id>" aiplans/<plan_file>
   ```
+
+  `aiplans/<plan_file>` is **required**; parse the output per the **outcome
+  contract** in `.claude/skills/ait-git-remote-/SKILL.md`. Exit 2 / `NOCHANGE` **is** the
+  idempotent no-op this step expects when externalization already committed the
+  plan — that is why the old `2>/dev/null || true` is gone rather than kept: it
+  suppressed *stderr* while these records go to stdout, so it never hid what it
+  looked like it was hiding.
 
 - **Release the task lock** via the **Lock Release Procedure** (see
   `lock-release.md`).
@@ -99,10 +105,15 @@ here — see the Notes. For a rejected plan see `task-abort.md`.
 - **Commit the status revert and push:**
 
   ```bash
-  ./ait git add aitasks/
-  ./ait git commit -m "<revert_commit_message>" 2>/dev/null || true
+  ./.aitask-scripts/aitask_task_commit.sh -m "<revert_commit_message>" <task_file>
   ./ait git push
   ```
+
+  `<task_file>` is **required**; parse the output per the **outcome contract** in
+  `.claude/skills/ait-git-remote-/SKILL.md`. Name the task's own file — the old
+  `./ait git add aitasks/` was a directory pathspec that also swept in whatever a
+  concurrent session was mid-editing. The helper never pushes, so the
+  `./ait git push` stays.
 
 - **Display `<closing_message>`** and **end the workflow** — do NOT proceed to
   Step 7.

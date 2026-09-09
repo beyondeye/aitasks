@@ -56,9 +56,11 @@ This workflow generates `aitasks/metadata/code_areas.yaml` incrementally. It is 
 
 4. **Commit:**
    ```bash
-   ./ait git add aitasks/metadata/code_areas.yaml
-   ./ait git commit -m "ait: Generate code areas map"
+   ./.aitask-scripts/aitask_task_commit.sh -m "ait: Generate code areas map" \
+       aitasks/metadata/code_areas.yaml
    ```
+   The path is **required**; parse the output per the **outcome contract** in
+   `.claude/skills/ait-git/SKILL.md`.
 
 5. **Post-scan checkpoint:** Use `AskUserQuestion`:
    - Question: "Code areas map generated. How would you like to proceed?"
@@ -270,9 +272,11 @@ Present the issue body preview to the user.
 - Use the path and description collected in Step 2
 - Commit:
   ```bash
-  ./ait git add aitasks/metadata/code_areas.yaml
-  ./ait git commit -m "ait: Add code area <area-name>"
+  ./.aitask-scripts/aitask_task_commit.sh -m "ait: Add code area <area-name>" \
+      aitasks/metadata/code_areas.yaml
   ```
+  The path is **required**; parse the output per the **outcome contract** in
+  `.claude/skills/ait-git/SKILL.md`.
 
 **After all contributions processed:** Display summary:
 

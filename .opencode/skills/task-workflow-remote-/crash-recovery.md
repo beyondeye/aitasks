@@ -139,7 +139,11 @@ then return `decline`:
 ```bash
 ./.aitask-scripts/aitask_lock.sh --unlock <task_id> 2>/dev/null || true
 ./.aitask-scripts/aitask_update.sh --batch <task_id> --status Ready --assigned-to ""
-./ait git add aitasks/
-./ait git commit -m "ait: Revert t<task_id> to Ready (reclaim declined)" 2>/dev/null || true
+./.aitask-scripts/aitask_task_commit.sh -m "ait: Revert t<task_id> to Ready (reclaim declined)" <task_file>
 ./ait git push
 ```
+
+`<task_file>` is **required**; parse the output per the **outcome contract** in
+`.opencode/skills/ait-git-remote-/SKILL.md`. Name the task's own file rather than the
+`aitasks/` directory, or the revert commit also carries whatever a concurrent
+session was mid-editing.

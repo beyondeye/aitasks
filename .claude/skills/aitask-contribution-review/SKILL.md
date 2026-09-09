@@ -290,9 +290,11 @@ Where `<contributor_name>`, `<contributor_email>` are from Step 1 metadata, `<is
 
 **Commit changes:**
 ```bash
-./ait git add aitasks/<task_file>
-./ait git commit -m "ait: Update t<task_num> with contribution from issue #<N>"
+./.aitask-scripts/aitask_task_commit.sh -m "ait: Update t<task_num> with contribution from issue #<N>" aitasks/<task_file>
 ```
+
+`aitasks/<task_file>` is **required**; parse the output per the **outcome
+contract** in `.claude/skills/ait-git/SKILL.md`.
 
 **End workflow:** Display "Contribution from issue #\<N\> incorporated into existing task t\<task_num\>. No new task created."
 

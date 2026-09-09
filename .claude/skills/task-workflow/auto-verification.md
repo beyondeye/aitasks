@@ -142,9 +142,11 @@ the `## Cleanup` list in the plan file.
 ### 5. Commit plan file
 
 ```bash
-./ait git add aiplans/<plan_path>
-./ait git commit -m "ait: Add manual-verification auto-execution plan for t<task_id>"
+./.aitask-scripts/aitask_task_commit.sh -m "ait: Add manual-verification auto-execution plan for t<task_id>" aiplans/<plan_path>
 ```
+
+`aiplans/<plan_path>` is **required**; parse the output per the **outcome
+contract** in `.claude/skills/ait-git/SKILL.md`.
 
 ### 6. Return
 

@@ -528,6 +528,35 @@ The narrower Jinja-comment render-neutrality rule above is a special case of
 this rule: there the diff MUST be empty; here the diff is whatever the
 template edit produced and MUST be reviewed.
 
+## Never instruct a bare `./ait git commit`
+
+A procedure that tells an agent to run `./ait git commit` with no pathspec has
+the same defect as a script that does — the agent obeys it
+literally. `./ait git` is `task_git` in a subprocess, so the commit takes the
+**entire** `.aitask-data` index, which every session on the machine shares:
+whatever a concurrent session has staged at that instant lands in a commit whose
+message names unrelated work.
+
+**Write the commit as** `./.aitask-scripts/aitask_task_commit.sh -m "<msg>"
+<paths>`. It replaces the `add` + `commit` pair — do not keep the `add`, which
+stages what *you* name but does not bound what the commit takes, and which
+clobbers the index entry another session staged for a **tracked** path. Its full
+output/exit contract lives once in `.claude/skills/ait-git/SKILL.md`; reference
+it rather than restating it, and say at each call site which paths are
+**required** and which are **optional** — a `SKIPPED:unknown:<path>` line can
+precede a successful `COMMITTED:` at exit 0.
+
+The `-- <path>` pathspec form is the cure only where teaching `./ait git` is
+itself the subject (`ait-git/SKILL.md`, `CLAUDE.md` and its mirrors) — those
+must still demonstrate the command, so they demonstrate it scoped.
+
+`tests/test_no_unscoped_task_commit.sh` enforces this over the skill and doc
+trees alongside its two shell seams. Its markdown scan reads fenced blocks *and*
+inline backtick spans, and exempts a span whose whole content is the bare
+command name (the command as a noun, in prose) — so a doc may quote the bad
+shape in order to forbid it. Its detection scope, and what it does not see, are
+documented in that file's header.
+
 ## Do not route skill invocation through `claude -p "<inlined prompt>"`
 
 `claude -p` is billed at a higher per-token rate than slash-command invocations

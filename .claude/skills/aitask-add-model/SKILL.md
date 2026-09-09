@@ -135,11 +135,16 @@ task-data branch (via `./ait git`); the script, SKILL, and test live on
 
 **Registry + config (task-data branch):**
 ```bash
-./ait git add aitasks/metadata/models_<agent>.json
-# If promote mode:
-./ait git add aitasks/metadata/codeagent_config.json
-./ait git commit -m "ait: Register <agent>/<name> and promote to default"
+# Register-only:
+./.aitask-scripts/aitask_task_commit.sh -m "ait: Register <agent>/<name>" \
+    aitasks/metadata/models_<agent>.json
+# Promote mode — name both files in one call:
+./.aitask-scripts/aitask_task_commit.sh -m "ait: Register <agent>/<name> and promote to default" \
+    aitasks/metadata/models_<agent>.json aitasks/metadata/codeagent_config.json
 ```
+
+Every path you name is **required**; parse the output per the **outcome
+contract** in `.claude/skills/ait-git/SKILL.md`.
 
 **Seed sync (main branch):**
 ```bash

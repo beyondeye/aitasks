@@ -130,12 +130,17 @@ Concrete example — no active profile, current branch (minimal `<branch-flags>`
 In Step 6 (proactive call), after a successful `EXTERNALIZED:` or `OVERWRITTEN:` result, commit the plan file separately from code changes (task/plan files use `./ait git`, not plain `git`, per CLAUDE.md):
 
 ```bash
-./ait git add aiplans/<plan_file>
-./ait git commit -m "ait: Add plan for t<task_id>"    # EXTERNALIZED
-./ait git commit -m "ait: Update plan for t<task_id>" # OVERWRITTEN
+# EXTERNALIZED
+./.aitask-scripts/aitask_task_commit.sh -m "ait: Add plan for t<task_id>" aiplans/<plan_file>
+# OVERWRITTEN
+./.aitask-scripts/aitask_task_commit.sh -m "ait: Update plan for t<task_id>" aiplans/<plan_file>
 ```
 
 Use `Add` when the external file did not exist before this call, and `Update` when `--force` replaced an existing one.
+
+The helper stages the plan file itself (it is untracked on a first externalization) and unstages it again if the commit fails, so there is **no separate `./ait git add`** — and must not be one: an `add` of a path another session already staged replaces their index entry.
+
+`aiplans/<plan_file>` is **required**. Parse the whole output and branch on the exit status per the **outcome contract** in `.opencode/skills/ait-git-remote-/SKILL.md` — briefly: 0 committed, 2 nothing committed, 1 failed; and a `SKIPPED:unknown:` line naming a required path is a failure even at exit 0.
 
 Step 8 handles its own plan commit as part of the "Commit changes" branch — do not double-commit.
 

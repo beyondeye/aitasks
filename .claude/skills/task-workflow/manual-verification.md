@@ -287,9 +287,13 @@ Parse the `DEFER:<K>` count.
 Before handing off to Step 9, commit the annotated task file so the verification record is durable:
 
 ```bash
-./ait git add aitasks/
-./ait git commit -m "ait: Record verification state for t<task_id>"
+./.aitask-scripts/aitask_task_commit.sh -m "ait: Record verification state for t<task_id>" <task_file>
 ```
+
+`<task_file>` is **required**; parse the output per the **outcome contract** in
+`.claude/skills/ait-git/SKILL.md`. Name the task's own file — the old
+`./ait git add aitasks/` staged the whole directory, so the verification record
+also carried a concurrent session's in-progress task edits.
 
 ### 5. Hand off to Step 9
 

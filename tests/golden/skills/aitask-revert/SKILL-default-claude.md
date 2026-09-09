@@ -375,11 +375,24 @@ During the planning/implementation phase for this revert task, the implementing 
 - **Original task file:** `<task_path>` (<location_type>)
 - **Original plan file:** `<plan_path>` (<location_type>)
 
+> **Committing task/plan files below.** Every commit in this skill goes through
+> `./.aitask-scripts/aitask_task_commit.sh -m "<msg>" <paths>`, which names its
+> paths. A pathspec-less commit through `./ait git` would take the whole shared
+> `.aitask-data` index, and pairing it with a scoped `./ait git add` does not
+> help — the `add` bounds what *you* stage, not what the commit takes. Treat every path you name
+> as **required** and parse the output per the **outcome contract** in
+> `.claude/skills/ait-git/SKILL.md`; a `SKIPPED:unknown:` line means that file is
+> missing from the commit even though the exit status is 0.
+>
+> **Deletions: `rm` from the worktree and let the helper record it** — do not
+> `git rm`. Staging a deletion into the shared index makes it collectable by any
+> other session's commit, which is the hazard this seam exists to close.
+
 **If disposition is "Delete task and plan":**
 1. Delete original task file: `rm <task_path>`
 2. Delete original plan file: `rm <plan_path>` (if exists)
 3. For parent tasks with archived children: also remove `aitasks/archived/t<id>/` and `aiplans/archived/p<id>/`
-4. Commit deletions: `./ait git add <paths> && ./ait git commit -m "ait: Remove reverted task t<id>"`
+4. Commit deletions: `./.aitask-scripts/aitask_task_commit.sh -m "ait: Remove reverted task t<id>" <paths>`
 
 **If disposition is "Keep archived":**
 1. Add a Revert Notes section to the archived task file (`<task_path>`):
@@ -390,7 +403,7 @@ During the planning/implementation phase for this revert task, the implementing 
    - **Type:** Complete
    - **Areas reverted:** <list of all affected areas>
    ```
-2. Commit: `./ait git add <task_path> && ./ait git commit -m "ait: Add revert notes to t<id>"`
+2. Commit: `./.aitask-scripts/aitask_task_commit.sh -m "ait: Add revert notes to t<id>" <task_path>`
 
 **If disposition is "Move back to Ready":**
 1. If task is archived, move to active: `mv <task_path> aitasks/`
@@ -404,7 +417,7 @@ During the planning/implementation phase for this revert task, the implementing 
    - **Type:** Complete
    - **Areas reverted:** <list of all affected areas>
    ```
-5. Commit: `./ait git add <paths> && ./ait git commit -m "ait: Un-archive and reset reverted task t<id>"`
+5. Commit: `./.aitask-scripts/aitask_task_commit.sh -m "ait: Un-archive and reset reverted task t<id>" <paths>`
 ```
 
 **For partial reverts, build the description from this template:**
@@ -450,7 +463,7 @@ During the planning/implementation phase for this revert task, the implementing 
 1. Delete original task file: `rm <task_path>`
 2. Delete original plan file: `rm <plan_path>` (if exists)
 3. For parent tasks with archived children: also remove `aitasks/archived/t<id>/` and `aiplans/archived/p<id>/`
-4. Commit deletions: `./ait git add <paths> && ./ait git commit -m "ait: Remove reverted task t<id>"`
+4. Commit deletions: `./.aitask-scripts/aitask_task_commit.sh -m "ait: Remove reverted task t<id>" <paths>`
 
 **If disposition is "Keep archived":**
 1. Add a Revert Notes section to the archived task file (`<task_path>`):
@@ -462,7 +475,7 @@ During the planning/implementation phase for this revert task, the implementing 
    - **Areas reverted:** <list of reverted areas>
    - **Areas kept:** <list of kept areas>
    ```
-2. Commit: `./ait git add <task_path> && ./ait git commit -m "ait: Add revert notes to t<id>"`
+2. Commit: `./.aitask-scripts/aitask_task_commit.sh -m "ait: Add revert notes to t<id>" <task_path>`
 
 **If disposition is "Move back to Ready":**
 1. If task is archived, move to active: `mv <task_path> aitasks/`
@@ -477,7 +490,7 @@ During the planning/implementation phase for this revert task, the implementing 
    - **Areas reverted:** <list of reverted areas>
    - **Areas kept:** <list of kept areas>
    ```
-5. Commit: `./ait git add <paths> && ./ait git commit -m "ait: Un-archive and reset reverted task t<id>"`
+5. Commit: `./.aitask-scripts/aitask_task_commit.sh -m "ait: Un-archive and reset reverted task t<id>" <paths>`
 ```
 
 **For partial reverts of parent tasks using child-level selection (Mode A), build the description from this template instead:**
@@ -541,7 +554,7 @@ Add to the archived child task file (resolve path via `--find-task <child_id>`):
 
 Children that were NOT reverted need no annotation.
 
-Commit all child annotations: `./ait git add <paths> && ./ait git commit -m "ait: Add revert notes to t<id> children"`
+Commit all child annotations: `./.aitask-scripts/aitask_task_commit.sh -m "ait: Add revert notes to t<id> children" <paths>`
 ```
 
 **For partial reverts of parent tasks using area selection with child mapping (Mode B):**
@@ -583,7 +596,7 @@ Add to the archived child task file:
 
 Children that were NOT affected need no annotation.
 
-Commit all child annotations: `./ait git add <paths> && ./ait git commit -m "ait: Add revert notes to t<id> children"`
+Commit all child annotations: `./.aitask-scripts/aitask_task_commit.sh -m "ait: Add revert notes to t<id> children" <paths>`
 ```
 
 **Also fetch file-level details for the description:**

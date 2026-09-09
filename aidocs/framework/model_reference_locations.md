@@ -200,8 +200,9 @@ Those are the files a new skill must touch to promote a model to default.
    `verified` / `verifiedstats`.
 2. Sync to `seed/models_<agent>.json` if `seed/` exists.
 3. Commit:
-   - `./ait git add aitasks/metadata/models_<agent>.json` and
-     `./ait git commit -m "ait: Add <agent>/<name> to model registry"`
+   - `./.aitask-scripts/aitask_task_commit.sh -m "ait: Add <agent>/<name> to model registry" aitasks/metadata/models_<agent>.json`
+     (path-scoped — a bare `./ait git commit` takes the whole shared
+     `.aitask-data` index)
    - `git add seed/models_<agent>.json` and
      `git commit -m "ait: Sync <agent>/<name> to seed template"`
 

@@ -60,8 +60,15 @@ When committing changes to files in `aitasks/` or `aiplans/`, always use
 when task data lives on a separate branch.
 
 - `./ait git add aitasks/t42_foo.md`
-- `./ait git commit -m "ait: Update task t42"`
+- `./ait git commit -m "ait: Update task t42" -- aitasks/t42_foo.md`
 - `./ait git push`
+
+**Always name the paths.** `./ait git` is `task_git` in a subprocess, so a
+`commit` with no `-- <path>` pathspec commits the ENTIRE shared `.aitask-data`
+index — whatever a concurrent session has staged at that instant rides along
+under your message. For task and plan files prefer the helper, which scopes the
+commit, stages only untracked paths and unstages them again on failure:
+`./.aitask-scripts/aitask_task_commit.sh -m "ait: Update task t42" aitasks/t42_foo.md`
 
 In legacy mode (no separate branch), `./ait git` passes through to plain `git`.
 

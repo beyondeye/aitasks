@@ -153,7 +153,7 @@ grep -rEn "(bug.*feature.*chore|bug.*chore.*documentation|chore.*documentation.*
 
 Two commits — runtime data file lives on the data branch (use `./ait git`), everything else on main (plain `git`):
 
-1. `./ait git commit` — only `aitasks/metadata/task_types.txt`. Subject: `ait: Add '<newvalue>' to task_types`.
+1. `./.aitask-scripts/aitask_task_commit.sh -m "ait: Add '<newvalue>' to task_types" aitasks/metadata/task_types.txt` — the helper is what makes "only that file" true; a bare `./ait git commit` would take the whole shared index.
 2. `git commit` — the other 31 files. Subject: `ait: Propagate '<newvalue>' issue_type across docs, skills, and tests`.
 
 Do **not** mix the two — `aitasks/` files cannot be committed together with code/doc files when the data branch is in use.

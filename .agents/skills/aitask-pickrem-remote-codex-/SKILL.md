@@ -372,10 +372,11 @@ Update the external plan file as you progress:
      Only include implementation files — never `aitasks/` or `aiplans/` paths. Skip if no code changes. The `<issue_type>` comes from the task's frontmatter. Examples: `feature: Add channel settings (t16)`, `bug: Fix login validation (t16_2)`. If code-agent attribution fails, continue with the contributor-only or plain commit message.
    - **Plan file commit:**
      ```bash
-     ./ait git add aiplans/<plan_file>
-     ./ait git commit -m "ait: Update plan for t<task_id>"
+     ./.aitask-scripts/aitask_task_commit.sh -m "ait: Update plan for t<task_id>" aiplans/<plan_file>
      ```
-     Skip if plan file was not modified.
+     Skip if plan file was not modified. `aiplans/<plan_file>` is **required**;
+     parse the output per the **outcome contract** in
+     `.agents/skills/ait-git-remote-codex-/SKILL.md`.
    - **Never mix** code files and `aitasks/`/`aiplans/` files in the same `git add` or commit.
    - Display: "Changes committed: \<commit_hash\>"
 
@@ -517,9 +518,14 @@ Triggered by errors after Step 5 (task was claimed). Not triggered by user inter
 
 4. Commit:
    ```bash
-   ./ait git add aitasks/
-   ./ait git commit -m "ait: Abort t<N>: revert status to Ready"
+   ./.aitask-scripts/aitask_task_commit.sh \
+       -m "ait: Abort t<N>: revert status to Ready" \
+       <task_file>
    ```
+   `<task_file>` is **required**; parse the output per the **outcome contract**
+   in `.agents/skills/ait-git-remote-codex-/SKILL.md`. Name the task's own file, not the
+   `aitasks/` directory — this runs unattended, so a swept-in edit from a
+   concurrent session would land with nobody watching.
 
 5. Display: "Task t\<N\> aborted and reverted to 'Ready'."
 

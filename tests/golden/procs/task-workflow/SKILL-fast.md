@@ -566,10 +566,12 @@ If it returns `risk_before_blocking: true`, the original is blocked by ≥1 unfi
    **Deliberately no `--plan-approved-at ""` here.** This stop leaves an approved plan intact and awaiting implementation — it is blocked, not invalidated — which is precisely what the marker means, so it must survive. (§6.0a force-reverifies the plan on re-pick anyway, because a mitigation landed.) Do not "fix" this by mirroring the clear from the implementation body below.
 3. Commit and push the status revert:
    ```bash
-   ./ait git add aitasks/
-   ./ait git commit -m "ait: Revert t<task_num> to Ready (risk mitigation pending)" 2>/dev/null || true
+   ./.aitask-scripts/aitask_task_commit.sh -m "ait: Revert t<task_num> to Ready (risk mitigation pending)" <task_file>
    ./ait git push
    ```
+   `<task_file>` is **required**; parse the output per the **outcome contract**
+   in `.claude/skills/ait-git/SKILL.md`. Name the task's own file, not the
+   `aitasks/` directory.
 4. Display: "Unfinished risk-mitigation 'before' task(s) the original depends on: t\<ids\>. Task t\<task_id\> reverted to Ready — implement the mitigation(s) first, then re-pick t\<task_id\> (its plan will be force re-verified)." Then **END the workflow** — do NOT proceed to the implementation below or to Step 8.
 
 If it returns `risk_before_blocking: false` (no "before" mitigations, or all of them already landed), continue to implementation normally.
@@ -698,10 +700,11 @@ After implementation is complete, the user MUST be given the opportunity to revi
        Only include implementation files — never include `aitasks/` or `aiplans/` paths. Skip this commit if there are no code changes. If neither attribution procedure returns content, the code commit can remain a single-line subject.
     2. **Plan file commit** — Stage and commit the updated plan file:
        ```bash
-       ./ait git add aiplans/<plan_file>
-       ./ait git commit -m "ait: Update plan for t<task_id>"
+       ./.aitask-scripts/aitask_task_commit.sh -m "ait: Update plan for t<task_id>" aiplans/<plan_file>
        ```
-       Skip if the plan file was not modified.
+       Skip if the plan file was not modified. `aiplans/<plan_file>` is
+       **required**; parse the output per the **outcome contract** in
+       `.claude/skills/ait-git/SKILL.md`.
   - **IMPORTANT — Commit message conventions:**
     - **Code commits** MUST use `<issue_type>: <description> (t<task_id>)` format, where `<issue_type>` comes from the task's `issue_type` frontmatter (one of: `bug`, `chore`, `documentation`, `enhancement`, `feature`, `performance`, `refactor`, `style`, `test` — deliberately one short of `task_types.txt`, because there is no `manual_verification:` commit type: a manual-verification task records its outcome with `ait:` and spawns any code change as a follow-up under that follow-up's type). The `(t<task_id>)` suffix is used by `aitask_issue_update.sh` to find commits. Examples: `feature: Add channel settings screen (t16)`, `bug: Fix login validation (t16_2)`.
     - **When attribution is present,** compose one final multiline commit message: subject first, imported contributor block second, code-agent trailer last. For PR-imported tasks the contributor block includes `Based on PR:`; for issue-imported contributor metadata it may be only the contributor trailer.

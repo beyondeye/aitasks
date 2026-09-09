@@ -206,7 +206,7 @@ Sequence (runs inside the **Save Plan to External File** section, after the exte
    ```bash
    ./.aitask-scripts/aitask_plan_verified.sh append <external_plan_path> "<agent_string>"
    ```
-3. The append modifies the plan file in place. The subsequent `./ait git add aiplans/<plan_file>` and `./ait git commit` (per the Plan Externalization Procedure) include the new entry in the same commit automatically.
+3. The append modifies the plan file in place. The subsequent scoped commit of `aiplans/<plan_file>` via `./.aitask-scripts/aitask_task_commit.sh` (per the Plan Externalization Procedure) includes the new entry in the same commit automatically.
 
 This step only fires on the verify path — NOT on "Create plan from scratch", "Use current plan", "Skip verification", or first-time plan creation.
 
@@ -301,9 +301,16 @@ While in plan mode:
       - Commit all child plan files together (child task files were already committed by the Batch Task Creation Procedure):
         ```bash
         mkdir -p aiplans/p<parent>
-        ./ait git add aiplans/p<parent>/
-        ./ait git commit -m "ait: Add t<parent> child implementation plans"
+        ./.aitask-scripts/aitask_task_commit.sh -m "ait: Add t<parent> child implementation plans" \
+            aiplans/p<parent>/p<parent>_1_<name>.md aiplans/p<parent>/p<parent>_2_<name>.md ...
         ```
+
+      Name **every child plan file you just wrote**, all of them **required** —
+      not the `aiplans/p<parent>/` directory pathspec, which would also stage
+      whatever else happens to be in that directory. Parse the output per the
+      **outcome contract** in `.claude/skills/ait-git/SKILL.md`: a
+      `SKIPPED:unknown:` line naming a plan you wrote means it is missing from
+      the commit, even though the exit status is 0.
     - **Manual verification sibling (post-child-creation):**
       After the child plans are committed, offer to add an aggregate manual-verification sibling that covers behavior only a human can validate (TUI flows, live agent launches, multi-screen navigation, etc.). Skip this step entirely if `<N>` (the number of children just created) is `1`.
 

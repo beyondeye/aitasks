@@ -123,6 +123,28 @@ is_ait_git_allowed() {
     return 1
 }
 
+# Files exempt from the MARKDOWN (instruction-layer) scan only (t1748). A third,
+# independent list for the same reason AIT_GIT_ALLOWLIST is separate from
+# ALLOWLIST: an entry suppresses one seam in one file and leaves the others
+# guarded there.
+#
+# It is EMPTY, and that is the intended end state. The false positive this scan
+# actually has -- prose that quotes the bad shape in order to FORBID it -- is
+# handled structurally by MD_BARE_MENTION_RE below, not by an entry here, so
+# that a doc which teaches the rule stays guarded against a bad worked example
+# of its own. An entry would only be justified by a match that is provably not a
+# command an agent can run; say why in the comment.
+MD_ALLOWLIST=()
+ACTIVE_MD_ALLOWLIST=(${MD_ALLOWLIST[@]+"${MD_ALLOWLIST[@]}"})
+
+is_md_allowed() {
+    local f="$1" a
+    for a in ${ACTIVE_MD_ALLOWLIST[@]+"${ACTIVE_MD_ALLOWLIST[@]}"}; do
+        [[ "$f" == "$a" ]] && return 0
+    done
+    return 1
+}
+
 # --- Scanner -----------------------------------------------------------------
 # Reassemble `\`-continued lines, reporting the line number the command STARTS on.
 # Load-bearing: aitask_note.sh:623 and :995 put their `-- "$file"` on the
@@ -174,12 +196,204 @@ strip_quoted() {
         | sed -e 's/\\./_/g' -e "s/'[^']*'//g" -e 's/"[^"]*"//g'
 }
 
-is_scoped() {
-    local bare
-    bare="$(strip_quoted "$1")"
+# bare_is_scoped <ALREADY-stripped text> — the decision half of is_scoped, split
+# out (t1748) so the markdown scan can apply it to ONE SEGMENT of a line rather
+# than to a whole line. `./ait git add -- <p> && ./ait git commit -m "x"` is a
+# violation: the `--` belongs to the add, and judging the line whole would let it
+# launder the commit. The shell seams keep calling is_scoped and are unchanged.
+bare_is_scoped() {
     # Unbalanced / unparseable quoting: fail closed.
-    case "$bare" in *\"*|*\'*) return 1 ;; esac
-    [[ "$bare" =~ $SCOPED_RE ]]
+    case "$1" in *\"*|*\'*) return 1 ;; esac
+    [[ "$1" =~ $SCOPED_RE ]]
+}
+
+is_scoped() { bare_is_scoped "$(strip_quoted "$1")"; }
+
+# --- Seam 3: the instruction layer (markdown / Jinja), t1748 -----------------
+#
+# ENUMERATION. The scope decision lives in ONE predicate, md_in_scope, and both
+# listers are dumb. The tempting alternative -- put the allowed roots in the
+# `git ls-files` pathspec and give the fixture tree a plain `find` -- puts half
+# the contract on a path the fixtures cannot reach, so a planted
+# `website/content/x.md` could never prove the exclusion. Default DENY.
+
+# Allowed roots (prefix match) and allowed exact files: THE SCOPE CONTRACT.
+MD_ROOTS=(
+    ".claude/skills/"
+    ".agents/skills/"
+    ".opencode/skills/"
+    ".opencode/commands/"
+    ".aitask-scripts/skill_templates/"
+    "aidocs/"
+)
+MD_FILES=(
+    "CLAUDE.md"
+    "AGENTS.md"
+    ".codex/instructions.md"
+    ".opencode/instructions.md"
+    "seed/aitasks_agent_instructions.seed.md"
+)
+
+# md_in_scope <repo-relative-path> — 0 iff the markdown scan owns this file.
+md_in_scope() {
+    local p="$1" r f
+    case "$p" in *.md | *.j2) : ;; *) return 1 ;; esac
+    # Exclusions first, so an excluded path under an allowed root still loses.
+    case "$p" in tests/golden/*) return 1 ;; esac   # committed render snapshots
+    case "/$p" in */*-/*) return 1 ;; esac          # rendered per-profile dirs
+    for f in ${MD_FILES[@]+"${MD_FILES[@]}"}; do [[ "$p" == "$f" ]] && return 0; done
+    for r in ${MD_ROOTS[@]+"${MD_ROOTS[@]}"}; do [[ "$p" == "$r"* ]] && return 0; done
+    return 1
+}
+
+md_filter() {
+    local p
+    while IFS= read -r p; do md_in_scope "$p" && printf '%s\n' "$p"; done
+}
+
+# The real tree. The pathspec is deliberately BROAD -- narrowing it to the
+# allowed roots would move half the contract back out of md_in_scope and make
+# the out-of-scope assertions untestable. `git ls-files`, not `find`: the stale
+# orphaned `*_skillrun_*-/` render dirs are gitignored but present on disk, and
+# an uncommitted instruction file is not one any agent follows from a clone.
+md_sources_real() {
+    git -C "$PROJECT_DIR" ls-files -- '*.md' '*.j2' | md_filter
+}
+
+# The fixture tree, which is not a git repo. Dumber lister, SAME predicate.
+md_sources_find() {
+    ( cd "$1" && find . -type f \( -name '*.md' -o -name '*.j2' \) \
+        | sed 's|^\./||' | sort ) | md_filter
+}
+
+# EXTRACTION. Markdown has no `\` continuation outside a fence, and it has a
+# second container the shell scan knows nothing about: the inline backtick span.
+# A fence-body-only scanner would miss nine real sites. So this is its own join,
+# NOT a reuse of JOIN_AWK above (which see) -- the fence state is what decides
+# whether a trailing `\` even means continuation.
+#
+# Emits `F:<line>:<text>` for a fence body and `P:<line>:<text>` for prose. A
+# span still open after four forward lines, and a file ending inside a fence
+# while containing the pattern at all, both emit the AIT_UNPARSEABLE_SPAN
+# sentinel, which md_judge reports rather than trusts.
+#
+# Only CANDIDATE lines are emitted -- every line still updates fence state and is
+# still eligible for both joins, but a line that cannot possibly name the command
+# is dropped here rather than in the shell. That is a performance contract, not a
+# scope one: the caller forks awk per candidate line, and emitting all ~90k lines
+# of the surface instead of the ~40 that match made this scan take minutes.
+MD_JOIN_AWK='
+function emit(kind, start, line) {
+    if (line ~ /(\.\/)?ait[ \t]+git[ \t]+commit/ || line ~ /AIT_UNPARSEABLE_SPAN/)
+        print kind ":" start ":" line
+}
+{ if ($0 ~ /(\.\/)?ait[ \t]+git[ \t]+commit/) seen = 1 }
+/^[[:space:]]*```/ { infence = !infence; next }
+{
+  line = $0; start = NR
+  if (infence) {
+      while (line ~ /\\[ \t]*$/) {
+          if ((getline nxt) <= 0) break
+          if (nxt ~ /^[[:space:]]*```/) { infence = !infence; break }
+          sub(/\\[ \t]*$/, " ", line); line = line nxt
+      }
+      emit("F", start, line)
+      next
+  }
+  joins = 0
+  while ((gsub(/`/, "`", line) % 2) == 1 && line ~ /`[^`]*ait[ \t]+git/) {
+      if (joins++ >= 4) { line = line " AIT_UNPARSEABLE_SPAN"; break }
+      if ((getline nxt) <= 0) { line = line " AIT_UNPARSEABLE_SPAN"; break }
+      line = line " " nxt
+  }
+  emit("P", start, line)
+}
+END { if (infence && seen) print "P:" NR ":AIT_UNPARSEABLE_SPAN eof-in-fence" }'
+
+# md_spans <line> — the contents of each inline backtick span, one per line.
+md_spans() {
+    printf '%s\n' "$1" | awk '{
+        n = split($0, parts, "`")
+        for (i = 2; i <= n; i += 2) print parts[i]
+    }'
+}
+
+# md_strip_spans <line> — the line with every balanced backtick span removed.
+# If the command still shows through, it was written with no code formatting at
+# all: a shape this scanner does not model, so it fails closed.
+md_strip_spans() {
+    printf '%s\n' "$1" | awk '{
+        n = split($0, parts, "`"); out = ""
+        for (i = 1; i <= n; i += 2) out = out parts[i] " "
+        print out
+    }'
+}
+
+# The command NAME with no arguments: the command used as a NOUN, not issued as
+# one. Prose only -- inside a fence a lone command line IS a command.
+MD_BARE_MENTION_RE='^[[:space:]]*(\./)?ait[[:space:]]+git[[:space:]]+commit[[:space:]]*$'
+
+# md_judge <rel> <lineno> <candidate> <fence|prose> — print a violation and
+# return 0 if the candidate is an unscoped instruction; return 1 otherwise.
+md_judge() {
+    local rel="$1" lineno="$2" cand="$3" ctx="$4" bare seg
+    case "$cand" in
+        *AIT_UNPARSEABLE_SPAN*)
+            printf '%s:%s:%s\n' "$rel" "$lineno" "$cand"; return 0 ;;
+    esac
+    bare="$(strip_quoted "$cand")"
+    [[ "$bare" =~ $AIT_GIT_COMMIT_RE ]] || return 1
+    # Unbalanced / unparseable quoting: fail closed, as the shell seams do.
+    case "$bare" in
+        *\"* | *\'*) printf '%s:%s:%s\n' "$rel" "$lineno" "$cand"; return 0 ;;
+    esac
+    if [[ "$ctx" == "prose" && "$bare" =~ $MD_BARE_MENTION_RE ]]; then
+        return 1
+    fi
+    # Judge per SEGMENT, not per line: the `--` in
+    # `./ait git add -- <p> && ./ait git commit -m "x"` belongs to the add.
+    # Splitting AFTER strip_quoted means every separator is outside a string.
+    while IFS= read -r seg; do
+        [[ "$seg" =~ $AIT_GIT_COMMIT_RE ]] || continue
+        # Cut a trailing shell comment, or `-m "x"  # use -- for a pathspec`
+        # reads as scoped. Leading whitespace required, so `http://x#y` survives.
+        seg="${seg%%[[:space:]]#*}"
+        bare_is_scoped "$seg" && continue
+        printf '%s:%s:%s\n' "$rel" "$lineno" "$cand"
+        return 0
+    done < <(printf '%s\n' "$bare" | awk '{
+        n = split($0, a, /&&|\|\||;|\|/); for (i = 1; i <= n; i++) print a[i]
+    }')
+    return 1
+}
+
+# scan_md <file>... — the markdown scan. Takes an EXPLICIT file list (unlike
+# scan_dir, which walks a root) so the enumerator and the matcher can be tested
+# independently.
+scan_md() {
+    local f entry kind lineno text cand stripped
+    for f in "$@"; do
+        is_md_allowed "$f" && continue
+        while IFS= read -r entry; do
+            kind="${entry%%:*}"; entry="${entry#*:}"
+            lineno="${entry%%:*}"; text="${entry#*:}"
+            if [[ "$kind" == "F" ]]; then
+                [[ -z "${text//[[:space:]]/}" ]] && continue
+                [[ "$text" =~ ^[[:space:]]*# ]] && continue
+                md_judge "$f" "$lineno" "$text" fence || true
+                continue
+            fi
+            stripped="$(md_strip_spans "$text")"
+            if [[ "$stripped" =~ $AIT_GIT_COMMIT_RE ]]; then
+                printf '%s:%s:%s\n' "$f" "$lineno" "$text"
+                continue
+            fi
+            while IFS= read -r cand; do
+                [[ -z "${cand//[[:space:]]/}" ]] && continue
+                md_judge "$f" "$lineno" "$cand" prose && break
+            done < <(md_spans "$text")
+        done < <(awk "$MD_JOIN_AWK" "$f" 2>/dev/null)
+    done
 }
 
 scan_dir() {
@@ -228,6 +442,56 @@ else
     echo "  -> use task_git_commit_scoped <msg> <path>... (lib/task_utils.sh), or add"
     echo "     an explicit '-- <paths>' pathspec. Reference patterns:"
     echo "     aitask_attach.sh:_attach_commit, aitask_gate_record.sh, aitask_gate.sh."
+fi
+
+# --- Test 2: the instruction layer (markdown / Jinja) ------------------------
+mapfile -t MD_SOURCES < <(md_sources_real)
+
+md_has() { printf '%s\n' ${MD_SOURCES[@]+"${MD_SOURCES[@]}"} | grep -qxF "$1"; }
+
+# Scope assertions, BOTH directions. A count floor alone can be satisfied while
+# the interesting root silently drops out, and it cannot detect the enumeration
+# having GROWN to swallow human-facing documentation.
+assert_exit_zero "markdown: the instruction surface was actually enumerated" \
+    test "${#MD_SOURCES[@]}" -gt 150
+assert_exit_zero "markdown: the canonical teaching skill is in scope" \
+    md_has ".claude/skills/ait-git/SKILL.md"
+assert_exit_zero "markdown: the root instruction doc is in scope" \
+    md_has "CLAUDE.md"
+assert_exit_zero "markdown: the shared instruction seed is in scope" \
+    md_has "seed/aitasks_agent_instructions.seed.md"
+assert_exit_zero "markdown: aidocs is in scope" \
+    md_has "aidocs/framework/shell_conventions.md"
+
+md_out_of_scope="$(printf '%s\n' ${MD_SOURCES[@]+"${MD_SOURCES[@]}"} \
+    | grep -E '^(website|docs|tests|aitasks|aiplans)/|^\.aitask-data/|^README|^CHANGELOG|(^|/)[^/]*-/' \
+    || true)"
+assert_eq "markdown: no human-facing doc, record tree or rendered copy is enumerated" \
+    "" "$md_out_of_scope"
+
+# Anti-vacuity. After the sweep most sites route through aitask_task_commit.sh
+# and the text is GONE, so a corpus count would be the wrong pin. These two keep
+# `./ait git commit` (cured with an explicit `-- <path>`, because teaching that
+# command IS their subject), so their text is a stable witness that the scan is
+# reading something rather than matching nothing.
+for witness in ".claude/skills/ait-git/SKILL.md" "CLAUDE.md"; do
+    assert_exit_zero "markdown: '$witness' still carries ./ait git commit text" \
+        grep -qE '(\./)?ait[[:space:]]+git[[:space:]]+commit' "$PROJECT_DIR/$witness"
+done
+
+md_violations="$(cd "$PROJECT_DIR" && scan_md ${MD_SOURCES[@]+"${MD_SOURCES[@]}"})"
+TOTAL=$((TOTAL + 1))
+if [[ -z "$md_violations" ]]; then
+    PASS=$((PASS + 1))
+    echo "PASS: no unscoped ./ait git commit instruction in the skill / doc trees"
+else
+    FAIL=$((FAIL + 1))
+    echo "FAIL: unscoped task-data commit(s) INSTRUCTED — an agent will run these:"
+    printf '  UNSCOPED: %s\n' "$md_violations"
+    echo "  -> route through ./.aitask-scripts/aitask_task_commit.sh -m <msg> <paths>,"
+    echo "     or add an explicit '-- <paths>' pathspec where teaching './ait git'"
+    echo "     is the point. NOT task_git_commit_scoped: that is a bash function"
+    echo "     with no PATH entry, so no agent can run it from an instruction."
 fi
 
 # --- Negative controls -------------------------------------------------------
@@ -445,6 +709,279 @@ assert_contains "an ait-git-allowlisted file is STILL guarded for task_git commi
     "aitask_both_seams.sh" "$neg_both"
 ACTIVE_AIT_GIT_ALLOWLIST=(${AIT_GIT_ALLOWLIST[@]+"${AIT_GIT_ALLOWLIST[@]}"})
 rm -f "$TMP/.aitask-scripts/aitask_both_seams.sh"
+
+# --- Markdown (instruction-layer) controls -----------------------------------
+# Planted in $TMP/md/, a SIBLING of $TMP/.aitask-scripts/. scan_dir's find never
+# descends here and md_sources_find never sees the .sh fixtures, so the two
+# fixture populations -- and therefore the two violation-count pins -- are
+# independent by construction. Fixture basenames are `md_*` so the shell pin's
+# `grep -c 'aitask_'` cannot see them.
+MDT="$TMP/md"
+mkdir -p "$MDT/.claude/skills/foo" "$MDT/.claude/skills/foo-remote-" \
+         "$MDT/aidocs" "$MDT/website/content" "$MDT/docs" \
+         "$MDT/tests/golden/procs"
+
+# -- positive fixtures (must be flagged) --
+cat > "$MDT/.claude/skills/foo/md_fence_unscoped.md" <<'EOF'
+Commit it:
+```bash
+./ait git commit -m "ait: rogue unscoped commit"
+```
+EOF
+
+cat > "$MDT/.claude/skills/foo/md_inline_unscoped.md" <<'EOF'
+- Commit: `./ait git commit -m "ait: rogue unscoped commit"`
+EOF
+
+# The `&&` trap: the add is scoped, the commit is not. A line-level judgement
+# would let the add's `--` launder the commit.
+cat > "$MDT/.claude/skills/foo/md_and_add_scoped.md" <<'EOF'
+4. Commit: `./ait git add -- <paths> && ./ait git commit -m "ait: remove t<id>"`
+EOF
+
+# A span that WRAPS across prose lines, reported at the line it OPENS on.
+printf '%s\n%s\n' \
+    'commit it via `./ait git add <plan_file> &&' \
+    './ait git commit` (message: `ait: witness`)' \
+    > "$MDT/.claude/skills/foo/md_prose_wrapped.md"
+
+# Inside a ```markdown fence the sites are still backticked one-liners.
+cat > "$MDT/.claude/skills/foo/md_in_markdown_fence.md" <<'EOF'
+```markdown
+2. Commit: `./ait git add <task_path> && ./ait git commit -m "ait: notes"`
+```
+EOF
+
+# The mention rule is PROSE-ONLY: a lone command name on a fence line is a command.
+cat > "$MDT/.claude/skills/foo/md_fence_bare_name.md" <<'EOF'
+```bash
+./ait git commit
+```
+EOF
+
+# Line-scoped, not block-scoped: a preceding `add` does not scope a later commit.
+cat > "$MDT/.claude/skills/foo/md_fence_add_then_commit.md" <<'EOF'
+```bash
+./ait git add aitasks/
+./ait git commit -m "ait: record verification state"
+```
+EOF
+
+cat > "$MDT/.claude/skills/foo/md_dashes_in_message.md" <<'EOF'
+```bash
+./ait git commit -m "ait: title -- annotation"
+```
+EOF
+
+cat > "$MDT/.claude/skills/foo/md_comment_dashes.md" <<'EOF'
+```bash
+./ait git commit -m "ait: x"   # use -- for a pathspec
+```
+EOF
+
+cat > "$MDT/.claude/skills/foo/md_no_backticks.md" <<'EOF'
+Then run ./ait git commit -m "ait: x" when you are done.
+EOF
+
+cat > "$MDT/.claude/skills/foo/md_unbalanced_quote.md" <<'EOF'
+```bash
+./ait git commit -m "ait: unterminated
+```
+EOF
+
+cat > "$MDT/.claude/skills/foo/md_template.md.j2" <<'EOF'
+```bash
+./ait git commit -m "ait: Abort t<N>: revert to {{ profile.abort_revert_status }}"
+```
+EOF
+
+# -- negative fixtures (must NOT be flagged) --
+cat > "$MDT/.claude/skills/foo/md_fence_scoped.md" <<'EOF'
+```bash
+./ait git commit -m "ait: Update task t42" -- aitasks/t42_foo.md
+```
+EOF
+
+cat > "$MDT/.claude/skills/foo/md_inline_scoped.md" <<'EOF'
+- Commit: `./ait git commit -m "ait: x" -- <task_file>`
+EOF
+
+# The converse of the `&&` trap: the segmenter must not over-flag the CORRECT shape.
+cat > "$MDT/.claude/skills/foo/md_and_commit_scoped.md" <<'EOF'
+4. Commit: `./ait git add <p> && ./ait git commit -m "ait: x" -- <p>`
+EOF
+
+# Cure 2 needs no code: the helper line never names `ait git commit` at all.
+# Asserted rather than assumed.
+cat > "$MDT/.claude/skills/foo/md_helper_routed.md" <<'EOF'
+```bash
+./.aitask-scripts/aitask_task_commit.sh -m "ait: Add plan for t<id>" aiplans/<plan>
+```
+EOF
+
+cat > "$MDT/.claude/skills/foo/md_helper_after_add.md" <<'EOF'
+- Commit: `rm <p> && ./.aitask-scripts/aitask_task_commit.sh -m "ait: x" <p>`
+EOF
+
+# Prose that quotes the bad shape in order to FORBID it -- the shell_conventions.md
+# false positive the mention rule exists to clear.
+cat > "$MDT/aidocs/md_mention_forbidding.md" <<'EOF'
+A `./ait git commit` with no `--` pathspec commits the whole index exactly as
+above. There is no separate helper and none is needed.
+EOF
+
+# The same, as a plain noun and without the `./` prefix.
+cat > "$MDT/aidocs/md_mention_noun.md" <<'EOF'
+The qualification is load-bearing: `ait git commit` tags task-data commits
+`(tNN)` too, so an unqualified "newest tagged commit" lets a stale one win.
+EOF
+
+# `task_git commit` is a bash function with no PATH entry: no markdown
+# instruction can ask an agent to run it, so this seam does not match it.
+cat > "$MDT/.claude/skills/foo/md_task_git.md" <<'EOF'
+```bash
+task_git commit -m "ait: not reachable from an instruction"
+```
+EOF
+
+cat > "$MDT/.claude/skills/foo/md_lookalike.md" <<'EOF'
+```bash
+portrait git commit -m "ait: a longer identifier ending in ait"
+```
+EOF
+
+cat > "$MDT/.claude/skills/foo/md_fence_comment.md" <<'EOF'
+```bash
+# ./ait git commit -m "ait: a commented-out example"
+```
+EOF
+
+# -- enumerator fixtures (must not be ENUMERATED at all) --
+# Each carries a real violation, so a predicate that admitted one would move the
+# count pin below rather than pass quietly.
+for out_of_scope in \
+    "website/content/md_out_website.md" \
+    "docs/md_out_docs.md" \
+    "tests/golden/procs/md_out_golden.md" \
+    ".claude/skills/foo-remote-/md_out_rendered.md" \
+; do
+    printf '%s\n' '- Commit: `./ait git commit -m "ait: x"`' > "$MDT/$out_of_scope"
+done
+printf '%s\n' '- Commit: `./ait git commit -m "ait: x"`' > "$MDT/README.md"
+printf '%s\n' '- Commit: `./ait git commit -m "ait: x"`' > "$MDT/.claude/skills/foo/md_out_ext.txt"
+
+mapfile -t MD_FIXTURES < <(md_sources_find "$MDT")
+md_fixture_list="$(printf '%s\n' ${MD_FIXTURES[@]+"${MD_FIXTURES[@]}"})"
+
+assert_contains "markdown enum: a skill source IS enumerated" \
+    ".claude/skills/foo/md_fence_unscoped.md" "$md_fixture_list"
+assert_contains "markdown enum: an aidocs file IS enumerated" \
+    "aidocs/md_mention_forbidding.md" "$md_fixture_list"
+assert_not_contains "markdown enum: website/ is NOT enumerated" \
+    "md_out_website.md" "$md_fixture_list"
+assert_not_contains "markdown enum: docs/ is NOT enumerated" \
+    "md_out_docs.md" "$md_fixture_list"
+assert_not_contains "markdown enum: README.md is NOT enumerated" \
+    "README.md" "$md_fixture_list"
+assert_not_contains "markdown enum: a golden snapshot is NOT enumerated" \
+    "md_out_golden.md" "$md_fixture_list"
+assert_not_contains "markdown enum: a rendered per-profile dir is NOT enumerated" \
+    "md_out_rendered.md" "$md_fixture_list"
+assert_not_contains "markdown enum: a non-md/j2 extension is NOT enumerated" \
+    "md_out_ext.txt" "$md_fixture_list"
+
+# The predicate directly, so a lister bug and a predicate bug stay distinguishable.
+assert_exit_zero "md_in_scope: allows a skill source" \
+    md_in_scope ".claude/skills/foo/SKILL.md"
+assert_exit_zero "md_in_scope: allows a named root instruction file" \
+    md_in_scope "CLAUDE.md"
+assert_exit_nonzero "md_in_scope: denies website/ by default-deny" \
+    md_in_scope "website/content/docs/x.md"
+assert_exit_nonzero "md_in_scope: denies an unlisted root by default-deny" \
+    md_in_scope "some/new/tree/x.md"
+
+neg_md="$(cd "$MDT" && scan_md ${MD_FIXTURES[@]+"${MD_FIXTURES[@]}"})"
+
+assert_contains "markdown: an unscoped command in a bash fence IS flagged" \
+    "md_fence_unscoped.md" "$neg_md"
+assert_contains "markdown: an unscoped command in a backtick span IS flagged" \
+    "md_inline_unscoped.md" "$neg_md"
+assert_contains "markdown: a scoped add joined to an unscoped commit IS flagged" \
+    "md_and_add_scoped.md" "$neg_md"
+assert_contains "markdown: a span wrapping across prose lines IS flagged" \
+    "md_prose_wrapped.md" "$neg_md"
+assert_contains "markdown: a site inside a non-bash fence IS flagged" \
+    "md_in_markdown_fence.md" "$neg_md"
+assert_contains "markdown: a bare command name INSIDE a fence IS flagged" \
+    "md_fence_bare_name.md" "$neg_md"
+assert_contains "markdown: a preceding add does not scope a later commit" \
+    "md_fence_add_then_commit.md" "$neg_md"
+assert_contains "markdown: a -- inside the message is NOT a pathspec" \
+    "md_dashes_in_message.md" "$neg_md"
+assert_contains "markdown: a -- in a trailing comment is NOT a pathspec" \
+    "md_comment_dashes.md" "$neg_md"
+assert_contains "markdown: a command written with no backticks IS flagged" \
+    "md_no_backticks.md" "$neg_md"
+assert_contains "markdown: unparseable quoting fails CLOSED" \
+    "md_unbalanced_quote.md" "$neg_md"
+assert_contains "markdown: a .md.j2 template is scanned too" \
+    "md_template.md.j2" "$neg_md"
+
+assert_not_contains "markdown: a fenced commit carrying -- is NOT flagged" \
+    "md_fence_scoped.md" "$neg_md"
+assert_not_contains "markdown: an inline commit carrying -- is NOT flagged" \
+    "md_inline_scoped.md" "$neg_md"
+assert_not_contains "markdown: an add joined to a SCOPED commit is NOT flagged" \
+    "md_and_commit_scoped.md" "$neg_md"
+assert_not_contains "markdown: a helper-routed commit is NOT flagged" \
+    "md_helper_routed.md" "$neg_md"
+assert_not_contains "markdown: a helper-routed commit after && is NOT flagged" \
+    "md_helper_after_add.md" "$neg_md"
+assert_not_contains "markdown: prose forbidding the bad shape is NOT flagged" \
+    "md_mention_forbidding.md" "$neg_md"
+assert_not_contains "markdown: a bare noun mention is NOT flagged" \
+    "md_mention_noun.md" "$neg_md"
+assert_not_contains "markdown: task_git commit is NOT matched in markdown" \
+    "md_task_git.md" "$neg_md"
+assert_not_contains "markdown: a longer identifier ending in 'ait' is NOT flagged" \
+    "md_lookalike.md" "$neg_md"
+assert_not_contains "markdown: a commented-out fence line is NOT flagged" \
+    "md_fence_comment.md" "$neg_md"
+
+# Exactly twelve violations across the markdown fixtures. Deliberately a SECOND
+# pin rather than a widening of the shell one: the two fixture trees live under
+# different roots, are produced by different scanners, and are named `md_*` vs
+# `aitask_*`, so neither can drift when the other gains a fixture. An
+# out-of-scope fixture that started being enumerated would land here.
+neg_md_count="$(printf '%s\n' "$neg_md" | grep -c '^[^:]*md_' || true)"
+assert_eq "markdown: exactly twelve violations across the fixture tree" \
+    "12" "$neg_md_count"
+
+# The reported location is the line the LOGICAL line starts on -- for a span
+# that wraps, the line it OPENS on, not the one carrying the `commit`.
+assert_contains "markdown: a wrapped span is reported at its opening line" \
+    "md_prose_wrapped.md:1" "$neg_md"
+
+# MD_ALLOWLIST suppression, via a synthetic entry.
+ACTIVE_MD_ALLOWLIST=(".claude/skills/foo/md_fence_unscoped.md")
+neg_md_allow="$(cd "$MDT" && scan_md ${MD_FIXTURES[@]+"${MD_FIXTURES[@]}"})"
+assert_not_contains "markdown: an allowlisted file is suppressed" \
+    "md_fence_unscoped.md" "$neg_md_allow"
+ACTIVE_MD_ALLOWLIST=(${MD_ALLOWLIST[@]+"${MD_ALLOWLIST[@]}"})
+
+# The three allowlists are INDEPENDENT. An MD_ALLOWLIST entry must not suppress
+# either shell seam, and the shell allowlists must not suppress the markdown one.
+ACTIVE_MD_ALLOWLIST=(".aitask-scripts/aitask_rogue.sh")
+neg_md_cross="$(scan_dir "$TMP")"
+assert_contains "an md-allowlisted name does NOT suppress the task_git seam" \
+    "aitask_rogue.sh" "$neg_md_cross"
+ACTIVE_MD_ALLOWLIST=(${MD_ALLOWLIST[@]+"${MD_ALLOWLIST[@]}"})
+
+ACTIVE_AIT_GIT_ALLOWLIST=(".claude/skills/foo/md_fence_unscoped.md")
+neg_md_cross2="$(cd "$MDT" && scan_md ${MD_FIXTURES[@]+"${MD_FIXTURES[@]}"})"
+assert_contains "an ait-git-allowlisted name does NOT suppress the markdown seam" \
+    "md_fence_unscoped.md" "$neg_md_cross2"
+ACTIVE_AIT_GIT_ALLOWLIST=(${AIT_GIT_ALLOWLIST[@]+"${AIT_GIT_ALLOWLIST[@]}"})
 
 echo
 echo "Results: $PASS passed, $FAIL failed, $TOTAL total"

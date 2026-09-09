@@ -142,11 +142,13 @@ Stage and commit the changes using the appropriate git commands:
 
 **Metadata files** (task data branch):
 ```bash
-./ait git add aitasks/metadata/models_claudecode.json aitasks/metadata/models_codex.json aitasks/metadata/models_opencode.json
-./ait git commit -m "ait: Refresh code agent model configurations"
+./.aitask-scripts/aitask_task_commit.sh -m "ait: Refresh code agent model configurations" \
+    aitasks/metadata/models_claudecode.json aitasks/metadata/models_codex.json aitasks/metadata/models_opencode.json
 ```
 
-Only include files that were actually modified — skip unchanged agent files.
+Only include files that were actually modified — skip unchanged agent files. Every
+path you name is **required**; parse the output per the **outcome contract** in
+`.claude/skills/ait-git/SKILL.md`.
 
 **Seed files** (main branch, only if `seed/` exists and files were updated):
 ```bash

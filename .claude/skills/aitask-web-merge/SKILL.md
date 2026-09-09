@@ -119,9 +119,11 @@ mkdir -p <target_directory>
 **4d. Commit the plan to aitask-data:**
 
 ```bash
-./ait git add <plan_file_path>
-./ait git commit -m "ait: Add web-completed plan for t<task_id>"
+./.aitask-scripts/aitask_task_commit.sh -m "ait: Add web-completed plan for t<task_id>" <plan_file_path>
 ```
+
+`<plan_file_path>` is **required** (it resolves under `aiplans/`); parse the
+output per the **outcome contract** in `.claude/skills/ait-git/SKILL.md`.
 
 ### Step 5: Materialize Active Gates, Apply Agent Attribution, and Archive Task
 

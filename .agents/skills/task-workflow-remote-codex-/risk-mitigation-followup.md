@@ -394,9 +394,11 @@ also governs Part 3, which reuses these branches.)
    3. **Persist the witness durably — before touching the next line.** Write
       `| created: t<new_id>` on the line (append it; for a stale-witness
       re-create, **replace** the old witness in place instead), then
-      immediately commit the plan file via `./ait git add <plan_file> &&
-      ./ait git commit` (message: `ait: Record mitigation witness t<new_id>
-      for t<task_id>`). The per-item commit is the durable transition that
+      immediately commit the plan file with
+      `./.aitask-scripts/aitask_task_commit.sh -m "ait: Record mitigation
+      witness t<new_id> for t<task_id>" <plan_file>` — `<plan_file>` required,
+      output parsed per the **outcome contract** in
+      `.agents/skills/ait-git-remote-codex-/SKILL.md`. The per-item commit is the durable transition that
       makes an interrupted run recoverable: on retry, step 1 sees the witness
       (or, if the crash hit the creation↔witness gap, the adoption probe finds
       the task) and no duplicate is created.

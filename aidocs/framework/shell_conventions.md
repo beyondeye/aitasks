@@ -115,6 +115,14 @@ portability quirks (BSD vs GNU tooling) live in
   second, seam-specific allowlist holding one file whose hints span multiple
   physical lines. Neither pattern detects the tracked-path staging hazard above
   — that one is covered by behavioural controls, not by the scanner.
+
+  **The same hazard exists at the INSTRUCTION layer** (t1748), where a skill
+  procedure tells an agent to run the command and the agent obeys it literally.
+  The cure there is neither bash seam — an agent following markdown cannot call a
+  bash function — but `./.aitask-scripts/aitask_task_commit.sh -m "<msg>"
+  <paths>`, the t1702 wrapper with the trap already armed. The rule for procedure
+  authors lives in `aidocs/framework/skill_authoring_conventions.md`; the same
+  guard's third scan covers the skill and doc trees.
 - **System libs added to `./ait`'s source-on-startup chain must also be added
   to `tests/lib/test_scaffold.sh::setup_fake_aitask_repo()` in the same PR.**
   43 tests scaffold a fake `.aitask-scripts/lib/` via that helper; a missing

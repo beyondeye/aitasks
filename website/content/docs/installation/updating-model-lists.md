@@ -65,7 +65,7 @@ Add `--promote --promote-ops <ops>` to also set the new model as the default for
 
 The two file locations live on different branches, so they need separate commits:
 
-- **Metadata** (`aitasks/metadata/...`) — `./ait git add` + `./ait git commit`. See the [Git branching model]({{< relref "/docs/concepts/git-branching-model" >}}) for why task data lives on a separate branch.
+- **Metadata** (`aitasks/metadata/...`) — `./.aitask-scripts/aitask_task_commit.sh -m "<message>" <paths>`, which commits exactly the paths you name. A bare `./ait git commit` commits the whole shared task-data index, so another session's staged work would ride along. See the [Git branching model]({{< relref "/docs/concepts/git-branching-model" >}}) for why task data lives on a separate branch.
 - **Seed** (`seed/...`) — plain `git add` + `git commit`. Seed files exist only in the framework source repo and never need `./ait git`.
 
 Both `/aitask-refresh-code-models` and `/aitask-add-model` handle this split automatically; the convention matters only if you are editing the JSON files by hand.

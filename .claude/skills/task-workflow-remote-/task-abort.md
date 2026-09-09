@@ -60,9 +60,17 @@ When abort is selected at any checkpoint after Step 4, execute these steps:
 
 - **Commit the revert:**
   ```bash
-  ./ait git add aitasks/ aiplans/
-  ./ait git commit -m "ait: Abort t<N>: revert status to <status>"
+  ./.aitask-scripts/aitask_task_commit.sh -m "ait: Abort t<N>: revert status to <status>" <task_file> <plan_file>
   ```
+
+  `<task_file>` is **required**; `<plan_file>` is **optional** — an abort before
+  externalization has none, and the helper reports that as
+  `SKIPPED:unknown:<plan_file>` while still committing the task file at exit 0.
+  Parse the output per the **outcome contract** in
+  `.claude/skills/ait-git-remote-/SKILL.md`: a `SKIPPED:` naming `<task_file>` is a
+  failure even at exit 0; one naming `<plan_file>` is expected and needs no
+  action. Name both files — the old `./ait git add aitasks/ aiplans/` was the
+  widest pathspec in the workflow and swept both directories wholesale.
 
 - **Cleanup worktree/branch if created:**
   If a worktree was created — which happens at the top of **Step 7**, not in

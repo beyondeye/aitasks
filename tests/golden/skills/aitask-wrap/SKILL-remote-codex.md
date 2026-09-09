@@ -235,11 +235,16 @@ git commit -m "$(cat <<'EOF'
 <optional code-agent trailer>
 EOF
 )"
-./ait git add aiplans/p<N>_<name>.md
-./ait git commit -m "ait: Add plan p<N> for wrapped task"
+./.aitask-scripts/aitask_task_commit.sh -m "ait: Add plan p<N> for wrapped task" aiplans/p<N>_<name>.md
 ```
 
 Where `<description>` is a concise commit message derived from the task summary.
+
+The plan file goes through `./.aitask-scripts/aitask_task_commit.sh`, which names
+its path — a bare `./ait git commit` would take the whole shared `.aitask-data`
+index. `aiplans/p<N>_<name>.md` is **required**; parse the output per the
+**outcome contract** in `.claude/skills/ait-git/SKILL.md`. The `git commit` above
+it is the **code** commit on the main branch and is unaffected.
 
 **Important:** The code commit message MUST use the `<issue_type>: <description> (t<N>)` format on the subject line. If contributor or code-agent attribution exists, append those blocks in the same commit message. If code-agent attribution fails, continue with the contributor-only or plain commit message.
 
