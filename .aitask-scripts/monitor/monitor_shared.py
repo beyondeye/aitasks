@@ -1053,10 +1053,20 @@ class AgentMarksMixin:
         rc, out = await self._run_frozen_cmd(argv, timeout=timeout)
         lines = [ln for ln in out.splitlines() if ln.strip()]
         if any(ln.startswith("ERROR:") and "timed out" in ln for ln in lines):
+            # PARTIAL, not failed: the runner killed the child, but a killed
+            # freeze leaves a `freezing` record that reconcile settles, and some
+            # agents may already be frozen. "Failed" would send the user looking
+            # for a problem that repairs itself.
             self.notify(
                 "Freeze timed out — some agents may be frozen. "
                 "Run `aitask_frozen.sh reconcile`.", severity="warning")
             self.call_later(self._refresh_data)
+            return
+        if any(ln.startswith("ERROR:") for ln in lines):
+            # The runner could not start the wrapper at all (missing binary,
+            # OSError). Nothing was frozen, so say so plainly rather than
+            # falling through to the "no result" wording below.
+            self.notify(f"Freeze could not run: {lines[0]}", severity="error")
             return
         ok = sum(1 for ln in lines if ln.startswith("FROZEN:"))
         skipped = sum(1 for ln in lines if ln.startswith("FREEZE_SKIPPED:"))
@@ -1142,6 +1152,11 @@ class AgentMarksMixin:
             self.notify("No agents to freeze")
             return
 
+        # Compared against `count` by the user, so it must count the same KIND
+        # of thing: agents, not every pane in the snapshot map.
+        shown = sum(1 for s in self._snapshots.values()
+                    if s.pane.category == PaneCategory.AGENT)
+
         def confirmed(yes: bool | None) -> None:
             if not yes:
                 return
@@ -1157,7 +1172,7 @@ class AgentMarksMixin:
                 f"Freeze all {count} agent(s)?",
                 f"This affects [bold]every aitasks session on this machine[/] — "
                 f"including parked agents and agents in other projects, not "
-                f"just the {len(self._snapshots)} pane(s) shown here.\n\n"
+                f"just the {shown} agent(s) shown here.\n\n"
                 "Each agent's process ends; its output is captured and kept, "
                 "and it can be restored later.",
             ),
