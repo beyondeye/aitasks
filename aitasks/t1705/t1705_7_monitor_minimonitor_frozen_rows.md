@@ -181,3 +181,5 @@ from inside an agent pane.
 > | Advisory only — verify against the tree before relying on any of it.
 > | Not yet run anywhere: `tests/test_cleanup_rule_parity.sh` (it refuses while the
 > | `-L ait` server is alive). Tracked as a t1705_11 checklist item.
+
+> **👁 note:read** id=2026-09-09T07:03:59Z.dbd5412d903cdb24a48bc9b6 by=t1705_7 at=2026-09-09T07:03:59Z mode=explicit ids=2026-09-09T06:09:42Z.a4ee0adf046aa754e79a9db6
