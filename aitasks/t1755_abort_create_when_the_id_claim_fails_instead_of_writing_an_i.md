@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -13,7 +15,7 @@ file_references: [.aitask-scripts/aitask_create.sh:1042-1050, .aitask-scripts/ai
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5
 created_at: 2026-09-09 09:50
-updated_at: 2026-09-09 12:19
+updated_at: 2026-09-09 12:20
 ---
 
 ## Problem
@@ -88,3 +90,5 @@ records this one as an upstream defect in `aiplans/p1725/p1725_2_*.md`.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-09-09T09:19:50Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-09-09T10:30:25Z status=pass attempt=1 type=human
