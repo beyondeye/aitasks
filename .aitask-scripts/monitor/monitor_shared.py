@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import shlex
 import re
 import sys
 import tempfile
@@ -20,6 +21,10 @@ sys.path.insert(0, str(_SCRIPT_DIR))
 sys.path.insert(0, str(_SCRIPT_DIR / "lib"))
 
 import agent_marks  # noqa: E402
+# The session store (t1705_7): `SessionsView` for reading a frozen
+# record, and the shared restore/drop outcome interpreters. READ side
+# only — every write goes through `_SESSIONS_SH` / `_FROZEN_SH`.
+import agent_sessions  # noqa: E402
 # The ONE authority for follow-up glyphs and colours (t1468_1), shared with the
 # board's card marker — imported, never mirrored (t1468_5).
 from followup_kinds import marker_for  # noqa: E402
@@ -438,6 +443,14 @@ _SESSIONS_SH = _SCRIPT_DIR / "aitask_agent_sessions.sh"
 #: settles it once the lease goes stale), which is why the callers report a
 #: timeout as PARTIAL rather than failed.
 _FREEZE_ONE_TIMEOUT = 90.0
+
+#: Poll cadence and grace windows for a DETACHED coordinator's outcome
+#: (`restore` / `drop` via `run-shell -b`). Mirrors the `frozenagent` viewer's
+#: own constants — the two watch the same records through the same interpreter,
+#: so a user switching between them must not see different verdicts.
+_FROZEN_POLL_INTERVAL = 1.0
+_FROZEN_DISPATCH_GRACE = 10.0
+_FROZEN_DROP_GRACE = 10.0
 
 #: The shadow concern-rejection store's single writer/reader (t1427_1).
 _REJECTED_SH = _SCRIPT_DIR / "aitask_shadow_rejected.sh"
@@ -918,6 +931,283 @@ class AgentMarksMixin:
             timeout=3,
         )
         self.call_later(self._refresh_data)
+
+    # --- frozen agents: freeze / restore / re-pick / drop (t1705_7) --------
+    #
+    # WHICH AGENT AN ACTION TARGETS is per-app and is the ONLY thing that
+    # differs: the minimonitor acts on the agent it follows (its docked panel),
+    # the full monitor on its focused card. Both override
+    # `_current_agent_snapshot`; everything below is shared.
+    #
+    # HOW an action is dispatched is NOT uniform, and the split is load-bearing:
+    #
+    #   * `freeze` respawns the AGENT's pane, never the TUI's, so it runs as a
+    #     subprocess through `_run_frozen_cmd` and its result lines are read.
+    #   * `restore` / `re-pick` / `drop` replace or kill the pane — and possibly
+    #     the whole window — that the TUI itself is in. A subprocess would be a
+    #     child of that pane and would be killed mid-transaction, leaving a
+    #     `restoring` record for reconcile and a dead pane for the user. They go
+    #     through `run-shell -b`, a DETACHED tmux server job that outlives the
+    #     respawn, exactly as the `frozenagent` viewer does.
+    #
+    # A detached job's stdout is unreadable, so the outcome is observed by
+    # polling the store record and interpreting it with
+    # `agent_sessions.restore_verdict` / `drop_verdict` — the same interpreter
+    # the viewer uses, rather than a fourth copy of it.
+
+    def _current_agent_snapshot(self) -> "PaneSnapshot | None":
+        """The agent this app's frozen actions target. Overridden by both apps.
+
+        Returning None here is a real answer ("nothing is targeted"), not a
+        not-implemented marker — an app with no agent in view is a normal state.
+        """
+        return None
+
+    def _frozen_target(self, what: str) -> "PaneSnapshot | None":
+        """The current agent, but only when it is frozen.
+
+        The guard is in the ACTION, never in the binding: `R` is the monitor's
+        Restart and `p` is the minimonitor's Pick, and both must keep their
+        live-row meaning. `check_action` would hide them entirely.
+        """
+        snap = self._current_agent_snapshot()
+        if snap is None:
+            self.notify("No agent selected", severity="warning")
+            return None
+        if not self._is_frozen(snap):
+            self.notify(f"That agent is not frozen — nothing to {what}",
+                        severity="warning")
+            return None
+        return snap
+
+    def _run_frozen_detached(self, argv: list[str]) -> bool:
+        """Dispatch a frozen coordinator as a detached tmux server job.
+
+        Never `subprocess`: see the section note above. Returns False when the
+        gateway itself refused, which is the only failure observable from here —
+        the job's own outcome arrives via the store.
+        """
+        if self._monitor is None:
+            return False
+        rc, _out = self._monitor.tmux_run(
+            ["run-shell", "-b", shlex.join([str(_FROZEN_SH), *argv])]
+        )
+        return rc == 0
+
+    def _poll_frozen_outcome(self, record_id: str, kind: str,
+                             prev_attempts: int = 0) -> None:
+        """Watch the store for a dispatched coordinator's outcome and notify.
+
+        `kind` is ``restore`` or ``drop``; each has its own interpreter, because
+        a dropped record disappears rather than reaching `live`.
+        """
+        view = agent_sessions.SessionsView()
+        elapsed = {"t": 0.0}
+        timers: dict[str, object] = {}
+
+        def tick() -> None:
+            elapsed["t"] += _FROZEN_POLL_INTERVAL
+            view.invalidate()
+            rec = view.by_id(record_id)
+            if kind == "drop":
+                done, note, warn = agent_sessions.drop_verdict(
+                    rec, elapsed["t"], drop_grace=_FROZEN_DROP_GRACE)
+            else:
+                done, note, warn = agent_sessions.restore_verdict(
+                    rec, prev_attempts, elapsed["t"],
+                    dispatch_grace=_FROZEN_DISPATCH_GRACE,
+                    settle_timeout=_FROZEN_DISPATCH_GRACE + 30.0)
+            if not done:
+                return
+            timer = timers.pop("t", None)
+            if timer is not None:
+                try:
+                    timer.stop()      # type: ignore[attr-defined]
+                except Exception:     # noqa: BLE001 - already stopped
+                    pass
+            self.notify(note, severity="warning" if warn else "information")
+            self.call_later(self._refresh_data)
+
+        timers["t"] = self.set_interval(_FROZEN_POLL_INTERVAL, tick)
+
+    async def _dispatch_freeze(self, argv: list[str], *,
+                               timeout: float, batch: bool) -> None:
+        """Run a freeze and report it, counting the result lines ourselves.
+
+        `freeze --all` emits NO summary line — one line per pane and nothing
+        else (unlike `restore --all`, which does emit `RESTORE_ALL:`) — so the
+        tally has to be built here.
+
+        A timeout is reported as PARTIAL, never as failure: the runner kills the
+        child, but a killed freeze leaves a `freezing` record that reconcile
+        settles once the lease goes stale, and some agents may already be
+        frozen. Calling that "failed" would send the user looking for a problem
+        that repairs itself.
+        """
+        rc, out = await self._run_frozen_cmd(argv, timeout=timeout)
+        lines = [ln for ln in out.splitlines() if ln.strip()]
+        if any(ln.startswith("ERROR:") and "timed out" in ln for ln in lines):
+            self.notify(
+                "Freeze timed out — some agents may be frozen. "
+                "Run `aitask_frozen.sh reconcile`.", severity="warning")
+            self.call_later(self._refresh_data)
+            return
+        ok = sum(1 for ln in lines if ln.startswith("FROZEN:"))
+        skipped = sum(1 for ln in lines if ln.startswith("FREEZE_SKIPPED:"))
+        failed = [ln for ln in lines if ln.startswith("FREEZE_FAILED:")]
+        if batch:
+            note = f"Froze {ok}/{ok + skipped + len(failed)} agent(s)"
+            if skipped:
+                note += f" ({skipped} already frozen)"
+            self.notify(note, severity="warning" if failed else "information")
+        elif failed:
+            self.notify(f"Freeze failed: {failed[0]}", severity="error")
+        elif skipped:
+            self.notify("That agent is already frozen")
+        elif ok:
+            self.notify("Frozen — press R to restore, p to re-pick")
+        else:
+            self.notify(f"Freeze produced no result (exit {rc})",
+                        severity="warning")
+        self.call_later(self._refresh_data)
+
+    def action_freeze_current(self) -> None:
+        """``f`` — freeze the current agent, after confirming."""
+        snap = self._current_agent_snapshot()
+        if snap is None:
+            self.notify("No agent selected", severity="warning")
+            return
+        if self._is_frozen(snap):
+            self.notify("That agent is already frozen")
+            return
+        window = snap.pane.window_name
+        pane_id = snap.pane.pane_id
+
+        def confirmed(yes: bool | None) -> None:
+            if not yes:
+                return
+            self.run_worker(
+                self._dispatch_freeze(["freeze", pane_id],
+                                      timeout=_FREEZE_ONE_TIMEOUT, batch=False),
+                name="freeze_one", group="frozen-ops",
+                exclusive=False, exit_on_error=False)
+
+        self.push_screen(
+            FreezeConfirmDialog(
+                "Freeze this agent?",
+                f"[bold]{escape(window)}[/]\n\n"
+                "The agent process ends. Its terminal output is captured and "
+                "kept, and it can be restored or re-picked later.",
+            ),
+            confirmed,
+        )
+
+    def action_freeze_all(self) -> None:
+        """``Z`` — freeze every eligible agent, after a scoped confirmation.
+
+        The count comes from `freeze --all --dry-run`, i.e. from the operation's
+        OWN enumeration, so it cannot drift from what confirming does. It is
+        deliberately not derived from `self._snapshots`: `freeze --all` spans
+        every aitasks session on the machine and does not exclude parked agents,
+        while this app may be in single-session mode and its live set excludes
+        parked — so a snapshot-derived number would understate a destructive
+        operation. The dialog says so in words too, because a bare number still
+        reads as "the agents I can see".
+        """
+        self.run_worker(
+            self._offer_freeze_all(), name="freeze_all_offer",
+            group="frozen-ops", exclusive=False, exit_on_error=False)
+
+    async def _offer_freeze_all(self) -> None:
+        rc, out = await self._run_frozen_cmd(
+            ["freeze", "--all", "--dry-run"], timeout=_FREEZE_ONE_TIMEOUT)
+        count = None
+        for line in out.splitlines():
+            if line.startswith("FREEZE_ELIGIBLE:"):
+                try:
+                    count = int(line.split(":", 1)[1])
+                except ValueError:
+                    count = None
+        if rc != 0 or count is None:
+            self.notify("Could not determine what freeze-all would affect — "
+                        "not freezing", severity="error")
+            return
+        if count == 0:
+            self.notify("No agents to freeze")
+            return
+
+        def confirmed(yes: bool | None) -> None:
+            if not yes:
+                return
+            self.run_worker(
+                self._dispatch_freeze(
+                    ["freeze", "--all"],
+                    timeout=_FREEZE_ONE_TIMEOUT * max(1, count), batch=True),
+                name="freeze_all", group="frozen-ops",
+                exclusive=False, exit_on_error=False)
+
+        self.push_screen(
+            FreezeConfirmDialog(
+                f"Freeze all {count} agent(s)?",
+                f"This affects [bold]every aitasks session on this machine[/] — "
+                f"including parked agents and agents in other projects, not "
+                f"just the {len(self._snapshots)} pane(s) shown here.\n\n"
+                "Each agent's process ends; its output is captured and kept, "
+                "and it can be restored later.",
+            ),
+            confirmed,
+        )
+
+    def _start_frozen_restore(self, *, repick: bool) -> None:
+        snap = self._frozen_target("re-pick" if repick else "restore")
+        if snap is None:
+            return
+        record_id = snap.frozen_record_id
+        if not record_id:
+            self.notify("That frozen pane carries no record id",
+                        severity="warning")
+            return
+        # Snapshot `restore_attempts` BEFORE dispatch: it is the only field
+        # `restore-begin` bumps monotonically, and it is what tells a poll that
+        # the detached coordinator actually started (see `restore_verdict`).
+        rec = agent_sessions.SessionsView().by_id(record_id)
+        prev_attempts = rec.restore_attempts if rec is not None else 0
+        argv = ["restore", record_id] + (["--repick"] if repick else [])
+        if not self._run_frozen_detached(argv):
+            self.notify("Could not dispatch the restore", severity="error")
+            return
+        self.notify("Re-picking…" if repick else "Restoring…")
+        self._poll_frozen_outcome(record_id, "restore", prev_attempts)
+
+    def action_restore_frozen(self) -> None:
+        """``R`` — resume the current agent's own session in its stand-in pane."""
+        self._start_frozen_restore(repick=False)
+
+    def action_repick_frozen(self) -> None:
+        """``p`` — relaunch the current agent's task as a fresh pick."""
+        self._start_frozen_restore(repick=True)
+
+    def _drop_frozen(self, snap: "PaneSnapshot") -> None:
+        """``k`` on a frozen agent: retire the record, capture and stand-in.
+
+        Uses `aitask_frozen.sh drop`, NOT `kill_agent_pane_smart`. The latter's
+        frozen branch is a best-effort, UNLEASED store write, so it would delete
+        the record out from under a restore that is in flight. `drop` takes the
+        lease first, preflights the pane against the live server, kills, verifies
+        it is gone, and only then deletes — refusing outright
+        (`DROP_REFUSED:<id>|in_flight`) if a coordinator owns the record. It
+        applies the same window-collapse rule, so nothing is lost by using it.
+        """
+        record_id = snap.frozen_record_id
+        if not record_id:
+            self.notify("That frozen pane carries no record id",
+                        severity="warning")
+            return
+        if not self._run_frozen_detached(["drop", record_id]):
+            self.notify("Could not dispatch the drop", severity="error")
+            return
+        self.notify("Dropping…")
+        self._poll_frozen_outcome(record_id, "drop")
 
     def _hand_off_focus_before_hiding(self) -> None:
         """Hook: move focus off a card that the parked filter is about to hide.
@@ -2218,6 +2508,49 @@ class TaskPickConfirmDialog(TaskDetailDialog):
     def action_dismiss_dialog(self) -> None:
         # Inherited q / Esc must mean cancel, never a truthy result.
         self.dismiss(None)
+
+
+class FreezeConfirmDialog(ModalScreen):
+    """Confirm a freeze (t1705_7). Yes/no over a title and a body.
+
+    Deliberately NOT `KillConfirmDialog`: that one is built around a snapshot
+    and a task, and shows a capture preview, because killing destroys output.
+    Freezing preserves it — the two must not look alike, or the reassuring
+    operation borrows the alarming one's styling.
+    """
+
+    BINDINGS = [Binding("escape", "dismiss_dialog", "Close", show=False)]
+
+    DEFAULT_CSS = """
+    FreezeConfirmDialog { align: center middle; }
+    #freeze-dialog {
+        width: 70%; min-width: 28; height: auto;
+        background: $surface; border: thick $accent; padding: 1 2;
+    }
+    #freeze-header { text-style: bold; color: $accent; margin: 0 0 1 0; }
+    #freeze-details { margin: 0 0 1 0; }
+    #freeze-buttons { width: 100%; height: auto; layout: horizontal; }
+    #freeze-buttons Button { margin: 0 1; }
+    """
+
+    def __init__(self, title: str, body: str) -> None:
+        super().__init__()
+        self._title = title
+        self._body = body
+
+    def compose(self) -> ComposeResult:
+        with Container(id="freeze-dialog"):
+            yield Static(f"[bold]{escape(self._title)}[/]", id="freeze-header")
+            yield Static(self._body, id="freeze-details")
+            with Container(id="freeze-buttons"):
+                yield Button("Freeze", variant="primary", id="btn-freeze")
+                yield Button("Cancel", variant="default", id="btn-cancel")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        self.dismiss(event.button.id == "btn-freeze")
+
+    def action_dismiss_dialog(self) -> None:
+        self.dismiss(False)
 
 
 class KillConfirmDialog(ModalScreen):

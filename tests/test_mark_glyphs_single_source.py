@@ -561,6 +561,50 @@ class CodepointPolicyTests(unittest.TestCase):
             "U+0050 became emoji-capable — the parked mark needs re-deciding",
         )
 
+    def test_the_frozen_marker_evidence_is_recorded(self):
+        """The t1705_7 frozen-glyph decision, kept machine-checked.
+
+        `F` U+0046 is the monitors' frozen marker
+        (``monitor_shared.FROZEN_GLYPH``). Like `P` above it is not in
+        ``RATIFIED``, so without this its evidence would live only in prose.
+
+        **Its manifest entry was written by hand, not regenerated**, because the
+        implementing machine had neither supported font installed nor
+        fontconfig to find them — `regen_font_coverage.py` cannot run there. For
+        a plain ASCII capital in these two monospace families the value is not
+        in doubt (`P` U+0050 measures `true` for both), and the claim is not
+        load-bearing on trust either way:
+        ``test_the_manifest_matches_the_installed_fonts`` rebuilds the manifest
+        from the real font files and fails loudly on any machine that HAS them
+        if this entry is wrong. It skips where they are absent.
+        """
+        for family in SUPPORTED_FONTS:
+            self.assertIn(
+                "0046", self.coverage,
+                "U+0046 has no coverage entry — add it to "
+                "EXTRA_MEASURED_CODEPOINTS and regenerate",
+            )
+            self.assertTrue(
+                self.coverage["0046"][family],
+                f"U+0046 (F, the frozen marker) is not covered by {family} — "
+                f"monitor_shared.FROZEN_GLYPH would resolve by fallback",
+            )
+        self.assertNotIn(
+            0x0046, _EMOJI_CAPABLE,
+            "U+0046 became emoji-capable — the frozen marker needs re-deciding",
+        )
+
+    def test_the_frozen_marker_is_measured_by_the_generator(self):
+        """The manifest entry must be REPRODUCIBLE, not just present.
+
+        Without U+0046 in the generator's candidate list, the hand-written entry
+        above would be deleted the next time anyone regenerates on a
+        font-equipped machine, and the evidence would silently vanish.
+        """
+        sys.path.insert(0, str(PROJECT_DIR / "tests" / "tools"))
+        import regen_font_coverage as regen
+        self.assertIn(0x0046, regen.EXTRA_MEASURED_CODEPOINTS)
+
     def test_the_manifest_covers_exactly_the_supported_fonts(self):
         self.assertEqual(set(self.manifest["fonts"]), set(SUPPORTED_FONTS))
         for key, families in self.coverage.items():

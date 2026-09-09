@@ -44,10 +44,11 @@ from monitor.tmux_monitor import (  # noqa: E402
 )
 from monitor.tmux_control import TmuxControlState  # noqa: E402
 import agent_marks  # noqa: E402
+from rich.markup import escape  # noqa: E402
 from monitor.monitor_shared import (  # noqa: E402
     _ansi_to_rich_text, _TASK_ID_RE, GateSummaryCache, TaskInfo, TaskInfoCache,
     workflow_phase,
-    TaskDetailDialog, KillConfirmDialog, NextSiblingDialog, ChooseSiblingModal,
+    TaskDetailDialog, KillConfirmDialog, FreezeConfirmDialog, NextSiblingDialog, ChooseSiblingModal,
     AgentMarksMixin, ConcernBlockInspectModal, ConcernPickerModal,
     ShadowRejectionsMixin, STATE_STYLE_DONE,
     format_compare_mode_glyph, format_mark_glyph, format_frozen_prefix,
@@ -530,7 +531,18 @@ class MonitorApp(
         Binding("e", "launch_shadow", "Shadow"),
         Binding("E", "launch_shadow_pick", "Shadow (pick)"),
         Binding("space", "toggle_mark", "Mark"),
-        Binding("P", "toggle_parked_visibility", "Parked"),
+        # The action id stays `toggle_parked_visibility` even though it now
+        # hides frozen agents too — it is a persisted key-override identifier
+        # (see `action_toggle_parked_visibility`). Only the label widened.
+        Binding("P", "toggle_parked_visibility", "Parked/frozen"),
+        # Frozen agents (t1705_7). `f`/`Z` are free in BOTH apps, so the two
+        # TUIs read identically; `z` is Zoom here and `R` is Restart, which is
+        # why neither could take the task's originally-proposed keys.
+        Binding("f", "freeze_current", "Freeze"),
+        Binding("Z", "freeze_all", "Freeze all"),
+        # `p` is frozen-only here (the monitor has no pick-by-number); `R` and
+        # `k` keep their live-card meaning and branch INSIDE the action.
+        Binding("p", "repick_frozen", "Re-pick frozen", show=False),
     ]
 
     def __init__(
@@ -3519,6 +3531,36 @@ class MonitorApp(
         except OSError as exc:
             self.notify(f"Failed to launch log viewer: {exc}", severity="error")
 
+    def _confirm_drop_frozen(self, snap) -> None:
+        """Confirm before retiring a frozen record — the capture is the only
+        copy of that agent's output, and dropping deletes it."""
+        window = snap.pane.window_name
+
+        def confirmed(yes: bool | None) -> None:
+            if yes:
+                self._drop_frozen(snap)
+
+        self.push_screen(
+            FreezeConfirmDialog(
+                "Drop this frozen agent?",
+                f"[bold]{escape(window)}[/]\n\n"
+                "[bold red]Its captured output is deleted[/] along with the "
+                "record, and the stand-in pane is closed. This cannot be "
+                "undone — restore or re-pick it instead if you still want it.",
+            ),
+            confirmed,
+        )
+
+    def _current_agent_snapshot(self):
+        """The focused card — this app's "the agent I am on".
+
+        The same target `k` (kill), `R` (restart) and `space` (mark) already act
+        on, so the frozen keys introduce no new selection concept. Cards that
+        are merely visible are never acted on.
+        """
+        pane_id = self._get_focused_pane_id()
+        return self._snapshots.get(pane_id) if pane_id else None
+
     def action_kill_pane(self) -> None:
         """Show kill confirmation dialog for the focused pane."""
         if self._monitor is None:
@@ -3529,6 +3571,13 @@ class MonitorApp(
             return
         snap = self._snapshots.get(pane_id)
         if not snap:
+            return
+        if self._is_frozen(snap):
+            # A frozen pane holds a stand-in viewer, not an agent: nothing to
+            # kill, and what `k` means here is "retire this record and its
+            # capture". Routed to the leased, preflighted
+            # `aitask_frozen.sh drop` — see `_drop_frozen` (t1705_7).
+            self._confirm_drop_frozen(snap)
             return
         task_info = None
         task_id = self._task_cache.get_task_id_for_pane(snap.pane)
@@ -3694,6 +3743,15 @@ class MonitorApp(
             return
         snap = self._snapshots.get(pane_id)
         if not snap:
+            return
+        if self._is_frozen(snap):
+            # On a FROZEN card, "restart this agent" IS "restore it" — the
+            # process already ended and its session is on disk. Guarded here
+            # rather than in the binding so `R` keeps its ordinary restart
+            # meaning on a live card (t1705_7). Note this runs BEFORE the idle
+            # check below: a frozen pane is never "idle", it has no verdict at
+            # all, so that check would reject it with a misleading reason.
+            self.action_restore_frozen()
             return
         if not snap.is_idle:
             self.notify(

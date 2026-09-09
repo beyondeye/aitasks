@@ -69,8 +69,13 @@ MANIFEST_PATH = REPO_ROOT / "tests" / "data" / "font_coverage.json"
 #:                invisible-glyph defect
 #:   25A0         rejected (t1685) — `■` is covered, but collides visually with
 #:                the monitor's state dot `●` two columns away
+#:   0046         CHOSEN (t1705_7) — `F`, the frozen marker. Same basis as
+#:                `P` above: a plain ASCII capital, covered by every supported
+#:                font and claimed by no emoji font. See the note in
+#:                tests/data/font_coverage.json's task record about how its
+#:                entry was written.
 EXTRA_MEASURED_CODEPOINTS = (
-    0x2610, 0x2611, 0x2714, 0x2605, 0x2606, 0x0050, 0x23F8, 0x25A0,
+    0x2610, 0x2611, 0x2714, 0x2605, 0x2606, 0x0050, 0x23F8, 0x25A0, 0x0046,
 )
 
 

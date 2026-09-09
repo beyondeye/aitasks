@@ -58,10 +58,11 @@ import agent_marks  # noqa: E402
 from monitor.monitor_shared import (  # noqa: E402
     _TASK_ID_RE, GateSummaryCache, TaskInfoCache, TaskDetailDialog,
     workflow_phase,
-    KillConfirmDialog, NextSiblingDialog, ChooseSiblingModal,
+    KillConfirmDialog, FreezeConfirmDialog, NextSiblingDialog, ChooseSiblingModal,
     AgentMarksMixin, ColumnPickerModal, NewColumnTitleModal,
     ConcernBlockInspectModal, ConcernPickerModal, TaskNumberInputModal,
     TaskPickConfirmDialog, ShadowRejectionsMixin, STATE_STYLE_DONE,
+    FROZEN_GLYPH,
     format_compare_mode_glyph, format_mark_glyph, format_frozen_prefix,
     format_pane_status,
     format_section_header, format_session_divider, format_shadow_glyph,
@@ -103,6 +104,7 @@ from agent_command_screen import AgentCommandScreen, resolve_skill_profile  # no
 import gate_ledger  # noqa: E402  (narrow gate-summary shed; same import path as monitor_core)
 
 from rich.cells import cell_len, set_cell_size  # noqa: E402
+import agent_sessions  # noqa: E402
 from rich.markup import escape  # noqa: E402
 from textual.app import App, ComposeResult  # noqa: E402
 from textual.binding import Binding  # noqa: E402
@@ -785,16 +787,46 @@ KEY_HINTS_TEXT = (
     "I:info (followed agent)\n"
     "s/\u2191\u2193:switch  enter:send\n"
     "d:detect (\u2248 strip, = raw)\n"
-    "j:tui switcher  m:full monitor\n"
+    # Shortened by t1705_7 to pay for the three keys added below. At width 15
+    # this was the most expensive line in the band — four wrapped rows — so
+    # trimming it buys back more than the new keys cost.
+    "j:switcher  m:monitor\n"
     "k:kill  n:next  e/E:shadow\n"
     # `P` shares this line with `p` deliberately (t1685): they are unrelated
     # actions that differ only in case, and putting them side by side is what
     # makes that legible. It also keeps the hints at TEN rows — an eleventh
     # would cost the pane list a row at every pane height, which
     # test_minimonitor_top_chrome_render pins.
-    "c:concerns  p:pick task  P:parked\n"
-    "L:auto-recheck loop\n"
-    "M:multi-session  ?:edit keys\n"
+    #
+    # t1705_7 added three keys (`f`, `Z`, `R`) and widened `P`'s label, still
+    # within TEN rows.
+    #
+    # The budget is not only the row COUNT — it is the WRAPPED height. This band
+    # is docked bottom, so at narrow widths a longer line costs a whole extra
+    # rendered row and squeezes `#mini-own-agent`;
+    # `test_own_header_names_the_session_without_clipping_at_any_width` measures
+    # that down to width 15, where every line over 30 cells wraps to three. So
+    # The budget is not the row COUNT but the RENDERED height at a NARROW width,
+    # and it is sharper than it looks. This band is `height: auto` and docked
+    # bottom, so at width 15 it overflows the screen, gains a scrollbar, loses
+    # another column to it, and re-wraps WIDER than a naive measurement predicts
+    # — then paints over row 0 and swallows `#mini-own-agent`, which
+    # `test_own_header_names_the_session_without_clipping_at_any_width` catches.
+    #
+    # So MEASURE, never eyeball: render the app at (15, 30) and read
+    # `#mini-key-hints`'s region height. It must stay ≤ 29. Rich WORD-wraps, so
+    # word lengths decide, not character counts — which is why the labels are
+    # terse and why single spaces appear on the `L:` line.
+    #
+    # The three keys t1705_7 added are paid for by shortening the `j:`/`m:` line
+    # above, which was the band's most expensive at that width. That headroom is
+    # spent on naming BOTH states in `P:parked/frozen` rather than on a shorter
+    # label: this band is the minimonitor's only binding surface (it renders no
+    # Footer), so a user hunting for "how do I show parked agents again?" has
+    # nowhere else to look.
+    "c:concerns  p:pick  P:parked/frozen\n"
+    "f:freeze  Z:all  R:restore\n"
+    "L:loop ?:keys M:multi\n"
     "space:mark ★ (followed agent)"
 )
 
@@ -1108,7 +1140,18 @@ class MiniMonitorApp(
         # "surface the hint in the pane's own text" exception, justified in
         # p1159_2; the hints/bindings parity is test-pinned).
         Binding("L", "toggle_review_loop", "Auto-recheck loop", show=False),
-        Binding("P", "toggle_parked_visibility", "Parked", show=False),
+        # The action id stays `toggle_parked_visibility` even though it now
+        # hides frozen agents too — it is a persisted key-override identifier
+        # (see `action_toggle_parked_visibility`). Only the label widened.
+        Binding("P", "toggle_parked_visibility", "Parked/frozen", show=False),
+        # Frozen agents (t1705_7). `f`/`Z` are free in BOTH apps, so the two
+        # TUIs stay identical; `z` could not be used because the full monitor
+        # binds it to Zoom.
+        Binding("f", "freeze_current", "Freeze followed agent", show=False),
+        Binding("Z", "freeze_all", "Freeze all agents", show=False),
+        # `R` restores; `p` and `k` keep their live-row meaning and branch on
+        # the frozen state INSIDE the action, never in the binding.
+        Binding("R", "restore_frozen", "Restore frozen agent", show=False),
     ]
 
     def __init__(
@@ -1185,6 +1228,10 @@ class MiniMonitorApp(
         self._own_mark_state: str | None = None
         # Rendered phase line currently painted on the docked panel (t1420).
         self._own_phase_state: str = ""
+        # The followed agent's frozen stamp as currently painted (t1705_7).
+        # `None` = not frozen, `""` = frozen with no readable record — the two
+        # render differently, so both are real states here, not "no value".
+        self._own_frozen_state: str | None = None
         # Auto-offer de-dup (t1037_4): last forwarded concern payload per shadow
         # pane id, so a re-detected *unchanged* block does not re-fire the hint.
         self._last_concern_block_payload: dict[str, str] = {}
@@ -2464,7 +2511,8 @@ class MiniMonitorApp(
                     line += f"\n  [dim]{wline}[/]"
         return line
 
-    def _own_card_text(self, mark_kind: str | None, phase: str = "") -> str:
+    def _own_card_text(self, mark_kind: str | None, phase: str = "",
+                       frozen_at: str | None = None) -> str:
         """Docked-panel card text: the frozen identity line, the mark glyph, and
         the advisory workflow phase.
 
@@ -2514,6 +2562,18 @@ class MiniMonitorApp(
         # `KIND_NONE`, which is a markable agent that simply carries no mark and
         # renders `☆`. Keeping the two apart is what stops a read-only `☆`
         # appearing on a pane whose `space` refuses (t1383).
+        if frozen_at is not None:
+            # A frozen followed agent: this window's own pane now holds the
+            # stand-in viewer, so there is no agent process to have a phase.
+            # The glyph composes with the mark exactly as the list rows do, and
+            # the phase line is suppressed rather than left stale — that line is
+            # the one thing here that WAS live, and a frozen agent has no
+            # current answer for it (t1705_7).
+            prefix = (f"[bold cyan]{FROZEN_GLYPH}[/]" if mark_kind is None
+                      else format_frozen_prefix(mark_kind))
+            line = f"{prefix} {self._own_identity_text}"
+            stamp = f" {frozen_at}" if frozen_at else ""
+            return line + f"\n  [dim]frozen{stamp}[/]"
         line = (self._own_identity_text if mark_kind is None
                 else f"{format_mark_glyph(mark_kind)} {self._own_identity_text}")
         if phase:
@@ -2543,17 +2603,44 @@ class MiniMonitorApp(
             return
         snap = self._find_own_agent_snapshot()
         mark_kind = self._mark_kind(snap) if snap is not None else None
-        phase = self._own_phase_text(snap)
+        frozen_at = self._own_frozen_at(snap)
+        # A frozen agent has no phase: the process is gone, so any value here
+        # would be whatever it was at freeze time, presented as current.
+        phase = "" if frozen_at is not None else self._own_phase_text(snap)
         # Four-state compare: KIND_NONE (unmarked agent), KIND_PRIORITY,
         # KIND_PARKED and None (nothing markable) are all distinct, so every
         # transition between them repaints. The phase is compared as its
         # RENDERED string, so a provenance change that does not alter what the
         # user sees costs no repaint.
-        if mark_kind == self._own_mark_state and phase == self._own_phase_state:
+        if (mark_kind == self._own_mark_state
+                and phase == self._own_phase_state
+                and frozen_at == self._own_frozen_state):
             return
         self._own_mark_state = mark_kind
         self._own_phase_state = phase
-        self._own_card.update(self._own_card_text(mark_kind, phase))
+        self._own_frozen_state = frozen_at
+        self._own_card.update(
+            self._own_card_text(mark_kind, phase, frozen_at))
+
+    def _own_frozen_at(self, snap) -> "str | None":
+        """The followed agent's `frozen_at` stamp, or None when it is not frozen.
+
+        `None` and `""` are DIFFERENT answers and both occur: `None` means "not
+        frozen", `""` means "frozen, but the record could not be read" (it was
+        dropped, or the store is unreadable). The renderer still says `frozen`
+        for the second — the pane option is the authoritative classifier, and a
+        missing record must not silently downgrade the row to a live one.
+        """
+        if snap is None or not self._is_frozen(snap):
+            return None
+        record_id = getattr(snap, "frozen_record_id", "")
+        if not record_id:
+            return ""
+        try:
+            rec = agent_sessions.SessionsView().by_id(record_id)
+        except Exception:  # noqa: BLE001 - an unreadable store is not fatal here
+            return ""
+        return (rec.frozen_at or "") if rec is not None else ""
 
     def _own_phase_text(self, snap) -> str:
         """Rendered advisory phase for the followed agent, or ``""``.
@@ -2610,9 +2697,13 @@ class MiniMonitorApp(
         # Freeze the identity here; only the mark glyph tracks reality after.
         self._own_identity_text = self._own_agent_identity_text(own_snap)
         self._own_mark_state = self._mark_kind(own_snap) if is_agent else None
-        self._own_phase_state = self._own_phase_text(own_snap)
+        self._own_frozen_state = self._own_frozen_at(own_snap)
+        self._own_phase_state = (
+            "" if self._own_frozen_state is not None
+            else self._own_phase_text(own_snap))
         card = Static(
-            self._own_card_text(self._own_mark_state, self._own_phase_state),
+            self._own_card_text(self._own_mark_state, self._own_phase_state,
+                                self._own_frozen_state),
             classes="mini-own-card"
         )
         panel = self.query_one("#mini-own-agent", VerticalScroll)
@@ -2891,6 +2982,13 @@ class MiniMonitorApp(
         if snap is None:
             self.notify("No followed agent in this window", severity="warning")
             return
+        if self._is_frozen(snap):
+            # A frozen pane holds a stand-in viewer, not an agent: there is no
+            # process to kill, and what the user means by `k` here is "retire
+            # this record and its capture". Routed to `aitask_frozen.sh drop`,
+            # which is leased and preflighted — see `_drop_frozen` (t1705_7).
+            self._confirm_drop_frozen(snap)
+            return
         task_info = None
         task_id = self._task_cache.get_task_id_for_pane(snap.pane)
         if task_id:
@@ -2899,6 +2997,26 @@ class MiniMonitorApp(
         self.push_screen(
             KillConfirmDialog(snap, task_info, show_preview=False),
             callback=lambda ok: self._on_own_kill_confirmed(ok, pane_id),
+        )
+
+    def _confirm_drop_frozen(self, snap) -> None:
+        """Confirm before retiring a frozen record — the capture is the only
+        copy of that agent's output, and dropping deletes it."""
+        window = snap.pane.window_name
+
+        def confirmed(yes: bool | None) -> None:
+            if yes:
+                self._drop_frozen(snap)
+
+        self.push_screen(
+            FreezeConfirmDialog(
+                "Drop this frozen agent?",
+                f"[bold]{escape(window)}[/]\n\n"
+                "[bold red]Its captured output is deleted[/] along with the "
+                "record, and the stand-in pane is closed. This cannot be "
+                "undone — restore or re-pick it instead if you still want it.",
+            ),
+            confirmed,
         )
 
     def _on_own_kill_confirmed(self, confirmed: bool | None, pane_id: str) -> None:
@@ -3094,6 +3212,14 @@ class MiniMonitorApp(
             self.notify("Monitor not ready", severity="warning")
             return
         snap = self._find_own_agent_snapshot()
+        if snap is not None and self._is_frozen(snap):
+            # On a FROZEN followed agent, `p` means "re-pick this task into the
+            # stand-in's pane" — the frozen record already knows the task, so
+            # the number prompt below would be asking for something it has.
+            # Guarded here rather than in the binding so `p` keeps its ordinary
+            # pick-by-number meaning on a live agent (t1705_7).
+            self.action_repick_frozen()
+            return
         target_root = self._root_for_snap(snap) if snap else self._project_root
         sess = snap.pane.session_name if snap else self._session
 
@@ -5050,6 +5176,16 @@ class MiniMonitorApp(
             self.notify("No followed agent in this window", severity="warning")
             return
         self._show_task_info_for(snap)
+
+    def _current_agent_snapshot(self):
+        """This companion follows exactly one agent — its docked panel's.
+
+        The same target `k` (kill) and `space` (mark) already act on, so the
+        frozen keys need no new notion of "selected". The pane list's other rows
+        are read-only here and are deliberately NOT reachable: an action on a
+        row you merely scrolled past is what the user asked us not to build.
+        """
+        return self._find_own_agent_snapshot()
 
     async def action_toggle_mark(self) -> None:
         """Toggle the prioritized mark on the agent this minimonitor follows.
