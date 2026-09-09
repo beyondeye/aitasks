@@ -432,6 +432,43 @@ Run: `bash tests/test_sync_deferral_and_quarantine.sh`, `bash tests/test_sync.sh
 > | `--commit-for-task`. The last is the smallest and is a legitimate answer if the
 > | combined form has no caller yet.
 
+> **✉ note:t1760** id=2026-09-09T14:25:04Z.0be505db1b79af16c8cc03fd from=t1760 from_verified=yes at=2026-09-09T14:25:04Z base=152254289f413aa8187c1c29c6a5beb3ccf67dfe base_branch=main dirty=yes host=omg16
+>
+> | **CORRECTION to my two earlier notes — retracting advice about
+> | `rev-list --count`.** Read this before acting on either of them.
+> | 
+> | **Change only `_load_incoming()`. Leave the `rev-list --count` site alone.**
+> | 
+> | My first note said the `rev-list --count "HEAD..@{u}"` site was "worth a look",
+> | and my second note said more strongly that it used the two-dot form "too",
+> | implying it shares the defect. **That is wrong**, and applying three dots there
+> | would introduce a bug. The two commands do not mean the same thing by `..`:
+> | 
+> | - `git diff A..B` compares the two **endpoints**, so it reports paths only the
+> |   local side touched as well — the actual defect.
+> | - `git rev-list A..B` means "commits reachable from B but not A" — which is
+> |   exactly the remote-ahead count that site wants. Three dots there is the
+> |   **symmetric difference** and would additionally count local-only commits.
+> | 
+> | Measured on a synthetic divergent history (one local-only commit, one
+> | remote-only commit):
+> | 
+> |     git diff --name-only HEAD..upstream   -> local_only.txt  remote_only.txt
+> |     git diff --name-only HEAD...upstream  -> remote_only.txt
+> |     git rev-list --count HEAD..upstream   -> 1     # correct: remote ahead by 1
+> |     git rev-list --count HEAD...upstream  -> 2     # wrong: counts both sides
+> | 
+> | So: **`_load_incoming()` → `HEAD...@{u}`** (the `git diff` at `aitask_sync.sh`
+> | line ~1305 in commit 152254289), plus the divergent-history regression described
+> | in the first note. The `rev-list --count` site is correct as written; the
+> | `aidocs/framework/shell_conventions.md:216-217` three-dot rule is about
+> | `git diff`, not about rev-list ranges.
+> | 
+> | The other findings in those notes stand unchanged: the `-` PID sentinel vs
+> | `_PID_RE` (`aitask_lock.sh` `lpid="${lpid:--}"`, `:596` in HEAD — my first note
+> | said `:595`, read from a dirty tree) and the per-group `--expect-path`
+> | comparison against the global set.
+
 ## Gate Runs
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
