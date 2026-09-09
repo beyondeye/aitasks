@@ -174,6 +174,63 @@ Run it after editing any page under `content/`. CI runs it right after the
 release build (`.github/workflows/hugo.yml`), so a dead link fails the job and
 the site does not deploy.
 
+## Checking Link *Relevance*
+
+`check_links.py` answers "does the target exist". It cannot answer "is the target
+*about* what the link text says". A link to a real page with a real anchor passes
+every check the repo runs, however unrelated that page's content is — which is
+how two `` `ait artifact` `` links pointing at pages documenting neither
+artifacts nor that command survived until someone read them by hand.
+
+`check_link_relevance.py` reports that class:
+
+```bash
+cd website
+python3 check_link_relevance.py
+```
+
+It reads the **markdown sources** rather than the built HTML — deliberately, and
+unlike `check_links.py`. The output is `source_file:line`, so a human can go
+straight to the link; the generated HTML has thrown that away. The two scripts
+divide the work and neither should grow into the other's job:
+
+| | `check_links.py` | `check_link_relevance.py` |
+|---|---|---|
+| input | built HTML | markdown sources |
+| question | does the target resolve, does the anchor exist | does the target mention the subject the link text names |
+| output | broken links | candidates for human triage |
+| CI | **gates the deploy** | not wired to CI |
+
+**It is a report, not a gate.** Reported links do not change the exit status —
+relevance is a heuristic and some hits are expected to be false positives (link
+text that is a page title, a prose paraphrase, a script name standing in for the
+command a page documents). The script exits non-zero only when one of its own
+self-controls fails, i.e. when it can no longer prove it is still looking; it
+prints every control on every run.
+
+### What it does not check
+
+Stated explicitly, because a coverage gap nobody can see is indistinguishable
+from a clean result:
+
+- **Only backtick-quoted link text** — roughly seven internal links in ten. The
+  exact split moves with every docs commit, so read the `links checked` line of a
+  run rather than a number quoted here. Prose link text carries no distinctive
+  token to match on, and matching it would bury the real signal under false
+  positives.
+- **Only links written in the markdown source.** Links emitted by shortcodes,
+  layouts or Docsy templates are invisible to a source-side scanner —
+  `check_links.py` sees those and this does not.
+- **Hugo's default filename→URL layout is assumed.** No content file overrides it
+  with `slug:` or `url:` today; if one starts to, the script warns rather than
+  silently mis-resolving.
+
+Links whose target does not resolve are counted under `unresolved` and are
+deliberately scored as **neither** a hit nor a miss — folding them into either
+would let a broken resolver read as a clean sweep. A non-zero `unresolved` or
+`anchor n/f` count therefore means the resolver regressed, and should be read as
+a fault in the checker before any reported link is triaged.
+
 ## Deployment
 
 Automatic on push of version tags (`v*`) via GitHub Actions. See `.github/workflows/hugo.yml`.

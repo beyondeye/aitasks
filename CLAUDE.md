@@ -105,6 +105,7 @@ shellcheck .aitask-scripts/aitask_*.sh
 cd website && npm install && ./serve.sh    # Local dev server
 hugo build --gc --minify                   # Production build (in website/)
 python3 check_links.py --build             # Internal-link check (in website/)
+python3 check_link_relevance.py            # Link-relevance report (in website/)
 ```
 Requires: Hugo extended (>=0.155.3), Go (>=1.23), Dart Sass, Node.js (18+).
 
@@ -117,6 +118,15 @@ check after the release build, so a dead link blocks the deploy.
 
 Prefer `{{< relref "/docs/..." >}}` over a hand-written relative path for
 internal links: a relref fails the build when a page is moved or renamed.
+
+`check_link_relevance.py` answers a different question — whether a link's target
+page is *about* what the link text names. A link to a real page with a real
+anchor passes both `hugo build` and `check_links.py` however unrelated that page
+is. It is a **report for human triage, not a gate**: reported links never change
+its exit status (only a failed self-control does), and it is not wired to CI.
+Offer it when a change adds or retargets internal links; `check_links.py` remains
+the mandatory one. Coverage boundary and the source-side-vs-built-HTML split are
+in `website/README.md`.
 
 ## Architecture
 
