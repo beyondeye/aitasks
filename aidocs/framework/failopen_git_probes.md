@@ -85,15 +85,22 @@ _tree_dirty_tracked() {
 }
 ```
 
-And every consumer must be rewritten with it: a bare `if _probe; then` treats
-rc 2 as false, which re-creates the exact fail-open the tri-state was introduced
-to close. Hardening a helper while one caller still reads it bare leaves the site
-looking fixed and behaving unchanged — so a helper change is only complete when
-its **whole** call-site set has been enumerated and given a disposition.
+And every consumer must be revisited. A bare `if _probe; then` collapses rc 2
+into the false branch, silently merging "no" with "unknown". Whether that is
+fail-*open* depends on the same thing every disposition depends on — which branch
+at that call site permits the destructive action. Where the false branch permits
+it, a bare `if` re-creates the exact fail-open the tri-state was introduced to
+close; where the false branch refuses, it happens to land fail-closed (A2's
+post-advance use below is one such site). Either way it is an *accident* of the
+call site rather than a decision, which is why the requirement is unconditional:
+a helper change is only complete when its **whole** call-site set has been
+enumerated and each consumer given an **explicit** disposition for "unverified".
+Hardening a helper while one caller still reads it bare leaves that site looking
+fixed with its behaviour unexamined.
 
 ## Group A — authorizing / destructive, fail-open
 
-**Thirteen sites, as audited at `ec9641e79`** (see [Re-deriving this
+**Thirteen sites across seven files, as audited at `ec9641e79`** (see [Re-deriving this
 set](#re-deriving-this-set) — the count is reproducible, not standing). Each row
 names the child of t1747 that owns the fix.
 
