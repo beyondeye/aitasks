@@ -910,3 +910,124 @@ respawn. Two-phase, acknowledged:
 Resolution stays single-sourced in `lib/agent_string.sh`. Restore-All iterates
 `frozen` records; per-record failures are reported, never abort the batch.
 
+
+## Final Implementation Notes
+
+- **Actual work done:** All three inline pre-phases plus the suite.
+  `tests/lib/frozen_fixtures.sh` extracts the 13 duplicated helpers (plus
+  `agent_env` / `agent_env_clear`) out of `test_freeze_engine_live.sh` and
+  `test_restore_flows_live.sh`; both were run green **before** (110/110, 76/76)
+  and produce identical counts after. `tests/lib/fake_agent.sh` gains the V4
+  output knob, default-off. `tests/test_frozen_agents_acceptance.sh` is the
+  composed suite: 5 probes, cases 1-9, 6 split into 6a/6b, 10a/10b, three-level
+  setup coverage, 128 assertions, `ACCEPTANCE_ELAPSED:72` against the 180 s
+  budget. Docs paragraph added to `aidocs/framework/testing_conventions.md`.
+
+- **The probes were controlled, not assumed.** Both pre-fix controls were run.
+  Without the `frozen:` block and the env ack grace: capture is **302** lines
+  instead of 132 (all 300 emitted survive under the 50000 default) and probes
+  A / C2 / D all land on **21 s** instead of 5 / 8 — including D, which goes
+  through the detached `run-shell -b` coordinator. Without the env stale-op
+  grace: reconcile skips the record as in-flight, it never settles, and the
+  killed coordinator's lease is still held. Every probe fails for the predicted
+  reason with the predicted number.
+
+- **Deviations from plan (three planned assertions were unreachable as written):**
+  - **The launch goes through the wrapper, not its `--dry-run` argv.** The plan
+    said to launch the argv printed by `--dry-run` "so the wrapper, the
+    `AITASK_AGENT_STRING` export path and the fake binary are all real". It
+    cannot be: `cmd_invoke` returns at `aitask_codeagent.sh:637` under
+    `--dry-run`, **before** `export AITASK_AGENT_STRING` at `:646`. Case 1
+    asserts `agent_string` came from that export, so the planned form would have
+    asserted an empty value. Running the wrapper itself as the pane command
+    exercises both, and the `exec` chain keeps the pid so `#{pane_pid}` still
+    names the agent. Measured: the store records `agent_string:claudecode/opus5`.
+  - **`capture_max_lines` is scrollback DEPTH, not a total.** The engine passes
+    `-S -<cap>`, which starts `cap` lines back in history and runs through the
+    bottom of the visible pane, so the file holds `cap + pane_height` lines. The
+    plan's "capture.txt is exactly 120 lines" would have failed against correct
+    behaviour (measured 132). The assertion now derives the expected value from
+    the live `#{pane_height}`, with the discrimination from the 300 emitted
+    lines stated as its own bound.
+  - **`AITASKS_FROZEN_PAUSE_AT=respawn` pauses AFTER the respawn**
+    (`agent_restore.py:407` follows the respawn at `:395`), so case 8's
+    "killed after clearing ready, **before** respawn" is not reachable — no
+    stage exists between the two. Case 8 now targets the gap that is reachable
+    and is the one that matters: respawned, but `restore-launched` not yet
+    written, so `launch_pid == 0` and reconcile has no nonce-bound evidence.
+    The asserted contract is §C's "a liveness confirm requires POSITIVE
+    evidence": it must roll back to the viewer and never confirm.
+    `FAKE_AGENT_NO_HOOK=1` is load-bearing there — without it the replacement's
+    own hook acks the record to `live` (correct behaviour) and the row is never
+    exercised.
+
+- **Issues encountered:**
+  - **`install.sh` needs `--local-tarball`.** The plan's bare
+    `bash install.sh --dir "$SCRATCH"` downloads from GitHub: it would make the
+    suite need the network and would test the *released* framework rather than
+    the tree under change. The suite builds a tarball of the working tree.
+  - **`install.sh` writes the real `$HOME`** — V3 considered only the venv, but
+    `install.sh` ends in `install_global_shim`, which copies
+    `packaging/shim/ait` into `$HOME/.local/bin`. Confirmed empirically: an
+    early run rewrote `~/.local/bin/ait`. Every install now runs under a
+    redirected HOME, scoped **per command** rather than exported — a suite-wide
+    redirect would leave the real `ait frozenagent` viewer unable to resolve
+    Python from `$HOME/.aitask/venv`, and the viewer booting is the thing this
+    suite exists to exercise. A closing assertion fingerprints the real shim
+    before the first install and re-checks it at the end.
+  - **Level 3 needs the same redirected HOME for `install.sh` and `ait setup`.**
+    `install.sh` deletes `packaging/` once the shim is consumed
+    (`cleanup_packaging_leftover`), so a later `ait setup` that still has a shim
+    to install dies with `Cannot locate shim source`. Under one HOME the
+    installer has already placed it and setup finds it there. Level 3 was run
+    and passes.
+  - **Case 11 dropped as planned**, folded into level 2 as a repeat-install
+    count of the SessionStart groups.
+
+- **Key decisions:**
+  - `make_agent_window` keeps the freeze suite's general three-argument form in
+    the shared library; the restore suite's single call site passes its globals.
+    The `wait_*` poll budget is a variable (`FROZEN_WAIT_TRIES`) so the freeze
+    suite keeps its 100 tries, where cases 4 and 5 wait out a stamp that never
+    arrives and the budget is a real cost, not a failure-path ceiling.
+  - Case 6 is split rather than deleted: 6a proves the gone-pane branch works
+    via the one path that reaches it, 6b pins only the fail-safe half of the
+    path that does not (see below), so neither needs rewriting when t1773 lands.
+  - `test_cleanup_rule_parity.sh` was run while in this environment, as the plan
+    asked. **59/59, green.** It had never been executed (t1705_7's note); it
+    remains t1705_11's to own.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/agent_restore.py:334,391 — restore branches on the
+    recorded pane_id rather than a live pane check, so a frozen record whose
+    window was closed can never be restored (RESTORE_FAILED|respawn). This
+    contradicts agent_freeze.drop_record()'s own docstring ("pane_id is durable
+    but NOT authoritative … the record stays restorable into a fresh window"),
+    which is why drop preflights the live inventory and restore does not. Filed
+    as t1773; covered fail-safely by acceptance case 6b.`
+
+- **Notes for sibling tasks:**
+  - **The composed environment is reusable and is the expensive part.** If
+    another sibling needs a real scratch project on an isolated server, copy the
+    "Composed environment" block from `test_frozen_agents_acceptance.sh` rather
+    than rebuilding it: the tarball recipe, the per-command HOME redirect, the
+    control-file wrapper and the export-before-server-start ordering are each a
+    silent-failure trap, and three of the four were only found by running it.
+  - **t1705_11 (manual verification):** two things it no longer needs to cover
+    and one it should. `test_cleanup_rule_parity.sh` is now run and green, so
+    that item can be closed on evidence. The freeze/restore/drop cycle is
+    covered end to end against a real viewer here, so manual verification should
+    concentrate on what a fake agent cannot model: a **real** `claude` / `codex`
+    honouring `--resume <sid>` and actually returning to its prior context.
+    It should also exercise t1773's route by hand (freeze, close the window,
+    restore) since that is a user-visible dead end today.
+  - **t1705_9 / t1705_10 (docs):** the user-visible behaviours proven here are
+    the freeze header line, the `RESTORED:<id>|hook` vs `|liveness` distinction
+    (a liveness restore KEEPS the capture and is shown as unverified), and the
+    two different `drop` verbs — `aitask_agent_sessions.sh drop` leaves the pane
+    running by design, `aitask_frozen.sh drop` retires it. Do not document them
+    as interchangeable. Also note that `frozen.stale_op_grace` is **not**
+    settable in `project_config.yaml` (env-only, under test mode) while
+    `capture_max_lines` and `restore_ack_grace` are — and that
+    `capture_max_lines` is scrollback depth, so the stored capture is that many
+    lines plus the visible pane.
