@@ -1125,3 +1125,75 @@ absorbed findings V9–V11):
   before the app is written rather than after. V10/V11 added a second
   goal-achievement bullet, but both are now closed by named tests. What keeps it
   at medium is breadth, not soundness.
+
+## Final Implementation Notes
+
+Landed as `874043c73`. Read this before t1705_7 (monitor/minimonitor rows) or
+anything else touching the frozen-agent engines — several shipped contracts
+changed.
+
+### What shipped beyond the plan
+
+The plan described a viewer. Reviewing it turned up **fifteen defects** across
+three rounds (recorded above as R1–R15), six of them in code that had already
+shipped in t1705_4/t1705_5. The engine changes are the ones a sibling will trip
+over:
+
+- **`kill_agent_pane_smart`'s frozen branch is kill-then-drop.** The shipped
+  order (drop, then kill) left a live pane still stamped `@aitask_frozen=<id>`
+  whose record and capture were gone whenever the kill failed — and `reconcile`
+  iterates RECORDS, so nothing could ever repair it. Kill-first leaves
+  `frozen` record + gone pane, which is reconcile's benign `KEEP:<id>|pane_gone`.
+  **Do not reorder it back.** `aitask_frozen.sh drop` follows the same rule.
+- **`restore_begin` now refuses a live lease** (`LeaseHeld`). It used to mint
+  unconditionally. That is what stops a restore starting between a drop's pane
+  probe and its kill, respawning a replacement agent into the pane the drop is
+  about to kill. A holder's claim now *prevents* rather than *detects*.
+- **`drop` is a leased verb.** `drop <id>` keeps its any-state contract for
+  `kill_agent_pane_smart`; `drop <id> --nonce <n>` is what a coordinator must
+  use. `lease-release` is the new counterpart to `lease-take`.
+- **`restore-abort --error <reason>`** persists the outcome. Only the hook's
+  `session_mismatch` was ever recorded before, so `agent_exited` — the ordinary
+  case — was invisible to the replacement viewer.
+- **The kill rule is shared, not copied.** `FROZEN_AWARE_PANE_FORMAT` +
+  `classify_window_panes` are module-level in `monitor_core.py`. The format is
+  **6 fields** now; `classify_window_panes` SILENTLY SKIPS a wrong-arity row, so
+  a fixture that falls out of step makes every pane vanish and flips the verdict
+  from `pane` to `window` — which is exactly what happened to
+  `tests/test_monitor_companion_filter.py`. Its `_line` helper now derives the
+  row FROM the format so it cannot drift again. Do the same in any new fixture.
+
+### Two traps worth carrying forward
+
+- **`Text(x, style=…)` does not bake the style into the segments.** A Text's
+  base style is applied by the Console at print time, so
+  `Text(line, style="reverse").render(console)` yields `Segment(text, None)` —
+  the selection and search marks were rendering **invisible**. Only `stylize()`
+  writes a span that survives into a `Strip`. Every selection test asserted the
+  *copied text*, which is identical either way, so the whole suite passed over
+  it; `MarkVisibilityTests` now asserts the painting itself.
+- **Never re-render to move a mark.** `_render_log()` re-parses the entire ANSI
+  buffer — 1.8 s at the 50000-line cap. `_repaint_marks` keeps the original
+  strips and touches only what changed (0.085 s). Routing a keystroke through a
+  full re-render throws away the exact property `RichLog` was chosen for.
+
+### Verification
+
+339 tests green across the affected modules; `tests/test_frozenagent_standin_stamp.sh`
+28/28 on an isolated server. Every fix carries a **pre-fix control** — the fix
+was reverted and the new test watched to fail — so the coverage is evidence
+rather than agreement.
+
+The full Python suite is red for **4 pre-existing failures** unrelated to this
+task, reproduced on a pristine HEAD worktree and now tracked as **t1754**.
+
+### Outstanding
+
+`tests/test_cleanup_rule_parity.sh` has not been run — it refuses while the
+dedicated `-L ait` server is alive, and that server hosts the working agents.
+Accepted by the user as a tracked handoff; it is a **t1705_11 checklist item**.
+The monitor↔coordinator half of that parity runs on every
+`tests/test_frozenagent_standin_stamp.sh` (Test 7); the bash↔monitor half is
+what the script still owes.
+
+`./ait note` sent to **t1705_7** covering all three engine changes above.
