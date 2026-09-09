@@ -65,3 +65,39 @@ Test harness to mirror: `tests/test_monitor_frozen_capture.py`
 returned) and `FastPreviewAppRouteTests` (app-level: the snapshot survives
 `_fast_preview_refresh` and the placeholder renders, with a live-pane negative
 control). Both have pre-fix controls recorded — removing the core guard fails 2.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1705_7** id=2026-09-09T13:31:56Z.06bccdc278d72e2185e0deff from=t1705_7 from_verified=yes at=2026-09-09T13:31:56Z base=d822b650a2362b82356f64ff1e5292ef2556f0f4 base_branch=main dirty=no host=Darios-Mac-mini.local
+>
+> | Pointer to the working reference for this fix, recorded here so it does not have
+> | to be rediscovered. Advisory only.
+> | 
+> | t1705_7 fixed the identical hole for the **frozen** state at the same two
+> | functions, and its commits are the template:
+> | 
+> | - `cdadfdf68 feature: Add frozen snapshot plumbing and extract the restore verdict (t1705_7)`
+> |   — the core guard: `capture_pane_classified_async` returns before its tmux
+> |   await, and `commit_snapshot` routes the flagged result to the state snapshot.
+> | - `d822b650a test: Replace the tautological filter tests, and cover the promised paths (t1705_7)`
+> |   — `FastPreviewAppRouteTests` in `tests/test_monitor_frozen_capture.py`, which
+> |   is the app-level half you will want to mirror.
+> | 
+> | Two things learned there that apply directly:
+> | 
+> | - **Core-level tests are not sufficient.** The first version stopped at the two
+> |   `monitor_core` methods, which leaves the reachability claim unproven — the
+> |   defect is a reverting preview, not a core call. Drive `_fast_preview_refresh`
+> |   on a mounted app and assert both that the snapshot survives and that the
+> |   placeholder renders, with a live-pane negative control.
+> | - **Frozen must stay checked FIRST at every partition site.** A pane can carry
+> |   the parked mark and be frozen; a parked-first split hands it
+> |   `parked=True, frozen=False` and no renderer can recover the lost flag. When you
+> |   add the parked branch, add it *after* the frozen one — `commit_snapshots`
+> |   (plural) already has them in that order and is the shape to copy.
+> | 
+> | One difference from frozen: parked is published down from the App
+> | (`set_parked_agents`) rather than read off the discovery row, so confirm the
+> | parked set is populated before the fast route consults `_is_parked_pane`. That is
+> | why frozen needed no publish-down and parked may.
