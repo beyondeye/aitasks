@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: medium
 depends: [t1725_1]
 issue_type: bug
-status: Implementing
+status: Done
 labels: [verification, bug]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -16,7 +16,8 @@ anchor: 1599
 followup_kind: verification_failure
 implemented_with: claudecode/opus5
 created_at: 2026-09-08 17:16
-updated_at: 2026-09-08 22:31
+updated_at: 2026-09-09 08:45
+completed_at: 2026-09-09 08:45
 ---
 
 ## Failed verification item from t1725_1
@@ -130,3 +131,14 @@ argument.
 > **✅ gate:plan_approved** run=2026-09-08T19:31:36Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-09-08T20:11:48Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-09T05:45:43Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:435cbb6319353219
+
+> **✅ gate:risk_evaluated** run=2026-09-09T05:45:43Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1745/risk_evaluated_2026-09-09T05:45:43Z-risk_evaluated-a1.log`
