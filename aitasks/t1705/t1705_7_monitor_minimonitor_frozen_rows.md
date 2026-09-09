@@ -3,12 +3,13 @@ priority: high
 effort: high
 depends: [t1705_6]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [minimonitor, aitask_monitor, aitask_monitormini, tui, textual, agent_marks, session_persistence, python, testing]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1705
 created_at: 2026-09-04 16:06
-updated_at: 2026-09-04 16:06
+updated_at: 2026-09-09 10:04
 ---
 
 ## Context
