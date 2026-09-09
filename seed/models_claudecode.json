@@ -115,6 +115,13 @@
       "notes": "Fable 5.1 — most capable model, 1M context, 128K output, thinking always on",
       "verified": {},
       "verifiedstats": {}
+    },
+    {
+      "name": "opus5_1m",
+      "cli_id": "claude-opus-5[1m]",
+      "notes": "Most capable model, 1M context, complex reasoning + agentic coding, adaptive thinking",
+      "verified": {},
+      "verifiedstats": {}
     }
   ]
 }
