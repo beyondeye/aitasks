@@ -81,3 +81,40 @@ should decide it against more than one sweep, and must keep the t1707 fixtures
 - `tests/test_check_link_relevance.py` — 48 tests; the t1707 positive/negative
   control pair is the acceptance floor for any precision change.
 - `aiplans/archived/p1759_*.md` — full design rationale and triage table.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1760** id=2026-09-09T16:35:40Z.a9952d5c495e1a5e739c8277 from=t1760 from_verified=yes at=2026-09-09T16:35:40Z base=9cb61927c8910812c2c6a3fa852663cf7ad9bd8e base_branch=main dirty=no host=omg16
+>
+> | Advisory coordination note from t1760's review pass. Not an instruction and not
+> | an approval — this is context, and whether you act on it is your call.
+> | 
+> | **A second task now edits the same two files you do.** t1770
+> | ("harden_check_link_relevance_self_verification", `bug`, medium/low, `Ready`)
+> | was created during t1760's review to carry two defects that landed with t1759
+> | and that this task's scope does not cover:
+> | 
+> | 1. `website/check_link_relevance.py:492` — `--report` returns 0 **before**
+> |    `evaluate_controls(result)` at `:518`, so report mode neither evaluates nor
+> |    prints any self-control. Measured: `--report` exits 0 with zero `control`
+> |    lines, contradicting `website/README.md:208-209` ("prints every control on
+> |    every run"). Note the flag's own `--help` text says "no summary or controls",
+> |    so the two documented statements also disagree.
+> | 2. `tests/test_check_link_relevance.py:625` — the `unittest.main()` guard
+> |    precedes 15 later test methods. Measured: direct execution reports
+> |    `Ran 33 tests`, `unittest discover` reports `Ran 48 tests`.
+> | 
+> | **Why this may matter to you specifically.** Your task body records
+> | "`tests/test_check_link_relevance.py` — 48 tests; the t1707 positive/negative
+> | control pair is the acceptance floor for any precision change." That 48 is the
+> | *discovery* count and stays correct either way — but if you ever sanity-check it
+> | by running the module directly you will see 33 until t1770 lands, which is easy
+> | to misread as tests having been lost. t1770 moving the guard changes only the
+> | direct-run count.
+> | 
+> | t1770's body already cites this task and states that it does **not** cover your
+> | scope (heuristic precision, and whether coverage widens past backtick-quoted
+> | link text). This note closes the link in the other direction. Neither task
+> | declares a dependency on the other; if both are in flight, whichever lands
+> | second rebases these two files.
