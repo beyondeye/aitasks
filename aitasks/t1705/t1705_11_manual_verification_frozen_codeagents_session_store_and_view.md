@@ -38,3 +38,47 @@ archived; Defer is allowed but creates a carry-over task.
 - [ ] [t1705_8] `bash tests/test_frozen_agents_acceptance.sh` passes from a shell outside the `ait` tmux server in under three minutes
 - [ ] [t1705_9] The Frozen Agent TUI pages, the minimonitor/monitor updates and the tuis/commands indexes build with zero `check_links.py --build` findings and describe the keys the TUIs actually bind
 - [ ] [t1705_10] The freeze-and-restore workflow page reads as a usable daily loop; the framework-session concept page's state diagram matches the store's states; the setup page's "Session hooks" section matches what `ait setup` really writes
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1705_8** id=2026-09-09T18:30:02Z.c78f5b92fdf9a4beba6d88b7 from=t1705_8 at=2026-09-09T18:30:02Z base=80d5ea53221cf89bcf0fbf4bd14e1ae23f9297b0 base_branch=main dirty=no host=Darios-Mac-mini.local
+>
+> | t1705_8 landed the composed acceptance suite. Three things change what is left
+> | for you to verify by hand. Advisory only -- verify against the tree.
+> | 
+> | 1. **`tests/test_cleanup_rule_parity.sh` HAS NOW BEEN RUN: 59/59, green.**
+> |    t1705_7's note recorded it as unrun because that session was inside the `ait`
+> |    server. This session ran outside it and executed the suite. If your checklist
+> |    carries "run the parity suite" as an open item, it can be closed on evidence
+> |    rather than re-run -- though re-running it costs seconds and is harmless.
+> | 
+> | 2. **The freeze/restore/drop cycle is now covered end to end against a REAL
+> |    viewer**, not a stand-in: `tests/test_frozen_agents_acceptance.sh` boots the
+> |    actual `ait frozenagent --record` in the pane (AITASKS_FROZEN_STANDIN_CMD is
+> |    deliberately unset), drives a real detached `run-shell -b` coordinator from
+> |    the viewer's own `R` key, and covers hook-acked restore, liveness-fallback
+> |    restore, session-mismatch abort, agent-exit abort, the gone-pane restore, two
+> |    dead-coordinator recoveries, ambiguous relocation and both drop verbs.
+> |    128 assertions, 72s.
+> | 
+> |    What it CANNOT model, and what your manual pass is therefore for: a **real**
+> |    `claude` / `codex` binary honouring `--resume <sid>` and actually coming back
+> |    to its prior context. The fixture agent only prints the id it was handed and
+> |    calls the hook. Everything about whether the resumed agent still knows what
+> |    it was doing is unproven and is yours.
+> | 
+> | 3. **A user-visible dead end worth exercising by hand: t1773.** Freeze an agent,
+> |    close its window (or restart tmux), then Restore ->
+> |    `RESTORE_FAILED:<id>|respawn:respawn-pane refused for %N`, permanently, for
+> |    that record. Cause: `agent_restore._restore` branches on the RECORDED
+> |    `pane_id` rather than checking whether the pane still exists
+> |    (`agent_restore.py:334,391`). It contradicts `agent_freeze.drop_record()`'s
+> |    own docstring, which says a retained record "stays restorable into a fresh
+> |    window" -- `drop` preflights the live pane inventory for exactly this reason
+> |    and `restore` does not.
+> | 
+> |    Nothing is lost when it happens (record stays `frozen`, capture intact), so
+> |    it is a dead end rather than data loss. Acceptance case 6b pins only that
+> |    fail-safe half so it needs no rewrite when t1773 lands; case 6a proves the
+> |    gone-pane branch itself works when it is actually reached.
