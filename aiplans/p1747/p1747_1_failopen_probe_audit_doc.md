@@ -16,7 +16,7 @@ A `|| true`-suppressed git probe collapses "the probe failed" into "the answer i
 empty" — and empty is almost always the *permissive* answer ("no conflicts",
 "nothing staged", "nothing dirty"). Two instances have already been closed as
 fail-open **authorization** bugs (t1599_4, t1733). t1733's risk section spawned
-t1747, whose audit found **13** authorizing sites across six files, plus a much
+t1747, whose audit found **13** authorizing sites across **seven** files, plus a much
 larger informational set that is correctly out of scope.
 
 This is t1747's first child, ordered first so the five code children (t1747_2 …
@@ -151,11 +151,11 @@ passes — so the doc's "13 authorizing sites" would be durably false with a ful
 green verification.
 
 **The audit's base is `c9834af7d`** (2026-09-08 18:32, the last `.aitask-scripts`
-commit before t1747 was created at 18:35). **Seven commits** have landed on
-`.aitask-scripts/` since — `062cb383f`, `3e89490fc`, `13e5b3d78`, `874043c73`,
-`e7dc87fc0`, `21ad464fe`, `7e54ce865` — and `aitask_create.sh` is dirty from a
-live session right now. Several of them post-date the *child* plan too, which is
-exactly why its line references arrived stale.
+commit before t1747 was created at 18:35). **Five commits** have landed on
+`.aitask-scripts/` since — `062cb383f`, `13e5b3d78`, `e7dc87fc0`, `4a54a425c`,
+`ec9641e79` — and `aitask_create.sh` was dirty from a live session while this was
+written. Several of them post-date the *child* plan too, which is exactly why its
+line references arrived stale.
 
 Two-part rerun, both required, immediately before the doc commit:
 
@@ -235,3 +235,87 @@ re-derive it — never as a timeless corpus statistic.
 **No `### Planned mitigations` block:** both identified risks are already fully
 mitigated *inside this plan*, so spawning a separate mitigation task would
 duplicate work that lands with the doc itself.
+
+## Final Implementation Notes
+
+- **Actual work done:** Created `aidocs/framework/failopen_git_probes.md` (206
+  lines) with all nine specified sections, and added a 6-line pointer to it under
+  the commit-scoped bullet in `aidocs/framework/shell_conventions.md`. Three
+  commits: the doc, the pointer, and a post-review correction to the doc.
+  `CLAUDE.md` deliberately untouched — the chain `CLAUDE.md:205` →
+  `shell_conventions.md:131` → `failopen_git_probes.md` satisfies t1747_7's
+  reachability item without a second top-level pointer.
+
+- **Deviations from plan:**
+  - **Step 8 ordering violated.** The two code commits were made *before* the
+    Step-8 review gate, which the workflow says must come first. Nothing was
+    pushed, so the review was still able to change the outcome — and it did (see
+    below). Recorded because the ordering, not the outcome, is the contract.
+  - The doc's as-of SHA is `ec9641e79`, not the `7e54ce865` this plan was written
+    against: `main` advanced mid-session (t1755). That commit touched only
+    `aitask_create.sh` and `VERSION`, neither a cited file, so no citation moved.
+
+- **Superseded assertions in this plan, corrected in place:**
+  - *"13 authorizing sites across six files"* → **seven**. The Group A rows span
+    `lib/task_automerge.sh`, `aitask_sync.sh`, `aitask_fold_mark.sh`,
+    `aitask_issue_import.sh`, `aitask_merge_task.sh`, `aitask_setup.sh` and
+    `aitask_lock.sh`. "Six" was inherited verbatim from the parent plan, which
+    wrote it before A12 (`aitask_lock.sh`) was assigned to a child — the same
+    pre-A12 draft the parent plan itself records as having under-covered the
+    audit. The shipped doc never carried the error and now states seven
+    explicitly.
+  - *"Seven commits have landed on `.aitask-scripts/` since `c9834af7d`"* →
+    **five**. The seven was derived by author-date filtering, which is not the
+    same set as the path-filtered range. `git log c9834af7d..HEAD --
+    .aitask-scripts` is authoritative: `062cb383f`, `13e5b3d78`, `e7dc87fc0`,
+    `4a54a425c`, `ec9641e79`. The sweep's conclusion is unchanged — every git
+    call added in that range is a comment or already rc-capturing.
+
+- **Issues encountered:** The plan's own top verification requirement caught
+  eight stale `file:line` references before implementation, which is why step 0
+  (externalize the corrected plan first) existed. Verification was made
+  mechanical rather than manual: a script parses every `` `file.sh::fn:N` ``
+  citation out of the doc and asserts both that the line exists and that it falls
+  inside the named function's span (37/37 pass), and a second script diffs the
+  doc's Group A table against the parent plan's Coverage map (13 rows, identical
+  owners, zero drift either direction).
+
+- **Key decisions:**
+  - **Function-first anchoring.** Every citation is `file::function` with the
+    line as a secondary hint under a named as-of SHA. Line numbers had already
+    drifted eight times in one day; function names are what made all eight
+    recoverable.
+  - **The count is scoped, not standing.** "Thirteen sites across seven files, as
+    audited at `ec9641e79`" plus a reproduced re-derivation recipe, rather than a
+    bare corpus statistic that silently rots.
+  - **No scanner**, with the reason recorded in the doc so the decision is not
+    quietly revisited.
+  - **Post-review correction (concern raised at Step 8, valid):** the
+    "every consumer must be rewritten" passage asserted that a bare
+    `if _probe; then` *necessarily* re-creates a fail-open. That contradicted the
+    page's own "disposition is site-specific" section — rc 2 collapsing into the
+    false branch is fail-open only where that branch permits the destructive
+    action, and the doc's own A2 row documents a post-advance use that lands
+    fail-closed. Qualified, while keeping the requirement unconditional:
+    enumerate every consumer and give each an explicit "unverified" disposition.
+  - A third Step-8 concern — that a Group C location was described as inside a
+    helper ending before that line — was checked and **did not hold**: the plan
+    cites `aitask_fold_mark.sh:1027` with no function claim, and the doc
+    correctly labels it the top-level `amend)` case arm. The bad
+    `_fold_amend_guard` attribution existed only in transient `awk` output and in
+    one sentence of the review message, never in either artifact.
+
+- **Upstream defects identified:** None
+
+- **Notes for sibling tasks:**
+  - **Point at the doc, do not restate it.** That is the whole reason this child
+    was ordered first; six copies of the rule would recreate the drift class
+    t1747 exists to close.
+  - **Re-run the sweep in §"Re-deriving this set" before you rely on the count.**
+    It is a tripwire plus a diff-scoped read, cheap enough to run per child, and
+    `main` demonstrably moves mid-session in this repo.
+  - **Your child's own citations will go stale.** Anchor on `file::function` and
+    verify mechanically; the parser used here is ~20 lines and is worth copying.
+  - **A2 is the counter-example to keep in mind** when writing your call-site
+    dispositions: the same helper read bare is fail-open at one consumer and
+    fail-closed at another. Enumerate consumers; do not generalize from one.
