@@ -74,10 +74,18 @@ echo "=== aitask_sync.sh deferral + quarantine (t1599_3) ==="
 echo ""
 
 # --- Test 1: protected_dirty blocks the REBASE when the remote is ahead ----
+#
+# The t20 edit is load-bearing, not scenery: it gives the run a LOCAL commit to
+# replay, which is what makes a rebase necessary and therefore blockable. With
+# local_ahead == 0 there is nothing to replay and the tracked protected file no
+# incoming commit touches is fast-forwarded instead — deliberately, since
+# t1725_3 (that case is Test 1c below). Dropping the t20 edit does not weaken
+# this test, it silently converts it into the opposite one.
 echo "--- Test 1: protected file + remote ahead -> DEFERRED, not ERROR:pull_rebase_failed ---"
 TMP1="$(setup_repo)"
 plant_lock "$TMP1" 10 "$(lock_yaml_live 10)"
-(cd "$TMP1/local" && printf 'edit10\n' >> .aitask-data/aitasks/t10_alpha.md)
+(cd "$TMP1/local" && printf 'edit10\n' >> .aitask-data/aitasks/t10_alpha.md \
+                  && printf 'edit20\n' >> .aitask-data/aitasks/t20_beta.md)
 advance_remote "$TMP1"
 OUT1="$(run_sync "$TMP1")"
 assert_contains "the run reports a protected_dirty deferral" "DEFERRED:protected_dirty" "$OUT1"
@@ -87,6 +95,89 @@ assert_not_contains "and NOT the rebase error the dirty file would otherwise cau
 FETCHED1="$(git -C "$TMP1/local/.aitask-data" rev-parse --verify --quiet origin/aitask-data)"
 REMOTE1="$(remote_data_sha "$TMP1")"
 assert_eq "the read-only fetch still ran" "$REMOTE1" "$FETCHED1"
+
+# --- Tests 1a-1d: the tree-state rebase gate, all four directions (t1725_3) -
+#
+# The old gate was "any protected file AND remote_ahead > 0". It deferred two
+# cases nothing actually blocks, and one parked session could stall a branch
+# indefinitely. These four pin the replacement in BOTH directions, because a
+# gate that only ever says "blocked" would pass a one-sided test just as well.
+
+# 1a: an UNTRACKED protected file no incoming commit touches. git rebase ignores
+# an untracked path entirely, so there is nothing to defer for.
+echo "--- Test 1a: untracked protected file, not incoming -> no deferral, converges ---"
+TMP1A="$(setup_repo)"
+plant_lock "$TMP1A" 10 "$(lock_yaml_live 10)"
+(cd "$TMP1A/local" && printf 'draft\n' > .aitask-data/aiplans/p10_x.md \
+                   && printf 'edit20\n' >> .aitask-data/aitasks/t20_beta.md)
+advance_remote "$TMP1A"          # touches t30_gamma.md only
+OUT1A="$(run_sync "$TMP1A")"
+assert_not_contains "an untracked protected file does not block the rebase" \
+    "DEFERRED" "$OUT1A"
+assert_contains "pc2's commit was pulled" "from pc2" \
+    "$(cat "$TMP1A/local/.aitask-data/aitasks/t30_gamma.md")"
+assert_contains "the protected file is still there, untouched" "draft" \
+    "$(cat "$TMP1A/local/.aitask-data/aiplans/p10_x.md")"
+
+# 1b: the SAME position but the protected file is modified-tracked. A rebase
+# needs a clean tree, so this one must still defer. Paired with 1a, this is what
+# proves the gate discriminates on tree state rather than on "is anything
+# protected".
+echo "--- Test 1b: tracked protected file in the same position -> still defers ---"
+TMP1B="$(setup_repo)"
+plant_lock "$TMP1B" 10 "$(lock_yaml_live 10)"
+(cd "$TMP1B/local" && printf 'edit10\n' >> .aitask-data/aitasks/t10_alpha.md \
+                   && printf 'edit20\n' >> .aitask-data/aitasks/t20_beta.md)
+advance_remote "$TMP1B"
+OUT1B="$(run_sync "$TMP1B")"
+assert_contains "a tracked protected file still blocks the rebase" \
+    "DEFERRED:protected_dirty" "$OUT1B"
+
+# 1c: behind-only (local_ahead == 0) with a TRACKED protected file that no
+# incoming commit touches. A fast-forward never conflicts and git refuses one
+# that would overwrite a dirty file, so this converges instead of deferring —
+# t1696's scenario, and the case Test 1 used to assert the opposite of.
+echo "--- Test 1c: local_ahead == 0, tracked dirty, not incoming -> fast-forwards ---"
+TMP1C="$(setup_repo)"
+plant_lock "$TMP1C" 10 "$(lock_yaml_live 10)"
+(cd "$TMP1C/local" && printf 'edit10\n' >> .aitask-data/aitasks/t10_alpha.md)
+advance_remote "$TMP1C"
+OUT1C="$(run_sync "$TMP1C")"
+assert_not_contains "a behind-only branch converges rather than deferring" \
+    "DEFERRED" "$OUT1C"
+assert_contains "pc2's commit arrived by fast-forward" "from pc2" \
+    "$(cat "$TMP1C/local/.aitask-data/aitasks/t30_gamma.md")"
+assert_contains "and the protected file kept its uncommitted edit" "edit10" \
+    "$(cat "$TMP1C/local/.aitask-data/aitasks/t10_alpha.md")"
+
+# 1d: untracked, but an incoming commit CREATES the same path. This is the one
+# untracked case that must block: the checkout would overwrite it.
+echo "--- Test 1d: untracked protected file that IS incoming -> defers ---"
+TMP1D="$(setup_repo)"
+plant_lock "$TMP1D" 10 "$(lock_yaml_live 10)"
+(cd "$TMP1D/local" && printf 'mine\n' > .aitask-data/aiplans/p10_x.md)
+# pc2 creates the very path we are protecting.
+rm -rf "$TMP1D/pc2"
+git clone -q --branch aitask-data "$TMP1D/remote.git" "$TMP1D/pc2" 2>/dev/null
+(
+    cd "$TMP1D/pc2"
+    git config user.email pc2@test.com; git config user.name PC2
+    git config commit.gpgsign false
+    # aiplans/ holds no committed file in the fixture, so git never tracked the
+    # directory and the clone does not have it. Without this the redirect below
+    # fails, the whole subshell is silently swallowed, and the remote never
+    # advances — the test then passes or fails for the wrong reason entirely.
+    mkdir -p aiplans
+    printf 'theirs\n' > aiplans/p10_x.md
+    git add -A && git commit -q -m "pc2: create p10_x"
+    git push -q origin aitask-data 2>/dev/null
+) >/dev/null 2>&1
+(cd "$TMP1D/local" && git -C .aitask-data fetch -q origin 2>/dev/null)
+OUT1D="$(run_sync "$TMP1D")"
+assert_contains "an incoming commit on the protected path defers" \
+    "DEFERRED:protected_dirty" "$OUT1D"
+assert_contains "and the local bytes are untouched" "mine" \
+    "$(cat "$TMP1D/local/.aitask-data/aiplans/p10_x.md")"
 
 # --- Test 2: control — nothing protected, the rebase still runs -----------
 echo "--- Test 2: control - nothing protected -> the rebase runs normally ---"
@@ -478,7 +569,322 @@ assert_not_contains "and it does not defer" "DEFERRED" "$OUT20"
 RACED20="$(remote_blob "$TMP20" aitasks/t20_beta.md)"
 assert_contains "our commit reached the remote after the retry" "edit20" "$RACED20"
 
+# --- Tests 21-26: commit-on-behalf (t1725_3) -------------------------------
+#
+# --commit-for-task lets a user release their OWN parked session's edits rather
+# than waiting on a pane they have walked away from. Every one of these has a
+# negative control, because a flag that committed in every case would satisfy
+# the positive tests just as well.
+
+echo "--- Test 21: --commit-for-task on your OWN verified lock -> committed ---"
+TMP21="$(setup_repo)"
+plant_lock "$TMP21" 10 "$(lock_yaml_live 10)"
+set_userconfig_email "$TMP21" other@x.com     # matches the lock's locked_by -> `self`
+(cd "$TMP21/local" && printf 'edit10\n' >> .aitask-data/aitasks/t10_alpha.md)
+OUT21="$(run_sync "$TMP21" --commit-for-task 10)"
+assert_contains "the group is committed under t10's own message" \
+    "ait: Auto-commit t10 task data before sync" "$(data_log "$TMP21")"
+assert_contains "the run publishes" "PUSHED" "$OUT21"
+assert_contains "and says plainly that a live session's edits were taken" \
+    "its uncommitted edits were committed as they stand now" "$(sync_err "$TMP21")"
+
+echo "--- Test 22: control - same lock, no flag -> still protected ---"
+TMP22="$(setup_repo)"
+plant_lock "$TMP22" 10 "$(lock_yaml_live 10)"
+set_userconfig_email "$TMP22" other@x.com
+(cd "$TMP22/local" && printf 'edit10\n' >> .aitask-data/aitasks/t10_alpha.md)
+run_sync "$TMP22" >/dev/null
+assert_not_contains "without the flag the file is left for its session" \
+    "Auto-commit t10" "$(data_log "$TMP22")"
+
+echo "--- Test 23: control - the lock is someone ELSE's -> refused ---"
+TMP23="$(setup_repo)"
+plant_lock "$TMP23" 10 "$(lock_yaml_live 10)"
+set_userconfig_email "$TMP23" someone-else@x.com    # != locked_by -> `other`
+(cd "$TMP23/local" && printf 'edit10\n' >> .aitask-data/aitasks/t10_alpha.md)
+run_sync "$TMP23" --commit-for-task 10 >/dev/null
+assert_not_contains "another user's live lock is never committed on behalf" \
+    "Auto-commit t10" "$(data_log "$TMP23")"
+assert_contains "and the refusal names the class" \
+    "refused: the lock is other" "$(sync_err "$TMP23")"
+
+echo "--- Test 24: control - identity unverifiable -> refused ---"
+# No userconfig email at all. An absent local email must NOT compare equal to an
+# absent lock email, which would make every anonymous lock look like your own.
+TMP24="$(setup_repo)"
+plant_lock "$TMP24" 10 "$(lock_yaml_live 10)"
+(cd "$TMP24/local" && printf 'edit10\n' >> .aitask-data/aitasks/t10_alpha.md)
+run_sync "$TMP24" --commit-for-task 10 >/dev/null
+assert_not_contains "an unverifiable identity is never treated as your own" \
+    "Auto-commit t10" "$(data_log "$TMP24")"
+assert_contains "and the refusal says so" \
+    "refused: the lock is unverified" "$(sync_err "$TMP24")"
+
+echo "--- Test 25: --expect-path matching set -> committed; a comma path round-trips ---"
+# A comma is a legal character in a git path and _pct_encode leaves it alone,
+# which is exactly why --expect-path is repeatable rather than a CSV.
+TMP25="$(setup_repo)"
+plant_lock "$TMP25" 10 "$(lock_yaml_live 10)"
+set_userconfig_email "$TMP25" other@x.com
+(cd "$TMP25/local" && printf 'edit10\n' >> .aitask-data/aitasks/t10_alpha.md \
+                   && mkdir -p .aitask-data/aiplans \
+                   && printf 'x\n' > ".aitask-data/aiplans/p10_a,b.md")
+run_sync "$TMP25" --commit-for-task 10 \
+    --expect-path "aitasks/t10_alpha.md" --expect-path "aiplans/p10_a,b.md" >/dev/null
+COMMITTED25="$(commit_files_for "$TMP25" "Auto-commit t10")"
+assert_contains "the declared set is committed" "t10_alpha.md" "$COMMITTED25"
+assert_contains "including the path containing a comma" "p10_a,b.md" "$COMMITTED25"
+
+echo "--- Test 26: control - the group grew after confirmation -> nothing committed ---"
+TMP26="$(setup_repo)"
+plant_lock "$TMP26" 10 "$(lock_yaml_live 10)"
+set_userconfig_email "$TMP26" other@x.com
+(cd "$TMP26/local" && printf 'edit10\n' >> .aitask-data/aitasks/t10_alpha.md \
+                   && printf 'surprise\n' > .aitask-data/aitasks/t10_extra.md)
+OUT26="$(run_sync "$TMP26" --commit-for-task 10 --expect-path "aitasks/t10_alpha.md")"
+assert_not_contains "a set that grew since confirmation commits NOTHING" \
+    "Auto-commit t10" "$(data_log "$TMP26")"
+assert_contains "and the record names the delta" \
+    "the dirty set changed after it was confirmed" "$(sync_err "$TMP26")"
+
+echo "--- Test 27: --require-waiting with no probe available -> fails closed ---"
+# t1725_4 owns the probe; until it lands this flag must refuse, never assume.
+TMP27="$(setup_repo)"
+plant_lock "$TMP27" 10 "$(lock_yaml_live 10)"
+set_userconfig_email "$TMP27" other@x.com
+(cd "$TMP27/local" && printf 'edit10\n' >> .aitask-data/aitasks/t10_alpha.md)
+run_sync "$TMP27" --commit-for-task 10 --require-waiting >/dev/null
+assert_not_contains "no probe means NOT waiting, so nothing is committed" \
+    "Auto-commit t10" "$(data_log "$TMP27")"
+assert_contains "and the record reports the observed state" \
+    "is not parked on a prompt (observed: unresolvable)" "$(sync_err "$TMP27")"
+
 echo ""
+
+# --- Tests 28-31: the push-retry re-gate, and record/status coupling -------
+
+echo "--- Test 28: the retry fetch fails -> NO_NETWORK, not a verdict from stale @{u} ---"
+# do_push's retry used to swallow the fetch failure with `|| true`. Recomputing
+# the gate on a stale @{u} can read remote_ahead == 0, conclude "not blocked",
+# and act on a world it never saw -- surfacing later as a generic push/rebase
+# error rather than the true outcome.
+TMP28="$(setup_repo)"
+plant_lock "$TMP28" 10 "$(lock_yaml_live 10)"
+(cd "$TMP28/local" && printf 'edit10\n' >> .aitask-data/aitasks/t10_alpha.md \
+                   && printf 'edit20\n' >> .aitask-data/aitasks/t20_beta.md)
+# The remote must break BETWEEN the two fetches, which means from inside the
+# pre-push hook. Breaking it before the run instead makes the step-5 do_fetch
+# fail and emit NO_NETWORK on its own -- the assertions below would then pass
+# without do_push's retry path ever executing. (Measured: it did.)
+mkdir -p "$TMP28/local/.git/hooks"
+cat > "$TMP28/local/.git/hooks/pre-push" <<HOOK28
+#!/usr/bin/env bash
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR
+[ -e "$TMP28/prepush_fired" ] && exit 0
+touch "$TMP28/prepush_fired"
+# 1. advance the remote so THIS push is rejected
+rm -rf "$TMP28/racer"
+git clone -q --branch aitask-data "$TMP28/remote.git" "$TMP28/racer" >/dev/null 2>&1 || exit 0
+(
+  cd "$TMP28/racer" || exit 0
+  git config user.email racer@test.com; git config user.name Racer
+  git config commit.gpgsign false
+  printf 'racer\\n' >> aitasks/t30_gamma.md
+  git add -A && git commit -q -m "racer: advance"
+  git push -q origin aitask-data
+) >/dev/null 2>&1
+# 2. then take the remote away, so the RETRY fetch is what fails
+git -C "$TMP28/local/.aitask-data" remote set-url origin "$TMP28/no_such_remote.git"
+exit 0
+HOOK28
+chmod +x "$TMP28/local/.git/hooks/pre-push"
+OUT28="$(run_sync "$TMP28")"
+assert_contains "an unreachable retry fetch reports the network" "NO_NETWORK" "$OUT28"
+assert_not_contains "and not a rebase error" "ERROR:push_rebase_failed" "$OUT28"
+assert_not_contains "and not a push error" "ERROR:push_failed" "$OUT28"
+
+echo "--- Test 29: control - the retry fetch succeeds -> the normal outcome ---"
+# Test 19/20 already pin both retry outcomes; this is the paired control for 28
+# specifically, so a change that made every retry report NO_NETWORK would fail.
+TMP29="$(setup_repo)"
+(cd "$TMP29/local" && printf 'edit20\n' >> .aitask-data/aitasks/t20_beta.md)
+install_racing_pre_push "$TMP29"
+OUT29="$(run_sync "$TMP29")"
+assert_not_contains "a reachable remote never reports NO_NETWORK" "NO_NETWORK" "$OUT29"
+
+echo "--- Test 30: a deferring run leaves no temp file behind ---"
+# The incoming-set scratch file is allocated on a path that exits from a nested
+# function. This script has no trap at all, so the allocation, the read and the
+# rm must sit in one exit-free window -- which is what _load_incoming is for.
+TMP30="$(setup_repo)"
+mkdir -p "$TMP30/tmpdir_probe"
+plant_lock "$TMP30" 10 "$(lock_yaml_live 10)"
+(cd "$TMP30/local" && printf 'edit10\n' >> .aitask-data/aitasks/t10_alpha.md \
+                   && printf 'edit20\n' >> .aitask-data/aitasks/t20_beta.md)
+advance_remote "$TMP30"
+(
+    cd "$TMP30/local"
+    export PATH="$PWD/bin:$PATH" TEST_HOSTNAME=testhost
+    export AITASKS_LOCK_DIR="$TMP30/locks" TMPDIR="$TMP30/tmpdir_probe"
+    ./.aitask-scripts/aitask_sync.sh --batch >/dev/null 2>&1
+)
+LEFTOVER30="$(find "$TMP30/tmpdir_probe" -type f 2>/dev/null | wc -l)"
+assert_eq "the deferring run left no scratch files" "0" "$LEFTOVER30"
+
+echo "--- Test 31: DEFERRED_FILE records appear only WITH a status line ---"
+# Four tests in this file assert not_contains "DEFERRED" over whole stdout, and
+# DEFERRED_FILE: contains that substring. So records must be bound to the status
+# line rather than emitted whenever the record set is non-empty -- otherwise a
+# run that HAS protected files and correctly does NOT defer would start
+# emitting them. Test 3's shape is exactly that run.
+TMP31="$(setup_repo)"
+plant_lock "$TMP31" 10 "$(lock_yaml_live 10)"
+(cd "$TMP31/local" && printf 'edit10\n' >> .aitask-data/aitasks/t10_alpha.md \
+                   && printf 'edit20\n' >> .aitask-data/aitasks/t20_beta.md)
+OUT31="$(run_sync "$TMP31")"          # remote NOT ahead -> records exist, no deferral
+assert_not_contains "a non-deferring run emits no records" "DEFERRED_FILE:" "$OUT31"
+
+# And in a run that DOES defer, the count in the status line equals the number
+# of records that follow it.
+TMP31B="$(setup_repo)"
+plant_lock "$TMP31B" 10 "$(lock_yaml_live 10)"
+(cd "$TMP31B/local" && printf 'edit10\n' >> .aitask-data/aitasks/t10_alpha.md \
+                    && printf 'more10\n' > .aitask-data/aitasks/t10_extra.md \
+                    && printf 'edit20\n' >> .aitask-data/aitasks/t20_beta.md)
+advance_remote "$TMP31B"
+OUT31B="$(run_sync "$TMP31B")"
+STATUS_N="$(printf '%s\n' "$OUT31B" | sed -n 's/^DEFERRED:protected_dirty:\([0-9]*\) .*/\1/p')"
+RECORD_N="$(printf '%s\n' "$OUT31B" | grep -c '^DEFERRED_FILE:')"
+assert_contains "the deferral names both of t10's files" "2" "$STATUS_N"
+assert_eq "the status count equals the number of records" "$STATUS_N" "$RECORD_N"
+assert_eq "the status line is still the FIRST line" \
+    "DEFERRED" "$(printf '%s\n' "$OUT31B" | head -n1 | cut -d: -f1)"
+
+echo ""
+
+echo "--- Test 32: a refused commit-on-behalf leaves NOTHING staged ---"
+# Both commit-on-behalf guards abandon the group with `return 0`. If they ran
+# after the staging loop, an untracked path this run had already `git add`-ed
+# would stay in the SHARED index -- where it blocks the rebase exactly like an
+# unstaged one, and where the next session would carry it into an unrelated
+# commit. The guards therefore run before anything is staged; this pins it.
+TMP32="$(setup_repo)"
+plant_lock "$TMP32" 10 "$(lock_yaml_live 10)"
+set_userconfig_email "$TMP32" other@x.com
+(cd "$TMP32/local" && mkdir -p .aitask-data/aiplans \
+                   && printf 'draft\n' > .aitask-data/aiplans/p10_new.md \
+                   && printf 'more\n' > .aitask-data/aitasks/t10_extra.md)
+# --expect-path names only one of the two, so the scope check refuses the group.
+run_sync "$TMP32" --commit-for-task 10 --expect-path "aiplans/p10_new.md" >/dev/null
+STAGED32="$(cd "$TMP32/local" && git -C .aitask-data diff --cached --name-only)"
+assert_eq "the refused group left the index untouched" "" "$STAGED32"
+assert_not_contains "and committed nothing" "Auto-commit t10" "$(data_log "$TMP32")"
+
+echo ""
+
+echo "--- Test 33: the wire row names the holder class, all four directions ---"
+# The holder class is what decides the wording a TUI shows and whether
+# commit-on-behalf is even offered, so each class needs its own row asserted.
+# `self` is deliberately the hardest to reach: same verified host AND the same
+# email on both sides.
+wire_row_for() {                      # <tmpdir> -> the DEFERRED_FILE row for t10
+    printf '%s\n' "$2" | grep -m1 '^DEFERRED_FILE:.*|10|'
+}
+
+# self: lock host == this host, lock email == userconfig email.
+TMP33="$(setup_repo)"
+plant_lock "$TMP33" 10 "$(lock_yaml_live 10)"
+set_userconfig_email "$TMP33" other@x.com
+(cd "$TMP33/local" && printf 'edit10\n' >> .aitask-data/aitasks/t10_alpha.md \
+                   && printf 'edit20\n' >> .aitask-data/aitasks/t20_beta.md)
+advance_remote "$TMP33"
+ROW_SELF="$(wire_row_for "$TMP33" "$(run_sync "$TMP33")")"
+assert_contains "self: the row carries the class" "|tracked|self|" "$ROW_SELF"
+assert_contains "self: and the encoded email" "other@x.com" "$ROW_SELF"
+assert_contains "self: and the host" "testhost" "$ROW_SELF"
+assert_contains "self: and the action offers commit-on-behalf" \
+    "--commit-for-task 10" "$ROW_SELF"
+
+# other: same verified host, a different non-empty email.
+TMP33B="$(setup_repo)"
+plant_lock "$TMP33B" 10 "$(lock_yaml_live 10)"
+set_userconfig_email "$TMP33B" someone-else@x.com
+(cd "$TMP33B/local" && printf 'edit10\n' >> .aitask-data/aitasks/t10_alpha.md \
+                    && printf 'edit20\n' >> .aitask-data/aitasks/t20_beta.md)
+advance_remote "$TMP33B"
+ROW_OTHER="$(wire_row_for "$TMP33B" "$(run_sync "$TMP33B")")"
+assert_contains "other: the row carries the class" "|tracked|other|" "$ROW_OTHER"
+assert_contains "other: and never offers commit-on-behalf" \
+    "left for that session" "$ROW_OTHER"
+
+# remote: a different host entirely -- liveness is not decidable from here.
+TMP33C="$(setup_repo)"
+plant_lock "$TMP33C" 10 "$(lock_yaml_live 10 otherhost)"
+set_userconfig_email "$TMP33C" other@x.com
+(cd "$TMP33C/local" && printf 'edit10\n' >> .aitask-data/aitasks/t10_alpha.md \
+                    && printf 'edit20\n' >> .aitask-data/aitasks/t20_beta.md)
+advance_remote "$TMP33C"
+ROW_REMOTE="$(wire_row_for "$TMP33C" "$(run_sync "$TMP33C")")"
+assert_contains "remote: the row carries the class" "|tracked|remote|" "$ROW_REMOTE"
+assert_contains "remote: and names the host it is held on" "otherhost" "$ROW_REMOTE"
+
+# unverified: no userconfig email. An ABSENT local email must never compare
+# equal to an absent lock email -- that would make every anonymous lock look
+# like the user's own and eligible for --commit-for-task.
+TMP33D="$(setup_repo)"
+plant_lock "$TMP33D" 10 "$(lock_yaml_live 10)"
+(cd "$TMP33D/local" && printf 'edit10\n' >> .aitask-data/aitasks/t10_alpha.md \
+                    && printf 'edit20\n' >> .aitask-data/aitasks/t20_beta.md)
+advance_remote "$TMP33D"
+ROW_UNVER="$(wire_row_for "$TMP33D" "$(run_sync "$TMP33D")")"
+assert_contains "unverified: the row carries the class" "|tracked|unverified|" "$ROW_UNVER"
+assert_not_contains "unverified: and is never called self" "|self|" "$ROW_UNVER"
+
+echo ""
+
+echo "--- Test 34: --commit-for-task bypasses NO other guard ---"
+# The override changes exactly one thing: the holder verdict. It must not become
+# a way to skip the 5a.4 publication guard, or "commit my own parked session's
+# work" would quietly turn into "publish content that was rewritten underneath
+# the commit". Same seam, same expected outcome, with the flag as without it.
+TMP34="$(setup_repo)"
+enable_seams "$TMP34"
+plant_lock "$TMP34" 10 "$(lock_yaml_live 10)"
+set_userconfig_email "$TMP34" other@x.com
+(cd "$TMP34/local" && printf 'edit10\n' >> .aitask-data/aitasks/t10_alpha.md)
+BEFORE34="$(remote_data_sha "$TMP34")"
+OUT34="$(run_sync_seam "$TMP34" pre_group_commit \
+    "printf 'raced\\n' >> $TMP34/local/.aitask-data/aitasks/t10_alpha.md" \
+    --commit-for-task 10)"
+AFTER34="$(remote_data_sha "$TMP34")"
+assert_contains "a file raced during the commit is still withheld" \
+    "DEFERRED:publication_blocked" "$OUT34"
+assert_eq "and nothing reached the remote" "$BEFORE34" "$AFTER34"
+
+echo "--- Test 35: control - same flag, no race -> the group does publish ---"
+# Without this, Test 34 would also pass against a build where
+# --commit-for-task never committed anything at all.
+TMP35="$(setup_repo)"
+enable_seams "$TMP35"
+plant_lock "$TMP35" 10 "$(lock_yaml_live 10)"
+set_userconfig_email "$TMP35" other@x.com
+(cd "$TMP35/local" && printf 'edit10\n' >> .aitask-data/aitasks/t10_alpha.md)
+BEFORE35="$(remote_data_sha "$TMP35")"
+OUT35="$(run_sync_seam "$TMP35" pre_group_commit "true" --commit-for-task 10)"
+AFTER35="$(remote_data_sha "$TMP35")"
+assert_not_contains "an unraced commit-on-behalf is not withheld" \
+    "DEFERRED:publication_blocked" "$OUT35"
+assert_contains "the group is committed" \
+    "ait: Auto-commit t10 task data before sync" "$(data_log "$TMP35")"
+if [[ "$BEFORE35" != "$AFTER35" ]]; then
+    assert_record_pass
+else
+    assert_record_fail
+    echo "FAIL: the commit-on-behalf should have reached the remote"
+fi
+
+echo ""
+
 echo "==============================="
 echo "Results: $PASS passed, $FAIL failed, $TOTAL total"
 if [[ "$FAIL" -eq 0 ]]; then

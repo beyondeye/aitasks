@@ -48,10 +48,24 @@ SYNC_SH="$PROJECT_DIR/.aitask-scripts/aitask_sync.sh"
 RECOGNISED='SYNCED PUSHED PULLED NOTHING AUTOMERGED CONFLICT NO_NETWORK NO_REMOTE DEFERRED ERROR'
 
 # --- The scan -------------------------------------------------------------
-# Every `_protect "<reason>"` literal in the script, deduplicated.
+# Every protection reason literal in the script, deduplicated.
+#
+# THE RECEIVER LIST IS PART OF THE SCAN. A reason reaches the record set through
+# any of three spellings — `_protect`, `_protect_task_paths` (a per-task
+# protection expanded per path) and `_protect_group_paths` (the same for a
+# commit group). Matching only the first is not a narrower scan, it is a SILENT
+# one: when t1725_3 moved eight sites onto the two helpers, a `_protect`-only
+# regex went from 12 reasons to 6 and the file still reported all green.
+#
+# The reverse check below is what makes that unrepeatable, so keep both.
 scan_reasons() {
-    grep -oE '_protect[[:space:]]+"[a-z_]+"' "$SYNC_SH" \
+    grep -oE '_protect(_task_paths|_group_paths)?[[:space:]]+"[a-z_]+"' "$SYNC_SH" \
         | sed -E 's/.*"([a-z_]+)".*/\1/' | sort -u
+}
+
+# Every reason this file claims to drive.
+driver_reasons() {
+    declare -F | sed -n 's/^declare -f drive_//p' | sort -u
 }
 
 # --- Shared assertion -----------------------------------------------------
@@ -88,13 +102,21 @@ assert_reason_fired() {
 # its own branch was reached. Names are `drive_<reason>` and are looked up by
 # the scan below, so adding a reason without a driver is a hard failure.
 
+# The userconfig email matches the planted lock's `locked_by`, so the holder
+# classifies as `self` and the report names the user's OWN session. Without it
+# the class would be `unverified` (an absent local email must never compare
+# equal to an absent lock email), which is correct but proves less.
 drive_live_lock() {
     local t; t="$(setup_repo)"
     plant_lock "$t" 10 "$(lock_yaml_live 10)"
+    set_userconfig_email "$t" other@x.com
     (cd "$t/local" && printf 'edit10\n' >> .aitask-data/aitasks/t10_alpha.md)
     local out; out="$(run_sync "$t")"
     assert_usable_stdout "live_lock" "$out"
-    assert_reason_fired "live_lock" "$t" "locked by a LIVE session"
+    assert_reason_fired "live_lock" "$t" "held by YOUR OWN live session"
+    # The wrong-by-construction wording this task removes.
+    assert_not_contains "live_lock: the old roll-up wording is gone" \
+        "held by other sessions" "$(sync_err "$t")"
 }
 
 drive_unknown_liveness() {
@@ -255,6 +277,36 @@ drive_commit_failed() {
     assert_reason_fired "commit_failed" "$t" "commit failed"
 }
 
+# --commit-for-task reaches a group whose own session is live; --expect-path
+# then finds the dirty set has grown since the caller confirmed it.
+drive_commit_scope_changed() {
+    local t; t="$(setup_repo)"
+    plant_lock "$t" 10 "$(lock_yaml_live 10)"
+    set_userconfig_email "$t" other@x.com
+    (cd "$t/local" && printf 'edit10\n' >> .aitask-data/aitasks/t10_alpha.md \
+                   && printf 'extra\n' > .aitask-data/aitasks/t10_extra.md)
+    # Only ONE of t10's two dirty paths is declared.
+    local out
+    out="$(run_sync "$t" --commit-for-task 10 --expect-path "aitasks/t10_alpha.md")"
+    assert_usable_stdout "commit_scope_changed" "$out"
+    assert_reason_fired "commit_scope_changed" "$t" "the dirty set changed after it was confirmed"
+}
+
+# --require-waiting with no probe available. This is the ONLY direction
+# reachable until t1725_4 lands the pane helpers, and it is the fail-closed one:
+# no probe must mean "not waiting", never "assume waiting".
+drive_holder_not_waiting() {
+    local t; t="$(setup_repo)"
+    plant_lock "$t" 10 "$(lock_yaml_live 10)"
+    set_userconfig_email "$t" other@x.com
+    (cd "$t/local" && printf 'edit10\n' >> .aitask-data/aitasks/t10_alpha.md)
+    local out; out="$(run_sync "$t" --commit-for-task 10 --require-waiting)"
+    assert_usable_stdout "holder_not_waiting" "$out"
+    assert_reason_fired "holder_not_waiting" "$t" "is not parked on a prompt"
+    assert_not_contains "holder_not_waiting: nothing was committed" \
+        "Auto-commit t10" "$(data_log "$t")"
+}
+
 # Reasons with no reachable driver. Each MUST carry a justification: an empty
 # excuse here is how a scan turns vacuous.
 declare -A UNREACHABLE=()
@@ -271,6 +323,28 @@ if (( ${#REASONS[@]} == 0 )); then
 fi
 
 echo "Scanned ${#REASONS[@]} reason(s) from $(basename "$SYNC_SH"): ${REASONS[*]}"
+echo ""
+
+# REVERSE CHECK: every driver must correspond to a scanned reason.
+#
+# The forward check (scanned reason -> driver or UNREACHABLE) catches a reason
+# ADDED to the script. Only this one catches the script moving a reason onto a
+# call spelling the scan does not match: the reason vanishes from REASONS, its
+# driver is simply never invoked, and the forward check has nothing to complain
+# about. Measured — this is exactly what happened when the per-task and
+# per-group helpers landed.
+orphaned=0
+while read -r d; do
+    [[ -z "$d" ]] && continue
+    if [[ " ${REASONS[*]} " != *" $d "* ]]; then
+        assert_record_fail
+        echo "FAIL: drive_$d() exists but '$d' is not in the source scan — the scan regex has stopped matching a call site"
+        orphaned=1
+    fi
+done < <(driver_reasons)
+if (( orphaned == 0 )); then
+    assert_record_pass
+fi
 echo ""
 
 for reason in "${REASONS[@]}"; do

@@ -66,7 +66,16 @@ assert_not_contains "a live-locked task's file is NOT committed" "Auto-commit t1
 assert_contains "t10's file is left dirty" "t10_alpha.md" "$DIRTY2"
 assert_contains "the unlocked bystander t20 IS still committed" \
     "ait: Auto-commit t20 task data before sync" "$LOG2"
-assert_contains "the report names the live holder" "LIVE session" "$(sync_err "$TMP2")"
+# The report names the holder AND the file. Since t1725_3 the wording is chosen
+# by holder class, so the old fixed "LIVE session" string is gone: this fixture
+# sets no userconfig email, which makes the class `unverified` — correctly, since
+# an absent local email must never compare equal to an absent lock email.
+assert_contains "the report names the file it is holding back" \
+    "t10: aitasks/t10_alpha.md" "$(sync_err "$TMP2")"
+assert_contains "and says the holder could not be verified" \
+    "could not be verified" "$(sync_err "$TMP2")"
+assert_not_contains "and never claims a stranger holds it" \
+    "held by other sessions" "$(sync_err "$TMP2")"
 
 # --- Test 3: a DEAD lock is the recovery case -----------------------------
 echo "--- Test 3: dead lock -> committed ---"

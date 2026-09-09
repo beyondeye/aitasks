@@ -63,6 +63,12 @@ setup_repo() {
         printf -- '---\nstatus: Ready\n---\nB\n' > .aitask-data/aitasks/t20_beta.md
         printf -- '---\nstatus: Ready\n---\nC\n' > .aitask-data/aitasks/t30_gamma.md
         printf 'cfg\n' > .aitask-data/aitasks/metadata/stats_config.json
+        # Mirror the real data branch's .gitignore. userconfig.yaml is per-user
+        # and never shared, so without this every test that calls
+        # set_userconfig_email would also inject a phantom `ownerless` record
+        # for it and change the record counts it is trying to assert on.
+        printf '# Per-user config (local, not shared)\naitasks/metadata/userconfig.yaml\n' \
+            > .aitask-data/.gitignore
         git -C .aitask-data add -A
         git -C .aitask-data commit -q -m "data init"
         git -C .aitask-data push -q -u origin aitask-data 2>/dev/null
@@ -133,6 +139,22 @@ lock_yaml_unknown_pid() {
     local tid="$1" host="${2:-testhost}"
     printf 'task_id: %s\nlocked_by: other@x.com\nlocked_at: 2026-01-01 00:00\nhostname: %s\npid: -\npid_starttime: -\npid_starttime_kind: proc' \
         "$tid" "$host"
+}
+
+# set_userconfig_email <tmpdir> <email> — write the local user's identity where
+# get_user_email() reads it (`aitasks/metadata/userconfig.yaml`, resolved through
+# the clone's aitasks -> .aitask-data/aitasks symlink).
+#
+# The sweep's holder classification compares this against the lock's `locked_by`
+# to decide self / other / unverified, so a fixture that never sets it can only
+# ever produce `unverified` — which is correct, and is why every test that wants
+# `self` or `other` must call this. The lock YAMLs above hard-code
+# `locked_by: other@x.com`, so passing that value yields `self`.
+set_userconfig_email() {
+    local tmpdir="$1" email="$2"
+    mkdir -p "$tmpdir/local/.aitask-data/aitasks/metadata"
+    printf 'email: %s\n' "$email" \
+        > "$tmpdir/local/.aitask-data/aitasks/metadata/userconfig.yaml"
 }
 
 # Run the sweep in <tmpdir>'s clone. Echoes stdout; stderr lands in a
