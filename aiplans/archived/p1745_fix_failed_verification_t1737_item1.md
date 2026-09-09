@@ -280,6 +280,31 @@ Step 9 (Post-Implementation) handles cleanup, archival, and merge.
 - timing: post-phase | name: pin_startup_source_contract | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — recognised shape drifting unnoticed | desc: format-contract test that every column-0 source line in every scanned file uses a recognised spelling, plus a negative control that an indented line is excluded and a column-0 one included
 - timing: post-phase | name: document_startup_source_contract | type: documentation | priority: low | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — recognised shape drifting unnoticed | desc: extend the source-on-startup bullet in aidocs/framework/shell_conventions.md with the Python counterpart and the recognised shape, plus a one-line pointer comment above the startup source block in each of the four scanned lib files
 
+## Post-Review Changes
+
+### Change Request 1 (2026-09-08 23:05)
+- **Requested by user:** Step 8 review raised `[low | source comments]`. The
+  approved plan specified a **one-line pointer** comment per scanned library,
+  but the implementation had written three-line comments that repeated the
+  substantive "unconditional and column 0" rule in all four libs. A later
+  contract change could update the canonical rule and leave four stale copies —
+  the same duplication-drift class this task exists to remove. Verdict:
+  CONFIRMED; reduce each to a one-line pointer to the canonical documentation.
+- **Changes made:** Replaced the three-line block in each of the four scanned
+  libraries with a single pointer line naming the canonical doc and the enforcing
+  scanner, and restating no part of the rule:
+  `# Startup sources — contract: aidocs/framework/shell_conventions.md (source-on-startup); scanner: tests/lib/shell_startup_closure.py`
+  Net effect per library dropped from +3 lines to +1. The rule itself now lives
+  only in `aidocs/framework/shell_conventions.md`. No plan change was needed —
+  the plan already said "one-line pointer"; the implementation had drifted from
+  it. Re-verified after the change: shellcheck finding counts byte-identical to
+  `HEAD` on all four libs (proving comment-only), 19 Python tests pass, 663 shell
+  assertions pass. Review prompt was then re-issued and approved.
+- **Files affected:** `.aitask-scripts/lib/task_utils.sh`,
+  `.aitask-scripts/lib/archive_utils.sh`,
+  `.aitask-scripts/lib/python_resolve.sh`,
+  `.aitask-scripts/lib/data_symlinks.sh`
+
 ## Final Implementation Notes
 
 - **Actual work done:** Implemented as planned, in three parts plus both inline
