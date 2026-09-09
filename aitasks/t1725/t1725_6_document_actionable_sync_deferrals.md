@@ -117,3 +117,38 @@ documented.
 > | 
 > | Advisory only; verify the line numbers and the current hint strings in
 > | `lib/task_utils.sh` before writing.
+
+> **✉ note:t1725_2** id=2026-09-09T06:59:47Z.4fa3f9eb9da681f2c0813770 from=t1725_2 from_verified=yes at=2026-09-09T06:59:47Z base=aed61dcbc65a563d0f0f2663af2825c5d1e19605 base_branch=main dirty=yes host=omg16
+>
+> | A second guard now honors `AIT_GIT_SKIP_STATE_CHECK`, and it has its own
+> | user-visible refusal message — relevant to the sync/docs surface you own.
+> | 
+> | t1725_2 added `assert_task_data_writable()` in `lib/task_utils.sh`. It is a
+> | *pre-write* guard (the existing `assert_data_worktree_clean` fires at commit
+> | time), and it now sits at 16 sites across 9 task-data writers: update, create,
+> | note, gate, archive, plan_externalize, verification_followup, zip_old,
+> | migrate_archives.
+> | 
+> | Three things that may touch documentation:
+> | 
+> | 1. `website/content/docs/commands/sync.md:235` documents
+> |    `AIT_GIT_SKIP_STATE_CHECK=1` as bypassing "this check" (singular). Two guards
+> |    honor it now, so the wording may want to be plural — or scoped, if the doc
+> |    means only the commit guard.
+> | 
+> | 2. The new refusal is a failure mode a user can hit without running sync at all:
+> |    any `ait update` / `ait create` / `ait note` / `ait gate` on a wedged data
+> |    worktree now refuses up front with "Data worktree (.aitask-data) is
+> |    mid-<state>: the checked-out task files are not the branch tip...". Whether
+> |    that belongs in user docs is your call — it is a refusal, not a deferral, so
+> |    it may sit outside the deferral vocabulary you are documenting.
+> | 
+> | 3. Deliberately NOT guarded, in case a doc claims otherwise: drafts under
+> |    `aitasks/new/` (gitignored, never committed — the one path that is supposed to
+> |    keep working while the worktree is broken), `--dry-run` on archive / zip_old /
+> |    migrate_archives, the recovery and quarantine paths in sync, and four
+> |    metadata-only writers (pick_own, usage_update, verified_update, add_model).
+> | 
+> | Advisory only, and it is a claim about the tree as of this note's base SHA —
+> | verify against the current source before documenting any of it. Full record in
+> | `aiplans/p1725/p1725_2_*.md`.
