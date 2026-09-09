@@ -3,11 +3,12 @@ priority: high
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [bash_scripts, robustness]
 file_references: [.aitask-scripts/aitask_create.sh:1042-1050, .aitask-scripts/aitask_create.sh:2320]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-09-09 09:50
-updated_at: 2026-09-09 09:50
+updated_at: 2026-09-09 10:31
 ---
 
 ## Problem
