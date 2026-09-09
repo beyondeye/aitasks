@@ -923,9 +923,16 @@ finalize_draft() {
         release_child_lock_checked "$parent_num"
         trap - EXIT
     else
-        # Parent task: claim from atomic counter
-        local claimed_id
-        claimed_id=$(claim_unique_parent_id true)
+        # Parent task: claim from atomic counter.
+        # Absorb the status: claim_unique_parent_id runs inside $( ), where a die()
+        # exits only the subshell, so the status is all that reaches us. Aborting
+        # here writes nothing -- the draft is still on disk and the `rm -f
+        # "$draft_path"` below has not run (t1755).
+        local claimed_id claim_rc=0
+        claimed_id=$(claim_unique_parent_id true) || claim_rc=$?
+        if (( claim_rc != 0 )); then
+            die "Task ID claim failed (see the error above). Draft left at $draft_path; nothing was created."
+        fi
 
         task_id="t${claimed_id}"
         filepath="$TASK_DIR/${task_id}_${task_name}.md"
@@ -1042,12 +1049,24 @@ active_parent_task_exists() {
 claim_parent_id_once() {
     local allow_interactive_fallback="${1:-false}"
     local claimed_id
-    local claim_stderr
-    claim_stderr=$(mktemp)
-    claimed_id=$("$SCRIPT_DIR/aitask_claim_id.sh" --claim 2>"$claim_stderr") || {
+    # mktemp CAN fail (TMPDIR missing, full, read-only, or not a directory).
+    # Unchecked, $claim_stderr stayed EMPTY, `2>"$claim_stderr"` became an
+    # ambiguous redirect, and the claim could not run at all -- surfacing as shell
+    # noise ("line NNN: : No such file or directory", "cat: ''") plus a misleading
+    # "Atomic ID counter failed: unknown error" that names the wrong cause.
+    #
+    # lib/task_utils.sh's _ait_cs_sink degrades to /dev/null instead. That is
+    # correct THERE because its mktemp runs after the file is written and the id
+    # claimed, so aborting would burn an id. Here nothing has been written yet, so
+    # a deliberate abort costs nothing and fails closed on a shared, cross-machine
+    # counter (t1755).
+    local claim_errf
+    claim_errf="$(mktemp "${TMPDIR:-/tmp}/ait_claim_id_err.XXXXXX" 2>/dev/null)" \
+        || die "Cannot allocate a temp file for the ID-claim diagnostic (is TMPDIR=${TMPDIR:-/tmp} writable?); refusing to claim a task ID."
+    claimed_id=$("$SCRIPT_DIR/aitask_claim_id.sh" --claim 2>"$claim_errf") || {
         local claim_err
-        claim_err=$(cat "$claim_stderr")
-        rm -f "$claim_stderr"
+        claim_err=$(cat "$claim_errf")
+        rm -f "$claim_errf"
 
         if [[ "$allow_interactive_fallback" == "true" && -t 0 ]]; then
             echo "" >&2
@@ -1066,16 +1085,38 @@ claim_parent_id_once() {
             die "Atomic ID counter failed: ${claim_err:-unknown error}"
         fi
     }
-    rm -f "$claim_stderr" 2>/dev/null
+    rm -f "$claim_errf" 2>/dev/null
     echo "$claimed_id"
 }
 
 claim_unique_parent_id() {
     local allow_interactive_fallback="${1:-false}"
-    local attempt claimed_id
+    local attempt claimed_id once_rc
 
     for ((attempt = 1; attempt <= MAX_PARENT_ID_CLAIM_RETRIES; attempt++)); do
-        claimed_id=$(claim_parent_id_once "$allow_interactive_fallback")
+        # errexit does NOT survive a command substitution -- bash clears it in the
+        # subshell -- and a die() inside claim_parent_id_once exits only THAT
+        # subshell. So the exit status is the one signal that survives; without
+        # absorbing it here the loop fell through to active_parent_task_exists ""
+        # (false, no t_*.md exists), echoed an EMPTY id and returned 0, and the
+        # caller wrote and committed aitasks/t_<name>.md (t1755).
+        #
+        # Declare once_rc first: `local x=$(…)` would mask the status in local's
+        # own return value, so `|| once_rc=$?` would never fire.
+        once_rc=0
+        claimed_id=$(claim_parent_id_once "$allow_interactive_fallback") || once_rc=$?
+        if (( once_rc != 0 )); then
+            # Not retryable: the counter is unavailable, or the user declined the
+            # local-scan fallback. Retrying would only reprint the same error. The
+            # retry below is for the id-COLLISION case alone.
+            return "$once_rc"
+        fi
+        # The single choke point that makes an id-less filename structurally
+        # impossible; callers check only the status and never restate this.
+        if [[ ! "$claimed_id" =~ ^[0-9]+$ ]]; then
+            warn "Atomic ID counter returned a non-numeric task ID ('$claimed_id')."
+            return 1
+        fi
         if active_parent_task_exists "$claimed_id"; then
             warn "Claimed task ID t$claimed_id already exists as an active parent task; retrying ($attempt/$MAX_PARENT_ID_CLAIM_RETRIES)." >&2
             continue
@@ -2233,6 +2274,29 @@ run_batch_mode() {
         # id, which is finding 7's whole shape (t1725_2).
         assert_task_data_writable
 
+        # Claim the parent id BEFORE the label registration below. add_label_to_file
+        # writes labels.txt to disk immediately (lib/task_utils.sh), so a claim
+        # failure after it aborted with the shared vocabulary already appended -- a
+        # task-less label the user never asked for. Rolling back is NOT the
+        # alternative: restoring the file wholesale would clobber a concurrent
+        # session's append, which is the t1662 hazard. Claiming first makes the
+        # "nothing is written" guarantee literally true -- resolve_anchor,
+        # sanitize_name and normalize_labels_csv are all read-only, the last
+        # explicitly so (t1755).
+        #
+        # What this does NOT buy: a label-write failure now burns an id, where
+        # before it burned nothing. That is the cheaper direction -- a burned id is
+        # self-healing (`aitask_claim_id.sh --resync`), a vocabulary entry for a
+        # task that does not exist is user-visible garbage -- and a local disk write
+        # fails far more rarely than a git-backed counter claim.
+        local claimed_id="" claim_rc=0
+        if [[ -z "$BATCH_PARENT" ]]; then
+            claimed_id=$(claim_unique_parent_id false) || claim_rc=$?
+            if (( claim_rc != 0 )); then
+                die "Task ID claim failed (see the error above); no task was created."
+            fi
+        fi
+
         # Register new labels in the vocabulary BEFORE the parent/child split, so
         # labels.txt rides in the very same task-creation commit when -- and only
         # when -- this invocation actually appended to it.
@@ -2317,10 +2381,8 @@ run_batch_mode() {
             release_child_lock_checked "$BATCH_PARENT"
             trap - EXIT
         else
-            # Parent task: claim real ID from atomic counter
-            local claimed_id
-            claimed_id=$(claim_unique_parent_id false)
-
+            # Parent task: $claimed_id was claimed above, before the label
+            # registration, so a failed claim leaves the vocabulary untouched.
             local deduped_file_refs
             deduped_file_refs=$(dedup_file_refs BATCH_FILE_REFS)
             filepath=$(create_task_file "$claimed_id" "$task_name" "$BATCH_PRIORITY" "$BATCH_EFFORT" \
