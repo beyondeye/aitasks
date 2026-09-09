@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [bash_scripts, robustness]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -15,7 +15,8 @@ file_references: [.aitask-scripts/aitask_create.sh:1042-1050, .aitask-scripts/ai
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5
 created_at: 2026-09-09 09:50
-updated_at: 2026-09-09 12:20
+updated_at: 2026-09-09 13:41
+completed_at: 2026-09-09 13:41
 ---
 
 ## Problem
@@ -92,3 +93,14 @@ records this one as an upstream defect in `aiplans/p1725/p1725_2_*.md`.
 > **✅ gate:plan_approved** run=2026-09-09T09:19:50Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-09-09T10:30:25Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-09T10:41:33Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:3fba81a306cb5801
+
+> **✅ gate:risk_evaluated** run=2026-09-09T10:41:33Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1755/risk_evaluated_2026-09-09T10:41:33Z-risk_evaluated-a1.log`
