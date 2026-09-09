@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [documentation, git, bash_scripts]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1733
 created_at: 2026-09-09 11:12
-updated_at: 2026-09-09 11:12
+updated_at: 2026-09-09 12:22
 ---
 
 ## Context
