@@ -384,5 +384,97 @@ class LogViewStartupFocusTests(unittest.TestCase):
         asyncio.run(runner())
 
 
+class FrozenAgentHeaderTests(unittest.TestCase):
+    """The frozen-agent viewer's header must survive markup parsing (t1705_6).
+
+    Its header interpolates values the FRAMEWORK does not control: a tmux window
+    name and a task title, both user-authored. A window named
+    ``agent-[wip]-1705`` is a syntactically valid unknown tag, so an unescaped
+    header silently loses it — the same class of defect this module was created
+    for, on a new surface. The ``[plain]`` mode indicator is the logview case
+    exactly.
+    """
+
+    def setUp(self):
+        import json
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        tmp = Path(self._tmp.name)
+        store = tmp / "agent_sessions.json"
+        frozen = tmp / "frozen"
+        cap = frozen / "7f3a2c1d"
+        cap.mkdir(parents=True)
+        (cap / "capture.ansi").write_text("alpha\nbravo\n")
+        (cap / "capture.txt").write_text("alpha\nbravo\n")
+        store.write_text(json.dumps({"version": 1, "sessions": [{
+            "id": "7f3a2c1d", "root": str(tmp), "window": "agent-[wip]-1705",
+            "window_slot": 0, "pane_id": "%9", "pane_pid": 4242,
+            "session": "aitasks", "operation": "pick", "task_id": "1705",
+            "agent_string": "claudecode/opus5", "agent_kind": "claudecode",
+            "codeagent_session_id": "", "transcript_path": "",
+            "started_at": "2026-09-04T09:12:03Z", "state": "frozen",
+            "state_at": "2026-09-04T09:20:00Z", "op_nonce": "",
+            "op_owner_pid": 0, "op_started_at": "",
+            "frozen_at": "2026-09-04T09:20:00Z",
+            "capture_ansi": str(cap / "capture.ansi"),
+            "capture_txt": str(cap / "capture.txt"), "capture_lines": 2,
+            "last_phase": "", "standin_pid": 0, "launch_pid": 0,
+            "restore_attempts": 0, "restore_mode": "", "ack": "",
+            "last_error": "",
+        }]}))
+        os.environ["AITASKS_AGENT_SESSIONS_FILE"] = str(store)
+        os.environ["AITASKS_FROZEN_DIR"] = str(frozen)
+        self.addCleanup(os.environ.pop, "AITASKS_AGENT_SESSIONS_FILE", None)
+        self.addCleanup(os.environ.pop, "AITASKS_FROZEN_DIR", None)
+
+        # ISOLATE TMUX. Mounting the viewer runs `_stamp_ready`, which is
+        # supposed to write `@aitask_standin_ready` on `$TMUX_PANE` — and in a
+        # headless test that pane is the DEVELOPER'S or the agent's own. This
+        # was not hypothetical: an earlier run of this class left a stray stamp
+        # on the pane it was launched from. A markup assertion must never reach
+        # the real server, so both halves of the reach are cut: the gateway is
+        # replaced with a recorder, and the pane id it would target is removed.
+        import frozenagent.frozenagent_app as fa
+        self.tmux_calls: list[list[str]] = []
+
+        class _NoTmux:
+            def __init__(self, sink):
+                self._sink = sink
+
+            def run(self, args, timeout=None):
+                self._sink.append(list(args))
+                return 0, ""
+
+        self._real_tmux = fa._TMUX
+        fa._TMUX = _NoTmux(self.tmux_calls)
+        self.addCleanup(setattr, fa, "_TMUX", self._real_tmux)
+        self._old_pane = os.environ.pop("TMUX_PANE", None)
+        if self._old_pane is not None:
+            self.addCleanup(os.environ.__setitem__, "TMUX_PANE", self._old_pane)
+
+    def test_a_bracketed_window_name_and_the_plain_indicator_render(self):
+        from frozenagent.frozenagent_app import FrozenAgentApp
+
+        async def runner():
+            app = FrozenAgentApp("7f3a2c1d")
+            async with app.run_test(size=(160, 24)) as pilot:
+                header = app.query_one("#fa-header")
+                self.assertIn("agent-[wip]-1705", _rendered(header))
+                await pilot.press("r")
+                await pilot.pause()
+                self.assertTrue(app._plain_mode, "the r binding did not fire")
+                self.assertIn("[plain]", _rendered(header))
+                self.assertIn("agent-[wip]-1705", _rendered(header))
+
+        asyncio.run(runner())
+        # The isolation itself is asserted, not assumed: a future refactor that
+        # reached tmux another way would otherwise reintroduce the stray stamp
+        # silently.
+        self.assertEqual(
+            self.tmux_calls, [],
+            "a headless markup test must issue no tmux calls at all",
+        )
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

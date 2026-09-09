@@ -50,7 +50,11 @@ import subprocess  # noqa: E402
 
 from monitor.monitor_core import (  # noqa: E402
     _COMPANION_MEMO_TTL,
+    FROZEN_AWARE_PANE_FORMAT,
+    FROZEN_OPTION,
+    MONITOR_KIND_OPTION,
     PaneCategory,
+    SHADOW_TARGET_OPTION,
     TmuxPaneInfo,
     TmuxMonitor,
 )
@@ -645,8 +649,27 @@ class KillAgentPaneSmartTests(unittest.TestCase):
     #: `#{pane_id}\t#{pane_pid}\t#{@aitask_shadow_target}\t#{@aitask_monitor_kind}\t#{@aitask_frozen}`
     @staticmethod
     def _line(pane_id: str, pid: int, shadow: str = "",
-              monitor_kind: str = "", frozen: str = "") -> str:
-        return f"{pane_id}\t{pid}\t{shadow}\t{monitor_kind}\t{frozen}"
+              monitor_kind: str = "", frozen: str = "", dead: str = "0") -> str:
+        """One `FROZEN_AWARE_PANE_FORMAT` row, BUILT FROM that format.
+
+        Deriving the row instead of hard-coding a tab count is what stops this
+        fixture drifting from production (t1705_6). `classify_window_panes`
+        silently skips a row whose arity is wrong — so a hard-coded row that
+        fell out of step would make every pane vanish, the sibling count read 0,
+        and the verdict flip from `pane` to `window`: a format change would
+        surface as a WRONG ANSWER rather than as a failure that names itself.
+        A field added to the format now raises `KeyError` here instead.
+        """
+        values = {
+            "#{pane_id}": pane_id,
+            "#{pane_pid}": str(pid),
+            f"#{{{SHADOW_TARGET_OPTION}}}": shadow,
+            f"#{{{MONITOR_KIND_OPTION}}}": monitor_kind,
+            f"#{{{FROZEN_OPTION}}}": frozen,
+            "#{pane_dead}": dead,
+        }
+        return "\t".join(values[spec]
+                         for spec in FROZEN_AWARE_PANE_FORMAT.split("\t"))
 
     def _kill(self, stdout: str, companion_pids: set[int], target="%1"):
         mon = _make_monitor()

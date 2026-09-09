@@ -17,6 +17,7 @@ from __future__ import annotations
 TUI_REGISTRY: list[tuple[str, str | None, str | None, bool]] = [
     ("board",       "Task Board",    "ait board",       True),
     ("monitor",     "tmux Monitor",  "ait monitor",     True),
+    ("frozenagent", "Frozen Agent",  "ait frozenagent", True),
     ("codebrowser", "Code Browser",  "ait codebrowser", True),
     ("settings",    "Settings",      "ait settings",    True),
     ("stats",       "Statistics",    "ait stats-tui",   True),

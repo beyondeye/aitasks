@@ -207,15 +207,24 @@ def _clear_frozen_stamp(pane_id: str) -> None:
         frozen_ops.unset_option(pane_id, FROZEN_OPTION)
 
 
-def _rollback(record_id: str, nonce: str, pane_id: str) -> str:
+def _rollback(record_id: str, nonce: str, pane_id: str, reason: str = "") -> str:
     """Abort the attempt and put the stand-in back. Returns a detail suffix.
+
+    ``reason`` is PERSISTED on the record by `restore-abort` (t1705_6). This
+    coordinator's own wire line goes to a detached `run-shell` job that nobody
+    reads, and the viewer that asked for the restore is replaced by the stand-in
+    this function respawns — so the record is the only channel by which the user
+    can ever learn why their restore failed.
 
     **Never called without first confirming the store actually moved the record
     to `aborting`.** `restore-abort` is state-guarded exactly like
     `restore-launched`, so a refusal here means someone else already settled the
     record — and respawning over it would destroy whatever is now in the pane.
     """
-    rc, out = frozen_ops.store("restore-abort", record_id, "--nonce", nonce)
+    abort_argv = ["restore-abort", record_id, "--nonce", nonce]
+    if reason:
+        abort_argv += ["--error", reason]
+    rc, out = frozen_ops.store(*abort_argv)
     if rc == EXIT_NONCE_MISMATCH:
         return "nonce_mismatch"
     if rc != 0:
@@ -260,7 +269,7 @@ def _settle(decided: "RestoreResult", record_id: str, nonce: str,
     """
     if decided.ok or decided.outcome not in ("session_mismatch", "agent_exited"):
         return decided
-    detail = _rollback(record_id, nonce, pane_id)
+    detail = _rollback(record_id, nonce, pane_id, decided.outcome)
     if detail:
         return RestoreResult(record_id, False, decided.outcome,
                              f"{decided.line}|{detail}")
@@ -391,7 +400,7 @@ def restore(record_id: str, *, repick: bool = False) -> RestoreResult:
             if error:
                 raise OSError(error)
     except (_StageFailure, OSError, ValueError) as exc:
-        detail = _rollback(record_id, nonce, pane_id)
+        detail = _rollback(record_id, nonce, pane_id, "respawn")
         suffix = f"|{detail}" if detail else ""
         return RestoreResult(record_id, False, "respawn",
                              f"RESTORE_FAILED:{record_id}|respawn:{exc}{suffix}")
@@ -411,7 +420,7 @@ def restore(record_id: str, *, repick: bool = False) -> RestoreResult:
         decided = _decide_from_record(record_id, current, nonce, agent_kind)
         if decided is not None:
             return _settle(decided, record_id, nonce, pane_id)
-        detail = _rollback(record_id, nonce, pane_id)
+        detail = _rollback(record_id, nonce, pane_id, "launch_refused")
         suffix = f"|{detail}" if detail else ""
         return RestoreResult(
             record_id, False, "launch_refused",
@@ -459,7 +468,7 @@ def restore(record_id: str, *, repick: bool = False) -> RestoreResult:
         # and because those stale values still equal `launch_pid`, the store
         # would accept it. Confirming on evidence that has expired is exactly
         # what the liveness path must not do.
-        detail = _rollback(record_id, nonce, pane_id)
+        detail = _rollback(record_id, nonce, pane_id, "agent_exited")
         suffix = f"|{detail}" if detail else ""
         return RestoreResult(record_id, False, "agent_exited",
                              f"RESTORE_FAILED:{record_id}|agent_exited{suffix}")

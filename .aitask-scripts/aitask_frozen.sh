@@ -15,10 +15,11 @@
 #   freeze --all              freeze every agent-facing pane on every session
 #   restore <id> [--repick]   relaunch one frozen agent in its stand-in's pane
 #   restore --all [--repick]  relaunch every frozen agent, sequentially
+#   drop <id>                 remove a frozen record, its capture, and its stand-in
 #   reconcile                 settle every non-`live` record from observable facts
 #
-# TUIs MUST invoke `restore` through `run-shell -b`, never inline: the
-# coordinator respawns the very pane a TUI keybinding would be running in, so a
+# TUIs MUST invoke `restore` and `drop` through `run-shell -b`, never inline:
+# each replaces or kills the very pane a TUI keybinding would be running in, so a
 # child of that pane would be killed mid-transaction — leaving a `restoring`
 # record for reconcile to clean up and, to the user, a dead pane. `run-shell -b`
 # is a detached tmux server job and outlives the respawn (measured, t1705_1).
@@ -42,7 +43,8 @@
 #
 # Exit codes:
 #   0  every result succeeded (an empty batch counts as success)
-#   1  at least one pane failed; its `FREEZE_FAILED:<stage>|…` line says which
+#   1  at least one pane failed; its `FREEZE_FAILED:<stage>|…` /
+#      `DROP_FAILED:` / `DROP_REFUSED:` / `DROP_ABORTED:` line says which
 #   2  usage error
 #
 # Wire lines are printed verbatim on stdout, one per pane / per record, so a
@@ -65,6 +67,7 @@ Usage: aitask_frozen.sh freeze <pane_id>
        aitask_frozen.sh freeze --all
        aitask_frozen.sh restore <id> [--repick]
        aitask_frozen.sh restore --all [--repick]
+       aitask_frozen.sh drop <id>
        aitask_frozen.sh reconcile
 EOF
     exit 2
@@ -84,6 +87,13 @@ case "$1" in
         # only rejects the no-argument form so `usage` stays the shell's answer.
         [ $# -ge 2 ] || usage
         ENGINE="$RESTORE_PY"
+        ;;
+    drop)
+        # `drop` execs the FREEZE module, not the restore coordinator: reconcile
+        # (which lives there) is the repair side and must keep working with no
+        # coordinator present, so nothing it depends on may reach toward
+        # `agent_restore`.
+        [ $# -eq 2 ] || usage
         ;;
     reconcile)
         [ $# -eq 1 ] || usage

@@ -55,6 +55,7 @@ KNOWN_BINDING_SOURCES: list[tuple[str, str, tuple[str, ...]]] = [
     ("minimonitor_app", "monitor/minimonitor_app.py", ("minimonitor",)),
     ("syncer_app", "syncer/syncer_app.py", ("syncer",)),
     ("diffviewer_app", "diffviewer/diffviewer_app.py", ("diffviewer",)),
+    ("frozenagent_app", "frozenagent/frozenagent_app.py", ("frozenagent",)),
     ("stats_app", "stats/stats_app.py", ("stats",)),
     # Shared, cross-TUI dialogs (reused by several Apps) — their scopes live
     # under "shared.*" so every TUI's `?` editor surfaces them.

@@ -34,13 +34,12 @@ never `from agent_frozen_ops import store`): the tests swap
 import-time alias would bind the original object and miss the swap. See that
 module's docstring for the full seam rule.
 
-THE STAND-IN VIEWER DOES NOT EXIST YET. `standin_command()` names
-`ait frozenagent --record <id>`, which t1705_6 ships; until then the only
-exercised path is the `AITASKS_FROZEN_STANDIN_CMD` test seam. That is why
-reconcile treats "stamped, no ready mark, no known pid" as **indeterminate**
-rather than as failure: a viewer that boots slowly looks exactly like one that
-never will, and only positive evidence (`@aitask_standin_ready`, or a pid match)
-distinguishes them.
+THE STAND-IN VIEWER is `ait frozenagent --record <id>` (t1705_6), which is what
+`standin_command()` names; `AITASKS_FROZEN_STANDIN_CMD` remains a test seam for
+suites that want a harmless process instead. Reconcile still treats "stamped, no
+ready mark, no known pid" as **indeterminate** rather than as failure: a viewer
+that boots slowly looks exactly like one that never will, and only positive
+evidence (`@aitask_standin_ready`, or a pid match) distinguishes them.
 
 Test seams, honoured **only** under ``AITASKS_TEST_MODE=1``. They are built from
 `agent_frozen_ops`' shared factory, so the restore coordinator's
@@ -89,6 +88,9 @@ from agent_launch_utils import (  # noqa: E402
 from config_utils import load_yaml_config  # noqa: E402
 from monitor.ansi_utils import strip_ansi  # noqa: E402
 from monitor.monitor_core import (  # noqa: E402
+    FROZEN_AWARE_PANE_FORMAT,
+    classify_window_panes,
+    count_other_real_agents,
     FROZEN_OPTION,
     PaneCategory,
     RECORD_OPTION,
@@ -100,6 +102,15 @@ from monitor.monitor_core import (  # noqa: E402
 #: This engine's failure-injection seam, bound to its own environment variable
 #: so the restore coordinator's `AITASKS_RESTORE_FAIL_AT` cannot fire here.
 _fail_at = frozen_ops.make_fail_at("AITASKS_FREEZE_FAIL_AT")
+
+#: `drop`'s own failure seam, bound to its own variable so a test injecting into
+#: the freeze transaction cannot trip the drop protocol (the two run in the same
+#: process during a freeze-then-drop sequence).
+_drop_fail_at = frozen_ops.make_fail_at("AITASKS_DROP_FAIL_AT")
+
+#: `drop`'s stages, in order. Named so the seams and the wire lines agree on one
+#: vocabulary, exactly as :data:`STAGES` does for freeze.
+DROP_STAGES = ("claim", "preflight", "kill", "verify", "store")
 
 #: Default scrollback cap. Overridden by `frozen.capture_max_lines` in the
 #: project's `aitasks/metadata/project_config.yaml`; the shipped config has no
@@ -811,6 +822,201 @@ def _stale_grace() -> float:
     return agent_sessions._stale_op_grace()
 
 
+# --- drop -------------------------------------------------------------------
+
+
+#: `display-message` could not reach tmux at all (`TmuxClient.run` returns -1 on
+#: FileNotFoundError / OSError / timeout). Distinct from tmux ANSWERING that the
+#: pane does not exist, which is exit 1 — see :func:`_probe_pane`.
+_TMUX_UNREACHABLE = -1
+
+
+def _probe_pane(pane_id: str) -> tuple[str, dict[str, str] | None]:
+    """Ask tmux about ONE pane. Returns ``(verdict, facts)``.
+
+    Verdicts: ``"present"`` (facts are the pane's), ``"gone"`` (tmux answered
+    that no such pane exists — including "no server running", which means the
+    same thing), or ``"unknown"`` (tmux could not be reached at all).
+
+    The three are kept apart deliberately. Collapsing ``unknown`` into ``gone``
+    is the mistake that reintroduces V9: a coordinator that cannot reach tmux
+    would conclude the stand-in is already gone, skip the kill, and delete the
+    record and its only capture while a live stamped viewer is still sitting in
+    that pane — the one state `reconcile` cannot repair, because it iterates
+    records and that pane no longer has one.
+
+    Asking about the pane directly, rather than looking for it in a window
+    listing, also means the answer does not depend on the record's `session` /
+    `window` fields still being current: those are display values, and a tmux
+    restart or a rename makes a window-scoped lookup miss a pane that is very
+    much alive.
+    """
+    rc, out = frozen_ops.run(
+        ["display-message", "-p", "-t", pane_id,
+         "\t".join(["#{pane_id}", f"#{{{FROZEN_OPTION}}}", "#{pane_dead}"])]
+    )
+    if rc == _TMUX_UNREACHABLE:
+        return "unknown", None
+    if rc != 0:
+        return "gone", None
+    parts = (out.splitlines() or [""])[0].split("\t")
+    if len(parts) != 3 or not parts[0].strip():
+        return "gone", None
+    return "present", {
+        "pane_id": parts[0].strip(),
+        "frozen": parts[1].strip(),
+        "dead": parts[2].strip(),
+    }
+
+
+def _other_real_agents(pane_id: str) -> int | None:
+    """Sibling count for the kill rule; ``None`` when it could not be taken.
+
+    **Enumerated from the TARGET PANE, never from the record's stored
+    `session` / `window`.** Those two fields are display values: a pane can be
+    moved (`break-pane`, `join-pane`) or its window renamed, and the old name
+    can be taken by a different window entirely. Counting siblings in window A
+    and then issuing `kill-window -t <pane in window B>` — which is what a
+    stored-name lookup permits — reads "no siblings" for a window that is not
+    the one about to die, and destroys the live agents in the one that is.
+    `list-panes -t <pane-id>` resolves to that pane's own window, so the count
+    and the kill can never disagree about which window they mean.
+
+    `monitor_core.classify_window_panes` is the one definition of "does this
+    pane keep the window alive". Calling it here makes the coordinator a second
+    CALL SITE of that rule rather than a fourth implementation of it — there are
+    already three (`aitask_companion_cleanup.sh`, `kill_agent_pane_smart`, and
+    the fixture in `tests/test_cleanup_rule_parity.sh`, which exists *because*
+    of that duplication).
+
+    ``None`` is not 0. A failed listing that counted as "no siblings" would
+    collapse a window that may still hold a live agent; the caller downgrades to
+    `kill-pane` instead, which is the conservative half of the same rule.
+    """
+    rc, out = frozen_ops.run(
+        ["list-panes", "-t", pane_id, "-F", FROZEN_AWARE_PANE_FORMAT]
+    )
+    if rc != 0:
+        return None
+    panes = classify_window_panes(out)
+    if not any(wp.pane_id == pane_id for wp in panes):
+        # The listing did not contain the pane we are about to kill, so it is
+        # not that pane's window. Fail conservative rather than count it.
+        return None
+    return count_other_real_agents(
+        [(wp.pane_id, wp.is_helper) for wp in panes], pane_id
+    )
+
+
+def drop_record(record_id: str) -> str:
+    """Remove a frozen record, its capture, and its stand-in pane.
+
+    THE ORDER IS THE DESIGN. `drop` deletes the only copy of an agent's output,
+    so the irreversible step goes LAST and every intermediate state is one
+    reconcile already repairs:
+
+      0. **claim** the record (`lease-take`). Atomic under the store's write
+         lock, and it already encapsulates the staleness rule — held by a live
+         coordinator => `LEASE_HELD`, held by a dead one => taken over, so a
+         crash can never make a record permanently undroppable.
+      1. **preflight** the live pane inventory to resolve the target. The
+         record's `pane_id` is durable but NOT authoritative: `_reconcile_frozen`
+         returns `KEEP:<id>|pane_gone` and writes nothing, so after a tmux
+         restart every retained record still names a `%N` that no longer exists.
+         Keying "nothing to kill" on an empty `pane_id` would make exactly those
+         records undroppable.
+      2. **kill** the stand-in. Pane options are pane-scoped and die with the
+         pane, so this retires all three stamps with no unstamp step to fail. A
+         failed kill changes NOTHING: the user keeps a working viewer and an
+         intact capture.
+      3. **store**, and only after the target is verified gone, with the claimed
+         nonce. A `NONCE_MISMATCH` here means somebody minted a new lease while
+         we were killing — the record and capture survive, which is the point.
+
+    The one residual, accepted deliberately: the kill cannot be made
+    conditional, so a restore beginning between step 2 and step 3 costs the user
+    the *stand-in pane* — never the record and never the capture. The record
+    stays restorable into a fresh window (`_reconcile_frozen`'s
+    `KEEP:<id>|pane_gone`). Losing a replaceable viewer is the right trade
+    against losing the only copy of a session's output; do not "fix" it by
+    reordering.
+    """
+    lease = _Lease(record_id)
+    try:
+        _drop_fail_at("claim")
+        nonce = lease()
+    except _LeaseUnavailable as exc:
+        if exc.line.startswith("LEASE_HELD:"):
+            return f"DROP_REFUSED:{record_id}|in_flight"
+        return f"DROP_FAILED:{record_id}|claim:{exc.line}"
+    except frozen_ops.StageFailure as exc:
+        return f"DROP_FAILED:{record_id}|{exc.stage}"
+
+    def _release() -> None:
+        """Give the claim back so a retry is immediate, not grace-delayed."""
+        frozen_ops.store("lease-release", record_id, "--nonce", nonce)
+
+    try:
+        _drop_fail_at("preflight")
+        rec = frozen_ops.store_show(record_id)
+        if not rec:
+            _release()
+            return f"DROP_FAILED:{record_id}|no_record"
+        pane_id = rec.get("pane_id", "")
+
+        # Resolve the target against what the SERVER says, never the record
+        # alone: `pane_id` is durable but not authoritative (see the docstring).
+        must_kill = False
+        if pane_id:
+            verdict, facts = _probe_pane(pane_id)
+            if verdict == "unknown":
+                _release()
+                return f"DROP_FAILED:{record_id}|preflight:tmux unreachable"
+            if verdict == "present":
+                if facts and facts["frozen"] == record_id:
+                    must_kill = True
+                # else: a recycled `%N`. Pane options die with the pane, so a
+                # recycled pane cannot carry our stamp — which is what makes the
+                # stamp the authoritative identity join (§B). Leave it alone;
+                # killing it would destroy somebody else's work.
+
+        if must_kill:
+            _drop_fail_at("kill")
+            others = _other_real_agents(pane_id)
+            # `None` (the listing failed) downgrades to kill-pane rather than
+            # collapsing a window that may still hold a live agent.
+            verb = "kill-window" if others == 0 else "kill-pane"
+            rc, out = frozen_ops.run([verb, "-t", pane_id])
+            if rc != 0:
+                _release()
+                return f"DROP_FAILED:{record_id}|kill:{out.strip() or verb}"
+
+            _drop_fail_at("verify")
+            verdict, _ = _probe_pane(pane_id)
+            if verdict != "gone":
+                _release()
+                return (f"DROP_FAILED:{record_id}|kill:pane not verified gone "
+                        f"({verdict})")
+
+        frozen_ops.pause_at("drop_pre_store")
+        _drop_fail_at("store")
+        rc, out = frozen_ops.store("drop", record_id, "--nonce", nonce)
+        if rc == EXIT_NONCE_MISMATCH:
+            # Somebody minted a new lease over ours while we were killing. The
+            # record and its capture SURVIVE — that is what the leased form
+            # buys, and what a snapshotted `(state, op_nonce)` comparison could
+            # not: an `aborting -> frozen` recovery clears the nonce and would
+            # have restored the identical pair.
+            return f"DROP_ABORTED:{record_id}|raced"
+        if rc != 0:
+            _release()
+            return f"DROP_FAILED:{record_id}|store:{out.strip()}"
+        return f"DROPPED:{record_id}"
+    except frozen_ops.StageFailure as exc:
+        _release()
+        return f"DROP_FAILED:{record_id}|{exc.stage}"
+
+
 def reconcile() -> list[str]:
     """Resolve every non-`live` record from server-observable facts (§C).
 
@@ -905,7 +1111,7 @@ def reconcile() -> list[str]:
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if not argv:
-        print("usage: agent_freeze.py freeze <pane>|--all | reconcile",
+        print("usage: agent_freeze.py freeze <pane>|--all | drop <id> | reconcile",
               file=sys.stderr)
         return 2
     verb, rest = argv[0], argv[1:]
@@ -923,6 +1129,14 @@ def main(argv: list[str] | None = None) -> int:
             print(result.line)
         # An empty batch is a success: there was nothing to freeze.
         return 0 if all(r.ok for r in results) else 1
+
+    if verb == "drop":
+        if len(rest) != 1:
+            print("usage: agent_freeze.py drop <record-id>", file=sys.stderr)
+            return 2
+        line = drop_record(rest[0])
+        print(line)
+        return 0 if line.startswith("DROPPED:") else 1
 
     if verb == "reconcile":
         for line in reconcile():

@@ -78,6 +78,8 @@ class _FakeTmux:
         self.respawn_ok = True
         self.set_option_ok = True
         self.capture_rc = 0
+        self.list_panes_ok = True
+        self.kill_ok = True
 
     # -- the TmuxClient surface agent_freeze uses --------------------------
     def run(self, args, timeout=None):
@@ -93,7 +95,9 @@ class _FakeTmux:
         if verb == "respawn-pane":
             return self._respawn(args)
         if verb == "list-panes":
-            return 0, ""
+            return self._list_panes(args)
+        if verb in ("kill-pane", "kill-window"):
+            return self._kill(args)
         return 0, ""
 
     # -- helpers ------------------------------------------------------------
@@ -133,6 +137,53 @@ class _FakeTmux:
         # pane-scoped option — the fact the whole design rests on (t1705_1).
         pane["pane_pid"] = str(STANDIN_PID)
         pane["pane_dead"] = "0"
+        return 0, ""
+
+    def _list_panes(self, args):
+        """Answer from the pane model, honouring the requested -F format.
+
+        Generic over the format string so a caller asking for
+        `FROZEN_AWARE_PANE_FORMAT` and one asking for the reconcile format both
+        get coherent rows out of the same model.
+
+        A `%N` TARGET RESOLVES TO THAT PANE'S WINDOW, exactly as real tmux does
+        (verified: `list-panes -t %2` lists every pane of %2's window). Modelling
+        that faithfully is what lets a test express a pane whose window is NOT
+        the one its record names — the case where counting siblings by the
+        stored window name and killing by pane id disagree.
+        """
+        if not self.list_panes_ok:
+            return 1, ""
+        target = self._target(args)
+        if target.startswith("%"):
+            pane = self.panes.get(target)
+            if pane is None:
+                return 1, ""
+            window = pane.get("window_name", "")
+        else:
+            window = target.split(":")[-1] if ":" in target else target
+        fmt = args[args.index("-F") + 1] if "-F" in args else ""
+        rows = []
+        for pane in self.panes.values():
+            if window and pane.get("window_name") not in (window, ""):
+                continue
+            fields = []
+            for spec in fmt.split("\t"):
+                fields.append(str(pane.get(spec.strip("#{}"), "")))
+            rows.append("\t".join(fields))
+        return 0, "\n".join(rows) + ("\n" if rows else "")
+
+    def _kill(self, args):
+        if not self.kill_ok:
+            return 1, "kill refused"
+        target = self._target(args)
+        if args[0] == "kill-window":
+            window = self.panes.get(target, {}).get("window_name")
+            for pid in [k for k, v in self.panes.items()
+                        if v.get("window_name") == window]:
+                self.panes.pop(pid, None)
+        else:
+            self.panes.pop(target, None)
         return 0, ""
 
     def calls_of(self, verb: str) -> list[list[str]]:
@@ -247,8 +298,14 @@ class _FakeStore:
                 self.sf, argv[0],
                 owner_pid=int(self._arg(argv, "--owner-pid", "0")))
             return 0, line
+        if verb == "lease-release":
+            self.sf, line = agent_sessions.lease_release(
+                self.sf, argv[0], nonce=self._arg(argv, "--nonce"))
+            return 0, line
         if verb == "drop":
-            self.sf, line = agent_sessions.drop(self.sf, argv[0])
+            raw_nonce = self._arg(argv, "--nonce", None)
+            self.sf, line = agent_sessions.drop(
+                self.sf, argv[0], nonce=raw_nonce)
             return 0, line
         if verb == "purge":
             return 0, "PURGED:0"
@@ -295,7 +352,8 @@ class _FreezeTestCase(unittest.TestCase):
         self.addCleanup(os.environ.pop, "AITASKS_TEST_MODE", None)
         os.environ["AITASKS_FROZEN_STANDIN_CMD"] = "true"
         self.addCleanup(os.environ.pop, "AITASKS_FROZEN_STANDIN_CMD", None)
-        for var in ("AITASKS_FREEZE_FAIL_AT", "AITASKS_FROZEN_PAUSE_AT"):
+        for var in ("AITASKS_FREEZE_FAIL_AT", "AITASKS_DROP_FAIL_AT",
+                    "AITASKS_FROZEN_PAUSE_AT"):
             os.environ.pop(var, None)
             self.addCleanup(os.environ.pop, var, None)
 
@@ -1130,6 +1188,382 @@ class FreezeAllSelectionTests(_FreezeTestCase):
         agent_freeze.freeze_all()
         self.assertEqual(frozen_panes, ["%1"],
                          "only the live, unfrozen AGENT pane may be frozen")
+
+
+class DropVerbTests(_FreezeTestCase):
+    """`drop` — the one irreversible thing the frozen-agent engine does.
+
+    It deletes the record AND its capture files (the only copy of that agent's
+    output) and kills a pane, so every assertion here is about what survives a
+    partial failure, not just about the happy path.
+    """
+
+    def _freeze(self) -> None:
+        """Get the record to `frozen` with a live stand-in pane."""
+        result = agent_freeze.freeze_pane(AGENT_PANE)
+        self.assertTrue(result.ok, result.line)
+
+    def _capture_dir(self):
+        return agent_sessions.capture_dir(self.rid)
+
+    # -- happy path ---------------------------------------------------------
+
+    def test_kill_precedes_the_store_delete(self):
+        """Order is the design: nothing irreversible until the pane is gone."""
+        self._freeze()
+        self.assertTrue(self._capture_dir().exists())
+        self.store.calls.clear()
+        self.tmux.calls.clear()
+
+        line = agent_freeze.drop_record(self.rid)
+        self.assertEqual(line, f"DROPPED:{self.rid}")
+
+        verbs = self.store.verbs()
+        self.assertIn("lease-take", verbs)
+        self.assertIn("drop", verbs)
+        kill_at = next(i for i, c in enumerate(self.tmux.calls)
+                       if c and c[0] in ("kill-pane", "kill-window"))
+        # The kill was issued, the pane is gone, and only then the store wrote.
+        self.assertGreaterEqual(kill_at, 0)
+        self.assertNotIn(AGENT_PANE, self.tmux.panes)
+        self.assertIsNone(self.store.sf.by_id(self.rid))
+        self.assertFalse(self._capture_dir().exists())
+
+    def test_the_store_delete_carries_the_claimed_nonce(self):
+        """`drop` is a LEASED verb now — an unguarded call could race."""
+        self._freeze()
+        self.store.calls.clear()
+        agent_freeze.drop_record(self.rid)
+        drop_call = next(c for c in self.store.calls if c[0] == "drop")
+        self.assertIn("--nonce", drop_call)
+        lease_call = next(c for c in self.store.calls if c[0] == "lease-take")
+        self.assertIn("--owner-pid", lease_call)
+
+    # -- preflight: the record's pane_id is durable, not authoritative -------
+
+    def test_a_record_with_no_pane_skips_the_kill(self):
+        self._freeze()
+        self.store.sf.by_id(self.rid).pane_id = ""
+        self.tmux.calls.clear()
+        self.assertEqual(agent_freeze.drop_record(self.rid),
+                         f"DROPPED:{self.rid}")
+        self.assertEqual(self.tmux.calls_of("kill-pane"), [])
+        self.assertEqual(self.tmux.calls_of("kill-window"), [])
+
+    def test_a_stale_NONEMPTY_pane_id_still_drops(self):
+        """The post-server-restart record — and the one users most want gone.
+
+        `_reconcile_frozen` returns `KEEP:<id>|pane_gone` and writes NOTHING, so
+        a retained frozen record keeps naming a `%N` that no longer exists.
+        Treating that as a kill failure would make exactly these records
+        undroppable.
+        """
+        self._freeze()
+        self.assertNotEqual(self.store.sf.by_id(self.rid).pane_id, "")
+        self.tmux.panes.clear()                 # the tmux server restarted
+        self.tmux.calls.clear()
+        self.assertEqual(agent_freeze.drop_record(self.rid),
+                         f"DROPPED:{self.rid}")
+        self.assertEqual(self.tmux.calls_of("kill-pane"), [])
+        self.assertIsNone(self.store.sf.by_id(self.rid))
+
+    def test_a_recycled_pane_id_is_never_killed(self):
+        """Options die with the pane, so the stamp is the identity join (§B)."""
+        self._freeze()
+        pane_id = self.store.sf.by_id(self.rid).pane_id
+        # Somebody else's pane now holds that id.
+        self.tmux.panes[pane_id][agent_freeze.FROZEN_OPTION] = "deadbeef"
+        self.tmux.calls.clear()
+        line = agent_freeze.drop_record(self.rid)
+        self.assertEqual(line, f"DROPPED:{self.rid}")
+        self.assertEqual(self.tmux.calls_of("kill-pane"), [],
+                         "a recycled pane must never be killed")
+        self.assertEqual(self.tmux.calls_of("kill-window"), [])
+        self.assertIn(pane_id, self.tmux.panes, "the other pane survived")
+
+    # -- fail-closed --------------------------------------------------------
+
+    def test_a_failed_kill_changes_nothing(self):
+        """THE pin for the whole protocol: no kill, no delete."""
+        self._freeze()
+        self.tmux.kill_ok = False
+        line = agent_freeze.drop_record(self.rid)
+        self.assertTrue(line.startswith(f"DROP_FAILED:{self.rid}|kill:"), line)
+        self.assertIsNotNone(self.store.sf.by_id(self.rid))
+        self.assertTrue(self._capture_dir().exists())
+        # …and the pane keeps every stamp, because nothing was unset.
+        self.assertEqual(self.tmux.panes[AGENT_PANE][agent_freeze.FROZEN_OPTION],
+                         self.rid)
+
+    def test_an_injected_store_failure_keeps_the_record_and_capture(self):
+        self._freeze()
+        os.environ["AITASKS_DROP_FAIL_AT"] = "store"
+        line = agent_freeze.drop_record(self.rid)
+        self.assertEqual(line, f"DROP_FAILED:{self.rid}|store")
+        self.assertIsNotNone(self.store.sf.by_id(self.rid))
+        self.assertTrue(self._capture_dir().exists())
+
+    def test_every_abort_path_releases_the_claim(self):
+        """A leaked claim would block a retry for the whole 60s grace."""
+        self._freeze()
+        os.environ["AITASKS_DROP_FAIL_AT"] = "store"
+        agent_freeze.drop_record(self.rid)
+        self.assertEqual(self.store.sf.by_id(self.rid).op_nonce, "",
+                         "the lease must be released on the abort path")
+        # …so the retry converges immediately.
+        os.environ.pop("AITASKS_DROP_FAIL_AT")
+        self.assertEqual(agent_freeze.drop_record(self.rid),
+                         f"DROPPED:{self.rid}")
+
+    def test_an_unreachable_tmux_aborts_instead_of_assuming_the_pane_is_gone(self):
+        """"cannot ask" is NOT "already gone" — the V9 hole in disguise.
+
+        If tmux is unreachable and the coordinator concluded the stand-in had
+        gone, it would skip the kill and delete the record and its only capture
+        while a live stamped viewer still sat in that pane. `reconcile` iterates
+        RECORDS, so nothing would ever repair it.
+        """
+        self._freeze()
+
+        real_run = agent_frozen_ops._TMUX.run
+
+        def unreachable(args, timeout=None):
+            if args and args[0] == "display-message":
+                return -1, ""           # TmuxClient's FileNotFoundError/timeout
+            return real_run(args, timeout)
+
+        agent_frozen_ops._TMUX.run = unreachable
+        self.addCleanup(setattr, agent_frozen_ops._TMUX, "run", real_run)
+
+        line = agent_freeze.drop_record(self.rid)
+        self.assertEqual(line,
+                         f"DROP_FAILED:{self.rid}|preflight:tmux unreachable")
+        self.assertIsNotNone(self.store.sf.by_id(self.rid))
+        self.assertTrue(self._capture_dir().exists())
+        self.assertEqual(self.tmux.calls_of("kill-pane"), [])
+        self.assertEqual(self.tmux.calls_of("kill-window"), [])
+
+    def test_a_failed_sibling_listing_downgrades_to_kill_pane(self):
+        """`None` siblings must not read as zero and collapse the window."""
+        self._freeze()
+        self.tmux.list_panes_ok = False
+        self.tmux.calls.clear()
+        self.assertEqual(agent_freeze.drop_record(self.rid),
+                         f"DROPPED:{self.rid}")
+        self.assertEqual(len(self.tmux.calls_of("kill-pane")), 1)
+        self.assertEqual(self.tmux.calls_of("kill-window"), [],
+                         "an unknown sibling count must never collapse a window")
+
+    def test_an_injected_verify_failure_keeps_everything(self):
+        self._freeze()
+        os.environ["AITASKS_DROP_FAIL_AT"] = "verify"
+        line = agent_freeze.drop_record(self.rid)
+        self.assertEqual(line, f"DROP_FAILED:{self.rid}|verify")
+        self.assertIsNotNone(self.store.sf.by_id(self.rid))
+        self.assertTrue(self._capture_dir().exists())
+
+    # -- concurrency --------------------------------------------------------
+
+    def test_an_in_flight_restore_is_refused_before_anything_is_killed(self):
+        self._freeze()
+        self.store.sf, _ = agent_sessions.restore_begin(
+            self.store.sf, self.rid, mode="resume", owner_pid=os.getpid())
+        self.tmux.calls.clear()
+        line = agent_freeze.drop_record(self.rid)
+        self.assertEqual(line, f"DROP_REFUSED:{self.rid}|in_flight")
+        self.assertEqual(self.tmux.calls_of("kill-pane"), [],
+                         "a refused drop must kill nothing")
+        self.assertIsNotNone(self.store.sf.by_id(self.rid))
+        self.assertTrue(self._capture_dir().exists())
+
+    def test_a_restore_cannot_squeeze_in_between_the_probe_and_the_kill(self):
+        """The interleaving that used to kill a freshly RESTORED agent.
+
+        `drop_record` probes the pane, then kills it. Before `restore_begin`
+        respected the lease, a restore landing in that window respawned a
+        replacement AGENT into the same pane (`@aitask_frozen` is retained
+        across a restore, so the probe's identity check still matched) — and the
+        drop then killed it. Reporting `DROP_ABORTED` afterwards does not undo
+        that: the user asked to drop a stand-in and lost a live agent.
+
+        Now the claim PREVENTS the restore, so the interleaving cannot occur.
+        """
+        self._freeze()
+        attempted: list[str] = []
+        real_run = agent_frozen_ops._TMUX.run
+
+        def racing_run(args, timeout=None):
+            # Fire the restore in the exact gap: after the identity probe,
+            # before the kill is issued.
+            if args and args[0] in ("kill-pane", "kill-window"):
+                try:
+                    agent_sessions.restore_begin(
+                        self.store.sf, self.rid, mode="resume",
+                        owner_pid=os.getpid(), pid_alive=lambda pid: True)
+                    attempted.append("started")
+                except agent_sessions.LeaseHeld:
+                    attempted.append("refused")
+            return real_run(args, timeout)
+
+        agent_frozen_ops._TMUX.run = racing_run
+        self.addCleanup(setattr, agent_frozen_ops._TMUX, "run", real_run)
+
+        line = agent_freeze.drop_record(self.rid)
+        self.assertEqual(attempted, ["refused"],
+                         "a restore must not be able to start inside the "
+                         "drop's kill window")
+        self.assertEqual(line, f"DROPPED:{self.rid}")
+        self.assertEqual(self.store.sf.by_id(self.rid), None)
+
+    def test_a_stale_lease_with_a_dead_owner_is_droppable(self):
+        """Otherwise a crashed coordinator makes a record undroppable forever."""
+        self._freeze()
+        self.store.sf, _ = agent_sessions.restore_begin(
+            self.store.sf, self.rid, mode="resume", owner_pid=_reaped_pid(),
+            now=time.time() - 10_000,
+        )
+        self.assertEqual(agent_freeze.drop_record(self.rid),
+                         f"DROPPED:{self.rid}")
+
+    def test_the_ABA_race_is_refused(self):
+        """The case a `(state, op_nonce)` comparison would have ACCEPTED.
+
+        `standin_respawned` from `aborting` sets the state back to `frozen` AND
+        clears the lease, so a full restore→abort→recovery cycle restores the
+        identical pair — while registering a NEWLY respawned stand-in viewer.
+        A value comparison would delete the record and capture out from under
+        that viewer; a nonce cannot recur, so it fails closed.
+        """
+        self._freeze()
+        before = (self.store.sf.by_id(self.rid).state,
+                  self.store.sf.by_id(self.rid).op_nonce)
+
+        # Claim it exactly as `drop_record` does, then CRASH: age the claim and
+        # kill its owner so it becomes stale. That is the only route left to an
+        # ABA cycle now that `restore_begin` refuses a live lease — and it is a
+        # real one, because a crashed coordinator must never make a record
+        # permanently un-restorable.
+        lease = agent_freeze._Lease(self.rid)
+        nonce = lease()
+        rec = self.store.sf.by_id(self.rid)
+        rec.op_started_at = agent_sessions._iso(time.time() - 10_000)
+        rec.op_owner_pid = _reaped_pid()
+
+        self.store.sf, line = agent_sessions.restore_begin(
+            self.store.sf, self.rid, mode="resume", owner_pid=os.getpid())
+        restore_nonce = line.split("|")[1]
+        self.store.sf, _ = agent_sessions.restore_abort(
+            self.store.sf, self.rid, nonce=restore_nonce)
+        self.store.sf, _ = agent_sessions.standin_respawned(
+            self.store.sf, self.rid, nonce=restore_nonce,
+            pane=AGENT_PANE, pane_pid=STANDIN_PID)
+
+        after = (self.store.sf.by_id(self.rid).state,
+                 self.store.sf.by_id(self.rid).op_nonce)
+        self.assertEqual(before, after,
+                         "the fixture must reproduce the ABA state exactly")
+
+        # The crashed coordinator comes back and tries to finish its delete.
+        rc, out = agent_frozen_ops.store("drop", self.rid, "--nonce", nonce)
+        self.assertEqual(rc, agent_freeze.EXIT_NONCE_MISMATCH)
+        self.assertIsNotNone(self.store.sf.by_id(self.rid))
+        self.assertTrue(self._capture_dir().exists())
+
+    def test_a_raced_drop_reports_DROP_ABORTED(self):
+        """The coordinator's wire line for the ABA/steal case."""
+        self._freeze()
+        original_store = agent_frozen_ops.store
+        state = {"stolen": False}
+
+        def stealing_store(*argv, timeout=20.0):
+            # Replace the lease in the `drop_pre_store` window — after the kill,
+            # before the delete. Written as a direct re-mint rather than through
+            # a verb because every verb that could get here is now refused while
+            # our claim is live (that is fix A); what this case pins is the DROP
+            # side — that a nonce which is no longer the record's fails closed,
+            # however it stopped being ours (a stale-lease takeover, a manual
+            # repair, a future verb).
+            if argv[0] == "drop" and not state["stolen"]:
+                state["stolen"] = True
+                agent_sessions._mint_lease(
+                    self.store.sf.by_id(self.rid), os.getpid(), time.time())
+            return original_store(*argv, timeout=timeout)
+
+        agent_frozen_ops.store = stealing_store
+        self.addCleanup(setattr, agent_frozen_ops, "store", original_store)
+        line = agent_freeze.drop_record(self.rid)
+        self.assertEqual(line, f"DROP_ABORTED:{self.rid}|raced")
+        self.assertIsNotNone(self.store.sf.by_id(self.rid))
+        self.assertTrue(self._capture_dir().exists())
+
+    # -- the shared kill rule ----------------------------------------------
+
+    def test_a_real_agent_sibling_means_kill_pane_not_kill_window(self):
+        """The companion minimonitor must survive a sibling agent."""
+        self._freeze()
+        self.tmux.panes["%2"] = {
+            "session_name": "aitasks", "window_name": "agent-pick-1705",
+            "pane_id": "%2", "pane_pid": "5555", "pane_dead": "0",
+            "pane_current_path": str(self.root),
+            agent_freeze.RECORD_OPTION: "", agent_freeze.FROZEN_OPTION: "",
+            agent_freeze.STANDIN_READY_OPTION: "",
+            agent_freeze.AGENT_SESSION_OPTION: "",
+            "@aitask_shadow_target": "", "@aitask_monitor_kind": "",
+        }
+        self.tmux.calls.clear()
+        self.assertEqual(agent_freeze.drop_record(self.rid),
+                         f"DROPPED:{self.rid}")
+        self.assertEqual(len(self.tmux.calls_of("kill-pane")), 1)
+        self.assertEqual(self.tmux.calls_of("kill-window"), [])
+        self.assertIn("%2", self.tmux.panes)
+
+    def test_a_moved_pane_counts_siblings_in_its_OWN_window(self):
+        """The count and the kill must never mean different windows.
+
+        The stand-in has been moved (`break-pane` / `join-pane`) into a window
+        that still holds a live agent, and its ORIGINAL window name has been
+        reused by a helper-only window. Counting by the record's stored window
+        name sees no real agents there and escalates to `kill-window` — against
+        a pane that now lives somewhere else, destroying that window's live
+        agent. Enumerating from the pane itself cannot make that mistake.
+        """
+        self._freeze()
+        # The stand-in moved to `agent-qa-99`, beside a live agent…
+        self.tmux.panes[AGENT_PANE]["window_name"] = "agent-qa-99"
+        self.tmux.panes["%7"] = {
+            "session_name": "aitasks", "window_name": "agent-qa-99",
+            "pane_id": "%7", "pane_pid": "6161", "pane_dead": "0",
+            "pane_current_path": str(self.root),
+            agent_freeze.RECORD_OPTION: "", agent_freeze.FROZEN_OPTION: "",
+            agent_freeze.STANDIN_READY_OPTION: "",
+            agent_freeze.AGENT_SESSION_OPTION: "",
+            "@aitask_shadow_target": "", "@aitask_monitor_kind": "",
+        }
+        # …while the OLD name now belongs to a helper-only window.
+        self.tmux.panes["%8"] = {
+            "session_name": "aitasks", "window_name": "agent-pick-1705",
+            "pane_id": "%8", "pane_pid": "7171", "pane_dead": "0",
+            "pane_current_path": str(self.root),
+            agent_freeze.RECORD_OPTION: "", agent_freeze.FROZEN_OPTION: "",
+            agent_freeze.STANDIN_READY_OPTION: "",
+            agent_freeze.AGENT_SESSION_OPTION: "",
+            "@aitask_shadow_target": AGENT_PANE, "@aitask_monitor_kind": "",
+        }
+        self.tmux.calls.clear()
+        self.assertEqual(agent_freeze.drop_record(self.rid),
+                         f"DROPPED:{self.rid}")
+        self.assertEqual(self.tmux.calls_of("kill-window"), [],
+                         "the live sibling in the pane's ACTUAL window must "
+                         "not be destroyed")
+        self.assertEqual(len(self.tmux.calls_of("kill-pane")), 1)
+        self.assertIn("%7", self.tmux.panes)
+
+    def test_the_last_agent_collapses_the_window(self):
+        self._freeze()
+        self.tmux.calls.clear()
+        self.assertEqual(agent_freeze.drop_record(self.rid),
+                         f"DROPPED:{self.rid}")
+        self.assertEqual(len(self.tmux.calls_of("kill-window")), 1)
 
 
 if __name__ == "__main__":

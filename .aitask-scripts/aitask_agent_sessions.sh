@@ -43,10 +43,11 @@
 #   restore-begin     <id> --owner-pid <pid> --mode resume|repick
 #   restore-launched  <id> --nonce <n> --pane <id> --pane-pid <pid>
 #   restore-confirm   <id> --nonce <n> --pane <id> --pane-pid <pid>
-#   restore-abort     <id> --nonce <n>
+#   restore-abort     <id> --nonce <n> [--error <reason>]
 #   standin-respawned <id> --nonce <n> --pane <id> --pane-pid <pid>
 #   lease-take        <id> --owner-pid <pid>
-#   drop              <id>
+#   lease-release     <id> --nonce <n>
+#   drop              <id> [--nonce <n>]
 #   list  [--state <s>] [--root <r>]
 #   show  <id>
 #   purge --observed <file>
@@ -106,9 +107,10 @@ Usage: aitask_agent_sessions.sh upsert --root <r> --window <w> --pane <id> --pan
        aitask_agent_sessions.sh freeze-abort <id> --nonce <n>
        aitask_agent_sessions.sh restore-begin <id> --owner-pid <pid> --mode resume|repick
        aitask_agent_sessions.sh restore-launched|restore-confirm|standin-respawned <id> --nonce <n> --pane <p> --pane-pid <pid>
-       aitask_agent_sessions.sh restore-abort <id> --nonce <n>
+       aitask_agent_sessions.sh restore-abort <id> --nonce <n> [--error <reason>]
        aitask_agent_sessions.sh lease-take <id> --owner-pid <pid>
-       aitask_agent_sessions.sh drop <id>
+       aitask_agent_sessions.sh lease-release <id> --nonce <n>
+       aitask_agent_sessions.sh drop <id> [--nonce <n>]
        aitask_agent_sessions.sh list [--state <s>] [--root <r>]
        aitask_agent_sessions.sh show <id>
        aitask_agent_sessions.sh purge --observed <file>
@@ -248,11 +250,32 @@ cmd_minting() {
     run_sessions_py "$verb" "$id" "$@"
 }
 
+# `drop` has two forms and the difference is the concurrency guarantee (t1705_6):
+# bare `drop <id>` is unconditional (any state, no nonce -- the
+# `kill_agent_pane_smart` contract), while `drop <id> --nonce <n>` is the LEASED
+# form a coordinator must use. The nonce is checked inside the write lock, so a
+# restore that begins between the coordinator's read and this delete is refused
+# with NONCE_MISMATCH instead of silently destroying the record and the only
+# copy of its capture. Extra arguments are FORWARDED -- this function used to
+# drop them, which would have made `--nonce` a silent no-op.
 cmd_drop() {
-    local id="${1:-}"
+    local id="${1:-}"; shift || true
     require_hex_id "$id" "id"
+    if has_arg --nonce "$@"; then
+        require_hex_id "$(arg_value --nonce "$@")" "--nonce"
+    fi
     sessions_lock_or_busy "$WRITE_LOCK_TIMEOUT"
-    run_sessions_py drop "$id"
+    run_sessions_py drop "$id" "$@"
+}
+
+# `lease-release` is leased-but-paneless: nonce required, no pane pair.
+cmd_lease_release() {
+    local id="${1:-}"; shift || true
+    require_hex_id "$id" "id"
+    has_arg --nonce "$@" || die_usage "missing --nonce"
+    require_hex_id "$(arg_value --nonce "$@")" "--nonce"
+    sessions_lock_or_busy "$WRITE_LOCK_TIMEOUT"
+    run_sessions_py lease-release "$id" "$@"
 }
 
 cmd_purge() {
@@ -289,6 +312,7 @@ main() {
         restore-confirm)   cmd_leased restore-confirm "$@" ;;
         restore-abort)     cmd_leased restore-abort "$@" ;;
         standin-respawned) cmd_leased standin-respawned "$@" ;;
+        lease-release)     cmd_lease_release "$@" ;;
         drop)              cmd_drop "$@" ;;
         purge)             cmd_purge "$@" ;;
         list)              cmd_list "$@" ;;

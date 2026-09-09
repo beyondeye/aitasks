@@ -5,6 +5,12 @@
 #
 #   * `aitask_companion_cleanup.sh`  (bash, runs as a tmux `pane-died` job)
 #   * `monitor_core.kill_agent_pane_smart` / `count_other_real_agents` (Python)
+#   * `agent_freeze._other_real_agents` (the frozen-agent coordinator, t1705_6)
+#
+# The third is a CALL SITE of the second's helpers rather than a fourth copy of
+# the rule — but it enumerates panes differently (from the pane, not from a
+# stored window name), so "shares a helper" is not the same as "reaches the same
+# verdict". This table is what says they do.
 #
 # They are not shared code and cannot easily be: the hook runs as a tmux server
 # job with raw, un-flagged `tmux` calls, and the monitor runs inside a TUI
@@ -236,6 +242,37 @@ print(",".join(dropped))
 PYEOF
 }
 
+# The COORDINATOR verdict for "kill pane $1" — `lib/agent_freeze.py`'s own
+# sibling count, which is the third user of the rule (t1705_6). It reaches the
+# same `count_other_real_agents` / `classify_window_panes` pair as
+# `kill_agent_pane_smart`, but enumerates from the PANE rather than a stored
+# window name, so this row is what proves the two agree on a real server.
+#
+# `_other_real_agents` is called directly rather than through `drop_record`:
+# the whole drop transaction needs a store, a lease and a real kill, none of
+# which this table is about. The rule under test is the count -> verdict step.
+coordinator_verdict() {
+    local target="$1"
+    PYTHONPATH="$PROJECT_DIR/.aitask-scripts:$PROJECT_DIR/.aitask-scripts/lib" \
+    AIT_PARITY_TARGET="$target" \
+    AITASKS_TMUX_SOCKET="" \
+    TMUX_TMPDIR="$FIXTURE_DIR" \
+    "$PYTHON_BIN" - <<'PYEOF'
+import os
+
+import agent_freeze
+
+target = os.environ["AIT_PARITY_TARGET"]
+others = agent_freeze._other_real_agents(target)
+if others is None:
+    # A count that could not be taken must never escalate to `kill-window`;
+    # the coordinator downgrades, and this table records that as `pane`.
+    print("pane")
+else:
+    print("window" if others == 0 else "pane")
+PYEOF
+}
+
 # --- the table ---------------------------------------------------------------
 
 "$REAL_TMUX" new-session -d -s "$SESSION" -n scratch "sleep 1000"
@@ -277,9 +314,12 @@ row() {
         else
             python_out="$(python_verdict "$dying" "$(window_index_of "$dying")")"
             python_got="$(printf '%s' "$python_out" | head -n1)"
+            coord_got="$(coordinator_verdict "$dying")"
             assert_eq "$name [bash]" "$expect" "$bash_got"
             assert_eq "$name [python]" "$expect" "$python_got"
-            assert_eq "$name [PARITY]" "$bash_got" "$python_got"
+            assert_eq "$name [coordinator]" "$expect" "$coord_got"
+            assert_eq "$name [PARITY bash=python]" "$bash_got" "$python_got"
+            assert_eq "$name [PARITY python=coordinator]" "$python_got" "$coord_got"
         fi
     )
 }

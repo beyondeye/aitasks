@@ -925,6 +925,86 @@ def combine_staleness(read: bool | None, block: BlockAge) -> bool | None:
     return None
 
 
+#: The `list-panes` format behind the "does this window still hold a real agent?"
+#: decision, plus the two fields a frozen-aware caller needs to resolve its own
+#: target. Extracted from `kill_agent_pane_smart` in t1705_6 so the frozen-agent
+#: coordinator (`lib/agent_freeze.py drop`) can reach the SAME rule instead of
+#: growing a fourth copy of it — there are already three
+#: (`aitask_companion_cleanup.sh`, `kill_agent_pane_smart`, and the fixture in
+#: `tests/test_cleanup_rule_parity.sh`, which exists BECAUSE of that
+#: duplication).
+#:
+#: This format is its own — it does NOT share `_LIST_PANES_FORMAT` or
+#: `_LIST_PANES_ARITIES`, so its field count is pinned by the arity guard in
+#: `classify_window_panes` and nowhere else. Keep the two in step.
+FROZEN_AWARE_PANE_FORMAT = "\t".join([
+    "#{pane_id}", "#{pane_pid}", f"#{{{SHADOW_TARGET_OPTION}}}",
+    f"#{{{MONITOR_KIND_OPTION}}}", f"#{{{FROZEN_OPTION}}}", "#{pane_dead}",
+])
+_FROZEN_AWARE_ARITY = 6
+
+
+@dataclass
+class WindowPane:
+    """One row of :data:`FROZEN_AWARE_PANE_FORMAT`, classified."""
+
+    pane_id: str
+    pane_pid: int
+    frozen_record: str
+    dead: bool
+    #: True when this pane does NOT keep the window alive (companion / shadow).
+    is_helper: bool
+
+
+def classify_window_panes(stdout: str) -> list[WindowPane]:
+    """Parse + classify :data:`FROZEN_AWARE_PANE_FORMAT` rows.
+
+    The `is_helper` rule is the one `kill_agent_pane_smart` has always applied,
+    moved here verbatim so its two callers cannot drift:
+
+    A pane is a helper when it is a companion (marker first, cmdline second —
+    t1686) OR a shadow bound to an agent. A `@aitask_frozen`-stamped pane is
+    **never** a helper (t1705_4): the window exists to hold that frozen agent's
+    stand-in viewer, so killing a live sibling beside it must not collapse the
+    window and destroy the only way back to a frozen session. The frozen check
+    comes FIRST so a stale companion marker — left on the pane by whatever ran
+    there before the respawn — cannot override it.
+
+    Today that also holds incidentally (a stand-in carries neither
+    `@aitask_shadow_target` nor a live `@aitask_monitor_kind`), but incidental is
+    not pinned; `tests/test_cleanup_rule_parity.sh` is what keeps this rule and
+    `aitask_companion_cleanup.sh`'s copy of it in agreement. Change one and you
+    must change the other.
+
+    NOT `stdout.strip()`. The trailing field is empty on most panes, and a
+    whole-buffer strip removes the final tab — dropping the last record, which
+    if it happened to be the only other real agent makes the count 0 and kills a
+    window with a live agent still in it (t1686).
+    """
+    panes: list[WindowPane] = []
+    for line in stdout.splitlines():
+        if not line.strip():
+            continue          # blank lines are not records
+        parts = line.split("\t")
+        if len(parts) != _FROZEN_AWARE_ARITY:
+            continue
+        pane_id, pid_str, shadow_target, monitor_kind, frozen, dead = parts
+        try:
+            pid = int(pid_str)
+        except ValueError:
+            continue
+        is_helper = not frozen.strip() and (
+            is_shadow_target(shadow_target)
+            or is_live_companion_marker(monitor_kind)
+            or _is_companion_process(pid)
+        )
+        panes.append(WindowPane(
+            pane_id=pane_id, pane_pid=pid, frozen_record=frozen.strip(),
+            dead=dead.strip() == "1", is_helper=is_helper,
+        ))
+    return panes
+
+
 def count_other_real_agents(
     pane_records: Iterable[tuple[str, bool]], exclude_pane_id: str
 ) -> int:
@@ -3361,75 +3441,45 @@ class TmuxMonitor:
         # window; fall back to self.session for legacy single-session paths.
         target_session = pane.session_name or self.session
         window_target = tmux_window_target(target_session, pane.window_index)
-        # This format is this method's OWN — it does not share
-        # `_LIST_PANES_FORMAT` or `_LIST_PANES_ARITIES`, so its field count is
-        # pinned by the `len(parts) != 5` guard below and nowhere else. Keep the
-        # two in step.
         rc, stdout = self.tmux_run([
-            "list-panes", "-t", window_target,
-            "-F", "#{pane_id}\t#{pane_pid}\t#{@aitask_shadow_target}"
-                  f"\t#{{{MONITOR_KIND_OPTION}}}\t#{{{FROZEN_OPTION}}}",
+            "list-panes", "-t", window_target, "-F", FROZEN_AWARE_PANE_FORMAT,
         ])
         if rc != 0:
             return self.kill_pane(pane_id), False
-        records: list[tuple[str, bool]] = []
-        # NOT `stdout.strip()`. This loop decides whether to kill a PANE or the
-        # whole WINDOW, and the record most easily lost is the last one: the
-        # trailing field is empty on every unmarked pane, and a whole-buffer
-        # strip removes that final tab. A dropped last record that happened to
-        # be the only other real agent makes `count_other_real_agents` return 0
-        # and kills a window with a live agent still in it (t1686) — a defect
-        # that predates the marker field, and that the live fixture in
-        # `tests/test_kill_agent_pane_smart.sh` cannot see because it lists its
-        # companion last, where dropping a *helper* changes no count.
-        for line in stdout.splitlines():
-            if not line.strip():
-                continue          # blank lines are not records
-            parts = line.split("\t")
-            if len(parts) != 5:
-                continue
-            other_id, pid_str, shadow_target, monitor_kind, frozen = parts
-            try:
-                pid = int(pid_str)
-            except ValueError:
-                continue
-            # A pane is a helper (does NOT keep the window alive) when it is a
-            # companion (marker first, cmdline second — t1686) OR a shadow bound
-            # to an agent.
-            #
-            # A `@aitask_frozen`-stamped pane is NEVER a helper (t1705_4): the
-            # window exists to hold that frozen agent's stand-in viewer, so
-            # killing a live sibling beside it must not collapse the window and
-            # destroy the only way back to a frozen session. Checked FIRST so it
-            # cannot be overridden by a stale companion marker left on the pane
-            # by whatever ran there before the respawn.
-            #
-            # Today this holds *incidentally* too — a stand-in carries neither
-            # `@aitask_shadow_target` nor a live `@aitask_monitor_kind` — but
-            # incidental is not pinned. `tests/test_cleanup_rule_parity.sh` is
-            # what keeps this rule and `aitask_companion_cleanup.sh`'s copy of
-            # it in agreement; change one and you must change the other.
-            is_helper = not frozen.strip() and (
-                is_shadow_target(shadow_target)
-                or is_live_companion_marker(monitor_kind)
-                or _is_companion_process(pid)
-            )
-            records.append((other_id, is_helper))
-        others = count_other_real_agents(records, pane_id)
+        others = count_other_real_agents(
+            [(wp.pane_id, wp.is_helper) for wp in classify_window_panes(stdout)],
+            pane_id,
+        )
 
-        # Killing a FROZEN pane retires its record first (t1705_4). `drop`
-        # removes the capture files as well, which is exactly right here: the
-        # user asked for this stand-in to go, and a retained record whose pane
-        # no longer exists would be restored into a fresh window later. Ordered
-        # before the kill so a failure leaves the pane (and its record) intact
-        # rather than a dangling record with no pane.
+        # KILL FIRST, then retire the record (t1705_6, reversing t1705_4).
+        #
+        # `drop` deletes the record AND its capture files -- the only copy of
+        # that agent's output. The two orderings fail very differently:
+        #
+        #   drop -> kill : a failed kill leaves a LIVE pane still stamped
+        #                  `@aitask_frozen=<id>` whose record and capture are
+        #                  gone. `reconcile` iterates RECORDS, so it cannot see
+        #                  that pane at all -- nothing repairs it.
+        #   kill -> drop : a failed drop leaves a `frozen` record whose pane is
+        #                  gone, which is exactly reconcile's benign
+        #                  `frozen | pane gone | keep (restorable into a new
+        #                  window)` row, and a later drop converges.
+        #
+        # Pane options are pane-scoped and die with the pane, so killing first
+        # also retires the three stamps with no separate unstamp step. This
+        # matches `aitask_frozen.sh drop`'s protocol; the two must not disagree
+        # about which failure mode is acceptable.
         target = self._pane_cache.get(pane_id)
-        if target is not None and target.frozen_record:
-            self._drop_session_record(target.frozen_record)
+        record_id = target.frozen_record if target is not None else ""
 
         if others == 0:
-            return self.kill_window(pane_id), True
-        return self.kill_pane(pane_id), False
+            ok, killed_window = self.kill_window(pane_id), True
+        else:
+            ok, killed_window = self.kill_pane(pane_id), False
+
+        if record_id and ok:
+            self._drop_session_record(record_id)
+        return ok, killed_window
 
     def _drop_session_record(self, record_id: str) -> bool:
         """Best-effort ``aitask_agent_sessions.sh drop <id>`` (t1705_4).

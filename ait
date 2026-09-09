@@ -30,6 +30,7 @@ TUI:
   board          Launch the task board TUI
   codebrowser    Launch the code browser TUI
   diffviewer     Launch the diff viewer TUI
+  frozenagent    Launch the frozen-agent viewer TUI
   ide            Start tmux session and launch ait monitor (one-shot IDE startup)
   minimonitor    Compact monitor for tmux agent panes
   monitor        Monitor tmux panes running code agents
@@ -187,7 +188,7 @@ check_for_updates() {
 
 # Check for updates (skip for meta-commands, upgrade, and git passthrough)
 case "${1:-help}" in
-    help|--help|-h|--version|-v|upgrade|setup|git|sync|lock|codeagent|crew|brainstorm|settings|monitor|minimonitor|ide|syncer|skillrun|projects) ;;
+    help|--help|-h|--version|-v|upgrade|setup|git|sync|lock|codeagent|crew|brainstorm|settings|monitor|minimonitor|ide|syncer|skillrun|projects|frozenagent) ;;
     *) check_for_updates ;;
 esac
 
@@ -206,6 +207,7 @@ case "${1:-help}" in
     chatlink)     shift; exec "$SCRIPTS_DIR/aitask_chatlink.sh" "$@" ;;
     codebrowser)  shift; exec "$SCRIPTS_DIR/aitask_codebrowser.sh" "$@" ;;
     diffviewer)   shift; exec "$SCRIPTS_DIR/aitask_diffviewer.sh" "$@" ;;
+    frozenagent)  shift; exec "$SCRIPTS_DIR/aitask_frozenagent.sh" "$@" ;;
     minimonitor)  shift; exec "$SCRIPTS_DIR/aitask_minimonitor.sh" "$@" ;;
     monitor)      shift; exec "$SCRIPTS_DIR/aitask_monitor.sh" "$@" ;;
     ide)          shift; exec "$SCRIPTS_DIR/aitask_ide.sh" "$@" ;;

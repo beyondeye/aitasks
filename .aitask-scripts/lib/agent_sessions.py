@@ -974,18 +974,32 @@ def restore_begin(
     mode: str,
     owner_pid: int,
     now: float | None = None,
+    pid_alive=None,
 ) -> tuple[SessionsFile, str]:
     """frozen -> restoring. Captures RETAINED. Mints the lease.
 
     Deliberately NOT legal from ``aborting``: that state is nonce-owned by the
     aborting attempt until its stand-in is back, so a user or a second
     controller cannot start another restore in the gap.
+
+    **It also refuses a record whose lease is held** (t1705_6). Before that it
+    minted unconditionally, walking over an existing claim -- which made a
+    holder's claim merely *detect* a concurrent restore instead of preventing
+    one. That is not enough for a DESTRUCTIVE holder: `aitask_frozen.sh drop`
+    claims the record, checks the pane, and then kills it, and a restore
+    squeezing into that window respawns a REPLACEMENT AGENT into the same pane
+    -- which the drop then kills. Detecting the race afterwards does not undo a
+    killed agent. The same two-term staleness rule `lease_take` uses applies, so
+    a crashed coordinator's lease is still taken over and a record can never
+    become permanently un-restorable.
     """
     now = _now() if now is None else now
     if mode not in RESTORE_MODES:
         raise ValueError(f"bad restore mode: {mode!r}")
     rec = _require_record(sf, record_id)
     _require_state(rec, "restore-begin", STATE_FROZEN)
+    if not _lease_stale(rec, now, pid_alive):
+        raise LeaseHeld(f"LEASE_HELD:{rec.id}")
     rec.restore_mode = mode
     rec.restore_attempts += 1
     rec.launch_pid = 0
@@ -1047,13 +1061,28 @@ def restore_confirm(
 
 
 def restore_abort(
-    sf: SessionsFile, record_id: str, *, nonce: str, now: float | None = None
+    sf: SessionsFile, record_id: str, *, nonce: str, error: str = "",
+    now: float | None = None,
 ) -> tuple[SessionsFile, str]:
-    """restoring -> aborting. Captures retained; the lease stays with this nonce."""
+    """restoring -> aborting. Captures retained; the lease stays with this nonce.
+
+    ``error`` PERSISTS why the attempt failed, stamped with this attempt's nonce
+    in the documented ``"<nonce>:<reason>"`` shape (t1705_6). Before it, only the
+    hook's ``session_mismatch`` was ever recorded: every other failure —
+    ``agent_exited`` chief among them, the ordinary "the resumed agent died
+    immediately" case — left ``last_error`` empty. The coordinator prints its
+    reason to a detached `run-shell` job whose stdout nobody reads, and the
+    viewer that dispatched the restore is REPLACED by the respawned stand-in, so
+    without persisting it the outcome was unobservable to the user: a fresh
+    viewer mounted on a `frozen` record with no indication the restore had even
+    been attempted.
+    """
     now = _now() if now is None else now
     rec = _require_record(sf, record_id)
     _require_state(rec, "restore-abort", STATE_RESTORING)
     _require_nonce(rec, nonce)
+    if error:
+        rec.last_error = f"{nonce}:{error}"
     _set_state(rec, STATE_ABORTING, now)
     return sf, f"ABORTING:{rec.id}"
 
@@ -1113,9 +1142,51 @@ def lease_take(
     return sf, f"LEASED:{rec.id}|{nonce}"
 
 
-def drop(sf: SessionsFile, record_id: str) -> tuple[SessionsFile, str]:
-    """Remove a record from any state, with its capture files."""
+def lease_release(
+    sf: SessionsFile, record_id: str, *, nonce: str
+) -> tuple[SessionsFile, str]:
+    """Give back a lease taken with :func:`lease_take`.
+
+    The counterpart `lease_take` never had (t1705_6). Without it an aborted
+    claim leaves the record leased until `stale_op_grace` elapses AND the owner
+    pid dies -- so a user whose `drop` was refused mid-way could not simply
+    retry, they would have to wait out the grace. Nonce-guarded like every other
+    lease-clearing verb, so one coordinator cannot release another's claim.
+    """
     rec = _require_record(sf, record_id)
+    _require_nonce(rec, nonce)
+    _clear_lease(rec)
+    return sf, f"RELEASED:{rec.id}"
+
+
+def drop(
+    sf: SessionsFile, record_id: str, *, nonce: str | None = None
+) -> tuple[SessionsFile, str]:
+    """Remove a record from any state, with its capture files.
+
+    Two forms, and the difference is the whole concurrency story (t1705_6):
+
+    * ``drop(sf, id)`` -- unconditional, any state, no nonce. This is
+      `kill_agent_pane_smart`'s contract: the user explicitly killed the pane
+      and it is going away regardless.
+    * ``drop(sf, id, nonce=n)`` -- the **leased** form, and the only safe one
+      for a coordinator. The §A contract already says "every verb that mutates a
+      record holding a lease requires ``--nonce``"; `drop` was its sole
+      exception, which is what let a `drop` delete the record and the only copy
+      of its capture out from under an in-flight restore.
+
+    Why a nonce rather than comparing a snapshotted ``(state, op_nonce)``: that
+    pair is **ABA-vulnerable**. ``standin_respawned`` from ``aborting`` does
+    ``_set_state(FROZEN)`` *and* ``_clear_lease()``, so a full
+    ``frozen -> restoring -> aborting -> frozen`` cycle restores the identical
+    pair -- and that closing transition is precisely the one that registers a
+    newly respawned stand-in viewer. A comparison would accept the stale delete
+    and leave a live stamped viewer whose record and capture are gone. A nonce
+    is a fresh token per claim (:func:`_mint_nonce`), so it cannot recur.
+    """
+    rec = _require_record(sf, record_id)
+    if nonce is not None:
+        _require_nonce(rec, nonce)
     remove_captures(rec.id)
     sf.sessions = [r for r in sf.sessions if r.id != rec.id]
     return sf, f"DROPPED:{rec.id}"
@@ -1739,6 +1810,7 @@ def main(argv: list[str] | None = None) -> int:
                 sf,
                 _id_arg(rest[0], "id"),
                 nonce=_id_arg(_require_arg(rest, "nonce"), "--nonce"),
+                error=_arg(rest, "error", ""),
                 now=now,
             )
         elif verb == "standin-respawned":
@@ -1757,8 +1829,19 @@ def main(argv: list[str] | None = None) -> int:
                 owner_pid=_int_arg(rest, "owner-pid", positive=True),
                 now=now,
             )
+        elif verb == "lease-release":
+            sf, line = lease_release(
+                sf,
+                _id_arg(rest[0], "id"),
+                nonce=_id_arg(_require_arg(rest, "nonce"), "--nonce"),
+            )
         elif verb == "drop":
-            sf, line = drop(sf, _id_arg(rest[0], "id"))
+            raw_nonce = _arg(rest, "nonce")
+            sf, line = drop(
+                sf,
+                _id_arg(rest[0], "id"),
+                nonce=_id_arg(raw_nonce, "--nonce") if raw_nonce else None,
+            )
         elif verb == "purge":
             obs = read_observation(_require_arg(rest, "observed"))
             sf, lines = purge(sf, obs)

@@ -1,0 +1,6 @@
+boot: ok
+PLAN for t1705_6
+  - step one [a]
+  - step two
+alpha bravo charlie
+done
