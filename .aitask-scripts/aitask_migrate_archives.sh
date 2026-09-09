@@ -13,6 +13,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/terminal_compat.sh"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/lib/archive_utils.sh"
+# Added by t1725_2 for assert_task_data_writable: this script rewrites archive
+# bundles under aitasks/archived/, so it needs the pre-write wedge guard.
+# shellcheck source=lib/task_utils.sh
+source "$SCRIPT_DIR/lib/task_utils.sh"
 
 TASK_ARCHIVED_DIR="${TASK_DIR:-aitasks}/archived"
 PLAN_ARCHIVED_DIR="${PLAN_DIR:-aiplans}/archived"
@@ -334,6 +338,10 @@ print_summary() {
 
 main() {
     parse_args "$@"
+
+    # --dry-run only reports (see the DRY_RUN short-circuits below), so it stays
+    # usable on a wedged worktree; a real migration does not (t1725_2).
+    $DRY_RUN || assert_task_data_writable
 
     local -a numbered_sources=()
     append_sorted_matches "$TASK_ARCHIVED_DIR" "*/_b*/old*.tar.gz" numbered_sources

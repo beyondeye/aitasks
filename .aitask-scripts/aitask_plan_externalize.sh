@@ -122,6 +122,11 @@ source "$SCRIPT_DIR/lib/python_resolve.sh"
 
 # shellcheck source=lib/atomic_write.sh
 source "$SCRIPT_DIR/lib/atomic_write.sh"
+# Added by t1725_2 for assert_task_data_writable. This script writes plan files
+# under aiplans/, so it needs the same pre-write wedge guard as every other
+# task-data writer.
+# shellcheck source=lib/task_utils.sh
+source "$SCRIPT_DIR/lib/task_utils.sh"
 TASK_DIR="${TASK_DIR:-aitasks}"
 PLAN_DIR="${PLAN_DIR:-aiplans}"
 ARCHIVED_PLAN_DIR="${ARCHIVED_PLAN_DIR:-aiplans/archived}"
@@ -475,6 +480,11 @@ if [[ -f "$EXTERNAL_PLAN" ]]; then
     fi
     EXISTED_BEFORE=true
 fi
+
+# After the PLAN_EXISTS / NOT_FOUND short-circuits above, which are read-only and
+# must keep working while the worktree is wedged. Everything below this line
+# writes (t1725_2).
+assert_task_data_writable
 
 # Resolution inputs are read here -- AFTER the short-circuit above -- so a
 # no-op call whose scratch value file has already been cleaned up still returns

@@ -38,6 +38,11 @@ setup_test_env() {
         cp "$PROJECT_DIR/.aitask-scripts/VERSION" .aitask-scripts/
         cp "$PROJECT_DIR/.aitask-scripts/aitask_migrate_archives.sh" .aitask-scripts/
         cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" .aitask-scripts/lib/
+        # aitask_migrate_archives.sh sources task_utils.sh at startup since
+        # t1725_2 (for assert_task_data_writable), so the fixture needs it or the
+        # script dies before main(). Its own dependencies (stale_lock.sh,
+        # data_symlinks.sh, ...) come from setup_fake_aitask_repo above.
+        cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" .aitask-scripts/lib/
 
         chmod +x ait .aitask-scripts/aitask_migrate_archives.sh
     )

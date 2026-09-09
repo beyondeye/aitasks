@@ -285,6 +285,10 @@ cmd_append() {
     local file
     file="$(resolve_task_file "$task_id")"
 
+    # Before the lock, not inside _gate_append_locked: a refusal must not first
+    # take a mutex it is about to abandon (t1725_2).
+    assert_task_data_writable
+
     local key="${task_id//\//_}"
     acquire_gate_lock "$key"
     trap '_gate_lock_exit_trap' EXIT
@@ -1209,6 +1213,10 @@ cmd_begin_procedure() {
         die "Usage: aitask_gate.sh begin-procedure <task-id> <gate>"
     local file
     file="$(resolve_task_file "$task_id")"
+
+    # Its own guard: cmd_begin_procedure appends via _gate_append_locked without
+    # going through cmd_append, so the guard there does not cover it (t1725_2).
+    assert_task_data_writable
 
     # The live-run check and the append must be ONE critical section, or two
     # racing dispatches each see "no live run" and each open one. _gate_append_locked

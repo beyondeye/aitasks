@@ -98,6 +98,10 @@ followup_cleanup() {
 main() {
     parse_args "$@"
 
+    # This appends to the origin's archived plan under aiplans/ and commits it,
+    # so it is a task-data writer (t1725_2).
+    assert_task_data_writable
+
     tmp=$(mktemp_suffixed "${TMPDIR:-/tmp}/followup_XXXXXX.md")
     # Composed, not replaced. Step 10 commits through
     # ait_commit_paths_staging_untracked, whose unstage cleanup is armed by the

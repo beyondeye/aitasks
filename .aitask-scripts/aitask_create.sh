@@ -370,6 +370,25 @@ release_child_lock_checked() {
     fi
 }
 
+# warn_task_written_not_committed <task_id> — the commit-failure branch shared by
+# all four create-and-commit sites (t1725_2, finding 7).
+#
+# Deliberately NOT a die. By the time a commit can fail the id is already claimed
+# and the file is on disk, so dying makes the caller retry — and each retry
+# claims a FRESH id. t1722/t1723/t1724 are one follow-up spawned three times in
+# seven minutes that way. Exiting 0 with the path on stdout removes the caller's
+# reason to retry; the next sync sweeps the file under its own task id.
+#
+# Only a NON-wedge failure reaches here (index lock, hook, pathspec): task_git's
+# assert_data_worktree_clean exits the process on a wedged worktree, so this
+# branch never has to re-check for one.
+warn_task_written_not_committed() {
+    local task_id="$1" first_line
+    first_line="$(printf '%s\n' "${AIT_COMMIT_SCOPED_ERR:-}" | grep -m1 -v '^[[:space:]]*$' || true)"
+    [[ -n "$first_line" ]] || first_line="git reported no message"
+    warn "task ${task_id} file written but NOT committed (${first_line}) — it will be swept into the next sync's auto-commit under its own task id; do not re-run create"
+}
+
 # EXIT-trap form: capture the incoming status, release errexit-safely, preserve
 # a meaningful nonzero status, and flip 0 -> 1 only when release itself failed.
 _child_lock_exit_trap() {
@@ -828,6 +847,11 @@ finalize_draft() {
         die "Draft file not found: $draft_path"
     fi
 
+    # This is where a draft becomes committed task data — it claims an id and
+    # commits — so it is guarded, while create_draft_file() deliberately is not
+    # (t1725_2). One site covers every finalize_draft caller.
+    assert_task_data_writable
+
     local task_name
     task_name=$(extract_name_from_draft "$draft_path")
     local parent_num
@@ -884,13 +908,17 @@ finalize_draft() {
         local crc=0
         task_git_commit_scoped "ait: Add child task ${task_id}: ${humanized_name}" \
             "${commit_paths[@]}" || crc=$?
+        local committed=true
         if [[ "$crc" -eq 2 ]]; then
             warn "nothing to commit for ${task_id}"
         elif [[ "$crc" -ne 0 ]]; then
-            die "commit failed for ${task_id}"
+            warn_task_written_not_committed "${task_id}"
+            committed=false
         fi
 
-        run_auto_merge_if_needed "${parent_num}_${child_num}" "$filepath"
+        # Skipped when uncommitted: there is no commit to merge, and the lock
+        # release + `trap - EXIT` below still run either way.
+        $committed && run_auto_merge_if_needed "${parent_num}_${child_num}" "$filepath"
 
         release_child_lock_checked "$parent_num"
         trap - EXIT
@@ -938,13 +966,15 @@ finalize_draft() {
         local crc=0
         task_git_commit_scoped "ait: Add task ${task_id}: ${humanized_name}" \
             "${commit_paths[@]}" || crc=$?
+        local committed=true
         if [[ "$crc" -eq 2 ]]; then
             warn "nothing to commit for ${task_id}"
         elif [[ "$crc" -ne 0 ]]; then
-            die "commit failed for ${task_id}"
+            warn_task_written_not_committed "${task_id}"
+            committed=false
         fi
 
-        run_auto_merge_if_needed "$claimed_id" "$filepath"
+        $committed && run_auto_merge_if_needed "$claimed_id" "$filepath"
     fi
 
     if [[ "$silent" == "true" ]]; then
@@ -2198,6 +2228,11 @@ run_batch_mode() {
     local task_id
 
     if [[ "$BATCH_COMMIT" == true ]]; then
+        # BEFORE the label registration below, and so before acquire_child_lock /
+        # claim_unique_parent_id: refusing after the claim would still burn the
+        # id, which is finding 7's whole shape (t1725_2).
+        assert_task_data_writable
+
         # Register new labels in the vocabulary BEFORE the parent/child split, so
         # labels.txt rides in the very same task-creation commit when -- and only
         # when -- this invocation actually appended to it.
@@ -2266,13 +2301,18 @@ run_batch_mode() {
             local crc=0
             task_git_commit_scoped "ait: Add child task ${task_id}: ${humanized_name}" \
                 "${commit_paths[@]}" || crc=$?
+            local committed=true
             if [[ "$crc" -eq 2 ]]; then
                 warn "nothing to commit for ${task_id}"
             elif [[ "$crc" -ne 0 ]]; then
-                die "commit failed for ${task_id}"
+                warn_task_written_not_committed "${task_id}"
+                committed=false
             fi
 
-            run_auto_merge_if_needed "${BATCH_PARENT}_${child_num}" "$filepath"
+            # Skipped when uncommitted; release_child_lock_checked + `trap - EXIT`
+            # below still run, which is what the removed die used to reach via
+            # _child_lock_exit_trap.
+            $committed && run_auto_merge_if_needed "${BATCH_PARENT}_${child_num}" "$filepath"
 
             release_child_lock_checked "$BATCH_PARENT"
             trap - EXIT
@@ -2303,13 +2343,15 @@ run_batch_mode() {
             local crc=0
             task_git_commit_scoped "ait: Add task ${task_id}: ${humanized_name}" \
                 "${commit_paths[@]}" || crc=$?
+            local committed=true
             if [[ "$crc" -eq 2 ]]; then
                 warn "nothing to commit for ${task_id}"
             elif [[ "$crc" -ne 0 ]]; then
-                die "commit failed for ${task_id}"
+                warn_task_written_not_committed "${task_id}"
+                committed=false
             fi
 
-            run_auto_merge_if_needed "$claimed_id" "$filepath"
+            $committed && run_auto_merge_if_needed "$claimed_id" "$filepath"
         fi
     else
         # Default: create as draft in aitasks/new/ (no network needed)

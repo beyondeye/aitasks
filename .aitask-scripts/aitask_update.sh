@@ -670,6 +670,11 @@ extract_frontmatter_block() {
 }
 
 write_task_file() {
+    # The choke point. Guarding only the two run_*_mode entry points would leave
+    # a future caller of this function unguarded; guarding here cannot be
+    # bypassed (t1725_2). Both entry points ALSO guard, so a wedged worktree is
+    # refused before any of the work below.
+    assert_task_data_writable
     local file_path="$1"
     local priority="$2"
     local effort="$3"
@@ -1589,6 +1594,13 @@ interactive_rename() {
 run_interactive_mode() {
     local task_num="$BATCH_TASK_NUM"
 
+    # FIRST, before the fzf dependency check and the task picker. Interactive mode
+    # always ends in a write, so refusing up front beats making the user choose a
+    # task and fill in a field for an edit that cannot land (t1725_2). It also
+    # keeps the guard reachable without a terminal, which is what lets the writer
+    # table cover this entry point.
+    assert_task_data_writable
+
     # Check terminal capabilities (warn on incapable terminals)
     ait_warn_if_incapable_terminal
 
@@ -1856,6 +1868,10 @@ run_batch_mode() {
             fi
         fi
     fi
+
+    # Refuse early on a wedged data worktree: batch mode always intends a write,
+    # so failing here costs nothing and avoids doing the work first (t1725_2).
+    assert_task_data_writable
 
     # Resolve task file
     local file_path

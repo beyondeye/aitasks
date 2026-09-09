@@ -800,6 +800,15 @@ gate_guard() {
 main() {
     parse_args "$@"
 
+    # Guarded here rather than deeper: verification_gate_and_carryover below can
+    # already create AND commit a carry-over task, so it is the first task-data
+    # mutation reachable from this entry (t1725_2).
+    #
+    # --dry-run is exempt on purpose: archive_metadata_update and archive_move
+    # both short-circuit under it, making the whole invocation read-only, and a
+    # reporting mode must keep working while the worktree is wedged.
+    [[ "$DRY_RUN" == true ]] || assert_task_data_writable
+
     verification_gate_and_carryover "$TASK_NUM"
     gate_guard "$TASK_NUM"
 

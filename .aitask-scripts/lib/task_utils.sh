@@ -369,6 +369,51 @@ EOF
 )"
 }
 
+# assert_task_data_writable — refuse to EDIT a task/plan file while the data
+# worktree is mid-operation. Call it BEFORE the write, at the earliest point past
+# which a side effect becomes irreversible (t1725_2, findings 6 and 7).
+#
+# Why this exists when assert_data_worktree_clean already guards task_git: that
+# one fires at COMMIT time, which is too late. Mid-rebase the checked-out file is
+# origin's version, not the branch tip, so a writer seds stale content first and
+# only then discovers it cannot commit. On 2026-09-07 that flipped t1717 back to
+# `status: Ready` and dropped its materialized gates. Refusing before the write
+# is the "refused, not applied blind" half.
+#
+# Differences from assert_data_worktree_clean, both deliberate:
+#   - it reads _data_wedge_state, which is LEGACY-AWARE, so a legacy-mode repo
+#     mid-rebase is guarded too (ait_data_inprogress_state answers empty there);
+#   - it takes no git subcommand, because there is none to classify: every caller
+#     is about to write a file, so the readonly/recovery allowlists do not apply.
+#
+# The message shares assert_data_worktree_clean's '--abort' clause verbatim (the
+# two must not drift) but keeps a distinct first sentence, so a test can tell
+# which of the two guards refused.
+assert_task_data_writable() {
+    [[ "${AIT_GIT_SKIP_STATE_CHECK:-}" == "1" ]] && return 0
+
+    local hit
+    hit="$(_data_wedge_state)"
+    [[ -z "$hit" ]] && return 0
+
+    die "$(cat <<EOF
+Data worktree (.aitask-data) is mid-${hit}: the checked-out task files are not
+the branch tip, so writing now would land on stale content.
+'--abort' below discards only the partially replayed remote commits; your own
+committed work stays on the branch.
+If a sync is running right now, retry in a few seconds. Otherwise recover with:
+  ./ait git rebase --abort        (discard the in-progress rebase)
+  ./ait git rebase --continue     (resume if you were editing)
+  ./ait git merge --abort
+  ./ait git cherry-pick --abort
+  ./ait git revert --abort
+  ./ait git bisect reset
+Set AIT_GIT_SKIP_STATE_CHECK=1 to bypass this check.
+Run './ait git-health' for a full diagnostic.
+EOF
+)"
+}
+
 # Print human-readable health of the .aitask-data worktree. Informational only.
 task_git_health() {
     _ait_detect_data_worktree
@@ -446,6 +491,31 @@ task_git() {
 # Lives here rather than in one script because BOTH writers of the shared
 # contributor list commit through it (t1626): aitask_pick_own.sh (via its
 # _commit_scoped alias) and aitask_create.sh::add_email_to_file.
+#
+# On a `return 1` the reason git gave is left in AIT_COMMIT_SCOPED_ERR (t1725_2).
+# Callers that do not read it are unaffected.
+
+# Test seam, fired AFTER the preflight assert and BEFORE the guarded git call.
+# That position is load-bearing: it is the only window in which a "worktree
+# wedged mid-commit" race can be injected, and the only one whose refusal is owed
+# to task_git's OWN guard rather than to the preflight. Placed before the
+# preflight it would prove nothing — the preflight would die first, and swapping
+# task_git for the unguarded _ait_data_git would still look correct.
+#
+# TWO gates, matching aitask_sync.sh's _sync_test_seam (:275-287): the env var
+# alone must never be able to eval code, because this helper runs in four
+# production scripts. The on-disk marker means a stray or inherited variable is
+# inert outside a fixture that deliberately opted in, and the warn makes an
+# active seam impossible to mistake for normal operation.
+_ait_commit_scoped_seam_pregit() {
+    [[ -n "${AIT_COMMIT_SCOPED_SEAM_PREGIT:-}" ]] || return 0
+    local base
+    base="$(dirname "$(ait_lock_dir data_index)")" || return 0
+    [[ -f "$base/.ait_commit_scoped_test_seams" ]] || return 0
+    warn "task_git_commit_scoped: TEST SEAM ACTIVE - running pre_git hook"
+    eval "$AIT_COMMIT_SCOPED_SEAM_PREGIT" || true
+    return 0
+}
 task_git_commit_scoped() {
     # Matched literally, so a message is never mistaken for the flag.
     local do_stage=1
@@ -453,6 +523,11 @@ task_git_commit_scoped() {
         do_stage=0; shift
     fi
     local msg="$1"; shift
+
+    # Cleared on ENTRY, never merely on failure: a caller that reads this after a
+    # later call must not be handed the previous call's text as if it described
+    # this one.
+    AIT_COMMIT_SCOPED_ERR=""
     # Load-bearing: `git commit --` with no pathspec commits the WHOLE index,
     # silently re-creating the cross-session swallow this exists to stop.
     # `-o` below makes that case fatal rather than silent; this guard means it
@@ -464,8 +539,47 @@ task_git_commit_scoped() {
     # two-path `commit -o -- <new> <orig>` rename fails outright with
     # "pathspec did not match any file(s) known to git" when <new> is untracked,
     # while a pure deletion needs no staging at all.
+    #
+    # Its stderr is RECORDED rather than discarded (t1725_2): under an index.lock
+    # the `add` message names the real cause, while the commit below then fails
+    # with a downstream "pathspec did not match any file(s) known to git". The
+    # failure stays non-fatal, as before — only the text is kept.
+    # mktemp CAN fail (TMPDIR missing, full, read-only, or not a directory), and
+    # an unchecked assignment here would be fatal under the callers' set -e —
+    # exiting the process AFTER aitask_create.sh has written the file and claimed
+    # the id, which is exactly the retry-and-burn-an-id defect this change
+    # removes. So it degrades instead: no capture file means no diagnostic, and
+    # the helper still returns 1 for the caller's recoverable branch.
+    #
+    # _ait_cs_sink keeps ONE code path for both git calls; the rm at the end is
+    # guarded on _ait_cs_errf so it can never target /dev/null.
+    local _ait_cs_errf="" _ait_cs_sink
+    _ait_cs_errf="$(mktemp "${TMPDIR:-/tmp}/ait_commit_scoped_err.XXXXXX" 2>/dev/null)" \
+        || _ait_cs_errf=""
+    _ait_cs_sink="${_ait_cs_errf:-/dev/null}"
     if (( do_stage )); then
-        task_git add -- "$@" >/dev/null 2>&1 || true
+        # NOT a command substitution: task_git calls assert_data_worktree_clean,
+        # which die()s, and a die inside $( ) exits only the SUBSHELL — turning a
+        # wedged worktree into an ordinary "add failed" for every caller of this
+        # shared helper. Redirecting in the current shell keeps the die fatal.
+        # The explicit assert first means an already-wedged worktree reports on
+        # the terminal instead of into $_ait_cs_errf.
+        assert_data_worktree_clean add -- "$@"
+        local a_rc=0
+        task_git add -- "$@" >/dev/null 2>"$_ait_cs_sink" || a_rc=$?
+        # Keyed on the STATUS, not on "wrote something": git add warns on stderr
+        # in cases that succeeded, and recording those would put a warning in a
+        # failure diagnostic.
+        #
+        # On SUCCESS the text is dropped, exactly as the previous
+        # `2>&1 >/dev/null || true` dropped it — re-emitting it would start
+        # surfacing warnings that have been silent for every caller of this
+        # shared helper. Only a failure earns a diagnostic.
+        if (( a_rc != 0 )) && [[ -n "$_ait_cs_errf" ]]; then
+            AIT_COMMIT_SCOPED_ERR="$(<"$_ait_cs_errf")"
+            [[ -s "$_ait_cs_errf" ]] && cat "$_ait_cs_errf" >&2
+        fi
+        : > "$_ait_cs_sink"
     fi
 
     # Capture the status exit separately: a failing status with empty stdout
@@ -474,6 +588,7 @@ task_git_commit_scoped() {
     local st st_rc=0
     st="$(task_git status --porcelain -- "$@" 2>/dev/null)" || st_rc=$?
     if [[ $st_rc -eq 0 && -z "$st" ]]; then
+        [[ -n "$_ait_cs_errf" ]] && rm -f "$_ait_cs_errf"
         return 2
     fi
     [[ $st_rc -ne 0 ]] && warn "git status failed for $* — committing anyway"
@@ -481,8 +596,31 @@ task_git_commit_scoped() {
     # stdout to /dev/null: --quiet already silences the summary, but
     # aitask_create.sh's stdout is a DATA channel (it prints the created task
     # file path), so this helper must never be able to contaminate it.
-    task_git commit -o -m "$msg" --quiet -- "$@" >/dev/null || return 1
+    # stderr is recorded AND re-emitted; see the `add` note above for why this
+    # is a redirect in the current shell and not a command substitution.
+    local c_rc=0
+    assert_data_worktree_clean commit -- "$@"
+
+    _ait_commit_scoped_seam_pregit
+    task_git commit -o -m "$msg" --quiet -- "$@" >/dev/null 2>"$_ait_cs_sink" || c_rc=$?
+    [[ -n "$_ait_cs_errf" && -s "$_ait_cs_errf" ]] && cat "$_ait_cs_errf" >&2
+    # Do NOT overwrite a message the `add` failure already recorded. Under an
+    # index.lock the add says "Unable to create '…/index.lock': File exists" —
+    # the actual cause — while the commit only reports the downstream "pathspec
+    # did not match any file(s) known to git".
+    if (( c_rc != 0 )) && [[ -z "$AIT_COMMIT_SCOPED_ERR" ]] && [[ -n "$_ait_cs_errf" ]]; then
+        AIT_COMMIT_SCOPED_ERR="$(<"$_ait_cs_errf")"
+    fi
+    [[ -n "$_ait_cs_errf" ]] && rm -f "$_ait_cs_errf"
+    (( c_rc == 0 )) || return 1
 }
+
+# Why git said no, on the most recent task_git_commit_scoped call that returned 1
+# — empty otherwise, and reset on every entry so a stale value can never be read
+# as describing the current call. Set from the `add` failure in preference to the
+# commit's, because the add names the cause and the commit only its consequence.
+# shellcheck disable=SC2034  # read by aitask_create.sh's commit-failure branch
+AIT_COMMIT_SCOPED_ERR=""
 
 # --- Scoped commit with owned staging (t1702) ---
 #

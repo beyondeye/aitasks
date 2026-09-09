@@ -460,6 +460,9 @@ main() {
         if [[ ! "$num" =~ ^[0-9]+$ ]]; then
             die "Invalid task number: '$1' (expected a number like 42 or t42)"
         fi
+        # unpack writes task/plan files back out of a bundle, so it is guarded
+        # too (t1725_2).
+        assert_task_data_writable
         cmd_unpack "$num"
         exit 0
     fi
@@ -469,6 +472,10 @@ main() {
     if $DRY_RUN; then
         info "=== DRY RUN MODE ==="
     fi
+
+    # --dry-run only previews (it exits before every mutation below), so it stays
+    # usable on a wedged worktree; a real bundling run does not (t1725_2).
+    $DRY_RUN || assert_task_data_writable
 
     # Compute sets for selection rules
     ACTIVE_PARENTS=$(get_active_parent_numbers)

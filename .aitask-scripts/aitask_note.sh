@@ -783,6 +783,13 @@ note_read_main() {
         return 1
     fi
 
+    # A read receipt is a task-file mutation too. Guarded HERE, at the outer
+    # level, and never inside _note_read_inner: that runs in a subshell whose
+    # die is captured and reshaped into a typed READ_ERROR: line, which would
+    # swallow the guard's message (t1725_2). Also before the ledger lock, so a
+    # refusal never takes a lock it is about to abandon.
+    assert_task_data_writable
+
     # ONE convention for receipt identity, enforced here rather than remembered
     # at four call sites: `--by` is always the TARGET task's own id. The reader
     # is the session working on that task, and the task id is the only durable
@@ -932,6 +939,10 @@ main() {
         printf 'NOTE_TARGET_MISSING:%s\n' "$(note_sanitize_field "$target_bare")"
         return 1
     fi
+
+    # Outer level, for the same reason as the read path above: _note_append_inner
+    # is a subshell whose die becomes a typed NOTE_ERROR: line (t1725_2).
+    assert_task_data_writable
 
     # --- Sender resolution ---
     local sender_name sender_field="" verified=0
