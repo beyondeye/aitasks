@@ -11,8 +11,9 @@ active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 followup_kind: docs_gap
+implemented_with: claudecode/opus5
 created_at: 2026-09-09 10:31
-updated_at: 2026-09-09 11:32
+updated_at: 2026-09-09 15:11
 ---
 
 Documentation gaps found by /aitask-docs-gap for the release window v0.34.1..HEAD.
@@ -63,3 +64,8 @@ detail than this task could. Do not re-create them:
   `website/content/docs/tuis/_index.md` does not list the TUI.
   Owned by **t1705_9** (TUI surfaces) and **t1705_10** (workflow / concept /
   setup surfaces).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-09T12:11:16Z status=pass attempt=1 type=human
