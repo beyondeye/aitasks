@@ -1298,11 +1298,14 @@ class AgentMarksMixin:
         """One observation file serving BOTH liveness purges (t1705_7).
 
         `PANE` rows are a backward-compatible superset: `agent_marks` skips
-        them, `agent_sessions` requires them for its `dead_pane` rule. `panes`
-        is `TmuxMonitor.last_discovered_panes()` — keyed `(session, window)`,
-        valued `(pane_id, pane_pid, pane_dead)` — and its keys are joined to the
-        roots via `observed`, which is the same window set the `WINDOW` rows are
-        built from.
+        them, `agent_sessions` requires them for its `dead_pane` rule.
+
+        `panes` is keyed by **(root, window)** — already project-resolved by the
+        caller, NOT the raw `(session, window)` that
+        `TmuxMonitor.last_discovered_panes()` returns. Keying on the window name
+        alone would merge two projects that happen to share one, listing each
+        one's panes under the other's root; the store would then read a pane in
+        project A as evidence that project B's record is alive.
 
         Omitting `panes` yields exactly the old file: a root with `WINDOW` rows
         but no `PANE` rows is treated by the session store as pane-incomplete,
@@ -1310,9 +1313,7 @@ class AgentMarksMixin:
         construction, not by a flag.
         """
         fd, path = tempfile.mkstemp(prefix="ait-marks-obs-", suffix=".tsv")
-        by_window: dict[str, list[tuple[str, int, bool]]] = {}
-        for (_session, window), rows in (panes or {}).items():
-            by_window.setdefault(window, []).extend(rows)
+        rows_for = panes or {}
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             if not complete:
                 fh.write("INCOMPLETE\n")
@@ -1321,7 +1322,7 @@ class AgentMarksMixin:
             for root in sorted(observed):
                 for window in sorted(observed[root]):
                     fh.write(f"WINDOW\t{root}\t{window}\n")
-                    for pane_id, pane_pid, dead in by_window.get(window, ()):
+                    for pane_id, pane_pid, dead in rows_for.get((root, window), ()):
                         fh.write(
                             f"PANE\t{root}\t{window}\t{pane_id}\t"
                             f"{pane_pid}\t{1 if dead else 0}\n"
@@ -1396,7 +1397,16 @@ class AgentMarksMixin:
         panes = None
         if self._monitor is not None:
             try:
-                panes = self._monitor.last_discovered_panes()
+                # Re-key (session, window) -> (root, window) HERE, where the
+                # session→root map lives. An unattributable session is dropped
+                # rather than guessed: its panes would otherwise be filed under
+                # some other project's root.
+                panes = {}
+                for (session, window), rows in (
+                        self._monitor.last_discovered_panes().items()):
+                    root = self._root_for_session(session)
+                    if root is not None:
+                        panes.setdefault((root, window), []).extend(rows)
             except Exception:  # noqa: BLE001 - see above: no panes is safe
                 panes = None
         self._sessions_purge_inflight = True
