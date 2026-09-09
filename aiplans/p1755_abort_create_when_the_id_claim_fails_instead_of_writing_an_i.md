@@ -349,3 +349,130 @@ concern";
 **goal-achievement stays low** — the residual "nothing is written" gap that had been
 the one medium-severity goal risk is now closed in the implementation rather than
 carried as a follow-up.
+
+## Implementation Progress
+
+All plan steps completed as written; no deviations from the approved approach.
+
+- §1 `mktemp` check — done. `claim_stderr` renamed to `claim_errf` throughout.
+- §2 status propagation + numeric validation in `claim_unique_parent_id` — done.
+- §3 both call sites — done. The `run_batch_mode` claim is hoisted above the label
+  registration; `--finalize` / `--finalize-all` return before the hoist, so they are
+  unaffected (verified at `aitask_create.sh:2167-2184`).
+- §4 `tests/test_create_id_claim_abort.sh` — done, 29 assertions, all rows green.
+
+### Post-phase results
+
+**`verify_label_vocab_clean_on_abort`** — satisfied. Rows 1 and 3 assert
+`labels.txt` is byte-identical after the abort; row 2 asserts the label *is*
+registered on success, so the negative assertions are discriminating rather than
+vacuous. Confirmed by mutation M3 (below), which fails exactly those assertions.
+
+**`measure_per_half_mutants`** — measured, restore digest-verified. The predicted
+table held, with two observations the prediction did not name:
+
+| mutation | failing assertions |
+|---|---|
+| revert only the `mktemp` check | 3 — row 1's three MESSAGE assertions, nothing else |
+| revert only the status propagation | 14 — rows 1, 3, 4 |
+| revert only the claim hoist | 5 — rows 1 and 3, `labels.txt` + "worktree unchanged" |
+| revert all three | 17 — rows 1, 3, 4 |
+
+1. The `mktemp` half is pinned by **three assertions and no others** — reverting it
+   leaves every exit/artifact assertion green, because the status propagation still
+   converts the (now misleading) `die` into a real abort. This confirms the planning
+   finding that the task body's "fixing (1) alone would close this reproduction" is
+   false under the abort route, and it means those three message assertions are
+   load-bearing, not cosmetic.
+2. The status-propagation half's blast radius is a **superset** of the claim
+   hoist's: with no abort the create runs to completion, so the `labels.txt`
+   assertions fail there too. That is why the hoist needed its own mutation to be
+   shown as independently pinned.
+
+Both observations are recorded in the test file's header table so a future reader
+does not re-derive them.
+
+### Verification results
+
+`shellcheck` delta against `HEAD`: **none** (compared finding-by-finding, not by
+exit status — the file carries pre-existing info/style findings). All five suites
+green after the mutant restore, with the `aitask_create.sh` digest re-checked `OK`:
+`test_create_id_claim_abort`, `test_create_silent_stdout` (Test 1b proves the
+collision retry survived the new early `return`), `test_create_email_lock`,
+`test_claim_id`, `test_parallel_child_create`.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-09-09 12:35)
+- **Requested by user:** `setup_project` in the new test assigned
+  `PROJECT_UNDER_TEST` with no reader, producing a ShellCheck SC2034 warning.
+  Remove the unused assignment unless a consumer is intended.
+- **Verified:** confirmed. `shellcheck tests/test_create_id_claim_abort.sh`
+  reported `SC2034 (warning): PROJECT_UNDER_TEST appears unused` at line 169, and
+  the file has no reader. The assignment was inherited verbatim when
+  `setup_project` was copied from `tests/test_create_silent_stdout.sh`, where it is
+  equally unread — so it arrived as dead code, not as a dropped consumer.
+- **Changes made:** deleted the assignment. Disposition was raised from the
+  suggested "follow-up" to "fix now": it is a one-line removal in a file being
+  committed in this same change, so a follow-up task would cost more than the fix.
+  Re-verified: SC2034 gone (only the two standard `SC1091` sourcing infos remain,
+  which every test file in `tests/` carries), and the suite is still 29/29 green.
+- **Files affected:** `tests/test_create_id_claim_abort.sh`
+- **Not treated as an upstream defect:** the identical dead assignment in
+  `tests/test_create_silent_stdout.sh` is a lint cleanup, which the Final
+  Implementation Notes contract explicitly excludes from the upstream-defect
+  bullet. Noted here instead so it is not lost.
+
+## Final Implementation Notes
+
+- **Actual work done:** Exactly the approved plan. Three fixes in
+  `.aitask-scripts/aitask_create.sh` — (1) a checked `mktemp` in
+  `claim_parent_id_once` that `die`s naming the real cause, (2) status absorption
+  (`|| once_rc=$?`) plus a `^[0-9]+$` validation in `claim_unique_parent_id`, and
+  (3) both call sites converting that status into a real abort, with the
+  `run_batch_mode` claim hoisted above the shared label registration — plus a new
+  `tests/test_create_id_claim_abort.sh` (4 rows, 29 assertions).
+
+- **Deviations from plan:** None in approach. One addition during review: the dead
+  `PROJECT_UNDER_TEST` assignment was removed from the new test (Change Request 1).
+
+- **Issues encountered:**
+  - The task body states *"fixing (1) alone would close this reproduction while
+    leaving the class open."* Under the abort route the user chose, that is
+    **false** — with only (1) fixed, the new `die` is still invisible to the
+    caller, so `t_<name>.md` still appears. This was settled before implementation
+    (see "Decision taken during planning") and confirmed by mutation: reverting the
+    `mktemp` check alone fails only row 1's three *message* assertions, leaving
+    every exit/artifact assertion green.
+  - Review surfaced a third defect the task never named: `add_label_to_file` writes
+    `labels.txt` to disk and ran **before** the claim, so an aborted `--labels`
+    create left a task-less entry in the shared vocabulary. Fixed by hoisting the
+    claim rather than by rolling the file back — a wholesale restore would clobber
+    a concurrent session's append (the t1662 hazard).
+
+- **Key decisions:**
+  - **Abort, not degrade, on `mktemp` failure.** `lib/task_utils.sh`'s
+    `_ait_cs_sink` degrades to `/dev/null`, but its `mktemp` runs *after* the file
+    is written and the id claimed, so aborting there would burn an id. Here it runs
+    before every side effect, so aborting burns nothing and fails closed on a
+    shared cross-machine counter.
+  - **Numeric validation lives in one place.** `claim_unique_parent_id` is the sole
+    choke point; the two call sites check only the status and never restate the
+    rule, so there is nothing to drift.
+  - **The hoist's cost is stated, not hidden:** a label-write failure now burns an
+    id where it previously burned nothing. Accepted — a burned id is self-healing
+    (`aitask_claim_id.sh --resync`); a vocabulary entry for a task that does not
+    exist is user-visible garbage, and a local disk write fails far more rarely
+    than a git-backed counter claim.
+  - **Residual not probed (scope note, not a defect claim):** the hoist covers the
+    parent path. In the child path the reachable failure — a nonexistent
+    `--parent` — is rejected by `resolve_anchor` *before* the label registration,
+    verified by probe: exit 1, `labels.txt` byte-identical, worktree clean. A
+    narrower child-path window (a failure in `acquire_child_lock` /
+    `get_next_child_number`, which run after the registration) was **not** probed
+    and is not claimed either way.
+
+- **Upstream defects identified:** None. The identical unused
+  `PROJECT_UNDER_TEST` assignment in `tests/test_create_silent_stdout.sh` is a lint
+  cleanup, which this bullet's contract explicitly excludes; it is recorded under
+  Post-Review Changes instead so it is not lost.
