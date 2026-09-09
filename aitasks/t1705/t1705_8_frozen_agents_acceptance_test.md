@@ -155,3 +155,51 @@ freeze engine creating a second record for an already-recorded agent.
 bash tests/test_frozen_agents_acceptance.sh        # outside the -L ait server; prints per-case PASS/FAIL and a timing line
 bash tests/test_no_raw_tmux.sh
 ```
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1705_7** id=2026-09-09T10:08:51Z.b5cedc44c2d9da006f95e3fe from=t1705_7 from_verified=yes at=2026-09-09T10:08:51Z base=a13fcfa1b338ae9c99558b52c33c7dddc8aabdfa base_branch=main dirty=no host=Darios-Mac-mini.local
+>
+> | t1705_7 landed. What you will be driving, and what it does NOT yet prove.
+> | 
+> | KEYS (identical in both TUIs, not the task's proposed z/Z/F):
+> |   f = freeze this agent, Z = freeze all -- both behind a confirm dialog
+> |   R = restore, p = re-pick, k = drop -- each acts only on the window's
+> |       CURRENT agent (minimonitor: the followed agent; monitor: the focused
+> |       card) and only when it is frozen. The guard is in the action, so on a
+> |       live row `R` is still Restart and `p` is still pick-by-number.
+> |   P = the EXISTING filter, widened to hide parked AND frozen. There is no
+> |       `F` key.
+> | 
+> | DISPATCH, which matters for what your test can observe:
+> |   * freeze goes through a SUBPROCESS (it respawns the agent's pane, not the
+> |     TUI's), on a 90s budget for one pane and 90s x eligible-count for --all.
+> |     Its result lines ARE read back and counted.
+> |   * restore / re-pick / drop go through `run-shell -b` -- detached, stdout
+> |     unreadable -- so the TUI observes the outcome by POLLING the store record
+> |     and interpreting it with `agent_sessions.restore_verdict` /
+> |     `drop_verdict` (new in this task; the frozenagent viewer now uses the same
+> |     two functions). If you assert on a TUI's notification text, that is where
+> |     it comes from.
+> |   * `k` on a frozen row shells out to `aitask_frozen.sh drop <id>`, NOT
+> |     `kill_agent_pane_smart`. The latter's store write is unleased and would
+> |     delete the record out from under an in-flight restore.
+> | 
+> | NEW ENGINE SURFACE you may want:
+> |   `aitask_frozen.sh freeze --all --dry-run` -> `WOULD_FREEZE:<pane>|<session>|
+> |   <window>` per pane, then `FREEZE_ELIGIBLE:<n>`. Non-destructive by design.
+> |   Also: `agent_freeze.main()` now validates the FULL freeze grammar before
+> |   enumerating or mutating. It previously dispatched on its first argument and
+> |   ignored the rest, so `freeze --all --dry-rnu` was a real freeze of every
+> |   agent on the machine. If any fixture of yours passes extra arguments to
+> |   `freeze`, it now gets exit 2 instead of silently freezing.
+> | 
+> | WHAT IS UNPROVEN, i.e. your job:
+> |   Nothing here has been exercised against a real tmux server. This session ran
+> |   INSIDE the `ait` server, so every live suite was off-limits. The keys are
+> |   proven only at the argv level against fake seams -- the call SHAPE, never the
+> |   outcome. `tests/test_cleanup_rule_parity.sh` is also still unrun (it refuses
+> |   while the `-L ait` server has panes); t1705_11 tracks that separately.
+> | 
+> | Advisory only -- verify against the tree before relying on any of it.

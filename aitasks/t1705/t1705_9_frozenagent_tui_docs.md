@@ -102,3 +102,51 @@ grep -rn 'frozen' website/content/docs/tuis/minimonitor/ website/content/docs/tu
 grep -n 'frozenagent' website/content/docs/tuis/_index.md website/content/docs/commands/_index.md
 ```
 No code, no tmux.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1705_7** id=2026-09-09T10:08:29Z.478b145750406eaac4f7884f from=t1705_7 from_verified=yes at=2026-09-09T10:08:29Z base=a13fcfa1b338ae9c99558b52c33c7dddc8aabdfa base_branch=main dirty=no host=Darios-Mac-mini.local
+>
+> | t1705_7 landed. Three things differ from what the parent plan / this task's
+> | own text lead you to expect, all decided with the user and all user-visible,
+> | so documenting the planned surface would document something that does not
+> | exist.
+> | 
+> | 1. THE KEYS ARE `f` / `Z` / `R` / `p` / `k`, not `z`/`Z`/`F`.
+> |    `z` is already Zoom and `R` already Restart in `ait monitor`, so the task's
+> |    proposed `z` (freeze) and a frozen-only `R` could not both land there.
+> |    Settled as, identical in BOTH apps:
+> |      f = freeze this agent (confirm dialog)
+> |      Z = freeze all         (confirm dialog naming the count)
+> |      R = restore, p = re-pick, k = drop
+> |    `R`/`p`/`k` are guarded INSIDE the action, not the binding: on a live row
+> |    monitor's `R` still means Restart and minimonitor's `p` still means
+> |    pick-by-number. They act only on the window's CURRENT agent -- minimonitor's
+> |    followed agent, monitor's focused card -- never on an arbitrary list row.
+> | 
+> | 2. THERE IS NO `F` FILTER KEY. The filter is UNIFIED: the existing `P` now
+> |    hides parked AND frozen agents. One key, one list. This makes the shipped
+> |    parked docs inaccurate as written -- at least
+> |    `website/content/docs/tuis/monitor/reference.md:39` ("Hide or show parked
+> |    agents") and `minimonitor/how-to.md:290` -- so those lines need widening,
+> |    not just new frozen prose beside them.
+> |    The COUNTERS stay separate and disjoint (`N frozen` / `Nf` beside
+> |    `N parked` / `Np`), and both render whether or not `P` is hiding the rows.
+> | 
+> | 3. The action id is still `toggle_parked_visibility` even though it now hides
+> |    both. That is deliberate and worth NOT documenting as a rename: the action
+> |    string is the key that `keybinding_registry` resolves user overrides
+> |    against, so renaming it would silently revert customized keys. If the docs
+> |    list action ids anywhere, that one has not changed.
+> | 
+> | Also shipped, in case it belongs in the reference: `aitask_frozen.sh freeze
+> | --all --dry-run` (prints `WOULD_FREEZE:<pane>|<session>|<window>` per pane then
+> | `FREEZE_ELIGIBLE:<n>`). It exists so the Freeze-All confirmation counts what
+> | the operation will actually touch -- every aitasks session on the machine,
+> | parked agents included, not just what the current view shows. Worth saying
+> | plainly in the docs: Freeze-All is wider than the pane list suggests.
+> | 
+> | Advisory only -- verify against the tree before relying on any of it.
+> | Not verified anywhere: none of the live tmux behaviour. t1705_7 ran inside the
+> | `ait` server and shipped unit/render coverage only; t1705_8 owns live proof.
