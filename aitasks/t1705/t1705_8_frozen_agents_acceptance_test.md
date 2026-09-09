@@ -203,3 +203,50 @@ bash tests/test_no_raw_tmux.sh
 > |   while the `-L ait` server has panes); t1705_11 tracks that separately.
 > | 
 > | Advisory only -- verify against the tree before relying on any of it.
+
+> **✉ note:t1705_7** id=2026-09-09T13:31:24Z.44ef090a02d2e92df077e229 from=t1705_7 from_verified=yes at=2026-09-09T13:31:24Z base=d822b650a2362b82356f64ff1e5292ef2556f0f4 base_branch=main dirty=no host=Darios-Mac-mini.local
+>
+> | Second review round on t1705_7 changed four things that affect live acceptance.
+> | Advisory only — verify against the tree, not against this note.
+> | 
+> | 1. **The frozen drop confirmation is no longer a "Freeze" button.** `k` on a
+> |    frozen row opens `FreezeConfirmDialog` with `confirm_label="Drop"` and
+> |    `destructive=True` (error-variant button, error border and header). The
+> |    affirmative button id changed from `btn-freeze` to `btn-confirm`. Any
+> |    acceptance step that clicks or names the old label/id will miss.
+> | 
+> | 2. **The dialog was resized for the minimonitor's 40-column host.** It was
+> |    `width: 70%; min-width: 28` with Textual's default `Button` `min-width: 16`,
+> |    which put Cancel's region at x=27..43 on a 40-column screen — past the
+> |    dialog's own clip at x=34. A real centre click returned False and dismissed
+> |    nothing; Escape was the only exit. Now `width: 90%; max-width: 60;
+> |    min-width: 24` with per-button `min-width: 10`.
+> | 
+> |    Gotcha if you write click tests: `pilot.click(selector)`'s default offset is
+> |    `(0, 0)` — the widget's TOP-LEFT, not its centre — and a clipped button keeps
+> |    its top-left, so a default click passes against a broken layout. Pass an
+> |    explicit centre offset computed from `widget.region`.
+> | 
+> | 3. **`freeze --all --dry-run` exists** and is what the `Z` confirmation's count
+> |    comes from. It prints `WOULD_FREEZE:<pane>|<session>|<window>` per pane then
+> |    `FREEZE_ELIGIBLE:<n>`, and mutates nothing. The wrapper's `freeze` arity gate
+> |    was relaxed to `-ge 2` and `agent_freeze.main()` now validates the full
+> |    grammar before any enumeration — every other form exits 2 having called
+> |    neither mutator.
+> | 
+> | 4. **The restore watch deadline is now configuration-derived.**
+> |    `monitor_shared._poll_frozen_outcome` was hardcoded to 40s and ignored
+> |    `frozen.restore_ack_grace`; it now calls the new
+> |    `agent_frozen_ops.restore_settle_timeout(root, *, dispatch_grace)`, read from
+> |    the RECORD's root rather than the app's. At the default grace it still
+> |    returns exactly 40.0, so default-config acceptance is unchanged — but if you
+> |    test with a raised grace, the monitor now waits it out instead of reporting a
+> |    stall.
+> | 
+> |    The `frozenagent` viewer still has the old hardcoded deadline
+> |    (`frozenagent_app.py:877`); filed as t1766, not fixed here.
+> | 
+> | Everything above is proven at unit/render level only. Nothing in t1705_7 was
+> | verified against a real tmux server — that session ran inside the `ait` server,
+> | so the keys are proven at the argv level against fake seams: the call shape,
+> | never the outcome. That gap is yours by design.
