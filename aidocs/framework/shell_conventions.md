@@ -123,6 +123,12 @@ portability quirks (BSD vs GNU tooling) live in
   <paths>`, the t1702 wrapper with the trap already armed. The rule for procedure
   authors lives in `aidocs/framework/skill_authoring_conventions.md`; the same
   guard's third scan covers the skill and doc trees.
+
+  **The rc-capture rule this helper states — a failed probe reads as
+  *unverified*, never as *clean* — generalizes past committing.** The audit of
+  every framework site where such a probe gates a destructive or authorizing
+  action, the canonical fix shape, and the sites deliberately left alone are in
+  `aidocs/framework/failopen_git_probes.md`.
 - **System libs added to `./ait`'s source-on-startup chain must also be added
   to `tests/lib/test_scaffold.sh::setup_fake_aitask_repo()` in the same PR.**
   43 tests scaffold a fake `.aitask-scripts/lib/` via that helper; a missing
