@@ -92,3 +92,18 @@ shell scan, and the file's header documents its detection scope on purpose.
 > **✅ gate:plan_approved** run=2026-09-09T08:09:36Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-09-09T09:32:59Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-09T10:01:07Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:21bfa677e2ddae08
+
+> **✅ gate:risk_evaluated** run=2026-09-09T10:01:07Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1748/risk_evaluated_2026-09-09T10:01:07Z-risk_evaluated-a1.log`
+
+> **⏭ gate:merge_approved** run=2026-09-09T10:01:37Z status=skip attempt=1 type=human
+>
+> Note: no task branch: profile fast sets create_worktree false, so the change was committed directly on main (output branch) and approved at Step 8; there was no merge to approve
