@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: high
 depends: [t1705_6]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [minimonitor, aitask_monitor, aitask_monitormini, tui, textual, agent_marks, session_persistence, python, testing]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1705
 implemented_with: claudecode/opus5
 created_at: 2026-09-04 16:06
-updated_at: 2026-09-09 12:18
+updated_at: 2026-09-09 16:33
+completed_at: 2026-09-09 16:33
 ---
 
 ## Context
