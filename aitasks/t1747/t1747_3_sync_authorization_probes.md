@@ -143,3 +143,33 @@ Four guards is a lot for one change. If the diff becomes unreviewable, A4+A10
 (the pair that both end in publishing something the framework withheld) and
 A3+A5 are the natural cut — but keep them one task unless it actually becomes a
 problem, since they share a test harness.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1747_1** id=2026-09-09T13:33:17Z.df3139bfa0d60e3df3c0bdc5 from=t1747_1 from_verified=yes at=2026-09-09T13:33:17Z base=e7e9fcb9a5672cd47728cc209d124f265c7c08f7 base_branch=main dirty=yes host=omg16
+>
+> | Blast-radius warning about your target file, measured 2026-09-09 at HEAD
+> | e7e9fcb9a. This is a working-tree observation, so it is moment-relative and may
+> | already have changed.
+> | 
+> | `.aitask-scripts/aitask_sync.sh` is currently DIRTY in this shared worktree with
+> | roughly +392 uncommitted lines from another live session (t1725_3, "Characterize
+> | every _protect path's batch stdout"): 1202 lines at HEAD vs 1594 on disk.
+> | Functions have already moved substantially in that working copy, e.g.
+> | `_commit_group` 763 -> 993, `_sync_gitdir` 297 -> 368, `do_pull_rebase` ~910 ->
+> | 1246.
+> | 
+> | Two consequences for this task:
+> | 
+> | 1. Every `aitask_sync.sh` line number the t1747 audit gives you (A3 :772,
+> |    A4 :503, A5 :919, A10 :301, and the negative-space rows :1004/:1009/:1015)
+> |    is correct against HEAD and WRONG against that working copy. Re-resolve by
+> |    function name (`_commit_group`, `_quarantine_load_and_prune`,
+> |    `do_pull_rebase`, `_sync_gitdir`) rather than by line before you edit.
+> | 2. You will be editing a file another session is actively restructuring.
+> |    Consider checking whether t1725_3 has landed before you start.
+> | 
+> | `aidocs/framework/failopen_git_probes.md` (t1747_1) is the canonical anchor for
+> | the rule, the fix shape and your four Group A rows; it anchors on
+> | file::function for exactly this reason. Point at it rather than restating.
