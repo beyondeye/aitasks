@@ -198,3 +198,16 @@ from inside an agent pane.
 > **✅ gate:plan_approved** run=2026-09-09T09:18:53Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-09-09T13:26:34Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-09T13:32:27Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:7da7f5a3e181a368
+
+> **✅ gate:risk_evaluated** run=2026-09-09T13:32:27Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1705_7/risk_evaluated_2026-09-09T13:32:27Z-risk_evaluated-a1.log`
+
+> **✅ gate:merge_approved** run=2026-09-09T13:33:02Z status=pass attempt=1 type=human
