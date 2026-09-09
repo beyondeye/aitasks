@@ -367,7 +367,7 @@ instances" question is not falsifiable by any test — so that dimension stays
   the planning-time `236 of 502` was an artefact of the prototype regex defect);
   prose link text and shortcode-generated links stay invisible · severity: medium
   · → mitigation: inline post-phase `document_coverage_boundary`, and
-  `evaluate_check_links_integration`. Deliberately **not** widened in this task:
+  t1768. Deliberately **not** widened in this task:
   prose link text has no distinctive token to match on and would invert the
   false-positive rate that makes this report usable.
 
@@ -375,7 +375,7 @@ instances" question is not falsifiable by any test — so that dimension stays
 - timing: pre-phase | name: known_class_control_first | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — heuristic may not generalize past the two known instances | desc: Write the reconstructed t1707 broken-link fixture and its fixed-target negative control before the detector exists, and confirm they fail for the right reason.
 - timing: post-phase | name: sweep_and_triage | type: chore | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — detector built but sweep never run | desc: Run the finished detector on live website/content and triage every reported record as genuine mis-target or named false-positive class, recording dispositions in the Final Implementation Notes.
 - timing: post-phase | name: document_coverage_boundary | type: documentation | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — coverage gap mistaken for a clean sweep; code-health — drift against check_links.py | desc: State the coverage limits (backticked text only, source-side only, report not gate) and the domain split against check_links.py in the script docstring and website/README.md.
-- timing: after | name: evaluate_check_links_integration | type: enhancement | priority: low | effort: medium | inline_risk: high | added_complexity: high | addresses: goal-achievement — coverage limited to backticked link text | desc: Once the triage report has been read, decide whether any part of the relevance heuristic is precise enough to fold into check_links.py as a non-blocking warning, and whether to widen coverage past backtick-quoted link text.
+- timing: after | name: evaluate_check_links_integration | type: enhancement | priority: low | effort: medium | inline_risk: high | added_complexity: high | addresses: goal-achievement — coverage limited to backticked link text | desc: Once the triage report has been read, decide whether any part of the relevance heuristic is precise enough to fold into check_links.py as a non-blocking warning, and whether to widen coverage past backtick-quoted link text. | created: t1768
 
 ---
 
