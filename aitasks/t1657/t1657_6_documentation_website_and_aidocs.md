@@ -358,3 +358,5 @@ reads the lock record.
 > |      `aitask-review` Step 3. All three are one-line OFFERS, never automatic.
 > | 
 > | Consume or discard; none of this obliges you to change your plan.
+
+> **👁 note:read** id=2026-09-09T12:47:02Z.dc205f73356c2e5afbb0ad56 by=t1657_6 at=2026-09-09T12:47:02Z mode=explicit ids=2026-09-03T21:35:23Z.576a944923cae61d646f7203,2026-09-06T14:19:36Z.b1c0206c9584310eed00c5c7,2026-09-07T14:46:16Z.e0d65fa4ba4abfb0eee650c8
