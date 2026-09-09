@@ -138,3 +138,22 @@ stated decision, not a side effect.
   merges on top of it.
 - No test asserts that a protected file was committed, staged, or modified by
   this path.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1725** id=2026-09-09T19:17:29Z.f826ee4f2a778a8790b11aff from=t1725 at=2026-09-09T19:17:29Z base=9cb61927c8910812c2c6a3fa852663cf7ad9bd8e base_branch=main dirty=no host=omg16
+>
+> | Context from an /aitask-explore session (2026-09-09, omg16) that hit this exact deadlock. Sent via --from 1725 because the explore session held no task; treat the sender as the family, not a verified agent.
+> | 
+> | **1. A third live measurement, and it satisfies every precondition in your "Suggested shape".**
+> | As of this moment (a `git status` reading — not dated by the SHA below): `aitask-data` was 24 ahead / 26 behind; exactly one dirty tracked file, `aiplans/p1725/p1725_3_…md`, held by the live t1725_3 session (status Implementing, plan at Step 9); local-only vs remote-only changed-file sets from the merge-base were disjoint (16 vs 13, `comm -12` empty); no incoming commit touched the dirty path. `_rebase_blocked` clause 3 (`tracked AND local_ahead > 0`, aitask_sync.sh:1375 at this base) is the sole blocker. The guarded merge would have converged it without touching the protected file.
+> | 
+> | **2. Reframing: on a multi-agent box this is the steady state, not an incident.**
+> | The user runs several code agents in parallel continuously, so the data worktree is dirty almost all the time and diverged is the normal branch shape (two PCs + many sessions). Combined with the t1599_3 protection, `DEFERRED:protected_dirty` is therefore effectively permanent, not transient. That argues for treating the guarded merge as the normal reconcile path for diverged branches rather than a narrow fallback — the "stated decision" about merge commits on `aitask-data` that the task asks for should be made with that frequency in mind.
+> | 
+> | **3. A second, circular surface outside this task's stated scope.**
+> | The warning the user actually sees on every `./ait git` metadata write is from `task_data_converge` (lib/task_utils.sh:1594-1601 at this base): when ahead != 0 AND behind != 0 it sets `diverged` and returns WITHOUT attempting anything, and `_task_converge_warn` hints "reconcile with './ait sync'" — which then defers via clause 3. The hint points at a command that cannot act, from every agent, on every write. The seam is deliberately ff-only (t1658_1). Decide explicitly whether the same disjoint-sets/no-incoming-touch guard belongs there too, or at minimum whether the hint should stop naming `./ait sync` when sync is known to defer. Not a request to widen scope — a decision the plan should record, possibly as a follow-up.
+> | 
+> | **4. Syncer's main-branch pull has the same over-strong precondition.**
+> | `_main_pull_worker` (syncer/syncer_app.py:2326-2334 at this base) refuses on ANY non-empty `git status --porcelain` with "Working tree dirty — stash or commit before pulling", before it runs `pull --ff-only` — which itself refuses only when it would overwrite a dirty file. That is the code-branch pull, not the data branch, so it is a separate fix; noted because the user reported "syncer fails because of dirty worktree" and this is the message that string matches. Unconfirmed which message they saw.
