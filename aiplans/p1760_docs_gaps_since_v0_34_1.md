@@ -214,3 +214,285 @@ caught in review, not hypothetical.
 
 Follow **Step 9 (Post-Implementation)** of the task workflow for commit,
 cleanup, and archival. Commit type: `documentation: … (t1760)`.
+
+## Implementation notes (as landed)
+
+All three edits landed in `website/content/docs/commands/setup-install.md` as
+planned; no deviations.
+
+Verification results:
+
+1. **Facts match the source** — `_AIT_GIT_LSREMOTE_TIMEOUT_DEFAULT=10`
+   (`.aitask-scripts/lib/github_release.sh:45`); the same `10` mirrored at
+   `install.sh:243`; and the `ait` dispatcher matched only on `--max-time 5`
+   (`ait:172`) with **no** hit for `AIT_GIT_LSREMOTE_TIMEOUT` — which is what
+   makes the "independent of the bounded git lookup" parenthetical true.
+2. **Installer messages exist verbatim, in order** — `install.sh:356`, `:380`,
+   `:385`. Re-read of `install.sh:352-386` confirms the control flow the prose
+   claims: on an expiry `version` is empty, so the `if [[ -n "$version" ]]` CDN
+   block is skipped entirely and execution falls **through** to
+   `info "Fetching latest release via the GitHub API..."`, then `die`s (exit 1)
+   only if `github_api_tarball_url` also yields nothing.
+3. **Link check** — `python3 check_links.py --build`: `SWEEP: PASSED`,
+   29218 resolved, **0 broken**. The new in-page `#ait-setup` target is present
+   in the rendered HTML (`id=ait-setup`).
+4. **Render check** — `hugo build --gc --minify` clean. The fenced block renders
+   as `<div class=highlight><pre><code class=language-bash>` with the following
+   paragraph intact, and `curl | bash` inside the list item renders as
+   `<code>curl | bash</code>` rather than being read as table syntax.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-09-09 12:31)
+
+- **Requested by user:** Verify two review concerns raised against files that
+  appear in the working tree but are outside t1760's scope
+  (`website/check_link_relevance.py`, `tests/test_check_link_relevance.py`),
+  both flagged `Disposition: follow-up` and explicitly not a reason to block
+  t1760.
+- **Changes made:** No code change. Both concerns were **verified as valid** and
+  are recorded below and in the `Upstream defects identified` bullet, which is
+  where Step 8b reads them. Neither touches
+  `website/content/docs/commands/setup-install.md`, so t1760's diff is unchanged
+  and its four verification steps still stand as recorded above.
+- **Files affected:** none (this plan file only).
+
+**Concern 1 — `check_link_relevance.py --report` bypasses its own self-controls.
+CONFIRMED.**
+`main()` returns 0 at `website/check_link_relevance.py:492` (`if args.report:`)
+before `evaluate_controls(result)` at `:518`. Measured: `python3
+check_link_relevance.py --report` exits **0** and prints **zero** `control` lines.
+That contradicts the contract stated at `website/README.md:208-209` — "exits
+non-zero only when one of its own self-controls fails … it prints every control
+on every run". So a collapsed extractor or resolver yields an empty
+machine-readable report that reads as success. (Note the flag's own `--help`
+text says "print records only, no summary or controls", so the two documented
+statements also disagree with each other — whichever is intended, one of them is
+currently wrong.)
+
+**Concern 2 — `unittest.main()` guard precedes 15 later test methods. CONFIRMED.**
+`if __name__ == "__main__": unittest.main()` sits at
+`tests/test_check_link_relevance.py:625-626`, with 15 further `def test_*`
+methods defined at `:643-792`. Measured: `python3
+tests/test_check_link_relevance.py` reports **33 tests, OK**, while `python3 -m
+unittest discover -s tests -p test_check_link_relevance.py` reports **48 tests,
+OK**. Direct execution therefore gives a false partial green; the repository's
+documented entry points (the aggregate runner / pytest) are unaffected.
+
+**Routing.** Both files were created by **t1759**, which has since **committed
+and archived** them — commit `a2a1dee72` ("chore: Report internal links whose
+target page is off-subject (t1759)"); the task now lives at
+`aitasks/archived/t1759_sweep_dead_end_relrefs.md`. **Both defects landed
+unfixed** and were re-confirmed against the committed tree: `if args.report:
+return 0` still sits at `website/check_link_relevance.py:492` ahead of
+`evaluate_controls()` at `:518`, and the `unittest.main()` guard still sits at
+`tests/test_check_link_relevance.py:625` ahead of 15 later test methods. t1759
+can therefore no longer receive them.
+
+Coverage search over active tasks found **no existing owner**:
+
+- **t1768** (`Implementing`) is t1759's risk-mitigation follow-up and is scoped
+  to the relevance *heuristic's precision* — whether the rule is good enough to
+  fold into `check_links.py` as a non-blocking warning, and whether coverage
+  should widen past backtick-quoted link text. It touches neither the
+  report-mode control bypass nor the test entry point.
+- **t1159_7** (`Ready`) only *cites* the guard-placement class as precedent
+  (t1518 moved a stranded `unittest.main()` in
+  `tests/test_minimonitor_concern_action.py`); it owns a different file.
+- **t1687** merely references the new script as a tool to run.
+
+Both defects were therefore routed to a **dedicated follow-up task** — see
+Post-Review Changes / Change Request 2. They remain out of t1760's scope:
+this task must not stage, modify, or commit either file.
+
+### Change Request 2 (2026-09-09 16:35)
+
+- **Requested by user:** The routing record in Change Request 1 had gone stale —
+  t1759 has committed and archived, so it can no longer receive the two findings.
+  Correct the record, and first check whether any other task already covers all
+  or part of them before routing. Three further findings were raised in the same
+  pass, all `Disposition: follow-up`.
+- **Changes made:** No change to t1760's own diff. The routing paragraph in
+  Change Request 1 was rewritten against the current tree; the findings were
+  routed as described below.
+- **Files affected:** this plan file; `aitasks/t1770_*.md` (new);
+  `aitasks/t1725/t1725_3_*.md` (note appended).
+
+**Coverage search (before routing anything).** `t1768` — t1759's own
+risk-mitigation follow-up, `Implementing` — is scoped to the relevance
+*heuristic's precision*, not to the checker's self-controls or its test entry
+point, so it covers neither finding. `t1159_7` cites the guard-placement class
+as precedent (t1518, `tests/test_minimonitor_concern_action.py`) but owns a
+different file. `t1687` only references the script as a tool. **No active task
+covered any part of the two findings**, so a dedicated task was warranted.
+
+**Routed:**
+
+| finding | verdict | routed to |
+|---|---|---|
+| `--report` returns before `evaluate_controls()` (`check_link_relevance.py:492` vs `:518`) | **CONFIRMED** — rc 0, zero control lines; contradicts `website/README.md:208-209` | **t1770** (new) |
+| `unittest.main()` guard at `tests/test_check_link_relevance.py:625` precedes 15 tests | **CONFIRMED** — direct run 33 tests vs discovery 48 | **t1770** (new) |
+| `_load_incoming()` uses `HEAD..@{u}` (`aitask_sync.sh:1298`) where endpoints diverge | **CONFIRMED** — violates `aidocs/framework/shell_conventions.md:216-217` | **note to t1725_3** (its owner, active) |
+| t1725_3 fails `shellcheck` on unquoted `@{u}` / unused vars | **DID NOT REPRODUCE** — `shellcheck --exclude=SC1091 .aitask-scripts/aitask_sync.sh` exits 0, all `@{u}` quoted | reported in the same note, hedged as moment-relative |
+
+`t1770` (`bug`, medium/low) carries both landed t1759 defects with their measured
+evidence, the README-vs-`--help` contract disagreement, the t1518 precedent, and
+t1759's inherited "the report never gates" constraint. The note to t1725_3
+returned `NOTE_APPENDED:` plus `LIVE_PANE:` — durable and delivered to the live
+holder.
+
+**t1760's own diff is unchanged by any of this** and its four verification steps
+above still stand. None of these findings touch
+`website/content/docs/commands/setup-install.md`.
+
+### Change Request 3 (2026-09-09 16:50)
+
+- **Requested by user:** Verify three further findings, all raised against the
+  concurrent task **t1725_3** (open, `Implementing`) and all
+  `Disposition: follow-up`.
+- **Changes made:** No change to t1760's own diff. All three verified as valid
+  and routed to t1725_3 — the task that owns the code — as a second durable
+  note (`NOTE_APPENDED:` + `LIVE_PANE:`).
+- **Files affected:** this plan file; `aitasks/t1725/t1725_3_*.md` (second note
+  appended).
+
+| finding | verdict | evidence |
+|---|---|---|
+| A legacy lock's `-` PID sentinel breaks the `DEFERRED_FILE` parser | **CONFIRMED** | `aitask_lock.sh:595` (`lpid="${lpid:--}"`) → `LOCK_PID` → `_protect()` (`:422`) → `DEFERRED_FILE` field 8; `_PID_RE = ^[0-9]*$` at `lib/sync_action_runner.py:111`, applied `:186`, does not match `-` (checked directly), so `parse_record` returns `None` |
+| `_load_incoming()` still two-dot, and untested for divergence | **CONFIRMED, for the `git diff` site only** | `aitask_sync.sh:1305`, present in committed `152254289`; `tests/test_sync_deferral_and_quarantine.sh` has no local-only-divergence case — the only mention of `_load_incoming` there is a comment at `:718`. **The `rev-list --count` site at `:1419` is correct as written — see the retraction below** |
+| `--expect-path` is unusable with a multi-id `--commit-for-task` | **CONFIRMED** | the guard at `aitask_sync.sh:1149-1166` compares each **group's** `paths` against the **single global** `EXPECT_PATHS`, so each group sees the other's paths as `-<path>`, `delta` is non-empty, and `_protect_group_paths "commit_scope_changed"` abandons it — symmetrically, so neither commits |
+
+**Why a note and not a task.** All three are defects in the implementation
+**t1725_3 owns**, and that task was **active (`Implementing`)** when they were
+raised and routed — which is the durable fact the routing turns on, not whether
+a commit had happened yet. It had in fact already made its first code commit
+(`152254289`, "bug: Make sync deferrals per-file and the rebase gate tree-state
+aware (t1725_3)") shortly before the second note was appended; that does not
+change the routing, because an owning task stays the right recipient for as long
+as it is open, and **its corrective commits are still pending**. Per CLAUDE.md's
+note-vs-task rule, context about work that already exists goes to that work;
+spawning tasks here would duplicate whatever its owner does before it closes.
+
+Contrast the two t1759 findings (Change Request 2), which needed a dedicated
+task (**t1770**) precisely because their owner was **archived** — no open task
+could receive them. That is the discriminating condition: *is there still an
+open task that owns this code?* — not *has the code been committed?*
+
+All three defects are present in **committed** code, so they do not depend on
+anyone's working tree: `HEAD..@{u}` at `aitask_sync.sh:1305` inside
+commit `152254289`; `lpid="${lpid:--}"` at `aitask_lock.sh:596`; and
+`_PID_RE = re.compile(r"^[0-9]*$")` at `lib/sync_action_runner.py:111`, applied
+at `:186`.
+
+**Line numbers in the delivered notes are tree-relative and have moved.** The
+first note cited the lock sentinel at `aitask_lock.sh:595`, read from a dirty
+working tree; in committed `HEAD` it is `:596`. The identifiers
+(`lpid`, `_PID_RE`, `_load_incoming`) are the stable handles.
+
+**Known blemish in the delivered note:** the first bullet contains a stray
+character — "`:-` does not替 a non-empty `-`" (intended: "does not replace").
+The surrounding evidence is unaffected and the claim is unambiguous; notes are
+append-only, so it was not worth a third note to the recipient purely to fix a
+typo.
+
+**t1760's own diff remains unchanged** across all three review rounds. None of
+the eight findings raised in review touched
+`website/content/docs/commands/setup-install.md`.
+
+### Change Request 4 (2026-09-09 17:26) — retraction
+
+- **Requested by user:** A blocking correction. The plan and the second note to
+  t1725_3 both claimed the two-dot defect covered `aitask_sync.sh:1419`'s
+  `rev-list --count` as well. **Only the `git diff` site at `:1305` is
+  defective.** Correct the plan and append a clarification note, because notes
+  are append-only and leaving the advice standing risks causing a new bug in
+  someone else's code.
+- **Changes made:** No change to t1760's own diff. The claim was retracted
+  everywhere it appeared: both restatements in Change Request 3 above, and a
+  third note to t1725_3 (`NOTE_APPENDED:` + `LIVE_PANE:`).
+- **Files affected:** this plan file; `aitasks/t1725/t1725_3_*.md` (third note).
+
+**The retraction, and why the original claim was wrong.** `..` does not mean the
+same thing to the two commands:
+
+- `git diff A..B` compares the two **endpoints**, so it also reports paths only
+  the local side touched — the real defect at `:1305`.
+- `git rev-list A..B` means "commits reachable from B but not A" — exactly the
+  remote-ahead count `:1419` wants. Three dots there is the **symmetric
+  difference**, which would additionally count local-only commits and turn
+  correct code into a bug.
+
+Measured on a synthetic divergent history (one local-only commit, one
+remote-only commit):
+
+| command | result |
+|---|---|
+| `git diff --name-only HEAD..upstream` | `local_only.txt`, `remote_only.txt` |
+| `git diff --name-only HEAD...upstream` | `remote_only.txt` |
+| `git rev-list --count HEAD..upstream` | `1` — correct remote-ahead count |
+| `git rev-list --count HEAD...upstream` | `2` — counts both sides |
+
+`aidocs/framework/shell_conventions.md:216-217` states the three-dot rule for
+`git diff`; reading it as a blanket rule for every two-dot range is the mistake
+that produced the bad advice. **A convention keyed to one command must not be
+generalized to another whose range operator has different semantics.**
+
+**Process note.** The first note hedged this correctly ("a count of commits is a
+different question from a set of changed paths — worth a look, not necessarily
+the same fix"); the second note dropped the hedge and asserted the site was
+wrong "too". Escalating a hedged observation into a flat claim on restatement is
+what made this actionable-and-wrong rather than merely speculative.
+
+### Change Request 5 (2026-09-09 17:34) — no action required
+
+- **Requested by user:** Verify three findings, all `Disposition: follow-up`,
+  all against active t1725_3.
+- **Changes made:** **None.** All three are re-confirmations of findings already
+  delivered to t1725_3, carrying no new information and needing no new routing:
+  the `-` PID sentinel vs `_PID_RE` (note 2), `_load_incoming()`'s two-dot
+  `git diff` (notes 1–3), and the per-group `--expect-path` comparison against
+  the global set (note 2). Re-sending them would only add noise to a live
+  recipient that already holds them.
+- **Files affected:** this plan file only.
+
+Of note, the user's independent divergent-history probe reproduced the same
+result as the probe recorded in Change Request 4 (`HEAD..upstream` → local-only
++ remote-only; `HEAD...upstream` → remote-only) and confirms the corrected
+advice now targets only `_load_incoming()`. The retraction therefore holds under
+independent verification, not just my own.
+
+## Final Implementation Notes
+
+- **Actual work done:** Exactly the planned three edits to
+  `website/content/docs/commands/setup-install.md` (+17/−2, one file): the
+  "How it works" step 1 now names the `git ls-remote` fallback and points at the
+  new block; a **Bounded version lookup** block documents the 10-second default,
+  the `AIT_GIT_LSREMOTE_TIMEOUT` override and its normalization, and the expiry
+  outcome **per path**; and the "Automatic update check" paragraph is scoped so
+  the dispatcher's daily check is not read as covered by the knob. No code
+  changed — the knob already shipped with t1244.
+- **Deviations from plan:** None. The plan's own first draft was corrected
+  before approval (see the per-path outcome fix recorded in the Risk section).
+- **Issues encountered:** None in the implementation. The review loop ran five
+  rounds; all eleven findings concerned other tasks, and t1760's diff was
+  unchanged from the first round onward. The one substantive problem was mine:
+  advice sent to t1725_3 that wrongly implicated a correct `rev-list --count`
+  site, retracted in Change Request 4 with a measured probe and a third note.
+- **Key decisions:**
+  - Outcomes are documented **per path** rather than as one "degrades quietly"
+    claim, because the three honoring paths genuinely differ — only `ait setup`
+    is silent.
+  - No cross-reference from `installation/known-issues.md`: that page is a
+    per-code-agent taxonomy and a network knob has no home in it.
+  - No central "environment variables" page: the house style is inline prose at
+    the point of use (`AIT_GIT_SKIP_STATE_CHECK` in `sync.md`,
+    `AIT_GATES_REFERENCE` in `gates.md`).
+- **Upstream defects identified:**
+  - `website/check_link_relevance.py:492 — --report returns 0 before evaluate_controls() at :518, so report mode neither evaluates nor prints any self-control, contradicting website/README.md:208-209` (routed to **t1770**)
+  - `tests/test_check_link_relevance.py:625 — unittest.main() guard precedes 15 later test methods, so direct execution runs 33 of 48 tests and reports a false green` (routed to **t1770**)
+  - `.aitask-scripts/aitask_lock.sh:596 — lpid="${lpid:--}" emits a literal "-" for a legacy lock, which lib/sync_action_runner.py:111 (_PID_RE = ^[0-9]*$, applied :186) rejects, turning a valid unknown_liveness deferral into a malformed DEFERRED_FILE` (routed by note to **t1725_3**, its active owner)
+  - `.aitask-scripts/aitask_sync.sh:1305 — _load_incoming() uses git diff HEAD..@{u}, comparing endpoints where they can diverge, so local-only paths count as incoming (shell_conventions.md:216-217)` (routed by note to **t1725_3**)
+  - `.aitask-scripts/aitask_sync.sh:1149-1166 — the --expect-path guard compares each task group against the single global EXPECT_PATHS set, so a multi-id --commit-for-task rejects every group and commits nothing` (routed by note to **t1725_3**)
+
+  All five are already routed to a named owner; none needs a further follow-up
+  offer at Step 8b.
