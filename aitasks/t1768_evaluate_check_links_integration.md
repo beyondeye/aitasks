@@ -3,13 +3,14 @@ priority: low
 effort: medium
 depends: []
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [documentation, website]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1661
 followup_kind: risk_mitigation
 created_at: 2026-09-09 15:49
-updated_at: 2026-09-09 15:49
+updated_at: 2026-09-09 16:08
 ---
 
 ## Origin
