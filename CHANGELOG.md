@@ -1,5 +1,64 @@
 # Changelog
 
+## v0.35.0
+
+### Features
+
+- **Backlog roadmap skill and trail authoring** (t1569_6): New `/aitask-backlog-roadmap` skill ranks your background backlog into a conflict-aware implementation trail and publishes it as a durable artifact you can refresh.
+- **Trail merged-from provenance** (t1647_2): Implementation trails now record where a merged task came from, so a folded task's origin survives and can be recovered.
+- **Note read receipts and pick surfacing** (t1657_3): Notes sent to a task now show up as unread when you pick it, and are marked read once acknowledged.
+- **Live endpoint resolution** (t1657_4): A note can now report whether its target task is currently held by a live agent on this machine, and deliver to it.
+- **`/aitask-note` skill** (t1657_5): Send durable context to a task that already exists — wired into the task workflow and QA so it is offered at the right moment.
+- **Framework session store** (t1705_2): Tracks each code agent's session id, state, and lease — the foundation for freezing and restoring agents.
+- **Session id capture hooks** (t1705_3): `ait setup` can now install agent hooks that capture the session id, behind a consent prompt.
+- **Freeze engine** (t1705_4): New `ait frozen` freezes a running code agent's pane, leaving a stand-in that holds its slot.
+- **Restore and repick flows** (t1705_5): Bring a frozen agent back into a live pane, or repick its task fresh.
+- **Frozen-agent viewer TUI** (t1705_6): Browse frozen agents, read their captured output, and restore them from one screen.
+- **Shadow plain words and round preamble** (t1734): The shadow companion now speaks in plain words, opens each review round with a "where this is heading" summary, and snapshots the plan or diff it reviewed.
+
+### Bug Fixes
+
+- **Bounded release lookup** (t1244): `git ls-remote` in the release fallback no longer hangs forever on a stalled network — it is bounded by `AIT_GIT_LSREMOTE_TIMEOUT` and its process tree is cleaned up.
+- **Attach-lock callback errors** (t1675): Failures inside an attachment-lock callback no longer pass silently.
+- **Metadata writers commit their own files** (t1677): Settings, board, and profile saves commit only the files they changed instead of whatever else was staged.
+- **Attach/artifact transaction boundary** (t1698): `ait attach` and `ait artifact` refuse to start on a dirty path and roll back cleanly on failure.
+- **Board commits are scoped** (t1702): Board delete, rename, and commit now name their own paths rather than committing the shared index.
+- **Cross-repo config push** (t1704): Refuses to write into a destination repo that is mid-rebase or mid-merge, and commits through that repo's own scoped helper.
+- **Fold re-arm pinned** (t1707): Removed two dead documentation links and pinned the fold cleanup trap with a regression test.
+- **Clean worktree with `.aitask-data`** (t1711): The `.gitignore` entry no longer leaves the worktree reporting as dirty.
+- **Extension-points touchpoint count** (t1717): Corrected a stale count, and the add-an-agent checklist now tells you to update it.
+- **Unnumbered task files** (t1721): `ait ls` skips and warns about a task file whose name carries no task number instead of rendering a broken row.
+- **Drift check overlap** (t1724): The remote drift check no longer inflates the overlap count by diffing against the wrong base.
+- **Conflicted pull/rebase abort** (t1725_1): A conflicted rebase in the task-data worktree is aborted cleanly instead of left wedged.
+- **Wedged-worktree writes and burned ids** (t1725_2): Task-data writes are refused on a wedged worktree, and `ait create` no longer burns a task id when its commit fails.
+- **Audit-wrappers doc pointers** (t1726): Fixed two stale references in the skill's overview and see-also.
+- **More scoped commits in scripts** (t1728): Three further `./ait git commit` sites now name their paths.
+- **macOS suite failures** (t1729): Fixed the macOS-only test failures, plus a BSD `mktemp` defect across 32 call sites.
+- **Vocabulary scan covers the archive writer** (t1732): `archived_reason` is now checked by the scan and documented in the task format reference.
+- **Fold amend guard** (t1733): Refuses when it cannot read HEAD, instead of failing open and allowing the amend.
+- **Ledger append cannot truncate a task file** (t1741): A failed append is now a typed error rather than a silently truncated file.
+- **Lazy fake-agent fallback** (t1744): The test fixture only pays for its compile step when the fast path has actually failed.
+- **Derived startup closure** (t1745): Fixtures derive the shell startup source set from the scripts instead of a hand-maintained list.
+- **Tests run under the right bash** (t1746): Generated shell drivers run under the suite's own bash, not whatever is first on `PATH`.
+- **Scoped commits in skill procedures** (t1748): Swept 36 unscoped `./ait git commit` sites across 24 files, with a guard keeping them scoped.
+
+### Improvements
+
+- **Latent unscoped commits swept** (t1599_4): All 15 remaining unscoped commit sites in the framework scripts now go through a scoped seam, protected by a tripwire test.
+- **Task sync auto-merges frontmatter** (t1727): `ait task sync`'s pull/rebase resolves frontmatter conflicts the same way `ait sync` already did.
+- **Freeze store helpers extracted** (t1738): Shared frozen-agent operations moved into their own module.
+
+### Tests
+
+- **Frozen stand-in spike** (t1705_1): A permanent probe covering stand-in isolation and session-id capture, reused as live acceptance for the freeze engine.
+- **`respawn-pane -e` probe** (t1716): Measures how environment variables reach a respawned pane, settling the mechanism the restore flow uses.
+
+### Maintenance
+
+- **Unsocketed tmux calls denied** (t1701): A hook now denies `tmux` commands that do not name their own socket, so an agent probe cannot reach the live server.
+- **macOS install data-dirs verification** (t1206): Verified on macOS; recorded the `mkdir -p` dangling-symlink errno split between BSD and GNU.
+- **macOS atomic-write portability audit** (t1397): Verified on macOS; documented the `stat` and `readlink` BSD-vs-GNU splits.
+
 ## v0.34.1
 
 ### Features
