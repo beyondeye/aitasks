@@ -653,8 +653,14 @@ class AgentMarksMixin:
 
         Read off the snapshot, not the mark store: frozen is sourced from the
         `@aitask_frozen` pane option, which is not a mark.
+
+        Deliberately `snap.frozen`, NOT `getattr(snap, "frozen", False)`. A
+        default would silently tolerate a snapshot that genuinely lacks the
+        field — and an incomplete hand-rolled test double raises here, loudly,
+        which is exactly how the six doubles this task completed were found.
+        Same rule t1685 recorded for `parked`.
         """
-        return bool(getattr(snap, "frozen", False))
+        return snap.frozen
 
     def _is_inactive(self, snap: PaneSnapshot) -> bool:
         """Whether the `P` filter hides this agent — parked OR frozen.
@@ -1382,12 +1388,16 @@ class AgentMarksMixin:
 
         # Snapshot before the await, exactly as the marks purge does.
         observed, sweepable, complete = self._collect_marks_observation()
+        # No panes is a SAFE answer, not a broken one: a file with `WINDOW` but
+        # no `PANE` rows is treated as pane-incomplete for that root, so
+        # `dead_window` still applies and `dead_pane` does not. Fail-closed by
+        # construction — which is why swallowing the error here is honest rather
+        # than lazy.
         panes = None
-        monitor = getattr(self, "_monitor", None)
-        if monitor is not None:
+        if self._monitor is not None:
             try:
-                panes = monitor.last_discovered_panes()
-            except Exception:  # noqa: BLE001 - no panes ⇒ pane-incomplete, safe
+                panes = self._monitor.last_discovered_panes()
+            except Exception:  # noqa: BLE001 - see above: no panes is safe
                 panes = None
         self._sessions_purge_inflight = True
         path = None

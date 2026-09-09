@@ -2633,7 +2633,7 @@ class MiniMonitorApp(
         """
         if snap is None or not self._is_frozen(snap):
             return None
-        record_id = getattr(snap, "frozen_record_id", "")
+        record_id = snap.frozen_record_id
         if not record_id:
             return ""
         try:
