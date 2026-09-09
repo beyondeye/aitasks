@@ -1370,6 +1370,13 @@
           }
         }
       }
+    },
+    {
+      "name": "opus5_1m",
+      "cli_id": "claude-opus-5[1m]",
+      "notes": "Most capable model, 1M context, complex reasoning + agentic coding, adaptive thinking",
+      "verified": {},
+      "verifiedstats": {}
     }
   ]
 }
