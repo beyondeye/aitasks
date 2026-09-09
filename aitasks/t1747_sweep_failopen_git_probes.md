@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: bug
@@ -10,11 +12,12 @@ active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
+children_to_implement: [t1747_1]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1733
 followup_kind: risk_mitigation
 created_at: 2026-09-08 18:35
-updated_at: 2026-09-08 22:47
+updated_at: 2026-09-09 11:12
 ---
 
 ## Origin
@@ -92,3 +95,11 @@ For each site actually changed:
 - For `_rebase_advance` specifically, the discriminating case must be one where
   the `rebase --skip` **would otherwise have succeeded**, so the test proves a
   failed probe does not authorize the commit-discarding path.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:risk_evaluated** run=2026-09-09T08:11:33Z status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: planning-time risk evaluation: code_health=low, goal_achievement=medium
