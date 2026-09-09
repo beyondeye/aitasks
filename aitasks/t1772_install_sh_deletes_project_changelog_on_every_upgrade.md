@@ -3,10 +3,11 @@ priority: high
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [install_scripts, data_integrity, auto-update]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-09-09 19:32
-updated_at: 2026-09-09 19:32
+updated_at: 2026-09-09 19:34
 ---
 
 `install.sh` **deletes the installed project's root `CHANGELOG.md` on every install
