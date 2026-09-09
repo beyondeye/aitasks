@@ -135,8 +135,9 @@ commit `7e54ce865`).
   - **negative control**: same run with
     `-c 'rules.prefix_rules=[{pattern=[{token="./.aitask-scripts/aitask_task_commit.sh"}],decision="prompt",…}]'`
     → **also ran**, unblocked.
-- Why this is not a pass: the control did not discriminate, so the positive
-  result is not evidence that the allowlist entry is what permits the command.
+- Why the automated arms alone were not conclusive: the control did not
+  discriminate, so the positive result is not evidence that the allowlist entry
+  is what permits the command.
   Codex v0.153.4 reports `approval: never` for every `codex exec` run, and
   interactive `-a/--ask-for-approval` now offers only `on-request` / `never` —
   the `untrusted` policy was removed ("no longer supported"). There is no
@@ -147,9 +148,12 @@ commit `7e54ce865`).
   no root `opencode.json`. Touchpoint 7 is the **seed**, which only takes effect
   in a project bootstrapped by `ait setup`. So the OpenCode arm cannot be
   exercised in this repo at all.
-- Verdict: **defer** — needs (a) a Codex version or surface with an approval
-  policy that can actually refuse, and (b) a freshly seeded scratch project for
-  the OpenCode arm.
+- Verdict: **pass** — the user accepted the config-inspection evidence at the
+  post-auto interactive loop (all five touchpoints carry a correctly-formed
+  entry; the helper ran unprompted under a live `codex exec`). The two limits
+  above stand as recorded findings, not as blockers: no Codex approval policy in
+  v0.153.4 can refuse a non-allowlisted helper, and the OpenCode arm remains
+  exercisable only in a project bootstrapped by `ait setup`.
 
 ## Cleanup
 
