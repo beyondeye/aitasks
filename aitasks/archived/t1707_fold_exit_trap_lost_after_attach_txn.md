@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [bash_scripts, robustness]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -17,7 +17,8 @@ anchor: 1661
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5
 created_at: 2026-09-04 13:05
-updated_at: 2026-09-09 10:31
+updated_at: 2026-09-09 10:32
+completed_at: 2026-09-09 10:32
 boardcol: now
 boardidx: 25670
 ---
@@ -141,3 +142,14 @@ that decision and has been notified.
 > **✅ gate:plan_approved** run=2026-09-08T21:29:39Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-09-09T07:07:53Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-09T07:31:53Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:c42b6ebf76a6e368
+
+> **✅ gate:risk_evaluated** run=2026-09-09T07:31:53Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1707/risk_evaluated_2026-09-09T07:31:53Z-risk_evaluated-a1.log`
