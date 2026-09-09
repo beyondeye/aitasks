@@ -107,3 +107,62 @@ block exits):
 Run: `bash tests/run_all_python_tests.sh --test-dir tests` (last line is the verdict);
 `tests/test_syncer_rows.py` untouched. Manual: `ait syncer` → `s` on an
 `aitask-data` row while a live pane of yours holds a modified task file.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1725_3** id=2026-09-09T19:24:18Z.40417ea1ebd824f46c4374c4 from=t1725_3 from_verified=yes at=2026-09-09T19:24:18Z base=9cb61927c8910812c2c6a3fa852663cf7ad9bd8e base_branch=main dirty=no host=omg16
+>
+> | t1725_3 landed. Two things change what you can build, and one is a contract
+> | narrowing you cannot work around from your side.
+> | 
+> | 1. `--expect-path` is a ONE-TASK contract, not a global set.
+> | 
+> |    As first implemented it was a single global list compared against every task
+> |    group in turn, which meant `--commit-for-task 10,20` with one confirmed path
+> |    per task made task 10 see task 20's path as "missing" and vice versa: both
+> |    groups refused as `commit_scope_changed`, zero commits, and the combined form
+> |    silently did nothing while appearing to work. Measured, not theorised.
+> | 
+> |    Rather than grow a per-id expectation syntax, the ambiguous combination is
+> |    now REFUSED up front (`die`), as are `--expect-path` and `--require-waiting`
+> |    without `--commit-for-task`. So: a screen that lets a user confirm files
+> |    across two different tasks must issue TWO sync runs, one per task. If that is
+> |    wrong for your design, say so and the per-id syntax can be added -- the
+> |    refusal was chosen as the fail-closed option, not as a final answer.
+> | 
+> | 2. `sync_batch_command` still builds a hard-coded two-element argv.
+> | 
+> |    `lib/sync_action_runner.py` `sync_batch_command()` returns
+> |    `[script, "--batch"]` with no `extra_args` parameter, deliberately left alone
+> |    -- threading the new flags from a TUI is yours. `run_sync_batch` passes
+> |    whatever it returns straight to `subprocess.run`.
+> | 
+> | What you should NOT have to do:
+> | 
+> | - Re-derive anything. Every field the deferral screen renders is already on the
+> |   wire. Each `DEFERRED_FILE:` line is
+> |   `<sub_reason>|<task>|<path>|<tree_state>|<holder>|<email>|<host>|<pid>|<pane>|<pane_state>|<action>`
+> |   and parses into `SyncResult.deferred_files: list[DeferredFile]`. If a field
+> |   your screen needs is missing, extend the record in aitask_sync.sh rather than
+> |   re-reading locks or the dirty set in the TUI -- that re-derivation is the
+> |   thing this child exists to remove.
+> | - `holder` is `self|other|remote|unverified|none` and is what should gate
+> |   whether you OFFER commit-on-behalf at all. `self` is deliberately hard to
+> |   reach (same verified host AND same email); `unverified` is what an unreadable
+> |   lock branch now reports, and it must never be treated as `none`.
+> | - `action` is a ready-to-show prescriptive line, already per-class.
+> | 
+> | Two cautions:
+> | 
+> | - `pane` and `pane_state` are emitted EMPTY by t1725_3. t1725_4 fills them.
+> |   Design for empty, because a run on a box where the probe cannot resolve the
+> |   pane will keep emitting empty even after t1725_4 lands.
+> | - Textual fields are percent-decoded by the parser but may contain lone
+> |   surrogates: a git path may hold bytes that are not valid UTF-8, so
+> |   `run_sync_batch` decodes with `errors="surrogateescape"`. Writing such a value
+> |   to a strict-UTF-8 stream RAISES. Rendering one safely is explicitly your
+> |   task's problem, and `DeferredFile`'s docstring says so.
+> | 
+> | Advisory only, and dated -- verify against the tree rather than trusting the
+> | line numbers implied above.
