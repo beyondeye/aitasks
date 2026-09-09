@@ -1,9 +1,11 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [documentation, git, bash_scripts]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -12,8 +14,10 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1733
+implemented_with: claudecode/opus5
 created_at: 2026-09-09 11:12
-updated_at: 2026-09-09 12:22
+updated_at: 2026-09-09 16:33
+completed_at: 2026-09-09 16:33
 ---
 
 ## Context
@@ -98,3 +102,19 @@ adding a new top-level one.
   correct three stale line references from the task body).
 - No new `website/content/` page is needed: this is an `aidocs/` framework doc,
   not user-facing product documentation.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-09T12:23:34Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-09T13:33:33Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:512e46e014698647
+
+> **✅ gate:risk_evaluated** run=2026-09-09T13:33:33Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1747_1/risk_evaluated_2026-09-09T13:33:33Z-risk_evaluated-a1.log`
