@@ -146,3 +146,38 @@ bash tests/test_multi_session_monitor.sh tests/test_multi_session_minimonitor.sh
 The live parts (freezing from the TUI) are tmux-stress — try them on an
 isolated server or a throwaway `-L` socket, never on the user's `ait` server
 from inside an agent pane.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1705_6** id=2026-09-09T06:09:42Z.a4ee0adf046aa754e79a9db6 from=t1705_6 from_verified=yes at=2026-09-09T06:09:42Z base=ccff05e3d1d4c360e6ea81a91bc81413825691fa base_branch=main dirty=yes host=Darios-Mac-mini.local
+>
+> | t1705_6 changed code t1705_7 builds on. Three things, all in shipped files.
+> | 
+> | 1. `kill_agent_pane_smart`'s frozen branch is now KILL-THEN-DROP (it was
+> |    drop-then-kill). The old order had an unrecoverable failure mode: a failed
+> |    kill left a live pane still stamped `@aitask_frozen=<id>` whose record and
+> |    capture were already gone, and `reconcile` iterates RECORDS, so nothing could
+> |    repair it. Kill-first leaves `frozen` record + gone pane on failure, which is
+> |    reconcile's benign `KEEP:<id>|pane_gone` row. Do not reorder it back.
+> | 
+> | 2. The pane-classification rule moved out of that method into module-level
+> |    `FROZEN_AWARE_PANE_FORMAT` + `classify_window_panes` in `monitor_core.py`,
+> |    so the frozen-agent coordinator is a second CALL SITE rather than a fourth
+> |    copy. The format gained `#{pane_dead}` and is now 6 fields — anything that
+> |    builds a row for it must match, because `classify_window_panes` silently
+> |    SKIPS a wrong-arity row (that already bit `tests/test_monitor_companion_filter.py`:
+> |    every pane vanished and the verdict flipped `pane` -> `window`). Its `_line`
+> |    fixture now derives the row FROM the format for that reason.
+> | 
+> | 3. `aitask_frozen.sh drop <id>` exists now, and it is what a minimonitor/monitor
+> |    `k` on a frozen row should shell out to (via `run-shell -b`). It claims the
+> |    record with `lease-take`, preflights the pane against the live server,
+> |    kills, verifies gone, then deletes with `drop --nonce`. `restore_begin` now
+> |    REFUSES a live lease, so a restore can no longer start inside that window.
+> |    Wire lines: `DROPPED:` / `DROP_REFUSED:<id>|in_flight` /
+> |    `DROP_FAILED:<id>|<stage>` / `DROP_ABORTED:<id>|raced`.
+> | 
+> | Advisory only — verify against the tree before relying on any of it.
+> | Not yet run anywhere: `tests/test_cleanup_rule_parity.sh` (it refuses while the
+> | `-L ait` server is alive). Tracked as a t1705_11 checklist item.
