@@ -1,534 +1,568 @@
 ---
 Task: t1705_7_monitor_minimonitor_frozen_rows.md
 Parent Task: aitasks/t1705_frozen_codeagents_session_store_and_viewer_tui.md
-Sibling Tasks: aitasks/t1705/t1705_1_*.md … aitasks/t1705/t1705_6_*.md, aitasks/t1705/t1705_8_*.md … aitasks/t1705/t1705_10_*.md
-Archived Sibling Plans: aiplans/archived/p1705/p1705_*_*.md
+Sibling Tasks: aitasks/t1705/t1705_10_freeze_restore_workflow_docs.md, aitasks/t1705/t1705_11_manual_verification_frozen_codeagents_session_store_and_view.md, aitasks/t1705/t1705_8_frozen_agents_acceptance_test.md, aitasks/t1705/t1705_9_frozenagent_tui_docs.md
+Archived Sibling Plans: aiplans/archived/p1705/p1705_1_spike_freeze_standin_and_session_id_capture.md, aiplans/archived/p1705/p1705_2_framework_session_store.md, aiplans/archived/p1705/p1705_3_session_id_capture_hooks.md, aiplans/archived/p1705/p1705_4_freeze_engine.md, aiplans/archived/p1705/p1705_5_restore_and_repick_flows.md, aiplans/archived/p1705/p1705_6_frozenagent_viewer_tui.md
 Base branch: main
 Output branch: main
-plan_verified: []
+plan_verified:
+  - claudecode/opus5 @ 2026-09-09 11:59
 ---
 
-# t1705_7 — Frozen rows, counters, filter and keys in monitor + minimonitor
+# t1705_7 — Frozen rows, counters, unified filter and keys in monitor + minimonitor
 
 ## Context
 
-Surfaces the frozen state in both monitor TUIs and wires the user-facing
-keys, following t1685's `parked` implementation site by site
-(`aiplans/archived/p1685_park_code_agents_tristate_mark_and_visibility_toggle.md`
-— read §4–§9 and the Final Implementation Notes first). Differences from
-parked, all PINNED: the source of truth is the pane option `@aitask_frozen`
-carried in the discovery row (t1705_4), not a marks pair, so there is no
-publish-down; `frozen` **coexists** with the mark (row =
-`<mark glyph><F> name  frozen`, mark glyph display-only, `space` still
-cycles); every mutation shells out (`aitask_frozen.sh` via the maintenance
-subprocess seam, restore/re-pick via `run-shell -b`); the maintenance tick
-gains a sessions purge + reconcile twin.
+t1705 makes a code agent *freezable*: its process ends, its terminal output is
+captured, a stand-in viewer takes its pane, and it can later be restored or
+re-picked. Children 1–6 shipped the whole engine — session store, hooks, freeze
+coordinator, restore coordinator, and the `ait frozenagent` viewer. What is
+missing is that **neither monitor TUI knows the state exists.** A frozen agent
+today renders as a normal agent row whose state dot and idle verdict are
+arbitrarily stale, and there is no way to freeze or restore one without dropping
+to the CLI.
 
-Live parts are tmux-stress — exercise them on an isolated server.
+This task closes that: frozen agents get an honest row, their own counter term,
+inclusion in the existing hidden-agents filter, and keys to freeze / restore /
+re-pick / drop. It is the last implementation child; t1705_8 owns the live tmux
+acceptance tests and t1705_9/10 own the docs.
+
+### What re-verification changed (the existing plan is stale in five places)
+
+The plan in `aiplans/p1705/p1705_7_*.md` predates t1705_6. Verified against the
+tree:
+
+1. **Key collisions are real.** `monitor_app.py` already binds `z` =
+   `cycle_preview_size` ("Zoom") and `R` = `restart_task` ("Restart"). The
+   plan's literal `z`/`R` cannot land there. Resolved below.
+2. **`monitor_core.py` line numbers are stale by ~130–160 lines** (the plan
+   cites `capture_all_classified_async` at :2886, it is at :3048;
+   `commit_snapshots` :3019 → :3151; `_parked_snapshot` :1045 → :1177).
+   `monitor_shared.py` and the two apps are accurate to ±5.
+3. **`TmuxPaneInfo.frozen_record`, `last_discovered_panes()`,
+   `FROZEN_OPTION`/`RECORD_OPTION`/`STANDIN_READY_OPTION`/`AGENT_SESSION_OPTION`
+   already exist.** `last_discovered_panes()`'s own docstring
+   (`monitor_core.py:2046`) says it is unconsumed and waiting for this task.
+   **Both observation-protocol readers already handle `PANE` rows** —
+   `agent_marks._read_observed` skips them (:625), `agent_sessions` parses them
+   (:1236). Only the *writer* is missing.
+4. **`kill_agent_pane_smart` is now kill-then-drop** (t1705_6 reversed
+   t1705_4) and its `_drop_session_record` is a best-effort, **unleased**
+   `aitask_agent_sessions.sh drop`. It must **not** be the TUI's frozen-drop
+   path: `aitask_frozen.sh drop` does lease-take → preflight → kill → verify-gone
+   → `drop --nonce`, refuses a racing restore (`DROP_REFUSED:<id>|in_flight`),
+   **and already implements the same window-collapse rule**
+   (`agent_freeze.py:987`). It is a strictly better fit, verified.
+5. **`freeze --all` prints no summary line** — one line per pane (`FROZEN:` /
+   `FREEZE_FAILED:` / `FREEZE_SKIPPED:<id>|already frozen`). The plan's
+   "notify `<ok>/<total>`" must be counted by the caller. (`restore --all` *does*
+   emit `RESTORE_ALL:<ok>/<n>`; freeze does not.)
+
+### Decisions taken with the user (supersede the plan text)
+
+- **One filter, one key, one list.** No `F` binding and no
+  `action_toggle_frozen_visibility`. The existing `P` filter is **widened** to
+  hide parked *and* frozen agents.
+- **`f` = freeze this agent, `Z` = freeze all**, identical in both apps (both
+  keys free in both), each behind a confirm dialog; `Z`'s dialog names the count.
+- **`R` / `p` / `k` act only on the current agent, and only when it is frozen** —
+  minimonitor: the **followed** agent (its docked own-panel, same target as its
+  existing `k`); monitor: the **focused card** (same target as its existing `k`).
+  Frozen rows that are not the current agent are inert display only.
+- **Font manifest is hand-written and flagged** (see Risks).
+
+## Approach
+
+### Pre-phase (risk mitigations)
+
+**`characterize_restore_poll`** — before touching `frozenagent_app.py`, write
+`tests/test_frozenagent_restore_poll_characterization.py` pinning the *current*
+observable verdicts of `_poll_restore` / `_poll_drop` (:869-928), covering at
+minimum: pre-begin (`restore_attempts` unchanged) before and after
+`DISPATCH_GRACE`; `live` + `ack=liveness`; `live` without it; `frozen` **with a
+cleared `op_nonce` but a preserved `last_error`** (the trap the code documents);
+`frozen` with no error; and the post-grace still-transitional timeout. Run it
+**green against unmodified code** — that is the control that makes it evidence —
+then extract `restore_verdict` (§6) and require it to stay green with no
+assertion edited.
+
+### 1. `monitor_core.py` — frozen plumbing, mirroring `parked` exactly
+
+Add `ClassifyResult.frozen: bool = False` (beside `parked`, :219);
+`PaneSnapshot.frozen: bool = False` + `frozen_record_id: str = ""` (beside
+`parked`, :1221); module-level `_frozen_snapshot(pane, now)` beside
+`_parked_snapshot` (:1177) — built directly, **never** through
+`_apply_bookkeeping`, for the reason that function's docstring already records;
+and `TmuxMonitor._is_frozen_pane(pane)` beside `_is_parked_pane` (:1943):
+
+```python
+return pane.category == PaneCategory.AGENT and pane.frozen_record != ""
+```
+
+No `set_frozen_agents` publish-down — unlike parked, the truth is already in the
+discovery row (`FROZEN_OPTION` at `_LIST_PANES_FORMAT` field 11), which is what
+makes it stable between capture and commit.
+
+In `capture_all_classified_async` (:3048), after `_record_discovery_facts`
+(:3084), make the two splits **mutually exclusive with frozen first** — not two
+independent filters over the same list:
+
+```python
+frozen_panes = [p for p in panes if self._is_frozen_pane(p)]
+frozen_ids   = {p.pane_id for p in frozen_panes}
+parked_panes = [p for p in panes
+                if p.pane_id not in frozen_ids and self._is_parked_pane(p)]
+```
+
+**Ordering is load-bearing.** `frozen` coexists with the parked *mark* (PINNED),
+so a pane can satisfy both predicates. The current code (:3102) splits parked
+first over *all* panes; adding a frozen split beside it would hand a
+frozen-and-parked pane a `parked=True, frozen=False` snapshot. Checking `frozen`
+first in the row renderer cannot recover that — the field is simply not set — so
+the row would render `parked`, the session bar would miscount, and the `R`/`p`/`k`
+guards would refuse on a genuinely frozen agent. The mark still renders (it comes
+from `_mark_kind`, not from the snapshot), which is exactly the coexistence the
+task pins. Shadows stay unfiltered, as for parked.
+
+In `commit_snapshots` (:3151) route to `_frozen_snapshot` **before** the parked
+branch and before the `result is None` drop (:3225).
+
+**Also guard the single-pane fast path — it is a second, unguarded capture
+route.** `monitor_app._fast_preview_refresh` (:1302) does not use the bulk path
+at all: it calls `capture_pane_classified_async` (:2967) then `commit_snapshot`
+(:2896) and overwrites `self._snapshots[pane_id]`. `commit_snapshot` goes
+straight to `_apply_bookkeeping` with no state branch, so focusing a frozen pane
+would capture it, run prompt/idle classification over a dead stand-in, and
+replace its `frozen=True` snapshot with an ordinary one — losing the row render,
+the counter, the preview placeholder and the action guards on the very pane the
+user is looking at.
+
+Fix at the **core seam**, not the app, so every caller inherits it:
+`capture_pane_classified_async` returns `(gen, pane, "", ClassifyResult(
+compare_value="", frozen=True))` **before** its tmux await when
+`_is_frozen_pane(pane)`; `commit_snapshot` routes a `result.frozen` to
+`_frozen_snapshot`, mirroring `commit_snapshots`.
+
+> **Pre-existing defect found while verifying this (out of scope, follow-up).**
+> `parked` has the identical hole at the identical two functions: a focused
+> parked pane is captured and classified today, and its `parked=True` snapshot is
+> overwritten — so the parked preview placeholder (`monitor_app.py:1961`, which
+> reads `snapshots[...].parked`) silently reverts to stale content. That is a
+> live t1685 bug, not something this task introduces. I will **file a follow-up
+> task** rather than fold a behaviour change to shipped parked code into this
+> one; the frozen guard added here is written so the parked case is a two-line
+> addition once that task runs.
+
+### 2. `monitor_shared.py` — glyph, unified filter, sessions purge, command seam
+
+- `FROZEN_GLYPH = "F"` beside `PARK_GLYPH` (:251) with the same measurement
+  comment shape. `format_frozen_prefix(kind)` returning
+  `format_mark_glyph(kind) + f"[bold cyan]{FROZEN_GLYPH}[/]"`. Do **not** add a
+  frozen kind to `agent_marks` — `format_mark_glyph` raises on unknown kinds by
+  design (:293) and frozen composes *with* a mark, it is not one.
+- **Widen the filter. Rename the state, NOT the action id.**
+  - Rename the internal state only: `_hide_parked` → `_hide_inactive` (class
+    floor :443, init :516) plus a shared
+    `_is_inactive(snap) = snap.parked or snap.frozen`. A flag named
+    `_hide_parked` that also hides frozen agents is exactly the "two names
+    disagreeing" trap p1685's notes record. ~9 source + ~16 test references,
+    mechanical. `_hand_off_focus_before_hiding`'s guard
+    (`monitor_app.py:2689`) widens too.
+  - **`toggle_parked_visibility` stays the action id, and
+    `action_toggle_parked_visibility` stays the method name.** The action string
+    in `BINDINGS` is a **persisted public identifier**, not an internal name:
+    `keybinding_registry.register_app_bindings` resolves overrides with
+    `overrides.get(str(binding.action))` (:136) against the `shortcuts:` section
+    of `userconfig.yaml`, scoped `monitor` / `minimonitor`
+    (`monitor_app.py:383`, `minimonitor_app.py:858`). Renaming it would orphan
+    every existing user override in **both** scopes — a customized `ctrl+p`
+    would silently revert to the default `P`, with no error anywhere. A Python
+    method alias does not help: the registry keys off the string in `BINDINGS`,
+    and Textual dispatches `action_<that string>`.
+
+    Only the **description** widens ("Parked/frozen") — labels are recorded as a
+    *value* in `_DEFAULTS[(scope, action)]`, never as a key, so changing one is
+    safe. Carry a comment at the binding saying why the action id deliberately no
+    longer matches the field name, so nobody "tidies" it later.
+- `_run_marks_cmd` (:631) gains keyword-only `script=_MARKS_SH` **and
+  `timeout=_MARKS_CMD_TIMEOUT`** parameters (its error strings already
+  interpolate `_MARKS_SH.name` → `script.name`); `_run_frozen_cmd(argv, timeout)`
+  calls it with `_FROZEN_SH`. One timeout / zombie-reap implementation, two
+  scripts, **two budgets**.
+
+  **The marks budget must not be reused for freeze.** `_MARKS_CMD_TIMEOUT` is
+  20.0s and the helper *kills* the child on expiry, but one freeze spends up to
+  30s in `capture-pane` alone (`agent_freeze.py:197`) plus two 20s store calls
+  (`freeze-begin`, `freeze-commit`) plus a respawn — a single legitimate freeze
+  can exceed 20s, and `freeze --all` is **sequential over every eligible pane on
+  every session**, so it exceeds it routinely. Worse, `agent_freeze.main()`
+  buffers the whole batch and prints the per-pane lines only after `freeze_all()`
+  returns, so a killed batch reports **nothing** — including the agents it had
+  already frozen — and the remaining agents are never processed.
+
+  Budgets, bounded but honest:
+  - `_FREEZE_ONE_TIMEOUT = 90.0` for `freeze <pane>` (30 capture + 20 + 20 + slack).
+  - `freeze --all`: `_FREEZE_ONE_TIMEOUT * max(1, eligible)`, using the same
+    eligible count the confirm dialog shows (§4). Scaling with the real batch
+    size is what keeps it bounded without being arbitrary.
+
+  On expiry the notify must read as **partial, not failed** — "freeze timed out;
+  some agents may be frozen — run `aitask_frozen.sh reconcile`". A killed freeze
+  leaves a `freezing` record that reconcile settles once the lease goes stale, so
+  the damage is a stranded record, never lost capture; saying "failed" would send
+  the user looking for a problem that repairs itself.
+- `_write_observation_file` (:873) gains `panes=None` and emits
+  `PANE\t<root>\t<window>\t<pane_id>\t<pane_pid>\t<pane_dead>` rows after the
+  `WINDOW` rows. Both readers already handle this — no reader change.
+- `_maybe_purge_sessions()` as a twin of `_maybe_purge_marks` (:887) with its own
+  inflight flag and the same `_MARKS_PURGE_STARTUP_GRACE` / `_MARKS_PURGE_INTERVAL`,
+  awaited **inside** the `_maintenance()` coroutine in
+  `_dispatch_refresh_maintenance` (:476-479) — never by the render path. It writes
+  the observation file with `panes=self._monitor.last_discovered_panes()`, then
+  runs `aitask_agent_sessions.sh purge --observed <f>` and
+  `aitask_frozen.sh reconcile`.
+
+### 3. Both apps — row, filter, partition, session bar
+
+Treat `frozen` exactly as `parked` at every partition site, with `frozen`
+**winning** the row render (checked first):
+
+| site | minimonitor | monitor |
+|---|---|---|
+| row render | `_agent_card_text` :2261 | `_format_agent_card_text` :1721 |
+| filter | `_rebuild_pane_list` :2652 | :1830 (+ :1086 focus honouring, :2704) |
+| completed skip | `_compute_completed_panes` :2241 | :1431 |
+| session bar | `_rebuild_session_bar` :2166 | :1637 |
+| auto-switch ×3 | — | `_maybe_auto_switch` :1474 / :1487 / :1498 |
+| concern offer | — | `_offer_concerns` :1182 |
+| signature scan | — | `_scan_concern_signatures` :2293 |
+
+Row becomes `f"{format_frozen_prefix(self._mark_kind(snap))} {name}  [dim]frozen[/]"`
+(monitor keeps its `window_index:window_name (pane_index)` shape). The mark glyph
+is display-only on a frozen row; `space` still cycles it.
+
+Session bar keeps **separate** terms so parked and frozen stay distinguishable —
+minimonitor `[dim]{n}f[/]` after `{n}p` (:2179), monitor `"  N frozen"` after
+`"  N parked"` (:1649) — and both leave every live bucket:
+`live = [a for a in agents if not a.parked and not a.frozen]`. Terms render
+independently of the filter, as the parked term already does.
+
+### 4. Keys
+
+New in both apps: `Binding("f", "freeze_current", …)`,
+`Binding("Z", "freeze_all", …)`, and `Binding("p", …)` in monitor only (minimonitor
+already has `p`). `P` keeps its key, gains the widened action and a
+"Parked/frozen" label.
+
+- **`f`** — resolve the current agent (minimonitor `_find_own_agent_snapshot`,
+  monitor focused card), confirm via a `KillConfirmDialog`-shaped dialog ("Freeze
+  <window>? The process ends; its output is kept and it can be restored."), then
+  `_run_frozen_cmd(["freeze", pane_id])`. Safe as a subprocess: it respawns the
+  *agent's* pane, not the TUI's.
+- **`Z`** — `_run_frozen_cmd(["freeze", "--all"])`, but the confirmation must
+  first tell the truth about **scope**, which is much wider than the view.
+  `freeze_all()` (`agent_freeze.py:450`) iterates `discover_aitasks_sessions()`
+  — *every* aitasks session on the machine — and its only filters are
+  `category == AGENT` and "not already frozen". So it also stops **parked**
+  agents (parking is an App-published concept; the fresh `TmuxMonitor` it builds
+  has no parked set) and agents belonging to **other projects**. Neither app's
+  display can see that population: both support single-session mode, and §3
+  defines the displayed live set as *excluding* parked. Counting `self._snapshots`
+  — or reusing that live set — would understate a destructive operation, which is
+  precisely the number a user leans on when confirming.
+
+  So **derive the count from the operation itself**: add
+  `freeze --all --dry-run`, returning `freeze_all()`'s own eligible enumeration
+  without freezing (`WOULD_FREEZE:<pane_id>|<session>|<window>` per pane,
+  `FREEZE_ELIGIBLE:<n>` last). The TUI calls it to build the dialog, so the count
+  cannot drift from what the button does. The dialog states the scope in words
+  too — "every aitasks session on this machine, including parked agents and other
+  projects" — because a bare number still reads as "the agents I can see". The
+  same count sizes the timeout above.
+
+  **This needs the shell wrapper as well as the engine.** `aitask_frozen.sh`'s
+  `freeze` case is `[ $# -eq 2 ] || usage` (:81-83), so `freeze --all --dry-run`
+  is three arguments and exits 2 on usage **before Python ever runs** — the TUI's
+  real entry point is the wrapper, so a Python-only change would leave the
+  confirmation path dead while engine-level tests passed. Relax it to
+  `[ $# -ge 2 ] || usage`, matching the convention the adjacent `restore` case
+  already states (:85-88), and update `usage()` and the header verb list.
+
+  **Relaxing the wrapper is only safe if the engine validates the full grammar
+  first — today it does not.** `agent_freeze.main()` dispatches on `rest[0]`
+  alone and **silently ignores every trailing argument** (:1119-1124):
+
+  ```python
+  if rest and rest[0] == "--all":   results = freeze_all()      # REAL freeze
+  elif rest:                        results = [freeze_pane(rest[0])]  # REAL freeze
+  ```
+
+  So `freeze --all --dry-rnu` (one typo) performs a **real freeze of every agent
+  on the machine**, and `freeze <pane> --dry-run` really freezes that pane. The
+  shell's `-eq 2` is the only thing rejecting those forms today; relaxing it
+  while teaching Python to recognise just the one new spelling would open exactly
+  that hole. Merely *adding* `--dry-run` recognition is not enough.
+
+  So validate the **complete supported grammar, before any enumeration or
+  mutation**, and reject everything else:
+
+  ```
+  freeze --all
+  freeze --all --dry-run
+  freeze <pane_id>            # <pane_id> must not begin with "-"
+  ```
+
+  Every other form — extra arguments, unknown flags, `--dry-run` on a single
+  pane, a flag-shaped pane id — returns usage/exit 2 having called neither
+  `freeze_all` nor `freeze_pane`. That restores every rejection the old `-eq 2`
+  gave, and adds one form rather than a wildcard.
+
+  For the result notify, **count the result lines** (`FROZEN:` = ok,
+  `FREEZE_SKIPPED:` = already frozen, `FREEZE_FAILED:` = error); `freeze --all`
+  emits no summary line (unlike `restore --all`, which does emit `RESTORE_ALL:`).
+- **`R` / `p` / `k`** — guarded **in the action**, not the binding: no-op with a
+  notify unless the current agent is frozen, so monitor's `R`=Restart and
+  minimonitor's `p`=Pick keep their live-row meaning. All three dispatch through
+  `TmuxClient.run(["run-shell", "-b", shlex.join([FROZEN_SH, …])])` — never
+  `subprocess` — because each replaces or kills the pane (and possibly the window)
+  the TUI is in. `k` uses `aitask_frozen.sh drop <id>`, **not**
+  `kill_agent_pane_smart`.
+- **Hints** (minimonitor): `KEY_HINTS_TEXT` (:782-798) must surface `f`, `Z`, `R`
+  and the widened `P` while staying at **ten rows** and ≤38 cells per line —
+  `_KEY_HINTS_ROWS` is derived (:848) and `test_minimonitor_top_chrome_render`
+  pins the height; `test_key_hints_surface_every_binding` pins the parity. Fold,
+  do not add a row (an 11th costs the pane list a row at every pane height).
+
+### 5. Own panel (minimonitor)
+
+In `_refresh_own_live_state` (:2501), when the followed snapshot is frozen render
+`F frozen <frozen_at>` (from `SessionsView().by_id(snap.frozen_record_id)`) and no
+phase line. `n` stays enabled; the companion does not auto-despawn — a stand-in
+counts as a real agent.
+
+### 6. Restore feedback — extract, do not copy
+
+`frozenagent_app.py:869-928` already implements exactly the poll this task needs,
+including two hard-won correctness rules: gate on `restore_attempts` (not `state`)
+to tell pre-begin from failure, and **never** match `last_error` against a freshly
+read `op_nonce` (recovery clears the lease while preserving the error).
+Re-implementing it in `monitor_shared` would be a fourth copy of subtle logic —
+the exact failure t1705_6's own note flags for the pane-classification rule.
+
+Extract the verdict into a **pure, Textual-free** function in
+`lib/agent_frozen_ops.py`:
+
+```python
+def restore_verdict(rec, prev_attempts: int, elapsed: float) -> tuple[bool, str, bool]
+```
+
+returning `(done, message, warn)`. The viewer keeps its `set_interval` and calls
+it; the two TUIs get their own timer and call the same function. Per repo
+convention a new shared API is pinned by its **own** contract test, not
+incidentally by the viewer's suite.
 
 ## Files
 
-- **Edit** `.aitask-scripts/monitor/monitor_core.py` — `ClassifyResult.frozen`, `PaneSnapshot.frozen` / `frozen_record_id`, `_frozen_snapshot()` (beside :1045-1068), `capture_all_classified_async` split (:2886-2942), `commit_snapshots` (:3019-3027), `_is_frozen_pane(pane)` (`category == AGENT and pane.frozen_record != ""`)
-- **Edit** `.aitask-scripts/monitor/monitor_shared.py` — `FROZEN_GLYPH`, `format_frozen_prefix(kind)`, `_hide_frozen` floor + init, `_is_frozen`, `action_toggle_frozen_visibility`, `_maybe_purge_sessions()` + `_write_observation_file(panes=…)`, `_run_frozen_cmd()` on the `_run_marks_cmd` seam, `_restore_feedback_poll()`
-- **Edit** `.aitask-scripts/monitor/minimonitor_app.py` — row (:2249-2270), filter (:2648-2652), completed skip (:2240), session bar (:2159-2226), own-panel (:2511-2537), `KEY_HINTS_TEXT` (:781-797), BINDINGS (:1084-1111), `action_freeze_own`, `action_freeze_all`, `action_restore_focused`, `action_repick_focused` (extends `action_pick_next_for_own`'s guard), `_on_own_kill_confirmed` (:2881-2896) drop branch
-- **Edit** `.aitask-scripts/monitor/monitor_app.py` — floor (:385-392), Binding rows (:527), `_refresh_data` (:1010-1048), auto-switch ×3 (:1474/:1487/:1498), concern offer (:1182), completed (:1431), session bar (:1622-1649), row (:1714-1732), filter (:1819-1831), preview (:1955-1968), signature skip (:2294), focus handoff (:2658-2710), actions
-- **Edit** `tests/data/font_coverage.json` via `tests/tools/regen_font_coverage.py` (add `U+0046`), `tests/test_mark_glyphs_single_source.py`, `tests/test_monitor_agent_marks.py`
-- **Edit** the seven `SimpleNamespace` snapshot-double modules t1685 lists (add `frozen=False`, `frozen_record_id=""`)
-- **New tests** `tests/test_monitor_frozen_capture.py`, `tests/test_monitor_frozen_filter.py`
+- **Edit** `.aitask-scripts/monitor/monitor_core.py`, `monitor_shared.py`,
+  `minimonitor_app.py`, `monitor_app.py`
+- **Edit** `.aitask-scripts/lib/agent_frozen_ops.py` (+ `frozenagent/frozenagent_app.py`
+  to call the extracted verdict)
+- **Edit** `.aitask-scripts/lib/agent_freeze.py` — `freeze --all --dry-run`, plus
+  explicit `freeze` argument-grammar validation in `main()` (today it dispatches
+  on `rest[0]` and ignores trailing args, so extra-argument forms reach a real
+  freeze). No existing *supported* form changes behaviour or wire lines; what
+  changes is that unsupported forms are now rejected in Python rather than only
+  by the wrapper's arity gate.
+- **Edit** `.aitask-scripts/aitask_frozen.sh` — relax the `freeze` arity gate so
+  the dry-run reaches the engine, plus `usage()` and the header verb list
+- **Edit** `tests/tools/regen_font_coverage.py` (add `0x0046` to candidates),
+  `tests/data/font_coverage.json`, `tests/test_mark_glyphs_single_source.py`,
+  `tests/test_monitor_agent_marks.py`
+- **Edit** the `_hide_parked` → `_hide_inactive` references in
+  `tests/test_monitor_parked_filter.py`, `test_monitor_parked_capture.py`,
+  `test_monitor_agent_marks_action.py`
+- **Edit** the six `SimpleNamespace` snapshot doubles (add `frozen=False`,
+  `frozen_record_id=""`): `test_minimonitor_gate_phase_row.py`,
+  `test_minimonitor_other_section.py`, `test_minimonitor_scroll_preservation.py`,
+  `test_minimonitor_top_chrome_render.py`, `test_monitor_pane_sort_order.py`,
+  `test_monitor_session_divider.py` — complete the doubles, never make the
+  renderers defensive with `getattr`
+- **New** `tests/test_monitor_frozen_capture.py`,
+  `tests/test_monitor_frozen_filter.py`,
+  `tests/test_frozen_restore_verdict.py` (contract test for the extracted API),
+  `tests/test_frozenagent_restore_poll_characterization.py` (the pre-phase control),
+  `tests/test_shortcut_overrides_survive.py`,
+  `tests/test_freeze_argument_grammar.py`,
+  `tests/test_frozen_dry_run_wrapper.sh` (opt into the file-backed assert
+  counters if its bodies run in `( … )` subshells)
 
-## Implementation steps
+## Tests for the four verified concerns
 
-1. **Core.** `ClassifyResult.frozen: bool = False` with the parked-style
-   docstring; `PaneSnapshot.frozen: bool = False`, `frozen_record_id: str = ""`;
-   `_frozen_snapshot(pane, now)` = `PaneSnapshot(pane, content="", timestamp=now,
-   idle_seconds=0.0, is_idle=False, awaiting_input=False, frozen=True,
-   frozen_record_id=pane.frozen_record)` built outside `_apply_bookkeeping`.
-   In `capture_all_classified_async`, after `_record_discovery_facts` and
-   after the parked split: `frozen_panes = [p for p in rest if self._is_frozen_pane(p)]`,
-   removed from the capture set, re-joined as
-   `(pane, None, ClassifyResult(compare_value="", frozen=True))`; shadows
-   never filtered. `commit_snapshots`: `if result is not None and result.frozen:
-   snapshots[pid] = _frozen_snapshot(pane, now); continue` placed before the
-   `result is None` drop. Discovery survival: frozen panes stay in
-   `last_discovered_agents()` (they are real agent slots for liveness).
-2. **Glyph.** `FROZEN_GLYPH = "F"` under `PARK_GLYPH` with the same
-   measurement note (U+0046: both families, not emoji-capable — run the
-   generator, commit the JSON diff); `format_frozen_prefix(kind: str) -> str`
-   = `format_mark_glyph(kind) + f"[bold cyan]{FROZEN_GLYPH}[/]"`
-   (`format_mark_glyph` still raises on unknown kinds — do **not** add a
-   frozen kind to `agent_marks`). Extend `test_mark_glyphs_single_source.py`
-   with `test_the_frozen_glyph_evidence_is_recorded` and
-   `test_monitor_agent_marks.py` with distinctness against `● ★ ☆ P F`.
-3. **Mixin.** `_hide_frozen = False` class floor + `_init_agent_marks`;
-   `_is_frozen(snap)`; `action_toggle_frozen_visibility` mirroring
-   `action_toggle_parked_visibility` (:780-796) incl. `_hand_off_focus_before_hiding`;
-   `_run_frozen_cmd(argv)` = `_run_marks_cmd` pointed at `aitask_frozen.sh`
-   (same timeout, same total-by-contract shape); `_maybe_purge_sessions()`
-   = copy of `_maybe_purge_marks()` with its own inflight flag, writing the
-   observation file with `panes=self._monitor.last_discovered_panes()` and
-   running `aitask_agent_sessions.sh purge --observed <f>` then
-   `aitask_frozen.sh reconcile`, dispatched from
-   `_dispatch_refresh_maintenance` (:455-490) under the same
-   `_MARKS_PURGE_STARTUP_GRACE`; `_write_observation_file(observed, roots,
-   complete, panes=None)` emits `PANE` rows after `WINDOW` rows when given.
-4. **Rows + partition (both apps).** Minimonitor row: `if snap.frozen:
-   return f"{format_frozen_prefix(self._mark_kind(snap))} {name}  [dim]frozen[/]"`
-   placed **before** the parked branch (frozen wins); monitor row likewise
-   with the `window_index:window_name (pane_index)` shape. Filters:
-   `if self._hide_frozen and s.frozen: continue` beside the parked line.
-   Every "leaves the partition" site from the file list: treat `frozen`
-   exactly as `parked` (`live = [a for a in agents if not a.parked and not
-   a.frozen]`); session-bar terms `frozen_str = f" [dim]{n}f[/]"` after
-   `parked_str` (minimonitor) and `"  N frozen"` after `N parked`
-   (monitor), both independent of `_hide_frozen`. Preview placeholder text:
-   `This agent is frozen — press R to restore or p to re-pick.`
-5. **Keys.** First grep both apps' `BINDINGS` for `z`, `Z`, `F`, `R`; if
-   any collides, pick the next free letter and record the choice in the
-   Final Implementation Notes and for t1705_9. Minimonitor: `Binding("z",
-   "freeze_own", "Freeze followed agent", show=False)`, `Binding("Z",
-   "freeze_all", "Freeze all agents", show=False)`, `Binding("F",
-   "toggle_frozen_visibility", "Frozen", show=False)`, `Binding("R",
-   "restore_focused", "Restore frozen", show=False)`; `p` keeps
-   `pick_task` but `action_pick_task` first checks `snap = self._focused_snapshot()`
-   and, when `snap.frozen`, routes to `_repick_frozen(snap)` (guard in the
-   **action**, not the binding); `k` on the followed agent when it is
-   frozen → `KillConfirmDialog` text "Remove frozen record and capture, close
-   this pane?" → `aitask_agent_sessions.sh drop` + `kill_agent_pane_smart`.
-   `action_freeze_own`: resolve the followed agent
-   (`_find_own_agent_snapshot`), confirm dialog ("Freeze <window>? The
-   process ends; its output is kept and it can be restored."), then
-   `_run_frozen_cmd(["freeze", pane_id])` → `notify` the wire line; on
-   `FREEZE_FAILED:` show it as warning. `action_freeze_all`: confirm with
-   the count of live agents, `_run_frozen_cmd(["freeze", "--all"])`,
-   notify `<ok>/<total>`. `action_restore_focused` /
-   `_repick_frozen`: `self._tmux.run(["run-shell", "-b", shlex.join([FROZEN_SH, "restore", id, *(["--repick"] if repick else [])])])`
-   then `_restore_feedback_poll(id)` (1 s `set_interval`, bounded by
-   `restore_ack_grace + 5`, notifies the outcome line, stops on any
-   terminal state). Monitor: same actions on the focused card, `Z`/`F`
-   `show=True` in the Footer. `KEY_HINTS_TEXT`: fold `z:freeze F:frozen`
-   onto the `c:concerns  p:pick task  P:parked` line if it stays ≤ 38 cells;
-   otherwise onto the line with the most room — **ten rows** either way;
-   `_KEY_HINTS_ROWS` derived; `test_key_hints_surface_every_binding` and
-   `test_minimonitor_top_chrome_render` must stay green.
-6. **Own panel (minimonitor).** In `_refresh_own_live_state`, when the own
-   snapshot is frozen: `F frozen <frozen_at>` (frozen_at from
-   `SessionsView().by_id(snap.frozen_record_id)`), no phase line, `n` still
-   offered; `_parked_agent_pairs()` unchanged (parked is orthogonal).
-7. **Doubles.** Complete every `SimpleNamespace` snapshot double t1685
-   listed (`tests/test_multi_session_{monitor,minimonitor}.sh` and the five
-   Python modules it names) with the two new fields.
+Each gets a test that fails against the naive implementation, not just against
+broken code:
 
-## Tests
+1. **Capture partition precedence** — drive a pane that is **both** frozen and
+   parked through `capture_all_classified_async` → `commit_snapshots` and assert
+   the committed snapshot has `frozen=True`, plus that its mark still renders.
+   Constructing a frozen snapshot directly in a renderer test would pass while
+   the real partition is broken — so this must go through the real capture path.
+   Negative control: parked-only still commits `parked=True`.
+2. **Fast-preview route** — call `capture_pane_classified_async` on a frozen pane
+   with a recording `capture_pane_content_async` seam and assert **no capture and
+   no classify call**; then `commit_snapshot` and assert the result is a
+   `frozen=True, content=""` snapshot. Then drive `_fast_preview_refresh` on a
+   focused frozen pane and assert `self._snapshots[pane_id].frozen` survives and
+   the preview shows the frozen placeholder. Positive control: a live focused
+   pane *is* captured.
+3. **Freeze-all scope and count** — with a fake enumeration of **two sessions**
+   containing a parked agent, an already-frozen stand-in and a plain agent,
+   assert `--dry-run` reports every eligible pane across both sessions (parked
+   included, frozen excluded), that the dialog's count equals it **in
+   single-session display mode**, and that the dispatched argv is
+   `["freeze", "--all"]`.
+4. **Freeze command lifetime** — assert the seam receives `_FREEZE_ONE_TIMEOUT`
+   for a single freeze and a count-scaled budget for `--all` (never
+   `_MARKS_CMD_TIMEOUT`); a slow-but-successful freeze that outlives 20s
+   completes rather than being killed; and a genuine timeout surfaces the
+   partial-completion wording, not "failed".
+5. **Dry-run path — two isolated layers, neither touching a live tmux server.**
 
-`tests/test_monitor_frozen_capture.py` — mirror `test_monitor_parked_capture.py`
-class for class: a frozen pane is never in `capture_pane_content_async`'s
-args nor in `classify_content` calls (recorded seams + negative control:
-patch `_is_frozen_pane` to `False` and assert it *is* captured); commits a
-`frozen=True, content=""` snapshot whose `frozen_record_id` is the option
-value; `_last_content` untouched; still in `last_discovered_agents()`; only
-AGENT panes; shadows never filtered; `_frozen_snapshot` bypasses
-`_apply_bookkeeping`.
-`tests/test_monitor_frozen_filter.py` — mirror `test_monitor_parked_filter.py`:
-row render for `KIND_NONE` / priority / parked marks (`☆F`, `★F`, `PF` +
-`frozen`), forbids `● ◆ ≈ = IDLE PROMPT Active` (positive control on a live
-row); mounted row; `F` bound once in both apps, no collision; hint row
-contains `z:` and `F:` and stays ten rows; focus handoff next/prev/single;
-preview placeholder; session-bar partition (frozen leaves every live
-bucket, term present, absent at zero, filter-independent); auto-switch
-never picks frozen; actions: `z` produces `["freeze", pane]`, `Z`
-`["freeze","--all"]`, `R` the exact `run-shell -b` argv, `p` on a frozen
-row → `--repick` argv and on a live row → the existing pick dialog, `k` on
-frozen → `drop` then kill, `space` on a frozen row still cycles the mark
-(store double asserts `cycle` called); own-panel frozen render;
-`_maybe_purge_sessions` dispatched after the grace with `PANE` rows in the
-observation file and never awaited (assert on `_dispatch_refresh_maintenance`
-like `RefreshOrderingTests`).
+   > **Correcting an unsafe test design in this plan's previous draft.** It
+   > proposed running the real wrapper *and* real engine with
+   > `AITASKS_AGENT_SESSIONS_FILE` pointed at a temp store, calling that safe
+   > "because dry-run freezes nothing". That reasoning is wrong twice over. The
+   > store override isolates only the JSON store — `discover_aitasks_sessions`
+   > (`agent_launch_utils.py:881`) enumerates *"aitasks-like tmux sessions on the
+   > current tmux server"* and re-queries tmux on every call, so the test would
+   > have enumerated the live `-L ait` server holding the user's real agents. And
+   > "dry-run freezes nothing" assumes the code under test is correct — which is
+   > precisely what the test exists to establish. Combined with the `rest[0]`
+   > defect above, a single typo would have frozen every real agent on the
+   > machine while filing their records into a temp store. **Safety must hold
+   > even when dry-run dispatch is broken**, so no test here invokes the real
+   > engine against a real server.
+
+   - **(a) Wrapper forwarding — fake engine, shell test.** Build a temp
+     `SCRIPT_DIR` with `aitask_frozen.sh` copied in, `lib/terminal_compat.sh` and
+     `lib/python_resolve.sh` symlinked from the repo, and a **fake
+     `lib/agent_freeze.py`** that only echoes its argv. Assert
+     `freeze --all --dry-run` forwards verbatim; assert the ordinary
+     `freeze <pane>` control forwards verbatim **within the same isolation**;
+     assert bare `freeze` still exits 2 without reaching the engine. Real
+     freezing is impossible here by construction, not by argument.
+   - **(b) Engine grammar and dry-run — fake enumeration + mutation spies,
+     python test.** Patch `discover_aitasks_sessions` / `_agent_panes_for` with a
+     fake two-session enumeration, and spy on `freeze_pane` and `freeze_all`.
+     Assert `--dry-run` reports the eligible set and calls **neither**; assert
+     each rejected form (`--all --dry-rnu`, `<pane> --dry-run`, extra args,
+     unknown flags, a `-`-prefixed pane id) exits 2 and calls **neither**. The
+     spies are the assertion that matters — a grammar test that only checks exit
+     codes would pass while a mutator ran.
+6. **Keybinding override survival** — with a `shortcuts:` override for
+   `toggle_parked_visibility` seeded in **both** the `monitor` and `minimonitor`
+   scopes, assert `register_app_bindings` still returns the overridden key after
+   the widening — i.e. the action id did not move. This test fails against the
+   rename I originally proposed, which is what makes it worth having.
 
 ## Verification
 
 ```bash
-bash tests/run_all_python_tests.sh
-python3 tests/tools/regen_font_coverage.py && git diff --stat tests/data/font_coverage.json
-bash tests/test_multi_session_monitor.sh tests/test_multi_session_minimonitor.sh tests/test_no_raw_tmux.sh
-# live, on an isolated server or a throwaway -L socket: ./ait minimonitor, z, F, R, k on a frozen row
+# pre-phase control FIRST: green against unmodified code, then still green after §6
+python3 tests/test_frozenagent_restore_poll_characterization.py
+
+# new + mirrored suites, then the modules the rename and the new field touch
+python3 tests/test_monitor_frozen_capture.py
+python3 tests/test_monitor_frozen_filter.py
+python3 tests/test_frozen_restore_verdict.py
+python3 tests/test_monitor_parked_capture.py && python3 tests/test_monitor_parked_filter.py
+python3 tests/test_mark_glyphs_single_source.py && python3 tests/test_monitor_agent_marks.py
+python3 tests/test_minimonitor_top_chrome_render.py    # ten-row hint budget
+python3 tests/test_minimonitor_concern_action.py       # hints/bindings parity
+python3 tests/test_frozenagent_app.py                  # viewer still green after the extraction
+python3 tests/test_shortcut_overrides_survive.py       # action-id stability, both scopes
+bash    tests/test_frozen_dry_run_wrapper.sh           # wrapper forwarding, FAKE engine
+python3 tests/test_freeze_argument_grammar.py          # grammar + mutation spies, no tmux
+
+bash tests/run_all_python_tests.sh                     # read ONLY the last line
+bash tests/test_no_raw_tmux.sh
+shellcheck .aitask-scripts/aitask_*.sh
 ```
 
-## PINNED contracts (from p1705 — do not re-decide)
+Every new test gets its **pre-fix control**: run it against the unmodified code
+first and watch it fail, so a green result is evidence rather than a tautology.
 
-Copied verbatim from `aiplans/p1705_frozen_codeagents_session_store_and_viewer_tui.md` §A–§D. On any discrepancy the parent plan wins; if a child must deviate, update the parent plan and every sibling plan in the same commit.
+Baseline confirmed green before starting: `test_monitor_parked_filter` (29),
+`test_monitor_parked_capture` (14), `test_mark_glyphs_single_source` (28, 1 skip).
 
-> **⚠ PARTLY SUPERSEDED — read the parent plan's `## Amendments from
-> re-verification (t1705_5, 2026-09-07 / 2026-09-08)` block (B1–B7) BEFORE
-> implementing anything from §A–§D below.** t1705_5 re-verified the §D restore
-> contract against the shipped tree and amended it; the parent plan carries the
-> authoritative list. The text below is retained as the unedited parent contract.
->
-> The four that change §D's wire protocol:
->
-> - **B1** — `restore-begin` and `lease-take` both REQUIRE `--owner-pid <pid>`.
-> - **B2** — §D step 3's `env VAR=…` prefix is superseded by **`respawn-pane -e`**
->   (one `-e` per variable). The prefix is now the documented *fallback* for a
->   tmux build without `-e`, not the primary mechanism.
-> - **B3** — the hook consumes only `AITASK_RESTORE_RECORD` and
->   `AITASK_RESTORE_NONCE`; the other two are exported as diagnostics only.
-> - **B4** — §C's `restoring`/`aborting` reconcile rows are already SHIPPED
->   (t1705_4), so §C is a specification of existing behaviour.
->
-> **Why this matters for this task specifically.** This task wires the restore
-> keys AND consumes `pick_launch_argv`. Note **B7**: that helper has **three**
-> call sites (`minimonitor_app.py:3013`, `monitor_app.py:3599`,
-> `monitor_app.py:3683`), not two — use that count, not any earlier statement.
+**Not runnable from this session, by design:** this agent runs *inside* the `ait`
+tmux server (`$TMUX` is set), so the live tmux suites
+(`tests/test_multi_session_*.sh`, `tests/test_cleanup_rule_parity.sh`, and any
+hands-on `./ait minimonitor` freeze) refuse or would be destructive. Those are
+**t1705_8**'s scope (it opens with a blocking tmux preflight for exactly this
+reason) and t1705_11's checklist. This task ships unit- and render-level
+coverage only, and I will say so plainly rather than implying live verification.
 
+## Risk
 
+*Reassessed after the inline pre-phase was confirmed and again after review
+surfaced four defects in the first draft (partition precedence, the unguarded
+fast-preview route, the marks timeout, freeze-all scope). All four are now
+addressed in the approach with their own tests. The pre-phase gives the
+highest-severity code-health item a real pre-extraction control, but the blast
+radius (5 source modules, ~12 test modules) and the two load-bearing capture
+paths sustain **medium** on that axis; goal-achievement is untouched by these
+fixes and stays **medium**, dominated by the no-live-tmux gap.*
 
-#### A. Session store — `lib/agent_sessions.py` + `aitask_agent_sessions.sh`
+### Code-health risk: medium
 
-- Path `~/.config/aitasks/agent_sessions.json`, env override
-  `AITASKS_AGENT_SESSIONS_FILE`, lock dir derived from the resolved path
-  (`<file>.lockd`), 0600 with `_target_mode` preservation, write via
-  `lib/atomic_write.py`. Captures under `~/.config/aitasks/frozen/<id>/`
-  (0700 dir; `capture.ansi`, `capture.txt`), env `AITASKS_FROZEN_DIR`.
-- Schema v1:
-  ```json
-  {"version": 1, "sessions": [{
-    "id": "7f3a2c1d",                 // record id (8 hex, os.urandom) — PRIMARY KEY
-    "root": "/real/path/project",     // realpath, both sides         ┐ DURABLE IDENTITY
-    "window": "agent-pick-1705",      //                               │ (root, window, window_slot)
-    "window_slot": 0,                 // assigned once; >0 only for a 2nd agent in the same window ┘
-    "pane_id": "%104", "pane_pid": 41233,   // LOCATION / GENERATION data — replaceable, never identity
-    "session": "aitasks",             // tmux session name — display only
-    "operation": "pick", "task_id": "1705",          // task_id "" when unbound
-    "agent_string": "claudecode/opus5", "agent_kind": "claudecode",
-    "codeagent_session_id": "", "transcript_path": "",  // "" = unknown → re-pick only
-    "started_at": "2026-09-04T09:12:03Z",
-    "state": "live",                  // live | freezing | frozen | restoring | aborting
-    "state_at": "2026-09-04T09:12:03Z",
-    "op_nonce": "", "op_owner_pid": 0, "op_started_at": "",   // LEASE of the in-flight freeze/restore (see below)
-    "frozen_at": "", "capture_ansi": "", "capture_txt": "",
-    "capture_lines": 0, "last_phase": "",
-    "standin_pid": 0,                 // #{pane_pid} of the stand-in viewer, written at freeze-commit and every stand-in respawn
-    "launch_pid": 0,                  // #{pane_pid} of the replacement agent, written by restore-launched (nonce-bound)
-    "restore_attempts": 0, "restore_mode": "",   // "" | resume | repick (current attempt)
-    "ack": "",                        // "" | hook | liveness — how the last restore was confirmed
-    "last_error": ""                  // "" | "<nonce>:session_mismatch" | "<nonce>:<reason>" — coordinator-readable outcome channel
-  }]}
-  ```
-  `pane_id` / `pane_pid` are **location and generation data**: a tmux server
-  restart, a reattach or a respawn replaces them on the same record. They
-  are never part of the identity key and a recycled `%N` can attach to
-  nothing on its own — attachment needs either `@aitask_record` on the pane
-  (options die with the pane, so a recycled pane never carries a stale one)
-  or a `(root, window)` match under the conflict policy below.
-  Unknown `state` = corruption (not a default). `load()` raises
-  `MalformedSessionsError`; `load_safe()` returns empty. Generation normalised
-  to `SCHEMA_VERSION` on read.
-- **Record ownership (one allocator) and the `(root, window)` conflict
-  policy.** The `upsert` verb is the *only* creator of records. Resolution
-  order for a caller without `--restore-of`:
-  1. `--id <rid>` (from `@aitask_record` on the caller's pane) → that record,
-     whatever its `(root, window)` (a renamed window keeps its record).
-  2. Else, **among `live` records only** with the caller's `(root, window)`,
-     the relocation candidates are: the one whose `pane_id` equals the
-     caller's pane, else those whose `pane_pid` is dead or whose pane no
-     longer exists. **Exactly one candidate** → it is the same agent slot:
-     replace `pane_id`/`pane_pid`, update session id / transcript / agent
-     string, print `UPSERTED:<id>|updated` (the tmux-restart and reattach
-     case — no second record). **More than one candidate** (two agents shared
-     the window before a server restart; nothing on the caller's side can
-     tell them apart) → **fail closed on relocation**: fall through to rule 3
-     and print `UPSERTED:<id>|created_slot<N>|ambiguous_relocation`; the stale
-     records are left for purge (rule: a `live` record whose `pane_pid` is
-     dead and whose `pane_id` is absent from an enumerated window →
-     `DROPPED:…|dead_pane`), never guessed.
-     Transitional records (`freezing`/`restoring`/`aborting`) are **never**
-     relocated or updated by an unstamped caller: they are touched only by
-     `--restore-of` + the current nonce, or by `reconcile`. If the caller's
-     pane *is* a transitional record's pane → refuse
-     (`UPSERT_REFUSED:<id>|<state>_unacknowledged`, a stray session in a
-     transacting pane); otherwise they are simply not candidates.
-  3. Else every `(root, window)` record is `live` in **another** pane (a
-     second agent split into the same window), transitional, or `frozen`
-     (retained state whose window name is being reused, e.g. the same task
-     re-picked after a tmux restart) → **create beside it**: new record,
-     `window_slot` = lowest unused slot for that `(root, window)`, print
-     `UPSERTED:<id>|created_slot<N>`. A retained frozen record never blocks a
-     live launch and is never attached to; it stays restorable into a fresh
-     window (`unique_window_name` disambiguates) and is listed distinctly by
-     its `frozen_at`.
-  4. Else → create (`state=live`, `window_slot=0`), print `UPSERTED:<id>|created`.
-  In every create/update branch the caller's pane is stamped
-  `@aitask_record=<id>`.
-  Other branches:
-  - record exists in `restoring` **and** the caller passes
-    `--restore-of <id> --nonce <n>` (the hook forwards them from the
-    replacement agent's environment, §D) → the **restore acknowledgement**:
-    nonce must equal `op_nonce`; in `resume` mode `--session-id` must equal
-    `codeagent_session_id` — else the store **persists**
-    `last_error="<nonce>:session_mismatch"` (state unchanged) and prints
-    `RESTORE_SESSION_MISMATCH:<id>` exit 7. The hook has no return channel to
-    the detached coordinator, so the record *is* the channel: the coordinator
-    and `reconcile` both read `last_error` for the current nonce and take the
-    abort branch, never the liveness fallback. In `repick` mode the new
-    session id is adopted. On success: `pane_id`/`pane_pid` updated from the
-    caller's pane, `@aitask_record` stamped on it, state `live`, `ack=hook`,
-    capture files deleted, print `UPSERTED:<id>|restored`;
-  - record exists in `restoring` without `--restore-of`/`--nonce` → refuse,
-    print `UPSERT_REFUSED:<id>|restoring_unacknowledged` (a stray session in
-    a restoring pane is never an ack);
-  - record exists in `freezing` / `frozen` → refuse, print
-    `UPSERT_REFUSED:<id>|<state>` (a hook firing in a stand-in pane is a bug).
-  Two callers: the SessionStart hook (child 3, normal path) and the freeze
-  engine (child 4, fallback when the hook never fired). Both read
-  `@aitask_record` off the pane first and pass `--id` when present, so a pane
-  that was already recorded is never duplicated even after a `pane_id`
-  recycle. A restore into a **new** pane (window gone) carries the record id
-  in the environment, never on the pane, so it selects the old record instead
-  of creating a second one.
-- **Operation lease.** `freeze-begin`, `restore-begin` and `lease-take` mint
-  `op_nonce` (8 hex), record `op_owner_pid` (the coordinator) and
-  `op_started_at`, and print the nonce. **Every verb that mutates a record
-  holding a lease** (`freeze-commit`, `freeze-abort`, `restore-launched`,
-  `restore-confirm`, `restore-abort`, `standin-respawned`, the ack form of
-  `upsert`) requires `--nonce <n>`; a mismatch prints `NONCE_MISMATCH:<id>`
-  exit 6 and writes nothing — a coordinator that lost the race to
-  `reconcile` fails closed instead of double-acting. `lease-take <id>` →
-  `LEASED:<id>|<nonce>` is how `reconcile` (or a stand-in relaunch on a
-  `frozen` record) acquires ownership: it is refused (`LEASE_HELD:<id>`)
-  while a lease exists whose `op_started_at` is younger than
-  `stale_op_grace` (default 60 s) **or** whose `op_owner_pid` is alive; a
-  stale lease with a dead/unverifiable owner is taken over. Within the grace,
-  or with a live owner, reconcile leaves the record alone. Lease-clearing
-  transitions (`freeze-commit`, `freeze-abort`, `restore-confirm`, hook ack,
-  `standin-respawned` out of `aborting`) clear the lease.
-- **State machine** (every transition is one locked verb; illegal transitions
-  print `TRANSITION_REFUSED:<id>|<from>|<verb>` exit 5 and write nothing):
-  ```
-  live ──freeze-begin──▶ freezing ──freeze-commit──▶ frozen ◀────────────────┐
-   ▲                        │                          │                      │
-   └────freeze-abort────────┘                          │ restore-begin        │ standin-respawned
-   ▲                                                   ▼                      │ (same nonce)
-   └──upsert (hook ack) / restore-confirm── restoring ──restore-abort──▶ aborting
-  drop: any state → record removed + capture files removed
-  ```
-  `aborting` is **nonce-owned**: the record stays leased by the aborting
-  attempt until its stand-in is back (`standin-respawned --nonce` → `frozen`,
-  lease cleared). `restore-begin` on `aborting` → `TRANSITION_REFUSED`, so a
-  user or a second controller cannot start another restore in the gap and
-  an old coordinator cannot respawn over a newer attempt: its `standin-respawned`
-  carries a stale nonce and is refused.
-  **Captures are deleted only on a verified ack** (`ack=hook`). A
-  liveness-only `restore-confirm` transitions to `live` but **keeps** the
-  capture files (`ack=liveness`); they are removed on `drop` or liveness
-  purge. This is what stops a malformed resume that starts a fresh session
-  from destroying the only copy.
-- Wrapper verbs (sole writer; `list`/`show` take no lock; exit 0/2/3
-  `LOCK_BUSY`/4 `ERROR`/5 `TRANSITION_REFUSED`/6 `NONCE_MISMATCH`/7
-  `RESTORE_SESSION_MISMATCH`/8 `LEASE_HELD`):
-  `upsert --root <r> --window <w> --pane <id> --pane-pid <pid> [--id <rid>] [--session-id <sid>] [--transcript <p>] [--agent-string <s>] [--operation <op>] [--task-id <t>] [--restore-of <rid> --nonce <n>]`;
-  `freeze-begin <id> --capture-ansi <p> --capture-txt <p> --lines <n> [--phase <t>]` → `FREEZING:<id>|<nonce>`;
-  `freeze-commit <id> --nonce <n> --pane <pane_id|""> --pane-pid <pid|0>` → `FROZEN:<id>` (writes the stand-in's location: `pane_id`/`standin_pid` from the arguments; `--pane "" --pane-pid 0` is the gone-pane commit used by reconcile; `--pane` without `--pane-pid` or vice versa → usage error exit 2);
-  `freeze-abort <id> --nonce <n>` → `LIVE:<id>` (captures deleted);
-  `restore-begin <id> --mode resume|repick` → `RESTORING:<id>|<nonce>` (captures **retained**, `restore_attempts`+1, `launch_pid=0`, `last_error=""`);
-  `restore-launched <id> --nonce <n> --pane <id> --pane-pid <pid>` → `LAUNCHED:<id>` (records the replacement's `launch_pid` + location; written by the coordinator right after `respawn-pane`/`launch_in_tmux` returns — the nonce-bound evidence that the respawn happened);
-  `restore-confirm <id> --nonce <n> --pane <id> --pane-pid <pid>` → `LIVE:<id>|liveness` (captures **kept**; refused with `TRANSITION_REFUSED` unless `launch_pid != 0` and equals `--pane-pid`);
-  `standin-respawned <id> --nonce <n> --pane <id> --pane-pid <pid>` → `STANDIN:<id>` (records the stand-in's `standin_pid` + location; from `aborting` it also transitions to `frozen` and clears the lease; from `frozen` (a `lease-take`n relaunch of a dead stand-in) it just updates and clears the lease; `freeze-commit` folds the same write in);
-  `restore-abort <id> --nonce <n>` → `ABORTING:<id>` (captures retained; lease kept by the same nonce);
-  `lease-take <id>` → `LEASED:<id>|<nonce>` / `LEASE_HELD:<id>` exit 8;
-  `drop <id>` → `DROPPED:<id>`;
-  `list [--state <s>] [--root <r>]` → `SESSION:<id>|<state>|<root>|<window>|<pane_id>|<task_id>|<agent_string>|<state_at>`;
-  `show <id>` → `KEY:value` lines;
-  `purge --observed <file>` → `DROPPED:<id>|<reason>` + `PURGED:<n>`.
-  **Observation protocol (superset of the marks one, backward-compatible):**
-  ```
-  ROOT<TAB><root>                                   -- successfully enumerated root
-  WINDOW<TAB><root><TAB><window>                    -- observed agent window
-  PANE<TAB><root><TAB><window><TAB><pane_id><TAB><pane_pid><TAB><pane_dead>   -- every pane of that window
-  INCOMPLETE                                        -- suppress every sweep
-  ```
-  `monitor_shared._write_observation_file()` gains a `panes=` argument and
-  writes the `PANE` rows from `TmuxMonitor.last_discovered_panes()` (the
-  `_LIST_PANES_FORMAT` already carries `pane_id` and `pane_pid`; `pane_dead`
-  is appended to the format — see §B arity rule). The marks reader
-  (`agent_marks._read_observed`) is extended to **skip** `PANE` rows so one
-  file serves both purges; `agent_sessions` requires them. A file with
-  `ROOT`/`WINDOW` but no `PANE` rows for an enumerated root is treated as
-  pane-incomplete for that root: `dead_window` still applies, `dead_pane`
-  does not (fail closed).
-- **Purge policy** (fail-closed on `INCOMPLETE`, mirrors `sweep_liveness`):
-  a `live` record whose `(root, window)` is absent from a successfully
-  enumerated root → `DROPPED:…|dead_window`; a `live` record whose window has
-  a `WINDOW` row **and** `PANE` rows, but whose `pane_id` appears in none of
-  them (or appears with `pane_dead=1`) and whose `pane_pid` is dead
-  (`os.kill(pid, 0)` → `ESRCH`; an `EPERM`/unverifiable pid is treated as
-  alive) → `DROPPED:…|dead_pane` — this is what retires the stale candidates
-  left behind by an ambiguous relocation. Two producers feed `purge`: the
-  monitor maintenance tick (observation file above) and `aitask_frozen.sh
-  reconcile`, which builds the same file from its own `list-panes` pass so
-  retirement does not depend on a TUI being open. `freezing` / `frozen` / `restoring` /
-  `aborting` records are never purged by liveness — they are reconciled by
-  `aitask_frozen.sh reconcile` (§C/§D). A frozen record whose capture file is
-  missing → `DROPPED:…|capture_missing`.
-- `SessionsView` (mtime+size+inode gated) for the TUIs; `invalidate()` after
-  every write. `standin_command(record_id) -> str` returns
-  `ait frozenagent --record <id>` unless `AITASKS_FROZEN_STANDIN_CMD` is set
-  (documented **test seam**; production never sets it).
+- The frozen split lands in `capture_all_classified_async` / `commit_snapshots` — the load-bearing capture path for **both** TUIs. A misordered branch (frozen checked after the `result is None` drop) silently drops frozen panes from the snapshot map. · severity: medium · → mitigation: TBD
+- Extracting `restore_verdict` refactors **shipped t1705_6 code** whose correctness rests on two non-obvious rules (gate on `restore_attempts`, never match `last_error` against a fresh `op_nonce`). A faithful-looking extraction that loses either one turns a failed restore into a reported success. · severity: high · → mitigation: inline pre-phase characterize_restore_poll
+- The `_hide_parked` → `_hide_inactive` rename touches ~9 source and ~16 test sites across 3 test modules outside this task's nominal scope; a missed site leaves a filter that silently stops filtering. · severity: low · → mitigation: none — the alternative (a flag whose name lies about what it hides) is worse
+- **Binding action ids are persisted user config, not internal names.** `register_app_bindings` resolves overrides by `str(binding.action)` against `userconfig.yaml`'s `shortcuts:` section, so renaming one silently orphans a user's customized key — no error, it just reverts to default. This plan's first draft renamed `toggle_parked_visibility` and would have done that in both the `monitor` and `minimonitor` scopes. · severity: medium · → mitigation: none — the id is now preserved, pinned by concern-test 6, and carries a comment saying why it no longer matches its field name
+- There are **two** capture routes (`capture_all_classified_async` +
+  `commit_snapshots`, and `capture_pane_classified_async` + `commit_snapshot`) and
+  guarding only the bulk one leaves the fast-preview path capturing frozen panes
+  and overwriting their snapshots. Now addressed at the core seam so every caller
+  inherits it — but any *future* single-pane capture entry point would reopen it. · severity: medium · → mitigation: none — the guard sits in `monitor_core`, not in an app, which is what makes new callers inherit it
+- **`agent_freeze.main()` ignores trailing arguments today** (`rest[0]` only), so the wrapper's `[ $# -eq 2 ]` gate is the *sole* thing rejecting `freeze --all --dry-rnu` and `freeze <pane> --dry-run` — both of which currently reach a **real** freeze. Relaxing that gate without adding full grammar validation in Python would open a path where a single typo freezes every agent on the machine. · severity: high · → mitigation: none — the grammar is now validated before any enumeration or mutation, pinned by concern-test 5(b)'s mutation spies
+- Tests that exercise the freeze engine can reach the **live tmux server**: `AITASKS_AGENT_SESSIONS_FILE` isolates only the JSON store, while `discover_aitasks_sessions` re-queries the current server on every call. Any test that runs the real engine — however "safe" its verb looks — can act on the user's real agents, and this session runs on that very server. · severity: high · → mitigation: none — no test invokes the real engine against a real server; forwarding is proven with a fake engine and dry-run with fake enumeration (concern-test 5)
+- Six `SimpleNamespace` snapshot doubles must be completed for the two new `PaneSnapshot` fields. An incomplete double **raises** rather than degrading, so the failure is loud — but the temptation to "fix" it with a `getattr` default would also mask a real snapshot missing the field. · severity: low · → mitigation: TBD
 
-#### B. Pane options (tmux user options, pane-scoped)
+### Goal-achievement risk: medium
 
-| Option | Set by | Cleared by | Read by | Meaning |
-|---|---|---|---|---|
-| `@aitask_record=<id>` | `upsert` (hook or freeze engine) | `drop`; pane death | freeze engine, restore coordinator, hook (`--id`) | the pane-visible join to its store record |
-| `@aitask_frozen=<id>` | freeze engine, immediately before `respawn-pane` | `restore-confirm` path (coordinator), `drop` | `_LIST_PANES_FORMAT` (appended), `kill_agent_pane_smart` format, `aitask_companion_cleanup.sh`, `maybe_spawn_minimonitor` occupancy | this pane is a frozen stand-in — **authoritative** classifier |
-| `@aitask_standin_ready=<id>` | **the viewer itself**, after mount (only the app stamps its own pane — `mark_monitor_pane` rule) | freeze engine + restore coordinator (`set-option -pu`) immediately **before** every `respawn-pane`; `drop` | `reconcile` | positive proof that the stand-in is up — the only signal that distinguishes "stamped, viewer running" from "stamped, agent still running" |
-| `@aitask_agent_session=<sid>` | SessionStart hook on `$TMUX_PANE` | pane death | freeze engine fallback when the store has no session id | codeagent session id |
+- **Nothing here can be verified against a real tmux server.** This session runs inside the `ait` server, so the freeze / restore / drop keys ship proven only at the argv level (fake seams) — the call *shape*, never the outcome. Live proof is structurally t1705_8's scope, but until it runs, "the keys work" is unevidenced. · severity: high · → mitigation: none — already owned by sibling t1705_8 (`depends: [t1705_7]`); spawning one would duplicate it
+- The `F` glyph's font coverage is **asserted, not measured** — the generator cannot run on this machine (no fontconfig, neither Nerd Font). Certain for an ASCII capital, and it fails loudly on a font-equipped box, but it is not the machine-checked evidence the repo's discipline expects. · severity: low · → mitigation: none — accepted, fails loudly in the right direction
+- The minimonitor hint band must surface three new keys plus a widened `P` label within **ten rows and 38 cells** — a budget that has already forced one design change (t1685). If it cannot be met, either a hint goes unsurfaced (failing the parity test) or the pane list loses a row at every height. · severity: medium · → mitigation: none — `test_minimonitor_top_chrome_render` + `test_key_hints_surface_every_binding` already enforce both halves
 
-**Pane user options survive `respawn-pane`** (they are pane-scoped, not
-process-scoped), which is why `@aitask_standin_ready` must be explicitly unset
-before each respawn and why `@aitask_record` stays valid across freeze/restore
-on the same pane. `#{pane_current_command}` is a process basename and is
-**never** used as identity; `#{pane_pid}` (stored as `pane_pid`) and the
-options above are the only server-observable identities reconcile reads.
+### Planned mitigations
+- timing: pre-phase | name: characterize_restore_poll | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — restore_verdict extraction may silently lose a correctness rule | desc: characterization test pinning the viewer's current restore/drop poll verdicts, run green pre-extraction as the control
 
-Constants live in `monitor/monitor_core.py` beside `SHADOW_TARGET_OPTION`
-(`RECORD_OPTION`, `FROZEN_OPTION`, `STANDIN_READY_OPTION`,
-`AGENT_SESSION_OPTION`) and are mirrored in `lib/agent_sessions.sh` for shell
-callers.
+## Follow-ups to file (Step 8d)
 
-#### C. Freeze — `lib/agent_freeze.py` + `aitask_frozen.sh freeze <pane>|--all`
+- **Parked panes are captured and overwritten on the fast-preview route.** A live
+  t1685 defect found while verifying this plan, at the same two functions this
+  task guards for frozen: focusing a parked pane captures it, classifies it, and
+  replaces its `parked=True` snapshot, so the parked preview placeholder
+  (`monitor_app.py:1961`) reverts to stale content and the session-bar term
+  drops it. Not folded in here — it is a behaviour change to shipped parked code
+  with its own test expectations — but the frozen guard is written so the parked
+  case is a two-line addition.
 
-Runs **out of the agent pane** (from a TUI, a shell, or `run-shell -b`).
-Every step is persisted before the next irreversible one:
+## Risks (implementation notes)
 
-1. Resolve the record: `@aitask_record` → `show`; else `upsert` (fallback).
-   Read `codeagent_session_id`; if empty, try `@aitask_agent_session`.
-2. `capture-pane -p -e -J -t <pane> -S -<cap>` via `TmuxClient.run` →
-   `capture.ansi`; strip via `monitor/ansi_utils` → `capture.txt`.
-3. `freeze-begin` → state `freezing`, capture paths persisted, **lease
-   minted** (`op_nonce`, `op_owner_pid`=this coordinator).
-4. `set-option -p -t <pane> @aitask_frozen <id>`; `set-option -pu -t <pane>
-   @aitask_standin_ready` (clear any stale ready mark from a previous cycle).
-5. `respawn-pane -k -t <pane> '<standin_command(id)>'` via the gateway.
-   Window name unchanged, so `classify_pane` / `task_id_from_window_name`
-   keep working. The viewer stamps `@aitask_standin_ready=<id>` on mount.
-6. `freeze-commit --nonce <n> --pane <pane> --pane-pid <stand-in pid>` →
-   state `frozen`, `standin_pid` + location recorded (read via
-   `display-message -p -t <pane> '#{pane_id}\t#{pane_pid}'` after the
-   respawn), lease cleared.
-
-Failure at 1–3 → nothing to undo beyond temp files (`FREEZE_FAILED:<stage>`).
-Failure at 4 → `freeze-abort --nonce`. Failure at 5 (tmux refused) → unstamp +
-`freeze-abort --nonce`; the agent is still running. Failure at 6 (store busy)
-→ the record stays `freezing`; **reconcile** completes it once the lease is
-stale. A `NONCE_MISMATCH` at 6 means reconcile already resolved the record;
-the coordinator reports it and exits without touching the pane.
-
-**`aitask_frozen.sh reconcile`** (idempotent; run by the coordinator after
-every freeze/restore, by the monitor maintenance tick beside
-`_maybe_purge_marks`, and manually) resolves every non-`live` record **whose
-lease is stale** (`op_started_at` + `stale_op_grace` elapsed **and**
-`op_owner_pid` dead/unverifiable — otherwise the record is skipped as
-in-flight) from server-observable facts only
-(`list-panes -F '#{pane_id}\t#{pane_pid}\t#{pane_dead}\t#{@aitask_frozen}\t#{@aitask_standin_ready}\t#{@aitask_record}'`;
-"agent alive" = `pane_pid == record.pane_pid`; "viewer here" =
-`pane_pid == record.standin_pid`; "replacement here" =
-`pane_pid == record.launch_pid`; "stand-in up" = `@aitask_standin_ready == id`;
-"mismatch" = `last_error` begins with the current `op_nonce`):
-
-| record state | pane observation | action |
-|---|---|---|
-| `freezing` | `@aitask_frozen==id` **and** stand-in up | `freeze-commit --pane <pane> --pane-pid <observed pid>` |
-| `freezing` | agent alive, stand-in not up | unstamp both options, `freeze-abort` (captures deleted) |
-| `freezing` | `@aitask_frozen==id`, stand-in not up, neither agent nor viewer pid, pane not dead | **indeterminate — no transition** (viewer may still be booting); re-checked next pass |
-| `freezing` | `@aitask_frozen==id`, pane dead | respawn the stand-in (clear ready first), `standin-respawned`, then re-check |
-| `freezing` | pane gone | `freeze-commit --pane "" --pane-pid 0` |
-| `frozen` | pane gone | keep (restorable into a new window) |
-| `frozen` | `@aitask_frozen==id`, pane dead | `lease-take`, respawn the stand-in, `standin-respawned --nonce` |
-| `restoring` | mismatch recorded for this nonce | `restore-abort` (→ `aborting`), kill the wrong agent via `respawn-pane -k` back to the stand-in, `standin-respawned --nonce` (→ `frozen`) — **never** liveness-confirm |
-| `restoring` | viewer here (`pane_pid==standin_pid`) — the coordinator died before or during the respawn, whether or not the ready mark survived | `restore-abort`; respawn the stand-in so it re-stamps ready; `standin-respawned --nonce` |
-| `restoring` | `launch_pid==0` and pane pid is neither the viewer's nor the agent's | **indeterminate — no transition** (respawn may be mid-flight); after `stale_op_grace` ×2 → `restore-abort` + respawn stand-in + `standin-respawned --nonce` |
-| `restoring` | replacement here (`pane_pid==launch_pid`), pane not dead, no mismatch, `state_at` + `restore_ack_grace` (default 20 s) elapsed | `restore-confirm --pane --pane-pid` (`ack=liveness`, captures kept) |
-| `restoring` | pane dead | `restore-abort`, clear ready, respawn the stand-in, `standin-respawned --nonce` |
-| `restoring` | pane gone | `restore-abort` with `pane_id=""`, then `standin-respawned --nonce --pane "" --pane-pid 0` (→ `frozen`, restorable into a new window) |
-| `aborting` (stale lease taken over) | stand-in up (`@aitask_standin_ready==id`) | `standin-respawned --nonce` (→ `frozen`) |
-| `aborting` (stale lease taken over) | anything else | clear ready, respawn the stand-in, `standin-respawned --nonce` (→ `frozen`) |
-
-Every reconcile action on a leased record is preceded by `lease-take`; a
-`LEASE_HELD` answer means a live coordinator owns it and reconcile skips.
-
-A liveness confirm therefore requires **positive evidence** that the
-process in the pane is the one the coordinator launched (`launch_pid`), and
-a viewer whose ready mark was cleared is still recognised by `standin_pid`.
-
-Failure injection: `AITASKS_FREEZE_FAIL_AT=capture|begin|stamp|respawn|commit`,
-`AITASKS_RESTORE_FAIL_AT=begin|respawn|ack`, and `AITASKS_FROZEN_PAUSE_AT=<stage>`
-(the coordinator `SIGSTOP`s itself so a test can run a concurrent
-`reconcile` and then `SIGCONT`) — documented test seams, honoured only under
-`AITASKS_TEST_MODE=1`.
-
-**Cleanup contract** (`aitask_companion_cleanup.sh` + `count_other_real_agents`
-must agree — pinned by the parity test):
-- a `@aitask_frozen`-stamped pane **counts as a real agent sibling** (the
-  window exists to hold it; killing agent B must not destroy frozen A's viewer);
-- when the *dying* pane is the stamped one, the cleanup script **abstains
-  entirely** (it is being respawned, not departing);
-- `kill_agent_pane_smart` on a frozen pane = `drop` + kill by the same rule.
-
-#### D. Restore — `lib/agent_restore.py` + `aitask_frozen.sh restore <id> [--repick] | --all`
-
-**Never runs inside the pane it replaces.** The viewer's `R`/`p` keys and the
-minimonitor keys invoke `run-shell -b "<repo>/.aitask-scripts/aitask_frozen.sh restore <id>"`
-through the gateway; the coordinator is a detached process that outlives the
-respawn. Two-phase, acknowledged:
-
-1. Build the argv: `aitask_codeagent.sh --agent-string <s> --resume-session <sid> --dry-run invoke raw`
-   (resume) or the existing pick launch argv (`--repick`, task id required).
-   Empty session id and no `--repick` → `RESTORE_FAILED:no_session` (nothing changes).
-2. `restore-begin --mode <m>` → state `restoring`, lease minted (nonce `n`);
-   captures and `@aitask_frozen` retained.
-3. Prefix the argv with the **restore identity environment** (the
-   `explore-relay` `env` precedent — `env` execs into the agent, so the pane
-   pid is still the agent's):
-   `env AITASK_RESTORE_RECORD=<id> AITASK_RESTORE_NONCE=<n> AITASK_RESTORE_MODE=<m> AITASK_RESTORE_EXPECT_SESSION=<sid> <argv>`.
-   Then `set-option -pu @aitask_standin_ready` and
-   `respawn-pane -k -t <stand-in> '<env argv>'` — or, when `pane_id=""`,
-   `launch_in_tmux` into a new window with the recorded name. Immediately
-   after tmux returns, read the new `#{pane_pid}` and write
-   `restore-launched --nonce --pane --pane-pid` — the nonce-bound evidence
-   that a replacement was actually started. The replacement agent's
-   SessionStart hook forwards the four variables as `upsert --restore-of
-   --nonce --session-id` (§A ack rules), which is what selects the **old**
-   record from a brand-new pane, verifies the resumed session id, and stamps
-   `@aitask_record` there.
-4. Wait for the ack: poll `show <id>` until `state=live`, `last_error`
-   carries this nonce, **or** `restore_ack_grace` elapses.
-   - `live` with `ack=hook` → clear `@aitask_frozen`, print `RESTORED:<id>|hook`
-     (captures already deleted by the ack).
-   - `last_error="<nonce>:session_mismatch"` (the hook reported a different
-     session in `resume` mode; persisted by the store because the hook has
-     no channel to this process) → `restore-abort --nonce` (→ `aborting`,
-     still owned by this nonce), `set-option -pu @aitask_standin_ready`,
-     `respawn-pane -k` back to the stand-in, then `standin-respawned --nonce
-     --pane --pane-pid` (→ `frozen`), print `RESTORE_FAILED:<id>|session_mismatch`;
-     **capture intact**. The same abort → respawn → `standin-respawned --nonce`
-     sequence is used by every failure branch below; a `NONCE_MISMATCH` at
-     any step means reconcile already finished the abort.
-   - grace elapsed, pane alive, `pane_pid == launch_pid`, no hook ack and no
-     error → `restore-confirm --nonce --pane --pane-pid` → `live` with
-     `ack=liveness`, **captures kept**, clear the stamp, print
-     `RESTORED:<id>|liveness` (the viewer/minimonitor show "restored,
-     unverified — capture kept").
-   - pane dead at any poll (invalid session, binary missing, immediate exit)
-     → `restore-abort --nonce`, clear ready, respawn the stand-in,
-     `standin-respawned --nonce`, print `RESTORE_FAILED:<id>|agent_exited` —
-     **the capture is intact and the viewer is back**.
-   - `NONCE_MISMATCH` on any verb → reconcile already settled it; exit
-     without touching the pane.
-5. Coordinator crash between 2 and 4 → `reconcile` (§C table) settles it
-   once the lease is stale.
-
-`aitask_codeagent.sh` gains a global `--resume-session <sid>` (template
-`OPT_HEADLESS`): `claude --model <id> --resume <sid>`, `codex resume <sid>`
-(model flag per codex CLI), opencode → `RESUME_UNSUPPORTED:opencode` exit 2.
-Resolution stays single-sourced in `lib/agent_string.sh`. Restore-All iterates
-`frozen` records; per-record failures are reported, never abort the batch.
-
+- **Font manifest is hand-written, not measured.** `tests/tools/regen_font_coverage.py`
+  cannot run here — no fontconfig (`fc-match`/`fc-list` absent) and neither Nerd
+  Font installed. `0x0046` goes into the generator's candidate list and the
+  manifest entry is written as covered-by-both. For an ASCII capital in these
+  monospace families this is certain (U+0050 `P` is already measured `true`), and
+  if it were wrong `test_the_manifest_matches_the_installed_fonts` fails loudly on
+  a font-equipped machine — the correct fail direction. It **skips** here. Recorded
+  in the Final Implementation Notes as un-regenerated.
+- **The `_hide_parked` rename touches three test modules** outside this task's
+  nominal scope. Mechanical, and the alternative (a flag whose name lies about
+  what it hides) is worse.
+- **`_LIST_PANES_FORMAT` is a closed-arity format** (`_LIST_PANES_ARITIES =
+  (9, 10, 11, 15)`) and `classify_window_panes` **silently skips** wrong-arity rows
+  — a miscount vanishes panes rather than erroring (it already bit
+  `test_monitor_companion_filter.py`). This task adds no field to either format,
+  which is what keeps that risk at zero; do not widen them.
