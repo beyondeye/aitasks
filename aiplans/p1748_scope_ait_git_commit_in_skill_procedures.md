@@ -625,3 +625,97 @@ advanced mid-planning (t1745 landed), so re-derive line numbers before editing.
   `aitask-refresh-code-models` also run **plain** `git add seed/… && git commit`
   on `main`. That is the same index-wide shape on a different index, out of this
   task's stated scope (`./ait git` on the task-data branch).
+
+## Final Implementation Notes
+
+Landed in `7e54ce865` — 90 files, +1286/−246. Guard and conversions in one
+commit, so no commit ever contained a red tripwire.
+
+**Scope, re-derived rather than trusted.** The task body named 12 sites; the
+measured inventory was **36** across 24 files (43 raw pattern hits, minus one in
+`website/` which the guard's scope predicate excludes, minus six prose mentions
+the mention rule exempts). Six of them staged with a directory pathspec
+(`./ait git add aitasks/`, or `aitasks/ aiplans/`) — strictly worse than the
+shell sites t1728 fixed. One site the task did not list,
+`aidocs/framework/model_reference_locations.md:204`, was a true positive found
+only because `aidocs/` was kept in the guard's scope.
+
+**`scanner_red_proof` (pre-phase mitigation) — evidence.** Phase 5 was built
+complete but uncommitted before any site was edited, so the observed failure came
+from the file that actually ships. Pre-conversion SHA:
+`21ad464fee91b1bf0ade12e1c1d2e47ed73fe7e5`. Replay:
+
+```bash
+git worktree add --detach "$SCRATCH/t1748-preproof" 21ad464fee91b1bf0ade12e1c1d2e47ed73fe7e5
+cp tests/test_no_unscoped_task_commit.sh "$SCRATCH/t1748-preproof/tests/"
+( cd "$SCRATCH/t1748-preproof" && bash tests/test_no_unscoped_task_commit.sh )
+# → exit 1, "68 passed, 1 failed", naming exactly the 36 sites
+git worktree remove --force "$SCRATCH/t1748-preproof"
+```
+
+Executed: exit 1, 36 hits, byte-identical to the inventory. Use `git worktree`,
+never `git stash` — this working tree is shared. Note the worktree carries no
+`aitasks/` (task data lives on the data branch), which is fine for this guard but
+makes `test_skill_verify.sh` unrunnable there.
+
+**`foreign_staged_control` (post-phase mitigation) — evidence.** Scratch repo,
+foreign file staged by a "concurrent session", then one converted site's command
+run verbatim. Discriminating power established first against the pre-conversion
+command:
+
+| command | commit contained | foreign file after |
+|---|---|---|
+| `./ait git add <plan> && ./ait git commit -m …` | `aiplans/p1_ours.md` **and** `aitasks/t99_other_session.md` | swept into the commit |
+| `aitask_task_commit.sh -m … aiplans/p1_ours.md` | `aiplans/p1_ours.md` only | still staged, untouched |
+
+The conversion changed behaviour, not only prose.
+
+**The `SKIPPED:` hazard was real and is now demonstrated.** `aitask_task_commit.sh`
+prints `SKIPPED:unknown:<path>` per path and *continues*, so a call exits 0 with
+`COMMITTED:` having dropped a requested file. Reproduced for the `task-abort.md`
+shape (`<task_file>` present, `<plan_file>` absent): output was
+`SKIPPED:unknown:aiplans/p1_missing.md` then `COMMITTED:1:…`, exit 0. Every
+converted site therefore names which paths are **required** vs **optional**, and
+the contract says to read the whole output and branch on the exit status.
+
+**Decision recorded (the task asked for it either way): the guard grew a third
+scan, in the same file.** Rationale and its boundary are in that file's header.
+Design points worth keeping:
+
+- Scope is **one default-deny predicate** (`md_in_scope`) called by both the
+  real-tree (`git ls-files`) and fixture (`find`) listers. An earlier draft put
+  the allowed roots in the `git ls-files` pathspec and only the subtractions in a
+  shared filter — which would have made the `website/`/`README` exclusion
+  assertions vacuous on the fixture side.
+- It reads **fenced blocks and inline backtick spans**. A fenced-only scanner
+  (the `test_skill_errexit_capture.sh` Test 4 shape) misses nine real sites:
+  `aitask-revert`'s eight, which sit inside a ```markdown fence as backticked
+  one-liners, and `risk-mitigation-followup.md`'s span, which wraps across prose
+  lines.
+- It judges **per shell segment**, not per line: `./ait git add -- <p> &&
+  ./ait git commit -m "x"` is a violation, and a line-level test would let the
+  add's pathspec launder the commit. It also cuts a trailing `# … use -- …`
+  comment, which would otherwise read as scoped.
+- The **mention rule** (a prose span whose whole content is the bare command
+  name) clears every known false positive with no allowlist entry, so
+  `shell_conventions.md` stays guarded against a bad worked example of its own.
+  `MD_ALLOWLIST` ships empty.
+
+**Known limitation, found while writing this change.** Fence state is a single
+toggle, so in a file whose fences nest (`aitask-revert/SKILL.md.j2` opens a
+```markdown template containing bare ``` blocks) prose after the odd marker is
+judged as fence context, where the prose-only mention rule does not apply. Two of
+my own new sentences were flagged; I reworded the prose rather than widen the
+rule. The failure direction is safe (noisy, never silent) and every file in the
+corpus is fence-balanced overall.
+
+**Also observed:** the guard takes ~54s on this repo, and did so *before* this
+change (an earlier "0.34s baseline" was itself a vacuous run from the wrong
+directory — the shell seam has no enumeration assertion to catch that, unlike the
+new markdown seam). Not addressed here.
+
+**Not done, deliberately** — `aitask-add-model` and `aitask-refresh-code-models`
+also run plain `git add seed/… && git commit` on `main`: the same index-wide
+shape on a different index, outside this task's stated scope.
+
+**Upstream defects identified:** None.
