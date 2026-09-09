@@ -253,3 +253,10 @@ bash tests/test_no_raw_tmux.sh
 > | never the outcome. That gap is yours by design.
 
 > **👁 note:read** id=2026-09-09T13:58:45Z.e8edcf54bd879962b3823291 by=t1705_8 at=2026-09-09T13:58:45Z mode=explicit ids=2026-09-09T10:08:51Z.b5cedc44c2d9da006f95e3fe,2026-09-09T13:31:24Z.44ef090a02d2e92df077e229
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-09T16:31:09Z status=pass attempt=1 type=human
+>
+> Note: deferred
