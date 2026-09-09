@@ -30,6 +30,16 @@
 #   AITASKS_FAKE_AGENT_HOOK   override the hook path (defaults to the shipped one)
 #   FAKE_AGENT_HOOK_LOG       append the hook's stderr here for diagnosis
 #
+# Acceptance-fixture knob (t1705_8):
+#   FAKE_AGENT_OUTPUT_LINES=<n>  emit <n> numbered lines before settling.
+#     DEFAULT 0 — off. This fixture is shared by several live suites whose
+#     capture assertions count lines, so emitting anything by default would
+#     change their measurements. The acceptance suite turns it on to give
+#     `capture_max_lines` something to actually truncate: it is the ONLY
+#     `frozen:` knob with no environment override, so a capture that is longer
+#     than the emitted count is the one available proof that the project config
+#     was found and read at all.
+#
 # --report-env reports all four AITASK_RESTORE_* names, because the restore
 # coordinator delivers them as four separate `respawn-pane -e` flags and the
 # spike must be able to prove that every one of them arrives (Case 3c).
@@ -79,6 +89,18 @@ done
 
 if [ -n "$resume_id" ]; then
     echo "fake_agent: resuming session $resume_id"
+fi
+
+# Bulk output, off unless a suite asks for it (see the knob's note above).
+# Emitted BEFORE the hook runs so that a capture taken any time after the pane
+# has settled sees the full run, rather than racing the hook's own output.
+_out_lines="${FAKE_AGENT_OUTPUT_LINES:-0}"
+if [ "$_out_lines" -gt 0 ] 2>/dev/null; then
+    _i=1
+    while [ "$_i" -le "$_out_lines" ]; do
+        printf 'fake_agent: line %d\n' "$_i"
+        _i=$((_i + 1))
+    done
 fi
 
 if [ -n "$report_env" ]; then
