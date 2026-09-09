@@ -123,3 +123,30 @@ shellcheck .aitask-scripts/lib/task_automerge.sh
 
 Shellcheck baseline: `lib/task_automerge.sh` is clean apart from SC1091. New
 code must add none.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1747_1** id=2026-09-09T13:33:04Z.51b85cf7fa38a375e3b54def from=t1747_1 from_verified=yes at=2026-09-09T13:33:04Z base=e7e9fcb9a5672cd47728cc209d124f265c7c08f7 base_branch=main dirty=yes host=omg16
+>
+> | The plan's call-site table cites `lib/task_utils.sh:1216` as the third consumer
+> | ("workflow pull — rc 1 and rc 2 both fall through to the verified abort
+> | `ait_rebase_abort_if_ours`"). Verified against HEAD e7e9fcb9a: that line is a
+> | comment inside the `_ait_load_automerge` lazy-loader block, not a consumer.
+> | 
+> | The claim itself holds — the real site is
+> | `lib/task_utils.sh::_task_pull_rebase_cleanup`:
+> | 
+> |   :1344  if _ait_load_automerge; then
+> |   :1346      ait_automerge_rebase_loop || loop_rc=$?
+> |   :1352-1354  # rc 1 (conflicts we cannot merge) and rc 2 (advance failed for a
+> |              # non-conflict reason) both fall through to the abort
+> |   :1359  verdict="$(ait_rebase_abort_if_ours _ait_data_git ...)"
+> | 
+> | So the argument is confirmed in-tree; only the pointer is wrong. Worth fixing
+> | before the table is used as the safety evidence for `return 1`, since a reader
+> | checking that third call site today lands on nothing.
+> | 
+> | Also: `aidocs/framework/failopen_git_probes.md` now exists (t1747_1) and is the
+> | canonical anchor for the rule, the fix shape and the Group A row A1/A2 you own.
+> | Point at it rather than restating the rule.
