@@ -640,6 +640,171 @@ pins now bound, and none alters what the plan delivers. That two rounds of revie
 found fresh instances of the same class is itself the argument for keeping code-health
 at **high** rather than relaxing it once the named defects are fixed.
 
+## Implementation notes (2026-09-09)
+
+All 31 steps landed as planned. Deviations and things found while implementing:
+
+- **The characterization harness caught four vacuous drivers before the
+  restructure even started**, which is the whole reason it asserts stderr
+  evidence and not just a usable stdout token: `pre_group_commit` drives the
+  publication guard rather than `content_changed` (the 5a.3 re-check has already
+  run by then, so `pre_commit_phase` is the right seam for both it and
+  `lock_acquired_during_scan`); a planted lock dir carrying `pid` but no `owner`
+  is a tokenless lock the reclaimer is entitled to take, so `lock_contended`
+  never fired; and `run_sync` unconditionally exports `AITASKS_LOCK_DIR`, so a
+  value passed in from a driver is discarded. Each of the four passed the stdout
+  assertion while proving nothing.
+
+- **The scan itself went vacuous mid-task and stayed green.** Moving eight call
+  sites onto `_protect_task_paths` / `_protect_group_paths` took the source scan
+  from 12 reasons to 6, and the forward check (scanned reason -> driver) has
+  nothing to say about a reason that has vanished from the scan. The regex now
+  matches all three receivers, and a REVERSE check (every `drive_<reason>` must
+  correspond to a scanned reason) makes it unrepeatable.
+
+- **`test_every_emitted_token_is_recognised` was broken by a code comment.** The
+  `batch_detail` docstring explains the contract by naming `batch_out "<literal>"`,
+  and the scan's regex matched the prose. `_code_only()` now drops whole-line
+  shell comments before both token scans -- narrower and more accurate, since a
+  literal in a comment reaches `batch_out` exactly never.
+
+- **Test 1 changed, as agreed at planning.** Its fixture is the t1696
+  fast-forward case; under the new gate it reports `PULLED`. It gains a t20 edit
+  so `local_ahead == 1`, which re-blocks it via rule 3 and keeps the original
+  regression (defer rather than `ERROR:pull_rebase_failed`) pinned. Tests 2-20
+  were unaffected, exactly as the verification pass predicted.
+
+- **`_rebase_blocked` needs `remote_ahead == 0` as its FIRST clause**, not as an
+  input it merely receives. Confirmed by Test 3: tracked-dirty + `local_ahead=1`
+  + `remote_ahead=0` trips rule 3 and would defer a push that needs no clean
+  tree at all.
+
+- **Two fixture bugs fixed rather than worked around.** `aiplans/` holds no
+  committed file, so git never tracked the directory and a fresh clone lacks it
+  -- a pc2 helper writing there failed silently and the remote never advanced.
+  And `set_userconfig_email` needed the data branch's real `.gitignore` entry,
+  or every test using it also gained a phantom `ownerless` record for
+  `userconfig.yaml`.
+
+- **Both new guards were mutation-checked.** Reverting `_load_incoming` to a
+  line-oriented `diff --name-only` makes the two hostile-path cells fail with
+  `ERROR:pull_rebase_failed` -- the predicted fail-open, where the gate waves the
+  checkout through and git refuses the overwrite. Restoring `|| true` on the
+  retry fetch makes Test 28 fail with `ERROR:pull_rebase_failed` instead of
+  `NO_NETWORK`. Both were restored from a backup and re-verified green.
+
+- **Test 28 was vacuous on its first two drafts** and is worth reading before
+  editing: breaking the remote before the run makes the step-5 `do_fetch` emit
+  `NO_NETWORK` on its own, and appending to `install_racing_pre_push`'s hook puts
+  the code after its `exit 0`. The remote has to break from inside the hook, i.e.
+  between the two fetches.
+
+- **Two defects found at Step-8 review, both confirmed and fixed:**
+  - `locks_unavailable` records were emitted with `holder=none`. `none` is a
+    closed value meaning *unlocked*, and that branch exists precisely because
+    the lock branch could not be read -- so a record advertising itself as the
+    complete snapshot carried a false fact, and a consumer reading it could
+    reasonably offer "nobody holds this, commit it". `_holder_class` now returns
+    `unverified` whenever the snapshot is unreadable, checked BEFORE the
+    `none` shortcut and deliberately not conditioned on `--assume-unlocked`
+    (that flag governs whether to commit, not what is known).
+    `LOCKS_UNINITIALIZED` stays `none`: there is no lock branch, so nothing is
+    locked and the claim is true.
+  - `--expect-path` is a single task's contract but was compared against every
+    group in turn, so `--commit-for-task 10,20` with one path per task made each
+    task see the other's as missing and refused BOTH -- measured: zero commits,
+    two `commit_scope_changed` records. Rather than grow a per-id expectation
+    syntax for something the caller can express as two runs, the ambiguous
+    combination is now refused up front, as are `--expect-path` and
+    `--require-waiting` without `--commit-for-task`. Pinned with a control that
+    a single-task invocation still commits, so the refusal cannot widen into
+    refusing everything.
+
+- **Not done here, deliberately:** `sync_batch_command` still builds a
+  hard-coded two-element argv. Threading `--commit-for-task` from a TUI is
+  t1725_5's work; the flags are CLI-only in this change.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-09-09 17:05)
+- **Requested by user:** Two blocking review findings. (1) `locks_unavailable`
+  records were emitted with `holder=none`, a closed value meaning *unlocked*, on
+  a branch that exists precisely because the lock branch could not be read.
+  (2) `--expect-path` is one global set compared against each task group in
+  turn, so a multi-id `--commit-for-task` refuses every group.
+- **Changes made:** `_holder_class` answers `unverified` whenever the snapshot
+  is unreadable, checked before the `none` shortcut; `LOCKS_UNINITIALIZED` still
+  yields `none` because nothing IS locked then. The ambiguous
+  `--expect-path` + multi-id combination is refused up front, as are
+  `--expect-path` / `--require-waiting` without `--commit-for-task`. Four
+  regression tests added (36-39), including one that asserts through
+  `parse_sync_output` rather than pattern-matching the wire, plus a control that
+  a single-task `--expect-path` still commits. Both guards mutation-checked.
+- **Files affected:** `.aitask-scripts/aitask_sync.sh`,
+  `tests/test_sync_deferral_and_quarantine.sh`
+
+## Final Implementation Notes
+
+- **Actual work done:** All 31 planned steps, plus the two review fixes above.
+  `aitask_sync.sh` gained the eleven-array per-file record, `_holder_class` /
+  `_holder_action`, the five-rule `_rebase_blocked` with a NUL-safe `INCOMING`
+  set, the fast-forward converge path, a re-gated push retry whose fetch failure
+  is no longer swallowed, `batch_detail` + `_emit_protected_deferral`, CR in the
+  percent codec, and the three commit-on-behalf flags.
+  `sync_action_runner.py` gained `DeferredFile`, `DEFERRED_FILE_REASONS`,
+  LF-only line splitting and a surrogateescape subprocess decode. Four test
+  files changed and two were created.
+
+- **Deviations from plan:** Only one behavioural deviation, agreed at planning:
+  Test 1 gains a local commit because its fixture IS the fast-forward case the
+  task introduces. Two scope decisions were kept as planned:
+  `sync_batch_command`'s argv is untouched (t1725_5 owns TUI wiring) and
+  `--require-waiting` ships fail-closed-only until t1725_4 lands the probe.
+  The `--expect-path` contract narrowed at review from "global set" to "one task
+  per invocation".
+
+- **Issues encountered:** The characterization harness caught four vacuous
+  drivers and the source scan silently halving its own coverage; details in the
+  Implementation notes section above. A code comment in `batch_detail` broke
+  `test_every_emitted_token_is_recognised` because the scan regex matched prose,
+  fixed by making both token scans comment-aware. Two fixture bugs were fixed
+  rather than worked around (`aiplans/` is untracked so a fresh clone lacks it;
+  `userconfig.yaml` needed the data branch's real `.gitignore` entry).
+
+- **Key decisions:** (1) The parser splits on LF alone rather than encoding all
+  nine characters `str.splitlines()` recognises -- one verifiable rule beats
+  enumerating a CPython implementation detail. (2) `_load_incoming` keeps its
+  mktemp/read/rm window exit-free instead of adding the script's first `trap`.
+  (3) The commit-on-behalf guards run before the staging loop, so an abandoned
+  group leaves nothing in the shared index. (4) Holder class states what is
+  KNOWN and is not softened by `--assume-unlocked`, which governs whether to
+  commit.
+
+- **Upstream defects identified:**
+  - `tests/test_minimonitor_bottom_pin.py:349 — DegenerateRangeTests::test_pinned_list_that_stops_overflowing_never_goes_negative is load-sensitive and fails under the parallel lane.` Failed at 97% in one full-suite run (`PYTHON SUITE: FAILED`), passed 8/8 standalone, and passed in an immediate re-run (`7200 passed, 0 failed`). It has zero references to anything this task touched. CLAUDE.md carves the `*_live.py` minimonitor module out of the parallel lane for exactly this boot-budget reason; this non-live module shares the sensitivity but is not carved out, so it can turn any developer's suite verdict red at random.
+
+- **Notes for sibling tasks:**
+  - **t1725_4** fills `PROT_PANE` / `PROT_PANE_STATE`, which are appended as `""`
+    by `_protect` today. The probe hook is already in `_commit_group` behind
+    `--require-waiting`: it looks for a `ait_tmux_pane_for_pid` function and a
+    `lib/pane_state_probe.py` file, and refuses when either is absent. Landing
+    both flips it from always-refusing to actually gating, and
+    `tests/test_sync_protect_paths.sh::drive_holder_not_waiting` plus Test 27
+    pin the fail-closed direction that must keep working.
+  - **t1725_5** needs `sync_batch_command` to grow an argv parameter -- it is
+    still a hard-coded two-element list, deliberately. Note `--expect-path` is
+    now a ONE-TASK contract: a TUI confirming files across two tasks must issue
+    two sync runs. Every field the screen renders is already on the wire; if one
+    is missing, extend the record here rather than re-deriving it in the TUI.
+  - **t1731** extends the same gate with the diverged case. `_rebase_blocked`
+    takes `local_ahead` and `remote_ahead` as parameters and the incoming
+    membership test is factored as the `INCOMING` map filled by
+    `_load_incoming()`, so a diverged branch can be added as a rule rather than
+    re-deriving the facts -- which is what t1731's note asked for.
+  - **Fixture helpers added** for everyone downstream: `set_userconfig_email`
+    (required for any `self` / `other` holder-class test) and the data branch's
+    `.gitignore`.
+
 ## Step 9
 
 Standard post-implementation. Commit task/plan files with
