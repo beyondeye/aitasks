@@ -101,3 +101,45 @@ How to apply:
   the diff is reviewable.
 - This applies beyond skill rendering — any future code path that pipes through a
   template engine inherits the same requirement.
+
+## Composed acceptance through shipped wrappers
+
+When a feature is built as several children that each ship their own seam, a
+green test per child does not mean the feature works: every child can be
+self-consistent while the *joins* between them disagree. The remedy is one
+composed acceptance test that drives the whole feature through the shipped
+entry points only. `tests/test_frozen_agents_acceptance.sh` (t1705_8) is the
+pattern — it installs the framework into a scratch project with `install.sh
+--local-tarball` and drives it via `aitask_codeagent.sh` → the real SessionStart
+hook → the real store → `aitask_frozen.sh`, never calling a Python mutator
+directly.
+
+Two constraints dominate such a test, and both are load-bearing:
+
+**(a) Every environment seam must be exported BEFORE the isolated tmux server
+starts.** `respawn-pane` and `run-shell -b` run their commands in the tmux
+*server's* environment, captured at server start — not the calling shell's at
+call time. Anything a detached coordinator or a respawned pane must see has to
+be in place first. Per-case behaviour of a *replacement* process cannot ride the
+environment at all: it goes through a control file that a wrapper sources before
+`exec`ing the fixture, and every line in that file needs `export`, because
+`exec` does not pass plain shell variables on. `agent_env` in
+`tests/lib/frozen_fixtures.sh` is that helper — use it rather than hand-writing
+the file.
+
+**(b) The scratch project supplies everything; the developer's real `$HOME` is
+never written.** `install.sh` builds no venv, so the timed run reaches the hook
+installer through the sanctioned `aitask_setup.sh --source-only` seam. A full
+`ait setup` runs `setup_python_venv` *before* the step under test, so it costs
+minutes of pip and fails offline — it belongs behind an opt-in flag, outside the
+timed region, with `HOME` redirected (`VENV_DIR` is `$HOME`-derived).
+
+**Prove the seams bite before trusting any case that depends on them.** A knob
+that silently fails to apply restores a *default*, and a default usually still
+passes — just slowly, or with a larger cap. So each seam needs a probe with a
+stimulus that forbids the fast path, a terminal verdict, and a bound that
+*excludes* the default. Layered configuration hides its own gaps here: a value
+set both in the environment and in the project config is exercised only at the
+higher precedence, so the lower layer can be missing entirely and nothing fails.
+Test it with the higher layer removed (`env -u`), or via a knob that has no
+environment override at all.
