@@ -566,3 +566,239 @@ fixes and stays **medium**, dominated by the no-live-tmux gap.*
   — a miscount vanishes panes rather than erroring (it already bit
   `test_monitor_companion_filter.py`). This task adds no field to either format,
   which is what keeps that risk at zero; do not widen them.
+
+## Final Implementation Notes
+
+- **Actual work done:** Every section of the plan landed, plus the confirmed
+  inline pre-phase. `monitor_core` gained the frozen half of t1685's parked
+  plumbing (`ClassifyResult.frozen`, `PaneSnapshot.frozen` /
+  `frozen_record_id`, `_frozen_snapshot`, `_is_frozen_pane`) with **no**
+  publish-down; `monitor_shared` gained `FROZEN_GLYPH` /
+  `format_frozen_prefix`, the widened filter, a script+timeout parameter on the
+  command seam, `PANE` observation rows, `_maybe_purge_sessions`, and the shared
+  frozen actions; both apps render frozen rows, disjoint counters and the
+  `f`/`Z`/`R`/`p`/`k` keys; the minimonitor's docked panel shows
+  `F frozen <stamp>` with no phase line. `agent_freeze` gained
+  `freeze --all --dry-run` and full grammar validation, `aitask_frozen.sh` a
+  relaxed `freeze` arity gate. Six `SimpleNamespace` doubles completed; the
+  font manifest extended.
+
+- **Deviations from plan:**
+  1. **Keys are `f`/`Z`/`R`/`p`/`k`, not `z`/`Z`/`F`.** Verified that
+     `monitor_app` already binds `z` = Zoom and `R` = Restart, so the task's
+     literal proposal could not land there. Settled with the user: `f`/`Z` (free
+     in both apps, so the two TUIs stay identical), with `R`/`p`/`k` guarded
+     **inside the action** so live rows keep their existing meaning.
+  2. **The filter is unified, not doubled.** No `F` key and no
+     `action_toggle_frozen_visibility`: the existing `P` now hides parked *and*
+     frozen. Decided with the user — one key, one list. Counters stay separate
+     and disjoint, because which state an agent is in still matters.
+  3. **`R`/`p`/`k` act only on the window's current agent**, never on an
+     arbitrary list row. Also the user's call.
+  4. **`restore_verdict` lives in `lib/agent_sessions.py`, not
+     `lib/agent_frozen_ops.py`** as planned. It is a pure function of a
+     `SessionRecord` and needs the `STATE_*` vocabulary, which `agent_frozen_ops`
+     deliberately never imports — hosting it there would have forked
+     `"live"`/`"frozen"` as string literals, the exact drift the one-way arrow
+     exists to prevent.
+  5. **`agent_freeze.main()` grammar validation was added**, beyond the planned
+     `--dry-run`. Not optional: see "Issues encountered".
+  6. **The font manifest entry for `0046` was hand-written, not regenerated.**
+     `tests/tools/regen_font_coverage.py` cannot run on this machine — no
+     fontconfig (`fc-match`/`fc-list` absent) and neither Nerd Font installed.
+     `0x0046` was added to the generator's candidate list so the entry is
+     reproducible, and `test_the_manifest_matches_the_installed_fonts` will fail
+     loudly on any machine that *does* have the fonts if the value is wrong. It
+     skips here.
+
+- **Issues encountered:**
+  - **The plan's first draft would have lost `frozen` on a frozen-and-parked
+    pane.** The parked split ran over *all* panes, so such a pane was re-injected
+    as `parked=True, frozen=False` and no renderer could recover the flag.
+    Resolved by making the two partitions mutually exclusive with frozen first,
+    pinned by a test that drives a both-states pane through the **real** capture
+    path (a hand-built snapshot would pass while the partition was broken).
+  - **There are TWO capture routes, and only one was guarded.**
+    `_fast_preview_refresh` uses `capture_pane_classified_async` +
+    `commit_snapshot` (singular), which had no state branch at all. Fixed at the
+    `monitor_core` seam so every caller inherits it. This is also a pre-existing
+    parked defect — see "Upstream defects identified".
+  - **Reusing `_MARKS_CMD_TIMEOUT` for freeze would have killed legitimate
+    freezes.** It is 20s and the runner kills the child, but one freeze spends up
+    to 30s in `capture-pane` alone plus two 20s store calls, and `--all` is
+    sequential over every eligible pane. Worse, `agent_freeze.main()` buffers the
+    batch and prints only after `freeze_all()` returns, so a killed run reports
+    *nothing* — including agents already frozen. Given its own budget
+    (`_FREEZE_ONE_TIMEOUT = 90.0`, scaled by the eligible count for `--all`) and
+    a timeout is reported as **partial**, not failed.
+  - **Relaxing the wrapper's `freeze` arity gate was unsafe on its own.**
+    `main()` dispatched on `rest[0]` and ignored trailing arguments, so
+    `freeze --all --dry-rnu` was a REAL freeze of every agent on the machine and
+    `freeze <pane> --dry-run` really froze that pane. The `[ $# -eq 2 ]` gate was
+    the only thing rejecting them. The full grammar is now validated in Python
+    before any enumeration or mutation, pinned by mutation spies.
+  - **A test design of mine was unsafe and was rewritten.** It ran the real
+    wrapper and engine with `AITASKS_AGENT_SESSIONS_FILE` pointed at a temp
+    store, justified as safe "because dry-run freezes nothing" — which assumes
+    the code under test is correct. That override isolates only the JSON store;
+    `discover_aitasks_sessions` re-queries the **live tmux server**. Combined
+    with the `rest[0]` defect, a typo would have frozen every real agent on this
+    machine. Now: wrapper forwarding against a **fake engine**, engine behaviour
+    against **fake enumeration + mutation spies**. No test invokes the real
+    engine against a real server.
+  - **My observation-file writer keyed panes by window name alone.** Two projects
+    with a window of the same name — ordinary, since names are task-derived —
+    would each get the other's panes listed under their root, and the store reads
+    a `PANE` row as evidence a record's pane still exists. Re-keyed to
+    `(root, window)` inside `_maybe_purge_sessions`, where the session→root map
+    lives.
+  - **The minimonitor hint budget is the *rendered* height, not the row count.**
+    At width 15 the band overflows the screen, gains a scrollbar, loses another
+    column and re-wraps wider than any naive measurement predicts — pushing
+    `#mini-own-agent` off row 0. Four modelled attempts failed; the answer was to
+    measure the composited frame directly (`#mini-key-hints`'s region height must
+    stay ≤ 29) and pay for the three new keys by shortening the `j:`/`m:` line,
+    which measured as the most expensive there.
+
+- **Key decisions:**
+  - **No `set_frozen_agents` publish-down.** Unlike parked — an App-held set that
+    can change between capture and commit — frozen comes from `@aitask_frozen` on
+    the discovery row, so it is stable for a whole generation by construction.
+  - **The binding action id `toggle_parked_visibility` was preserved** even though
+    the state behind it is now `_hide_inactive`. The action string is a persisted
+    public identifier that `keybinding_registry` resolves user overrides against;
+    renaming it would have silently reverted every customized `P` to default in
+    both scopes, with no error. A Python alias would not help — the registry keys
+    off the string in `BINDINGS`. Only the description widened.
+  - **`k` on a frozen row uses `aitask_frozen.sh drop`, not
+    `kill_agent_pane_smart`.** The latter's store write is unleased and would
+    delete the record out from under an in-flight restore; `drop` takes the lease,
+    preflights, kills, verifies, and applies the same window-collapse rule.
+  - **Freeze-All's count comes from the operation's own enumeration**
+    (`--all --dry-run`), never from `self._snapshots`: `freeze --all` spans every
+    aitasks session on the machine and includes parked agents, while the view may
+    be single-session and excludes parked. The dialog also states the scope in
+    words, because a bare number reads as "the agents I can see".
+  - **Extract, don't copy, the restore poll.** Its correctness rests on two
+    non-obvious rules (gate on `restore_attempts`; never correlate `last_error`
+    with a freshly-read `op_nonce`). A characterization test pinned the viewer's
+    pre-extraction verdicts, was run green first, and both rules were confirmed to
+    fail under deliberate mutation before the extraction was made.
+  - **Strict field reads, not `getattr` defaults.** An incomplete hand-rolled
+    double raises loudly — which is how the six were found — and a default would
+    also mask a real snapshot missing the field.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/monitor/monitor_core.py:2954 — commit_snapshot (singular) has no parked branch, so a focused parked pane is captured and classified on the fast-preview route and its parked=True snapshot overwritten; the parked placeholder at monitor_app.py:2024 then reverts to stale content and the session-bar term drops it. Pre-existing t1685 defect, not introduced here; the frozen guard added in this task makes the parked case a two-line addition.`
+  - `tests/test_desync_state.py:256 — the synthetic project fixture omits .aitask-scripts/lib/stale_lock.sh, so task_utils.sh:31 cannot source it and aitask_changelog.sh --gather exits non-zero. Filed as t1763.`
+  - `tests/test_prompt_detection.py — _check_characterization_pattern_command_matrix and _check_scoping_provenance_is_reported fail deterministically. Filed as t1763.`
+  - `tests/test_concern_parser.py:2214 — TestProducerPlainWordsRule.test_production_assertion_fails_on_a_real_offender: the negative control for the producer plain-words rule is not firing. Filed as t1763.`
+
+  All four were confirmed **pre-existing** by re-running them in a detached
+  worktree at this task's merge-base before attributing them anywhere.
+
+- **Notes for sibling tasks:**
+  - **The keys are not what the parent plan says.** `f` = freeze, `Z` = freeze
+    all, `R` = restore, `p` = re-pick, `k` = drop, `P` = the unified
+    parked+frozen filter. There is no `F` key. t1705_9 (docs) and t1705_8
+    (acceptance) have both been sent notes saying so.
+  - **The shipped parked docs are now inaccurate**, not merely incomplete:
+    `website/content/docs/tuis/monitor/reference.md:39` and
+    `minimonitor/how-to.md:290` describe `P` as parked-only. t1705_9 must widen
+    them, not just add frozen prose beside them.
+  - **`agent_sessions.restore_verdict` / `drop_verdict` are the one interpreter**
+    for a detached coordinator's outcome, shared by the viewer and both monitors.
+    Anything else that dispatches `restore`/`drop` through `run-shell -b` should
+    call them rather than re-reading the record itself.
+  - **Nothing here is proven against a real tmux server.** This session ran inside
+    the `ait` server, so every live suite was off-limits; the keys are proven at
+    the argv level against fake seams — the call *shape*, never the outcome.
+    t1705_8 owns live proof, and `tests/test_cleanup_rule_parity.sh` remains unrun
+    (t1705_11 tracks it).
+
+### Second review round — six concerns, all confirmed
+
+Raised against the implemented tree, not the plan. Every one reproduced; four
+were dispositioned blocking and are fixed here, two as follow-ups and are filed.
+
+**Blocking, fixed:**
+
+1. **`FreezeConfirmDialog` confirmed a destructive drop with a "Freeze" button.**
+   One screen serves two verbs: `f` confirms a reversible freeze, `k` on a frozen
+   row confirms a **drop**, which deletes the record and the only copy of that
+   agent's captured output. The dialog hardcoded its affirmative as `Freeze` and
+   mapped that button to `True`, so the drop confirmation named the reassuring
+   operation while performing the destructive one — and the button is what a user
+   reads before clicking. The affirmative label and variant are now parameters;
+   `destructive=True` also re-colours border and header to `$error`. Both drop
+   call sites pass `confirm_label="Drop", destructive=True`.
+
+2. **The two unified-filter tests were tautologies.** They re-stated
+   `not (hide and (parked or frozen))` in the test body instead of invoking
+   either app's rebuild, so they stayed green when the production rebuild was
+   replaced with an exception. Both now drive the real `_rebuild_pane_list`
+   (monitor mounted under `run_test`, minimonitor through a capturing container)
+   and read the widgets it produced. Verified: neutering the production filter
+   condition now fails both.
+
+   The same review found three promised-but-absent behaviour suites, now added —
+   `FreezeAllOfferTests` (12), `DispatchFreezeTests` (8), `RunnerBudgetTests` (3),
+   `ConfirmDialogTests` (8), `RestorePollDeadlineTests` (4),
+   `FastPreviewAppRouteTests` (3), `SettleTimeoutTests` (7). The claim in the
+   notes above that every planned test section landed was wrong; this corrects it.
+
+3. **`_poll_frozen_outcome` hardcoded a 40-second settle timeout**, ignoring the
+   target project's `frozen.restore_ack_grace`. `agent_restore` gives a
+   `restoring` record up to that grace to be acknowledged by its replacement
+   agent's SessionStart hook before it may be liveness-confirmed instead, so with
+   a valid 60s grace the poll warned and stopped its timer at 40s — turning every
+   successful restore into a spurious stall report and never showing the success.
+   New shared helper `agent_frozen_ops.restore_settle_timeout(root, *,
+   dispatch_grace)` returns `dispatch_grace + restore_ack_grace(root) + slack` and
+   is read from the **record's** root, not the app's, because `freeze --all` spans
+   projects. At the default grace it returns exactly the 40.0 the first watcher
+   hardcoded — the value was right for the default and wrong as a constant.
+
+4. **The dialog did not fit its narrow host.** At the minimonitor's normal 40
+   columns the content area measured ~22 while Textual's `Button` defaults to
+   `min-width: 16`; two side-by-side buttons plus margins ran past the dialog and
+   the screen, so Cancel rendered but could not be clicked and Escape was the only
+   way out of a destructive confirmation. Width and per-button `min-width` are now
+   sized for that host, and `ConfirmDialogTests` mounts the dialog at 40 columns
+   and asserts both button regions stay on screen and do not overlap.
+
+   **A retraction, recorded because the wrong version was briefly in the tree.**
+   These notes first claimed the click tests were only a wiring regression guard,
+   on the reasoning that Cancel's centre stayed on screen at x=35 and
+   `pilot.click` aims at the centre. Both halves were wrong. `pilot.click`'s
+   default offset is `(0, 0)` — the widget's TOP-LEFT — which is why the first
+   version of those tests passed against the broken layout: a clipped button
+   keeps its top-left. And x=35 is past the dialog's own clip at x=34, so a real
+   centre click misses. Measured on the old layout, `region=Region(x=27, y=11,
+   width=16, height=3)`: a default `(0, 0)` click landed and dismissed, while an
+   explicit centre click returned `False` and dismissed nothing. The original
+   report was right and the "correction" was not.
+
+   The two click tests now compute the centre from the button's own region and
+   pass it explicitly, so they discriminate: the old layout fails 3 of
+   `ConfirmDialogTests`, not 2. The lesson for any later click test in this
+   repo — never rely on `pilot.click`'s default offset to prove reachability;
+   it aims at the one corner a clipped widget keeps.
+
+**Follow-ups filed:**
+
+- **t1767** — `freeze_all()` does not call `freeze_all_eligible()`; it duplicates
+  the discovery and both filters. The rules match today, so this is
+  maintainability debt rather than a wrong target, but the confirmation count `Z`
+  shows comes from the helper while the freeze it authorizes runs the copy.
+- **t1765** — `_own_frozen_at` builds a fresh `SessionsView` per refresh,
+  defeating the reader's unchanged-store cache.
+- **t1766** — the `frozenagent` viewer has concern 3's exact twin at
+  `frozenagent_app.py:877`. Not folded in: that is shipped t1705_6 code with its
+  own characterization control, and this task's scope is the monitor TUIs. The
+  shared helper it needs now exists.
+
+Every fix above was run against its pre-fix control first: reverting the drop
+label fails 2, reverting the dialog width fails 2, reverting the settle timeout
+fails 4 (with its two default-grace controls correctly still passing), removing
+the core fast-route guard fails 2, and neutering the filter condition fails 2.
