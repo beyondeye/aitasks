@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 plan_approved_at: 2026-09-09 19:31
 assigned_to: dario-e@beyond-eye.com
 anchor: 1705
+implemented_with: claudecode/opus5_1m
 created_at: 2026-09-04 16:08
-updated_at: 2026-09-09 19:33
+updated_at: 2026-09-09 19:35
 ---
 
 ## Step 0 — tmux preflight (run BEFORE anything else; blocking)
@@ -265,3 +266,5 @@ bash tests/test_no_raw_tmux.sh
 > **✅ gate:plan_approved** run=2026-09-09T16:31:09Z status=pass attempt=1 type=human
 >
 > Note: deferred
+
+> **✅ gate:plan_approved** run=2026-09-09T16:35:13Z status=pass attempt=2 type=human
