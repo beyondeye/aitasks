@@ -62,7 +62,8 @@ from monitor.monitor_shared import (  # noqa: E402
     AgentMarksMixin, ColumnPickerModal, NewColumnTitleModal,
     ConcernBlockInspectModal, ConcernPickerModal, TaskNumberInputModal,
     TaskPickConfirmDialog, ShadowRejectionsMixin, STATE_STYLE_DONE,
-    format_compare_mode_glyph, format_mark_glyph, format_pane_status,
+    format_compare_mode_glyph, format_mark_glyph, format_frozen_prefix,
+    format_pane_status,
     format_section_header, format_session_divider, format_shadow_glyph,
     format_state_dot, is_task_completed,
     format_shadow_stale_banner, format_staleness_detail,
@@ -2163,8 +2164,9 @@ class MiniMonitorApp(
         # are not captured, so they have no verdict to bucket — and get their own
         # term, shown whether or not `P` is hiding their rows. The bar is narrow,
         # so `done` renders as a compact `Nd` and `parked` as `Np`.
-        live = [a for a in agents if not a.parked]
-        parked_count = len(agents) - len(live)
+        live = [a for a in agents if not a.parked and not a.frozen]
+        frozen_count = sum(1 for a in agents if a.frozen)
+        parked_count = sum(1 for a in agents if a.parked and not a.frozen)
         awaiting_count = sum(1 for a in live if getattr(a, "awaiting_input", False))
         done_count = sum(1 for a in live
                          if a.pane.pane_id in self._completed_pane_ids
@@ -2177,6 +2179,11 @@ class MiniMonitorApp(
         done_str = f" [{STATE_STYLE_DONE}]{done_count}d[/]" if done_count > 0 else ""
         idle_str = f" [yellow]{idle_count} idle[/]" if idle_count > 0 else ""
         parked_str = f" [dim]{parked_count}p[/]" if parked_count > 0 else ""
+        # A SEPARATE term from `Np`, and shown whether or not `P` hides the rows
+        # — the filter is one control over both states, but which state an agent
+        # is in still matters. Counted disjointly: a frozen agent that also
+        # carries the parked mark is reported once, as frozen.
+        frozen_str = f" [dim]{frozen_count}f[/]" if frozen_count > 0 else ""
         # Pre-fetched by `_refresh_data` (t1622), which awaits the async reader
         # inside the same `_session_bar_enabled` gate. `None` means this call
         # brought none — a test or any future synchronous rebuild — so read the
@@ -2221,10 +2228,10 @@ class MiniMonitorApp(
                 s.pane.session_name for s in agents if s.pane.session_name
             }
             n = len(sessions) if sessions else 1
-            bar.update(f"multi: {n}s · {total}a{awaiting_str}{done_str}{idle_str}{parked_str}{desync}{state_badge}")
+            bar.update(f"multi: {n}s · {total}a{awaiting_str}{done_str}{idle_str}{parked_str}{frozen_str}{desync}{state_badge}")
         else:
             bar.update(
-                f"{self._session}  {total} agent{'s' if total != 1 else ''}{awaiting_str}{done_str}{idle_str}{parked_str}{desync}{state_badge}"
+                f"{self._session}  {total} agent{'s' if total != 1 else ''}{awaiting_str}{done_str}{idle_str}{parked_str}{frozen_str}{desync}{state_badge}"
             )
 
     def _compute_completed_panes(self) -> frozenset[str]:
@@ -2238,8 +2245,10 @@ class MiniMonitorApp(
         for pane_id, snap in self._snapshots.items():
             if snap.pane.category != PaneCategory.AGENT:
                 continue
-            if snap.parked:
-                # Parked agents leave the state partition entirely (t1685).
+            if snap.parked or snap.frozen:
+                # Parked and frozen agents leave the state partition entirely
+                # (t1685, t1705_7): neither was captured, so neither has a
+                # verdict to bucket.
                 continue
             task_id = self._task_cache.get_task_id_for_pane(snap.pane)
             if not task_id:
@@ -2258,6 +2267,19 @@ class MiniMonitorApp(
         ``_own_agent_identity_text`` and is static by design: no live status
         dot, no compare-mode glyph, and no shadow-status glyph (t1133).
         """
+        if snap.frozen:
+            # Checked BEFORE parked: the two can both be true of one pane
+            # (frozen coexists with the parked mark), and frozen is the stronger
+            # statement — there is no agent process at all. The mark glyph still
+            # renders, composed by `format_frozen_prefix`, so `space` keeping its
+            # meaning on this row stays visible.
+            name = snap.pane.window_name
+            if len(name) > 20:
+                name = name[:19] + "…"
+            return (
+                f"{format_frozen_prefix(self._mark_kind(snap))} "
+                f"{name}  [dim]frozen[/]"
+            )
         if snap.parked:
             # The whole row, deliberately (t1685) — see
             # MonitorApp._format_agent_card_text for why nothing capture-derived
@@ -2649,8 +2671,8 @@ class MiniMonitorApp(
             if s.pane.pane_id == own_pane_id:
                 continue
             if s.pane.category == PaneCategory.AGENT:
-                if self._hide_parked and s.parked:
-                    continue  # `P` filter (t1685)
+                if self._hide_inactive and (s.parked or s.frozen):
+                    continue  # `P` filter (t1685 parked, t1705_7 frozen)
                 agents.append(s)
             elif s.pane.category == PaneCategory.OTHER:
                 others.append(s)

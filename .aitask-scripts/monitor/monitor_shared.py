@@ -250,6 +250,19 @@ MARK_EMPTY_GLYPH = "☆"  # not prioritized
 # other occupants are ★ and ☆, so there is nothing for it to be confused with.
 PARK_GLYPH = "P"
 
+# Frozen (t1705_7). `F` U+0046 is chosen on the same measured basis as `P`
+# above: a plain ASCII capital, covered by every family in
+# mark_glyphs.SUPPORTED_FONTS and claimed by no emoji font, so it can never fall
+# back — the t1638 defect. Its evidence is in tests/data/font_coverage.json
+# alongside `P`'s and is machine-checked by
+# tests/test_mark_glyphs_single_source.py.
+#
+# It is NOT a mark kind, and must not become one: `format_mark_glyph` is total
+# over the three `agent_marks` kinds and raises on anything else. Frozen
+# COEXISTS with a mark rather than replacing it, so it composes as a second
+# cell — see `format_frozen_prefix`.
+FROZEN_GLYPH = "F"
+
 
 def format_mark_glyph(kind: str) -> str:
     """Always-on mark column for an agent row: ``☆`` / ``★`` / ``P``.
@@ -291,6 +304,21 @@ def format_mark_glyph(kind: str) -> str:
     if kind == agent_marks.KIND_NONE:
         return f"[dim]{MARK_EMPTY_GLYPH}[/]"
     raise ValueError(f"unknown mark kind: {kind!r}")
+
+
+def format_frozen_prefix(kind: str) -> str:
+    """The two-cell prefix of a frozen agent's row: the mark, then ``F``.
+
+    Frozen COEXISTS with the priority/parked mark rather than replacing it
+    (pinned): `frozen` wins for *behaviour* — exclusion from capture, the
+    hidden-agents filter, and which keys act on the row — while the mark stays
+    visible and `space` still cycles it. Composing both is what keeps those two
+    facts separable on screen.
+
+    ``kind`` goes straight to :func:`format_mark_glyph`, so an unknown kind
+    raises there rather than being papered over here.
+    """
+    return f"{format_mark_glyph(kind)}[bold cyan]{FROZEN_GLYPH}[/]"
 
 
 # Repo/session divider (t1449): in multi-session mode each tmux session is one
@@ -385,6 +413,32 @@ _MARKS_PURGE_STARTUP_GRACE = 60.0
 #: LOCK_BUSY itself rather than being killed mid-write.
 _MARKS_CMD_TIMEOUT = 20.0
 
+#: The frozen-agent engines' shell face (t1705_7): freeze / reconcile from a
+#: TUI. `restore` and `drop` are NOT dispatched through here — they replace or
+#: kill the pane a TUI keybinding runs in, so they go through `run-shell -b`.
+_FROZEN_SH = _SCRIPT_DIR / "aitask_frozen.sh"
+
+#: The session store's sole writer (t1705_7) — same "wrapper holds the mutex"
+#: rule as `_MARKS_SH`; the TUIs never import its mutators.
+_SESSIONS_SH = _SCRIPT_DIR / "aitask_agent_sessions.sh"
+
+#: Hard ceiling on ONE `freeze <pane>`, and the per-pane unit that
+#: :data:`_FREEZE_ONE_TIMEOUT` scales for a batch.
+#:
+#: **Deliberately not :data:`_MARKS_CMD_TIMEOUT`.** That budget is 20s and the
+#: runner KILLS the child on expiry, but a single freeze spends up to 30s in
+#: `capture-pane` alone (`agent_freeze._capture`) plus two 20s store calls
+#: (`freeze-begin`, `freeze-commit`) plus a respawn. Reusing the marks budget
+#: would kill a legitimate freeze mid-transaction; worse, `agent_freeze.main()`
+#: buffers the batch and prints its per-pane lines only after `freeze_all()`
+#: returns, so a killed run reports NOTHING -- including the agents it had
+#: already frozen -- and never reaches the rest.
+#:
+#: A killed freeze is recoverable (the record stays `freezing` and reconcile
+#: settles it once the lease goes stale), which is why the callers report a
+#: timeout as PARTIAL rather than failed.
+_FREEZE_ONE_TIMEOUT = 90.0
+
 #: The shadow concern-rejection store's single writer/reader (t1427_1).
 _REJECTED_SH = _SCRIPT_DIR / "aitask_shadow_rejected.sh"
 
@@ -437,10 +491,15 @@ class AgentMarksMixin:
     _maintenance_inflight: bool = False
     _refresh_inflight: bool = False
 
-    #: Whether parked agents are hidden from the pane list (t1685). Per-app-
-    #: instance and in-memory by design: it is a view toggle, not a preference,
-    #: and persisting it would let a forgotten `P` hide agents across restarts.
-    _hide_parked: bool = False
+    #: Whether INACTIVE agents — parked (t1685) or frozen (t1705_7) — are hidden
+    #: from the pane list. Per-app-instance and in-memory by design: it is a view
+    #: toggle, not a preference, and persisting it would let a forgotten `P` hide
+    #: agents across restarts.
+    #:
+    #: The field is named for what it hides; the ACTION it backs is still
+    #: `toggle_parked_visibility` — see `action_toggle_parked_visibility` for why
+    #: that name must not follow this one.
+    _hide_inactive: bool = False
 
     async def _maybe_offer_concerns(self) -> None:
         """Host hook run with the purge by `_dispatch_refresh_maintenance`.
@@ -477,6 +536,7 @@ class AgentMarksMixin:
             try:
                 await self._maybe_offer_concerns()
                 await self._maybe_purge_marks()
+                await self._maybe_purge_sessions()
             finally:
                 # In a `finally` so a raising or cancelled maintenance pass
                 # cannot wedge every later tick's maintenance — the same rule
@@ -501,6 +561,13 @@ class AgentMarksMixin:
             time.monotonic() + _MARKS_PURGE_STARTUP_GRACE
         )
         self._marks_purge_inflight: bool = False
+        # The session store's own liveness purge + frozen reconcile (t1705_7).
+        # Same cadence and grace as the marks purge, its own flag: a wedged
+        # sessions wrapper must not stop marks being purged, or vice versa.
+        self._sessions_purge_due_at: float = (
+            time.monotonic() + _MARKS_PURGE_STARTUP_GRACE
+        )
+        self._sessions_purge_inflight: bool = False
         # Guards the whole trailing-maintenance worker (concerns + purge), which
         # `_refresh_data` dispatches rather than awaits (t1598). Distinct from
         # `_marks_purge_inflight`: that one only covers the purge, and
@@ -512,8 +579,9 @@ class AgentMarksMixin:
         # rather than triggering a fan-out on a keystroke — the same contract
         # `_completed_pane_ids` uses.
         self._session_root_map: dict = {}
-        # Parked-agent view filter (t1685); see the class-level floor.
-        self._hide_parked: bool = False
+        # Inactive-agent view filter (t1685 parked, t1705_7 frozen); see the
+        # class-level floor.
+        self._hide_inactive: bool = False
 
     def _set_session_root_map(self, mapping: dict) -> None:
         """Publish this tick's session→project-root map.
@@ -566,6 +634,24 @@ class AgentMarksMixin:
 
     def _is_parked(self, snap: PaneSnapshot) -> bool:
         return self._mark_kind(snap) == agent_marks.KIND_PARKED
+
+    def _is_frozen(self, snap: PaneSnapshot) -> bool:
+        """Whether this snapshot is a frozen agent's stand-in (t1705_7).
+
+        Read off the snapshot, not the mark store: frozen is sourced from the
+        `@aitask_frozen` pane option, which is not a mark.
+        """
+        return bool(getattr(snap, "frozen", False))
+
+    def _is_inactive(self, snap: PaneSnapshot) -> bool:
+        """Whether the `P` filter hides this agent — parked OR frozen.
+
+        One filter, one key, one list: both states mean "there is no live agent
+        here to watch", so splitting them across two toggles would make the user
+        press two keys to answer one question. They keep SEPARATE session-bar
+        terms, because which one it is still matters.
+        """
+        return self._is_frozen(snap) or self._is_parked(snap)
 
     def _parked_agent_pairs(self) -> frozenset:
         """``(session_name, window_name)`` pairs whose capture must be skipped.
@@ -628,7 +714,11 @@ class AgentMarksMixin:
 
     # -- write path --------------------------------------------------------
 
-    async def _run_marks_cmd(self, args: list[str]) -> tuple[int, str]:
+    async def _run_marks_cmd(
+        self, args: list[str], *,
+        script: "Path | None" = None,
+        timeout: float | None = None,
+    ) -> tuple[int, str]:
         """Run the locked writer off the event loop. The injectable seam.
 
         Deliberately NOT ``TmuxMonitor._run_offloaded``: that seam's contract is
@@ -652,15 +742,17 @@ class AgentMarksMixin:
         :data:`_MARKS_CMD_TIMEOUT` sits above both: a slow-but-working writer
         must be allowed to finish and report ``LOCK_BUSY`` itself.
         """
+        script = _MARKS_SH if script is None else script
+        timeout = _MARKS_CMD_TIMEOUT if timeout is None else timeout
         proc = None
         try:
             proc = await asyncio.create_subprocess_exec(
-                str(_MARKS_SH), *args,
+                str(script), *args,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
             )
             out, _ = await asyncio.wait_for(
-                proc.communicate(), timeout=_MARKS_CMD_TIMEOUT
+                proc.communicate(), timeout=timeout
             )
         except asyncio.TimeoutError:
             # Kill the child, then reap it so it cannot become a zombie.
@@ -669,10 +761,28 @@ class AgentMarksMixin:
                 await proc.wait()
             except Exception:  # noqa: BLE001 - already exited / unkillable
                 pass
-            return 1, f"ERROR:marks command timed out after {_MARKS_CMD_TIMEOUT}s"
+            return 1, (f"ERROR:{script.name} timed out after {timeout}s")
         except OSError as exc:
-            return 1, f"ERROR:cannot run {_MARKS_SH.name}: {exc}"
+            return 1, f"ERROR:cannot run {script.name}: {exc}"
         return proc.returncode or 0, out.decode("utf-8", "replace").strip()
+
+    async def _run_frozen_cmd(
+        self, args: list[str], *, timeout: float | None = None,
+    ) -> tuple[int, str]:
+        """`aitask_frozen.sh` through the same runner, on its OWN budget.
+
+        Only `freeze` and `reconcile` come through here. `restore` and `drop`
+        replace or kill the very pane a TUI keybinding runs in, so a child of
+        that pane would be killed mid-transaction — they go through
+        `run-shell -b` instead, which is a detached tmux server job.
+
+        The default budget is one freeze's worth; a batch scales it by the
+        eligible count (see :data:`_FREEZE_ONE_TIMEOUT`).
+        """
+        return await self._run_marks_cmd(
+            args, script=_FROZEN_SH,
+            timeout=_FREEZE_ONE_TIMEOUT if timeout is None else timeout,
+        )
 
     async def _cycle_mark_for(self, snap: PaneSnapshot) -> None:
         """Advance ``snap``'s mark one step. The shared write path.
@@ -711,10 +821,10 @@ class AgentMarksMixin:
             # With the filter on the row is about to vanish, and the only way
             # back is P then space. Say so here rather than leaving the user to
             # discover that the agent they just parked cannot be reached.
-            if self._hide_parked:
+            if self._hide_inactive:
                 self.notify(
-                    f"Parked {window} — hidden. Press P to show parked agents, "
-                    "then Space to unpark.",
+                    f"Parked {window} — hidden. Press P to show parked/frozen "
+                    "agents, then Space to unpark.",
                     timeout=6,
                 )
             else:
@@ -778,18 +888,33 @@ class AgentMarksMixin:
     # -- purge -------------------------------------------------------------
 
     def action_toggle_parked_visibility(self) -> None:
-        """Show/hide parked agents in the pane list (``P``, t1685).
+        """Show/hide INACTIVE agents — parked (t1685) or frozen (t1705_7) — in
+        the pane list (``P``).
+
+        **The name is deliberately not `action_toggle_inactive_visibility`,
+        even though that is what it now does.** The action string in an App's
+        ``BINDINGS`` is a PERSISTED PUBLIC IDENTIFIER, not an internal name:
+        ``keybinding_registry.register_app_bindings`` resolves a user's key
+        override with ``overrides.get(str(binding.action))`` against the
+        ``shortcuts:`` section of ``userconfig.yaml``, scoped per app. Renaming
+        it would orphan every existing override — a customized key would revert
+        to the default ``P`` silently, with no error anywhere — and a Python
+        alias would not help, because the registry keys off the string in
+        ``BINDINGS`` and Textual dispatches ``action_<that string>``. Only the
+        binding's *description* was widened; descriptions are a value in
+        ``_DEFAULTS``, never a key.
 
         The host app hands focus off first when the currently focused card is
         about to be hidden — see `_hand_off_focus_before_hiding`, whose default
         here is a no-op because only the full monitor has a focusable list.
         """
-        hiding = not self._hide_parked
+        hiding = not self._hide_inactive
         if hiding:
             self._hand_off_focus_before_hiding()
-        self._hide_parked = hiding
+        self._hide_inactive = hiding
         self.notify(
-            "Parked agents hidden" if hiding else "Parked agents shown",
+            "Parked/frozen agents hidden" if hiding
+            else "Parked/frozen agents shown",
             timeout=3,
         )
         self.call_later(self._refresh_data)
@@ -871,9 +996,27 @@ class AgentMarksMixin:
         return agent_marks.mark_key(root, "")[0]
 
     def _write_observation_file(
-        self, observed: dict[str, set[str]], sweepable: set[str], complete: bool
+        self, observed: dict[str, set[str]], sweepable: set[str], complete: bool,
+        panes: "dict[tuple[str, str], list[tuple[str, int, bool]]] | None" = None,
     ) -> str:
+        """One observation file serving BOTH liveness purges (t1705_7).
+
+        `PANE` rows are a backward-compatible superset: `agent_marks` skips
+        them, `agent_sessions` requires them for its `dead_pane` rule. `panes`
+        is `TmuxMonitor.last_discovered_panes()` — keyed `(session, window)`,
+        valued `(pane_id, pane_pid, pane_dead)` — and its keys are joined to the
+        roots via `observed`, which is the same window set the `WINDOW` rows are
+        built from.
+
+        Omitting `panes` yields exactly the old file: a root with `WINDOW` rows
+        but no `PANE` rows is treated by the session store as pane-incomplete,
+        so `dead_window` still applies and `dead_pane` does not. Fail-closed by
+        construction, not by a flag.
+        """
         fd, path = tempfile.mkstemp(prefix="ait-marks-obs-", suffix=".tsv")
+        by_window: dict[str, list[tuple[str, int, bool]]] = {}
+        for (_session, window), rows in (panes or {}).items():
+            by_window.setdefault(window, []).extend(rows)
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             if not complete:
                 fh.write("INCOMPLETE\n")
@@ -882,6 +1025,11 @@ class AgentMarksMixin:
             for root in sorted(observed):
                 for window in sorted(observed[root]):
                     fh.write(f"WINDOW\t{root}\t{window}\n")
+                    for pane_id, pane_pid, dead in by_window.get(window, ()):
+                        fh.write(
+                            f"PANE\t{root}\t{window}\t{pane_id}\t"
+                            f"{pane_pid}\t{1 if dead else 0}\n"
+                        )
         return path
 
     async def _maybe_purge_marks(self) -> None:
@@ -912,6 +1060,62 @@ class AgentMarksMixin:
         finally:
             self._marks_purge_inflight = False
             self._marks_purge_due_at = time.monotonic() + _MARKS_PURGE_INTERVAL
+            if path:
+                try:
+                    os.unlink(path)
+                except OSError:
+                    pass
+
+    async def _maybe_purge_sessions(self) -> None:
+        """The session store's twin of :meth:`_maybe_purge_marks` (t1705_7).
+
+        Two jobs, both bounded and both idempotent:
+
+        * ``aitask_agent_sessions.sh purge --observed`` retires `live` records
+          whose window or pane is gone — the observation file carries `PANE`
+          rows for that, which the marks purge ignores;
+        * ``aitask_frozen.sh reconcile`` settles every non-`live` record whose
+          lease has gone stale, from server-observable facts only.
+
+        Reconcile has a second producer (the coordinator runs it after every
+        freeze/restore) precisely so retirement does not depend on a TUI being
+        open; this call is the opportunistic one. Both are best-effort — a
+        maintenance pass must never break a refresh tick — and both are given the
+        freeze budget rather than the marks budget, because reconcile can respawn
+        a stand-in.
+        """
+        if self._sessions_purge_inflight:
+            return
+        now = time.monotonic()
+        if now < self._sessions_purge_due_at:
+            return
+
+        # Snapshot before the await, exactly as the marks purge does.
+        observed, sweepable, complete = self._collect_marks_observation()
+        panes = None
+        monitor = getattr(self, "_monitor", None)
+        if monitor is not None:
+            try:
+                panes = monitor.last_discovered_panes()
+            except Exception:  # noqa: BLE001 - no panes ⇒ pane-incomplete, safe
+                panes = None
+        self._sessions_purge_inflight = True
+        path = None
+        try:
+            path = self._write_observation_file(
+                observed, sweepable, complete, panes=panes)
+            await self._run_marks_cmd(
+                ["purge", "--observed", path],
+                script=_SESSIONS_SH, timeout=_MARKS_CMD_TIMEOUT,
+            )
+            await self._run_frozen_cmd(["reconcile"])
+        except Exception:  # noqa: BLE001 - maintenance must never break a tick
+            pass
+        finally:
+            self._sessions_purge_inflight = False
+            self._sessions_purge_due_at = (
+                time.monotonic() + _MARKS_PURGE_INTERVAL
+            )
             if path:
                 try:
                     os.unlink(path)

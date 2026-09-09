@@ -409,7 +409,7 @@ class RefreshOrderingTests(unittest.IsolatedAsyncioTestCase):
         app._maintenance_inflight = False
         app._refresh_inflight = False
         app._session_root_map = {}
-        app._hide_parked = False
+        app._hide_inactive = False
         app._snapshots = {}
         app._task_cache = _FakeCache()
         app._completed_pane_ids = frozenset()

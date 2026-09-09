@@ -227,7 +227,8 @@ def _snap(
     return SimpleNamespace(pane=pane, is_idle=False, idle_seconds=0.0,
                            # `parked` is a real PaneSnapshot field (t1685); a
                            # double that omits it raises rather than ignoring it.
-                           parked=False)
+                           parked=False, frozen=False,
+                           frozen_record_id="")
 
 
 class _FakeContainer:

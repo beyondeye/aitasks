@@ -123,7 +123,7 @@ class _Fixture(unittest.TestCase):
         app._snapshots = {s.pane.pane_id: s for s in (snaps or [])}
         app._focused_pane_id = None
         app._selected_card_pane_id = None
-        app._hide_parked = False
+        app._hide_inactive = False
         app._parked_pane_ids = frozenset(
             pid for pid, s in app._snapshots.items() if s.parked
         )
@@ -208,7 +208,7 @@ class MountedParkedRowTests(_Fixture):
                                    window_index="2"),
                 }
                 app._parked_pane_ids = frozenset({"%1"})
-                app._hide_parked = False
+                app._hide_inactive = False
                 app._rebuild_pane_list()
                 await pilot.pause()
                 cards = list(app.query("#pane-list PaneCard"))
@@ -224,7 +224,7 @@ class MountedParkedRowTests(_Fixture):
 
                 # ... and with the filter ON the parked card is gone, while the
                 # live one stays.
-                app._hide_parked = True
+                app._hide_inactive = True
                 app._rebuild_pane_list()
                 await pilot.pause()
                 cards = list(app.query("#pane-list PaneCard"))
@@ -242,7 +242,7 @@ class ListFilterTests(_Fixture):
             s.pane.window_name
             for s in app._snapshots.values()
             if s.pane.category == PaneCategory.AGENT
-            and not (app._hide_parked and s.parked)
+            and not (app._hide_inactive and s.parked)
         ]
 
     def test_the_filter_hides_and_reshows(self):
@@ -258,9 +258,9 @@ class ListFilterTests(_Fixture):
                     sorted(self._agents_in_list(app)),
                     ["agent-live", "agent-p"],
                 )
-                app._hide_parked = True
+                app._hide_inactive = True
                 self.assertEqual(self._agents_in_list(app), ["agent-live"])
-                app._hide_parked = False
+                app._hide_inactive = False
                 self.assertEqual(
                     sorted(self._agents_in_list(app)),
                     ["agent-live", "agent-p"],
@@ -271,9 +271,9 @@ class ListFilterTests(_Fixture):
         forgotten `P` must not hide agents across restarts."""
         a = self.app(MonitorApp, [snapshot("agent-a")])
         b = self.app(MonitorApp, [snapshot("agent-a")])
-        self.assertFalse(a._hide_parked)
-        a._hide_parked = True
-        self.assertFalse(b._hide_parked)
+        self.assertFalse(a._hide_inactive)
+        a._hide_inactive = True
+        self.assertFalse(b._hide_inactive)
 
     def test_p_is_bound_in_both_apps_and_free_of_a_collision(self):
         for cls in BOTH_APPS:
@@ -299,7 +299,7 @@ class FocusHandoffTests(_Fixture):
 
     def _monitor_with_cards(self, snaps, focused):
         app = self.app(MonitorApp, snaps)
-        app._hide_parked = True
+        app._hide_inactive = True
         app._focused_pane_id = focused
         app._selected_card_pane_id = focused
         app._active_zone = Zone.PANE_LIST
@@ -370,7 +370,7 @@ class FocusHandoffTests(_Fixture):
             snapshot("agent-b", pane_id="%2", window_index="2"),
         ]
         app = self._monitor_with_cards(snaps, "%1")
-        app._hide_parked = False
+        app._hide_inactive = False
         app._hand_off_focus_before_hiding()
         self.assertEqual(app._focused_pane_id, "%2")
 
@@ -522,7 +522,7 @@ class SessionBarPartitionTests(_Fixture):
         snaps = self._snaps()
         shown = self._bar_text(MonitorApp, snaps)
         app = self.app(MonitorApp, snaps)
-        app._hide_parked = True
+        app._hide_inactive = True
         hidden = self._bar_text(MonitorApp, snaps)
         self.assertEqual(shown, hidden)
 
@@ -602,12 +602,12 @@ class VisibilityActionTests(_Fixture):
                 app.call_later = lambda fn, *a: later.append(fn)
                 app._refresh_data = lambda: None
                 app.action_toggle_parked_visibility()
-                self.assertTrue(app._hide_parked)
+                self.assertTrue(app._hide_inactive)
                 self.assertIn("hidden", notes[0].lower())
                 self.assertEqual(len(later), 1)
 
                 app.action_toggle_parked_visibility()
-                self.assertFalse(app._hide_parked)
+                self.assertFalse(app._hide_inactive)
                 self.assertIn("shown", notes[1].lower())
 
     def test_minimonitor_needs_no_focus_handoff(self):
