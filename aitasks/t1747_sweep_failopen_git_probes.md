@@ -12,12 +12,12 @@ active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
-children_to_implement: [t1747_1, t1747_2]
+children_to_implement: [t1747_1, t1747_2, t1747_3]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1733
 followup_kind: risk_mitigation
 created_at: 2026-09-08 18:35
-updated_at: 2026-09-09 11:12
+updated_at: 2026-09-09 11:13
 ---
 
 ## Origin
