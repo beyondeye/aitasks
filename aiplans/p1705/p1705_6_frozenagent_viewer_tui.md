@@ -843,6 +843,183 @@ concurrent restore rather than preventing it. That is sufficient here (we fail
 closed) and is pre-existing store behaviour that reconcile's takeover flows
 depend on; changing it belongs to t1705_2/_5, not here.
 
+## Review findings (2026-09-08, addressed in this task)
+
+Eight defects found reviewing the implementation. All were verified against the
+code and fixed; each is listed with the test that now pins it.
+
+**R1 — a restore could squeeze between the drop's pane probe and its kill.**
+`drop_record` probed pane identity, then killed. `restore_begin` minted its lease
+unconditionally, so a restore landing in that window respawned a **replacement
+agent** into the same pane (`@aitask_frozen` is retained across a restore, so the
+probe's identity check still matched) — and the drop then killed it. Detecting
+the race afterwards with `DROP_ABORTED` does not undo a killed agent, so the
+plan's accepted residual ("only the stand-in pane is lost") did not hold.
+**Fix:** `restore_begin` now refuses a record whose lease is live
+(`LeaseHeld`), using the same two-term staleness rule `lease_take` applies — so
+a crashed coordinator still cannot make a record un-restorable. The claim now
+*prevents* rather than merely detects. Pinned by
+`test_a_restore_cannot_squeeze_in_between_the_probe_and_the_kill`,
+`test_begin_is_refused_while_the_lease_is_held`,
+`test_begin_takes_over_a_STALE_lease`.
+
+**R2 — the sibling count and the kill could mean different windows.**
+`_other_real_agents` enumerated the record's stored `session:window` while the
+kill targeted the pane id. A moved stand-in whose old window name had been
+reused by a helper-only window counted zero siblings *for the wrong window* and
+escalated to `kill-window`, destroying the live agents in the real one.
+**Fix:** enumerate from the pane itself (`list-panes -t <pane-id>` resolves to
+that pane's window — verified against real tmux), and return `None` rather than
+0 when the target is not in the listing, which downgrades to `kill-pane`.
+Pinned by `test_a_moved_pane_counts_siblings_in_its_OWN_window`.
+
+**R3 — selection and search re-rendered the whole capture.**
+`_extend_selection` and `action_search_next` called `_render_log()`, which clears
+the log and re-parses the entire ANSI buffer — throwing away the exact property
+`CaptureLog` was chosen for. Measured at the 50000-line cap: **one `shift+down`
+took ~1.8 s of blocked event loop.** **Fix:** `_repaint_marks` is incremental —
+it keeps the original strip for every line it overwrites and touches only lines
+whose mark state changed. Now **0.085 s** for the same keystroke. Pinned by
+`LargeCaptureTests` (asserts zero re-renders and a wall-clock bound).
+
+**R4 — a failed restore was reported as a timeout.**
+`_poll_restore` re-read `op_nonce` each tick and prefix-matched `last_error`
+against it. Real recovery (`restore-abort` → `standin-respawned`) **clears the
+lease while preserving the error**, so after recovery the prefix could never
+match; the failure fell through to the grace and rendered as "restored
+elsewhere". The original test could not see this — its fixture kept a nonce that
+real recovery clears. **Fix:** correlate on the `restore_attempts` gate alone
+(`restore-begin` clears `last_error` at the start of the attempt, so any
+non-empty value after the gate belongs to it); a timeout now says the record is
+still transitional and names `reconcile` instead of implying success; and a
+replacement viewer surfaces a persisted `last_error` at mount. Pinned by
+`test_a_failure_survives_the_REAL_recovery_transitions` (driven through the
+store's own verbs), `test_a_replacement_viewer_shows_the_persisted_failure`,
+`test_a_timeout_never_reads_as_success`.
+
+**R5 — the selection cursor ignored navigation.**
+`_cursor` was only moved by `shift+arrow`, so `G` then `shift+down` left the
+viewport at the bottom while the range grew from line 0 — and `y` copied the
+opening lines. **Fix:** a `_move_cursor` helper that every navigation (`g`, `G`,
+a search hit) routes through, ending any active range. Pinned by
+`NavigationCursorTests`.
+
+**R6 — a readable `capture.txt` rendered blank when `capture.ansi` was gone.**
+The two files fail independently; `_capture_missing` was false, but the default
+render path read the empty `_ansi`. **Fix:** fall back to the surviving text,
+say `[colour unavailable — showing plain text]` in the header, and refuse the
+`r` toggle rather than blanking the pane. Pinned by `DegradedCaptureTests`.
+
+**R7 — a headless markup test stamped the developer's real pane.**
+`FrozenAgentHeaderTests` mounted the viewer without replacing `_TMUX` or
+clearing `TMUX_PANE`, so `_stamp_ready` wrote `@aitask_standin_ready` on the
+caller's pane. **This actually happened** — a stray stamp was found on the
+session's own pane and cleaned up. **Fix:** the test stubs the gateway, drops
+`TMUX_PANE`, and now *asserts* that it issued no tmux calls at all.
+
+**R8 — the `cover_drop_destructive_path` mitigation was only half delivered.**
+The live companion-survival case and the coordinator's parity coverage were
+promised and missing. **Fix:** `tests/test_frozenagent_standin_stamp.sh` gained
+Tests 5-6 (a live coordinator `drop` kills the stand-in, spares a real agent
+sibling, removes record and capture; a refused in-flight drop leaves pane,
+record and capture untouched), and `tests/test_cleanup_rule_parity.sh` gained a
+third producer — `agent_freeze._other_real_agents` — asserted row-by-row against
+the bash and Python verdicts.
+
+> **Tracked handoff — accepted by the user (2026-09-09), recorded as a
+> t1705_11 checklist item.** The completion obligation was NOT quietly
+> rewritten: the plan committed to this script as mitigation, it is unrun, and
+> the user explicitly accepted carrying it as post-completion work on the
+> existing manual-verification sibling (whose `verifies:` list already includes
+> 1705_6) rather than holding the task open.
+> `tests/test_cleanup_rule_parity.sh` (now carrying the coordinator as a third
+> producer) has NOT been run and **cannot be run by an agent working in this
+> repo**. It arms real `pane-died` hooks that reach tmux with raw, un-flagged
+> calls, so it refuses while the dedicated `-L ait` server is alive — and that
+> server is what hosts the working agents themselves. The only two ways to
+> satisfy it are to force the guard or to kill live agents, both of which were
+> explicitly ruled out. R15 closes the part this task introduced by other,
+> safely-runnable means; what remains needs a human:
+>
+> ```bash
+> # from a terminal that is NOT inside tmux, with the ait server down
+> bash tests/test_cleanup_rule_parity.sh
+> ```
+
+### Second review round (2026-09-08)
+
+Five further defects, all verified and fixed. Each has a **pre-fix control** —
+the fix was reverted and the new test watched to fail — so the coverage is
+evidence, not just green.
+
+**R9 — the cursor still ignored ordinary scrolling.** R5 covered `g`, `G` and
+search, but `pagedown`, the mouse wheel and a scrollbar drag go straight through
+`RichLog` and never reach the app; startup also scrolled to the tail without
+placing the cursor. **Fix:** rather than enumerate keys, a fresh selection snaps
+the cursor into the *visible viewport* — which covers every scroll path there
+is — and mount sets it to the tail it scrolls to. The contract is now "a fresh
+range starts where you are looking". Pinned by `ScrollCursorTests` (400 lines,
+longer than the viewport) and `StartupCursorTests`.
+
+**R10 — a replacement viewer mounted on a transitional record and never
+refreshed.** `agent_restore._rollback` respawns the stand-in *before* calling
+`standin-respawned`, so the new viewer arrives while the record is `aborting`.
+It dispatched no operation, so nothing polled, and the header sat on `aborting`
+forever. **Fix:** a bounded settle watch (`SETTLE_GRACE`) refreshes the header
+until the record reaches `live`/`frozen`. Pinned by `TransitionalMountTests`.
+
+**R11 — the persisted failure note was dead on the main failure path.**
+`_persisted_note` reads `last_error`, but the store wrote it in exactly one
+place — the hook's `session_mismatch`. `agent_exited`, the ordinary "the resumed
+agent died immediately" case, persisted nothing, so a replacement viewer showed
+a bare `frozen`. The R4 test had inserted the value by hand and so could not see
+it. **Fix:** `restore-abort` takes `--error <reason>` and stamps
+`"<nonce>:<reason>"`; `_rollback` names its reason at all four call sites, so
+every actionable outcome is now durable and attempt-correlated. Pinned by
+`PersistedFailureTests`, driven through the real store verbs.
+
+**R12 — the "spares the companion" case had no companion.** Both panes in the
+live fixture were bare sleeps, so it proved the window did not collapse, not
+that a companion survived. **Fix:** the fixture now has a real
+`@aitask_monitor_kind`-marked companion and asserts its survival; a control that
+forces `kill-window` makes those three assertions fail, so they have teeth.
+
+**R13 — the header did not name a missing capture.** Only the log body did,
+though the task requires the header to. **Fix:** `· capture missing` /
+`· colour data missing`, with restore / re-pick / drop still available — it must
+read as "missing", not "broken". Pinned in `DegradedCaptureTests`.
+
+### Third review round (2026-09-09)
+
+**R14 — the list-entry path skipped the settlement watch.** R10 added
+`_watch_until_settled` to `on_mount` only. A row can be listed while `frozen`
+and moved to `restoring` / `aborting` by another coordinator before it is
+opened, so the viewer entered on a transitional record and never learned how it
+ended. **Fix:** `_open_selected` calls the watch too, keeping its deliberate
+no-self-stamp behaviour (opening from a list does not make that pane the
+record's stand-in — an asymmetry now stated in the code). Pinned by
+`test_opening_a_row_that_went_transitional_still_settles`, which also re-asserts
+that the list path stamps nothing. Pre-fix control confirmed.
+
+**R15 — parity coverage for the coordinator's new call site, obtained safely.**
+`tests/test_cleanup_rule_parity.sh` compares all three users of the
+"does this window still hold a real agent?" rule, and it remains **unrun** — see
+the outstanding note below. But only the **bash** producer needs the real
+`pane-died` hooks that force its safety refusal: the monitor's
+`kill_agent_pane_smart` (kills stubbed) and the coordinator's
+`_other_real_agents` are both hook-free. So the half this task actually
+introduced — a NEW call site that enumerates panes *from the pane* rather than
+from a stored window name — is now checked on an isolated server on every run,
+as Test 7 of `tests/test_frozenagent_standin_stamp.sh`: three pane tables (lone
+agent + companion; agent + agent + companion; agent + frozen stand-in +
+companion), each asserting monitor == coordinator == expected. A control that
+makes the coordinator ignore siblings produces four parity failures, so the rows
+have teeth. The bash ↔ monitor half is **unchanged by this task** (the reorder
+is drop-vs-kill sequencing, which the bash cleanup hook never performs; the
+verdict path changed only by extracting `classify_window_panes`, covered by the
+37 passing `test_monitor_companion_filter` cases) and stays with the parity
+script.
+
 ## Risk
 
 ### Code-health risk: medium
@@ -868,9 +1045,14 @@ depend on; changing it belongs to t1705_2/_5, not here.
 - The task reorders a **shipped** branch of `kill_agent_pane_smart` and extracts
   two helpers from it — code owned by t1705_4 and exercised by t1705_7's keys.
   A mistake there is destructive (a window holding a live agent, or a frozen
-  stand-in, gets killed) · severity: medium · → mitigation: covered by
-  `tests/test_cleanup_rule_parity.sh` (extended with the coordinator call site)
-  and `tests/test_kill_agent_pane_smart.sh`, plus an `ait note` to t1705_7
+  stand-in, gets killed) · severity: medium · → mitigation: **partially
+  discharged.** Covered now: `tests/test_kill_agent_pane_smart.sh`, the 37
+  cases in `tests/test_monitor_companion_filter.py`, and live
+  monitor↔coordinator parity (`test_frozenagent_standin_stamp.sh` Test 7).
+  **Pending:** the bash↔monitor half, i.e. a passing run of
+  `tests/test_cleanup_rule_parity.sh` — accepted by the user as a tracked
+  post-completion handoff and recorded as a t1705_11 checklist item (see the
+  handoff note below). Plus an `ait note` to t1705_7
 
 ### Goal-achievement risk: medium
 
