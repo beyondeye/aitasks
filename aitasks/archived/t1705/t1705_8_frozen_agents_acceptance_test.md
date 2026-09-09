@@ -5,7 +5,7 @@ risk_goal_achievement: high
 effort: medium
 depends: [t1705_7]
 issue_type: test
-status: Implementing
+status: Done
 labels: [tmux, tmux_destructive, codeagent, session_persistence, test_infrastructure, testing]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1705
 implemented_with: claudecode/opus5_1m
 created_at: 2026-09-04 16:08
-updated_at: 2026-09-09 19:35
+updated_at: 2026-09-09 21:30
+completed_at: 2026-09-09 21:30
 ---
 
 ## Step 0 — tmux preflight (run BEFORE anything else; blocking)
@@ -272,3 +273,14 @@ bash tests/test_no_raw_tmux.sh
 > **✅ gate:plan_approved** run=2026-09-09T16:35:13Z status=pass attempt=2 type=human
 
 > **✅ gate:review_approved** run=2026-09-09T18:27:07Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-09T18:30:41Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:4026f6894c45fb25
+
+> **✅ gate:risk_evaluated** run=2026-09-09T18:30:41Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1705_8/risk_evaluated_2026-09-09T18:30:41Z-risk_evaluated-a1.log`
