@@ -5,7 +5,8 @@ Sibling Tasks: aitasks/t1705/t1705_1_*.md … aitasks/t1705/t1705_7_*.md, aitask
 Archived Sibling Plans: aiplans/archived/p1705/p1705_*_*.md
 Base branch: main
 Output branch: main
-plan_verified: []
+plan_verified:
+  - claudecode/opus5 @ 2026-09-09 19:30
 ---
 
 # t1705_8 — Frozen agents acceptance test (composed, shipped wrappers only)
@@ -41,65 +42,494 @@ The parent's mitigation for cross-child drift. Real agents are the
 manual-verification sibling's job. **Tmux-stress** — run outside the `-L ait`
 server.
 
-## Files
+## Amendments from re-verification (2026-09-09) — READ FIRST
 
-- **New** `tests/test_frozen_agents_acceptance.sh`
-- **New** `tests/lib/frozen_fixtures.sh` — extracted shared helpers if `test_freeze_engine_live.sh` and `test_restore_flows_live.sh` duplicated them (scratch install, fake-agent `PATH` shim, record assertions, pane-option readers); both earlier tests switched to source it
-- **Edit** `tests/lib/fake_agent.sh` if a knob is missing
-- **Edit** `aidocs/framework/testing_conventions.md` — "Composed acceptance through shipped wrappers" paragraph pointing here
+This plan was written 2026-09-08. t1705_7 landed on 2026-09-09 and the
+re-verification below checked every environment knob and CLI contract the plan
+depends on against the shipped tree. **Eleven assumptions were wrong.** Each is
+recorded with the evidence, because nine of them are not cosmetic — they make
+planned assertions unreachable or blow the timing budget.
+
+**V1 — `stale_op_grace` is env-only; the `project_config.yaml` setting is a
+no-op.** `agent_sessions._stale_op_grace()`
+(`.aitask-scripts/lib/agent_sessions.py:604`) reads **only**
+`AITASKS_STALE_OP_GRACE`, and only under `AITASKS_TEST_MODE=1`. It never opens
+`project_config.yaml`. The old step 1 set `stale_op_grace: 2` in the scratch
+project's `frozen:` block, which leaves the real value at
+`STALE_OP_GRACE_DEFAULT` (60 s). Cases 7 and 8 each wait past it, so that
+setting alone contributes ~120 s of pure sleeping and breaks the `< 3 min`
+budget the plan asserts. **Use the env seam.** (`restore_ack_grace` and
+`capture_max_lines` *do* read the project config — only this one does not,
+which is exactly why it was easy to get wrong.)
+
+**V2 — Case 10 asserted something its chosen CLI cannot do.**
+`lib/agent_sessions.py` opens with "THIS MODULE NEVER TOUCHES TMUX. It imports
+no tmux and spawns no process." So `aitask_agent_sessions.sh drop <id>` removes
+the record and capture files and **leaves the stand-in pane running with all
+three stamps intact**. The pane-option half of case 10 is unreachable through
+it. The verb that retires the pane is `aitask_frozen.sh drop <id>` →
+`agent_freeze.drop_record()` (`:946`), and even there the options are never
+unset: the docstring is explicit — *"Pane options are pane-scoped and die with
+the pane, so this retires all three stamps with no unstamp step to fail."*
+Case 10 must therefore split in two and assert the mechanism, not a
+coincidence (see the rewritten case list).
+
+**V3 — the old step-1 recipe runs `ait setup`, which builds venvs into the
+developer's real `$HOME`.** `aitask_setup.sh` creates `$HOME/.aitask/venv` and
+pip-installs into it (`:8`, and the two pip-install sites). The old plan
+deliberately left `HOME` unredirected "(setup writes there)" — so the test
+would mutate the real venv and cost minutes it does not have. `install.sh`
+does **not** build a venv; it only stores the hook *seed* at
+`aitasks/metadata/claude_settings.hooks.json` (`install.sh:814`). The shipped
+code path that actually writes `.claude/settings.json` is
+`setup_claude_hooks()` (`aitask_setup.sh:2622`), reachable via the sanctioned
+`--source-only` seam (`aitask_setup.sh:4488`) — which is exactly how t1705_3's
+own `tests/test_session_hook_install.sh:112` drives it. Use that: it is *more*
+faithful to "shipped wrappers" than a full `ait setup`, and it is free.
+
+**V4 — `fake_agent.sh` does not produce the output case 2 measures.** The
+fixture prints at most two status lines (`tests/lib/fake_agent.sh:48,81`), not
+"50 numbered lines with ANSI colour". Case 2's `line count = fake output`
+assertion has no source today. The task file already licenses the fix ("edit
+`tests/lib/fake_agent.sh` if a knob is missing") — add one, **default-off**
+(see M1).
+
+**V5 — the isolation helpers were listed in the wrong order.**
+`tests/lib/tmux_isolation.sh:115` states "ORDERING IS LOAD-BEARING: call this
+BEFORE `require_isolated_tmux`", and both existing live suites obey it
+(`test_restore_flows_live.sh:64-65`, with the comment `# FIRST` / `# SECOND`).
+The old step 1 listed them reversed.
+
+**V6 — `AITASKS_FROZEN_PAUSE_AT=respawn` is ambiguous.** The stage name
+`respawn` is used by **both** `agent_freeze.py:392` and
+`agent_restore.py:407`. Case 8 freezes and *then* restores, so exporting the
+variable process-wide would `SIGSTOP` the freeze at its own respawn stage
+before the restore is ever reached. It must be set on the restore invocation
+only, never exported. (`aborting` is unambiguous — `agent_restore.py:238`.)
+
+**V7 — a symlink to a shell script is not named `claude`.** t1729 added
+`tests/lib/fake_agent_binary.py` precisely because "a script's `comm` is its
+interpreter's, so a `sh` wrapper named `codex` reports `sh`". The old step 1
+proposed `bin/claude` → symlink to `fake_agent.sh`. That is fine **only**
+because nothing on the freeze path keys on `#{pane_current_command}` — §B pins
+that it "is a process basename and is **never** used as identity". **V8
+supersedes the symlink anyway** — `bin/claude` becomes a control-file wrapper —
+and the same caveat carries over to it: if any assertion ever needs the pane's
+command to *read* as `claude`, use `fake_agent_binary.py`, not a rename or a
+wrapper filename.
+
+**V8 — per-case agent behaviour cannot be delivered by the test shell's
+environment.** This is the sharpest consequence of constraint (a) below, and
+the old plan missed it. `respawn-pane` runs its command in the **tmux server's**
+environment, captured at server start, so a per-case
+`FAKE_AGENT_EXIT=1 ./aitask_frozen.sh restore …` in the test shell **never
+reaches the replacement agent**. Cases 3 (`FAKE_AGENT_EXIT=1`), 4
+(`FAKE_AGENT_SESSION=other`) and 5 (happy resume) all need to change the
+replacement's behaviour *after* the server is running, so with the old plan's
+plain `bin/claude` → `fake_agent.sh` symlink they are untestable as specified.
+`test_restore_flows_live.sh:101-112` already solved this: `bin/claude` is a
+generated **wrapper** that sources a per-case control file before `exec`ing the
+fixture (`exec` keeps the pid, so `#{pane_pid}` still names the agent — t1465).
+Adopt that mechanism; the symlink is not sufficient.
+
+**V9 — the coordinator's environment depends on how it was dispatched.** Two
+different answers, and cases 4, 7 and 8 straddle them:
+
+- a coordinator the test invokes **directly**
+  (`AITASKS_FROZEN_PAUSE_AT=aborting "$FROZEN_SH" restore <id>`) is a child of
+  the test shell and inherits its environment — this is what cases 7/8 use, and
+  it works;
+- a coordinator dispatched through **`run-shell -b`** (the viewer's `R` key,
+  the minimonitor keys — case 4's "real detached coordinator") runs in the
+  **server's** environment, so its seams must be exported before server start
+  or delivered by a control file, exactly as V8 requires for the agent.
+
+State this at every seam-setting site; it is the difference between a case that
+measures the shipped path and one that measures the test shell.
+
+**V10 — a sourced control file must carry `export`, or the knobs never reach
+the fixture.** The wrapper of V8 sources `$AGENT_ENV_FILE` and then `exec`s
+`fake_agent.sh` — a *separate program* that reads `${FAKE_AGENT_EXIT:-0}` and
+friends from its **environment**. A bare `NAME=value` line becomes a shell
+variable of the wrapper, and `exec` does not pass those on, so every
+"controlled" case would silently take the happy path. This failure is quiet
+where it matters least and loud where it matters most: cases 3 and 4 assert a
+`RESTORE_FAILED:` line and would fail visibly, but the ack-grace probe's
+`FAKE_AGENT_NO_HOOK=1` would simply let the hook ack arrive and the probe would
+measure the wrong path. The shipped suite already solved it —
+`test_restore_flows_live.sh:185` writes `printf 'export %s\n'`. Reuse that
+helper verbatim; do not hand-write the file. As belt-and-braces, one case
+should assert the knob actually arrived via `fake_agent.sh --report-env`,
+which self-reports its environment for exactly this reason.
+
+**V11 — the scratch `frozen:` config was never written, and setting a knob
+both ways proves nothing.** Two compounding gaps. First, the recipe asserted
+that `capture_max_lines` "stays in" the scratch `project_config.yaml`, but
+nothing ever wrote a `frozen:` block: `install.sh:567-575` seeds the file from
+`seed/project_config.yaml`, which has no such block, so every config-read path
+silently took its default. Second — and worse — `restore_ack_grace` was set in
+*both* the environment and the config with the same value, described as
+"exercising the config path". It does the opposite: under `test_mode()` a
+positive `AITASKS_RESTORE_ACK_GRACE` returns at
+`agent_frozen_ops.py:144-151`, **before the config is opened**, so a missing or
+malformed `frozen:` block behaves exactly like a correct one. A knob set two
+ways at the same value is not covered twice; it is covered once and untested at
+the lower-precedence layer. Fixed by writing the block explicitly with
+three-way-distinct values, and by probes C1/C2 that run with the higher-
+precedence layer removed so the configured value is the only thing that can
+explain the result.
+
+**Also noted (not defects):** the store has shipped a `lease-release` verb
+(`aitask_agent_sessions.sh:315`) that §A's pinned verb list predates; and
+`drop` now has three additional result lines — `DROP_REFUSED:<id>|in_flight`,
+`DROP_FAILED:<id>|<stage>`, `DROP_ABORTED:<id>|raced`. Assert the shipped
+surface, not §A's list, where they differ.
+
+**Still true, re-confirmed:** capture files are `0o600`
+(`agent_freeze.py:213,220`); `AITASKS_FROZEN_STANDIN_CMD` is a real seam and
+leaving it unset is what makes this suite distinct from t1705_5's
+(`test_restore_flows_live.sh:83` *sets* it to `fake_standin.sh`; we must not);
+`freeze --all --dry-run` prints `WOULD_FREEZE:…` then
+`FREEZE_ELIGIBLE:<n>` (`agent_freeze.py:1188-1190`); `restore_verdict` /
+`drop_verdict` / `restore_settle_timeout` all exist as t1705_7's note claimed.
+
+## Composed environment (corrected recipe)
+
+Replaces the old step 1. Two constraints dominate and both are load-bearing:
+
+**(a) Every env seam must be exported BEFORE the isolated server starts.**
+`respawn-pane` and `run-shell -b` run their commands in the **tmux server's**
+environment, captured at server start — not the calling shell's at call time.
+`test_restore_flows_live.sh:95-97` records this in so many words. Since the
+restore coordinator is a detached `run-shell -b` job, `AITASKS_TEST_MODE`,
+`AITASKS_STALE_OP_GRACE` and `AITASKS_RESTORE_ACK_GRACE` reach it **only** via
+the server environment.
+
+**(b) The scratch project supplies the hook; the real `$HOME` is never
+written.**
+
+```bash
+. tests/lib/asserts.sh;  assert_counters_init          # subshell-safe (t1207)
+. tests/lib/tmux_isolation.sh
+require_clean_ait_server        # FIRST  (V5)
+require_isolated_tmux           # SECOND
+
+SCRATCH="$(mktemp -d)"
+bash install.sh --dir "$SCRATCH"                       # tree + hook seed; no venv (V3)
+
+# --- the setup entry point, at two levels (see "Setup coverage" below) -------
+"$SCRATCH/ait" setup --help >/dev/null                 # real CLI dispatch, zero side effects
+( . "$SCRATCH/.aitask-scripts/aitask_setup.sh" --source-only
+  setup_claude_hooks </dev/null )                      # the REAL hook installer (V3)
+
+export AITASKS_AGENT_SESSIONS_FILE="$SCRATCH/.sessions.json"
+export AITASKS_FROZEN_DIR="$SCRATCH/.frozen"
+export AITASKS_TEST_MODE=1
+export AITASKS_STALE_OP_GRACE=2                        # env-only (V1)
+export AITASKS_RESTORE_ACK_GRACE=5          # config says 8, default 20 (V11)
+export AITASKS_FAKE_AGENT_HOOK="$SCRATCH/.aitask-scripts/aitask_session_hook.sh"
+unset AITASKS_FROZEN_STANDIN_CMD                       # the REAL viewer must boot
+export TMUX_TMPDIR="$SCRATCH/tmux"
+
+# --- per-case control wrapper, NOT a symlink (V8) ----------------------------
+AGENT_ENV_FILE="$SCRATCH/agent_env"                    # rewritten per case
+mkdir -p "$SCRATCH/bin"
+for n in claude codex; do
+  cat > "$SCRATCH/bin/$n" <<WRAPPER
+#!/usr/bin/env bash
+# Sources a per-case control file before exec'ing the fixture: respawn-pane runs
+# in the SERVER's environment (captured at server start), so per-case knobs set
+# in the test shell never reach the replacement agent (V8). \`exec\` keeps the
+# pid, so \`#{pane_pid}\` still names the agent (t1465).
+[ -f "$AGENT_ENV_FILE" ] && . "$AGENT_ENV_FILE"
+exec "$PROJECT_DIR/tests/lib/fake_agent.sh" "\$@"
+WRAPPER
+  chmod +x "$SCRATCH/bin/$n"
+done
+export PATH="$SCRATCH/bin:$PATH"
+: > "$AGENT_ENV_FILE"                                  # default: plain happy agent
+# ...only now start the isolated server (a)
+```
+
+Per case, set the knobs through the two helpers the existing suite already
+ships (`test_restore_flows_live.sh:185-186`), and truncate in teardown so a
+leaked knob cannot silently alter a later case:
+
+```bash
+agent_env()       { printf 'export %s\n' "$@" > "$AGENT_ENV_FILE"; }
+agent_env_clear() { : > "$AGENT_ENV_FILE"; }
+
+agent_env FAKE_AGENT_EXIT=1          # case 3
+agent_env FAKE_AGENT_SESSION=other   # case 4
+agent_env FAKE_AGENT_NO_HOOK=1       # ack-grace probe
+```
+
+**The `export` is load-bearing, not style (V10).** The wrapper *sources* this
+file and then `exec`s `fake_agent.sh`, which is a separate program reading its
+**environment**. A bare `FAKE_AGENT_EXIT=1` line creates a shell variable that
+`exec` does not pass on, so the fixture would evaluate `${FAKE_AGENT_EXIT:-0}`
+as unset and take the happy path. Use `agent_env`; never hand-write the file.
+(The equivalent fix, if a future wrapper prefers it, is `set -a` around the
+source — but match the shipped helper rather than inventing a second form.)
+
+### The scratch `frozen:` config — written explicitly, and made observable
+
+`install.sh:567-575` seeds `aitasks/metadata/project_config.yaml` from
+`seed/project_config.yaml`, so the file exists — but with **no `frozen:`
+block**. It must be written explicitly, or every config-read path silently
+takes its default and a malformed block is indistinguishable from a correct
+one (V11):
+
+```bash
+cat >> "$SCRATCH/aitasks/metadata/project_config.yaml" <<'YAML'
+frozen:
+  capture_max_lines: 120     # env-free knob — the config-read proof (probe C1)
+  restore_ack_grace: 8       # distinct from env 5 AND default 20 (probe C2)
+  # stale_op_grace is NOT settable here: env-only under AITASKS_TEST_MODE (V1).
+YAML
+```
+
+The values are deliberately **three-way distinct** so each probe can attribute
+the result to the config rather than to a coincidence: `restore_ack_grace` is
+`8` in the config, `5` in the environment, `20` by default.
+
+### Setup coverage — why three levels, not one
+
+Sourcing `setup_claude_hooks` exercises the real hook-writing function but
+bypasses the shipped `ait setup` entry point, so on its own a broken CLI
+dispatch could pass this suite while users cannot install the hook. A full
+`ait setup` is not an option inside the timed run: `setup_python_venv` runs at
+`aitask_setup.sh:4421`, **before** `setup_code_agents` → `setup_claude_hooks`
+at `:4451`, so reaching the hook requires building a venv first — minutes of
+pip, and a hard failure on an offline box. Three levels, chosen accordingly:
+
+1. **`"$SCRATCH/ait" setup --help`** (always, free). `ait:229` is
+   `setup) shift; exec "$SCRIPTS_DIR/aitask_setup.sh" "$@"`, and `--help` is
+   handled at `aitask_setup.sh:4338` with the comment *"Must exit before any
+   setup step runs"*. So this proves routing, `exec`, and argv forwarding
+   end-to-end with zero side effects — precisely the "broken CLI dispatch"
+   failure mode, and it costs nothing.
+2. **`setup_claude_hooks` via `--source-only`** (always) — the real hook
+   installer, as above.
+3. **`AIT_ACCEPTANCE_FULL_SETUP=1`** (opt-in, **outside** the timed region):
+   run `HOME="$SCRATCH/home" "$SCRATCH/ait" setup </dev/null` and assert
+   `$SCRATCH/.claude/settings.json` holds exactly one aitasks SessionStart
+   group. `VENV_DIR="$HOME/.aitask/venv"` (`aitask_setup.sh:8`) is
+   `$HOME`-derived, so the redirect keeps the real `$HOME` untouched — the
+   guarantee the task depends on. This is the genuine end-to-end backstop; it
+   is opt-in only because of the venv cost, and a CI box should set it.
 
 ## Implementation steps
 
-1. **Environment.** `require_isolated_tmux`, `require_clean_ait_server`,
-   `assert_counters_init`. Scratch project: `bash install.sh --dir
-   "$SCRATCH"` then `(cd "$SCRATCH" && ./ait setup </dev/null)` — hooks
-   installed by the real setup (t1705_3). Append to
-   `$SCRATCH/aitasks/metadata/project_config.yaml`:
-   `frozen: {restore_ack_grace: 5, stale_op_grace: 2, capture_max_lines: 2000}`.
-   Env: `AITASKS_AGENT_SESSIONS_FILE="$SCRATCH/.sessions.json"`,
-   `AITASKS_FROZEN_DIR="$SCRATCH/.frozen"`, `HOME` **not** redirected
-   (setup writes there) — instead point every store env at the scratch dir.
-   `PATH="$SCRATCH/bin:$PATH"` with `bin/claude` and `bin/codex` → symlinks
-   to `tests/lib/fake_agent.sh`; the fake prints 50 numbered lines with ANSI
-   colour, handles `--resume <sid>` / `resume <sid>`, then — unless
-   `FAKE_AGENT_NO_HOOK=1` — execs
-   `$SCRATCH/.aitask-scripts/aitask_session_hook.sh` with a synthetic
-   SessionStart JSON (`session_id` = `FAKE_AGENT_SESSION` or the resumed id
-   or a fresh uuid, `cwd` = `$PWD`) and then `sleep 1000`;
-   `FAKE_AGENT_EXIT=1` → exit 1 after the hook call. `AITASKS_FROZEN_STANDIN_CMD`
-   **unset** — the real `ait frozenagent` must come up.
-2. **Launch helper.** `launch_agent <window>`: `python3 -c` using the
-   scratch tree's `agent_launch_utils.launch_in_tmux` with the argv from
+### Pre-phase (risk mitigations)
+
+Both run to green **before any acceptance case is written**. They are inline
+phases of this task, not spawned tasks.
+
+- **`fixtures_extraction_control`** — `test_freeze_engine_live.sh` and
+  `test_restore_flows_live.sh` duplicate **13** helpers (measured:
+  `cleanup`, `make_agent_window`, `pane_exists`, `pane_fmt`, `record_field`,
+  `record_of_pane`, `section`, `store`, `tm`, `wait_for_ready`,
+  `wait_for_record_state`, `wait_stopped`, `window_exists`), so the extraction
+  the old plan made conditional is warranted. Carry `agent_env` /
+  `agent_env_clear` (`test_restore_flows_live.sh:185-186`) into the shared lib
+  too: they live only in the restore suite today, and V10 shows that
+  re-implementing them by hand is a silent-failure trap. Do it as a **pure,
+  behaviour-preserving refactor**, on its own, first: run both suites to green,
+  extract `tests/lib/frozen_fixtures.sh`, re-point both to source it, run both
+  to green again. Any `fake_agent.sh` knob added for V4 is **default-off** and
+  both suites are re-run after it. Rationale: both suites currently pass and
+  can only be verified in this same rare environment — a regression introduced
+  here and discovered later is very expensive to attribute.
+- **`env_seam_probe`** — before writing cases 3–11, prove each seam *actually
+  takes effect*. A timing assertion alone is not enough: a normal hook ack
+  finishes well inside either grace, so it would pass without the override ever
+  being seen. Each probe therefore needs a **controlled stimulus that forbids
+  the fast path**, a **terminal verdict**, and a **bound that excludes the
+  default**. Configured values 5 s / 2 s vs. defaults
+  `RESTORE_ACK_GRACE = 20.0` (`agent_frozen_ops.py:117`) and
+  `STALE_OP_GRACE_DEFAULT = 60.0` (`agent_sessions.py:73`) give wide margins:
+
+  - **Ack grace.** Stimulus: `FAKE_AGENT_NO_HOOK=1` in `$AGENT_ENV_FILE`, so no
+    hook ack can ever arrive and the coordinator is forced onto the liveness
+    path. Verdict: `RESTORED:<id>|liveness`, record `ack=liveness`, **captures
+    kept** (the ack-less contract). Bound: `5 <= elapsed < 15` — unreachable
+    under the 20 s default, so the assertion fails loudly if the seam is
+    ignored, instead of merely running slow.
+  - **Stale-op grace.** Stimulus: strand a lease with a dead owner — start a
+    restore under `AITASKS_FROZEN_PAUSE_AT=aborting`, `SIGKILL` the
+    coordinator. Verdict: `reconcile` settles the record to `frozen` with the
+    stand-in back. Bound: settles within `< 15 s`. Under the 60 s default
+    reconcile skips the record as in-flight and it stays unsettled, so this
+    positively discriminates rather than merely timing a fast path.
+  - **Coordinator visibility (V9).** Run the ack-grace probe once through the
+    **`run-shell -b`** path (the viewer's `R` key via `send-keys`), not only as
+    a direct subprocess, since that is the only dispatch whose environment
+    comes from the server rather than the test shell. This is what actually
+    proves the override reaches the shipped coordinator.
+  - **C1 — config read, env-free (`capture_max_lines`).** This is the one
+    `frozen:` knob with **no environment override at all**
+    (`agent_freeze.py:157`), so it proves, on its own, both that the scratch
+    config was found and that `_walk_up_to_project` (`:228`) resolved the root
+    to `$SCRATCH`. Stimulus: the new V4 output knob emits **300** lines.
+    Verdict: `capture.txt` is exactly **120** lines. Under a missing, malformed
+    or unfound config the default is `DEFAULT_CAPTURE_MAX_LINES = 50000`
+    (`:118`) and all 300 survive — so the two outcomes are unmistakable.
+  - **C2 — the configured `restore_ack_grace` is observably responsible.**
+    Under `test_mode()`, a positive `AITASKS_RESTORE_ACK_GRACE` returns
+    **before the config is ever opened** (`agent_frozen_ops.py:144-151`), so
+    the normal cases never exercise the config path for this setting. Run one
+    probe with the override **absent** — `env -u AITASKS_RESTORE_ACK_GRACE
+    "$FROZEN_SH" restore <id>`, invoked **directly** so it inherits the test
+    shell rather than the server (V9), which is what makes `env -u` effective
+    at all. Stimulus: `FAKE_AGENT_NO_HOOK=1` as above. Bound:
+    `7 <= elapsed < 15`, which implicates the configured `8` and excludes both
+    the env `5` and the default `20`.
+
+  V1 is exactly this class of defect, and it does not fail loudly on its own:
+  a missed seam silently restores the default, and only the end-of-run budget
+  assertion would notice, after the fact.
+
+- **`setup_entrypoint_coverage`** — implement the three-level "Setup coverage"
+  design above before the cases: level 1 (`ait setup --help`) and level 2
+  (`setup_claude_hooks`) run always, level 3 (`AIT_ACCEPTANCE_FULL_SETUP=1`,
+  `HOME`-redirected, untimed) is opt-in. Without level 1 this suite can go
+  green while `ait setup` is broken for every user; without the `HOME`
+  redirect, level 3 would write the developer's real venv.
+
+### Main steps
+
+1. **Environment.** As "Composed environment" above.
+2. **Launch helper.** `launch_agent <window>`: `python3 -c` using the scratch
+   tree's `agent_launch_utils.launch_in_tmux`
+   (`.aitask-scripts/lib/agent_launch_utils.py:1369`) with the argv from
    `$SCRATCH/.aitask-scripts/aitask_codeagent.sh --agent-string
-   claudecode/opus5 --dry-run invoke raw` (so the wrapper, `AITASK_AGENT_STRING`
-   export path and the fake binary are all real), then
+   claudecode/opus5 --dry-run invoke raw`, so the wrapper, the
+   `AITASK_AGENT_STRING` export path and the fake binary are all real. Then
    `attach_companion_cleanup_hook` and a stub companion pane stamped
-   `@aitask_monitor_kind`.
-3. **Cases 1–11** exactly as enumerated in the task file, each a `( … )`
-   subshell; ground truth from tmux (`display-message`/`list-panes` through
-   `ait_tmux`) and the filesystem, never from the store alone: e.g. case 5
-   asserts `[ ! -d "$AITASKS_FROZEN_DIR/$id" ]` *and* `#{@aitask_frozen}`
-   empty *and* `#{pane_pid}` == the fake's pid *and* `show` says
-   `state:live ack:hook`. Case 4 uses a logging `tmux` shim in front of the
-   real one only to prove the coordinator ran detached (`run-shell -b`
-   appears in the log from the viewer's `R`, driven with `send-keys R` into
-   the stand-in pane — this is the one place the viewer's key path is
-   exercised live). Case 7/8 use `AITASKS_TEST_MODE=1` +
-   `AITASKS_FROZEN_PAUSE_AT` and `kill -9` of the coordinator pid found via
-   `pgrep -f "aitask_frozen.sh restore $id"`. Case 9 kills and recreates
-   the isolated server (`tmux_isolation.sh` helpers) — never the user's.
-4. **Timing.** Print `ACCEPTANCE_ELAPSED:<s>` at the end; assert < 180.
-5. **Docs note** in `testing_conventions.md`: two paragraphs — what
-   "through the shipped wrappers" means and why the fake binary calls the
-   real hook.
+   `@aitask_monitor_kind`. (`--resume-session` requires `invoke raw` —
+   `aitask_codeagent.sh:630` — which the restore path already satisfies.)
+3. **Cases 1–9 and 10a/10b** as enumerated in the task file, each a `( … )`
+   subshell, with these corrections:
+   - ground truth from tmux (`display-message` / `list-panes` through
+     `ait_tmux`) and the filesystem, never the store alone;
+   - **case 2** asserts capture mode `0600` and the line count. Note this is
+     now the **capped** count, not the emitted one: with the V4 knob emitting
+     300 lines and `capture_max_lines: 120`, `capture.txt` is 120 lines. That
+     is the same measurement probe C1 makes, so keep the two consistent — if
+     the cap is ever changed, both move together;
+   - **case 4** uses a logging `tmux` shim in front of the real one only to
+     prove the coordinator ran detached, driven with `send-keys R` into the
+     stand-in pane — the one place the viewer's key path is exercised live.
+     Note the viewer still carries the hardcoded 40 s deadline
+     (`frozenagent_app.py:877`, filed as **t1766**); with `restore_ack_grace=5`
+     that is not reached, so this suite does not depend on the fix;
+   - **cases 3, 4 and 5** deliver their agent knobs (`FAKE_AGENT_EXIT=1`,
+     `FAKE_AGENT_SESSION=other`, the happy resume) by writing
+     `$AGENT_ENV_FILE`, **never** by exporting into the test shell (V8), and
+     truncate it in teardown;
+   - **cases 7/8** invoke the coordinator **directly** so it inherits the test
+     shell, and set `AITASKS_FROZEN_PAUSE_AT` **on that one invocation only**,
+     never exported (V6/V9); they find it via
+     `pgrep -f "aitask_frozen.sh restore $id"`;
+   - **case 9** kills and recreates the *isolated* server via the
+     `tmux_isolation.sh` helpers — never the user's;
+   - **case 10 splits into two INDEPENDENT cycles** (V2). They must not share a
+     record: 10a deletes it, so a 10b reusing the same id would have nothing to
+     drop, and 10a's surviving stamped pane would linger into 10b and
+     contaminate `_other_real_agents()`' kill-window-vs-kill-pane decision.
+     Each subcase therefore does its own `launch_agent` → `freeze` → assert →
+     teardown, and each verifies its own teardown before the next begins:
+     - **10a** — `aitask_agent_sessions.sh drop <id>` (the tmux-free store):
+       record gone, capture dir gone, and the **stand-in pane still alive with
+       all three stamps intact**. That is the store's real contract, and 10a
+       exists to pin it. Teardown: explicitly kill the orphaned stand-in window
+       and assert it is gone, so nothing leaks into 10b.
+     - **10b** — fresh cycle, then `aitask_frozen.sh drop <id>` →
+       `DROPPED:<id>`, record and capture gone, and the pane verified **gone**
+       (`kill-window` when it was the last real agent, else `kill-pane`).
+       Assert the pane is gone — *not* that options were unset, which never
+       happens: they die with the pane (`agent_freeze.py:946` docstring).
+   - **case 11 is dropped.** `tests/test_session_hook_install.sh` Group C
+     already asserts "still exactly ONE SessionStart group" across repeated
+     `setup_claude_hooks`, against the same shipped function this suite calls.
+     Re-running it here buys a second copy of an existing assertion at the cost
+     of a second full setup in the timed budget. If a composed re-check is
+     wanted, fold it into case 1 as a one-line count of the scratch project's
+     `.claude/settings.json` SessionStart groups.
+4. **Timing.** Print `ACCEPTANCE_ELAPSED:<s>`; assert `< 180`. With V1 fixed
+   this is achievable; with V1 unfixed it is not.
+5. **Docs.** Add the "Composed acceptance through shipped wrappers" paragraph
+   to `aidocs/framework/testing_conventions.md`, pointing at this file as the
+   pattern, and naming the two constraints from "Composed environment" (a) and
+   (b) — they are the reusable part.
 
 ## Verification
 
 ```bash
-bash tests/test_frozen_agents_acceptance.sh
-bash tests/test_freeze_engine_live.sh tests/test_restore_flows_live.sh     # still green after the helper extraction
+bash tests/test_frozen_agents_acceptance.sh    # outside -L ait; per-case PASS/FAIL + timing
+bash tests/test_freeze_engine_live.sh          # still green after the extraction
+bash tests/test_restore_flows_live.sh          # still green after the extraction
 bash tests/test_no_raw_tmux.sh
+bash tests/test_session_hook_install.sh        # unaffected by the setup_claude_hooks reuse
 ```
+
+`tests/test_cleanup_rule_parity.sh` is also still unrun (t1705_7's note); it
+refuses while the `-L ait` server has panes. It is t1705_11's, not this task's,
+but this is the environment in which it can finally run — do it while here.
+
+## Risk
+
+### Code-health risk: medium
+
+- Extracting 13 duplicated helpers out of two large, currently-passing live
+  suites (`test_freeze_engine_live.sh`, `test_restore_flows_live.sh`) can break
+  them, and both are verifiable only in this same rare environment ·
+  severity: medium · → mitigation: inline pre-phase `fixtures_extraction_control`
+- `tests/lib/fake_agent.sh` is shared by several live suites; a new output knob
+  that is not default-off changes their capture assertions · severity: medium ·
+  → mitigation: inline pre-phase `fixtures_extraction_control`
+- No production code is touched — the change is confined to `tests/` plus one
+  `aidocs/` paragraph, which bounds the blast radius to the test tree ·
+  severity: low · → mitigation: none needed
+
+### Goal-achievement risk: high
+
+- Re-verification found **eleven** assertions/knobs in this plan that were
+  unreachable or ineffective against the shipped tree (V1–V11), six of them
+  found only on later review passes. The same class
+  of drift may remain in the parts that cannot be checked without running the
+  suite · severity: high · → mitigation: inline pre-phase `env_seam_probe`
+- The suite cannot be run at all from this session (blocked preflight), so
+  nothing here is evidence yet; first-run success across 11 live cases, a real
+  Textual viewer boot, a detached coordinator and a server kill/recreate is
+  unlikely without iteration · severity: high · → mitigation: none — this is
+  why the task stops on an approved plan and is re-picked outside tmux
+- The real `ait frozenagent` viewer must boot in a pane under a wall-clock
+  budget; CLAUDE.md records that live-TUI boot budgets become flakes under a
+  loaded machine · severity: medium · → mitigation: none — run the suite on an
+  otherwise idle box, as the preflight already demands
+- The timed run reaches the hook installer via `--source-only` rather than the
+  `ait setup` CLI, so a setup **precondition or integration** defect between
+  the entry point and `setup_claude_hooks` is not covered by the default run —
+  only dispatch (level 1) and the function itself (level 2) are · severity:
+  medium · → mitigation: the three-level "Setup coverage" design; level 3
+  (`AIT_ACCEPTANCE_FULL_SETUP=1`) closes it end-to-end and CI should set it
+- Per-case behaviour now flows through a shared control file, so a case that
+  forgets to truncate it silently changes a later case's agent · severity:
+  medium · → mitigation: none needed — every case writes it on entry and
+  truncates on teardown, and the probes assert terminal state, not just timing
+- Layered configuration hides its own gaps: a knob set at two precedence levels
+  is exercised only at the higher one, so the lower layer can be missing or
+  malformed and nothing fails (V11). The suite sets three such knobs ·
+  severity: medium · → mitigation: inline pre-phase `env_seam_probe`, probes
+  C1/C2, which remove the higher layer so the lower one is observably
+  responsible
+
+### Planned mitigations
+- timing: pre-phase | name: fixtures_extraction_control | type: test | priority: high | effort: medium | inline_risk: low | added_complexity: low | addresses: code-health blast radius into two working live suites + shared fake_agent.sh | desc: extract frozen_fixtures.sh and re-point both existing live suites first, proving both green before and after, with any new fake_agent.sh knob default-off
+- timing: pre-phase | name: env_seam_probe | type: test | priority: high | effort: medium | inline_risk: low | added_complexity: medium | addresses: V1/V11-class silent seam-and-config ineffectiveness | desc: prove each seam AND the scratch frozen config take effect, using stimuli that forbid the fast path (FAKE_AGENT_NO_HOOK for ack grace, a SIGKILLed leaseholder for stale-op grace), terminal verdicts, and bounds excluding the 20s/60s defaults; plus C1 (env-free capture_max_lines proves the config is read and the root resolved) and C2 (ack grace with the env override removed via env -u, proving the configured value is responsible); one run through the detached run-shell -b path
+- timing: pre-phase | name: setup_entrypoint_coverage | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: bypassing the ait setup CLI while keeping the no-real-HOME guarantee | desc: assert `ait setup --help` routes through the real dispatch with zero side effects, and gate a full HOME-redirected `ait setup` end-to-end check behind AIT_ACCEPTANCE_FULL_SETUP=1 outside the timed region
 
 ## PINNED contracts (from p1705 — do not re-decide)
 
