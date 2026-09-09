@@ -89,3 +89,49 @@ grep -n 'freeze-and-restore-agents' website/content/docs/workflows/_index.md web
 grep -n 'framework-session' website/content/docs/concepts/_index.md
 ```
 No code, no tmux.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1705_8** id=2026-09-09T18:30:27Z.67bdf9e529c168862ec9dce2 from=t1705_8 at=2026-09-09T18:30:27Z base=80d5ea53221cf89bcf0fbf4bd14e1ae23f9297b0 base_branch=main dirty=no host=Darios-Mac-mini.local
+>
+> | t1705_8's acceptance suite measured several user-visible behaviours end to end
+> | against a real viewer. Four are easy to document wrongly. Advisory only --
+> | verify against the tree before relying on any of it.
+> | 
+> | 1. **`hook` and `liveness` restores are NOT the same outcome, and the
+> |    difference is user-visible.** `RESTORED:<id>|hook` means the resumed agent's
+> |    SessionStart hook acknowledged the record: the session id was verified and
+> |    THE CAPTURE FILES ARE DELETED. `RESTORED:<id>|liveness` means nothing ever
+> |    acknowledged; the coordinator waited out `restore_ack_grace` and confirmed on
+> |    the launched pid alone, so the restore is unverified and THE CAPTURE IS
+> |    KEPT. Both are successes; only one is verified. Do not describe restore as a
+> |    single outcome.
+> | 
+> | 2. **There are two `drop` verbs and they are not interchangeable.**
+> |    `aitask_agent_sessions.sh drop <id>` is the tmux-free store: it removes the
+> |    record and the capture files and LEAVES THE STAND-IN PANE RUNNING with all
+> |    its stamps ("THIS MODULE NEVER TOUCHES TMUX"). `aitask_frozen.sh drop <id>`
+> |    is the engine: it also retires the pane. Both are asserted separately
+> |    (acceptance cases 10a / 10b) because they are genuinely different contracts.
+> | 
+> | 3. **The `frozen:` block in `project_config.yaml` does not accept every knob.**
+> |    `capture_max_lines` and `restore_ack_grace` ARE read from it;
+> |    `stale_op_grace` is **not** -- `agent_sessions._stale_op_grace()` reads only
+> |    `AITASKS_STALE_OP_GRACE`, and only under `AITASKS_TEST_MODE=1`. Documenting a
+> |    configurable `frozen.stale_op_grace` would document a silent no-op. Note also
+> |    that a positive `AITASKS_RESTORE_ACK_GRACE` (test mode) short-circuits BEFORE
+> |    the config is opened, so the env wins where both are set.
+> | 
+> | 4. **`capture_max_lines` is scrollback DEPTH, not a total line count.** The
+> |    engine passes `capture-pane -S -<cap>`, which starts `cap` lines back in
+> |    history and runs through the bottom of the visible pane, so the stored
+> |    capture holds roughly `cap + pane_height` lines. Measured: cap 120 produced a
+> |    132-line capture in an 12-row pane. Saying "captures at most N lines" is
+> |    wrong by a pane height.
+> | 
+> | Also worth a mention if the docs cover restoring after a tmux restart: that
+> | route currently fails (t1773) -- a frozen record whose window was closed cannot
+> | be restored, because restore branches on the recorded `pane_id` instead of
+> | checking the pane. Nothing is lost, but do not document it as working until
+> | t1773 lands.
