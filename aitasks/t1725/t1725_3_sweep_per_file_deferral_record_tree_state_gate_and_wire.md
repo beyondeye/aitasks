@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1599
+implemented_with: claudecode/opus5
 created_at: 2026-09-07 16:38
-updated_at: 2026-09-09 10:35
+updated_at: 2026-09-09 16:01
 ---
 
 ## Context
@@ -356,3 +357,8 @@ Run: `bash tests/test_sync_deferral_and_quarantine.sh`, `bash tests/test_sync.sh
 > | against the commit named below and the file may have moved again since.
 
 > **👁 note:read** id=2026-09-09T07:35:09Z.8f5c66dfe6136ed2d91d69bf by=t1725_3 at=2026-09-09T07:35:09Z mode=explicit ids=2026-09-07T15:35:50Z.a9ac203ff48fcd14889669ad,2026-09-08T09:47:31Z.78a62e0e6b0ebfcee714dea4,2026-09-08T13:49:04Z.ecee5ba007969d0b8ec0ae31
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-09T13:01:39Z status=pass attempt=1 type=human
