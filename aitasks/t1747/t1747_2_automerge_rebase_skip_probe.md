@@ -150,3 +150,5 @@ code must add none.
 > | Also: `aidocs/framework/failopen_git_probes.md` now exists (t1747_1) and is the
 > | canonical anchor for the rule, the fix shape and the Group A row A1/A2 you own.
 > | Point at it rather than restating the rule.
+
+> **👁 note:read** id=2026-09-09T13:43:32Z.3afd8b35b44dc9705d32ddbb by=t1747_2 at=2026-09-09T13:43:32Z mode=explicit ids=2026-09-09T13:33:04Z.51b85cf7fa38a375e3b54def
