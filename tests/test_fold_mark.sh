@@ -1250,6 +1250,46 @@ test_attach_txn_nonzero_return_rolls_back() {
     teardown
 }
 
+test_negative_control_attach_rearm_removed() {
+    echo "=== Negative control: t1707 — WITHOUT the re-arm, nothing rolls back ==="
+    setup_project
+    _copy_attachment_libs
+
+    write_task aitasks/t10_primary.md
+    _seed_attachment aitasks/t20_a.md 20 "rearm control blob"
+    git add -A
+    git commit -m "Setup" --quiet
+
+    # The paired control for test_attach_txn_nonzero_return_rolls_back above.
+    # t1698's Step 8b review reported that fold has no EXIT trap after Step 5b
+    # returns; it does (aitask_fold_mark.sh:820, shipped by t1668 itself). This
+    # control settles that empirically: delete the re-arm and the SAME scenario
+    # stops rolling back. Without it, the positive test proves nothing — it
+    # would pass against a build where the re-arm was never needed.
+    #
+    # Injector order is load-bearing: the re-arm removal runs FIRST, because
+    # install_attach_txn_returns_nonzero deletes _fold_snapshot_meta_tree and
+    # rewrites the function this one's call-site guard reads around.
+    install_attach_rearm_removed || { teardown; return; }
+    install_attach_txn_returns_nonzero || { teardown; return; }
+
+    _run_fold_split --commit-mode fresh 10 20
+
+    # The die at :822 is unaffected — only the rollback behind it disappears.
+    assert_eq "exits non-zero" "1" "$FOLD_RC"
+    assert_contains "stderr still names the wrapper failure" \
+        "attachment transfer failed (exit 3)" "$FOLD_ERR"
+
+    assert_defect_present "pre-fix: primary was NOT rolled back" \
+        test "[20]" = "$(read_frontmatter_field aitasks/t10_primary.md folded_tasks)"
+    assert_defect_present "pre-fix: folded task left at Folded" \
+        test "Folded" = "$(read_frontmatter_field aitasks/t20_a.md status)"
+    assert_defect_present "pre-fix: no rollback was reported" \
+        test -z "$(printf '%s' "$FOLD_ERR" | grep -F 'rolled back every mutation' || true)"
+
+    teardown
+}
+
 test_abort_inside_attach_txn_rolls_back() {
     echo "=== Test: t1668 — an abort INSIDE the attach transaction rolls back ==="
     setup_project
@@ -1628,6 +1668,50 @@ PY
         || { echo "FAIL: injector did not stub _fold_attach_txn"; FAIL=$((FAIL+1)); TOTAL=$((TOTAL+1)); return 1; }
     grep -q '    _fold_snapshot_meta_tree$' .aitask-scripts/aitask_fold_mark.sh \
         && { echo "FAIL: injector left the attach transaction body in place"; FAIL=$((FAIL+1)); TOTAL=$((TOTAL+1)); return 1; }
+    TOTAL=$((TOTAL + 1)); PASS=$((PASS + 1))
+    return 0
+}
+
+# t1707: delete the post-attach-lock re-arm (aitask_fold_mark.sh:820), leaving an
+# armed transaction with no EXIT handler between Step 5b and Step 6. This is the
+# build t1698's Step 8b review believed was shipped; the control below proves it
+# is not, and that removing the re-arm is observable. INJECTED — no shipped path
+# reaches this state, which is exactly why the claim needed a mutant to settle.
+#
+# The anchor is the FULL line including its trailing comment. The bare trap text
+# `trap '_fold_abort_cleanup' EXIT` ALSO matches the top-level arm at :518, so a
+# loose anchor would silently mutate the wrong trap and the control would pass
+# while proving nothing. The guards below pin exactly that: one re-arm line goes,
+# the distinct column-0 top-level arm stays.
+_FOLD_REARM_LINE="    trap '_fold_abort_cleanup' EXIT   # registry_lock_release did \`trap - EXIT\`"
+
+install_attach_rearm_removed() {
+    # Precondition: exactly ONE re-arm line, and the top-level arm is distinct.
+    local n_rearm n_toplevel
+    n_rearm=$(grep -cxF "$_FOLD_REARM_LINE" .aitask-scripts/aitask_fold_mark.sh || true)
+    n_toplevel=$(grep -cxF "trap '_fold_abort_cleanup' EXIT" .aitask-scripts/aitask_fold_mark.sh || true)
+    [[ "$n_rearm" == 1 ]] \
+        || { echo "FAIL: expected exactly 1 post-attach-lock re-arm line, found $n_rearm"; FAIL=$((FAIL+1)); TOTAL=$((TOTAL+1)); return 1; }
+    [[ "$n_toplevel" == 1 ]] \
+        || { echo "FAIL: expected exactly 1 top-level trap arm, found $n_toplevel"; FAIL=$((FAIL+1)); TOTAL=$((TOTAL+1)); return 1; }
+
+    python3 - "$PWD/.aitask-scripts/aitask_fold_mark.sh" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+old = "    trap '_fold_abort_cleanup' EXIT   # registry_lock_release did `trap - EXIT`\n"
+if s.count(old) != 1:
+    sys.stderr.write("anchor: post-attach-lock re-arm not found exactly once\n"); sys.exit(1)
+open(p, 'w').write(s.replace(old, '', 1))
+PY
+    grep -qxF "$_FOLD_REARM_LINE" .aitask-scripts/aitask_fold_mark.sh \
+        && { echo "FAIL: injector did not remove the post-attach-lock re-arm"; FAIL=$((FAIL+1)); TOTAL=$((TOTAL+1)); return 1; }
+    # Excised the right line and only that line: the top-level arm and the call
+    # site itself must both survive.
+    grep -qxF "trap '_fold_abort_cleanup' EXIT" .aitask-scripts/aitask_fold_mark.sh \
+        || { echo "FAIL: injector clobbered the top-level trap arm"; FAIL=$((FAIL+1)); TOTAL=$((TOTAL+1)); return 1; }
+    grep -qF 'with_attach_lock _fold_attach_txn || _fold_attach_rc=$?' .aitask-scripts/aitask_fold_mark.sh \
+        || { echo "FAIL: injector removed the with_attach_lock call site"; FAIL=$((FAIL+1)); TOTAL=$((TOTAL+1)); return 1; }
     TOTAL=$((TOTAL + 1)); PASS=$((PASS + 1))
     return 0
 }
@@ -2126,6 +2210,10 @@ test_negative_control_amend_sweeps
 test_negative_control_amend
 test_negative_control_unbuffered_on_refusal
 test_negative_control_unbuffered_on_commit_failure
+# t1707 — pairs test_attach_txn_nonzero_return_rolls_back: without the
+# post-attach-lock re-arm (aitask_fold_mark.sh:820) the same scenario rolls
+# back nothing, which is what makes that test's assertions mean something.
+test_negative_control_attach_rearm_removed
 
 # t1733 — the HEAD probe fails closed: an unreadable HEAD and a merge commit's
 # empty path list both refuse instead of authorising a history rewrite

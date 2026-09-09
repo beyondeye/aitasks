@@ -95,7 +95,7 @@ attachments:
 ```
 
 Neither is hand-edited. `artifacts` entries are written by
-[`ait artifact`]({{< relref "/docs/workflows/implementation-trails" >}}) and
+`ait artifact` and
 `attachments` entries by `ait attach`; both commands manage the blob, the
 manifest and the task file as one commit, so editing the block by hand
 desynchronises it from the store.
