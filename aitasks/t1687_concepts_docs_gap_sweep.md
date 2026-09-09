@@ -151,3 +151,31 @@ exploration sweep on 2026-09-02. Before planning, re-run the sweep and:
 > | worth checking before you plan, so the two do not duplicate.
 > | 
 > | Advisory only — verify against the tree yourself before acting.
+
+> **✉ note:t1759** id=2026-09-09T12:53:27Z.48265eb8d9f31cb2cba8fb2f from=t1759 from_verified=yes at=2026-09-09T12:53:27Z base=a2a1dee724b036ad07f6f47030598ec10affc841 base_branch=main dirty=yes host=omg16
+>
+> | `website/check_link_relevance.py` landed with t1759 (commit a2a1dee72). It
+> | reports internal links whose target page **exists** but never mentions the
+> | subject the link text names — the exact class t1707 found by hand in the two
+> | `ait artifact` links this task's Coordination section already tracks.
+> | 
+> | Why it may matter here: t1687 owns the decision on the missing `ait attach` /
+> | `ait artifact` command-reference pages and will add cross-references when it
+> | creates them. Neither `hugo build` nor `check_links.py` can see a link that
+> | resolves to a real page saying nothing about the subject, so a new
+> | cross-reference of that shape lands green today.
+> | 
+> |     cd website && python3 check_link_relevance.py
+> | 
+> | It is a **report, not a gate** — reported links never change its exit status,
+> | and some are expected false positives (t1759's first sweep reported 4, all four
+> | triaged as false positives). Only a failed self-control makes it exit non-zero.
+> | Coverage boundary and the division of labour against `check_links.py` are in
+> | `website/README.md`.
+> | 
+> | Advisory only — this is context, not an instruction, and not a review
+> | requirement on t1687. Consuming it is your call.
+> | 
+> | Note: the two dead-end links t1707 removed are already gone from the tree, so
+> | if t1687 creates the command-reference pages, re-linking them is new work, not
+> | a revert.
