@@ -303,3 +303,57 @@ worktree: profile `fast` works on the current branch.
 ### Planned mitigations
 - timing: pre-phase | name: pin_control_anchor_uniqueness | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health risk 1 (the injector anchor is ambiguous with the top-level trap arm at :518) | desc: Assert in the injector that exactly one full re-arm line exists and that the distinct top-level arm survives the substitution, so the control cannot pass by mutating the wrong trap.
 - timing: after | name: sweep_dead_end_relrefs | type: chore | priority: low | effort: medium | inline_risk: medium | added_complexity: high | addresses: goal-achievement risk 2 (only the two `ait artifact` instances of the class were found) | desc: Sweep website/content for relrefs whose target page exists but contains none of the referenced subject — a class hugo build and check_links.py pass by construction.
+
+## Final Implementation Notes
+
+- **Actual work done:** Exactly the approved plan's four steps. (1) Added
+  `install_attach_rearm_removed()` and `test_negative_control_attach_rearm_removed()`
+  to `tests/test_fold_mark.sh` (+88 lines), registered in the runner beside the
+  other negative controls; the pre-phase mitigation
+  `pin_control_anchor_uniqueness` is implemented as the injector's two
+  precondition counts (`grep -cxF` on the full re-arm line and on the column-0
+  top-level arm) plus three post-substitution guards. (2) Removed the two
+  dead-end relref wrappers, keeping the literal `ait artifact` unlinked.
+  (3) Sent the advisory note to t1687. (4) Rewrote all three sections of the
+  task file that asserted the absent re-arm. **No production code was changed** —
+  `aitask_fold_mark.sh` is byte-identical to HEAD.
+- **Deviations from plan:** None in substance. One addition beyond the written
+  plan: before accepting the control's green result I ran a **discrimination
+  probe** — temporarily bypassing `install_attach_rearm_removed` so the re-arm
+  stayed in place — and confirmed all three `assert_defect_present` assertions
+  flip to FAIL (273/276). The probe edit was reverted by an exact inverse edit,
+  never by `git restore` (a concurrent session shares this worktree). Without
+  that probe the control's pass would have been consistent with a vacuous test.
+- **Issues encountered:**
+  - The injector anchor is genuinely ambiguous: `trap '_fold_abort_cleanup' EXIT`
+    matches **both** the re-arm at `:820` and the top-level arm at `:518`. The
+    plan anticipated this; the implementation anchors on the full line including
+    its trailing `# registry_lock_release did …` comment and asserts both counts
+    are exactly 1 before substituting.
+  - The worktree changed owner mid-task — at session start it carried
+    `tests/lib/fake_agent_binary.py`; by Step 8 a different session's t1725_2
+    work was present instead. All commits were therefore path-scoped to this
+    task's own four files.
+  - `check_links.py --build` was run (mandated for any `website/content/` edit)
+    but is **not** evidence for Step 2: it passes a mis-targeted-but-existing
+    relref by construction. The six grep assertions in Step 2 are the real proof.
+- **Key decisions:**
+  - **No production change to `aitask_fold_mark.sh:820`.** The bare `trap` there
+    is correct: `lib/txn_snapshot.sh:205-212` scopes the must-chain rule to a
+    trap installed *inside* the callback, and `:820` runs after
+    `registry_lock_release` already cleared EXIT. `registry_lock_release`'s
+    dir/token early-return (`registry_lock.sh:148`) is unreachable from the fold
+    path — nothing in `_fold_attach_txn`'s call tree takes a nested registry
+    lock — so converting it to `txn_chain_exit_trap` would be a no-op on every
+    reachable path.
+  - **Links removed rather than retargeted.** t1687 (`Implementing`) explicitly
+    reserves the decision on the missing `ait artifact` / `ait attach`
+    command-reference page. Retargeting at `task-format.md:78`
+    (`#nested-fields-artifacts-and-attachments`) was rejected: that section
+    documents the frontmatter shape, not the CLI surface, so it would have been
+    a second mis-targeted pointer.
+  - **The false positive is corrected in three places, not one.** The task
+    asserted the absent re-arm in `## Upstream defect`, `## Diagnostic context`
+    and `## Suggested fix`; correcting only the first would have left a reader
+    able to follow the survivors and re-spawn the same task.
+- **Upstream defects identified:** None

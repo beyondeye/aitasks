@@ -27,55 +27,78 @@ Spawned from t1698 during Step 8b review.
 
 ## Upstream defect
 
-- `aitask_fold_mark.sh:~800 — fold has NO EXIT trap after its Step 5b attach
-  transaction returns.` `registry_lock_release` runs `trap - EXIT`, clearing the
-  `_fold_abort_cleanup` handler that `_fold_attach_txn` chained on. The shipped
-  Step 6 arms all call `_fold_rollback` explicitly, so no current path is broken,
-  but a `die` anywhere between Step 5b and those arms would abort with no
-  rollback. Pre-existing (t1668).
+- **DISPROVED (t1707, 2026-09-08)** — ~~`aitask_fold_mark.sh:~800 — fold has NO
+  EXIT trap after its Step 5b attach transaction returns.`~~ The re-arm is
+  present, and always was: `aitask_fold_mark.sh:820`
+  (`trap '_fold_abort_cleanup' EXIT`) runs one line after
+  `with_attach_lock _fold_attach_txn || _fold_attach_rc=$?`. `git log -L 818,822`
+  attributes it to `b1d6d7215` — **t1668 itself**, the task it was blamed on —
+  and t1668's own plan (`aiplans/archived/p1668_…:292`) specifies it verbatim.
+  The supporting claim that "the shipped Step 6 arms all call `_fold_rollback`
+  explicitly" is **also wrong**: `:1025` and `:1051` call no rollback at all and
+  depend on the trap; `:1050`'s shipped comment says so outright ("the EXIT trap
+  performs the rollback"), which makes those two arms positive evidence that the
+  re-arm is present and load-bearing. Settled empirically, not by reading:
+  `test_negative_control_attach_rearm_removed` in `tests/test_fold_mark.sh`
+  deletes `:820` from the fixture copy and the same scenario then rolls back
+  nothing — with the line present, all three defect assertions flip. No
+  production code change was warranted.
 - `website/content/docs/skills/aitask-trail.md:85 — cross-reference points at
   /docs/commands/task-management for `ait artifact`, which contains no
   attach/artifact content.` A dead-end pointer rather than a dead link, so
-  `check_links.py` passes it. Pre-existing.
+  `check_links.py` passes it. Pre-existing. **Confirmed — and a second instance
+  of the same class found at `website/content/docs/development/task-format.md:98`**
+  (points at `/docs/workflows/implementation-trails`, equally artifact-free).
+  Both links removed by t1707; the re-link was handed to **t1687**, which owns
+  the missing `ait artifact` / `ait attach` command-reference page.
 
 ## Diagnostic context
 
 Surfaced while t1698 promoted `aitask_fold_mark.sh`'s private snapshot facility
 to `lib/txn_snapshot.sh` and had to reason carefully about EXIT-trap ownership.
 
-The relevant mechanics, established there and worth not re-deriving:
+The lock mechanics below are accurate and worth not re-deriving. Only the
+conclusion drawn from them was wrong.
 
 - `registry_lock_acquire` (`lib/registry_lock.sh:130`) installs
   `trap "registry_lock_release '<dir>'" EXIT`, **overwriting** whatever the
-  caller had; `registry_lock_release` then clears EXIT outright with `trap -
-  EXIT`.
+  caller had; `registry_lock_release` (`:153`) then clears EXIT outright.
 - So a trap installed *before* `with_attach_lock` is destroyed by the acquire,
   and one chained *inside* the callback is destroyed by the release. Fold does
-  both: it arms `_fold_abort_cleanup` at top level (line ~533), `_fold_attach_txn`
-  re-chains it over the lock handler, and the release then clears the whole
-  chain when Step 5b returns successfully.
-- From that point to Step 6, fold is running an armed transaction
-  (`_fold_txn_active=true`) with no handler to fire it.
+  both: it arms `_fold_abort_cleanup` at top level (`:518`, not `~533`), and
+  `_fold_attach_txn` re-chains it over the lock handler (`:776`).
 
-Not reachable by any shipped path today — every Step 6 failure arm calls
-`_fold_rollback` by hand — which is why t1698 deliberately left it alone rather
-than fixing it opportunistically inside an unrelated change.
+**Where the original reading went wrong.** It stopped there. Fold re-arms the
+trap immediately after the lock is released — `aitask_fold_mark.sh:820`, 44
+lines below the chain site, carrying a comment that explains this exact hazard.
+From Step 5b's return through Step 6, the transaction is armed *and* handled.
 
-The second defect is a documentation cross-reference noticed while updating the
-same page for t1698's user-visible behaviour change.
+The one window in which the transaction is armed without a handler is
+`registry_lock.sh:153` → `fold_mark:820`. It spans two variable clears, two
+`return`s and one assignment: no `die` is reachable inside it, and errexit
+cannot fire there because `:819`'s `|| _fold_attach_rc=$?` suppresses it across
+the whole wrapper call.
 
 ## Suggested fix
 
-Re-arm the trap after `with_attach_lock` returns in Step 5b — the same
-`txn_chain_exit_trap '_fold_abort_cleanup'` call the transaction already uses,
-issued once more after the lock is released. Verify with a fault injected
-between Step 5b and Step 6 (no shipped path reaches there, so the test needs an
-injected `die`, and should say so in its comment rather than reading as a
-production scenario).
+~~Re-arm the trap after `with_attach_lock` returns in Step 5b.~~ **Already
+shipped at `aitask_fold_mark.sh:820` since t1668 — nothing to implement.**
 
-For the doc pointer: either give `ait attach` / `ait artifact` a section in
-`website/content/docs/commands/task-management.md` (there is currently none) or
-retarget the link.
+The shipped line is a bare `trap`, not `txn_chain_exit_trap`, and that is
+correct: `lib/txn_snapshot.sh:205-212` scopes the must-chain rule to a trap
+installed *inside* the callback, whereas `:820` runs after
+`registry_lock_release` has already cleared EXIT. (`registry_lock_release`'s
+dir/token early-return at `:148` is unreachable from the fold path — nothing in
+`_fold_attach_txn`'s call tree takes a nested registry lock.)
+
+What t1707 delivered instead is the missing negative control,
+`test_negative_control_attach_rearm_removed`, so the invariant is now pinned by
+an executable guard rather than incidentally covered.
+
+For the doc pointer: both dead-end links were removed, keeping the literal
+`ait artifact` text unlinked. Writing an `ait artifact` / `ait attach`
+command-reference page and re-linking to it belongs to **t1687**, which owns
+that decision and has been notified.
 
 ## Inbox
 <!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
