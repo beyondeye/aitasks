@@ -114,7 +114,9 @@ Options:
                         group differs at commit time the group is skipped. Give
                         one --expect-path per file, percent-encoded -- NOT a
                         comma-separated list, since a comma is a legal character
-                        in a path.
+                        in a path. States ONE task's set, so it cannot be
+                        combined with several --commit-for-task ids; run one
+                        task per invocation.
   --require-waiting     With --commit-for-task, refuse unless the holding
                         session is parked on a prompt. Fails CLOSED: if the pane
                         cannot be probed the group is skipped.
@@ -210,6 +212,24 @@ while [[ $# -gt 0 ]]; do
         *) die "Unknown option: $1. Use --help for usage." ;;
     esac
 done
+
+# --expect-path states ONE task's dirty set, and _commit_group compares it to
+# each group in turn. With two ids in --commit-for-task, task 10 sees task 20's
+# declared paths as missing from its own group and vice versa, so BOTH are
+# refused as commit_scope_changed and the combined form silently commits
+# nothing. Rather than grow a per-id expectation syntax for a case the caller
+# can express as two runs, refuse the ambiguous combination outright.
+if [[ "$EXPECT_PATHS_SET" == true ]]; then
+    if (( ${#COMMIT_FOR_TASKS[@]} == 0 )); then
+        die "--expect-path is only meaningful with --commit-for-task."
+    fi
+    if (( ${#COMMIT_FOR_TASKS[@]} > 1 )); then
+        die "--expect-path states a single task's dirty set, so it cannot be combined with more than one --commit-for-task id (got: ${COMMIT_FOR_TASKS[*]}). Run one task per invocation."
+    fi
+fi
+if [[ "$REQUIRE_WAITING" == true ]] && (( ${#COMMIT_FOR_TASKS[@]} == 0 )); then
+    die "--require-waiting is only meaningful with --commit-for-task."
+fi
 
 # --- Portable timeout wrapper ---
 # Uses coreutils timeout if available, falls back to background process watchdog.
@@ -665,6 +685,23 @@ _self_email() {
 
 _holder_class() {
     local tid="$1" lhost lemail me cur
+
+    # An UNREADABLE snapshot is not evidence of anything, least of all that the
+    # task is unlocked. With LOCKS_UNAVAILABLE every LOCK_* entry is empty, so
+    # the `none` shortcut below would fire and put a false fact on a wire record
+    # that advertises itself as the COMPLETE snapshot -- a consumer reading
+    # holder=none could reasonably offer "nobody holds this, commit it", which
+    # is exactly what the locks_unavailable branch exists to prevent.
+    #
+    # LOCKS_UNINITIALIZED is different and stays readable: there is no lock
+    # branch, so nothing IS locked and `none` is true. An empty LOCKS_STATUS
+    # (no snapshot taken yet) is unreadable too, which is the fail-safe answer.
+    #
+    # Deliberately NOT conditioned on --assume-unlocked. That flag is an
+    # availability-over-safety call about whether to COMMIT; it does not make
+    # the unread lock branch readable, and this field states what is known.
+    _locks_readable || { printf 'unverified'; return 0; }
+
     lhost="${LOCK_HOST[$tid]:-}"
     [[ -z "$lhost" ]] && { printf 'none'; return 0; }
 

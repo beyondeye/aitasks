@@ -885,6 +885,84 @@ fi
 
 echo ""
 
+echo "--- Test 36: an unreadable lock branch reports holder=unverified, never none ---"
+# `none` is a CLOSED value meaning "unlocked". Emitting it here would put a
+# false fact on a record that advertises itself as the complete snapshot: this
+# branch exists precisely because the lock branch could NOT be read, so whether
+# the task is held is unknown. A consumer reading holder=none could reasonably
+# offer "nobody holds this, commit it".
+TMP36="$(setup_repo)"
+(cd "$TMP36/local" && printf 'edit10\n' >> .aitask-data/aitasks/t10_alpha.md \
+                   && printf '#!/usr/bin/env bash\nexit 1\n' > .aitask-scripts/aitask_lock.sh)
+# The incoming commit touches the same path, so the gate blocks and a record is
+# actually emitted (with nothing committable, local_ahead stays 0 and the run
+# would otherwise fast-forward without deferring at all).
+rm -rf "$TMP36/pc2"
+git clone -q --branch aitask-data "$TMP36/remote.git" "$TMP36/pc2" 2>/dev/null
+(
+    cd "$TMP36/pc2"
+    git config user.email pc2@test.com; git config user.name PC2
+    git config commit.gpgsign false
+    printf 'theirs\n' >> aitasks/t10_alpha.md
+    git add -A && git commit -q -m "pc2: touch t10"
+    git push -q origin aitask-data 2>/dev/null
+) >/dev/null 2>&1
+(cd "$TMP36/local" && git -C .aitask-data fetch -q origin 2>/dev/null)
+OUT36="$(run_sync "$TMP36")"
+ROW36="$(printf '%s\n' "$OUT36" | grep -m1 '^DEFERRED_FILE:locks_unavailable')"
+assert_contains "an unreadable snapshot yields unverified" "|unverified|" "$ROW36"
+assert_not_contains "and never claims the task is unlocked" "|none|" "$ROW36"
+
+# Parsed, not just pattern-matched: the field has to survive the real consumer.
+HOLDER36="$(printf '%s' "$OUT36" | python3 -c '
+import sys
+sys.path.insert(0, "'"$PROJECT_DIR"'/.aitask-scripts/lib")
+from sync_action_runner import parse_sync_output
+r = parse_sync_output(sys.stdin.read())
+print(r.deferred_files[0].holder if r.deferred_files else "NO_RECORDS")
+')"
+assert_eq "the parsed record carries unverified" "unverified" "$HOLDER36"
+
+echo "--- Test 37: --expect-path refuses an ambiguous multi-task invocation ---"
+# --expect-path states ONE task's dirty set and _commit_group compares it to
+# each group in turn, so with two ids each task sees the other's paths as
+# missing and BOTH are refused -- the combined form would silently commit
+# nothing while appearing to work.
+TMP37="$(setup_repo)"
+plant_lock "$TMP37" 10 "$(lock_yaml_live 10)"
+plant_lock "$TMP37" 20 "$(lock_yaml_live 20)"
+set_userconfig_email "$TMP37" other@x.com
+(cd "$TMP37/local" && printf 'edit10\n' >> .aitask-data/aitasks/t10_alpha.md \
+                   && printf 'edit20\n' >> .aitask-data/aitasks/t20_beta.md)
+run_sync "$TMP37" --commit-for-task 10,20 \
+    --expect-path "aitasks/t10_alpha.md" --expect-path "aitasks/t20_beta.md" >/dev/null
+assert_contains "the ambiguous combination is refused up front" \
+    "cannot be combined with more than one --commit-for-task id" "$(sync_err "$TMP37")"
+assert_not_contains "and nothing is committed" "Auto-commit t" "$(data_log "$TMP37")"
+
+echo "--- Test 38: control - one task at a time still commits with --expect-path ---"
+# Without this, Test 37 would also pass against a build where --expect-path
+# refused everything.
+TMP38="$(setup_repo)"
+plant_lock "$TMP38" 10 "$(lock_yaml_live 10)"
+set_userconfig_email "$TMP38" other@x.com
+(cd "$TMP38/local" && printf 'edit10\n' >> .aitask-data/aitasks/t10_alpha.md)
+run_sync "$TMP38" --commit-for-task 10 --expect-path "aitasks/t10_alpha.md" >/dev/null
+assert_contains "a single-task invocation is unaffected" \
+    "ait: Auto-commit t10 task data before sync" "$(data_log "$TMP38")"
+
+echo "--- Test 39: the two flags are refused without --commit-for-task ---"
+TMP39="$(setup_repo)"
+(cd "$TMP39/local" && printf 'edit10\n' >> .aitask-data/aitasks/t10_alpha.md)
+run_sync "$TMP39" --expect-path "aitasks/t10_alpha.md" >/dev/null
+assert_contains "--expect-path alone is refused" \
+    "only meaningful with --commit-for-task" "$(sync_err "$TMP39")"
+run_sync "$TMP39" --require-waiting >/dev/null
+assert_contains "--require-waiting alone is refused" \
+    "only meaningful with --commit-for-task" "$(sync_err "$TMP39")"
+
+echo ""
+
 echo "==============================="
 echo "Results: $PASS passed, $FAIL failed, $TOTAL total"
 if [[ "$FAIL" -eq 0 ]]; then
