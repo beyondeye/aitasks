@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1661
 followup_kind: risk_mitigation
+implemented_with: claudecode/opus5
 created_at: 2026-09-09 10:31
-updated_at: 2026-09-09 11:27
+updated_at: 2026-09-09 13:05
 ---
 
 ## Origin
@@ -78,3 +79,8 @@ establishes that they are the only two.
   moot and this task is purely the generalized detector.
 - t1707's plan (`aiplans/archived/p1707_*.md`) records the full analysis of why
   the existing checks cannot see this class.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-09T10:05:28Z status=pass attempt=1 type=human
