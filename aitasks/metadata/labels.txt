@@ -66,6 +66,7 @@ execution_profiles
 fold
 framework
 frontmatter
+frozen
 gates
 geminicli
 git
