@@ -447,12 +447,47 @@ def _agent_panes_for(session: str) -> list:
     return monitor.discover_panes()
 
 
+def freeze_all_eligible() -> list:
+    """Every pane `freeze --all` would act on, in the order it would act.
+
+    THE eligibility rule, stated once. `freeze_all` below and the `--dry-run`
+    listing both read it, so a UI that shows a confirmation count cannot drift
+    from what confirming actually does.
+
+    Note how much wider this is than any monitor's view: it spans EVERY aitasks
+    session on the machine, and it does not exclude parked agents — parking is a
+    concept a TUI publishes to its own `TmuxMonitor`, and the one built here has
+    no parked set. A caller counting its own snapshots would understate a
+    destructive operation.
+
+    A session that vanishes mid-scan is skipped rather than raising: the batch
+    must not be abandoned because one session went away.
+    """
+    eligible = []
+    for session in discover_aitasks_sessions():
+        try:
+            panes = _agent_panes_for(session.session)
+        except Exception:          # a session that vanished mid-scan
+            continue
+        for pane in panes:
+            if pane.category != PaneCategory.AGENT:
+                continue
+            if pane.frozen_record:
+                continue          # already a stand-in
+            eligible.append(pane)
+    return eligible
+
+
 def freeze_all() -> list[FreezeResult]:
     """Freeze every live agent pane on every aitasks session.
 
     Sequential: each freeze is one `respawn-pane`, and parallel respawns are not
     worth the tmux churn. Per-pane failures are reported and the batch
     continues — one unfreezable agent must not strand the rest.
+
+    A session that vanishes mid-scan is reported here (unlike in
+    :func:`freeze_all_eligible`, which is a listing): the caller asked for a
+    mutation and is owed the news that one session's worth did not happen.
     """
     results: list[FreezeResult] = []
     for session in discover_aitasks_sessions():
@@ -1117,14 +1152,45 @@ def main(argv: list[str] | None = None) -> int:
     verb, rest = argv[0], argv[1:]
 
     if verb == "freeze":
-        if rest and rest[0] == "--all":
-            results = freeze_all()
-        elif rest:
-            results = [freeze_pane(rest[0])]
-        else:
-            print("usage: agent_freeze.py freeze <pane_id>|--all",
-                  file=sys.stderr)
+        # VALIDATE THE WHOLE GRAMMAR BEFORE ENUMERATING OR MUTATING ANYTHING.
+        #
+        # This used to dispatch on `rest[0]` alone and silently ignore every
+        # trailing argument, which made `freeze --all --dry-rnu` a REAL freeze of
+        # every agent on the machine and `freeze <pane> --dry-run` a real freeze
+        # of that pane. Nothing here rejected them: the only thing that did was
+        # the wrapper's `[ $# -eq 2 ]` arity gate, and `--dry-run` needs that gate
+        # relaxed. So the rejection has to move here, and it has to cover the
+        # whole grammar rather than just recognising one new spelling.
+        #
+        # Supported, exhaustively:
+        #     freeze --all
+        #     freeze --all --dry-run
+        #     freeze <pane_id>            (never `-`-prefixed)
+        args = list(rest)
+        dry_run = False
+        if args and args[-1] == "--dry-run":
+            dry_run = True
+            args = args[:-1]
+        target = args[0] if len(args) == 1 else None
+        if (target is None
+                or (target != "--all" and target.startswith("-"))
+                or (dry_run and target != "--all")):
+            print("usage: agent_freeze.py freeze <pane_id> | --all "
+                  "[--dry-run]", file=sys.stderr)
             return 2
+
+        if dry_run:
+            # Reuses `freeze_all`'s OWN eligibility rule rather than restating
+            # it, so a caller's confirmation count can never drift from what the
+            # button actually does.
+            eligible = freeze_all_eligible()
+            for pane in eligible:
+                print(f"WOULD_FREEZE:{pane.pane_id}|{pane.session_name}"
+                      f"|{pane.window_name}")
+            print(f"FREEZE_ELIGIBLE:{len(eligible)}")
+            return 0
+
+        results = freeze_all() if target == "--all" else [freeze_pane(target)]
         for result in results:
             print(result.line)
         # An empty batch is a success: there was nothing to freeze.
