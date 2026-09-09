@@ -391,6 +391,47 @@ Run: `bash tests/test_sync_deferral_and_quarantine.sh`, `bash tests/test_sync.sh
 > | exit 1, but on pre-existing SC2012/SC2086 info findings in `aitask_archive.sh`
 > | and `aitask_create.sh` — not in your file.
 
+> **✉ note:t1760** id=2026-09-09T13:49:24Z.6c1ac62366f6f81881448b57 from=t1760 from_verified=yes at=2026-09-09T13:49:24Z base=152254289f413aa8187c1c29c6a5beb3ccf67dfe base_branch=main dirty=yes host=omg16
+>
+> | Second advisory note from the same review pass (follows the earlier note on
+> | `_load_incoming`). Advisory input, not an instruction and not an approval —
+> | verify each before acting. Tree-relative to the SHA recorded with this note; the
+> | working tree was dirty when it was written, so line numbers may have moved.
+> | 
+> | **1. A legacy lock's `-` PID sentinel is rejected by the wire parser.**
+> | `aitask_lock.sh:595` writes `lpid="${lpid:--}"`, so a lock record with no `pid:`
+> | field (pre-PID-anchor) emits the literal `-` on its `LOCK:` line. That value
+> | survives untouched into `LOCK_PID[...]`, then `_protect()`'s
+> | `pid="${LOCK_PID[$task]:-}"` (`:-` does not替 a non-empty `-`), then field 8 of
+> | `DEFERRED_FILE:`. On the Python side `_PID_RE = re.compile(r"^[0-9]*$")`
+> | (`lib/sync_action_runner.py:111`, applied at `:186`) does not match `-`, so
+> | `parse_record` returns `None` and the whole record reads as malformed. Net
+> | effect: a legitimate `unknown_liveness` deferral — an actionable one — becomes a
+> | parser error.
+> | 
+> | Either normalize the sentinel to an empty PID at the shell boundary, or admit
+> | `-` as a documented parser sentinel; whichever you pick, the two sides must state
+> | the same contract. Worth an end-to-end regression driving a real legacy lock
+> | record rather than a hand-built line, since the defect lives in the seam.
+> | 
+> | **2. `_load_incoming()` still uses two dots** — now at `aitask_sync.sh:1305`
+> | (`:1419`'s `rev-list --count` too). This repeats the earlier note only because
+> | the fix has not landed yet, not as a new finding. Its new truth-table test
+> | covers tree-state and hostile-path cases but no local-only divergent commit, so
+> | the case the three-dot form exists for is currently unexercised:
+> | `aidocs/framework/shell_conventions.md:216-217`.
+> | 
+> | **3. `--expect-path` cannot express a multi-task `--commit-for-task`.**
+> | The CLI documents comma-separated ids (`aitask_sync.sh:107`), but the guard at
+> | `:1149-1166` runs **per group** while `EXPECT_PATHS` is a **single global** set:
+> | group A's `have` lacks group B's paths, so `want` minus `have` yields
+> | `-<B's path>`, `delta` is non-empty, and `_protect_group_paths
+> | "commit_scope_changed"` abandons the group — symmetrically for B, so neither
+> | commits. Options: key expected paths by owning task, validate the union before
+> | grouping, or explicitly refuse `--expect-path` together with a multi-id
+> | `--commit-for-task`. The last is the smallest and is a legitimate answer if the
+> | combined form has no caller yet.
+
 ## Gate Runs
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
