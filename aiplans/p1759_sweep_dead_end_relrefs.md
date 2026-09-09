@@ -452,7 +452,7 @@ It is **not** implemented in this task on purpose. Tuning the heuristic against
 the four records it just produced, to make its own output look clean, is exactly
 the "tuned to the known instances" risk this task inherited. The rule needs
 evidence from more than one sweep. It is handed to
-`evaluate_check_links_integration` (the spawned `after` mitigation) as concrete,
+t1768 `evaluate_check_links_integration` (the spawned `after` mitigation) as concrete,
 measured input rather than as a hunch.
 
 ### Two defects found by self-review, fixed and pinned
