@@ -505,3 +505,121 @@ follow-up task at Step 8d.
 ## Step 9
 
 Standard post-implementation; parent t1725 archives after the last child.
+
+## Final Implementation Notes
+
+**Delivered:** `assert_task_data_writable()` (`lib/task_utils.sh`) called at **16
+sites across the 9 guarded scripts**; `AIT_COMMIT_SCOPED_ERR` plumbed through
+`task_git_commit_scoped`; all four `create` commit-failure sites converted from
+`die` to the recoverable branch. `tests/test_task_data_writer_guard.sh`, 148
+assertions, green.
+
+**Deviations from the plan, both deliberate:**
+
+1. **Four commit-failure sites, not two.** The plan named the `--batch --commit`
+   pair (`aitask_create.sh:2282`, `:2319`). `finalize_draft` has the *identical*
+   defect at `:895` / `:949` — it claims an id, deletes the draft, writes the
+   file, then `die`s on a failed commit — and it is the most literal reading of
+   AC5's "fails after the draft is written". Fixing two of four would have left a
+   known hole in the delivered fix, so all four now route through one shared
+   `warn_task_written_not_committed` helper.
+2. **`tests/test_migrate_archives.sh` gained a fixture line.** Its scaffold copies
+   only `aitask_migrate_archives.sh` + `archive_utils.sh`, so the new
+   `source lib/task_utils.sh` killed the script at startup (the source-on-startup
+   ↔ test-scaffold rule, `shell_conventions.md`). `test_plan_externalize.sh` was
+   unaffected — it already had task_utils in scope. 28/28 after.
+
+**Two defects caught in self-review of the diff, after the tests were green:**
+
+- **`git add`'s stderr was being re-emitted unconditionally.** It had been fully
+  suppressed (`2>&1 >/dev/null || true`), so re-emitting would have started
+  surfacing previously silent warnings for all four callers of the shared helper.
+  Now recorded *and* echoed only when `add` actually fails; dropped on success,
+  exactly as before.
+- **The test seam was gated on an env var alone.** `aitask_sync.sh`'s
+  `_sync_test_seam` (`:275-287`) gates on the variable **and** an on-disk marker,
+  and warns loudly — because a stray or inherited variable must never be able to
+  `eval` inside a helper that runs in four production scripts. The seam now
+  matches that two-gate shape (`.ait_commit_scoped_test_seams`), and the test
+  asserts both that it planted the marker and that `TEST SEAM ACTIVE` appeared,
+  so an inert seam cannot make E2 pass for the wrong reason.
+
+**Two blocking review concerns, both confirmed and fixed:**
+
+1. **Unchecked `mktemp` in `task_git_commit_scoped`.** The reported mechanism was
+   a `set -e` abort after the id was claimed. The *measured* mechanism is
+   subtler and still harmful: every caller invokes the helper as
+   `… || crc=$?`, and bash suppresses `set -e` inside a function called in an
+   AND-OR list, so it does not abort — instead `_ait_cs_errf` is empty, `2>""` is
+   an ambiguous redirect, **the commit never runs, and a perfectly healthy commit
+   is reported as failed**, leaving the file uncommitted with a spurious "NOT
+   committed". Fixed by allocating into `_ait_cs_errf` with `2>/dev/null || …`
+   and routing both git calls through `_ait_cs_sink="${_ait_cs_errf:-/dev/null}"`
+   — one code path, and the `rm` is guarded on `_ait_cs_errf` so it can never
+   target `/dev/null`. Pinned by D3 (function level, both the commit-succeeds and
+   commit-fails cases).
+2. **The table did not cover every guarded entry point**, despite the plan saying
+   it must. Added rows for `run_interactive_mode`, `finalize_draft` (guard), and
+   `zip_old unpack`, plus `finalize_draft`'s own parent and child
+   commit-failure branches (D2) with its own lock-release assertion. **The
+   interactive guard also moved** to the first statement of
+   `run_interactive_mode`, ahead of the `fzf` dependency check: it refuses before
+   making the user pick a task and fill in a field, and that is what makes the
+   entry point reachable headlessly for the table.
+
+**Audited, not guarded** (recorded as table rows, not oversights):
+`aitask_pick_own.sh`, `aitask_usage_update.sh`, `aitask_verified_update.sh`,
+`aitask_add_model.sh` — metadata-only, and `pick_own` runs on every pick;
+`aitasks/new/` drafts (gitignored, no id, never committed); recovery paths
+(`aitask_metadata_commit.sh --preflight`, `aitask_sync.sh`'s wedge detection and
+quarantine); `aitask_claim_id.sh` / `aitask_lock.sh` (orphan-branch plumbing, no
+worktree file). `--dry-run` is exempt in `archive`, `zip_old` and
+`migrate_archives`, which are read-only under it.
+
+**Mutation testing — every part independently falsified.** Three mutants passed
+on the first attempt and were *test* defects, not proof of correctness:
+
+| mutant | kills | note |
+|---|---|---|
+| guard neutered | 48 (all of A + F6) | — |
+| `die` restored at all 4 sites | 11 | mis-applied first: finalize sites are 12-space indented, batch 16-space, so only the untested pair was patched. **Verify the mutation landed.** |
+| `AIT_COMMIT_SCOPED_ERR` removed | 5 | survived first: the helper re-emits git's stderr anyway, so asserting `index.lock` anywhere in the capture was **vacuous**. Now asserts the composed warning *line*. |
+| child-lock release removed | 1 | survived first: a lock leaked by an exited process is reclaimed by `stale_lock`'s reaper, so "the next child creates fine" proves nothing. Now asserts the lock **directory** is gone. |
+| `task_git` → `_ait_data_git` | 3 (E2 only) | survived first: the seam sat *before* the explicit preflight, so E2 tested that assert rather than `task_git`'s own. Seam moved after it. |
+| helper preflights removed | 1 (E1b only) | E1 covers `create`'s guard, which fires long before the helper; E1b was added for the helper itself. |
+| unchecked `mktemp` restored | 1 (D3a) | survived first: the mutant kept the `:-/dev/null` fallback, i.e. the part that makes it safe. Rebuilt to the true pre-fix form. |
+| interactive-entry guard removed | 1 | — |
+
+**`message_preemption_baseline` satisfied:** `test_task_git` 105, `test_task_push`
+346, `test_task_commit_scoped` 63, `test_sync_deferral_and_quarantine` 52 — all
+identical before and after. No existing wedge message was pre-empted.
+
+**Upstream defects identified:**
+
+- `aitask_create.sh:1046` — `claim_parent_id_once()` allocates `claim_stderr` with
+  an unchecked `mktemp`, and the failure is invisible because the caller runs it
+  inside a command substitution (`claimed_id=$(claim_unique_parent_id …)`), where
+  a `die` exits only the subshell. With an unusable `TMPDIR` the id claim fails,
+  create carries on with an **empty** id, and writes `aitasks/t_<name>.md` —
+  a task file with no id at all — then exits 0 reporting `Created:`. Same
+  unchecked-`mktemp` class as the defect fixed here, and the same
+  die-inside-`$( )` swallow this plan documents; found by the failing-TMPDIR test
+  the review asked for. Out of scope for AC4/AC5 (the guard and the retry path),
+  and it is why D3 is driven at function level rather than through `create`.
+
+**Issues encountered:**
+
+- `tests/test_draft_finalize.sh:282` is **flaky, pre-existing**: it derives ids
+  with `ls … | grep -oE 't[0-9]+'` over full paths, so a `mktemp -d` directory
+  whose name happens to contain `t<digits>` inflates the unique-id count and the
+  "All task IDs are unique" assertion fails. Seen once; three consecutive re-runs
+  green. A test defect rather than a product one, so it is recorded here rather
+  than as an upstream defect.
+
+**Sweep:** the four above plus `test_create_silent_stdout` 14,
+`test_update_check` 7, `test_claim_id` 54, `test_gate_active_gates` 114,
+`test_draft_finalize` 38, `test_note_append` 121, `test_note_read_receipts` 74,
+`test_note_section_order` 20, `test_plan_externalize` 264,
+`test_migrate_archives` 28, `test_gate_record` 16, `test_gate_recorded_pass` 32,
+`test_zip_old` 72, `test_verification_followup` 42 (+12 anchor), `test_archive_*`
+86. shellcheck: zero new warnings (task_utils 8→8, update 1→1 pre-existing).
