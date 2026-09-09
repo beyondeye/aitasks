@@ -3,12 +3,13 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [tmux, codeagent, session_persistence]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1705
 followup_kind: review_finding
 created_at: 2026-09-09 19:53
-updated_at: 2026-09-09 19:53
+updated_at: 2026-09-09 21:44
 ---
 
 ## Symptom
