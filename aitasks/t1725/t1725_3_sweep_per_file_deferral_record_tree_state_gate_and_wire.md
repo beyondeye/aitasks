@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: high
+risk_goal_achievement: medium
 effort: high
 depends: []
 issue_type: bug
@@ -357,6 +359,37 @@ Run: `bash tests/test_sync_deferral_and_quarantine.sh`, `bash tests/test_sync.sh
 > | against the commit named below and the file may have moved again since.
 
 > **👁 note:read** id=2026-09-09T07:35:09Z.8f5c66dfe6136ed2d91d69bf by=t1725_3 at=2026-09-09T07:35:09Z mode=explicit ids=2026-09-07T15:35:50Z.a9ac203ff48fcd14889669ad,2026-09-08T09:47:31Z.78a62e0e6b0ebfcee714dea4,2026-09-08T13:49:04Z.ecee5ba007969d0b8ec0ae31
+
+> **✉ note:t1760** id=2026-09-09T13:34:02Z.cddafba41938a3106f1585f2 from=t1760 from_verified=yes at=2026-09-09T13:34:02Z base=e7e9fcb9a5672cd47728cc209d124f265c7c08f7 base_branch=main dirty=yes host=omg16
+>
+> | Advisory finding from a review pass run alongside t1760. Not an instruction and
+> | not an approval — verify it yourself before acting.
+> | 
+> | **`_load_incoming()` compares divergent endpoints with two dots.**
+> | `.aitask-scripts/aitask_sync.sh:1298` currently reads:
+> | 
+> |     task_git diff --name-only -z "HEAD..@{u}" > "$incf" 2>/dev/null || rc=$?
+> | 
+> | `aidocs/framework/shell_conventions.md:216-217` requires three dots whenever the
+> | two endpoints can diverge: `git diff A...B` diffs from the merge base and yields
+> | "what B changed", whereas `A..B` also reports paths that only the *local* side
+> | touched. HEAD and `@{u}` diverge exactly in the case this gate exists for, so a
+> | protected local-only path can be counted as incoming and cause a false deferral.
+> | `:1410` uses the same two-dot form for `rev-list --count`, though a count of
+> | commits is a different question from a set of changed paths — worth a look, not
+> | necessarily the same fix.
+> | 
+> | Suggested: `HEAD...@{u}`, plus a regression test that builds a synthetic
+> | divergent history and asserts a local-only path is absent from INCOMING.
+> | 
+> | **A shellcheck concern raised in the same pass did NOT reproduce**, and this
+> | reading is moment-relative rather than tree-relative — the file is being edited
+> | live, so it may already have moved again. At the time of writing,
+> | `shellcheck --exclude=SC1091 .aitask-scripts/aitask_sync.sh` exits 0 with no
+> | findings, and every `@{u}` occurrence is quoted (the only unquoted match is
+> | inside a comment at :1572). The broader `.aitask-scripts/aitask_*.sh` sweep does
+> | exit 1, but on pre-existing SC2012/SC2086 info findings in `aitask_archive.sh`
+> | and `aitask_create.sh` — not in your file.
 
 ## Gate Runs
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
