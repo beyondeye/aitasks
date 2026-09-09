@@ -6,6 +6,10 @@ issue_type: test
 status: Implementing
 labels: [tmux, tmux_destructive, codeagent, session_persistence, test_infrastructure, testing]
 gates: [risk_evaluated]
+active_gates: [risk_evaluated]
+active_gates_filtered: []
+active_gates_profile: fast
+active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 plan_approved_at: 2026-09-09 19:31
 assigned_to: dario-e@beyond-eye.com
 anchor: 1705
