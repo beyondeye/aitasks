@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: high
 effort: medium
 depends: [t1705_7]
 issue_type: test
@@ -268,3 +270,5 @@ bash tests/test_no_raw_tmux.sh
 > Note: deferred
 
 > **✅ gate:plan_approved** run=2026-09-09T16:35:13Z status=pass attempt=2 type=human
+
+> **✅ gate:review_approved** run=2026-09-09T18:27:07Z status=pass attempt=1 type=human
