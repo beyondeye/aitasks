@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1705
+implemented_with: claudecode/opus5
 created_at: 2026-09-04 16:06
-updated_at: 2026-09-09 10:04
+updated_at: 2026-09-09 12:18
 ---
 
 ## Context
@@ -188,3 +189,8 @@ from inside an agent pane.
 > | `-L ait` server is alive). Tracked as a t1705_11 checklist item.
 
 > **👁 note:read** id=2026-09-09T07:03:59Z.dbd5412d903cdb24a48bc9b6 by=t1705_7 at=2026-09-09T07:03:59Z mode=explicit ids=2026-09-09T06:09:42Z.a4ee0adf046aa754e79a9db6
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-09T09:18:53Z status=pass attempt=1 type=human
