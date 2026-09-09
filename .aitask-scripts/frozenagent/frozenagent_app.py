@@ -870,61 +870,14 @@ class FrozenAgentApp(TuiSwitcherMixin, ShortcutsMixin, App):
                       elapsed: dict) -> None:
         elapsed["t"] += POLL_INTERVAL
         self._view.invalidate()
-        rec = self._view.by_id(rid)
-        if rec is None:
-            self._finish(rid, "record vanished", warn=True)
-            return
-
         prev_attempts, _prev_nonce = snapshot
-        if rec.restore_attempts <= prev_attempts:
-            # PRE-BEGIN. `last_error` here belongs to an EARLIER attempt — the
-            # store only clears it inside `restore-begin` — so reading it now
-            # would report this restore as failed before it started.
-            if elapsed["t"] >= DISPATCH_GRACE:
-                self._finish(
-                    rid,
-                    "restore did not start — run 'ait frozenagent' or reconcile",
-                    warn=True,
-                )
-            return
-
-        if rec.state == agent_sessions.STATE_LIVE:
-            if rec.ack == "liveness":
-                # A SUCCESS, and the only outcome a codex record can reach
-                # (amendment B4). Never styled as an error.
-                self._finish(rid, "restored, unverified — capture kept")
-            else:
-                self._finish(rid, "restored")
-            return
-
-        if rec.state == agent_sessions.STATE_FROZEN:
-            # Back at `frozen` after the attempt started: the restore failed and
-            # its stand-in is back.
-            #
-            # DO NOT match `last_error` against a freshly read `op_nonce`.
-            # Recovery (`restore-abort` -> `standin-respawned`) sets the state
-            # back to `frozen` and CLEARS the lease while PRESERVING the error,
-            # so by the time we see it `op_nonce` is "" and a prefix test can
-            # never match — which silently turned a failed restore into a
-            # timeout, reported as "restored elsewhere". The gate above is the
-            # correlation: `restore-begin` cleared `last_error` at the start of
-            # THIS attempt, so any non-empty value now belongs to it.
-            err = rec.last_error or ""
-            reason = err.split(":", 1)[1] if ":" in err else err
-            if reason:
-                self._finish(rid, f"restore failed: {reason} — capture kept",
-                             warn=True)
-            else:
-                self._finish(rid, "restore ended — capture kept", warn=True)
-            return
-
-        if elapsed["t"] >= DISPATCH_GRACE + 30.0:
-            # A timeout is NOT evidence of success. The record is still
-            # transitional (`restoring` / `aborting`) and only reconcile can
-            # settle it; say exactly that rather than implying it worked.
-            self._finish(rid,
-                         f"restore still {rec.state} after the grace — "
-                         "run reconcile; capture kept", warn=True)
+        done, note, warn = agent_sessions.restore_verdict(
+            self._view.by_id(rid), prev_attempts, elapsed["t"],
+            dispatch_grace=DISPATCH_GRACE,
+            settle_timeout=DISPATCH_GRACE + 30.0,
+        )
+        if done:
+            self._finish(rid, note, warn=warn)
 
     def action_drop(self) -> None:
         rid = self._selected_record_id()
@@ -959,16 +912,18 @@ class FrozenAgentApp(TuiSwitcherMixin, ShortcutsMixin, App):
         """
         elapsed["t"] += POLL_INTERVAL
         self._view.invalidate()
-        if self._view.by_id(rid) is None:
-            self._finish(rid, "dropped — capture removed")
-            if self._list_mode:
-                self._reload_list()
+        rec = self._view.by_id(rid)
+        gone = rec is None
+        done, note, warn = agent_sessions.drop_verdict(
+            rec, elapsed["t"], drop_grace=DROP_GRACE,
+        )
+        if not done:
             return
-        if elapsed["t"] >= DROP_GRACE:
-            # The coordinator's `DROP_FAILED:` / `DROP_REFUSED:` line goes to a
-            # detached `run-shell` job whose stdout we cannot read, so the
-            # record's continued existence is the observable.
-            self._finish(rid, "drop failed — record kept", warn=True)
+        self._finish(rid, note, warn=warn)
+        if gone and self._list_mode:
+            # List mode still owns its own repaint — the verdict says *what*
+            # happened, never what this app should redraw.
+            self._reload_list()
 
     def _set_note(self, rid: str, note: str) -> None:
         if rid == self._record_id and not self._list_mode:

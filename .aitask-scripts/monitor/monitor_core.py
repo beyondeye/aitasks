@@ -217,6 +217,12 @@ class ClassifyResult:
     #: an intentional skip", which must not be confused with the `None` result
     #: that means "the capture failed".
     parked: bool = False
+    #: True only for a pane that was deliberately NOT captured because it is a
+    #: frozen stand-in (t1705_7). Same "intentional skip, not a failed capture"
+    #: role as `parked` above, from a different source: the pane option
+    #: `@aitask_frozen`, carried in the discovery row, rather than an
+    #: App-published set. That difference is why no publish-down is needed.
+    frozen: bool = False
 
 
 def classify_content(
@@ -1198,6 +1204,30 @@ def _parked_snapshot(pane: "TmuxPaneInfo", now: float) -> "PaneSnapshot":
     )
 
 
+def _frozen_snapshot(pane: "TmuxPaneInfo", now: float) -> "PaneSnapshot":
+    """The minimal snapshot for a pane holding a frozen agent's stand-in.
+
+    The twin of :func:`_parked_snapshot`, and outside `_apply_bookkeeping` for
+    the identical reason: that method owns `_last_content` / `_last_change_time`
+    and must never see a pane with no content.
+
+    The stand-in is a viewer, not an agent — there is no agent process to have a
+    verdict about — so every observation-derived field is its "nothing was
+    observed" value. `frozen_record_id` is carried through from the pane option
+    so a renderer can reach the store record without a second tmux round-trip.
+    """
+    return PaneSnapshot(
+        pane=pane,
+        content="",
+        timestamp=now,
+        idle_seconds=0.0,
+        is_idle=False,
+        awaiting_input=False,
+        frozen=True,
+        frozen_record_id=pane.frozen_record,
+    )
+
+
 @dataclass
 class PaneSnapshot:
     pane: TmuxPaneInfo
@@ -1219,6 +1249,16 @@ class PaneSnapshot:
     #: the parked placeholder rather than a state dot; a frozen ● would read as
     #: a live verdict that is in fact arbitrarily stale.
     parked: bool = False
+    #: Frozen (t1705_7): this pane holds a frozen agent's stand-in viewer, so
+    #: there is no agent process to observe. Same "nothing was observed" reading
+    #: as `parked` above, and it takes PRECEDENCE over it — the two can be true
+    #: of one pane (frozen coexists with the parked mark), and the capture
+    #: partition resolves that in `capture_all_classified_async`.
+    frozen: bool = False
+    #: The store record id from `@aitask_frozen`, so a renderer can look the
+    #: record up (`SessionsView.by_id`) without re-reading the pane option.
+    #: Empty whenever `frozen` is False.
+    frozen_record_id: str = ""
 
 
 # %begin / %end / %error <epoch> <cmd_id> <flags>
@@ -1945,6 +1985,24 @@ class TmuxMonitor:
         return (
             pane.category == PaneCategory.AGENT
             and (pane.session_name, pane.window_name) in self._parked_agents
+        )
+
+    def _is_frozen_pane(self, pane: "TmuxPaneInfo") -> bool:
+        """Whether this pane holds a frozen agent's stand-in viewer (t1705_7).
+
+        No `set_frozen_agents` publish-down exists, and none is needed: unlike
+        parked — an App-held set that can change between capture and commit —
+        the truth is the pane option `@aitask_frozen`, already parsed into
+        `frozen_record` on the discovery row. That makes it stable for the whole
+        generation by construction.
+
+        The `AGENT` guard is kept for the same reason parked keeps it: a
+        companion or shadow pane is never an agent slot, whatever it is stamped
+        with.
+        """
+        return (
+            pane.category == PaneCategory.AGENT
+            and pane.frozen_record != ""
         )
 
     def _next_generation(self) -> int:
@@ -2904,10 +2962,14 @@ class TmuxMonitor:
 
         Returns ``None`` (writing nothing) when ``gen`` has been superseded by a
         newer reservation — protecting both the idle bookkeeping and the returned
-        snapshot. Symmetric with :meth:`commit_snapshots`.
+        snapshot. Symmetric with :meth:`commit_snapshots`, including its frozen
+        branch: a frozen pane produced no content, so letting it reach
+        `_apply_bookkeeping` would reset the idle clock it has no verdict for.
         """
         if gen != self._capture_generation:
             return None
+        if result is not None and result.frozen:
+            return _frozen_snapshot(pane, time.monotonic())
         return self._apply_bookkeeping(pane, content, result, time.monotonic())
 
     async def capture_pane_async(
@@ -2974,8 +3036,22 @@ class TmuxMonitor:
         WITHOUT committing bookkeeping — the caller checks ``gen`` and calls
         :meth:`commit_snapshot` on the loop. On a fetch miss returns
         ``(gen, None, None, None)``. The classify is fail-closed (invariant D).
+
+        **A frozen stand-in is refused before the tmux await** (t1705_7). This is
+        the SECOND capture route — `_fast_preview_refresh` uses it instead of
+        `capture_all_classified_async`, and it then overwrites `_snapshots[id]`
+        with whatever comes back. Without this guard, merely focusing a frozen
+        pane would capture it, run prompt/idle classification over a dead
+        stand-in's replayed output, and replace its `frozen=True` snapshot with
+        an ordinary one — losing the row render, the counter term, the preview
+        placeholder and the action guards on the very pane being looked at. The
+        guard lives HERE, in the monitor, rather than at the app's call site, so
+        every present and future caller of this route inherits it.
         """
         gen = self._next_generation()
+        pane = self._pane_cache.get(pane_id)
+        if pane is not None and self._is_frozen_pane(pane):
+            return gen, pane, "", ClassifyResult(compare_value="", frozen=True)
         raw = await self.capture_pane_content_async(pane_id, capture_lines)
         if raw is None:
             return gen, None, None, None
@@ -3097,11 +3173,29 @@ class TmuxMonitor:
         # the next purge. That ordering is the load-bearing correctness fact of
         # the whole feature.
         #
-        # Shadow panes are deliberately NOT filtered: a shadow is its own pane,
-        # and a minimonitor following a parked agent keeps its shadow working.
-        parked_panes = [p for p in panes if self._is_parked_pane(p)]
-        parked_ids = {p.pane_id for p in parked_panes}
-        all_panes = [p for p in panes if p.pane_id not in parked_ids] + shadows
+        # Frozen stand-ins (t1705_7) are split off at the same point and for the
+        # same reason, and the two partitions are MUTUALLY EXCLUSIVE with frozen
+        # taking precedence.
+        #
+        # That precedence is load-bearing, not a tie-break for tidiness. Frozen
+        # deliberately COEXISTS with the parked mark (pinned), so one pane can
+        # satisfy both predicates. If parked were still filtered over all panes,
+        # such a pane would be re-injected as `parked=True, frozen=False` and the
+        # frozen flag would simply never be set — which no renderer can recover,
+        # however early it checks `frozen`. The row would claim "parked", the
+        # session bar would count it in the wrong term, and the R/p/k guards
+        # would refuse on a genuinely frozen agent. The mark still renders: it
+        # comes from the mark store via `_mark_kind`, not from this snapshot.
+        #
+        # Shadow panes are deliberately NOT filtered by either: a shadow is its
+        # own pane, and a minimonitor following a parked or frozen agent keeps
+        # its shadow working.
+        frozen_panes = [p for p in panes if self._is_frozen_pane(p)]
+        frozen_ids = {p.pane_id for p in frozen_panes}
+        parked_panes = [p for p in panes
+                        if p.pane_id not in frozen_ids and self._is_parked_pane(p)]
+        skipped_ids = frozen_ids | {p.pane_id for p in parked_panes}
+        all_panes = [p for p in panes if p.pane_id not in skipped_ids] + shadows
         # Reserve this batch's shadow WRITE seq HERE — after the discovery await
         # above, in the last statement before the shadow panes are actually read
         # (t1216_1). Reserving it beside `gen` would date this batch from before
@@ -3145,6 +3239,11 @@ class TmuxMonitor:
         classified.extend(
             (pane, None, ClassifyResult(compare_value="", parked=True))
             for pane in parked_panes
+        )
+        # Frozen stand-ins rejoin the same way, and for the same reason.
+        classified.extend(
+            (pane, None, ClassifyResult(compare_value="", frozen=True))
+            for pane in frozen_panes
         )
         return gen, classified
 
@@ -3223,6 +3322,13 @@ class TmuxMonitor:
             str, tuple[TmuxPaneInfo, str, "ClassifyResult"]
         ] = {}
         for pane, content, result in classified:
+            if result is not None and result.frozen:
+                # Frozen is checked FIRST — the capture partition already made
+                # the two mutually exclusive, and checking it first keeps that
+                # precedence visible at the second site too rather than relying
+                # on the first one silently.
+                snapshots[pane.pane_id] = _frozen_snapshot(pane, now)
+                continue
             if result is not None and result.parked:
                 # Built directly, NOT through `_apply_bookkeeping` (t1685):
                 # that method is the only writer of `_last_content` /
