@@ -297,12 +297,12 @@ worktree: profile `fast` works on the current branch.
 
 ### Goal-achievement risk: low
 - The negative control might not observe the defect, which would mean the "already fixed" conclusion is wrong somewhere · severity: medium · → mitigation: none — Step 1b's stop-and-report condition: surface it, never weaken the assertions
-- Only two instances of the dead-end-relref class were found, by inspecting `ait artifact` alone; `check_links.py` cannot see this class by construction, so others may remain · severity: low · → mitigation: sweep_dead_end_relrefs
+- Only two instances of the dead-end-relref class were found, by inspecting `ait artifact` alone; `check_links.py` cannot see this class by construction, so others may remain · severity: low · → mitigation: t1759
 - Removing the links rather than retargeting leaves the reader with no pointer at all until t1687 lands · severity: low · → mitigation: none — the Step 3 note hands the re-link to the task that owns the reference-page decision
 
 ### Planned mitigations
 - timing: pre-phase | name: pin_control_anchor_uniqueness | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health risk 1 (the injector anchor is ambiguous with the top-level trap arm at :518) | desc: Assert in the injector that exactly one full re-arm line exists and that the distinct top-level arm survives the substitution, so the control cannot pass by mutating the wrong trap.
-- timing: after | name: sweep_dead_end_relrefs | type: chore | priority: low | effort: medium | inline_risk: medium | added_complexity: high | addresses: goal-achievement risk 2 (only the two `ait artifact` instances of the class were found) | desc: Sweep website/content for relrefs whose target page exists but contains none of the referenced subject — a class hugo build and check_links.py pass by construction.
+- timing: after | name: sweep_dead_end_relrefs | type: chore | priority: low | effort: medium | inline_risk: medium | added_complexity: high | addresses: goal-achievement risk 2 (only the two `ait artifact` instances of the class were found) | desc: Sweep website/content for relrefs whose target page exists but contains none of the referenced subject — a class hugo build and check_links.py pass by construction. | created: t1759
 
 ## Final Implementation Notes
 
