@@ -3015,6 +3015,11 @@ class MiniMonitorApp(
                 "[bold red]Its captured output is deleted[/] along with the "
                 "record, and the stand-in pane is closed. This cannot be "
                 "undone — restore or re-pick it instead if you still want it.",
+                # The button must name THIS verb, not the screen's default one:
+                # a "Freeze" button here would read as the reversible operation
+                # while deleting the only copy of the agent's output (t1705_7).
+                confirm_label="Drop",
+                destructive=True,
             ),
             confirmed,
         )

@@ -25,6 +25,10 @@ import agent_marks  # noqa: E402
 # record, and the shared restore/drop outcome interpreters. READ side
 # only — every write goes through `_SESSIONS_SH` / `_FROZEN_SH`.
 import agent_sessions  # noqa: E402
+# The frozen vocabulary shared with BOTH coordinators — read here for the
+# restore deadline, so a watcher can never give up before the coordinator
+# it is watching does (t1705_7).
+import agent_frozen_ops  # noqa: E402
 # The ONE authority for follow-up glyphs and colours (t1468_1), shared with the
 # board's card marker — imported, never mirrored (t1468_5).
 from followup_kinds import marker_for  # noqa: E402
@@ -1011,6 +1015,18 @@ class AgentMarksMixin:
         elapsed = {"t": 0.0}
         timers: dict[str, object] = {}
 
+        # The deadline is the COORDINATOR's, not ours: `agent_restore` waits up
+        # to the project's `frozen.restore_ack_grace` for the hook ack before it
+        # may liveness-confirm instead. A fixed 40s here would warn and stop the
+        # timer mid-restore on any project that raised that grace — turning
+        # every successful restore into a spurious stall report. Read from the
+        # TARGET record's root, which need not be this app's project.
+        rec0 = view.by_id(record_id)
+        settle_timeout = agent_frozen_ops.restore_settle_timeout(
+            (rec0.root if rec0 is not None else "") or None,
+            dispatch_grace=_FROZEN_DISPATCH_GRACE,
+        )
+
         def tick() -> None:
             elapsed["t"] += _FROZEN_POLL_INTERVAL
             view.invalidate()
@@ -1022,7 +1038,7 @@ class AgentMarksMixin:
                 done, note, warn = agent_sessions.restore_verdict(
                     rec, prev_attempts, elapsed["t"],
                     dispatch_grace=_FROZEN_DISPATCH_GRACE,
-                    settle_timeout=_FROZEN_DISPATCH_GRACE + 30.0)
+                    settle_timeout=settle_timeout)
             if not done:
                 return
             timer = timers.pop("t", None)
@@ -2546,12 +2562,29 @@ class TaskPickConfirmDialog(TaskDetailDialog):
 
 
 class FreezeConfirmDialog(ModalScreen):
-    """Confirm a freeze (t1705_7). Yes/no over a title and a body.
+    """Confirm a frozen-agent operation (t1705_7). Yes/no over title and body.
 
     Deliberately NOT `KillConfirmDialog`: that one is built around a snapshot
     and a task, and shows a capture preview, because killing destroys output.
     Freezing preserves it — the two must not look alike, or the reassuring
     operation borrows the alarming one's styling.
+
+    **The affirmative button is parameterized, and it must be.** This screen
+    serves more than one verb: `f` confirms a freeze (reversible — the output is
+    kept), while `k` on a frozen row confirms a DROP, which deletes the record
+    and the only copy of that agent's captured output. A button reading "Freeze"
+    on the drop dialog would name the reassuring operation while performing the
+    destructive one, and the button is what a user reads before clicking. Pass
+    ``destructive=True`` for anything that deletes: it switches the affirmative
+    to the error variant and re-colours the border and header to match, so the
+    dialog's whole appearance carries the same verdict as its text.
+
+    Layout note: the minimonitor hosts this at **40 columns**, so the buttons
+    must fit a ~32-column content area. Textual's `Button` defaults to
+    `min-width: 16`, which puts two side-by-side buttons plus margins past the
+    edge of the dialog *and* the screen — the second one is then unclickable
+    even though it renders. Both the width and the per-button `min-width` below
+    are sized for that host, not for the full monitor.
     """
 
     BINDINGS = [Binding("escape", "dismiss_dialog", "Close", show=False)]
@@ -2559,30 +2592,44 @@ class FreezeConfirmDialog(ModalScreen):
     DEFAULT_CSS = """
     FreezeConfirmDialog { align: center middle; }
     #freeze-dialog {
-        width: 70%; min-width: 28; height: auto;
+        width: 90%; max-width: 60; min-width: 24; height: auto;
         background: $surface; border: thick $accent; padding: 1 2;
     }
+    FreezeConfirmDialog.-destructive #freeze-dialog { border: thick $error; }
     #freeze-header { text-style: bold; color: $accent; margin: 0 0 1 0; }
+    FreezeConfirmDialog.-destructive #freeze-header { color: $error; }
     #freeze-details { margin: 0 0 1 0; }
-    #freeze-buttons { width: 100%; height: auto; layout: horizontal; }
-    #freeze-buttons Button { margin: 0 1; }
+    #freeze-buttons {
+        width: 100%; height: auto; layout: horizontal; align: center middle;
+    }
+    #freeze-buttons Button { width: auto; min-width: 10; margin: 0 1; }
     """
 
-    def __init__(self, title: str, body: str) -> None:
+    def __init__(self, title: str, body: str, *,
+                 confirm_label: str = "Freeze",
+                 destructive: bool = False) -> None:
         super().__init__()
         self._title = title
         self._body = body
+        self._confirm_label = confirm_label
+        self._destructive = destructive
+        if destructive:
+            self.add_class("-destructive")
 
     def compose(self) -> ComposeResult:
         with Container(id="freeze-dialog"):
             yield Static(f"[bold]{escape(self._title)}[/]", id="freeze-header")
             yield Static(self._body, id="freeze-details")
             with Container(id="freeze-buttons"):
-                yield Button("Freeze", variant="primary", id="btn-freeze")
+                yield Button(
+                    self._confirm_label,
+                    variant="error" if self._destructive else "primary",
+                    id="btn-confirm",
+                )
                 yield Button("Cancel", variant="default", id="btn-cancel")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        self.dismiss(event.button.id == "btn-freeze")
+        self.dismiss(event.button.id == "btn-confirm")
 
     def action_dismiss_dialog(self) -> None:
         self.dismiss(False)
