@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: [t1657_3, t1657_5]
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [documentation, web_site, framework]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1657
 created_at: 2026-09-01 12:37
-updated_at: 2026-09-01 12:37
+updated_at: 2026-09-09 15:47
 ---
 
 # Documentation: website CLI reference, workflow guide, and aidocs contracts
