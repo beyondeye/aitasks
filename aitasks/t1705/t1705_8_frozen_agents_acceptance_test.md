@@ -3,13 +3,14 @@ priority: high
 effort: medium
 depends: [t1705_7]
 issue_type: test
-status: Ready
+status: Implementing
 labels: [tmux, tmux_destructive, codeagent, session_persistence, test_infrastructure, testing]
 gates: [risk_evaluated]
 plan_approved_at: 2026-09-09 19:31
+assigned_to: dario-e@beyond-eye.com
 anchor: 1705
 created_at: 2026-09-04 16:08
-updated_at: 2026-09-09 19:31
+updated_at: 2026-09-09 19:33
 ---
 
 ## Step 0 — tmux preflight (run BEFORE anything else; blocking)
