@@ -30,6 +30,14 @@ human triage (a report, not a gate), plus the actual sweep of the live corpus.
 
 ## Prototype evidence (already measured on the live corpus)
 
+> **Superseded — read the Final Implementation Notes for the real figures.**
+> The prototype's link regex matched **zero** `relref` links, so every row below
+> that counts *link text* or *relevance verdicts* covers hand-written paths only:
+> the checked set is ~360, not 236, and the hit/miss rows are correspondingly
+> partial. The relref-resolution and anchor rows were measured with a separate,
+> correct pattern and stand. Kept as the historical record of what the plan was
+> approved on.
+
 A throwaway prototype was run against `website/content/` before planning:
 
 | measure | value |
@@ -117,9 +125,11 @@ visible rather than silent.
 defers the "is any part precise enough for `check_links.py`" decision to after
 the report is read.
 
-**5. Scope: backtick-quoted link text only.** 236 of 502 links. This is the
+**5. Scope: backtick-quoted link text only.** ~360 of ~500 links (the `236 of
+502` figure written here at planning time was an artefact of the broken prototype
+regex — see the Final Implementation Notes). This is the
 highest-signal, cheapest case the task names. **What it does not buy:** the
-remaining 266 links with prose link text are unchecked, and links emitted by
+remaining ~140 links with prose link text are unchecked, and links emitted by
 shortcodes or templates are invisible to a source-side scanner. Both stated in
 the script docstring and in `website/README.md`, so the coverage boundary is
 readable without running anything.
@@ -294,8 +304,10 @@ Assertions are on identity (which file/line/token) plus count, never on
    this step the deliverable is half-done. Any link actually fixed here is a
    content change, so `check_links.py --build` runs after it per CLAUDE.md.
 2. `[document_coverage_boundary]` State the coverage limits explicitly in both
-   the script docstring and `website/README.md`: backticked link text only (236
-   of 502 internal links), source-side only (shortcode- and template-generated
+   the script docstring and `website/README.md`: backticked link text only
+   (~360 of ~500 internal links — stated proportionally in the delivered docs,
+   since the exact split moves with every docs commit), source-side only
+   (shortcode- and template-generated
    links are invisible), report not gate. Folds into main step 4; listed
    separately here because it is what stops the report being mistaken for a
    clean sweep.
@@ -351,7 +363,8 @@ instances" question is not falsifiable by any test — so that dimension stays
 - Building the detector without running the sweep would leave the task's stated
   goal undelivered · severity: medium · → mitigation: inline post-phase
   `sweep_and_triage`
-- Coverage is limited to backtick-quoted link text (236 of 502 internal links);
+- Coverage is limited to backtick-quoted link text (~360 of ~500 internal links;
+  the planning-time `236 of 502` was an artefact of the prototype regex defect);
   prose link text and shortcode-generated links stay invisible · severity: medium
   · → mitigation: inline post-phase `document_coverage_boundary`, and
   `evaluate_check_links_integration`. Deliberately **not** widened in this task:
@@ -363,3 +376,146 @@ instances" question is not falsifiable by any test — so that dimension stays
 - timing: post-phase | name: sweep_and_triage | type: chore | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — detector built but sweep never run | desc: Run the finished detector on live website/content and triage every reported record as genuine mis-target or named false-positive class, recording dispositions in the Final Implementation Notes.
 - timing: post-phase | name: document_coverage_boundary | type: documentation | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — coverage gap mistaken for a clean sweep; code-health — drift against check_links.py | desc: State the coverage limits (backticked text only, source-side only, report not gate) and the domain split against check_links.py in the script docstring and website/README.md.
 - timing: after | name: evaluate_check_links_integration | type: enhancement | priority: low | effort: medium | inline_risk: high | added_complexity: high | addresses: goal-achievement — coverage limited to backticked link text | desc: Once the triage report has been read, decide whether any part of the relevance heuristic is precise enough to fold into check_links.py as a non-blocking warning, and whether to widen coverage past backtick-quoted link text.
+
+---
+
+## Final Implementation Notes
+
+- **Actual work done:** Built `website/check_link_relevance.py`, a source-side
+  detector for internal links whose target page exists but never mentions the
+  subject the link text names, plus 38 fixture-based tests, and swept the live
+  corpus. Matches the approved plan.
+- **Deviations from plan:** None in scope. Two additions the plan did not name,
+  both from self-review: `_is_hit` was tightened so a control cannot pass when
+  its subject disappears, and the `-v` listing was relabelled from `hit?` to
+  `checked` because it was overstating by exactly the misses.
+- **Issues encountered:** The plan's prototype link regex never matched a single
+  `relref` link (whitespace-excluding target pattern vs. a shortcode containing
+  spaces), so every relevance figure in the plan covered only hand-written paths
+  -- about a third of the real link set. The pre-phase control caught it before
+  the detector was finished. Details under "Correction to the planning evidence".
+- **Key decisions:** (1) source-side rather than build-side, because the
+  deliverable is `file:line` for triage; (2) unresolved targets are counted and
+  excluded from scoring, never folded into hits or misses; (3) the report never
+  gates -- only a failed self-control exits non-zero; (4) the URL-path
+  suppression rule that would zero the report was deliberately NOT applied here
+  (see below).
+- **Upstream defects identified:** None.
+
+### What landed
+
+- **`website/check_link_relevance.py`** (new) — source-side relevance report.
+- **`tests/test_check_link_relevance.py`** (new) — 48 tests over synthetic
+  fixture content trees.
+- **`website/README.md`** — new "Checking Link *Relevance*" section with the
+  division-of-labour table against `check_links.py` and the coverage boundary.
+- **`CLAUDE.md`** — Website block entry, stating it is a report and not a gate.
+
+### Correction to the planning evidence
+
+The plan's prototype numbers (236 links checked / 235 hits / 2 misses) were
+**wrong, and wrong in a way the plan did not anticipate**. The link regex
+`\[([^\]\n]+)\]\(([^)\s]+?)…\)` excludes whitespace in the target, and a relref
+contains spaces (`{{< relref "x" >}}`) — so it matched **zero** relref links.
+Every relevance number in the plan came from hand-written relative paths alone,
+i.e. about a third of the real link set.
+
+The pre-phase control caught it: fixture case 1 reconstructed a relref link and
+failed with an empty record set. `LINK_RE` now tries a shortcode alternation
+first, and carries a comment saying why.
+
+Corrected live figures: **359 links checked, 358 hits, 4 reported, 0 unresolved,
+0 anchor-not-found**, all five self-controls `True`. The relref resolution rule
+itself was verified separately at 477/477.
+
+### Triage of every reported record (`sweep_and_triage`)
+
+All four are **false positives**. No content change was made; the two known
+t1707 instances remain the only confirmed members of the class.
+
+| # | record | verdict | class |
+|---|---|---|---|
+| 1 | `docs/tuis/monitor/how-to.md:236` `` `ait minimonitor` `` → `minimonitor/how-to/#how-to-mark-an-agent-as-prioritized` | false positive | subject-of-page paraphrase — target is the minimonitor's own how-to page (6 mentions elsewhere); the named section says "it" rather than repeating the command |
+| 2 | `docs/workflows/crash-recovery.md:30` `` `aitask_lock.sh` `` → `/docs/commands/lock/` | false positive | implementation-name link text — the page documents `ait lock` (18×) and never names the script; the sentence is deliberately about what the *script* records |
+| 3 | `docs/workflows/parallel-development.md:44` `` `/aitask-pick` `` → `/docs/skills/aitask-pick/parallel-admission/` | false positive | sub-page of the named command's own doc section — the URL path carries the relationship the body never restates |
+| 4 | `docs/workflows/risk-evaluation.md:38` `` `ait board` `` → `board/reference/#task-metadata-fields` | false positive | subject-of-page paraphrase — the board reference never writes the literal `ait board`, but that section is the correct target |
+
+### A precision refinement, deliberately NOT applied here
+
+All four share a suppressible shape: the **stemmed token appears in the target's
+own URL path** (`minimonitor`, `lock`, `aitask-pick`, `board`). Neither t1707
+instance does — `ait artifact` → `/docs/commands/task-management/` and
+`/docs/workflows/implementation-trails/` — so a "token in target path ⇒ hit" rule
+would clear the report to zero while preserving both true positives.
+
+It is **not** implemented in this task on purpose. Tuning the heuristic against
+the four records it just produced, to make its own output look clean, is exactly
+the "tuned to the known instances" risk this task inherited. The rule needs
+evidence from more than one sweep. It is handed to
+`evaluate_check_links_integration` (the spawned `after` mitigation) as concrete,
+measured input rather than as a hunch.
+
+### Two defects found by self-review, fixed and pinned
+
+1. **`_is_hit` could pass vacuously.** It asked only "was no miss reported for
+   this token?" — trivially true when the control link stops resolving, loses
+   its backticks, or is deleted. A control that goes green when its subject
+   vanishes is worse than no control. It now requires a **resolved** record from
+   that source whose stemmed tokens actually include the token, *then* checks for
+   a miss. `ControlVacuityTests` pins all four ways it can now fail (deleted
+   link, unresolved target, backticks removed, genuine miss) plus the passing
+   case.
+2. **The `-v` listing was labelled `hit?`** while printing every checked-and-
+   resolved link — overstating by exactly the misses. Relabelled `checked`, with
+   the scope shown.
+
+### Three defects found in Step-8 review, all confirmed and fixed
+
+1. **`anchor_section()` excluded the heading line** (`check_link_relevance.py`).
+   It collected from the line *after* the matched heading, so a link to
+   `#ait-gates-run` landing on `## ait gates run` was reported as a miss for
+   naming its subject in the one line the slice threw away. The heading is part
+   of the section it names; it is now included. Pinned by
+   `AnchorHeadingIsPartOfTheSectionTests`, including that the section is still
+   bounded by the next same-level heading (the fix must not widen to the page).
+2. **The `anchor scoping narrowed the check` control was not discriminating.**
+   It asserted `any(rec.anchor and rec.status == "ok")` — that an anchored link
+   was *extracted and resolved*, which stays `True` for an implementation that
+   computes the scope and then searches the whole page. It now drives the real
+   `check()` path over a probe whose token sits in a different section of the
+   same page, so only section-scoped scoring satisfies it, and it pins the scope
+   label too.
+
+   The probe is deliberate rather than corpus-keyed. Exactly one live link
+   currently narrows a verdict, so keying the control to it would make the
+   script exit non-zero for everyone the day somebody legitimately repointed
+   that link — a control that fails when the *content* is fixed. The corpus-side
+   evidence is kept as a reported counter instead, `scope-narrowed`, which is
+   also a useful triage signal: it isolates the "token is on the page, just not
+   in that section" false-positive shape.
+3. **The module docstring carried the stale `236 of 502` coverage figure** while
+   the code reported 359 and the README said ~360 — two incompatible boundaries
+   in the delivered docs, in the one place the task required to be readable.
+   Both now describe the split proportionally and point at a run's
+   `links checked` line, since the exact number moves with every docs commit.
+   The plan's own restatements above were corrected too.
+
+### Verification performed
+
+- 48/48 tests pass (`python3 -m unittest tests.test_check_link_relevance`).
+- Live run exits 0 with all five controls `True`, `unresolved: 0`,
+  `anchor n/f: 0`.
+- **Four mutation checks, each confirmed to fail the intended test and then
+  reverted** (the module was restored byte-identical, verified by `diff`):
+  | mutation | failures | intended test hit? |
+  |---|---|---|
+  | invert the miss condition in `check()` | 25 | yes |
+  | control exit rule `any` → `all` | 5 | `test_each_control_failing_alone_fails_the_cli` (5 subtests) |
+  | drop the site-wide name-index fallback | 3 | yes |
+  | name index keyed by `Path.stem` | 1 | `test_site_wide_fallback_finds_a_section_by_directory_name` |
+  | remove the `_is_hit` vacuity guard | 3 | `ControlVacuityTests` |
+  | drop the heading from `anchor_section` | 2 | `AnchorHeadingIsPartOfTheSectionTests` |
+  | `scope_narrowed_verdict` never increments | 3 | counter + probe tests |
+  | **scoping ignored — always search the whole page** | 6 | incl. `test_probe_passes_against_the_shipped_implementation` — this is the mutant the *old* control failed to catch, and the reason review item 2 was blocking |
+- No `website/content/` page was edited, so `check_links.py` needed no re-run on
+  account of this task (the plan's conditional post-phase step).
