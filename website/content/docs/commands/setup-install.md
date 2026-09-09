@@ -67,16 +67,31 @@ ait upgrade 0.2.1              # Upgrade to specific version
 
 **How it works:**
 
-1. Resolves the target version (queries GitHub API for latest, or validates the provided version number)
+1. Resolves the target version (queries the GitHub API for `latest`, with a rate-limit-free `git ls-remote` fallback — see **Bounded version lookup** below — or validates the provided version number)
 2. Checks if already up to date (skips if versions match)
 3. Downloads `install.sh` from the target version's git tag
 4. Runs the installer with `--force`, which shows the changelog between current and target versions and asks for confirmation
 5. Performs the full installation (tarball download, skill installation, setup)
 6. Clears the update check cache
 
+**Bounded version lookup:**
+
+Resolving `latest` reaches the network. The GitHub REST API is tried first; when it answers with a rate-limit error, the version is resolved from `git ls-remote` instead, which is exempt from the REST quota. That git lookup is hard-bounded — **10 seconds** by default — because a remote that blackholes the connection instead of refusing it would otherwise stall the command indefinitely. Override the bound with `AIT_GIT_LSREMOTE_TIMEOUT`, in whole seconds:
+
+```bash
+AIT_GIT_LSREMOTE_TIMEOUT=30 ait upgrade latest
+```
+
+An empty, zero, negative, or non-numeric value falls back to the 10-second default. When the bound trips, the lookup yields no version rather than hanging, and `ait upgrade` stops with the rate-limit message it was recovering from, including its `GH_TOKEN` hint.
+
+Two other paths use the same bounded lookup and honor the same variable, and they report an expiry differently:
+
+- The version check at the end of [`ait setup`](#ait-setup) is silent — it simply prints no "update available" notice.
+- The `curl | bash` installer resolves the latest release from git tags before it touches the REST API, so an expiry is visible: after `Resolving latest aitasks release...` it announces `Fetching latest release via the GitHub API...` and continues there. If that fallback cannot resolve a release either, the installer stops with `Error: Could not find release tarball.` and a link to the releases page.
+
 **Automatic update check:**
 
-The `ait` dispatcher checks for new versions once per day (at most). When a newer version is available, it shows a brief notice suggesting `ait upgrade latest`. The check runs in the background to avoid adding latency. It is skipped for `help`, `version`, `upgrade`, and `setup` commands.
+The `ait` dispatcher checks for new versions once per day (at most) — a direct API call with its own short timeout, independent of the bounded git lookup above. When a newer version is available, it shows a brief notice suggesting `ait upgrade latest`. The check runs in the background to avoid adding latency. It is skipped for `help`, `version`, `upgrade`, and `setup` commands.
 
 ---
 
