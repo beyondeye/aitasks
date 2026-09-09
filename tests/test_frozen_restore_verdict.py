@@ -21,12 +21,14 @@ Run: python3 tests/test_frozen_restore_verdict.py
 from __future__ import annotations
 
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_DIR / ".aitask-scripts" / "lib"))
 
+import agent_frozen_ops  # noqa: E402
 import agent_sessions  # noqa: E402
 
 DISPATCH_GRACE = 10.0
@@ -213,6 +215,94 @@ class TextlessTests(unittest.TestCase):
                 banned, source,
                 "agent_sessions hosts the shared verdict; importing a UI "
                 "toolkit here would make it unusable from the engines")
+
+
+class SettleTimeoutTests(unittest.TestCase):
+    """`agent_frozen_ops.restore_settle_timeout` — the other half of the
+    watcher contract, and the reason `settle_timeout` is a PARAMETER.
+
+    Every consumer of `restore_verdict` must wait at least as long as the
+    coordinator does. `agent_restore` gives a `restoring` record up to the
+    project's `frozen.restore_ack_grace` to be acknowledged by its replacement
+    agent's SessionStart hook before it may be liveness-confirmed instead — so a
+    watcher whose deadline is shorter warns and stops its timer while the
+    restore is still legitimately in flight. The first watcher hardcoded 40.0,
+    which is correct at the default grace and wrong at every other one.
+    """
+
+    def _root(self, body: str | None):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        if body is not None:
+            meta = root / "aitasks" / "metadata"
+            meta.mkdir(parents=True)
+            (meta / "project_config.yaml").write_text(body)
+        return root
+
+    def test_the_default_is_the_value_the_first_watcher_hardcoded(self):
+        """A compatibility pin: 10 dispatch + 20 ack + 10 slack = 40."""
+        root = self._root(None)
+        self.assertEqual(
+            agent_frozen_ops.restore_settle_timeout(root, dispatch_grace=10.0),
+            40.0)
+
+    def test_it_grows_with_the_projects_configured_grace(self):
+        root = self._root("frozen:\n  restore_ack_grace: 60\n")
+        self.assertEqual(
+            agent_frozen_ops.restore_settle_timeout(root, dispatch_grace=10.0),
+            80.0)
+
+    def test_it_always_outlasts_the_coordinators_own_wait(self):
+        """THE property, stated directly rather than as an arithmetic identity:
+        whatever the grace, the watcher must still be watching when the
+        coordinator's ack window closes."""
+        for grace in (1, 5, 20, 60, 120, 600):
+            with self.subTest(grace=grace):
+                root = self._root(f"frozen:\n  restore_ack_grace: {grace}\n")
+                self.assertGreater(
+                    agent_frozen_ops.restore_settle_timeout(
+                        root, dispatch_grace=10.0),
+                    agent_frozen_ops.restore_ack_grace(root),
+                )
+
+    def test_it_tracks_the_dispatch_grace_too(self):
+        root = self._root(None)
+        a = agent_frozen_ops.restore_settle_timeout(root, dispatch_grace=10.0)
+        b = agent_frozen_ops.restore_settle_timeout(root, dispatch_grace=25.0)
+        self.assertEqual(b - a, 15.0)
+
+    def test_an_invalid_grace_falls_back_rather_than_shrinking(self):
+        """A malformed config must not produce a deadline SHORTER than the
+        coordinator's, which is the failure direction that loses successes."""
+        for body in ("frozen:\n  restore_ack_grace: 0\n",
+                     "frozen:\n  restore_ack_grace: -4\n",
+                     "frozen:\n  restore_ack_grace: nope\n",
+                     "frozen: []\n",
+                     ": : not yaml : :\n"):
+            with self.subTest(body=body):
+                root = self._root(body)
+                self.assertEqual(
+                    agent_frozen_ops.restore_settle_timeout(
+                        root, dispatch_grace=10.0),
+                    40.0)
+
+    def test_an_unreadable_project_still_yields_a_finite_deadline(self):
+        """A watcher may be polling a record whose root is gone — it must arm a
+        deadline anyway rather than raising inside a timer callback."""
+        self.assertEqual(
+            agent_frozen_ops.restore_settle_timeout(
+                "/nonexistent/root", dispatch_grace=10.0),
+            40.0)
+
+    def test_the_verdict_takes_it_as_an_argument_not_a_constant(self):
+        """Why this helper can exist at all: `restore_verdict` never decides the
+        deadline itself, so each consumer supplies its own."""
+        import inspect
+        sig = inspect.signature(agent_sessions.restore_verdict)
+        self.assertIn("settle_timeout", sig.parameters)
+        self.assertEqual(sig.parameters["settle_timeout"].kind,
+                         inspect.Parameter.KEYWORD_ONLY)
 
 
 if __name__ == "__main__":

@@ -373,5 +373,101 @@ class FastPreviewRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(mon.commit_snapshot(gen, got, content, result))
 
 
+class FastPreviewAppRouteTests(unittest.IsolatedAsyncioTestCase):
+    """The same route, driven through the APP that actually uses it.
+
+    Everything in `FastPreviewRouteTests` stops at the two `monitor_core`
+    methods. That leaves the reachability claim unproven: the defect this guard
+    exists for is not "the core captures a frozen pane" but "focusing a frozen
+    card replaces its snapshot and the preview reverts to stale content", and
+    `_fast_preview_refresh` is what does the replacing — it writes
+    `self._snapshots[pane_id] = snap` unconditionally and then repaints. A guard
+    that the app never reaches would leave both core tests green and the user's
+    screen wrong.
+
+    Mounted, because `_update_content_preview` writes real widgets and the
+    placeholder is read off one.
+    """
+
+    async def _app(self, p):
+        from monitor.monitor_app import MonitorApp
+
+        mon = _monitor()
+        self.captured: list[str] = []
+
+        async def fake_capture(pane_id, capture_lines=None, pane=None):
+            self.captured.append(pane_id)
+            return (p, "LIVE CONTENT FROM THE CAPTURE")
+
+        async def run_offloaded(fn):
+            return fn()
+
+        mon._pane_cache[p.pane_id] = p
+        mon.capture_pane_content_async = fake_capture
+        mon._run_offloaded = run_offloaded
+
+        app = MonitorApp(session="demo", project_root=REPO_ROOT)
+        return app, mon
+
+    async def test_focusing_a_frozen_pane_does_not_overwrite_its_snapshot(self):
+        """THE defect, at the layer it is visible: the frozen snapshot must
+        still be frozen after a fast preview refresh over it."""
+        p = pane("demo", "agent-frozen", "%2", frozen_record=RECORD)
+        app, mon = await self._app(p)
+        async with app.run_test(size=(120, 40)):
+            app._monitor = mon
+            app._focused_pane_id = "%2"
+            app._snapshots["%2"] = monitor_core.PaneSnapshot(
+                pane=p, content="", timestamp=0.0, idle_seconds=0.0,
+                is_idle=False, awaiting_input=False,
+                frozen=True, frozen_record_id=RECORD)
+
+            await app._fast_preview_refresh()
+
+            self.assertEqual(self.captured, [],
+                             "the app captured a frozen pane")
+            snap = app._snapshots["%2"]
+            self.assertTrue(snap.frozen, "the frozen flag was overwritten")
+            self.assertEqual(snap.frozen_record_id, RECORD)
+            self.assertEqual(snap.content, "")
+
+    async def test_the_preview_shows_the_frozen_placeholder_not_stale_output(
+            self):
+        p = pane("demo", "agent-frozen", "%2", frozen_record=RECORD)
+        app, mon = await self._app(p)
+        async with app.run_test(size=(120, 40)) as pilot:
+            app._monitor = mon
+            app._focused_pane_id = "%2"
+            app._snapshots["%2"] = monitor_core.PaneSnapshot(
+                pane=p, content="", timestamp=0.0, idle_seconds=0.0,
+                is_idle=False, awaiting_input=False,
+                frozen=True, frozen_record_id=RECORD)
+
+            await app._fast_preview_refresh()
+            await pilot.pause()
+
+            rendered = app.query_one("#content-preview").render()
+            plain = getattr(rendered, "plain", str(rendered))
+            self.assertIn("frozen", plain)
+            self.assertNotIn("LIVE CONTENT FROM THE CAPTURE", plain)
+
+    async def test_the_control_shows_a_live_focused_pane_is_still_captured(
+            self):
+        """NEGATIVE CONTROL. Without it the two assertions above would pass for
+        an app whose fast preview had simply stopped working."""
+        p = pane("demo", "agent-live", "%1")
+        app, mon = await self._app(p)
+        async with app.run_test(size=(120, 40)):
+            app._monitor = mon
+            app._focused_pane_id = "%1"
+
+            await app._fast_preview_refresh()
+
+            self.assertEqual(self.captured, ["%1"])
+            self.assertFalse(app._snapshots["%1"].frozen)
+            self.assertEqual(app._snapshots["%1"].content,
+                             "LIVE CONTENT FROM THE CAPTURE")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
