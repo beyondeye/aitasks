@@ -308,7 +308,7 @@ Task/plan files are committed with `./ait git`.
 
 ## Risk
 
-### Code-health risk: low
+### Code-health risk: medium
 - The success path is byte-identical apart from the `mktemp` template string; every
   addition is on a failure path. · severity: low · → mitigation: inline post-phase measure_per_half_mutants
 - `claim_unique_parent_id` now also returns non-zero on retry-exhaustion (which
@@ -341,8 +341,11 @@ Task/plan files are committed with `./ait git`.
 **Reassessment after inlining and after the review round:** the review turned the
 label-vocabulary item from a deferred probe into a **fix** (the §3 claim hoist), and
 added a restore gate to the mutant phase plus commit-history assertions to every
-forced-failure row. Re-assessed against that augmented plan: **code-health stays
-low** (the hoist is a move, not new logic, and the child branch is untouched);
+forced-failure row. Re-assessed against that augmented plan: **code-health rises to
+medium** -- the hoist reorders a load-bearing create path and the plan now
+carries a phase that deliberately mutates production code, both bounded and both
+with named controls, which is "a real but bounded concern" rather than "no material
+concern";
 **goal-achievement stays low** — the residual "nothing is written" gap that had been
 the one medium-severity goal risk is now closed in the implementation rather than
 carried as a follow-up.
