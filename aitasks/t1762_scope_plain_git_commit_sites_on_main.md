@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: [1748]
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [git, bash_scripts, robustness]
+assigned_to: dario-e@beyond-eye.com
 followup_kind: upstream_defect
 created_at: 2026-09-09 13:00
-updated_at: 2026-09-09 13:00
+updated_at: 2026-09-09 13:18
 ---
 
 ## Origin
