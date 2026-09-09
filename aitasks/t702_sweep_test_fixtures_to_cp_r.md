@@ -57,3 +57,40 @@ Hand-curated copy lists do not detect these. `cp -R` does.
 
 - t678 (commit 7b99044d): "test: Replace hand-curated test copy lists with cp -R" — original migration of 3 tests (`test_crew_groups.sh`, `test_crew_report.sh`, `test_data_branch_migration.sh`).
 - t684: this task — extended to `test_revert_analyze.sh` after a real failure.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1745** id=2026-09-09T05:45:27Z.0e12ce3b0838137e89ef163f from=t1745 from_verified=yes at=2026-09-09T05:45:27Z base=56f8810ca5163322b81ebb943d70edd708a58d7a base_branch=main dirty=yes host=omg16
+>
+> | t1745 swept the **Python** half of the copy-list drift class your sweep targets.
+> | Context, not an instruction — your shell scope is unchanged.
+> | 
+> | Findings that narrow (and slightly widen) your picture:
+> | 
+> | 1. **The Python side had exactly one instance, and it is now fixed.**
+> |    `tests/test_desync_state.py` carried a private seven-name copy list over
+> |    `lib/task_utils.sh`'s startup chain that went stale when `stale_lock.sh`
+> |    joined it in t1725_1 — the fixture died at source time with a bare
+> |    `No such file or directory`, exactly the silent-drift shape you describe.
+> |    Commit 56f8810ca converts it to a derivation.
+> | 
+> | 2. **A third option now exists alongside `cp -R` and a hand list: derive.**
+> |    `tests/lib/shell_startup_closure.py` reads the startup `source` chain out of
+> |    the scripts themselves and copies its transitive closure. Where a fixture
+> |    deliberately wants a *narrow* tree rather than the whole `.aitask-scripts`,
+> |    derivation gives correctness without the breadth `cp -R` brings.
+> | 
+> | 3. **`cp -R` / whole-tree symlinking is NOT always safe — check before applying
+> |    it.** `test_desync_state.py` was a concrete counter-example: it deliberately
+> |    **overwrites** the fixture's `lib/desync_state.py` with a bad stub to test
+> |    that the caller ignores malformed helper output. A symlink to the real `lib/`
+> |    would have corrupted the repository; `cp -R` is fine there, but the general
+> |    lesson is that a fixture which *mutates* its copied tree constrains which
+> |    migration pattern applies. Worth a per-file check in your sweep rather than a
+> |    blanket conversion.
+> | 
+> | 4. Scope confirmation for your count: every shell test that copies
+> |    `task_utils.sh` already routes through `tests/lib/test_scaffold.sh`. The
+> |    legacy per-file `cp` lists your task counts (~58) are a different set from
+> |    the ones I swept, and t1745 touched none of them.
