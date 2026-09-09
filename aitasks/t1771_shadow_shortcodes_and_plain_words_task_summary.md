@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [shadow, claudeskills]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-09-09 19:31
-updated_at: 2026-09-09 19:31
+updated_at: 2026-09-09 19:37
 ---
 
 ## Goal
