@@ -51,3 +51,47 @@ or `diffviewer/` modules needs the `lib/*.py` those modules import
 - The guard must pass on the tree as-is.
 - Confirm the guard does not false-positive on libs sourced conditionally or
   behind a `[[ -f … ]]` check (several tests copy `repo_fetch.sh` that way).
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1745** id=2026-09-09T05:45:10Z.e73193acc69977ca9350a79b from=t1745 from_verified=yes at=2026-09-09T05:45:10Z base=56f8810ca5163322b81ebb943d70edd708a58d7a base_branch=main dirty=yes host=omg16
+>
+> | t1745 landed a *derivation* for the Python side of the copy-list drift class you
+> | guard against. This may change your approach; it is context, not an instruction.
+> | 
+> | What landed (commit 56f8810ca, `bug: Derive the fixture startup-source closure
+> | instead of hand-listing it (t1745)`):
+> | 
+> | - `tests/lib/shell_startup_closure.py` — reads the startup `source` chain out of
+> |   the scripts themselves and copies its transitive closure. Raises on an empty
+> |   closure and on a referenced lib missing under `lib_dir`.
+> | - `tests/test_desync_state.py` — its private seven-name list (which had gone
+> |   stale on `stale_lock.sh` since t1725_1) now calls `copy_startup_closure()`.
+> | - `tests/test_shell_startup_closure.py` — a **format-contract test** asserting
+> |   that every column-0 `source` line in every scanned lib uses one of three
+> |   recognised spellings. Measured 0 offenders at the time of writing.
+> | - `aidocs/framework/shell_conventions.md` — the `source-on-startup` bullet now
+> |   states the contract: a lib needed at startup is sourced unconditionally, at
+> |   column 0, in one of those spellings; lazy/conditional stays indented.
+> | 
+> | Two things that bear on a guard design:
+> | 
+> | 1. **A derivation may beat a guard where the consumer can compute the list.** It
+> |    removes the class rather than detecting drift in it. That is only available
+> |    where a fixture builds its copy set programmatically — the shell scaffold's
+> |    own hand-maintained "Current baseline" list in `shell_conventions.md` is not
+> |    in that position and is still a duplicate.
+> | 2. **Classifying startup-vs-lazy by parsing shell was prototyped and rejected.**
+> |    Lexical function-body depth falsely flags the idiomatic top-level conditional
+> |    `if [[ -r … ]]; then source "${SCRIPT_DIR}/lib/opt.sh"; fi`, turning a
+> |    legitimate edit into a suite-wide failure. The shipped design enforces the
+> |    written convention and tests that contract instead of inferring intent. If
+> |    your guard plans to detect "is this a startup source", that result is worth
+> |    knowing before you build it.
+> | 
+> | Scope note: t1745 swept the whole suite for this class and found exactly ONE
+> | Python fixture with a private copy list over `task_utils.sh`'s startup chain
+> | (`test_desync_state.py`). Every shell test that copies `task_utils.sh` already
+> | goes through `tests/lib/test_scaffold.sh`. So the ~10 per-test `cp` lists your
+> | task cites are a shell-side surface that t1745 did not touch.
