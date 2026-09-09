@@ -5,8 +5,9 @@ depends: []
 issue_type: bug
 status: Ready
 labels: [testing]
+followup_kind: upstream_defect
 created_at: 2026-09-09 09:14
-updated_at: 2026-09-09 09:14
+updated_at: 2026-09-09 09:15
 ---
 
 ## Context
