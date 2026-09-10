@@ -127,7 +127,7 @@ distinguishable from a *deletion*.
 | 4 | Project root `VERSION` + `.aitask-scripts/VERSION` present → root `VERSION` survives byte-identical | e2e | **yes** (today: deleted) |
 | 5 | Legacy pre-v0.3.0 (`.aitask-scripts/` present, **no** `.aitask-scripts/VERSION`) → root `VERSION` still removed | e2e | pin |
 | 6 | `show_upgrade_changelog` with a **conflicting project root `VERSION`=7.7.7**, `.aitask-scripts/VERSION`=1.0.0, tarball 2.0.0 → the framework transition is still displayed correctly | helper | **yes** (see below) |
-| 7 | Same helper, root `VERSION`=1.0.0 but `.aitask-scripts/VERSION`=9.9.9 == tarball 9.9.9 → no `Upgrading:` line (early return still reached) | helper | pin |
+| 7 | Same helper, root `VERSION`=1.0.0 but `.aitask-scripts/VERSION`=9.9.9 == tarball 9.9.9 → no `Upgrading:` line (early return still reached) | helper | **yes** (today: announces v1.0.0 → v9.9.9) |
 
 Cases 1 and 2 are separate deliberately: they take different branches of
 `check_existing_install` (`install.sh:110-115` vs the fresh path) and different
@@ -136,7 +136,9 @@ Cases 1 and 2 are separate deliberately: they take different branches of
 **Case 6 is the primary discriminator for change 2**, and it pins the *positive*
 output rather than an absence. Pre-fix, `current_version` reads `7.7.7`; the
 slicing loop (`install.sh:1026-1039`) then never meets a `## v7.7.7` heading, so
-it never breaks and dumps every section. Four assertions, each failing pre-fix:
+it never breaks and dumps every section. Three of its four assertions fail
+pre-fix; the `- new thing` one passes either way and pins that the display
+still works:
 
 - contains `Upgrading: v1.0.0 → v2.0.0` (pre-fix: `v7.7.7 → v2.0.0`)
 - does **not** contain `7.7.7` — the project's own version is never read as the
@@ -176,7 +178,7 @@ shellcheck install.sh
 ```
 
 Red-proof sequencing: write the test first, run it against unmodified
-`install.sh` and confirm cases **1, 2, 4 and 6** fail (and that 3, 5, 7 pass
+`install.sh` and confirm cases **1, 2, 4, 6 and 7** fail (and that 3 and 5 pass
 already); then apply changes 1-2 and confirm all seven pass. Test and fix land
 in the same commit.
 
@@ -215,3 +217,60 @@ stash/restore block did not break extraction or the installer's exit status.
 ## Step 9
 
 Post-implementation follows task-workflow Step 9 (commit, merge, archive t1772).
+
+## Implementation Notes
+
+- **Red proof (against unmodified `install.sh`, `git diff install.sh` empty):**
+  `Results: 17 passed, 7 failed, 24 total`. Failing: case 1, 2, 4 (`got
+  'missing'` — the old `rm -f`), case 6 (`Upgrading: v7.7.7 → v2.0.0`, and the
+  `- old thing` section printed), case 7 (`Upgrading: v1.0.0 → v9.9.9`). Cases 3
+  and 5 passed as pins. All five e2e vacuity guards passed, so the failures are
+  genuine rather than installer aborts.
+- **Correction to the plan as approved:** case 7 was labelled a pin; it
+  discriminates (the unfixed helper reads root `VERSION` first). Case 6's
+  `- new thing` assertion is a pin, not a pre-fix failure. Both corrected in
+  place above.
+- Both `install.sh` changes applied as one scripted edit with an
+  exactly-once match check per block.
+- **Green run (fixed `install.sh`):** `tests/test_install_changelog_preservation.sh`
+  → `Results: 24 passed, 0 failed, 24 total`, exit 0 — all seven cases.
+- **Post-phase `install-suite-regression` — done, every verdict reported:**
+  `test_install_upgrade_changelog.sh` 14/14 exit 0;
+  `test_install_create_data_dirs.sh` 40 passed exit 0;
+  `test_install_tarball_download.sh` 38/38 exit 0;
+  `test_install_merge.sh` 37/37 exit 0.
+- **`shellcheck install.sh`:** identical finding set before (`HEAD`) and after —
+  2×SC1091, 2×SC2043, 2×SC2295, all pre-existing; the change adds none. The new
+  test's only findings are 2×SC1091 (info, sourced files not followed), the same
+  class the sibling `test_install_upgrade_changelog.sh` carries (3×SC1091).
+- **Deviations from the approved design:** none in `install.sh` beyond one
+  comment that cited line numbers (`:1003-1008`) now names the function
+  instead, so it cannot go stale.
+
+## Final Implementation Notes
+- **Actual work done:** As planned. `install.sh` `main()` now saves the
+  project's root `CHANGELOG.md` / `VERSION` before `tar -xzf` and restores them
+  afterwards. It removes the tarball's `CHANGELOG.md` only when the project had
+  none, and removes a root `VERSION` only when a pre-extraction check proves
+  it is the pre-v0.3.0 framework file (existing `.aitask-scripts/`, no
+  `.aitask-scripts/VERSION`). `show_upgrade_changelog` now reads
+  `.aitask-scripts/VERSION` before the root file. New
+  `tests/test_install_changelog_preservation.sh`: 7 cases / 24 assertions.
+  Code commit `29d025d1e`.
+- **Deviations from plan:** None in the code. The plan itself mislabelled
+  test case 7 as a pin (it catches the old bug) and claimed all four of
+  case 6's assertions fail pre-fix (three do). Both were corrected in place
+  above, with the red-proof evidence. One code comment now names the function
+  instead of citing line numbers, which go stale.
+- **Issues encountered:** `tar --exclude=NAME` is non-anchored in both GNU tar
+  1.35 and bsdtar 3.8.9, so it would also have dropped `.aitask-scripts/VERSION`.
+  Found during planning; that approach was rejected. A concurrent session had 20
+  unrelated modified files in the shared worktree, so the code commit was scoped
+  to the two task paths and checked with `git show --stat`.
+- **Key decisions:** Save-and-restore rather than tar exclusion (portable, and
+  no risk of dropping nested payload files). The root-`VERSION` removal was kept
+  but narrowed to a before-extraction proof that the file is the legacy
+  framework copy. Flipping the version-read order is required by keeping the
+  project's `VERSION`: without it, a kept project `VERSION` would be misread as
+  the framework version on every later upgrade.
+- **Upstream defects identified:** None
