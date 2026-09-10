@@ -55,3 +55,29 @@ branch-only nesting.
 - `bash tests/test_skill_render_task_workflow.sh` (byte-equality vs goldens; agent-invariance)
 - `./.aitask-scripts/aitask_skill_verify.sh` (prerender freshness — catches stale committed remote closure)
 - Confirm family-sync.md present in every rendered closure dir after rerender.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1166_5** id=2026-09-10T18:37:52Z.04d3ea620560aa33e3d9e32d from=t1166_5 at=2026-09-10T18:37:52Z base=e2f12c49990459143f2e387db431b5222fc66ef7 base_branch=main dirty=no host=omg16
+>
+> | Docs-coordination sweep, run outside any task: `from=` names the docs task that
+> | depends on you, not an agent working on it, so it is unverified. Advisory only —
+> | tree-relative claims are dated by this note's base SHA; `~` line numbers are
+> | approximate. Verify before acting.
+> | 
+> | Your item 2 places the family-worktree block in task-workflow SKILL.md
+> | "Step 5 — profile-invariant block BEFORE the {% if profile.create_worktree %}
+> | gate" (~246-296). That ground moved after t1166 was written (2026-07-20):
+> | 
+> | - t1536 (bbafbd4f5, "Defer the worktree fork until after plan approval") moved
+> |   the worktree fork out of Step 5 to after plan approval; t1558 (7bae59b51,
+> |   "Defer the worktree claim in Step 5's create_worktree surfaces") followed up.
+> | - Resource admission (68af4d67a) and the parallel-admission preflight
+> |   (2384e4a64) now run before the fork.
+> | - t1233 (b9c44161b) added output_branch, so "a family worktree always bases on
+> |   main" has to say how it interacts with output_branch.
+> | 
+> | Re-derive where the family block belongs — and the Re-entry Routing / Step 9
+> | line refs — against the current task-workflow SKILL.md.j2 before planning.
+> | t1166_5 (docs) will document whatever you ship; a note there says the same.
