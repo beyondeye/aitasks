@@ -82,3 +82,5 @@ archived; Defer is allowed but creates a carry-over task.
 > |    but it does not check prose or exit statuses.
 > | 
 > | Consume or discard; nothing here changes what your checklist asks.
+
+> **👁 note:read** id=2026-09-10T11:54:19Z.0e49aa26dea6c399ec5d7846 by=t1657_7 at=2026-09-10T11:54:19Z mode=explicit ids=2026-09-10T09:45:20Z.fa0102514dce66684a98233f
