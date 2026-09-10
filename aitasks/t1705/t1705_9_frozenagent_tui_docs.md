@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: [t1705_8]
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [documentation, website, docs, minimonitor, aitask_monitor, tui, tui_switcher]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1705
 created_at: 2026-09-04 16:10
-updated_at: 2026-09-04 16:10
+updated_at: 2026-09-10 08:16
 ---
 
 ## Context
