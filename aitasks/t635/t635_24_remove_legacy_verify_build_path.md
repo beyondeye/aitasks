@@ -7,7 +7,7 @@ status: Ready
 labels: [gates, task_workflow]
 anchor: 635
 created_at: 2026-06-25 10:41
-updated_at: 2026-07-26 00:00
+updated_at: 2026-09-10 11:58
 ---
 
 ## Context
@@ -131,9 +131,22 @@ follow-through is to lift the remaining inline dispatch into a `gate-run` proced
 re-rendering Step 9. The complementary call-shape work (decision/action verbs,
 self-gating procedures in planning + Step 7) lives in t635_25.
 
+## Coordination (from t1776)
+
+**t1776 (run the Step 9 gate orchestrator in current-branch mode)** also edits
+this task's Step-9 "Verify implementation" region. On a current-branch pick the
+`ait gates run` call is never reached, because it sits inside
+`If a separate branch was created`. So `risk_evaluated` stays unrecorded until
+the archive script refuses. Do t1776 together with this task or straight after
+it, so Step 9 is not re-rendered twice. There is deliberately no hard
+dependency, because each fix is correct on its own.
+
 ## Reverse links
 
 - t635_12 plan: `aiplans/archived/p635/p635_12_build_test_machine_gates.md`
   (this task is the convergence follow-up it scheduled).
 - t635_25 (`aitasks/t635/t635_25_leaner_gate_check_invocation.md`) — gate-run
   dispatch extraction coordinates here; call-shape optimization there.
+- t1776 (`aitasks/t1776_run_step9_gate_orchestrator_in_current_branch_mode.md`):
+  makes the gate-run call reachable on current-branch picks, in the same
+  Step-9 region.

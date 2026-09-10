@@ -8,7 +8,7 @@ labels: [task_workflow, git-integration, child_tasks, skills]
 gates: [risk_evaluated]
 anchor: 1166
 created_at: 2026-07-20 12:06
-updated_at: 2026-07-20 12:07
+updated_at: 2026-09-10 11:58
 ---
 
 ## Context
@@ -40,6 +40,15 @@ All edits go to the AUTHORING sources under `.claude/skills/task-workflow/` (ren
 **5. planning.md** — child-creation checkpoint: after batch child creation, AskUserQuestion "Should these children share one long-lived family worktree with per-child selective sync to main?" (No, independent per-child worktrees (default) / Yes, shared family worktree); on Yes: `aitask_update.sh --batch <parent> --family-worktree true`, folded into the existing parent data commit. Plan metadata headers: family-child variant `Worktree: aiwork/t<parent>` / `Branch: aifamily/t<parent>` / `Base branch: main` / `Family worktree: shared`.
 
 **6. Goldens + rerender** — regenerate the six golden files via `skill_template.py <file> <profile>.yaml claude > golden`; run `.aitask-scripts/aitask_skill_rerender.sh <profile>` for each profile (incl. committed `task-workflow-remote-` closure).
+
+## Coordination — current-branch gate run (t1776)
+
+t1776 changes the same `If a separate branch was created` block in Step 9 that
+this task splits into family-child and per-task paths. It makes the
+`ait gates run` call reachable on current-branch picks, where today it is
+skipped and `risk_evaluated` goes unrecorded. Whichever of the two lands second
+must keep a gate run on the current-branch path, and must not bring back the
+branch-only nesting.
 
 ## Verification Steps
 
