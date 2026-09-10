@@ -989,10 +989,14 @@ show_upgrade_changelog() {
     fi
 
     local current_version=""
-    if [[ -f "$install_dir/VERSION" ]]; then
-        current_version="$(cat "$install_dir/VERSION")"
-    elif [[ -f "$install_dir/.aitask-scripts/VERSION" ]]; then
+    # .aitask-scripts/VERSION is authoritative from v0.3.0 on; the root VERSION
+    # is only the pre-v0.3.0 fallback. Reading the root file first would take a
+    # project's own VERSION (preserved across installs, t1772) for the
+    # framework's, and compute the wrong changelog range on every upgrade.
+    if [[ -f "$install_dir/.aitask-scripts/VERSION" ]]; then
         current_version="$(cat "$install_dir/.aitask-scripts/VERSION")"
+    elif [[ -f "$install_dir/VERSION" ]]; then
+        current_version="$(cat "$install_dir/VERSION")"
     else
         # Explicit 0: a bare `return` here would inherit the failed `[[ -f ]]`
         # test's status 1 and, under `set -euo pipefail`, abort the whole
@@ -1355,13 +1359,46 @@ main() {
     # Show changelog and confirm (upgrade path only)
     show_upgrade_changelog "$tarball_path" "$INSTALL_DIR"
 
+    # The release tarball carries a root CHANGELOG.md purely so
+    # show_upgrade_changelog can display the framework changelog before an
+    # upgrade — and that function extracts its own copy into a private temp
+    # dir, never reading INSTALL_DIR. A consumer project owns the root
+    # CHANGELOG.md at that path (`ait changelog` writes it), so the extraction
+    # must not clobber it and the cleanup must not delete it (t1772).
+    local preserve_dir="$tmpdir/preserve"
+    mkdir -p "$preserve_dir"
+
+    # A root VERSION is a pre-v0.3.0 framework artefact ONLY when this is an
+    # existing install whose version has not yet migrated to
+    # .aitask-scripts/VERSION. Probed here because extraction creates that
+    # file. Anything else at that path belongs to the project.
+    local legacy_root_version=false
+    if [[ -f "$INSTALL_DIR/VERSION" && -d "$INSTALL_DIR/.aitask-scripts" \
+          && ! -f "$INSTALL_DIR/.aitask-scripts/VERSION" ]]; then
+        legacy_root_version=true
+    fi
+
+    local f
+    for f in CHANGELOG.md VERSION; do
+        if [[ -f "$INSTALL_DIR/$f" ]]; then
+            cp -p "$INSTALL_DIR/$f" "$preserve_dir/$f"
+        fi
+    done
+
     info "Extracting to $INSTALL_DIR..."
     tar -xzf "$tarball_path" -C "$INSTALL_DIR"
 
-    # Remove CHANGELOG.md from project (only in tarball for upgrade changelog display)
-    rm -f "$INSTALL_DIR/CHANGELOG.md"
-    # Clean up legacy VERSION at root (moved to .aitask-scripts/VERSION in v0.3.0+)
-    rm -f "$INSTALL_DIR/VERSION"
+    # Put back what the project owned; remove what only the tarball supplied.
+    for f in CHANGELOG.md VERSION; do
+        if [[ -f "$preserve_dir/$f" ]]; then
+            cp -p "$preserve_dir/$f" "$INSTALL_DIR/$f"
+        else
+            rm -f "$INSTALL_DIR/$f"
+        fi
+    done
+    if [[ "$legacy_root_version" == true ]]; then
+        rm -f "$INSTALL_DIR/VERSION"     # migrated to .aitask-scripts/VERSION
+    fi
 
     info "Installing Claude Code skills..."
     install_skills
