@@ -3,13 +3,14 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [tmux, codeagent, session_persistence]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1705
 followup_kind: upstream_defect
 created_at: 2026-09-10 14:57
-updated_at: 2026-09-10 14:57
+updated_at: 2026-09-10 15:19
 ---
 
 ## Origin
