@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [install_scripts, data_integrity, auto-update]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -14,7 +14,8 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5
 created_at: 2026-09-09 19:32
-updated_at: 2026-09-10 10:51
+updated_at: 2026-09-10 11:43
+completed_at: 2026-09-10 11:43
 ---
 
 `install.sh` **deletes the installed project's root `CHANGELOG.md` on every install
@@ -140,3 +141,14 @@ at all.
 > **✅ gate:plan_approved** run=2026-09-10T07:51:17Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-09-10T08:25:45Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-10T08:43:23Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:b5ce5d762c0e4077
+
+> **✅ gate:risk_evaluated** run=2026-09-10T08:43:23Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1772/risk_evaluated_2026-09-10T08:43:23Z-risk_evaluated-a1.log`
