@@ -249,3 +249,91 @@ record in the syncer/board TUI; this task also enriches the CLI's own stderr lin
 ## Step 9
 
 Standard post-implementation; parent t1725 archives after the last child.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-09-10 15:37)
+- **Requested by user:** review finding — `--require-waiting` treats prompt-shaped
+  text in an unrecognised pane (agent key unresolved, so matching runs over the
+  unscoped pattern list) as proof an agent is waiting; a shell or wrapper showing
+  copied prompt text could satisfy it. The gate should eventually require durable
+  agent provenance (e.g. a launch-time pane marker), with a regression test for an
+  unrecognised pane showing prompt-like output. Disposition: **follow-up**.
+- **Changes made:** none to code — the disposition was honored. Created **t1787**
+  (`require_waiting_durable_agent_provenance`, `followup_kind: review_finding`,
+  `depends: [t1725_4]`). The regression test belongs there: it must assert
+  refusal, so it stays red until the provenance fix lands; pinning today's
+  `waiting_*` answer in this task would make the hole the contract.
+- **Files affected:** none in the code tree (task file `aitasks/t1787_*.md` only).
+
+## Deferred, with owners
+
+| Item | Owner | Carried forward |
+|---|---|---|
+| `--require-waiting` must rest on durable agent provenance, not screen text | t1787 | unresolved agent key → unscoped patterns; consumers (`_commit_group` gate, record `pane_state`, t1725_5's offer); launch-time pane-marker candidate (`@aitask_shadow_target` precedent); live test E2 currently commits through the unscoped fallback (`sh render.sh` pane) and must be reworked; required refusal regression test |
+
+## Final Implementation Notes
+
+- **Actual work done:** as planned. `ait_tmux_pane_for_pid` moved into
+  `lib/tmux_exec.sh` (the live endpoint now calls it, byte-identical output);
+  new `lib/pane_state_probe.py` (module + one-line CLI, capture via `TmuxClient`,
+  classified by `monitor_core._classify_one` scoped with `agent_key_from_pane`);
+  `aitask_sync.sh` sources the gateway, memoizes the holder's pane + state per task
+  (`_resolve_holder_pane`, called from `_protect_task_paths` for `live_lock` /
+  `unknown_liveness` on this host), fills `PROT_PANE` / `PROT_PANE_STATE`, enriches
+  the `self` / `other` stderr line ("pane X, waiting on a prompt: <kind>" /
+  "running — not at a prompt"), and the `--require-waiting` re-probe passes the
+  pane id (not the tab-joined line) and overwrites the memo so a
+  `holder_not_waiting` record carries the observed state. Internal docs updated
+  (`monitor_idle_and_prompt_detection.md`, `tmux_gateway.md`).
+- **Deviations from plan:**
+  - The no-server socket pin moved to **file scope** in `tests/lib/sync_fixture.sh`
+    (plus the per-call `SYNC_FIXTURE_TMUX_SOCKET` override in `run_sync`): the
+    identity sweep found `test_sync_deferral_and_quarantine.sh` invoking the sweep
+    directly (`run_sync_seam`, Test 13, line ~729) with live locks, which a
+    `run_sync`-only fix would have left pointed at the real `ait` server.
+  - `HOLDER_PANE_ID` memo map dropped (written, never read; SC2034).
+  - Probe regexes use `fullmatch` — `^…$` with `match()` accepted `"%5\n"` (caught
+    by the unit test).
+  - Probe framework imports run at module top inside `try`, not lazily: a lazy
+    import would never run on the no-server path, and the stderr bootstrap pin
+    could not fail.
+  - `tests/test_live_endpoint_no_sendkeys.sh` updated (not in the plan): its 1b/1c/
+    1c'/1d scans read only the endpoint file, so the move emptied its verb set. It
+    now scans the endpoint + the `ait_tmux_pane_for_pid` body, with two shape
+    assertions (endpoint delegates; body carries `ait_tmux list-panes`).
+- **Issues encountered:** the no-sendkeys regression (HEAD control 26/26 vs 25/26
+  with the change) — fixed, mutant-proven (send-keys injected into the helper body
+  fails 1b/1c/1c'). The AskUserQuestion regex needs `·` and `↑/↓`, so the live test
+  forces `C.UTF-8` when the locale is not UTF-8; prompt detection reads only the
+  last 6 capture lines, so the live test bottom-aligns its screen.
+- **Key decisions:** pane_state values are validated against
+  `^(waiting_[a-z0-9_]+|active)$` at BOTH write sites (probe and sweep) —
+  `sync_action_runner` drops the whole record otherwise, and `unresolvable` lives
+  only in the human message. The memo is written only in the sweep's own frame
+  (`_holder_action` runs in `$( )`). The re-probe never trusts the memo.
+- **Verification:** pre-phase baseline (unmodified tree): protect_paths 31/31,
+  deferral_and_quarantine 109/109, live_endpoint_tmux_live 16/16,
+  live_endpoint_degradation 53/53. After: those unchanged, plus sync_rebase_gate
+  30/30, sync_auto_commit_scoping 38/38, test_sync 42/42, branch_mode_automerge
+  green, live_endpoint_no_sendkeys 28/28, tmux_pane_for_pid 25/25, no_raw_tmux 5/5,
+  test_pane_state_probe 11/11, test_sync_holder_pane_live 51/51, python suite
+  PASSED (runner=pytest, exit=0). Per-half mutants on isolated copies: whole line
+  to the probe (E2 fails), record not filled (S1e/S1f/S2/E1 fail, stderr still
+  passes), bootstrap removed (P1d fails with ModuleNotFoundError).
+- **Upstream defects identified:**
+  - `tests/test_task_push.sh:2116 — Test 54 ("two replayed commits both auto-merge") fails (TASK_SYNC_STATUS failed, rebase aborted) in the post-change run; tests/test_task_push.sh:2200 — Test 56 ("AIT_AUTOMERGE_MAX_ROUNDS junk/0") fails on a pristine `git archive HEAD` (b874e7058) export. Failing case varies between runs: pre-existing, likely flaky, in the t1727 automerge-loop area (lib/task_utils.sh::_task_pull_rebase, lib/task_automerge.sh); untouched by t1725_4.`
+- **Notes for sibling tasks:**
+  - t1725_5: `pane` is the target `<session>:<window_id>.<pane_id>` (percent-encoded
+    on the wire); `pane_state` is `waiting_<kind>` / `active` / `""`, filled only for
+    `live_lock` / `unknown_liveness` on this host. It is **text-derived** — for an
+    unresolved agent it matches unscoped (see t1787), and your commit button rides
+    on it.
+  - Tests wanting pane resolution: `require_isolated_tmux` first, then source
+    `sync_fixture.sh`, and pass `SYNC_FIXTURE_TMUX_SOCKET=<your -L name>` per sweep.
+    `tests/test_sync_holder_pane_live.sh` is the template (redraw-from-file pane,
+    bottom-aligned screen, UTF-8, parser-based record reads with an END sentinel).
+  - t1787 (review finding, follow-up): durable agent provenance for
+    `--require-waiting`; live-test E2 currently commits through the unscoped
+    fallback and must be reworked.
+
