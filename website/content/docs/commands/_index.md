@@ -17,6 +17,8 @@ description: "Complete CLI reference for all ait subcommands"
 | [`ait git push`](sync/#ait-git-push) | Best-effort push of task data; warns when commits are stranded |
 | [`ait git-health`](sync/#ait-git-health) | Diagnose the `.aitask-data` worktree state (detached HEAD, stuck rebase/merge) |
 | [`ait lock`](lock/) | Lock/unlock tasks to prevent concurrent work |
+| [`ait note`](note/) | Send durable advisory context to a task that already exists |
+| [`ait note read`](note/#reading-acknowledgement-receipts) | Record a read receipt so acknowledged notes stop surfacing |
 
 ### TUI
 
@@ -111,6 +113,8 @@ ait issue-import                        # Import issues from issue tracker
 ait lock 42                             # Pre-lock a task before Claude Web
 ait lock --list                         # See all active locks
 ait lock --unlock 42                    # Release a lock
+ait note 357 --from 349 --text "..."    # Send a durable note to task 357
+ait note read 357 --by 357 --ids <id>   # Acknowledge a note
 ait sync                               # Interactive sync with progress
 ait sync --batch                        # Batch mode for scripting
 ait git add aitasks/t42.md              # Git operations on task data

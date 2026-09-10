@@ -51,6 +51,7 @@ Create, organize, and wrap tasks.
 | [`/aitask-backlog-roadmap`](aitask-backlog-roadmap/) | Rank the background-work backlog into a conflict-aware implementation trail — an advisory estimate of what to pick up alongside work in flight |
 | [`/aitask-revert`](aitask-revert/) | Revert changes associated with completed tasks — fully or partially |
 | [`/aitask-wrap`](aitask-wrap/) | Wrap uncommitted changes into an aitask with retroactive documentation |
+| [`/aitask-note`](aitask-note/) | Send durable context to a task that already exists — advisory input its next reader chooses to consume |
 
 ### Contributions
 

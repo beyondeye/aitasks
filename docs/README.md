@@ -31,6 +31,7 @@ All updates should be made there.
 | [/aitask-explore](../website/content/docs/skills/aitask-explore.md) | `skills/aitask-explore.md` | Explore codebase interactively, then create a task |
 | [/aitask-create](../website/content/docs/skills/aitask-create.md) | `skills/aitask-create.md` | Create a new task file interactively |
 | [/aitask-fold](../website/content/docs/skills/aitask-fold.md) | `skills/aitask-fold.md` | Identify and merge related tasks |
+| [/aitask-note](../website/content/docs/skills/aitask-note.md) | `skills/aitask-note.md` | Send durable context to a task that already exists |
 | [/aitask-stats](../website/content/docs/skills/aitask-stats.md) | `skills/aitask-stats.md` | View task completion statistics |
 | [/aitask-backlog-roadmap](../website/content/docs/skills/aitask-backlog-roadmap.md) | `skills/aitask-backlog-roadmap.md` | Rank the background-work backlog into a conflict-aware implementation trail |
 | [/aitask-changelog](../website/content/docs/skills/aitask-changelog.md) | `skills/aitask-changelog.md` | Generate a changelog entry |

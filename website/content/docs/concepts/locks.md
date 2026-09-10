@@ -118,6 +118,7 @@ The merge mutex is likewise invisible in normal use: the task workflow takes it 
 - [Tasks]({{< relref "/docs/concepts/tasks" >}}) — the unit a lock applies to
 - [Git branching model]({{< relref "/docs/concepts/git-branching-model" >}}) — the `aitask-locks` branch
 - [`ait lock`]({{< relref "/docs/commands/lock" >}}) — the CLI for inspecting and managing locks
+- [`ait note`]({{< relref "/docs/commands/note" >}}) — live delivery reads the lock record to find the agent session holding a task
 - [Workflows: Crash Recovery]({{< relref "/docs/workflows/crash-recovery" >}}) — reclaim a task whose prior agent crashed mid-implementation
 - [Workflows: Parallel development]({{< relref "/docs/workflows/parallel-development" >}}) — how both locks fit into running several tasks at once
 

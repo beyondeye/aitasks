@@ -78,7 +78,12 @@ task_id: 42
 locked_by: user@example.com
 locked_at: 2026-02-24 14:30
 hostname: my-laptop
+pid: 48213
+pid_starttime: 1234567
+pid_starttime_kind: proc
 ```
+
+When the lock is taken from an agent session, it also records that session's process: `pid`, plus a start-time token (`pid_starttime`, `pid_starttime_kind`) that tells it apart from a recycled PID. A lock that predates this, or was taken where no session process could be identified, has no `pid` fields. That record is what lets a later pick tell a live holder from a crashed one (see [Locks]({{< relref "/docs/concepts/locks" >}})), and it is also what [`ait note --with-live`]({{< relref "/docs/commands/note" >}}#output) reads to find the live agent session implementing a task.
 
 **Locking does not change task metadata.** The task's `status` and `assigned_to` fields are not modified -- locking is purely a reservation mechanism. The status changes to `Implementing` later when the task is actually picked for implementation (via `/aitask-pick` or similar).
 
@@ -137,4 +142,4 @@ ait lock --init  # Direct initialization
 
 ---
 
-**Next:** [Issue Integration & Utilities]({{< relref "/docs/commands/issue-integration" >}})
+**Next:** [Note]({{< relref "/docs/commands/note" >}})
