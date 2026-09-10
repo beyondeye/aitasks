@@ -1,50 +1,25 @@
 # Documentation
 
-Documentation has moved to `website/content/docs/` — the Hugo/Docsy website is the single source of truth.
-All updates should be made there.
+The documentation lives in `website/content/docs/` — the Hugo/Docsy website is the single source of truth.
+Make all updates there.
 
 **Live site:** https://aitasks.io/
 
-## Available Documentation
+## Documentation Sections
 
-| Guide | Source File | Description |
-|-------|------------|-------------|
-| [Overview](../website/content/docs/overview.md) | `overview.md` | The challenge, core philosophy, and key features |
-| [Installation](../website/content/docs/installation/_index.md) | `installation/_index.md` | Quick install, platform support, setup, and git remote authentication |
-| [Windows/WSL](../website/content/docs/installation/windows-wsl.md) | `installation/windows-wsl.md` | Step-by-step Windows/WSL installation guide |
-| [Getting Started](../website/content/docs/getting-started.md) | `getting-started.md` | First-time walkthrough from install to first task |
-| [Kanban Board](../website/content/docs/board/_index.md) | `board/_index.md` | TUI board tutorial and overview |
-| [Board How-To](../website/content/docs/board/how-to.md) | `board/how-to.md` | Step-by-step guides for board operations |
-| [Board Reference](../website/content/docs/board/reference.md) | `board/reference.md` | Keyboard shortcuts, configuration, technical details |
-| [Workflows](../website/content/docs/workflows/_index.md) | `workflows/_index.md` | End-to-end workflow guides |
-| [Capturing Ideas](../website/content/docs/workflows/capturing-ideas.md) | `workflows/capturing-ideas.md` | Quickly capture task ideas without breaking your flow |
-| [Issue Tracker](../website/content/docs/workflows/issue-tracker.md) | `workflows/issue-tracker.md` | Round-trip workflow between issue trackers (GitHub/GitLab/Bitbucket) and aitasks |
-| [Task Decomposition](../website/content/docs/workflows/task-decomposition.md) | `workflows/task-decomposition.md` | Breaking complex tasks into manageable child subtasks |
-| [Task Consolidation](../website/content/docs/workflows/task-consolidation.md) | `workflows/task-consolidation.md` | Merging overlapping or duplicate tasks into a single task |
-| [Follow-Up Tasks](../website/content/docs/workflows/follow-up-tasks.md) | `workflows/follow-up-tasks.md` | Creating rich follow-up tasks during implementation |
-| [Parallel Development](../website/content/docs/workflows/parallel-development.md) | `workflows/parallel-development.md` | Working on multiple tasks simultaneously |
-| [Terminal Setup](../website/content/docs/workflows/terminal-setup.md) | `workflows/terminal-setup.md` | Multi-tab terminal workflow and monitoring |
-| [Code Review](../website/content/docs/workflows/code-review.md) | `workflows/code-review.md` | Systematic code review using review guides |
-| [Exploration-Driven](../website/content/docs/workflows/exploration-driven.md) | `workflows/exploration-driven.md` | Start with codebase exploration, create tasks from findings |
-| [Skills Overview](../website/content/docs/skills/_index.md) | `skills/_index.md` | Claude Code skill reference |
-| [/aitask-pick](../website/content/docs/skills/aitask-pick.md) | `skills/aitask-pick.md` | Select and implement the next task |
-| [/aitask-explore](../website/content/docs/skills/aitask-explore.md) | `skills/aitask-explore.md` | Explore codebase interactively, then create a task |
-| [/aitask-create](../website/content/docs/skills/aitask-create.md) | `skills/aitask-create.md` | Create a new task file interactively |
-| [/aitask-fold](../website/content/docs/skills/aitask-fold.md) | `skills/aitask-fold.md` | Identify and merge related tasks |
-| [/aitask-note](../website/content/docs/skills/aitask-note.md) | `skills/aitask-note.md` | Send durable context to a task that already exists |
-| [/aitask-stats](../website/content/docs/skills/aitask-stats.md) | `skills/aitask-stats.md` | View task completion statistics |
-| [/aitask-backlog-roadmap](../website/content/docs/skills/aitask-backlog-roadmap.md) | `skills/aitask-backlog-roadmap.md` | Rank the background-work backlog into a conflict-aware implementation trail |
-| [/aitask-changelog](../website/content/docs/skills/aitask-changelog.md) | `skills/aitask-changelog.md` | Generate a changelog entry |
-| [/aitask-docs-gap](../website/content/docs/skills/aitask-docs-gap.md) | `skills/aitask-docs-gap.md` | Find release docs gaps, create one documentation task |
-| [/aitask-review](../website/content/docs/skills/aitask-review.md) | `skills/aitask-review.md` | Review code using configurable review guides |
-| [/aitask-reviewguide-classify](../website/content/docs/skills/aitask-reviewguide-classify.md) | `skills/aitask-reviewguide-classify.md` | Classify a review guide by assigning metadata |
-| [/aitask-reviewguide-merge](../website/content/docs/skills/aitask-reviewguide-merge.md) | `skills/aitask-reviewguide-merge.md` | Compare and merge similar review guides |
-| [/aitask-reviewguide-import](../website/content/docs/skills/aitask-reviewguide-import.md) | `skills/aitask-reviewguide-import.md` | Import external content as a review guide |
-| [Commands Overview](../website/content/docs/commands/_index.md) | `commands/_index.md` | CLI command reference |
-| [Setup & Install](../website/content/docs/commands/setup-install.md) | `commands/setup-install.md` | ait setup and ait install commands |
-| [Task Management](../website/content/docs/commands/task-management.md) | `commands/task-management.md` | ait create, ait ls, and ait update commands |
-| [Board & Stats](../website/content/docs/commands/board-stats.md) | `commands/board-stats.md` | ait board and ait stats commands |
-| [Issue Integration](../website/content/docs/commands/issue-integration.md) | `commands/issue-integration.md` | ait issue-import, ait issue-update, ait changelog, ait zip-old |
-| [Development Guide](../website/content/docs/development/_index.md) | `development/_index.md` | Architecture, internals, release process |
-| [Task Format](../website/content/docs/development/task-format.md) | `development/task-format.md` | YAML frontmatter schema and conventions |
-| [Review Guide Format](../website/content/docs/development/review-guide-format.md) | `development/review-guide-format.md` | File format, vocabulary files, and matching algorithms |
+This index lists the top-level pages and sections only; each section's landing page lists the pages inside it.
+
+| Guide | Description |
+|-------|-------------|
+| [Overview](../website/content/docs/overview.md) | The challenge aitasks addresses, its core philosophy, and key features |
+| [Getting Started](../website/content/docs/getting-started.md) | First-time setup and your first task workflow |
+| [Installation](../website/content/docs/installation/_index.md) | Install aitasks and configure your development environment |
+| [Concepts](../website/content/docs/concepts/_index.md) | Conceptual reference for the aitasks framework — what each building block is and why it exists |
+| [TUI Applications](../website/content/docs/tuis/_index.md) | Terminal-based user interfaces for task management and code understanding |
+| [Workflow Guides](../website/content/docs/workflows/_index.md) | End-to-end workflow guides for common aitasks operations |
+| [Code Agent Skills](../website/content/docs/skills/_index.md) | Reference for aitasks skills across supported code agents |
+| [Command Reference](../website/content/docs/commands/_index.md) | Complete CLI reference for all ait subcommands |
+| [Development Guide](../website/content/docs/development/_index.md) | Architecture, internals, and release process |
+
+This file is outside the Hugo build, so `website/check_links.py` never sees it;
+`tests/test_docs_readme_links.sh` checks its inline links.
