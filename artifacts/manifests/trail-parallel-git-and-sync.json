@@ -1,0 +1,10 @@
+{
+  "backend": "local",
+  "created_at": 1789073190,
+  "current": "sha256:6639a0de227e190a62d8ec24c60088e193fb20f45e4333394062884482aa744b",
+  "handle": "art:trail-parallel-git-and-sync",
+  "updated_at": 1789073190,
+  "versions": [
+    "sha256:6639a0de227e190a62d8ec24c60088e193fb20f45e4333394062884482aa744b"
+  ]
+}

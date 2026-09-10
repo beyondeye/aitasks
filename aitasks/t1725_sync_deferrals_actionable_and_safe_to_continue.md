@@ -13,7 +13,11 @@ file_references: [.aitask-scripts/aitask_sync.sh:1269-1280, .aitask-scripts/sync
 children_to_implement: [t1725_5, t1725_6, t1725_7]
 anchor: 1599
 created_at: 2026-09-07 10:58
-updated_at: 2026-09-10 15:48
+updated_at: 2026-09-10 23:46
+artifacts:
+  - handle: art:trail-parallel-git-and-sync
+    kind: implementation_trail
+    name: Parallel git operation and sync — landing order
 ---
 
 ## Problem

@@ -1,0 +1,1155 @@
+{
+  "schema_version": "1.1.0",
+  "trail_id": "trail-parallel-git-and-sync",
+  "title": "Parallel git operation and sync — landing order",
+  "owner": "aitasks#1725",
+  "scope": {
+    "kind": "ad_hoc",
+    "topics": [],
+    "selection_note": "User-chosen ad-hoc set of 43 active tasks for the 'improve parallel git operation and sync problems' theme, drawn from a label/keyword sweep of active tasks (git, sync, rebase, merge, lock, concurrency), plus t1719 (44 in total), which the pre-write drift check surfaced as depending on member t1343 and the user chose to add. Child ids were listed directly. Owner t1725 (sync-deferral parent) was chosen by the user. scope.topics is deliberately empty: the drift checker treats every task anchored in a listed topic as related, so the gatherer's 17 member topics would have flagged every unpicked sibling (45 of 46 drift reasons at the first check). Per-entry topic fields still record each member's topic. Gap filed as t1793."
+  },
+  "generation": {
+    "generated_at": "2026-09-10T20:26:42Z",
+    "generator": {
+      "agent_string": "claudecode/opus5",
+      "skill": "aitask-trail"
+    },
+    "input_digest": "884db45e355aa4b0",
+    "inputs": [
+      {
+        "kind": "plan_file",
+        "ref": "aitasks:aiplans/p1725/p1725_5_syncer_and_board_deferral_screen_with_commit_on_behalf.md"
+      },
+      {
+        "kind": "plan_file",
+        "ref": "aitasks:aiplans/p1725/p1725_6_document_actionable_sync_deferrals.md"
+      },
+      {
+        "kind": "plan_file",
+        "ref": "aitasks:aiplans/p1747/p1747_3_sync_authorization_probes.md"
+      },
+      {
+        "kind": "plan_file",
+        "ref": "aitasks:aiplans/p1747/p1747_4_setup_dirty_baseline_probe.md"
+      },
+      {
+        "kind": "plan_file",
+        "ref": "aitasks:aiplans/p1747/p1747_5_published_history_amend_probes.md"
+      },
+      {
+        "kind": "plan_file",
+        "ref": "aitasks:aiplans/p1747/p1747_6_lock_and_reservation_probes.md"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1337"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1343"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1344"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1390"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1393"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1459"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1471"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1476"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1497"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1513"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1589"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1592"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1593"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1604"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1678"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1688"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1692"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1696"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1710"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1711"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1713"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1714"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1715"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1725_5"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1725_6"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1725_7"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1739"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1740"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1742"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1747_3"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1747_4"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1747_5"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1747_6"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1747_7"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1749"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1750"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1751"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1775"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1785"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1787"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1789"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1791"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1792"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1719"
+      }
+    ]
+  },
+  "freshness": {
+    "state": "current",
+    "checked_at": "2026-09-10T20:26:42Z"
+  },
+  "narrative": {
+    "problem_statement": "In which order should the 44 active tasks that make concurrent git operation and task-data sync safe be landed? Many agents share one checkout here, and most of these tasks edit the same few files — aitask_sync.sh, lib/task_utils.sh, the lock scripts and aitask_merge_task.sh — so landing order matters as much as the recorded dependencies.",
+    "recommendation_summary": "Finish the five in-flight tasks first. Then land a wave of small independent fixes, then run t1678 (data-index lock adoption) on its own, then split into lanes serialized by shared file: sync deferral UX; locks and the fail-open probe sweep; the merge lock; shared helpers, the metadata lock and the parallel-agent advisory. Low-priority cleanups and the standalone manual verifications come last.",
+    "overview": "Pick next: nothing that touches aitask_sync.sh, lib/task_utils.sh or the lock scripts until the five in-flight tasks (t1747_3, t1789, t1696, t1688, t1692) have landed. t1747_3 is the gate for most of the sync work — its plan owns aitask_sync.sh, and t1747_4 and t1792 hard-depend on it. t1696 gates t1715 (stale-lock reaping), and t1688 should land before t1343 because both change the parallel-admission check.\n\nThe first wave you can start in parallel with the in-flight work is t1711: high priority, low effort, touching no in-flight file, and it fixes dirty worktrees in every aitasks-managed project. t1713 and t1791 are likewise independent of the in-flight surfaces.\n\nt1678 is the highest-value item in the set. The shared data-index lock is currently respected only by the sync sweep, so every other writer can still race it. But it touches about a dozen writers, so it runs alone, after wave 2's task_utils and sync edits have landed.\n\nAfter that, work proceeds in lanes that can run in parallel, but each lane is serialized internally because its members share files. In the sync-UX lane, t1787 should precede t1725_5 so that commit-on-behalf with --require-waiting rests on trustworthy waiting detection. The lock lane (t1715, t1390) must finish before t1747_6 changes the same lock scripts, and t1747_6 in turn precedes the merge-lock lane (t1589, t1593, t1592), which all edit aitask_merge_task.sh.\n\nt1725_7, t1747_7 and the wave 9 verifications are only worth running once the code they check has stopped moving.\n\nIn the parallel-agent lane, t1343 unlocks both t1344 and t1719. t1719 is the change that makes parallel admission reserve files instead of just observing them, which removes the point-in-time race the admission check currently has to caveat.",
+    "method_note": "Lite depth. Membership is the user's ad-hoc selection of 44 tasks. The order rests on three sources:\n- the recorded depends edges in the gatherer snapshot;\n- the script and file names each task body mentions, read to infer shared surfaces;\n- the gatherer's lock-based in-flight evidence (lock cache about an hour old).\n\nNot verified:\n- File overlaps are inferred from task-body mentions, not from code. Only six members have plan files.\n- The recorded dependency targets of t1471, t1476, t1497 and t1513 (t1465, t1466, t1485, t1507) were not checked for completion.\n- In-flight enumeration is lock-based, so work held without a lock is invisible to it.\n\nThis trail is advisory; it changes no task metadata.\n\nscope.topics is empty on purpose. The drift checker flags every task anchored in a listed topic, with no created-after-generation filter, so the gatherer's member topics made the trail stale by construction. Emptying it leaves drift watching only the members' depends, verifies and mitigation edges. Filed as t1793."
+  },
+  "waves": [
+    {
+      "wave_id": "w1-inflight",
+      "ordinal": 1,
+      "title": "Finish in-flight work",
+      "purpose": "Five members are already Implementing and hold locks; their surfaces overlap much of what follows, so nothing touching those files should start until they land.",
+      "entries": [
+        {
+          "entry_id": "e-1747-3",
+          "task": "aitasks#1747_3",
+          "topic": "aitasks#1733",
+          "position": 1,
+          "classification": "hard_prerequisite",
+          "confidence": "high",
+          "snapshot": {
+            "status": "Implementing",
+            "priority": "high",
+            "effort": "high",
+            "depends": [
+              "aitasks#1747_2"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ]
+          },
+          "rationale": "Its tracked plan owns aitask_sync.sh and four sync test files, and t1747_4 and t1792 hard-depend on it — the gate for most sync-side work."
+        },
+        {
+          "entry_id": "e-1789",
+          "task": "aitasks#1789",
+          "topic": "aitasks#1599",
+          "position": 2,
+          "classification": "preferred_predecessor",
+          "confidence": "high",
+          "snapshot": {
+            "status": "Implementing",
+            "priority": "medium",
+            "effort": "low",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "followup_kind": "upstream_defect"
+          },
+          "rationale": "Fixes the flaky auto-merge loop tests over task_utils / task_automerge; t1739 edits task_utils and t1742 verifies that auto-merge, so both are better built on stable tests."
+        },
+        {
+          "entry_id": "e-1696",
+          "task": "aitasks#1696",
+          "topic": "aitasks#1658",
+          "position": 3,
+          "classification": "hard_prerequisite",
+          "confidence": "high",
+          "snapshot": {
+            "status": "Implementing",
+            "priority": "medium",
+            "effort": "medium",
+            "boardcol": "now",
+            "depends": [
+              "aitasks#1658_1"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "followup_kind": "verification_failure"
+          },
+          "rationale": "The stale-lock / dead-holder hint fix; t1715 (reap stale locks) records a hard depends edge on it."
+        },
+        {
+          "entry_id": "e-1688",
+          "task": "aitasks#1688",
+          "topic": "aitasks#1569",
+          "position": 4,
+          "classification": "preferred_predecessor",
+          "confidence": "medium",
+          "snapshot": {
+            "status": "Implementing",
+            "priority": "high",
+            "effort": "high",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ]
+          },
+          "rationale": "Makes the parallel-admission check usable before a pick; t1343's file-conflict advisory extends the same checker (aitask_parallel_admission.sh)."
+        },
+        {
+          "entry_id": "e-1692",
+          "task": "aitasks#1692",
+          "topic": "aitasks#1681",
+          "position": 5,
+          "classification": "optional",
+          "confidence": "high",
+          "snapshot": {
+            "status": "Implementing",
+            "priority": "low",
+            "effort": "low",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "followup_kind": "risk_mitigation"
+          },
+          "rationale": "Small convergence of the gate lock exit trap onto the shared seam; in flight and independent of the others, listed so it is not forgotten."
+        }
+      ]
+    },
+    {
+      "wave_id": "w2-small-fixes",
+      "ordinal": 2,
+      "title": "Small independent fixes",
+      "purpose": "Low-effort fixes that can run in parallel once their single predecessor has landed. Clearing them before t1678 shrinks the churn that the wide lock-adoption change has to rebase over.",
+      "entries": [
+        {
+          "entry_id": "e-1711",
+          "task": "aitasks#1711",
+          "topic": "aitasks#1711",
+          "position": 1,
+          "classification": "core",
+          "confidence": "high",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "high",
+            "effort": "low",
+            "depends": [],
+            "gates_pending": []
+          },
+          "rationale": "Trailing-slash .gitignore entries leave every aitasks worktree dirty, which feeds the dirty-tree problems the rest of the trail works around; high priority, low effort, touches no in-flight file."
+        },
+        {
+          "entry_id": "e-1792",
+          "task": "aitasks#1792",
+          "topic": "aitasks#1599",
+          "position": 2,
+          "classification": "core",
+          "confidence": "high",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "depends": [
+              "aitasks#1747_3"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "followup_kind": "upstream_defect"
+          },
+          "rationale": "Enforces --no-autostash and --no-overwrite-ignore in the sync pull and fast-forward paths; recorded depends on t1747_3, and lands best right after it while aitask_sync.sh is settled."
+        },
+        {
+          "entry_id": "e-1739",
+          "task": "aitasks#1739",
+          "topic": "aitasks#1599",
+          "position": 3,
+          "classification": "core",
+          "confidence": "medium",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "depends": [],
+            "gates_pending": [],
+            "followup_kind": "risk_mitigation"
+          },
+          "rationale": "The gateway pull policy and git argument parser in task_utils.sh; ordered after t1789, which edits the same file."
+        },
+        {
+          "entry_id": "e-1747-4",
+          "task": "aitasks#1747_4",
+          "topic": "aitasks#1733",
+          "position": 4,
+          "classification": "hard_prerequisite",
+          "confidence": "high",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "high",
+            "effort": "medium",
+            "depends": [
+              "aitasks#1747_3"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ]
+          },
+          "rationale": "The setup dirty-baseline probe — the next link of the fail-open probe sweep chain, which t1747_5 depends on."
+        },
+        {
+          "entry_id": "e-1775",
+          "task": "aitasks#1775",
+          "topic": "aitasks#1762",
+          "position": 5,
+          "classification": "core",
+          "confidence": "medium",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "followup_kind": "upstream_defect"
+          },
+          "rationale": "Scopes unscoped git commits in aitask_setup.sh — the file t1747_4 also edits, so it follows t1747_4 rather than racing it."
+        },
+        {
+          "entry_id": "e-1713",
+          "task": "aitasks#1713",
+          "topic": "aitasks#1599",
+          "position": 6,
+          "classification": "core",
+          "confidence": "medium",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "depends": [],
+            "gates_pending": [],
+            "followup_kind": "risk_mitigation"
+          },
+          "rationale": "Makes the metadata-commit skew refusal name the version instead of reading as a broken push; confined to aitask_metadata_commit.sh."
+        },
+        {
+          "entry_id": "e-1791",
+          "task": "aitasks#1791",
+          "topic": "aitasks#1599",
+          "position": 7,
+          "classification": "preferred_predecessor",
+          "confidence": "medium",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "followup_kind": "upstream_defect"
+          },
+          "rationale": "The syncer's code-branch pull refuses on any dirty file; a small edit to syncer_app.py that is best made before t1725_5 reworks the same app."
+        }
+      ]
+    },
+    {
+      "wave_id": "w3-data-index-lock",
+      "ordinal": 3,
+      "title": "Data-index lock adoption (solo)",
+      "purpose": "Make every task-data writer respect the shared data-index lock — today only the sync sweep does — as one change with nothing else touching those writers.",
+      "why_now": "Every later lane adds or edits writers; adopting the lock before them means they are written against it instead of retrofitted.",
+      "entries": [
+        {
+          "entry_id": "e-1678",
+          "task": "aitasks#1678",
+          "topic": "aitasks#1599",
+          "position": 1,
+          "classification": "core",
+          "confidence": "medium",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "high",
+            "effort": "high",
+            "depends": [
+              "aitasks#1676",
+              "aitasks#1677"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "followup_kind": "risk_mitigation"
+          },
+          "rationale": "The highest-value fix in the set, and the widest: its body names about a dozen scripts (sync, task_utils, archive, create, update, pick_own, gate, init_data, issue_import, and the registry and stale-lock libraries), so it runs alone after wave 2's edits to task_utils and sync."
+        }
+      ]
+    },
+    {
+      "wave_id": "w4-sync-ux",
+      "ordinal": 4,
+      "title": "Sync deferral UX",
+      "purpose": "Make a deferral actionable in the syncer and board — who holds each file, and a safe commit-on-behalf — and document it. Serialized by recorded depends.",
+      "entries": [
+        {
+          "entry_id": "e-1787",
+          "task": "aitasks#1787",
+          "topic": "aitasks#1599",
+          "position": 1,
+          "classification": "preferred_predecessor",
+          "confidence": "medium",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "depends": [
+              "aitasks#1725_4"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "followup_kind": "review_finding"
+          },
+          "rationale": "Bases the 'holder is waiting' decision on durable agent provenance instead of screen text; t1725_5 exposes commit-on-behalf gated on --require-waiting, so that gate should be trustworthy first."
+        },
+        {
+          "entry_id": "e-1725-5",
+          "task": "aitasks#1725_5",
+          "topic": "aitasks#1599",
+          "position": 2,
+          "classification": "hard_prerequisite",
+          "confidence": "high",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "depends": [
+              "aitasks#1725_4"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ]
+          },
+          "rationale": "The syncer/board deferral screen with commit-on-behalf; t1725_6 depends on it. It must treat t1731's new MERGED status as a success, not a deferral (a note is in its inbox)."
+        },
+        {
+          "entry_id": "e-1725-6",
+          "task": "aitasks#1725_6",
+          "topic": "aitasks#1599",
+          "position": 3,
+          "classification": "hard_prerequisite",
+          "confidence": "high",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "depends": [
+              "aitasks#1725_5"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ]
+          },
+          "rationale": "Documents the actionable deferrals once every surface has landed; builds on sync.md's guarded-merge paragraph (a note is in its inbox)."
+        },
+        {
+          "entry_id": "e-1725-7",
+          "task": "aitasks#1725_7",
+          "topic": "aitasks#1599",
+          "position": 4,
+          "classification": "optional",
+          "confidence": "high",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "depends": [
+              "aitasks#1725_6"
+            ],
+            "gates_pending": [],
+            "followup_kind": "manual_verification"
+          },
+          "rationale": "Manual verification of the whole t1725 family; meaningful only after t1725_6."
+        }
+      ]
+    },
+    {
+      "wave_id": "w5-locks-and-probes",
+      "ordinal": 5,
+      "title": "Locks and the fail-open probe sweep",
+      "purpose": "Harden the lock branch and the remaining fail-open git probes. Serialized because all of these touch aitask_lock.sh / stale_lock.sh (and t1747_5 touches aitask_issue_import.sh, which t1678 also edits).",
+      "entries": [
+        {
+          "entry_id": "e-1715",
+          "task": "aitasks#1715",
+          "topic": "aitasks#1715",
+          "position": 1,
+          "classification": "core",
+          "confidence": "high",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "boardcol": "now",
+            "depends": [
+              "aitasks#1696"
+            ],
+            "gates_pending": []
+          },
+          "rationale": "Reaps long-dead locks that keep counting as held on the aitask-locks branch; recorded depends on t1696, and it touches aitask_lock.sh and aitask_sync.sh."
+        },
+        {
+          "entry_id": "e-1390",
+          "task": "aitasks#1390",
+          "topic": "aitasks#635",
+          "position": 2,
+          "classification": "core",
+          "confidence": "medium",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "followup_kind": "upstream_defect"
+          },
+          "rationale": "The last known pipefail-on-corrupt-lock instance, in lock_task(); same file as t1715, so it follows it."
+        },
+        {
+          "entry_id": "e-1747-5",
+          "task": "aitasks#1747_5",
+          "topic": "aitasks#1733",
+          "position": 3,
+          "classification": "hard_prerequisite",
+          "confidence": "high",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "depends": [
+              "aitasks#1747_4"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ]
+          },
+          "rationale": "The published-history amend probes (fold_mark, issue_import); recorded depends on t1747_4, and placed after t1678, which also edits aitask_issue_import.sh."
+        },
+        {
+          "entry_id": "e-1747-6",
+          "task": "aitasks#1747_6",
+          "topic": "aitasks#1733",
+          "position": 4,
+          "classification": "hard_prerequisite",
+          "confidence": "high",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "high",
+            "effort": "high",
+            "depends": [
+              "aitasks#1747_5"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ]
+          },
+          "rationale": "The lock and reservation probes in aitask_lock.sh, aitask_merge_task.sh and stale_lock.sh; after the lock lane settles, and before the merge-lock lane edits aitask_merge_task.sh."
+        },
+        {
+          "entry_id": "e-1747-7",
+          "task": "aitasks#1747_7",
+          "topic": "aitasks#1733",
+          "position": 5,
+          "classification": "optional",
+          "confidence": "high",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "depends": [
+              "aitasks#1747_6"
+            ],
+            "gates_pending": [],
+            "followup_kind": "manual_verification"
+          },
+          "rationale": "Manual verification of the probe sweep; meaningful only once t1747_6 has landed."
+        }
+      ]
+    },
+    {
+      "wave_id": "w6-merge-lock",
+      "ordinal": 6,
+      "title": "Merge lock",
+      "purpose": "Tidy the merge broker and close the last merge path that is unprotected by the merge lock. Serialized because all three edit aitask_merge_task.sh.",
+      "entries": [
+        {
+          "entry_id": "e-1589",
+          "task": "aitasks#1589",
+          "topic": "aitasks#1560",
+          "position": 1,
+          "classification": "core",
+          "confidence": "medium",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "followup_kind": "upstream_defect"
+          },
+          "rationale": "Fixes the merge broker's vocabulary and usage exit — a small change that should precede the larger broker changes; after t1747_6 touches the same file."
+        },
+        {
+          "entry_id": "e-1593",
+          "task": "aitasks#1593",
+          "topic": "aitasks#1560",
+          "position": 2,
+          "classification": "core",
+          "confidence": "medium",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "depends": [],
+            "gates_pending": [],
+            "followup_kind": "risk_mitigation"
+          },
+          "rationale": "Guards the published recovery mapping of the merge lock against drift, so t1592's new call site lands against a pinned contract."
+        },
+        {
+          "entry_id": "e-1592",
+          "task": "aitasks#1592",
+          "topic": "aitasks#1560",
+          "position": 3,
+          "classification": "core",
+          "confidence": "medium",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "high",
+            "depends": [
+              "aitasks#1560_3"
+            ],
+            "gates_pending": []
+          },
+          "rationale": "Serializes the web-merge path behind the merge lock — the only merge path still unprotected; the largest item in the lane, so it goes last."
+        }
+      ]
+    },
+    {
+      "wave_id": "w7-helpers-and-coordination",
+      "ordinal": 7,
+      "title": "Shared helpers, metadata lock, parallel-agent advisory",
+      "purpose": "Remaining concurrency fixes in lib/task_utils.sh and the metadata writers, plus the parallel-agent coordination chain (t1343, then t1719 and t1344). Written against the data-index lock t1678 established.",
+      "entries": [
+        {
+          "entry_id": "e-1740",
+          "task": "aitasks#1740",
+          "topic": "aitasks#1599",
+          "position": 1,
+          "classification": "core",
+          "confidence": "medium",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "depends": [],
+            "gates_pending": [],
+            "followup_kind": "risk_mitigation"
+          },
+          "rationale": "Crew worktree pull cleanup and serialization — crew worktrees abort unconditionally today; task_utils.sh, so after t1739 and t1678."
+        },
+        {
+          "entry_id": "e-1710",
+          "task": "aitasks#1710",
+          "topic": "aitasks#1599",
+          "position": 2,
+          "classification": "core",
+          "confidence": "medium",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "boardcol": "now",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "followup_kind": "risk_mitigation"
+          },
+          "rationale": "Scopes aitask_archive.sh's commit pathspec — the same defect t1702 fixed elsewhere; archive is also a t1678 writer, so it follows it."
+        },
+        {
+          "entry_id": "e-1337",
+          "task": "aitasks#1337",
+          "topic": "aitasks#1312",
+          "position": 3,
+          "classification": "optional",
+          "confidence": "medium",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "low",
+            "effort": "low",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "followup_kind": "risk_mitigation"
+          },
+          "rationale": "A concurrent append race on labels.txt; low priority, and it touches task_utils.sh, so it sits at the end of that file's queue."
+        },
+        {
+          "entry_id": "e-1714",
+          "task": "aitasks#1714",
+          "topic": "aitasks#1599",
+          "position": 4,
+          "classification": "core",
+          "confidence": "medium",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "high",
+            "depends": [],
+            "gates_pending": [],
+            "followup_kind": "risk_mitigation"
+          },
+          "rationale": "A shared lock for metadata writes, turning a detect-and-refuse guard into real exclusion; its design overlaps t1678's lock (both use stale_lock.sh), so it comes after it."
+        },
+        {
+          "entry_id": "e-1343",
+          "task": "aitasks#1343",
+          "topic": "aitasks#1343",
+          "position": 5,
+          "classification": "hard_prerequisite",
+          "confidence": "medium",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "high",
+            "effort": "high",
+            "depends": [
+              "aitasks#1275"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ]
+          },
+          "rationale": "An advisory telling parallel agents whether their file sets collide; it extends the parallel-admission checker t1688 reworks, and both t1344 and t1719 depend on it."
+        },
+        {
+          "entry_id": "e-1719",
+          "task": "aitasks#1719",
+          "topic": "aitasks#1719",
+          "position": 6,
+          "classification": "core",
+          "confidence": "medium",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "high",
+            "effort": "high",
+            "depends": [
+              "aitasks#1343",
+              "aitasks#1569_4"
+            ],
+            "gates_pending": []
+          },
+          "rationale": "Swaps the admission checker's evidence backend to t1343's declared-claims store, turning an observed file surface into a reserved one. That closes the point-in-time race behind every 'CLEAR is not a guarantee' caveat. It recorded-depends on t1343 (t1569_4 has already landed), and it keeps the verdict contract unchanged."
+        },
+        {
+          "entry_id": "e-1344",
+          "task": "aitasks#1344",
+          "topic": "aitasks#1343",
+          "position": 7,
+          "classification": "core",
+          "confidence": "medium",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "depends": [
+              "aitasks#1343"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ]
+          },
+          "rationale": "Refines the conflict signal to be worktree-aware with line ranges; recorded depends on t1343."
+        }
+      ]
+    },
+    {
+      "wave_id": "w8-later",
+      "ordinal": 8,
+      "title": "Later / low priority",
+      "purpose": "Real but narrow defects and cleanups in the same area; none of them blocks another member, so they fill gaps between lanes.",
+      "entries": [
+        {
+          "entry_id": "e-1459",
+          "task": "aitasks#1459",
+          "topic": "aitasks#1459",
+          "position": 1,
+          "classification": "optional",
+          "confidence": "low",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "depends": [],
+            "gates_pending": [],
+            "followup_kind": "upstream_defect"
+          },
+          "rationale": "Anchor merges use task-wide, minute-resolution newer-wins, so a stale checkout can win a field it never edited; narrow, and independent of the lanes."
+        },
+        {
+          "entry_id": "e-1785",
+          "task": "aitasks#1785",
+          "topic": "aitasks#1733",
+          "position": 2,
+          "classification": "optional",
+          "confidence": "low",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "followup_kind": "upstream_defect"
+          },
+          "rationale": "A board-group merge guard that can check a stale driver target; it touches task_automerge.sh, so it goes after t1789 and the sync lanes."
+        },
+        {
+          "entry_id": "e-1393",
+          "task": "aitasks#1393",
+          "topic": "aitasks#635",
+          "position": 3,
+          "classification": "optional",
+          "confidence": "low",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ]
+          },
+          "rationale": "Step 9 never fetches the merge target on a non-resumed run; a workflow-level git issue, independent of the sync and lock lanes."
+        },
+        {
+          "entry_id": "e-1750",
+          "task": "aitasks#1750",
+          "topic": "aitasks#1599",
+          "position": 4,
+          "classification": "optional",
+          "confidence": "low",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "low",
+            "effort": "low",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "followup_kind": "risk_mitigation"
+          },
+          "rationale": "Restructures a note hint that an allowlist leaves unguarded; low priority cleanup."
+        },
+        {
+          "entry_id": "e-1751",
+          "task": "aitasks#1751",
+          "topic": "aitasks#1681",
+          "position": 5,
+          "classification": "optional",
+          "confidence": "medium",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "followup_kind": "upstream_defect"
+          },
+          "rationale": "A test-only fix for BSD wc -l padding in the stale-lock test (macOS); can go at any time, but best after the lock lane stops changing stale_lock.sh."
+        }
+      ]
+    },
+    {
+      "wave_id": "w9-verifications",
+      "ordinal": 9,
+      "title": "Standalone manual verifications",
+      "purpose": "Human checks of work that has already landed. They block nothing, and are worth running once the code they verify has stopped moving under the lanes above.",
+      "entries": [
+        {
+          "entry_id": "e-1742",
+          "task": "aitasks#1742",
+          "topic": "aitasks#1599",
+          "position": 1,
+          "classification": "optional",
+          "confidence": "medium",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "depends": [
+              "aitasks#1727"
+            ],
+            "gates_pending": [],
+            "followup_kind": "manual_verification"
+          },
+          "rationale": "Verifies that task_sync auto-merges frontmatter conflicts; run after t1789 stabilizes the auto-merge loop tests."
+        },
+        {
+          "entry_id": "e-1749",
+          "task": "aitasks#1749",
+          "topic": "aitasks#1599",
+          "position": 2,
+          "classification": "optional",
+          "confidence": "medium",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "depends": [
+              "aitasks#1728"
+            ],
+            "gates_pending": [],
+            "followup_kind": "manual_verification"
+          },
+          "rationale": "Verifies the scoped ./ait git commit sites from t1728."
+        },
+        {
+          "entry_id": "e-1604",
+          "task": "aitasks#1604",
+          "topic": "aitasks#1599",
+          "position": 3,
+          "classification": "optional",
+          "confidence": "medium",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "depends": [
+              "aitasks#1599_1"
+            ],
+            "gates_pending": [],
+            "followup_kind": "risk_mitigation"
+          },
+          "rationale": "A soak check that claim commits carry no foreign paths; a lagging indicator, so later is better."
+        },
+        {
+          "entry_id": "e-1471",
+          "task": "aitasks#1471",
+          "topic": "aitasks#1471",
+          "position": 4,
+          "classification": "optional",
+          "confidence": "low",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "depends": [
+              "aitasks#1465"
+            ],
+            "gates_pending": [],
+            "followup_kind": "manual_verification"
+          },
+          "rationale": "Verifies the lock PID-anchor follow-up; best run after the lock lane (t1715, t1390, t1747_6) settles."
+        },
+        {
+          "entry_id": "e-1476",
+          "task": "aitasks#1476",
+          "topic": "aitasks#1476",
+          "position": 5,
+          "classification": "optional",
+          "confidence": "low",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "depends": [
+              "aitasks#1466"
+            ],
+            "gates_pending": [],
+            "followup_kind": "manual_verification"
+          },
+          "rationale": "Verifies the lock-acquire liveness gate; same reasoning as t1471."
+        },
+        {
+          "entry_id": "e-1497",
+          "task": "aitasks#1497",
+          "topic": "aitasks#1171",
+          "position": 6,
+          "classification": "optional",
+          "confidence": "low",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "depends": [
+              "aitasks#1485"
+            ],
+            "gates_pending": [],
+            "followup_kind": "manual_verification"
+          },
+          "rationale": "Verifies the no-plan branch and lock fix from t1485."
+        },
+        {
+          "entry_id": "e-1513",
+          "task": "aitasks#1513",
+          "topic": "aitasks#1171",
+          "position": 7,
+          "classification": "optional",
+          "confidence": "low",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "depends": [
+              "aitasks#1507"
+            ],
+            "gates_pending": [],
+            "followup_kind": "manual_verification"
+          },
+          "rationale": "Verifies the conversion of the registry lock to the shared core; after t1678 and t1714 have also reworked locking."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    {
+      "evidence_id": "gather-snapshot",
+      "source_type": "command_output",
+      "ref": "./.aitask-scripts/aitask_trail_gather.sh snapshot --scope task --owner 1725 <44 member ids>",
+      "observed_at": "2026-09-10T20:26:42Z",
+      "summary": "44 members; owner aitasks#1725; digest 884db45e355aa4b0; 50 inputs (44 task files, 6 plans). Five members are Implementing (t1747_3, t1789, t1696, t1688, t1692). t1719 depends on t1343 and on t1569_4, which has already landed."
+    }
+  ],
+  "rendering_hints": {
+    "depth": "lite"
+  }
+}
