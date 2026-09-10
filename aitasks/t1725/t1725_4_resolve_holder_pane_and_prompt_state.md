@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: medium
 depends: [t1725_3]
 issue_type: feature
@@ -111,3 +113,5 @@ Everything reads through existing seams: pid → pane is `resolve_pane_for_pid` 
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-09-10T11:56:18Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-09-10T12:40:43Z status=pass attempt=1 type=human
