@@ -191,6 +191,53 @@ rather than invent a new launch path.
    `ait board --view bytrail`), `tui_registry` + `shortcut_scopes` entries,
    board → trail hand-off via `TuiSwitcherMixin` and back; first `argparse`
    surface on the board if `--view` is chosen.
+
+   **TUI switcher integration** (`j` overlay) — the registry is the single
+   source of truth for *listing and launching*, but the quick-jump key is
+   hand-wired in four places; the checklist, with the file that pins each:
+   - `lib/tui_registry.py:17–30` `TUI_REGISTRY`: one row
+     `(<window_name>, <label>, "ait <cmd>", True)`. The window name is the
+     tmux `-n` name the launcher must create its window with — it is what
+     `tmux_monitor.py` uses to classify the pane as a TUI, what
+     `agent_launch_utils.py:1699` uses to exclude it from minimonitor
+     auto-spawn, and what `framework_version.py:172–185` treats as a busy
+     window during upgrade. Docstring `:1–9` says one entry is enough — true
+     for the list/launch/classify half only.
+   - `lib/tui_switcher.py` quick-jump wiring, all four or none:
+     `_TUI_SHORTCUTS` `:216–227` (default key), `_QUICK_JUMP_BINDINGS`
+     `:399–415` (`Binding(<key>, "shortcut_<name>", <label>, show=False)`),
+     an `action_shortcut_<name>` method next to `:1100–1112` calling
+     `self._shortcut_switch("<name>")`, and — **optional, budgeted** —
+     `_HINT_ITEMS` `:251–262`: the hint row already renders 122 columns and
+     the comment above it (`:245–250`) says membership is decided by width,
+     not completeness; measure with the one-liner given there before adding.
+     Taken keys: `a l b m f c s t y r x X g n e` (+ `j` open/close, `?`,
+     escape/enter/arrows/`[`/`]`); `t` is stats, so the trail key must be
+     something else (e.g. `i`, `w`), settled at planning and registered under
+     `shared.tui_switcher` so the `?` editor and Settings → Shortcuts see it.
+   - `lib/shortcut_scopes.py:47–65` `KNOWN_BINDING_SOURCES`: a row for the
+     new app file with its scope tuple (e.g. `("trail_app",
+     "board/trail_app.py", ("trail", "trail.detail"))`) — `tests/test_shortcut_scopes.py`
+     and `tests/test_shortcuts_registry_coverage.sh` fail otherwise.
+   - The new App: `class TrailApp(TuiSwitcherMixin, ShortcutsMixin, App)`
+     with `*TuiSwitcherMixin.SWITCHER_BINDINGS` in `BINDINGS` and
+     `self.current_tui_name = "<window_name>"` in `__init__`
+     (`lib/tui_switcher.py:1438–1450`), so `j` works from inside it and the
+     overlay marks it `is-current`.
+   - `lib/tui_switcher.py` `KNOWN_TUIS` is derived from the registry
+     (`:155`), so no edit there; `CLAUDE.md:431–435` policy list and the
+     website index (child 8) must agree with the registry row.
+   - The board-side hand-off: `z` in the board either keeps rendering the
+     embedded view or delegates to `_switch_to("<window_name>", running)` —
+     the design decides, and `tests/test_board_bytrail_view.py` (4,584
+     lines) is the arbiter of what "unchanged" means for the embedded path.
+   - Tests that pin this surface and must be extended for the new row:
+     `tests/test_shortcut_scopes.py`, `tests/test_shortcuts_registry_coverage.sh`,
+     `tests/test_keybinding_registry.sh`, `tests/test_settings_shortcuts_tab.py`,
+     `tests/test_tui_switcher_footer_fit.sh` (hint width in small panes),
+     `tests/test_session_key_collision.py` (registry-inclusive switcher rows
+     keyed on `project_root`), `tests/test_framework_version.py` (busy-window
+     set), `tests/test_tui_switcher_agent_launch.py`.
 5. **Further board module extraction** (each its own child if large):
    `TaskManager` → `board/task_manager.py`; workflow-phase derivation
    (`:223–617`) → `lib/` or `board/`; `TaskDetailScreen` + its field widgets
@@ -199,8 +246,8 @@ rather than invent a new launch path.
    flat-import contract and the fixture-harness invariant per module.
 6. **Measure and document**: re-run child 1's script; update
    `aidocs/framework/python_tui_performance.md`, `tui_conventions.md`,
-   `CLAUDE.md:143–147` (board file map), `website/content/docs/tuis/board/*`,
-   `website/content/docs/tuis/_index.md` and the CHANGELOG; the
+   `CLAUDE.md:143–147` (board file map) and the CHANGELOG; the website work
+   is its own child (see "Website documentation" below) and the
    manual-verification follow-up covers the live board ↔ trail hand-off.
 7. **Notes to affected tasks** (can run as soon as the design is approved,
    `/aitask-note … --from <this task>`): the trail-subsystem tasks
@@ -218,6 +265,49 @@ rather than invent a new launch path.
    `aitask_board|ait board|By-Trail|trail screen|TrailDetailScreen`), since
    it moves. Active plans that cite board line numbers: `p1647`, `p1569`,
    `p1243`, `p1231`, `p1725`, `p1162`, `p1257`, `p1516`, `p1186`.
+8. **Website documentation** — a dedicated child, after child 4 lands (the
+   command name, keys and switcher letter must be final before the page is
+   written):
+   - **New page set for the stand-alone trail TUI**, following the one
+     directory per TUI convention: `website/content/docs/tuis/<name>/`
+     with `_index.md` (front matter `title`, `linkTitle`, `weight`,
+     `description`, `maturity`, `depth`), `how-to.md` and `reference.md` —
+     mirror `website/content/docs/tuis/minimonitor/`, which is the precedent
+     for a TUI carved out of a bigger one and documents its relationship to
+     the parent TUI in the first paragraph. The reference page owns the
+     key map (select/detail/summary/drift/watch/launch/move-wave) and the
+     launch forms (stand-alone subcommand, from the board, from the
+     switcher).
+   - **Board pages**: `website/content/docs/tuis/board/reference.md`
+     (`:32–39,63,165,224,251–275` — the By-Trail keys and trails section;
+     `tests/test_board_reference_doc_literals.py` pins its literals against
+     `aitask_board.py`, so the pin must follow the code to the new module or
+     be re-pointed) and `how-to.md`; the By-Trail view either stays embedded
+     and links to the new page for the full reference, or becomes a
+     hand-off — whichever the design settles, the board page must say which.
+   - **The TUI index** `website/content/docs/tuis/_index.md`: a new bullet
+     in the list at `:17–22` (the Board bullet at `:20` currently describes
+     the By-Trail view and must be rewritten), the switcher paragraph at
+     `:38` (key letter for the new TUI), and the front-matter `cascade`
+     link list at `:7–9`.
+   - **Pages that currently assert the board is the only way to a trail**:
+     `website/content/docs/skills/aitask-trail.md:87` literally states
+     "There is no `ait trail` command: trails are reached through this
+     skill and through the board's By-Trail view" — this sentence becomes
+     false and must be rewritten (and it is why the subcommand name must
+     not be confusable with the `/aitask-trail` skill / codeagent `trail`
+     op); also `:12`, `:72`, `:92` (relrefs into
+     `/docs/tuis/board/reference#by-trail`),
+     `website/content/docs/workflows/implementation-trails.md:51,82`
+     ("Press `z` for the By-Trail view…") and
+     `website/content/docs/skills/aitask-backlog-roadmap.md:17`.
+   - **`CLAUDE.md` TUI list policy** (`:431–435`, "Project-Specific Notes"):
+     the documented-TUI list (board, monitor, minimonitor, codebrowser,
+     settings, brainstorm) must gain the new TUI, and the `tui_registry` /
+     `tui_switcher.KNOWN_TUIS` entries added in child 4 must agree with it.
+   - Run `tests/lib/docs_vocabulary_scan.py` and the website build after
+     the edits; the blog is **not** updated (blog posts are release-time,
+     `create_new_release.sh`).
 
 ## Acceptance criteria
 
@@ -226,7 +316,11 @@ rather than invent a new launch path.
   bash test suite are green at every child boundary.
 - The trail screen runs as a stand-alone TUI from an `ait` subcommand, opens
   the same trail select/detail/summary/drift/watch/launch flows, and is
-  reachable from the board (and can return to it) via the TUI switcher.
+  reachable from the board (and can return to it) via the TUI switcher: it
+  has a `TUI_REGISTRY` row, a quick-jump key registered under
+  `shared.tui_switcher` (visible in the `?` editor and Settings → Shortcuts),
+  `j` works from inside it, monitor classifies its window as a TUI, and
+  minimonitor is not auto-spawned beside it.
 - `aitask_board.py` is materially smaller (target: KanbanApp no longer
   contains any trail code; TaskManager, detail screen and column dialogs live
   in their own modules) and `board/` is a package with the same flat-import
@@ -238,6 +332,11 @@ rather than invent a new launch path.
   (asserted by the fixture-harness self-test).
 - Every task in the notes list has received a note pointing at the approved
   design and the new file map.
+- The website documents the stand-alone trail TUI on its own page set under
+  `website/content/docs/tuis/<name>/` (`_index.md`, `how-to.md`,
+  `reference.md`), the TUI index and the board pages are updated, and no
+  published page still states that the board is the only way to reach a
+  trail (`skills/aitask-trail.md:87`).
 
 ## Docs to read before planning
 
