@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -10,8 +12,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5
 created_at: 2026-09-09 19:32
-updated_at: 2026-09-09 19:34
+updated_at: 2026-09-10 10:51
 ---
 
 `install.sh` **deletes the installed project's root `CHANGELOG.md` on every install
@@ -135,3 +138,5 @@ at all.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-09-10T07:51:17Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-09-10T08:25:45Z status=pass attempt=1 type=human
