@@ -5,10 +5,10 @@ depends: [398]
 issue_type: feature
 status: Ready
 labels: [aitask-redesign]
-children_to_implement: [t399_1, t399_2, t399_3]
+children_to_implement: [t399_1, t399_2]
 assigned_to: ''
 created_at: 2026-03-16 09:20
-updated_at: 2026-03-17 18:51
+updated_at: 2026-09-10 22:06
 boardcol: next
 boardidx: 100
 ---

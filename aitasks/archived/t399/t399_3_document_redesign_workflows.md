@@ -3,11 +3,14 @@ priority: medium
 effort: medium
 depends: [t399_2]
 issue_type: documentation
-status: Ready
+status: Done
+archived_reason: superseded
 labels: [aitask-redesign, workflows, web_site]
 created_at: 2026-03-17 18:51
-updated_at: 2026-03-17 18:51
+updated_at: 2026-09-10 22:06
+completed_at: 2026-09-10 22:06
 ---
+
 
 ## Document Redesign Skill And Workflows
 
@@ -89,3 +92,7 @@ cases.
 > | (website/content/docs/*.md or website/content/docs/*/_index.md) is not linked.
 > | Advisory; this describes the tree at da20ffd80, so re-check docs/README.md when
 > | you pick this up.
+
+## Closed as obsolete (2026-09-10)
+
+Blocked on `/aitask-redesign`, which was never built (t399_2 unstarted), and its "brainstorm alternatives" mode now overlaps the shipped brainstorm TUI. The t399 parent needs a go/no-go decision first; any docs should be scoped from whatever ships.
