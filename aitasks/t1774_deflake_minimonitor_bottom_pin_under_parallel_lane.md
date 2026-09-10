@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: medium
 effort: low
 depends: []
 issue_type: bug
@@ -12,8 +14,9 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1599
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5
 created_at: 2026-09-09 22:23
-updated_at: 2026-09-10 08:20
+updated_at: 2026-09-10 12:49
 ---
 
 ## Origin

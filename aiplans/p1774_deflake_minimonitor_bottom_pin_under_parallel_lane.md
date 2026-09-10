@@ -313,3 +313,72 @@ rarer cause absent, so the soak narrows this risk without retiring it.
 
 ### Planned mitigations
 - timing: post-phase | name: parallel_lane_soak | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: medium | addresses: goal-achievement — in-situ parallel-lane failure never reproduced directly | desc: Run the full parallel-lane Python suite 3x consecutively after the fix and report each verdict
+
+## Implementation progress
+
+- **Steps 1-4: done.** No production file touched; no carve-out or `CLAUDE.md`
+  change.
+- **Identifier deviation:** the `_hold_restore` helper is implemented as the
+  `_HeldRestore` context manager (`with _HeldRestore(app) as held:`), exposing
+  `wait_for_failsafe(pilot)` and `release()`. The contract is unchanged.
+- **Claim narrowed:** the binding case witnesses that the restore is refused
+  once the fail-safe has *retired the tick*. The fail-safe both bumps the
+  generation and drops the snapshot, and either of the restore's guards refuses,
+  so the test cannot and does not claim which guard fired. Docstring and
+  assertion message say "retired the tick", not "retired its generation".
+- **Shared constants:** `_BINDING_SCROLL_LOCK_TIMEOUT` (0.0001) and
+  `_FAILSAFE_WAIT_DEADLINE` (10 s) are named once, next to
+  `_NON_BINDING_SCROLL_LOCK_TIMEOUT`. The 10 s deadline serves both the new
+  barrier and the rewritten fail-safe test's bounded poll.
+- **Verification 1:** 41 passed (8 in the target module + 33 in the sibling,
+  including the 2 new `ScrollLockBudgetTests`).
+- **Verification 3:** binding budget `scroll_y=-2` (condition `< 0` holds; the
+  held gen was retired by the fail-safe); fixture budget `scroll_y=0`, the
+  fail-safe did not fire; the in-process override was restored; `git status`
+  shows only the two intended test files modified.
+- **Verification 5:** carve-out doc drift guard 18/18.
+- **Verification 2:** 5/5 reps passed (41 passed each, 33.5-36.2 s) under 48
+  CPU spinners, with the 1-minute load average climbing from 36 to 53 over the
+  run.
+- **Verification 4 / `parallel_lane_soak`:** 3/3 full parallel-lane runs
+  `PYTHON SUITE: PASSED (runner=pytest, exit=0)`, no failures in any module.
+  Run 1 auto-selected `-n 2` (1-minute load average still 36 from verification
+  2); runs 2 and 3 used `-n 4`. In every run all 41 target-module tests carried a
+  `[gwN]` worker prefix, i.e. they ran in the pool, not the carve-out.
+
+## Final Implementation Notes
+
+- **Actual work done:** as planned. The shared host `_ListHost` in
+  `tests/test_minimonitor_scroll_preservation.py` makes the app's wall-clock
+  scroll-lock fail-safe non-binding (`_NON_BINDING_SCROLL_LOCK_TIMEOUT = 3600`).
+  The fail-safe's own test opts back in to the production budget, read from
+  `mm.MiniMonitorApp._SCROLL_LOCK_TIMEOUT`, and waits for the lock to clear by
+  condition, bounded at 10 s, instead of a fixed sleep margin. `_HeldRestore`
+  plus `ScrollLockBudgetTests` pin, in both directions, that the budget decides
+  whether a tick's restore runs. `tests/test_minimonitor_bottom_pin.py` gained a
+  docstring note only. No production code, carve-out, or `CLAUDE.md` change.
+- **Deviations from plan:** the `_hold_restore` helper is the `_HeldRestore`
+  context manager. The binding-case claim is narrowed to "the fail-safe retired
+  the tick", because it both bumps the generation and drops the snapshot, and
+  either restore guard refuses. `_BINDING_SCROLL_LOCK_TIMEOUT` and
+  `_FAILSAFE_WAIT_DEADLINE` are named once and shared.
+- **Issues encountered:** before the fix, CPU load alone (40-48 spinners) did
+  not reproduce the in-pool failure. The root cause was established by
+  injecting through the documented `_SCROLL_LOCK_TIMEOUT` seam, which reproduced
+  the reported assertion verbatim, plus an arm-to-restore latency measurement
+  (21-50 ms idle, up to 249 ms at load average 10, against a 500 ms budget).
+  Plan review caught two design flaws before implementation, and both were
+  fixed:
+  - the new discriminating test lacked an ordering barrier (the timer and the
+    restore are independent loop tasks);
+  - the verification probe was coupled to the exact `-2` value and to a
+    tracked-file mutation.
+- **Key decisions:** fix the shared host rather than extend the serial
+  carve-out; the same race failed 4 other tests across both modules. Pin the
+  cause, not the symptom: in production the next refresh tick self-heals a lost
+  reconcile, so no production change is warranted. Residual: the fail-safe
+  test's `locked_immediately` read can still lose to the real 0.5 s timer if
+  `_refresh_data`'s rebuild alone exceeds 0.5 s; the window was shortened, not
+  eliminated.
+- **Upstream defects identified:**
+  - `tests/run_all_python_tests.sh:30 — header comment says the AIT_TEST_WORKERS default is 2, but default_workers() (line 160) picks 4 or 2 depending on machine load`
