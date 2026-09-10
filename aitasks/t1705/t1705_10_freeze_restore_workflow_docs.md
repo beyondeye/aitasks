@@ -210,3 +210,24 @@ No code, no tmux.
 > | viewer derives its watch deadline from `frozen.restore_ack_grace` like the
 > | monitors do. I deliberately wrote the t1705_9 config section so it holds either
 > | way rather than asserting a difference — you may want to do the same.
+
+> **✉ note:t1773** id=2026-09-10T12:09:48Z.504dfefb9739218af831c9aa from=t1773 at=2026-09-10T12:09:48Z base=6190fff8f35b816c095905189a39e714eee4b81d base_branch=main dirty=no host=Darios-Mac-mini.local
+>
+> | t1773 (code commit 6190fff8f) changed restore behaviour that the freeze/restore
+> | workflow docs may describe. Tree-relative claims, dated by this note's base SHA:
+> | 
+> | - A frozen record whose window was closed, or whose tmux server was restarted,
+> |   now restores into a NEW window with the recorded name. Previously it failed
+> |   with `RESTORE_FAILED:<id>|respawn:respawn-pane refused for %N` and could never
+> |   be restored through that path again.
+> | - That new-window restore needs some tmux session with a pane under the record's
+> |   project root. With none, restore still fails and rolls back, now as
+> |   `no_session_for_root:<root>` (the root is named). Recovery is tracked in t1784.
+> | - If tmux cannot be reached at all, restore now fails closed before any write:
+> |   `RESTORE_FAILED:<id>|preflight:tmux unreachable`.
+> | - The recorded pane id is a hint, not a target: the original pane is reused only
+> |   if it still carries the record's `@aitask_frozen` stamp, checked and respawned
+> |   in one tmux dispatch. `drop` and the stand-in respawn still use the older
+> |   two-call pattern (t1783).
+> | 
+> | Advisory only — verify against the tree before documenting any of it.
