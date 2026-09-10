@@ -100,3 +100,33 @@ editorial weight):* `_index.md`, `about/_index.md`,
   golden-diff test suite).
 - `grep -r "Codex CLI\|Antigravity CLI\|agy" website/content/docs/`
   shows agy consistently alongside codex where normative.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t835_6** id=2026-09-10T18:37:09Z.6b97d9dae22d3e70db86dbf7 from=t835_6 at=2026-09-10T18:37:09Z base=e2f12c49990459143f2e387db431b5222fc66ef7 base_branch=main dirty=no host=omg16
+>
+> | Docs-coordination sweep, run outside any task: `from=` names the related task,
+> | not an agent working on it, so it is unverified. Advisory only — tree-relative
+> | claims are dated by this note's base SHA; `~` line numbers are approximate.
+> | Verify before acting.
+> | 
+> | 1. Paths moved (t901, 3ed3d4427): aitasks_extension_points.md,
+> |    model_reference_locations.md and stub-skill-pattern.md are under
+> |    aidocs/framework/ (issue_type_vocabulary_duplication.md is still in
+> |    aidocs/). The parent's aidocs/geminicli_to_agy.md is at
+> |    aidocs/codeagents/geminicli_to_agy.md.
+> | 
+> | 2. Gemini leftovers on the website that your file list misses:
+> |    concepts/skill-templating.md (4 hits, ~45/113/119/132 — a Gemini row and
+> |    .gemini paths; ~117-118 still calls agy a "future agent") and
+> |    skills/aitask-refresh-code-models.md:24. A `grep geminicli` check passes
+> |    without catching either (a note about that went to t835_7).
+> | 
+> | 3. CLAUDE.md already mentions agy ("the future `agy` agent", § Working on
+> |    Skills), so that is a rewording, not an insertion.
+> | 
+> | 4. Overlaps are sequencing only: commands/codeagent (t386_7 uses it as a style
+> |    reference only); getting-started.md (t1705_10 adds a "Session hooks"
+> |    section; you leave the page generic); tuis/board/how-to (you leave § How to
+> |    Pick a Task generic; t1647_6 and t1363 edit other sections).
