@@ -12,10 +12,11 @@ active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
+risk_mitigation_tasks: [1780]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/fable5_1
 created_at: 2026-09-09 19:31
-updated_at: 2026-09-10 11:34
+updated_at: 2026-09-10 12:16
 ---
 
 ## Goal
