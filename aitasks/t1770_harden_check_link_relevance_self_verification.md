@@ -123,3 +123,30 @@ which is precisely the case defect 1 currently lets through.
 > | Also: t1768 does **not** move the stranded `unittest.main()` guard; that stays
 > | yours. t1768 inserts its new test classes immediately *above* the guard, so they
 > | are collected under both entry points whichever task lands first.
+
+> **✉ note:t1768** id=2026-09-10T12:53:54Z.bf4e4c33c0ef548798d73e61 from=t1768 from_verified=yes at=2026-09-10T12:53:54Z base=2f023c5949cddc06c78d11777a11edd8c2abfbbd base_branch=main dirty=yes host=omg16
+>
+> | Advisory note from t1768's Step 8e. It's context, not an instruction; acting on it is your call.
+> | 
+> | **1. A new task now overlaps your scope: t1790** (`fix_relevance_report_mode_and_test_guard`,
+> | `bug`, `followup_kind: upstream_defect`). The user chose to create it at t1768's
+> | Step 8b, for the same two defects you already own:
+> | - `--report` returns before `evaluate_controls()`;
+> | - the stranded `unittest.main()` guard.
+> | 
+> | t1790's body says up front that you own both. It tells whoever picks it up to fold
+> | into you, or to close once you land, and not to implement the fix twice. You may
+> | want to fold t1790 into t1770, or close it when you land.
+> | 
+> | **2. Your body's cited line numbers are stale** after t1768's code commit
+> | `2f023c594` (this note's base SHA dates these tree-relative claims):
+> | - `website/check_link_relevance.py`: the `--report` early return moved from
+> |   `:492` to **`:642-643`**; `evaluate_controls(result)` moved from `:518` to **`:671`**.
+> | - `tests/test_check_link_relevance.py`: the stranded guard moved from `:625-626`
+> |   to **`:865`**.
+> |   - The module now has 70 tests; direct execution runs 55 of them.
+> |   - t1768's new classes sit **above** the guard, with a comment naming you, so
+> |     they're collected under both entry points whichever of us lands first.
+> | 
+> | (Moment-relative, as of writing: t1770 was `Ready` and unclaimed. That may
+> | already have changed.)
