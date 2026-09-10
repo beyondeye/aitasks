@@ -115,6 +115,43 @@ look clean" hazard t1759 named.
    the 5/6 split the whole precision claim rests on. The same stamp goes on the
    docstring's copy of the table.
 
+### Frozen baseline
+
+Taken **before** `subject_of_page` existed (pre-phase `freeze_history_baseline`),
+by `website/check_link_relevance_history.py` over `--range HEAD` with tip
+**`97f238c3c`** — **358** content commits swept, 0 skipped; ENGINE control
+passed; CORPUS controls reported not applicable. (The range grew from 352 → 358
+between planning and this freeze: main advanced mid-session.)
+
+| sweeps | source | token → target | scope | expected label |
+|---:|---|---|---|---|
+| 1 | `docs/commands/_index.md` | `ait codebrowser` → `/docs/commands/board-stats/` | page | no — `codebrowser` is not a segment |
+| 164 | `docs/commands/_index.md` | `ait git` → `/docs/commands/sync/` | page | no |
+| 1 | `docs/commands/_index.md` | `ait ide` → `/docs/installation/terminal-setup/` | page | no — `ide` ≠ `terminal-setup` |
+| 20 | `docs/development/task-format.md` | `ait artifact` → `/docs/workflows/implementation-trails/` | page | **no — t1707 true positive** |
+| 117 | `docs/installation/known-issues.md` | `cli_help` → `/docs/commands/codeagent/` | page | no |
+| 27 | `docs/skills/aitask-trail.md` | `ait artifact` → `/docs/commands/task-management/` | page | **no — t1707 true positive** |
+| 76 | `docs/tuis/monitor/how-to.md` | `ait minimonitor` → `/docs/tuis/minimonitor/how-to/` | `#how-to-mark-an-agent-as-prioritized` | no — anchored, never labelled |
+| 48 | `docs/workflows/claude-web.md` | `/aitask-pickweb` → `/docs/skills/aitask-pickweb/` | `#execution-profiles` | no — anchored |
+| 192 | `docs/workflows/crash-recovery.md` | `aitask_lock.sh` → `/docs/commands/lock/` | page | **yes** — key `lock` |
+| 15 | `docs/workflows/parallel-development.md` | `/aitask-pick` → `/docs/skills/aitask-pick/parallel-admission/` | page | **yes** — key `aitask-pick` |
+| 148 | `docs/workflows/risk-evaluation.md` | `ait board` → `/docs/tuis/board/reference/` | `#task-metadata-fields` | no — anchored |
+
+**Expected: 2 labelled, 9 unlabelled.** The plan's "5 classify / 6 survive" is the
+URL-matching rule alone; the page-scope restriction then withholds the label from
+the three anchored ones (`ait minimonitor`, `/aitask-pickweb`, `ait board`). Both
+t1707 records stay unlabelled either way. Implementation must reproduce exactly
+this column; any divergence is a defect in the rule, not a reason to edit the
+table.
+
+**Deviation recorded (step 1c):** `CORPUS_CONTROLS` is derived as the complement
+of a named `ENGINE_CONTROL_NAMES` set rather than kept as a second hand-maintained
+list. "A control in neither list" is then impossible by construction, and a new
+control defaults to CORPUS — the fail-safe direction for replay. The planned
+partition test becomes a test that every `ENGINE_CONTROL_NAMES` entry names a real
+control, which is the hazard the derivation leaves open: renaming a probe would
+otherwise drop it silently into CORPUS.
+
 ### 1. `website/check_link_relevance.py` — the classifier, and an engine/corpus control split
 
 **1a. `subject_of_page(token, url) -> bool`**, a module-level pure function next to
@@ -373,6 +410,113 @@ Plan mode is read-only, so both of these run as the first actions after approval
    removal leaves the suite green is pinned by nothing; fix the test before
    proceeding. Record the result in the task's completion notes.
 
+## Implementation progress (t1768)
+
+**Status: all steps implemented and verified; awaiting Step 8 review.**
+
+- [x] Pre-phase `freeze_history_baseline` — harness built and run before the
+  classifier existed; frozen table above (tip `97f238c3c`, 358 sweeps).
+- [x] 1c engine/corpus split — done first, since the harness needs it.
+- [x] Step 2 harness — `website/check_link_relevance_history.py`.
+- [x] 1a/1b/1d classifier, probe control, output, docstring.
+- [x] Step 3 `check_links.py` docstring (Q1).
+- [x] Step 4 tests — new classes placed above the stranded `unittest.main()`
+  guard (t1770 owns moving it); `CoverageBoundaryTests` docstring records Q2.
+- [x] Step 5 `tests/test_check_link_relevance_history.py`.
+- [x] Step 6 README.
+- [x] Step 7 coordination — t1760 note receipt recorded; note sent to t1770
+  (`2026-09-10T11:40:42Z.4e6897dc1446deb87b0fc370`, `LIVE_NONE:unlocked`).
+
+**Results.**
+
+- Live CLI: 4 records, 2 unlabelled first, then `aitask_lock.sh` and
+  `/aitask-pick` tagged `[subject-of-page]`; 6 controls True; exit 0.
+- Replay with the classifier live reproduces the frozen column exactly: 11
+  records, 2 labelled, both t1707 records unlabelled; HEAD control PASSED
+  (website/content clean — t1760 committed the earlier `setup-install.md` edit).
+- `pytest` on both files: 81 passed. Direct execution: 55 (was 33) — the new
+  classes are collected under both entry points.
+- Full suite: `PYTHON SUITE: PASSED (runner=pytest, exit=0)`.
+- `check_links.py --build`: `SWEEP: PASSED`.
+
+**Post-phase `discriminator_mutation_check`** — run on isolated copies of the
+modules and tests, never the shared worktree; each mutant's replacement asserted
+to land exactly once; unmutated copy green before and after.
+
+| mutant | result | killed by |
+|---|---|---|
+| prefix stripping removed | red | `test_a_final_command_word_is_never_an_extension` (+15) |
+| extension stripping removed | red | `test_extension_is_stripped_before_slugging` (+5) |
+| bare-word extension stripping | red | `test_a_final_command_word_is_never_an_extension` |
+| `SECTION_SEGMENTS` removed | red | `test_section_directories_are_not_subjects` |
+| sub-word matching | red | `test_a_segment_sub_word_does_not_match` |
+| page-scope restriction removed | red | `test_anchored_miss_is_never_labelled` |
+| probe renamed out of `ENGINE_CONTROL_NAMES` | red | `test_every_engine_name_is_a_real_control` (+2) |
+| residual-first ordering removed | red | `test_unlabelled_records_print_first_and_the_base_rate_is_shown` |
+| harness HEAD guard uses `git diff` | red | `test_head_control_skips_on_an_untracked_page` (+1) |
+| harness drops `scope` from the key | red | `test_scope_is_part_of_the_record_identity` (+3) |
+| ~~harness makes archive failure fatal~~ | ~~red~~ | **Retracted** — this row recorded the *defect* being pinned, not a discriminator checked. See Change Request 1. |
+| probe positive-only (both negative clauses removed) | red | `test_probe_fails_if_everything_is_labelled` |
+
+**Equivalent mutants, recorded rather than hidden:** removing *either one* of the
+probe's two negative-direction clauses (`labels == {…}` or
+`counters["subject_of_page"] == 1`) survives, because each alone rejects
+"label everything". They are redundant guards over one direction, not an
+unguarded one — the mutant removing both is killed.
+
+**Deviations from the plan.**
+
+- `CORPUS_CONTROLS` is derived as the complement of `ENGINE_CONTROL_NAMES`
+  instead of a second hand-kept list (see the frozen-baseline note). The planned
+  partition test is kept and joined by a test that every engine name is a real
+  control — the hazard the derivation leaves open.
+- Base rate is **299 of 329 page-scoped token links (~91%)**, not the ~77%
+  planning estimate, which counted anchored links too. The docs say "most" and
+  the CLI prints the live figure, so nothing quotes the stale number.
+- **Pre-existing error corrected:** README and the module docstring both said
+  "roughly seven internal links in ten" carry a backticked token. Measured: 388 of
+  1034 (37%). Both now point at the run's `links checked` line instead of a ratio.
+- The harness is Python and not wired to CI, as planned; the two probe clauses
+  are kept (see equivalent mutants above).
+
+## Post-Review Changes
+
+### Change Request 1 (2026-09-10 15:28)
+- **Requested by user:** `_extract` treated every non-zero `git archive` as "this
+  commit has no `website/content`", so a real archive failure on a commit whose
+  directory exists was counted as a skip and the run still exited 0 — silently
+  truncating the aggregation the frozen baseline rests on. Distinguish absence
+  from failure, and prove a failure fails the run.
+- **Changes made:** absence is now decided by `git ls-tree <rev> -- website/content`
+  *before* archiving: non-zero → `ReplayError`; empty → skip; present → the
+  archive and extraction must succeed, else `ReplayError`. `main()` reports
+  `REPLAY FAILED` and exits 1; `head_control` reports `failed` instead of
+  crashing. Two tests use a deleted loose object — what a partial or corrupt clone
+  produces — each asserting the fixture's shape first (directory still listed,
+  `git archive` genuinely failing).
+- **Correction to the progress notes above:** the mutation row "harness makes
+  archive failure fatal | red" recorded the *old* defect being pinned, not a
+  discriminator being checked: `test_a_commit_without_website_content_is_skipped_not_fatal`
+  killed that mutant because it enforced the conflation. That test stays — genuine
+  absence must still skip — but it is no longer the only thing constraining the
+  branch; see the re-run below.
+- **Files affected:** `website/check_link_relevance_history.py`,
+  `tests/test_check_link_relevance_history.py`.
+- **Verification:**
+  - both relevance test files: **83 passed** (81 + the two new tests);
+  - mutants on isolated copies, each killed by the test named for it, with an
+    unmutated control green before and after:
+
+    | mutant | result | killed by |
+    |---|---|---|
+    | archive failure treated as absence (the original defect) | red | `test_an_archive_failure_fails_the_run_instead_of_counting_a_skip` |
+    | `ls-tree` failure treated as absence | red | `test_an_unreadable_tree_is_an_error_not_an_absence` |
+    | genuine absence made fatal | red | `test_a_commit_without_website_content_is_skipped_not_fatal` |
+
+  - replay over the real history is unchanged: 358 swept, 0 skipped, 11
+    distinct, exit 0, HEAD control PASSED — no real commit tripped the new
+    failure path, and no record was lost.
+
 ## Verification
 
 ```bash
@@ -459,3 +603,45 @@ rule adopted, replay moved onto `scan()` + an engine/corpus control split).
 - timing: pre-phase | name: freeze_history_baseline | type: chore | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — small record sample / rule tuned to its own output | desc: Build and run the history harness first and freeze its SHA-stamped 11-record (source,token,url,scope) aggregation plus expected classifications into the plan before writing the classifier
 - timing: post-phase | name: harness_smoke_test | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — harness in no CI path can bit-rot silently | desc: Python test driving the harness over throwaway repos, including a legacy tree lacking the modern control pages, asserting its known record is still aggregated
 - timing: post-phase | name: discriminator_mutation_check | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — hand-tuned constant set pinned only by possibly-vacuous tests | desc: Remove each classifier discriminator and the engine/corpus partition in turn and confirm the test naming it goes red
+
+## Final Implementation Notes
+- **Actual work done:** Both deferred questions answered with measurements, and
+  recorded where the next contributor would look: Q1 (fold into `check_links.py`)
+  = no, recorded in both scripts' docstrings and the README; Q2 (widen past
+  backtick-quoted text) = no, recorded in the module docstring, the README and
+  `CoverageBoundaryTests`. Added the `subject-of-page` label (whole-segment URL
+  match, page-scoped only, labelled never suppressed, live base rate), a new
+  engine probe, an ENGINE/CORPUS control split, and a history replay harness
+  (`website/check_link_relevance_history.py`) with its own tests.
+- **Deviations from plan:** `CORPUS_CONTROLS` derived as the complement of
+  `ENGINE_CONTROL_NAMES` rather than a second list; base rate measured at ~91%
+  (299/329 page-scoped), not the ~77% planning estimate; the harness is Python
+  and replays through `scan()`, per the pre-approval revision. See the progress
+  notes and Change Request 1.
+- **Issues encountered:** (1) The first harness `_extract` conflated "no
+  website/content" with "git archive failed", and my own mutation check pinned
+  that conflation as a success — caught in review, fixed with an `ls-tree`
+  presence probe and `ReplayError`, and the stale mutation row retracted. (2)
+  `main` advanced repeatedly mid-session (content-commit count 352 → 358), which
+  is why every count in the plan and docstring is stamped with its tip SHA.
+  (3) Several commands initially ran from the wrong directory after the shell's
+  cwd moved; all verification was re-run by absolute path.
+- **Key decisions:** label, never suppress (suppression would take today's report
+  to zero — the optics hazard t1759 named); restrict the label to page-scoped
+  misses; derive CORPUS so a new control fails safe for replay; replay through
+  `scan()` so the evidence does not depend on whether t1770 lands first; leave
+  the stranded `unittest.main()` guard to t1770 and place new tests above it.
+- **Upstream defects identified:**
+  - `website/check_link_relevance.py:642-643` — `--report` returns before
+    `evaluate_controls()` (`:671`), so report mode never evaluates or prints a
+    self-control and exits 0 even when one would fail. **Already owned by t1770**
+    (verified against the tree; t1768 sent it a coordination note).
+  - `tests/test_check_link_relevance.py:865` — `if __name__ == "__main__":
+    unittest.main()` sits above later test classes, so direct execution silently
+    runs a subset (55 of the module's 70 tests).
+    **Already owned by t1770.**
+  - `website/README.md` / `website/check_link_relevance.py` docstring — both
+    claimed "roughly seven internal links in ten" carry a backticked token;
+    measured 388 of 1034 (37%). **Fixed in this task** (both now point at the
+    run's `links checked` line), since the rewritten bullets were in scope.
+
