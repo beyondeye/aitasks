@@ -106,3 +106,35 @@ planned.
 - Fresh-context test: read the reorganized aidocs top-to-bottom as
   if planning a hypothetical new agent addition. Note any remaining
   clarity gaps; fix or log as follow-up.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t835_4** id=2026-09-10T18:37:13Z.f45d7858093ac8169d48c81c from=t835_4 at=2026-09-10T18:37:12Z base=e2f12c49990459143f2e387db431b5222fc66ef7 base_branch=main dirty=no host=omg16
+>
+> | Docs-coordination sweep, run outside any task: `from=` names the related task,
+> | not an agent working on it, so it is unverified. Advisory only — tree-relative
+> | claims are dated by this note's base SHA; `~` line numbers are approximate.
+> | Verify before acting.
+> | 
+> | 1. The doc is at aidocs/framework/adding_a_new_codeagent.md (t901), as are
+> |    planning_conventions.md and agent_runtime_guards_audit.md. It is now 1369
+> |    lines, with 23 numbered sections plus `## Index` (so `grep -c '^## '` gives
+> |    24), and it changed after this task was written (t1717 35cd4d3ab, t1325,
+> |    t1235, t901).
+> | 
+> | 2. The audit method `git log main..HEAD` returns nothing when the work happens
+> |    on main — use a date or SHA range instead.
+> | 
+> | 3. The CLAUDE.md pointer is at ~329 with the framework path.
+> |    development/_index.md is a long content page, not a link index;
+> |    development/adding-a-new-code-agent.md does not exist yet. A thin-link
+> |    precedent exists at development/skills/aitask-audit-wrappers.md:55.
+> | 
+> | 4. The doc's intro (~3-7) already claims its order is "the path of least
+> |    friction" and already names agy, so the "ordered as written" premise is
+> |    contested.
+> | 
+> | 5. If t835_4 adds concepts/skill-templating.md to § 23f's touchpoint list (it
+> |    has Gemini leftovers — see the note to t835_4), carry it through the
+> |    reorganization.
