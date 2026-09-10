@@ -57,3 +57,8 @@ carve-out is the cheaper option but costs suite wall-clock; the deterministic
 settle is the better one if the state to await can be named. Check whether the
 sibling `test_minimonitor_bottom_pin_live.py` (already carved out) shares the
 helper, in which case fixing the helper covers both.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-10T09:45:48Z status=pass attempt=1 type=human
