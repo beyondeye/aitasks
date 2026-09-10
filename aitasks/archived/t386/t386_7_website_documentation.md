@@ -3,11 +3,14 @@ priority: low
 effort: medium
 depends: [t386_1, t386_2, t386_3, t386_4, t386_5, t386_6, t386_10]
 issue_type: documentation
-status: Ready
+status: Done
+archived_reason: superseded
 labels: [agentcrew]
 created_at: 2026-03-15 10:51
-updated_at: 2026-03-18 20:30
+updated_at: 2026-09-10 22:06
+completed_at: 2026-09-10 22:06
 ---
+
 
 ## Website Documentation for AgentCrew
 
@@ -62,3 +65,7 @@ See `aidocs/agentcrew/agentcrew_architecture.md` "Operation Groups" section for 
 ### Verification
 - `cd website && hugo build --gc --minify` — Verify site builds without errors
 - Manual: review rendered pages for completeness and navigation
+
+## Closed as obsolete (2026-09-10)
+
+Covered by t917 (cef72deab): `commands/crew.md` (all ten subcommands) and `concepts/agentcrews.md`. A dedicated crew-dashboard TUI section and a multi-agent workflow page were explicitly scoped out by the user in t917. Not tracked anywhere after this closure: per-type `max_parallel` is read by the runner but undocumented.
