@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1733
+implemented_with: claudecode/opus5
 created_at: 2026-09-09 11:12
-updated_at: 2026-09-09 16:44
+updated_at: 2026-09-10 12:48
 ---
 
 ## Context
@@ -157,3 +158,8 @@ code must add none.
 > | Point at it rather than restating the rule.
 
 > **👁 note:read** id=2026-09-09T13:43:32Z.3afd8b35b44dc9705d32ddbb by=t1747_2 at=2026-09-09T13:43:32Z mode=explicit ids=2026-09-09T13:33:04Z.51b85cf7fa38a375e3b54def
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-10T09:48:09Z status=pass attempt=1 type=human
