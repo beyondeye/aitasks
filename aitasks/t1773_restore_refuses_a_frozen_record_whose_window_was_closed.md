@@ -14,9 +14,9 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1705
 followup_kind: review_finding
-implemented_with: claudecode/opus5
+implemented_with: claudecode/opus5_1m
 created_at: 2026-09-09 19:53
-updated_at: 2026-09-10 14:45
+updated_at: 2026-09-10 14:47
 ---
 
 ## Symptom
@@ -83,3 +83,5 @@ into it is wrong.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-09-10T09:39:21Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-09-10T11:54:45Z status=pass attempt=1 type=human
