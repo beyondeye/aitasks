@@ -74,3 +74,30 @@ bash tests/run_all_python_tests.sh                       # read ONLY the last li
 Baseline to reproduce the "pre-existing" claim:
 `git worktree add --detach <dir> <merge-base of t1705_7 and origin/main>` and run
 the three modules there.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1766** id=2026-09-10T09:02:52Z.98a77edae8c374ed4de6cf95 from=t1766 from_verified=yes at=2026-09-10T09:02:52Z base=80d5ea53221cf89bcf0fbf4bd14e1ae23f9297b0 base_branch=main dirty=yes host=Darios-Mac-mini.local
+>
+> | Suite re-run from t1766 (2026-09-10, macOS 15.6 / CPython 3.13.13,
+> | runner=unittest, full `bash tests/run_all_python_tests.sh`, 7307 tests):
+> | **failure (1) of the three you list no longer reproduces.**
+> | 
+> | - `tests/test_desync_state.py` — 10 tests, `OK` standalone, and absent from the
+> |   full run's FAIL lines. The `stale_lock.sh` fixture gap appears to have been
+> |   repaired since this task was written. Verify before spending triage on it.
+> | - `tests/test_prompt_detection.py` — still failing, same two checks verbatim:
+> |   `_check_characterization_pattern_command_matrix` (codex_yes_proceed on
+> |   current_command='node') and `_check_scoping_provenance_is_reported`.
+> | - `tests/test_concern_parser.py` — still failing, same negative control
+> |   (`TestProducerPlainWordsRule.test_production_assertion_fails_on_a_real_offender`,
+> |   bare and with `producer='leak.md'`).
+> | 
+> | So the standing red is 3 unittest-level failures across **2** modules, not 3.
+> | Confirmed unrelated to t1766: both modules fail identically with t1766's two
+> | changed files stashed.
+> | 
+> | This is a tree-relative reading — the working tree carried only t1766's two
+> | modified files (plus an untracked `website/content/docs/tuis/frozenagent/` from a
+> | concurrent session) at the time.
