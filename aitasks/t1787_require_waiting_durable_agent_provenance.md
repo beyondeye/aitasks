@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: medium
-depends: []
+depends: [t1725_4]
 issue_type: enhancement
 status: Ready
 labels: [syncer, tmux, robustness]
