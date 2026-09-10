@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: medium
 effort: medium
 depends: [t1705_8]
 issue_type: documentation
@@ -240,3 +242,5 @@ No code, no tmux.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-09-10T08:25:46Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-09-10T09:08:56Z status=pass attempt=1 type=human
