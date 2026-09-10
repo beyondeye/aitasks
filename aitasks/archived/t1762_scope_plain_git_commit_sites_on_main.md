@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: medium
 depends: [1748]
 issue_type: bug
-status: Implementing
+status: Done
 labels: [git, bash_scripts, robustness]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -15,7 +15,8 @@ assigned_to: dario-e@beyond-eye.com
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5
 created_at: 2026-09-09 13:00
-updated_at: 2026-09-10 10:30
+updated_at: 2026-09-10 11:47
+completed_at: 2026-09-10 11:47
 ---
 
 ## Origin
@@ -75,3 +76,14 @@ the markdown-scan question in t1748.
 > **✅ gate:plan_approved** run=2026-09-10T07:30:09Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-09-10T08:41:09Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-10T08:43:13Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:b5ce5d762c0e4077
+
+> **✅ gate:risk_evaluated** run=2026-09-10T08:43:13Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1762/risk_evaluated_2026-09-10T08:43:13Z-risk_evaluated-a1.log`
