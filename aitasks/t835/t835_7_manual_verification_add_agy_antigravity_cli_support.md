@@ -50,3 +50,32 @@ archived; Defer is allowed but creates a carry-over task.
 - [ ] [t835_6] cd website && ./serve.sh — new development/adding-a-new-code-agent page renders and links resolve
 - [ ] [t835_6] Fresh-context read-through of reorganized aidocs identifies no remaining clarity gaps
 - [ ] [t835_6] grep -c '^## ' aidocs/adding_a_new_codeagent.md shows a reasonable section count (no content lost)
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t835_6** id=2026-09-10T18:37:48Z.aecdde24eb86bc034ebe4027 from=t835_6 at=2026-09-10T18:37:48Z base=e2f12c49990459143f2e387db431b5222fc66ef7 base_branch=main dirty=no host=omg16
+>
+> | Docs-coordination sweep, run outside any task: `from=` names a task whose
+> | checks these are, not an agent working on it, so it is unverified. Advisory
+> | only — tree-relative claims are dated by this note's base SHA. Verify before
+> | acting.
+> | 
+> | Four of your checklist items would pass or fail for the wrong reason against
+> | the current tree:
+> | 
+> | 1. `[t835_4] grep -rn geminicli website/content/docs/ returns nothing` passes
+> |    today, yet Gemini leftovers remain: concepts/skill-templating.md has 4
+> |    Gemini hits (a Gemini row and .gemini paths) and
+> |    skills/aitask-refresh-code-models.md:24 lists "Gemini". A case-insensitive
+> |    `gemini` grep catches them.
+> | 
+> | 2. `[t835_5] aidocs/geminicli_to_agy.md no longer exists` passes trivially: the
+> |    file lives at aidocs/codeagents/geminicli_to_agy.md.
+> | 
+> | 3. `[t835_6] grep -c '^## ' aidocs/adding_a_new_codeagent.md` points at a moved
+> |    file: it is aidocs/framework/adding_a_new_codeagent.md (t901). Baseline
+> |    today: 24 (23 numbered sections plus `## Index`), 1369 lines.
+> | 
+> | 4. `[t835_6] ... every change in git log main..HEAD` returns nothing when the
+> |    work lands on main; a SHA or date range is needed.
