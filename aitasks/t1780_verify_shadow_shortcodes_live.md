@@ -35,3 +35,14 @@ all three goal-achievement risks of t1771's plan:
 Launch a shadow from minimonitor (`e`) against a live agent working a task under the `fast` profile (`shadow_impl_review_tier: advanced`) and drive the eight checklist items below by typing the shortcodes into the shadow pane. Each item is a behaviour a rendered-text assertion cannot prove. For the plan-mode item, pick a followed agent that is still inside `EnterPlanMode` (its plan exists only as `~/.claude/plans/<name>.md`). For the tier item use `>i1` or `>i4`, not `>i3` — `fast` already configures advanced, so `>i3` would pass even if the digit were ignored.
 
 Source: `.claude/skills/aitask-shadow/SKILL.md.j2` (Step 0, Step 3 "Shortcodes"), `impl-challenge.md` ("Tier selection"), `task-summarize.md`; landed in commit e16f9a27c.
+
+## Verification Checklist
+
+- [ ] Greeting (Step 0) lists every capability led by its shortcode, states the one-line rule (`>`-prefixed, `>` always required), and names `>?`
+- [ ] `>?` reprints the capability list
+- [ ] `>t` produces the plain-words summary (task + plan); it is never printed at startup, after a capture, or after a refetch
+- [ ] `>i1` (and `>i4`) run that tier with no tier prompt and no "inferred tier" line under the `fast` profile, whose configured tier is advanced
+- [ ] `>i` alone resolves via the existing ladder (profile `shadow_impl_review_tier` when set, else the 4-option prompt)
+- [ ] With the followed agent still in plan mode (`aitask_shadow_context.sh` returns `PLAN_FILE:NOT_FOUND`), `>t` reads the draft plan via the round-preamble source ladder, names its source, and never claims no plan exists
+- [ ] A mention of a code ("what does `>l` do?") is answered in words and opens no window
+- [ ] `>r` starts a new round of the last review and `>rpc` / `>ri3` start a new round of the named one, each emitting a fresh round-headed concern block rather than a prose answer
