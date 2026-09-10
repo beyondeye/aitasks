@@ -130,3 +130,8 @@ at all.
   resolution fallback for installed projects). Worth reading together — both are
   cases of the installer removing things from a project root it does not own — but
   neither subsumes the other.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-10T07:51:17Z status=pass attempt=1 type=human
