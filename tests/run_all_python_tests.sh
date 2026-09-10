@@ -27,9 +27,10 @@
 # `--dist load` splits one file's tests across workers, which would break them.
 #
 #   AIT_TEST_PARALLEL=0   force the serial pytest path (execution opt-out)
-#   AIT_TEST_WORKERS=<n>  worker count; default 2, NOT `auto`. `auto` means
-#                         os.cpu_count(), which hands the whole machine to one
-#                         suite run and starves anything else running on it.
+#   AIT_TEST_WORKERS=<n>  worker count. The default is load-aware (see
+#                         default_workers() below) and is NEVER `auto`: `auto`
+#                         means os.cpu_count(), which hands the whole machine to
+#                         one suite run and starves anything else running on it.
 #
 # The unittest fallback is unchanged and remains the supported path for anyone
 # who has not opted in. The verdict banner still reads `runner=pytest` in both
