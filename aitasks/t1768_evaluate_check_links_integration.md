@@ -120,3 +120,8 @@ should decide it against more than one sweep, and must keep the t1707 fixtures
 > | second rebases these two files.
 
 > **👁 note:read** id=2026-09-10T11:39:21Z.6dfae9b6a25dd207b4f5e57d by=t1768 at=2026-09-10T11:39:21Z mode=explicit ids=2026-09-09T16:35:40Z.a9952d5c495e1a5e739c8277
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-10T11:41:54Z status=pass attempt=1 type=human
