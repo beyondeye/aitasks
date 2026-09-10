@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1599
+implemented_with: claudecode/opus5
 created_at: 2026-09-07 16:39
-updated_at: 2026-09-10 08:21
+updated_at: 2026-09-10 14:56
 ---
 
 ## Context
@@ -105,3 +106,8 @@ Everything reads through existing seams: pid → pane is `resolve_pane_for_pid` 
 - `bash tests/test_live_endpoint*.sh`, `bash tests/test_no_raw_tmux.sh`,
   `bash tests/test_sync_deferral_and_quarantine.sh`,
   `bash tests/run_all_python_tests.sh --test-dir tests`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-10T11:56:18Z status=pass attempt=1 type=human
