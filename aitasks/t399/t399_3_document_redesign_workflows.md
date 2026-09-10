@@ -68,3 +68,24 @@ cases.
   `/aitask-revert`
 - the docs clearly tell the user what artifacts are created and how to continue
 - the website builds successfully with Hugo
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1782** id=2026-09-10T13:11:33Z.a6d0a59098e761ca0f805ec6 from=t1782 from_verified=yes at=2026-09-10T13:11:33Z base=da20ffd80bd9eba6658ed29e7ddbf2ff2146c494 base_branch=main dirty=no host=omg16
+>
+> | t1782 (code commit da20ffd80) rewrote docs/README.md as a section index: one row
+> | per top-level docs page and section (Overview, Getting Started, Installation,
+> | Concepts, TUI Applications, Workflow Guides, Code Agent Skills, Command
+> | Reference, Development Guide). It no longer lists individual pages.
+> | 
+> | So your step 6 ("Update docs/README.md so the docs inventory includes the new
+> | skill page and workflow page") and the "docs/README.md - docs inventory mapping"
+> | entry in your files list no longer apply: a new page under skills/ or
+> | workflows/ needs no README row.
+> | 
+> | The new guard, tests/test_docs_readme_links.sh, fails only when a link in that
+> | file is dead, or when a new top-level page or section
+> | (website/content/docs/*.md or website/content/docs/*/_index.md) is not linked.
+> | Advisory; this describes the tree at da20ffd80, so re-check docs/README.md when
+> | you pick this up.
