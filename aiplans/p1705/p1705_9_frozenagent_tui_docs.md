@@ -1,81 +1,321 @@
 ---
 Task: t1705_9_frozenagent_tui_docs.md
 Parent Task: aitasks/t1705_frozen_codeagents_session_store_and_viewer_tui.md
-Sibling Tasks: aitasks/t1705/t1705_1_*.md … aitasks/t1705/t1705_8_*.md, aitasks/t1705/t1705_10_*.md
-Archived Sibling Plans: aiplans/archived/p1705/p1705_*_*.md
+Sibling Tasks: aitasks/t1705/t1705_10_freeze_restore_workflow_docs.md, aitasks/t1705/t1705_11_manual_verification_frozen_codeagents_session_store_and_view.md
+Archived Sibling Plans: aiplans/archived/p1705/p1705_1_spike_freeze_standin_and_session_id_capture.md, aiplans/archived/p1705/p1705_2_framework_session_store.md, aiplans/archived/p1705/p1705_3_session_id_capture_hooks.md, aiplans/archived/p1705/p1705_4_freeze_engine.md, aiplans/archived/p1705/p1705_5_restore_and_repick_flows.md, aiplans/archived/p1705/p1705_6_frozenagent_viewer_tui.md, aiplans/archived/p1705/p1705_7_monitor_minimonitor_frozen_rows.md, aiplans/archived/p1705/p1705_8_frozen_agents_acceptance_test.md
 Base branch: main
 Output branch: main
-plan_verified: []
+plan_verified:
+  - claudecode/opus5 @ 2026-09-10 11:04
 ---
 
 # t1705_9 — TUI-surface documentation for frozen agents
 
 ## Context
 
-Documents the TUI surfaces children 4–7 shipped: the `ait frozenagent`
-viewer, the frozen row / `Nf` / `F` / keys in minimonitor and monitor, the
-switcher entry, the dispatcher entry, and the `aidocs/framework` conventions
-the implementation introduced. Workflow + concept pages are t1705_10.
-Current-state prose only; source of truth is the landed code — re-read
-`frozenagent/frozenagent_app.py`, both monitor apps' `BINDINGS` /
-`KEY_HINTS_TEXT`, `tui_switcher.py` and the notify/header strings before
-writing. Every page edit under `website/content/` ends with
-`check_links.py --build`.
+Children t1705_4–7 shipped a third lifecycle state for a code agent, beyond live
+and parked: **frozen**. The process ends, its terminal output is captured, and a
+stand-in viewer takes over its pane. That work landed a new TUI
+(`ait frozenagent`), frozen rows and five keys across `ait monitor` and
+`ait minimonitor`, a switcher entry and a dispatcher verb.
+
+**None of it is documented.** `grep -rn frozen website/content/docs/` returns
+three hits and all three are the ordinary English word. This task writes the
+TUI-surface docs. The workflow and concept pages — when and why you freeze, the
+framework-session concept, what `ait setup` installs — are the next child
+(t1705_10) and stay out of scope here.
+
+This plan is a **re-verification**. The prior plan was written before t1705_6 and
+t1705_7 landed and describes a surface that does not exist: it documents keys
+`z`/`Z`/`F`, an `F` filter, and a `"restoring…"` status string, none of which
+shipped. The parent plan's own amendment **B5** anticipated exactly this — it
+names t1705_9 among the plans that "would otherwise implement, test, or
+*publish* the superseded protocol." Everything below is quoted from the tree.
+
+---
+
+## What actually shipped (verified this pass)
+
+### Keys — `ait monitor` and `ait minimonitor`
+
+| Key | Meaning | Confirmed |
+|---|---|---|
+| `f` | Freeze this agent (confirm) | `monitor_app.py:541`, `minimonitor_app.py:1150` |
+| `Z` | Freeze all (confirm, names the count) | `:542`, `:1151` |
+| `R` | Restore | monitor branches inside `restart_task` (`:3752`); minimonitor binds `restore_frozen` (`:1154`) |
+| `p` | Re-pick | monitor binds `repick_frozen` frozen-only, `show=False` (`:545`); minimonitor branches inside `pick_task_by_number` (`:3219`) |
+| `k` | Drop | both branch inside `kill_pane` / `kill_own_agent` |
+| `P` | Hide/show parked **and** frozen | `:537`, `:1146` |
+
+Two things a reference table must not flatten:
+
+- **The wiring is not symmetric even though the user-visible keys are.** The
+  monitor has no live meaning for `p` at all (pressed on a live card:
+  `That agent is not frozen — nothing to re-pick`), while minimonitor's `p` keeps
+  pick-by-number. Mirror-image for `R`.
+- **Guards live in the action, never the binding** — stated in
+  `monitor_shared.py:976-992`, because `check_action` would hide `R` and `p`
+  entirely. All five act only on the window's *current* agent (monitor: focused
+  card; minimonitor: followed agent), never an arbitrary list row.
+
+**There is no `F` key.** `P` is a single unified filter over parked+frozen; the
+action id stays `toggle_parked_visibility` deliberately, because it is the
+persisted identifier user key-overrides resolve against. Counters stay separate
+and disjoint — monitor `N frozen` (two leading spaces), minimonitor `Nf` — and
+both render whether or not `P` is hiding rows, since they are computed from
+unfiltered `_snapshots`.
+
+### Confirmations
+
+- `f` → `Freeze this agent?` / body naming the window / **`Freeze`** (primary).
+- `Z` → `Freeze all N agent(s)?` / body: "This affects **every aitasks session on
+  this machine** — including parked agents and agents in other projects, not just
+  the N agent(s) shown here." / **`Freeze`** (primary).
+- `k` → `Drop this frozen agent?` / "**Its captured output is deleted** along
+  with the record… This cannot be undone" / **`Drop`** (`variant="error"`).
+- `R` and `p` are **unconfirmed** on every surface.
+
+The primary/destructive contrast is deliberate (`monitor_app.py:3543-3556`) and
+must survive into the prose.
+
+### The viewer — `ait frozenagent`
+
+- Grammar is exactly `ait frozenagent [--record <id>]`; anything else → usage,
+  exit **2**. Launcher exits **1** on missing deps / old Python.
+- Header is `" · "`-joined: project · window · task · agent · `frozen <at>` ·
+  `<n> lines` · state, with `\[plain]`, `· capture missing` and
+  `· colour data missing` suffixes.
+- Keys `r m / n y g G shift+↑/↓ escape R p k enter j ? q`.
+- List mode columns `project window task agent frozen lines`, empty cells `—`.
+- **Its drop dialog says `Remove`, not `Drop`** — a genuine inconsistency with
+  the monitors (see Follow-ups).
+- Restore deadline is a **hardcoded 40 s**; the monitors derive theirs from
+  `frozen.restore_ack_grace`. Filed as **t1766**; the two surfaces genuinely
+  differ today and the docs must say so rather than state one number.
+- Switcher key `f`, deliberately absent from the switcher's hint row (column
+  budget) — reachable but unadvertised, exactly like applink.
+
+### Outcome vocabulary (from `agent_sessions.restore_verdict` / `drop_verdict`)
+
+`restored` · `restored, unverified — capture kept` ·
+`restore failed: <reason> — capture kept` · `restore ended — capture kept` ·
+`restore did not start — run 'ait frozenagent' or reconcile` ·
+`restore still <state> after the grace — run reconcile; capture kept` ·
+`record vanished` · `dropped — capture removed` · `drop failed — record kept`.
+
+`restored, unverified` is a **success**, not a fault, and the code notes it is
+the only outcome a Codex record can reach (its interactive TUI fires no
+SessionStart hook). Say so, or users will read it as an error.
+
+---
 
 ## Files
 
-- **New** `website/content/docs/tuis/frozenagent/_index.md`, `how-to.md`, `reference.md`
-- **Edit** `website/content/docs/tuis/minimonitor/_index.md`, `how-to.md`
-- **Edit** `website/content/docs/tuis/monitor/reference.md` (+ `_index.md` if it lists agent states)
-- **Edit** `website/content/docs/tuis/_index.md`, `website/content/docs/commands/_index.md`
-- **Edit** `aidocs/framework/tui_conventions.md`, `aidocs/framework/tmux_gateway.md`, `aidocs/framework/aitasks_extension_points.md`
+**New** — `website/content/docs/tuis/frozenagent/`
+- `_index.md` (`weight: 16` — the only free slot between monitor 15 and
+  minimonitor 17; `maturity: [experimental]`, `depth: [main-concept]`)
+- `how-to.md` (`weight: 20`), `reference.md` (`weight: 30`)
 
-## Implementation steps
+**Edit**
+- `website/content/docs/tuis/minimonitor/_index.md`, `how-to.md`
+- `website/content/docs/tuis/monitor/_index.md`, `how-to.md`, `reference.md`
+- `website/content/docs/tuis/_index.md`, `website/content/docs/commands/_index.md`
+- `aidocs/framework/tui_conventions.md`, `tmux_gateway.md`,
+  `aitasks_extension_points.md`
 
-1. **`tuis/frozenagent/_index.md`** — front matter copied from
-   `tuis/applink/_index.md` (`title: "Frozen Agent"`, `linkTitle: "Frozen
-   Agent"`, `weight` = monitor's + 5, `description: "Viewer TUI that
-   stands in for a frozen code agent's pane and restores it"`, `maturity:
-   [experimental]`, `depth: [main-concept]`). Sections: intro (two sentences
-   + `{{< relref "/docs/workflows/freeze-and-restore-agents" >}}`), the
-   verbatim "Customizable keys" callout, `## Launching` (bare = list mode;
-   `--record <id>` = viewer; automatic as a stand-in), `## Layout`, `##
-   Viewing`, `## Searching`, `## Selecting and copying`, `## Restore,
-   re-pick and drop` (state strings verbatim from the app), `## List mode`.
-   Screenshot placeholders as `<!-- TODO screenshot: … -->`.
-2. **`how-to.md`** (`weight: 20`) — four numbered recipes from the task
-   file. **`reference.md`** (`weight: 30`) — `## Keybindings` table
-   (every `Binding` in the app incl. `j` and `q`), `## Header fields`, `##
-   States shown`, `## Launcher exit codes`.
-3. **Minimonitor pages** — in `_index.md`'s comparison table add a "Frozen
-   agents" row; in `how-to.md`: a `### Frozen agents` subsection next to the
-   parked one (row shape, no state dot, glyph composition with marks, what
-   `space` does), the `Nf` term sentence mirroring the parked-term sentence
-   at `:69`, the `F` filter, `z` / `Z` with the confirm texts, `R` / `p` /
-   `k` on a frozen row, the own-panel render, and rewrite the auto-despawn
-   sentence (`:340`) to say the companion stays when its agent is frozen.
-4. **Monitor reference** — keybinding rows, `N frozen` in the session-bar
-   paragraph, the preview placeholder text.
-5. **Indexes** — `tuis/_index.md` bullet + the switcher paragraph (`f`);
-   `commands/_index.md` row for `ait frozenagent` (and `ait frozen` only if
-   t1705_4 actually added a dispatcher case — check `ait`).
-6. **aidocs** — `tui_conventions.md`: "Frozen stand-in panes" (self-stamp
-   rule for `@aitask_standin_ready`, cleanup sibling rule, pointer to
-   `aiplans/archived/p1705_*.md` state machine once archived — until then
-   the active plan path); `tmux_gateway.md`: `respawn-pane` / `run-shell -b`
-   are ordinary gateway calls, and the four `@aitask_*` options join the
-   inventory (:112-129) with set/clear/read owners; `aitasks_extension_points.md`:
-   a "SessionStart hook install surface" checklist row (seed → `install.sh`
-   → `ensure_agent_config_seeds` → merge function → both framework-path
-   lists → tarball).
+---
+
+## Implementation
+
+### Pre-phase (risk mitigations)
+
+1. `[reverify_volatile_docs_facts]` Re-read the source of every string this plan
+   quotes, rather than trusting the plan: `BINDINGS` and the frozen actions in
+   `monitor/monitor_app.py` and `monitor/minimonitor_app.py`; the shared dialogs,
+   toasts and `format_frozen_prefix` in `monitor/monitor_shared.py`; the header,
+   list columns and confirm body in `frozenagent/frozenagent_app.py`; and
+   `restore_verdict` / `drop_verdict` in `lib/agent_sessions.py`. Any string that
+   has drifted is corrected in the page, not reproduced from here.
+
+### 1. `tuis/frozenagent/_index.md`
+
+Front matter copied from `applink/_index.md`'s shape. Intro (two sentences: what
+a frozen agent is, and that the viewer occupies its pane), then the shared
+**Customizable keys** blockquote verbatim — it is a plain blockquote, not a
+shortcode, byte-identical across all eight `_index.md` files.
+
+Sections: `## Launching` (bare = cross-project list; `--record <id>` = viewer;
+the stand-in launch is automatic) · `## Layout` (the seven header fields) ·
+`## Viewing` (`r`, `m`, `g`/`G`) · `## Searching` (`/`, `n`, wrap notice) ·
+`## Selecting and copying` (keyboard range vs mouse drag; `y`; OSC 52 **and** the
+tmux buffer) · `## Restore, re-pick and drop` · `## List mode`. Close with the
+`**Next:** / **Reference:**` footer pair.
+
+**Do not add the `{{< relref "/docs/workflows/freeze-and-restore-agents" >}}`
+link the old plan calls for.** That page does not exist and a relref to a missing
+page *fails the Hugo build*. t1705_10's own plan (step 5) already owns adding the
+cross-link once its page lands.
+
+### 2. `how-to.md` and `reference.md`
+
+`how-to.md`: four recipes — read a frozen agent's summary; copy a spawned-task
+list out of a transcript; bring an agent back (restore vs re-pick, and that
+neither is confirmed); remove a frozen record.
+
+`reference.md`: `## Keybindings` (every binding incl. `j` and `q`, noting the
+footer advertises only nine) · `## Header fields` · `## States shown` — the raw
+store vocabulary `live freezing frozen restoring aborting`, plus the outcome
+sentences above; there is no `restored-unverified` token · `## Exit codes`
+(0 / 1 / 2) · `## Configuration` — **only** `frozen.capture_max_lines` and
+`frozen.restore_ack_grace`, the two keys actually read, noting no `frozen:`
+section ships by default, and that the viewer's own restore wait is fixed while
+the monitors' is derived from the grace.
+
+### 3. Minimonitor pages
+
+`_index.md`: add a **Frozen agents** row to the `## Relationship to monitor`
+comparison table (L26-36).
+
+`how-to.md`:
+- A `### Frozen agents` subsection beside the parked one, modelled on
+  `### How to Park an Agent You Are Done Watching`: the row shape
+  `<mark><F> name  frozen` (two-cell prefix — the mark cell then a bold-cyan
+  `F`; frozen **coexists** with the mark rather than replacing it), no state dot
+  and no capture, and that `space` always targets the *followed* agent, so list
+  rows are read-only.
+- `f` / `Z` with their confirm texts, `R` / `p` / `k`, and the own-panel render
+  (`<mark><F> identity`, then indented dim `frozen <stamp>`, with the phase line
+  suppressed rather than left stale).
+- **L69** — widen the counter sentence to name `Np` and `Nf` alongside the three
+  existing terms (it currently claims three counters cover every agent, which is
+  already wrong for parked).
+- **L290 and L387** — widen `P` from parked-only to parked+frozen.
+- **L300** — qualify "marks … do not change any counter" the way monitor's
+  equivalent (L240) already is.
+- **L340** — rewrite the auto-despawn sentence: the companion does **not**
+  despawn when its agent is frozen. Keep the other three auto-despawn statements
+  (`how-to.md:21`, `_index.md:12,62`) consistent.
+
+### 4. Monitor pages
+
+`reference.md`: keybinding rows for `f`, `Z`, and the frozen branches of `R`,
+`p`, `k`; widen **L39**'s `P` description; add the `N frozen` term to the status-
+counter section (L124-132); document the preview placeholder
+`This agent is frozen — press R to restore or p to re-pick.`
+
+`how-to.md`: a frozen counterpart to the parked section, mirroring **L255**'s
+"counted separately … shown whether or not `P` is hiding their rows" wording.
+Reword **L251**, which uses "a frozen dot" in an unrelated sense that becomes
+ambiguous once frozen is a real state. `_index.md` only if it enumerates states.
+
+### 5. Indexes
+
+`tuis/_index.md`: a `- **[Frozen Agent](frozenagent/)** (\`ait frozenagent\`) — …`
+bullet, and widen the switcher paragraph's enumeration `(Monitor, Board, Code
+Browser, Settings, Stats, Syncer, Chat Link)`, noting `f` works even though the
+hint row omits it.
+
+`commands/_index.md`: one row in the `### TUI` group,
+`| [\`ait frozenagent\`](../tuis/frozenagent/) | … |`. **No `ait frozen` row** —
+that verb does not exist, and `aitasks_extension_points.md:348` ("the `ait`
+dispatcher is user-facing only") is the standing reason to keep the engine
+internal. Record that decision, which `aitask_frozen.sh:38-39` defers to here.
+
+### 6. aidocs
+
+- `tui_conventions.md` — a `### Frozen stand-in panes` under
+  `## Companion pane auto-despawn` (L629), after `### @aitask_monitor_kind`: the
+  self-stamp rule for `@aitask_standin_ready` (only the app stamps its own pane),
+  the sibling rule (a stamped pane counts as a real agent; the cleanup script
+  abstains when the *dying* pane is stamped), and a pointer to the parent plan's
+  state machine.
+- `tmux_gateway.md` — **create** the `@aitask_*` inventory table. There is no
+  table at L111-129 to extend; that range is prose naming one option. Seed it
+  with `@aitask_shadow_target`, `@aitask_monitor_kind`, `@aitask_record`,
+  `@aitask_frozen`, `@aitask_standin_ready`, `@aitask_agent_session`. Add a line
+  that `respawn-pane` and `run-shell -b` are gateway-routed like everything else.
+- `aitasks_extension_points.md` — a SessionStart-hook install-surface checklist
+  row, copying the `| Touchpoint | Entry shape |` idiom from
+  `## Adding a new helper script`.
+
+---
 
 ## Verification
 
 ```bash
 cd website && hugo build --gc --minify && python3 check_links.py --build
-grep -c 'frozen' website/content/docs/tuis/minimonitor/how-to.md
-grep -n 'frozenagent' website/content/docs/tuis/_index.md website/content/docs/commands/_index.md
 ```
+
+Must exit zero — a relref to a page that does not exist fails the build, which is
+the specific trap in step 1. Then:
+
+```bash
+grep -rn 'frozen' website/content/docs/tuis/minimonitor/ website/content/docs/tuis/monitor/
+grep -n 'frozenagent' website/content/docs/tuis/_index.md website/content/docs/commands/_index.md
+grep -rn 'stale_op_grace' website/content/    # must return nothing
+grep -rn '`F`' website/content/docs/tuis/     # no phantom filter key
+```
+
+Spot-check every quoted key, glyph and message against the source rather than
+this plan: `monitor/monitor_app.py`, `minimonitor_app.py`, `monitor_shared.py`,
+`frozenagent/frozenagent_app.py`, `lib/agent_sessions.py`, `lib/tui_switcher.py`.
+
+No code changes, no tmux.
+
+---
+
+## Follow-ups to file
+
+- **The destructive verb differs across surfaces.** The monitors say `Drop`
+  (deliberately, t1705_7); the viewer says `Remove` (t1705_6). Same operation,
+  two labels. Documentation-only task, so this is a follow-up, not a fix here.
+- A note to **t1705_10**, which owns both the capture cap under `## Limits` and
+  "records for windows that no longer exist" under `## When something goes
+  wrong`, carrying the three facts it could most easily get wrong:
+  `capture_max_lines` is scrollback *depth* (`-S -<cap>`), so a capture holds
+  roughly `cap + pane_height` lines; `frozen.stale_op_grace` is not read at all
+  and documenting it would document a no-op; and restoring a frozen record whose
+  window was closed does **not** work today (acceptance case 6b, t1773) — the
+  fail-safe half holds, so nothing is lost, but it must not be written up as a
+  working recovery route.
+
+---
+
+## Risk
+
+### Code-health risk: low
+- None identified. Documentation-only — no code, no tmux. The widest edit is
+  prose in shipped monitor/minimonitor pages, and both failure modes a docs
+  change has (a dead internal link, a broken shortcode) are caught by
+  `hugo build` plus `check_links.py --build` in Verification.
+
+### Goal-achievement risk: medium
+- The deliverable *is* accuracy, and the plan quotes roughly forty verbatim
+  keys, glyphs, dialog bodies and verdict sentences across twelve files; any
+  that drifted between this verification pass and writing would publish a
+  falsehood that builds green · severity: medium (residual — addressed by
+  inline pre-phase reverify_volatile_docs_facts) · → mitigation: inline
+  pre-phase reverify_volatile_docs_facts
+- Two behaviours the pages describe belong to open defects — **t1773**
+  (restoring a record whose window was closed) and **t1766** (the viewer's
+  hardcoded 40 s restore deadline, which the `## Configuration` section states
+  as a real viewer-vs-monitor difference). Neither lands before this task, so
+  the prose is correct when published and goes stale later · severity: medium
+  (residual — corrected after the fact by the spawned follow-up) ·
+  → mitigation: recheck_frozen_docs_after_open_defects
+
+### Planned mitigations
+- timing: pre-phase | name: reverify_volatile_docs_facts | type: documentation | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — quoted strings drifting between planning and writing | desc: Re-read every quoted source string before writing any page, correcting the plan where the tree has moved.
+- timing: after | name: recheck_frozen_docs_after_open_defects | type: documentation | priority: medium | effort: low | inline_risk: low | added_complexity: high | addresses: goal-achievement — pages describing two open defects' current behaviour go stale when those defects land | desc: Once t1773 and t1766 land, re-check and correct the frozen-agent pages that describe closed-window restore and the viewer-vs-monitor restore deadline.
+
+*Reassessment against the augmented plan (single pass): both levels unchanged.
+The pre-phase converts "the quotes may be stale" into "the quotes are re-read at
+write time", which is a real reduction but does not make twelve files of dense
+verbatim quotation airtight; and a spawned after-task hardens the result later
+without lowering this session's delivery risk. `medium` — "covered but not
+airtight" — remains the honest reading.*
+
+---
 
 ## PINNED contracts (from p1705 — do not re-decide)
 
