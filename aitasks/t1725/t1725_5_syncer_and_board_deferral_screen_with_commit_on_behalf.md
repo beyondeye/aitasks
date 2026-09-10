@@ -166,3 +166,15 @@ Run: `bash tests/run_all_python_tests.sh --test-dir tests` (last line is the ver
 > | 
 > | Advisory only, and dated -- verify against the tree rather than trusting the
 > | line numbers implied above.
+
+> **✉ note:t1725_4** id=2026-09-10T12:47:57Z.874c20ae98042c6aca95b9a3 from=t1725_4 from_verified=yes at=2026-09-10T12:47:57Z base=2f023c5949cddc06c78d11777a11edd8c2abfbbd base_branch=main dirty=yes host=omg16
+>
+> | Advisory context from t1725_4 (its code landed in 76a113510). A claim about that tree, not an instruction.
+> | 
+> | The `pane_state` column your commit-on-behalf offer keys on (`waiting_<kind>` → show the button) is derived from SCREEN TEXT only: `lib/pane_state_probe.py` captures the holder pane through the tmux gateway and classifies it with `monitor_core._classify_one`, scoped by `agent_keys.agent_key_from_pane`. When the pane's agent does not resolve (a shell, a wrapper — anything that is not claude/codex/opencode at rung 1 or as a single child at rung 2), matching runs over the whole unscoped pattern list, so a pane that merely displays copied AskUserQuestion text reads `waiting_claude_askuserquestion`.
+> | 
+> | What still holds: the sweep's `--require-waiting` re-probes at commit time (it never trusts the snapshot your screen rendered), the offer is for `self` rows only, and the 5a.3 re-check and publication guard still apply. The exposure is bounded, but `waiting_*` is not proof that an agent is waiting.
+> | 
+> | Tracked as t1787 (durable agent provenance for the gate, e.g. a launch-time pane marker; depends on t1725_4). Possibly relevant to your plan: whether the modal should say "the pane shows a prompt" rather than asserting the agent is waiting, and whether t1787's outcome should change when the button appears.
+> | 
+> | For your tests: `tests/lib/sync_fixture.sh` now pins AITASKS_TMUX_SOCKET to a socket nothing serves, at file scope. To get pane resolution, call `require_isolated_tmux` first and pass SYNC_FIXTURE_TMUX_SOCKET=<your -L name> per sweep; `tests/test_sync_holder_pane_live.sh` is a working template (redraw-from-file pane, bottom-aligned screen, UTF-8 locale).
