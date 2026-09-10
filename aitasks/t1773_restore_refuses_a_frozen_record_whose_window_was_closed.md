@@ -12,8 +12,9 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1705
 followup_kind: review_finding
+implemented_with: claudecode/opus5
 created_at: 2026-09-09 19:53
-updated_at: 2026-09-09 21:44
+updated_at: 2026-09-10 12:39
 ---
 
 ## Symptom
@@ -75,3 +76,8 @@ recorded name, matching case 6a.
 Case 6a already covers the reachable gone-pane path end to end, so the
 `_launch_into_new_window` branch itself is proven to work — only the routing
 into it is wrong.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-10T09:39:21Z status=pass attempt=1 type=human
