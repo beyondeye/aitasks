@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [frozen]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1705
 followup_kind: upstream_defect
 created_at: 2026-09-09 15:31
-updated_at: 2026-09-09 15:31
+updated_at: 2026-09-10 08:50
 ---
 
 `frozenagent_app._poll_restore` passes `settle_timeout=DISPATCH_GRACE + 30.0`
