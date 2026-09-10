@@ -3,12 +3,15 @@ priority: low
 effort: medium
 depends: []
 issue_type: documentation
-status: Ready
+status: Done
+archived_reason: superseded
 labels: [brainstorming, tui]
 created_at: 2026-06-17 12:08
-updated_at: 2026-06-17 12:08
+updated_at: 2026-09-10 22:06
+completed_at: 2026-09-10 22:06
 boardidx: 163840
 ---
+
 
 ## Context
 The brainstorm TUI (`ait brainstorm`) has **no dedicated website documentation** —
@@ -52,3 +55,7 @@ re-read `brainstorm_app.py` at implementation time to capture the final keymap.
 ## Verification
 - `cd website && hugo build --gc --minify` succeeds.
 - The new pages render and the `tuis/_index.md` link resolves.
+
+## Closed as obsolete (2026-09-10)
+
+Covered by t929_3 (49ba29100), which created `tuis/brainstorm/{_index,how-to,reference}.md`; `tuis/_index.md` already links the section. Not tracked anywhere after this closure: the Running-tab op-level restart (t1018_2) and the double-click toggle (t1018_3) are not yet described on those pages — create a new task if they should be.
