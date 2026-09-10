@@ -382,3 +382,20 @@ rarer cause absent, so the soak narrows this risk without retiring it.
   eliminated.
 - **Upstream defects identified:**
   - `tests/run_all_python_tests.sh:30 — header comment says the AIT_TEST_WORKERS default is 2, but default_workers() (line 160) picks 4 or 2 depending on machine load`
+    — **fixed in this task** at the user's request during Step 8b ("fix now"); see Post-Review Change Request 1.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-09-10 13:25)
+- **Requested by user:** at the Step 8b upstream-defect offer, answered "fix
+  now": correct the stale runner header comment in this task instead of
+  spawning a follow-up.
+- **Changes made:** the `AIT_TEST_WORKERS` line in the header of
+  `tests/run_all_python_tests.sh` no longer claims a fixed default of 2. It says
+  the default is load-aware, points at `default_workers()` (without restating
+  its thresholds), and keeps the "never `auto`" rationale. A repo-wide sweep
+  found no other copy of the stale claim. Checks: `bash -n` OK; runner contract
+  test `tests/test_python_runner_exit_status.sh` 61/61; carve-out doc drift
+  guard re-run. Shellcheck reports only a pre-existing info-level `SC1091` for
+  the `source` at line 62, untouched by this change.
+- **Files affected:** `tests/run_all_python_tests.sh` (comment only).
