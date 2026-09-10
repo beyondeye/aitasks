@@ -301,3 +301,97 @@ never invoked).
 
 **No `### Planned mitigations` block:** both dimensions are fully mitigated inside
 this plan; a separate mitigation task would duplicate work landing with the fix.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-09-10 15:04)
+- **Requested by user:** Test 13 selects files with `grep -rlE … --include='*.sh'`; the
+  review stated BSD grep on macOS "does not implement GNU --include" and asked for a
+  portable `find` selection, preserving the scanner input and assertions.
+- **Verification of the premise:** **false as stated.** The FreeBSD 15.1 `grep(1)`
+  (2022-12-18) and the macOS `grep(1)` (Mac OS X 12, 2021-03-22) both document
+  `--include`. **But** both pages also state *"Patterns are matched to the full path
+  specified, not only to the filename component"*, whereas GNU grep matches
+  `--include` against the basename only — so the two are not interchangeable, the
+  BSD globbing detail is unspecified, and no CI job runs this suite on macOS
+  (every workflow is `ubuntu-latest`) to catch a divergence. The remedy is therefore
+  justified on that ground, not on the stated one.
+- **Changes made:** `automerge_callsites` now selects files with
+  `find "$root" -type f -name '*.sh' -exec grep -lE … {} +` (POSIX `-name` matches the
+  basename on every platform), with a three-line comment naming why. The awk
+  classifier, the expected table and every assertion are unchanged.
+- **Files affected:** `tests/test_sync_branch_mode_automerge.sh`
+- **Verified:** same-instant parity on the real tree — old vs new selection
+  identical and non-empty (`aitask_sync.sh`, `lib/task_automerge.sh`); suite
+  **108/108**, Test 13 and its scanner self-test green through the new selection;
+  shellcheck warning classes unchanged.
+
+## Final Implementation Notes
+- **Actual work done:**
+  - `lib/task_automerge.sh` (+62/−15): **A1** — `ait_automerge_advance` captures the
+    unresolved-file probe's status; unreadable ⇒ `return 1`. **A1′** — `--skip` now also
+    requires `diff --cached --quiet HEAD` rc 0 (staged tree == HEAD, i.e. a VERIFIED empty
+    patch); rc 1 (real patch) and rc ≥ 2 (could not tell) refuse. **A2** —
+    `_ait_automerge_conflicted_now` is tri-state (0 read / 2 unreadable); both consumers in
+    `ait_automerge_rebase_loop` absorb it with `|| c_rc=$?` and return 2, the loop-entry one
+    **before** any merge or advance, with the result globals initialised first. The rc-2
+    contract comment now covers the unreadable probe. Each of the three in-file call sites
+    carries an `# unverified:` disposition tag directly above it. Shellcheck fully clean.
+  - `tests/test_sync_branch_mode_automerge.sh` (+516): Tests 10-14, 48 → **108** assertions.
+    10 permit (verified-empty patch still skipped; unshimmed precondition proves emptiness);
+    11 A1 + A1-only mutant; 12 A1′ + emptiness-only mutant; 13 function-anchored call-site
+    identity multiset + anti-empty + per-site tag guard + scanner self-test; 14 A2 (rc 2 at
+    loop entry: no resolver, no `--continue`, no `--skip`, caller abort, no wedge) + resolver
+    marker control + A2-only mutant + full pre-fix control.
+- **Deviations from plan:**
+  - **Test 14's mutant cell conflated two halves.** The plan said an A2-only regression shows
+    "`--continue` and `--skip` attempted, commit gone"; that outcome was measured on the build
+    with **all** halves regressed. With A1 fixed, an A2-only regression still refuses `--skip`.
+    Split into (a) an A2-only control asserting A2's own defect — an unread loop-entry probe
+    **reaches the advance** (`rebase --continue` in the verb log) — and (b) a full pre-fix
+    control (A1 + A1′ + A2 regressed) reproducing the measured loss: `AUTOMERGED`, rc 0,
+    resolver never run, commit gone.
+  - The three planned shims became one `install_advance_shim <bindir> <mode>`
+    (`continue` / `continue+probe` / `late-probe`) sharing one git-argv log.
+  - Post-review Change Request 1: Test 13 selects files with `find -name` (see above).
+- **Issues encountered:**
+  - `main` advanced three times mid-session and concurrent sessions dirtied unrelated paths.
+    Each time I re-checked that nothing touched `lib/task_automerge.sh`, `aitask_sync.sh`,
+    `lib/task_utils.sh`, `board/aitask_merge.py` or the test file, re-took the baseline
+    (48/48 at `9cb61927c`), and committed by explicit pathspec only.
+  - **Red proof:** against the unfixed source Tests 11, 12 and 14 failed with exactly the
+    measured pre-fix outcome (`AUTOMERGED`, rc 0, `--skip` taken, commit gone); Test 10 was
+    green before and after.
+  - `run_all_python_tests.sh <path>` ran past 600 s (a positional path disables the lane and is
+    forwarded to every phase); stopped it and ran the one module with pytest directly (51/51).
+  - Regression suites green: `test_sync.sh` 42/42, `test_task_push.sh` 346/346 (the
+    workflow-pull consumer), `test_sync_rebase_gate.sh` 30/30, `test_sync_protect_paths.sh`
+    31/31, `test_sync_action_runner.py` 51/51.
+- **Key decisions:**
+  - **Scope widened by user decision** from the probe alone to verifying emptiness: on git ≥ 2.26
+    `--continue` drops a truly empty commit itself, so every reachable `--skip` discarded a real
+    commit even with a *readable* probe (reproduced end to end before the fix).
+  - `aitask_sync.sh` deliberately untouched — its probes are rows A3/A4/A5/A10 (t1747_3); its
+    consumer is pinned by identity only in Test 13.
+  - A2 made an explicit tri-state rather than relying on a downstream catch, per the canonical
+    doc's whole-call-site-set rule; Test 14 showed the loop-entry route was live.
+  - Test 13 compares identities, not counts; a tag counts only in the comment block directly
+    above its call, so a second call cannot borrow the first one's tag.
+  - `--skip`'s permit direction is covered through an injected `--continue` failure — the state
+    git < 2.26 produces natively — since on current git the legitimate case never reaches it.
+- **Upstream defects identified:**
+  - `tests/test_aitask_merge_boardgroup.sh:197-203 — Test 3's "every driver invocation passes --base-file" guard greps aitask_sync.sh for "$_MERGE_PYTHON" "$_MERGE_SCRIPT", which t1727 (66da94134) moved to lib/task_automerge.sh as "$_AIT_AUTOMERGE_PYTHON" "$_AIT_AUTOMERGE_SCRIPT"; it finds 0 invocations and fails 1/18 at HEAD dc755d85c independent of this task (replayed in a clean worktree). The moved invocation does pass base_args, so only the guard's target is stale.`
+- **Notes for sibling tasks:**
+  - **t1747_3:** `aitask_sync.sh::do_pull_rebase`'s own probe (A3) runs directly before
+    `ait_automerge_rebase_loop`. The loop's entry probe now returns 2 when unreadable, so an A3
+    refusal and an A2 refusal both land in sync's `case 2)` ⇒ `ERROR:rebase_continue_failed`.
+    Test 13 pins `aitask_sync.sh::do_pull_rebase::ait_automerge_advance` by identity — if you
+    move that call, update the table in the same commit.
+  - Reusable test seams in the automerge suite: an argv-logging git shim that fails a verb only
+    after a marker verb was seen, a merge-driver wrapper that proves "the resolver never ran",
+    and exactly-once mutant installers (`_automerge_replace`, `_require`) that compose.
+  - Grep-shape counts lie: `grep 'x[^|]*--include'` stopped at a `|` inside a quoted regex and
+    reported zero files. The local `grep` on this box is ugrep 7.8.4, not GNU grep.
+  - GNU grep matches `--include` against the basename, BSD/macOS against the full path; prefer
+    `find -name` in portable test scanners.
+  - `aidocs/framework/failopen_git_probes.md` rows A1/A2 still cite `:203` / `:212`; the probes now sit at `lib/task_automerge.sh:208` (A1) and `:234` (A2), as of this task's commit. Carried to t1747_7 by note rather than edited here (the doc is a point-in-time audit anchored to `ec9641e79`).
