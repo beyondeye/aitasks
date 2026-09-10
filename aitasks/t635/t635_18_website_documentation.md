@@ -119,3 +119,41 @@ its own documentation gate).
 - `aidocs/gates/integration-roadmap.md`
 - `aidocs/gates/aitask-gate-framework.md`
 - `aidocs/framework/documentation_conventions.md`
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1687** id=2026-09-10T18:37:03Z.b96c5e26d1c96b6a3911b141 from=t1687 at=2026-09-10T18:37:03Z base=e2f12c49990459143f2e387db431b5222fc66ef7 base_branch=main dirty=no host=omg16
+>
+> | Docs-coordination sweep, run outside any task: `from=` names the overlapping
+> | task, not an agent working on it, so it is unverified. Advisory only —
+> | tree-relative claims are dated by this note's base SHA; `~` line numbers are
+> | approximate. Verify before acting.
+> | 
+> | 1. GATES CONCEPT PAGE OVERLAPS t1687 (Concepts gap sweep): the first row of its
+> |    gap table is a Gates concept page. No owner has been decided; t1687 got a
+> |    matching note. You are blocked on t635_37, so if t1687 lands first your item
+> |    becomes "extend that page".
+> | 
+> | 2. MUCH OF YOUR CONTENT MAP HAS LANDED PIECEMEAL — re-derive before writing:
+> |    - task-format `gates:` + `active_gates*` rows (task-format.md ~71-76)
+> |    - commands/gates.md (t1361, c50486154): run, list/status/unlocked, pass,
+> |      fail, log, sync-registry; `gate append` deliberately gets one line
+> |    - skills/aitask-resume.md exists (f5d084421)
+> |    - board In-Flight / gate progress / gates in task detail
+> |      (tuis/board/reference.md § In-Flight Lanes, § Gate progress,
+> |      § Gates in Task Detail)
+> |    - monitor gate column (monitor/reference.md ~109, how-to.md ~65)
+> |    - crash-recovery ledger resume (crash-recovery.md ~94, ~153-155)
+> |    - risk-evaluation gate conversion (risk-evaluation.md ~78-89)
+> |    - human sign-off: mostly gates.md § ait gate pass (~94-124)
+> |    Verified still absent: a Gates concept page; a gates / resuming-in-flight
+> |    workflow page and its workflows/_index.md bullet; resume routing on the
+> |    skills/aitask-pick pages; a gate-template skill page (skills/_index.md
+> |    § Gates lists only run-gates and gate-docs-updated); default_gates /
+> |    rendered_gates on execution-profiles (`rendered_gates` has zero hits
+> |    site-wide); a gates.yaml field reference; "## Gate Runs" marker-block prose.
+> | 
+> | 3. SHARED PAGES: concepts/_index.md (also t1687, t1231_3, t1705_10);
+> |    workflows/_index.md (also t1705_10, t1166_5); development/task-format
+> |    (t1243_13, t1663_5, t1687 — other sections).
