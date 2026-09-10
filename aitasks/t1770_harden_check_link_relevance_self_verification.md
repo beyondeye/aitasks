@@ -6,10 +6,14 @@ issue_type: bug
 status: Implementing
 labels: [web_site, testing]
 gates: [risk_evaluated]
+active_gates: [risk_evaluated]
+active_gates_filtered: []
+active_gates_profile: fast
+active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 folded_tasks: [1790]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-09-09 16:33
-updated_at: 2026-09-10 20:58
+updated_at: 2026-09-10 20:59
 ---
 
 Two defects in the self-verification surface that landed with t1759
