@@ -1,0 +1,527 @@
+{
+  "schema_version": "1.1.0",
+  "trail_id": "trail-website-docs-backlog",
+  "title": "Website docs backlog landing order",
+  "owner": "aitasks#1687",
+  "scope": {
+    "kind": "ad_hoc",
+    "topics": ["aitasks#1149_4", "aitasks#1157_8", "aitasks#1166_5", "aitasks#1231_3", "aitasks#1243_13", "aitasks#1363", "aitasks#1535", "aitasks#1647_6", "aitasks#1663_5", "aitasks#1687", "aitasks#1705_10", "aitasks#1709", "aitasks#1725_6", "aitasks#1778", "aitasks#635_18", "aitasks#635_38", "aitasks#835_4", "aitasks#835_6"],
+    "selection_note": "Ad-hoc set: the 18 open tasks that edit website docs (t1709 edits the skill text a website page mirrors), as left after this session's staleness/overlap audit and the archival of six obsolete tasks (t1023, t217, t218, t386_7, t369_7, t399_3). Mapped to the gatherer's --scope task with explicit ids; none is a parent with active children. scope.topics lists the members themselves, not their anchor roots, per the ad_hoc drift contract: the roots (1065, 1149, 1157, 1159, 1166, 1243, 1361, 1538, 1599, 1647, 1661, 1687, 1705, 635, 835) hold well over a hundred other open tasks, which would otherwise read as permanent new_related_task drift. Owner t1687 was chosen by the user as the Concepts-section hub whose pages most other members link to. Out-of-scope feature prerequisites are recorded as observations and exclusions only, by user choice."
+  },
+  "generation": {
+    "generated_at": "2026-09-10T20:19:00Z",
+    "generator": {"agent_string": "claudecode/opus5_1m", "skill": "aitask-trail"},
+    "project_revision": {"aitasks": "e2f12c499"},
+    "input_digest": "845ac16509804d99",
+    "inputs": [
+      {"kind": "plan_file", "ref": "aitasks:aiplans/p1149/p1149_4_wizard_docs_rewrite.md"},
+      {"kind": "plan_file", "ref": "aitasks:aiplans/p1157/p1157_8_chatlink_workflow_docs_migration.md"},
+      {"kind": "plan_file", "ref": "aitasks:aiplans/p1166/p1166_5_family_worktree_docs_and_profile_surface.md"},
+      {"kind": "plan_file", "ref": "aitasks:aiplans/p1231/p1231_3_artifact_documentation.md"},
+      {"kind": "plan_file", "ref": "aitasks:aiplans/p1243/p1243_13_documentation.md"},
+      {"kind": "plan_file", "ref": "aitasks:aiplans/p1647/p1647_6_merge_trails_docs_website_and_rfc.md"},
+      {"kind": "plan_file", "ref": "aitasks:aiplans/p1705/p1705_10_freeze_restore_workflow_docs.md"},
+      {"kind": "plan_file", "ref": "aitasks:aiplans/p1725/p1725_6_document_actionable_sync_deferrals.md"},
+      {"kind": "plan_file", "ref": "aitasks:aiplans/p835/p835_4_agy_documentation.md"},
+      {"kind": "plan_file", "ref": "aitasks:aiplans/p835/p835_6_audit_and_reorganize_adding_a_new_codeagent_doc.md"},
+      {"kind": "task_file", "ref": "aitasks#1149_4"},
+      {"kind": "task_file", "ref": "aitasks#1157_8"},
+      {"kind": "task_file", "ref": "aitasks#1166_5"},
+      {"kind": "task_file", "ref": "aitasks#1231_3"},
+      {"kind": "task_file", "ref": "aitasks#1243_13"},
+      {"kind": "task_file", "ref": "aitasks#1363"},
+      {"kind": "task_file", "ref": "aitasks#1535"},
+      {"kind": "task_file", "ref": "aitasks#1647_6"},
+      {"kind": "task_file", "ref": "aitasks#1663_5"},
+      {"kind": "task_file", "ref": "aitasks#1687"},
+      {"kind": "task_file", "ref": "aitasks#1705_10"},
+      {"kind": "task_file", "ref": "aitasks#1709"},
+      {"kind": "task_file", "ref": "aitasks#1725_6"},
+      {"kind": "task_file", "ref": "aitasks#1778"},
+      {"kind": "task_file", "ref": "aitasks#635_18"},
+      {"kind": "task_file", "ref": "aitasks#635_38"},
+      {"kind": "task_file", "ref": "aitasks#835_4"},
+      {"kind": "task_file", "ref": "aitasks#835_6"}
+    ]
+  },
+  "freshness": {"state": "current", "checked_at": "2026-09-10T20:19:00Z"},
+  "narrative": {
+    "problem_statement": "Eighteen open tasks edit the website docs. This session's audit found two pairs of tasks planning the same new pages, several shared sections, and stale premises in most task bodies; six obsolete tasks were archived and t1687's orphaned claim was reset to Ready. The question this trail answers: in what order should the remaining 18 land so that no page is written twice and no member documents behaviour that has not shipped?",
+    "recommendation_summary": "Start with the three small unblocked fixes (t1363, t1778, t1709). Then the unblocked substantive work: t1149_4 (before t1157_8), t1705_10, and the Concepts hub t1687, whose planning must decide who writes the gates and artifacts pages. Everything else waits on feature work outside this set and should be picked only when its own prerequisite lands; t635_38 and t835_6 close the trail.",
+    "overview": "Pick next from wave 1: t1363 is now a three-character key fix, t1778 can document the closed-window restore route because both of its defects landed, and t1709 is a skill-text edit that should land before t1243_13 touches the same template and goldens. Wave 2 is the rest of the unblocked work. t1149_4 must precede t1157_8, which rewrites the same bug-report-intake sections but does not depend on it. t1705_10 follows t1778 so the restore route is described once. t1687 is the pivot of the whole trail: while planning it, decide whether it or t635_18 writes the Gates concept page, and whether it or t1231_3 writes concepts/artifacts.md and commands/artifact.md. Both conflicts were written into the inbox of all four tasks this session, and neither has an owner yet. After wave 2, twelve members wait on feature chains outside the trail (observation obs-blockers); none of those prerequisites is claimed or in flight in this snapshot, so wave 3 is a pick-when-unblocked pool, not a sequence. Two in-flight tasks touch member surfaces as of this snapshot: t1697 edits the minimonitor how-to that t1535 re-sweeps, and t1747_3 edits aitask_sync.sh, whose refusal and deferral wording t1725_6 documents. t635_38 is labelled the final gate-docs audit, but eight open t635 children still change gate docs after it.",
+    "method_note": "Membership and dependency facts come from one gatherer snapshot (digest 845ac16509804d99, revision e2f12c499), including the lock and gate in-flight probes. Staleness and overlap findings come from four read-only subagent audits run in this session, plus direct spot-checks recorded in ev-spotcheck, ev-fork and ev-inflight-pages; subagent findings outside those spot-checks were not independently re-verified line by line. Line numbers quoted in the notes are approximate and tree-relative to e2f12c499. Not verified: whether each feature prerequisite will ship with the design its docs task assumes, and whether the in-flight lock holders are live. The roughly 27 feature and bug tasks whose own scope includes incidental website edits were not analysed for collisions.",
+    "caveats": [
+      "Positions inside wave 3 record coordination on shared pages, not a preferred landing order; the real order follows whichever feature prerequisite lands first.",
+      "The gates and artifacts page-ownership questions are open. The waves hold under either answer, but t635_18's and t1231_3's scope shrinks if t1687 writes those pages.",
+      "t1687 recommends its own decomposition into children at planning time, which may split its entry on refresh."
+    ]
+  },
+  "waves": [
+    {
+      "wave_id": "w1-quick-fixes",
+      "ordinal": 1,
+      "title": "Unblocked quick corrections",
+      "purpose": "Clear the three small members whose prerequisites are satisfied; each removes a stale or missing statement and leaves a clean baseline for a later member.",
+      "why_now": "All three are unblocked today and none touches a section another open member is about to rewrite.",
+      "consequence_of_delay": "t1363 leaves a wrong key in the board docs; delaying t1778 or t1709 pushes duplicated or conflicting edits onto t1705_10 and t1243_13.",
+      "entries": [
+        {
+          "entry_id": "e-1363",
+          "task": "aitasks#1363",
+          "topic": "aitasks#1361",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {"status": "Ready", "priority": "medium", "effort": "low", "depends": [], "gates_pending": ["risk_evaluated"], "followup_kind": "upstream_defect"},
+          "rationale": "Half of its scope already landed (t1270 added gate pass to ait help). What remains is three **W** to **w** fixes in tuis/board/how-to under How to Generate a Work Report. It has no dependencies and shares no section with another member, so it can go first and removes a user-facing error.",
+          "expected_outcome": "The board how-to names the real work-report key.",
+          "confidence": "high",
+          "caveats": ["Its cited line range 225-243 now falls inside t1647_6's By-Trail block; anchor the edit by heading."],
+          "evidence_refs": ["ev-t1363", "ev-spotcheck", "ev-audit-b"]
+        },
+        {
+          "entry_id": "e-1778",
+          "task": "aitasks#1778",
+          "topic": "aitasks#1705",
+          "position": 2,
+          "classification": "preferred_predecessor",
+          "snapshot": {"status": "Ready", "priority": "medium", "effort": "low", "depends": ["aitasks#1766", "aitasks#1773"], "gates_pending": ["risk_evaluated"], "followup_kind": "risk_mitigation"},
+          "rationale": "Both defects it waited for have landed (t1773, t1766), so the closed-window restore route and the shared restore_ack_grace wait can be documented now. Landing it before t1705_10 gives that workflow page one canonical description to link to.",
+          "expected_outcome": "tuis/frozenagent how-to and reference describe the shipped restore behaviour and its remaining no_session_for_root limit.",
+          "why_order_matters": "If t1705_10 lands first, its When something goes wrong section and this task would each describe the same route.",
+          "confidence": "high",
+          "evidence_refs": ["ev-t1778", "ev-audit-a"]
+        },
+        {
+          "entry_id": "e-1709",
+          "task": "aitasks#1709",
+          "topic": "aitasks#1661",
+          "position": 3,
+          "classification": "preferred_predecessor",
+          "snapshot": {"status": "Ready", "priority": "medium", "effort": "medium", "depends": [], "gates_pending": [], "followup_kind": "risk_mitigation"},
+          "rationale": "Unblocked and still accurate. It edits the aitask-trail SKILL.md.j2, its ports and goldens, mirroring a sentence already on the website page. t1243_13 later edits the same template and regenerates the same goldens, so landing this first means only one of the two has to regenerate on top of the other.",
+          "expected_outcome": "The trail skill tells agents about the dirty-owner refusal.",
+          "confidence": "medium",
+          "evidence_refs": ["ev-t1709", "ev-audit-a", "ev-audit-b"]
+        }
+      ]
+    },
+    {
+      "wave_id": "w2-unblocked-core",
+      "ordinal": 2,
+      "title": "Unblocked pages and the Concepts hub",
+      "purpose": "Land the documentation whose features have already shipped, and settle the Concepts-section structure and the two page-ownership questions the feature-gated members depend on.",
+      "why_now": "Every member is unblocked, and the ownership decisions made while planning t1687 remove the only duplicated-work risk in the later waves.",
+      "consequence_of_delay": "t1157_8 would rewrite pre-wizard prose; t635_18 and t1231_3 would proceed without knowing whether t1687 is writing their concept pages.",
+      "entries": [
+        {
+          "entry_id": "e-1149-4",
+          "task": "aitasks#1149_4",
+          "topic": "aitasks#1149",
+          "position": 1,
+          "classification": "preferred_predecessor",
+          "snapshot": {"status": "Ready", "priority": "medium", "effort": "low", "depends": ["aitasks#1149_2", "aitasks#1149_3"], "gates_pending": ["risk_evaluated"]},
+          "rationale": "Its prerequisites are archived, and the Chatlink config wizard shipped with seven steps, a self-committing summary step and live Discord validation, none of which bug-report-intake.md describes yet. It must land before t1157_8, which rewrites the same four sections for multi-workflow Chatlink.",
+          "expected_outcome": "bug-report-intake.md leads with the wizard and keeps the manual configuration as a fallback that t1157_8 can edit in place.",
+          "why_order_matters": "Reversed, t1157_8 would build on pre-wizard prose and t1149_4 would then rewrite multi-workflow text it does not own.",
+          "confidence": "high",
+          "evidence_refs": ["ev-t1149-4", "ev-audit-c"]
+        },
+        {
+          "entry_id": "e-1705-10",
+          "task": "aitasks#1705_10",
+          "topic": "aitasks#1705",
+          "position": 2,
+          "classification": "core",
+          "snapshot": {"status": "Ready", "priority": "medium", "effort": "medium", "depends": ["aitasks#1705_9"], "gates_pending": ["risk_evaluated"]},
+          "rationale": "t1705_9 landed, so the freeze-and-restore workflow page, the framework-session concept page and a Session hooks setup section can be written against the shipped engine. It follows t1778 to link that restore-route prose, and it adds the first new concepts/_index bullet, which t1687's regroup then places.",
+          "expected_outcome": "Frozen agents are documented as a workflow and a concept, with setup and opt-out behaviour as actually shipped.",
+          "confidence": "high",
+          "caveats": ["Several body premises are stale (no ait frozen verb, opt-out is answering n, plan section D superseded by amendments B1-B4); the inbox notes list them."],
+          "evidence_refs": ["ev-t1705-10", "ev-audit-a"]
+        },
+        {
+          "entry_id": "e-1687",
+          "task": "aitasks#1687",
+          "topic": "aitasks#1687",
+          "position": 3,
+          "classification": "preferred_predecessor",
+          "snapshot": {"status": "Ready", "priority": "medium", "effort": "high", "depends": [], "gates_pending": ["risk_evaluated"]},
+          "rationale": "The Concepts gap sweep is the hub of this set. Its concepts/_index.md regroup and concept pages are link targets for t1647_6, t1157_8, t1166_5 and t1663_5, and its planning decides who writes the gates page (against t635_18) and the artifacts pages (against t1231_3). It is unblocked, and it was reset to Ready this session after an orphaned claim. Placing it after t1705_10 lets its re-verification sweep find the framework-session page already written.",
+          "expected_outcome": "A Concepts section that covers the building blocks shipped since June, with explicit owners for the gates and artifacts pages.",
+          "why_order_matters": "If t635_18 or t1231_3 is picked before this task's ownership decision, the same concept or command page can be written twice.",
+          "confidence": "medium",
+          "caveats": ["Its gap table is partly stale: task notes are now documented and premise staleness has not shipped (obs-t1687-gap-table)."],
+          "evidence_refs": ["ev-t1687", "ev-audit-a", "ev-reset"]
+        }
+      ]
+    },
+    {
+      "wave_id": "w3-feature-gated",
+      "ordinal": 3,
+      "title": "Feature-gated docs, picked as each prerequisite lands",
+      "purpose": "Documentation for features still being built. Each member becomes pickable when its own out-of-scope prerequisite lands; positions record coordination on shared pages, not preference.",
+      "why_now": "They follow wave 2 because t635_18 and t1231_3 need t1687's ownership decisions, and t1647_6, t1157_8 and t1166_5 link concept pages t1687 may create.",
+      "consequence_of_delay": "Delaying a member here only lets its feature ship undocumented for longer. Picking one before its prerequisite lands would document unshipped behaviour.",
+      "entries": [
+        {
+          "entry_id": "e-635-18",
+          "task": "aitasks#635_18",
+          "topic": "aitasks#635",
+          "position": 1,
+          "classification": "hard_prerequisite",
+          "snapshot": {"status": "Ready", "priority": "medium", "effort": "high", "depends": ["aitasks#635_10", "aitasks#635_12", "aitasks#635_14", "aitasks#635_34", "aitasks#635_37", "aitasks#635_7", "aitasks#635_9"], "gates_pending": []},
+          "rationale": "Waits on t635_37. Much of its content map has landed piecemeal (commands/gates.md, board In-Flight lanes, monitor gate column, crash-recovery and risk-evaluation gate prose). What remains is the Gates concept page unless t1687 takes it, a gates workflow page, resume routing on the pick pages, a gate-template skill page, the profile gate keys and a gates.yaml reference. t635_38 records a dependency on it.",
+          "expected_outcome": "The remaining gate surfaces documented, with the landed parts left as they are.",
+          "confidence": "medium",
+          "evidence_refs": ["ev-t635-18", "ev-audit-b"]
+        },
+        {
+          "entry_id": "e-1231-3",
+          "task": "aitasks#1231_3",
+          "topic": "aitasks#1065",
+          "position": 2,
+          "classification": "core",
+          "snapshot": {"status": "Ready", "priority": "medium", "effort": "medium", "depends": ["aitasks#1231_2"], "gates_pending": ["risk_evaluated"]},
+          "rationale": "Waits on t1231_2 and t1231_1 (the git-branch artifact backend). It creates concepts/artifacts.md and commands/artifact.md unless t1687 writes base pages first. It must also document t1698's refuse-when-dirty behaviour and re-link the two unlinked ait artifact literals.",
+          "expected_outcome": "Artifacts get a concept page and a command reference covering every backend.",
+          "confidence": "medium",
+          "evidence_refs": ["ev-t1231-3", "ev-p1231-3", "ev-audit-c"]
+        },
+        {
+          "entry_id": "e-1647-6",
+          "task": "aitasks#1647_6",
+          "topic": "aitasks#1647",
+          "position": 3,
+          "classification": "core",
+          "snapshot": {"status": "Ready", "priority": "medium", "effort": "medium", "depends": ["aitasks#1647_5"], "gates_pending": ["risk_evaluated"]},
+          "rationale": "Waits on t1647_5 (the merge-trails skill). It adds the F key, trail modal rows, a Merging Two Trails section and a new skill page. It shares the board Modal Dialogs table with t1725_6 (different rows) and would add a merge line to a trails concept page if t1687 writes one.",
+          "expected_outcome": "Trail merging documented across the board reference, the trails workflow and a skill page.",
+          "confidence": "medium",
+          "caveats": ["Follow the plan, not the body, on provenance fields; the RFC's never-auto-dedup statement must be added, not kept."],
+          "evidence_refs": ["ev-t1647-6", "ev-audit-b"]
+        },
+        {
+          "entry_id": "e-1725-6",
+          "task": "aitasks#1725_6",
+          "topic": "aitasks#1599",
+          "position": 4,
+          "classification": "core",
+          "snapshot": {"status": "Ready", "priority": "medium", "effort": "low", "depends": ["aitasks#1725_5"], "gates_pending": ["risk_evaluated"]},
+          "rationale": "Waits on t1725_5 (the sync deferral screen). It documents the deferral wire contract in commands/sync.md, the syncer's Failure handling section and a board modal row, next to t1647_6's rows and t1243_13's Merge Rules row. Its inbox already carries three earlier notes on sync reason codes and the guarded merge.",
+          "expected_outcome": "Sync deferrals documented as actionable and safe to re-run.",
+          "confidence": "medium",
+          "evidence_refs": ["ev-t1725-6", "ev-audit-b"]
+        },
+        {
+          "entry_id": "e-1243-13",
+          "task": "aitasks#1243_13",
+          "topic": "aitasks#1243",
+          "position": 5,
+          "classification": "core",
+          "snapshot": {"status": "Ready", "priority": "medium", "effort": "medium", "depends": ["aitasks#1243_12"], "gates_pending": ["risk_evaluated"]},
+          "rationale": "Waits on t1243_12 and t1243_11 (the board groups G key). It also owes two edits inherited from p1243_8 (a boardgroup row in sync.md Merge Rules, and boardgroup in the trail skill's never-mutate list), which is why it sits after t1709 in the order.",
+          "expected_outcome": "Board groups documented on the board pages, sync merge rules and the frontmatter surfaces.",
+          "confidence": "medium",
+          "caveats": ["Its plan step 2 still lists marking and bulk move, which t1432 already documented."],
+          "evidence_refs": ["ev-t1243-13", "ev-p1243-13", "ev-audit-b"]
+        },
+        {
+          "entry_id": "e-1663-5",
+          "task": "aitasks#1663_5",
+          "topic": "aitasks#1538",
+          "position": 6,
+          "classification": "core",
+          "snapshot": {"status": "Ready", "priority": "medium", "effort": "low", "depends": ["aitasks#1663_4"], "gates_pending": ["risk_evaluated"]},
+          "rationale": "Waits on the t1663_1 to t1663_4 chain; premise_baseline does not exist in the code yet. It owns the premise-staleness docs, and t1687 should leave that concept to it.",
+          "expected_outcome": "The premise-staleness check documented as it ships, distinct from the verification_baseline pre-check.",
+          "confidence": "medium",
+          "evidence_refs": ["ev-t1663-5", "ev-audit-c"]
+        },
+        {
+          "entry_id": "e-1166-5",
+          "task": "aitasks#1166_5",
+          "topic": "aitasks#1166",
+          "position": 7,
+          "classification": "core",
+          "snapshot": {"status": "Ready", "priority": "medium", "effort": "low", "depends": ["aitasks#1166_3", "aitasks#1166_4"], "gates_pending": ["risk_evaluated"]},
+          "rationale": "Waits on t1166_3 and t1166_4. The workflow it documents moved after it was written (the fork now follows plan approval, admission runs first, output_branch exists), so it must describe what t1166_3 actually ships. It shares parallel-development.md and crash-recovery.md with t1705_10's pointers.",
+          "expected_outcome": "Family worktrees documented on the parallel-development, pick-skill and crash-recovery pages.",
+          "confidence": "medium",
+          "evidence_refs": ["ev-t1166-5", "ev-fork", "ev-audit-c"]
+        },
+        {
+          "entry_id": "e-1157-8",
+          "task": "aitasks#1157_8",
+          "topic": "aitasks#1157",
+          "position": 8,
+          "classification": "core",
+          "snapshot": {"status": "Ready", "priority": "medium", "effort": "medium", "depends": ["aitasks#1157_7"], "gates_pending": ["risk_evaluated"]},
+          "rationale": "Waits on the t1157_1 to t1157_7 chain. It rewrites the bug-report-intake sections that t1149_4 will just have rewritten, and adds a multi-workflow Chatlink page that needs a workflows index bullet.",
+          "expected_outcome": "Multi-workflow Chatlink and remote explore documented, with migration from the single-workflow config.",
+          "confidence": "medium",
+          "evidence_refs": ["ev-t1157-8", "ev-audit-c"]
+        },
+        {
+          "entry_id": "e-1535",
+          "task": "aitasks#1535",
+          "topic": "aitasks#1159",
+          "position": 9,
+          "classification": "core",
+          "snapshot": {"status": "Ready", "priority": "medium", "effort": "low", "depends": ["aitasks#1159_6", "aitasks#1159_7"], "gates_pending": ["risk_evaluated"], "followup_kind": "risk_mitigation"},
+          "rationale": "Waits on t1159_6 and t1159_7. All of its anchors still match; the re-sweep should also cover t1734's new Review-loop subsections. The in-flight t1697 is currently editing tuis/minimonitor/how-to.md, the page that holds this task's banner table.",
+          "expected_outcome": "Shadow and minimonitor docs re-synced after the status line and loop refactor.",
+          "confidence": "high",
+          "evidence_refs": ["ev-t1535", "ev-audit-a", "ev-inflight-pages"]
+        },
+        {
+          "entry_id": "e-835-4",
+          "task": "aitasks#835_4",
+          "topic": "aitasks#835",
+          "position": 10,
+          "classification": "hard_prerequisite",
+          "snapshot": {"status": "Ready", "priority": "medium", "effort": "high", "depends": ["aitasks#835_3"], "gates_pending": []},
+          "rationale": "Waits on t835_3, t835_2 and t835_1 (agy support). Its file list misses the Gemini leftovers in concepts/skill-templating.md and skills/aitask-refresh-code-models.md, and it cites aidocs paths that have moved. t835_6 follows it through t835_5.",
+          "expected_outcome": "agy documented alongside the other supported agents, with no Gemini leftovers.",
+          "confidence": "high",
+          "evidence_refs": ["ev-t835-4", "ev-t835-5", "ev-audit-d"]
+        }
+      ]
+    },
+    {
+      "wave_id": "w4-tails",
+      "ordinal": 4,
+      "title": "Audit and reorganization tails",
+      "purpose": "The two members that come last by construction: an audit of the gate docs, and a reorganization of the code-agent guide that absorbs t835_4's additions.",
+      "why_now": "Both have recorded dependency chains running through wave 3 members.",
+      "consequence_of_delay": "Low; both consolidate existing content rather than add new surfaces.",
+      "entries": [
+        {
+          "entry_id": "e-635-38",
+          "task": "aitasks#635_38",
+          "topic": "aitasks#635",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {"status": "Ready", "priority": "medium", "effort": "medium", "depends": ["aitasks#635_18", "aitasks#635_34", "aitasks#635_37"], "gates_pending": ["risk_evaluated"]},
+          "rationale": "Records dependencies on t635_18 and t635_37. As the gate-docs audit it must also cover the Gates concept page wherever it lands. Eight other open t635 children will still change gate docs after it, so it is a baseline audit unless those are added as dependencies.",
+          "expected_outcome": "Gate docs audited against the implementation as it stands when it runs.",
+          "confidence": "medium",
+          "evidence_refs": ["ev-t635-38", "ev-spotcheck", "ev-audit-b"]
+        },
+        {
+          "entry_id": "e-835-6",
+          "task": "aitasks#835_6",
+          "topic": "aitasks#835",
+          "position": 2,
+          "classification": "core",
+          "snapshot": {"status": "Ready", "priority": "medium", "effort": "medium", "depends": ["aitasks#835_5"], "gates_pending": []},
+          "rationale": "Reorganizes aidocs/framework/adding_a_new_codeagent.md and adds a thin website page once agy support lands (t835_5, which depends on t835_4). Its audit method, git log main..HEAD, returns nothing on main and needs a SHA range.",
+          "expected_outcome": "A code-agent guide ordered by phase, with a website entry point.",
+          "confidence": "medium",
+          "evidence_refs": ["ev-t835-6", "ev-t835-5", "ev-audit-d"]
+        }
+      ]
+    }
+  ],
+  "relations": [
+    {"from": "aitasks#635_18", "to": "aitasks#635_38", "type": "hard_depends", "provenance": "fact", "note": "t635_38 depends: [t635_18, t635_34, t635_37]."},
+    {"from": "aitasks#1778", "to": "aitasks#1705_10", "type": "advisory_precedes", "provenance": "advisory", "note": "Document the closed-window restore route once, then link it."},
+    {"from": "aitasks#1709", "to": "aitasks#1243_13", "type": "advisory_precedes", "provenance": "advisory", "note": "Same aitask-trail SKILL.md.j2 and goldens."},
+    {"from": "aitasks#1149_4", "to": "aitasks#1157_8", "type": "advisory_precedes", "provenance": "advisory", "note": "Same bug-report-intake sections; t1157_8 does not depend on t1149_4."},
+    {"from": "aitasks#1705_10", "to": "aitasks#1687", "type": "advisory_precedes", "provenance": "advisory", "note": "Lets t1687's re-verification sweep find the framework-session page."},
+    {"from": "aitasks#1687", "to": "aitasks#635_18", "type": "advisory_precedes", "provenance": "advisory", "note": "Both plan a Gates concept page; owner undecided."},
+    {"from": "aitasks#1687", "to": "aitasks#1231_3", "type": "advisory_precedes", "provenance": "advisory", "note": "Both plan concepts/artifacts.md and commands/artifact.md; owner undecided."},
+    {"from": "aitasks#835_4", "to": "aitasks#835_6", "type": "advisory_precedes", "provenance": "advisory", "note": "Recorded chain through aitasks#835_5 (depends: [t835_4]), not a direct edge."},
+    {"from": "aitasks#1647_6", "to": "aitasks#1725_6", "type": "coordinates_with", "provenance": "advisory", "note": "Both add rows to tuis/board/reference.md Modal Dialogs Reference."},
+    {"from": "aitasks#1243_13", "to": "aitasks#1725_6", "type": "coordinates_with", "provenance": "advisory", "note": "Both edit commands/sync.md, in different sections."},
+    {"from": "aitasks#1705_10", "to": "aitasks#1166_5", "type": "coordinates_with", "provenance": "advisory", "note": "Both edit workflows/parallel-development.md and workflows/crash-recovery.md."},
+    {"from": "aitasks#1687", "to": "aitasks#1166_5", "type": "coordinates_with", "provenance": "advisory", "note": "Worktrees concept relref inside Git Worktrees for Isolation."},
+    {"from": "aitasks#1687", "to": "aitasks#1663_5", "type": "coordinates_with", "provenance": "advisory", "note": "Premise staleness concept belongs to t1663_5."},
+    {"from": "aitasks#1687", "to": "aitasks#1647_6", "type": "coordinates_with", "provenance": "advisory", "note": "A trails concept page would need a merge line."},
+    {"from": "aitasks#1687", "to": "aitasks#1157_8", "type": "coordinates_with", "provenance": "advisory", "note": "A chat-intake concept page would need a multi-workflow update."},
+    {"from": "aitasks#1687", "to": "aitasks#635_38", "type": "informs", "provenance": "advisory", "note": "The gate-docs audit must include the Gates concept page wherever it lands."}
+  ],
+  "observations": [
+    {
+      "observation_id": "obs-gates-owner",
+      "kind": "shared_surface_collision",
+      "statement": "t1687 (gap table, first row) and t635_18 (a new Gates concept page with a fuller outline) both plan the Gates concept page. No owner has been chosen. t635_18 is blocked on t635_37, so t1687 is likely to reach the page first.",
+      "affects": ["aitasks#1687", "aitasks#635_18", "aitasks#635_38"],
+      "evidence_refs": ["ev-t1687", "ev-t635-18", "ev-audit-b", "ev-notes"]
+    },
+    {
+      "observation_id": "obs-artifacts-owner",
+      "kind": "shared_surface_collision",
+      "statement": "t1687 (Artifacts and Attachments rows; its step 5 owns the ait artifact and ait attach command-page decision) and t1231_3 (concepts/artifacts.md, commands/artifact.md, the concepts and commands index entries) would create the same two files. No owner has been chosen; ait attach has no owner anywhere.",
+      "affects": ["aitasks#1687", "aitasks#1231_3"],
+      "evidence_refs": ["ev-t1687", "ev-t1231-3", "ev-p1231-3", "ev-audit-c", "ev-notes"]
+    },
+    {
+      "observation_id": "obs-t1687-gap-table",
+      "kind": "stale_premise",
+      "statement": "t1687's 2026-09-02 gap table is partly stale. Task notes, listed as the biggest hole, gained a workflow, command and skill page in 0e5b965fa. The premise-staleness row describes a feature that has not shipped. Frozen agents, sync deferral, parked agents, merged trails and the backlog roadmap shipped since the sweep and are not listed.",
+      "affects": ["aitasks#1687", "aitasks#1663_5"],
+      "evidence_refs": ["ev-t1687", "ev-spotcheck", "ev-audit-a"]
+    },
+    {
+      "observation_id": "obs-t1687-orphaned-claim",
+      "kind": "other",
+      "statement": "t1687 had been Implementing since 2026-09-02 with no plan and no content commits, and its lock holder process was dead. It was reset to Ready this session (lock released, assignee cleared) before this trail was generated.",
+      "affects": ["aitasks#1687"],
+      "evidence_refs": ["ev-reset"]
+    },
+    {
+      "observation_id": "obs-blockers",
+      "kind": "external_dependency",
+      "statement": "Twelve members wait on feature tasks outside this trail: t635_18 on t635_37; t635_38 on t635_18 and t635_37; t1231_3 on t1231_2; t1647_6 on t1647_5; t1725_6 on t1725_5; t1243_13 on t1243_12; t1663_5 on t1663_4; t1166_5 on t1166_3 and t1166_4; t1157_8 on t1157_7; t1535 on t1159_6 and t1159_7; t835_4 on t835_3; t835_6 on t835_5, which depends on t835_4. None of these prerequisites appears in the lock or gate in-flight probes of this snapshot.",
+      "affects": ["aitasks#635_18", "aitasks#635_38", "aitasks#1231_3", "aitasks#1647_6", "aitasks#1725_6", "aitasks#1243_13", "aitasks#1663_5", "aitasks#1166_5", "aitasks#1157_8", "aitasks#1535", "aitasks#835_4", "aitasks#835_6"],
+      "evidence_refs": ["ev-snapshot", "ev-t835-5"]
+    },
+    {
+      "observation_id": "obs-chatlink-premise",
+      "kind": "stale_premise",
+      "statement": "t1149_4's instructions predate the shipped wizard: the step order is now seven steps with token and live check before the allowlist, the summary step commits the config itself (t1677), and a live-validation paragraph already exists (t1149_5). Resumable drafts, live allowlist pickers and per-dimension modes shipped without being in its scope.",
+      "affects": ["aitasks#1149_4", "aitasks#1157_8"],
+      "evidence_refs": ["ev-t1149-4", "ev-audit-c"]
+    },
+    {
+      "observation_id": "obs-worktree-premise",
+      "kind": "stale_premise",
+      "statement": "The worktree fork moved after plan approval (t1536, bbafbd4f5; t1558, 7bae59b51), admission and the parallel-admission preflight now run before it, and output_branch exists. t1166_3 still places family setup in Step 5, so t1166_5 must follow what t1166_3 actually ships.",
+      "affects": ["aitasks#1166_5"],
+      "evidence_refs": ["ev-fork", "ev-t1166-5", "ev-audit-c"]
+    },
+    {
+      "observation_id": "obs-trail-skill-goldens",
+      "kind": "shared_surface_collision",
+      "statement": "t1709 and t1243_13 (an edit inherited from p1243_8) both edit .claude/skills/aitask-trail/SKILL.md.j2 and regenerate tests/golden/skills/aitask-trail/. Whichever lands second regenerates on top of the other.",
+      "affects": ["aitasks#1709", "aitasks#1243_13"],
+      "evidence_refs": ["ev-t1709", "ev-p1243-13", "ev-audit-b"]
+    },
+    {
+      "observation_id": "obs-board-modal-table",
+      "kind": "shared_surface_collision",
+      "statement": "t1647_6 (four trail modal rows) and t1725_6 (a Sync Deferred row) both add rows to tuis/board/reference.md Modal Dialogs Reference. The rows differ, so this is an adjacent-edit rebase, not duplicated work.",
+      "affects": ["aitasks#1647_6", "aitasks#1725_6"],
+      "evidence_refs": ["ev-t1647-6", "ev-t1725-6", "ev-audit-b"]
+    },
+    {
+      "observation_id": "obs-codeagent-premise",
+      "kind": "stale_premise",
+      "statement": "t835_4 and t835_6 cite aidocs paths that moved to aidocs/framework/. Gemini leftovers remain in concepts/skill-templating.md (4 hits) and skills/aitask-refresh-code-models.md, which a geminicli grep misses. Four checks in the t835_7 manual-verification list pass or fail for the wrong reason.",
+      "affects": ["aitasks#835_4", "aitasks#835_6"],
+      "evidence_refs": ["ev-spotcheck", "ev-t835-7", "ev-audit-d"]
+    },
+    {
+      "observation_id": "obs-t1363-half-done",
+      "kind": "stale_premise",
+      "statement": "t1363's ait help half is already fixed (gate pass at ait:61, t1270). The remaining work is three **W** occurrences in tuis/board/how-to.md; the binding is w at aitask_board.py:8850.",
+      "affects": ["aitasks#1363"],
+      "evidence_refs": ["ev-t1363", "ev-spotcheck"]
+    },
+    {
+      "observation_id": "obs-t635-38-not-last",
+      "kind": "stale_premise",
+      "statement": "t635_38 is framed as the final gate-docs audit, but t635_16, 24, 26, 28, 29, 30, 31 and 32 are still open and will change gate docs after it.",
+      "affects": ["aitasks#635_38"],
+      "evidence_refs": ["ev-t635-38", "ev-spotcheck"]
+    },
+    {
+      "observation_id": "obs-inflight-minimonitor",
+      "kind": "in_flight_conflict",
+      "statement": "As of this snapshot t1697 is Implementing with a lock and edits tuis/minimonitor/how-to.md, tuis/monitor/how-to.md and tuis/monitor/reference.md. t1535 re-sweeps the minimonitor how-to banner table, so re-read that page after t1697 lands. Moment-relative: the lock may have been released since.",
+      "affects": ["aitasks#1535"],
+      "evidence_refs": ["ev-snapshot", "ev-inflight-pages"]
+    },
+    {
+      "observation_id": "obs-inflight-sync",
+      "kind": "in_flight_conflict",
+      "statement": "As of this snapshot t1747_3 is Implementing with a lock and edits .aitask-scripts/aitask_sync.sh and the sync tests (fail-open authorization probes). t1725_6 documents sync refusal and deferral wording, so verify the strings against the tree after t1747_3 lands. Moment-relative.",
+      "affects": ["aitasks#1725_6"],
+      "evidence_refs": ["ev-snapshot"]
+    },
+    {
+      "observation_id": "obs-inflight-admission",
+      "kind": "in_flight_conflict",
+      "statement": "As of this snapshot t1688 is Implementing with a lock and edits skills/aitask-pick/parallel-admission.md. A worktrees-and-admission concept page from t1687, or t1166_5's admission-ordering prose, should link that page as it lands rather than restate it. Moment-relative.",
+      "affects": ["aitasks#1687", "aitasks#1166_5"],
+      "evidence_refs": ["ev-snapshot", "ev-inflight-pages"]
+    },
+    {
+      "observation_id": "obs-notes-sent",
+      "kind": "other",
+      "statement": "Twenty advisory notes were appended to member and neighbour inboxes this session, carrying the per-task stale claims, line references and overlap details this trail only summarises. They are the place to look for specifics when a member is picked.",
+      "affects": ["aitasks#1687", "aitasks#1231_3", "aitasks#635_18", "aitasks#635_38", "aitasks#1705_10", "aitasks#1778", "aitasks#1363", "aitasks#1149_4", "aitasks#1157_8", "aitasks#1647_6", "aitasks#1725_6", "aitasks#1243_13", "aitasks#1709", "aitasks#1166_5", "aitasks#1663_5", "aitasks#835_4", "aitasks#835_6", "aitasks#1535"],
+      "evidence_refs": ["ev-notes"]
+    }
+  ],
+  "exclusions": [
+    {"task": "aitasks#1023", "reason_code": "already_landed", "reason": "Brainstorm TUI pages were created by t929_3 (49ba29100). Archived as superseded this session."},
+    {"task": "aitasks#217", "reason_code": "already_landed", "reason": "skills/aitask-pickrem.md, created by t235 (81f8fadba), covers the scope. Archived as superseded this session; a stale profile sample on that page is untracked."},
+    {"task": "aitasks#218", "reason_code": "superseded_scope", "reason": "Claude Code Web uses /aitask-pickweb, documented by t227_6 in workflows/claude-web.md. Archived as superseded this session."},
+    {"task": "aitasks#386_7", "reason_code": "already_landed", "reason": "t917 (cef72deab) documented agentcrew in commands/crew.md and concepts/agentcrews.md; dedicated pages were scoped out by the user. Archived as superseded this session."},
+    {"task": "aitasks#369_7", "reason_code": "superseded_scope", "reason": "The documented field was reverted by t407 (7221615d1). Archived as superseded this session."},
+    {"task": "aitasks#399_3", "reason_code": "superseded_scope", "reason": "The aitask-redesign skill was never built and overlaps the shipped brainstorm TUI. Archived as superseded this session."},
+    {"task": "aitasks#635_37", "reason_code": "deferred_by_user", "reason": "Feature prerequisite of t635_18 and t635_38. The user chose to record out-of-scope blockers as observations only (obs-blockers)."},
+    {"task": "aitasks#1231_2", "reason_code": "deferred_by_user", "reason": "Feature prerequisite of t1231_3; recorded in obs-blockers by user choice."},
+    {"task": "aitasks#1647_5", "reason_code": "deferred_by_user", "reason": "Feature prerequisite of t1647_6; recorded in obs-blockers by user choice."},
+    {"task": "aitasks#1725_5", "reason_code": "deferred_by_user", "reason": "Feature prerequisite of t1725_6; recorded in obs-blockers by user choice."},
+    {"task": "aitasks#1243_12", "reason_code": "deferred_by_user", "reason": "Feature prerequisite of t1243_13; recorded in obs-blockers by user choice."},
+    {"task": "aitasks#1663_4", "reason_code": "deferred_by_user", "reason": "Feature prerequisite of t1663_5; recorded in obs-blockers by user choice."},
+    {"task": "aitasks#1166_3", "reason_code": "deferred_by_user", "reason": "Feature prerequisite of t1166_5; recorded in obs-blockers by user choice. Received a note that its Step 5 placement is stale."},
+    {"task": "aitasks#1166_4", "reason_code": "deferred_by_user", "reason": "Feature prerequisite of t1166_5; recorded in obs-blockers by user choice."},
+    {"task": "aitasks#1157_7", "reason_code": "deferred_by_user", "reason": "Feature prerequisite of t1157_8; recorded in obs-blockers by user choice."},
+    {"task": "aitasks#1159_6", "reason_code": "deferred_by_user", "reason": "Feature prerequisite of t1535; recorded in obs-blockers by user choice."},
+    {"task": "aitasks#1159_7", "reason_code": "deferred_by_user", "reason": "Feature prerequisite of t1535; recorded in obs-blockers by user choice."},
+    {"task": "aitasks#835_3", "reason_code": "deferred_by_user", "reason": "Feature prerequisite of t835_4; recorded in obs-blockers by user choice."},
+    {"task": "aitasks#835_5", "reason_code": "deferred_by_user", "reason": "Feature prerequisite of t835_6 (and itself depends on t835_4); recorded in obs-blockers by user choice."},
+    {"task": "aitasks#835_7", "reason_code": "non_blocking", "reason": "Manual verification of agy support, not a docs task; its stale checks were reported by note."},
+    {"task": "aitasks#1697", "reason_code": "non_blocking", "reason": "In-flight bug fix with incidental monitor and minimonitor doc edits; tracked as obs-inflight-minimonitor."},
+    {"task": "aitasks#1747_3", "reason_code": "non_blocking", "reason": "In-flight sync probe hardening; tracked as obs-inflight-sync."},
+    {"task": "aitasks#1688", "reason_code": "non_blocking", "reason": "In-flight parallel-admission work with its own docs page; tracked as obs-inflight-admission."},
+    {"task": "aitasks#1157_9", "reason_code": "non_blocking", "reason": "Test child of t1157 that depends on t1157_8; downstream of the member, not docs work."},
+    {"task": "aitasks#1157_10", "reason_code": "non_blocking", "reason": "Manual verification of multi-workflow Chatlink; verifies t1157_8 and lands after it."},
+    {"task": "aitasks#1166_6", "reason_code": "non_blocking", "reason": "Manual verification of family worktrees; depends on t1166_5 and lands after it."},
+    {"task": "aitasks#1231_4", "reason_code": "non_blocking", "reason": "Manual verification of the git-branch artifact backend; depends on t1231_3 and lands after it."},
+    {"task": "aitasks#1243_14", "reason_code": "non_blocking", "reason": "Retrospective benchmark child of t1243; depends on t1243_13 and lands after it."},
+    {"task": "aitasks#1243_15", "reason_code": "non_blocking", "reason": "Manual verification of board groups; verifies t1243_13 and lands after it."},
+    {"task": "aitasks#1647_7", "reason_code": "non_blocking", "reason": "Manual verification of trail merging; depends on t1647_6 and lands after it."},
+    {"task": "aitasks#1663_6", "reason_code": "non_blocking", "reason": "Retrospective prompt-rate evaluation child of t1663; depends on t1663_5 and lands after it."},
+    {"task": "aitasks#1705_11", "reason_code": "non_blocking", "reason": "Manual verification of frozen code agents; depends on t1705_10 and lands after it."},
+    {"task": "aitasks#1725_7", "reason_code": "non_blocking", "reason": "Manual verification of actionable sync deferrals; depends on t1725_6 and lands after it."}
+  ],
+  "evidence": [
+    {"evidence_id": "ev-snapshot", "source_type": "command_output", "ref": "./.aitask-scripts/aitask_trail_gather.sh snapshot --scope task --owner 1687 --with-inflight 1687 1705_10 1778 1149_4 1363 635_18 635_38 1647_6 1725_6 1231_3 1243_13 1663_5 1166_5 1157_8 835_4 835_6 1535 1709", "observed_at": "2026-09-10T20:19:00Z", "summary": "18 members, all Ready; OWNER aitasks#1687; DIGEST 845ac16509804d99; per-member depends and gates; lock probe lists 11 in-flight tasks (including 1688, 1697, 1747_3), none a member or a member's prerequisite."},
+    {"evidence_id": "ev-audit-a", "source_type": "conversation", "ref": "Read-only staleness audit subagent, batch A (t1687, t1778, t1705_10, t1709, t1535, t1023), 2026-09-10", "observed_at": "2026-09-10T20:19:00Z", "summary": "t1687 gap table partly stale and three concept pages planned elsewhere; t1778 actionable; t1705_10 premises (ait frozen verb, opt-out, plan section D) stale; t1709 current; t1535 anchors current; t1023 obsolete."},
+    {"evidence_id": "ev-audit-b", "source_type": "conversation", "ref": "Read-only staleness audit subagent, batch B (t635_18, t635_38, t1363, t1243_13, t1725_6, t1647_6), 2026-09-10", "observed_at": "2026-09-10T20:19:00Z", "summary": "Gates concept conflict with t1687; much of t635_18 landed; t635_38 not last; t1363 half fixed; t1243_13 inherited items and golden collision with t1709; board modal table shared by t1647_6 and t1725_6."},
+    {"evidence_id": "ev-audit-c", "source_type": "conversation", "ref": "Read-only staleness audit subagent, batch C (t1149_4, t1157_8, t1231_3, t1663_5, t1166_5, t369_7), 2026-09-10", "observed_at": "2026-09-10T20:19:00Z", "summary": "t1149_4 wizard facts changed; t1157_8 rewrites the same sections; artifacts page conflict between t1231_3 and t1687; t1663_5 current; t1166_5 workflow moved; t369_7 obsolete."},
+    {"evidence_id": "ev-audit-d", "source_type": "conversation", "ref": "Read-only staleness audit subagent, batch D (t217, t218, t835_4, t835_6, t399_3, t386_7), 2026-09-10", "observed_at": "2026-09-10T20:19:00Z", "summary": "t835_4 and t835_6 cite moved paths and miss Gemini leftovers; t835_6 audit method broken on main; t217, t218, t386_7, t399_3 obsolete."},
+    {"evidence_id": "ev-spotcheck", "source_type": "command_output", "ref": "grep -n 'gate pass' ait; grep -n '**W**' website/content/docs/tuis/board/how-to.md; git log -1 0e5b965fa 7221615d1; status of t635_16..32 children; grep -ci gemini on concepts/skill-templating.md and skills/aitask-refresh-code-models.md", "observed_at": "2026-09-10T20:19:00Z", "summary": "gate pass listed at ait:61; three **W** at how-to.md 379/386/390 and w bound at aitask_board.py:8850; 0e5b965fa added task-notes pages; 7221615d1 reverted gather_explain_context; eight t635 children Ready; Gemini hits 4 and 1."},
+    {"evidence_id": "ev-fork", "source_type": "command_output", "ref": "git log -1 --format='%h %s' bbafbd4f5; git log -1 --format='%h %s' 7bae59b51", "observed_at": "2026-09-10T20:19:00Z", "summary": "bbafbd4f5 Defer the worktree fork until after plan approval (t1536); 7bae59b51 Defer the worktree claim in Step 5's create_worktree surfaces (t1558)."},
+    {"evidence_id": "ev-inflight-pages", "source_type": "command_output", "ref": "grep -oE 'website/content/docs/...' on the t1697, t1688 and t1747_3 task files", "observed_at": "2026-09-10T20:19:00Z", "summary": "t1697 names tuis/minimonitor/how-to.md and two monitor pages; t1688 names skills/aitask-pick/parallel-admission.md; t1747_3 names no website page."},
+    {"evidence_id": "ev-notes", "source_type": "command_output", "ref": "./ait note <target> --from <peer> --with-live --file <body>, 20 sends on 2026-09-10", "observed_at": "2026-09-10T20:19:00Z", "summary": "20 NOTE_APPENDED results across the members plus t1166_3 and t835_7; every live lane LIVE_NONE (t1687 holder_dead)."},
+    {"evidence_id": "ev-reset", "source_type": "command_output", "ref": "aitask_lock.sh --unlock 1687; aitask_update.sh --batch 1687 --status Ready --assigned-to ''; aitask_task_commit.sh -m 'ait: Abort t1687: revert status to Ready'", "observed_at": "2026-09-10T20:19:00Z", "summary": "Lock released, status Ready, assignee cleared, commit 24c029ae4; no worktree or branch existed."},
+    {"evidence_id": "ev-t1687", "source_type": "task_file", "ref": "aitasks/t1687_concepts_docs_gap_sweep.md", "observed_at": "2026-09-10T20:19:00Z", "summary": "Concepts gap table (gates, artifacts, trails, shadow, attachments, notes, and more); scope steps 1-5 including the command-page decision."},
+    {"evidence_id": "ev-t635-18", "source_type": "task_file", "ref": "aitasks/t635/t635_18_website_documentation.md", "observed_at": "2026-09-10T20:19:00Z", "summary": "Gate website docs content map, including a new Gates concept page."},
+    {"evidence_id": "ev-t635-38", "source_type": "task_file", "ref": "aitasks/t635/t635_38_final_gate_documentation_audit.md", "observed_at": "2026-09-10T20:19:00Z", "summary": "Final gate documentation audit; depends on t635_18, t635_34, t635_37."},
+    {"evidence_id": "ev-t1231-3", "source_type": "task_file", "ref": "aitasks/t1231/t1231_3_artifact_documentation.md", "observed_at": "2026-09-10T20:19:00Z", "summary": "Plans concepts/artifacts.md, commands/artifact.md and index entries."},
+    {"evidence_id": "ev-p1231-3", "source_type": "plan_file", "ref": "aiplans/p1231/p1231_3_artifact_documentation.md", "observed_at": "2026-09-10T20:19:00Z", "summary": "Plan for the artifact documentation pages and the backend-table drift guard."},
+    {"evidence_id": "ev-t1149-4", "source_type": "task_file", "ref": "aitasks/t1149/t1149_4_wizard_docs_rewrite.md", "observed_at": "2026-09-10T20:19:00Z", "summary": "Chatlink wizard docs rewrite of bug-report-intake.md."},
+    {"evidence_id": "ev-t1157-8", "source_type": "task_file", "ref": "aitasks/t1157/t1157_8_chatlink_workflow_docs_migration.md", "observed_at": "2026-09-10T20:19:00Z", "summary": "Multi-workflow Chatlink and migration docs; edits bug-report-intake.md."},
+    {"evidence_id": "ev-t1705-10", "source_type": "task_file", "ref": "aitasks/t1705/t1705_10_freeze_restore_workflow_docs.md", "observed_at": "2026-09-10T20:19:00Z", "summary": "Freeze/restore workflow page, framework-session concept page, setup section; inbox holds t1705_8, t1705_9 and t1773 notes."},
+    {"evidence_id": "ev-t1778", "source_type": "task_file", "ref": "aitasks/t1778_recheck_frozen_docs_after_open_defects.md", "observed_at": "2026-09-10T20:19:00Z", "summary": "Recheck frozenagent docs once t1773 and t1766 land."},
+    {"evidence_id": "ev-t1709", "source_type": "task_file", "ref": "aitasks/t1709_trail_skill_dirty_owner_refusal_note.md", "observed_at": "2026-09-10T20:19:00Z", "summary": "Dirty-owner refusal note in the aitask-trail skill template, ports and goldens."},
+    {"evidence_id": "ev-t1363", "source_type": "task_file", "ref": "aitasks/t1363_fix_board_work_report_key_docs_and_ait_help_gate_pass.md", "observed_at": "2026-09-10T20:19:00Z", "summary": "Board work-report key docs and ait help gate pass."},
+    {"evidence_id": "ev-t1647-6", "source_type": "task_file", "ref": "aitasks/t1647/t1647_6_merge_trails_docs_website_and_rfc.md", "observed_at": "2026-09-10T20:19:00Z", "summary": "Merge-trails docs on the board, trails workflow, a skill page and the RFC."},
+    {"evidence_id": "ev-t1725-6", "source_type": "task_file", "ref": "aitasks/t1725/t1725_6_document_actionable_sync_deferrals.md", "observed_at": "2026-09-10T20:19:00Z", "summary": "Sync deferral docs in commands/sync.md, the syncer page and the board modal table."},
+    {"evidence_id": "ev-t1243-13", "source_type": "task_file", "ref": "aitasks/t1243/t1243_13_documentation.md", "observed_at": "2026-09-10T20:19:00Z", "summary": "Board groups documentation."},
+    {"evidence_id": "ev-p1243-13", "source_type": "plan_file", "ref": "aiplans/p1243/p1243_13_documentation.md", "observed_at": "2026-09-10T20:19:00Z", "summary": "Plan step 2 still lists marking and bulk move; inherited items come from p1243_8 Final Implementation Notes."},
+    {"evidence_id": "ev-t1663-5", "source_type": "task_file", "ref": "aitasks/t1663/t1663_5_website_docs_premise_staleness.md", "observed_at": "2026-09-10T20:19:00Z", "summary": "Premise-staleness website docs."},
+    {"evidence_id": "ev-t1166-5", "source_type": "task_file", "ref": "aitasks/t1166/t1166_5_family_worktree_docs_and_profile_surface.md", "observed_at": "2026-09-10T20:19:00Z", "summary": "Family worktree docs and profile surface."},
+    {"evidence_id": "ev-t1535", "source_type": "task_file", "ref": "aitasks/t1535_resweep_shadow_docs_after_status_line_and_refactor.md", "observed_at": "2026-09-10T20:19:00Z", "summary": "Shadow docs re-sweep after the status line and loop refactor; pins the minimonitor banner table."},
+    {"evidence_id": "ev-t835-4", "source_type": "task_file", "ref": "aitasks/t835/t835_4_agy_documentation.md", "observed_at": "2026-09-10T20:19:00Z", "summary": "agy documentation across the website and framework docs."},
+    {"evidence_id": "ev-t835-5", "source_type": "task_file", "ref": "aitasks#835_5", "observed_at": "2026-09-10T20:19:00Z", "summary": "depends: [t835_4], which makes t835_6 transitively follow t835_4."},
+    {"evidence_id": "ev-t835-6", "source_type": "task_file", "ref": "aitasks/t835/t835_6_audit_and_reorganize_adding_a_new_codeagent_doc.md", "observed_at": "2026-09-10T20:19:00Z", "summary": "Reorganize the adding-a-new-code-agent guide and add a thin website page."},
+    {"evidence_id": "ev-t835-7", "source_type": "task_file", "ref": "aitasks#835_7", "observed_at": "2026-09-10T20:19:00Z", "summary": "Manual-verification checklist for agy support, including the geminicli grep and heading-count checks."}
+  ],
+  "rendering_hints": {"depth": "deep"}
+}
