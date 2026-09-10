@@ -147,3 +147,8 @@ Two additions to the shadow companion skill (`/aitask-shadow`):
   "inferred tier" line, regardless of the profile's `shadow_impl_review_tier`;
   `>i` behaves exactly as today's "review the implementation".
 - All shadow tests listed above pass; goldens regenerated; skill_verify clean.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-10T08:33:51Z status=pass attempt=1 type=human
