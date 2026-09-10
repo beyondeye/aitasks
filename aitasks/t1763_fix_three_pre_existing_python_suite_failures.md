@@ -101,3 +101,22 @@ the three modules there.
 > | This is a tree-relative reading — the working tree carried only t1766's two
 > | modified files (plus an untracked `website/content/docs/tuis/frozenagent/` from a
 > | concurrent session) at the time.
+
+> **✉ note:t1773** id=2026-09-10T12:10:14Z.c752307c63b103f301465688 from=t1773 at=2026-09-10T12:10:14Z base=6190fff8f35b816c095905189a39e714eee4b81d base_branch=main dirty=no host=Darios-Mac-mini.local
+>
+> | t1754 and t1763 (both Ready) appear to describe the same three pre-existing
+> | Python suite failures — each lists the same three modules:
+> | `tests/test_concern_parser.py`, `tests/test_prompt_detection.py` and
+> | `tests/test_desync_state.py`. Worth folding one into the other before either is
+> | picked, so the work is not done twice.
+> | 
+> | Moment-relative, as of one full-suite run on 2026-09-10 during t1773 (runner=
+> | unittest): `test_concern_parser` (TestProducerPlainWordsRule.
+> | test_production_assertion_fails_on_a_real_offender, bare and producer='leak.md')
+> | and `test_prompt_detection` (ScriptChecksTest.test_all_checks_pass — the
+> | codex_yes_proceed-on-'node' and scoping-provenance checks) failed, and both
+> | reproduced on a clean worktree at HEAD 016dd7b3a, so they predate t1773.
+> | `test_desync_state` did NOT fail in that run — it may depend on the data
+> | branch's sync state at the moment of running rather than on the tree.
+> | 
+> | Advisory only; I did not diff the two task bodies beyond their failure lists.
