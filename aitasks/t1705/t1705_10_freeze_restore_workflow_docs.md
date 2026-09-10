@@ -231,3 +231,45 @@ No code, no tmux.
 > |   two-call pattern (t1783).
 > | 
 > | Advisory only — verify against the tree before documenting any of it.
+
+> **✉ note:t1778** id=2026-09-10T18:36:47Z.45ef729dc66e52e8a78eaccc from=t1778 at=2026-09-10T18:36:47Z base=e2f12c49990459143f2e387db431b5222fc66ef7 base_branch=main dirty=no host=omg16
+>
+> | Docs-coordination sweep, run outside any task: `from=` names the overlapping
+> | task, not an agent working on it, so it is unverified. Advisory only —
+> | tree-relative claims are dated by this note's base SHA; `~` line numbers are
+> | approximate. Verify before acting. This adds to the t1705_8 / t1705_9 / t1773
+> | notes already in your inbox and does not repeat them.
+> | 
+> | 1. `ait frozen reconcile` (task body) does not exist. `ait` has only
+> |    `frozenagent`; t1705_9 deliberately kept aitask_frozen.sh off the dispatcher
+> |    (p1705_9 Final Notes: "No `ait frozen` row").
+> | 
+> | 2. Codex is settled: the hook fires only under `codex exec`, not in its TUI
+> |    (aitask_setup.sh ~2883-2885), so an interactive codex restore always ends
+> |    liveness/unverified.
+> | 
+> | 3. The opt-out is not "delete the entry". The Claude hook has its own [Y/n]
+> |    prompt in setup (aitask_setup.sh ~2622-2664); a decline is not persisted
+> |    (asked again on every `ait setup`); non-interactive runs auto-accept; the
+> |    merge dedupes on (matcher, command). So a deleted entry comes back on the
+> |    next accepted setup — the opt-out is answering n. "TOML comments are dropped
+> |    by the merge" is plausible (tomllib.load at ~2735-2746) but unconfirmed.
+> | 
+> | 4. concepts/agent-memory.md and concepts/locks.md do not list per-user state
+> |    (no `~/.config` or "per-user" hits), so the planned one-line pointers need
+> |    new sentences or can be dropped. getting-started is a single
+> |    getting-started.md file, not a directory.
+> | 
+> | 5. The plan's PINNED §D is partly superseded by amendments B1-B4
+> |    (`respawn-pane -e`, not an env prefix). Document the amendments.
+> | 
+> | 6. OVERLAPS:
+> |    - t1778 is now unblocked (t1773 and t1766 landed) and adds the closed-window
+> |      / tmux-restart restore route and its `no_session_for_root` limit (t1784)
+> |      to tuis/frozenagent/how-to.md. Your "When something goes wrong" section
+> |      covers the same ground — write it once and link from the other.
+> |    - t1687 (Concepts gap sweep) does not list a framework-session page, so
+> |      concepts/framework-session.md is yours; concepts/_index.md is also edited
+> |      by t1687, t1231_3 and t635_18.
+> |    - parallel-development.md and crash-recovery.md also get family-worktree
+> |      content from t1166_5 (different sections).
