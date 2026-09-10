@@ -437,6 +437,16 @@ STANDIN_READY_OPTION = "@aitask_standin_ready"
 #: (t1705_3). Read by the freeze engine when the store has no session id.
 AGENT_SESSION_OPTION = "@aitask_agent_session"
 
+#: Transient, coordinator-private evidence that a stamp-conditional respawn
+#: actually fired (t1773). `agent_frozen_ops.respawn_if_stamped` writes a fresh
+#: per-call token as the LAST command of its `if-shell` true branch and clears
+#: it as soon as it has read it back, so nothing else ever observes it: it is
+#: never classified, never part of `PANE_FACT_FORMAT`, and has no shell
+#: counterpart in `lib/agent_sessions.sh`. It lives here anyway because this
+#: file is the pane-option vocabulary — a name invented elsewhere is a name
+#: nobody can check for collisions.
+RESPAWN_TOKEN_OPTION = "@aitask_respawn_token"
+
 
 def is_shadow_target(shadow_target: str) -> bool:
     """True when a pane's ``@aitask_shadow_target`` value marks it a shadow.

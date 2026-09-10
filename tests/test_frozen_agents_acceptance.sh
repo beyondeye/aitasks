@@ -795,37 +795,54 @@ section "Case 6a — a gone-pane record restores into a NEW window"
 # ---------------------------------------------------------------------------
 section "Case 6b — a COMMITTED frozen record whose window is closed (t1773)"
 # ---------------------------------------------------------------------------
-# The ordinary user route — freeze, then close the window / restart tmux — does
-# NOT reach case 6a's gone-pane branch. `_reconcile_frozen` returns
-# `KEEP:<id>|pane_gone` and writes nothing, so the record keeps its dead `%N`
-# forever, and `agent_restore._restore` branches on `if pane_id:` (the RECORDED
-# id, never a live check) and respawns the corpse. That contradicts
-# `drop_record()`'s own docstring — "`pane_id` is durable but NOT authoritative
-# … the record stays restorable into a fresh window" — and `drop` preflights the
-# live inventory for exactly this reason while `restore` does not. Filed as
-# **t1773**.
+# THE ORDINARY USER ROUTE, and the one 6a cannot reach. Freeze normally, then
+# close the window (or restart tmux): `_reconcile_frozen` returns
+# `KEEP:<id>|pane_gone` and writes NOTHING, so unlike 6a the record keeps its
+# dead `%N` forever. Before t1773 `agent_restore.restore` branched on that
+# RECORDED id — never on whether the pane still existed — and respawned the
+# corpse, so the record could never be restored again.
 #
-# This case therefore asserts only the FAIL-SAFE half, which holds either way
-# and will not need rewriting when t1773 lands: a restore that cannot proceed
-# must lose neither the record nor the capture. When t1773 is fixed, extend this
-# to assert `RESTORED:<id>` into a new window, matching 6a.
+# The fix resolves the recorded id against the SERVER first, the same rule
+# `drop_record()`'s docstring already stated ("`pane_id` is durable but NOT
+# authoritative … the record stays restorable into a fresh window") and that
+# `drop` already applied to its own preflight. So 6b now asserts the same
+# outcome as 6a, reached by the route users actually take.
 (
     W="agent-pick-6b"
     read -r RID PANE _ < <(make_live_agent "$W")
+    before="$(store list 2>/dev/null | grep -c '^SESSION:')"
+    slot_before="$(record_field "$RID" window_slot)"
     freeze_and_wait "$PANE" "$RID"
 
     tm kill-window -t "$PANE" 2>/dev/null || true
     sleep 0.5
+    # The premise: unlike 6a, NOTHING cleared the pane location. This is what
+    # makes 6b a different case and not a duplicate of it.
     assert_eq "case 6b: the record still names the now-dead pane" "$PANE" \
         "$(record_field "$RID" pane_id)"
+    assert_eq "case 6b: the window really is gone" "no" \
+        "$(window_exists "$W" "$SESSION" && echo yes || echo no)"
 
-    "$FROZEN_SH" restore "$RID" >/dev/null 2>&1
-    assert_eq "case 6b: FAIL-SAFE — the record survives and stays frozen" "frozen" \
-        "$(record_field "$RID" state)"
-    assert_eq "case 6b: FAIL-SAFE — the capture is intact" "yes" \
-        "$([ -f "$AITASKS_FROZEN_DIR/$RID/capture.txt" ] && echo yes || echo no)"
-    assert_eq "case 6b: FAIL-SAFE — no duplicate record was created" "1" \
-        "$(store list 2>/dev/null | grep -c "^SESSION:$RID|")"
+    out="$("$FROZEN_SH" restore "$RID" 2>&1)"
+    assert_contains "case 6b: the restore succeeded into a new window" \
+        "RESTORED:$RID" "$out"
+    assert_eq "case 6b: a window with the recorded name is back" "yes" \
+        "$(window_exists "$W" "$SESSION" && echo yes || echo no)"
+    assert_eq "case 6b: the record is live" "live" "$(record_field "$RID" state)"
+    # The record must now name a pane that EXISTS and is not the corpse.
+    new_pane="$(record_field "$RID" pane_id)"
+    if [ -n "$new_pane" ] && [ "$new_pane" != "$PANE" ]; then assert_record_pass; else
+        assert_record_fail
+        echo "FAIL: case 6b: pane_id still names the dead pane ($new_pane)"
+    fi
+    assert_eq "case 6b: and that pane is real" "yes" \
+        "$(pane_exists "$new_pane" && echo yes || echo no)"
+    assert_eq "case 6b: no second record was created" "$before" \
+        "$(store list 2>/dev/null | grep -c '^SESSION:')"
+    assert_eq "case 6b: the window slot is unchanged" "$slot_before" \
+        "$(record_field "$RID" window_slot)"
+    assert_eq "case 6b: the captures were deleted" "no" \
+        "$([ -d "$AITASKS_FROZEN_DIR/$RID" ] && echo yes || echo no)"
     drop_record "$RID"
 )
 

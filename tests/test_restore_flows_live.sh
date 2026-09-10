@@ -397,6 +397,13 @@ section "Case 7 — a gone pane restores into a NEW window, one record still"
 
     out="$("$FROZEN_SH" restore "$RID" 2>&1)"; rc=$?
     assert_contains "case 7: the restore reports on the SAME record" "$RID" "$out"
+    # The two assertions above hold just as well when the restore FAILS — the
+    # failure line names the record too, and a failed restore creates no second
+    # record. They are what this case asserted before t1773, and on their own
+    # they said nothing about the title. These two are the title:
+    assert_contains "case 7: the restore actually SUCCEEDED" "RESTORED:$RID" "$out"
+    assert_eq "case 7: a window with the recorded name is back" "yes" \
+        "$(window_exists "agent-pick-1711" "$SESSION" && echo yes || echo no)"
 
     after_records="$(win_records)"
     assert_eq "case 7: no second record was created for the window" \

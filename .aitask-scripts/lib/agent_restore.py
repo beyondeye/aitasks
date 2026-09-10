@@ -237,18 +237,27 @@ def _rollback(record_id: str, nonce: str, pane_id: str, reason: str = "") -> str
     # the record is still `restoring` until the verb above returns.
     frozen_ops.pause_at("aborting")
 
-    # Clear the ready mark BEFORE the respawn: pane options survive
-    # `respawn-pane`, so a mark left from a previous cycle would read as "this
-    # cycle's viewer is already up" and stop reconcile from repairing it.
+    # The ready mark is cleared BEFORE the respawn — `unset=` puts it first in
+    # the dispatched branch. Pane options survive `respawn-pane`, so a mark left
+    # from a previous cycle would read as "this cycle's viewer is already up"
+    # and stop reconcile from repairing it. Being inside the branch also means
+    # it is not cleared on a pane the dispatch declines to touch.
+    new_pane, new_pid = "", 0
     if pane_id:
-        frozen_ops.unset_option(pane_id, STANDIN_READY_OPTION)
         try:
-            frozen_ops.respawn(pane_id, agent_sessions.standin_command(record_id))
+            # Same atomicity rule as the forward path: putting the stand-in back
+            # is also a `respawn-pane -k`, so it must not fire on a `%N` that
+            # stopped being ours. A miss returns no location, and the ("", 0)
+            # below is exactly the gone-pane pair `_reconcile_restoring` commits
+            # to keep a record restorable into a NEW window.
+            fired, new_pane, new_pid, _why = frozen_ops.respawn_if_stamped(
+                pane_id, agent_sessions.standin_command(record_id),
+                option=FROZEN_OPTION, expect=record_id,
+                unset=STANDIN_READY_OPTION)
+            if not fired:
+                new_pane, new_pid = "", 0
         except ValueError:
-            pass
-        new_pane, new_pid = frozen_ops.pane_location(pane_id)
-    else:
-        new_pane, new_pid = "", 0
+            new_pane, new_pid = "", 0
     frozen_ops.store("standin-respawned", record_id, "--nonce", nonce,
                      "--pane", new_pane, "--pane-pid", str(new_pid))
     return ""
@@ -290,7 +299,9 @@ def _launch_into_new_window(rec: dict, command: str, env: dict) -> tuple[str, in
             target = session
             break
     if target is None:
-        return "", 0, "no_session_for_root"
+        # Name the project: the persisted `last_error` is the only channel by
+        # which the user learns WHICH root has no tmux session to launch into.
+        return "", 0, f"no_session_for_root:{rec.get('root', '')}"
 
     rc, out = frozen_ops.run(
         ["list-windows", "-t", target.session, "-F", "#{window_name}"])
@@ -358,6 +369,27 @@ def restore(record_id: str, *, repick: bool = False) -> RestoreResult:
         return RestoreResult(record_id, False, "binary",
                              f"RESTORE_FAILED:{record_id}|binary")
 
+    # The recorded `pane_id` is a HINT, not a target. A retained `frozen` record
+    # keeps its old `%N` after the window is closed or the tmux server restarts
+    # — `_reconcile_frozen` returns `KEEP:<id>|pane_gone` and writes NOTHING —
+    # so branching on it respawns a corpse and the record can never be restored
+    # again (t1773). Resolve it against the SERVER before choosing the branch,
+    # exactly as `agent_freeze.drop_record()` preflights its own target.
+    if pane_id:
+        verdict, facts = frozen_ops.probe_pane(pane_id)
+        if verdict == "unknown":
+            # Fail CLOSED, before any write: reading an unreachable tmux as
+            # "gone" would mint a lease and drive a new-window launch that
+            # cannot work, while the original stand-in may still be alive.
+            return RestoreResult(
+                record_id, False, "preflight",
+                f"RESTORE_FAILED:{record_id}|preflight:tmux unreachable")
+        if verdict != "present" or not facts or facts["frozen"] != record_id:
+            # Gone, or a recycled `%N` that now carries somebody else's stamp.
+            # Pane options die with the pane, so a missing stamp means it is not
+            # ours — and `respawn-pane -k` on it would kill a stranger's agent.
+            pane_id = ""
+
     transcript = rec.get("transcript_path", "")
     if transcript and not os.path.exists(transcript):
         # Advisory only: the transcript is not needed to resume, and refusing
@@ -391,11 +423,17 @@ def restore(record_id: str, *, repick: bool = False) -> RestoreResult:
     try:
         _fail_at("respawn")
         if pane_id:
-            frozen_ops.unset_option(pane_id, STANDIN_READY_OPTION)
-            if not frozen_ops.respawn(pane_id, command, env=env):
-                raise OSError(f"respawn-pane refused for {pane_id}")
-            new_pane, new_pid = frozen_ops.pane_location(pane_id)
-        else:
+            # ONE dispatch: the stamp check and the respawn cannot be separated,
+            # so a server restart cannot slip between them and hand the kill an
+            # unrelated pane. A miss touches nothing and yields no location.
+            fired, new_pane, new_pid, why = frozen_ops.respawn_if_stamped(
+                pane_id, command, option=FROZEN_OPTION, expect=record_id,
+                env=env, unset=STANDIN_READY_OPTION)
+            if not fired:
+                print(f"WARNING:{record_id}|recorded pane {pane_id} not reused"
+                      f" ({why}); restoring into a new window", file=sys.stderr)
+                pane_id = ""
+        if not pane_id:
             new_pane, new_pid, error = _launch_into_new_window(rec, command, env)
             if error:
                 raise OSError(error)

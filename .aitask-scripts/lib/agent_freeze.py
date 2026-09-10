@@ -860,50 +860,6 @@ def _stale_grace() -> float:
 # --- drop -------------------------------------------------------------------
 
 
-#: `display-message` could not reach tmux at all (`TmuxClient.run` returns -1 on
-#: FileNotFoundError / OSError / timeout). Distinct from tmux ANSWERING that the
-#: pane does not exist, which is exit 1 — see :func:`_probe_pane`.
-_TMUX_UNREACHABLE = -1
-
-
-def _probe_pane(pane_id: str) -> tuple[str, dict[str, str] | None]:
-    """Ask tmux about ONE pane. Returns ``(verdict, facts)``.
-
-    Verdicts: ``"present"`` (facts are the pane's), ``"gone"`` (tmux answered
-    that no such pane exists — including "no server running", which means the
-    same thing), or ``"unknown"`` (tmux could not be reached at all).
-
-    The three are kept apart deliberately. Collapsing ``unknown`` into ``gone``
-    is the mistake that reintroduces V9: a coordinator that cannot reach tmux
-    would conclude the stand-in is already gone, skip the kill, and delete the
-    record and its only capture while a live stamped viewer is still sitting in
-    that pane — the one state `reconcile` cannot repair, because it iterates
-    records and that pane no longer has one.
-
-    Asking about the pane directly, rather than looking for it in a window
-    listing, also means the answer does not depend on the record's `session` /
-    `window` fields still being current: those are display values, and a tmux
-    restart or a rename makes a window-scoped lookup miss a pane that is very
-    much alive.
-    """
-    rc, out = frozen_ops.run(
-        ["display-message", "-p", "-t", pane_id,
-         "\t".join(["#{pane_id}", f"#{{{FROZEN_OPTION}}}", "#{pane_dead}"])]
-    )
-    if rc == _TMUX_UNREACHABLE:
-        return "unknown", None
-    if rc != 0:
-        return "gone", None
-    parts = (out.splitlines() or [""])[0].split("\t")
-    if len(parts) != 3 or not parts[0].strip():
-        return "gone", None
-    return "present", {
-        "pane_id": parts[0].strip(),
-        "frozen": parts[1].strip(),
-        "dead": parts[2].strip(),
-    }
-
-
 def _other_real_agents(pane_id: str) -> int | None:
     """Sibling count for the kill rule; ``None`` when it could not be taken.
 
@@ -1000,10 +956,12 @@ def drop_record(record_id: str) -> str:
         pane_id = rec.get("pane_id", "")
 
         # Resolve the target against what the SERVER says, never the record
-        # alone: `pane_id` is durable but not authoritative (see the docstring).
+        # alone: `pane_id` is durable but not authoritative (see the
+        # docstring). The tri-state resolver lives in the SHARED module so
+        # the restore router can reach it too (t1773).
         must_kill = False
         if pane_id:
-            verdict, facts = _probe_pane(pane_id)
+            verdict, facts = frozen_ops.probe_pane(pane_id)
             if verdict == "unknown":
                 _release()
                 return f"DROP_FAILED:{record_id}|preflight:tmux unreachable"
@@ -1027,7 +985,7 @@ def drop_record(record_id: str) -> str:
                 return f"DROP_FAILED:{record_id}|kill:{out.strip() or verb}"
 
             _drop_fail_at("verify")
-            verdict, _ = _probe_pane(pane_id)
+            verdict, _ = frozen_ops.probe_pane(pane_id)
             if verdict != "gone":
                 _release()
                 return (f"DROP_FAILED:{record_id}|kill:pane not verified gone "

@@ -48,11 +48,16 @@ PROMISED_CALLABLES = (
     "store", "store_show", "nonce_from", "run",
     "pane_facts", "pane_location", "set_option", "unset_option", "respawn",
     "int_or_zero", "test_mode", "make_fail_at", "pause_at",
+    # t1773: the tri-state resolver promoted out of `agent_freeze` (the restore
+    # coordinator may not import that module), plus the atomic respawn it feeds.
+    "probe_pane", "tmux_quote", "respawn_if_stamped",
 )
 PROMISED_VALUES = (
     "StageFailure", "SESSIONS_SH", "PANE_FACT_FORMAT", "PANE_FACT_KEYS",
     "EXIT_LOCK_BUSY", "EXIT_TRANSITION_REFUSED", "EXIT_NONCE_MISMATCH",
     "EXIT_LEASE_HELD",
+    "TMUX_UNREACHABLE", "PROBE_PANE_FORMAT", "PROBE_PANE_KEYS",
+    "RESPAWN_PROBE_FORMAT",
 )
 
 #: Engine modules that import the shared surface. `agent_restore` joins this
@@ -227,6 +232,187 @@ class TmuxLateBindingTests(_SwapMixin, unittest.TestCase):
         self.swap_tmux(_FakeTmux(1, ""))
         self.assertFalse(ops.respawn("%1", "cmd"))
 
+
+class ProbePaneTests(_SwapMixin, unittest.TestCase):
+    """The tri-state resolver (t1773). Its three verdicts must stay apart.
+
+    `gone` and `unknown` mean opposite things to a caller: the first says the
+    pane is not there, the second says we could not find out. `drop_record`
+    fails closed on `unknown` rather than skipping its kill; the restore router
+    fails closed rather than launching a second agent beside a live stand-in.
+    Collapsing them re-introduces V9 in one direction and a duplicate agent in
+    the other.
+    """
+
+    def test_a_present_pane_maps_its_three_facts_positionally(self):
+        tmux = self.swap_tmux(_FakeTmux(out="%104\tabc123\t0"))
+        verdict, facts = ops.probe_pane("%104")
+        self.assertEqual("present", verdict)
+        self.assertEqual({"pane_id": "%104", "frozen": "abc123", "dead": "0"}, facts)
+        self.assertEqual(
+            [["display-message", "-p", "-t", "%104", ops.PROBE_PANE_FORMAT]],
+            tmux.calls, "one round trip, asking about the pane DIRECTLY")
+
+    def test_a_nonzero_rc_is_gone(self):
+        self.swap_tmux(_FakeTmux(rc=1, out=""))
+        self.assertEqual(("gone", None), ops.probe_pane("%104"))
+
+    def test_an_unreachable_tmux_is_UNKNOWN_never_gone(self):
+        self.swap_tmux(_FakeTmux(rc=ops.TMUX_UNREACHABLE, out=""))
+        self.assertEqual(
+            ("unknown", None), ops.probe_pane("%104"),
+            "rc -1 means tmux could not be reached — NOT that the pane is gone")
+
+    def test_a_short_read_is_gone(self):
+        self.swap_tmux(_FakeTmux(out="%104\tabc123"))
+        self.assertEqual(("gone", None), ops.probe_pane("%104"))
+
+    def test_an_empty_pane_id_is_gone(self):
+        # `display-message -p -t <gone pane>` exits ZERO with empty output on
+        # tmux 3.x, so the field is the only usable signal.
+        self.swap_tmux(_FakeTmux(out="\t\t"))
+        self.assertEqual(("gone", None), ops.probe_pane("%104"))
+
+    def test_the_format_and_keys_stay_in_step(self):
+        self.assertEqual(len(ops.PROBE_PANE_FORMAT.split("\t")),
+                         len(ops.PROBE_PANE_KEYS))
+
+
+class TmuxQuoteTests(unittest.TestCase):
+    """One nesting level for tmux's own lexer, for commands inside `if-shell`."""
+
+    def test_it_escapes_the_three_characters_tmux_acts_on(self):
+        self.assertEqual(r'"a\\b \"c\" \$d"', ops.tmux_quote(r'a\b "c" $d'))
+
+    def test_a_command_with_single_quotes_survives(self):
+        # tmux single-quotes are fully literal with no escape, so the
+        # double-quote form is the only one that can carry these at all — and
+        # agent command strings routinely contain them.
+        out = ops.tmux_quote("""sh -c 'printf %s "hi"; ls > /tmp/x'""")
+        self.assertTrue(out.startswith('"') and out.endswith('"'))
+        self.assertIn("'printf %s", out, "single quotes pass through untouched")
+        self.assertIn(r'\"hi\"', out, "double quotes are escaped")
+        self.assertIn(";", out, "a command separator must survive verbatim")
+
+    def test_an_ordinary_command_is_merely_wrapped(self):
+        self.assertEqual('"claude --resume sess-abc"',
+                         ops.tmux_quote("claude --resume sess-abc"))
+
+
+class RespawnIfStampedTests(_SwapMixin, unittest.TestCase):
+    """The atomic stamp-checked respawn, and above all its EVIDENCE rule.
+
+    `if-shell` exits 0 whether or not its branch ran, so the helper needs proof.
+    A pid delta is not proof: across a tmux server restart the before-read and
+    the after-read can describe two different panes, so a correctly REJECTED
+    dispatch still shows a changed pid. Reading that as success hands the caller
+    a stranger's pane and pid — which `restore-confirm` would then
+    liveness-confirm as the restored agent.
+    """
+
+    class _Seq:
+        """Replays one scripted answer per call, in order."""
+
+        def __init__(self, answers):
+            self.answers = list(answers)
+            self.calls: list[list[str]] = []
+
+        def run(self, args, timeout=None):
+            self.calls.append(list(args))
+            answer = self.answers.pop(0) if len(self.answers) > 1 else self.answers[0]
+            return answer
+
+    def _run(self, answers, **kw):
+        tmux = self.swap_tmux(self._Seq(answers))
+        kw.setdefault("option", "@aitask_frozen")
+        kw.setdefault("expect", "abc123")
+        result = ops.respawn_if_stamped("%104", "claude --resume s", **kw)
+        return result, tmux
+
+    def _token_of(self, tmux) -> str:
+        branch = next(c for c in tmux.calls if c and c[0] == "if-shell")[-1]
+        return branch.split("@aitask_respawn_token ", 1)[1].split()[0]
+
+    def test_the_dispatch_is_one_if_shell_carrying_the_whole_branch(self):
+        _, tmux = self._run(
+            [(0, "9999"), (0, ""), (0, "tok\t%104\t51000\t9999")],
+            env={"A": "1", "B": "2"}, unset="@aitask_standin_ready")
+        dispatch = next(c for c in tmux.calls if c and c[0] == "if-shell")
+        self.assertEqual(["if-shell", "-F", "-t", "%104"], dispatch[:4])
+        self.assertEqual("#{==:#{@aitask_frozen},abc123}", dispatch[4],
+                         "the stamp check must be the if-shell CONDITION, so the "
+                         "server evaluates it in the same command-queue run")
+        branch = dispatch[-1]
+        self.assertIn("set-option -pu -t %104 @aitask_standin_ready ;", branch)
+        self.assertIn("respawn-pane -k -e A=1 -e B=2 -t %104 ", branch)
+        self.assertTrue(
+            branch.rstrip().split(" ; ")[-1].startswith("set-option -p -t %104 "
+                                                        "@aitask_respawn_token "),
+            "the token must be written LAST, so its presence also proves the "
+            "respawn ahead of it succeeded (an if-shell sequence aborts on error)")
+
+    def test_the_token_is_fresh_on_every_call(self):
+        seen = set()
+        for _ in range(2):
+            _, tmux = self._run([(0, "9999"), (0, ""), (0, "no\t%104\t51000\t9999")])
+            seen.add(self._token_of(tmux))
+        self.assertEqual(2, len(seen),
+                         "a reused token would let a STALE option read as this "
+                         "call's evidence")
+
+    def test_our_token_coming_back_is_the_only_success(self):
+        class _Echo(self._Seq):
+            def run(self, args, timeout=None):
+                if args and args[0] == "display-message" and len(self.calls) >= 2:
+                    tok = self.token
+                    self.calls.append(list(args))
+                    return 0, f"{tok}\t%104\t51000\t9999"
+                if args and args[0] == "if-shell":
+                    self.token = args[-1].split("@aitask_respawn_token ", 1)[1].split()[0]
+                return super().run(args, timeout)
+
+        tmux = self.swap_tmux(_Echo([(0, "9999"), (0, "")]))
+        fired, pane, pid, reason = ops.respawn_if_stamped(
+            "%104", "cmd", option="@aitask_frozen", expect="abc123")
+        self.assertEqual((True, "%104", 51000, ""), (fired, pane, pid, reason))
+        self.assertIn(["set-option", "-pu", "-t", "%104", "@aitask_respawn_token"],
+                      tmux.calls, "a per-attempt token must not outlive the attempt")
+
+    def test_a_CHANGED_PID_WITHOUT_the_token_is_NOT_success(self):
+        """The whole reason the token exists.
+
+        This is what a server restart between the pre-read and the dispatch
+        looks like from here: the branch was correctly rejected (no token), but
+        the recorded `%N` now belongs to a stranger whose pid differs.
+        """
+        (fired, pane, pid, reason), _ = self._run(
+            [(0, "9999"), (0, ""), (0, "\t%104\t77777\t12345")])
+        self.assertFalse(fired, "a pid delta is not evidence that the branch ran")
+        self.assertEqual(("", 0), (pane, pid),
+                         "handing back a location would let the caller adopt a "
+                         "stranger's pane as its restored agent")
+        self.assertEqual("server-restarted", reason)
+
+    def test_no_token_within_the_same_server_generation_is_a_stamp_mismatch(self):
+        (fired, pane, pid, reason), _ = self._run(
+            [(0, "9999"), (0, ""), (0, "\t%104\t77777\t9999")])
+        self.assertEqual((False, "", 0, "stamp-mismatch"), (fired, pane, pid, reason))
+
+    def test_a_foreign_token_is_not_ours(self):
+        (fired, _, _, reason), _ = self._run(
+            [(0, "9999"), (0, ""), (0, "somebodyelse\t%104\t51000\t9999")])
+        self.assertFalse(fired)
+        self.assertEqual("stamp-mismatch", reason)
+
+    def test_a_failed_pre_read_dispatches_nothing_at_all(self):
+        (fired, pane, pid, reason), tmux = self._run([(1, "")])
+        self.assertEqual((False, "", 0, "pane-gone"), (fired, pane, pid, reason))
+        self.assertEqual([], [c for c in tmux.calls if c and c[0] == "if-shell"],
+                         "nothing may be dispatched at a pane we could not read")
+
+    def test_a_short_after_read_is_not_success(self):
+        (fired, _, _, reason), _ = self._run([(0, "9999"), (0, ""), (0, "tok\t%104")])
+        self.assertEqual((False, "pane-gone"), (fired, reason))
 
 class SeamRuleTests(unittest.TestCase):
     """Case 4 — no engine module import-aliases a swapped name."""

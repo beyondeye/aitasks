@@ -272,6 +272,94 @@ def _rec(**overrides) -> dict:
     return base
 
 
+class _ScriptedTmux:
+    """Records gateway argv and answers by the ARITY of the requested format.
+
+    `_FakeTmux` replays one answer for every call, which stops working the
+    moment more than one `display-message` shape is in play — and three of them
+    are: `pane_facts` asks for 10 fields, `probe_pane` for 3, `pane_location`
+    for 2, and `respawn_if_stamped` for 1 (the server pid) then 4 (its
+    after-read). A fake that dispatched on the SUBCOMMAND would hand every one
+    of them the same string, and each parser validates field count, so four of
+    the five would read as "gone" and silently divert the test into a branch it
+    was not written for.
+
+    Arity is the right key precisely because it is what the real parsers
+    validate; it also needs no new module constants, so this fake keeps working
+    against code that predates them.
+
+    ``answers`` maps arity -> ``(rc, out)`` or a list of them consumed in order
+    (the last one repeats). ``{token}`` in an ``out`` is replaced with the
+    per-call token this fake scraped from the most recent `if-shell` command,
+    which is the only way a test can spell the success case: the token is minted
+    inside the helper.
+    """
+
+    #: Everything not covered by `answers`.
+    DEFAULT = (0, "")
+
+    def __init__(self, answers=None) -> None:
+        self.calls: list[list[str]] = []
+        self.answers = dict(answers or {})
+        self.last_token = ""
+
+    def _arity(self, args) -> int:
+        if not args or args[0] != "display-message":
+            return -1
+        return len(args[-1].split("\t"))
+
+    def run(self, args, timeout=None):
+        self.calls.append(list(args))
+        if args and args[0] == "if-shell":
+            marker = "@aitask_respawn_token "
+            tail = args[-1]
+            if marker in tail:
+                self.last_token = tail.split(marker, 1)[1].split()[0].strip("'\"")
+        answer = self.answers.get(self._arity(args), self.DEFAULT)
+        if isinstance(answer, list):
+            answer = answer[0] if len(answer) == 1 else answer.pop(0)
+        rc, out = answer
+        return rc, out.replace("{token}", self.last_token)
+
+    # --- readers used by the assertions ------------------------------------
+
+    def verbs(self) -> list[str]:
+        return [c[0] for c in self.calls if c]
+
+    def destructive(self) -> list[list[str]]:
+        """Every call that could replace what is running in a pane."""
+        return [c for c in self.calls if c and c[0] in ("respawn-pane", "if-shell")]
+
+
+#: A `probe_pane` answer: present, and stamped with `_rec()`'s own record id.
+_PROBE_OURS = (0, "%104\t7f3a2c1d\t0")
+#: Present, but the `%N` was recycled and now carries somebody else's stamp.
+_PROBE_STRANGER = (0, "%104\tf00dfeed\t0")
+#: `pane_facts` (10 fields) for the poll loop, and `pane_location` (2 fields).
+_FACTS_10 = (0, "aitasks\tagent-pick-1705\t%900\t51000\t0\t/tmp\t7f3a2c1d\t7f3a2c1d\t\tsess-abc")
+_LOCATION_NEW = (0, "%900\t51000")
+
+
+
+#: The `_ScriptedTmux` answer set for "the recorded stand-in is ours and alive,
+#: and the atomic dispatch fires" — the happy path every pre-t1773 fixture was
+#: written against when a single 2-field answer still served every read.
+_TMUX_OURS_AND_FIRES = {
+    3: _PROBE_OURS,                              # probe_pane: present, ours
+    1: (0, "9999"),                              # respawn_if_stamped: server pid
+    4: (0, "{token}\t%104\t51000\t9999"),       # after-read: our token, new pid
+    2: (0, "%104\t51000"),                       # pane_location
+    10: (0, "aitasks\tagent-pick-1705\t%104\t51000\t0\t/tmp"
+            "\t7f3a2c1d\t7f3a2c1d\t\tsess-abc"),  # pane_facts
+}
+
+
+def _dispatch_argv(tmux) -> list[str]:
+    """The single `if-shell` this restore issued; fails loudly if there is not one."""
+    dispatches = [c for c in tmux.calls if c and c[0] == "if-shell"]
+    assert len(dispatches) == 1, f"expected exactly one if-shell, got {len(dispatches)}"
+    return dispatches[0]
+
 class TestPreflightsWriteNothing(_SwapMixin, unittest.TestCase):
     """The two preflight refusals must not touch the store.
 
@@ -341,7 +429,7 @@ class TestNonceMismatchIssuesNoTmux(_SwapMixin, unittest.TestCase):
             "restore-begin": (0, "RESTORING:7f3a2c1d|deadbeef"),
             "restore-launched": (ops.EXIT_NONCE_MISMATCH, "NONCE_MISMATCH:7f3a2c1d"),
         }))
-        tmux = self.swap_tmux(_FakeTmux(out="%104\t51000"))
+        tmux = self.swap_tmux(_ScriptedTmux(_TMUX_OURS_AND_FIRES))
         rec = _rec()
         with unittest.mock.patch.object(agent_restore, "_reread", return_value=rec), \
              unittest.mock.patch.object(agent_restore, "build_resume_argv",
@@ -353,10 +441,9 @@ class TestNonceMismatchIssuesNoTmux(_SwapMixin, unittest.TestCase):
         self.assertNotIn("restore-abort", store.verbs(),
                          "a mismatched coordinator must not abort — someone else owns it")
         self.assertNotIn("standin-respawned", store.verbs())
-        respawns = [c for c in tmux.calls if c and c[0] == "respawn-pane"]
         self.assertEqual(
-            1, len(respawns),
-            "exactly the ONE launch respawn — a rollback respawn here would kill "
+            1, len([c for c in tmux.calls if c and c[0] == "if-shell"]),
+            "exactly the ONE launch dispatch — a rollback respawn here would kill "
             "whatever the settling process put in the pane")
 
 
@@ -369,7 +456,7 @@ class TestRestoreEnvDelivery(_SwapMixin, unittest.TestCase):
             "restore-launched": (0, "LAUNCHED:7f3a2c1d"),
             "restore-confirm": (0, "LIVE:7f3a2c1d|liveness"),
         }))
-        tmux = self.swap_tmux(_FakeTmux(out="%104\t51000"))
+        tmux = self.swap_tmux(_ScriptedTmux(_TMUX_OURS_AND_FIRES))
         rec = _rec()
         with unittest.mock.patch.object(agent_restore, "_reread", return_value=rec), \
              unittest.mock.patch.object(agent_restore, "build_resume_argv",
@@ -377,19 +464,22 @@ class TestRestoreEnvDelivery(_SwapMixin, unittest.TestCase):
              unittest.mock.patch.object(ops, "restore_ack_grace", return_value=0):
             agent_restore.restore("7f3a2c1d")
 
-        respawn = next(c for c in tmux.calls if c and c[0] == "respawn-pane")
-        flat = " ".join(respawn)
+        # The `-e` flags now ride INSIDE the `if-shell` branch (t1773) rather
+        # than on a bare `respawn-pane` argv. Measured on tmux 3.6a: repeated
+        # `-e` survives the wrapping, which is what this assertion protects.
+        branch = _dispatch_argv(tmux)[-1]
         for name, value in (
             ("AITASK_RESTORE_RECORD", "7f3a2c1d"),
             ("AITASK_RESTORE_NONCE", "deadbeef"),
             ("AITASK_RESTORE_MODE", "resume"),
             ("AITASK_RESTORE_EXPECT_SESSION", "sess-abc"),
         ):
-            self.assertIn(f"{name}={value}", flat,
-                          f"{name} must reach the replacement agent")
-        self.assertEqual(4, respawn.count("-e"),
+            self.assertIn(f"-e {name}={value}", branch,
+                          f"{name} must reach the replacement agent on its own flag")
+        self.assertEqual(4, branch.count(" -e "),
                          "one -e flag per variable (spike Case 3c measured four)")
-        self.assertIn("-k", respawn, "the stand-in must be killed by the respawn")
+        self.assertIn("respawn-pane -k ", branch,
+                      "the stand-in must be killed by the respawn")
 
 
 class TestHookWinsTheLaunchRace(_SwapMixin, unittest.TestCase):
@@ -407,7 +497,7 @@ class TestHookWinsTheLaunchRace(_SwapMixin, unittest.TestCase):
             "restore-launched": (ops.EXIT_TRANSITION_REFUSED,
                                  "TRANSITION_REFUSED:7f3a2c1d|live|restore-launched"),
         }))
-        tmux = self.swap_tmux(_FakeTmux(out="%104\t51000"))
+        tmux = self.swap_tmux(_ScriptedTmux(_TMUX_OURS_AND_FIRES))
 
         before = _rec()
         after = _rec(state="live", ack="hook")
@@ -424,8 +514,7 @@ class TestHookWinsTheLaunchRace(_SwapMixin, unittest.TestCase):
         self.assertEqual("RESTORED:7f3a2c1d|hook", result.line)
         self.assertNotIn("restore-abort", store.verbs(),
                          "rolling back here would kill a successfully restored agent")
-        respawns = [c for c in tmux.calls if c and c[0] == "respawn-pane"]
-        self.assertEqual(1, len(respawns),
+        self.assertEqual(1, len([c for c in tmux.calls if c and c[0] == "if-shell"]),
                          "no rollback respawn — the agent in that pane is the user's")
 
 
@@ -458,6 +547,114 @@ class TestArgvBuilders(_SwapMixin, unittest.TestCase):
         self.assertTrue(out.startswith("env "))
         self.assertIn("'b c'", out, "a value with a space must be quoted")
         self.assertTrue(out.endswith("claude --resume x"))
+
+
+class TestRecordedPaneIsOnlyAHint(_SwapMixin, unittest.TestCase):
+    """The recorded `pane_id` is resolved against the server before it is used.
+
+    A retained `frozen` record keeps its old `%N` forever — `_reconcile_frozen`
+    returns `KEEP:<id>|pane_gone` and writes nothing — so branching on the
+    RECORDED id respawns a corpse and the record can never be restored again
+    (t1773). And because pane ids are monotonic within a server but restart at
+    `%0` on a new one, that same `%N` can come back owned by a live stranger,
+    where `respawn-pane -k` would kill their agent.
+    """
+
+    def _run(self, tmux_answers, *, store_answers=None, launch=("%900", 51000, "")):
+        store = self.swap_store(_RecordingStore(answers=store_answers or {
+            "restore-begin": (0, "RESTORING:7f3a2c1d|deadbeef"),
+            "restore-launched": (0, "LAUNCHED:7f3a2c1d"),
+            "restore-confirm": (0, "LIVE:7f3a2c1d|liveness"),
+        }))
+        tmux = self.swap_tmux(_ScriptedTmux(tmux_answers))
+        launched = unittest.mock.Mock(return_value=launch)
+        with unittest.mock.patch.object(agent_restore, "_reread", return_value=_rec()), \
+             unittest.mock.patch.object(agent_restore, "build_resume_argv",
+                                        return_value="claude --resume sess-abc"), \
+             unittest.mock.patch.object(agent_restore, "_launch_into_new_window", launched), \
+             unittest.mock.patch.object(ops, "restore_ack_grace", return_value=0):
+            result = agent_restore.restore("7f3a2c1d")
+        return result, store, tmux, launched
+
+    def test_a_gone_pane_routes_to_a_new_window(self):
+        _, _, tmux, launched = self._run({
+            3: (1, ""),                    # probe: the pane is gone
+            10: _FACTS_10, 2: _LOCATION_NEW,
+        })
+        self.assertTrue(launched.called,
+                        "a record whose pane is gone must restore into a NEW window "
+                        "— this is the t1773 defect")
+        self.assertEqual([], tmux.destructive(),
+                         "nothing may be respawned: that pane does not exist")
+
+    def test_our_own_stamped_pane_is_reused_atomically(self):
+        _, _, tmux, launched = self._run({
+            3: _PROBE_OURS, 1: (0, "9999"),
+            4: (0, "{token}\t%104\t51000\t9999"),
+            10: _FACTS_10, 2: (0, "%104\t51000"),
+        })
+        self.assertFalse(launched.called,
+                         "our own live stand-in must be reused, not abandoned")
+        dispatches = [c for c in tmux.calls if c and c[0] == "if-shell"]
+        self.assertEqual(1, len(dispatches),
+                         "the stamp check and the respawn must travel as ONE dispatch")
+        self.assertIn("%104", dispatches[0],
+                      "the dispatch must target the recorded pane")
+        self.assertEqual([], [c for c in tmux.calls if c and c[0] == "respawn-pane"],
+                         "a bare respawn-pane is the unguarded form this replaces")
+
+    def test_a_recycled_pane_is_never_touched(self):
+        _, _, tmux, launched = self._run({
+            3: _PROBE_STRANGER,
+            10: _FACTS_10, 2: _LOCATION_NEW,
+        })
+        self.assertTrue(launched.called,
+                        "a `%N` carrying somebody else's stamp is not ours")
+        self.assertEqual([], tmux.destructive(),
+                         "respawn-pane -k on a recycled pane kills a stranger's agent")
+
+    def test_an_unreachable_tmux_fails_closed_before_any_write(self):
+        result, store, tmux, launched = self._run({3: (-1, "")})
+        self.assertFalse(result.ok)
+        self.assertEqual("RESTORE_FAILED:7f3a2c1d|preflight:tmux unreachable",
+                         result.line)
+        self.assertEqual([], store.verbs(),
+                         "an unreachable tmux must not mint a lease or move the record")
+        self.assertFalse(launched.called)
+        self.assertEqual([], tmux.destructive())
+
+    def test_a_restart_between_the_read_and_the_dispatch_adopts_nothing(self):
+        """The transition case no steady-state test reaches.
+
+        The probe says present-and-ours; then the server restarts and the
+        recorded `%N` comes back as a stranger. `if-shell` correctly rejects the
+        missing stamp — but the pane's pid HAS changed, so an implementation
+        that inferred "fired" from a pid delta would record the stranger's pid
+        as `launch_pid` and later liveness-confirm their agent as ours.
+        """
+        _, store, _, launched = self._run({
+            3: _PROBE_OURS, 1: (0, "9999"),
+            4: (0, "\t%104\t77777\t12345"),   # no token; new pid; NEW server
+            10: _FACTS_10, 2: _LOCATION_NEW,
+        })
+        self.assertTrue(launched.called,
+                        "the recorded pane is no longer ours — go to a new window")
+        launched_calls = [c for c in store.calls if c and c[0] == "restore-launched"]
+        self.assertEqual(1, len(launched_calls))
+        flat = " ".join(launched_calls[0])
+        self.assertIn("%900", flat, "the NEW window's pane must be recorded")
+        self.assertNotIn("77777", flat,
+                         "the stranger's pid must never become launch_pid")
+
+    def test_a_lost_stamp_without_a_restart_routes_the_same_way(self):
+        _, store, _, launched = self._run({
+            3: _PROBE_OURS, 1: (0, "9999"),
+            4: (0, "\t%104\t77777\t9999"),    # no token; same server generation
+            10: _FACTS_10, 2: _LOCATION_NEW,
+        })
+        self.assertTrue(launched.called)
+        flat = " ".join(" ".join(c) for c in store.calls if c and c[0] == "restore-launched")
+        self.assertNotIn("77777", flat)
 
 
 class TestSeamsAreBoundToThisEngine(unittest.TestCase):
