@@ -98,6 +98,7 @@ project_groups
 pypy
 python
 qa
+refactor
 release_scripts
 remote
 remove_support
