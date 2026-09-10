@@ -48,16 +48,58 @@ against the live corpus and got it wrong (t1759):
 **What this does NOT check** -- stated here because a coverage gap nobody can see
 is indistinguishable from a clean result:
 
-* Only links whose text contains a **backtick-quoted token** -- roughly seven in
-  ten of the internal links, though the exact split moves with every docs commit,
-  so read the `links checked` line of a run rather than any number written here.
-  Prose link text has no distinctive token to match on, and matching it would
-  invert the false-positive rate that makes this report usable.
+* Only links whose text contains a **backtick-quoted token** -- read the `links
+  checked` line of a run for how many that is; it moves with every docs commit.
+  Decided, not pending (t1768): see "Decisions" below.
 * Only links written in the **markdown source**. Links emitted by shortcodes,
   layouts or Docsy templates are invisible to a source-side scanner;
   `check_links.py` sees those and this does not.
 * Source-side URL mapping assumes Hugo's default filename->URL layout. No content
   file overrides it today, and `scan()` warns if one starts to.
+
+**Decisions (t1768)** -- taken against the replayed history, not a single sweep:
+
+* **Nothing moves into `check_links.py`**, not even as a non-blocking warning. It
+  reads built HTML, which has discarded the `source_file:line` that makes a
+  relevance record triageable, and it gates the deploy -- a heuristic with a known
+  false-positive rate must never be able to block it.
+* **Coverage does not widen.** Over prose link text, "any content word appears on
+  the target" reported one link (vacuous) and "every content word appears" sixteen,
+  almost all generic nouns (`Board documentation`, `Workflows index`). Shortcode-
+  generated links number about six, all landing-page marketing titles. Re-open
+  either with `check_link_relevance_history.py`, not by intuition.
+
+**subject-of-page.** A page-scoped miss whose target URL itself names the token --
+`aitask_lock.sh` -> /docs/commands/lock/ -- is **labelled, never suppressed**: the
+link names the page's own subject, a weaker finding than a target about something
+else. Anchored misses are never labelled, because a path describes a page and an
+anchored miss is a verdict about one section (`scope-narrowed` is their lever).
+The label is true of most internal token links, so it discriminates only among
+misses; the summary prints its base rate on every run. `subject_of_page()` says
+why the match is whole-segment.
+
+Replayed over every commit touching website/content up to `97f238c3c` (358
+sweeps), the detector reports these 11 distinct records; the label goes on the two
+marked `*`, and neither t1707 true positive is among them:
+
+    ait codebrowser  -> /docs/commands/board-stats/                  page
+    ait git          -> /docs/commands/sync/                         page
+    ait ide          -> /docs/installation/terminal-setup/           page
+    ait artifact     -> /docs/workflows/implementation-trails/       page  (t1707, fixed)
+    cli_help         -> /docs/commands/codeagent/                    page
+    ait artifact     -> /docs/commands/task-management/              page  (t1707, fixed)
+    ait minimonitor  -> /docs/tuis/minimonitor/how-to/               #how-to-mark-an-agent-as-prioritized
+    /aitask-pickweb  -> /docs/skills/aitask-pickweb/                 #execution-profiles
+  * aitask_lock.sh   -> /docs/commands/lock/                         page
+  * /aitask-pick     -> /docs/skills/aitask-pick/parallel-admission/ page
+    ait board        -> /docs/tuis/board/reference/                  #task-metadata-fields
+
+**Historical replay** runs through `scan()` plus `ENGINE_CONTROLS`, never through
+`main()` or `--report`. `CORPUS_CONTROLS` key on live pages that roughly half the
+swept history predates, so a replay that ran them would discard every record that
+exists only in an older tree -- three of the eleven above. Keep `scan()` free of
+control evaluation, and name any new synthetic probe in `ENGINE_CONTROL_NAMES`:
+anything not named there is treated as corpus-keyed.
 
 Exit status is **0 even when links are reported** -- the misses are for a human to
 triage, and several are expected to be false positives (link text that is a page
@@ -112,6 +154,19 @@ FLAG_RE = re.compile(r"\s--?\S+")
 FRONTMATTER_OVERRIDE_RE = re.compile(r"^(slug|url):", re.M)
 SKIP_SCHEMES = ("http://", "https://", "mailto:", "#")
 
+# Section directories are not subjects: every URL starts with one, so matching
+# them would classify a link whose text happens to say `docs` or `commands`.
+SECTION_SEGMENTS = frozenset({
+    "docs", "commands", "skills", "tuis", "workflows",
+    "concepts", "installation", "development", "blog",
+})
+# Stripped only when it follows a literal '.' in the RAW token. A bare trailing
+# word is never an extension: `ait gate pass` keeps `pass`, and `ait lock sh`
+# keeps `sh`.
+TOKEN_EXTENSIONS = frozenset({"sh", "py", "md", "json", "yaml", "yml", "txt"})
+SUBJECT_PREFIXES = ("ait", "aitask")
+SLUG_RE = re.compile(r"[^a-z0-9]+")
+
 
 class Record(NamedTuple):
     """One internal link, resolved (or not) to a target page."""
@@ -133,6 +188,7 @@ class Miss(NamedTuple):
     token: str
     url: str
     scope: str       # 'page' or '#<anchor>' -- what the token was searched in
+    subject: bool = False   # page-scoped, and the target's URL names the token
 
 
 class Result(NamedTuple):
@@ -280,6 +336,38 @@ def heading_slug(text: str) -> str:
     return slug.replace(" ", "-")
 
 
+def subject_keys(token: str) -> set:
+    """The names by which link text could name a page's own subject.
+
+    The order is load-bearing and pinned by a test: the extension comes off the
+    RAW token first, then the slug, then the framework prefix. `aitask_lock.sh`
+    -> `aitask_lock` -> `aitask-lock` -> `{aitask-lock, lock}`.
+    """
+    raw = token.strip().lstrip("/")
+    base, dot, ext = raw.rpartition(".")
+    if dot and base and ext.lower() in TOKEN_EXTENSIONS:
+        raw = base
+    slug = SLUG_RE.sub("-", raw.lower()).strip("-")
+    words = [w for w in slug.split("-") if w]
+    while words and words[0] in SUBJECT_PREFIXES:
+        words = words[1:]
+    return {key for key in (slug, "-".join(words)) if key}
+
+
+def subject_of_page(token: str, url: str) -> bool:
+    """True when the target's own URL names the subject the link text names.
+
+    Matched against **whole path segments**, never their `-`/`_` sub-words.
+    Sub-word matching looks stricter than it is: it classifies `ait board` ->
+    /docs/commands/board-stats/ and `ait setup` -> /docs/installation/terminal-setup/,
+    where the target documents a *different* command -- the exact t1707 shape this
+    detector exists to catch. Whole-segment matching refuses both and needs no
+    minimum-length floor to do it.
+    """
+    segments = {s for s in url.strip("/").split("/") if s} - SECTION_SEGMENTS
+    return bool(subject_keys(token) & segments)
+
+
 def anchor_section(body: str, anchor: str) -> Optional[str]:
     """The section named by `anchor`, **heading line included**, or None.
 
@@ -318,6 +406,12 @@ def check(records: List[Record], url_map: Dict[str, Path]) -> Result:
         # searched, none of these could be a miss at all. The
         # `anchor scoping narrowed the check` control asserts it is non-zero.
         "scope_narrowed_verdict": 0,
+        # Page-scoped misses whose target URL names the token: labelled, never
+        # suppressed. The base-rate pair counts every page-scoped scoring, hit or
+        # miss, because the label means little except among misses.
+        "subject_of_page": 0,
+        "subject_base_matches": 0,
+        "subject_base_total": 0,
     }
 
     for record in records:
@@ -340,13 +434,20 @@ def check(records: List[Record], url_map: Dict[str, Path]) -> Result:
             else:
                 scope, label = section, "#" + record.anchor
         for token in tokens:
+            subject = label == "page" and subject_of_page(token, record.url)
+            if label == "page":
+                counters["subject_base_total"] += 1
+                counters["subject_base_matches"] += int(subject)
             if token in scope:
                 hits += 1
             else:
                 if label != "page" and token in body:
                     counters["scope_narrowed_verdict"] += 1
+                if subject:
+                    counters["subject_of_page"] += 1
                 misses.append(
-                    Miss(record.source, record.line, token, record.url, label)
+                    Miss(record.source, record.line, token, record.url, label,
+                         subject)
                 )
     return Result(records, hits, misses, counters, [])
 
@@ -400,6 +501,32 @@ def _probe_scope_narrowing() -> bool:
         and result.misses[0].scope == "#alpha"
         and result.misses[0].token == "ait probe"
         and result.counters["scope_narrowed_verdict"] == 1
+    )
+
+
+def _probe_subject_classification() -> bool:
+    """Drive the real scoring path in both directions of the label.
+
+    `ait probe` -> /probe/ names its target's subject and must be labelled;
+    `ait artifact` -> /task-management/ is the t1707 shape and must not be. The
+    failure that matters is failing closed -- labelling everything -- because the
+    report then looks fully explained, and at the label's high base rate that is
+    invisible on the summary line. A positive-only probe would pass for exactly
+    that implementation.
+    """
+    body = "# Probe\n\nNothing relevant here.\n"
+    pages = {"/probe/": _ProbePage(body), "/task-management/": _ProbePage(body)}
+    records = [
+        Record("__control_probe__.md", 1, "`ait probe`", "/probe/", "",
+               "relref", "ok"),
+        Record("__control_probe__.md", 2, "`ait artifact`", "/task-management/",
+               "", "relref", "ok"),
+    ]
+    result = check(records, pages)
+    labels = {m.token: m.subject for m in result.misses}
+    return (
+        labels == {"ait probe": True, "ait artifact": False}
+        and result.counters["subject_of_page"] == 1
     )
 
 
@@ -461,7 +588,26 @@ CONTROLS = [
         "page-relative relref resolved",
         lambda r: _has_record(r, CTL_RELATIVE_SOURCE, CTL_RELATIVE_URL),
     ),
+    (
+        # Both directions, on synthetic input -- see the probe's docstring. A probe
+        # for the same reason as the anchor control above.
+        "subject-of-page label discriminates",
+        lambda r: _probe_subject_classification(),
+    ),
 ]
+
+
+# ENGINE controls drive the scoring machinery over synthetic input, so they hold
+# against any content tree, past or present. The rest key on specific live pages
+# and prove nothing about a tree that predates them. CORPUS is derived as the
+# complement, so a new control lands there unless deliberately named here -- the
+# fail-safe direction for historical replay (see "Historical replay" above).
+ENGINE_CONTROL_NAMES = frozenset({
+    "anchor scoping narrowed the check",
+    "subject-of-page label discriminates",
+})
+ENGINE_CONTROLS = [c for c in CONTROLS if c[0] in ENGINE_CONTROL_NAMES]
+CORPUS_CONTROLS = [c for c in CONTROLS if c[0] not in ENGINE_CONTROL_NAMES]
 
 
 def evaluate_controls(result: Result, controls=None) -> Dict[str, bool]:
@@ -486,9 +632,13 @@ def main() -> int:
 
     result = scan(content_dir)
 
-    for miss in result.misses:
+    # Unlabelled records first: they are the ones only a reader can clear.
+    ordered = ([m for m in result.misses if not m.subject]
+               + [m for m in result.misses if m.subject])
+    for miss in ordered:
+        tag = "  [subject-of-page]" if miss.subject else ""
         print(f"{miss.source}:{miss.line}  `{miss.token}`  ->  "
-              f"{miss.url} [{miss.scope}]")
+              f"{miss.url} [{miss.scope}]{tag}")
     if args.report:
         return 0
 
@@ -514,6 +664,9 @@ def main() -> int:
     # the token IS on the target page, just not in the named section. A common
     # false-positive shape, so it is worth seeing separately when triaging.
     print(f"scope-narrowed: {counters['scope_narrowed_verdict']}")
+    print(f"subject-of-page: {counters['subject_of_page']}  (label matches "
+          f"{counters['subject_base_matches']} of "
+          f"{counters['subject_base_total']} page-scoped token links)")
 
     controls = evaluate_controls(result)
     for name, ok in controls.items():

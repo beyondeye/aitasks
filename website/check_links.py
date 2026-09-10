@@ -50,6 +50,13 @@ Two deliberate policies:
   exception nobody can see is indistinguishable from a checker that stopped
   looking.
 
+**Relevance is deliberately not checked here** -- not even as a non-blocking
+warning (t1768). Whether a resolved target is *about* what the link text names is
+`check_link_relevance.py`'s question: answering it usefully needs the
+`source_file:line` that this script's built-HTML input has already discarded, and
+it is a heuristic with a known false-positive rate, which must never be able to
+fail the deploy gate this script is.
+
 Usage:
     python3 check_links.py --build            # hermetic: builds its own copy
     python3 check_links.py                    # sweep ./public as-is

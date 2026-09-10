@@ -174,6 +174,10 @@ Run it after editing any page under `content/`. CI runs it right after the
 release build (`.github/workflows/hugo.yml`), so a dead link fails the job and
 the site does not deploy.
 
+`docs/README.md` sits outside `content/` and is never rendered, so neither the
+build nor `check_links.py` sees it. `tests/test_docs_readme_links.sh` checks its
+inline links and that it lists every top-level docs page and section.
+
 ## Checking Link *Relevance*
 
 `check_links.py` answers "does the target exist". It cannot answer "is the target
@@ -208,19 +212,43 @@ command a page documents). The script exits non-zero only when one of its own
 self-controls fails, i.e. when it can no longer prove it is still looking; it
 prints every control on every run.
 
+It is also **deliberately not folded into `check_links.py`**, not even as a
+non-blocking warning: the relevance question needs the `source_file:line` that
+the built HTML has discarded, and a heuristic with a known false-positive rate
+must never be able to fail the deploy.
+
+**Labelled, never hidden: `[subject-of-page]`.** A reported link whose target URL
+itself names the token — `` `aitask_lock.sh` `` → `/docs/commands/lock/` — is
+tagged `[subject-of-page]` and printed *after* the unlabelled records. The URL
+says the page is about that subject and only the named text is missing, which is
+a weaker finding than a target about something else. Read the unlabelled records
+first: they are the **grouped-page** family (`` `ait gate pass` `` →
+`/commands/gates/`, `` `ait ls` `` → `/commands/task-management/`), where only
+the page body can vouch for the link — and where the two dead-end `ait artifact`
+links came from.
+
+Two limits on the label. It is applied only to page-scoped records: a path
+describes a page, while an anchored record is a verdict about one section. And it
+is true of most internal token links, so it discriminates only among links that
+already missed — the `subject-of-page:` summary line prints that base rate on
+every run. Nothing is suppressed; `grep -v subject-of-page` is the filter.
+
 ### What it does not check
 
 Stated explicitly, because a coverage gap nobody can see is indistinguishable
 from a clean result:
 
-- **Only backtick-quoted link text** — roughly seven internal links in ten. The
-  exact split moves with every docs commit, so read the `links checked` line of a
-  run rather than a number quoted here. Prose link text carries no distinctive
-  token to match on, and matching it would bury the real signal under false
-  positives.
+- **Only backtick-quoted link text** — the `links checked` line of a run says
+  how many links that is; it moves with every docs commit. This boundary is
+  decided, not pending: prose link text was measured and carries no usable
+  signal. Requiring any one of its words to appear on the target reports almost
+  nothing; requiring all of them reports mostly generic nouns (`Board
+  documentation`, `Workflows index`).
 - **Only links written in the markdown source.** Links emitted by shortcodes,
   layouts or Docsy templates are invisible to a source-side scanner —
-  `check_links.py` sees those and this does not.
+  `check_links.py` sees those and this does not. Also decided: the corpus holds
+  only a handful of shortcode-generated internal links, all landing-page
+  marketing titles.
 - **Hugo's default filename→URL layout is assumed.** No content file overrides it
   with `slug:` or `url:` today; if one starts to, the script warns rather than
   silently mis-resolving.
@@ -230,6 +258,25 @@ deliberately scored as **neither** a hit nor a miss — folding them into either
 would let a broken resolver read as a clean sweep. A non-zero `unresolved` or
 `anchor n/f` count therefore means the resolver regressed, and should be read as
 a fault in the checker before any reported link is triaged.
+
+### Historical replay
+
+One sweep cannot tell a false positive from a true one; the corpus's history can.
+A reported link that a later commit repointed — or whose target page later
+documented its subject — was a true positive, found by people who never saw the
+report. `check_link_relevance_history.py` replays the detector over every commit
+that touched `content/` and prints each distinct record with the number of sweeps
+it appeared in:
+
+```bash
+cd website
+python3 check_link_relevance_history.py              # the whole history
+python3 check_link_relevance_history.py --range A..B # a rev-range
+```
+
+Use it before changing the relevance heuristic, and to re-open either boundary
+above. It is not wired to CI. Why it replays through `scan()` rather than the
+command line, and which self-controls it runs, is recorded in its docstring.
 
 ## Deployment
 

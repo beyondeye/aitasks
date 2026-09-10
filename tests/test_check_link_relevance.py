@@ -341,7 +341,16 @@ class RelativePathTests(SiteTestCase):
 
 # --- 8: coverage boundary -------------------------------------------------
 class CoverageBoundaryTests(SiteTestCase):
-    """Prose link text is deliberately out of scope; pin it so it stays explicit."""
+    """Prose link text is deliberately out of scope; pin it so it stays explicit.
+
+    Decided, not deferred (t1768), on measurement rather than intuition. Over the
+    ~620 internal links whose text carries no backticked token, "any content word
+    appears on the target" reported 1 link -- vacuous -- and "every content word
+    appears" reported 20, or 16 after excusing words present in the target's URL
+    or title, almost all generic nouns ('Board documentation', 'Workflows index',
+    'installation troubleshooting notes'). No formulation in between carried a
+    usable signal. Re-open it with `website/check_link_relevance_history.py`.
+    """
 
     def test_link_text_without_backticks_is_not_checked(self):
         self.site.page("docs/target", "# Target\n\nNothing relevant here.\n")
@@ -535,6 +544,7 @@ class ControlFailureTests(SiteTestCase):
         "stem normalization strips a flag",
         "anchor scoping narrowed the check",
         "page-relative relref resolved",
+        "subject-of-page label discriminates",
     ]
 
     def _run_cli(self, controls):
@@ -604,6 +614,21 @@ class ExitStatusTests(SiteTestCase):
         self.assertEqual(rc, 0)
         self.assertIn("`ait artifact`", out.getvalue())
 
+    def test_labelled_misses_do_not_change_the_exit_status(self):
+        """A `[subject-of-page]` record is still a report, never an error."""
+        self.site.page("docs/commands/lock", "# Lock\n\nAtomic locking.\n")
+        self.site.page(
+            "docs/a", '[`aitask_lock.sh`]({{< relref "/docs/commands/lock" >}})\n'
+        )
+        out, err = io.StringIO(), io.StringIO()
+        argv = ["check_link_relevance.py", "--content", str(self.site.content)]
+        controls = [("always ok", lambda r: True)]
+        with patch.object(clr, "CONTROLS", controls), patch.object(sys, "argv", argv):
+            with redirect_stdout(out), redirect_stderr(err):
+                rc = clr.main()
+        self.assertEqual(rc, 0)
+        self.assertIn("[subject-of-page]", out.getvalue())
+
 
 # --- frontmatter override warning ----------------------------------------
 class SlugOverrideWarningTests(SiteTestCase):
@@ -620,6 +645,221 @@ class SlugOverrideWarningTests(SiteTestCase):
     def test_clean_tree_warns_nothing(self):
         self.site.page("docs/a", "---\ntitle: A\n---\n\n# A\n")
         self.assertEqual(self.site.scan().warnings, [])
+
+
+# --- subject-of-page label (t1768) ------------------------------------------
+# These classes sit ABOVE the stranded `unittest.main()` guard on purpose. Moving
+# that guard to the end of the file is t1770's fix; until it lands, running this
+# module directly collects only the classes defined before it. Keep them here.
+class SubjectOfPageKeyTests(unittest.TestCase):
+    """`subject_of_page` in isolation -- each discriminator pinned by a case."""
+
+    def test_extension_is_stripped_before_slugging(self):
+        """Invert the order and the key is `aitask-lock-sh`: nothing matches."""
+        self.assertIn("lock", clr.subject_keys("aitask_lock.sh"))
+        self.assertTrue(
+            clr.subject_of_page("aitask_lock.sh", "/docs/commands/lock/"))
+
+    def test_a_final_command_word_is_never_an_extension(self):
+        """Only a dotted suffix is an extension -- never a bare last word."""
+        self.assertIn("gate-pass", clr.subject_keys("ait gate pass"))
+        self.assertFalse(
+            clr.subject_of_page("ait gate pass", "/docs/commands/gates/"))
+        # `sh` IS in the extension set: stripping it as a bare word would turn
+        # `ait lock sh` into a `lock` key and label it.
+        self.assertFalse(
+            clr.subject_of_page("ait lock sh", "/docs/commands/lock/"))
+
+    def test_framework_prefix_is_dropped(self):
+        self.assertTrue(clr.subject_of_page("ait board", "/docs/tuis/board/"))
+        self.assertTrue(clr.subject_of_page(
+            "/aitask-pick", "/docs/skills/aitask-pick/parallel-admission/"))
+
+    def test_a_segment_sub_word_does_not_match(self):
+        """The refinement itself: `board-stats` is not the `board` page."""
+        self.assertFalse(
+            clr.subject_of_page("ait board", "/docs/commands/board-stats/"))
+        self.assertFalse(clr.subject_of_page(
+            "ait setup", "/docs/installation/terminal-setup/"))
+
+    def test_a_substring_does_not_match(self):
+        """Vacuous under segment matching -- it can only fail if matching
+        regresses to substrings (`tools` contains `ls`)."""
+        self.assertFalse(clr.subject_of_page("ait ls", "/docs/tools/"))
+
+    def test_section_directories_are_not_subjects(self):
+        self.assertFalse(
+            clr.subject_of_page("ait commands", "/docs/commands/lock/"))
+        self.assertFalse(clr.subject_of_page("ait docs", "/docs/commands/lock/"))
+
+    def test_the_t1707_shape_does_not_match(self):
+        self.assertFalse(clr.subject_of_page(
+            "ait artifact", "/docs/commands/task-management/"))
+        self.assertFalse(clr.subject_of_page(
+            "ait artifact", "/docs/workflows/implementation-trails/"))
+
+
+class SubjectOfPageLabelTests(SiteTestCase):
+    """The label on real `scan()` output: reported, tagged, counted -- never hidden."""
+
+    def setUp(self):
+        super().setUp()
+        # A page about `lock` that never repeats the script's name.
+        self.site.page(
+            "docs/commands/lock",
+            "# Lock\n\nAtomic task locking.\n\n## Usage\n\nRun it.\n",
+        )
+
+    def test_labelled_miss_is_still_reported(self):
+        self.site.page(
+            "docs/a", '[`aitask_lock.sh`]({{< relref "/docs/commands/lock" >}})\n'
+        )
+        result = self.site.scan()
+        miss = self.assertReported(result, "docs/a.md", "aitask_lock.sh")
+        self.assertTrue(miss.subject)
+        self.assertEqual(result.counters["subject_of_page"], 1)
+
+    def test_anchored_miss_is_never_labelled(self):
+        """Same token, same page: only the anchor differs, and only the label."""
+        self.site.page(
+            "docs/a", '[`aitask_lock.sh`]({{< relref "/docs/commands/lock" >}})\n'
+        )
+        self.site.page(
+            "docs/b",
+            '[`aitask_lock.sh`]({{< relref "/docs/commands/lock" >}}#usage)\n',
+        )
+        result = self.site.scan()
+        self.assertTrue(
+            self.assertReported(result, "docs/a.md", "aitask_lock.sh").subject)
+        self.assertFalse(
+            self.assertReported(result, "docs/b.md", "aitask_lock.sh").subject)
+        self.assertEqual(result.counters["subject_of_page"], 1)
+
+    def test_known_class_miss_is_not_labelled(self):
+        """The t1707 case-1 fixture, reproduced: still a miss, and unlabelled."""
+        self.site.page(
+            "docs/commands/task-management",
+            "# Task Management\n\n"
+            "Use `ait create` to make a task and `ait ls` to list them.\n",
+        )
+        self.site.page(
+            "docs/skills/aitask-trail",
+            "# Trails\n\nTrails are stored via "
+            '[`ait artifact`]({{< relref "/docs/commands/task-management" >}}).\n',
+        )
+        result = self.site.scan()
+        miss = self.assertReported(
+            result, "docs/skills/aitask-trail.md", "ait artifact")
+        self.assertFalse(miss.subject)
+        self.assertEqual(result.counters["subject_of_page"], 0)
+
+    def test_counter_does_not_fire_for_an_unrelated_target(self):
+        self.site.page("docs/target", "# Target\n\nUnrelated prose.\n")
+        self.site.page(
+            "docs/a", '[`ait artifact`]({{< relref "/docs/target" >}})\n'
+        )
+        result = self.site.scan()
+        self.assertReported(result, "docs/a.md", "ait artifact")
+        self.assertEqual(result.counters["subject_of_page"], 0)
+
+    def test_base_rate_counts_hits_as_well_as_misses(self):
+        """The base rate covers every page-scoped scoring, so a hit raises it."""
+        self.site.page("docs/commands/grep", "# Grep\n\nRun `ait grep` here.\n")
+        self.site.page(
+            "docs/a", '[`ait grep`]({{< relref "/docs/commands/grep" >}})\n'
+        )
+        result = self.site.scan()
+        self.assertEqual(result.misses, [])
+        self.assertEqual(result.counters["subject_base_matches"], 1)
+        self.assertEqual(result.counters["subject_base_total"], 1)
+
+    def test_control_passes_on_a_corpus_with_nothing_to_label(self):
+        """The control is a probe, so a corpus with no labelled miss still passes."""
+        self.site.page(
+            "docs/a", '[`ait artifact`]({{< relref "/docs/commands/lock" >}})\n'
+        )
+        result = self.site.scan()
+        self.assertEqual(result.counters["subject_of_page"], 0)
+        predicate = dict(clr.CONTROLS)["subject-of-page label discriminates"]
+        self.assertTrue(predicate(result))
+
+
+class SubjectOfPageOutputTests(SiteTestCase):
+    """The record line and the summary line are load-bearing; pin their shape."""
+
+    def test_unlabelled_records_print_first_and_the_base_rate_is_shown(self):
+        self.site.page("docs/commands/lock", "# Lock\n\nAtomic.\n")
+        self.site.page("docs/target", "# Target\n\nUnrelated.\n")
+        # Source order puts the labelled record first; output must not.
+        self.site.page(
+            "docs/a", '[`aitask_lock.sh`]({{< relref "/docs/commands/lock" >}})\n'
+        )
+        self.site.page(
+            "docs/z", '[`ait artifact`]({{< relref "/docs/target" >}})\n'
+        )
+        out, err = io.StringIO(), io.StringIO()
+        argv = ["check_link_relevance.py", "--content", str(self.site.content)]
+        controls = [("always ok", lambda r: True)]
+        with patch.object(clr, "CONTROLS", controls), patch.object(sys, "argv", argv):
+            with redirect_stdout(out), redirect_stderr(err):
+                rc = clr.main()
+        self.assertEqual(rc, 0)
+        records = [l for l in out.getvalue().splitlines() if "  ->  " in l]
+        self.assertEqual(records, [
+            "docs/z.md:1  `ait artifact`  ->  /docs/target/ [page]",
+            "docs/a.md:1  `aitask_lock.sh`  ->  /docs/commands/lock/ [page]"
+            "  [subject-of-page]",
+        ])
+        self.assertIn(
+            "subject-of-page: 1  (label matches 1 of 2 page-scoped token links)",
+            out.getvalue(),
+        )
+
+
+class SubjectProbeControlTests(unittest.TestCase):
+    """The probe checks both directions, so neither failure mode passes it."""
+
+    def test_probe_passes_against_the_shipped_implementation(self):
+        self.assertTrue(clr._probe_subject_classification())
+
+    def test_probe_fails_if_everything_is_labelled(self):
+        with patch.object(clr, "subject_of_page", lambda *_: True):
+            self.assertFalse(clr._probe_subject_classification())
+
+    def test_probe_fails_if_nothing_is_labelled(self):
+        with patch.object(clr, "subject_of_page", lambda *_: False):
+            self.assertFalse(clr._probe_subject_classification())
+
+
+class ControlSplitTests(unittest.TestCase):
+    """Historical replay runs ENGINE_CONTROLS only; the split must stay honest."""
+
+    EMPTY = clr.Result([], 0, [], {}, [])
+
+    def test_every_engine_name_is_a_real_control(self):
+        """A renamed probe would otherwise fall silently into CORPUS."""
+        names = {n for n, _ in clr.CONTROLS}
+        self.assertTrue(clr.ENGINE_CONTROL_NAMES)
+        self.assertLessEqual(clr.ENGINE_CONTROL_NAMES, names)
+
+    def test_engine_and_corpus_partition_the_controls(self):
+        engine = [n for n, _ in clr.ENGINE_CONTROLS]
+        corpus = [n for n, _ in clr.CORPUS_CONTROLS]
+        self.assertFalse(set(engine) & set(corpus))
+        self.assertEqual(sorted(engine + corpus),
+                         sorted(n for n, _ in clr.CONTROLS))
+
+    def test_engine_controls_hold_against_an_empty_tree(self):
+        """What makes them safe to run against any historical tree."""
+        verdicts = clr.evaluate_controls(self.EMPTY, clr.ENGINE_CONTROLS)
+        self.assertTrue(verdicts)
+        self.assertTrue(all(verdicts.values()), verdicts)
+
+    def test_corpus_controls_fail_against_an_empty_tree(self):
+        """...and why the corpus ones must not be: they key on live pages."""
+        verdicts = clr.evaluate_controls(self.EMPTY, clr.CORPUS_CONTROLS)
+        self.assertTrue(verdicts)
+        self.assertFalse(any(verdicts.values()), verdicts)
 
 
 if __name__ == "__main__":
