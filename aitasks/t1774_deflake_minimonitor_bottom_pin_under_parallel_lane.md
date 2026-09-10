@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [test_infrastructure, minimonitor]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1599
 followup_kind: upstream_defect
 created_at: 2026-09-09 22:23
-updated_at: 2026-09-09 22:23
+updated_at: 2026-09-10 08:20
 ---
 
 ## Origin
