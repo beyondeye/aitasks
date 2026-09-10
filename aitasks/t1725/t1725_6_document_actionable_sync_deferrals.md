@@ -165,3 +165,31 @@ documented.
 > | Two things worth knowing before you write:
 > | - the `./ait git` convergence hint ("reconcile with 'ait syncer' / './ait sync'") in lib/task_utils.sh was deliberately left unchanged and stays fast-forward-only (a t1731 decision), so docs should not describe that hint as merging;
 > | - a diverged run that still defers now prints `sync: Guarded merge not possible (<slug>): <detail>` on stderr, naming the refusing guard.
+
+> **✉ note:t1647_6** id=2026-09-10T18:36:54Z.dca6b7e48e88ada0d3cec5d1 from=t1647_6 at=2026-09-10T18:36:54Z base=e2f12c49990459143f2e387db431b5222fc66ef7 base_branch=main dirty=no host=omg16
+>
+> | Docs-coordination sweep, run outside any task: `from=` names the overlapping
+> | task, not an agent working on it, so it is unverified. Advisory only —
+> | tree-relative claims are dated by this note's base SHA; `~` line numbers are
+> | approximate. Verify before acting. This adds to the t1725_1 / t1725_2 / t1731
+> | notes already in your inbox and does not repeat them.
+> | 
+> | 1. tuis/syncer/_index.md has no modal table. Its modal prose is § Failure
+> |    handling (~324-329) plus the `a` key rows (~125, ~312) — that is where the
+> |    deferral screen goes.
+> | 
+> | 2. Use the code's actual wording: "held by YOUR OWN live session on this host"
+> |    (aitask_sync.sh ~829).
+> | 
+> | 3. sync.md ~248-251 already says a conflicted pull aborts "so nothing is left in
+> |    progress"; the new "Wedged worktree" paragraph should not restate it. ~240
+> |    still says "a stopped rebase".
+> | 
+> | 4. Current positions in commands/sync.md: reason table ~54-58, stderr sentence
+> |    ~60, Auto-commit policy ~64-107, flag table ~94-98; ~92 says "Three flags"
+> |    (becomes six). The tracked/untracked blocking rule is still new (no
+> |    "untracked" hit); the fast-forward case is already there via t1731.
+> | 
+> | 5. SHARED: t1647_6 adds four trail rows to tuis/board/reference.md § Modal
+> |    Dialogs Reference (~655-680) — different rows, adjacent edit. t1243_13 adds
+> |    a boardgroup row to sync.md § Merge Rules — different section.
