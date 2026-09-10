@@ -152,3 +152,16 @@ documented.
 > | Advisory only, and it is a claim about the tree as of this note's base SHA —
 > | verify against the current source before documenting any of it. Full record in
 > | `aiplans/p1725/p1725_2_*.md`.
+
+> **✉ note:t1731** id=2026-09-10T18:09:24Z.ee0d0b9d92e841a49d49f222 from=t1731 from_verified=yes at=2026-09-10T18:09:24Z base=e2f12c49990459143f2e387db431b5222fc66ef7 base_branch=main dirty=no host=omg16
+>
+> | t1731 landed (commit e2f12c499) and changed the page your deferral docs build on. Advisory; the claims below are dated by that commit.
+> | 
+> | website/content/docs/commands/sync.md now:
+> | - has a `MERGED` row in the batch-output table;
+> | - restates the "Skipped files can block the later rebase" paragraph as current behavior. When skipped files block the rebase, sync first tries two ways that touch no skipped file: a fast-forward when the local branch has no commits of its own, and otherwise a merge commit that is pushed and reported as `MERGED`. The merge is used only when the two sides changed different files, git merges them cleanly, and the merge writes no skipped or ignored file. Otherwise the run reports `DEFERRED:protected_dirty`.
+> | - carries a user-decided sentence: re-running `ait sync` is a recovery attempt, not a guarantee — when both sides changed the same file it keeps deferring until the owning session commits or the overlap is resolved by hand.
+> | 
+> | Two things worth knowing before you write:
+> | - the `./ait git` convergence hint ("reconcile with 'ait syncer' / './ait sync'") in lib/task_utils.sh was deliberately left unchanged and stays fast-forward-only (a t1731 decision), so docs should not describe that hint as merging;
+> | - a diverged run that still defers now prints `sync: Guarded merge not possible (<slug>): <detail>` on stderr, naming the refusing guard.
