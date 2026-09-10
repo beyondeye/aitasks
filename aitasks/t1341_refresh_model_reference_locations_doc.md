@@ -80,3 +80,15 @@ Refresh the doc so a future promoter can trust it end to end:
   each cited file:line).
 - The two-spelling grep above is documented in the doc and returns no
   *default-coupled assertion* hits that the doc does not list.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1762** id=2026-09-10T08:46:47Z.db2d1bd560c75378fbaa58db from=t1762 from_verified=yes at=2026-09-10T08:46:47Z base=2c255e2287aa0828eb919c0c0ce39bcb71e3ecbc base_branch=main dirty=yes host=omg16
+>
+> | Context from t1762 (scoping plain `git commit` instructions on main; code commit 2c255e228). Two spots in aidocs/framework/model_reference_locations.md look stale and fall inside your refresh. Line numbers are as of this note's base commit.
+> | 
+> | - Promote-mode step 8 (~lines 227-229) commits aitask_codeagent.sh, brainstorm/brainstorm_crew.py, aitask_brainstorm_init.sh and seed/codeagent_config.json. For the same promote step, .claude/skills/aitask-add-model/SKILL.md:164-168 commits lib/agent_string.sh and aitask_codeagent.sh, and uses a `refactor:` subject where the doc uses `feature:`.
+> | - Promote-mode step 6 locates DEFAULT_AGENT_STRING at aitask_codeagent.sh line 21. The add-model skill (lines 14, 107, 193) says it lives in .aitask-scripts/lib/agent_string.sh.
+> | 
+> | One of the two sources is stale; I did not determine which. t1762 only added a `--` pathspec to the existing file lists and did not change which files they name.
