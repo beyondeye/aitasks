@@ -11,8 +11,9 @@ active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5
 created_at: 2026-09-09 13:00
-updated_at: 2026-09-09 13:18
+updated_at: 2026-09-10 10:30
 ---
 
 ## Origin
@@ -65,3 +66,8 @@ rather than quietly assuming every site can name its paths.
 tree. Decide whether a guard is feasible at all here and record the decision
 either way; "no guard, and here is why" is an acceptable outcome, as it was for
 the markdown-scan question in t1748.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-10T07:30:09Z status=pass attempt=1 type=human
