@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -12,8 +14,9 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1705
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5
 created_at: 2026-09-09 15:31
-updated_at: 2026-09-10 08:50
+updated_at: 2026-09-10 11:25
 ---
 
 `frozenagent_app._poll_restore` passes `settle_timeout=DISPATCH_GRACE + 30.0`
@@ -41,3 +44,8 @@ across it. Read the root from the record being polled, not from the cwd.
 Not folded into t1705_7: that task's scope was the monitor TUIs, and this is
 shipped t1705_6 code with its own characterization control. Found by review of
 t1705_7.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-10T08:25:46Z status=pass attempt=1 type=human
