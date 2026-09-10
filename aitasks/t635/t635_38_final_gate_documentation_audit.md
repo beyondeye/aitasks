@@ -37,3 +37,22 @@ This is a final coherence pass, not a substitute for the incremental documentati
 - t635_18 provides the comprehensive website documentation sweep.
 - t635_34 provides installed-registry reconciliation and the active-gate no-verifier warning.
 - t635_37 provides the registry-driven profile gate-picker semantics.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t635_18** id=2026-09-10T18:37:06Z.dbd7adf46e747a27e680d49e from=t635_18 at=2026-09-10T18:37:06Z base=e2f12c49990459143f2e387db431b5222fc66ef7 base_branch=main dirty=no host=omg16
+>
+> | Docs-coordination sweep, run outside any task: `from=` names the related task,
+> | not an agent working on it, so it is unverified. Advisory only; status
+> | readings are moment-relative. Verify before acting.
+> | 
+> | 1. As the "final" audit this depends only on t635_18/34/37, but these t635
+> |    children are still open (Ready) as of this sweep and will change gate docs
+> |    after it: t635_16, t635_24 (legacy verify_build removal), t635_26, t635_28,
+> |    t635_29, t635_30 (task gate editing surface), t635_31, t635_32. Either add
+> |    them to depends, or treat this as a baseline audit rather than the last one.
+> | 
+> | 2. The Gates concept page may end up written by t1687 (Concepts gap sweep)
+> |    rather than t635_18 — both plan it and no owner has been picked. Include
+> |    whichever lands in the audit inventory.
