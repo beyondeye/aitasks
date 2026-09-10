@@ -3,11 +3,14 @@ priority: low
 effort: low
 depends: [t369_6]
 issue_type: documentation
-status: Ready
+status: Done
+archived_reason: superseded
 labels: [aitask_explain, documentation]
 created_at: 2026-03-11 18:34
-updated_at: 2026-03-11 18:34
+updated_at: 2026-09-10 22:06
+completed_at: 2026-09-10 22:06
 ---
+
 
 Document gather_explain_context profile field and historical context feature in the website. Update settings/reference.md profile schema table, aitask-pick skill page, and settings overview if needed.
 
@@ -71,3 +74,7 @@ Check if `website/content/docs/skills/aitask-pick/execution-profiles/` has its o
 2. **Visual check**: Run `cd website && ./serve.sh` and visit the settings reference page -- verify the new row appears correctly in the Planning table.
 3. **Verify aitask-pick page**: Navigate to the aitask-pick skill page and verify the historical context mentions are well-integrated.
 4. **Link check**: Ensure any new internal links resolve correctly.
+
+## Closed as obsolete (2026-09-10)
+
+The feature this task documents was reverted: t407 (7221615d1) removed the `gather_explain_context` integration, and no such profile field exists. Siblings t369_4 / t369_5 / t369_6 rest on the same reverted premise and remain open for separate review.
