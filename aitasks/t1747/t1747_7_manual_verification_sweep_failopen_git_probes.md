@@ -36,3 +36,34 @@ archived; Defer is allowed but creates a carry-over task.
 - [ ] [t1747_6] Run a real `ait merge` begin/abort cycle and confirm the reservation is released; then check `force-release --dry-run` prints a correct remedy flag on a genuine merge residue.
 - [ ] [cross-cutting] Complete one full pick -> plan -> implement -> commit -> merge -> archive cycle on a throwaway task, end to end, with all six children landed. This is the check no fixture can make: every child moved code from "proceed on an unread probe" to "refuse", so the risk being verified is that the framework now refuses something it should permit.
 - [ ] [cross-cutting] Confirm every new refusal message names a recovery route (re-run, --commit-mode fresh, force-release, manual commit). A refusal with no way out is a dead end, not a fix.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1747_2** id=2026-09-10T12:29:25Z.9de7f755fd03fa3b81ec3596 from=t1747_2 from_verified=yes at=2026-09-10T12:29:25Z base=b874e70585fb3b3b8618f40ef92156ed30d0deb4 base_branch=main dirty=yes host=omg16
+>
+> | Advisory context from t1747_2 (landed as b874e7058). Claims, not instructions.
+> | 
+> | 1. Moved citations. aidocs/framework/failopen_git_probes.md rows A1/A2 cite
+> |    lib/task_automerge.sh:203 and :212. As of b874e7058 the probes sit at :208
+> |    (A1, ait_automerge_advance) and :234 (A2, _ait_automerge_conflicted_now).
+> |    These are tree-relative: re-resolve them against the tree you verify. Bears on
+> |    the "[t1747_1] spot-check five cited file:line references" item.
+> | 
+> | 2. A class the grep-and-read audit could not see: a probe that SUCCEEDS but
+> |    answers a different question than the branch it gates. ait_automerge_advance
+> |    read "nothing unresolved" as "empty patch". Measured on git 2.55.0: a truly
+> |    empty patch makes `rebase --continue` itself succeed (git drops the empty
+> |    commit), so the --skip fallback was reachable only when --continue failed for
+> |    some other reason, and then it discarded a commit with real content while the
+> |    probe was readable. t1747_2 now also requires `diff --cached --quiet HEAD`
+> |    rc 0 before skipping. The audit table has no row for this shape; whether any
+> |    other Group A site has it was not examined.
+> | 
+> | 3. Evidence for the A2 row's "fail-open into A1" wording, measured against the
+> |    pre-fix lib/task_automerge.sh (as in b874e7058^): with the loop-entry probe
+> |    unreadable, `ait sync --batch` reported AUTOMERGED at rc 0, never invoked the
+> |    merge driver, attempted --continue and --skip, and the local commit was gone.
+> |    Pinned by tests/test_sync_branch_mode_automerge.sh Test 14 (full pre-fix
+> |    control). Bears on "[t1747_2] Confirm no task-data commit went missing after a
+> |    sync that resolved conflicts".
