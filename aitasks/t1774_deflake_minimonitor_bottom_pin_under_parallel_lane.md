@@ -67,3 +67,16 @@ helper, in which case fixing the helper covers both.
 > **✅ gate:plan_approved** run=2026-09-10T09:45:48Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-09-10T11:23:28Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-10T11:41:55Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:a73dedaff868c1a0
+
+> **✅ gate:risk_evaluated** run=2026-09-10T11:41:55Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1774/risk_evaluated_2026-09-10T11:41:55Z-risk_evaluated-a1.log`
+
+> **✅ gate:review_approved** run=2026-09-10T11:47:54Z status=pass attempt=2 type=human
