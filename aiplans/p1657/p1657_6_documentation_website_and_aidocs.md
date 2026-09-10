@@ -533,3 +533,110 @@ docs-only: it now ships one test file.)*
 
 ### Planned mitigations
 - timing: post-phase | name: note_doc_contract_drift_guard | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: medium | addresses: goal-achievement — a documented contract drifting from the shipped one | desc: contract test asserting per-layer set equality between the documented reason tokens and the three shipped sources (both --help texts plus the adapter procedures named in agents.txt), in both directions
+
+## Implementation Notes
+
+Deviations from the approved plan, recorded as they land:
+
+1. **Guard sources, resolver layer.** The resolver's `--help` enumerates its
+   seven `LIVE_NONE` reasons but none of its `LIVE_ERROR` reasons (`usage`,
+   `bad_task_id`, `task_not_found`); those exist only at the resolver's emission
+   sites. Extracting from `--help` alone would leave three documented tokens
+   outside the comparison — the same gap the review rounds closed for the
+   adapter. The guard therefore reads the resolver's **emission sites** (its
+   `echo "LIVE_…"` / `printf 'LIVE_PANE:…'` lines), which are the minting truth.
+   The writer layer reads the `Output` block of its `show_help` heredoc
+   (`NOTE_*` / `READ_*` lines) plus the concrete `LIVE_` reasons it assigns
+   outside comments (`resolver_unavailable`). The
+   adapter layer reads each manifest-named procedure, scoped to `LIVE_QUEUED`
+   and concrete `LIVE_NONE` reasons. Each extraction greps only for the code
+   families its layer mints — which is how "restatement is not ownership" is
+   made concrete.
+2. **`commands/lock.md` record example.** The lock-file YAML example showed only
+   `task_id` / `locked_by` / `locked_at` / `hostname`. A session lock also
+   carries `pid`, `pid_starttime` and `pid_starttime_kind`, and the new
+   cross-link sentence refers to them, so the example gained those fields plus
+   one sentence on when they are absent.
+3. **`concepts/locks.md` cross-link** landed as a `## See also` bullet — the
+   page's established cross-link spot — rather than an in-body sentence.
+4. **Link form in new pages.** Every cross-page link in the new website pages
+   uses `{{< relref >}}` (build-enforced, per `documentation_conventions.md`),
+   including links inside content tables. Relative slugs remain only in the
+   hand-maintained `_index.md` tables and lists, matching their existing rows.
+5. **Mutant directions.** The plan's two mutants per layer — delete a documented
+   token, add a fake token to a stub source — both redden the *same* direction
+   ("minted but not documented"), leaving "documented but not minted" never
+   exercised. Implemented as one mutant per direction per layer instead:
+   (a) delete a documented row from a page copy → *minted but not documented*;
+   (b) delete a minted token from a source-stub copy → *documented but not
+   minted*. Still six mutants, now covering both directions on every layer.
+6. **Manifest walk mirrored, not shared.** `test_live_endpoint_no_sendkeys.sh`
+   walks `agents.txt` inline. The guard mirrors that exact expression and cites
+   it, rather than refactoring the other test into a shared helper — which would
+   widen this docs task into an unrelated test file.
+
+7. **`docs/README.md` defects routed through Step 8b, not a Step 8e note.** The
+   plan said to report its pre-existing broken paths via Step 8e. No existing
+   task owns that file, so a note would have no recipient; they are listed
+   under "Upstream defects identified" below, which is what Step 8b reads.
+
+## Final Implementation Notes
+
+- **Actual work done:** All seven plan steps and the inline post-phase landed.
+  New: `website/content/docs/commands/note.md` (CLI reference with the fixed
+  heading/anchor skeleton), `website/content/docs/workflows/task-notes.md`,
+  `website/content/docs/skills/aitask-note.md` (the user-approved scope
+  addition), `aidocs/framework/task_note_mailbox.md`,
+  `aidocs/framework/live_endpoint_resolution.md`, and
+  `tests/test_note_doc_contract.sh`. Edited: `commands/_index.md` (two Task
+  Management rows, two usage lines), `workflows/_index.md` (bullet),
+  `skills/_index.md` (row), `docs/README.md` (row), `concepts/locks.md`
+  (see-also), `commands/lock.md` (lock-record fields, cross-link, `**Next:**`
+  retargeted to note).
+- **Deviations from plan:** the seven numbered Implementation Notes above —
+  resolver guard source is its emission sites; `lock.md` record example gained
+  the `pid` fields; `concepts/locks.md` link as a see-also bullet; relref for
+  every link in the new pages; one mutant per direction per layer; manifest walk
+  mirrored rather than shared; `docs/README.md` defects routed through Step 8b.
+- **Issues encountered:**
+  - The stale-claim grep (Verification step 5) caught three sentences in this
+    task's **own** new pages stating live delivery unconditionally —
+    "delivered to that session straight away", "delivers it live when an agent
+    is working on that task", "it delivers the note … and reports
+    `LIVE_QUEUED:`". Each dropped the runtime-support condition and said
+    *delivered* where the contract is *queued*. All three fixed; the re-grep is
+    clean. The class is easy to reintroduce: prose describing the happy path
+    drifts toward the unconditional.
+  - The resolver's `--help` lists its `LIVE_NONE` reasons but none of its
+    `LIVE_ERROR` reasons — found while building the guard (deviation 1).
+  - Three plan-review rounds each found the guard's checked set narrower than
+    its claimed coverage (the adapter layer, then `LIVE_QUEUED`, then the
+    writer-minted `resolver_unavailable`). Resolved structurally, by stating the
+    checked set as a per-layer set-equality rule instead of an enumerated list,
+    rather than by patching a third instance.
+- **Key decisions:** the guard compares reason-token sets per layer, with
+  exclusive ownership (restatement is not ownership); the docs format is a
+  declared `| Code | Layer | Meaning |` row shape announced by an HTML comment,
+  never prose parsing; a probe guard aborts on any empty side so the equality
+  cannot pass vacuously. The v0.35.0 blog post is left as-is: its sentence is
+  conditioned on locality, though it still says "delivered" and omits that live
+  delivery is Claude-Code-only — it is a dated release announcement.
+- **Verification results:** `hugo build --gc --minify` clean (248 pages);
+  `check_links.py --build` 0 broken, `SWEEP: PASSED` (covers anchors);
+  `check_link_relevance.py` no hits in any touched file; the three new pages are
+  linked from their section indexes; the `lock → note → gates` Next chain is
+  contiguous; the guard passes 7/7; the probe control aborts on an empty source;
+  all six mutants go red with the exact expected fail count, assertion and token
+  (both directions × three layers); `shellcheck -x` clean.
+- **Upstream defects identified:**
+  - `docs/README.md:30 — links skills/aitask-pick.md, which is now the directory skills/aitask-pick/_index.md`
+  - `docs/README.md:26 — links workflows/terminal-setup.md, which now lives under installation/terminal-setup`
+  - `docs/README.md:43-47 — the commands block omits most command pages (lock, gates, sync, explain, codeagent, crew, pr-import, note)`
+- **Notes for sibling tasks:** for t1657_7 (manual verification) — the output
+  codes its checklist exercises are now documented in
+  `website/content/docs/commands/note.md#output`, and the full per-layer
+  degradation table in `aidocs/framework/live_endpoint_resolution.md`.
+  `tests/test_note_doc_contract.sh` fails if a documented code drifts from the
+  shipped writer, resolver or adapter. The `| Code | Layer | Meaning |` row
+  shape in those two pages **is** the guard's contract: changing a row's shape,
+  not just its text, breaks it.
