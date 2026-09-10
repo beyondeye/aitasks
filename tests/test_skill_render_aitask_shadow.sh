@@ -10,7 +10,7 @@
 #   1.  Per-profile golden diff for the entry-point template (claude render).
 #   1b. Agent-dimension invariance for the entry point (no {% if agent %}).
 #   1p. impl-challenge goldens per profile + agent invariance.
-#   1i. The eight Jinja-free procedures render identically across every
+#   1i. The ten Jinja-free procedures render identically across every
 #       (profile x agent) combination.
 #   2.  Both arms of the shadow_impl_review_tier conditional.
 #   2p. PRECEDENCE GUARD: the explicit-wording recognition table, the
@@ -58,8 +58,10 @@ PROFILES_DIR="aitasks/metadata/profiles"
 PROFILES=(default fast remote)
 AGENTS=(claude codex opencode)
 
-# impl-challenge is the only procedure carrying Jinja; the other nine are
+# impl-challenge is the only procedure carrying Jinja; the other ten are
 # identity transforms and are covered by the invariance sweep in Test 1i.
+# Test 0 derives the inventory from disk, so a procedure added to the skill dir
+# and forgotten here fails loudly instead of going uncovered.
 PROC_FILES_VARYING=(impl-challenge)
 PROC_FILES_INVARIANT=(
     concern-format
@@ -71,8 +73,24 @@ PROC_FILES_INVARIANT=(
     plan-socratic
     round-preamble
     spawn-learn-skill
+    task-summarize
 )
 PROC_FILES=("${PROC_FILES_VARYING[@]}" "${PROC_FILES_INVARIANT[@]}")
+
+# === Test 0: the arrays ARE the procedure inventory ===
+#
+# Every .md under the skill dir except SKILL.md must be listed in exactly one of
+# the two arrays, and every listed name must exist. Prose counts ("nine
+# sub-procedures") went stale silently when round-preamble.md landed; an
+# assertion cannot. Mirrors Test 0 of test_skill_render_task_workflow.sh.
+
+echo "=== Test 0: procedure inventory matches the skill dir ==="
+on_disk="$(cd "$SKILL_DIR" && ls *.md | grep -v '^SKILL\.md$' | sed 's/\.md$//' | sort)"
+listed="$(printf '%s\n' "${PROC_FILES[@]}" | sort)"
+assert_eq "every procedure on disk is listed, and every listed one exists" \
+    "$on_disk" "$listed"
+dupes="$(printf '%s\n' "${PROC_FILES[@]}" | sort | uniq -d)"
+assert_eq "no procedure is in both arrays" "" "$dupes"
 
 # === Test 1: per-profile entry-point golden diffs (claude render is canonical) ===
 
@@ -173,10 +191,12 @@ done
 
 echo "=== Test 2p: explicit-wording recognition table present in every render ==="
 RECOGNITION_LINES=(
-    '"quick" / "fast" → **Quick**'
+    '"quick" / "fast" / `>i1` → **Quick**'
     '"default" / "basic" / "legacy"'
-    '"advanced" / "standard" / "normal" → **Advanced**'
-    '"deep" / "thorough" / "max" / "exhaustive" → **Deep**'
+    '"advanced" / "standard" / "normal" / `>i3` → **Advanced**'
+    '"deep" / "thorough" / "max" / "exhaustive" / `>i4` → **Deep**'
+    'A tier digit counts as **explicit wording**'
+    '`>i` with no digit names no tier'
     'Nothing routes to Quick implicitly'
     '**Angle scoping (user intent wins).**'
     'State the chosen tier (and any angle scoping)'
@@ -187,6 +207,42 @@ for profile in "${PROFILES[@]}"; do
     for line in "${RECOGNITION_LINES[@]}"; do
         assert_contains "$profile: unconditional — '$line'" "$line" "$ic"
     done
+done
+
+# === Test 2s: the shortcode surface survives every entry-point render (t1771) ===
+#
+# Step 0 derives the greeting from Step 3 at runtime, so the only thing a render
+# test can pin is that every code, the routing rule, and the recheck composition
+# are PRESENT to be derived from — and that the removed bare-code form is ABSENT,
+# so restoring it fails here rather than drifting back in.
+
+echo "=== Test 2s: shortcodes present, rule text intact, bare form absent ==="
+SHORTCODES=(
+    '`>e`' '`>q`' '`>t`' '`>px`' '`>pc`' '`>i`' '`>i1`' '`>i4`' '`>r`'
+    '`>rpc`' '`>ri`' '`>ri3`' '`>rpa`' '`>rd`' '`>ps`' '`>pa`' '`>d`' '`>l`'
+    '`>f`' '`>?`'
+)
+SHORTCODE_RULES=(
+    'The `>` is required.'
+    'Embedded is fine; mentioned is not.'
+    'nothing else is a code'
+    'Only these four compose with `>r`'
+    'read and follow'
+    '`task-summarize.md`'
+    '`>?` reprints this list'
+)
+for profile in "${PROFILES[@]}"; do
+    sk="$($RENDER "$TEMPLATE" "$PROFILES_DIR/$profile.yaml" claude 2>&1)"
+    for code in "${SHORTCODES[@]}"; do
+        assert_contains "$profile: shortcode $code registered" "$code" "$sk"
+    done
+    for line in "${SHORTCODE_RULES[@]}"; do
+        assert_contains "$profile: rule text — '$line'" "$line" "$sk"
+    done
+    assert_not_contains "$profile: no bare-code routing (whole-message form)" \
+        "exactly a code and nothing else" "$sk"
+    assert_not_contains "$profile: no bare-code routing (bare code wording)" \
+        "bare code" "$sk"
 done
 
 # === Test 2g: the gate is gone, the review-state assessment is in ===
@@ -300,8 +356,9 @@ done
 #
 # impl-challenge.md carries two full-path refs into its own skill dir
 # (impl-review-angles.md, concern-format.md); those must be rewritten to the
-# per-agent rendered dir. The nine sub-procedures must all land in the closure
-# for every agent — the first time they reach the Codex / OpenCode trees at all.
+# per-agent rendered dir. Every sub-procedure (the PROC_FILES inventory Test 0
+# pins) must land in the closure for every agent — the first time they reach
+# the Codex / OpenCode trees at all.
 
 echo "=== Test 4: per-agent reference rewrites + closure completeness via walk-write ==="
 for agent in "${AGENTS[@]}"; do

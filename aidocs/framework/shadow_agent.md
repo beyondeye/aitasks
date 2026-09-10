@@ -69,8 +69,11 @@ below.
 ## The skill (`/aitask-shadow`)
 
 Source: `.claude/skills/aitask-shadow/` — the `SKILL.md.j2` authoring template
-plus nine sub-procedure `.md` files (five `plan-*.md`, `impl-challenge.md`,
-`impl-review-angles.md`, `concern-format.md`, `spawn-learn-skill.md`).
+plus eleven sub-procedure `.md` files (five `plan-*.md`, `impl-challenge.md`,
+`impl-review-angles.md`, `concern-format.md`, `round-preamble.md`,
+`spawn-learn-skill.md`, `task-summarize.md`). The inventory is pinned by Test 0
+of `tests/test_skill_render_aitask_shadow.sh`, which derives it from disk — the
+count here is prose and can go stale; the test cannot.
 
 It is **user-invocable** (`user-invocable: true`) **and profile-aware** — the
 canonical stub + `.md.j2` pair of `aidocs/framework/stub-skill-pattern.md`,
@@ -80,7 +83,7 @@ follows from the spawn path (a spawned agent CLI can only be triggered
 non-headlessly by a slash command on argv, and a freshly spawned shadow has no
 parent skill to read-and-follow a non-invocable one), but that argues **only**
 for `user-invocable: true` — it never implied staticness. `aitask-explore` is
-likewise both user-invocable and templated. The conversion also means the nine
+likewise both user-invocable and templated. The conversion also means the eleven
 sub-procedures are rendered into the Codex and OpenCode trees, which the former
 "Source of Truth" redirects never reached.
 
@@ -99,9 +102,11 @@ The skill runs **one instruction-driven flow** (no mode selector); the user's
 free-form ask once it is running decides which capability applies:
 
 - **Step 0 — greeting.** On startup, before any capture or fetch, it greets the
-  user and presents its capability list. The list is **derived from Step 3**,
-  which is the single source of truth — a maintainer note in `SKILL.md` forbids
-  hardcoding a second copy (the drift this design exists to prevent).
+  user and presents its capability list, each entry **led by its shortcode**
+  (see "Shortcodes" below). The list is **derived from Step 3**, which is the
+  single source of truth — a maintainer note in `SKILL.md` forbids hardcoding a
+  second copy (the drift this design exists to prevent); the codes ride along
+  because each is the token that opens its Step 3 bullet.
 - **Step 1 — capture, with a proactive suggestion.** After *every* capture (the
   first and each refetch) the shadow takes a lightweight look at what is
   *visibly* on screen and, if a capability is obviously useful, offers it
@@ -117,8 +122,22 @@ free-form ask once it is running decides which capability applies:
   (explain the output / "what is the agent doing?"; help answer an
   `AskUserQuestion` by laying out the options and *suggesting* an answer the user
   types themselves). Several **structured analyses** each live in a
-  read-and-follow sub-procedure with a defined methodology (four review a plan;
-  one reviews the implementation; one diagnoses the followed agent's errors):
+  read-and-follow sub-procedure with a defined methodology (one summarises the
+  task; four review a plan; one reviews the implementation; one diagnoses the
+  followed agent's errors):
+  - `task-summarize.md` — **the task in plain words** (`>t`): a non-interactive,
+    task-first summary for someone who has not read the task or the plan — what
+    it is trying to achieve and why, what changes for a user, and (when a plan
+    can be found) how the agent means to get there and how far along it is.
+    Reads the task file and the plan via `aitask_shadow_context.sh`; on
+    `PLAN_FILE:NOT_FOUND` it falls through `round-preamble.md` §6's source
+    ladder (a draft-plan path on screen, then the deep capture) rather than
+    claiming no plan exists, because the helper resolves only externalized
+    `aiplans/` files and a followed agent still in plan mode has only a draft.
+    On request only — never emitted at startup, after a capture, or as a
+    proactive offer. Not a concern producer; of `round-preamble.md` it obeys
+    §1 (the audience rule) and §6's source selection only — never its snapshot
+    writes, round headers or review preambles.
   - `plan-explain.md` — explain a plan to a non-expert: surface the technical
     subjects the plan rests on and offer per-subject introduction + motivation
     (multiSelect), then a plain-language walkthrough.
@@ -145,6 +164,29 @@ free-form ask once it is running decides which capability applies:
     pick from, and offer to spin chosen ones into `/aitask-explore` fix-tasks.
     On-request only — never offered proactively. (Detailed signal list lives in
     the sub-procedure, not here.)
+
+  **Shortcodes (t1771).** Every Step 3 capability opens with a `>`-prefixed
+  code — `>e` explain the screen, `>q` help with the prompt, `>t` the task in
+  plain words, `>px` / `>pc` / `>ps` / `>pa` explain / challenge / socratic /
+  assumptions on the plan, `>i` review the implementation, `>r` recheck, `>d`
+  diagnose, `>l` learn a skill — plus `>f` (refetch, Step 1) and `>?` (reprint
+  the list). The rules, stated once in Step 3's "Shortcodes" subsection: the
+  `>` is **always required** (a bare `t` is prose, never a code — there is no
+  whole-message bare form); a code is recognised anywhere in a message when the
+  message is *asking for it*, while a code merely *mentioned* (a question about
+  it, a quoted example, a negated or hypothetical use) is answered in words and
+  runs nothing; the registry is closed, so an unrecognised token is reported and
+  the list reprinted rather than guessed at. Two codes compose: `>i` takes a
+  tier digit (`>i1` quick … `>i4` deep) that ranks as **explicit wording** in
+  `impl-challenge.md`'s resolution order — it beats the profile's
+  `shadow_impl_review_tier` and needs no "inferred tier" line, while a digitless
+  `>i` is the generic ask — and `>r` takes a review code (`>rpc`, `>ri`/`>ri3`,
+  `>rpa`, `>rd`) naming which review gets a new round; bare `>r` re-runs the
+  last one. Only the four round-headed concern producers compose with `>r`,
+  because a "round" is defined for nothing else. The greeting derives the codes
+  from the bullets (no second copy); `tests/test_skill_render_aitask_shadow.sh`
+  Test 2s pins that every code and the rule text survive rendering and that the
+  bare form stays absent.
 
   Every sub-procedure that emits a concern block —
   `plan-challenge.md`, `plan-assumptions.md`, `plan-diagnose-errors.md` and

@@ -2,7 +2,10 @@
 
 Shared rules for every shadow review producer — `plan-challenge.md`,
 `plan-assumptions.md`, `plan-diagnose-errors.md`, `impl-challenge.md`. Read
-this file when a producer references it. Single source of truth: the audience
+this file when a producer references it. One non-producer, `task-summarize.md`,
+reads two parts only: §1 (the audience rule binds its prose too) and §6's
+source-selection ladder (which plan text to read, in what order) — it writes no
+snapshot and emits no round header or preamble. Single source of truth: the audience
 rule, the plain-words line, the round preamble's six headings and its fixed
 verdict rule, the framework-vocabulary mapping, and the snapshot protocol live
 only here; the producers state the two rules in their own emit steps and point

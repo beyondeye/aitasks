@@ -120,6 +120,7 @@ CAPABILITIES=(
     "plan-assumptions.md"
     "plan-diagnose-errors.md"
     "spawn-learn-skill.md"
+    "task-summarize.md"
 )
 
 # Refusal wording within a few lines of a phase mention. Deliberately narrow:

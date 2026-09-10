@@ -54,18 +54,22 @@ not shadow work — they do not count against this rule.)
 separate copy here (see the maintainer note above).** Step 3 is the single
 source of truth: it lists every capability and the inline handling or
 `plan-*.md` sub-procedure that serves it. Present each one to the user in a
-single short phrase — the inline capabilities and the linked plan sub-procedures
-alike. Because the greeting is generated from Step 3, it stays in sync
-automatically; never hardcode the list in this step.
+single short phrase **led by its shortcode** (the `>…` token that opens its
+Step 3 bullet) — the inline capabilities and the linked sub-procedures alike.
+Because the greeting is generated from Step 3, it stays in sync automatically;
+never hardcode the list in this step.
 
-Then make the user aware of two things:
+Then make the user aware of three things:
 
-- They can ask you to **refetch** the followed agent's screen at any time. The
-  agent keeps working after you launch, so a later capture reflects its newest
-  state — you will re-read it whenever they ask, or whenever fresh state is
-  needed to answer well.
+- They can ask you to **refetch** the followed agent's screen at any time
+  (shortcode `>f`). The agent keeps working after you launch, so a later
+  capture reflects its newest state — you will re-read it whenever they ask,
+  or whenever fresh state is needed to answer well.
 - They can just describe what they want in their own words; you will route to
   the right capability.
+- **The shortcode rule, in one sentence:** a `>`-prefixed code is recognised
+  anywhere in a message and the `>` is always required (there is no bare
+  form); `>?` reprints this list. The full rule lives in Step 3.
 
 ## Step 1 — Read the followed agent's screen
 
@@ -216,6 +220,38 @@ asks **inline**; for the structured analyses, **read and follow** the matching
 sub-procedure file (each carries a defined methodology so the user doesn't have
 to spell it out).
 
+### Shortcodes — a shorter spelling of the ask
+
+Every capability below opens with its **shortcode**: the `>…` token at the
+start of its bullet. Two non-capability codes live here too — `>f` refetches
+the followed agent's screen (Step 1) and `>?` reprints the Step 0 capability
+list.
+
+- **Form** — `>` followed by a registered code: one or two letters (`>e`,
+  `>px`), `>i` with an optional tier digit (`>i3`), or `>r` with an optional
+  review code (`>rpc`, `>ri3`). The registered codes are exactly the tokens
+  that open the bullets below plus `>f` and `>?`; nothing else is a code.
+- **The `>` is required.** A bare letter or word is always prose, never a code
+  — a message of just `t` is a message, not a request for the task summary.
+  There is no unprefixed form to disambiguate.
+- **Embedded is fine; mentioned is not.** A code is recognised anywhere in a
+  message when the message is *asking for it*: `>i3 but only the callers` is
+  an advanced review scoped to the callers. A code that is merely *talked
+  about* is conversation, not invocation — a question about it ("what does
+  `>l` do?"), a quoted example, or a negated or hypothetical mention ("skip
+  `>i4`, just explain that option") gets an answer in words and runs nothing.
+  When you genuinely cannot tell, ask in one line rather than run; `>l` in
+  particular opens a new window, so a mistaken launch is not free.
+- **Composition** — `>r` (recheck) takes an optional review code — `>rpc`,
+  `>ri`, `>ri3`, `>rpa`, `>rd` each start a new round of that named review.
+  `>r` on its own re-runs whichever review produced your last round.
+- **Unrecognised code** — say so in one line and reprint the list; never guess
+  at a neighbouring letter.
+
+A shortcode is only a shorter way to say the ask. It carries no authority the
+same request in words would not have, and every capability stays reachable
+however it is spelled.
+
 **Phase-driven default (advisory).** When the user's ask does not itself name
 which analysis they want — a bare "review this", "have a look" — resolve the
 default with the same ladder `impl-challenge.md` uses for its effort tier:
@@ -236,10 +272,10 @@ costs one short sentence, never a refusal.
 
 **Inline (handle directly here):**
 
-- **Explain the output / "what is the agent doing?"** — read the captured screen
-  (Step 1) and explain, in plain terms, what the followed agent is currently
-  doing, what it is waiting on, or what an error/message means.
-- **Help answer an `AskUserQuestion`** — when the screen shows the followed agent
+- `>e` — **Explain the output / "what is the agent doing?"** — read the captured
+  screen (Step 1) and explain, in plain terms, what the followed agent is
+  currently doing, what it is waiting on, or what an error/message means.
+- `>q` — **Help answer an `AskUserQuestion`** — when the screen shows the followed agent
   prompting the user with options and the user asks for help deciding: fetch the
   source context (Step 2) if it isn't on screen, lay out what each option means
   and its trade-offs, and **suggest** an answer with your reasoning. Remind the
@@ -247,27 +283,44 @@ costs one short sentence, never a refusal.
 
 **Structured analyses (read and follow the sub-procedure file):**
 
-- **Explain a plan to a non-expert** → read and follow `plan-explain.md`.
+- `>t` — **The task in plain words** ("what is this task about?", "explain the
+  task", "what is it actually doing this for?") → read and follow
+  `task-summarize.md`. Task-first and non-interactive: it explains *what the
+  followed agent is working on* from the task file plus, when one can be
+  found, the current plan. Distinct from `plan-explain.md`, which is plan-only
+  and interactive. **Never emit it unprompted** — not at startup, not after a
+  capture, not as a proactive offer.
+- `>px` — **Explain a plan to a non-expert** → read and follow `plan-explain.md`.
   (Goes beyond a plain-terms summary: it surfaces the technical subjects the plan
   rests on and offers per-subject introductions + motivations.)
-- **Adversarially challenge a plan** ("poke holes", "what could go wrong",
+- `>pc` — **Adversarially challenge a plan** ("poke holes", "what could go wrong",
   "stress-test this") → read and follow `plan-challenge.md`.
-- **Adversarially challenge the implementation** ("review the implementation",
-  "adversarial review", "default/legacy review", "quick review of the
-  implementation", "deep review of the code", "did it actually do what the
-  plan said", "check the code that was written") → read and follow
+- `>i`, `>i1`–`>i4` — **Adversarially challenge the implementation** ("review the
+  implementation", "adversarial review", "default/legacy review", "quick review
+  of the implementation", "deep review of the code", "did it actually do what
+  the plan said", "check the code that was written") → read and follow
   `impl-challenge.md`. It offers effort tiers (quick / default / advanced /
   deep; default = the legacy three-axis adversarial review) — a tier named in
   the user's ask is honored ("adversarial review" with no qualifier →
   default, and an inferred tier is always announced with the recommended
-  alternative named); otherwise it asks, recommending advanced.
-- **Re-review after the agent moved on — a recheck round** ("refetch and
-  recheck", "refetch and recheck round N", "recheck", "re-review", "look
-  again", "check it again", "is it fixed now", "review it again after the
-  changes") → **refetch the followed screen (Step 1), then re-run the review
-  sub-procedure that produced your previous round, end to end.** If you have
-  not run one in this conversation, pick it with the phase-driven default
-  ladder above.
+  alternative named). A tier digit **is** a named tier: `>i1` quick, `>i2`
+  default, `>i3` advanced, `>i4` deep — no prompt and no "inferred tier" line,
+  whatever the profile configures. A digitless `>i` is the generic ask: it
+  resolves through the profile's `shadow_impl_review_tier` when set; otherwise
+  it asks, recommending advanced.
+- `>r`, `>r<code>` — **Re-review after the agent moved on — a recheck round**
+  ("refetch and recheck", "refetch and recheck round N", "recheck",
+  "re-review", "look again", "check it again", "is it fixed now", "review it
+  again after the changes") → **refetch the followed screen (Step 1), then run
+  a new round of a review sub-procedure, end to end.** `>r` on its own (and
+  the free-text forms) re-runs the one that produced your previous round, or,
+  if you have run none in this conversation, the one the phase-driven default
+  ladder above picks. `>r` **plus a review code** names the review instead —
+  `>rpc` challenge the plan, `>ri` review the implementation (`>ri3` at
+  Advanced), `>rpa` assumptions, `>rd` error diagnosis — and runs a new round
+  of it whether or not it was the last one. Only these four compose with `>r`:
+  they are the round-headed concern producers, and a "round" is not defined
+  for the others.
 
   **A recheck is a full new review round, not a conversational follow-up.**
   Never answer one in prose alone. Re-enter the sub-procedure and run its emit
@@ -281,19 +334,19 @@ costs one short sentence, never a refusal.
   If the ask names a round ("recheck round 3"), use that N in the header;
   otherwise increment your own count. Say in one line which sub-procedure you
   re-ran and which round this is.
-- **Socratic questioning of a plan** ("ask me questions about this", "make me
-  think it through") → read and follow `plan-socratic.md`.
-- **Surface a plan's assumptions** ("what is this assuming?", "what has to be
-  true?") → read and follow `plan-assumptions.md`.
-- **Diagnose skill/helper errors in the followed agent** ("what's going wrong
+- `>ps` — **Socratic questioning of a plan** ("ask me questions about this",
+  "make me think it through") → read and follow `plan-socratic.md`.
+- `>pa` — **Surface a plan's assumptions** ("what is this assuming?", "what has
+  to be true?") → read and follow `plan-assumptions.md`.
+- `>d` — **Diagnose skill/helper errors in the followed agent** ("what's going wrong
   here?", "why does it keep erroring/retrying?", "diagnose these errors") — when
   the screen shows tool-call errors or retries (`InputValidationError`,
   tracebacks, bash stderr, repeated commands) → read and follow
   `plan-diagnose-errors.md`. It diagnoses the errors, presents candidate concerns
   for the user to pick from, and offers to spin chosen ones into `/aitask-explore`
   fix-tasks. On-request only — never offered proactively.
-- **Learn a skill from what the followed agent just did** ("learn a skill from
-  this", "capture this workflow as a skill", "turn this into a reusable skill") →
+- `>l` — **Learn a skill from what the followed agent just did** ("learn a skill
+  from this", "capture this workflow as a skill", "turn this into a reusable skill") →
   read and follow `spawn-learn-skill.md`. You do NOT run the learn yourself — it
   would occupy you; instead you spawn a dedicated learner agent
   (`/aitask-learn-skill <followed_pane_id>`) in its own new window, which captures

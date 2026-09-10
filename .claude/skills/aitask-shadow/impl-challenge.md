@@ -165,19 +165,21 @@ whole procedure — stated once here, not repeated per tier.
 
 Auto-detect the tier from the user's free-text ask:
 
-- "quick" / "fast" → **Quick**
-- "default" / "basic" / "legacy" / an unqualified "adversarial review" →
-  **Default**
-- "advanced" / "standard" / "normal" → **Advanced**
-- "deep" / "thorough" / "max" / "exhaustive" → **Deep**
+- "quick" / "fast" / `>i1` → **Quick**
+- "default" / "basic" / "legacy" / an unqualified "adversarial review" /
+  `>i2` → **Default**
+- "advanced" / "standard" / "normal" / `>i3` → **Advanced**
+- "deep" / "thorough" / "max" / "exhaustive" / `>i4` → **Deep**
 {% if profile.shadow_impl_review_tier is defined and profile.shadow_impl_review_tier -%}
-- A generic "review the implementation" with no level or compatibility wording:
+- A generic "review the implementation" (including a digitless `>i`) with no
+  level or compatibility wording:
   run **{{ profile.shadow_impl_review_tier }}** — the tier configured by profile
   '{{ profile.name }}' via `shadow_impl_review_tier`. Announce it and name the
   override in the same line: "say 'deep review' (or any other tier) to run a
   different one." Do **NOT** ask.
 {% else -%}
-- A generic "review the implementation" with no level or compatibility wording:
+- A generic "review the implementation" (including a digitless `>i`) with no
+  level or compatibility wording:
   ask via `AskUserQuestion` (Header "Review tier") with four options —
   "Advanced (Recommended) — systematic angle-based review with precision
   verification, ≤8 findings" / "Default — the legacy three-axis adversarial
@@ -188,6 +190,11 @@ Auto-detect the tier from the user's free-text ask:
   options per question (verified live on v0.144.6; see
   `.agents/skills/codex_tool_mapping.md`).
 {% endif %}
+A tier digit counts as **explicit wording** — rank 1 of the resolution order
+below — so `>i3` runs Advanced whatever the profile configures, and needs no
+"inferred tier" announcement. `>i` with no digit names no tier: it is the
+*generic* ask the bullet above resolves.
+
 Nothing routes to Quick implicitly — it runs only on an explicit request.
 
 **Resolution order (apply in this order).** **1.** A tier named in the user's ask

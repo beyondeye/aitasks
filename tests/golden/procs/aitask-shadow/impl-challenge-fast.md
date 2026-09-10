@@ -165,16 +165,22 @@ whole procedure — stated once here, not repeated per tier.
 
 Auto-detect the tier from the user's free-text ask:
 
-- "quick" / "fast" → **Quick**
-- "default" / "basic" / "legacy" / an unqualified "adversarial review" →
-  **Default**
-- "advanced" / "standard" / "normal" → **Advanced**
-- "deep" / "thorough" / "max" / "exhaustive" → **Deep**
-- A generic "review the implementation" with no level or compatibility wording:
+- "quick" / "fast" / `>i1` → **Quick**
+- "default" / "basic" / "legacy" / an unqualified "adversarial review" /
+  `>i2` → **Default**
+- "advanced" / "standard" / "normal" / `>i3` → **Advanced**
+- "deep" / "thorough" / "max" / "exhaustive" / `>i4` → **Deep**
+- A generic "review the implementation" (including a digitless `>i`) with no
+  level or compatibility wording:
   run **advanced** — the tier configured by profile
   'fast' via `shadow_impl_review_tier`. Announce it and name the
   override in the same line: "say 'deep review' (or any other tier) to run a
   different one." Do **NOT** ask.
+
+A tier digit counts as **explicit wording** — rank 1 of the resolution order
+below — so `>i3` runs Advanced whatever the profile configures, and needs no
+"inferred tier" announcement. `>i` with no digit names no tier: it is the
+*generic* ask the bullet above resolves.
 
 Nothing routes to Quick implicitly — it runs only on an explicit request.
 
