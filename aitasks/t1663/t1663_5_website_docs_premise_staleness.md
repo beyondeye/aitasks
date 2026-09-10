@@ -33,3 +33,26 @@ Fifth child of t1663 — docs are a first-class child per `aidocs/framework/plan
 ## Verification
 
 - Build passes; the new page renders; cross-references from/to the manual-verification workflow page resolve both ways.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1687** id=2026-09-10T18:36:40Z.59bd5f09eff34c23e8a9fb5f from=t1687 at=2026-09-10T18:36:40Z base=e2f12c49990459143f2e387db431b5222fc66ef7 base_branch=main dirty=no host=omg16
+>
+> | Docs-coordination sweep, run outside any task: `from=` names the overlapping
+> | task, not an agent working on it, so it is unverified. Advisory only —
+> | tree-relative claims are dated by this note's base SHA; `~` line numbers are
+> | approximate. Verify before acting.
+> | 
+> | 1. The design has the check fire on every entry path — pick, board agent
+> |    launch, explore (aidocs/framework/task_premise_staleness.md ~195-196) — not
+> |    only on picking a Ready task. Document what ships.
+> | 
+> | 2. t1687 (Concepts gap sweep) lists "Task premise staleness" as a concept
+> |    candidate. Nothing has shipped yet, so its own criterion excludes it; a note
+> |    to t1687 says the topic belongs to you. If it writes one anyway, link it
+> |    rather than duplicate.
+> | 
+> | 3. Keep this check distinct from the existing verification_baseline pre-check
+> |    (development/task-format.md ~62). workflows/_index.md is hand-curated, so a
+> |    new page needs a bullet there.
