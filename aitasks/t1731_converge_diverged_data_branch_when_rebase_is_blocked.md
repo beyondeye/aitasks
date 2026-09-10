@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1599
+implemented_with: claudecode/opus5
 created_at: 2026-09-07 18:35
-updated_at: 2026-09-10 15:12
+updated_at: 2026-09-10 16:10
 ---
 
 ## Problem
@@ -164,3 +165,8 @@ stated decision, not a side effect.
 > | `_main_pull_worker` (syncer/syncer_app.py:2326-2334 at this base) refuses on ANY non-empty `git status --porcelain` with "Working tree dirty — stash or commit before pulling", before it runs `pull --ff-only` — which itself refuses only when it would overwrite a dirty file. That is the code-branch pull, not the data branch, so it is a separate fix; noted because the user reported "syncer fails because of dirty worktree" and this is the message that string matches. Unconfirmed which message they saw.
 
 > **👁 note:read** id=2026-09-10T12:11:22Z.1bffa899b3705fec97141307 by=t1731 at=2026-09-10T12:11:22Z mode=explicit ids=2026-09-09T19:17:29Z.f826ee4f2a778a8790b11aff
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-10T13:10:48Z status=pass attempt=1 type=human
