@@ -13,3 +13,7 @@ updated_at: 2026-09-10 15:30
 ---
 
 Carry-over of deferred manual-verification items from t1657_7. Re-pick this task to continue the remaining checklist.
+
+## Verification Checklist
+
+- [ ] [t1657_5] With a second live Claude session holding the target task on this host, invoking /aitask-note end-to-end resolves LIVE_PANE, the adapter payload names the exact note id appended to that task's ## Inbox, and the result is reported as LIVE_QUEUED - enqueued, never read or delivered. — DEFER 2026-09-10 15:10 user: deferred in the interactive loop; needs a live peer Claude session to exercise LIVE_PANE to ListAgents to SendMessage to LIVE_QUEUED
