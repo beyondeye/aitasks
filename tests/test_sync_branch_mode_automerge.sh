@@ -625,6 +625,522 @@ assert_no_rebase_wedge "Test 9" "$TMP9/local"
 
 rm -rf "$TMP9"
 
+# =============================================================================
+# Tests 10-14 (t1747_2): ait_automerge_advance must never discard a commit on an
+# unverified assumption. Rows A1 and A2 of the fail-open probe audit — rule and
+# dispositions: aidocs/framework/failopen_git_probes.md
+#
+# Three ways today's build ran `rebase --skip` (which DISCARDS the replayed
+# commit) and still reported AUTOMERGED at rc 0:
+#   A1   the advance's own unresolved-file probe could not be read   (Test 11)
+#   A1'  the probe was read, but "nothing unresolved" was taken for
+#        "empty patch" while `--continue` had failed for another reason (12)
+#   A2   the LOOP-ENTRY probe could not be read, so the resolver was
+#        skipped and control fell straight into the advance           (Test 14)
+# Test 10 is the permit direction all three must leave intact; Test 13 pins the
+# helpers' call sites so a new consumer cannot be added without a disposition.
+#
+# Every half has its own fixture AND its own mutant control: each control
+# regresses exactly one half in the FIXTURE's copy of lib/task_automerge.sh
+# (never the real one) and must observe that half's defect.
+# =============================================================================
+
+# assert_defect_present <desc> <condition-cmd...> — the control INVERTS: the
+# defect must be observable against the regressed build. (tests/test_fold_mark.sh)
+assert_defect_present() {
+    local desc="$1"; shift
+    TOTAL=$((TOTAL + 1))
+    if "$@"; then
+        PASS=$((PASS + 1))
+    else
+        FAIL=$((FAIL + 1))
+        echo "FAIL: negative control — $desc (the regressed build did NOT exhibit the defect; the test above proves nothing)"
+    fi
+}
+
+_eq() { [[ "$1" == "$2" ]]; }
+# <tmpdir> <subject> — is a commit with exactly this subject on local's data branch?
+_local_log_has()   { git -C "$1/local/.aitask-data" log --format=%s | grep -qxF -- "$2"; }
+_local_log_lacks() { ! _local_log_has "$@"; }
+# <shimbin> <needle> — did the shimmed git see this argv fragment?
+_git_log_has()     { grep -qF -- "$2" "$1/git.log" 2>/dev/null; }
+_yes_no()          { if "$@"; then echo yes; else echo no; fi; }
+
+# Fixture P: a conflict whose auto-merge lands EXACTLY on HEAD — a genuinely
+# empty patch. local changes only `updated_at`, to an OLDER value; pc2 changes
+# `priority` and a NEWER `updated_at` on the adjacent line. The hunks overlap, so
+# the rebase really conflicts, yet the driver resolves to pc2's file verbatim.
+# (Fixture R is plain setup_branch_mode_repos: its merge is a real patch.)
+# Echoes the tmpdir.
+setup_empty_patch_conflict() {
+    local tmpdir
+    tmpdir="$(setup_branch_mode_repos)"
+    (
+        cd "$tmpdir/local"
+        git -C .aitask-data fetch -q origin
+        git -C .aitask-data reset -q --hard origin/aitask-data~1
+        printf -- '---\npriority: high\nupdated_at: 2026-01-01 09:00\n---\nBody\n' \
+            > .aitask-data/aitasks/t1_sample.md
+        git -C .aitask-data add -A
+        git -C .aitask-data -c user.email=test@test.com -c user.name=Test \
+            commit -q -m "local: older ts only"
+    ) >/dev/null 2>&1
+    (
+        cd "$tmpdir/pc2"
+        git fetch -q origin
+        git reset -q --hard origin/aitask-data~1
+        printf -- '---\npriority: low\nupdated_at: 2026-01-01 12:00\n---\nBody\n' \
+            > aitasks/t1_sample.md
+        git add -A
+        git commit -q -m "pc2: priority and newer ts"
+        git push -q -f
+    ) >/dev/null 2>&1
+    echo "$tmpdir"
+}
+
+# install_advance_shim <bindir> <mode> — the argv-keyed PATH shim of
+# install_failing_advance_shim, extended to log every invocation to
+# <bindir>/git.log (so "was --skip attempted?" is observed, not inferred).
+# <mode> selects what fails:
+#   continue        `rebase --continue` only. That is the state OLD git (< 2.26)
+#                   produces natively for an empty patch — current git's
+#                   --continue drops an empty commit itself and never reaches the
+#                   --skip fallback — so the case is production-reachable.
+#   continue+probe  the above, AND `diff --diff-filter=U` once a `--continue` has
+#                   been seen: exactly the probe the --skip fallback consults.
+#                   do_pull_rebase's probe and the loop-entry probe run earlier
+#                   and must stay readable, or the advance is never reached.
+#   late-probe      no rebase verb; every `diff --diff-filter=U` AFTER THE FIRST
+#                   fails. do_pull_rebase makes exactly one before the loop, so
+#                   the loop-entry probe is the first unreadable one.
+# `--skip` and `--abort` always pass through: the fallback must stay reachable,
+# and the cleanup these tests assert must be able to run.
+install_advance_shim() {
+    local bindir="$1" mode="$2" real_git
+    real_git="$(command -v git)"
+    mkdir -p "$bindir"
+    cat > "$bindir/git" <<SHIMEOF
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$bindir/git.log"
+_rebase=0 _cont=0 _diff=0 _u=0
+for _a in "\$@"; do
+    case "\$_a" in
+        rebase) _rebase=1 ;;
+        --continue) [[ \$_rebase -eq 1 ]] && _cont=1 ;;
+        diff) _diff=1 ;;
+        --diff-filter=U) _u=1 ;;
+    esac
+done
+case "$mode" in
+    continue|continue+probe)
+        if [[ \$_cont -eq 1 ]]; then
+            : > "$bindir/.continue-seen"
+            echo "fatal: simulated continue failure (test shim)" >&2
+            exit 128
+        fi
+        if [[ "$mode" == "continue+probe" && \$_diff -eq 1 && \$_u -eq 1 \\
+              && -e "$bindir/.continue-seen" ]]; then
+            echo "fatal: simulated unreadable index (test shim)" >&2
+            exit 128
+        fi ;;
+    late-probe)
+        if [[ \$_diff -eq 1 && \$_u -eq 1 ]]; then
+            if [[ -e "$bindir/.probe-seen" ]]; then
+                echo "fatal: simulated unreadable index (test shim)" >&2
+                exit 128
+            fi
+            : > "$bindir/.probe-seen"
+        fi ;;
+esac
+exec "$real_git" "\$@"
+SHIMEOF
+    chmod +x "$bindir/git"
+}
+
+# wrap_merge_driver <repo> <marker> — replace the fixture's merge driver with a
+# wrapper that touches <marker>, then runs the real one. "The resolver never
+# ran" becomes an observation; Test 14's marker control proves the wrapper works.
+wrap_merge_driver() {
+    local drv="$1/.aitask-scripts/board/aitask_merge.py" marker="$2"
+    mv "$drv" "$drv.real"
+    cat > "$drv" <<PYEOF
+import runpy, sys
+open("$marker", "w").close()
+sys.argv[0] = "$drv.real"
+runpy.run_path("$drv.real", run_name="__main__")
+PYEOF
+}
+
+# run_sync <tmpdir> [shimbin] — `ait sync --batch` in the fixture's local clone.
+# Sets SYNC_OUT (ANSI-stripped stdout) and SYNC_RC; stderr -> <tmpdir>/err.txt.
+run_sync() {
+    local tmp="$1" bin="${2:-}" out rc=0
+    if [[ -n "$bin" ]]; then
+        out=$(cd "$tmp/local" && PATH="$bin:$PATH" ./ait sync --batch 2>"$tmp/err.txt") || rc=$?
+    else
+        out=$(cd "$tmp/local" && ./ait sync --batch 2>"$tmp/err.txt") || rc=$?
+    fi
+    SYNC_OUT=$(printf '%s' "$out" | strip_ansi)
+    SYNC_RC=$rc
+}
+
+# --- Mutant installers --------------------------------------------------------
+# Each regresses ONE half of the fix in the fixture's copy, fails loudly on a
+# stale anchor, proves its substitution landed, and proves the rest of the
+# advance survived — otherwise a control observes "no guard" rather than
+# "fail-open guard". They compose; cross-half survival is checked by the caller.
+
+# _automerge_replace <repo> <old> <new> — exactly-once literal replacement.
+_automerge_replace() {
+    python3 - "$1/.aitask-scripts/lib/task_automerge.sh" "$2" "$3" <<'PY'
+import sys
+p, old, new = sys.argv[1:4]
+s = open(p).read()
+n = s.count(old)
+if n != 1:
+    sys.stderr.write("FATAL: mutant anchor matched %d times (stale?): %r\n" % (n, old))
+    sys.exit(1)
+open(p, "w").write(s.replace(old, new, 1))
+PY
+}
+
+# _require <present|absent> <file> <fixed-string> <what went wrong>
+_require() {
+    local want="$1" f="$2" needle="$3" msg="$4" found=absent
+    grep -qF -- "$needle" "$f" && found=present
+    if [[ "$found" != "$want" ]]; then
+        echo "FAIL: negative control — $msg"
+        FAIL=$((FAIL + 1)); TOTAL=$((TOTAL + 1))
+        return 1
+    fi
+}
+
+_control_ok() { TOTAL=$((TOTAL + 1)); PASS=$((PASS + 1)); }
+
+_control_install_failed() {
+    echo "FAIL: negative control — could not install the $1 mutant (anchor gone stale?)"
+    FAIL=$((FAIL + 1)); TOTAL=$((TOTAL + 1))
+}
+
+# A1: the advance's probe back to `|| true`.
+install_prefix_a1_probe() {
+    local f="$1/.aitask-scripts/lib/task_automerge.sh"
+    _automerge_replace "$1" \
+'    local unresolved="" u_rc=0
+    unresolved="$(_ait_data_git diff --name-only --diff-filter=U 2>/dev/null)" || u_rc=$?
+    (( u_rc == 0 )) || return 1
+' \
+'    local unresolved
+    unresolved=$(_ait_data_git diff --name-only --diff-filter=U 2>/dev/null || true)
+' || { _control_install_failed "A1 probe"; return 1; }
+    _require absent  "$f" 'u_rc' "A1: the status capture is still in place" || return 1
+    _require present "$f" 'diff-filter=U 2>/dev/null || true)' "A1: the fail-open probe was not installed" || return 1
+    _require present "$f" 'ait_automerge_advance() {' "A1: the advance itself was excised" || return 1
+    _require present "$f" 'rebase --skip' "A1: the --skip fallback was excised" || return 1
+    _control_ok
+}
+
+# A1': drop the empty-patch verification.
+install_no_emptiness_check() {
+    local f="$1/.aitask-scripts/lib/task_automerge.sh"
+    _automerge_replace "$1" \
+'    local e_rc=0
+    _ait_data_git diff --cached --quiet HEAD >/dev/null 2>&1 || e_rc=$?
+    (( e_rc == 0 )) || return 1
+' \
+'' || { _control_install_failed "emptiness check"; return 1; }
+    _require absent  "$f" 'diff --cached --quiet HEAD' "A1': the emptiness check is still in place" || return 1
+    _require present "$f" '[[ -z "$unresolved" ]] || return 1' "A1': the unresolved gate was excised" || return 1
+    _require present "$f" 'ait_automerge_advance() {' "A1': the advance itself was excised" || return 1
+    _require present "$f" 'rebase --skip' "A1': the --skip fallback was excised" || return 1
+    _control_ok
+}
+
+# A2: the loop's probe helper back to `|| true` (its consumers untouched).
+install_prefix_a2_probe() {
+    local f="$1/.aitask-scripts/lib/task_automerge.sh"
+    _automerge_replace "$1" \
+'_ait_automerge_conflicted_now() {
+    local out="" rc=0
+    out="$(_ait_data_git diff --name-only --diff-filter=U 2>/dev/null)" || rc=$?
+    (( rc == 0 )) || return 2
+    printf '"'"'%s'"'"' "$out"
+}' \
+'_ait_automerge_conflicted_now() {
+    _ait_data_git diff --name-only --diff-filter=U 2>/dev/null || true
+}' || { _control_install_failed "A2 probe"; return 1; }
+    _require absent  "$f" "printf '%s' \"\$out\"" "A2: the tri-state helper is still in place" || return 1
+    _require present "$f" '    _ait_data_git diff --name-only --diff-filter=U 2>/dev/null || true' "A2: the fail-open probe was not installed" || return 1
+    _require present "$f" '|| c_rc=$?' "A2: the consumers' absorbing capture was excised" || return 1
+    _control_ok
+}
+
+# --- Test 10: the permit direction — a VERIFIED empty patch is still skipped --
+echo "--- Test 10: a verified-empty patch still takes the --skip fallback ---"
+
+# Precondition: P really is an empty patch. Unshimmed, current git drops an empty
+# replayed commit during `--continue` itself; had the patch been real, a commit
+# with this subject would survive the replay. (On older git --continue stops
+# instead, and the fallback below produces the same end state.)
+TMP10c="$(setup_empty_patch_conflict)"
+run_sync "$TMP10c"
+assert_eq_trim "P control: unshimmed run auto-merges" "AUTOMERGED" "$SYNC_OUT"
+assert_exit_zero_rc "P control: unshimmed run succeeds" "$SYNC_RC"
+assert_eq "P control: the replayed commit was empty (nothing of it survives)" "no" \
+    "$(_yes_no _local_log_has "$TMP10c" "local: older ts only")"
+assert_contains "P control: the result is pc2's file verbatim" "priority: low" \
+    "$(cat "$TMP10c/local/.aitask-data/aitasks/t1_sample.md")"
+rm -rf "$TMP10c"
+
+# The same fixture with `--continue` failing, as old git does: the fallback must
+# still fire, because the patch is verifiably empty. This is also precondition (a)
+# for Test 11 — same fixture, same --continue failure, probe readable ⇒ --skip
+# taken and succeeding, so Test 11's refusal can only come from the probe.
+TMP10="$(setup_empty_patch_conflict)"
+install_advance_shim "$TMP10/shimbin" continue
+run_sync "$TMP10" "$TMP10/shimbin"
+assert_eq_trim "verified-empty patch: still AUTOMERGED" "AUTOMERGED" "$SYNC_OUT"
+assert_exit_zero_rc "verified-empty patch: sync succeeds" "$SYNC_RC"
+assert_eq "verified-empty patch: --continue was failed (the fallback was needed)" "yes" \
+    "$(_yes_no _git_log_has "$TMP10/shimbin" "rebase --continue")"
+assert_eq "verified-empty patch: the --skip fallback was taken" "yes" \
+    "$(_yes_no _git_log_has "$TMP10/shimbin" "rebase --skip")"
+assert_no_rebase_wedge "Test 10" "$TMP10/local"
+rm -rf "$TMP10"
+
+# --- Test 11: A1 — an unread probe never authorises --skip ---------------------
+echo "--- Test 11: an unread unresolved-file probe refuses --skip ---"
+
+TMP11="$(setup_empty_patch_conflict)"
+install_advance_shim "$TMP11/shimbin" continue+probe
+
+# Precondition (b): the shim makes the probe unreadable — and ONLY once a
+# --continue has been seen, so the earlier probes stay readable.
+probe_before=0
+"$TMP11/shimbin/git" -C "$TMP11/local/.aitask-data" diff --name-only --diff-filter=U \
+    >/dev/null 2>&1 || probe_before=$?
+: > "$TMP11/shimbin/.continue-seen"
+probe_after=0
+"$TMP11/shimbin/git" -C "$TMP11/local/.aitask-data" diff --name-only --diff-filter=U \
+    >/dev/null 2>&1 || probe_after=$?
+rm -f "$TMP11/shimbin/.continue-seen" "$TMP11/shimbin/git.log"
+assert_exit_zero_rc "probe shim: readable before any --continue" "$probe_before"
+assert_exit_nonzero_rc "probe shim: UNREADABLE once --continue was seen" "$probe_after"
+
+run_sync "$TMP11" "$TMP11/shimbin"
+assert_eq_trim "unread probe: reports ERROR:rebase_continue_failed" \
+    "ERROR:rebase_continue_failed" "$SYNC_OUT"
+assert_exit_nonzero_rc "unread probe: exits non-zero" "$SYNC_RC"
+assert_eq "unread probe: --skip was never attempted" "no" \
+    "$(_yes_no _git_log_has "$TMP11/shimbin" "rebase --skip")"
+assert_eq "unread probe: the replayed commit is still reachable" "yes" \
+    "$(_yes_no _local_log_has "$TMP11" "local: older ts only")"
+assert_no_rebase_wedge "Test 11" "$TMP11/local"
+rm -rf "$TMP11"
+
+# Negative control: A1 alone regressed. The emptiness check must survive, or the
+# --skip below would not be A1's doing.
+TMP11m="$(setup_empty_patch_conflict)"
+if install_prefix_a1_probe "$TMP11m/local" \
+   && _require present "$TMP11m/local/.aitask-scripts/lib/task_automerge.sh" \
+        'diff --cached --quiet HEAD' "A1 control: the emptiness check must survive"; then
+    install_advance_shim "$TMP11m/shimbin" continue+probe
+    run_sync "$TMP11m" "$TMP11m/shimbin"
+    assert_defect_present "pre-fix A1: an unread probe authorises --skip" \
+        _git_log_has "$TMP11m/shimbin" "rebase --skip"
+    assert_defect_present "pre-fix A1: the run reports AUTOMERGED" \
+        _eq "$SYNC_OUT" "AUTOMERGED"
+    assert_defect_present "pre-fix A1: the replayed commit is gone" \
+        _local_log_lacks "$TMP11m" "local: older ts only"
+fi
+rm -rf "$TMP11m"
+
+# --- Test 12: A1' — "nothing unresolved" is not "empty patch" -----------------
+echo "--- Test 12: a real patch is never skipped when --continue fails ---"
+
+TMP12="$(setup_branch_mode_repos)"
+# Precondition: R is a REAL patch — local contributes content pc2 does not have.
+assert_contains "R: local's commit adds a label" "api" \
+    "$(git -C "$TMP12/local/.aitask-data" show HEAD:aitasks/t1_sample.md 2>/dev/null)"
+assert_not_contains "R: pc2's side does not have it" "api" \
+    "$(git -C "$TMP12/pc2" show HEAD:aitasks/t1_sample.md 2>/dev/null)"
+
+install_advance_shim "$TMP12/shimbin" continue
+run_sync "$TMP12" "$TMP12/shimbin"
+assert_eq_trim "real patch: reports ERROR:rebase_continue_failed" \
+    "ERROR:rebase_continue_failed" "$SYNC_OUT"
+assert_exit_nonzero_rc "real patch: exits non-zero" "$SYNC_RC"
+assert_eq "real patch: --skip was never attempted" "no" \
+    "$(_yes_no _git_log_has "$TMP12/shimbin" "rebase --skip")"
+assert_eq "real patch: the local commit is still reachable" "yes" \
+    "$(_yes_no _local_log_has "$TMP12" "local: labels")"
+assert_no_rebase_wedge "Test 12" "$TMP12/local"
+rm -rf "$TMP12"
+
+# Negative control: the emptiness check alone removed (A1's capture survives).
+TMP12m="$(setup_branch_mode_repos)"
+if install_no_emptiness_check "$TMP12m/local" \
+   && _require present "$TMP12m/local/.aitask-scripts/lib/task_automerge.sh" \
+        '|| u_rc=$?' "A1' control: A1's status capture must survive"; then
+    install_advance_shim "$TMP12m/shimbin" continue
+    run_sync "$TMP12m" "$TMP12m/shimbin"
+    assert_defect_present "pre-fix A1': a real patch is skipped" \
+        _git_log_has "$TMP12m/shimbin" "rebase --skip"
+    assert_defect_present "pre-fix A1': the run reports AUTOMERGED" \
+        _eq "$SYNC_OUT" "AUTOMERGED"
+    assert_defect_present "pre-fix A1': the local commit is gone" \
+        _local_log_lacks "$TMP12m" "local: labels"
+fi
+rm -rf "$TMP12m"
+
+# --- Test 13: every consumer of the two helpers has a recorded disposition ----
+echo "--- Test 13: helper call sites equal the disposition table ---"
+
+# One "<path>::<function>::<helper><TAB><tagged|untagged>" row per CALL site.
+# Function spans follow this codebase's `name() {` ... `}` (column 0) layout;
+# comment lines are not calls. A site is "tagged" when the comment block
+# DIRECTLY above it (no blank or code line between) contains `unverified:`, so a
+# second call placed after a tagged one cannot borrow its tag.
+#
+# What this buys: a call site added, moved to another function, or dropped into
+# lib/task_automerge.sh without its own disposition turns this test red. What it
+# does NOT buy: it never checks that a tag's text is TRUE of the code under it,
+# and the tag rule covers lib/task_automerge.sh only — aitask_sync.sh's probes are
+# rows A3/A4/A5/A10 (t1747_3), so its consumer is pinned by identity alone.
+AUTOMERGE_CALLSITE_AWK='
+BEGIN { n = split(HELPERS, HL, " ") }
+{
+    s = $0; sub(/^[ \t]+/, "", s)
+    if (s ~ /^#/) { cblock = cblock " " s; next }
+    if ($0 ~ /^[A-Za-z_][A-Za-z0-9_]*\(\) *\{/) {
+        fn = $0; sub(/\(\).*/, "", fn); cblock = ""; next
+    }
+    if ($0 ~ /^\} *$/) { fn = ""; cblock = ""; next }
+    for (i = 1; i <= n; i++)
+        if (index($0, HL[i]) > 0)
+            printf "%s::%s::%s\t%s\n", REL, (fn == "" ? "<toplevel>" : fn), HL[i], \
+                (cblock ~ /unverified:/ ? "tagged" : "untagged")
+    cblock = ""
+}'
+
+# Files are selected with POSIX `find -name`, not `grep -r --include`: GNU grep
+# matches --include against the basename, BSD/macOS grep against the full path
+# (grep(1) on both), and no CI job runs this suite on macOS to catch the split.
+automerge_callsites() {
+    local root="$1" f
+    find "$root" -type f -name '*.sh' \
+        -exec grep -lE 'ait_automerge_advance|_ait_automerge_conflicted_now' {} + |
+    while IFS= read -r f; do
+        awk -v HELPERS="ait_automerge_advance _ait_automerge_conflicted_now" \
+            -v REL="${f#"$root"/}" "$AUTOMERGE_CALLSITE_AWK" "$f"
+    done | LC_ALL=C sort
+}
+
+# The scanner can fail: a second call borrowing a tag, a top-level call, and a
+# comment that merely NAMES a helper must each be classified correctly.
+SELF13="$(mktemp -d)"
+cat > "$SELF13/x.sh" <<'SELFEOF'
+f_one() {
+    # unverified: only the first call carries this
+    ait_automerge_advance
+    ait_automerge_advance
+}
+# a comment naming ait_automerge_advance is not a call
+_ait_automerge_conflicted_now
+SELFEOF
+assert_eq "scanner self-test: attribution and per-site tags" \
+    "$(printf 'x.sh::<toplevel>::_ait_automerge_conflicted_now\tuntagged\nx.sh::f_one::ait_automerge_advance\ttagged\nx.sh::f_one::ait_automerge_advance\tuntagged\n' | LC_ALL=C sort)" \
+    "$(automerge_callsites "$SELF13")"
+rm -rf "$SELF13"
+
+rows13="$(automerge_callsites "$PROJECT_DIR/.aitask-scripts")"
+expected13="$(printf '%s\n' \
+    'aitask_sync.sh::do_pull_rebase::ait_automerge_advance' \
+    'lib/task_automerge.sh::ait_automerge_rebase_loop::ait_automerge_advance' \
+    'lib/task_automerge.sh::ait_automerge_rebase_loop::_ait_automerge_conflicted_now' \
+    'lib/task_automerge.sh::ait_automerge_rebase_loop::_ait_automerge_conflicted_now' \
+    | LC_ALL=C sort)"
+ids13="$(printf '%s\n' "$rows13" | cut -f1)"
+assert_eq "call-site identities equal the disposition table" "$expected13" "$ids13"
+if [[ "$ids13" != "$expected13" ]]; then
+    echo "  -> a consumer of ait_automerge_advance / _ait_automerge_conflicted_now changed."
+    echo "     Give it an explicit disposition for 'unverified' (see"
+    echo "     aidocs/framework/failopen_git_probes.md rows A1/A2), then update this table."
+fi
+# A scan that finds nothing must fail, not pass: pin the count and the definitions.
+assert_eq "exactly four call sites" "4" "$(printf '%s\n' "$rows13" | grep -c .)"
+assert_eq "ait_automerge_advance is defined once" "1" \
+    "$(grep -cF 'ait_automerge_advance() {' "$PROJECT_DIR/.aitask-scripts/lib/task_automerge.sh")"
+assert_eq "_ait_automerge_conflicted_now is defined once" "1" \
+    "$(grep -cF '_ait_automerge_conflicted_now() {' "$PROJECT_DIR/.aitask-scripts/lib/task_automerge.sh")"
+assert_eq "every lib/task_automerge.sh call site carries its own unverified: tag" "" \
+    "$(printf '%s\n' "$rows13" | grep -F 'lib/task_automerge.sh::' | grep -F "$(printf '\tuntagged')" || true)"
+
+# --- Test 14: A2 — an unread loop-entry probe refuses before any merge --------
+echo "--- Test 14: an unread loop-entry probe refuses before merge or advance ---"
+
+# Marker control: with no shim the wrapped driver runs and the marker appears, so
+# its absence below is evidence rather than a broken wrapper.
+TMP14c="$(setup_branch_mode_repos)"
+wrap_merge_driver "$TMP14c/local" "$TMP14c/resolver_ran"
+run_sync "$TMP14c"
+assert_eq_trim "marker control: the wrapped driver still auto-merges" "AUTOMERGED" "$SYNC_OUT"
+assert_eq "marker control: the wrapper records a resolver run" "yes" \
+    "$(_yes_no test -e "$TMP14c/resolver_ran")"
+rm -rf "$TMP14c"
+
+TMP14="$(setup_branch_mode_repos)"
+wrap_merge_driver "$TMP14/local" "$TMP14/resolver_ran"
+install_advance_shim "$TMP14/shimbin" late-probe
+run_sync "$TMP14" "$TMP14/shimbin"
+# Chosen so a typo in the status capture cannot pass: a shell that died inside
+# the command substitution prints no token and leaves a wedge; a capture that
+# failed to return 2 lets the resolver run and the advance verbs into the log.
+assert_eq_trim "unread loop-entry probe: reports ERROR:rebase_continue_failed" \
+    "ERROR:rebase_continue_failed" "$SYNC_OUT"
+assert_exit_nonzero_rc "unread loop-entry probe: exits non-zero" "$SYNC_RC"
+assert_eq "unread loop-entry probe: the resolver never ran" "no" \
+    "$(_yes_no test -e "$TMP14/resolver_ran")"
+assert_eq "unread loop-entry probe: no rebase --continue" "no" \
+    "$(_yes_no _git_log_has "$TMP14/shimbin" "rebase --continue")"
+assert_eq "unread loop-entry probe: no rebase --skip" "no" \
+    "$(_yes_no _git_log_has "$TMP14/shimbin" "rebase --skip")"
+assert_eq "unread loop-entry probe: the caller aborted the rebase" "yes" \
+    "$(_yes_no _git_log_has "$TMP14/shimbin" "rebase --abort")"
+assert_eq "unread loop-entry probe: the local commit is still reachable" "yes" \
+    "$(_yes_no _local_log_has "$TMP14" "local: labels")"
+assert_no_rebase_wedge "Test 14" "$TMP14/local"
+rm -rf "$TMP14"
+
+# Negative control: A2 alone regressed (A1 and the emptiness check still fixed).
+# Its own defect: an unread loop-entry probe falls through to the advance.
+TMP14m="$(setup_branch_mode_repos)"
+if install_prefix_a2_probe "$TMP14m/local"; then
+    install_advance_shim "$TMP14m/shimbin" late-probe
+    run_sync "$TMP14m" "$TMP14m/shimbin"
+    assert_defect_present "pre-fix A2: an unread loop-entry probe reaches the advance" \
+        _git_log_has "$TMP14m/shimbin" "rebase --continue"
+fi
+rm -rf "$TMP14m"
+
+# Negative control: the whole pre-fix build — the outcome measured before the fix
+# landed. Silent success, resolver never run, commit discarded.
+TMP14p="$(setup_branch_mode_repos)"
+wrap_merge_driver "$TMP14p/local" "$TMP14p/resolver_ran"
+if install_prefix_a2_probe "$TMP14p/local" \
+   && install_prefix_a1_probe "$TMP14p/local" \
+   && install_no_emptiness_check "$TMP14p/local"; then
+    install_advance_shim "$TMP14p/shimbin" late-probe
+    run_sync "$TMP14p" "$TMP14p/shimbin"
+    assert_defect_present "pre-fix build: reports AUTOMERGED" _eq "$SYNC_OUT" "AUTOMERGED"
+    assert_defect_present "pre-fix build: exits zero" _eq "$SYNC_RC" "0"
+    assert_defect_present "pre-fix build: the resolver never ran" \
+        test ! -e "$TMP14p/resolver_ran"
+    assert_defect_present "pre-fix build: the local commit is gone" \
+        _local_log_lacks "$TMP14p" "local: labels"
+fi
+rm -rf "$TMP14p"
+
 # --- Summary ---
 echo ""
 echo "=== Results: $PASS passed, $FAIL failed (of $TOTAL) ==="

@@ -191,25 +191,49 @@ ait_automerge_files() {
 }
 
 # --- Rebase advancement -------------------------------------------------------
-# Try rebase --continue, fall back to --skip for empty patches (when the
-# auto-merge result matches the current HEAD exactly, git sees "nothing to
-# commit").
+# Try rebase --continue, and fall back to --skip only for a patch VERIFIED to be
+# empty. Current git (>= 2.26) drops an empty replayed commit during --continue
+# itself, so the fallback serves older git -- and --continue also fails for
+# reasons unrelated to emptiness (a hook, a locked index), where skipping would
+# DISCARD a commit with real content.
+#
+# Returns 0 when the rebase advanced, 1 when it did not; the caller aborts.
+# Probe rule and dispositions: aidocs/framework/failopen_git_probes.md (A1)
 ait_automerge_advance() {
     if GIT_EDITOR=true _ait_data_git rebase --continue &>/dev/null; then
         return 0
     fi
-    # If no unresolved files remain, this is an empty patch — skip it.
-    local unresolved
-    unresolved=$(_ait_data_git diff --name-only --diff-filter=U 2>/dev/null || true)
-    if [[ -z "$unresolved" ]] && _ait_data_git rebase --skip &>/dev/null; then
+    # An unreadable probe is not "nothing unresolved": it never authorises --skip.
+    local unresolved="" u_rc=0
+    unresolved="$(_ait_data_git diff --name-only --diff-filter=U 2>/dev/null)" || u_rc=$?
+    (( u_rc == 0 )) || return 1
+    [[ -z "$unresolved" ]] || return 1
+
+    # ...and "nothing unresolved" is not "empty patch". The staged-tree check
+    # exits 0 = identical to HEAD, 1 = a real patch, >= 2 = could not tell, and
+    # "could not tell" is not "empty".
+    local e_rc=0
+    _ait_data_git diff --cached --quiet HEAD >/dev/null 2>&1 || e_rc=$?
+    (( e_rc == 0 )) || return 1
+
+    if _ait_data_git rebase --skip &>/dev/null; then
         return 0
     fi
     return 1
 }
 
-# Internal: the files git currently reports as unresolved, or "" when clean.
+# Internal: the files git currently reports as unresolved.
+#   0 -- the list was read; empty output means "none unresolved"
+#   2 -- the probe could not be read, and its empty output means NOTHING
+# Every consumer runs under `set -euo pipefail` and must ABSORB the status: a
+# bare `x="$(...)"` would exit the shell mid-rebase. Each call site records its
+# disposition in an `# unverified:` comment directly above it, and
+# tests/test_sync_branch_mode_automerge.sh (Test 13) pins the set. (A2)
 _ait_automerge_conflicted_now() {
-    _ait_data_git diff --name-only --diff-filter=U 2>/dev/null || true
+    local out="" rc=0
+    out="$(_ait_data_git diff --name-only --diff-filter=U 2>/dev/null)" || rc=$?
+    (( rc == 0 )) || return 2
+    printf '%s' "$out"
 }
 
 # --- The full resolve-and-advance loop ----------------------------------------
@@ -222,20 +246,24 @@ _ait_automerge_conflicted_now() {
 #   0 — the rebase completed; AIT_AUTOMERGE_RESOLVED = files merged across all rounds
 #   1 — stuck: AIT_AUTOMERGE_REMAINING lists what could not be merged (this also
 #       covers round-cap exhaustion, which is reported on stderr first)
-#   2 — the advance failed for a NON-conflict reason (nothing left unresolved,
-#       yet neither --continue nor --skip worked)
+#   2 — the rebase could not be advanced for a NON-conflict reason: nothing left
+#       unresolved yet neither --continue nor --skip worked, OR the unresolved-file
+#       probe could not be read (nothing was merged or advanced on that probe)
 #
 # Every caller MUST absorb the status (`rc=0; ait_automerge_rebase_loop || rc=$?`):
 # both callers run under `set -euo pipefail`, where a bare call would exit the
 # shell on rc 1 / 2 — bypassing the abort and the CONFLICT: token exactly when
 # they are needed.
 ait_automerge_rebase_loop() {
-    local total=0 round=0 max_rounds conflicted
+    local total=0 round=0 max_rounds conflicted c_rc=0
     max_rounds="$(_ait_automerge_max_rounds)"
 
-    conflicted="$(_ait_automerge_conflicted_now)"
     AIT_AUTOMERGE_REMAINING=""
     AIT_AUTOMERGE_RESOLVED=0
+
+    # unverified: return 2 before any merge or advance, so the caller aborts.
+    conflicted="$(_ait_automerge_conflicted_now)" || c_rc=$?
+    (( c_rc == 0 )) || return 2
 
     while :; do
         round=$((round + 1))
@@ -260,6 +288,8 @@ ait_automerge_rebase_loop() {
             return 1        # AIT_AUTOMERGE_REMAINING already set by ait_automerge_files
         fi
 
+        # unverified: rc 1 -- it never skips on an unread probe or an unverified
+        # empty patch; the re-probe below then tells a new conflict from a failure.
         if ait_automerge_advance; then
             AIT_AUTOMERGE_RESOLVED=$total
             # shellcheck disable=SC2034  # a result global, read by callers in other files
@@ -270,8 +300,10 @@ ait_automerge_rebase_loop() {
         # The advance failed. A new conflict from the next replayed commit is
         # the expected case; anything else is a real failure the caller must
         # distinguish, because its remedy is an abort, not a manual merge.
-        conflicted="$(_ait_automerge_conflicted_now)"
-        if [[ -z "$conflicted" ]]; then
+        c_rc=0
+        # unverified: return 2 -- an unread probe is not "no new conflict".
+        conflicted="$(_ait_automerge_conflicted_now)" || c_rc=$?
+        if (( c_rc != 0 )) || [[ -z "$conflicted" ]]; then
             AIT_AUTOMERGE_RESOLVED=$total
             # shellcheck disable=SC2034  # a result global, read by callers in other files
             AIT_AUTOMERGE_REMAINING=""
