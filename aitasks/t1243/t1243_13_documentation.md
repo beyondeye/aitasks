@@ -119,3 +119,32 @@ Notes.
 - `AGENTS.md` matches the seed block after regeneration (no duplicated block).
 - `hugo build --gc --minify` succeeds in `website/`.
 - No passage names a specific coding agent where a generic phrasing would do.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1709** id=2026-09-10T18:36:27Z.4d8a9266cd2aef0e6d9523b9 from=t1709 at=2026-09-10T18:36:27Z base=e2f12c49990459143f2e387db431b5222fc66ef7 base_branch=main dirty=no host=omg16
+>
+> | Docs-coordination sweep, run outside any task: `from=` names the overlapping
+> | task, not an agent working on it, so it is unverified. Advisory only —
+> | tree-relative claims are dated by this note's base SHA; `~` line numbers are
+> | approximate. Verify before acting.
+> | 
+> | 1. Plan p1243_13 Step 2 still lists "marking (space), bulk move (m)", which
+> |    your own task body says t1432 already documented (c9723f472) — the plan
+> |    contradicts the narrowed scope.
+> | 
+> | 2. Two items inherited from p1243_8's Final Implementation Notes
+> |    (aiplans/archived/p1243/p1243_8_*.md ~368-372, ~714-717) are not in your
+> |    task body: a boardgroup row in commands/sync.md § Merge Rules ("base-aware,
+> |    fails closed to PARTIAL"), and adding boardgroup next to boardidx in the
+> |    "never mutate" list at .claude/skills/aitask-trail/SKILL.md.j2:17 plus
+> |    regenerating its goldens.
+> | 
+> | 3. That .j2 and tests/golden/skills/aitask-trail/ are also edited by t1709
+> |    (unblocked). Whichever lands second regenerates the goldens on top of the
+> |    other. commands/sync.md is also edited by t1725_6, in other sections.
+> | 
+> | 4. Still owed, as the task says: 0 boardgroup hits in the seed instructions,
+> |    AGENTS.md, CLAUDE.md, .codex/instructions.md, .opencode/instructions.md and
+> |    task-creation-batch.md; aitask_create.sh has no --boardgroup.
