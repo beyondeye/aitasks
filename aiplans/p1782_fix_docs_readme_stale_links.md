@@ -175,3 +175,40 @@ None identified.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+- **Actual work done:** `docs/README.md` rewritten as a 9-row section index
+  (inline links, frontmatter descriptions, a pointer line to the guard). New
+  `tests/test_docs_readme_links.sh`: `check_readme()` (LINKS tripwire, DEAD,
+  MISSING against a tree-derived page set) plus 6 tests / 19 assertions: the
+  live repo, a clean fixture baseline, and controls for a dead link, a missing
+  section, a missing top-level page, and bare paths instead of links. One
+  `website/README.md` paragraph pointing at the guard. Follow-up t1788 created
+  for the deferred link-syntax gap.
+- **Red proof:** before the README rewrite, the test gave 16/19. Test 1 failed with
+  exactly the 5 planned `DEAD:` lines plus `MISSING:concepts/_index.md` and
+  `MISSING:tuis/_index.md`; Tests 2–6 passed. After the rewrite: 19/19, exit 0,
+  live `LINKS:9`. The independent one-liner cross-check reports all 9 rows `OK`.
+- **Deviations from plan:**
+  1. Fixture READMEs are **generated** from each fixture's own tree
+     (`write_readme link|bare`) instead of copying the real `docs/README.md`.
+     With a copy, the baseline test would fail before the fix (the old README links
+     pages the fixture skeleton lacks), contradicting the plan's own "Tests 2–6
+     pass either way". Test 1 is the check on the real README.
+  2. t1788 was created **before** the code commit, not after it, so the test
+     header could name it (the plan required both).
+  3. The `website/README.md` paragraph landed in `2f023c594` (t1768), not in
+     this task's commit. That concurrent session path-committed the whole file
+     and swept this hunk in along with its own three. The paragraph is correct
+     and was left as is (rewriting another session's commit is off the table), so
+     t1782's code commit carries only `docs/README.md` and the test. Until that
+     commit landed, HEAD's `website/README.md` pointed at the uncommitted test.
+- **Issues encountered:** a bare `shellcheck` reports SC1091 (info: the sourced
+  `lib/asserts.sh` is not followed), as it does for the existing docs tests;
+  `shellcheck -x -P SCRIPTDIR` is clean.
+- **Key decisions:** section index over a per-page table (user decision); the
+  expected page set is derived from the tree, never hard-coded; no pinned link
+  count (the tripwire plus derived `MISSING:` lines already catch bare paths, and
+  a pinned count would need a test edit for every new section); each control
+  first asserts the fixture has the file it mutates.
+- **Upstream defects identified:** None
