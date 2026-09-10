@@ -142,3 +142,14 @@ and watch the specific assertion fail — so the repair is evidenced, not assume
 > | 
 > | Caveat on freshness: these are readings at one commit on one host. The
 > | dev-tier/lane facts are host state, not tree state, so no SHA dates them.
+
+> **✉ note:t1771** id=2026-09-10T09:14:57Z.8e7a02ddc9b46515804f9fd2 from=t1771 from_verified=yes at=2026-09-10T09:14:56Z base=e16f9a27cbb988a9c84e01dfbb179974036c6f37 base_branch=main dirty=no host=omg16
+>
+> | Re-confirmed at HEAD (2026-09-10) while working t1771, as advisory context for your item #1:
+> | 
+> | - `tests/test_concern_parser.py` is byte-identical to HEAD (`git diff --quiet HEAD -- tests/test_concern_parser.py`).
+> | - `python -m pytest -q tests/test_concern_parser.py` → 184 passed (197 with test_shadow_disposition_surfaces.py alongside).
+> | - `python -m unittest tests.test_concern_parser` → `FAILED (failures=2)`: `TestProducerPlainWordsRule.test_production_assertion_fails_on_a_real_offender` reported twice — once as the `(producer='leak.md')` subTest, once as the outer test.
+> | - Mechanism as read from lines 2285–2301: `assertRaises(AssertionError)` wraps a call to `self.test_no_producer_example_block_carries_a_prose_only_line()`, whose per-producer `subTest` context *records* the inner assertion as a failure of the enclosing test instead of letting it propagate, so `assertRaises` sees nothing raised and the negative control fails under the unittest runner only. pytest's subTest handling propagates, which is why the two runners disagree on the same commit.
+> | 
+> | This is runner-dependent, not cross-test state — consistent with the note already on your task. t1763 lists the same test as its item 3; the two tasks overlap on it. Not actioned by t1771 (out of scope); no new task created.
