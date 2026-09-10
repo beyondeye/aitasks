@@ -230,6 +230,73 @@ bash tests/run_all_python_tests.sh
   the control that must stay green; the fix is a three-line rewire of one call
   site with a test that fails against unfixed code.
 
+## Implementation Notes
+
+All steps landed as planned; no deviations.
+
+- `.aitask-scripts/frozenagent/frozenagent_app.py` — added `import agent_frozen_ops`,
+  the single `_settle_timeout_for(rec)` derivation site, the dispatch-time compute
+  in `_start_restore`, and the `settle_timeout: float | None = None` parameter on
+  `_poll_restore` (the constant `DISPATCH_GRACE + 30.0` is gone).
+- `tests/test_frozenagent_app.py` — new `RestorePollDeadlineTests(_AppCase)` with
+  all five planned tests, plus a local `_FakeTimer` and `from unittest.mock import patch`.
+  `_project(grace)` builds the temp root; `_mount_on(root, **over)` rewrites the
+  fixture record under it.
+
+**Pre-fix control (run):** with only `frozenagent_app.py` stashed, 4 of the 5 new
+tests fail — `40.0 not greater than 60.0` / `not greater than 90.0`, the
+three-argument fallback reporting `restore still restoring after the grace — run
+reconcile` at 41s, and the behavioural pin the same way. The fifth,
+`test_the_default_grace_keeps_the_value_the_viewer_shipped`, passes pre-fix by
+design: it is the compatibility pin.
+
+**Results:** `test_frozenagent_app.py` 56 passed;
+`test_frozenagent_restore_poll_characterization.py` 16 passed **and unedited**
+(`git status` clean for that path); `test_frozen_restore_verdict.py` 26 passed;
+`test_monitor_frozen_filter.py` 69 passed.
+
+## Final Implementation Notes
+
+- **Actual work done:** Exactly the approved plan. `_poll_restore`'s hardcoded
+  `settle_timeout=DISPATCH_GRACE + 30.0` is replaced by a deadline derived from the
+  polled record's own root through the shared `agent_frozen_ops.restore_settle_timeout()`
+  (the helper t1705_7 added). One derivation site, `FrozenAgentApp._settle_timeout_for(rec)`;
+  `_start_restore` computes it once at dispatch and binds it into the poll timer;
+  `_poll_restore` takes it as `settle_timeout: float | None = None` and derives it
+  itself when a caller supplies none. `tests/test_frozenagent_app.py` gained
+  `RestorePollDeadlineTests` (5 tests) plus a local `_FakeTimer` and
+  `from unittest.mock import patch`.
+- **Deviations from plan:** None.
+- **Issues encountered:** None in the change itself. The full Python suite ends
+  `FAILED (failures=3)` out of 7307 — all three are **pre-existing** failures in
+  `tests/test_concern_parser.py` (2) and `tests/test_prompt_detection.py` (1),
+  already tracked by **t1763**. Proven unrelated: both modules fail identically with
+  this task's two files stashed. A note was sent to t1763 reporting that its third
+  listed failure (`tests/test_desync_state.py`) no longer reproduces, so its standing
+  red is 3 failures across 2 modules, not 3.
+- **Key decisions:**
+  - *Compute once at dispatch, not per tick.* Mirrors the monitor twin
+    (`monitor_shared._poll_frozen_outcome`) and avoids re-reading the project YAML at
+    1 Hz. It is also more correct: `rec` is known non-None at dispatch, while
+    mid-restore the record can be transiently unreadable — deriving then would fall
+    back to the cwd and produce a different deadline for some ticks.
+  - *`settle_timeout` defaults to `None`, not to a required parameter.* A required
+    parameter would have forced an edit to the t1705_7 characterization control
+    (`tests/test_frozenagent_restore_poll_characterization.py`), which calls
+    `_poll_restore` with three positional arguments and must stay green **unedited**.
+    Editing a control to accommodate the change it controls for weakens it. Both
+    branches route through the single `_settle_timeout_for` derivation, so the two
+    entry points cannot diverge.
+  - *The fallback is tested at a non-default grace* (`test_the_three_argument_fallback_is_root_aware_too`).
+    Raised in review of the plan: every other new test enters through `_start_restore`,
+    so without this one a future change that left the fallback hardcoded at 40.0 — or
+    reading the cwd instead of the record — would keep them all green.
+  - *Pre-fix control run, not assumed.* With only `frozenagent_app.py` stashed, 4 of
+    the 5 new tests fail (`40.0 not greater than 60.0` / `not greater than 90.0`; the
+    fallback reporting `restore still restoring after the grace — run reconcile` at
+    41s). The fifth, the 40.0 compatibility pin, passes pre-fix by design.
+- **Upstream defects identified:** None
+
 ## Step 9 (Post-Implementation)
 
 Cleanup, archival of `aitasks/t1766_*.md` + this plan, and the merge back to the
