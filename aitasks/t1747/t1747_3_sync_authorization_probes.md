@@ -173,3 +173,5 @@ problem, since they share a test harness.
 > | `aidocs/framework/failopen_git_probes.md` (t1747_1) is the canonical anchor for
 > | the rule, the fix shape and your four Group A rows; it anchors on
 > | file::function for exactly this reason. Point at it rather than restating.
+
+> **👁 note:read** id=2026-09-10T12:39:16Z.3f4062bc921e24bc2c377115 by=t1747_3 at=2026-09-10T12:39:16Z mode=explicit ids=2026-09-09T13:33:17Z.df3139bfa0d60e3df3c0bdc5
