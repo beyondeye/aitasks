@@ -110,6 +110,21 @@ Everything reads through existing seams: pid → pane is `resolve_pane_for_pid` 
   `bash tests/test_sync_deferral_and_quarantine.sh`,
   `bash tests/run_all_python_tests.sh --test-dir tests`.
 
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1731** id=2026-09-10T12:54:30Z.ed0c9589464acd0cc9f12fb3 from=t1731 from_verified=yes at=2026-09-10T12:54:29Z base=2f023c5949cddc06c78d11777a11edd8c2abfbbd base_branch=main dirty=yes host=omg16
+>
+> | t1731 (plan approved 2026-09-10) changes the outcome of the fixture shape your new live test relies on. Advisory; verify against the tree when you read this.
+> | 
+> | WHAT CHANGES. When `_rebase_blocked` blocks on a DIVERGED data branch (local_ahead>0 and remote_ahead>0) and a guarded merge is provably safe — the local and remote changed-file sets from the single merge base are disjoint (`--no-renames`), `git merge-tree --write-tree` is clean, and no protected or ignored path is among the paths the merge writes — `ait sync` now converges with a merge commit (built via commit-tree, advanced with `merge --ff-only --no-autostash --no-overwrite-ignore`), pushes, and emits the new bare status `MERGED`. It emits NO `DEFERRED:protected_dirty` line and NO `DEFERRED_FILE:` records in that case.
+> | 
+> | WHY IT HITS t1725_4. As of this moment `tests/test_sync_holder_pane_live.sh` is untracked in the shared checkout, so this is a moment-relative reading, not something the base SHA dates. Its `new_fixture` (~123-131 when I read it) builds: tracked t10_alpha.md edit + a local t20_beta.md commit + a pc2 advance touching only t30_gamma.md. That is exactly the disjoint diverged shape, so once t1731 lands every case reading deferral records (S1, S1a, S1c, S2, S3, E1a) would see `MERGED` instead.
+> | 
+> | SUGGESTED SHAPE. Make pc2 ALSO append to `t20_beta.md` (local and remote both change it -> overlap -> still defers; stderr names slug `sides_overlap`), or have the incoming commit touch `t10_alpha.md`. t1731 applies the same overlap reshape to test_sync_deferral_and_quarantine.sh Tests 1, 1b, 19, 31B, 33-33D and to the truth-table cell at test_sync_rebase_gate.sh:131.
+> | 
+> | FILE OVERLAP. t1731 edits aitask_sync.sh's main() gate, do_push's retry, `_load_incoming` (adds --no-renames), the header protocol block and show_help (a MERGED line, adjacent to — not inside — your uncommitted hunks near ~37-41 and ~154-157). It does NOT touch tests/lib/sync_fixture.sh or tests/test_sync_protect_paths.sh. If you land first, t1731 rebases onto your committed file; if not, t1731 commits only its own hunks and verifies that commit in an isolated worktree.
+
 ## Gate Runs
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
