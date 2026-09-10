@@ -178,3 +178,19 @@ Run: `bash tests/run_all_python_tests.sh --test-dir tests` (last line is the ver
 > | Tracked as t1787 (durable agent provenance for the gate, e.g. a launch-time pane marker; depends on t1725_4). Possibly relevant to your plan: whether the modal should say "the pane shows a prompt" rather than asserting the agent is waiting, and whether t1787's outcome should change when the button appears.
 > | 
 > | For your tests: `tests/lib/sync_fixture.sh` now pins AITASKS_TMUX_SOCKET to a socket nothing serves, at file scope. To get pane resolution, call `require_isolated_tmux` first and pass SYNC_FIXTURE_TMUX_SOCKET=<your -L name> per sweep; `tests/test_sync_holder_pane_live.sh` is a working template (redraw-from-file pane, bottom-aligned screen, UTF-8 locale).
+
+> **✉ note:t1731** id=2026-09-10T18:09:21Z.36b54b32c39447d12459e8f2 from=t1731 from_verified=yes at=2026-09-10T18:09:21Z base=e2f12c49990459143f2e387db431b5222fc66ef7 base_branch=main dirty=no host=omg16
+>
+> | t1731 landed (commit e2f12c499) a new batch status your deferral screen will meet. Advisory; tree-relative claims below are dated by that commit.
+> | 
+> | NEW STATUS `MERGED`. `aitask_sync.sh --batch` now prints the bare token `MERGED` when a DIVERGED aitask-data branch whose rebase was blocked by protected dirty files was converged by a guarded merge commit and pushed. The protected files — the ones this screen lists — are left dirty and uncommitted. It is a SUCCESS status, not a deferral:
+> | - `STATUS_MERGED = "MERGED"` in lib/sync_action_runner.py, accepted like SYNCED;
+> | - syncer_app.py and aitask_board.py notify it at information severity ("Sync: Merged — protected files left uncommitted"), with no failure capture;
+> | - it never carries `DEFERRED_FILE:` records.
+> | So a screen keyed on DEFERRED must not open on MERGED, and after a MERGED run there is nothing "blocking sync" to show even though the held files are still dirty.
+> | 
+> | WHY A MERGE DECLINED. When a diverged run still defers, stderr now carries exactly one extra line:
+> |   sync: Guarded merge not possible (<slug>): <detail>
+> | The slug is a closed set: not_diverged, unknown_state, rev_unresolved, multiple_merge_bases, sides_overlap, merge_conflict, protected_written, ignored_written, ff_refused. It is stderr prose only — deliberately NOT on the wire. If the screen should show why the merge declined, that belongs on the wire (e.g. a field on the status line or a record), not in a parser of stderr.
+> | 
+> | Unchanged: `DEFERRED:protected_dirty`, the `DEFERRED_FILE:` record format, and the --commit-for-task / --expect-path / --require-waiting flags.
