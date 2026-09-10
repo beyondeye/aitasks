@@ -695,3 +695,231 @@ respawn. Two-phase, acknowledged:
 Resolution stays single-sourced in `lib/agent_string.sh`. Restore-All iterates
 `frozen` records; per-record failures are reported, never abort the batch.
 
+
+---
+
+## Post-Review Changes
+
+### Change Request 1 (2026-09-10 11:40)
+- **Requested by user:** Two confirmed correctness concerns raised at Step-8
+  review, both blocking.
+  1. `frozenagent/how-to.md` called the capture "the only copy of that agent's
+     output". A freeze captures with `capture-pane -S -<cap>`, so it retains only
+     the **tail** of the scrollback — earlier output can already be out of reach
+     before the freeze runs. The destructive warning overstated what the record
+     preserves.
+  2. `frozenagent/reference.md` described `frozen.restore_ack_grace` as "the
+     difference between a `restored` and a `restored, unverified` outcome".
+     `agent_frozen_ops` uses it only as the **acknowledgement waiting period**
+     before liveness fallback; a record whose agent never acknowledges stays
+     unverified however high the grace is, so the table promised a guarantee the
+     setting cannot give.
+- **Changes made:**
+  1. Reworded the drop warning to say dropping deletes the *retained capture*,
+     and added a paragraph stating the capture is the tail of the scrollback,
+     bounded by `frozen.capture_max_lines` (50000 by default).
+  2. Rewrote the `restore_ack_grace` table cell as "how long a restore waits for
+     the resumed agent's SessionStart hook to acknowledge it, before falling back
+     to confirming on liveness alone", and replaced the follow-on paragraph with
+     an explicit "waiting period, not an outcome" note naming the two cases that
+     never acknowledge (a CLI that reports no session on startup; the session
+     hook not installed). Also widened the `capture_max_lines` cell with the
+     same tail-not-total correction.
+- **Files affected:** `website/content/docs/tuis/frozenagent/how-to.md`,
+  `website/content/docs/tuis/frozenagent/reference.md`
+- **Re-verified:** `hugo build --gc --minify` clean; `check_links.py --build`
+  30173 resolved / 0 broken.
+
+### Note on a concurrent change (not part of this task)
+While this task was in implementation, **t1766** landed in the working tree from
+another session: `frozenagent_app.py` now derives its restore watch deadline from
+`frozen.restore_ack_grace` via `agent_frozen_ops.restore_settle_timeout`, so the
+viewer no longer differs from the monitors. Those two files
+(`.aitask-scripts/frozenagent/frozenagent_app.py`,
+`tests/test_frozenagent_app.py`) are **deliberately not staged by this task**.
+The `## Configuration` section was rewritten to describe the knob in terms that
+hold whether or not t1766 lands, so no page asserts the difference either way.
+
+### Change Request 2 (2026-09-10 11:52)
+- **Requested by user:** `frozenagent/how-to.md:70-72` said "restore or re-pick
+  instead — both keep it", and `_index.md:116-120` said "**R** and **p** do not
+  confirm — nothing is lost if you change your mind". Both are false guarantees:
+  a user trying to preserve the transcript could pick restore or re-pick on that
+  basis and lose it.
+- **Verified:** CONFIRMED at `.aitask-scripts/lib/agent_sessions.py:798-807` —
+  the hook-ack success path sets `ack="hook"` and calls `remove_captures(rec.id)`,
+  and **both** `resume` and `repick` modes reach it (repick adopts the new
+  session id and falls through to the same block). So the retention matrix is:
+  verified restore → **deleted**; verified re-pick → **deleted**; liveness-only
+  restore → kept; failed restore → kept; drop → deleted.
+  The same pages already stated this correctly in the outcome tables
+  (`restored` → "the capture is deleted"), so the prose contradicted the table.
+- **Changes made:** a third false statement was found in the same sweep and
+  fixed alongside the two reported.
+  1. `how-to.md` "Bring an agent back": replaced "neither destroys anything" with
+     the accurate reason R/p need no confirmation (a *failed* attempt leaves the
+     viewer and capture intact), and added an explicit paragraph that a
+     successful verified restore or re-pick deletes the capture — copy with `y`
+     first if retention matters.
+  2. `how-to.md` "Remove a frozen record": dropped the "restore or re-pick
+     instead — both keep it" advice; now states drop is the only action that
+     discards record + transcript *and* leaves nothing running, while noting a
+     verified restore/re-pick deletes the capture too.
+  3. `_index.md` restore/re-pick/drop list: same correction, plus a standalone
+     paragraph naming the two cases where the capture survives (failed attempt,
+     or `restored, unverified`).
+- **Files affected:** `website/content/docs/tuis/frozenagent/how-to.md`,
+  `website/content/docs/tuis/frozenagent/_index.md`
+- **Re-verified:** swept every remaining `capture kept` / `capture is deleted`
+  claim across `website/content/docs/tuis/` for consistency with the matrix
+  above; `hugo build --gc --minify` clean; `check_links.py --build` 30173
+  resolved / 0 broken.
+
+### Change Request 3 (2026-09-10 12:03)
+- **Requested by user:** `frozenagent/how-to.md:49` said re-pick "is the only
+  option when the record carries no task id". That is inverted — re-pick is the
+  option that *requires* a task id.
+- **Verified:** CONFIRMED at `.aitask-scripts/frozenagent/frozenagent_app.py:851-853`
+  — `if repick and not rec.task_id:` notifies
+  `"This record has no task id — restore instead"` and returns. The mirror guard
+  is at `.aitask-scripts/lib/agent_restore.py:340-344`: a `resume` with no
+  `codeagent_session_id` returns `RESTORE_FAILED:<id>|no_session`, commented as
+  "the reason `--repick` exists". So the two routes need *different* ids and a
+  record may carry only one. `_index.md:114` and `reference.md:26` already stated
+  the task-id requirement correctly; only the how-to was wrong.
+- **Changes made:** replaced the inverted clause with an explicit pair — re-pick
+  needs a task id (quoting the viewer's refusal), restore needs a recorded
+  session id.
+  - **Self-caught while writing the fix:** the first draft quoted `no_session` as
+    if the user sees it. They do not — the coordinator runs detached under
+    `run-shell -b`, so its stdout is unreadable, `restore-begin` never runs,
+    `restore_attempts` never bumps, and the viewer's pre-begin gate reports
+    `restore did not start — run 'ait frozenagent' or reconcile` after the
+    dispatch grace. Reworded to describe the behaviour and quote the message the
+    user actually gets.
+- **Files affected:** `website/content/docs/tuis/frozenagent/how-to.md`
+- **Re-verified:** `hugo build --gc --minify` clean; `check_links.py --build`
+  30173 resolved / 0 broken.
+- **Deferred to t1705_10 (noted, not written here):** `restore` is also refused
+  for an agent whose CLI has no resume support
+  (`RESTORE_FAILED:<id>|resume_unsupported:<agent>`, `agent_restore.py:345-348`).
+  That is a per-agent recovery limitation and belongs in t1705_10's
+  "When something goes wrong" section rather than in a TUI-surface page.
+
+### Change Request 4 (2026-09-10 12:07)
+- **Requested by user:** the plan deferred the `resume_unsupported` limitation
+  (and the other config/behaviour facts) to t1705_10, but no durable note had
+  been sent — `aitask_query_files.sh inbox 1705_10` showed only the older
+  t1705_8 entry. A sentence in this plan is not context t1705_10 receives.
+- **Verified:** CONFIRMED. The inbox held exactly one unread note, from t1705_8.
+  The "Follow-ups to file" bullet in this plan was written as an intention, and
+  nothing had executed it.
+- **Changes made:** sent the note via the `/aitask-note` skill.
+  `NOTE_APPENDED:2026-09-10T09:04:57Z.c3ed18370a74314077320714|aitasks/t1705/t1705_10_freeze_restore_workflow_docs.md`,
+  `from_verified=yes`. Live lane returned `LIVE_NONE:unlocked` — nobody is
+  holding t1705_10 on this host, which is a success with live delivery
+  unavailable, not a partial failure. The note carries five verified facts with
+  source citations (opencode `resume_unsupported` and the affected-agent set; the
+  task-id vs session-id requirement pair; the full capture-retention matrix
+  including that a verified re-pick deletes the capture; `capture_max_lines` as
+  scrollback depth; `stale_op_grace` as a non-knob) and two explicitly
+  moment-relative pointers to re-check rather than believe (t1773's closed-window
+  restore, and t1766 having appeared uncommitted in the working tree).
+- **Files affected:** `aitasks/t1705/t1705_10_freeze_restore_workflow_docs.md`
+  (its `## Inbox`, written and committed by the note framework — not staged by
+  this task's code commit).
+
+---
+
+## Final Implementation Notes
+
+- **Actual work done:** Wrote the frozen-agent TUI documentation set — three new
+  pages under `website/content/docs/tuis/frozenagent/` (`_index.md` at weight 16,
+  `how-to.md`, `reference.md`) — and threaded frozen agents through the shipped
+  monitor/minimonitor docs, the TUIs and commands indexes, and three
+  `aidocs/framework` files. Twelve files, all documentation; no code, no tmux.
+  Verified with `hugo build --gc --minify` and `check_links.py --build`
+  (30173 links resolved, 0 broken) after every edit round.
+
+- **Deviations from plan:** three, all forced by the tree rather than chosen.
+  1. **`tmux_gateway.md` had no `@aitask_*` inventory to extend.** The plan (and
+     the task) described "joining the inventory (:112-129)"; that range is prose
+     naming a single option. I created the table instead, seeding it with all six
+     options and the two properties that make them load-bearing (they die with
+     the pane, they survive `respawn-pane`).
+  2. **The forward `{{< relref >}}` to `workflows/freeze-and-restore-agents` was
+     omitted deliberately.** The task text and the prior plan both called for it,
+     but that page does not exist until t1705_10 and Hugo *fails the build* on a
+     relref to a missing page. t1705_10's own plan (step 5) already owns adding
+     the cross-link, so nothing is lost.
+  3. **Sub-page weights follow the task's stated 20/30 (applink form)** rather
+     than the 10/20 used by the monitor family. Both order how-to before
+     reference; the numbers are invisible to readers.
+
+- **Issues encountered:**
+  - **A concurrent session landed t1766 in the shared working tree mid-task.**
+    `frozenagent_app.py` and `tests/test_frozenagent_app.py` showed as modified
+    though this task never touched them: the viewer now derives its restore watch
+    deadline from `frozen.restore_ack_grace` via
+    `agent_frozen_ops.restore_settle_timeout`. Both files were left **unstaged**
+    — they belong to t1766 — and the `## Configuration` section was rewritten to
+    describe the knob in terms that hold whether or not t1766 lands, so no page
+    asserts a viewer-vs-monitor difference either way.
+  - **Four rounds of blocking review concerns, all confirmed and all mine.** They
+    are recorded individually above; the through-line is that every one was a
+    place where prose I wrote contradicted a table I had *also* written from the
+    source. The outcome tables were right each time; the surrounding sentences
+    were the failure. Sweeping for the claim rather than fixing the reported line
+    found a third instance in CR2 that had not been reported.
+  - **Duplicate keybinding rows twice.** Appending `k`/`R`/`p` rows to the
+    monitor and minimonitor tables collided with existing rows for the same keys.
+    Correct fix was to widen the existing row, since these keys keep their live
+    meaning and only *branch* when the target is frozen — which is also the more
+    accurate description of the code.
+
+- **Key decisions:**
+  - **No `ait frozen` row in the commands table.** `aitask_frozen.sh:38-39`
+    explicitly deferred that call to this task. `ait` has no `frozen` case, and
+    `aitasks_extension_points.md:348` ("the `ait` dispatcher is user-facing only")
+    is the standing reason to keep an internal engine face out of it. Recorded
+    here as the decision, not just an omission.
+  - **Documented the wiring asymmetry rather than flattening it.** The keys are
+    identical to a user, but monitor binds `p` frozen-only while minimonitor
+    branches inside `pick_task_by_number`, and mirror-image for `R`. A reference
+    table that listed one action id per key would be wrong for one of the apps.
+  - **`restored, unverified — capture kept` is documented as a success**, with
+    the reason (nothing confirmed the session) and the consequence (the capture
+    is kept). Left unexplained it reads as a fault.
+  - **Fixed two pre-existing parked-doc inaccuracies inline** (user-directed):
+    minimonitor never documented its `Np` counter, and claimed marks "do not
+    change any counter". Adding `Nf` beside an undocumented `Np` would have made
+    the page wrong twice over.
+  - **Reworded `monitor/how-to.md:251` and `minimonitor/how-to.md:147`**, which
+    used "frozen" in the ordinary English sense ("a frozen dot", "the header and
+    name are frozen") next to a newly-real lifecycle state named `frozen`.
+
+- **Upstream defects identified:**
+  - `monitor_app.py:3549` / `minimonitor_app.py:3017` — the frozen-drop
+    confirmation body advises "restore or re-pick it instead if you still want
+    it", which implies those routes preserve the capture. A *verified* restore or
+    re-pick deletes it (`agent_sessions.py:798-807`); only a failed or
+    liveness-only restore keeps it. The dialog's advice is right about not losing
+    the *agent* and misleading about keeping the *transcript*.
+  - `frozenagent_app.py:134,927` — the viewer's drop confirmation uses the verb
+    **"Remove"** ("Remove the frozen record and its capture?") while both monitors
+    use **"Drop"** with a matching title, deliberately chosen in t1705_7 so the
+    destructive verb names itself. Same operation, two verbs across three
+    surfaces.
+
+- **Notes for sibling tasks:** t1705_10 has been sent a durable `ait note`
+  (`2026-09-10T09:04:57Z.c3ed18370a74314077320714`, `from_verified=yes`) carrying
+  the five verified facts most likely to be documented wrongly — opencode's
+  `resume_unsupported` refusal and which agents do support resume, the task-id vs
+  session-id requirement pair, the full capture-retention matrix, `capture_max_lines`
+  as scrollback *depth*, and `stale_op_grace` as a non-knob — plus two
+  explicitly moment-relative pointers to re-check rather than believe (t1773's
+  closed-window restore, and t1766's uncommitted appearance in the tree). The
+  general lesson for any sibling writing prose about this subsystem: the
+  behaviour is asymmetric almost everywhere (per-agent, per-app, per-outcome),
+  so a sentence that generalises across agents, across the two monitors, or
+  across restore outcomes is probably false — check the specific branch.
