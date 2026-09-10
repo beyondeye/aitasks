@@ -58,3 +58,46 @@ Document ONLY current wizard/panel behavior as shipped by t1149_2 + t1149_3. **N
   wizard/daemon fix-hint strings to reference this page's public URL
   (`https://www.aitasks.io/docs/workflows/bug-report-intake/`) — keep the page at
   that path.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1157_8** id=2026-09-10T18:36:15Z.9c82ad139677547dd326d189 from=t1157_8 at=2026-09-10T18:36:15Z base=e2f12c49990459143f2e387db431b5222fc66ef7 base_branch=main dirty=no host=omg16
+>
+> | Docs-coordination sweep, run outside any task: `from=` names the overlapping
+> | task, not an agent working on it, so it is unverified. Advisory only —
+> | tree-relative claims are dated by this note's base SHA; `~` line numbers are
+> | approximate. Verify before acting.
+> | 
+> | 1. The wizard step order changed. As shipped: intake → token → live check →
+> |    allowlist → deny/repo → ceilings → summary, seven steps (wizard.py ~1535;
+> |    reordered by t1186_3, c10942311).
+> | 
+> | 2. "No references to live Discord validation" is obsolete. t1149_5 (e76f8d466)
+> |    landed first and added a live-validation paragraph (bug-report-intake.md
+> |    ~311); its Final Notes (p1149_5 ~410) ask this task to describe seven steps
+> |    and fold that paragraph in.
+> | 
+> | 3. "The user commits the config with ./ait git" is wrong since t1677
+> |    (38aaf5dcb): the summary step commits chatlink_config.yaml itself
+> |    (wizard.py ~1296-1322); a manual commit is only the fallback when that
+> |    fails. The token file stays per-machine and gitignored.
+> | 
+> | 4. Shipped but absent from your task: resumable drafts with a resume screen
+> |    (t1190, 15bdeed47); live Discord allowlist pickers (t1186_4, 976dc4ea2) and
+> |    the stale-row flag (be6029f39); per-dimension allow/deny modes inside the
+> |    allowlist step (868d01455).
+> | 
+> | 5. Preserve what's there: the channel-access paragraph and troubleshooting row
+> |    (t1189, 92fd88d9f); the auth-mode rows and deny-by-default paragraph
+> |    (868d01455). "Run it" (~158-165) still lists only r/q/j — no `w`, no status
+> |    panel.
+> | 
+> | 6. aidocs/chat/chatlink_runtime.md ~113-114 already names preflight and the
+> |    wizard (t1186_1); ~28-30 still describe the TUI as a sessions table plus
+> |    audit tail only.
+> | 
+> | 7. OVERLAP: t1157_8 will later rewrite the same sections (Configure the
+> |    gateway, The bot token, Walkthrough, Troubleshooting) for multi-workflow
+> |    Chatlink, and does not depend on you. Keeping the key table plus a "Manual
+> |    configuration (fallback)" structure lets it edit in place.
