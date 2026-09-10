@@ -581,3 +581,125 @@ or `…|kill:` line appears where none appeared before.
 
 Step 9 applies as usual: commit under `bug: … (t1773)`, merge to the resolved
 output branch, and archive the task with its plan.
+
+## Implementation record
+
+**P0 pre-fix control — watched, 2026-09-10.** `python3 tests/test_agent_restore.py
+TestRecordedPaneIsOnlyAHint` against unfixed code: **all six FAILED**, as the
+plan predicted.
+
+```
+FAIL: test_a_gone_pane_routes_to_a_new_window
+      → False is not true : a record whose pane is gone must restore into a NEW window
+FAIL: test_a_recycled_pane_is_never_touched
+      → False is not true : a `%N` carrying somebody else's stamp is not ours
+FAIL: test_a_restart_between_the_read_and_the_dispatch_adopts_nothing
+      → False is not true : the recorded pane is no longer ours
+FAIL: test_a_lost_stamp_without_a_restart_routes_the_same_way
+FAIL: test_an_unreachable_tmux_fails_closed_before_any_write
+      → 'RESTORE_FAILED:…|preflight:tmux unreachable' != 'RESTORE_FAILED:…|agent_exited'
+FAIL: test_our_own_stamped_pane_is_reused_atomically
+      → 1 != 0 : the stamp check and the respawn must travel as ONE dispatch
+```
+
+Case 2's pre-fix failure is a *shape* mismatch (the unfixed code issues a bare
+`respawn-pane`, not an `if-shell`), not a routing defect — its post-fix green is
+evidence about the dispatch form only.
+
+**Token-mechanism control — watched.** `respawn_if_stamped` was temporarily
+reverted to the rejected pid-delta inference and
+`tests/test_frozen_respawn_atomic_live.sh` re-run. Part B failed exactly as the
+design predicted:
+
+```
+FAIL: Part B: the helper did NOT claim it fired (expected 'False', got 'True')
+FAIL: Part B: it handed back NO pane (expected '', got '%0')
+FAIL: Part B: and NO pid — the stranger's is never adopted (expected '0', got '21836')
+FAIL: Part B: and it named the restart (expected 'server-restarted', got '')
+Passed: 34 / 38
+```
+
+The stranger's pane and pid really are adopted under that design, and Part B
+catches it. Restored; 38/38.
+
+### Deviations from the plan
+
+- **§5a — the fake dispatches on format ARITY, not on the format constants.**
+  Matching `ops.PANE_FACT_FORMAT` and friends by identity would have made the
+  pre-fix control run die on a missing attribute instead of exercising the real
+  routing. Arity is also what the production parsers themselves validate, so the
+  fake and the code agree by construction: 10 → `pane_facts`, 3 → `probe_pane`,
+  2 → `pane_location`, 1 → the server-pid pre-read, 4 → the after-read.
+- **§8 — `require_isolated_tmux` only, and the file runs from inside tmux.**
+  Nothing in it arms `pane-died` hooks or reaches tmux outside the gateway, so
+  the stricter `require_clean_ait_server` (which the other two live suites need)
+  would have made it unrunnable for no safety gain. Every call, `kill-server`
+  included, is scoped to the suite's own per-run `TMUX_TMPDIR`.
+- **§8a gained an assertion.** The first draft's env-delivery check appended its
+  own needle to the haystack and could not fail. Replaced: the dispatched
+  command now writes `$V1` / `$V2` as the spawned process sees them into a file,
+  and the assertions read that file.
+
+### Not run in this session
+
+`tests/test_frozen_agents_acceptance.sh` (case 6b) and
+`tests/test_restore_flows_live.sh` (case 7) both call `require_clean_ait_server`,
+which **refuses to run from inside a tmux session** — they arm real `pane-died`
+cleanup hooks that `aitask_companion_cleanup.sh` runs on the user's own server
+with no socket flag, so no environment override can sandbox them. This session
+runs inside the `ait` tmux session, and forcing the override
+(`AIT_LIVE_TMUX_TEST_FORCE=1`) would have risked tearing down the user's panes,
+including this agent's own. Their edits are therefore written but **unverified**,
+and the P0 control for case 7 was likewise not watched. Run both from a terminal
+that is not inside tmux, with the `-L ait` server stopped.
+
+**Since run — 2026-09-10, resumed session.** The implementing session crashed at
+Step 8 (the `ait` tmux server went away with it). The resuming session ran both
+suites against the unchanged working tree from outside tmux with the `-L ait`
+server stopped: `tests/test_restore_flows_live.sh` **78/78**,
+`tests/test_frozen_agents_acceptance.sh` **131/131** — case 6b now asserts
+`RESTORED:` into a new window and passes. The P0 control for case 7 remains
+unwatched.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented as planned (§1-§8), committed as `6190fff8f`.
+  `agent_restore.restore()` now resolves the recorded `pane_id` with
+  `frozen_ops.probe_pane()` before choosing a branch — `gone` or a foreign stamp
+  routes to `_launch_into_new_window`, `unknown` fails closed with
+  `RESTORE_FAILED:<id>|preflight:tmux unreachable` before any write. Pane reuse
+  (forward path and `_rollback`) goes through the new
+  `frozen_ops.respawn_if_stamped()`: one `if-shell -F` dispatch carrying the
+  stamp check, the ready-mark unset, the `respawn-pane -k` and a per-call token
+  written last; only a returned token counts as "fired". `probe_pane` /
+  `TMUX_UNREACHABLE` moved from `agent_freeze.py` into `agent_frozen_ops.py`
+  (behaviour unchanged), `tmux_quote` was added, `RESPAWN_TOKEN_OPTION` joined
+  the pane-option vocabulary in `monitor_core.py`, and the `no_session_for_root`
+  error now names the root.
+- **Deviations from plan:** The three recorded under "Deviations from the plan"
+  above (arity-dispatched `_ScriptedTmux`; the new live suite uses
+  `require_isolated_tmux` only and therefore runs inside tmux; §8a's env check
+  rewritten to read what the spawned process saw). No scope change.
+- **Issues encountered:** The implementing session crashed at Step 8 — the `ait`
+  tmux server went away with it — leaving the implementation uncommitted but
+  intact; a resumed session reclaimed the lock (`RECLAIM_CRASH`) and finished
+  review and commit. The two `require_clean_ait_server` suites cannot run inside
+  tmux, so they were verified only in the resumed session (78/78, 131/131). The
+  full Python suite reports 3 failures (`test_concern_parser` ×2,
+  `test_prompt_detection` ×1); all three reproduce on a clean worktree at HEAD
+  `016dd7b3a`, so they predate this change.
+- **Key decisions:** Success evidence is a positive, branch-specific token, never
+  a pid delta — across a server restart the before/after reads describe two
+  different panes, and Part B of the new live suite proves the pid-delta design
+  adopts a stranger's pane (4 failures when reverted). `probe_pane` lives in
+  `agent_frozen_ops` because `agent_restore` must not import `agent_freeze`.
+  `unknown` is never collapsed into `gone`: that would launch a second agent
+  while the original stand-in may be alive. The post-phase
+  `freeze_side_regression_sweep` passed: acceptance drop cases 10a/10b green, no
+  `DROP_FAILED` line anywhere in the run, `test_agent_freeze.py` 72/72 and
+  `test_agent_frozen_ops.py` green after the promotion.
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/agent_freeze.py:902-990 — drop_record() probes the pane (probe_pane, :964) and kills it in a separate tmux call (:981); a server restart between the two can hand the kill an unrelated agent's recycled %N — the race t1773 closed for restore (plan §9.1)`
+  - `.aitask-scripts/lib/agent_freeze.py:659-676 — _respawn_standin() issues a bare respawn-pane -k on the recorded pane with no stamp check in the same dispatch — same race (plan §9.1)`
+  - `.aitask-scripts/lib/agent_restore.py:288-304 — _launch_into_new_window() fails no_session_for_root when no tmux session has a pane under the record's root, so a restore after a server restart with no project session rolls back instead of succeeding (plan §9.2)`
+  - `tests/test_concern_parser.py:2297, tests/test_prompt_detection.py:835 — pre-existing failures at HEAD 016dd7b3a; already tracked by t1763 and t1754 (both Ready, apparently describing the same three failures) — no new task needed`
