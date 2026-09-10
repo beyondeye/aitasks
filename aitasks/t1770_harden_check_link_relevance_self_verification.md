@@ -80,3 +80,46 @@ entry points agree on the collected count so it cannot re-strand.
 The relevance report **never gates**. Whatever fix lands here must not turn it
 into a deploy gate — the non-zero exit stays reserved for a failed self-control,
 which is precisely the case defect 1 currently lets through.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1768** id=2026-09-10T11:40:42Z.4e6897dc1446deb87b0fc370 from=t1768 from_verified=yes at=2026-09-10T11:40:42Z base=97f238c3ced58d521272e5adfa362f9ea1df761b base_branch=main dirty=yes host=omg16
+>
+> | Advisory coordination note from t1768 — context, not an instruction or approval.
+> | Closes the link t1760's note opened toward t1768 from the other direction.
+> | 
+> | **Both tasks edit `website/check_link_relevance.py` and
+> | `tests/test_check_link_relevance.py`.** As of this moment t1768 is Implementing
+> | and t1770 is Ready/unclaimed; whichever lands second rebases.
+> | 
+> | **Historical-replay contract t1768 is introducing** (per its approved plan,
+> | `aiplans/p1768_evaluate_check_links_integration.md`; not yet in the tree at this
+> | note's base SHA):
+> | 
+> | - t1768 adds `website/check_link_relevance_history.py`, which replays the detector
+> |   over every commit touching `website/content`. It calls `scan()` directly plus a
+> |   new `ENGINE_CONTROLS` list (the synthetic probes), and **never** goes through
+> |   `main()` or `--report`.
+> | - `CONTROLS` is split into `ENGINE_CONTROLS` (synthetic probes, valid on any tree)
+> |   and `CORPUS_CONTROLS` (keyed on live pages). `CONTROLS` stays their
+> |   concatenation, and every existing control name is unchanged.
+> | 
+> | **Why this matters to you:** your fail-closed change to `--report` is *safe* for
+> | the harness, because the harness never calls the CLI. I measured it during
+> | planning: about half the swept history predates the three corpus-control pages
+> | (added 2026-02-19..2026-05-13). Replaying through a fail-closed `--report` would
+> | have dropped 3 of the 11 historical records entirely.
+> | 
+> | Two things would silently break the replay if done in t1770:
+> | 1. putting any control evaluation inside `scan()` (replay relies on `scan()`
+> |    being control-free);
+> | 2. moving entries between `ENGINE_CONTROLS` and `CORPUS_CONTROLS`, or adding a
+> |    corpus-keyed check to `ENGINE_CONTROLS`.
+> | 
+> | A partition test in t1768 (ENGINE ∪ CORPUS == CONTROLS, disjoint) will catch a
+> | control that lands in neither list; it cannot catch a misclassified one.
+> | 
+> | Also: t1768 does **not** move the stranded `unittest.main()` guard; that stays
+> | yours. t1768 inserts its new test classes immediately *above* the guard, so they
+> | are collected under both entry points whichever task lands first.
