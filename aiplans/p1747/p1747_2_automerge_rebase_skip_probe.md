@@ -1,139 +1,303 @@
 ---
 Task: t1747_2_automerge_rebase_skip_probe.md
 Parent Task: aitasks/t1747_sweep_failopen_git_probes.md
+Sibling Tasks: aitasks/t1747/t1747_3_sync_authorization_probes.md, aitasks/t1747/t1747_4_setup_dirty_baseline_probe.md, aitasks/t1747/t1747_5_published_history_amend_probes.md, aitasks/t1747/t1747_6_lock_and_reservation_probes.md, aitasks/t1747/t1747_7_manual_verification_sweep_failopen_git_probes.md
+Archived Sibling Plans: aiplans/archived/p1747/p1747_1_failopen_probe_audit_doc.md
 Base branch: main
 Output branch: main
-plan_verified: []
+plan_verified:
+  - claudecode/opus5 @ 2026-09-10 12:35
 ---
 
-# t1747_2 — `ait_automerge_advance` must not authorise `rebase --skip` on an unread probe
+# t1747_2 — `ait_automerge_advance` must not discard a commit on an unverified assumption
 
 ## Context
 
-Audit rows A1 + A2 (see `aidocs/framework/failopen_git_probes.md`). The
-highest-severity site in the t1747 sweep: the fail-open outcome is a **discarded
-commit**, on the framework's hottest path — both `pull --rebase` drivers reach
-it (`ait sync` and every pick/push via `lib/task_utils.sh::_task_pull_rebase`).
+Audit rows **A1 + A2** of the t1747 fail-open git-probe sweep (rule, fix shape and
+dispositions: `aidocs/framework/failopen_git_probes.md`). The highest-severity site
+in the sweep — the fail-open outcome is a **discarded commit**, on the framework's
+hottest path: both `pull --rebase` drivers reach it (`ait sync::do_pull_rebase` and
+every pick/push via `lib/task_utils.sh::_task_pull_rebase_cleanup`).
 
-The t1747 task body points at `aitask_sync.sh::_rebase_advance`, which no longer
-exists: `66da94134` (t1727) extracted it to `lib/task_automerge.sh`.
+`lib/task_automerge.sh::ait_automerge_advance` reads the unresolved-file probe as
+`… 2>/dev/null || true`, so a failed probe yields `""`, reads as "nothing unresolved
+— this is an empty patch", and runs **`git rebase --skip`**, which permanently drops
+the commit being replayed.
+
+> **Citations below are anchored on `file::function`, with line numbers as a
+> secondary hint as of `9cb61927c`.** `main` advanced *during this planning pass*
+> (t1725_3, t1760 landed): the sync consumer moved `:1002 → :1555` mid-session.
+> `lib/task_automerge.sh` itself was untouched by those commits.
+
+### What this verification pass established
+
+Measured in live branch-mode fixtures on this box (git **2.55.0**):
+
+1. **The plan's third call-site citation was wrong** (confirmed — note from t1747_1).
+   `lib/task_utils.sh:1216` is inside the `_ait_load_automerge` lazy-loader comment
+   block, not a consumer. The real site is `_task_pull_rebase_cleanup` — loop call
+   `:1346`, the rc-1/rc-2 comment `:1352-1354`, the verified abort `:1359`. The
+   *argument* holds; only the pointer was stale.
+
+2. **The `--skip` fallback's stated premise no longer holds.** Its comment claims it
+   exists for "when the auto-merge result matches the current HEAD exactly, git sees
+   'nothing to commit'". On git 2.55 that case makes `rebase --continue` **succeed**
+   (rc 0) and git drops the empty commit itself — verified in a minimal repo. So on
+   modern git the fallback is reached **only** when `--continue` fails for some other
+   reason, i.e. on a commit with real content.
+
+3. **A1, reproduced end to end:** with `rebase --continue` injected to fail,
+   `ait sync --batch` printed `AUTOMERGED`, **exited 0**, left no wedge — and the
+   local commit was **gone**, its merged content with it. The probe had *succeeded*;
+   `""` was the truthful answer to "anything unresolved?" and still authorised the
+   destructive path.
+
+4. **A2's loop-entry route is live, and worse than the plan recorded.** Failing the
+   unresolved-file probe from the *second* call onward (the first is
+   `do_pull_rebase`'s own, so the run still enters the loop): the merge driver was
+   **never invoked**, `--continue` and `--skip` were both attempted, the local commit
+   was **gone**, and the run reported `AUTOMERGED` at **rc 0**. The earlier draft of
+   this plan called this consumer "covered downstream, no live fixture" — that was
+   wrong on both counts, and it is now Test 14.
+
+**User decision (this session):** fix the probe *and* verify the emptiness claim.
+`"nothing unresolved"` is not `"empty patch"` — the task body names that exact
+conflation, so closing it is the same defect, not scope creep.
+
+## Scope: two files
+
+`.aitask-scripts/lib/task_automerge.sh` and `tests/test_sync_branch_mode_automerge.sh`.
+**`aitask_sync.sh` is not edited** — its probes are rows A3/A4/A5/A10, owned by
+**t1747_3**, which will be editing that file. Adding this task's convention markers
+there would collide with that task and pre-empt its dispositions. Its consumer is
+covered by the identity scan in Test 13 instead.
 
 ## Implementation
 
 ### 1. `lib/task_automerge.sh::ait_automerge_advance` (~:197-208)
 
 ```bash
-    local unresolved="" u_rc=0
-    unresolved="$(_ait_data_git diff --name-only --diff-filter=U 2>/dev/null)" || u_rc=$?
-    # A failed probe must never authorise `rebase --skip` — skipping DISCARDS the
-    # replayed commit. "Unverified" is not "nothing unresolved".
-    # Rule + dispositions: aidocs/framework/failopen_git_probes.md
-    if (( u_rc == 0 )) && [[ -z "$unresolved" ]] && _ait_data_git rebase --skip &>/dev/null; then
+ait_automerge_advance() {
+    if GIT_EDITOR=true _ait_data_git rebase --continue &>/dev/null; then
         return 0
     fi
+    # A failed probe must never authorise `rebase --skip` -- skipping DISCARDS
+    # the replayed commit. Rule + dispositions:
+    # aidocs/framework/failopen_git_probes.md
+    local unresolved="" u_rc=0
+    unresolved="$(_ait_data_git diff --name-only --diff-filter=U 2>/dev/null)" || u_rc=$?
+    (( u_rc == 0 )) || return 1
+    [[ -z "$unresolved" ]] || return 1
+
+    # ... and "nothing unresolved" is NOT "empty patch": `--continue` fails for
+    # other reasons too. Only skip a patch VERIFIED empty. `--quiet` exits
+    # 0 = no difference, 1 = a real patch, >=2 = could not tell -- and
+    # "could not tell" is not "empty".
+    local e_rc=0
+    _ait_data_git diff --cached --quiet HEAD >/dev/null 2>&1 || e_rc=$?
+    (( e_rc == 0 )) || return 1
+
+    _ait_data_git rebase --skip &>/dev/null && return 0
     return 1
+}
 ```
 
-`local unresolved="" u_rc=0` on its **own line** before the capture: under
+`local unresolved="" u_rc=0` on its **own line** before the capture — under
 `set -euo pipefail`, `local x="$(…)" || rc=$?` captures `local`'s status, not the
-command's.
+command's. The comments **point at** the doc rather than restating the rule
+(t1747_1's convention).
 
-The comment **points at the doc**; it does not restate the rule. That is the
-t1747_1 convention.
+### 2. A2 — `_ait_automerge_conflicted_now` (~:211) becomes tri-state
 
-### 2. Decide A2 (`_ait_automerge_conflicted_now`, ~:212) explicitly
+The canonical doc is unconditional: *"a helper change is only complete when its
+**whole** call-site set has been enumerated and each consumer given an **explicit**
+disposition for 'unverified'."* Finding 4 shows the loop-entry consumer is not merely
+theoretical.
 
-Two consumers, opposite risk profiles — record the decision either way:
+```bash
+# Internal: the files git currently reports as unresolved.
+#   0 — the list was read; empty output means "none unresolved"
+#   2 — the probe could not be read; the empty output means NOTHING
+# Rule + dispositions: aidocs/framework/failopen_git_probes.md
+_ait_automerge_conflicted_now() {
+    local out="" rc=0
+    out="$(_ait_data_git diff --name-only --diff-filter=U 2>/dev/null)" || rc=$?
+    (( rc == 0 )) || return 2
+    printf '%s' "$out"
+}
+```
 
-| consumer | today | after step 1 |
-|---|---|---|
-| `ait_automerge_rebase_loop` **entry** (~:236) | failed probe ⇒ empty ⇒ `ait_automerge_files ""` returns 0 ⇒ falls into `ait_automerge_advance` | that call now refuses ⇒ loop re-probes ⇒ `return 2` ⇒ caller aborts |
-| **post-advance** (~:272) | failed probe ⇒ empty ⇒ `return 2` ⇒ abort | unchanged; already fail-closed |
+Both consumers are in this file and **must absorb the status** — under
+`set -euo pipefail` a bare `conflicted="$(…)"` returning non-zero aborts the shell
+mid-rebase, which is worse than fail-closed:
 
-Both funnel to the safe abort once step 1 lands, so a second refusal here may be
-redundant. Prefer the honest helper anyway **if** it costs nothing: an explicit
-"unverified" is easier to reason about than "wrong for a reason that happens to
-be caught downstream". Whichever is chosen, write the reasoning into the
-function's comment — a future reader must not have to re-derive it.
+- **loop entry (~:236)** — `conflicted="$(…)" || c_rc=$?`; on `c_rc != 0` return **2**
+  *before* `ait_automerge_files` and `ait_automerge_advance` are reached. Move the two
+  `AIT_AUTOMERGE_*` initialisations **above** the probe so the globals are
+  well-defined on that early return.
+- **post-advance (~:273)** — same shape, same `return 2`. Behaviour unchanged; the
+  reason is now recorded rather than inferred.
+
+Extend the rc-2 doc-comment: *"the advance failed for a NON-conflict reason … **or
+the unresolved-file probe could not be read**"*.
+
+Each of the three call sites carries a one-line `# unverified: <disposition>` comment
+— the convention Test 13 enforces (below).
 
 ### 3. Call-site table
 
-Enumerate every consumer of both helpers with its disposition on "unverified",
-and ship a test asserting the file's actual call sites equal the table, so a new
-consumer cannot be added bare. (Parent contract; A10 in t1747_3 is the case that
-proves why.)
-
-## Why `return 1` is safe — verified at all three call sites
-
-| caller | behaviour on `advance` ⇒ 1 |
-|---|---|
-| `ait_automerge_rebase_loop` (~:263) | re-probes; probe fails again ⇒ empty ⇒ `return 2` |
-| `aitask_sync.sh:1002` (interactive) | `warn "Rebase continue failed. Aborting rebase."` + `rebase --abort` + `return 1` |
-| `lib/task_utils.sh:1216` (workflow pull) | rc 1 and rc 2 both fall through to `ait_rebase_abort_if_ours`, which **verifies the abort landed** |
-
-Every route ends in an abort that restores the worktree and keeps local commits.
-`tests/test_sync_branch_mode_automerge.sh` Test 9 already pins the rc-2 surface
-(`ERROR:rebase_continue_failed`, `assert_no_rebase_wedge`).
+| helper | consumer (`file::function`) | disposition on "unverified" |
+|---|---|---|
+| `ait_automerge_advance` | `task_automerge.sh::ait_automerge_rebase_loop` (~:263) | rc 1 ⇒ re-probe ⇒ rc 2 ⇒ caller aborts |
+| `ait_automerge_advance` | `aitask_sync.sh::do_pull_rebase` (:1555) | `warn` + `rebase --abort` + `return 1` |
+| `_ait_automerge_conflicted_now` | `…::ait_automerge_rebase_loop` — loop entry (~:236) | `return 2` ⇒ caller aborts, **before** any resolver or advance |
+| `_ait_automerge_conflicted_now` | `…::ait_automerge_rebase_loop` — post-advance (~:273) | `return 2` ⇒ caller aborts |
+| *(the loop's own consumers)* | `aitask_sync.sh::do_pull_rebase:1487`, `task_utils.sh::_task_pull_rebase_cleanup:1346` | rc 1 **and** rc 2 both abort — verified in-tree |
 
 ## Verification
 
-Extend `tests/test_sync_branch_mode_automerge.sh`; reuse its seams —
-`setup_branch_mode_repos`, `setup_two_body_conflicts`, `assert_no_rebase_wedge`,
-and the argv-keyed shim shape of `install_failing_advance_shim`.
+Every fixture below was **built and run during this planning pass**; quoted outcomes
+are measured, not predicted. Extend `tests/test_sync_branch_mode_automerge.sh`
+(**48/48 green at `9cb61927c`**), reusing `setup_branch_mode_repos`, `strip_ansi`,
+`assert_no_rebase_wedge`, and the argv-keyed shim shape of
+`install_failing_advance_shim`.
 
-### The discriminating fixture
+### Fixtures and shims
 
-A rebase state where `rebase --skip` **would otherwise have succeeded**, so the
-test proves a failed probe does not authorise the commit-discarding path — not
-merely that something failed.
+- **P — legitimate empty patch.** local edits *only* `updated_at` (older); pc2 edits
+  `priority` + a newer `updated_at`. Adjacent lines ⇒ real conflict; the driver
+  resolves to pc2's file **exactly** ⇒ staged tree == HEAD. *Measured:* unshimmed,
+  `--continue` succeeds and git drops the empty commit — so **P alone never reaches
+  `--skip` on git 2.55**, which is why the task pre-authorises injection.
+- **R — real patch.** the base fixture's adjacent-field conflict; merged result
+  differs from HEAD. *Measured:* `diff --cached --quiet HEAD` ⇒ **DIFFERS**.
+- Shims (all pass `--skip` and `--abort` through, or the abort this suite asserts
+  could not run):
+  - `install_continue_only_shim` — fails `rebase --continue` only. This is the state
+    **old git (<2.26) produces natively** for an empty patch — no minimum git version
+    is documented anywhere in the tree — so the case stays production-reachable.
+  - `install_advance_probe_shim` — same, plus: once a `rebase --continue` has been
+    *seen*, `diff --name-only --diff-filter=U` also fails. The scoping is
+    load-bearing: `do_pull_rebase`'s own probe and the loop-entry probe must still
+    succeed or the run never reaches `ait_automerge_advance`. Models an index.lock /
+    unreadable git-dir appearing mid-rebase — exactly what makes `--continue` fail.
+  - `install_first_probe_only_shim` — the **first** `diff --diff-filter=U` passes
+    (that is `do_pull_rebase`'s own); every later one fails, so **loop entry** is the
+    first unreadable probe. Also appends every git argv to a log and wraps the fixture's
+    `board/aitask_merge.py` in a marker-writing shim, so "the resolver never ran" and
+    "no advance was attempted" are directly observable rather than inferred.
 
-1. **Preferred (natural):** both sides make the *same* edit, so the replayed
-   patch becomes empty, `rebase --continue` fails with "nothing to commit", and
-   the `--skip` fallback legitimately applies.
-2. **Fallback (injected):** if (1) does not reliably reach the skip branch, fail
-   **only** `rebase --continue` through the argv shim. That is
-   production-reachable — it is exactly the state the `--skip` fallback exists
-   for — so the case remains a real one, not a synthetic impossibility.
+### Tests — each half gets its own fixture *and* its own mutant
 
-Say in the Implementation Record which was used and why.
+| # | fixture + shim | fixed code must | mutant control (fixture's copy only) |
+|---|---|---|---|
+| 10 | P + continue-only | `AUTOMERGED`, rc 0, no wedge, `--skip` **taken**. *Precondition:* an unshimmed control run of P succeeds and drops the commit — proving the patch is genuinely empty. | — (this **is** precondition (a) for Test 11) |
+| 11 | P + probe shim | `ERROR:rebase_continue_failed`, rc≠0, no wedge, **`local: older ts only` still in `git log`**. *Precondition (b):* invoke the shim directly and assert `diff --diff-filter=U` exits non-zero. | restore `\|\| true` at **A1 only** ⇒ probe reads `""` ⇒ emptiness says EQUAL ⇒ `--skip` ⇒ `AUTOMERGED`, commit gone |
+| 12 | R + continue-only | `ERROR:rebase_continue_failed`, rc≠0, no wedge, **`local: labels` still in `git log`**. *Precondition:* assert local's and pc2's files genuinely differ. | delete the **emptiness check only** (keep A1's rc capture) ⇒ `--skip` ⇒ `AUTOMERGED`, **commit gone** — the measured pre-fix behaviour |
+| 13 | source scan | call-site identities match the table (below) | — |
+| 14 | base fixture + first-probe-only shim | **rc 2 at loop entry:** `ERROR:rebase_continue_failed`, rc≠0, no wedge, `local: labels` still in `git log`, **resolver marker ABSENT**, and the git log contains **no `rebase --continue` and no `rebase --skip`** (only `--abort`). | restore `\|\| true` at **A2 only** ⇒ *measured today:* resolver never runs, `--continue` **and** `--skip` are both attempted, `AUTOMERGED` at **rc 0**, commit **gone** |
 
-### Preconditions, asserted in the test AND its control
+Tests 10 and 12 are a **matched pair**: same shim, same code path, opposite outcomes,
+differing only in whether the patch is empty — that is what makes the emptiness check
+demonstrably the discriminator rather than an assertion about the fixture.
 
-- **(a)** unshimmed, the advance takes the skip branch and **succeeds** — so the
-  fixed code's refusal can only come from the probe;
-- **(b)** under the probe shim, `diff --name-only --diff-filter=U` exits
-  non-zero.
+**Test 14 is the A2 regression** the review asked for. Its assertions are chosen so a
+typo in the status capture or in the initialisation order cannot pass: a shell that
+dies mid-command-substitution prints no `ERROR:` token and leaves a wedge; a capture
+that fails to return 2 lets the resolver marker appear and `--continue`/`--skip` into
+the verb log; an early return before the globals are initialised is caught by the
+same token assertion, since `set -u` would abort the caller.
 
-Without (a) the test could satisfy its assertion through an unrelated failure.
+**Test 13 — identities, not counts.** A small awk emits one
+`file::function::helper` row per **call** site (definition lines and comment lines
+excluded; function spans tracked via `^name() {` / `^}`), the rows are sorted **without
+dedup**, and the resulting multiset is compared to the explicit expected set:
 
-### Assertions
+```
+aitask_sync.sh::do_pull_rebase::ait_automerge_advance
+lib/task_automerge.sh::ait_automerge_rebase_loop::ait_automerge_advance
+lib/task_automerge.sh::ait_automerge_rebase_loop::_ait_automerge_conflicted_now
+lib/task_automerge.sh::ait_automerge_rebase_loop::_ait_automerge_conflicted_now
+```
 
-| direction | assertion |
-|---|---|
-| fail-closed | run reports `ERROR:rebase_continue_failed`, exits non-zero, `assert_no_rebase_wedge`, and **the commit `--skip` would have discarded is still reachable** (`git log` on the data branch names it) |
-| negative control | against a mutant restoring `\|\| true`: the same fixture takes `rebase --skip` and that commit is **gone** — via `assert_defect_present` |
-| permit | Tests 1-9 unchanged; in particular a legitimate empty-patch skip still completes |
+Three guards make it non-vacuous and close the same-function hole the review named:
 
-The mutant installer follows `tests/test_fold_mark.sh::install_prefix_amend_probe`:
-regress **only** the probe, `sys.exit(1)` on a stale anchor, re-grep to prove the
-substitution landed, and assert `ait_automerge_advance` and its `rebase --skip`
-call survived — otherwise the control observes "no guard" rather than "fail-open
-guard".
+1. **Anti-empty:** assert the row count is exactly 4 **and** both helper *definitions*
+   are found. A rename that empties the scan must fail, not pass silently.
+2. **Multiplicity:** the two loop-internal probes are two rows, so removing one and
+   adding another elsewhere in the same function changes the set only if the function
+   differs — which guard 3 covers.
+3. **Per-site disposition tag:** inside `lib/task_automerge.sh`, every call site must
+   carry a `# unverified: …` comment within the 4 lines above it. A new consumer
+   dropped into an already-listed function is bare, has no tag, and fails — with a
+   message naming this table and `aidocs/framework/failopen_git_probes.md`.
+
+**What it does not buy:** it does not check that a tag's *text* matches the actual
+behaviour, and outside `lib/task_automerge.sh` (i.e. `aitask_sync.sh`, owned by
+t1747_3) only the identity set applies, not the tag. Both are stated in the test
+header rather than implied.
+
+Both mutant installers follow `tests/test_fold_mark.sh::install_prefix_amend_probe`:
+patch **`$TMP/local/.aitask-scripts/…`** (never the real repo), `sys.exit(1)` on a
+stale anchor, re-grep to prove the substitution landed, and assert
+`ait_automerge_advance` and its `rebase --skip` call survived — otherwise the control
+observes "no guard" rather than "fail-open guard". Assert via `assert_defect_present`
+(copy from `test_fold_mark.sh:1555`; it is **not** in `tests/lib/asserts.sh`).
+
+Test bodies stay at top level (this file mutates `PASS`/`FAIL` in-process), so no
+`assert_counters_init` opt-in is needed.
 
 ```bash
-bash tests/test_sync_branch_mode_automerge.sh
+bash tests/test_sync_branch_mode_automerge.sh   # 48 green today; Tests 10-14 added
 bash tests/test_sync.sh
-shellcheck .aitask-scripts/lib/task_automerge.sh   # baseline: clean apart from SC1091
+shellcheck .aitask-scripts/lib/task_automerge.sh   # baseline: FULLY clean (not
+                                                   # "clean apart from SC1091")
 ```
+
+**Red proof, without a red commit:** write Tests 10-14 first, run them against the
+unmodified `lib/task_automerge.sh` and confirm 11, 12 and 14 fail; then apply the fix
+and confirm all five pass. Fix and tests land in **one commit**. The mutant controls
+are the permanent form of that proof. Re-check `git status` immediately before
+committing and use a path-scoped `aitask_task_commit.sh` — `main` already moved once
+mid-session.
+
+## Not in this task
+
+`aidocs/framework/failopen_git_probes.md` rows A1/A2 cite `:203` / `:212`, which this
+fix moves. The doc is a point-in-time audit anchored to `ec9641e79`; editing two rows
+without moving that SHA would make it internally inconsistent, and the doc is
+t1747_7's to reconcile. Send a **`./ait note` to t1747_7** instead (it already owns
+the "spot-check five cited file:line references" checklist item), carrying: the moved
+lines; findings 2 and 3 as a **new class** the grep-and-read audit could not see — a
+*successful* probe answering a different question than the branch it gates; and
+finding 4's measured evidence, which confirms the A2 row's "fail-open into A1" wording
+concretely (silent `AUTOMERGED` at rc 0 with the commit discarded and the resolver
+never invoked).
 
 ## Risk
 
 ### Code-health risk: low
-- One function, one added status capture; the refusal path is the file's
-  existing rc-1 contract. · severity: low · → mitigation: none needed.
+- `_ait_automerge_conflicted_now` gains a non-zero return under `set -euo pipefail`;
+  a consumer that does not absorb the status would abort the shell mid-rebase — worse
+  than fail-closed. Both consumers are in-file and updated in the same change.
+  · severity: low · → mitigation: inline — **Test 14** drives that exact path
+  end-to-end (rc 2 at loop entry, no resolver, no advance, caller abort, no wedge),
+  and Test 13's tag guard turns any new bare consumer red.
+- Blast radius is one function plus one internal helper in one file; `rebase --skip`
+  has exactly **one** call site tree-wide. Shellcheck baseline is fully clean and must
+  stay so. · severity: low · → mitigation: none needed.
 
 ### Goal-achievement risk: low
-- The natural empty-patch fixture may not reach the skip branch, forcing the
-  injected variant. · severity: low · → mitigation: none needed — the injected
-  variant is production-reachable and the plan pre-authorises it, so this
-  changes the fixture, not the claim.
+- The emptiness check's **permit** direction is only demonstrable through an injected
+  `--continue` failure, because on git 2.55 the legitimate empty-patch case never
+  reaches `--skip` at all. Test 10 therefore proves the fallback still works *in the
+  state old git produces*, not on the git running the suite. · severity: low ·
+  → mitigation: none needed — that state is production-reachable on git <2.26, which
+  the framework does not exclude, and the alternative is no permit coverage at all.
+- `main` moved twice during this planning pass, so a cited line may drift again before
+  the commit. · severity: low · → mitigation: none needed — every citation is anchored
+  on `file::function` under a named SHA, and Test 13 enforces the identities rather
+  than the line numbers.
+
+**No `### Planned mitigations` block:** both dimensions are fully mitigated inside
+this plan; a separate mitigation task would duplicate work landing with the fix.
