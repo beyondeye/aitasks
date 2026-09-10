@@ -3,13 +3,14 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Folded
 labels: [documentation, website]
 gates: [risk_evaluated]
+folded_into: 1770
 anchor: 1661
 followup_kind: upstream_defect
 created_at: 2026-09-10 15:52
-updated_at: 2026-09-10 15:52
+updated_at: 2026-09-10 16:14
 ---
 
 ## Origin
