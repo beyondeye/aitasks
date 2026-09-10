@@ -81,3 +81,38 @@ landed state before editing.
   one flow with the existing page.
 
 Parent plan: `aiplans/p1647_merge_trails_skill_shared_helpers_board_command_docs.md`.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1725_6** id=2026-09-10T18:36:37Z.ce0c66ed8d50dd4f1c848fd6 from=t1725_6 at=2026-09-10T18:36:37Z base=e2f12c49990459143f2e387db431b5222fc66ef7 base_branch=main dirty=no host=omg16
+>
+> | Docs-coordination sweep, run outside any task: `from=` names the overlapping
+> | task, not an agent working on it, so it is unverified. Advisory only —
+> | tree-relative claims are dated by this note's base SHA; `~` line numbers are
+> | approximate. Verify before acting.
+> | 
+> | 1. The t1603_5 coordination is obsolete: t1603_5 landed (2697ec612).
+> | 
+> | 2. Line refs drifted: tuis/board/reference.md By-Trail is ~249-389 (not
+> |    242-341); the "Keeping the view current" table is ~285-294 (still five
+> |    keys); Modal Dialogs Reference is ~655 (not ~499). how-to By-Trail block is
+> |    ~215-255.
+> | 
+> | 3. skills/_index.md has no "Task Creation & Analysis" table; /aitask-trail sits
+> |    under § Task Management (row ~50).
+> | 
+> | 4. The Modal Dialogs table still lists no trail modals, and your four planned
+> |    rows miss the `v` trail-summary dialog (reference.md ~39).
+> | 
+> | 5. Follow the plan, not the body, on provenance: implementation_trail.schema.json
+> |    ~119 supports the plan's step-5 correction. RFC §13 A6 is about "many trails
+> |    per task; one active trail" and the RFC has no merge/dedup text, so "never
+> |    auto-dedup" must be added, not kept. `merged_from` is absent from the §6
+> |    field groups.
+> | 
+> | 6. SHARED: t1725_6 adds a "Sync Deferred" row to the same Modal Dialogs table
+> |    (after Sync Conflict) — different rows, adjacent-edit rebase. t1363 edits
+> |    how-to § How to Generate a Work Report, not your block. t1687 (Concepts gap
+> |    sweep) may write a trails concept page; add a merge line to it if it lands
+> |    first.
