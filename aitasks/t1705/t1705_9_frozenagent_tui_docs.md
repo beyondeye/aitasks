@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1705
+implemented_with: claudecode/opus5
 created_at: 2026-09-04 16:10
-updated_at: 2026-09-10 08:16
+updated_at: 2026-09-10 11:25
 ---
 
 ## Context
@@ -234,3 +235,8 @@ No code, no tmux.
 > | t1773 lands.
 
 > **👁 note:read** id=2026-09-10T05:15:39Z.736f8e171def93898f0f500a by=t1705_9 at=2026-09-10T05:15:39Z mode=explicit ids=2026-09-09T10:08:29Z.478b145750406eaac4f7884f,2026-09-09T13:31:41Z.2d146d01638694bff5d50b1c,2026-09-09T18:30:23Z.69c81bac1787d30a171c0121
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-10T08:25:46Z status=pass attempt=1 type=human
