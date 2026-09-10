@@ -65,6 +65,7 @@ from textual.widgets import (  # noqa: E402
     Static,
 )
 
+import agent_frozen_ops  # noqa: E402
 import agent_sessions  # noqa: E402
 from agent_launch_utils import compact_root  # noqa: E402
 from frozenagent.capture_log import CaptureLog  # noqa: E402
@@ -856,6 +857,10 @@ class FrozenAgentApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # `restore-begin` bumps monotonically, so it — not `state`, and never
         # `last_error` — is what tells us the coordinator actually started.
         snapshot = (rec.restore_attempts, rec.op_nonce)
+        # Derive the watch deadline ONCE, here, from the record we are about to
+        # dispatch on — `rec` is known non-None at this point, and mid-restore
+        # the record can be transiently unreadable.
+        settle_timeout = self._settle_timeout_for(rec)
         self._pending[rid] = "re-pick" if repick else "restore"
         argv = ["restore", rid] + (["--repick"] if repick else [])
         self._run_frozen(argv)
@@ -863,18 +868,39 @@ class FrozenAgentApp(TuiSwitcherMixin, ShortcutsMixin, App):
         elapsed = {"t": 0.0}
         self._op_timers[rid] = self.set_interval(
             POLL_INTERVAL,
-            lambda: self._poll_restore(rid, snapshot, elapsed),
+            lambda: self._poll_restore(rid, snapshot, elapsed, settle_timeout),
+        )
+
+    def _settle_timeout_for(self, rec) -> float:
+        """How long this viewer may watch a dispatched restore before crying stall.
+
+        The deadline is the COORDINATOR's, not ours: `agent_restore` gives a
+        `restoring` record up to the project's `frozen.restore_ack_grace` to be
+        acknowledged by its replacement agent's SessionStart hook before it may
+        be liveness-confirmed instead. A fixed 40s stopped the timer mid-restore
+        on any project that raised that grace, turning every successful restore
+        into a spurious stall report. Read from the RECORD's root: this app's cwd
+        is wherever the frozen agent's pane happened to start.
+        """
+        return agent_frozen_ops.restore_settle_timeout(
+            (rec.root if rec is not None else "") or None,
+            dispatch_grace=DISPATCH_GRACE,
         )
 
     def _poll_restore(self, rid: str, snapshot: tuple[int, str],
-                      elapsed: dict) -> None:
+                      elapsed: dict, settle_timeout: float | None = None) -> None:
         elapsed["t"] += POLL_INTERVAL
         self._view.invalidate()
         prev_attempts, _prev_nonce = snapshot
+        rec = self._view.by_id(rid)
+        if settle_timeout is None:
+            # A caller that dispatched nothing still gets a config-derived
+            # deadline rather than a constant — never the fixed 40s this replaced.
+            settle_timeout = self._settle_timeout_for(rec)
         done, note, warn = agent_sessions.restore_verdict(
-            self._view.by_id(rid), prev_attempts, elapsed["t"],
+            rec, prev_attempts, elapsed["t"],
             dispatch_grace=DISPATCH_GRACE,
-            settle_timeout=DISPATCH_GRACE + 30.0,
+            settle_timeout=settle_timeout,
         )
         if done:
             self._finish(rid, note, warn=warn)
