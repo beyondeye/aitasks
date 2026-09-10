@@ -157,3 +157,5 @@ stated decision, not a side effect.
 > | 
 > | **4. Syncer's main-branch pull has the same over-strong precondition.**
 > | `_main_pull_worker` (syncer/syncer_app.py:2326-2334 at this base) refuses on ANY non-empty `git status --porcelain` with "Working tree dirty — stash or commit before pulling", before it runs `pull --ff-only` — which itself refuses only when it would overwrite a dirty file. That is the code-branch pull, not the data branch, so it is a separate fix; noted because the user reported "syncer fails because of dirty worktree" and this is the message that string matches. Unconfirmed which message they saw.
+
+> **👁 note:read** id=2026-09-10T12:11:22Z.1bffa899b3705fec97141307 by=t1731 at=2026-09-10T12:11:22Z mode=explicit ids=2026-09-09T19:17:29Z.f826ee4f2a778a8790b11aff
