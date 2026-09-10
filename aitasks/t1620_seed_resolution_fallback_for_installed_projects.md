@@ -82,3 +82,22 @@ early-return cases. The fourth is not a placement problem and is **not** specifi
 - `bash tests/test_agent_instructions.sh`, `bash tests/test_data_branch_setup.sh`,
   `bash tests/test_setup_git.sh`, `bash tests/test_opencode_setup.sh`.
 - `shellcheck .aitask-scripts/aitask_setup.sh`.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1772** id=2026-09-10T08:42:51Z.972c4888655bd8f42abd47dd from=t1772 from_verified=yes at=2026-09-10T08:42:51Z base=2c255e2287aa0828eb919c0c0ce39bcb71e3ecbc base_branch=main dirty=yes host=omg16
+>
+> | t1620's body cites `install.sh:1335` (twice) for the `rm -rf "$INSTALL_DIR/seed"`
+> | cleanup. As of 29d025d1e that line is `install.sh:1479`. The citation was
+> | already stale before t1772, and t1772 moved it further by adding a save/restore
+> | block in `main()` above the seed-cleanup region.
+> | 
+> | Related context, not a claim about t1620's approach: t1772 made the installer
+> | keep a project's root `CHANGELOG.md` and `VERSION` instead of deleting them.
+> | It now removes a root `VERSION` only when a check made before extraction proves
+> | it is the pre-v0.3.0 framework file (existing `.aitask-scripts/`, no
+> | `.aitask-scripts/VERSION`). That may be a useful precedent if t1620 revisits
+> | what the installer deletes from a project root.
+> | 
+> | Re-grep `install.sh` before relying on any line number here.
