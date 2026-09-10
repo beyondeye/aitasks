@@ -5,70 +5,246 @@ Sibling Tasks: aitasks/t1725/t1725_1_*.md, aitasks/t1725/t1725_2_*.md, aitasks/t
 Archived Sibling Plans: aiplans/archived/p1725/p1725_*_*.md
 Base branch: main
 Output branch: main
+plan_verified:
+  - claudecode/opus5 @ 2026-09-10 14:51
 ---
 
 # t1725_4 — resolve the holder's pane and prompt state
 
-Parent plan: `aiplans/p1725_sync_deferrals_actionable_and_safe_to_continue.md`,
-section "Child 4". Finding 3. Depends on t1725_3 (record fields `pane`,
-`pane_state`; the `--require-waiting` hook that fails closed until this lands).
+## Context
 
-## Files
+Parent t1725, finding 3: a sync deferral could have said *"t1717: aiplans/p1717 —
+agent in pane aitasks:4.1 is waiting on a question"*, because lock → pid → tmux pane
+→ prompt state is all derivable. t1725_3 shipped the per-file `DEFERRED_FILE:` wire
+record with two columns left empty for this task (`pane`, `pane_state`, grammar
+`^(waiting_[a-z0-9_]+|active|)$`) and a `--require-waiting` re-probe in
+`_commit_group` that fails closed until the helpers exist. This task makes the
+helpers exist, fills the columns, and makes the re-probe real. t1725_5 renders the
+record in the syncer/board TUI; this task also enriches the CLI's own stderr line
+(user decision, 2026-09-10).
 
-`.aitask-scripts/lib/tmux_exec.sh` (+ `ait_tmux_pane_for_pid`),
-`.aitask-scripts/aitask_live_endpoint.sh` (`resolve_pane_for_pid` ~180-215 moves out),
-`.aitask-scripts/aitask_sync.sh` (fill `PROT_PANE` / `PROT_PANE_STATE`; the
-`_commit_group` re-probe), new `.aitask-scripts/lib/pane_state_probe.py`,
-`.aitask-scripts/monitor/prompt_patterns.py`, `.aitask-scripts/monitor/monitor_core.py`
-(`classify_content` ~222), `.aitask-scripts/lib/tmux_exec.py` (`tmux_socket_args`).
-Guards: `tests/test_no_raw_tmux.sh`, `tests/test_live_endpoint*.sh`; fixture
-`tests/lib/tmux_isolation.sh`; snippet shapes in `tests/test_prompt_detection.py`.
+## Verification pass (2026-09-10) — deltas from the decomposition plan
+
+- **Confirmed, with a required bootstrap:** `monitor_core` pulls no Textual (205
+  modules, ~90 ms), so the "import only `strip_ansi`" fallback is dropped. But that
+  check put `monitor/` and `lib/` on `sys.path` by hand. **Launched as a script from
+  `lib/`, `import monitor_core` raises `ModuleNotFoundError`** (reproduced), and the
+  CLI's catch-all would turn that into a silent, permanent `""`. The probe therefore
+  needs the explicit two-path bootstrap in Step 2, pinned by a CLI success-path test
+  run through the shipping entry point.
+- **Corrected:** capture must go through `TmuxClient.run([...])`, not
+  `["tmux", *tmux_socket_args(), …]` — that literal is a raw spawn
+  `tests/test_no_raw_tmux.sh` flags, and `tmux_gateway.md` forbids allowlisting.
+  `lib/agent_freeze.py:196` is the precedent.
+- **Corrected:** `classify_content` only scans when `category == PaneCategory.AGENT`,
+  and an `agent=""` call matches the *unscoped* flat list. Mirror the monitor's
+  canonical shape (`monitor_core._classify_batch`): `_classify_one(content,
+  COMPARE_MODE_STRIPPED, all_patterns(), PaneCategory.AGENT,
+  agent_key_from_pane(cmd, pane_pid, pane_id))` — so the gate agrees with what
+  minimonitor shows, never looser.
+- **Found:** `aitask_sync.sh` does not source `lib/tmux_exec.sh`, so the t1725_3
+  hook's `declare -F ait_tmux_pane_for_pid` guard is false today.
+- **Found:** the hook already exists (`_commit_group`, ~1206-1230) and passes the
+  helper's whole tab-joined output to the probe. It must take field 1 (`%N`).
+- **Found:** `parse_sync_output` drops a whole record on a bad `pane_state`, so the
+  hook's `unresolvable` (a human-message word) must never reach `PROT_PANE_STATE`.
+  `PROT_PANE` is the **target** string (`test_sync_action_runner.py:395` pins
+  `a|b:4.1`), not the pane id.
+- **Found:** `_holder_action` runs inside `$(…)` in `_protect_task_paths`; a memo it
+  wrote would die with the subshell. Populate in the parent frame, read in the child.
+- **Found (hazard):** `tests/lib/sync_fixture.sh::run_sync` sets no
+  `AITASKS_TMUX_SOCKET` and `lock_yaml_live` plants `pid: $$`. With the probe live,
+  the sweep would walk the *test runner's* ancestors on the real `ait` server and
+  classify this agent's own screen — `drive_holder_not_waiting` could flip to a
+  commit. User decision: fix the shared fixture. **Consequence:** the new live test
+  must hand `run_sync` its own socket on every call, or it only ever measures the
+  no-server default (Verification contract below).
+
+## Pre-phase (risk mitigations)
+
+1. [baseline_sync_and_live_endpoint_suites] Before any edit, run
+   `bash tests/test_sync_protect_paths.sh`, `bash tests/test_sync_deferral_and_quarantine.sh`,
+   `bash tests/test_live_endpoint_tmux_live.sh`, `bash tests/test_live_endpoint_degradation.sh`
+   on the unmodified tree; record each file's PASS/FAIL/TOTAL in this plan's
+   Final Implementation Notes. A red baseline is reported, not fixed here.
 
 ## Steps
 
-1. Move `resolve_pane_for_pid` into `lib/tmux_exec.sh` as `ait_tmux_pane_for_pid
-   <pid>` (echo `<pane_id>\t<session>:<window_id>.<pane_id>`; bounded ancestor walk;
-   gateway socket only). `aitask_live_endpoint.sh` calls it; its explanatory comment
-   moves with the code.
-2. `lib/pane_state_probe.py` — CLI and module. `pane_state_probe.py <pane_id>` prints
-   exactly one line (`waiting_<kind>` / `active` / empty), exit 0 always. Capture via
-   `tmux_socket_args()` + `capture-pane -p -e -t <id> -S -200`; classify with
-   `prompt_patterns.all_patterns()` + `monitor_core.classify_content`. Verify first
-   that importing `monitor_core` pulls no Textual App; if it does, import
-   `strip_ansi` + `_prompt_detection_text` only and run the scoped pattern loop
-   locally. Idle is not attempted.
-3. `aitask_sync.sh`: for `live_lock` / `unknown_liveness` records on this host with a
-   numeric pid, fill `PROT_PANE` (helper) and `PROT_PANE_STATE` (probe via
-   `python_resolve`) — best-effort, empty on failure, one call each per task,
-   memoized across the task's paths; both `_pct_encode`d.
-4. Wire the `--require-waiting` re-probe in `_commit_group` (after 5a.3, before the
-   commit): not `waiting_*` → `_protect "holder_not_waiting"` with the observed state.
-5. `shellcheck`; `bash tests/test_no_raw_tmux.sh`.
+1. **Gateway helper.** Move `resolve_pane_for_pid` (`aitask_live_endpoint.sh:186-210`)
+   into `lib/tmux_exec.sh` as `ait_tmux_pane_for_pid <pid>`; the bound becomes
+   `AIT_TMUX_PANE_WALK_MAX=20` there. Body and its comment block (pane_pid first,
+   `#{window_id}` not `@#{window_index}`, gateway socket only) move verbatim.
+   `aitask_live_endpoint.sh` drops the function and `ANCESTOR_WALK_MAX` and calls the
+   gateway helper; its output line is byte-identical.
 
-### Post-phase (risk mitigations)
+2. **Probe — `lib/pane_state_probe.py`** (module + CLI):
+   - **Import bootstrap (module top, before any framework import)** — the same
+     two-path shape as `lib/agent_freeze.py:66-70`: derive
+     `_LIB = Path(__file__).resolve().parent` and `_SCRIPTS = _LIB.parent`, and insert
+     both into `sys.path` if absent. Then import the monitor modules **as a package**
+     (`from monitor.monitor_core import _classify_one, PaneCategory,
+     COMPARE_MODE_STRIPPED`, `from monitor.prompt_patterns import all_patterns`,
+     exactly as `agent_freeze.py:89-90` does), and the lib ones flat (`from tmux_exec
+     import TmuxClient`, `from agent_keys import agent_key_from_pane`). Package form
+     for both monitor imports keeps one `monitor.prompt_patterns` module object, so
+     `monitor_core`'s own relative import and the probe's import agree.
+   - `probe(pane_id, *, client=None) -> str` — `""` unless `pane_id` matches
+     `^%[0-9]+$` (enforce the one input shape; never parse a target). With
+     `client = client or TmuxClient()`: `display-message -p -t <id>
+     '#{pane_current_command}\t#{pane_pid}'`, then `capture-pane -p -e -t <id> -S -200`
+     (timeout 2 s each). Any rc≠0 → `""`.
+   - `classify_text(text, current_command, pane_pid, pane_id) -> str` —
+     `_classify_one(...)` as above; awaiting → `waiting_<kind>`, else `active`. The
+     result is re-validated against `^(waiting_[a-z0-9_]+|active)$` → else `""`, so a
+     future pattern name outside the grammar fails closed at the write site.
+   - CLI: `pane_state_probe.py <id>` prints **exactly one line** on stdout and exits
+     0 always (usage error included). The framework imports are the part most likely
+     to break, and a broken import must not be indistinguishable from "not waiting".
+     So the catch-all also writes `pane_state_probe: <ExceptionClass>: <msg>` to
+     **stderr**. This makes it visible when run by hand; it does not make it visible
+     to the sweep, which discards stderr. The success-path pin in Verification is
+     what makes a broken bootstrap fail a test.
+   - Idle is not attempted (needs two samples over time).
 
-6. [pane_unresolvable_degrades_to_pid] Deferred sweep with a live lock whose pid is
-   not a descendant of any gateway pane (the test shell on the isolated socket) →
-   the record still emits with pid, email, host filled and `pane` / `pane_state`
-   empty. (TUI half lands in t1725_5's screen test.)
+3. **Sweep fill + stderr line (`aitask_sync.sh`).**
+   - `source "$SCRIPT_DIR/lib/tmux_exec.sh"` (+ `# shellcheck source=` directive).
+   - Memo maps `HOLDER_PANE[tid]` (target), `HOLDER_PANE_ID[tid]`,
+     `HOLDER_PANE_STATE[tid]`, `HOLDER_PANE_DONE[tid]`.
+   - `_resolve_holder_pane <tid>` — once per tid: only when `LOCK_HOST[tid]` equals
+     `hostname` and `LOCK_PID[tid]` is numeric > 0. `line=$(ait_tmux_pane_for_pid …)
+     || line=""`; probe only when a pane resolved and `resolve_python` answers; the
+     probe result is re-validated against the grammar. Every call absorbed with
+     `|| x=""` — never aborts, never blocks the sweep.
+   - Called at the top of `_protect_task_paths` (parent frame) for `live_lock` and
+     `unknown_liveness` only. `_protect` fills `PROT_PANE` / `PROT_PANE_STATE` from
+     the memo (else `""`); both already reach the wire through `_pct_encode` / the
+     grammar at line ~1412.
+   - `_holder_action` (read-only, in its subshell) adds pane and state to the
+     `self` / `other` parenthetical when known, e.g. `(pid 4242, pane
+     aitasks:@4.%12, waiting on a prompt: claude_askuserquestion)` / `…, running — not
+     at a prompt)`. The rest of each line is unchanged.
+
+4. **`--require-waiting` wiring (`_commit_group`).** Split the helper output:
+   `hpane=${hline%%$'\t'*}` goes to the probe, `${hline#*$'\t'}` is the target. The
+   re-probe stays fresh (never read from the memo), and it **overwrites** the memo
+   (target + validated state; `""` for unresolvable) before
+   `_protect_group_paths "holder_not_waiting"`, so that record carries the observed
+   pane. The human message keeps `observed: unresolvable`. Drop the stale "until
+   t1725_4 lands" comment.
+
+5. **Fixture hermeticity (`tests/lib/sync_fixture.sh::run_sync`).** Export
+   `AITASKS_TMUX_SOCKET="${SYNC_FIXTURE_TMUX_SOCKET:-ait_syncfx_nosrv_$$}"` — never
+   empty (empty = legacy follow-`$TMUX`, the kill-server hazard class). The comment
+   states both halves of the contract: the default reaches no server, and a test that
+   wants pane resolution **must** set `SYNC_FIXTURE_TMUX_SOCKET` to its own server's
+   `-L` name, sharing that server's `TMUX_TMPDIR`. Update the `drive_holder_not_waiting`
+   comment in `test_sync_protect_paths.sh` to point at the live test below instead of
+   "until t1725_4".
+
+6. **Docs (internal).** `aidocs/framework/monitor_idle_and_prompt_detection.md`: one
+   paragraph naming `lib/pane_state_probe.py` as a second consumer of the pattern
+   registry that gates `--require-waiting` commits. `aidocs/framework/tmux_gateway.md`:
+   list `ait_tmux_pane_for_pid` among the shell helpers. (User-facing website docs
+   are t1725_6.)
+
+7. `shellcheck` the touched scripts; `bash tests/test_no_raw_tmux.sh`.
+
+## Post-phase (risk mitigations)
+
+1. [pane_unresolvable_degrades_to_pid] In the live test (Case S3 below): a deferred
+   sweep whose live lock's pid is in no gateway pane (the test shell, `$$`) emits the
+   `DEFERRED_FILE:` record with pid, email and host filled and `pane` / `pane_state`
+   both empty, and the run's first stdout line is still a recognised batch token.
+   The sweep runs **with** `SYNC_FIXTURE_TMUX_SOCKET="$SOCK"` (a live server is
+   reachable), so the empty pane is attributable to the pid and not to a missing
+   server. (TUI half — `pane=""` renders with no commit button — is t1725_5's.)
 
 ## Verification
 
-- `tests/test_tmux_pane_for_pid.sh` (isolated socket): own pid resolves; a child
-  process resolves via the walk; unrelated pid → exit 1; session `a|b` round-trips on
-  the wire.
-- `tests/test_pane_state_probe.py` (capture stubbed): AskUserQuestion snippet →
-  `waiting_claude_askuserquestion`; plain output → `active`; capture failure → `""`;
-  CLI prints one line, exit 0, in all three.
-- Sweep-level: live lock anchored to a pane whose screen shows the snippet → record
-  carries the pane target and `waiting_claude_askuserquestion`.
-- `--require-waiting` end-to-end: screen rewritten from the snippet to plain output
-  between the deferred sync and the retry (`--commit-for-task <id>
-  --require-waiting`) → `holder_not_waiting`, nothing committed; left waiting →
-  committed.
-- `bash tests/test_live_endpoint*.sh`, `bash tests/test_no_raw_tmux.sh`,
-  `bash tests/test_sync_deferral_and_quarantine.sh`,
-  `bash tests/run_all_python_tests.sh --test-dir tests`.
+- **`tests/test_tmux_pane_for_pid.sh`** (new; `require_isolated_tmux`, private
+  `-L ait_panepid_$$`, trap kills only that socket): (1) the pane's own pid → the
+  exact `%N\t<session>:@W.%N`, compared with tmux's own `list-panes -F` rendering;
+  (2) a descendant (`sleep` spawned in the pane, pid via file) → same pane;
+  (3) unrelated pid `$$` → rc 1, empty; (4) `""` / `abc` / `0` → rc 1; (5) session
+  `a|b` → target starts `a|b:`; (6) negative control: case 1's pid with the socket
+  repointed at a no-server name → rc 1.
+- **`tests/test_pane_state_probe.py`** (new, stub client scripted per verb):
+  AskUserQuestion body on a `claude` pane → `waiting_claude_askuserquestion`; plain
+  body → `active`; capture rc≠0 → `""`; bad ids (`aitasks:1.1`, `%x`, `""`) → `""`
+  with **zero** client calls. Scoping pin: an `opencode_palette` body on a `claude`
+  pane → `active` (the mutant `agent=""` would answer `waiting_opencode_palette`).
+  CLI subprocess with a no-server socket and with no args → exactly one empty line,
+  rc 0. **Bootstrap pin:** a subprocess launched with `cwd` outside the repo and no
+  `PYTHONPATH` runs `python -c` that imports `pane_state_probe` by file path the
+  way the CLI loads it, and asserts `probe` / `classify_text` resolved (i.e. the
+  `monitor.*` imports succeeded), with empty stderr.
+- **`tests/test_sync_holder_pane_live.sh`** (new) — **socket contract, stated
+  first:**
+  - `require_isolated_tmux` runs before anything else, so `TMUX_TMPDIR` is exported
+    and inherited by both the fixture's server and every `run_sync` subshell. Then
+    `SOCK="ait_syncpane_$$"` and `NOSRV="ait_syncpane_nosrv_$$"`.
+  - Every sweep goes through one wrapper, `run_sync_live() {
+    SYNC_FIXTURE_TMUX_SOCKET="$SOCK" run_sync "$@"; }`. That includes the E1
+    re-probe run and S3. Only the negative controls call
+    `SYNC_FIXTURE_TMUX_SOCKET="$NOSRV" run_sync` explicitly. No case calls bare
+    `run_sync`; a grep in the test's own footer asserts that.
+  - **Precondition asserted before each positive sweep:** `tmux -L "$SOCK"
+    list-panes -a -F '#{pane_pid}'` lists `$PANE_PID`, so the server is reachable
+    under exactly the name handed to the sweep. **Precondition asserted in each
+    negative control:** `tmux -L "$NOSRV" list-sessions` fails, so the control
+    reaches no server.
+  - Fixture: session `ait|t10`; its pane redraws `$SCREEN` from a file; the lock is
+    anchored to its `pane_pid`; `set_userconfig_email other@x.com` → class `self`;
+    remote ahead plus a tracked dirty file, so the run defers. A fresh fixture per
+    case. Poll `capture-pane` until the screen renders (bounded).
+
+  Cases:
+  - **P1 (CLI success path, the bootstrap pin through the shipping artifact):**
+    screen = snippet → `AITASKS_TMUX_SOCKET="$SOCK" "$(resolve_python)"
+    .aitask-scripts/lib/pane_state_probe.py "$PANE_ID"`, run from a `cwd` outside the
+    repo, prints exactly `waiting_claude_askuserquestion` with empty stderr. **P2:**
+    plain screen → `active`.
+  - **S1:** screen = snippet → the record (via `parse_sync_output`) has pane =
+    tmux's own target (`|` survives the `%7C` round-trip) and
+    `waiting_claude_askuserquestion`. The stderr line names the pane and "waiting on
+    a prompt". **S1-control:** the identical sweep via `$NOSRV` → the same record
+    with pane `""` and pane_state `""`. S1's pane therefore comes from the selected
+    socket, not from anything ambient.
+  - **S2 (control):** plain screen → same pane, `active`.
+  - **S3:** post-phase step 1.
+  - **E1:** a deferred run with a waiting screen, then the screen is rewritten to
+    plain, then `run_sync_live --commit-for-task 10 --require-waiting` →
+    `holder_not_waiting`, `observed: active`, no `Auto-commit t10` in the data log.
+  - **E2:** screen stays waiting → `run_sync_live --commit-for-task 10
+    --require-waiting` → committed.
+  - **E2-control:** E2 via `$NOSRV` → refused with `observed: unresolvable`, so E2's
+    commit is attributable to the probe reaching `$SOCK`.
+  - Verify at implementation that `setup_repo`'s clone carries
+    `lib/pane_state_probe.py` and `monitor/`, the same way it carries the rest of
+    `.aitask-scripts/`. P1 must run the clone's copy, since that is the copy the
+    sweep executes.
+- Existing: `bash tests/test_sync_protect_paths.sh` (`drive_holder_not_waiting` now
+  goes through the real probe path, which fails closed because no server is
+  reachable), `bash tests/test_sync_deferral_and_quarantine.sh`,
+  `bash tests/test_live_endpoint*.sh`, `bash tests/test_no_raw_tmux.sh`,
+  `bash tests/run_all_python_tests.sh --test-dir tests` (last line only).
+
+## Risk
+
+### Code-health risk: medium
+- New calls on the sweep's `_protect` path under `set -euo pipefail`: an unabsorbed status or an unset index produces empty stdout, the class `test_sync_protect_paths.sh` exists for · severity: medium (residual — detection is the existing characterization harness, and the inline pre-phase baseline makes a regression attributable to this change) · → mitigation: inline pre-phase baseline_sync_and_live_endpoint_suites
+- Moving `resolve_pane_for_pid` into the shared gateway could drift t1657_4's live endpoint (`ait note --with-live`) · severity: low (residual — the live-endpoint suites are baselined before the move and re-run after) · → mitigation: inline pre-phase baseline_sync_and_live_endpoint_suites
+- The shared-fixture change reaches every test that sources `sync_fixture.sh` · severity: low · → mitigation: none (it only removes ambient reachability; the full sync suites are re-run)
+- Sweep latency: per same-host protected task, one `list-panes`, ≤21 `ps`, one Python start (~0.1-0.3 s), memoized per task · severity: low · → mitigation: none
+
+### Goal-achievement risk: low
+- An unresolvable pane (the agent on a non-gateway tmux server, or a pid in no pane) must degrade to a pid-only record, never drop the record or abort the run · severity: low (residual — pinned by inline post-phase pane_unresolvable_degrades_to_pid) · → mitigation: inline post-phase pane_unresolvable_degrades_to_pid
+- Detection sees the bottom 6 lines, and unresolved-agent panes match unscoped, the same as the monitor. A false `active` under-offers commit-on-behalf (safe); a false `waiting` is bounded to what minimonitor would itself show, and the 5a.3 re-check and publication guard still stand · severity: low · → mitigation: none
+- A probe that cannot import its framework modules would answer `""` forever, so `--require-waiting` could never commit — silently, because the sweep discards the probe's stderr · severity: low (residual — the explicit two-path bootstrap in Step 2, pinned by P1 through the shipping artifact and by the unit test's bootstrap pin) · → mitigation: none (addressed in the plan body)
+
+### Planned mitigations
+- timing: pre-phase | name: baseline_sync_and_live_endpoint_suites | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — empty-stdout abort on the _protect path; live-endpoint drift from the helper move | desc: run the sync and live-endpoint suites on the unmodified tree and record pass counts before any edit
+- timing: post-phase | name: pane_unresolvable_degrades_to_pid | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — unresolvable pane must degrade to a pid-only record | desc: a deferred sweep with a live lock whose pid is in no gateway pane still emits the DEFERRED_FILE record with pid/email/host filled and pane/pane_state empty
 
 ## Step 9
 
