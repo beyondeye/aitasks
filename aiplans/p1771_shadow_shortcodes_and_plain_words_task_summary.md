@@ -528,7 +528,7 @@ at Step 8d ("after" timing).
   more. · severity: medium · → mitigation: t1780
 - `>t`'s degrade paths (no task id; `PLAN_FILE:NOT_FOUND`) are instructions, not
   code, and are the states a real session hits most often. · severity: low · →
-  mitigation: verify_shadow_shortcodes_live
+  mitigation: t1780
 
 ### Planned mitigations
 - timing: after | name: verify_shadow_shortcodes_live | type: manual_verification | priority: medium | effort: low | inline_risk: high | added_complexity: high | addresses: all three goal-achievement risks | desc: Launch a shadow from minimonitor against a live agent and check the eight behavioural ACs — greeting lists every capability with its code and names `>?`; `>?` reprints the list; `>t` summarises and it is never auto-shown at startup or after a refetch; `>i3` runs Advanced with no tier prompt and no inferred-tier line under `fast` (use `>i1`/`>i4` to make it discriminating, since `fast` already configures advanced); `>i` alone still resolves via the existing ladder; `>r` and `>rpc`/`>ri3` each emit a fresh round-headed concern block rather than a prose answer; with the followed agent still in plan mode, `>t` summarises from the draft plan via the round-preamble source ladder and never claims no plan exists; a mention of a code ("what does `>l` do?") answers in words and opens no window. | created: t1780
