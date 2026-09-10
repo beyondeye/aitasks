@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: [t1725_3]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [bash_scripts, robustness, syncer, tmux]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1599
 created_at: 2026-09-07 16:39
-updated_at: 2026-09-07 16:39
+updated_at: 2026-09-10 08:21
 ---
 
 ## Context
