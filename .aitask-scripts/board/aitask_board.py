@@ -27,6 +27,7 @@ from sync_action_runner import (
     run_sync_batch,
     run_interactive_sync,
     STATUS_AUTOMERGED,
+    STATUS_MERGED,
     STATUS_CONFLICT,
     STATUS_DEFERRED,
     STATUS_ERROR,
@@ -12309,6 +12310,14 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         elif status == STATUS_AUTOMERGED:
             if show_notification:
                 self.app.call_from_thread(self.notify, "Sync: Auto-merged conflicts", severity="information")
+        elif status == STATUS_MERGED:
+            # A diverged branch converged by guarded merge (t1731): the files
+            # another live session holds were left dirty and uncommitted.
+            if show_notification:
+                self.app.call_from_thread(
+                    self.notify, "Sync: Merged — protected files left uncommitted",
+                    severity="information",
+                )
         elif status in (STATUS_PUSHED, STATUS_PULLED, STATUS_SYNCED):
             if show_notification:
                 self.app.call_from_thread(self.notify, f"Sync: {status.capitalize()}", severity="information")

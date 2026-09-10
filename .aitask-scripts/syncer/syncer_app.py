@@ -79,6 +79,7 @@ from cross_repo_settings import (  # noqa: E402
 from agent_command_screen import AgentCommandScreen  # noqa: E402
 from sync_action_runner import (  # noqa: E402
     STATUS_AUTOMERGED,
+    STATUS_MERGED,
     STATUS_CONFLICT,
     STATUS_DEFERRED,
     STATUS_ERROR,
@@ -2259,6 +2260,13 @@ class SyncerApp(TuiSwitcherMixin, ShortcutsMixin, App):
             self.notify(self._prefix(label, "Already up to date"), severity="information")
         elif status == STATUS_AUTOMERGED:
             self.notify(self._prefix(label, "Sync: Auto-merged conflicts"), severity="information")
+        elif status == STATUS_MERGED:
+            # A diverged branch converged by guarded merge (t1731): the files
+            # another live session holds were left dirty and uncommitted.
+            self.notify(
+                self._prefix(label, "Sync: Merged — protected files left uncommitted"),
+                severity="information",
+            )
         elif status in (STATUS_PUSHED, STATUS_PULLED, STATUS_SYNCED):
             self.notify(self._prefix(label, f"Sync: {status.capitalize()}"), severity="information")
         elif status == STATUS_DEFERRED:

@@ -60,6 +60,9 @@ STATUS_PUSHED = "PUSHED"
 STATUS_PULLED = "PULLED"
 STATUS_NOTHING = "NOTHING"
 STATUS_AUTOMERGED = "AUTOMERGED"
+#: A diverged branch converged by a guarded merge commit and was pushed (t1731):
+#: the rebase was blocked by protected dirty files, which stay uncommitted.
+STATUS_MERGED = "MERGED"
 STATUS_CONFLICT = "CONFLICT"
 STATUS_NO_NETWORK = "NO_NETWORK"
 STATUS_NO_REMOTE = "NO_REMOTE"
@@ -332,6 +335,7 @@ def parse_sync_output(stdout: str) -> SyncResult:
         STATUS_PULLED,
         STATUS_NOTHING,
         STATUS_AUTOMERGED,
+        STATUS_MERGED,
         STATUS_NO_NETWORK,
         STATUS_NO_REMOTE,
     ):

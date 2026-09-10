@@ -16,6 +16,9 @@
 #   NOTHING                    Already up-to-date
 #   CONFLICT:<file1>,<file2>   Merge conflicts detected (rebase aborted)
 #   AUTOMERGED                 Conflicts detected but all auto-resolved
+#   MERGED                     Diverged branch converged by a guarded merge
+#                              commit and pushed: protected files blocked the
+#                              rebase and are left uncommitted (t1731)
 #   NO_NETWORK                 Fetch/push timed out or failed
 #   NO_REMOTE                  No remote configured
 #   DEFERRED:<reason>[:<detail>]  Sync deliberately did less than a full cycle
@@ -139,6 +142,9 @@ Batch output protocol (single line on stdout):
   NOTHING                    Already up-to-date
   CONFLICT:<file1>,<file2>   Merge conflicts (rebase aborted in batch)
   AUTOMERGED                 Conflicts detected but all auto-resolved
+  MERGED                     Local and remote both moved on while protected
+                             files blocked the rebase: joined by a merge commit
+                             and pushed; those files are left uncommitted
   NO_NETWORK                 Fetch/push timed out or failed
   NO_REMOTE                  No remote configured
   DEFERRED:<reason>[:<detail>]  Deliberately did less than a full cycle; not an
@@ -416,6 +422,10 @@ _note_skip() { SKIP_REPORT+=("$1"); }
 #   pre_push           immediately before the FIRST push, so a hook can advance
 #                      the remote in the window between main's rebase gate and
 #                      the push       (proves do_push re-gates on fresh inputs)
+#   pre_guarded_ff     after the guarded merge's checks and commit-tree, BEFORE
+#                      its fast-forward (t1731)   (proves the fast-forward itself
+#                      refuses what changed after the checks: a moved HEAD, or
+#                      an ignored file that appeared after the scan)
 _sync_test_seams_enabled() {
     local base
     base="$(dirname "$(ait_lock_dir data_index)")" || return 1
@@ -1424,7 +1434,10 @@ _load_incoming() {
     INCOMING=()
     local incf p rc=0
     incf="$(mktemp)" || return 1
-    task_git diff --name-only -z "HEAD..@{u}" > "$incf" 2>/dev/null || rc=$?
+    # --no-renames: with rename detection an incoming rename X->Y lists only Y,
+    # so a protected X the checkout is about to delete would never be seen and
+    # the run would fail with ERROR:pull_rebase_failed instead of deferring.
+    task_git diff --name-only -z --no-renames "HEAD..@{u}" > "$incf" 2>/dev/null || rc=$?
     if [[ $rc -eq 0 ]]; then
         while IFS= read -r -d '' p; do INCOMING["$p"]=1; done < "$incf"
     fi
@@ -1445,6 +1458,9 @@ _load_incoming() {
 #      unclassified file is not an absent one.
 #   3. tracked AND local_ahead > 0 -> blocked. Replaying local commits needs a
 #      clean tree; `git pull --rebase` refuses with unstaged tracked changes.
+#      Blocked is not yet deferred: on a DIVERGED branch main and do_push's
+#      retry then try the guarded merge (t1731, _converge_by_guarded_merge),
+#      which needs no clean tree and declines unless it is provably safe.
 #   4. path is INCOMING -> blocked, tracked or untracked alike. The checkout
 #      would overwrite the file we are protecting.
 #   5. otherwise -> NOT blocked. With local_ahead == 0 main fast-forwards
@@ -1466,6 +1482,275 @@ _rebase_blocked() {
         fi
     done
     return 1
+}
+
+# --- guarded merge (t1731) ---------------------------------------------------
+#
+# A DIVERGED branch (local_ahead > 0 AND remote_ahead > 0) whose rebase is
+# blocked used to defer forever: `git pull --rebase` refuses on ANY unstaged
+# tracked change, and with commits on both sides no fast-forward exists. With
+# several agents sharing one checkout that is the steady state, not an incident.
+# A merge refuses only when it would OVERWRITE a dirty file, so when the checks
+# below prove the merge cannot touch a protected path, sync converges by merge
+# commit instead. Merge commits on aitask-data are an accepted, routine outcome
+# of this path; the rebase stays the preferred route whenever _rebase_blocked
+# lets it run, and this path is tried only when it does not.
+#
+# Built so that nothing is written before everything is known:
+#   1. pin HEAD and @{u} to SHAs once — a concurrent fetch or a holder's commit
+#      can move either ref mid-run, and every later step must see one world;
+#   2. decide (_guarded_merge_prepare), writing nothing but loose objects;
+#   3. build the commit from merge-tree's tree with commit-tree, so its tree is
+#      exactly that tree and no worktree or index byte can enter it;
+#   4. advance with `merge --ff-only --no-autostash --no-overwrite-ignore`, the
+#      ONE command here that writes the worktree. It checks before writing,
+#      refuses to overwrite a dirty, untracked or IGNORED file (git's default
+#      overwrites ignored files silently, and a file created after step 2's scan
+#      is stopped only here), leaves unrelated staged entries alone, refuses if
+#      HEAD moved off the pinned SHA, and never leaves a MERGE_HEAD — so there is
+#      never an --abort, and a refusal is a deferral, not an error.
+#
+# Every refusal names one slug from a closed set, on stderr only (the wire keeps
+# DEFERRED:protected_dirty as its one status):
+#   not_diverged  unknown_state  rev_unresolved  multiple_merge_bases
+#   sides_overlap  merge_conflict  protected_written  ignored_written  ff_refused
+# One slug per guard is what lets tests/test_sync_guarded_merge.sh tell which
+# guard refused apart from git's own backstops; its completeness scan reads the
+# `_gm_refuse <slug>` call sites below.
+#
+# Every git read goes through _ait_data_git, not task_git: task_git's wedge
+# assertion die()s, and a die() here would exit with empty stdout. Only the
+# fast-forward goes through task_git — inside $( ), where a die() is confined to
+# a non-zero status and read as a refusal.
+GM_SLUG=""
+GM_REFUSAL=""
+GM_H=""
+GM_U=""
+GM_TREE=""
+GM_MERGED=""        # the merge commit this run advanced to ("" = none)
+declare -A GM_LOCAL_SIDE=() GM_REMOTE_SIDE=()
+GM_WRITTEN=()
+GM_IGNORED=()
+
+# _gm_refuse <slug> <detail> — record why the guarded merge declined. Returns 0;
+# the caller returns 1, so recording a refusal can never trip `set -e` itself.
+_gm_refuse() {
+    GM_SLUG="$1"
+    GM_REFUSAL="$2"
+}
+
+_gm_report_refusal() {
+    echo "sync: Guarded merge not possible (${GM_SLUG:-unknown}): ${GM_REFUSAL}" >&2
+}
+
+# A path for a human line on stderr, shell-quoted so a newline in it cannot forge
+# a second line.
+_gm_show() { printf '%q' "$1"; }
+
+# _gm_names_into <local|remote|written|ignored> <git args...> — run a NUL-emitting
+# git listing and load it into the named set. Non-zero when git failed: an
+# unknown set is not an empty one, and every caller refuses on it.
+#
+# The same exit-free mktemp -> read -> rm window as _load_incoming: nothing
+# between mktemp and rm can exit (_ait_data_git never die()s, `|| rc=$?` absorbs
+# the status, the read loop cannot fail), so no trap is needed.
+_gm_names_into() {
+    local set="$1" f p rc=0
+    shift
+    f="$(mktemp)" || return 1
+    _ait_data_git "$@" > "$f" 2>/dev/null || rc=$?
+    if [[ $rc -eq 0 ]]; then
+        while IFS= read -r -d '' p; do
+            case "$set" in
+                local)   GM_LOCAL_SIDE["$p"]=1 ;;
+                remote)  GM_REMOTE_SIDE["$p"]=1 ;;
+                written) GM_WRITTEN+=("$p") ;;
+                ignored) GM_IGNORED+=("$p") ;;
+            esac
+        done < "$f"
+    fi
+    rm -f "$f"
+    return $rc
+}
+
+# _gm_collides <p> <w> — 0 when writing <w> would touch <p>: the same path, one
+# under the other (a directory/file clash, either direction), or either of those
+# after case-folding, because a case-insensitive filesystem (macOS) maps both
+# names onto one file. The path is quoted inside each pattern so glob characters
+# in it match literally.
+_gm_collides() {
+    local p="$1" w="$2" lp lw
+    [[ "$p" == "$w" || "$w" == "$p/"* || "$p" == "$w/"* ]] && return 0
+    lp="${p,,}"
+    lw="${w,,}"
+    [[ "$lp" == "$lw" || "$lw" == "$lp/"* || "$lp" == "$lw/"* ]] && return 0
+    return 1
+}
+
+# _guarded_merge_prepare <local_ahead> <remote_ahead> — 0 = provably safe (sets
+# GM_H GM_U GM_TREE), 1 = not (sets GM_SLUG / GM_REFUSAL). Writes nothing but
+# merge-tree's loose objects.
+_guarded_merge_prepare() {
+    local local_ahead="$1" remote_ahead="$2" i p w base bases mt n
+    GM_SLUG=""; GM_REFUSAL=""; GM_H=""; GM_U=""; GM_TREE=""
+    GM_LOCAL_SIDE=(); GM_REMOTE_SIDE=(); GM_WRITTEN=(); GM_IGNORED=()
+
+    # Diverged only. Behind-only belongs to main's fast-forward: with nothing of
+    # our own to merge, a merge commit would add nothing but a second parent.
+    if [[ "$local_ahead" -le 0 || "$remote_ahead" -le 0 ]]; then
+        _gm_refuse not_diverged "local_ahead=$local_ahead remote_ahead=$remote_ahead"
+        return 1
+    fi
+    for ((i = 0; i < ${#PROT_STATE[@]}; i++)); do
+        if [[ "${PROT_STATE[$i]}" == "unknown" ]]; then
+            _gm_refuse unknown_state "a protected entry could not be classified"
+            return 1
+        fi
+    done
+
+    # Pin once. Every step below takes these SHAs, never HEAD or @{u}.
+    GM_H="$(_ait_data_git rev-parse --verify --quiet 'HEAD^{commit}' 2>/dev/null)" || GM_H=""
+    GM_U="$(_ait_data_git rev-parse --verify --quiet '@{u}^{commit}' 2>/dev/null)" || GM_U=""
+    if [[ ! "$GM_H" =~ ^[0-9a-f]{40,64}$ || ! "$GM_U" =~ ^[0-9a-f]{40,64}$ ]]; then
+        _gm_refuse rev_unresolved "HEAD or @{u} did not resolve to a commit"
+        return 1
+    fi
+
+    # Exactly one merge base. With criss-cross history ort merges against a
+    # virtual base, and a side diff from any one real base is not what it does.
+    bases="$(_ait_data_git merge-base --all "$GM_H" "$GM_U" 2>/dev/null)" || bases=""
+    n=0
+    [[ -n "$bases" ]] && n="$(printf '%s\n' "$bases" | wc -l | tr -d ' ')"
+    if [[ "$n" != "1" ]]; then
+        _gm_refuse multiple_merge_bases "expected exactly one merge base, found $n"
+        return 1
+    fi
+    base="$bases"
+
+    # POLICY: the two sides changed disjoint path sets, so no path is a conflict
+    # candidate and no merge driver is ever consulted. --no-renames, because
+    # rename detection lists only a rename's destination, and "local renamed
+    # A->B, remote modified A" would then look disjoint.
+    if ! _gm_names_into local diff --name-only -z --no-renames "$base" "$GM_H" \
+       || ! _gm_names_into remote diff --name-only -z --no-renames "$base" "$GM_U"; then
+        _gm_refuse unknown_state "could not list the paths each side changed"
+        return 1
+    fi
+    if (( ${#GM_LOCAL_SIDE[@]} )); then
+        for p in "${!GM_LOCAL_SIDE[@]}"; do
+            if [[ -n "${GM_REMOTE_SIDE[$p]:-}" ]]; then
+                _gm_refuse sides_overlap "local and remote both changed $(_gm_show "$p")"
+                return 1
+            fi
+        done
+    fi
+
+    # PROOF: git's own merge of the pinned commits is clean. This catches what
+    # path-disjointness cannot see, e.g. a file on one side where the other adds
+    # a directory. The first line of the output is the merged tree.
+    mt="$(_ait_data_git merge-tree --write-tree --no-messages "$GM_H" "$GM_U" 2>/dev/null)" || {
+        _gm_refuse merge_conflict "git merge-tree did not produce a clean merge"
+        return 1
+    }
+    GM_TREE="${mt%%$'\n'*}"
+    if [[ ! "$GM_TREE" =~ ^[0-9a-f]{40,64}$ ]]; then
+        _gm_refuse merge_conflict "git merge-tree produced no tree id"
+        return 1
+    fi
+
+    # Protection is checked against exactly the paths the fast-forward writes.
+    if ! _gm_names_into written diff --name-only -z --no-renames "$GM_H" "$GM_TREE"; then
+        _gm_refuse unknown_state "could not list the paths the merge writes"
+        return 1
+    fi
+    (( ${#GM_WRITTEN[@]} )) || return 0
+    for ((i = 0; i < ${#PROT_PATH[@]}; i++)); do
+        p="${PROT_PATH[$i]}"
+        [[ -n "$p" ]] || continue
+        for w in "${GM_WRITTEN[@]}"; do
+            if _gm_collides "$p" "$w"; then
+                _gm_refuse protected_written \
+                    "the merge writes $(_gm_show "$w"), which touches protected $(_gm_show "$p")"
+                return 1
+            fi
+        done
+    done
+
+    # Ignored files present NOW. The sweep never protects them, and git's default
+    # overwrites them silently. This is the early, specific refusal; a file that
+    # appears after this scan is stopped by --no-overwrite-ignore instead.
+    if ! _gm_names_into ignored ls-files -z -o -i --exclude-standard; then
+        _gm_refuse unknown_state "could not list ignored files"
+        return 1
+    fi
+    if (( ${#GM_IGNORED[@]} )); then
+        for p in "${GM_IGNORED[@]}"; do
+            for w in "${GM_WRITTEN[@]}"; do
+                if _gm_collides "$p" "$w"; then
+                    _gm_refuse ignored_written \
+                        "the merge writes $(_gm_show "$w"), over ignored $(_gm_show "$p")"
+                    return 1
+                fi
+            done
+        done
+    fi
+    return 0
+}
+
+# _converge_by_guarded_merge <local_ahead> <remote_ahead>
+#   0 = HEAD advanced to a verified merge commit (GM_MERGED); the caller pushes.
+#   1 = declined and nothing changed (GM_SLUG / GM_REFUSAL); the caller defers.
+#   2 = an unexpected failure, already reported as ERROR:<...>; never push.
+_converge_by_guarded_merge() {
+    _guarded_merge_prepare "$1" "$2" || return 1
+
+    local c now p ff_rc=0 ff_err=""
+    local n=${#PROT_REASON[@]}
+    local -a prot_paths=()
+
+    c="$(_ait_data_git commit-tree "$GM_TREE" -p "$GM_H" -p "$GM_U" \
+        -m "ait: Merge ${GM_U:0:12} into aitask-data — rebase blocked by ${n} protected file(s)" \
+        2>/dev/null)" || c=""
+    if [[ ! "$c" =~ ^[0-9a-f]{40,64}$ ]]; then
+        batch_out "ERROR:guarded_merge_failed"
+        warn "Guarded merge: could not create the merge commit; nothing was changed."
+        return 2
+    fi
+
+    _sync_test_seam pre_guarded_ff
+
+    ff_err="$(task_git merge --ff-only --no-autostash --no-overwrite-ignore --quiet "$c" 2>&1)" || ff_rc=$?
+    if [[ $ff_rc -ne 0 ]]; then
+        _gm_refuse ff_refused "the fast-forward to the merge was refused: ${ff_err//$'\n'/ }"
+        return 1
+    fi
+
+    # Deterministic checks only. A byte-hash of the protected files would be
+    # racy — their holder is live and may write them at any moment — and would
+    # prove nothing about the merge. What the merge guarantees is that its tree
+    # leaves every protected path exactly as HEAD had it.
+    now="$(_ait_data_git rev-parse --verify --quiet HEAD 2>/dev/null)" || now=""
+    for p in "${PROT_PATH[@]}"; do
+        if [[ -n "$p" ]]; then prot_paths+=("$p"); fi
+    done
+    if [[ "$now" != "$c" ]] || { (( ${#prot_paths[@]} )) \
+        && ! GIT_LITERAL_PATHSPECS=1 _ait_data_git diff --quiet "$GM_H" "$c" -- "${prot_paths[@]}" 2>/dev/null; }; then
+        batch_out "ERROR:guarded_merge_unverified"
+        warn "Guarded merge: HEAD is ${now:-unresolvable}, expected $c with every protected path unchanged; nothing will be pushed."
+        return 2
+    fi
+
+    GM_MERGED="$c"
+    echo "sync: guarded merge ${c:0:12} (${GM_U:0:12} into ${GM_H:0:12}); ${n} protected file(s) left uncommitted" >&2
+    return 0
+}
+
+# A merge landed but its push did not (it deferred, or the network failed): say
+# so on stderr, so a deferral or NO_NETWORK token is not mistaken for "nothing
+# happened". The next run publishes it, or a plain rebase linearizes it.
+_gm_note_unpublished() {
+    [[ -n "$GM_MERGED" ]] || return 0
+    echo "sync: merge ${GM_MERGED:0:12} was made locally and is not yet published" >&2
 }
 
 # The ONE emitter for a protected_dirty deferral: the status line plus one
@@ -1676,6 +1961,7 @@ do_push() {
         if [[ "$BATCH_MODE" == false ]]; then
             warn "Network timeout during push"
         fi
+        _gm_note_unpublished
         exit 0
     elif [[ $push_exit -ne 0 ]]; then
         # `remote_ahead` was sampled ONCE, from the step-5 fetch, so on a branch
@@ -1712,10 +1998,11 @@ do_push() {
             if [[ "$BATCH_MODE" == false ]]; then
                 warn "Push rejected and the follow-up fetch failed (rc=$refetch_exit)"
             fi
+            _gm_note_unpublished
             exit 0
         fi
 
-        local retry_local retry_remote
+        local retry_local retry_remote retry_merged=false
         retry_local=$(count_local_ahead)
         retry_remote=$(count_remote_ahead)
         if ! _load_incoming; then
@@ -1728,17 +2015,30 @@ do_push() {
         # that, the still-un-rebased push was rejected again, and the run reported
         # ERROR:push_failed — blaming the push for a failure the protected files
         # caused, and bypassing the protection entirely.
+        #
+        # A blocked rebase here is the same diverged shape main can meet — often
+        # created by the very race that rejected the push — so the guarded merge
+        # (t1731) gets the same chance to converge it, instead of re-creating the
+        # deadlock one push later.
         if (( ${#PROT_REASON[@]} )) && _rebase_blocked "$retry_local" "$retry_remote"; then
-            _emit_protected_deferral
-            iwarn "Push deferred: protected files block the rebase this push needs."
-            return 2
+            local gm_rc=0
+            _converge_by_guarded_merge "$retry_local" "$retry_remote" || gm_rc=$?
+            case $gm_rc in
+                0) retry_merged=true ;;
+                1)
+                    _gm_report_refusal
+                    _emit_protected_deferral
+                    iwarn "Push deferred: protected files block the rebase this push needs."
+                    return 2 ;;
+                *) return 1 ;;   # ERROR:<...> already emitted
+            esac
         fi
 
         # Through do_pull_rebase, never a bare `pull --rebase`: on conflict that
         # one left `rebase-merge` behind for the next ./ait git write to trip
         # over (t1725_1). do_pull_rebase aborts, and reports CONFLICT: / ERROR:
-        # itself.
-        if ! do_pull_rebase "$retry_remote"; then
+        # itself. Skipped when the guarded merge above already converged.
+        if [[ "$retry_merged" == false ]] && ! do_pull_rebase "$retry_remote"; then
             batch_out "ERROR:push_rebase_failed"
             if [[ "$BATCH_MODE" == false ]]; then
                 warn "Push rejected and the follow-up rebase failed"
@@ -1828,10 +2128,23 @@ main() {
         iwarn "Sync deferred: ${#PUBLICATION_BLOCKED[@]} path(s) under publication quarantine — nothing pushed."
         exit 0
     fi
+    #
+    # A blocked rebase is not yet a deferral. On a DIVERGED branch the guarded
+    # merge (t1731) may still converge it without touching a protected file; it
+    # declines — and the run then defers exactly as before — unless every check
+    # in _guarded_merge_prepare passes.
     if (( ${#PROT_REASON[@]} )) && _rebase_blocked "$local_ahead" "$remote_ahead"; then
-        _emit_protected_deferral
-        iwarn "The fetch still ran, so the branch is up to date on disk."
-        exit 0
+        local gm_rc=0
+        _converge_by_guarded_merge "$local_ahead" "$remote_ahead" || gm_rc=$?
+        case $gm_rc in
+            0) ;;   # converged: HEAD now contains @{u}, so Step 7 has nothing to pull
+            1)
+                _gm_report_refusal
+                _emit_protected_deferral
+                iwarn "The fetch still ran, so the branch is up to date on disk."
+                exit 0 ;;
+            *) exit 1 ;;   # ERROR:<...> already emitted; nothing is pushed
+        esac
     fi
 
     # Step 7: Converge with the remote when it has commits.
@@ -1843,8 +2156,11 @@ main() {
     # excluded above. This mirrors task_data_converge's ff-only rule (t1658_1)
     # and is what lets a behind-only branch converge instead of deferring
     # forever behind someone else's parked session (t1696).
+    #
+    # A guarded merge above has already converged the branch (GM_MERGED): there
+    # is nothing left to pull.
     local did_pull=false
-    if [[ "$remote_ahead" -gt 0 ]]; then
+    if [[ -z "$GM_MERGED" && "$remote_ahead" -gt 0 ]]; then
         if [[ "$local_ahead" -eq 0 ]] && (( ${#PROT_REASON[@]} )); then
             if task_git merge --ff-only --quiet "@{u}" 2>/dev/null; then
                 did_pull=true
@@ -1869,13 +2185,21 @@ main() {
         do_push "$local_ahead" || push_rc=$?
         case $push_rc in
             0) did_push=true ;;
-            2) exit 0 ;;   # deferred, not failed — do_push already emitted its token
-            *) exit 1 ;;
+            2) _gm_note_unpublished; exit 0 ;;   # deferred, not failed — do_push already emitted its token
+            *) _gm_note_unpublished; exit 1 ;;
         esac
     fi
 
     # Step 9: Output result
-    if [[ "$_PULL_AUTOMERGED" == true ]]; then
+    #
+    # MERGED first: a guarded merge that was pushed is its own outcome, and the
+    # only one that says the protected files were left behind uncommitted. It is
+    # exclusive with AUTOMERGED in practice — do_pull_rebase never runs on the
+    # blocked path the merge replaces.
+    if [[ -n "$GM_MERGED" && "$did_push" == true ]]; then
+        batch_out "MERGED"
+        isuccess "Sync complete: diverged branch merged and pushed; protected files left uncommitted"
+    elif [[ "$_PULL_AUTOMERGED" == true ]]; then
         batch_out "AUTOMERGED"
         isuccess "Sync complete: conflicts auto-merged"
     elif [[ "$did_push" == true && "$did_pull" == true ]]; then

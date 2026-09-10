@@ -26,6 +26,14 @@
 #   remote_ahead  0 | >0                (is there anything to rebase onto?)
 #   incoming      no | yes              (does an incoming commit touch our path?)
 #
+# and the verdict is one of:
+#
+#   blocked   DEFERRED:protected_dirty — nothing converged
+#   open      the rebase gate let the run through (no deferral)
+#   merged    the rebase WAS blocked, but the branch is diverged and the guarded
+#             merge found it provably safe, so the run converged by merge (t1731;
+#             the guard cells themselves live in test_sync_guarded_merge.sh)
+#
 # `unknown` is not a fixture-reachable state — it is set defensively when the
 # incoming set cannot be read — so it is covered by the parser/unit level and by
 # the fail-closed branch in main(), not here.
@@ -64,10 +72,26 @@ advance_remote_touching() {
     (cd "$tmpdir/local" && git -C .aitask-data fetch -q origin 2>/dev/null)
 }
 
+# Advance origin/aitask-data with a commit RENAMING <from> to <to>.
+advance_remote_renaming() {
+    local tmpdir="$1" from="$2" to="$3"
+    rm -rf "$tmpdir/pc2"
+    git clone -q --branch aitask-data "$tmpdir/remote.git" "$tmpdir/pc2" 2>/dev/null
+    (
+        cd "$tmpdir/pc2"
+        git config user.email pc2@test.com
+        git config user.name PC2
+        git config commit.gpgsign false
+        git mv "$from" "$to" && git commit -q -m "pc2: rename $from"
+        git push -q origin aitask-data 2>/dev/null
+    ) >/dev/null 2>&1
+    (cd "$tmpdir/local" && git -C .aitask-data fetch -q origin 2>/dev/null)
+}
+
 # gate_case <label> <tree_state> <local_ahead> <remote_ahead> <incoming> <expect>
 #
-# <expect> is `blocked` or `open`. Builds a fixture with exactly those inputs, a
-# live lock on t10 so the file is protected, and asserts the verdict.
+# <expect> is `blocked`, `open` or `merged`. Builds a fixture with exactly those
+# inputs, a live lock on t10 so the file is protected, and asserts the verdict.
 #
 # PROTECTED_PATH is t10's; local_ahead>0 is produced by dirtying UNLOCKED t20,
 # whose group commits and therefore leaves a local commit to replay.
@@ -99,16 +123,40 @@ gate_case() {
     fi
 
     local out; out="$(run_sync "$t")"
-    if [[ "$expect" == "blocked" ]]; then
-        assert_contains "$label -> blocked" "DEFERRED:protected_dirty" "$out"
-    else
-        assert_not_contains "$label -> open" "DEFERRED" "$out"
-    fi
+    case "$expect" in
+        blocked) assert_contains "$label -> blocked" "DEFERRED:protected_dirty" "$out" ;;
+        merged)  assert_eq "$label -> merged" "MERGED" "$(printf '%s\n' "$out" | head -n1)" ;;
+        *)       assert_not_contains "$label -> open" "DEFERRED" "$out" ;;
+    esac
     # In EVERY cell the protected file's own bytes must survive untouched. A
     # gate that let a rebase through would show up here even if the verdict
     # string happened to match.
     assert_file_exists "$label: the protected file still exists" \
         "$t/local/.aitask-data/$ppath"
+}
+
+# overlap_case <label> — the `merged` row's shape (tracked, local >0, remote >0,
+# not incoming), except pc2 ALSO changes t20_beta.md, the very file our local
+# commit changed. The two sides overlap, so the guarded merge must decline and
+# the run defers (t1731). Asserts the overlap is real and names the refusing
+# guard, so this row cannot keep passing by deferring for some other reason.
+overlap_case() {
+    local label="$1"
+    local t; t="$(setup_repo)"
+    plant_lock "$t" 10 "$(lock_yaml_live 10)"
+    (cd "$t/local" && printf 'edit10\n' >> .aitask-data/aitasks/t10_alpha.md \
+                   && printf 'edit20\n' >> .aitask-data/aitasks/t20_beta.md)
+    advance_remote_touching "$t" aitasks/t20_beta.md theirs
+    local out; out="$(run_sync "$t")"
+    assert_contains "$label -> blocked" "DEFERRED:protected_dirty" "$out"
+    assert_contains "$label: the guarded merge declined on the overlap" \
+        "Guarded merge not possible (sides_overlap)" "$(sync_err "$t")"
+    local d="$t/local/.aitask-data" mb
+    mb="$(git -C "$d" merge-base HEAD '@{u}' 2>/dev/null)"
+    assert_contains "$label: fixture — the local side changed t20_beta.md" \
+        "aitasks/t20_beta.md" "$(git -C "$d" diff --name-only "$mb" HEAD 2>/dev/null)"
+    assert_contains "$label: fixture — the remote side changed t20_beta.md" \
+        "aitasks/t20_beta.md" "$(git -C "$d" diff --name-only "$mb" '@{u}' 2>/dev/null)"
 }
 
 echo "=== rebase gate truth table (t1725_3) ==="
@@ -126,12 +174,16 @@ gate_case "untracked / local >0 / remote 0 / not incoming" untracked 1  0 no  op
 
 # --- tracked, remote ahead ------------------------------------------------
 # Rule 3: replaying local commits needs a clean tree. With nothing to replay,
-# main fast-forwards instead (t1696's case).
-echo "--- tracked, remote ahead (rules 3 and 5) ---"
-gate_case "tracked   / local >0 / remote >0 / not incoming" tracked   1  1 no  blocked
+# main fast-forwards instead (t1696's case). With something to replay and
+# nothing in common with the incoming side, the rebase is still blocked but the
+# branch converges by guarded merge (t1731); when the sides overlap, or the
+# incoming side writes the protected path, it stays blocked.
+echo "--- tracked, remote ahead (rules 3 and 5; guarded merge) ---"
+gate_case "tracked   / local >0 / remote >0 / not incoming" tracked   1  1 no  merged
 gate_case "tracked   / local 0  / remote >0 / not incoming" tracked   0  1 no  open
 gate_case "tracked   / local >0 / remote >0 / IS incoming"  tracked   1  1 yes blocked
 gate_case "tracked   / local 0  / remote >0 / IS incoming"  tracked   0  1 yes blocked
+overlap_case "tracked   / local >0 / remote >0 / sides OVERLAP"
 
 # --- untracked, remote ahead ---------------------------------------------
 # Rule 4 is the ONLY thing that blocks an untracked path: git rebase ignores one
@@ -155,6 +207,25 @@ NL_PATH="$(printf 'aiplans/p10_a\nb.md')"
 gate_case "untracked / newline path / IS incoming"     untracked 0 1 yes blocked "$NL_PATH"
 gate_case "untracked / newline path / not incoming"    untracked 0 1 no  open    "$NL_PATH"
 gate_case "untracked / quote+backslash / IS incoming"  untracked 0 1 yes blocked 'aiplans/p10_q"\.md'
+
+# --- an incoming RENAME of the protected file ------------------------------
+# With rename detection `diff --name-only` lists only the destination, so rule 4
+# never sees the protected path the checkout is about to delete: the run then
+# fails with ERROR:pull_rebase_failed instead of deferring. `--no-renames`
+# lists both halves (t1731).
+echo "--- an incoming rename of the protected file (rule 4, --no-renames) ---"
+T="$(setup_repo)"
+plant_lock "$T" 10 "$(lock_yaml_live 10)"
+(cd "$T/local" && printf 'edit10\n' >> .aitask-data/aitasks/t10_alpha.md)
+advance_remote_renaming "$T" aitasks/t10_alpha.md aitasks/t10_renamed.md
+assert_contains "incoming rename: fixture — pc2 renamed the protected file" "aitasks/t10_renamed.md" \
+    "$(git -C "$T/local/.aitask-data" diff --name-only HEAD '@{u}' 2>/dev/null)"
+OUT="$(run_sync "$T")"
+assert_contains "tracked   / local 0  / remote >0 / RENAMED away -> blocked" \
+    "DEFERRED:protected_dirty" "$OUT"
+assert_not_contains "incoming rename: and not the rebase error" "ERROR:" "$OUT"
+assert_contains "incoming rename: the protected edit survives" "edit10" \
+    "$(cat "$T/local/.aitask-data/aitasks/t10_alpha.md")"
 
 echo ""
 echo "==================================="

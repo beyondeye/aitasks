@@ -20,6 +20,7 @@ from sync_action_runner import (  # noqa: E402
     STATUS_AUTOMERGED,
     STATUS_CONFLICT,
     STATUS_ERROR,
+    STATUS_MERGED,
     STATUS_NOTHING,
     STATUS_NO_NETWORK,
     STATUS_NO_REMOTE,
@@ -48,6 +49,14 @@ class ParseSyncOutputTests(unittest.TestCase):
 
     def test_automerged(self):
         self.assertEqual(parse_sync_output("AUTOMERGED").status, STATUS_AUTOMERGED)
+
+    def test_merged(self):
+        # t1731: a diverged branch converged by guarded merge and pushed. A plain
+        # success token -- never a failure, and never a deferral.
+        r = parse_sync_output("MERGED")
+        self.assertEqual(r.status, STATUS_MERGED)
+        self.assertIsNone(r.error_message)
+        self.assertIsNone(r.deferred_reason)
 
     def test_no_network(self):
         self.assertEqual(parse_sync_output("NO_NETWORK").status, STATUS_NO_NETWORK)

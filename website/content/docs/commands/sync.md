@@ -42,6 +42,7 @@ In batch mode (`--batch`), the script outputs a single structured line on stdout
 | `PULLED` | Remote changes pulled, nothing to push |
 | `NOTHING` | Already up-to-date, no action needed |
 | `AUTOMERGED` | Merge conflicts detected and auto-resolved by merge rules |
+| `MERGED` | Local and remote had both moved on while another session's uncommitted files blocked the rebase, so the branch was joined with a merge commit and pushed; those files are left untouched and uncommitted (see [Auto-commit policy](#auto-commit-policy)) |
 | `CONFLICT:<file1>,<file2>` | Unresolvable merge conflicts detected (rebase aborted) |
 | `NO_NETWORK` | Fetch or push timed out or failed (no connectivity) |
 | `NO_REMOTE` | No git remote configured for the repository |
@@ -73,7 +74,12 @@ Anything it cannot vouch for is **skipped and reported on stderr**, and simply s
 - the file changed after it was classified;
 - the lock branch could not be read at all, in which case nothing is committed.
 
-Skipped files can block the later rebase, since `git pull --rebase` refuses to run with a dirty worktree. When that happens the run reports `DEFERRED:protected_dirty` and exits **successfully** — the deferral clears by itself once the owning session commits its work.
+Skipped files can block the later rebase, since `git pull --rebase` refuses to run while a tracked file is modified. Sync then tries two other ways to catch up, neither of which touches a skipped file:
+
+- If the local branch has no commits of its own, it fast-forwards.
+- If local and remote both have new commits, it joins them with a merge commit and pushes, and the run reports `MERGED`. This happens only when the two sides changed different files, git merges them cleanly, and the merge writes none of the skipped files and no ignored file. The skipped files stay exactly as they were, uncommitted.
+
+Otherwise the run reports `DEFERRED:protected_dirty` and exits **successfully**. The deferral clears by itself once the owning session commits its work. Re-running `ait sync` is therefore a recovery attempt, not a guarantee: when both sides changed the same file, it keeps deferring until that session commits or you resolve the overlap yourself.
 
 An ownerless file is different: no session is going to commit it *for* you, so it stays dirty until it is committed. The report names the file and the exact command that clears it.
 

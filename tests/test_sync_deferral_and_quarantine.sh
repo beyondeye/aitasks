@@ -50,6 +50,46 @@ advance_remote() {
     (cd "$tmpdir/local" && git -C .aitask-data fetch -q origin 2>/dev/null)
 }
 
+# advance_remote_overlapping: like advance_remote, but pc2 ALSO appends to
+# t20_beta.md. Every test below that pairs a live-locked tracked t10 edit with a
+# local t20 commit is, with plain advance_remote, the DISJOINT diverged shape —
+# which since t1731 converges by guarded merge instead of deferring. Changing
+# t20 on both sides makes the two sides overlap, so the guarded merge declines
+# and the run still defers. The overlap is load-bearing; assert_deferred_on_overlap
+# proves it is really there.
+advance_remote_overlapping() {
+    local tmpdir="$1"
+    rm -rf "$tmpdir/pc2"
+    git clone -q --branch aitask-data "$tmpdir/remote.git" "$tmpdir/pc2" 2>/dev/null
+    (
+        cd "$tmpdir/pc2"
+        git config user.email pc2@test.com
+        git config user.name PC2
+        git config commit.gpgsign false
+        printf 'from pc2\n' >> aitasks/t30_gamma.md
+        printf 'from pc2\n' >> aitasks/t20_beta.md
+        git add -A && git commit -q -m "pc2: advance data branch (overlapping t20)"
+        git push -q origin aitask-data 2>/dev/null
+    ) >/dev/null 2>&1
+    (cd "$tmpdir/local" && git -C .aitask-data fetch -q origin 2>/dev/null)
+}
+
+# assert_deferred_on_overlap <label> <tmpdir> — the run deferred BECAUSE the two
+# sides overlap: the guarded merge names sides_overlap on stderr, and
+# t20_beta.md really is on both sides of the merge base. Without this a reshaped
+# test could keep passing by deferring for some unrelated reason.
+assert_deferred_on_overlap() {
+    local label="$1" tmpdir="$2" d mb
+    d="$tmpdir/local/.aitask-data"
+    assert_contains "$label: the guarded merge declined on the overlap" \
+        "Guarded merge not possible (sides_overlap)" "$(sync_err "$tmpdir")"
+    mb="$(git -C "$d" merge-base HEAD '@{u}' 2>/dev/null)"
+    assert_contains "$label: fixture — the local side changed t20_beta.md" \
+        "aitasks/t20_beta.md" "$(git -C "$d" diff --name-only "$mb" HEAD 2>/dev/null)"
+    assert_contains "$label: fixture — the remote side changed t20_beta.md" \
+        "aitasks/t20_beta.md" "$(git -C "$d" diff --name-only "$mb" '@{u}' 2>/dev/null)"
+}
+
 remote_data_sha() { git -C "$1/remote.git" rev-parse refs/heads/aitask-data 2>/dev/null; }
 remote_blob() { git -C "$1/remote.git" show "refs/heads/aitask-data:$2" 2>/dev/null; }
 
@@ -81,14 +121,21 @@ echo ""
 # incoming commit touches is fast-forwarded instead — deliberately, since
 # t1725_3 (that case is Test 1c below). Dropping the t20 edit does not weaken
 # this test, it silently converts it into the opposite one.
+#
+# So is the OVERLAPPING advance (pc2 also changes t20). With a local commit and a
+# remote commit on disjoint files the branch is diverged-but-mergeable, and
+# since t1731 it converges by guarded merge instead (test_sync_guarded_merge.sh
+# AC1). The overlap is what keeps this the "rebase blocked, merge impossible"
+# case; assert_deferred_on_overlap checks it is really there.
 echo "--- Test 1: protected file + remote ahead -> DEFERRED, not ERROR:pull_rebase_failed ---"
 TMP1="$(setup_repo)"
 plant_lock "$TMP1" 10 "$(lock_yaml_live 10)"
 (cd "$TMP1/local" && printf 'edit10\n' >> .aitask-data/aitasks/t10_alpha.md \
                   && printf 'edit20\n' >> .aitask-data/aitasks/t20_beta.md)
-advance_remote "$TMP1"
+advance_remote_overlapping "$TMP1"
 OUT1="$(run_sync "$TMP1")"
 assert_contains "the run reports a protected_dirty deferral" "DEFERRED:protected_dirty" "$OUT1"
+assert_deferred_on_overlap "Test 1" "$TMP1"
 assert_not_contains "and NOT the rebase error the dirty file would otherwise cause" \
     "ERROR:pull_rebase_failed" "$OUT1"
 # The fetch is read-only and must still have happened.
@@ -120,18 +167,27 @@ assert_contains "the protected file is still there, untouched" "draft" \
     "$(cat "$TMP1A/local/.aitask-data/aiplans/p10_x.md")"
 
 # 1b: the SAME position but the protected file is modified-tracked. A rebase
-# needs a clean tree, so this one must still defer. Paired with 1a, this is what
-# proves the gate discriminates on tree state rather than on "is anything
-# protected".
-echo "--- Test 1b: tracked protected file in the same position -> still defers ---"
+# needs a clean tree, so the rebase is still blocked — which since t1731 no
+# longer means a deferral: the two sides are disjoint, so the branch converges
+# by guarded merge instead. Paired with 1a this still proves the gate
+# discriminates on tree state rather than on "is anything protected": 1a
+# rebases, 1b cannot and merges (a two-parent HEAD). The overlapping position
+# that must still defer is Test 1.
+echo "--- Test 1b: tracked protected file in the same position -> rebase blocked, merges ---"
 TMP1B="$(setup_repo)"
 plant_lock "$TMP1B" 10 "$(lock_yaml_live 10)"
 (cd "$TMP1B/local" && printf 'edit10\n' >> .aitask-data/aitasks/t10_alpha.md \
                    && printf 'edit20\n' >> .aitask-data/aitasks/t20_beta.md)
 advance_remote "$TMP1B"
 OUT1B="$(run_sync "$TMP1B")"
-assert_contains "a tracked protected file still blocks the rebase" \
-    "DEFERRED:protected_dirty" "$OUT1B"
+assert_eq "a tracked protected file blocks the rebase, so the run merges" \
+    "MERGED" "$(printf '%s\n' "$OUT1B" | head -n1)"
+assert_eq "and HEAD is a two-parent merge, not a rebase" "2" \
+    "$(git -C "$TMP1B/local/.aitask-data" rev-list --parents -n1 HEAD | awk '{print NF - 1}')"
+assert_contains "and the protected edit is still in the worktree" "edit10" \
+    "$(cat "$TMP1B/local/.aitask-data/aitasks/t10_alpha.md")"
+assert_eq "and it is still modified — neither staged nor committed" " M" \
+    "$(git -C "$TMP1B/local/.aitask-data" status --porcelain -- aitasks/t10_alpha.md | cut -c1-2)"
 
 # 1c: behind-only (local_ahead == 0) with a TRACKED protected file that no
 # incoming commit touches. A fast-forward never conflicts and git refuses one
@@ -518,8 +574,14 @@ assert_eq "and nothing was published" "$BEFORE18B" "$(remote_data_sha "$TMP18B")
 # hook that, on its FIRST invocation only, pushes a commit from a sibling clone
 # to the same remote. Our push is then genuinely rejected exactly once, which is
 # what deterministically enters do_push's retry path.
+#
+# <racer_path> (default t30_gamma.md) is the file the racer's commit changes.
+# Test 19 passes t20_beta.md, the file its own local commit changed, so the retry
+# sees OVERLAPPING sides and must still defer: with the disjoint default, since
+# t1731 the retry converges by guarded merge instead
+# (test_sync_guarded_merge.sh, the retry cell).
 install_racing_pre_push() {
-    local tmpdir="$1"
+    local tmpdir="$1" racer_path="${2:-aitasks/t30_gamma.md}"
     mkdir -p "$tmpdir/local/.git/hooks"
     cat > "$tmpdir/local/.git/hooks/pre-push" <<HOOKEOF
 #!/usr/bin/env bash
@@ -538,7 +600,7 @@ git clone -q --branch aitask-data "$tmpdir/remote.git" "$tmpdir/racer" >/dev/nul
   git config user.email racer@test.com
   git config user.name Racer
   git config commit.gpgsign false
-  printf 'racer\n' >> aitasks/t30_gamma.md
+  printf 'racer\n' >> $racer_path
   git add -A && git commit -q -m "racer: advance"
   git push -q origin aitask-data
 ) >/dev/null 2>&1
@@ -552,11 +614,12 @@ TMP19="$(setup_repo)"
 plant_lock "$TMP19" 10 "$(lock_yaml_live 10)"
 (cd "$TMP19/local" && printf 'edit10\n' >> .aitask-data/aitasks/t10_alpha.md \
                    && printf 'edit20\n' >> .aitask-data/aitasks/t20_beta.md)
-install_racing_pre_push "$TMP19"
+install_racing_pre_push "$TMP19" aitasks/t20_beta.md
 OUT19="$(run_sync "$TMP19")"
 assert_not_contains "the protected file is not blamed on the push" \
     "ERROR:push_failed" "$OUT19"
 assert_contains "the run defers instead" "DEFERRED:protected_dirty" "$OUT19"
+assert_deferred_on_overlap "Test 19" "$TMP19"
 
 echo "--- Test 20: control - same race, nothing protected -> rebase+retry succeeds ---"
 TMP20="$(setup_repo)"
@@ -721,13 +784,25 @@ mkdir -p "$TMP30/tmpdir_probe"
 plant_lock "$TMP30" 10 "$(lock_yaml_live 10)"
 (cd "$TMP30/local" && printf 'edit10\n' >> .aitask-data/aitasks/t10_alpha.md \
                    && printf 'edit20\n' >> .aitask-data/aitasks/t20_beta.md)
-advance_remote "$TMP30"
-(
+# Overlapping, so this stays a DEFERRING run: with pc2 touching t30 alone the
+# sides are disjoint and, since t1731, the run converges by guarded merge — the
+# merge path's own scratch files are pinned by test_sync_guarded_merge.sh AC1.
+advance_remote_overlapping "$TMP30"
+# Capture everything the run says. With its output discarded, an early error
+# or a run that never deferred would pass the cleanup check below vacuously:
+# an empty TMPDIR proves nothing about a deferral path that never ran. stderr
+# goes to the fixture's sync_stderr, which assert_deferred_on_overlap reads.
+OUT30="$(
     cd "$TMP30/local"
     export PATH="$PWD/bin:$PATH" TEST_HOSTNAME=testhost
     export AITASKS_LOCK_DIR="$TMP30/locks" TMPDIR="$TMP30/tmpdir_probe"
-    ./.aitask-scripts/aitask_sync.sh --batch >/dev/null 2>&1
-)
+    ./.aitask-scripts/aitask_sync.sh --batch 2>"$TMP30/sync_stderr"
+)"
+RC30=$?
+assert_eq "Test 30: the run exits 0" "0" "$RC30"
+assert_eq "Test 30: the run deferred on protected_dirty" "DEFERRED:protected_dirty" \
+    "$(printf '%s\n' "$OUT30" | head -n1 | cut -d: -f1-2)"
+assert_deferred_on_overlap "Test 30" "$TMP30"
 LEFTOVER30="$(find "$TMP30/tmpdir_probe" -type f 2>/dev/null | wc -l)"
 assert_eq "the deferring run left no scratch files" "0" "$LEFTOVER30"
 
@@ -751,8 +826,9 @@ plant_lock "$TMP31B" 10 "$(lock_yaml_live 10)"
 (cd "$TMP31B/local" && printf 'edit10\n' >> .aitask-data/aitasks/t10_alpha.md \
                     && printf 'more10\n' > .aitask-data/aitasks/t10_extra.md \
                     && printf 'edit20\n' >> .aitask-data/aitasks/t20_beta.md)
-advance_remote "$TMP31B"
+advance_remote_overlapping "$TMP31B"   # overlapping, so the run still defers (t1731)
 OUT31B="$(run_sync "$TMP31B")"
+assert_deferred_on_overlap "Test 31B" "$TMP31B"
 STATUS_N="$(printf '%s\n' "$OUT31B" | sed -n 's/^DEFERRED:protected_dirty:\([0-9]*\) .*/\1/p')"
 RECORD_N="$(printf '%s\n' "$OUT31B" | grep -c '^DEFERRED_FILE:')"
 assert_contains "the deferral names both of t10's files" "2" "$STATUS_N"
@@ -797,8 +873,12 @@ plant_lock "$TMP33" 10 "$(lock_yaml_live 10)"
 set_userconfig_email "$TMP33" other@x.com
 (cd "$TMP33/local" && printf 'edit10\n' >> .aitask-data/aitasks/t10_alpha.md \
                    && printf 'edit20\n' >> .aitask-data/aitasks/t20_beta.md)
-advance_remote "$TMP33"
+advance_remote_overlapping "$TMP33"
+# All four rows use the OVERLAPPING advance. A record is emitted only by a run
+# that defers, and with pc2 touching t30 alone the sides would be disjoint, so
+# since t1731 the run would converge by guarded merge and emit no record at all.
 ROW_SELF="$(wire_row_for "$TMP33" "$(run_sync "$TMP33")")"
+assert_deferred_on_overlap "Test 33" "$TMP33"
 assert_contains "self: the row carries the class" "|tracked|self|" "$ROW_SELF"
 assert_contains "self: and the encoded email" "other@x.com" "$ROW_SELF"
 assert_contains "self: and the host" "testhost" "$ROW_SELF"
@@ -811,8 +891,9 @@ plant_lock "$TMP33B" 10 "$(lock_yaml_live 10)"
 set_userconfig_email "$TMP33B" someone-else@x.com
 (cd "$TMP33B/local" && printf 'edit10\n' >> .aitask-data/aitasks/t10_alpha.md \
                     && printf 'edit20\n' >> .aitask-data/aitasks/t20_beta.md)
-advance_remote "$TMP33B"
+advance_remote_overlapping "$TMP33B"
 ROW_OTHER="$(wire_row_for "$TMP33B" "$(run_sync "$TMP33B")")"
+assert_deferred_on_overlap "Test 33B" "$TMP33B"
 assert_contains "other: the row carries the class" "|tracked|other|" "$ROW_OTHER"
 assert_contains "other: and never offers commit-on-behalf" \
     "left for that session" "$ROW_OTHER"
@@ -823,8 +904,9 @@ plant_lock "$TMP33C" 10 "$(lock_yaml_live 10 otherhost)"
 set_userconfig_email "$TMP33C" other@x.com
 (cd "$TMP33C/local" && printf 'edit10\n' >> .aitask-data/aitasks/t10_alpha.md \
                     && printf 'edit20\n' >> .aitask-data/aitasks/t20_beta.md)
-advance_remote "$TMP33C"
+advance_remote_overlapping "$TMP33C"
 ROW_REMOTE="$(wire_row_for "$TMP33C" "$(run_sync "$TMP33C")")"
+assert_deferred_on_overlap "Test 33C" "$TMP33C"
 assert_contains "remote: the row carries the class" "|tracked|remote|" "$ROW_REMOTE"
 assert_contains "remote: and names the host it is held on" "otherhost" "$ROW_REMOTE"
 
@@ -835,8 +917,9 @@ TMP33D="$(setup_repo)"
 plant_lock "$TMP33D" 10 "$(lock_yaml_live 10)"
 (cd "$TMP33D/local" && printf 'edit10\n' >> .aitask-data/aitasks/t10_alpha.md \
                     && printf 'edit20\n' >> .aitask-data/aitasks/t20_beta.md)
-advance_remote "$TMP33D"
+advance_remote_overlapping "$TMP33D"
 ROW_UNVER="$(wire_row_for "$TMP33D" "$(run_sync "$TMP33D")")"
+assert_deferred_on_overlap "Test 33D" "$TMP33D"
 assert_contains "unverified: the row carries the class" "|tracked|unverified|" "$ROW_UNVER"
 assert_not_contains "unverified: and is never called self" "|self|" "$ROW_UNVER"
 

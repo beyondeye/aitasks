@@ -99,7 +99,14 @@ fail_setup() {
 [[ -n "$PY" ]] || fail_setup "no python resolved (lib/python_resolve.sh)"
 
 # Advance origin/aitask-data from a second clone, so the local repo is behind.
-# (Same helper as test_sync_deferral_and_quarantine.sh.)
+#
+# pc2 changes t20_beta.md as well as t30_gamma.md, and that overlap is
+# load-bearing. new_fixture's local commit also changes t20, so the two sides of
+# the diverged branch overlap and the guarded merge (t1731) must decline: the
+# run defers and emits the records every case below reads. With pc2 touching t30
+# alone the sides are disjoint, and the run converges by merge (MERGED, no
+# records) instead. Same helper as test_sync_deferral_and_quarantine.sh's
+# advance_remote_overlapping.
 advance_remote() {
     local tmpdir="$1"
     rm -rf "$tmpdir/pc2"
@@ -110,7 +117,8 @@ advance_remote() {
         git config user.name PC2
         git config commit.gpgsign false
         printf 'from pc2\n' >> aitasks/t30_gamma.md
-        git add -A && git commit -q -m "pc2: advance data branch"
+        printf 'from pc2\n' >> aitasks/t20_beta.md
+        git add -A && git commit -q -m "pc2: advance data branch (overlapping t20)"
         git push -q origin aitask-data 2>/dev/null
     ) >/dev/null 2>&1
     (cd "$tmpdir/local" && git -C .aitask-data fetch -q origin 2>/dev/null)
@@ -118,8 +126,9 @@ advance_remote() {
 
 # A fixture whose t10 is live-locked by <pid> as THIS user (class `self`) with a
 # tracked edit, plus a t20 edit that gives the run a local commit to replay, and a
-# remote that is ahead: the Test-1 shape of test_sync_deferral_and_quarantine.sh,
-# which makes the run defer and emit its DEFERRED_FILE: records.
+# remote that is ahead on an overlapping file: the Test-1 shape of
+# test_sync_deferral_and_quarantine.sh, which makes the run defer and emit its
+# DEFERRED_FILE: records.
 new_fixture() {
     local t; t="$(setup_repo)"
     plant_lock "$t" 10 "$(lock_yaml_live 10 testhost "$1")"
