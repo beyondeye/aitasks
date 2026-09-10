@@ -153,6 +153,8 @@ which is precisely the case defect 1 currently lets through.
 > | (Moment-relative, as of writing: t1770 was `Ready` and unclaimed. That may
 > | already have changed.)
 
+> **👁 note:read** id=2026-09-10T17:58:39Z.b944f882862aa0791c614912 by=t1770 at=2026-09-10T17:58:39Z mode=explicit ids=2026-09-10T11:40:42Z.4e6897dc1446deb87b0fc370,2026-09-10T12:53:54Z.bf4e4c33c0ef548798d73e61
+
 ## Merged from t1790: fix relevance report mode and test guard
 
 
