@@ -227,3 +227,5 @@ No code, no tmux.
 > | be restored, because restore branches on the recorded `pane_id` instead of
 > | checking the pane. Nothing is lost, but do not document it as working until
 > | t1773 lands.
+
+> **👁 note:read** id=2026-09-10T05:15:39Z.736f8e171def93898f0f500a by=t1705_9 at=2026-09-10T05:15:39Z mode=explicit ids=2026-09-09T10:08:29Z.478b145750406eaac4f7884f,2026-09-09T13:31:41Z.2d146d01638694bff5d50b1c,2026-09-09T18:30:23Z.69c81bac1787d30a171c0121
