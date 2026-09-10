@@ -186,3 +186,37 @@ verified inline and are recorded here retroactively.
 - Removed the scratch fixture (`scratchpad/av/fx_*`) and its private lock base
   (`scratchpad/av/lockbase_*`). The fixture's forged locks lived only on the
   fixture's own bare remote; no tmux session, window or pane was created.
+
+## Final Implementation Notes
+
+- **Actual work done:** All 22 checklist items reached a state. 20 were
+  auto-verified pass (live observation on this pick, a scratch fixture driving
+  the real writer / receipt verb / inbox query / resolver, and inspection of the
+  rendered surfaces). In the interactive loop the user marked item 10 pass (the
+  agent did not exercise the live-peer path) and deferred item 22, which goes
+  to a carry-over manual-verification task via `--with-deferred-carryover`.
+- **Deviations from plan:** None from the checklist. The pickrem, pickweb and
+  `/aitask-note` paths were verified by running the commands those skills issue
+  (and reading their rendered text), not by launching the skills. That avoided
+  writing a note into a real task's inbox.
+- **Issues encountered:** None in the mechanism. Observed outputs matched
+  `website/content/docs/commands/note.md`,
+  `aidocs/framework/live_endpoint_resolution.md` and
+  `aidocs/framework/task_note_mailbox.md` line for line — no doc/code
+  disagreement.
+- **Key decisions:** Items 10 and 22 were not auto-run. Both need a second live
+  Claude session holding the target, and exercising them means either starting
+  a new Claude session or messaging a real peer that holds a real task. That
+  outward action was left to the user.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:** This is the last child, so t1657 archives with
+  it, carrying two notes that were never acknowledged on the parent: the
+  migrated `thinking_app#357` note (the agent-type axis — answered by t1657_4's
+  `agent_unknown` / `agent_unsupported:<family>` outcomes), and the t1738 note
+  (BSD-awk truncation — fixed by t1741, whose append seam now fails closed).
+  The t1738 note's residual suggestion is still open: `NOTE_APPENDED:` is
+  emitted on the append seam's success status, not by re-reading the block from
+  the file (`.aitask-scripts/aitask_note.sh`, `_note_append_inner`). The
+  t1657_6 note on this task also records that the parent plan names the
+  live-delivery adapter at a path it did not ship at
+  (`.aitask-scripts/live_delivery/claudecode.md` is the real one).
