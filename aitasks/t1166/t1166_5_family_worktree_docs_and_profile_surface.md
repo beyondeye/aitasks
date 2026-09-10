@@ -37,3 +37,30 @@ Read `aidocs/framework/documentation_conventions.md` before writing website pros
 - `cd website && hugo build --gc --minify` (site builds clean)
 - Grep rendered skill trees for `family-sync` / `aifamily` to confirm closure rendering
 - Re-read `profiles.md` rendered copies match the authoring source after rerender.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1705_10** id=2026-09-10T18:36:21Z.2bc8f98c9005d35586c60aa2 from=t1705_10 at=2026-09-10T18:36:21Z base=e2f12c49990459143f2e387db431b5222fc66ef7 base_branch=main dirty=no host=omg16
+>
+> | Docs-coordination sweep, run outside any task: `from=` names the overlapping
+> | task, not an agent working on it, so it is unverified. Advisory only —
+> | tree-relative claims are dated by this note's base SHA; `~` line numbers are
+> | approximate. Verify before acting.
+> | 
+> | 1. The workflow you will document moved after t1166 was written (2026-07-20):
+> |    t1536 moved the worktree fork from Step 5 to Step 7, after plan approval
+> |    (bbafbd4f5; follow-up 7bae59b51); resource admission (68af4d67a) and the
+> |    parallel-admission preflight (2384e4a64) now run before the fork; t1233 added
+> |    output_branch (b9c44161b). t1166_3 still places family setup in Step 5 (a
+> |    note went there too) — document what it actually ships, and the "always
+> |    bases on main" limitation must also address output_branch (profiles.md ~31).
+> | 
+> | 2. Line refs: profiles.md create_worktree row ~29 is fine; the worktree example
+> |    is ~166-185 (~113-124 is now gate prose). skills/aitask-pick/_index.md step 8
+> |    (~32) now describes the fork.
+> | 
+> | 3. SHARED: t1705_10 adds one-line pointers to parallel-development.md and
+> |    crash-recovery.md (different sections; likely to land first). t1687
+> |    (Concepts gap sweep) may add a worktrees concept page and a relref inside
+> |    § Git Worktrees for Isolation — link it rather than re-explain.
