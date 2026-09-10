@@ -14,7 +14,7 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1657
 followup_kind: manual_verification
 created_at: 2026-09-01 12:42
-updated_at: 2026-09-10 14:54
+updated_at: 2026-09-10 15:10
 ---
 
 ## Manual Verification Task
@@ -27,28 +27,28 @@ archived; Defer is allowed but creates a carry-over task.
 
 ## Verification Checklist
 
-- [ ] [t1657_3] First pick of a task with unread notes: entries are displayed, attributed, and show base/at/dirty; nothing is marked read yet.
-- [ ] [t1657_3] Choose "Keep unread" at the acknowledgement prompt, then pick the task again: the same entries surface a second time.
-- [ ] [t1657_3] Choose "Acknowledge", then pick the task again: the entries do NOT surface. Overall each note is shown exactly once.
-- [ ] [t1657_3] Under a non-interactive profile (remote/headless), notes auto-acknowledge and the receipt records mode=auto.
-- [ ] [t1657_3] A note is rendered as advisory: sender shown as claimed, dirty=yes visibly warns, and nothing in the note triggers action on its own.
-- [ ] [t1657_3] aitask-pick candidate LIST (Step 2c): a task with unread notes shows an unread count only - no note bodies - and after browsing the list without picking it, the notes are still unread.
-- [ ] [t1657_3] aitask-pickrem on a note-bearing task: the notes are displayed and exactly ONE receipt with mode=auto exists afterwards; a second run of the same pick adds no further receipt.
-- [ ] [t1657_3] aitask-pickweb on a note-bearing task: the notes are DISPLAYED and NO receipt is written (web mode makes no task-file writes) - so the same notes still surface on the next attended pick.
-- [ ] [t1657_3] A note whose provenance was never measured (a migrated entry, empty dirty) is rendered as "not measured", never as "clean".
-- [ ] [t1657_4] With a second live Claude session holding the target task on this host, sending a note reaches it live; the message names the same note id present in the target's ## Inbox.
-- [ ] [t1657_4] The sender performed NO manual tmux inspection or session enumeration - only a task id was supplied.
-- [ ] [t1657_4] Target unlocked: LIVE_NONE:unlocked, and the durable note is still appended and committed.
-- [ ] [t1657_4] Target held by a dead PID: LIVE_NONE:holder_dead, durable note intact.
-- [ ] [t1657_4] Target held by a Codex session (implemented_with set to a codex string): LIVE_NONE:agent_unsupported, durable note intact.
-- [ ] [t1657_4] Target locked during the Step 4 -> Step 7 window (implemented_with empty): LIVE_NONE:agent_unknown, reported as unavailable rather than as an error.
-- [ ] [t1657_4] Live delivery is reported as queued, never as read.
-- [ ] [t1657_5] In a FRESH session that has not read the t1657 plan, `ait note` is discoverable from the always-loaded instructions alone.
-- [ ] [t1657_5] In that same fresh session, the aitask-note skill appears in the skill listing with a description that conveys WHEN to use it, not just what it does.
-- [ ] [t1657_5] Invoking the skill with an explicit target sends a note end-to-end with zero prompts.
-- [ ] [t1657_5] Invoking the skill without a target routes through Related Task Discovery to pick the recipient.
-- [ ] [t1657_5] A live-delivery failure after a successful durable write is reported as success with live delivery unavailable, not as a partial failure.
-- [ ] [t1657_5] With a second live Claude session holding the target task on this host, invoking /aitask-note end-to-end resolves LIVE_PANE, the adapter payload names the exact note id appended to that task's ## Inbox, and the result is reported as LIVE_QUEUED - enqueued, never read or delivered.
+- [x] [t1657_3] First pick of a task with unread notes: entries are displayed, attributed, and show base/at/dirty; nothing is marked read yet. — PASS 2026-09-10 15:01 auto: observed live on this pick - INBOX_UNREAD carried from, from_verified=yes, at, base, dirty=no; displayed before any receipt existed
+- [x] [t1657_3] Choose "Keep unread" at the acknowledgement prompt, then pick the task again: the same entries surface a second time. — PASS 2026-09-10 15:01 auto: fixture - two inbox queries returned the identical INBOX_UNREAD entry and the task file sha was unchanged; Keep unread runs no command per skill text
+- [x] [t1657_3] Choose "Acknowledge", then pick the task again: the entries do NOT surface. Overall each note is shown exactly once. — PASS 2026-09-10 15:01 auto: live on t1657_7 - READ_RECORDED explicit then query NO_UNREAD; fixture repeat gave the same
+- [x] [t1657_3] Under a non-interactive profile (remote/headless), notes auto-acknowledge and the receipt records mode=auto. — PASS 2026-09-10 15:01 auto: remote-profile pick and task-workflow Check 6 render --mode auto; fixture receipt carries mode=auto
+- [x] [t1657_3] A note is rendered as advisory: sender shown as claimed, dirty=yes visibly warns, and nothing in the note triggers action on its own. — PASS 2026-09-10 15:01 auto: claimed/verified wording and never-act rule in all four surfaces; fixture dirty=yes reaches the query; this pick displayed as advisory
+- [x] [t1657_3] aitask-pick candidate LIST (Step 2c): a task with unread notes shows an unread count only - no note bodies - and after browsing the list without picking it, the notes are still unread. — PASS 2026-09-10 15:01 auto: fixture batched inbox query over 3 ids returned header fields only, no body text, file sha unchanged, note still unread
+- [x] [t1657_3] aitask-pickrem on a note-bearing task: the notes are displayed and exactly ONE receipt with mode=auto exists afterwards; a second run of the same pick adds no further receipt. — PASS 2026-09-10 15:01 auto: pickrem text acks with --mode auto; fixture first ack READ_RECORDED, second run sees NO_UNREAD and a forced repeat READ_NOOP, exactly 1 receipt
+- [x] [t1657_3] aitask-pickweb on a note-bearing task: the notes are DISPLAYED and NO receipt is written (web mode makes no task-file writes) - so the same notes still surface on the next attended pick. — PASS 2026-09-10 15:01 auto: pickweb template and every rendered variant display only, no aitask_note.sh read call; inbox query leaves the file untouched
+- [x] [t1657_3] A note whose provenance was never measured (a migrated entry, empty dirty) is rendered as "not measured", never as "clean". — PASS 2026-09-10 15:01 auto: fixture migrated note and the real t1657 migrated note both emit empty dirty and from_verified; all surfaces say not measured, never clean
+- [x] [t1657_4] With a second live Claude session holding the target task on this host, sending a note reaches it live; the message names the same note id present in the target's ## Inbox. — PASS 2026-09-10 15:09 user: marked pass in the interactive loop; the live peer path was not exercised by the agent in this session
+- [x] [t1657_4] The sender performed NO manual tmux inspection or session enumeration - only a task id was supplied. — PASS 2026-09-10 15:01 auto: ait note with only task ids and --with-live resolved LIVE_PANE to this session pane with no tmux or session enumeration by the sender
+- [x] [t1657_4] Target unlocked: LIVE_NONE:unlocked, and the durable note is still appended and committed. — PASS 2026-09-10 15:01 auto: fixture LIVE_NONE:unlocked, exit 0, note on disk and committed
+- [x] [t1657_4] Target held by a dead PID: LIVE_NONE:holder_dead, durable note intact. — PASS 2026-09-10 15:01 auto: fixture forged dead-pid lock gave LIVE_NONE:holder_dead, exit 0, note on disk and committed
+- [x] [t1657_4] Target held by a Codex session (implemented_with set to a codex string): LIVE_NONE:agent_unsupported, durable note intact. — PASS 2026-09-10 15:01 auto: fixture live local codex holder gave LIVE_NONE:agent_unsupported:codex, exit 0, note on disk and committed
+- [x] [t1657_4] Target locked during the Step 4 -> Step 7 window (implemented_with empty): LIVE_NONE:agent_unknown, reported as unavailable rather than as an error. — PASS 2026-09-10 15:01 auto: fixture live local lock with empty implemented_with gave LIVE_NONE:agent_unknown, exit 0, reported as unavailable
+- [x] [t1657_4] Live delivery is reported as queued, never as read. — PASS 2026-09-10 15:01 auto: inspection - aitask-note Step 4, claudecode adapter step 6 and note.md all say LIVE_QUEUED means enqueued, never read or delivered
+- [x] [t1657_5] In a FRESH session that has not read the t1657 plan, `ait note` is discoverable from the always-loaded instructions alone. — PASS 2026-09-10 15:01 auto: this session never read the t1657 plan and got ait note from CLAUDE.md Sending Notes to Other Tasks; AGENTS.md, codex and opencode instructions also carry it
+- [x] [t1657_5] In that same fresh session, the aitask-note skill appears in the skill listing with a description that conveys WHEN to use it, not just what it does. — PASS 2026-09-10 15:01 auto: this session skill listing shows aitask-note with a Use when you learn something a task that already exists depends on description
+- [x] [t1657_5] Invoking the skill with an explicit target sends a note end-to-end with zero prompts. — PASS 2026-09-10 15:01 auto: skill has 0 AskUserQuestion and Step 1 says ask nothing for an explicit target; its Step 2 command ran end-to-end in the fixture with no prompt
+- [x] [t1657_5] Invoking the skill without a target routes through Related Task Discovery to pick the recipient. — PASS 2026-09-10 15:01 auto: inspection - no-target path executes related-task-discovery.md with ai_filtered and min_eligible 1; the referenced file exists
+- [x] [t1657_5] A live-delivery failure after a successful durable write is reported as success with live delivery unavailable, not as a partial failure. — PASS 2026-09-10 15:01 auto: fixture stub resolver gave NOTE_APPENDED then LIVE_ERROR:resolver_unavailable with exit 0; LIVE_NONE cases likewise exit 0
+- [defer] [t1657_5] With a second live Claude session holding the target task on this host, invoking /aitask-note end-to-end resolves LIVE_PANE, the adapter payload names the exact note id appended to that task's ## Inbox, and the result is reported as LIVE_QUEUED - enqueued, never read or delivered. — DEFER 2026-09-10 15:10 user: deferred in the interactive loop; needs a live peer Claude session to exercise LIVE_PANE to ListAgents to SendMessage to LIVE_QUEUED
 
 ## Inbox
 <!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
