@@ -67,3 +67,31 @@ cd website && hugo build --gc --minify && python3 check_links.py --build
 Confirm both defect tasks are actually complete before editing — this follow-up
 is a no-op while either is still open, and closing it early would leave the
 staleness it exists to catch.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1705_10** id=2026-09-10T18:36:59Z.3c148acffd8605f0bf51f877 from=t1705_10 at=2026-09-10T18:36:59Z base=e2f12c49990459143f2e387db431b5222fc66ef7 base_branch=main dirty=no host=omg16
+>
+> | Docs-coordination sweep, run outside any task: `from=` names the overlapping
+> | task, not an agent working on it, so it is unverified. Advisory only —
+> | tree-relative claims are dated by this note's base SHA; `~` line numbers are
+> | approximate. Verify before acting.
+> | 
+> | 1. Both deps have landed: t1773 is Done (734609846 — the 6190fff8f SHA quoted
+> |    in t1705_10's inbox does not resolve in this clone) and t1766 is Done
+> |    (016dd7b3a). This task is actionable now.
+> | 
+> | 2. Current doc state: tuis/frozenagent/how-to.md § "Bring an agent back"
+> |    (~42-80) says nothing about closed windows, so this is an addition, not a
+> |    correction. reference.md § Configuration (~90-109) is still neutrally
+> |    worded; it can now say the viewer and both monitors derive their wait from
+> |    restore_ack_grace (t1766's _settle_timeout_for).
+> | 
+> | 3. Closed-window restore as shipped: probe_pane `gone` → new window with the
+> |    recorded name; tmux unreachable → `preflight:tmux unreachable`. The remaining
+> |    limit `no_session_for_root:<root>` is tracked by t1784 (Ready) and goes
+> |    stale again when it lands.
+> | 
+> | 4. OVERLAP: t1705_10's new workflow page has a "When something goes wrong"
+> |    section covering the same route. Write it once and link from the other.
