@@ -135,10 +135,23 @@ Use `AskUserQuestion`:
 
 9. **Clean up `similar_to` references:** Read all other reviewguide files. If any file has `similar_to` pointing to the deleted source file, update it to point to the target file instead (or clear it if the similarity no longer holds).
 
-10. **Commit:**
+10. **Commit** every file this merge touched, by name — not the
+    `aireviewguides/` directory, which would sweep a concurrent session's edits
+    inside it too (`main` is shared by every session in this checkout — see
+    "Never instruct a bare `git commit` on `main`" in
+    `aidocs/framework/skill_authoring_conventions.md`). That is the target, the
+    deleted source (naming a tracked file you deleted commits the deletion),
+    every file step 9 rewrote, and the vocabulary files. They are normally all
+    tracked, so stage only what is not:
     ```bash
-    git add aireviewguides/
-    git commit -m "ait: Merge reviewguide <source_name> into <target_name>"
+    files=( aireviewguides/<target_path> aireviewguides/<source_path> <each file step 9 rewrote> aireviewguides/reviewtypes.txt aireviewguides/reviewlabels.txt aireviewguides/reviewenvironments.txt )
+    new=()
+    for f in "${files[@]}"; do
+        git ls-files --error-unmatch -- "$f" >/dev/null 2>&1 || new+=( "$f" )
+    done
+    (( ${#new[@]} )) && git add -- "${new[@]}"
+    git commit -m "ait: Merge reviewguide <source_name> into <target_name>" -- "${files[@]}"
+    git show --stat <sha>    # <sha> from the commit's "[<branch> <sha>]" line — not HEAD
     ```
 
 #### If "Keep separate":
@@ -151,10 +164,11 @@ Use `AskUserQuestion`:
 
 4. Write both updated files to `aireviewguides/`.
 
-5. **Commit:**
+5. **Commit** the two files by name — both are already tracked, so there is no
+   `add`:
    ```bash
-   git add aireviewguides/
-   git commit -m "ait: Deduplicate reviewguides <file_A_name> and <file_B_name>"
+   git commit -m "ait: Deduplicate reviewguides <file_A_name> and <file_B_name>" -- <file_A_path> <file_B_path>
+   git show --stat <sha>    # <sha> from the commit's "[<branch> <sha>]" line — not HEAD
    ```
 
 ### Step 7: Summary

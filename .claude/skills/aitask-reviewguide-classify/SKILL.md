@@ -129,13 +129,26 @@ Use `AskUserQuestion`:
    echo "<new_env>" >> aireviewguides/reviewenvironments.txt && sort -o aireviewguides/reviewenvironments.txt aireviewguides/reviewenvironments.txt
    ```
 
-5. **If in single-file mode** (not batch), or **batch autocommit mode**: commit all changes:
+5. **If in single-file mode** (not batch), or **batch autocommit mode**: commit
+   the guide and the three vocabulary files by name. A guide classified straight
+   after an import can still be untracked, while the vocabulary files are
+   tracked, so stage only what git does not track yet:
    ```bash
-   git add aireviewguides/<relative_path> aireviewguides/reviewtypes.txt aireviewguides/reviewlabels.txt aireviewguides/reviewenvironments.txt
-   git commit -m "ait: Classify reviewguide <filename>"
+   files=( aireviewguides/<relative_path> aireviewguides/reviewtypes.txt aireviewguides/reviewlabels.txt aireviewguides/reviewenvironments.txt )
+   new=()
+   for f in "${files[@]}"; do
+       git ls-files --error-unmatch -- "$f" >/dev/null 2>&1 || new+=( "$f" )
+   done
+   (( ${#new[@]} )) && git add -- "${new[@]}"
+   git commit -m "ait: Classify reviewguide <filename>" -- "${files[@]}"
+   git show --stat <sha>    # <sha> from the commit's "[<branch> <sha>]" line — not HEAD
    ```
+   (`main` is shared by every session in this checkout — see "Never instruct a
+   bare `git commit` on `main`" in `aidocs/framework/skill_authoring_conventions.md`.)
 
-7. **If in batch non-autocommit mode**: stage changes but do not commit (Step 12 handles the commit).
+7. **If in batch non-autocommit mode**: do not commit and do not stage — record
+   `aireviewguides/<relative_path>` for Step 12, which commits the whole batch by
+   name.
 
 **If `similar_to` was set:** Inform the user: "This file is similar to `<similar_to>`. Consider running `/aitask-reviewguide-merge <file> <similar_file>` to compare and potentially consolidate."
 
@@ -194,11 +207,21 @@ Pass the autocommit context so Step 7 knows whether to commit after each file.
 
 ### Step 12: Final Commit (if not autocommit)
 
-If "No, single commit at end" was selected in Step 10, commit all staged changes:
+If "No, single commit at end" was selected in Step 10, commit the batch **by
+name** — every guide Step 7 recorded, plus the three vocabulary files — never the
+`aireviewguides/` directory, which would sweep a concurrent session's edits inside
+it too (`main` is shared by every session in this checkout — see "Never instruct
+a bare `git commit` on `main`" in `aidocs/framework/skill_authoring_conventions.md`):
 
 ```bash
-git add aireviewguides/ aireviewguides/reviewtypes.txt aireviewguides/reviewlabels.txt aireviewguides/reviewenvironments.txt
-git commit -m "ait: Classify <N> reviewguide files"
+files=( <the aireviewguides/... paths Step 7 recorded> aireviewguides/reviewtypes.txt aireviewguides/reviewlabels.txt aireviewguides/reviewenvironments.txt )
+new=()
+for f in "${files[@]}"; do
+    git ls-files --error-unmatch -- "$f" >/dev/null 2>&1 || new+=( "$f" )
+done
+(( ${#new[@]} )) && git add -- "${new[@]}"
+git commit -m "ait: Classify <N> reviewguide files" -- "${files[@]}"
+git show --stat <sha>    # <sha> from the commit's "[<branch> <sha>]" line — not HEAD
 ```
 
 ### Step 13: Summary

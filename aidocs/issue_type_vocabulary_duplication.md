@@ -154,7 +154,32 @@ grep -rEn "(bug.*feature.*chore|bug.*chore.*documentation|chore.*documentation.*
 Two commits — runtime data file lives on the data branch (use `./ait git`), everything else on main (plain `git`):
 
 1. `./.aitask-scripts/aitask_task_commit.sh -m "ait: Add '<newvalue>' to task_types" aitasks/metadata/task_types.txt` — the helper is what makes "only that file" true; a bare `./ait git commit` would take the whole shared index.
-2. `git commit` — the other 31 files. Subject: `ait: Propagate '<newvalue>' issue_type across docs, skills, and tests`.
+2. The other 31 files, on `main`, **by name** — `main` is shared by every session
+   in this checkout, so a bare `git commit` would take whatever a concurrent
+   session has staged too. Collect every path you edited in §2–§5 (each section
+   names its files) and commit that list inside an `if`: an empty list would leave
+   `git commit -m … --` with no pathspec, which commits the **whole index**.
+   Regenerated goldens can be new files, so stage only what git does not track:
+
+   ```bash
+   files=( <every path edited in §2–§5> )
+   if (( ${#files[@]} )); then
+       new=()
+       for f in "${files[@]}"; do
+           git ls-files --error-unmatch -- "$f" >/dev/null 2>&1 || new+=( "$f" )
+       done
+       (( ${#new[@]} )) && git add -- "${new[@]}"
+       git commit -m "ait: Propagate '<newvalue>' issue_type across docs, skills, and tests" -- "${files[@]}"
+       git show --stat <sha>    # <sha> from the commit's "[<branch> <sha>]" line — not HEAD
+   else
+       echo "no files edited — nothing to commit"
+   fi
+   ```
+
+   Keep it an `if`: pasted at a prompt, `(( … )) || { …; return 0; }` errors on
+   the `return` and runs the commit anyway. Do not enumerate by grepping for
+   `<newvalue>` — a common word matches unrelated files. The pathspec does not
+   make the list complete; the `--stat` is the check.
 
 Do **not** mix the two — `aitasks/` files cannot be committed together with code/doc files when the data branch is in use.
 

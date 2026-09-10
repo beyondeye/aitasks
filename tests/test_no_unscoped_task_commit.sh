@@ -55,6 +55,42 @@
 #       `task_git commit`, which is how it actually commits task data. The hole
 #       is one file, one pattern, and it closes when those two hint strings are
 #       restructured onto a single logical line.
+#   * ALSO SCANNED (t1762): plain `git commit`, over the SAME markdown enumeration
+#     as the t1748 seam. `main` is shared by every session in this checkout exactly
+#     as `.aitask-data` is, so an instructed `git commit` with no pathspec sweeps
+#     whatever a concurrent session has staged. This is only tractable because the
+#     enumeration is already narrowed to instruction trees, where a `git commit` is
+#     a command an agent will run; the same pattern over `.aitask-scripts/**/*.sh`
+#     would fire on every legitimate code commit, which is why it is NOT added
+#     there. Its rules:
+#     * `git commit-tree` is excluded structurally (trailing character class):
+#       it is plumbing, it writes an object and never touches the index.
+#     * a segment naming `./ait git commit` or `task_git commit` is skipped -- one
+#       command per segment, one seam per command, so a single site can never be
+#       reported twice.
+#     * the bare-name prose mention rule is applied PER SEGMENT here (seam 3
+#       applies it to the whole candidate), because the shape that occurs is a
+#       sentence listing several commands: `git add -A && git commit && git push`
+#       describes another system's runner and every segment is a noun.
+#     * the two real exceptions -- a merge commit (git refuses a partial commit
+#       during a merge; verified) and an isolated single-session sandbox -- are
+#       declared with a LINE-SCOPED `<!-- unscoped-commit-ok: <reason> -->` marker
+#       exempting the NEXT candidate line only. A file-level allowlist entry would
+#       be too coarse: aitask-pickweb/SKILL.md.j2 has one site that must be exempt
+#       and another four lines below that must not. A marker with an empty reason
+#       exempts nothing, and every honoured exception is printed.
+#   * NOT SEEN by the t1762 seam, and deliberately so:
+#     * a pathspec that EXPANDS to nothing (`-- "${files[@]}"` with an empty array,
+#       or an unsubstituted `<placeholder>`). Textually it carries a `--` and
+#       passes, yet `git commit -m x --` commits the whole index. The two sites
+#       with a runtime-generated list guard it with an `if` that CONTAINS the
+#       commit; the placeholder sites do not, and that residue is recorded as a
+#       follow-up on t1762 rather than closed here.
+#     * `git add` of a TRACKED path. This seam judges commits, not staging, so a
+#       later edit can restore tracked-path staging beside a correct
+#       `git commit -- <paths>` and stay green. A per-site staging manifest was
+#       designed and deliberately not built (t1762); also a recorded follow-up.
+#     * `git -C <dir> commit`, and any commit assembled through a variable.
 #
 # It is a regression tripwire, NOT a proof of absence.
 #
@@ -145,6 +181,28 @@ is_md_allowed() {
     return 1
 }
 
+# Files exempt from the PLAIN `git commit` markdown scan only (t1762). A fourth
+# list, separate for the same reason the other three are separate from each
+# other: an entry suppresses one seam in one file.
+#
+# It is EMPTY, and that is the intended end state. The two real exceptions --
+# a merge commit and an isolated single-session sandbox -- are declared
+# LINE-scoped with an `<!-- unscoped-commit-ok: … -->` marker instead, because a
+# file entry is too coarse: aitask-pickweb/SKILL.md.j2 carries one site that
+# must be exempt and another, four lines below, that must not, and a file entry
+# would pin a bypass over the second. An entry here would only be justified by a
+# whole file that is provably not instruction; say why in the comment.
+MD_PLAIN_ALLOWLIST=()
+ACTIVE_MD_PLAIN_ALLOWLIST=(${MD_PLAIN_ALLOWLIST[@]+"${MD_PLAIN_ALLOWLIST[@]}"})
+
+is_md_plain_allowed() {
+    local f="$1" a
+    for a in ${ACTIVE_MD_PLAIN_ALLOWLIST[@]+"${ACTIVE_MD_PLAIN_ALLOWLIST[@]}"}; do
+        [[ "$f" == "$a" ]] && return 0
+    done
+    return 1
+}
+
 # --- Scanner -----------------------------------------------------------------
 # Reassemble `\`-continued lines, reporting the line number the command STARTS on.
 # Load-bearing: aitask_note.sh:623 and :995 put their `-- "$file"` on the
@@ -166,6 +224,30 @@ COMMIT_RE='task_git[[:space:]]+commit'
 # rejects a longer identifier ending in "ait", and `(\./)?` lets the class match
 # the whitespace before the `./` rather than the `/` itself.
 AIT_GIT_COMMIT_RE='(^|[^[:alnum:]_/.])(\./)?ait[[:space:]]+git[[:space:]]+commit'
+# The fourth seam (t1762): PLAIN `git commit` on the MAIN branch. `main` is
+# shared by every session in this checkout exactly as `.aitask-data` is, so a
+# `git commit` with no pathspec sweeps whatever a concurrent session has staged.
+#
+# The trailing class is what excludes `git commit-tree`: that is plumbing, it
+# writes an object and never touches the index, and the tree has ~20 legitimate
+# uses of it. The leading class rejects a longer identifier ending in "git".
+# `./ait git commit` and `task_git commit` also literally contain "git commit";
+# they are NOT excluded here but in md_judge_plain, which skips any segment that
+# belongs to one of the other seams -- one command per segment, one seam per
+# command, so a single site can never be double-reported.
+PLAIN_GIT_COMMIT_RE='(^|[^[:alnum:]_/.-])git[[:space:]]+commit([^[:alnum:]_-]|$)'
+# The same command written with NO code formatting at all. Seam 3 fails closed on
+# that shape, and must: nobody writes "./ait git commit" in an English sentence.
+# Plain `git commit` is different -- "the path-scoped git commit failed", "the
+# runner handles git commit + push", "(parent auto-archival, git commit)" are all
+# real, ordinary prose in this tree, and failing closed on them would flag five
+# sentences that instruct nothing. So an UNFORMATTED occurrence is judged as a
+# command only when it is followed by something option-shaped. The convention this
+# leans on is the tree's own and is enforced everywhere else: a command an agent
+# is meant to run is fenced or backticked. The residual hole -- "then run git
+# commit and push" with no formatting and no flag -- is invisible, and is the same
+# documented shape as seam 3's bare-mention hole.
+PLAIN_GIT_INVOCATION_RE='(^|[^[:alnum:]_/.-])git[[:space:]]+commit[[:space:]]+-'
 # `--` as a standalone token = a pathspec separator is present.
 SCOPED_RE='[[:space:]]--([[:space:]]|$)'
 
@@ -282,12 +364,19 @@ md_sources_find() {
 # is dropped here rather than in the shell. That is a performance contract, not a
 # scope one: the caller forks awk per candidate line, and emitting all ~90k lines
 # of the surface instead of the ~40 that match made this scan take minutes.
+#
+# t1762 widened the emit filter and the span-rejoin trigger from `ait git commit`
+# to any `git[ \t]+commit`, so the fourth seam's candidates reach the judge too.
+# That is a PERFORMANCE contract, not a scope one: md_judge still returns 1
+# immediately for anything that does not match AIT_GIT_COMMIT_RE, so seam 3 is
+# behaviourally unchanged and only sees more lines it discards. The widening
+# costs ~5x the candidate lines (~40 -> ~200 across the surface).
 MD_JOIN_AWK='
 function emit(kind, start, line) {
-    if (line ~ /(\.\/)?ait[ \t]+git[ \t]+commit/ || line ~ /AIT_UNPARSEABLE_SPAN/)
+    if (line ~ /git[ \t]+commit/ || line ~ /AIT_UNPARSEABLE_SPAN/)
         print kind ":" start ":" line
 }
-{ if ($0 ~ /(\.\/)?ait[ \t]+git[ \t]+commit/) seen = 1 }
+{ if ($0 ~ /git[ \t]+commit/) seen = 1 }
 /^[[:space:]]*```/ { infence = !infence; next }
 {
   line = $0; start = NR
@@ -301,7 +390,7 @@ function emit(kind, start, line) {
       next
   }
   joins = 0
-  while ((gsub(/`/, "`", line) % 2) == 1 && line ~ /`[^`]*ait[ \t]+git/) {
+  while ((gsub(/`/, "`", line) % 2) == 1 && line ~ /`[^`]*git[ \t]/) {
       if (joins++ >= 4) { line = line " AIT_UNPARSEABLE_SPAN"; break }
       if ((getline nxt) <= 0) { line = line " AIT_UNPARSEABLE_SPAN"; break }
       line = line " " nxt
@@ -365,6 +454,136 @@ md_judge() {
         n = split($0, a, /&&|\|\||;|\|/); for (i = 1; i <= n; i++) print a[i]
     }')
     return 1
+}
+
+# --- Seam 4: plain `git commit` in the instruction layer, t1762 --------------
+#
+# Same enumeration (md_in_scope), same join (MD_JOIN_AWK), same quote handling
+# (strip_quoted / bare_is_scoped), same segmenter, same prose mention rule. Only
+# the pattern and the exception mechanism are new, so the two markdown seams can
+# never disagree about what "inside a string" or "one segment" means.
+
+# A prose span whose whole content is the bare command name is the command used
+# as a NOUN. Applied PER SEGMENT for this seam (seam 3 applies it to the whole
+# candidate), because the shape that actually occurs is a prose sentence listing
+# several commands: `git add -A && git commit && git push` describes a different
+# system's runner, and every one of its segments is a bare name.
+MD_PLAIN_BARE_MENTION_RE='^[[:space:]]*git[[:space:]]+commit[[:space:]]*$'
+
+# An in-line, LINE-SCOPED exception. Exempts the NEXT candidate line after it and
+# nothing else, so a marker cannot cover a neighbouring site that has a cure.
+# The reason is required: an exception nobody can read is an allowlist entry with
+# extra steps, and the scan prints every one it honours.
+MD_EXCEPTION_RE='<!--[[:space:]]*unscoped-commit-ok:[[:space:]]*([^>]*[^[:space:]>])[[:space:]]*-->'
+
+# md_exception_lines <file> — `<lineno>:<reason>` per well-formed marker.
+# A marker with an EMPTY reason is deliberately not emitted, so the site it
+# meant to cover stays flagged rather than being waved through by a blank claim.
+md_exception_lines() {
+    grep -nE "$MD_EXCEPTION_RE" "$1" 2>/dev/null \
+        | sed -E "s/^([0-9]+):.*<!--[[:space:]]*unscoped-commit-ok:[[:space:]]*([^>]*[^[:space:]>])[[:space:]]*-->.*/\1:\2/"
+}
+
+# md_judge_plain <rel> <lineno> <candidate> <fence|prose> — print a violation and
+# return 0 if the candidate is an unscoped plain-git instruction; else return 1.
+md_judge_plain() {
+    local rel="$1" lineno="$2" cand="$3" ctx="$4" bare seg
+    case "$cand" in
+        *AIT_UNPARSEABLE_SPAN*) return 1 ;;   # seam 3 already reports these
+    esac
+    bare="$(strip_quoted "$cand")"
+    [[ "$bare" =~ $PLAIN_GIT_COMMIT_RE ]] || return 1
+    case "$bare" in
+        *\"* | *\'*)
+            # Unparseable quoting fails closed, as every other seam does -- but a
+            # candidate that names ANOTHER seam's command is that seam's to
+            # report, and it fails closed there identically. Returning 1 here
+            # loses no defect and stops one line being reported twice.
+            [[ "$bare" =~ $AIT_GIT_COMMIT_RE ]] && return 1
+            [[ "$bare" =~ task_git[[:space:]]+commit ]] && return 1
+            printf '%s:%s:%s\n' "$rel" "$lineno" "$cand"; return 0 ;;
+    esac
+    while IFS= read -r seg; do
+        [[ "$seg" =~ $PLAIN_GIT_COMMIT_RE ]] || continue
+        # One command per segment, one seam per command: a segment naming
+        # `./ait git commit` or `task_git commit` is the other seams' business,
+        # and reporting it here would double-report a single defect.
+        [[ "$seg" =~ $AIT_GIT_COMMIT_RE ]] && continue
+        [[ "$seg" =~ task_git[[:space:]]+commit ]] && continue
+        [[ "$ctx" == "prose" && "$seg" =~ $MD_PLAIN_BARE_MENTION_RE ]] && continue
+        seg="${seg%%[[:space:]]#*}"
+        bare_is_scoped "$seg" && continue
+        printf '%s:%s:%s\n' "$rel" "$lineno" "$cand"
+        return 0
+    done < <(printf '%s\n' "$bare" | awk '{
+        n = split($0, a, /&&|\|\||;|\|/); for (i = 1; i <= n; i++) print a[i]
+    }')
+    return 1
+}
+
+# scan_md_plain <file>... — the fourth seam. Emits `V:<file>:<line>:<text>` for a
+# violation and `X:<file>:<line>:<reason>` for a marker-honoured exception, so
+# the caller can report both and the exceptions stay visible.
+scan_md_plain() {
+    local f entry kind lineno text cand stripped hit
+    local -a exc_lines exc_reasons
+    local i prev_cand exempt_idx
+    for f in "$@"; do
+        is_md_plain_allowed "$f" && continue
+        exc_lines=(); exc_reasons=()
+        while IFS= read -r entry; do
+            exc_lines+=( "${entry%%:*}" ); exc_reasons+=( "${entry#*:}" )
+        done < <(md_exception_lines "$f")
+        prev_cand=0
+        while IFS= read -r entry; do
+            kind="${entry%%:*}"; entry="${entry#*:}"
+            lineno="${entry%%:*}"; text="${entry#*:}"
+            hit=""
+            if [[ "$kind" == "F" ]]; then
+                [[ -z "${text//[[:space:]]/}" ]] && continue
+                [[ "$text" =~ ^[[:space:]]*# ]] && continue
+                hit="$(md_judge_plain "$f" "$lineno" "$text" fence || true)"
+            else
+                # Unformatted first: an invocation-shaped `git commit -…` outside
+                # any span. Judged on the span-stripped text but REPORTED with the
+                # original line, so the message names what the author wrote. The
+                # other two seams' commands are excluded here line-wise rather
+                # than per segment -- coarser than md_judge_plain, and adequate
+                # because this branch only ever sees unformatted prose.
+                stripped="$(md_strip_spans "$text")"
+                if [[ "$stripped" =~ $PLAIN_GIT_INVOCATION_RE ]] \
+                   && ! [[ "$stripped" =~ $AIT_GIT_COMMIT_RE ]] \
+                   && ! [[ "$stripped" =~ task_git[[:space:]]+commit ]]; then
+                    hit="$f:$lineno:$text"
+                fi
+                if [[ -z "$hit" ]]; then
+                    while IFS= read -r cand; do
+                        [[ -z "${cand//[[:space:]]/}" ]] && continue
+                        hit="$(md_judge_plain "$f" "$lineno" "$cand" prose || true)"
+                        [[ -n "$hit" ]] && break
+                    done < <(md_spans "$text")
+                fi
+            fi
+            # Every candidate line advances `prev_cand`, flagged or not: a marker
+            # exempts the NEXT candidate, and a marker sitting before an already
+            # -passing site must not carry over to the next one.
+            if [[ -n "$hit" ]]; then
+                # The marker must sit between the previous candidate and this one.
+                exempt_idx=-1
+                for i in "${!exc_lines[@]}"; do
+                    if (( exc_lines[i] < lineno && exc_lines[i] > prev_cand )); then
+                        exempt_idx=$i
+                    fi
+                done
+                if (( exempt_idx >= 0 )); then
+                    printf 'X:%s:%s:%s\n' "$f" "$lineno" "${exc_reasons[exempt_idx]}"
+                else
+                    printf 'V:%s\n' "$hit"
+                fi
+            fi
+            prev_cand="$lineno"
+        done < <(awk "$MD_JOIN_AWK" "$f" 2>/dev/null)
+    done
 }
 
 # scan_md <file>... — the markdown scan. Takes an EXPLICIT file list (unlike
@@ -492,6 +711,51 @@ else
     echo "     or add an explicit '-- <paths>' pathspec where teaching './ait git'"
     echo "     is the point. NOT task_git_commit_scoped: that is a bash function"
     echo "     with no PATH entry, so no agent can run it from an instruction."
+fi
+
+# --- Test 2b: plain `git commit` in the instruction layer (t1762) ------------
+# Same enumeration as Test 2 -- MD_SOURCES is reused, so the scope assertions
+# above cover this seam too and cannot drift from it.
+
+# Anti-vacuity, and deliberately NOT a corpus count: the conversions themselves
+# move any count. These two files keep plain `git commit` text on purpose --
+# they are where the rule is taught, so they must demonstrate the command.
+for plain_witness in \
+    "aidocs/framework/skill_authoring_conventions.md" \
+    ".claude/skills/ait-git/SKILL.md" \
+; do
+    assert_exit_zero "plain: '$plain_witness' still carries git commit text" \
+        grep -qE '(^|[^[:alnum:]_/.-])git[[:space:]]+commit' "$PROJECT_DIR/$plain_witness"
+done
+
+md_plain_raw="$(cd "$PROJECT_DIR" && scan_md_plain ${MD_SOURCES[@]+"${MD_SOURCES[@]}"})"
+md_plain_violations="$(printf '%s\n' "$md_plain_raw" | sed -n 's/^V://p')"
+md_plain_exceptions="$(printf '%s\n' "$md_plain_raw" | sed -n 's/^X://p')"
+
+if [[ -n "$md_plain_exceptions" ]]; then
+    echo "NOTE: honoured unscoped-commit-ok exception(s):"
+    # One prefixed line PER exception. A single `printf '%s'` of the multi-line
+    # value prefixes only the first, and an exception nobody can see is the
+    # thing this report exists to prevent.
+    while IFS= read -r _exc; do
+        printf '  EXCEPTION: %s\n' "$_exc"
+    done <<< "$md_plain_exceptions"
+fi
+
+TOTAL=$((TOTAL + 1))
+if [[ -z "$md_plain_violations" ]]; then
+    PASS=$((PASS + 1))
+    echo "PASS: no unscoped plain 'git commit' instruction in the skill / doc trees"
+else
+    FAIL=$((FAIL + 1))
+    echo "FAIL: unscoped MAIN-branch commit(s) INSTRUCTED — an agent will run these:"
+    printf '  UNSCOPED: %s\n' "$md_plain_violations"
+    echo "  -> add an explicit '-- <paths>' pathspec naming what the step commits,"
+    echo "     and drop any 'git add' of a path git already tracks (commit -- <paths>"
+    echo "     takes a tracked path's worktree content without one)."
+    echo "     Where a pathspec is genuinely impossible (a merge commit; an"
+    echo "     isolated single-session sandbox), declare it on the line before:"
+    echo "     <!-- unscoped-commit-ok: <reason> -->"
 fi
 
 # --- Negative controls -------------------------------------------------------
@@ -856,6 +1120,160 @@ cat > "$MDT/.claude/skills/foo/md_fence_comment.md" <<'EOF'
 ```
 EOF
 
+# -- seam 4 fixtures: plain `git commit` (t1762) --
+# Named `mdp_*`, which contains no `md_` substring, so the seam-3 pin's
+# `grep -c '^[^:]*md_'` cannot see them even if one were ever flagged there.
+# Belt and braces: they carry no unscoped `ait git commit` text either, so
+# scan_md never emits them at all. Both facts are asserted below.
+
+cat > "$MDT/.claude/skills/foo/mdp_fence_unscoped.md" <<'EOF'
+```bash
+git add seed/models_x.json
+git commit -m "ait: Sync x to seed"
+```
+EOF
+
+cat > "$MDT/.claude/skills/foo/mdp_inline_unscoped.md" <<'EOF'
+- Commit: `git commit -m "chore: bump version"`
+EOF
+
+# The `&&` trap for this seam: the add carries `--`, the commit does not.
+cat > "$MDT/.claude/skills/foo/mdp_and_add_scoped.md" <<'EOF'
+4. Commit: `git add -- <paths> && git commit -m "bug: fix it"`
+EOF
+
+cat > "$MDT/.claude/skills/foo/mdp_comment_dashes.md" <<'EOF'
+```bash
+git commit -m "bug: x"   # remember to use -- for a pathspec
+```
+EOF
+
+cat > "$MDT/.claude/skills/foo/mdp_add_dash_A.md" <<'EOF'
+```bash
+git add -A
+git commit -m "feature: everything"
+```
+EOF
+
+# A marker whose reason is EMPTY must not exempt anything.
+cat > "$MDT/.claude/skills/foo/mdp_marker_empty_reason.md" <<'EOF'
+<!-- unscoped-commit-ok:  -->
+```bash
+git commit -m "feature: unjustified"
+```
+EOF
+
+# THE A18/A19 CASE. One marker, two sites: only the first is exempt.
+cat > "$MDT/.claude/skills/foo/mdp_marker_next_only.md" <<'EOF'
+<!-- unscoped-commit-ok: isolated single-session sandbox, no concurrent writer -->
+```bash
+git add -A
+git commit -m "feature: sandbox commit"
+```
+Then record the marker:
+```bash
+git commit -m "ait: Add completion marker"
+```
+EOF
+
+# -- seam 4 negative fixtures (must NOT be flagged) --
+cat > "$MDT/.claude/skills/foo/mdp_fence_scoped.md" <<'EOF'
+```bash
+git commit -m "ait: Sync x to seed" -- seed/models_x.json
+```
+EOF
+
+cat > "$MDT/.claude/skills/foo/mdp_inline_scoped.md" <<'EOF'
+- Commit: `git commit -m "chore: bump" -- .aitask-scripts/VERSION`
+EOF
+
+cat > "$MDT/.claude/skills/foo/mdp_and_commit_scoped.md" <<'EOF'
+4. Commit: `git add -- <p> && git commit -m "bug: x" -- <p>`
+EOF
+
+# Plumbing: commit-tree writes an object and never touches the index.
+cat > "$MDT/.claude/skills/foo/mdp_commit_tree.md" <<'EOF'
+```bash
+commit_hash=$(echo "msg" | git commit-tree "$tree_hash" -p "$parent_hash")
+```
+EOF
+
+cat > "$MDT/.claude/skills/foo/mdp_lookalike.md" <<'EOF'
+```bash
+mygit commit -m "a longer identifier ending in git"
+```
+EOF
+
+# Prose nouns, per segment: the shape that actually occurs in aidocs.
+cat > "$MDT/aidocs/mdp_mention_noun.md" <<'EOF'
+Do NOT run `git add`, `git commit`, or `git diff` on files inside `aitasks/`.
+Only the runner runs `git add -A && git commit && git push`; agents never touch git.
+EOF
+
+# The other two seams' commands must NOT be reported here: one command, one seam.
+cat > "$MDT/.claude/skills/foo/mdp_other_seams.md" <<'EOF'
+```bash
+./ait git commit -m "ait: x" -- aitasks/t1_x.md
+task_git commit -m "ait: y" -- aitasks/t1_y.md
+```
+EOF
+
+# Unformatted English prose using the words as a noun phrase. Real shapes from
+# this tree: none of these instruct anything, and all five would be flagged by a
+# fail-closed rule.
+cat > "$MDT/aidocs/mdp_unformatted_prose.md" <<'EOF'
+The tuple was written but the path-scoped git commit failed (e.g. an index lock).
+The AgentCrew runner already handles git commit + push for crew files.
+aitask_archive.sh handles all archival mechanics (lock release, git commit).
+EOF
+
+# ...but an unformatted INVOCATION is still a command, and is still flagged.
+cat > "$MDT/aidocs/mdp_unformatted_invocation.md" <<'EOF'
+When you are done just run git commit -m "chore: done" and move on.
+EOF
+
+# The heredoc shapes. `-F -` puts the pathspec on the command line itself; the
+# `-m "$(cat <<'EOF' …)" -- <p>` form puts it on the heredoc's CLOSING line, which
+# the scanner never joins to the command -- so that form stays flagged even
+# though git accepts it, and the instruction layer is written with `-F -`. The
+# outer delimiter is OUTER because each fixture body contains its own EOF.
+cat > "$MDT/.claude/skills/foo/mdp_heredoc_F_scoped.md" <<'OUTER'
+```bash
+git commit -F - -- src/a.sh src/b.sh <<'EOF'
+bug: Fix it (t1)
+
+Co-Authored-By: x <x@x>
+EOF
+```
+OUTER
+
+cat > "$MDT/.claude/skills/foo/mdp_heredoc_m_pathspec_after.md" <<'OUTER'
+```bash
+git commit -m "$(cat <<'EOF'
+bug: Fix it (t1)
+EOF
+)" -- src/a.sh
+```
+OUTER
+
+# A doc that SHOWS the marker format with a `<reason>` placeholder must not
+# itself register as a marker: the reason class excludes `>`, so the placeholder
+# never parses. skill_authoring_conventions.md relies on this.
+cat > "$MDT/aidocs/mdp_marker_documented.md" <<'EOF'
+Put `<!-- unscoped-commit-ok: <reason> -->` on the line before such a command.
+```bash
+git commit -m "feature: must still be flagged"
+```
+EOF
+
+# A well-formed marker immediately above its fenced command.
+cat > "$MDT/.claude/skills/foo/mdp_marker_ok.md" <<'EOF'
+<!-- unscoped-commit-ok: merge commit; git refuses a partial commit during a merge -->
+```bash
+git commit -m "feature: merge t<id>"
+```
+EOF
+
 # -- enumerator fixtures (must not be ENUMERATED at all) --
 # Each carries a real violation, so a predicate that admitted one would move the
 # count pin below rather than pass quietly.
@@ -961,6 +1379,108 @@ assert_eq "markdown: exactly twelve violations across the fixture tree" \
 # that wraps, the line it OPENS on, not the one carrying the `commit`.
 assert_contains "markdown: a wrapped span is reported at its opening line" \
     "md_prose_wrapped.md:1" "$neg_md"
+
+# -- seam 4 assertions (t1762) --
+neg_mdp_raw="$(cd "$MDT" && scan_md_plain ${MD_FIXTURES[@]+"${MD_FIXTURES[@]}"})"
+neg_mdp="$(printf '%s\n' "$neg_mdp_raw" | sed -n 's/^V://p')"
+neg_mdp_exc="$(printf '%s\n' "$neg_mdp_raw" | sed -n 's/^X://p')"
+
+assert_contains "plain: an unscoped commit in a bash fence IS flagged" \
+    "mdp_fence_unscoped.md" "$neg_mdp"
+assert_contains "plain: an unscoped commit in a backtick span IS flagged" \
+    "mdp_inline_unscoped.md" "$neg_mdp"
+assert_contains "plain: a scoped add joined to an unscoped commit IS flagged" \
+    "mdp_and_add_scoped.md" "$neg_mdp"
+assert_contains "plain: a -- in a trailing comment is NOT a pathspec" \
+    "mdp_comment_dashes.md" "$neg_mdp"
+assert_contains "plain: 'git add -A' then a bare commit IS flagged" \
+    "mdp_add_dash_A.md" "$neg_mdp"
+assert_contains "plain: a marker with an EMPTY reason exempts nothing" \
+    "mdp_marker_empty_reason.md" "$neg_mdp"
+assert_contains "plain: an UNFORMATTED invocation (git commit -m …) IS flagged" \
+    "mdp_unformatted_invocation.md" "$neg_mdp"
+
+assert_not_contains "plain: unformatted English prose is NOT flagged" \
+    "mdp_unformatted_prose.md" "$neg_mdp"
+
+assert_not_contains "plain: a fenced commit carrying -- is NOT flagged" \
+    "mdp_fence_scoped.md" "$neg_mdp"
+assert_not_contains "plain: an inline commit carrying -- is NOT flagged" \
+    "mdp_inline_scoped.md" "$neg_mdp"
+assert_not_contains "plain: an add joined to a SCOPED commit is NOT flagged" \
+    "mdp_and_commit_scoped.md" "$neg_mdp"
+assert_not_contains "plain: git commit-tree plumbing is NOT flagged" \
+    "mdp_commit_tree.md" "$neg_mdp"
+assert_not_contains "plain: a longer identifier ending in 'git' is NOT flagged" \
+    "mdp_lookalike.md" "$neg_mdp"
+assert_not_contains "plain: bare-name prose mentions are NOT flagged" \
+    "mdp_mention_noun.md" "$neg_mdp"
+assert_not_contains "plain: the other two seams' commands are NOT re-reported" \
+    "mdp_other_seams.md" "$neg_mdp"
+assert_not_contains "plain: a well-formed marker exempts its command" \
+    "mdp_marker_ok.md" "$neg_mdp"
+
+# The honoured exception is REPORTED, with its reason -- an exception nobody can
+# see is an allowlist entry with extra steps.
+assert_contains "plain: an honoured exception is reported with its reason" \
+    "merge commit; git refuses a partial commit during a merge" "$neg_mdp_exc"
+
+# THE MARKER-INDEPENDENCE ASSERTION. One marker, two sites in one file: the
+# first is exempt, the second is still flagged. This is the A18/A19 case, and it
+# is why the exception is line-scoped rather than a file allowlist entry.
+mdp_next_v="$(printf '%s\n' "$neg_mdp" | grep -c 'mdp_marker_next_only\.md' || true)"
+mdp_next_x="$(printf '%s\n' "$neg_mdp_exc" | grep -c 'mdp_marker_next_only\.md' || true)"
+assert_eq "plain: a marker exempts exactly ONE site in a two-site file" \
+    "1" "$mdp_next_x"
+assert_eq "plain: the SECOND site in that file is still flagged" \
+    "1" "$mdp_next_v"
+
+assert_not_contains "plain: a -F - heredoc commit with its pathspec is NOT flagged" \
+    "mdp_heredoc_F_scoped.md" "$neg_mdp"
+assert_contains "plain: a -m cat-heredoc commit with the pathspec after it IS flagged" \
+    "mdp_heredoc_m_pathspec_after.md" "$neg_mdp"
+assert_contains "plain: a doc SHOWING the marker format does not exempt a real site" \
+    "mdp_marker_documented.md" "$neg_mdp"
+# ...and directly: the `<reason>` placeholder form never parses as a marker.
+mdp_doc_markers="$(md_exception_lines "$MDT/aidocs/mdp_marker_documented.md")"
+assert_eq "plain: a <reason> placeholder never parses as a marker" \
+    "" "$mdp_doc_markers"
+
+# Exactly ten violations across the seam-4 fixtures. A fourth, independent pin.
+# Ten includes mdp_marker_next_only.md's SECOND (unmarked) site, which is the
+# whole point of that fixture, and the two heredoc/documented-marker positives.
+neg_mdp_count="$(printf '%s\n' "$neg_mdp" | grep -c '^[^:]*mdp_' || true)"
+assert_eq "plain: exactly ten violations across the seam-4 fixture tree" \
+    "10" "$neg_mdp_count"
+
+# The two markdown seams never DOUBLE-REPORT a site. This is stated as the real
+# invariant -- no <file>:<line> in both outputs -- rather than "no md_ fixture
+# ever reaches the plain seam", which would be wrong: md_lookalike.md's
+# `portrait git commit` is a seam-3 NEGATIVE (not reported there) and a genuine
+# plain `git commit` token sequence for seam 4, and reporting it once is correct.
+md_sites="$(printf '%s\n' "$neg_md" | cut -d: -f1,2 | sort -u)"
+mdp_sites="$(printf '%s\n' "$neg_mdp" | cut -d: -f1,2 | sort -u)"
+double_reported="$(comm -12 <(printf '%s\n' "$md_sites") <(printf '%s\n' "$mdp_sites") | grep -v '^$' || true)"
+assert_eq "seam separation: no site is reported by BOTH markdown seams" \
+    "" "$double_reported"
+# And specifically the unparseable-quote case, where both seams fail closed:
+assert_not_contains "seam separation: an unparseable ./ait git line is seam 3's alone" \
+    "md_unbalanced_quote.md" "$neg_mdp"
+assert_not_contains "seam separation: no mdp_ fixture is reported by scan_md" \
+    "mdp_" "$neg_md"
+
+# MD_PLAIN_ALLOWLIST suppression, and its independence from the other three.
+ACTIVE_MD_PLAIN_ALLOWLIST=(".claude/skills/foo/mdp_fence_unscoped.md")
+neg_mdp_allow="$(cd "$MDT" && scan_md_plain ${MD_FIXTURES[@]+"${MD_FIXTURES[@]}"})"
+assert_not_contains "plain: an allowlisted file is suppressed" \
+    "mdp_fence_unscoped.md" "$neg_mdp_allow"
+ACTIVE_MD_PLAIN_ALLOWLIST=(${MD_PLAIN_ALLOWLIST[@]+"${MD_PLAIN_ALLOWLIST[@]}"})
+
+ACTIVE_MD_PLAIN_ALLOWLIST=(".claude/skills/foo/md_fence_unscoped.md")
+neg_mdp_cross2="$(cd "$MDT" && scan_md ${MD_FIXTURES[@]+"${MD_FIXTURES[@]}"})"
+assert_contains "a plain-allowlisted name does NOT suppress the ait-git seam" \
+    "md_fence_unscoped.md" "$neg_mdp_cross2"
+ACTIVE_MD_PLAIN_ALLOWLIST=(${MD_PLAIN_ALLOWLIST[@]+"${MD_PLAIN_ALLOWLIST[@]}"})
 
 # MD_ALLOWLIST suppression, via a synthetic entry.
 ACTIVE_MD_ALLOWLIST=(".claude/skills/foo/md_fence_unscoped.md")

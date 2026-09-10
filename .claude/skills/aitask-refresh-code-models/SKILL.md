@@ -150,10 +150,14 @@ Only include files that were actually modified — skip unchanged agent files. E
 path you name is **required**; parse the output per the **outcome contract** in
 `.claude/skills/ait-git/SKILL.md`.
 
-**Seed files** (main branch, only if `seed/` exists and files were updated):
+**Seed files** (main branch, only if `seed/` exists and files were updated). All
+three are already tracked, so there is no `add`; name only the ones you changed
+(`main` is shared by every session in this checkout — see "Never instruct a bare
+`git commit` on `main`" in `aidocs/framework/skill_authoring_conventions.md`):
 ```bash
-git add seed/models_claudecode.json seed/models_codex.json seed/models_opencode.json
-git commit -m "ait: Sync refreshed models to seed templates"
+git commit -m "ait: Sync refreshed models to seed templates" \
+    -- seed/models_claudecode.json seed/models_codex.json seed/models_opencode.json
+git show --stat <sha>    # <sha> from the commit's "[<branch> <sha>]" line — not HEAD
 ```
 
 Display summary: "Model configurations updated. N new models added, M models updated, K models flagged as deprecated."

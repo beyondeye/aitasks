@@ -557,6 +557,75 @@ command name (the command as a noun, in prose) — so a doc may quote the bad
 shape in order to forbid it. Its detection scope, and what it does not see, are
 documented in that file's header.
 
+## Never instruct a bare `git commit` on `main`
+
+The same defect, one branch over. `main` is shared by every session in this
+checkout exactly as `.aitask-data` is, so a procedure that tells an agent to run
+`git add <paths>` and then a bare `git commit` commits the **entire** main-branch
+index — whatever a concurrent session has staged at that instant lands in a
+commit whose message names unrelated work. `aitask_task_commit.sh` is not the
+cure here: it refuses anything outside `aitasks/`/`aiplans/`. Name the paths:
+
+```bash
+git add -- <paths git does not track yet>      # omit entirely if all are tracked
+git commit -m "<type>: <subject> (t<id>)" -- <paths>
+git show --stat <sha>       # <sha> from the commit's "[<branch> <sha>]" line
+```
+
+- **Drop the `add` for tracked paths.** `git commit -- <paths>` is a partial
+  commit: it takes those paths' worktree content and ignores the index, so a
+  tracked path needs no staging. An `add` of one then buys nothing and costs
+  something: it replaces the index entry a concurrent session staged for that
+  same path at once, so if your commit then fails, their staged version is gone
+  and nothing was committed — with no `add`, a failed commit leaves it alone. (A
+  *successful* commit sets that entry to what it committed either way; that is
+  the same-file limitation below, not something the `add` changes.) Keep the
+  `add` only for a path
+  git does not track yet, which a pathspec cannot otherwise name. Where a site's
+  file set is computed and can mix new and tracked paths, filter it with
+  `git ls-files --error-unmatch -- "$f"`, the tracked-path test
+  `ait_commit_paths_staging_untracked` uses.
+- **A pathspec that can expand to nothing needs a real `if` around the commit.**
+  `git commit -m x --` with an empty pathspec commits the whole index — the shell
+  layer guards it twice (`task_git_commit_scoped` and
+  `ait_commit_paths_staging_untracked` each open with `(( $# )) || return 2`).
+  Where the list is produced at run time, bind it to an array and put the commit
+  inside the non-empty branch. Do **not** short-circuit it with
+  `|| { …; return 0; }`: an instruction is pasted at a prompt, where `return`
+  outside a function is an error — bash prints it and carries on to the commit.
+- **A heredoc message goes in on stdin.** Write `git commit -F - -- <paths> <<'EOF'`,
+  not a `-m "$(cat <<'EOF' …)"` substitution with the pathspec after it: that
+  form puts the pathspec on the heredoc's closing line, where neither a reader
+  nor the guard sees it beside the command.
+- **Verify the commit you made, by hash.** `git show --stat HEAD` can describe
+  another session's commit if one lands between yours and the show; read the
+  short SHA from the `[<branch> <sha>] <subject>` line the commit prints.
+- **An exception is declared, line by line.** A merge commit cannot take a
+  pathspec (`fatal: cannot do a partial commit during a merge`), and an isolated
+  single-session sandbox has no concurrent writer to protect. Put an
+  `unscoped-commit-ok` HTML comment carrying the reason on the line before such a
+  command — `<!-- unscoped-commit-ok: <reason> -->`. It exempts the next command
+  only, the reason is required (and may not contain `>`), and the guard prints
+  every one it honours. The bar is a commit that genuinely cannot name its paths,
+  not one that is inconvenient to.
+
+**What this does not buy.** A pathspec stops *unrelated* paths riding along; it
+cannot help when two sessions edit the **same** file, because `commit -- <path>`
+takes that path's worktree content — the other session's in-progress edit is
+committed under your message just the same. Concurrent work on one file needs a
+worktree or coordination, not a pathspec. Three further gaps are known and left
+open: an agent-substituted placeholder pathspec that expands to nothing; a later
+edit restoring `git add` of a tracked path beside a correct scoped commit; and,
+after a *failed* commit, the untracked paths you staged stay staged, where
+another session's bare commit can collect them. `ait_commit_paths_staging_untracked`
+unstages them on failure; this rule deliberately adds no main-branch helper to do
+the same.
+
+`tests/test_no_unscoped_task_commit.sh` enforces the commit half over the same
+skill and doc trees as the task-data rule. It does not see staging, an empty
+expansion, or an unformatted `git commit` with no option after it; its header
+states the boundary.
+
 ## Do not route skill invocation through `claude -p "<inlined prompt>"`
 
 `claude -p` is billed at a higher per-token rate than slash-command invocations

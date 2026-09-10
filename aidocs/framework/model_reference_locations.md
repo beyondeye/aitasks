@@ -203,8 +203,9 @@ Those are the files a new skill must touch to promote a model to default.
    - `./.aitask-scripts/aitask_task_commit.sh -m "ait: Add <agent>/<name> to model registry" aitasks/metadata/models_<agent>.json`
      (path-scoped — a bare `./ait git commit` takes the whole shared
      `.aitask-data` index)
-   - `git add seed/models_<agent>.json` and
-     `git commit -m "ait: Sync <agent>/<name> to seed template"`
+   - `git add -- seed/models_<agent>.json` (new in add mode) and
+     `git commit -m "ait: Sync <agent>/<name> to seed template" -- seed/models_<agent>.json`
+     (path-scoped for the same reason: `main` is shared by every session too)
 
 Add mode does NOT touch §2, §3, §4, §5, or §7.
 
@@ -223,9 +224,9 @@ Add mode does NOT touch §2, §3, §4, §5, or §7.
      `agent_string` exclusively from `codeagent_config.json` (updated
      in step 4 above). `crew_meta_template.yaml` was deleted (t579_5).
      `aitask_brainstorm_init.sh` no longer passes hardcoded fallbacks.
-8. Commit code changes as one commit:
-   - `git add .aitask-scripts/aitask_codeagent.sh .aitask-scripts/brainstorm/brainstorm_crew.py .aitask-scripts/aitask_brainstorm_init.sh seed/codeagent_config.json`
-   - `git commit -m "feature: Promote <agent>/<name> to default for <ops>"`
+8. Commit code changes as one commit, by name — all four files are already
+   tracked, so there is no `add`:
+   - `git commit -m "feature: Promote <agent>/<name> to default for <ops>" -- .aitask-scripts/aitask_codeagent.sh .aitask-scripts/brainstorm/brainstorm_crew.py .aitask-scripts/aitask_brainstorm_init.sh seed/codeagent_config.json`
    - Config (metadata) commit separately via `./ait git`
 
 Promote mode does NOT touch §5 docs (except

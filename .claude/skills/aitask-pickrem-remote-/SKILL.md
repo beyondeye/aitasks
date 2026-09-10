@@ -355,21 +355,24 @@ Update the external plan file as you progress:
    - **IMPORTANT for child tasks:** The plan file will be archived and serve as the primary reference for subsequent sibling tasks. Ensure the Final Implementation Notes are comprehensive.
 
 4. **Commit code changes and plan file separately:**
-   - **Code commit:**
+   - **Code commit** — by name. `main` is shared by every session in this
+     checkout, so a `git commit` with no `--` pathspec takes whatever a
+     concurrent session has staged as well (see "Never instruct a bare
+     `git commit` on `main`" in `aidocs/framework/skill_authoring_conventions.md`):
      ```bash
-     git add <changed_code_files>
+     git add -- <changed_code_files_git_does_not_track_yet>    # skip if all are tracked
      # First execute the Contributor Attribution Procedure and the
      # Code-Agent Commit Attribution Procedure from .claude/skills/task-workflow-remote-/code-agent-commit-attribution.md,
      # then compose one final commit message.
-     git commit -m "$(cat <<'EOF'
+     git commit -F - -- <changed_code_files> <<'EOF'
      <issue_type>: <description> (t<task_id>)
 
      <optional Based on PR block and contributor trailer>
      <optional code-agent trailer>
      EOF
-     )"
+     git show --stat <sha>    # <sha> from the commit's "[<branch> <sha>]" line — not HEAD
      ```
-     Only include implementation files — never `aitasks/` or `aiplans/` paths. Skip if no code changes. The `<issue_type>` comes from the task's frontmatter. Examples: `feature: Add channel settings (t16)`, `bug: Fix login validation (t16_2)`. If code-agent attribution fails, continue with the contributor-only or plain commit message.
+     Only include implementation files — never `aitasks/` or `aiplans/` paths. **Skip if no code changes** — never run it with nothing after `--`, which takes the whole shared index. Stage only files git does not track yet — `commit -- <paths>` takes a tracked file's worktree content without an `add`. The message goes in on stdin (`-F -`) so the pathspec stays on the command line. The `<issue_type>` comes from the task's frontmatter. Examples: `feature: Add channel settings (t16)`, `bug: Fix login validation (t16_2)`. If code-agent attribution fails, continue with the contributor-only or plain commit message.
    - **Plan file commit:**
      ```bash
      ./.aitask-scripts/aitask_task_commit.sh -m "ait: Update plan for t<task_id>" aiplans/<plan_file>

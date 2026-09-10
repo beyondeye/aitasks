@@ -146,18 +146,27 @@ task-data branch (via `./ait git`); the script, SKILL, and test live on
 Every path you name is **required**; parse the output per the **outcome
 contract** in `.claude/skills/ait-git/SKILL.md`.
 
+The two **main-branch** commits below name their paths as well — `main` is shared
+by every session in this checkout, so a `git commit` with no `--` pathspec takes
+whatever a concurrent session has staged (see "Never instruct a bare
+`git commit` on `main`" in `aidocs/framework/skill_authoring_conventions.md`).
+
 **Seed sync (main branch):**
 ```bash
-git add seed/models_<agent>.json
-# If promote mode:
-git add seed/codeagent_config.json
-git commit -m "ait: Sync <agent>/<name> registration to seed"
+git add -- seed/models_<agent>.json    # only when registering a NEW agent (it is untracked)
+git commit -m "ait: Sync <agent>/<name> registration to seed" -- <seed_paths>
+git show --stat <sha>    # <sha> from the commit's "[<branch> <sha>]" line — not HEAD
 ```
+`<seed_paths>` is `seed/models_<agent>.json`, plus `seed/codeagent_config.json`
+in promote mode. The config is already tracked, so it is never `add`ed —
+`commit -- <paths>` takes a tracked file's worktree content without one.
 
-**DEFAULT_AGENT_STRING (main branch, promote mode + claudecode only):**
+**DEFAULT_AGENT_STRING (main branch, promote mode + claudecode only):** both
+files are already tracked, so there is no `add`:
 ```bash
-git add .aitask-scripts/lib/agent_string.sh .aitask-scripts/aitask_codeagent.sh
-git commit -m "refactor: Promote <agent>/<name> as hardcoded DEFAULT_AGENT_STRING"
+git commit -m "refactor: Promote <agent>/<name> as hardcoded DEFAULT_AGENT_STRING" \
+    -- .aitask-scripts/lib/agent_string.sh .aitask-scripts/aitask_codeagent.sh
+git show --stat <sha>    # <sha> from the commit's "[<branch> <sha>]" line — not HEAD
 ```
 
 Only include groups that actually changed. Skip unchanged files.

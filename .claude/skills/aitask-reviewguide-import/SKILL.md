@@ -229,10 +229,21 @@ Use `AskUserQuestion`:
      echo "<new_env>" >> aireviewguides/reviewenvironments.txt && sort -o aireviewguides/reviewenvironments.txt aireviewguides/reviewenvironments.txt
      ```
 
-5. **Commit:**
+5. **Commit** the new guide and the three vocabulary files by name — not the
+   `aireviewguides/` directory, which would sweep a concurrent session's edits
+   inside it too (`main` is shared by every session in this checkout — see
+   "Never instruct a bare `git commit` on `main`" in
+   `aidocs/framework/skill_authoring_conventions.md`). Stage only what git does
+   not track yet — the vocabulary files are already tracked.
    ```bash
-   git add aireviewguides/
-   git commit -m "ait: Import reviewguide <filename>"
+   files=( aireviewguides/<subdirectory>/<filename>.md aireviewguides/reviewtypes.txt aireviewguides/reviewlabels.txt aireviewguides/reviewenvironments.txt )
+   new=()
+   for f in "${files[@]}"; do
+       git ls-files --error-unmatch -- "$f" >/dev/null 2>&1 || new+=( "$f" )
+   done
+   (( ${#new[@]} )) && git add -- "${new[@]}"
+   git commit -m "ait: Import reviewguide <filename>" -- "${files[@]}"
+   git show --stat <sha>    # <sha> from the commit's "[<branch> <sha>]" line — not HEAD
    ```
 
 6. **Suggest merge if similar:** If `similar_to` was set, inform the user: "This guide is similar to `<similar_to>`. Consider running `/aitask-reviewguide-merge <filename> <similar_file>` to compare and potentially consolidate."

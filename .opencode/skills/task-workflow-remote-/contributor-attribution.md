@@ -58,10 +58,11 @@ When a task has both `contributor`/`contributor_email` (primary) and a `contribu
 - Format as: `Also based on contributions from: <name1> (#<issue_num1>), <name2> (#<issue_num2>)`
 - Place this line after the subject, before the `Co-Authored-By` trailer.
 
-**Example with primary + secondary contributors and code-agent:**
+**Example with primary + secondary contributors and code-agent** (the pathspec is
+part of the example on purpose — see `SKILL.md` Step 8's code commit):
 
 ```bash
-git commit -m "$(cat <<'EOF'
+git commit -F - -- <changed_code_files> <<'EOF'
 feature: Add dark mode and theme support (t42)
 
 Also based on contributions from: bob (#38), charlie (#15)
@@ -69,7 +70,6 @@ Also based on contributions from: bob (#38), charlie (#15)
 Co-Authored-By: primary-author <primary@example.com>
 Co-Authored-By: Codex/GPT5.4 <codex@aitasks.io>
 EOF
-)"
 ```
 
 - The `related_issues:` frontmatter field is informational only (no commit message impact). It records all source issue URLs for traceability.

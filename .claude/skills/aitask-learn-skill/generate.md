@@ -117,12 +117,19 @@ scannable procedure, no inlined long sub-procedures).
    (`AskUserQuestion`, header "Commit"): "Commit the generated skill now?".
    Options: "Yes, commit" / "No, leave it for me".
 
-   - **Yes, commit** (source code → plain `git`, never `./ait git`):
+   - **Yes, commit** (source code → plain `git`, never `./ait git`). The skill
+     and its wrappers are new files, so the `add` stays — but the commit names
+     them too: `main` is shared by every session in this checkout, and a
+     `git commit` with no `--` pathspec takes whatever a concurrent session has
+     staged as well (see "Never instruct a bare `git commit` on `main`" in
+     `aidocs/framework/skill_authoring_conventions.md`):
      ```bash
-     git add .claude/skills/<name>/ <wrapper_paths...>
-     git commit -m "feature: Add /<name> skill learned from <source_label>"
+     git add -- .claude/skills/<name>/SKILL.md <wrapper_paths...>
+     git commit -m "feature: Add /<name> skill learned from <source_label>" \
+         -- .claude/skills/<name>/SKILL.md <wrapper_paths...>
+     git show --stat <sha>    # <sha> from the commit's "[<branch> <sha>]" line — not HEAD
      ```
-     Include every `wrapper_paths` entry in the `git add`. When wrappers were
+     Include every `wrapper_paths` entry in both lists. When wrappers were
      created, append " (+ cross-agent wrappers)" to the commit subject.
    - **No, leave it for me**: do **no** git at all. Tell the user the files are
      written but uncommitted, and list every path (the `SKILL.md` and any

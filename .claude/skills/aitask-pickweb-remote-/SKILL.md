@@ -279,7 +279,12 @@ Update the plan file in `.aitask-data-updated/` as you progress:
 
 4. **Stage and commit:**
    - Stage all implementation changes including `.aitask-data-updated/` files
-   - Use regular `git` (NOT `./ait git`):
+   - Use regular `git` (NOT `./ait git`). This is the one commit in the procedure
+     that stages and commits the whole index, and it is correct **only** because
+     Claude Code Web runs in a fresh, single-session sandbox with no concurrent
+     writer. Never copy this shape into a procedure that runs in a shared
+     checkout, where it would carry another session's staged work:
+     <!-- unscoped-commit-ok: Claude Code Web sandbox is a fresh single-session checkout with no concurrent writer -->
      ```bash
      git add -A
      # First execute the Contributor Attribution Procedure and the
@@ -328,10 +333,13 @@ mkdir -p .aitask-data-updated
 
 The `profile` / `profile_filename` pair records which execution profile governed this web session (baked at render time). `aitask-web-merge` uses it to materialize the task's enforced `active_gates` tuple locally before archival — pickweb itself never writes task metadata, so the tuple write is deferred exactly like agent attribution.
 
-Stage and commit the marker:
+Stage and commit the marker — by name. The `unscoped-commit-ok` exception on the
+Step 7 commit covers that one commit only; this one names its path like every
+other commit on `main`:
 ```bash
-git add .aitask-data-updated/completed_t<task_id>.json
-git commit -m "ait: Add completion marker for t<task_id>"
+git add -- .aitask-data-updated/completed_t<task_id>.json
+git commit -m "ait: Add completion marker for t<task_id>" -- .aitask-data-updated/completed_t<task_id>.json
+git show --stat <sha>    # <sha> from the commit's "[<branch> <sha>]" line — not HEAD
 ```
 
 Display: "Task t\<task_id\> implementation complete on branch \<branch\>. Run `aitask-web-merge` locally to merge and archive."

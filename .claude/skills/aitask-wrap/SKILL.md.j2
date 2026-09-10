@@ -259,30 +259,36 @@ Created by: aitask-wrap (retroactive documentation)
 
 #### 4c: Stage and Commit Code Changes
 
-Stage and commit the code changes and plan file separately (code lives on main, plan lives on the task data branch):
+Commit the code changes and plan file separately (code lives on main, plan lives on the task data branch):
 
 ```bash
-git add <selected_files>
+git add -- <selected_files_git_does_not_track_yet>    # skip if all are tracked
 # First execute the Contributor Attribution Procedure and the
 # Code-Agent Commit Attribution Procedure from .claude/skills/task-workflow/code-agent-commit-attribution.md,
 # then compose one final commit message.
-git commit -m "$(cat <<'EOF'
+git commit -F - -- <selected_files> <<'EOF'
 <issue_type>: <description> (t<N>)
 
 <optional Based on PR block and contributor trailer>
 <optional code-agent trailer>
 EOF
-)"
+git show --stat <sha>    # <sha> from the commit's "[<branch> <sha>]" line — not HEAD
 ./.aitask-scripts/aitask_task_commit.sh -m "ait: Add plan p<N> for wrapped task" aiplans/p<N>_<name>.md
 ```
 
 Where `<description>` is a concise commit message derived from the task summary.
 
-The plan file goes through `./.aitask-scripts/aitask_task_commit.sh`, which names
-its path — a bare `./ait git commit` would take the whole shared `.aitask-data`
-index. `aiplans/p<N>_<name>.md` is **required**; parse the output per the
-**outcome contract** in `.claude/skills/ait-git/SKILL.md`. The `git commit` above
-it is the **code** commit on the main branch and is unaffected.
+Both commits name their paths, for the same reason on two different branches.
+The plan file goes through `./.aitask-scripts/aitask_task_commit.sh` — a bare
+`./ait git commit` would take the whole shared `.aitask-data` index.
+`aiplans/p<N>_<name>.md` is **required**; parse the output per the **outcome
+contract** in `.claude/skills/ait-git/SKILL.md`. The code commit above it is on
+`main`, which every session in this checkout shares the same way: it names
+`<selected_files>` after `--` (never run it with that list empty — nothing after
+`--` takes the whole index), stages only files git does not track yet, and takes
+its message on stdin (`-F -`) so the pathspec stays on the command line (see
+"Never instruct a bare `git commit` on `main`" in
+`aidocs/framework/skill_authoring_conventions.md`).
 
 **Important:** The code commit message MUST use the `<issue_type>: <description> (t<N>)` format on the subject line. If contributor or code-agent attribution exists, append those blocks in the same commit message. If code-agent attribution fails, continue with the contributor-only or plain commit message.
 

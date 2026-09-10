@@ -686,18 +686,22 @@ After implementation is complete, the user MUST be given the opportunity to revi
   - **Contributor attribution:** Execute the **Contributor Attribution Procedure** (see `contributor-attribution.md`) to determine whether the commit needs an imported-contributor block.
   - **Code-agent attribution:** Execute the **Code-Agent Commit Attribution Procedure** (see `code-agent-commit-attribution.md`) to resolve a `Co-Authored-By` trailer from `implemented_with`. If agent attribution fails, continue with the contributor-only or plain commit message as applicable.
   - **Commit code changes and plan file separately** (code uses regular `git`, plan uses `./ait git`):
-    1. **Code commit** — Stage and commit source code changes:
+    1. **Code commit** — commit the source code changes **by name**. `main` is
+       shared by every session in this checkout, so a `git commit` with no `--`
+       pathspec takes whatever a concurrent session has staged as well (see
+       "Never instruct a bare `git commit` on `main`" in
+       `aidocs/framework/skill_authoring_conventions.md`):
        ```bash
-       git add <changed_code_files>
-       git commit -m "$(cat <<'EOF'
+       git add -- <changed_code_files_git_does_not_track_yet>    # skip if all are tracked
+       git commit -F - -- <changed_code_files> <<'EOF'
        <issue_type>: <description> (t<task_id>)
 
        <optional imported contributor block>
        <optional code-agent trailer>
        EOF
-       )"
+       git show --stat <sha>    # <sha> from the commit's "[<branch> <sha>]" line — not HEAD
        ```
-       Only include implementation files — never include `aitasks/` or `aiplans/` paths. Skip this commit if there are no code changes. If neither attribution procedure returns content, the code commit can remain a single-line subject.
+       Only include implementation files — never include `aitasks/` or `aiplans/` paths. **Skip this commit entirely if there are no code changes** — never run it with nothing after `--`, which takes the whole shared index. Stage only files git does not track yet — `commit -- <paths>` takes a tracked file's worktree content with no `add`. The message goes in on stdin (`-F -`) so the pathspec stays on the command line. If neither attribution procedure returns content, the code commit can remain a single-line subject.
     2. **Plan file commit** — Stage and commit the updated plan file:
        ```bash
        ./.aitask-scripts/aitask_task_commit.sh -m "ait: Update plan for t<task_id>" aiplans/<plan_file>

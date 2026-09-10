@@ -98,8 +98,8 @@ Done **once**, by hand, before the first release after this task lands.
 5. **Commit and push** to `main`:
 
    ```bash
-   git add Formula/aitasks.rb
-   git commit -m "Seed placeholder formula"
+   git add -- Formula/aitasks.rb
+   git commit -m "Seed placeholder formula" -- Formula/aitasks.rb
    git push origin main
    ```
 
@@ -201,8 +201,7 @@ After sections 2-4 are complete:
    ```bash
    # Bump .aitask-scripts/VERSION (e.g., from 0.19.2 → 0.19.3)
    echo "0.19.3" > .aitask-scripts/VERSION
-   git add .aitask-scripts/VERSION
-   git commit -m "chore: Bump version to 0.19.3"
+   git commit -m "chore: Bump version to 0.19.3" -- .aitask-scripts/VERSION
    git push
    git tag v0.19.3
    git push origin v0.19.3

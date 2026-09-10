@@ -88,6 +88,14 @@ git rm -rf .aitask-data-updated/ 2>/dev/null || true
 
 Derive a description from the task filename (strip `t<N>_` prefix and `.md` suffix, replace underscores with spaces).
 
+This is the one commit here that **cannot** name its paths: it concludes the
+`git merge` above, and git refuses a partial commit during a merge
+(`fatal: cannot do a partial commit during a merge`). It takes the merge's index
+by construction, which is what a merge commit is. So look before committing:
+`git status` should show the merged files and nothing a concurrent session
+staged, because `main` is shared by every session in this checkout.
+
+<!-- unscoped-commit-ok: concludes a git merge; git refuses a partial commit during a merge -->
 ```bash
 git commit -m "<issue_type>: <description> (t<task_id>)"
 ```

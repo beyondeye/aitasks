@@ -122,7 +122,10 @@ portability quirks (BSD vs GNU tooling) live in
   bash function — but `./.aitask-scripts/aitask_task_commit.sh -m "<msg>"
   <paths>`, the t1702 wrapper with the trap already armed. The rule for procedure
   authors lives in `aidocs/framework/skill_authoring_conventions.md`; the same
-  guard's third scan covers the skill and doc trees.
+  guard's third scan covers the skill and doc trees. Its main-branch sibling — a
+  procedure instructing a bare plain `git commit`, which takes the shared `main`
+  index the same way — is covered in the same doc and by the guard's fourth scan
+  (t1762).
 
   **The rc-capture rule this helper states — a failed probe reads as
   *unverified*, never as *clean* — generalizes past committing.** The audit of

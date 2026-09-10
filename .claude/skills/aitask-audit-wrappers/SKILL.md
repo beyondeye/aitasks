@@ -69,12 +69,34 @@ If `apply-wrapper` refuses to overwrite an existing file (returns non-zero), sur
 
 ### Step 5 — Phase 1 commit
 
-Stage the changes and commit. Two commits if both phases run; one commit if only Phase 1.
+Commit the wrappers Step 4 wrote. Two commits if both phases run; one commit if only Phase 1.
+
+Commit exactly the `WROTE:` targets Step 4 collected, not the three directories:
+a directory pathspec would sweep a concurrent session's edits inside them too
+(`main` is shared by every session in this checkout — see "Never instruct a bare
+`git commit` on `main`" in `aidocs/framework/skill_authoring_conventions.md`). A
+`WROTE:` line names an **overwritten** file as readily as a new one — Step 4's
+"Yes, overwrite" re-runs `apply-wrapper --force`, which overwrites and still
+prints `WROTE:` — so stage only the targets git does not track yet:
 
 ```bash
-git add .agents/skills/ .opencode/skills/ .opencode/commands/
-git commit -m "feature: Audit and port aitask skill wrappers across code-agent trees"
+wrote=( <the paths from the helper's WROTE: lines> )
+if (( ${#wrote[@]} )); then
+    new=()
+    for f in "${wrote[@]}"; do
+        git ls-files --error-unmatch -- "$f" >/dev/null 2>&1 || new+=( "$f" )
+    done
+    (( ${#new[@]} )) && git add -- "${new[@]}"
+    git commit -m "feature: Audit and port aitask skill wrappers across code-agent trees" -- "${wrote[@]}"
+    git show --stat <sha>    # <sha> from the commit's "[<branch> <sha>]" line — not HEAD
+else
+    echo "no wrappers written — nothing to commit"
+fi
 ```
+
+The `if` holds the commit because the list is empty when the audit closes no gap,
+and an empty pathspec takes the **whole index**. Keep it an `if`: pasted at a
+prompt, `(( … )) || { …; return 0; }` errors on the `return` and runs the commit.
 
 (For audit runs that close a known gap tracked by an aitask, the commit message should also include the `(t<task_id>)` suffix per the standard convention.)
 
@@ -142,15 +164,17 @@ Collect `WROTE:<touchpoint>:<helper>:<file>` lines for the summary.
 
 ### Step 10 — Phase 2 commit
 
-Stage the changed permission files and commit separately from Phase 1:
+Commit the changed permission files, separately from Phase 1. All five are
+already tracked, so there is no `add` — name them in the pathspec:
 
 ```bash
-git add .claude/settings.local.json \
-        .codex/rules/default.rules \
-        seed/claude_settings.local.json \
-        seed/codex_rules.default.rules \
-        seed/opencode_config.seed.json
-git commit -m "chore: Audit helper-script whitelist coverage across touchpoints"
+git commit -m "chore: Audit helper-script whitelist coverage across touchpoints" \
+    -- .claude/settings.local.json \
+       .codex/rules/default.rules \
+       seed/claude_settings.local.json \
+       seed/codex_rules.default.rules \
+       seed/opencode_config.seed.json
+git show --stat <sha>    # <sha> from the commit's "[<branch> <sha>]" line — not HEAD
 ```
 
 (Audit runs invoked from a tracked aitask should append the `(t<task_id>)` suffix per the standard convention.)

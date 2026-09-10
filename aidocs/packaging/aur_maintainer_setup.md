@@ -155,8 +155,8 @@ hand, after which CI takes over for every subsequent release.
 5. Commit and push:
 
    ```bash
-   git add PKGBUILD .SRCINFO
-   git commit -m "Initial stub PKGBUILD (placeholder until first auto-bump)"
+   git add -- PKGBUILD .SRCINFO
+   git commit -m "Initial stub PKGBUILD (placeholder until first auto-bump)" -- PKGBUILD .SRCINFO
    git push origin master
    ```
 
@@ -275,8 +275,7 @@ After sections 2-6 are complete:
 
    ```bash
    echo "0.19.3" > .aitask-scripts/VERSION
-   git add .aitask-scripts/VERSION
-   git commit -m "chore: Bump version to 0.19.3"
+   git commit -m "chore: Bump version to 0.19.3" -- .aitask-scripts/VERSION
    git push
    git tag v0.19.3
    git push origin v0.19.3

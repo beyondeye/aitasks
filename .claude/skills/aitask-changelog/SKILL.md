@@ -315,9 +315,14 @@ If "Skip": Proceed to Step 8 without writing CHANGELOG_HUMANIZED.md.
 
 ### Step 8: Commit
 
+Both files are already tracked, so there is no `add`; the pathspec keeps a
+concurrent session's staged work out of this commit (`main` is shared — see
+"Never instruct a bare `git commit` on `main`" in
+`aidocs/framework/skill_authoring_conventions.md`).
+
 ```bash
-git add CHANGELOG.md CHANGELOG_HUMANIZED.md
-git commit -m "ait: Add changelog entry for vX.Y.Z"
+git commit -m "ait: Add changelog entry for vX.Y.Z" -- CHANGELOG.md CHANGELOG_HUMANIZED.md
+git show --stat <sha>    # <sha> from the commit's "[<branch> <sha>]" line — not HEAD
 ```
 
 Inform the user: "Changelog entry for vX.Y.Z written to CHANGELOG.md and CHANGELOG_HUMANIZED.md. Run `./create_new_release.sh` when ready to create the release."

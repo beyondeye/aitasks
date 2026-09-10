@@ -10,7 +10,7 @@ Marking tasks as folded (updating `folded_tasks` on the primary, setting `status
 
 **Commit modes:** every mode stages only the fold's own file set — never `aitasks/` wholesale — so a dirty or pre-staged bystander is never swept in.
 - `fresh` (default) — create a new commit `ait: Fold tasks into t<primary>: merge t<id1>, t<id2>, ...`. Emits `COMMITTED:<short_hash>`, or `NO_COMMIT` when those paths are verifiably unchanged.
-- `amend` — `git commit --amend --no-edit` (folds the marking into the previous commit, used by callers that just created or updated the primary). Emits `AMENDED`. It **refuses** — exits non-zero and rolls the whole fold back — when HEAD is not this fold's to rewrite: it carries a path outside the fold, or it is already published on the upstream.
+- `amend` — amends the previous commit in place, keeping its message (`--amend --no-edit`); folds the marking into it, and is used by callers that just created or updated the primary. Emits `AMENDED`. It **refuses** — exits non-zero and rolls the whole fold back — when HEAD is not this fold's to rewrite: it carries a path outside the fold, or it is already published on the upstream.
 
 An unrecognised mode is rejected at argument-parse time, before any task is resolved or mutated.
 - `none` — skip commit (the caller stages and commits). Emits `NO_COMMIT`.

@@ -66,6 +66,6 @@ report it and do not treat the commit as complete.
 
 ### When NOT to use
 
-- For code-related git operations (implementation commits go on the main branch as normal)
+- For code-related git operations. Implementation commits go on the main branch with plain `git` — and name their paths too, because `main` is shared by every session in this checkout the same way (`git commit -m "<msg>" -- <paths>`; see "Never instruct a bare `git commit` on `main`" in `aidocs/framework/skill_authoring_conventions.md`).
 - For `git log`, `git diff` on code files
 - The aitask shell scripts already use `task_git()` internally — no need to wrap script calls
