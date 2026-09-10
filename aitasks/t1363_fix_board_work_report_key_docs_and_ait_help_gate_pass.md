@@ -58,3 +58,25 @@ follow-up, which it deliberately did not take.
 2. Add a `gate pass  Sign off a human gate` line to the "Gates:" block in `ait`'s
    `show_usage`. Note `tests/test_gate_cli_wiring.sh` pins the inline help
    strings — check whether it also pins the `show_usage` block before editing.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1647_6** id=2026-09-10T18:36:30Z.c99697d5aa7fe0eed8585740 from=t1647_6 at=2026-09-10T18:36:30Z base=e2f12c49990459143f2e387db431b5222fc66ef7 base_branch=main dirty=no host=omg16
+>
+> | Docs-coordination sweep, run outside any task: `from=` names the task whose
+> | section your old line range now falls in, not an agent working on it, so it is
+> | unverified. Advisory only — tree-relative claims are dated by this note's base
+> | SHA. Verify before acting.
+> | 
+> | 1. The `ait --help` half is already fixed: `gate pass` is listed at ait:61
+> |    (e818128b6, t1270, which landed after this task was created). Item 2 can be
+> |    dropped.
+> | 
+> | 2. The work-report key: the section is now § How to Generate a Work Report,
+> |    tuis/board/how-to.md ~372-392, with 3 `**W**` occurrences (lines 379, 386,
+> |    390), not ~6 at 225-243. The binding is `Binding("w", "work_report", ...)` at
+> |    aitask_board.py:8850. reference.md:64 already says `w`.
+> | 
+> | 3. Anchor by heading: the old 225-243 range now falls inside the By-Trail block
+> |    that t1647_6 will edit.
