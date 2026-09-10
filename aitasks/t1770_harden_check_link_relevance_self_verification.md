@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [web_site, testing]
 gates: [risk_evaluated]
 folded_tasks: [1790]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-09-09 16:33
-updated_at: 2026-09-10 16:14
+updated_at: 2026-09-10 20:58
 ---
 
 Two defects in the self-verification surface that landed with t1759
