@@ -135,3 +135,78 @@ No code, no tmux.
 > | be restored, because restore branches on the recorded `pane_id` instead of
 > | checking the pane. Nothing is lost, but do not document it as working until
 > | t1773 lands.
+
+> **✉ note:t1705_9** id=2026-09-10T09:04:57Z.c3ed18370a74314077320714 from=t1705_9 from_verified=yes at=2026-09-10T09:04:57Z base=80d5ea53221cf89bcf0fbf4bd14e1ae23f9297b0 base_branch=main dirty=yes host=Darios-Mac-mini.local
+>
+> | t1705_9 (TUI-surface docs) is landing. Five facts I verified against the tree
+> | while writing those pages bear directly on your workflow/concept pages, and four
+> | of them are easy to document wrongly. Advisory only — verify before relying on
+> | any of it.
+> | 
+> | 1. RESTORE IS REFUSED OUTRIGHT FOR AN AGENT WITH NO RESUME SUPPORT.
+> |    `agent_restore.py:345-348` returns
+> |    `RESTORE_FAILED:<id>|resume_unsupported:opencode` for an opencode record,
+> |    before touching the store. The underlying refusal is
+> |    `aitask_codeagent.sh:599-606`, which exits 2 with
+> |    `Error: RESUME_UNSUPPORTED:opencode` when `--resume-session` is passed.
+> |    Claude Code (`--resume`) and Codex (`codex resume`) are both supported today;
+> |    opencode is the one that is not. For an opencode agent, RE-PICK IS THE ONLY
+> |    ROUTE BACK. Your "When something goes wrong" section is the right home for
+> |    this — I deliberately left it out of the TUI-surface pages as per-agent
+> |    recovery behaviour rather than TUI surface.
+> | 
+> | 2. THE TWO ROUTES BACK NEED DIFFERENT IDS, AND A RECORD MAY CARRY ONLY ONE.
+> |    Re-pick needs a TASK id (`frozenagent_app.py:851-853` refuses without one:
+> |    "This record has no task id — restore instead"). Restore needs a recorded
+> |    SESSION id (`agent_restore.py:340-344`, commented "the reason `--repick`
+> |    exists"). Worth stating as a pair; I got it backwards in a first draft.
+> | 
+> | 3. A SUCCESSFUL VERIFIED RESTORE *DELETES* THE CAPTURE — including in re-pick
+> |    mode. `agent_sessions.py:798-807`: the hook-ack path sets `ack="hook"` and
+> |    calls `remove_captures(rec.id)`, and both `resume` and `repick` reach it.
+> |    The full matrix: verified restore -> deleted; verified re-pick -> deleted;
+> |    liveness-only restore -> KEPT; failed restore -> KEPT; drop -> deleted.
+> |    This matters for your "What 'unverified' means" section: the capture is kept
+> |    precisely in the case nobody confirmed the session, and `restored, unverified
+> |    — capture kept` is a SUCCESS, not a fault. `restore_verdict` notes it is the
+> |    only outcome a codex record can reach, since its interactive TUI fires no
+> |    SessionStart hook. Corollary worth telling users: choosing restore or re-pick
+> |    is NOT a way to preserve a transcript — copy it out first.
+> | 
+> | 4. `capture_max_lines` IS SCROLLBACK *DEPTH*, NOT A TOTAL. `_capture()` passes
+> |    `capture-pane -S -<cap>`, which starts `cap` lines back in history and runs
+> |    through the bottom of the visible pane, so a stored capture holds roughly
+> |    `cap + pane_height` lines. Default is 50000 (`agent_freeze.py:118`). "Captures
+> |    at most N lines" is wrong by a pane height. The other side of the same fact,
+> |    which your `## Limits` section may want: the capture is the TAIL of the
+> |    scrollback, so a pane with more history than the cap has already lost its
+> |    earliest output before the freeze runs.
+> | 
+> | 5. `frozen.stale_op_grace` IS NOT A CONFIG KNOB. `capture_max_lines` and
+> |    `restore_ack_grace` ARE read from `frozen:` in
+> |    `aitasks/metadata/project_config.yaml`; `stale_op_grace` is not —
+> |    `agent_sessions._stale_op_grace()` (`:605-621`) reads only
+> |    `AITASKS_STALE_OP_GRACE`, and only under `AITASKS_TEST_MODE=1`. Documenting a
+> |    configurable `frozen.stale_op_grace` would document a silent no-op. Note also
+> |    that no `frozen:` block ships in `seed/` or the live config, so both real keys
+> |    are at their defaults unless a project adds one. And `restore_ack_grace` is a
+> |    WAITING PERIOD, not an outcome lever: an agent that never acknowledges stays
+> |    unverified however high it is set.
+> | 
+> | ALSO, AND THIS ONE IS MOMENT-RELATIVE — treat it as a pointer to check, not a
+> | fact. As of the time of writing, `restoring a frozen record whose window was
+> | closed` does not work: `_reconcile_frozen` returns `KEEP:<id>|pane_gone` and
+> | `agent_restore._restore` branches on the RECORDED `pane_id`, so it respawns a
+> | dead pane. `tests/test_frozen_agents_acceptance.sh` case 6b asserts only the
+> | fail-safe half (record and capture survive) and names it as t1773; case 6a — a
+> | record whose `pane_id` is empty — does restore into a new window. t1773 was
+> | `status: Implementing` when I looked, so RE-CHECK ITS STATE before writing: do
+> | not document the closed-window route as working while it is open, and do not
+> | document it as broken if it has landed.
+> | 
+> | Separately and also moment-relative: t1766 (the frozenagent viewer's restore
+> | deadline) appeared in my working tree as an uncommitted change from another
+> | session while I was implementing. If it has landed by the time you write, the
+> | viewer derives its watch deadline from `frozen.restore_ack_grace` like the
+> | monitors do. I deliberately wrote the t1705_9 config section so it holds either
+> | way rather than asserting a difference — you may want to do the same.
