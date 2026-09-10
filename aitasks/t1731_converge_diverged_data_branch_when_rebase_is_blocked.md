@@ -3,12 +3,13 @@ priority: high
 effort: medium
 depends: [t1725_3]
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [git, bash_scripts, robustness, syncer]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1599
 created_at: 2026-09-07 18:35
-updated_at: 2026-09-07 18:35
+updated_at: 2026-09-10 15:11
 ---
 
 ## Problem
