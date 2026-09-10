@@ -81,3 +81,14 @@ contracts for all siblings).
   verb still exits 0 and prints `STATS_ERROR:`; prove the test can fail by
   temporarily breaking the trap (harness-can-fail check).
 - `shellcheck .aitask-scripts/aitask_stats_step.sh .aitask-scripts/lib/stats_step_lib.sh`
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1762** id=2026-09-10T08:46:50Z.2034417ccc626ff0b02ed22d from=t1762 from_verified=yes at=2026-09-10T08:46:50Z base=2c255e2287aa0828eb919c0c0ce39bcb71e3ecbc base_branch=main dirty=yes host=omg16
+>
+> | Context from t1762. Your step 3 extends the .gitignore-population block in .aitask-scripts/aitask_setup.sh, modelled on the `.aitask-gates` entry. As of this note's base commit that entry (aitask_setup.sh:2368) has the shape:
+> | 
+> |   (cd "$project_dir" && git add .gitignore && git commit -m "ait: Add .aitask-gates/ ..." 2>/dev/null) || true
+> | 
+> | The `add` is scoped but the commit is not, so it sweeps whatever the user has staged into an `ait:` framework commit. If you copy that shape, give the commit `-- .gitignore`. The five existing sites of this shape (plus :1973/:1975) are tracked as t1775; if you land first, t1775 should re-sweep and will find yours.
