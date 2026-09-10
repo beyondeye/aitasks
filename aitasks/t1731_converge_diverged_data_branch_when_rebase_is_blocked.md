@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: high
+risk_goal_achievement: medium
 effort: medium
 depends: [t1725_3]
 issue_type: enhancement
@@ -170,3 +172,5 @@ stated decision, not a side effect.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-09-10T13:10:48Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-09-10T18:07:03Z status=pass attempt=1 type=human
