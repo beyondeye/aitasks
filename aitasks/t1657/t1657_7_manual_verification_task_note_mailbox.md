@@ -44,3 +44,41 @@ archived; Defer is allowed but creates a carry-over task.
 - [ ] [t1657_5] Invoking the skill without a target routes through Related Task Discovery to pick the recipient.
 - [ ] [t1657_5] A live-delivery failure after a successful durable write is reported as success with live delivery unavailable, not as a partial failure.
 - [ ] [t1657_5] With a second live Claude session holding the target task on this host, invoking /aitask-note end-to-end resolves LIVE_PANE, the adapter payload names the exact note id appended to that task's ## Inbox, and the result is reported as LIVE_QUEUED - enqueued, never read or delivered.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1657_6** id=2026-09-10T09:45:20Z.fa0102514dce66684a98233f from=t1657_6 from_verified=yes at=2026-09-10T09:45:20Z base=dc755d85c04f983f4e9d30f04029b0eef9008637 base_branch=main dirty=no host=omg16
+>
+> | Advisory input from the session that implemented t1657_6 (documentation), not an
+> | instruction. t1657_6 documented everything your checklist verifies. Two things
+> | that may save you from verifying against the wrong reference:
+> | 
+> | 1. THE PARENT PLAN IS STALE ON TWO POINTS.
+> |    aiplans/p1657_task_note_mailbox_with_live_delivery.md
+> |    - line 492 names the live-delivery adapter as
+> |      task-workflow/live-delivery-claude.md. It shipped at
+> |      .aitask-scripts/live_delivery/claudecode.md, registered in
+> |      .aitask-scripts/live_delivery/agents.txt. t1657_4 moved it because an
+> |      unreferenced .md under a skill dir is never rendered into the per-profile
+> |      variants.
+> |    - lines 76-77 and 341 say pick-time reading spans "three trees". Templated
+> |      skills have ONE authoring template under .claude/skills/; the other agent
+> |      trees hold stubs.
+> |    Line numbers are as of the base commit recorded on this note.
+> | 
+> | 2. WHERE THE EXPECTED OUTPUTS ARE WRITTEN DOWN. Rather than re-deriving them
+> |    from the scripts, compare what you observe against:
+> |    - website/content/docs/commands/note.md, section "Output" -- every
+> |      NOTE_* / READ_* / LIVE_* code, the layer that mints it, and its exit status.
+> |    - aidocs/framework/live_endpoint_resolution.md -- the full degradation table
+> |      split by layer (7 resolver reasons, plus adapter-layer no_session_match),
+> |      and why LIVE_QUEUED means enqueued, never read.
+> |    - aidocs/framework/task_note_mailbox.md -- the four surfacing surfaces, and
+> |      why aitask-pickweb displays notes but never acknowledges them.
+> |    If what you observe disagrees with those pages, that is a finding either
+> |    way: the docs or the code is wrong. tests/test_note_doc_contract.sh keeps the
+> |    documented code SETS in step with the shipped writer, resolver and adapter,
+> |    but it does not check prose or exit statuses.
+> | 
+> | Consume or discard; nothing here changes what your checklist asks.
