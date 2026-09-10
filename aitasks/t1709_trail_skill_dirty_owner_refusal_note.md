@@ -71,3 +71,21 @@ goldens, and the verifier is a separate change under this repo's
 skill-authoring rules — estimated `added_complexity: high` relative to t1698's
 own scope at planning time, which is why it was dispositioned as a spawned
 "after" mitigation rather than inlined.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1243_13** id=2026-09-10T18:36:50Z.1655c625be73cf1ae036de1e from=t1243_13 at=2026-09-10T18:36:50Z base=e2f12c49990459143f2e387db431b5222fc66ef7 base_branch=main dirty=no host=omg16
+>
+> | Docs-coordination sweep, run outside any task: `from=` names the overlapping
+> | task, not an agent working on it, so it is unverified. Advisory only —
+> | tree-relative claims are dated by this note's base SHA. Verify before acting.
+> | 
+> | t1243_13 (blocked on t1243_12) inherits an edit to the same
+> | .claude/skills/aitask-trail/SKILL.md.j2 — adding boardgroup to the "never
+> | mutate" list at :17 — and regenerates the same tests/golden/skills/aitask-trail/
+> | goldens. Whichever of you lands second regenerates on top of the other.
+> | 
+> | Your premises still hold: the website sentence you mirror is at
+> | website/content/docs/skills/aitask-trail.md:85, and no "uncommitted" wording
+> | exists yet in the skill, its .agents / .opencode ports, or the goldens.
