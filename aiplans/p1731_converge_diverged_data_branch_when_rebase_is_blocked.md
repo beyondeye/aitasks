@@ -469,7 +469,216 @@ improving it, so goal-achievement stays **medium**.
   (172-183): `run_sync` inherits the developer's global git config (no
   `GIT_CONFIG_GLOBAL`), so autostash-type config leaks into every sync test.
 
+## Implementation notes (2026-09-10)
+
+- **Pre-phase 1 baseline.** `tests/test_sync_guarded_merge.sh` was run against
+  the unmodified script at `da20ffd80`: 100 passed, 37 failed. All 37 failures
+  were expected reds:
+  - both `MERGED` cells (AC1 and retry), which still deferred;
+  - every slug assertion, because no guard existed yet;
+  - both "seam fired" checks, because `pre_guarded_ff` did not exist;
+  - the slug scan.
+
+  Every end-to-end (b) deferral assertion was already green, and AC4 and AC5
+  passed unchanged. So the table specified the change rather than transcribing
+  it.
+- **The coordination premise changed mid-task.** t1725_4 landed (`76a113510`)
+  and was archived between planning and the note being sent. The note
+  (`2026-09-10T12:54:30Z.ed0c9589…`) was appended to the *archived* task and
+  returned `LIVE_NONE:unlocked`, so it will never be read. This task therefore
+  reshaped `tests/test_sync_holder_pane_live.sh`'s `advance_remote` itself, as
+  the plan's "if it landed with a disjoint fixture" branch required.
+  - No foreign uncommitted hunks remain in any target file, so post-phase 1
+    takes its "otherwise" branch: a plain path-scoped commit, checked with
+    `--stat`.
+  - `ait note` accepted an archived target without warning. That is noted for
+    Step 8b.
+- **Deviation from pre-phase 2 — Test 1b.** Switching 1b to the overlap helper
+  would have made it an exact duplicate of Test 1. Instead 1b keeps 1a's
+  position and asserts:
+  - the verdict is `MERGED`;
+  - HEAD has two parents;
+  - the protected edit is still ` M`.
+
+  Paired with 1a it still proves the gate discriminates on tree state: 1a
+  rebases, 1b cannot and merges. Test 1 is the overlapping cell that defers.
+- **Deferral-file survey.** Of the tests the critique did not list:
+  - Test 30 (a deferring run leaves no temp file) used the disjoint shape. It
+    would have kept passing while no longer testing a deferral, so it is
+    reshaped to the overlap.
+  - Test 36 stays as is: local_ahead is 0 and the incoming commit touches t10,
+    so rule 4 blocks and the guard declines with `not_diverged`.
+  - Tests 27, 28 and 29 are unaffected. Test 28's retry fetch fails before the
+    gate runs.
+- **Where the refusal line goes.** `iwarn` is silent in `--batch`, so the
+  refusal line is written to stderr directly. That is the same channel the
+  sweep report and the seam banner use.
+- **Verification results (before the first review).**
+
+  | Check | Result |
+  |---|---|
+  | `test_sync_guarded_merge` | 147/147 |
+  | `test_sync_rebase_gate` | 38/38 |
+  | `test_sync_deferral_and_quarantine` | 124/124 |
+  | `test_sync` | 42/42 |
+  | `test_sync_protect_paths` | 31/31 |
+  | `test_sync_auto_commit_scoping` | 38/38 |
+  | `test_sync_holder_pane_live` | 51/51 |
+  | `test_sync_branch_mode_automerge` | rc 0 |
+  | `test_metadata_commit_seam` | rc 0 |
+  | Python suite (last line) | `PYTHON SUITE: PASSED (runner=pytest, exit=0)` |
+  | shellcheck | only the pre-existing SC1091 infos on the unchanged `source` lines; `-e SC1091` gives rc 0 |
+  | `check_links.py --build` | PASSED |
+- **Mutation controls.** Every mutant ran in an isolated scratchpad copy of
+  `ait`, `.aitask-scripts/` and `tests/`. The mutator asserted that each
+  replacement matched exactly as often as expected, and the unmutated control
+  copy passed 147/147.
+
+  | Mutant | Cell | (a) slug | (b) end-to-end |
+  |---|---|---|---|
+  | side sets without `--no-renames` | rename | red | red (`MERGED`) |
+  | ignore merge-tree's exit status | D/F merge | red | red (`MERGED`) |
+  | drop the prefix rule | D/F protected | red (`ff_refused`) | green — the fast-forward refuses anyway |
+  | drop the case fold | case fold | red | red (`MERGED`) |
+  | drop the ignored-file scan | ignored, present | red (`ff_refused`) | green — `--no-overwrite-ignore` refuses anyway |
+  | drop `--no-overwrite-ignore` | ignored, race | red | red — the ignored file's bytes were replaced and committed |
+  | drop the disjointness check | AC3, and rename | red | red (`MERGED`) |
+  | drop the WRITTEN-membership check | AC2, D/F protected, hostile | red (`ff_refused`) | green on AC2 — the fast-forward refuses anyway (case fold went fully red) |
+  | drop the merge-base count | criss-cross | red (`sides_overlap`) | green |
+
+  SHA pinning is coverage by construction; no mutant was run for it.
+- **A false alarm in the harness.** Its closing check reported 0 occurrences of
+  the fast-forward flag in the shared script. Direct inspection showed the flag
+  present on the fast-forward line and no mutant marker anywhere. The count had
+  used a basic regex containing `$c`, which found nothing; `grep -cF` with the
+  same text returns 1. No shared file was written by the experiment.
+- **Live eligibility probe.** As of its last fetch, the real `aitask-data`
+  branch was ahead-only (local_ahead=1, remote_ahead=0), so the guard would
+  answer `not_diverged` and the guarded merge would not run at all. No
+  convergence-rate measurement was possible. Goal-achievement risk 1 is
+  therefore still **unmeasured**. A real `./ait sync` taken while the branch is
+  diverged is what would measure it.
+
 ## Step 9
 
 Current-branch mode, so there is no merge. Commit the code per post-phase 1,
 then plans and tasks through `aitask_task_commit.sh`. Then archive, then push.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-09-10 20:48)
+- **Requested by user:** two gaps in the reshaped deferral fixtures, both
+  confirmed against the file.
+  - Test 30 discarded sync's stdout, stderr and exit status and asserted only
+    that the private TMPDIR was empty. An early error, or a run that never
+    deferred, would pass its "a deferring run leaves no temp file" check
+    vacuously.
+  - Tests 33B–33D switched to the overlapping advance without calling
+    `assert_deferred_on_overlap`, although Test 33 does. The approved
+    `reshaped_fixtures_assert_shape` mitigation requires every reshaped fixture
+    to prove both the overlap and its refusal reason.
+
+  This was an incomplete verification mitigation, not an observed runtime
+  failure.
+- **Changes made:**
+  - Test 30 now captures the status line, stderr (into the fixture's
+    `sync_stderr`) and the exit status. It asserts rc 0, a
+    `DEFERRED:protected_dirty` first line and `assert_deferred_on_overlap`, and
+    keeps its private-TMPDIR leftover check.
+  - Tests 33B, 33C and 33D each call `assert_deferred_on_overlap` right after
+    reading their wire row.
+
+  The reshaped set now proves its shape uniformly: Tests 1, 19, 30, 31B, 33,
+  33B, 33C, 33D and the truth table's overlap cell. Test 1b is the recorded
+  exception, and it asserts `MERGED` instead.
+- **Files affected:** `tests/test_sync_deferral_and_quarantine.sh`
+- **Verification.**
+  - The deferral suite passes 138/138. That is exactly the expected rise from
+    124: Test 30 adds 5 assertions, and 33B, 33C and 33D add 3 each. The new
+    assertions demonstrably executed.
+  - **Negative control, in an isolated scratch copy.** Test 30 and Test 33B
+    were swapped back to the plain disjoint advance. The run then failed with 9
+    failures:
+    - Test 30 got `MERGED` where the deferral was expected;
+    - both tests' `sides_overlap` and fixture-shape assertions failed;
+    - Test 33B's wire-row assertions failed.
+
+    Test 30's "exits 0" and leftover-file checks still passed, which is
+    correct: the merge path exits 0 and cleans up after itself. Those two do
+    not discriminate on their own; the new deferral and overlap assertions are
+    what do.
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - **`aitask_sync.sh` — the guarded merge.** When `_rebase_blocked` blocks a
+    DIVERGED branch, main and do_push's retry now try it before deferring:
+    1. pin HEAD and @{u} to SHAs;
+    2. require exactly one merge base;
+    3. require disjoint `--no-renames` side sets;
+    4. require a clean `merge-tree --write-tree`;
+    5. check the paths the merge writes against the protected set and against
+       ignored files, matching exact paths, directory/file prefixes and
+       case-folded names;
+    6. build the commit with `commit-tree`;
+    7. advance with `merge --ff-only --no-autostash --no-overwrite-ignore`;
+    8. verify the tree deterministically.
+
+    It declines with one of nine stderr slugs (`_gm_refuse`). The wire keeps
+    `DEFERRED:protected_dirty`, and `MERGED` is new.
+  - **Other `aitask_sync.sh` changes:**
+    - `pre_guarded_ff` test seam;
+    - `_gm_note_unpublished` on every exit where the merge landed but the push
+      did not;
+    - `--no-renames` in `_load_incoming`;
+    - header/`show_help` protocol and seam-list docs.
+  - **Other surfaces:**
+    - `STATUS_MERGED` in the runner, handled in both TUIs;
+    - `sync.md` documents it.
+  - **Tests:**
+    - new `test_sync_guarded_merge.sh` (147 checks);
+    - truth table — the merged cell plus overlap and incoming-rename cells;
+    - deferral reshapes, completed in review;
+    - t1725_4's live-pane fixture;
+    - the runner parse test.
+- **Deviations from plan:**
+  - Test 1b asserts `MERGED` rather than switching to the overlap (it would have
+    duplicated Test 1).
+  - The note to t1725_4 was moot: the task landed and was archived first. This
+    task reshaped its fixture instead.
+  - Post-phase 1 took its "otherwise" branch, because no foreign hunks remained.
+  - AC2's slug is `protected_written`. The plan had allowed either
+    `protected_written` or `sides_overlap`.
+  - A zero-merge-base history shares the `multiple_merge_bases` slug, with the
+    count in its detail.
+- **Issues encountered:**
+  - **Harness false alarm.** The mutation harness's closing check counted 0
+    fast-forward flags in the shared script. The file was intact: the count's
+    basic regex contained `$c`, and `grep -cF` returns 1.
+  - **The first review found two gaps in the reshaped fixtures,** fixed in
+    Change Request 1:
+    - Test 30 discarded its output;
+    - Tests 33B–33D lacked the overlap assertion.
+  - **The live eligibility probe was inconclusive.** The real branch was
+    ahead-only.
+  - **Observation, not classified as a defect:** `ait note` appended to an
+    archived target and reported `NOTE_APPENDED`, with `LIVE_NONE:unlocked`.
+    Whether a note to an archived task is intended could not be established
+    from `aitask_note.sh`.
+- **Key decisions:**
+  - Merge commits on `aitask-data` are accepted routinely (user).
+  - `task_data_converge` stays fast-forward-only; its hint is a recovery
+    attempt, not a guarantee (user).
+  - The merge is built from `merge-tree` + `commit-tree` + a guarded
+    fast-forward, never `git merge` / `--abort`. That leaves no `MERGE_HEAD`,
+    shared staged entries survive, and a refusal is a clean deferral.
+  - A deterministic tree check replaces a racy byte-hash of the files a live
+    holder owns.
+  - `--no-overwrite-ignore` on the final fast-forward (user review), because a
+    pre-scan cannot cover a file created after it.
+  - Refusal slugs go to stderr only; the wire is unchanged.
+  - Mutants run only in isolated copies (user review).
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_sync.sh:1837 — do_pull_rebase runs git pull --rebase without --no-autostash, so a user's rebase.autoStash=true stashes and re-applies files the sweep deliberately left protected`
+  - `.aitask-scripts/aitask_sync.sh:2165 — the existing behind-only fast-forward (merge --ff-only @{u}) runs without --no-overwrite-ignore, so it silently replaces a local ignored file (userconfig.yaml, *.local.json) that an incoming commit adds; the rebase path it falls back to likely shares this (unverified)`
+  - `tests/lib/sync_fixture.sh:183 — run_sync inherits the developer's global git config (no GIT_CONFIG_GLOBAL isolation), so settings such as merge.autoStash / rebase.autoStash leak into every sync test and can mask or fake an autostash defect`
