@@ -292,9 +292,11 @@ drive_commit_scope_changed() {
     assert_reason_fired "commit_scope_changed" "$t" "the dirty set changed after it was confirmed"
 }
 
-# --require-waiting with no probe available. This is the ONLY direction
-# reachable until t1725_4 lands the pane helpers, and it is the fail-closed one:
-# no probe must mean "not waiting", never "assume waiting".
+# --require-waiting with no pane reachable: run_sync points the gateway at a
+# socket nothing serves, so the probe cannot establish a state. This is the
+# fail-closed direction: an unestablished state must mean "not waiting", never
+# "assume waiting". The reachable directions (a waiting pane commits, an active
+# one refuses) live in tests/test_sync_holder_pane_live.sh.
 drive_holder_not_waiting() {
     local t; t="$(setup_repo)"
     plant_lock "$t" 10 "$(lock_yaml_live 10)"

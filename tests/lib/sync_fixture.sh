@@ -29,6 +29,15 @@ _SYNC_FIXTURE_BASE="$(mktemp -d)"
 _sync_fixture_cleanup() { [[ -n "${_SYNC_FIXTURE_BASE:-}" ]] && rm -rf "$_SYNC_FIXTURE_BASE"; }
 trap _sync_fixture_cleanup EXIT
 
+# The tmux gateway socket for EVERY sweep a sourcing test runs, including the ones
+# that call aitask_sync.sh directly rather than through run_sync. The sweep
+# resolves a live lock's pane (ait_tmux_pane_for_pid) and probes its screen, and
+# fixture locks anchor to pids on this machine: by default the test's own shell,
+# which may well sit inside a real agent pane on the user's `ait` server. Left
+# ambient, the sweep would read THAT screen. This names a socket nothing serves.
+# Never empty: set-but-empty is the gateway's legacy follow-$TMUX escape hatch.
+export AITASKS_TMUX_SOCKET="ait_syncfx_nosrv_$$"
+
 setup_repo() {
     local tmpdir
     tmpdir="$(mktemp -d -p "$_SYNC_FIXTURE_BASE")"
@@ -167,6 +176,10 @@ run_sync() {
         export PATH="$PWD/bin:$PATH"
         export TEST_HOSTNAME="${TEST_HOSTNAME:-testhost}"
         export AITASKS_LOCK_DIR="$tmpdir/locks"
+        # Per call, so ONE sweep can be pointed at a test's own server with
+        # SYNC_FIXTURE_TMUX_SOCKET (sharing that server's TMUX_TMPDIR). The
+        # default is the no-server socket exported at file scope above.
+        export AITASKS_TMUX_SOCKET="${SYNC_FIXTURE_TMUX_SOCKET:-ait_syncfx_nosrv_$$}"
         ./.aitask-scripts/aitask_sync.sh --batch "$@" 2>"$tmpdir/sync_stderr"
     )
 }

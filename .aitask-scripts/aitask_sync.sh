@@ -35,6 +35,10 @@
 # path/action/email/host/pane are percent-encoded (%25 %7C %0A %0D); the rest
 # are closed vocabularies validated by the parser. The status is still the FIRST
 # line and only the first, so a consumer reading one line is unaffected.
+# <pane> is the holder's gateway pane as <session>:<window_id>.<pane_id> and
+# <pane_state> is waiting_<kind> | active. Both are filled only for a live or
+# unverifiable lock taken on this host whose pid a gateway pane owns, and are ""
+# otherwise (lib/tmux_exec.sh::ait_tmux_pane_for_pid, lib/pane_state_probe.py).
 # See lib/sync_action_runner.py (DeferredFile) for the authoritative field list;
 # `show_help` carries the user-facing summary of the same thing.
 
@@ -55,6 +59,8 @@ source "$SCRIPT_DIR/lib/pid_anchor.sh"        # lock_holder_liveness (the t1466 
 source "$SCRIPT_DIR/lib/stale_lock.sh"        # ait_lock_dir
 # shellcheck source=lib/registry_lock.sh
 source "$SCRIPT_DIR/lib/registry_lock.sh"     # registry_lock_acquire/release
+# shellcheck source=lib/tmux_exec.sh
+source "$SCRIPT_DIR/lib/tmux_exec.sh"         # ait_tmux_pane_for_pid (holder's pane)
 # task_automerge.sh is THE conflict-resolution engine, shared with
 # lib/task_utils.sh::_task_pull_rebase since t1727. It depends on _ait_data_git
 # and _ait_detect_data_worktree from task_utils.sh (sourced above) and on
@@ -146,7 +152,9 @@ Batch output protocol (single line on stdout):
                 <pid>|<pane>|<pane_state>|<action>
 
   <holder> is self|other|remote|unverified|none and <tree_state> is
-  tracked|untracked|unknown. Textual fields are percent-encoded (%25 %7C %0A
+  tracked|untracked|unknown. <pane> is the holding session's tmux pane and
+  <pane_state> is waiting_<kind>|active, when this host could read them; both
+  are empty otherwise. Textual fields are percent-encoded (%25 %7C %0A
   %0D). The status line is still the first line, so a reader that takes only
   that one is unaffected. The same detail is also printed on stderr in prose.
 
@@ -376,8 +384,8 @@ PROT_HOLDER=()      # self | other | remote | unverified | none
 PROT_EMAIL=()       # lock's locked_by, when known
 PROT_HOST=()        # lock's hostname, when known
 PROT_PID=()         # lock's pid, when known
-PROT_PANE=()        # always "" here; t1725_4 fills it
-PROT_PANE_STATE=()  # always "" here; t1725_4 fills it
+PROT_PANE=()        # holder's gateway pane target, when resolved (else "")
+PROT_PANE_STATE=()  # waiting_<kind> | active, when probed (else "")
 PROT_ACTION=()      # the prescriptive line: what would clear this file
 PUBLICATION_BLOCKED=()
 declare -A PATH_STATE=()
@@ -422,6 +430,63 @@ _sync_test_seam() {
     return 0
 }
 
+# --- the holder's pane ----------------------------------------------------
+#
+# A deferral names the pane a live holder runs in and whether it is parked on a
+# prompt, so the user reads "answer the question in pane X" rather than a pid.
+# Resolved ONCE per task and memoized: _protect runs once per path, and a task
+# with many dirty files must not cost one tmux walk and one Python start each.
+#
+# The memo is written ONLY in the sweep's own frame: _protect_task_paths calls
+# _resolve_holder_pane directly, and _commit_group's re-probe overwrites it.
+# _holder_action runs inside $( ), so it may read these maps but anything it
+# wrote would die with the subshell.
+#
+# Best-effort by construction: every lookup is absorbed, and an unestablished
+# answer is "", never a guess and never an abort. A state holds only what the
+# wire grammar admits (lib/sync_action_runner.py rejects the WHOLE record
+# otherwise); the word `unresolvable` belongs to the --require-waiting message,
+# never to a record.
+declare -A HOLDER_PANE=() HOLDER_PANE_STATE=() HOLDER_PANE_DONE=()
+_HOLDER_PANE_STATE_RE='^(waiting_[a-z0-9_]+|active)$'
+
+# _probe_pane_state <pane_id> — lib/pane_state_probe.py's one line, validated
+# against the record grammar; "" when the probe is missing, cannot run, or
+# establishes nothing.
+_probe_pane_state() {
+    local pane_id="$1" py="" st=""
+    if [[ -n "$pane_id" && -f "$SCRIPT_DIR/lib/pane_state_probe.py" ]]; then
+        py="$(resolve_python 2>/dev/null)" || py=""
+        if [[ -n "$py" ]]; then
+            st="$("$py" "$SCRIPT_DIR/lib/pane_state_probe.py" "$pane_id" 2>/dev/null)" || st=""
+        fi
+    fi
+    [[ "$st" =~ $_HOLDER_PANE_STATE_RE ]] || st=""
+    printf '%s' "$st"
+}
+
+# _resolve_holder_pane <tid> — fill the memo for <tid>, once. Only a lock taken
+# on THIS host with a numeric pid can name a pane here: anything else leaves the
+# memo empty and the record's two pane columns "".
+_resolve_holder_pane() {
+    local tid="$1" pid host cur line pane_id
+    [[ -n "${HOLDER_PANE_DONE[$tid]:-}" ]] && return 0
+    HOLDER_PANE_DONE["$tid"]=1
+    HOLDER_PANE["$tid"]=""
+    HOLDER_PANE_STATE["$tid"]=""
+    pid="${LOCK_PID[$tid]:-}"
+    host="${LOCK_HOST[$tid]:-}"
+    [[ "$pid" =~ ^[1-9][0-9]*$ ]] || return 0
+    cur="$(hostname 2>/dev/null)" || cur=""
+    [[ -n "$host" && -n "$cur" && "$host" != "unknown" && "$host" == "$cur" ]] || return 0
+    line="$(ait_tmux_pane_for_pid "$pid" 2>/dev/null)" || line=""
+    [[ "$line" == *$'\t'* ]] || return 0
+    pane_id="${line%%$'\t'*}"
+    HOLDER_PANE["$tid"]="${line#*$'\t'}"
+    HOLDER_PANE_STATE["$tid"]="$(_probe_pane_state "$pane_id")"
+    return 0
+}
+
 # _protect <reason> <task> <path> <tree_state> <human line>
 #
 # <task> and <path> are "" for a path-less protection (scan_failed,
@@ -434,12 +499,14 @@ _sync_test_seam() {
 # what the lock actually said.
 _protect() {
     local reason="$1" task="$2" path="$3" state="$4" line="$5"
-    local holder="none" email="" host="" pid=""
+    local holder="none" email="" host="" pid="" pane="" pane_state=""
     if [[ -n "$task" && "$task" != "__unowned__" ]]; then
         holder="$(_holder_class "$task")"
         email="${LOCK_EMAIL[$task]:-}"
         host="${LOCK_HOST[$task]:-}"
         pid="${LOCK_PID[$task]:-}"
+        pane="${HOLDER_PANE[$task]:-}"
+        pane_state="${HOLDER_PANE_STATE[$task]:-}"
     fi
     PROT_REASON+=("$reason")
     PROT_TASK+=("$task")
@@ -449,8 +516,8 @@ _protect() {
     PROT_EMAIL+=("$email")
     PROT_HOST+=("$host")
     PROT_PID+=("$pid")
-    PROT_PANE+=("")
-    PROT_PANE_STATE+=("")
+    PROT_PANE+=("$pane")
+    PROT_PANE_STATE+=("$pane_state")
     PROT_ACTION+=("$line")
     _note_skip "$line"
 }
@@ -737,13 +804,23 @@ _holder_class() {
 _holder_action() {
     local tid="$1" path="$2" class="$3"
     local host="${LOCK_HOST[$tid]:-?}" pid="${LOCK_PID[$tid]:-?}" email="${LOCK_EMAIL[$tid]:-}"
+    # "pid N" plus, when the sweep resolved it, where that session is and what it
+    # is doing. Read from the memo only: this runs in $( ).
+    local where="pid $pid" pane="${HOLDER_PANE[$tid]:-}" pstate="${HOLDER_PANE_STATE[$tid]:-}"
+    if [[ -n "$pane" ]]; then
+        where+=", pane $pane"
+        case "$pstate" in
+            waiting_*) where+=", waiting on a prompt: ${pstate#waiting_}" ;;
+            active)    where+=", running — not at a prompt" ;;
+        esac
+    fi
     case "$class" in
         self)
-            printf 't%s: %s — held by YOUR OWN live session on this host (pid %s) — finish or answer that session; or commit on its behalf: ./ait sync --commit-for-task %s' \
-                "$tid" "$path" "$pid" "$tid" ;;
+            printf 't%s: %s — held by YOUR OWN live session on this host (%s) — finish or answer that session; or commit on its behalf: ./ait sync --commit-for-task %s' \
+                "$tid" "$path" "$where" "$tid" ;;
         other)
-            printf 't%s: %s — held by %s'"'"'s live session on %s (pid %s) — left for that session' \
-                "$tid" "$path" "$email" "$host" "$pid" ;;
+            printf 't%s: %s — held by %s'"'"'s live session on %s (%s) — left for that session' \
+                "$tid" "$path" "$email" "$host" "$where" ;;
         remote)
             printf 't%s: %s — held on %s (liveness cannot be verified from here) — left for that host' \
                 "$tid" "$path" "$host" ;;
@@ -932,6 +1009,11 @@ _protect_task_paths() {
     local reason="$1" tid="$2" template="$3"
     local gi hit=0 line class
     class="$(_holder_class "$tid")"
+    # Here, before the loop and in this frame: _holder_action below runs in $( )
+    # and only reads the memo, and _protect copies it into each record.
+    case "$reason" in
+        live_lock|unknown_liveness) _resolve_holder_pane "$tid" ;;
+    esac
     for ((gi = 0; gi < ${#ent_path[@]}; gi++)); do
         [[ "${ent_owner[$gi]}" == "$tid" ]] || continue
         hit=1
@@ -1205,24 +1287,27 @@ _commit_group() {
 
         # --require-waiting: only commit on behalf of a session that is parked
         # on a prompt, re-probed HERE rather than trusted from the snapshot the
-        # UI rendered. FAILS CLOSED when the probe is unavailable — which it is
-        # until t1725_4 lands the helpers, so today this flag always refuses.
-        # That is the intended direction: never commit another session's work on
+        # UI rendered, or from this run's memo. FAILS CLOSED: a pane that cannot
+        # be resolved, a probe that cannot run and a probe that establishes
+        # nothing all read as not waiting. Never commit another session's work on
         # the strength of a check that did not run.
         if [[ "$REQUIRE_WAITING" == true ]]; then
-            local pane_state="unresolvable"
-            if declare -F ait_tmux_pane_for_pid >/dev/null \
-               && [[ -f "$SCRIPT_DIR/lib/pane_state_probe.py" ]]; then
-                local hpane
-                hpane="$(ait_tmux_pane_for_pid "${LOCK_PID[$tid]:-}" 2>/dev/null || true)"
-                if [[ -n "$hpane" ]]; then
-                    local py
-                    py="$(resolve_python 2>/dev/null || true)"
-                    if [[ -n "$py" ]]; then
-                        pane_state="$("$py" "$SCRIPT_DIR/lib/pane_state_probe.py" "$hpane" 2>/dev/null || echo unresolvable)"
-                    fi
-                fi
+            local pane_state="unresolvable" hline="" hpane_id="" htarget="" hstate=""
+            if declare -F ait_tmux_pane_for_pid >/dev/null; then
+                hline="$(ait_tmux_pane_for_pid "${LOCK_PID[$tid]:-}" 2>/dev/null)" || hline=""
             fi
+            # The helper answers "<pane_id>\t<target>"; the probe takes the id.
+            if [[ "$hline" == *$'\t'* ]]; then
+                hpane_id="${hline%%$'\t'*}"
+                htarget="${hline#*$'\t'}"
+                hstate="$(_probe_pane_state "$hpane_id")"
+                [[ -n "$hstate" ]] && pane_state="$hstate"
+            fi
+            # The fresh observation replaces the memo, so a holder_not_waiting
+            # record carries the pane and state this decision was made on.
+            HOLDER_PANE_DONE["$tid"]=1
+            HOLDER_PANE["$tid"]="$htarget"
+            HOLDER_PANE_STATE["$tid"]="$hstate"
             if [[ "$pane_state" != waiting_* ]]; then
                 _protect_group_paths "holder_not_waiting" "$tid" \
                     "t${tid}: %PATH% — t${tid}'s session is not parked on a prompt (observed: ${pane_state}), so its files were left alone. Answer that session, or re-run without --require-waiting to override deliberately."

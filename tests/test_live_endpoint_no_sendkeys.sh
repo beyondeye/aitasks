@@ -39,6 +39,7 @@ FAIL=0
 TOTAL=0
 
 RESOLVER="$PROJECT_DIR/.aitask-scripts/aitask_live_endpoint.sh"
+GATEWAY="$PROJECT_DIR/.aitask-scripts/lib/tmux_exec.sh"
 DELIVERY_DIR="$PROJECT_DIR/.aitask-scripts/live_delivery"
 MANIFEST="$DELIVERY_DIR/agents.txt"
 
@@ -52,8 +53,21 @@ echo "=== live delivery: transport prohibition + diagnosability (t1657_4) ==="
 
 assert_file_exists "1a. the resolver exists" "$RESOLVER"
 
+# The resolver's pid -> pane walk lives in the shell gateway
+# (lib/tmux_exec.sh::ait_tmux_pane_for_pid), shared with the sync sweep. Its tmux
+# surface is still the resolver's, so every check below scans the endpoint PLUS
+# that one function's body: not the whole gateway, whose other helpers serve
+# other callers. Both shape checks are what keep a later rename from quietly
+# emptying the scan into a pass.
+PANE_HELPER_BODY="$(awk '/^ait_tmux_pane_for_pid\(\) \{/ {on = 1} on {print} on && /^\}/ {exit}' "$GATEWAY")"
+assert_contains "1a'. the endpoint delegates its pane walk to the gateway helper" \
+    "ait_tmux_pane_for_pid" "$(grep -vE '^[[:space:]]*#' "$RESOLVER")"
+assert_contains "1a''. the helper's body was found and carries its tmux call" \
+    "ait_tmux list-panes" "$PANE_HELPER_BODY"
+RESOLVER_TEXT="$(cat "$RESOLVER"; printf '%s\n' "$PANE_HELPER_BODY")"
+
 # Every gateway call site, reduced to its verb.
-verbs="$(grep -oE 'ait_tmux[[:space:]]+[a-z-]+' "$RESOLVER" \
+verbs="$(grep -oE 'ait_tmux[[:space:]]+[a-z-]+' <<<"$RESOLVER_TEXT" \
     | sed 's/^ait_tmux[[:space:]]*//' | sort -u)"
 
 assert_eq "1b. the resolver issues exactly the allowlisted tmux verb(s)" \
@@ -69,7 +83,7 @@ assert_eq "1b. the resolver issues exactly the allowlisted tmux verb(s)" \
 # prohibition and an instruction both contain the string.
 for forbidden in send-keys paste-buffer run-shell load-buffer set-buffer respawn-pane; do
     TOTAL=$((TOTAL + 1))
-    offending="$(grep -nF -- "$forbidden" "$RESOLVER" \
+    offending="$(grep -nF -- "$forbidden" <<<"$RESOLVER_TEXT" \
         | grep -vE ':[[:space:]]*#' || true)"
     if [[ -n "$offending" ]]; then
         FAIL=$((FAIL + 1))
@@ -80,7 +94,7 @@ for forbidden in send-keys paste-buffer run-shell load-buffer set-buffer respawn
     fi
 
     TOTAL=$((TOTAL + 1))
-    unnegated="$(grep -nF -- "$forbidden" "$RESOLVER" \
+    unnegated="$(grep -nF -- "$forbidden" <<<"$RESOLVER_TEXT" \
         | grep -viE '(never|must not|not |no )' || true)"
     if [[ -n "$unnegated" ]]; then
         FAIL=$((FAIL + 1))
@@ -95,7 +109,7 @@ done
 # reports comes from the task file and the manifest, never from a literal here.
 for literal in ListAgents SendMessage claudecode; do
     TOTAL=$((TOTAL + 1))
-    if grep -qF -- "$literal" "$RESOLVER"; then
+    if grep -qF -- "$literal" <<<"$RESOLVER_TEXT"; then
         FAIL=$((FAIL + 1))
         echo "FAIL: 1d. the resolver names '$literal' — it must be agent-runtime independent"
     else

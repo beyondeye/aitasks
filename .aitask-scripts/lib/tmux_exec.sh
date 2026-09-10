@@ -123,6 +123,60 @@ ait_tmux_window_target() {
     printf '=%s:%s' "$1" "$2"
 }
 
+# Bound on the parent walk in ait_tmux_pane_for_pid. A process tree deeper than
+# this between a pid and its pane means the pid is not a descendant of any pane,
+# which the helper's non-zero return already says.
+AIT_TMUX_PANE_WALK_MAX=20
+
+# ait_tmux_pane_for_pid <pid>
+# Echo "<pane_id>\t<session>:<window_id>.<pane_id>" for the gateway pane owning
+# <pid>, or return 1.
+#
+# The target string's shape is NOT free choice: it must match how the agent
+# session listing renders a pane, because the adapter joins the two. Measured on
+# this framework's own sessions, a listing row reads `tmux aitasks:@2.%2` for a
+# pane whose tmux `window_index` is 3 and whose `window_id` is `@2` — so the
+# middle field is `#{window_id}` (which already carries its own '@'), never
+# `@#{window_index}`. Using the index would produce a target that looks right and
+# matches nothing.
+#
+# pane_pid FIRST: the framework launches every agent as its pane's own process
+# (lib/agent_launch_utils.py::launch_in_tmux passes the bare CLI command with no
+# wrapper), so a lock anchored by get_session_anchor_pid rung 2 IS a pane_pid and
+# hits directly. The ancestor walk is the fallback for rung 1 — an
+# AIT_AGENT_PID-anchored lock whose PID is a descendant of the pane process.
+#
+# Only the gateway socket is searched. An agent on some other tmux server is
+# invisible here and returns 1; that is the honest boundary, since the framework
+# launches every managed agent on the gateway socket.
+#
+# Callers: aitask_live_endpoint.sh (live note delivery) and aitask_sync.sh (the
+# deferral record's `pane` field and the --require-waiting re-probe).
+ait_tmux_pane_for_pid() {
+    local want="${1:-}" panes ppid hops
+    [[ "$want" =~ ^[0-9]+$ ]] && (( want > 0 )) || return 1
+
+    panes="$(ait_tmux list-panes -a -F \
+        "#{pane_pid}"$'\t'"#{pane_id}"$'\t'"#{session_name}:#{window_id}.#{pane_id}" \
+        2>/dev/null || true)"
+    [[ -n "$panes" ]] || return 1
+
+    hops=0
+    while [[ "$want" =~ ^[0-9]+$ ]] && (( want > 1 && hops <= AIT_TMUX_PANE_WALK_MAX )); do
+        local line
+        line="$(printf '%s\n' "$panes" | awk -F'\t' -v p="$want" '$1 == p { print $2 "\t" $3; exit }')"
+        if [[ -n "$line" ]]; then
+            printf '%s' "$line"
+            return 0
+        fi
+        ppid="$(ps -o ppid= -p "$want" 2>/dev/null | tr -d '[:space:]')"
+        [[ "$ppid" =~ ^[0-9]+$ ]] || return 1
+        want="$ppid"
+        hops=$(( hops + 1 ))
+    done
+    return 1
+}
+
 # ait_tmux_self_pane_pid
 # Echo the PID of the tmux pane THIS process is running in; return 1 when it
 # cannot be established (not in a pane, unreadable pane, foreign server).

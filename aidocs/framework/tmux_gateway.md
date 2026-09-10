@@ -37,6 +37,11 @@ raw `tmux` process; everything else goes through them.
     targets (see *Target formatting*).
   - `ait_tmux_socket_name` — the resolved socket name, for callers comparing
     against an attached server's socket.
+  - `ait_tmux_pane_for_pid <pid>` — the gateway pane owning a process (the pane's
+    own pid, or an ancestor at most `AIT_TMUX_PANE_WALK_MAX` hops up), echoed as
+    `<pane_id>\t<session>:<window_id>.<pane_id>`; returns 1 when no gateway pane
+    owns it. Turns a task lock's pid into a pane (live note delivery, sync
+    deferrals).
   - `ait_tmux_legacy` / `ait_tmux_legacy_socket_args` — raw probes of the user's
     **default** server, for the migration window only (detect a pre-dedicated-socket
     session so a mid-flight user is not stranded). Not for general use.

@@ -75,11 +75,6 @@ source "$SCRIPT_DIR/lib/tmux_exec.sh"
 LIVE_DELIVERY_DIR="${AIT_LIVE_DELIVERY_DIR:-$SCRIPT_DIR/live_delivery}"
 LIVE_DELIVERY_MANIFEST="$LIVE_DELIVERY_DIR/agents.txt"
 
-# Bound on the parent walk in resolve_pane_for_pid. A process tree deeper than
-# this between a lock anchor and its pane means the anchor is not a descendant of
-# any pane, which `no_pane` already says.
-ANCESTOR_WALK_MAX=20
-
 usage() {
     cat <<'EOF'
 Usage: aitask_live_endpoint.sh <task-id>
@@ -163,50 +158,9 @@ adapter_for_family() {
 
 # --- PID -> pane ------------------------------------------------------------
 #
-# Echo "<pane_id>\t<session>:<window_id>.<pane_id>" for the pane owning <pid>, or
-# return 1.
-#
-# The target string's shape is NOT free choice: it must match how the agent
-# session listing renders a pane, because the adapter joins the two. Measured on
-# this framework's own sessions, a listing row reads `tmux aitasks:@2.%2` for a
-# pane whose tmux `window_index` is 3 and whose `window_id` is `@2` — so the
-# middle field is `#{window_id}` (which already carries its own '@'), never
-# `@#{window_index}`. Using the index would produce a target that looks right and
-# matches nothing.
-#
-# pane_pid FIRST: the framework launches every agent as its pane's own process
-# (lib/agent_launch_utils.py::launch_in_tmux passes the bare CLI command with no
-# wrapper), so a lock anchored by get_session_anchor_pid rung 2 IS a pane_pid and
-# hits directly. The ancestor walk is the fallback for rung 1 — an
-# AIT_AGENT_PID-anchored lock whose PID is a descendant of the pane process.
-#
-# Only the gateway socket is searched. An agent on some other tmux server is
-# invisible here and reads as `no_pane`; that is the honest boundary, since the
-# framework launches every managed agent on the gateway socket.
-resolve_pane_for_pid() {
-    local want="${1:-}" panes ppid hops
-    [[ "$want" =~ ^[0-9]+$ ]] && (( want > 0 )) || return 1
-
-    panes="$(ait_tmux list-panes -a -F \
-        "#{pane_pid}"$'\t'"#{pane_id}"$'\t'"#{session_name}:#{window_id}.#{pane_id}" \
-        2>/dev/null || true)"
-    [[ -n "$panes" ]] || return 1
-
-    hops=0
-    while [[ "$want" =~ ^[0-9]+$ ]] && (( want > 1 && hops <= ANCESTOR_WALK_MAX )); do
-        local line
-        line="$(printf '%s\n' "$panes" | awk -F'\t' -v p="$want" '$1 == p { print $2 "\t" $3; exit }')"
-        if [[ -n "$line" ]]; then
-            printf '%s' "$line"
-            return 0
-        fi
-        ppid="$(ps -o ppid= -p "$want" 2>/dev/null | tr -d '[:space:]')"
-        [[ "$ppid" =~ ^[0-9]+$ ]] || return 1
-        want="$ppid"
-        hops=$(( hops + 1 ))
-    done
-    return 1
-}
+# lib/tmux_exec.sh::ait_tmux_pane_for_pid, shared with the sync sweep so a lock
+# holder's pane resolves through one piece of code. Its header carries the
+# target-shape and pane_pid-first rationale.
 
 # --- Main -------------------------------------------------------------------
 
@@ -265,7 +219,7 @@ main() {
 
     # 5. The pane. Everything above is agent-runtime independent, and so is this.
     local pane_line pane_id target
-    if ! pane_line="$(resolve_pane_for_pid "$LOCK_REC_PID")"; then
+    if ! pane_line="$(ait_tmux_pane_for_pid "$LOCK_REC_PID")"; then
         echo "LIVE_NONE:no_pane"; exit 0
     fi
     pane_id="${pane_line%%$'\t'*}"

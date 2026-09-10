@@ -221,6 +221,19 @@ that scoped the match is the value everyone downstream sees.
 The durable fix is an engine-owned `@aitask_agent` pane option stamped at launch;
 until it exists, nothing may treat `current_command` as identity.
 
+
+### A second consumer: the sync sweep's holder probe
+
+`lib/pane_state_probe.py` classifies ONE pane in a single shot for the sync
+sweep (`aitask_sync.sh`). A deferral record names the holding session's pane and
+whether it is parked on a prompt, and `--require-waiting` commits a holder's
+files on its behalf only while that pane answers `waiting_<kind>`. The probe
+calls `monitor_core._classify_one` with `agent_key_from_pane(...)`, the call
+shape `_classify_batch` uses, so it answers what minimonitor shows: **editing a
+pattern here also changes that commit gate.** Its answer embeds the pattern
+`name`, so a name must stay inside `[a-z0-9_]+`; a name outside it makes the probe
+answer `""` (not waiting) rather than emit a state the wire parser would reject.
+
 ## UI rendering
 
 The state→colour mapping is defined **once**, in
