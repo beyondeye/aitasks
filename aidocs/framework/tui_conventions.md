@@ -754,6 +754,43 @@ so a minimonitor typed into an existing shell pane would stay invisible.
   is an ordinary pane again — so the marker verdict is re-evaluated every tick
   and never memoized, unlike the cmdline verdict.
 
+### Frozen stand-in panes are a third companion-pane case
+
+A **frozen** agent's pane is not empty and it is not a helper. `respawn-pane -k`
+replaces the agent process with `ait frozenagent --record <id>`, so the pane stays
+in the window, keeps its name, and holds the only route back to that session.
+Three rules follow, and all three are already implemented — treat this as the
+map, not a proposal:
+
+- **The stand-in stamps its own pane.** The viewer sets
+  `@aitask_standin_ready=<id>` on `$TMUX_PANE` after mount, and nothing else may
+  set it on the viewer's behalf. This is the same rule as `mark_monitor_pane`,
+  and for the same reason: the stamp must mean "the viewer is *up*", which only
+  the viewer can know. The freeze engine and the restore coordinator therefore
+  **clear** it (`set-option -pu`) immediately before every `respawn-pane`, so a
+  stale mark from a previous cycle can never be read as proof that this cycle
+  succeeded. `reconcile` reads it to tell "stamped, viewer running" from
+  "stamped, agent still running".
+- **A stamped sibling counts as a real agent.** `@aitask_frozen` is the
+  authoritative classifier, and `aitask_companion_cleanup.sh` counts a stamped
+  pane as a real agent sibling — the window exists to hold that stand-in, so
+  killing agent B must not collapse the window and destroy frozen A's viewer. The
+  Python half of the same rule lives in `classify_window_panes`
+  (`monitor/monitor_core.py`), and `tests/test_cleanup_rule_parity.sh` pins the
+  two copies together. Same two-marker shape as `@aitask_monitor_kind` and
+  `@aitask_shadow_target` above.
+- **When the *dying* pane is the stamped one, cleanup abstains entirely.** That
+  pane is being respawned, not departing, so every kill the script would
+  otherwise do is wrong. (Belt-and-braces: `respawn-pane -k` fires no `pane-died`
+  at all, so on the freeze path the hook does not run — the abstention covers the
+  paths where it does.)
+
+The freeze/restore state machine these rules serve — the record states, the
+operation lease, and the reconcile table that repairs a half-finished
+transaction — is specified in the parent plan
+`aiplans/p1705_frozen_codeagents_session_store_and_viewer_tui.md` §A–§D (it moves
+under `aiplans/archived/` when t1705 is archived).
+
 ## TUI footer must surface every operation on the affected tab/screen
 
 When a plan adds keybindings to a Textual TUI tab/screen, the same plan must

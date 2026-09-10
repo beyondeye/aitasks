@@ -42,7 +42,7 @@ Any pane that is **not** an agent — a shell, a log, a window you renamed off t
 
 Each agent card in the list shows:
 
-- An agent mark: **★** when the agent is prioritized, **P** when it is parked, dim **☆** when neither. In the list this is **display only** — it shows marks set from [`ait monitor`]({{< relref "/docs/tuis/monitor" >}}) or from another project, and `Space` here marks the *followed* agent instead (see [How to Mark an Agent as Prioritized](#how-to-mark-an-agent-as-prioritized)). A parked card shows only the **P**, the name and a dim `parked`; press **P** to hide parked agents from this list
+- An agent mark: **★** when the agent is prioritized, **P** when it is parked, dim **☆** when neither. In the list this is **display only** — it shows marks set from [`ait monitor`]({{< relref "/docs/tuis/monitor" >}}) or from another project, and `Space` here marks the *followed* agent instead (see [How to Mark an Agent as Prioritized](#how-to-mark-an-agent-as-prioritized)). A parked card shows only the **P**, the name and a dim `parked`; a [frozen]({{< relref "/docs/tuis/frozenagent" >}}) card shows the mark plus a cyan **F**, the name and a dim `frozen`. Press **P** to hide parked and frozen agents from this list
 - A status dot: **green** when the agent has produced recent output, **magenta** when it is waiting for your input, **blue** when its task is finished, **yellow** when it is idle
 - The agent window name (truncated to 20 characters on narrow layouts)
 - A matching label: `PROMPT <n>s` when the agent is waiting for you, `DONE <n>s` when its task is finished, or `IDLE <n>s` when the pane has been quiet longer than `tmux.monitor.idle_threshold_seconds` (default 5 seconds). `DONE` reflects the pane's *task* — its status reads `Done`, or it has been archived — so an agent still printing output after its task landed reads `DONE`, while an agent waiting on you reads `PROMPT` even when its task is done
@@ -66,7 +66,7 @@ At narrow pane widths the line sheds detail in a fixed order, so the counts are 
 
 A card in the **other** section is deliberately much plainer — a dim `○`, the window name, and the pane's current command (`○ zsh  nvim`). It carries no mark, status dot, status label, task title or gate line, because none of those mean anything for a pane that is not an agent, and the ~40-column sidebar has no room to spare for them.
 
-The header bar at the top of the pane shows either `multi: 2s · 5a 1 awaiting 2d 1 idle` when the multi-session view is active, or `<session>  5 agents 2d 1 idle` when the view is restricted to the attached session. The three counters — waiting for input, done (shown compactly as `Nd`), and idle — each disappear when zero, and every agent falls into exactly one of them. See [How to Toggle the Multi-Session View](#how-to-toggle-the-multi-session-view) below.
+The header bar at the top of the pane shows either `multi: 2s · 5a 1 awaiting 2d 1 idle` when the multi-session view is active, or `<session>  5 agents 2d 1 idle` when the view is restricted to the attached session. The three counters — waiting for input, done (shown compactly as `Nd`), and idle — each disappear when zero, and every agent still being watched falls into exactly one of them. Two further terms sit beside them for agents that are *not* being watched: `Np` parked and `Nf` frozen. Both are disjoint from the three above and from each other (an agent that is both frozen and marked parked is counted once, as frozen), and both are shown whether or not **P** is hiding those rows — they are the one place a hidden agent is still accounted for. See [How to Toggle the Multi-Session View](#how-to-toggle-the-multi-session-view) below.
 
 ### Mouse Support
 
@@ -145,7 +145,7 @@ The pinned card's header names what it is following: `── this agent ──` 
 > and task title, but never a live status badge, so it does not turn `DONE` when
 > the followed agent's task lands. Use the scrollable list, or
 > [`ait monitor`]({{< relref "/docs/tuis/monitor" >}}), to see that. The header
-> and name are frozen when the panel is first built, so renaming the window
+> and name are fixed when the panel is first built, so renaming the window
 > afterwards does not change them.
 >
 > Two things on the pinned card *do* stay current. Its agent mark
@@ -157,6 +157,8 @@ The pinned card's header names what it is following: `── this agent ──` 
 > followed agent by construction — would put it everywhere except the one place
 > it is for. The panel carries the phase and deliberately **not** the gate
 > summary that shares that line on the list rows.
+
+When the followed agent is [frozen]({{< relref "/docs/tuis/frozenagent" >}}) the pinned card says so directly: its mark gains a cyan **F**, and a second indented line reads a dim `frozen` followed by the timestamp the record was frozen at. The workflow phase is dropped rather than left showing its last value — there is no process to have a phase — so an empty phase line here means "frozen", not "unknown".
 
 ### How to Pick a Task by Number
 
@@ -287,7 +289,7 @@ When you are following many agents, some matter more than others. Press **Space*
 
 **Parking the followed agent does not stop this minimonitor watching it.** Parking is a signal to *other* monitors' lists — it takes the agent out of them and stops them checking it. This pane is bound to that one agent, so its pinned card keeps updating, and **L**, **c** and the shadow companion all keep working exactly as before. The pinned card simply shows **P** instead of ★ or ☆.
 
-Press **P** to hide parked agents from the scrollable list, and **P** again to show them. With them hidden you cannot unpark from the list — reveal them first, then use `Space` in [`ait monitor`]({{< relref "/docs/tuis/monitor" >}}), where **Space** acts on the focused card.
+Press **P** to hide parked **and frozen** agents from the scrollable list, and **P** again to show them — it is one filter over both kinds of set-aside agent, not two. With them hidden you cannot unpark from the list — reveal them first, then use `Space` in [`ait monitor`]({{< relref "/docs/tuis/monitor" >}}), where **Space** acts on the focused card.
 
 The cards in the scrollable list show marks but cannot be toggled from here — to mark some *other* agent, use [`ait monitor`]({{< relref "/docs/tuis/monitor" >}}), where **Space** acts on the focused card.
 
@@ -297,7 +299,7 @@ The marks are stored **per user, outside every repository**, in `~/.config/aitas
 
 Each mark is keyed by the pair *(project root, tmux window name)*, so two projects that happen to run identically-named agent windows never share a mark.
 
-Marks are purely visual: they do not reorder the list or change any counter.
+A **prioritized** mark is purely visual: it does not reorder the list or change any counter. A **parked** mark is not — it takes the agent out of the three watched counters and into the `Np` term, and **P** hides its row.
 
 **Automatic cleanup.** You never have to unmark stale entries by hand:
 
@@ -305,6 +307,49 @@ Marks are purely visual: they do not reorder the list or change any counter.
 - **Departed agents** — when a project's tmux session is visible and the marked window is gone, its mark is dropped. This check is deliberately conservative: if a project's session cannot be seen at all — it is not running, or lives on a different tmux server — its marks are always left alone. A project you simply have not opened today never loses its marks.
 
 > **Note:** marking the agent you are already watching is exactly the point — the mark is *per user and cross-project*, so it is how you tell every **other** view that this is the agent that matters. Check `ait monitor`, or another project's minimonitor, and the agent you flagged from here stands out there.
+
+### How to Freeze the Agent You Are Done With
+
+Parking keeps the agent running. **Freezing ends it** and keeps its output
+instead — the cheaper choice once an agent has said everything you needed.
+
+Press **f** to freeze the followed agent. A dialog confirms
+(`Freeze this agent?`) and explains what happens: the process ends, its terminal
+output is captured and kept, and it can be restored or re-picked later. The
+button reads **Freeze** and is styled as an ordinary action, because nothing is
+lost.
+
+The agent's pane does not close. It is taken over by the
+[frozen-agent viewer]({{< relref "/docs/tuis/frozenagent" >}}), which replays the
+captured output in place, so the window keeps its name and its layout.
+
+In the scrollable list a frozen agent renders as its mark followed by a cyan
+**F**, the window name, and a dim `frozen`:
+
+```
+☆F agent-pick-1705  frozen
+★F agent-qa-1699  frozen
+```
+
+There is no state dot and no captured preview — a frozen agent has no current
+answer to show. Frozen **coexists** with the priority/parked mark rather than
+replacing it: the mark cell stays where it was, so rows never shift, and
+**Space** still cycles the mark on the followed agent even while it is frozen.
+
+Three keys act on the followed agent once it is frozen:
+
+- **R** — restore it into the viewer's pane.
+- **p** — re-pick its task with a fresh agent (often cheaper).
+- **k** — drop it. This one confirms with a red **Drop** button, because it
+  deletes the captured output along with the record: `Its captured output is
+  deleted along with the record, and the stand-in pane is closed. This cannot be
+  undone — restore or re-pick it instead if you still want it.`
+
+**Z freezes everything, and it reaches further than this list.** Freeze-All
+covers every aitasks session on the machine — other projects included, and parked
+agents included — not just the agents shown here. The confirmation says so and
+names the real count, which is why that number is usually larger than what you
+can see.
 
 ### How to Jump to Another TUI
 
@@ -338,6 +383,8 @@ For the full cross-TUI story (auto-discovery, rendering details, cross-session f
 ### How to Quit
 
 Press **q** to quit minimonitor manually. The pane running minimonitor closes; the rest of your tmux session is unaffected. Because auto-despawn already closes minimonitor whenever its companion agent exits, manual quit is mainly useful when you want to reclaim the sidebar column while the agent is still running.
+
+Freezing the agent is not one of those exits. A frozen agent's pane is still occupied — by the [frozen-agent viewer]({{< relref "/docs/tuis/frozenagent" >}}) standing in for it — so minimonitor stays open beside it, which is what lets you restore or re-pick the agent from here.
 
 ### Pairing Minimonitor with Monitor
 
@@ -376,15 +423,18 @@ All actions below are also available via mouse — see [Mouse Support](#mouse-su
 | `s` | Switch tmux focus to the selected agent's window |
 | `i` | Show task info for the selected agent |
 | `I` | Show task info for the followed agent (the one pinned at the top) |
-| `k` | Kill the followed agent (with a confirmation dialog) |
+| `k` | Kill the followed agent (with a confirmation dialog) — or, when it is frozen, drop its record and capture |
 | `n` | Launch the followed agent's next ready sibling task |
-| `p` | Pick any task by typing its number, then launch it or move it to a board column |
+| `p` | Pick any task by typing its number, then launch it or move it to a board column — or, when the followed agent is frozen, re-pick its task |
 | `e` | Launch an advisory [shadow agent]({{< relref "/docs/workflows/shadow-agent" >}}) beside the followed agent |
 | `E` | Launch a shadow agent, choosing the code agent and model first |
 | `c` | Pick the shadow's concerns and copy the selected ones to the clipboard (inside the picker: `r` rejects a concern, `t` spins one off as its own draft task, `e` edits the outgoing payload before it is copied, `R` reviews the rejected list, `u` shows any lines that could not be parsed) |
 | `L` | Arm or disarm the [auto-recheck loop](#how-to-run-the-auto-recheck-loop) — minimonitor asks the shadow for a fresh review round once the followed agent settles |
 | `Space` | Cycle the mark on the **followed** agent (the one pinned at the top): unmarked → `★` prioritized → `P` parked → unmarked. Shared across all your projects |
-| `P` | Hide or show parked agents in the scrollable list |
+| `P` | Hide or show parked **and frozen** agents in the scrollable list |
+| `f` | Freeze the **followed** agent — its process ends, its output is captured (confirms first) |
+| `Z` | Freeze every agent on this machine, across all projects (confirms, naming the count) |
+| `R` | Restore the followed agent when it is frozen |
 | `d` | Cycle the idle-detection compare mode (`≈` ANSI-stripped, `=` strict) |
 | `j` | Open the TUI switcher |
 | `m` | Switch to the full [monitor]({{< relref "/docs/tuis/monitor" >}}) with this agent focused |

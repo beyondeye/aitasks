@@ -61,7 +61,7 @@ Each card shows:
   archive still resolves without restarting the TUI.
 - For agent panes carrying a task ID in the window name, the associated task number
 - A **shadow marker** `◆` when a shadow agent is bound to that pane, colored by the shadow's own state. It gains a `!` (`◆!`) when the shadow has raised concerns you have not picked yet — see [How to Pick Shadow Concerns](#how-to-pick-shadow-concerns). Panes with no shadow show nothing at all here.
-- An **agent mark** at the far left: `★` when you have prioritized the agent, `P` when you have parked it, dim `☆` when neither — see [How to Mark an Agent as Prioritized](#how-to-mark-an-agent-as-prioritized). A parked card shows the `P`, the window name and a dim `parked` and nothing else — no state dot, no status, no gate summary — because a parked agent is not being read at all.
+- An **agent mark** at the far left: `★` when you have prioritized the agent, `P` when you have parked it, dim `☆` when neither — see [How to Mark an Agent as Prioritized](#how-to-mark-an-agent-as-prioritized). A parked card shows the `P`, the window name and a dim `parked` and nothing else — no state dot, no status, no gate summary — because a parked agent is not being read at all. A [frozen]({{< relref "/docs/tuis/frozenagent" >}}) card is the same shape with a cyan `F` beside the mark and a dim `frozen`: frozen and the mark coexist, so the column never shifts.
 - For agent panes carrying a task ID, the end of the status row carries the task's **gate summary** and then its **workflow phase** — `gates: 1/4 pass  phase: IMPLEMENT`. A trailing `⏸` on the phase means the agent is waiting on your input, and an `unknown (…)` phase is a "cannot tell" state that names its own cause rather than a missing one. Either part is omitted when there is nothing to say. The phase is **advisory** — it never gates anything. The [minimonitor how-to]({{< relref "/docs/tuis/minimonitor/how-to" >}}#how-to-read-the-agent-list) lists the phase values in full.
 
 The **`CODE AGENTS (N)`** header above the agent cards repeats the same four
@@ -248,15 +248,49 @@ A **prioritized** mark is purely visual: it does not reorder the list or change 
 
 Parking is what shortens the list. Press **Space** twice on the focused agent to park it, then **P** to hide every parked agent from the pane list. Press **P** again to show them.
 
-A parked agent costs nothing: `monitor` stops capturing and classifying its pane entirely, so it no longer contributes to the refresh cycle's work. That is why a parked card shows only `P`, the window name and a dim `parked` — with no state dot and no status. There is no current answer to show, and a frozen dot would read as one.
+A parked agent costs nothing: `monitor` stops capturing and classifying its pane entirely, so it no longer contributes to the refresh cycle's work. That is why a parked card shows only `P`, the window name and a dim `parked` — with no state dot and no status. There is no current answer to show, and a stale dot would read as one.
 
 Three consequences worth knowing:
 
-- **Parked agents leave the session-bar partition.** The `awaiting` / `done` / `idle` counters cover the agents still being watched, and parked ones are counted separately as `N parked`. That term is shown whether or not `P` is hiding their rows — it is the one place a hidden agent is still accounted for.
+- **Parked agents leave the session-bar partition.** The `awaiting` / `done` / `idle` counters cover the agents still being watched, and parked ones are counted separately as `N parked`. That term is shown whether or not `P` is hiding their rows — it is the one place a hidden agent is still accounted for. Frozen agents get their own `N frozen` term on the same footing.
 - **Auto-switch never selects a parked agent** (see [How to Toggle Auto-Switch Mode](#how-to-toggle-auto-switch-mode)), and parking the focused card hands focus to the next visible one.
 - **With parked agents hidden, you cannot unpark from the list** — the row is not there. Press **P** to reveal parked agents, then **Space** on the one you want back. The toast shown when you park an agent while the filter is on says exactly this.
 
 Parking is a signal to your *monitors*, not to the agent: the agent keeps running, and a [`minimonitor`]({{< relref "/docs/tuis/minimonitor" >}}) that follows a parked agent keeps watching it — see [its how-to]({{< relref "/docs/tuis/minimonitor/how-to" >}}#how-to-mark-an-agent-as-prioritized).
+
+### How to Freeze an Agent Instead of Parking It
+
+Parking hides an agent that is still running. **Freezing ends it** and keeps its
+output — the right move once you want the agent's *results* rather than the agent.
+
+Press **f** on the focused card. The confirmation (`Freeze this agent?`) explains
+the trade: the process ends, its terminal output is captured and kept, and it can
+be restored or re-picked later. The button reads **Freeze** and is styled as an
+ordinary action, because nothing is lost.
+
+The pane is not closed — the
+[frozen-agent viewer]({{< relref "/docs/tuis/frozenagent" >}}) takes it over and
+replays the capture in place, so the window keeps its name. In the pane list the
+card shows its mark plus a cyan `F`, the window name and a dim `frozen`, with no
+state dot and no status, for the same reason a parked card has none.
+
+Three keys act on the focused card once it is frozen, and they reuse keys that
+keep their live meaning everywhere else:
+
+- **R** — restore it (on a live card, `R` is still Restart).
+- **p** — re-pick its task with a fresh agent. This key is frozen-only in
+  monitor; on a live card it simply says there is nothing to re-pick.
+- **k** — drop it (on a live card, `k` is still Kill). This confirms with a red
+  **Drop** button, because it deletes the captured output along with the record.
+
+`P` hides frozen agents together with parked ones — one filter over both — while
+the `N frozen` counter keeps reporting them either way.
+
+**Z freezes everything, and "everything" is wider than this list.** Freeze-All
+covers every aitasks session on the machine, other projects and parked agents
+included — not just the agents shown here. The confirmation names the real count,
+which is why that number is often larger than what is on screen. It is the key
+for shutting the machine down with your work recoverable.
 
 Outside the pane list zone, `Space` behaves as it always has: it is forwarded to the focused tmux pane along with every other unhandled key.
 

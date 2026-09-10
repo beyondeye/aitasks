@@ -27,6 +27,7 @@ description: "Complete CLI reference for all ait subcommands"
 | [`ait monitor`](../tuis/monitor/) | Dashboard of every code-agent and TUI pane across all aitasks tmux sessions |
 | [`ait minimonitor`](../tuis/minimonitor/) | Narrow sidebar variant of monitor for tmux agent panes |
 | [`ait applink`](../tuis/applink/) | Pair the mobile companion app to your workspace over LAN (QR bootstrap) |
+| [`ait frozenagent`](../tuis/frozenagent/) | View a frozen code agent's captured output and restore, re-pick or drop it |
 | [`ait stats-tui`](../tuis/stats/) | Pane-based viewer for archived task completion statistics |
 | [`ait ide`](../installation/terminal-setup/) | Start (or attach to) the configured tmux session and launch `ait monitor` — one view of a shared session; see `ait ide --help` |
 | [`ait settings`](../tuis/settings/) | Open the settings TUI for configuration management |
