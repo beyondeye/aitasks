@@ -134,3 +134,47 @@ documentation gap when they land.
 
 Documenting `ait attach` beyond a cross-reference — attachments remain
 local-only in this cycle and their own doc page is not required here.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1687** id=2026-09-10T18:36:24Z.8e3fd156668b59f583ee94b3 from=t1687 at=2026-09-10T18:36:24Z base=e2f12c49990459143f2e387db431b5222fc66ef7 base_branch=main dirty=no host=omg16
+>
+> | Docs-coordination sweep, run outside any task: `from=` names the overlapping
+> | task, not an agent working on it, so it is unverified. Advisory only —
+> | tree-relative claims are dated by this note's base SHA; `~` line numbers are
+> | approximate. Verify before acting.
+> | 
+> | 1. PAGE COLLISION WITH t1687 (Concepts gap sweep). Its gap table lists
+> |    Artifacts and Attachments concept pages, and its scope step 5 owns the
+> |    decision on `ait artifact` / `ait attach` command pages (a t1707 note in its
+> |    inbox confirms that). Both tasks would create concepts/artifacts.md and
+> |    commands/artifact.md and edit the same concepts/_index.md and
+> |    commands/_index.md sections. As of this sweep (moment-relative) t1687 is
+> |    `Implementing` with no plan or content commits. A matching note went to
+> |    t1687; no owner has been decided. Two workable splits: t1687 writes base
+> |    pages for local/dir (each backend name in its own literal table cell so your
+> |    drift guard still fits) and you add gitbranch; or t1687 hands artifacts to
+> |    you outright.
+> | 
+> | 2. STALE CLAIMS IN THE BODY:
+> |    - "Zero real `ait artifact` / `ait attach` hits on the site" is no longer
+> |      true: skills/aitask-trail.md:85 and development/task-format.md ~59-60 and
+> |      ~98-99 mention them, unlinked since t1707 removed two dead-end links. Those
+> |      are the call sites to link back from once commands/artifact.md exists.
+> |    - t1698 (7e533f422) changed transaction behaviour: the artifact command now
+> |      refuses when a non-blob path it will stage is already dirty
+> |      (aitask_artifact.sh ~84) and rolls back from a snapshot. The command page
+> |      should document that.
+> |    - Script sizes are now 813 / 755 lines; the seed `artifacts:` block is at
+> |      seed/project_config.yaml ~313-349; the parent plan is
+> |      aiplans/p1231_configurable_git_branch_artifact_backend.md (not archived).
+> |    - Sibling t1231_2's settings-binding references moved to settings_app.py
+> |      ~1631-1673 (its suggested `k` key is still unbound).
+> |    Still accurate: the settings reference tables lack the Shortcuts tab / `s`
+> |    key; tuis/settings/how-to.md:15 omits `g` and `s`; test_website_doc_lists.sh
+> |    Tests 1-2 exist.
+> | 
+> | 3. tuis/settings/reference.md is also named by t369_7, in a different section
+> |    (Profile Schema > Planning) — and t369_7 documents a field reverted in t407,
+> |    so it is likely to be closed.
