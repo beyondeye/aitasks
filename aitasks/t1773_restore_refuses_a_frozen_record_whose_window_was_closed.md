@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: bug
@@ -14,7 +16,7 @@ anchor: 1705
 followup_kind: review_finding
 implemented_with: claudecode/opus5
 created_at: 2026-09-09 19:53
-updated_at: 2026-09-10 12:39
+updated_at: 2026-09-10 14:45
 ---
 
 ## Symptom
