@@ -295,6 +295,34 @@ approved, implementation deliberately deferred". Shape-identical to
   affordance on the board: `plan_approved_at` is written and cleared by the
   task-workflow alone.
 
+## Adding a code-agent session hook
+
+A **SessionStart hook** is how the framework learns a code agent's own session
+id — the thing that makes a frozen agent resumable rather than only re-pickable.
+`.aitask-scripts/aitask_session_hook.sh` is the current one. It is *not* a
+permission grant, so it does not belong in the allowlist manifest below; it is
+framework infrastructure with its own consent prompt in `ait setup`, and it has
+its own install surface.
+
+Adding or changing one means touching every row here. Missing one produces the
+worst failure mode this file exists to prevent: the hook silently never fires
+for some agent or some project, and the defect only shows up later as an agent
+that cannot be restored.
+
+| Touchpoint | What it holds |
+|-----------|------------|
+| `seed/claude_settings.hooks.json` | the Claude Code `hooks.SessionStart` entry, keyed on `$CLAUDE_PROJECT_DIR` |
+| `seed/codex_config.seed.toml` | the Codex `[[hooks.SessionStart]]` block |
+| `install.sh` → `install_seed_claude_hooks()` | copies the seed into `aitasks/metadata/` on a tarball install |
+| `aitask_setup.sh` → `ensure_agent_config_seeds()` | the source-tree half of the same manifest — `tests/test_seed_manifest_drift.sh` fails when the two disagree |
+| `aitask_setup.sh` → `merge_claude_hooks()` / `setup_claude_hooks()` | merges **only** `hooks.SessionStart`, deduping by `(matcher, command)`, leaving every other user hook alone |
+| `aitask_setup.sh` → `merge_codex_settings()` / `setup_codex_cli()` | the Codex-side merge |
+| `_ait_framework_paths()` | must cover the config the hook is written into (`.claude/settings.json`, `.codex/`), so `ait setup` commits it |
+
+The merge being **additive and deduped** is the contract that lets `ait setup` be
+re-run safely on a project whose user has their own `SessionStart` hooks. Keep
+it that way: a merge that replaced the array would silently delete them.
+
 ## Adding a new helper script
 
 Any new script under `.aitask-scripts/` invoked by a skill must be allowlisted

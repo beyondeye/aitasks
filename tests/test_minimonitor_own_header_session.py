@@ -300,8 +300,12 @@ def _snap(*, window_name="agent-pick-1580", category=PaneCategory.AGENT,
         window_name=window_name,
         category=category,
         current_command="python",
+        frozen_record="",
     )
-    return SimpleNamespace(pane=pane, is_idle=False, idle_seconds=0.0)
+    # `frozen` is completed, not defaulted (t1705_7): `_is_frozen` reads it
+    # strictly, so an incomplete double raises rather than silently passing.
+    return SimpleNamespace(pane=pane, is_idle=False, idle_seconds=0.0,
+                           frozen=False, frozen_record_id="")
 
 
 class _FakePanel:

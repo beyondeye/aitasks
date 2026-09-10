@@ -42,6 +42,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_DIR / ".aitask-scripts"))
@@ -1025,6 +1026,156 @@ class RestoreOutcomeTests(_AppCase):
                               {"t": self.app_mod.DISPATCH_GRACE})
             await pilot.pause()
             self.assertIn("did not start", app._header_note)
+            self.assertNotIn(self.RECORD_ID, app._pending)
+
+
+class _FakeTimer:
+    def stop(self): pass
+
+
+class RestorePollDeadlineTests(_AppCase):
+    """How long the viewer watches a dispatched restore before crying stall.
+
+    The deadline belongs to the COORDINATOR, not to the watcher: `agent_restore`
+    gives a `restoring` record up to the project's `frozen.restore_ack_grace` to
+    be acknowledged by its replacement agent's SessionStart hook before it may be
+    liveness-confirmed instead. The viewer shipped a fixed 40s, which is right at
+    the default grace and wrong at every other one — a project that raised the
+    grace saw a spurious stall on every SUCCESSFUL restore, and never the
+    success. Twin of `test_monitor_frozen_filter.RestorePollDeadlineTests`.
+    """
+
+    def _project(self, grace: int | None) -> str:
+        """A temp project root, optionally configuring `frozen.restore_ack_grace`."""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        if grace is not None:
+            meta = root / "aitasks" / "metadata"
+            meta.mkdir(parents=True)
+            (meta / "project_config.yaml").write_text(
+                f"frozen:\n  restore_ack_grace: {grace}\n")
+        return str(root)
+
+    def _mount_on(self, root: str, **over):
+        """Rewrite the fixture record under `root` and return an unmounted app."""
+        ansi, txt = self.fx.capture(self.RECORD_ID)
+        self.fx.write([_record(self.RECORD_ID, root=root,
+                               capture_ansi=ansi, capture_txt=txt, **over)])
+        return self.make_app()
+
+    async def _timeouts(self, root: str) -> list[float]:
+        """Every `settle_timeout` the REAL dispatch → tick path hands the verdict.
+
+        Driving the production path (press `R`, capture the timer callback, run
+        it) is the point: asserting on the helper alone would not catch a
+        dispatch that forgot to pass what it computed.
+        """
+        seen: list[float] = []
+
+        def spy(rec, prev, elapsed, *, dispatch_grace, settle_timeout):
+            seen.append(settle_timeout)
+            return False, "", False
+
+        app = self._mount_on(root)
+        async with app.run_test(size=(80, 20)) as pilot:
+            ticks: list = []
+            app.set_interval = lambda interval, fn: ticks.append(fn) or _FakeTimer()
+            await pilot.press("R")
+            await pilot.pause()
+            # `agent_sessions` is the shared module object, so this must be a
+            # SCOPED patch — a raw assignment leaks into every other module in
+            # the same suite process.
+            with patch.object(self.app_mod.agent_sessions, "restore_verdict", spy):
+                self.assertTrue(ticks, "the restore dispatched no poll timer")
+                ticks[0]()
+        return seen
+
+    async def test_the_deadline_follows_the_projects_configured_grace(self):
+        """THE defect: a 40s watcher on a 60s grace calls every successful
+        restore a stall."""
+        seen = await self._timeouts(self._project(60))
+        self.assertTrue(seen)
+        self.assertGreater(seen[0], 60.0,
+                           "the viewer gives up before the coordinator does")
+
+    async def test_the_default_grace_keeps_the_value_the_viewer_shipped(self):
+        """Negative control and compatibility pin: at the default grace this is
+        still 10 dispatch + 20 ack + 10 slack. The old constant was right for the
+        default and wrong as a constant — which is also why the t1705_7
+        characterization control stays green across this change, unedited."""
+        self.assertEqual((await self._timeouts(self._project(None)))[0], 40.0)
+
+    async def test_the_grace_is_read_from_the_records_root_not_the_cwd(self):
+        """A stand-in's cwd is wherever the frozen agent's pane started, which
+        need not be the project the record belongs to."""
+        seen = await self._timeouts(self._project(90))
+        self.assertGreater(seen[0], 90.0)
+
+    async def test_the_three_argument_fallback_is_root_aware_too(self):
+        """The `settle_timeout=None` path, which nothing else reaches at a
+        non-default grace.
+
+        Every test above enters through `_start_restore`, which injects the
+        deadline it computed — so a change that left this fallback hardcoded at
+        40.0 (or reading the cwd instead of the record) would keep them all
+        green. Three positional arguments only: the pre-fix signature, and the
+        one the characterization control uses.
+        """
+        app = self._mount_on(self._project(60))
+        async with app.run_test(size=(80, 20)) as pilot:
+            app.set_interval = lambda interval, fn: _FakeTimer()
+            await pilot.press("R")
+            await pilot.pause()
+            ansi, txt = self.fx.capture(self.RECORD_ID)
+            self.fx.write([_record(
+                self.RECORD_ID, root=app._view.by_id(self.RECORD_ID).root,
+                capture_ansi=ansi, capture_txt=txt,
+                state="restoring", restore_attempts=1, op_nonce="bbbbbbbb",
+            )])
+
+            # 41s: past the old constant, inside the derived 80s.
+            app._poll_restore(self.RECORD_ID, (0, ""), {"t": 40.0})
+            await pilot.pause()
+            self.assertEqual(app._header_note, "dispatching…")
+            self.assertIn(self.RECORD_ID, app._pending)
+
+            # 81s: past the DERIVED deadline — so the fallback is pinned to a
+            # real deadline, not to "no deadline".
+            app._poll_restore(self.RECORD_ID, (0, ""), {"t": 80.0})
+            await pilot.pause()
+            self.assertIn("reconcile", app._header_note)
+            self.assertNotIn(self.RECORD_ID, app._pending)
+
+    async def test_a_restore_inside_the_configured_grace_is_not_reported_as_a_stall(self):
+        """The end-to-end behavioural pin: real verdict, real timer callback, no
+        spy. This is what the user sees — a restore still legitimately in flight
+        must not be reported as a stall, and must still be reported as one once
+        the derived deadline really passes."""
+        app = self._mount_on(self._project(60))
+        async with app.run_test(size=(80, 20)) as pilot:
+            ticks: list = []
+            app.set_interval = lambda interval, fn: ticks.append(fn) or _FakeTimer()
+            await pilot.press("R")
+            await pilot.pause()
+            ansi, txt = self.fx.capture(self.RECORD_ID)
+            self.fx.write([_record(
+                self.RECORD_ID, root=app._view.by_id(self.RECORD_ID).root,
+                capture_ansi=ansi, capture_txt=txt,
+                state="restoring", restore_attempts=1, op_nonce="bbbbbbbb",
+            )])
+            tick = ticks[0]
+
+            for _ in range(41):        # 41s elapsed — past the old 40s constant
+                tick()
+            await pilot.pause()
+            self.assertEqual(app._header_note, "dispatching…")
+            self.assertIn(self.RECORD_ID, app._pending)
+
+            for _ in range(40):        # 81s — past the derived 80s deadline
+                tick()
+            await pilot.pause()
+            self.assertIn("reconcile", app._header_note)
             self.assertNotIn(self.RECORD_ID, app._pending)
 
 

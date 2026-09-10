@@ -270,7 +270,7 @@ class OutcomeTests(_ActionFixture):
         for cls in BOTH_APPS:
             with self.subTest(app=cls.__name__):
                 app = self.app(cls, reply=(0, "PARKED:/r|agent-t1"))
-                app._hide_parked = True
+                app._hide_inactive = True
                 self.run_sink(app, app._snapshots["%1"])
                 msg = app.notes[0][0]
                 self.assertIn("P", msg)
@@ -281,7 +281,7 @@ class OutcomeTests(_ActionFixture):
         """Negative control for the test above: the longer message must be
         conditional on the filter, not always emitted."""
         app = self.app(MonitorApp, reply=(0, "PARKED:/r|agent-t1"))
-        app._hide_parked = False
+        app._hide_inactive = False
         self.run_sink(app, app._snapshots["%1"])
         self.assertEqual(app.notes[0][0], "Parked agent-t1")
 

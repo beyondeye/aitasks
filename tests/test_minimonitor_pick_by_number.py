@@ -100,7 +100,14 @@ def _snap(pane_id: str, window_index: str = "1", session: str = "s1",
             window_index=window_index,
             window_name=window_name or f"agent-pick-{window_index}",
             category=PaneCategory.AGENT,
-        )
+            frozen_record="",
+        ),
+        # Completed rather than defaulted (t1705_7): `_is_frozen` reads
+        # `snap.frozen` strictly, so an incomplete double RAISES here — which is
+        # how this module was found. A `getattr` default would also have masked
+        # a real snapshot missing the field.
+        frozen=False,
+        frozen_record_id="",
     )
 
 

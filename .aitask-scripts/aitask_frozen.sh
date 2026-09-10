@@ -13,6 +13,7 @@
 # Verbs:
 #   freeze <pane_id>          freeze one agent pane into a stand-in viewer
 #   freeze --all              freeze every agent-facing pane on every session
+#   freeze --all --dry-run    list what `freeze --all` would act on and stop
 #   restore <id> [--repick]   relaunch one frozen agent in its stand-in's pane
 #   restore --all [--repick]  relaunch every frozen agent, sequentially
 #   drop <id>                 remove a frozen record, its capture, and its stand-in
@@ -64,7 +65,7 @@ RESTORE_PY="$SCRIPT_DIR/lib/agent_restore.py"
 usage() {
     cat >&2 <<'EOF'
 Usage: aitask_frozen.sh freeze <pane_id>
-       aitask_frozen.sh freeze --all
+       aitask_frozen.sh freeze --all [--dry-run]
        aitask_frozen.sh restore <id> [--repick]
        aitask_frozen.sh restore --all [--repick]
        aitask_frozen.sh drop <id>
@@ -79,7 +80,18 @@ ENGINE="$FREEZE_PY"
 
 case "$1" in
     freeze)
-        [ $# -eq 2 ] || usage
+        # `freeze <pane>` / `freeze --all`, the latter optionally `--dry-run`.
+        # Arity is validated in the module, which owns the flag vocabulary --
+        # the same split the `restore` case below states. This gate only rejects
+        # the no-argument form so `usage` stays the shell's answer.
+        #
+        # It used to be `-eq 2`, and that was load-bearing: `agent_freeze.main()`
+        # dispatched on its first argument and ignored the rest, so this gate was
+        # the ONLY thing rejecting `freeze --all --typo` and `freeze <pane>
+        # --dry-run` -- both of which reached a real freeze. Relaxing it is safe
+        # only because the module now validates the complete grammar before it
+        # enumerates or mutates anything. Do not relax one without the other.
+        [ $# -ge 2 ] || usage
         ;;
     restore)
         # `restore <id>` / `restore --all`, each optionally with `--repick`.

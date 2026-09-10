@@ -1363,6 +1363,117 @@ class SessionsView:
         return self._sf.by_id(record_id)
 
 
+# --- outcome verdicts for a dispatched coordinator --------------------------
+#
+# A `restore` / `drop` coordinator is dispatched through `tmux run-shell -b`, a
+# DETACHED job whose stdout no caller can read. Its wire lines therefore never
+# reach the UI that started it, and the RECORD is the only channel: a poller
+# re-reads the store and decides what happened. Three UIs do this — the
+# `frozenagent` viewer and both monitor TUIs (t1705_7) — so the decision lives
+# here, once, rather than three times.
+#
+# It lives in THIS module, not in `agent_frozen_ops`, because it is a pure
+# function *of a `SessionRecord`* and needs the `STATE_*` vocabulary defined
+# above. `agent_frozen_ops` deliberately imports neither, so hosting it there
+# would mean re-declaring "live" / "frozen" as string literals — a second copy
+# of the state vocabulary, which is the drift the one-way arrow exists to
+# prevent. Nothing here imports a UI toolkit; the callers own their own timers.
+#
+# `tests/test_frozenagent_restore_poll_characterization.py` pins the verdicts as
+# the viewer produced them BEFORE this extraction, and
+# `tests/test_frozen_restore_verdict.py` pins this surface directly.
+
+
+def restore_verdict(
+    rec: "SessionRecord | None",
+    prev_attempts: int,
+    elapsed: float,
+    *,
+    dispatch_grace: float,
+    settle_timeout: float,
+) -> tuple[bool, str, bool]:
+    """What a dispatched restore has done so far: ``(done, message, warn)``.
+
+    ``rec`` is the record as just re-read (``None`` when it vanished),
+    ``prev_attempts`` its ``restore_attempts`` snapshotted **before** dispatch,
+    and ``elapsed`` the seconds polled so far. ``done`` false means "still
+    waiting" and carries an empty message.
+
+    Two rules here are non-obvious and both have cost a real defect:
+
+    **The pre-begin gate is `restore_attempts`, never `state` and never
+    `last_error`.** `restore-begin` is what clears `last_error`, and it is the
+    only field bumped monotonically per attempt. A poll that fires before the
+    detached coordinator gets that far is looking at the *previous* attempt's
+    error; reading it would report this restore as failed before it started.
+
+    **Do NOT correlate `last_error` against a freshly-read `op_nonce`.**
+    Recovery (`restore-abort` -> `standin-respawned`) returns the record to
+    `frozen` and clears the lease while PRESERVING the error, so by the time it
+    is observed `op_nonce` is `""` and a prefix test can never match — silently
+    turning a failed restore into a reported timeout. The gate above is the
+    correlation: `restore-begin` cleared `last_error` at the start of *this*
+    attempt, so any non-empty value now belongs to it.
+    """
+    if rec is None:
+        return True, "record vanished", True
+
+    if rec.restore_attempts <= prev_attempts:
+        # PRE-BEGIN — see the docstring. Nothing about the record is evidence
+        # about this attempt yet, so only the clock can conclude anything.
+        if elapsed >= dispatch_grace:
+            return True, ("restore did not start — "
+                          "run 'ait frozenagent' or reconcile"), True
+        return False, "", False
+
+    if rec.state == STATE_LIVE:
+        if rec.ack == "liveness":
+            # A SUCCESS, and the only outcome a codex record can reach (the
+            # interactive TUI fires no SessionStart hook). Never styled as an
+            # error.
+            return True, "restored, unverified — capture kept", False
+        return True, "restored", False
+
+    if rec.state == STATE_FROZEN:
+        # Back at `frozen` after the attempt started: the restore failed and its
+        # stand-in is back. The capture was retained.
+        err = rec.last_error or ""
+        reason = err.split(":", 1)[1] if ":" in err else err
+        if reason:
+            return True, f"restore failed: {reason} — capture kept", True
+        return True, "restore ended — capture kept", True
+
+    if elapsed >= settle_timeout:
+        # A timeout is NOT evidence of success. The record is still transitional
+        # (`restoring` / `aborting`) and only reconcile can settle it; say
+        # exactly that rather than implying it worked.
+        return True, (f"restore still {rec.state} after the grace — "
+                      "run reconcile; capture kept"), True
+
+    return False, "", False
+
+
+def drop_verdict(
+    rec: "SessionRecord | None",
+    elapsed: float,
+    *,
+    drop_grace: float,
+) -> tuple[bool, str, bool]:
+    """What a dispatched drop has done so far: ``(done, message, warn)``.
+
+    `drop`'s OWN completion path. A dropped record never passes through
+    `restoring` or `live` — it disappears — so :func:`restore_verdict` would
+    wait for a state it can never observe. The coordinator's `DROP_FAILED:` /
+    `DROP_REFUSED:` line goes to a detached job whose stdout is unreadable, so
+    the record's continued existence is the only observable.
+    """
+    if rec is None:
+        return True, "dropped — capture removed", False
+    if elapsed >= drop_grace:
+        return True, "drop failed — record kept", True
+    return False, "", False
+
+
 # --- transcript fallback ----------------------------------------------------
 #
 # When the SessionStart hook never fired, the store has no codeagent session id

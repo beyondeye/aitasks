@@ -123,67 +123,19 @@ FAKE_AGENT="$PROJECT_DIR/tests/lib/fake_agent.sh"
 FROZEN_SH="$PROJECT_DIR/.aitask-scripts/aitask_frozen.sh"
 SESSIONS_SH="$PROJECT_DIR/.aitask-scripts/aitask_agent_sessions.sh"
 
-cleanup() {
-    PATH="$REAL_PATH" "$REAL_TMUX" kill-server 2>/dev/null || true
-    rm -rf "$FIXTURE_DIR" 2>/dev/null || true
-}
-trap cleanup EXIT
-
-section() { echo; echo "=== $1 ==="; }
-
 # --- fixture helpers ---------------------------------------------------------
+#
+# `tm`, `pane_fmt`, `pane_exists`, `window_exists`, `store`, `record_of_pane`,
+# `record_field`, `section`, `make_agent_window`, `wait_for_record_state`,
+# `wait_for_ready`, `wait_stopped`, `agent_env`, `agent_env_clear` and `cleanup`
+# are shared with `test_freeze_engine_live.sh` and
+# `test_frozen_agents_acceptance.sh` (t1705_8). The variables above (REAL_TMUX,
+# REAL_PATH, SESSIONS_SH, FAKE_AGENT, FIXTURE_DIR, AGENT_ENV_FILE) are this
+# file's half of that library's contract.
+# shellcheck source=lib/frozen_fixtures.sh
+. "$PROJECT_DIR/tests/lib/frozen_fixtures.sh"
 
-tm() { "$REAL_TMUX" "$@"; }
-
-pane_fmt() { tm display-message -p -t "$1" "$2" 2>/dev/null; }
-
-# `display-message -p -t <gone pane>` exits ZERO with EMPTY output, so the exit
-# status says nothing about whether the pane exists. The output is the signal.
-pane_exists() { [ -n "$(pane_fmt "$1" '#{pane_id}')" ]; }
-window_exists() {
-    tm list-windows -t "=$2" -F '#{window_name}' 2>/dev/null | grep -qxF "$1"
-}
-
-store() { "$SESSIONS_SH" "$@"; }
-record_of_pane() { pane_fmt "$1" '#{@aitask_record}'; }
-record_field() { store show "$1" 2>/dev/null | sed -n "s/^$2://p"; }
-
-# An agent window rooted in the project. Echoes "<agent_pane> <companion_pane>".
-make_agent_window() {
-    local window="$1"
-    local agent companion comp_pid
-    agent="$(tm new-window -d -t "=$SESSION" -n "$window" -c "$ROOT" \
-        -P -F '#{pane_id}' "$FAKE_AGENT")"
-    companion="$(tm split-window -d -t "$agent" -c "$ROOT" \
-        -P -F '#{pane_id}' "sleep 1000")"
-    comp_pid="$(pane_fmt "$companion" '#{pane_pid}')"
-    tm set-option -p -t "$companion" @aitask_monitor_kind "minimonitor:$comp_pid"
-    printf '%s %s\n' "$agent" "$companion"
-}
-
-wait_for_record_state() {
-    local rid="$1" want="$2" i=0
-    while [ "$i" -lt 120 ]; do
-        [ "$(record_field "$rid" state)" = "$want" ] && return 0
-        sleep 0.1
-        i=$((i + 1))
-    done
-    return 1
-}
-
-wait_for_ready() {
-    local pane="$1" rid="$2" i=0
-    while [ "$i" -lt 120 ]; do
-        [ "$(pane_fmt "$pane" '#{@aitask_standin_ready}')" = "$rid" ] && return 0
-        sleep 0.1
-        i=$((i + 1))
-    done
-    return 1
-}
-
-# Set / clear the replacement agent's environment for ONE case.
-agent_env() { printf 'export %s\n' "$@" > "$AGENT_ENV_FILE"; }
-agent_env_clear() { : > "$AGENT_ENV_FILE"; }
+trap cleanup EXIT
 
 # Drop a record when a case is done. Cases share one store (the hook, running
 # inside the pane, reads the SERVER's AITASKS_AGENT_SESSIONS_FILE, so a per-case
@@ -192,25 +144,13 @@ agent_env_clear() { : > "$AGENT_ENV_FILE"; }
 # output in later cases.
 drop_record() { store drop "$1" >/dev/null 2>&1 || true; }
 
-wait_stopped() {
-    local pid="$1" i=0
-    while [ "$i" -lt 100 ]; do
-        case "$(ps -o state= -p "$pid" 2>/dev/null | tr -d ' ')" in
-            T*) return 0 ;;
-        esac
-        sleep 0.1
-        i=$((i + 1))
-    done
-    return 1
-}
-
 # Freeze a fresh agent window and return "<record_id> <pane_id>", with the
 # record's `codeagent_session_id` seeded so a RESUME is possible. Seeding it
 # through the real `upsert` keeps this on the shipped write path.
 make_frozen() {
     local window="$1" session_id="${2:-sess-orig}" agent_string="${3:-claudecode/opus5}"
     local agent companion pane_pid
-    read -r agent companion < <(make_agent_window "$window")
+    read -r agent companion < <(make_agent_window "$SESSION" "$window" "$ROOT")
     sleep 0.3
     pane_pid="$(pane_fmt "$agent" '#{pane_pid}')"
     store upsert --root "$ROOT" --window "$window" \

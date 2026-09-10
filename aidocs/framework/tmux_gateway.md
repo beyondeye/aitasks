@@ -128,6 +128,42 @@ companion-pane section in `tui_conventions.md`. Enumerate it through the gateway
 (`list-panes -F '#{@aitask_shadow_target}'`); never hand-spawn raw `tmux` to
 read or set it.
 
+## `@aitask_*` pane options — the inventory
+
+Pane-scoped tmux **user options** are how the framework attaches identity to a
+pane that a window name cannot distinguish. They are the only server-observable
+per-pane state the monitors and engines read, alongside `#{pane_pid}`.
+`#{pane_current_command}` is a process basename and is **never** identity.
+
+Two properties make them load-bearing, and both cut in a direction that is easy
+to get wrong:
+
+- **They die with the pane.** A recycled `%N` therefore never carries a stale
+  option — which is what lets an option, rather than a pane id, be the join key.
+- **They survive `respawn-pane`.** The process is replaced; the options are not.
+  So an option that must mean "the *current* occupant is up" has to be explicitly
+  cleared (`set-option -pu`) before each respawn, and one that must survive a
+  freeze/restore cycle on the same pane simply does.
+
+| Option | Set by | Cleared by | Read by | Meaning |
+|---|---|---|---|---|
+| `@aitask_shadow_target` | the shadow launcher, to the followed agent's `pane_id` | pane death | agent-list filters, companion cleanup | this pane is an advisory shadow, not an agent |
+| `@aitask_monitor_kind` | the monitor / minimonitor app, on its own pane | pane death | pane classification, companion cleanup | this pane is a monitor companion |
+| `@aitask_record` | the SessionStart hook, or the freeze engine as fallback | `drop`; pane death | freeze engine, restore coordinator, the hook itself | the pane-visible join to its session-store record |
+| `@aitask_frozen` | the freeze engine, immediately before `respawn-pane` | the restore-confirm path; `drop` | pane enumeration, `kill_agent_pane_smart`, companion cleanup, minimonitor auto-spawn occupancy | **authoritative**: this pane is a frozen stand-in |
+| `@aitask_standin_ready` | **the viewer itself**, after mount | freeze engine and restore coordinator, before *every* `respawn-pane`; `drop` | `reconcile` | positive proof the stand-in is up — the one signal that separates "stamped, viewer running" from "stamped, agent still running" |
+| `@aitask_agent_session` | the SessionStart hook, on `$TMUX_PANE` | pane death | freeze engine, when the store has no session id | the code agent's own session id |
+
+Two of these are self-stamped by the app that owns the pane
+(`@aitask_monitor_kind`, `@aitask_standin_ready`) and must stay that way — see
+the companion-pane section in `tui_conventions.md` for why a stamp applied on
+another process's behalf cannot mean what it claims.
+
+`respawn-pane` and `run-shell -b` are ordinary gateway calls like everything
+else here. `run-shell -b` in particular is how a TUI dispatches an operation that
+must **outlive the pane it is issued from** — a freeze or a restore respawns the
+issuing pane, so the coordinator cannot be a child of it.
+
 ## See also
 
 - `aidocs/framework/tui_conventions.md` — single tmux session per project,

@@ -108,87 +108,23 @@ FAKE_AGENT="$PROJECT_DIR/tests/lib/fake_agent.sh"
 FROZEN_SH="$PROJECT_DIR/.aitask-scripts/aitask_frozen.sh"
 SESSIONS_SH="$PROJECT_DIR/.aitask-scripts/aitask_agent_sessions.sh"
 
-cleanup() {
-    PATH="$REAL_PATH" "$REAL_TMUX" kill-server 2>/dev/null || true
-    rm -rf "$FIXTURE_DIR" 2>/dev/null || true
-}
-trap cleanup EXIT
-
-section() { echo; echo "=== $1 ==="; }
-
 # --- fixture helpers ---------------------------------------------------------
+#
+# `tm`, `pane_fmt`, `pane_exists`, `window_exists`, `store`, `record_of_pane`,
+# `record_field`, `section`, `make_agent_window`, `wait_for_record_state`,
+# `wait_for_ready`, `wait_stopped` and `cleanup` are shared with
+# `test_restore_flows_live.sh` and `test_frozen_agents_acceptance.sh` (t1705_8).
+# The variables above (REAL_TMUX, REAL_PATH, SESSIONS_SH, FAKE_AGENT,
+# FIXTURE_DIR) are this file's half of that library's contract.
+#
+# The wait_* helpers poll 100 times at 0.1 s rather than the library's default
+# 120: cases 4 and 5 deliberately wait for a stamp that never arrives, so the
+# budget is a real cost here, not just a failure-path ceiling.
+FROZEN_WAIT_TRIES=100
+# shellcheck source=lib/frozen_fixtures.sh
+. "$PROJECT_DIR/tests/lib/frozen_fixtures.sh"
 
-tm() { "$REAL_TMUX" "$@"; }
-
-pane_fmt() { tm display-message -p -t "$1" "$2" 2>/dev/null; }
-
-# `display-message -p -t <gone pane>` exits ZERO with EMPTY output (measured on
-# tmux 3.x), so the exit status says nothing about whether the pane exists. The
-# output is the only usable signal — and it is why `agent_frozen_ops.pane_facts`
-# and `pane_location` both validate the field count rather than the rc.
-pane_exists() { [ -n "$(pane_fmt "$1" '#{pane_id}')" ]; }
-window_exists() {
-    tm list-windows -t "=$2" -F '#{window_name}' 2>/dev/null | grep -qxF "$1"
-}
-
-# An agent window rooted in a project dir. Echoes "<agent_pane> <companion_pane>".
-# The companion is stamped the way the real minimonitor stamps ITSELF, so the
-# cleanup script and the monitor both classify it as a helper.
-make_agent_window() {
-    local session="$1" window="$2" root="$3"
-    local agent companion comp_pid
-    agent="$(tm new-window -d -t "=$session" -n "$window" -c "$root" \
-        -P -F '#{pane_id}' "$FAKE_AGENT")"
-    companion="$(tm split-window -d -t "$agent" -c "$root" \
-        -P -F '#{pane_id}' "sleep 1000")"
-    comp_pid="$(pane_fmt "$companion" '#{pane_pid}')"
-    tm set-option -p -t "$companion" @aitask_monitor_kind "minimonitor:$comp_pid"
-    printf '%s %s\n' "$agent" "$companion"
-}
-
-store() { "$SESSIONS_SH" "$@"; }
-
-record_of_pane() { pane_fmt "$1" '#{@aitask_record}'; }
-
-record_field() {
-    store show "$1" 2>/dev/null | sed -n "s/^$2://p"
-}
-
-# Wait until a process is in the STOPPED state ('T'). Polling the real state is
-# what makes the paused-coordinator case honest: sleeping a fixed interval and
-# hoping would race, and a race here reads as a spurious LEASE_HELD.
-wait_stopped() {
-    local pid="$1" i=0
-    while [ "$i" -lt 100 ]; do
-        case "$(ps -o state= -p "$pid" 2>/dev/null | tr -d ' ')" in
-            T*) return 0 ;;
-        esac
-        sleep 0.1
-        i=$((i + 1))
-    done
-    return 1
-}
-
-wait_for_record_state() {
-    local rid="$1" want="$2" i=0
-    while [ "$i" -lt 100 ]; do
-        [ "$(record_field "$rid" state)" = "$want" ] && return 0
-        sleep 0.1
-        i=$((i + 1))
-    done
-    return 1
-}
-
-# Wait until the pane's `@aitask_standin_ready` names the record.
-wait_for_ready() {
-    local pane="$1" rid="$2" i=0
-    while [ "$i" -lt 100 ]; do
-        [ "$(pane_fmt "$pane" '#{@aitask_standin_ready}')" = "$rid" ] && return 0
-        sleep 0.1
-        i=$((i + 1))
-    done
-    return 1
-}
+trap cleanup EXIT
 
 tm new-session -d -s "$SESSION" -n scratch -c "$ROOT_A" "sleep 1000"
 tm new-session -d -s "$SESSION_B" -n scratch -c "$ROOT_B" "sleep 1000"

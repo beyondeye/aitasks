@@ -28,15 +28,18 @@ depth: [advanced]
 | Any other key | Forwarded to the focused tmux pane (characters, Ctrl-combos, arrows, Escape) | Preview zone |
 | `s` | Switch tmux focus to the focused pane (`tmux switch-client`) | Pane list zone |
 | `i` | Show the task detail dialog for the focused agent pane (requires a task ID in the window name) | Pane list zone |
-| `k` | Kill the focused pane after confirmation (`tmux kill-pane`) | Pane list zone |
+| `k` | Kill the focused pane after confirmation (`tmux kill-pane`) — or, when it is a [frozen]({{< relref "/docs/tuis/frozenagent" >}}) agent, drop its record and capture | Pane list zone |
 | `n` | Pick the next ready sibling task for the focused agent pane | Pane list zone |
-| `R` | Restart the task running in the focused agent pane | Pane list zone |
+| `R` | Restart the task running in the focused agent pane — or, when that agent is [frozen]({{< relref "/docs/tuis/frozenagent" >}}), restore it | Pane list zone |
 | `L` | Open the log for the focused pane in a separate viewer | Pane list zone |
 | `c` | Pick the shadow's concerns for the focused agent and copy the selected ones to the clipboard (inside the picker: `r` rejects a concern, `t` spins one off as its own draft task, `e` edits the outgoing payload before it is copied, `R` reviews the rejected list, `u` shows any lines that could not be parsed) | Pane list zone |
 | `e` | Launch a shadow companion agent for the focused agent pane | Pane list zone |
 | `E` | Launch a shadow companion agent, choosing the code agent and model first | Pane list zone |
 | `Space` | Cycle the mark on the focused agent: unmarked → prioritized (`★`) → parked (`P`) → unmarked. Stored per user and shared across all your projects | Pane list zone |
-| `P` | Hide or show parked agents in the pane list (in-memory, per monitor instance) | Pane list zone |
+| `P` | Hide or show parked **and frozen** agents in the pane list — one filter over both (in-memory, per monitor instance) | Pane list zone |
+| `f` | Freeze the focused agent: its process ends, its output is captured and kept (confirms first) | Pane list zone |
+| `Z` | Freeze every agent on this machine, across all projects and including parked ones (confirms, naming the count) | Pane list zone |
+| `p` | Re-pick a frozen agent's task. Frozen-only: on a live card it reports that there is nothing to re-pick | Pane list zone |
 
 #### Monitor Controls
 
@@ -131,6 +134,13 @@ precedence the card badges use — waiting for input, then done, then idle — s
 every agent is counted exactly once. An agent whose task is finished but which is
 sitting on a prompt counts as `awaiting`, matching its `PROMPT` badge.
 
+Agents that are no longer being watched sit outside that partition, in two
+further terms: `N parked` and `N frozen` (`Np` and `Nf` in minimonitor's narrow
+bar). They are disjoint from the three above and from each other — an agent that
+is both frozen and carries a parked mark is counted once, as frozen — and both
+are shown whether or not `P` is hiding those rows, which makes them the one place
+a hidden agent is still accounted for.
+
 **Cross-session focus from the main monitor:** pressing `Enter` on a pane that belongs to another session teleports the attached tmux client to that pane via `switch-client` + `select-window` + `select-pane`.
 
 **Handoff between the two TUIs:** pressing `m` (lowercase) inside a minimonitor switches tmux focus to the main monitor window but does **not** alter the main monitor's multi-session flag. Each TUI's `M` toggle is independent — if you want both TUIs in the same mode, toggle each one.
@@ -149,6 +159,11 @@ Pressing `z` cycles through six preview size presets:
 | `XL_9` | auto | auto | Sized so the pane-list fits 9 agents; preview takes the rest |
 | `XL_6` | auto | auto | Sized so the pane-list fits 6 agents; preview takes the rest |
 | `XL_3` | auto | auto | Sized so the pane-list fits 3 agents; preview takes the rest (largest preview) |
+
+Two kinds of agent have no output to preview, and each says so rather than
+rendering blank: a parked agent shows `This agent is parked — press Space to
+unpark it.`, and a [frozen]({{< relref "/docs/tuis/frozenagent" >}}) one shows
+`This agent is frozen — press R to restore or p to re-pick.`
 
 The `XL_N` presets are **terminal-aware**: they compute the section height from the current terminal height so the pane-list always has room for N agent cards (2 lines each). Resizing the terminal while in an `XL_N` preset re-applies the sizing. A notification shows the new size label when you cycle.
 

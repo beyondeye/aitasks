@@ -44,13 +44,15 @@ from monitor.tmux_monitor import (  # noqa: E402
 )
 from monitor.tmux_control import TmuxControlState  # noqa: E402
 import agent_marks  # noqa: E402
+from rich.markup import escape  # noqa: E402
 from monitor.monitor_shared import (  # noqa: E402
     _ansi_to_rich_text, _TASK_ID_RE, GateSummaryCache, TaskInfo, TaskInfoCache,
     workflow_phase,
-    TaskDetailDialog, KillConfirmDialog, NextSiblingDialog, ChooseSiblingModal,
+    TaskDetailDialog, KillConfirmDialog, FreezeConfirmDialog, NextSiblingDialog, ChooseSiblingModal,
     AgentMarksMixin, ConcernBlockInspectModal, ConcernPickerModal,
     ShadowRejectionsMixin, STATE_STYLE_DONE,
-    format_compare_mode_glyph, format_mark_glyph, format_pane_status,
+    format_compare_mode_glyph, format_mark_glyph, format_frozen_prefix,
+    format_pane_status,
     format_session_divider, format_shadow_glyph, format_state_dot,
     is_task_completed, uncertified_round_block_msg, unparsed_concerns_msg,
     format_staleness_detail,
@@ -390,6 +392,11 @@ class MonitorApp(
     #: are nowhere near the parked feature. Safe to share: `_refresh_data`
     #: **rebinds** this name every tick and never mutates the set in place.
     _parked_pane_ids: frozenset = frozenset()
+    #: Frozen panes for this tick (t1705_7). A CLASS-LEVEL floor for the same
+    #: reason `_parked_pane_ids` has one: its consumers (the concern offer, the
+    #: signature scan) are exercised by `__new__`-built test apps that never run
+    #: `_refresh_data`.
+    _frozen_pane_ids: frozenset = frozenset()
 
     TITLE = "tmux Monitor"
 
@@ -524,7 +531,18 @@ class MonitorApp(
         Binding("e", "launch_shadow", "Shadow"),
         Binding("E", "launch_shadow_pick", "Shadow (pick)"),
         Binding("space", "toggle_mark", "Mark"),
-        Binding("P", "toggle_parked_visibility", "Parked"),
+        # The action id stays `toggle_parked_visibility` even though it now
+        # hides frozen agents too — it is a persisted key-override identifier
+        # (see `action_toggle_parked_visibility`). Only the label widened.
+        Binding("P", "toggle_parked_visibility", "Parked/frozen"),
+        # Frozen agents (t1705_7). `f`/`Z` are free in BOTH apps, so the two
+        # TUIs read identically; `z` is Zoom here and `R` is Restart, which is
+        # why neither could take the task's originally-proposed keys.
+        Binding("f", "freeze_current", "Freeze"),
+        Binding("Z", "freeze_all", "Freeze all"),
+        # `p` is frozen-only here (the monitor has no pick-by-number); `R` and
+        # `k` keep their live-card meaning and branch INSIDE the action.
+        Binding("p", "repick_frozen", "Re-pick frozen", show=False),
     ]
 
     def __init__(
@@ -663,6 +681,7 @@ class MonitorApp(
         # (t1685). Same "starts empty so a keypress-driven rebuild reuses the
         # last tick's set" contract as `_completed_pane_ids` above.
         self._parked_pane_ids: frozenset[str] = frozenset()
+        self._frozen_pane_ids: frozenset[str] = frozenset()
         # Prioritized-agent marks (t1326): cached reader + purge scheduling.
         #: Advisory shadow-phase stamps queued by the card renderer, flushed
         #: after the rebuild so the render path makes no tmux call (t1598).
@@ -1046,6 +1065,13 @@ class MonitorApp(
             self._parked_pane_ids = frozenset(
                 pid for pid, snap in self._snapshots.items() if snap.parked
             )
+            # Frozen-pane set for THIS tick (t1705_7), same contract. Kept
+            # separate from the parked set rather than merged into it: the
+            # consumers below suppress different things for different reasons,
+            # and a merged set would make "why is this suppressed?" unanswerable.
+            self._frozen_pane_ids = frozenset(
+                pid for pid, snap in self._snapshots.items() if snap.frozen
+            )
             # Completed-pane set for THIS tick (t1322). Must run after
             # update_session_mapping (which may clear the task cache) and before
             # _maybe_auto_switch below, which filters on it.
@@ -1078,12 +1104,13 @@ class MonitorApp(
                     if (
                         snap.pane.category == PaneCategory.AGENT
                         and snap.pane.window_name == target_name
-                        # A parked agent that the filter is hiding has no card
-                        # to focus, so honouring the request would set
+                        # A parked or frozen agent that the filter is hiding has
+                        # no card to focus, so honouring the request would set
                         # `_focused_pane_id` to a pane the list does not render
-                        # (t1685). With the filter OFF the row exists and the
-                        # request is honoured as before.
-                        and not (self._hide_parked and snap.parked)
+                        # (t1685, t1705_7). With the filter OFF the row exists
+                        # and the request is honoured as before.
+                        and not (self._hide_inactive
+                                 and (snap.parked or snap.frozen))
                     ):
                         self._focused_pane_id = pid
                         saved_pane_id = pid
@@ -1182,7 +1209,8 @@ class MonitorApp(
             # A parked agent raises no auto-offer (t1685): the user asked to stop
             # being told about it, and its shadow's block may be arbitrarily old
             # since the agent itself is no longer being read.
-            if pane_id is not None and pane_id in self._parked_pane_ids:
+            if pane_id is not None and (pane_id in self._parked_pane_ids
+                                        or pane_id in self._frozen_pane_ids):
                 return
             shadow_snap = (
                 self._tick_shadow_snaps.get(pane_id) if pane_id else None
@@ -1428,8 +1456,9 @@ class MonitorApp(
         for pane_id, snap in self._snapshots.items():
             if snap.pane.category != PaneCategory.AGENT:
                 continue
-            if snap.parked:
-                # Parked agents leave the state partition entirely (t1685), so
+            if snap.parked or snap.frozen:
+                # Parked and frozen agents leave the state partition (t1685,
+                # t1705_7), so
                 # they must not land in `done` either — the session bar counts
                 # them under their own term. This also skips their per-pane stat.
                 continue
@@ -1471,7 +1500,7 @@ class MonitorApp(
         # merely *completed*-idle, which needs no attention at all. A PARKED
         # agent never holds focus here (t1685): it has no verdict to need
         # attention with, so auto-switch must be free to move off it.
-        if not current_snap.parked and (
+        if not current_snap.parked and not current_snap.frozen and (
             getattr(current_snap, "awaiting_input", False)
             or (
                 current_snap.is_idle
@@ -1484,7 +1513,7 @@ class MonitorApp(
         awaiting = [
             snap for snap in self._snapshots.values()
             if snap.pane.category == PaneCategory.AGENT
-            and not snap.parked
+            and not snap.parked and not snap.frozen
             and getattr(snap, "awaiting_input", False)
         ]
         if awaiting:
@@ -1495,7 +1524,7 @@ class MonitorApp(
         idle_agents = [
             snap for snap in self._snapshots.values()
             if snap.pane.category == PaneCategory.AGENT and snap.is_idle
-            and not snap.parked
+            and not snap.parked and not snap.frozen
             and snap.pane.pane_id not in self._completed_pane_ids
         ]
         if not idle_agents:
@@ -1634,8 +1663,9 @@ class MonitorApp(
         # shown whether or not `P` is hiding those rows: it is the one place a
         # hidden agent is still accounted for, and a count that appeared and
         # disappeared with a view toggle would be worse than no count at all.
-        live = [a for a in agents if not a.parked]
-        parked_count = len(agents) - len(live)
+        live = [a for a in agents if not a.parked and not a.frozen]
+        frozen_count = sum(1 for a in agents if a.frozen)
+        parked_count = sum(1 for a in agents if a.parked and not a.frozen)
         awaiting_count = sum(1 for a in live if getattr(a, "awaiting_input", False))
         done_count = sum(1 for a in live
                          if a.pane.pane_id in self._completed_pane_ids
@@ -1647,6 +1677,9 @@ class MonitorApp(
         done_str = f"  [{STATE_STYLE_DONE}]{done_count} done[/]" if done_count > 0 else ""
         idle_str = f"  [yellow]{idle_count} idle[/]" if idle_count > 0 else ""
         parked_str = f"  [dim]{parked_count} parked[/]" if parked_count > 0 else ""
+        # Its own term, independent of the `P` filter, counted disjointly from
+        # `parked` — a frozen agent carrying the parked mark is reported once.
+        frozen_str = f"  [dim]{frozen_count} frozen[/]" if frozen_count > 0 else ""
         bar = self.query_one("#session-bar", SessionBar)
         auto_tag = "  [bold yellow]\\[AUTO][/]" if self._auto_switch else ""
         # Pre-fetched by `_refresh_data` (t1622). `None` means this call brought
@@ -1683,6 +1716,7 @@ class MonitorApp(
                 f"{done_str}"
                 f"{idle_str}"
                 f"{parked_str}"
+                f"{frozen_str}"
                 f"{auto_tag}"
                 f"{desync}"
                 f"{state_badge}"
@@ -1696,6 +1730,7 @@ class MonitorApp(
                 f"{done_str}"
                 f"{idle_str}"
                 f"{parked_str}"
+                f"{frozen_str}"
                 f"{auto_tag}"
                 f"{desync}"
                 f"{state_badge}"
@@ -1718,6 +1753,16 @@ class MonitorApp(
         # between _compute_completed_panes and this call would flip the identity
         # gate and leave the badge disagreeing with the session bar and the
         # auto-switch decision for a tick.
+        if snap.frozen:
+            # Checked BEFORE parked, for the reason the capture partition
+            # states: the two can both be true of one pane, and frozen is the
+            # stronger fact. Same "nothing capture-derived on an uncaptured
+            # pane" rule as the parked branch below.
+            return (
+                f" {format_frozen_prefix(self._mark_kind(snap))} "
+                f"{snap.pane.window_index}:{snap.pane.window_name} "
+                f"({snap.pane.pane_index})  [dim]frozen[/]"
+            )
         if snap.parked:
             # Deliberately the WHOLE row (t1685). Every other element here is
             # either capture-derived (state dot, status badge, compare-mode
@@ -1827,7 +1872,7 @@ class MonitorApp(
                 # built below (t1685). Filtering after that comparison would
                 # leave the in-place fast path seeing an unchanged pane-id list,
                 # so pressing P — or parking an agent — would not rebuild at all.
-                if self._hide_parked and snap.parked:
+                if self._hide_inactive and (snap.parked or snap.frozen):
                     continue
                 agents.append(snap)
             elif snap.pane.category == PaneCategory.OTHER:
@@ -1950,6 +1995,20 @@ class MonitorApp(
             header.update("[bold]Content Preview[/]")
             preview.styles.min_width = 0
             preview.update("[dim]Focus an agent or pane to see its output[/]")
+            self._preview_rendered_lines = []
+            self._last_preview_pane_id = self._focused_pane_id
+            return
+
+        # A frozen pane IS in `_snapshots` (with an empty `content`), so it
+        # passes the guard above and would render blank — indistinguishable from
+        # a broken capture. Checked before parked, as everywhere else (t1705_7).
+        if self._snapshots[self._focused_pane_id].frozen:
+            header.update("[bold]Content Preview[/]")
+            preview.styles.min_width = 0
+            preview.update(
+                "[dim]This agent is frozen — press R to restore or p to "
+                "re-pick.[/]"
+            )
             self._preview_rendered_lines = []
             self._last_preview_pane_id = self._focused_pane_id
             return
@@ -2294,7 +2353,8 @@ class MonitorApp(
             # Parked agents carry no concern badge (t1685) — their row renders
             # the parked placeholder and nothing else, so a signature computed
             # here would have nowhere to show and would age silently.
-            if followed in self._parked_pane_ids:
+            if (followed in self._parked_pane_ids
+                    or followed in self._frozen_pane_ids):
                 continue
             sig = concern_block_signature(snap.content)
             if sig is None and snap.pane.width < _SENTINEL_SAFE_COLS:
@@ -2686,7 +2746,7 @@ class MonitorApp(
         if pane_id is None:
             return
         snap = self._snapshots.get(pane_id)
-        if snap is None or not snap.parked:
+        if snap is None or not (snap.parked or snap.frozen):
             return
         self._focus_next_visible_card(pane_id)
 
@@ -2701,7 +2761,7 @@ class MonitorApp(
         """
         pane_id = self._get_focused_pane_id()
         await super().action_toggle_mark()
-        if pane_id and self._hide_parked:
+        if pane_id and self._hide_inactive:
             snap = self._snapshots.get(pane_id)
             # `_cycle_mark_for` already re-read the store, so the mark is current
             # even though this tick's snapshot predates the write.
@@ -3471,6 +3531,41 @@ class MonitorApp(
         except OSError as exc:
             self.notify(f"Failed to launch log viewer: {exc}", severity="error")
 
+    def _confirm_drop_frozen(self, snap) -> None:
+        """Confirm before retiring a frozen record — the capture is the only
+        copy of that agent's output, and dropping deletes it."""
+        window = snap.pane.window_name
+
+        def confirmed(yes: bool | None) -> None:
+            if yes:
+                self._drop_frozen(snap)
+
+        self.push_screen(
+            FreezeConfirmDialog(
+                "Drop this frozen agent?",
+                f"[bold]{escape(window)}[/]\n\n"
+                "[bold red]Its captured output is deleted[/] along with the "
+                "record, and the stand-in pane is closed. This cannot be "
+                "undone — restore or re-pick it instead if you still want it.",
+                # The button must name THIS verb, not the screen's default one:
+                # a "Freeze" button here would read as the reversible operation
+                # while deleting the only copy of the agent's output (t1705_7).
+                confirm_label="Drop",
+                destructive=True,
+            ),
+            confirmed,
+        )
+
+    def _current_agent_snapshot(self):
+        """The focused card — this app's "the agent I am on".
+
+        The same target `k` (kill), `R` (restart) and `space` (mark) already act
+        on, so the frozen keys introduce no new selection concept. Cards that
+        are merely visible are never acted on.
+        """
+        pane_id = self._get_focused_pane_id()
+        return self._snapshots.get(pane_id) if pane_id else None
+
     def action_kill_pane(self) -> None:
         """Show kill confirmation dialog for the focused pane."""
         if self._monitor is None:
@@ -3481,6 +3576,13 @@ class MonitorApp(
             return
         snap = self._snapshots.get(pane_id)
         if not snap:
+            return
+        if self._is_frozen(snap):
+            # A frozen pane holds a stand-in viewer, not an agent: nothing to
+            # kill, and what `k` means here is "retire this record and its
+            # capture". Routed to the leased, preflighted
+            # `aitask_frozen.sh drop` — see `_drop_frozen` (t1705_7).
+            self._confirm_drop_frozen(snap)
             return
         task_info = None
         task_id = self._task_cache.get_task_id_for_pane(snap.pane)
@@ -3646,6 +3748,15 @@ class MonitorApp(
             return
         snap = self._snapshots.get(pane_id)
         if not snap:
+            return
+        if self._is_frozen(snap):
+            # On a FROZEN card, "restart this agent" IS "restore it" — the
+            # process already ended and its session is on disk. Guarded here
+            # rather than in the binding so `R` keeps its ordinary restart
+            # meaning on a live card (t1705_7). Note this runs BEFORE the idle
+            # check below: a frozen pane is never "idle", it has no verdict at
+            # all, so that check would reject it with a misleading reason.
+            self.action_restore_frozen()
             return
         if not snap.is_idle:
             self.notify(

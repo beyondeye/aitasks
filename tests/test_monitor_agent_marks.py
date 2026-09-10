@@ -37,7 +37,8 @@ from monitor.monitor_core import (  # noqa: E402
     PaneCategory, PaneSnapshot, TmuxPaneInfo,
 )
 from monitor.monitor_shared import (  # noqa: E402
-    MARK_EMPTY_GLYPH, MARK_GLYPH, PARK_GLYPH, format_mark_glyph,
+    FROZEN_GLYPH, MARK_EMPTY_GLYPH, MARK_GLYPH, PARK_GLYPH,
+    format_frozen_prefix, format_mark_glyph,
 )
 
 # `#mini-key-hints` carries `padding: 0 1`, leaving this many usable columns.
@@ -164,14 +165,39 @@ class GlyphFormatterTests(unittest.TestCase):
                 format_mark_glyph(bad)
 
     def test_glyphs_are_single_column_and_distinct(self):
-        for glyph in (MARK_GLYPH, MARK_EMPTY_GLYPH, PARK_GLYPH):
+        # FROZEN_GLYPH joins the set (t1705_7). It is NOT a mark kind — it
+        # composes beside one — but it lands in the same one-cell column
+        # neighbourhood, so it must satisfy the same distinctness rule.
+        glyphs = (MARK_GLYPH, MARK_EMPTY_GLYPH, PARK_GLYPH, FROZEN_GLYPH)
+        for glyph in glyphs:
             self.assertEqual(len(glyph), 1)
-        self.assertEqual(
-            len({MARK_GLYPH, MARK_EMPTY_GLYPH, PARK_GLYPH}), 3
-        )
+        self.assertEqual(len(set(glyphs)), len(glyphs))
         # Must not collide with the live-state glyphs sharing the row.
-        for glyph in (MARK_GLYPH, MARK_EMPTY_GLYPH, PARK_GLYPH):
+        for glyph in glyphs:
             self.assertNotIn(glyph, {"●", "◆", "≈", "="})
+
+    def test_the_frozen_glyph_is_not_a_mark_kind(self):
+        """`format_mark_glyph` is total over the three `agent_marks` kinds and
+        raises on anything else. Frozen composes WITH a mark rather than being
+        one, so adding it as a fourth kind would break the coexistence the
+        feature is built on."""
+        with self.assertRaises(ValueError):
+            format_mark_glyph("frozen")
+
+    def test_the_frozen_prefix_composes_the_mark_glyph(self):
+        """The two-cell prefix keeps the mark visible on a frozen row, which is
+        what makes `space` still meaningful there."""
+        for kind, glyph in ((agent_marks.KIND_NONE, MARK_EMPTY_GLYPH),
+                            (agent_marks.KIND_PRIORITY, MARK_GLYPH),
+                            (agent_marks.KIND_PARKED, PARK_GLYPH)):
+            with self.subTest(kind=kind):
+                plain = Text.from_markup(format_frozen_prefix(kind)).plain
+                self.assertEqual(plain, f"{glyph}{FROZEN_GLYPH}")
+
+    def test_the_frozen_prefix_still_raises_on_an_unknown_kind(self):
+        """It delegates to `format_mark_glyph`, so the guard is not lost."""
+        with self.assertRaises(ValueError):
+            format_frozen_prefix("sideways")
 
 
 class CardBuilderTests(_MarksFixture):

@@ -1,5 +1,9 @@
 {
   "coverage": {
+    "0046": {
+      "CaskaydiaMono Nerd Font": true,
+      "JetBrainsMono Nerd Font": true
+    },
     "0050": {
       "CaskaydiaMono Nerd Font": true,
       "JetBrainsMono Nerd Font": true

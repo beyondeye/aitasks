@@ -170,6 +170,32 @@ def restore_ack_grace(root: "str | os.PathLike | None" = None) -> float:
     return configured if configured > 0 else RESTORE_ACK_GRACE
 
 
+#: Slack added on top of dispatch + ack grace before a watcher gives up on a
+#: restore. It absorbs the store write and the watcher's own poll cadence, not
+#: the coordinator's waiting — that part is :func:`restore_ack_grace`.
+RESTORE_SETTLE_SLACK = 10.0
+
+
+def restore_settle_timeout(root: "str | os.PathLike | None" = None, *,
+                           dispatch_grace: float) -> float:
+    """How long a UI may watch a dispatched restore before reporting a stall.
+
+    A watcher's deadline must be derived from the coordinator's OWN waiting,
+    never fixed: `agent_restore` gives a `restoring` record up to
+    :func:`restore_ack_grace` seconds to be acknowledged by its replacement
+    agent's SessionStart hook before it may be liveness-confirmed instead. A
+    watcher whose deadline is shorter than that grace warns and stops its timer
+    while the restore is still legitimately in flight, so a project that raised
+    the grace gets a spurious "still restoring" on every successful restore and
+    never sees the success.
+
+    At the default grace this returns exactly the 40.0s the first watcher
+    hardcoded (10 dispatch + 20 ack + 10 slack) — the value was right for the
+    default and wrong as a constant.
+    """
+    return dispatch_grace + restore_ack_grace(root) + RESTORE_SETTLE_SLACK
+
+
 # --- seams ------------------------------------------------------------------
 
 
