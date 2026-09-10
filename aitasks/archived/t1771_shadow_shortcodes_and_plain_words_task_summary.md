@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [shadow, claudeskills]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ risk_mitigation_tasks: [1780]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/fable5_1
 created_at: 2026-09-09 19:31
-updated_at: 2026-09-10 12:16
+updated_at: 2026-09-10 12:17
+completed_at: 2026-09-10 12:17
 ---
 
 ## Goal
@@ -158,3 +159,14 @@ Two additions to the shadow companion skill (`/aitask-shadow`):
 > **✅ gate:plan_approved** run=2026-09-10T08:33:51Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-09-10T09:05:40Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-10T09:17:37Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:21202acf56ea96a7
+
+> **✅ gate:risk_evaluated** run=2026-09-10T09:17:37Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1771/risk_evaluated_2026-09-10T09:17:37Z-risk_evaluated-a1.log`
