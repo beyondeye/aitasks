@@ -640,3 +640,16 @@ Deviations from the approved plan, recorded as they land:
   shipped writer, resolver or adapter. The `| Code | Layer | Meaning |` row
   shape in those two pages **is** the guard's contract: changing a row's shape,
   not just its text, breaks it.
+- **Follow-ups spawned at review:** t1782 (`fix_docs_readme_stale_links`,
+  `bug`, `followup_kind: upstream_defect`) carries the three `docs/README.md`
+  defects above. An advisory note
+  (`2026-09-10T09:45:20Z.fa0102514dce66684a98233f`, `from_verified=yes`) went to
+  t1657_7, pointing it at the stale parent-plan lines (76-77, 341, 492) and at the
+  pages that document the outputs its checklist verifies. Live delivery was
+  `LIVE_NONE:unlocked`, so it surfaces when t1657_7 is picked.
+- **Step 9 gate dispatch in current-branch mode:** Step 7's `should-self-record`
+  deferred `risk_evaluated` to "the Step-9 orchestrator", but Step 9 invokes
+  `ait gates run` only inside its separate-branch (merge) block. On this
+  current-branch task it was run explicitly, with Step 9's own capture block,
+  before archival — `risk_evaluated: pass`, `archive-ready` → `ALL_PASS` —
+  rather than letting the archiver refuse on `GATE_PENDING` first.
