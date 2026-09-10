@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: low
+risk_goal_achievement: low
 effort: medium
 depends: [t1747_1]
 issue_type: bug
@@ -163,3 +165,5 @@ code must add none.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-09-10T09:48:09Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-09-10T12:13:22Z status=pass attempt=1 type=human
