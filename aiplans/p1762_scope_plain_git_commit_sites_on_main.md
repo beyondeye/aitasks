@@ -542,3 +542,101 @@ that half the control cannot tell the filter from its absence.
 Cleanup, archival and merge follow `task-workflow` Step 9 as normal. Output
 branch `main`; this task works on the current branch (profile `fast`), so there
 is no task branch to merge.
+
+## Final Implementation Notes
+
+- **Actual work done:** 26 instructed plain-`git commit` sites on `main`
+  (A1–A26; the task body named 4). 24 now name their paths after `--`; the 2
+  that cannot (A13 merge commit, A18 Claude Code Web sandbox) carry a
+  line-scoped `<!-- unscoped-commit-ok: <reason> -->` marker. The `add` is
+  deleted wherever every path is tracked — all 19 "always tracked" paths were
+  checked with `git ls-files --error-unmatch`, including
+  `.claude/settings.local.json` — and filtered to untracked targets where a
+  site's set is computed and can mix (A4–A8, A10, A22). Every converted site
+  verifies with `git show --stat <sha>`, the SHA read from the commit's own
+  `[<branch> <sha>]` line. Runtime-generated lists (A10, A22) hold the commit
+  inside an `if`. `task-fold-marking.md:13` was reworded (prose about a script,
+  not an instruction). New canonical section "Never instruct a bare `git commit`
+  on `main`" in `skill_authoring_conventions.md`; pointers from `ait-git`,
+  `shell_conventions` and the website page. Guard seam 4 in
+  `tests/test_no_unscoped_task_commit.sh`, reusing seam 3's enumeration, join,
+  quote stripping, segmenter and mention rule, with 22 new controls. Renders
+  (12 tracked `-remote-` files) and 11 goldens regenerated.
+- **Deviations from plan:**
+  - Heredoc sites (A14–A17) use `git commit -F - -- <paths> <<'EOF'`, not the
+    planned `-m "$(cat <<'EOF' …)" -- <paths>`: the planned form puts the
+    pathspec on the heredoc's closing line, which the scanner never joins, so
+    every heredoc site would have stayed red permanently. `-F -` verified
+    (partial commit, multi-line message intact, foreign entry untouched), and
+    both shapes are pinned by fixtures.
+  - **The index claim at several sites was wrong and is corrected.** Measured in
+    all four combinations: a *successful* `git commit -- P` sets `P`'s index
+    entry to what it committed whether or not `P` was `add`ed; only a *failed*
+    commit discriminates (no `add` keeps a concurrent session's staged entry,
+    `add` has already clobbered it). The misleading "an `add` of a tracked path
+    replaces the index entry a concurrent session staged for it" was removed
+    from 5 sites and the guard's failure message; the canonical doc carries the
+    failure-qualified statement. The force-overwrite control was re-specified
+    around the failure path accordingly.
+  - Seam 4 does not fail closed on **unformatted** prose (seam 3 does): "the
+    path-scoped git commit failed" and similar are real English in this tree.
+    An unformatted occurrence counts only when invocation-shaped
+    (`git commit -…`). Five real false positives cleared; both directions pinned.
+  - A22 enumerates from §2–§5's own edit lists, not a grep — a grep for
+    `<newvalue>` matches common words — and gained the untracked filter, since
+    regenerated goldens can be new files.
+  - A3: the plan's survivor list kept its `add`, but all three seed files are
+    tracked, so the plan's own rule deletes it.
+  - The seam-separation control is stated as "no site reported by both seams",
+    not "no `md_` fixture reaches seam 4": `portrait git commit` is a seam-3
+    negative and a genuine plain-`git commit` token sequence, correctly reported
+    once by seam 4.
+- **Issues encountered:**
+  - Guard wall time 56s → 60–66s from the widened `MD_JOIN_AWK` emit filter;
+    acceptable, not hoisted.
+  - A display bug in the new seam's own report: `printf '%s'` of a multi-line
+    value prefixed only the first `EXCEPTION:` line, hiding the second
+    exception. Fixed (per-line loop).
+  - `main` advanced mid-session (`29d025d1e`, t1772, `install.sh` + its test);
+    no intersection with this change. A concurrent session is editing
+    `aitask-shadow` (a shortcodes feature) in the shared checkout, which makes
+    `test_skill_render_aitask_shadow.sh` fail against the committed golden —
+    their in-flight work, not this change (shadow reads only `profile.name`;
+    no shadow file is in this commit).
+  - The stale `.claude/skills/*-_skillrun_416236_1779701547729-/` render dirs
+    carry frozen pre-change copies of A14/A15; gitignored, out of the scan's
+    scope, left alone.
+- **Key decisions:** (user) narrowly scoped hardening — no main-branch commit
+  helper, no `git add` manifest, one exception form. Residuals recorded rather
+  than enforced: an agent-substituted placeholder pathspec that expands to
+  nothing; a later edit restoring tracked-path staging; after a *failed* commit
+  the untracked paths you staged stay staged (the unstage-on-failure half a
+  helper would buy); and same-file concurrency, which no pathspec can fix.
+- **`scanner_red_proof` (pre-phase) — evidence.** Built complete and uncommitted
+  before any site edit. The FINAL shipped guard, replayed against the literal
+  pre-conversion SHA:
+  ```bash
+  git worktree add --detach "$SCRATCH/t1762-preproof" 9cb61927c8910812c2c6a3fa852663cf7ad9bd8e
+  cp tests/test_no_unscoped_task_commit.sh "$SCRATCH/t1762-preproof/tests/"
+  ( cd "$SCRATCH/t1762-preproof" && bash tests/test_no_unscoped_task_commit.sh )
+  # -> exit 1, "100 passed, 1 failed", naming exactly the 26 measured sites
+  git worktree remove --force "$SCRATCH/t1762-preproof"
+  ```
+  Executed: exit 1, 26 sites, identical to the pre-edit measurement.
+- **`foreign_staged_control` (post-phase) — evidence**, on the literal text
+  extracted from the files: A14's pre-conversion text (from `9cb61927c`)
+  committed `foreign.txt ours.sh` and consumed the foreign entry; the converted
+  text committed `ours.sh` only and left `foreign.txt` staged. Empty-list:
+  A22 and A10 with empty lists created no commit; the rejected
+  `(( … )) || { …; return 0; }` form printed bash's `return` error and
+  committed the foreign file anyway. Force-overwrite (A10, failed commit): the
+  filter kept the concurrent `FOREIGN` entry; with the filter removed (mutation
+  confirmed landed) it was clobbered to `OURS`.
+- **Verification:** guard 101/101; all 15 render tests pass except pickrem /
+  pickweb Test 6 (freshness vs `HEAD`, red until commit by design) and the
+  shadow golden above; Python suite PASSED; `aitask_skill_verify.sh` OK;
+  `test_skill_verify.sh` / `test_skill_dispatch_contract.sh` pass;
+  `check_links.py --build` 0 broken; shellcheck warning classes unchanged.
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_setup.sh:1973 — plain unscoped git commit against the user's project worktree (also :1975, :2304, :2336, :2368, :2414, :2448); :1973/:1975 are gated by a global git diff --cached --quiet, so a foreign pre-staged file both triggers the commit and rides along; the same file already does it right at :3783`
+  - `aidocs/framework/model_reference_locations.md:229 — promote-mode commit names a file set (aitask_codeagent.sh, brainstorm_crew.py, aitask_brainstorm_init.sh, seed/codeagent_config.json) that disagrees with .claude/skills/aitask-add-model/SKILL.md:167-168 (lib/agent_string.sh, aitask_codeagent.sh), and step 6 still locates DEFAULT_AGENT_STRING in aitask_codeagent.sh while the skill says lib/agent_string.sh; one of the two is stale`
