@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [test_infrastructure, minimonitor]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -16,7 +16,8 @@ anchor: 1599
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5
 created_at: 2026-09-09 22:23
-updated_at: 2026-09-10 12:49
+updated_at: 2026-09-10 14:48
+completed_at: 2026-09-10 14:48
 ---
 
 ## Origin
