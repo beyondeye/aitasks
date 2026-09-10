@@ -59,6 +59,14 @@ must fail; all three were run against this file and confirmed failing:
    refused. `LockRefusesUninvitedScrollTests.test_focus_does_not_scroll_while_locked`
    then fails.
 
+WALL-CLOCK IS KEPT OUT OF THESE FIXTURES (t1774). The one timer they reach is
+the app's scroll-lock fail-safe, and when it fires before a tick's restore it
+retires that restore outright — under a loaded xdist pool it did, failing tests
+here and in `tests/test_minimonitor_bottom_pin.py` at random. `_ListHost` makes
+the budget non-binding; `_NON_BINDING_SCROLL_LOCK_TIMEOUT` carries the
+measurement, and `ScrollLockBudgetTests` plus the fail-safe case in
+`LockLifecycleTests` keep the neutralisation honest.
+
 Run: python3 tests/test_minimonitor_scroll_preservation.py
 """
 
@@ -67,6 +75,7 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+import time
 import unittest
 from pathlib import Path
 
@@ -194,6 +203,36 @@ async def _async_empty_mapping():
     return {}
 
 
+#: The app's scroll-restore fail-safe (`_SCROLL_LOCK_TIMEOUT`, 0.5s) is the ONE
+#: wall-clock element these headless fixtures reach, and it decides whether a
+#: tick's `_restore_list_scroll` runs AT ALL: `_abandon_scroll_restore` retires
+#: the generation, so the restore returns at its own `gen` guard and — for a
+#: bottom-pinned list — `_reconcile_anchor` is never called. Measured on a
+#: 24-core box the arm->restore latency ran 21-50ms idle and up to 249ms at
+#: loadavg 10, against a 500ms budget; inside a loaded xdist pool it crossed
+#: (t1774).
+#:
+#: Everything else in these fixtures is pumped, not timed — `_settle` is N
+#: `pilot.pause()` calls and each drains one `call_after_refresh` batch — so
+#: making this budget non-binding makes the modules load-independent.
+#:
+#: This is NOT a bypass of the fail-safe's contract: it is still exercised at
+#: the production value by
+#: `LockLifecycleTests.test_failsafe_unlocks_and_retires_when_the_restore_never_runs`,
+#: and `ScrollLockBudgetTests` below pins, in BOTH directions, that the budget
+#: is what decides.
+_NON_BINDING_SCROLL_LOCK_TIMEOUT = 3600.0
+
+#: A budget the fail-safe always wins with — `ScrollLockBudgetTests`' binding
+#: case. Winning is still WAITED FOR (`_HeldRestore.wait_for_failsafe`), never
+#: assumed: the timer and the restore are independent loop tasks.
+_BINDING_SCROLL_LOCK_TIMEOUT = 0.0001
+
+#: Upper bound on waiting for the fail-safe timer to fire. Reached only if it
+#: never fires at all, which is the failure the waits exist to report.
+_FAILSAFE_WAIT_DEADLINE = 10.0
+
+
 class _ListHost(mm.MiniMonitorApp):
     """The REAL `MiniMonitorApp`, with only its boot sequence neutralised.
 
@@ -214,6 +253,9 @@ class _ListHost(mm.MiniMonitorApp):
     40-column layout with the real chrome above it. Only `__init__` is narrowed,
     to the two arguments that have no default.
     """
+
+    # Wall-clock out of the fixture (t1774) — see `_NON_BINDING_SCROLL_LOCK_TIMEOUT`.
+    _SCROLL_LOCK_TIMEOUT = _NON_BINDING_SCROLL_LOCK_TIMEOUT
 
     def __init__(self) -> None:
         super().__init__(session="t1539", project_root=REPO_ROOT)
@@ -639,12 +681,22 @@ class LockLifecycleTests(_RefreshCase):
         """
         async def scenario(app, container, pilot):
             app._restore_list_scroll = lambda gen, attempt=0: None
+            # `_ListHost` makes the budget non-binding (t1774); this is the test
+            # OF the fail-safe, so it opts back in to the production value —
+            # derived, never restated, so the two cannot drift.
+            app._SCROLL_LOCK_TIMEOUT = mm.MiniMonitorApp._SCROLL_LOCK_TIMEOUT
             gen_before = app._scroll_restore_gen
             await app._refresh_data()
-            await _settle(pilot, 4)
+            # Read at once: nothing clears the lock before the fail-safe does
+            # (the restore is a no-op), so any later read only widens the window
+            # in which a slow box lets the timer fire first.
             locked_immediately = app._list_scroll_lock
-            # Wait past the acquisition-line fail-safe.
-            await asyncio.sleep(app._SCROLL_LOCK_TIMEOUT + 0.3)
+            # Wait for the fail-safe by CONDITION, not by a fixed margin past its
+            # delay — a margin is the defect class t1774 removes. The deadline is
+            # reached only if the timer never fires, which is the contract here.
+            deadline = time.monotonic() + _FAILSAFE_WAIT_DEADLINE
+            while app._list_scroll_lock and time.monotonic() < deadline:
+                await pilot.pause()
             await _settle(pilot, 4)
             return (gen_before, locked_immediately, app._list_scroll_lock,
                     app._pending_scroll_state, app._scroll_restore_gen)
@@ -664,6 +716,158 @@ class LockLifecycleTests(_RefreshCase):
             "the fail-safe unlocked but did not RETIRE the generation — a late "
             "_restore_list_scroll would still pass its own guard",
         )
+
+
+class _HeldRestore:
+    """Hold a tick's first `_restore_list_scroll`, and witness the fail-safe (t1774).
+
+    The fail-safe timer and the restore are independent loop tasks — Textual's
+    `Timer._run` sleeps in its own task and invokes the callback directly, while
+    the restore runs from `call_after_refresh` on the screen refresh — so nothing
+    orders them. A test that needs one to happen first must ARRANGE it, or it can
+    flake itself. This is `EarlyRestoreCallbackTests._with_early_first_restore`'s
+    interception, holding the restore instead of firing it early:
+
+    * `call_after_refresh` captures the first restore's `(gen, attempt)` instead
+      of scheduling it, and records the gen of every `_release_list_scroll_lock`.
+    * `_abandon_scroll_restore` is wrapped to record every call carrying a `gen`.
+      The fail-safe lambda looks it up at call time, so the wrapper sees it; the
+      only other gen-bearing caller is the restore's own `NoMatches` branch,
+      which cannot run while the restore is held. A recorded gen IS the
+      fail-safe.
+    * `release()` runs the real restore with the captured arguments. Both of its
+      branches end by scheduling `_release_list_scroll_lock` for their gen and
+      its guards schedule nothing, so "a release was scheduled for the gen" is a
+      branch-agnostic witness that it ran past them. Pump frames before reading
+      it: the mid-list branch may first go round its retry ladder.
+    """
+
+    def __init__(self, app) -> None:
+        self.app = app
+        self.captured = None
+        self.failsafe_gens: list[int] = []
+        self.released_gens: list[int] = []
+
+    def __enter__(self):
+        app = self.app
+        real_cafr = app.call_after_refresh
+        real_abandon = app._abandon_scroll_restore
+
+        def call_after_refresh(callback, *args, **kwargs):
+            if self.captured is None and callback == app._restore_list_scroll:
+                self.captured = args
+                return True
+            if callback == app._release_list_scroll_lock and args:
+                self.released_gens.append(args[0])
+            return real_cafr(callback, *args, **kwargs)
+
+        def abandon(gen=None):
+            if gen is not None:
+                self.failsafe_gens.append(gen)
+            return real_abandon(gen)
+
+        self._saved = (real_cafr, real_abandon)
+        app.call_after_refresh = call_after_refresh
+        app._abandon_scroll_restore = abandon
+        return self
+
+    def __exit__(self, *exc):
+        self.app.call_after_refresh, self.app._abandon_scroll_restore = self._saved
+        return False
+
+    def _failsafe_retired_the_hold(self) -> bool:
+        return (self.captured is not None
+                and self.captured[0] in self.failsafe_gens
+                and self.app._scroll_restore_gen > self.captured[0])
+
+    async def wait_for_failsafe(self, pilot) -> None:
+        """Pump until the fail-safe has OBSERVABLY retired the held tick."""
+        deadline = time.monotonic() + _FAILSAFE_WAIT_DEADLINE
+        while not self._failsafe_retired_the_hold():
+            if time.monotonic() >= deadline:
+                if self.captured is None:
+                    raise AssertionError(
+                        "no restore was ever scheduled, so there was nothing to "
+                        "hold — the case is vacuous")
+                raise AssertionError(
+                    f"the scroll-lock fail-safe never retired gen "
+                    f"{self.captured[0]} within {_FAILSAFE_WAIT_DEADLINE}s "
+                    f"(recorded fail-safe gens: {self.failsafe_gens})")
+            await pilot.pause()
+
+    def release(self) -> None:
+        """Run the held restore for real. A no-op when nothing was captured."""
+        if self.captured is not None:
+            self.app._restore_list_scroll(*self.captured)
+
+
+class ScrollLockBudgetTests(_RefreshCase):
+    """The fail-safe's BUDGET decides whether a tick's restore runs (t1774).
+
+    This is the executable reason `_ListHost` makes the budget non-binding. Both
+    directions are pinned: at a binding budget the fail-safe retires the tick
+    and the restore is refused; at the fixture budget it never fires and the
+    restore runs. The ordering is ARRANGED by `_HeldRestore`, never assumed.
+
+    It pins the CAUSE — the restore is refused once the fail-safe has retired
+    the tick, bumping its generation and dropping its snapshot (either of the
+    restore's guards then refuses) — not the symptom a pinned list then shows: a
+    negative `scroll_y` that the degenerate-range reconcile never corrects.
+    Pinning the symptom would make a benign production behaviour the contract:
+    in the running app the next refresh tick re-captures, restores and
+    reconciles, so it self-heals within one interval, and only a test that
+    drives exactly one tick can see it.
+    """
+
+    def _held_tick(self, budget, *, wait_for_failsafe):
+        async def scenario(app, container, pilot):
+            if budget is not None:
+                app._SCROLL_LOCK_TIMEOUT = budget
+            with _HeldRestore(app) as held:
+                await app._refresh_data()
+                if wait_for_failsafe:
+                    await held.wait_for_failsafe(pilot)
+                else:
+                    await _settle(pilot, 4)
+                fired = list(held.failsafe_gens)
+                gen_at_release = app._scroll_restore_gen
+                held.release()
+                await _settle(pilot)
+                return (held.captured, fired, gen_at_release,
+                        list(held.released_gens))
+        return self._run(scenario)
+
+    def test_a_binding_budget_retires_the_restore_before_it_runs(self):
+        captured, fired, gen_at_release, released = self._held_tick(
+            _BINDING_SCROLL_LOCK_TIMEOUT, wait_for_failsafe=True)
+        self.assertIsNotNone(captured, "no restore was scheduled — vacuous")
+        gen = captured[0]
+        # Preconditions the barrier established, restated so a failure below
+        # cannot be misread as "the fail-safe never fired".
+        self.assertIn(gen, fired)
+        self.assertGreater(gen_at_release, gen)
+        self.assertNotIn(
+            gen, released,
+            "the restore ran past its guards although the fail-safe had already "
+            "retired the tick — the budget no longer decides whether a "
+            "tick's restore runs, so _ListHost's neutralisation is unexplained")
+
+    def test_the_fixture_budget_lets_the_restore_run(self):
+        captured, fired, gen_at_release, released = self._held_tick(
+            None, wait_for_failsafe=False)
+        self.assertIsNotNone(captured, "no restore was scheduled — vacuous")
+        gen = captured[0]
+        self.assertEqual(
+            fired, [],
+            "the fail-safe fired at the fixture budget — _ListHost's "
+            "_SCROLL_LOCK_TIMEOUT is binding again, and every module on this "
+            "host is load-sensitive")
+        self.assertEqual(gen_at_release, gen)
+        self.assertIn(
+            gen, released,
+            "the held restore never scheduled its lock release, so it did not "
+            "run past its guards even with the fail-safe out of the way — the "
+            "binding case above would pass vacuously")
 
 
 if __name__ == "__main__":

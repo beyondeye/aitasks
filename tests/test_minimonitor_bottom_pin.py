@@ -62,6 +62,16 @@ NOT discriminated here, and the reason:
    headless can stand in for it: `App.run_test` settles layout synchronously, so
    a drag always lands exactly on `max_scroll_y` and Textual re-arms on its own.
 
+WALL-CLOCK. The host is the sibling module's `_RefreshHost`, so it inherits a
+non-binding scroll-lock fail-safe (t1774). At the app's real 0.5s budget the
+fail-safe could retire a tick's restore before it ran, and under a loaded xdist
+pool it did: `DegenerateRangeTests` then failed at random with a negative
+offset, because the reconcile that corrects it is reached only through that
+restore. That is why this module runs in the parallel pool rather than the serial
+carve-out. The fail-safe's own contract, and the proof that the budget is what
+decides, live in `tests/test_minimonitor_scroll_preservation.py` — see
+`_NON_BINDING_SCROLL_LOCK_TIMEOUT` there.
+
 Run: python3 tests/test_minimonitor_bottom_pin.py
 """
 from __future__ import annotations
