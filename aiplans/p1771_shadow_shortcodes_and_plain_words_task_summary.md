@@ -521,11 +521,11 @@ at Step 8d ("after" timing).
   routes `>i3` to Advanced without prompting, and never volunteers the task
   summary. Every test in this plan pins *rendered prose*, which is a proxy, not
   proof — a correct-looking rendered instruction can still be mis-followed. ·
-  severity: medium · → mitigation: verify_shadow_shortcodes_live
+  severity: medium · → mitigation: t1780
 - The Step 0 greeting is generated at runtime from Step 3, so "the greeting lists
   every capability with its code" is only checkable by running a shadow; the new
   Test 2s proves the codes and the rule text are *present to be derived from*, no
-  more. · severity: medium · → mitigation: verify_shadow_shortcodes_live
+  more. · severity: medium · → mitigation: t1780
 - `>t`'s degrade paths (no task id; `PLAN_FILE:NOT_FOUND`) are instructions, not
   code, and are the states a real session hits most often. · severity: low · →
   mitigation: verify_shadow_shortcodes_live
