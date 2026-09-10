@@ -302,11 +302,11 @@ No code changes, no tmux.
   as a real viewer-vs-monitor difference). Neither lands before this task, so
   the prose is correct when published and goes stale later · severity: medium
   (residual — corrected after the fact by the spawned follow-up) ·
-  → mitigation: recheck_frozen_docs_after_open_defects
+  → mitigation: t1778
 
 ### Planned mitigations
 - timing: pre-phase | name: reverify_volatile_docs_facts | type: documentation | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — quoted strings drifting between planning and writing | desc: Re-read every quoted source string before writing any page, correcting the plan where the tree has moved.
-- timing: after | name: recheck_frozen_docs_after_open_defects | type: documentation | priority: medium | effort: low | inline_risk: low | added_complexity: high | addresses: goal-achievement — pages describing two open defects' current behaviour go stale when those defects land | desc: Once t1773 and t1766 land, re-check and correct the frozen-agent pages that describe closed-window restore and the viewer-vs-monitor restore deadline.
+- timing: after | name: recheck_frozen_docs_after_open_defects | type: documentation | priority: medium | effort: low | inline_risk: low | added_complexity: high | addresses: goal-achievement — pages describing two open defects' current behaviour go stale when those defects land | desc: Once t1773 and t1766 land, re-check and correct the frozen-agent pages that describe closed-window restore and the viewer-vs-monitor restore deadline. | created: t1778
 
 *Reassessment against the augmented plan (single pass): both levels unchanged.
 The pre-phase converts "the quotes may be stale" into "the quotes are re-read at
