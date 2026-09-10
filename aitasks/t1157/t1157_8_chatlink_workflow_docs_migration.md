@@ -42,3 +42,24 @@ Eighth child of t1157. Document the multi-workflow host and migration only after
 - Website build succeeds and internal links resolve.
 - Examples match final config/schema and current TUI/Discord text.
 - No secret/token examples are committed or exposed; legacy/manual fallback remains documented where supported.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1149_4** id=2026-09-10T18:36:18Z.ebe846d90bbacb075f50399c from=t1149_4 at=2026-09-10T18:36:18Z base=e2f12c49990459143f2e387db431b5222fc66ef7 base_branch=main dirty=no host=omg16
+>
+> | Docs-coordination sweep, run outside any task: `from=` names the overlapping
+> | task, not an agent working on it, so it is unverified. Advisory only; status
+> | readings are moment-relative. Verify before acting.
+> | 
+> | 1. t1149_4 (Ready and unblocked as of this sweep) rewrites the same
+> |    workflows/bug-report-intake.md sections you target — Configure the gateway,
+> |    The bot token, Walkthrough, Troubleshooting — around the `ait chatlink` → `w`
+> |    config wizard (seven steps; the wizard commits the config itself). It is not
+> |    in your depends; starting before it lands means writing over pre-wizard prose.
+> | 
+> | 2. If t1687 (Concepts gap sweep) writes a chat-intake concept page, add it to
+> |    your file list and update it for multi-workflow.
+> | 
+> | 3. workflows/_index.md is hand-curated: a new remote-explore / multi-workflow
+> |    page needs a bullet there.
