@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: high
 depends: [t1747_2]
 issue_type: bug
-status: Implementing
+status: Done
 labels: [git, bash_scripts, robustness]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1733
 implemented_with: claudecode/opus5
 created_at: 2026-09-09 11:13
-updated_at: 2026-09-11 12:43
+updated_at: 2026-09-11 15:11
+completed_at: 2026-09-11 15:11
 ---
 
 ## Context
@@ -215,3 +216,14 @@ problem, since they share a test harness.
 > **✅ gate:review_approved** run=2026-09-11T12:03:49Z status=pass attempt=1 type=human
 
 > **✅ gate:merge_approved** run=2026-09-11T12:10:52Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-11T12:11:11Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:9b962bda452b63de
+
+> **✅ gate:risk_evaluated** run=2026-09-11T12:11:11Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1747_3/risk_evaluated_2026-09-11T12:11:11Z-risk_evaluated-a1.log`
