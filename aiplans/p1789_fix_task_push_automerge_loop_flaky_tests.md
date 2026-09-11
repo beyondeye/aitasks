@@ -299,3 +299,66 @@ orchestrator runs the `risk_evaluated` gate; archive with
   This is the same class as the existing documented `_task_pull_rebase`
   concurrency RESIDUAL · severity: low · → mitigation: none (accepted,
   documented in the constant's comment)
+
+## Final Implementation Notes
+
+- **Actual work done:** Added `AIT_RECONCILE_GIT_OPTS=(-c rerere.enabled=false -c maintenance.auto=false)`
+  to `lib/task_utils.sh`, with the scope rule, the exclusions and the residual
+  in its comment. Applied it at all 13 sites in the plan's table:
+  - `task_utils.sh`: `_task_pull_rebase`'s pull, and `ait_rebase_abort_if_ours`
+    (its runner contract comment updated);
+  - `task_automerge.sh`: `--continue` / `--skip`;
+  - `aitask_sync.sh`: `do_fetch`, the `do_push` refetch, `do_pull_rebase`'s
+    pull (via `task_git`) and all five aborts (now `_ait_data_git`).
+
+  Tests:
+  - Adapted Test 41's positional stub.
+  - Added `test_task_push.sh` Tests 61/62/63 and
+    `test_sync_branch_mode_automerge.sh` Tests 15/16/17, including committed
+    mutant controls for both fetch sites.
+  - Factored `_automerge_replace` into a shared `_replace_once` and added
+    `_sync_replace`.
+- **Deviations from plan:** None in substance. The two post-review corrections
+  are both in the approved plan: the fetches are pinned and the constant is
+  named for the reconciliation window; the trace-only fixtures set
+  `maintenance.autoDetach=false` and assertions anchor on the parent's
+  `run_command:` line.
+- **Issues encountered:**
+  - `main` advanced during the session: `e2f12c499` (t1731) changed
+    `aitask_sync.sh` line numbers mid-planning, and `origin/main` gained t1773
+    (no overlap). The drift check reported `NO_OVERLAP` and the user
+    continued.
+  - The shared worktree holds uncommitted edits belonging to in-flight t1770
+    (`tests/test_check_link_relevance.py`, `website/README.md`,
+    `website/check_link_relevance.py`). They were left untouched and excluded
+    from this commit.
+- **Key decisions / evidence:**
+  - **Step 0 (git 2.55, `GIT_TRACE`).** Unpinned, every command tried spawns
+    `git maintenance run --auto`: fetch (even with nothing new), `pull
+    --rebase`, `rebase --continue`, `rebase --abort`, `merge --ff-only`,
+    `commit`, `push`. Pinned, none do except `push`. That spawn is the
+    local-transport remote's `git-receive-pack` (git unsets
+    `GIT_CONFIG_PARAMETERS` for it), i.e. the remote's own auto-gc, so push
+    was not added. The parent-side `run_command:` line was present at return
+    in 50/50 runs both with and without detach, and nothing arrived late.
+  - **Uncommitted per-site mutant controls** (scratch copies), each with no
+    collateral failures:
+
+    | pin removed | tests red |
+    |---|---|
+    | task_utils pull | 61, 63 |
+    | automerge `--continue` / `--skip` | 61, 63 |
+    | abort | 62 (worktree left wedged `rebase-merge`) |
+    | `aitask_sync` pull | 15, 16, 17 |
+
+  - **Verification:**
+    - repro harness 120/120 (baseline 6/120 failed), with the global
+      `rerere.enabled=true` still set;
+    - 6 concurrent full `test_task_push.sh` runs ×2: 12/12 green, 365/365
+      each (baseline 1/12 red);
+    - `test_sync_branch_mode_automerge.sh` 130/130;
+    - 9 neighbouring suites all pass;
+    - shellcheck at warning level and above: no new findings versus HEAD.
+  - **No suite-wide global-config isolation:** real-config runs exposed this
+    production race, and each new test pins its own config locally.
+- **Upstream defects identified:** None
