@@ -790,9 +790,14 @@ run_sync() {
 # advance survived — otherwise a control observes "no guard" rather than
 # "fail-open guard". They compose; cross-half survival is checked by the caller.
 
-# _automerge_replace <repo> <old> <new> — exactly-once literal replacement.
-_automerge_replace() {
-    python3 - "$1/.aitask-scripts/lib/task_automerge.sh" "$2" "$3" <<'PY'
+# _automerge_replace <repo> <old> <new> — on the fixture's lib/task_automerge.sh.
+_automerge_replace() { _replace_once "$1/.aitask-scripts/lib/task_automerge.sh" "$2" "$3"; }
+# _sync_replace <repo> <old> <new> — on the fixture's aitask_sync.sh (t1789).
+_sync_replace() { _replace_once "$1/.aitask-scripts/aitask_sync.sh" "$2" "$3"; }
+
+# _replace_once <file> <old> <new> — exactly-once literal replacement.
+_replace_once() {
+    python3 - "$1" "$2" "$3" <<'PY'
 import sys
 p, old, new = sys.argv[1:4]
 s = open(p).read()
@@ -1140,6 +1145,186 @@ if install_prefix_a2_probe "$TMP14p/local" \
         _local_log_lacks "$TMP14p" "local: labels"
 fi
 rm -rf "$TMP14p"
+
+# =============================================================================
+# Tests 15-17 (t1789): `ait sync`'s reconciliation window is pinned against
+# rerere and auto-maintenance (AIT_RECONCILE_GIT_OPTS, lib/task_utils.sh).
+#   15     rerere half — MERGE_RR.lock HELD for the whole run, rerere enabled
+#          locally: the race made deterministic.
+#   16/17  maintenance half — nothing in the window spawns `git maintenance
+#          run`: do_fetch, the pull and the loop (16), and the do_push refetch
+#          (17). Observed through GIT_TRACE, each with a committed mutant
+#          control that must see the spawn.
+# =============================================================================
+
+# The spawning PARENT's trace line, written synchronously before the child
+# starts. Never anchor on the child's own lines.
+MAINT_SPAWN="run_command: git maintenance run"
+
+# install_window_trace_shim <bindir> — an argv-keyed PATH shim in the style of
+# install_advance_shim: an invocation whose argv names fetch / pull / rebase
+# runs with GIT_TRACE appended to <bindir>/trace.log, and its argv is logged to
+# <bindir>/git.log. Only those verbs are traced, so a commit outside the window
+# (the sweep's) cannot put a spawn in the log.
+install_window_trace_shim() {
+    local bindir="$1" real_git
+    real_git="$(command -v git)"
+    mkdir -p "$bindir"
+    cat > "$bindir/git" <<SHIMEOF
+#!/usr/bin/env bash
+for _a in "\$@"; do
+    case "\$_a" in
+        fetch|pull|rebase)
+            printf '%s\n' "\$*" >> "$bindir/git.log"
+            GIT_TRACE="$bindir/trace.log" exec "$real_git" "\$@" ;;
+    esac
+done
+exec "$real_git" "\$@"
+SHIMEOF
+    chmod +x "$bindir/git"
+}
+
+# setup_trace_fixture — setup_branch_mode_repos plus the trace shim, with
+# maintenance in the FOREGROUND: an unpinned command's trace is then complete
+# when it returns, so a mutant cannot look clean by beating a detached child to
+# the log. A pinned command's -c outranks this and spawns nothing either way.
+# Echoes the tmpdir.
+setup_trace_fixture() {
+    local tmp
+    tmp="$(setup_branch_mode_repos)"
+    git -C "$tmp/local/.aitask-data" config maintenance.autoDetach false
+    install_window_trace_shim "$tmp/shimbin"
+    echo "$tmp"
+}
+
+# The t1789 mutants: ONE fetch site back to unpinned, the other proven intact.
+install_unpinned_fetch() {
+    local f="$1/.aitask-scripts/aitask_sync.sh"
+    _sync_replace "$1" \
+        '_git_with_timeout "${AIT_RECONCILE_GIT_OPTS[@]}" fetch origin 2>/dev/null || fetch_exit=$?' \
+        '_git_with_timeout fetch origin 2>/dev/null || fetch_exit=$?' \
+        || { _control_install_failed "unpinned do_fetch"; return 1; }
+    _require present "$f" '_git_with_timeout fetch origin 2>/dev/null || fetch_exit=$?' \
+        "t1789: the unpinned do_fetch was not installed" || return 1
+    _require present "$f" '"${AIT_RECONCILE_GIT_OPTS[@]}" fetch origin 2>/dev/null || refetch_exit=$?' \
+        "t1789: the refetch pin was disturbed" || return 1
+    _control_ok
+}
+install_unpinned_refetch() {
+    local f="$1/.aitask-scripts/aitask_sync.sh"
+    _sync_replace "$1" \
+        '_git_with_timeout "${AIT_RECONCILE_GIT_OPTS[@]}" fetch origin 2>/dev/null || refetch_exit=$?' \
+        '_git_with_timeout fetch origin 2>/dev/null || refetch_exit=$?' \
+        || { _control_install_failed "unpinned refetch"; return 1; }
+    _require present "$f" '_git_with_timeout fetch origin 2>/dev/null || refetch_exit=$?' \
+        "t1789: the unpinned refetch was not installed" || return 1
+    _require present "$f" '"${AIT_RECONCILE_GIT_OPTS[@]}" fetch origin 2>/dev/null || fetch_exit=$?' \
+        "t1789: the do_fetch pin was disturbed" || return 1
+    _control_ok
+}
+
+# --- Test 15: rerere half — a held MERGE_RR.lock cannot break the sync ---
+echo "--- Test 15: rerere on + MERGE_RR.lock held -> ait sync still auto-merges ---"
+
+TMP15="$(setup_branch_mode_repos)"
+git -C "$TMP15/local/.aitask-data" config rerere.enabled true
+lock15="$(git -C "$TMP15/local/.aitask-data" rev-parse --path-format=absolute --git-path MERGE_RR.lock)"
+: > "$lock15"
+
+# Positive control (Test 1's shape): an UNPINNED rebase dies on the held lock.
+ctl15="$(cd "$TMP15/local" && git -C .aitask-data fetch -q origin 2>/dev/null
+         git -C .aitask-data rebase origin/aitask-data 2>&1 || true)"
+assert_contains "15: control — an unpinned rebase dies on the held lock" \
+    "MERGE_RR.lock" "$ctl15"
+(cd "$TMP15/local" && git -C .aitask-data -c rerere.enabled=false rebase --abort >/dev/null 2>&1 || true)
+assert_no_rebase_wedge "Test 15 control cleanup" "$TMP15/local"
+
+run_sync "$TMP15"
+assert_eq_trim "15: the conflict still auto-merges" "AUTOMERGED" "$SYNC_OUT"
+assert_eq "15: no unmerged paths remain" "" \
+    "$(git -C "$TMP15/local/.aitask-data" diff --name-only --diff-filter=U 2>/dev/null)"
+assert_no_rebase_wedge "Test 15" "$TMP15/local"
+# rerere never ran: nothing of ours opened the lock, let alone removed it.
+TOTAL=$((TOTAL + 1))
+if [[ -e "$lock15" ]]; then
+    PASS=$((PASS + 1))
+else
+    FAIL=$((FAIL + 1))
+    echo "FAIL: 15: the held MERGE_RR.lock was removed"
+fi
+
+rm -rf "$TMP15"
+
+# --- Test 16: maintenance half — do_fetch, the pull and the loop ---
+echo "--- Test 16: ait sync's window spawns no git maintenance run ---"
+
+TMP16="$(setup_trace_fixture)"
+# Positive control: the shim observes an unpinned fetch's spawn.
+(cd "$TMP16/local" && PATH="$TMP16/shimbin:$PATH" git -C .aitask-data fetch -q origin 2>/dev/null)
+assert_contains "16: control — the shim sees an unpinned fetch spawn maintenance" \
+    "$MAINT_SPAWN" "$(cat "$TMP16/shimbin/trace.log" 2>/dev/null)"
+: > "$TMP16/shimbin/trace.log"
+: > "$TMP16/shimbin/git.log"
+
+run_sync "$TMP16" "$TMP16/shimbin"
+assert_eq_trim "16: the conflict still auto-merges" "AUTOMERGED" "$SYNC_OUT"
+assert_contains "16: do_fetch ran through the shim" "fetch origin" \
+    "$(cat "$TMP16/shimbin/git.log" 2>/dev/null)"
+assert_contains "16: the pull ran through the shim" "pull --rebase" \
+    "$(cat "$TMP16/shimbin/git.log" 2>/dev/null)"
+assert_not_contains "16: nothing in the window spawned maintenance" \
+    "$MAINT_SPAWN" "$(cat "$TMP16/shimbin/trace.log" 2>/dev/null)"
+rm -rf "$TMP16"
+
+# Committed mutant: do_fetch alone back to unpinned — the spawn must now show.
+TMP16m="$(setup_trace_fixture)"
+if install_unpinned_fetch "$TMP16m/local"; then
+    run_sync "$TMP16m" "$TMP16m/shimbin"
+    assert_defect_present "16: an unpinned do_fetch is seen spawning maintenance" \
+        grep -qF -- "$MAINT_SPAWN" "$TMP16m/shimbin/trace.log"
+fi
+rm -rf "$TMP16m"
+
+# --- Test 17: maintenance half — the do_push refetch ---
+echo "--- Test 17: the do_push refetch spawns no git maintenance run ---"
+
+# run_refetch_sync <tmpdir> — `ait sync --batch` through the trace shim with the
+# pre_push seam armed: pc2 lands a fresh commit just before our push, so the
+# push is rejected and do_push takes the refetch -> pull -> retry path. The
+# hook runs the REAL git, so pc2's own commands never reach the trace log.
+# Sets REFETCH_RC; stdout/stderr -> <tmpdir>/out.txt, <tmpdir>/err.txt.
+run_refetch_sync() {
+    local tmp="$1" real_git hook rc=0
+    real_git="$(command -v git)"
+    mkdir -p "$tmp/locks"
+    touch "$tmp/locks/.ait_sync_test_seams"
+    hook="(printf 'race\n' > '$tmp/pc2/aitasks/t2_race.md' && '$real_git' -C '$tmp/pc2' add -A && '$real_git' -C '$tmp/pc2' commit -qm 'pc2: race' && '$real_git' -C '$tmp/pc2' push -q) >/dev/null 2>&1"
+    (cd "$tmp/local" && PATH="$tmp/shimbin:$PATH" AITASKS_LOCK_DIR="$tmp/locks" \
+        AIT_SYNC_SEAM_pre_push="$hook" ./ait sync --batch >"$tmp/out.txt" 2>"$tmp/err.txt") || rc=$?
+    REFETCH_RC=$rc
+}
+
+TMP17="$(setup_trace_fixture)"
+run_refetch_sync "$TMP17"
+assert_contains "17: precondition — the pre_push seam fired" "running pre_push hook" \
+    "$(cat "$TMP17/err.txt")"
+assert_eq_trim "17: the refetch ran (do_fetch + do_push's refetch)" "2" \
+    "$(grep -c 'fetch origin' "$TMP17/shimbin/git.log")"
+assert_eq "17: the retried push converged (rc 0)" "0" "$REFETCH_RC"
+assert_eq_trim "17: the local commit reached the remote" "1" \
+    "$(git -C "$TMP17/remote.git" log --format=%s aitask-data | grep -cxF 'local: labels')"
+assert_not_contains "17: nothing in the window spawned maintenance" \
+    "$MAINT_SPAWN" "$(cat "$TMP17/shimbin/trace.log" 2>/dev/null)"
+rm -rf "$TMP17"
+
+# Committed mutant: the refetch alone back to unpinned — the spawn must show.
+TMP17m="$(setup_trace_fixture)"
+if install_unpinned_refetch "$TMP17m/local"; then
+    run_refetch_sync "$TMP17m"
+    assert_defect_present "17: an unpinned refetch is seen spawning maintenance" \
+        grep -qF -- "$MAINT_SPAWN" "$TMP17m/shimbin/trace.log"
+fi
+rm -rf "$TMP17m"
 
 # --- Summary ---
 echo ""

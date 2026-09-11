@@ -1800,7 +1800,9 @@ report_skipped() {
 do_fetch() {
     iinfo "Fetching from remote..."
     local fetch_exit=0
-    _git_with_timeout fetch origin 2>/dev/null || fetch_exit=$?
+    # Pinned (AIT_RECONCILE_GIT_OPTS, lib/task_utils.sh — t1789): this fetch
+    # feeds the rebase, so it must not leave a detached maintenance run behind.
+    _git_with_timeout "${AIT_RECONCILE_GIT_OPTS[@]}" fetch origin 2>/dev/null || fetch_exit=$?
 
     if [[ $fetch_exit -eq 124 ]]; then
         batch_out "NO_NETWORK"
@@ -1834,7 +1836,10 @@ do_pull_rebase() {
     iinfo "Pulling $remote_count new commits (rebase)..."
 
     local pull_exit=0
-    task_git pull --rebase --quiet &>/dev/null || pull_exit=$?
+    # Pinned against rerere and auto-maintenance (AIT_RECONCILE_GIT_OPTS,
+    # lib/task_utils.sh — t1789). Every abort below carries it too, through
+    # _ait_data_git: task_git's guard reads $1 and would refuse a leading -c.
+    task_git "${AIT_RECONCILE_GIT_OPTS[@]}" pull --rebase --quiet &>/dev/null || pull_exit=$?
 
     if [[ $pull_exit -ne 0 ]]; then
         # Check if it's a conflict
@@ -1863,7 +1868,7 @@ do_pull_rebase() {
                     return 0 ;;
                 2)
                     # Advance failed for a non-conflict reason.
-                    task_git rebase --abort 2>/dev/null || true
+                    _ait_data_git "${AIT_RECONCILE_GIT_OPTS[@]}" rebase --abort 2>/dev/null || true
                     batch_out "ERROR:rebase_continue_failed"
                     return 1 ;;
             esac
@@ -1871,7 +1876,7 @@ do_pull_rebase() {
 
             # Some files unresolved (or auto-merge unavailable)
             if [[ "$BATCH_MODE" == true ]]; then
-                task_git rebase --abort 2>/dev/null || true
+                _ait_data_git "${AIT_RECONCILE_GIT_OPTS[@]}" rebase --abort 2>/dev/null || true
                 local conflict_list
                 conflict_list=$(echo "$remaining" | tr '\n' ',' | sed 's/,$//')
                 batch_out "CONFLICT:${conflict_list}"
@@ -1924,18 +1929,18 @@ do_pull_rebase() {
                 if [[ "$all_resolved" == true ]]; then
                     if ! ait_automerge_advance; then
                         warn "Rebase continue failed. Aborting rebase."
-                        task_git rebase --abort 2>/dev/null || true
+                        _ait_data_git "${AIT_RECONCILE_GIT_OPTS[@]}" rebase --abort 2>/dev/null || true
                         return 1
                     fi
                 else
                     warn "Not all conflicts resolved. Aborting rebase."
-                    task_git rebase --abort 2>/dev/null || true
+                    _ait_data_git "${AIT_RECONCILE_GIT_OPTS[@]}" rebase --abort 2>/dev/null || true
                     return 1
                 fi
             fi
         else
             # Not a conflict — some other pull/rebase error
-            task_git rebase --abort 2>/dev/null || true
+            _ait_data_git "${AIT_RECONCILE_GIT_OPTS[@]}" rebase --abort 2>/dev/null || true
             batch_out "ERROR:pull_rebase_failed"
             if [[ "$BATCH_MODE" == false ]]; then
                 warn "Pull --rebase failed (non-conflict error)"
@@ -1992,7 +1997,8 @@ do_push() {
         # generic push/rebase error instead of the true outcome. Same contract as
         # do_fetch: report the network, stop the run.
         local refetch_exit=0
-        _git_with_timeout fetch origin 2>/dev/null || refetch_exit=$?
+        # Pinned for the same reason as do_fetch's: it feeds the retry rebase.
+        _git_with_timeout "${AIT_RECONCILE_GIT_OPTS[@]}" fetch origin 2>/dev/null || refetch_exit=$?
         if [[ $refetch_exit -ne 0 ]]; then
             batch_out "NO_NETWORK"
             if [[ "$BATCH_MODE" == false ]]; then

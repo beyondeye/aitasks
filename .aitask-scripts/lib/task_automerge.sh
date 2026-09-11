@@ -199,8 +199,9 @@ ait_automerge_files() {
 #
 # Returns 0 when the rebase advanced, 1 when it did not; the caller aborts.
 # Probe rule and dispositions: aidocs/framework/failopen_git_probes.md (A1)
+# Both advance verbs carry AIT_RECONCILE_GIT_OPTS (lib/task_utils.sh, t1789).
 ait_automerge_advance() {
-    if GIT_EDITOR=true _ait_data_git rebase --continue &>/dev/null; then
+    if GIT_EDITOR=true _ait_data_git "${AIT_RECONCILE_GIT_OPTS[@]}" rebase --continue &>/dev/null; then
         return 0
     fi
     # An unreadable probe is not "nothing unresolved": it never authorises --skip.
@@ -216,7 +217,7 @@ ait_automerge_advance() {
     _ait_data_git diff --cached --quiet HEAD >/dev/null 2>&1 || e_rc=$?
     (( e_rc == 0 )) || return 1
 
-    if _ait_data_git rebase --skip &>/dev/null; then
+    if _ait_data_git "${AIT_RECONCILE_GIT_OPTS[@]}" rebase --skip &>/dev/null; then
         return 0
     fi
     return 1

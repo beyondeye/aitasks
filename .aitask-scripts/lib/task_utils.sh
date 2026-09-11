@@ -1118,8 +1118,9 @@ ait_pull_mutex_release() {
 #   abort_failed  we started it, ran the abort, and the state SURVIVED
 #   not_ours      no proof — nothing was touched, and the runner was never run
 #
-# <runner> is a command invoked as `"$runner" rebase --abort`, so this works for
-# the data worktree (_ait_data_git) and for a plain repo (git) alike.
+# <runner> is a command invoked as `"$runner" <git options> rebase --abort`
+# (AIT_RECONCILE_GIT_OPTS — so a stub runner must not key on $1), which works
+# for the data worktree (_ait_data_git) and for a plain repo (git) alike.
 #
 # The evidence is <gitdir>/<state>/orig-head, which git writes with the commit
 # HEAD was at when the rebase started — for both the merge and the apply
@@ -1155,7 +1156,7 @@ ait_rebase_abort_if_ours() {
         printf 'not_ours'
         return 0
     fi
-    "$runner" rebase --abort >/dev/null 2>&1 || true
+    "$runner" "${AIT_RECONCILE_GIT_OPTS[@]}" rebase --abort >/dev/null 2>&1 || true
     # Verify the mutation landed. `|| true` above swallows a failed abort, and
     # the rebase_conflict hint claims "nothing left in progress" — a false
     # claim if the state is still there.
@@ -1186,6 +1187,47 @@ AIT_PULL_AUTOMERGED_SENTINEL="auto-merged task-data conflict(s) during pull"
 # because the matchers run whether or not the library was ever loaded, and a
 # matcher against an unset variable would match every string.
 AIT_AUTOMERGE_GAVE_UP_SENTINEL="auto-merge gave up after"
+
+# Git config pinned onto the task-data reconciliation window (t1789).
+#
+# SCOPE: every PORCELAIN git command that feeds, starts, advances or aborts a
+# framework-owned rebase of the task data — the fetch the rebase replays
+# against, `pull --rebase`, `rebase --continue` / `--skip`, and every
+# `rebase --abort`. Call sites: _task_pull_rebase and ait_rebase_abort_if_ours
+# in this file, lib/task_automerge.sh::ait_automerge_advance, and
+# aitask_sync.sh's do_fetch, do_push refetch and do_pull_rebase.
+#
+# WHY — a multi-step rebase must not share the repository with background git
+# work, nor let the user's rerere configuration act on it:
+#
+#   rerere.enabled=false — the sequencer's rerere takes MERGE_RR.lock on every
+#     conflicted pick, and `rebase --abort`'s `rerere clear` takes it too. A
+#     detached `git maintenance run --auto` holds the same lock (its rerere-gc
+#     task runs whenever rr-cache has an entry), and the pick that loses dies
+#     half-applied with "Unable to create ... MERGE_RR.lock": the replay can no
+#     longer advance and is aborted (6 of 120 multi-round replays under load),
+#     or the abort itself dies and wedges the worktree. With rerere off no
+#     command of ours opens that lock, whoever holds it. It also keeps
+#     rerere.autoupdate from staging a replayed resolution behind the engine's
+#     --diff-filter=U probe, which would then read a conflict stop as a
+#     non-conflict failure. The merge driver is the authority for task data.
+#   maintenance.auto=false — each of these commands would otherwise spawn a
+#     detached maintenance run INSIDE the window, whose gc can also contend
+#     for ref locks while the rebase moves refs. Deferred, not disabled: the
+#     next ordinary git command runs it.
+#
+# NOT PINNED, deliberately: `merge --ff-only` convergence (aitask_sync.sh's
+# guarded merge and fast-forward step, task_data_converge) — no rebase follows
+# it and a fast-forward never invokes rerere — and the commits that precede the
+# window (the sync sweep, a claim commit before task_push). Background work
+# THOSE start can still contend on non-rerere locks: the same residual class as
+# the concurrency note on _task_pull_rebase. The MERGE_RR.lock failure is closed
+# for every source by the rerere half.
+#
+# The options go BEFORE the subcommand. task_git's guard reads $1 to recognise
+# a recovery verb, so only a non-recovery verb (pull) may carry them through
+# task_git; a `rebase --abort` carries them through _ait_data_git.
+AIT_RECONCILE_GIT_OPTS=(-c rerere.enabled=false -c maintenance.auto=false)
 
 # Internal: re-emit the pull's auto-merge notices on the CALLER's stderr.
 #
@@ -1271,7 +1313,7 @@ _task_pull_rebase() {
     # answers about the same repository.
     head_before="$(git --git-dir="$gitdir" rev-parse HEAD 2>/dev/null || true)"
 
-    out="$(_ait_data_git pull --rebase --quiet 2>&1)" || rc=$?
+    out="$(_ait_data_git "${AIT_RECONCILE_GIT_OPTS[@]}" pull --rebase --quiet 2>&1)" || rc=$?
     [[ -n "$out" ]] && printf '%s\n' "$out" >&2
 
     if [[ $rc -ne 0 ]]; then

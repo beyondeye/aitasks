@@ -1571,7 +1571,11 @@ _AIT_DATA_WORKTREE="."
 force_remote_conflict conflict.txt
 
 _ait_data_git() {
-    if [[ "${1:-}" == "rebase" && "${2:-}" == "--abort" ]]; then
+    # Skip the leading `-c <k=v>` pairs (AIT_RECONCILE_GIT_OPTS, t1789) to reach
+    # the subcommand: keying on $1 would miss the abort and run the real one.
+    local -a _a=("$@")
+    while [[ "${_a[0]:-}" == "-c" ]]; do _a=("${_a[@]:2}"); done
+    if [[ "${_a[0]:-}" == "rebase" && "${_a[1]:-}" == "--abort" ]]; then
         return 1                      # the abort fails AND changes nothing
     fi
     LC_ALL=C git "$@"
@@ -2433,7 +2437,142 @@ assert_eq "60: and nothing claims an auto-merge" "" "$TASK_PUSH_AUTOMERGED"
 
 popd > /dev/null || exit 1
 
-# --- Summary ---
+# ============================================================================
+# t1789 — the reconciliation window is pinned against rerere + auto-maintenance
+# ============================================================================
+#
+# Tests 54/56 flaked under load because the user's GLOBAL rerere.enabled=true
+# reached the replay: a detached `git maintenance run --auto` held MERGE_RR.lock
+# while the sequencer recorded the next pick's preimage, and that pick died
+# half-applied. Every command in the window now carries AIT_RECONCILE_GIT_OPTS.
+# Each half of that pin has its own proof:
+#   61/62  rerere half — MERGE_RR.lock HELD for the whole run (the race made
+#          deterministic), rerere enabled LOCALLY so no global config matters.
+#   63     maintenance half — nothing the window runs spawns
+#          `git maintenance run`, observed through GIT_TRACE.
+
+# The spawning PARENT's trace line, written synchronously before the child
+# starts. Never anchor on the child's own lines.
+MAINT_SPAWN="run_command: git maintenance run"
+
+# --- Test 61: a held MERGE_RR.lock cannot break the multi-round replay ---
+echo "--- Test 61: rerere on + MERGE_RR.lock held -> the replay still converges ---"
+
+setup_remote_and_clone
+pushd "$TEST_LOCAL" > /dev/null || exit 1
+reload_task_utils
+_AIT_DATA_WORKTREE="."
+git config rerere.enabled true
+
+seed_sample_task
+advance_remote_task now "[ui]" "2026-01-01 10:00"
+write_sample_task aitasks/t1_sample.md backlog "[api, ui]" "2026-01-01 10:00"
+git add -A
+git commit -m "local A: change labels" --quiet
+write_sample_task aitasks/t1_sample.md backlog "[api, ui]" "2026-03-02 09:15"
+git add -A
+git commit -m "local B: change updated_at" --quiet
+lock61="$(git rev-parse --git-path MERGE_RR.lock)"
+: > "$lock61"
+
+# Positive control: the fixture is armed — an UNPINNED pull dies on the lock.
+# Without it, every assertion below could pass on a run where rerere never ran.
+ctl61="$(git pull --rebase --quiet 2>&1)"
+assert_contains "61: control — an unpinned pull dies on the held lock" \
+    "MERGE_RR.lock" "$ctl61"
+git -c rerere.enabled=false rebase --abort >/dev/null 2>&1 || true
+assert_eq_trim "61: control cleaned up — nothing in progress" "" "$(probe_wedge)"
+
+task_sync 2>"$TEST_TMPDIR/am61_err.txt"
+sync_err="$(cat "$TEST_TMPDIR/am61_err.txt")"
+
+assert_eq "61: TASK_SYNC_STATUS is synced" "synced" "$TASK_SYNC_STATUS"
+assert_eq "61: TASK_SYNC_AUTOMERGED is set" "1" "$TASK_SYNC_AUTOMERGED"
+assert_contains "61: both rounds ran" \
+    "auto-merged task-data conflict(s) during pull (2 file(s))" "$sync_err"
+assert_eq_trim "61: both local commits were replayed and kept" "2" \
+    "$(git rev-list --count '@{u}..HEAD' 2>/dev/null)"
+assert_eq_trim "61: no rebase left behind" "" "$(probe_wedge)"
+# rerere never ran: nothing of ours opened the lock, let alone removed it.
+TOTAL=$((TOTAL + 1))
+if [[ -e "$lock61" ]]; then
+    PASS=$((PASS + 1))
+else
+    FAIL=$((FAIL + 1))
+    echo "FAIL: 61: the held MERGE_RR.lock was removed"
+fi
+rm -f "$lock61"
+
+popd > /dev/null || exit 1
+
+# --- Test 62: the abort still lands under a held MERGE_RR.lock ---
+echo "--- Test 62: rerere on + MERGE_RR.lock held -> the abort still unwedges ---"
+
+setup_remote_and_clone
+pushd "$TEST_LOCAL" > /dev/null || exit 1
+reload_task_utils
+_AIT_DATA_WORKTREE="."
+git config rerere.enabled true
+
+seed_sample_task
+# Diverging BODIES: the driver answers PARTIAL, so the pull must ABORT — and
+# `rebase --abort` runs `rerere clear`, which takes the same lock.
+advance_remote_task backlog "[ui]" "2026-01-01 10:00" "remote rewrote the body"
+write_sample_task aitasks/t1_sample.md backlog "[ui]" "2026-01-01 10:00" "local rewrote the body"
+git add -A
+git commit -m "local: rewrite body" --quiet
+lock62="$(git rev-parse --git-path MERGE_RR.lock)"
+: > "$lock62"
+
+task_sync 2>/dev/null
+
+assert_eq "62: TASK_SYNC_STATUS is failed" "failed" "$TASK_SYNC_STATUS"
+assert_eq "62: TASK_SYNC_REASON is rebase_conflict" "rebase_conflict" "$TASK_SYNC_REASON"
+# THE DISCRIMINATOR: an abort that died in `rerere clear` leaves rebase-merge.
+assert_eq_trim "62: the abort landed — nothing left in progress" "" "$(probe_wedge)"
+rm -f "$lock62"
+assert_next_commit_succeeds "62: the next task_git commit succeeds"
+
+popd > /dev/null || exit 1
+
+# --- Test 63: nothing in the window spawns auto-maintenance ---
+echo "--- Test 63: task_sync's reconciliation spawns no git maintenance run ---"
+
+setup_remote_and_clone
+pushd "$TEST_LOCAL" > /dev/null || exit 1
+reload_task_utils
+_AIT_DATA_WORKTREE="."
+# Foreground maintenance: an UNPINNED command's trace is then complete when it
+# returns, so the control cannot pass by beating a detached child to the log.
+# The pinned commands spawn nothing either way (-c outranks repo config).
+git config maintenance.autoDetach false
+
+seed_sample_task
+advance_remote_task now "[ui]" "2026-01-01 10:00"
+write_sample_task aitasks/t1_sample.md backlog "[api, ui]" "2026-01-01 10:00"
+git add -A
+git commit -m "local A: change labels" --quiet
+write_sample_task aitasks/t1_sample.md backlog "[api, ui]" "2026-03-02 09:15"
+git add -A
+git commit -m "local B: change updated_at" --quiet
+
+# Positive control: the observation is live — an unpinned fetch logs a spawn.
+GIT_TRACE="$TEST_TMPDIR/trace63_ctl" git fetch --quiet origin 2>/dev/null
+assert_contains "63: control — an unpinned fetch is seen spawning maintenance" \
+    "$MAINT_SPAWN" "$(cat "$TEST_TMPDIR/trace63_ctl" 2>/dev/null)"
+
+export GIT_TRACE="$TEST_TMPDIR/trace63"
+task_sync 2>"$TEST_TMPDIR/am63_err.txt"
+unset GIT_TRACE
+
+assert_eq "63: the replay still converged" "synced" "$TASK_SYNC_STATUS"
+# The pull, the loop and --continue all ran — the window was really exercised.
+assert_contains "63: both rounds ran" "(2 file(s))" "$(cat "$TEST_TMPDIR/am63_err.txt")"
+assert_not_contains "63: no command in the window spawned maintenance" \
+    "$MAINT_SPAWN" "$(cat "$TEST_TMPDIR/trace63" 2>/dev/null)"
+
+popd > /dev/null || exit 1
+
 # --- Summary ---
 echo ""
 echo "=== Results: $PASS passed, $FAIL failed, $TOTAL total ==="
