@@ -713,24 +713,61 @@ setup_empty_patch_conflict() {
 #   late-probe      no rebase verb; every `diff --diff-filter=U` AFTER THE FIRST
 #                   fails. do_pull_rebase makes exactly one before the loop, so
 #                   the loop-entry probe is the first unreadable one.
-# `--skip` and `--abort` always pass through: the fallback must stay reachable,
-# and the cleanup these tests assert must be able to run.
+#   first-probe     t1747_3 A5: the FIRST `diff --diff-filter=U` fails; that one is
+#                   do_pull_rebase's own conflict classifier. Before failing, the
+#                   shim records in <bindir>/precond.log, through the real git,
+#                   the unmerged-entry count and whether rebase-merge exists: the
+#                   test's evidence that the rebase really stopped on a conflict.
+#   first-probe+abort
+#                   the above, AND `rebase --abort` fails: a recovery that does
+#                   not recover.
+#   first-probe+gitdir-vanish
+#                   the above probe failure, but instead of failing the abort it
+#                   moves the data worktree's admin dir aside first, so the git-dir
+#                   genuinely stops resolving mid-run. The real abort then fails
+#                   naturally, and the post-abort state check cannot inspect
+#                   anything. The test restores the dir afterwards.
+# Outside the first-probe+abort mode, `--skip` and `--abort` always pass through:
+# the fallback must stay reachable, and the cleanup these tests assert must be
+# able to run.
 install_advance_shim() {
-    local bindir="$1" mode="$2" real_git
+    local bindir="$1" mode="$2" real_git repo
     real_git="$(command -v git)"
+    repo="$(dirname "$bindir")/local"
     mkdir -p "$bindir"
     cat > "$bindir/git" <<SHIMEOF
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >> "$bindir/git.log"
-_rebase=0 _cont=0 _diff=0 _u=0
+_rebase=0 _cont=0 _abrt=0 _diff=0 _u=0
 for _a in "\$@"; do
     case "\$_a" in
         rebase) _rebase=1 ;;
         --continue) [[ \$_rebase -eq 1 ]] && _cont=1 ;;
+        --abort) [[ \$_rebase -eq 1 ]] && _abrt=1 ;;
         diff) _diff=1 ;;
         --diff-filter=U) _u=1 ;;
     esac
 done
+case "$mode" in
+    first-probe|first-probe+abort|first-probe+gitdir-vanish)
+        _gd="$repo/.git/worktrees/-aitask-data"
+        if [[ \$_diff -eq 1 && \$_u -eq 1 && ! -e "$bindir/.probe-seen" ]]; then
+            : > "$bindir/.probe-seen"
+            printf 'unmerged=%s rebase_merge=%s\n' \\
+                "\$("$real_git" -C "$repo/.aitask-data" ls-files -u 2>/dev/null | wc -l | tr -d ' ')" \\
+                "\$([[ -e "\$_gd/rebase-merge" ]] && echo yes || echo no)" >> "$bindir/precond.log"
+            if [[ "$mode" == "first-probe+gitdir-vanish" ]]; then
+                mv "\$_gd" "\$_gd.hidden" && echo "moved" >> "$bindir/precond.log"
+            fi
+            echo "fatal: simulated unreadable index (test shim)" >&2
+            exit 128
+        fi
+        if [[ "$mode" == "first-probe+abort" && \$_abrt -eq 1 ]]; then
+            echo "abort-failed" >> "$bindir/precond.log"
+            echo "fatal: simulated abort failure (test shim)" >&2
+            exit 128
+        fi ;;
+esac
 case "$mode" in
     continue|continue+probe)
         if [[ \$_cont -eq 1 ]]; then
@@ -1325,6 +1362,147 @@ if install_unpinned_refetch "$TMP17m/local"; then
         grep -qF -- "$MAINT_SPAWN" "$TMP17m/shimbin/trace.log"
 fi
 rm -rf "$TMP17m"
+
+# --- Tests 18-20: A5 — do_pull_rebase's conflict classifier (t1747_3) ---------
+# Rule and dispositions: aidocs/framework/failopen_git_probes.md row A5. When the
+# classifier's probe fails, the branch aborts the rebase and then RE-INSPECTS the
+# worktree. The verified state, not the abort's rc, picks one of three tokens.
+# Each test drives one of the three outcomes with a real in-flight conflict.
+
+# _a5_precond <tmp> — "yes" when the shim saw a real conflict at the probe.
+_a5_precond() {
+    local line u r
+    line="$(sed -n 1p "$1/shimbin/precond.log" 2>/dev/null)"
+    u="$(sed -n 's/.*unmerged=\([0-9]*\).*/\1/p' <<<"$line")"
+    r="$(sed -n 's/.*rebase_merge=\([a-z]*\).*/\1/p' <<<"$line")"
+    if [[ -n "$u" && "$u" -gt 0 && "$r" == yes ]]; then echo yes; else echo "no ($line)"; fi
+}
+_a5_wedged() { [[ -e "$1/local/.git/worktrees/-aitask-data/rebase-merge" ]]; }
+
+echo "--- Test 18: A5 — unread conflict probe, abort verified -> distinct token ---"
+TMP18="$(setup_branch_mode_repos)"
+install_advance_shim "$TMP18/shimbin" first-probe
+run_sync "$TMP18" "$TMP18/shimbin"
+assert_eq "18 precondition: the probe failed on a real in-flight conflict" "yes" "$(_a5_precond "$TMP18")"
+assert_eq_trim "18: reports ERROR:pull_conflict_unverified" "ERROR:pull_conflict_unverified" "$SYNC_OUT"
+assert_exit_nonzero_rc "18: exits non-zero" "$SYNC_RC"
+assert_no_rebase_wedge "18" "$TMP18/local"
+assert_eq "18: the local commit is intact" "yes" "$(_yes_no _local_log_has "$TMP18" "local: labels")"
+assert_contains "18: the recovery is reported as verified" "verified clean" "$(cat "$TMP18/err.txt")"
+# The claim is the verified STATE, never the abort: the abort's own rc is
+# reported as data, and the message never asserts that the abort happened.
+assert_contains "18: the abort's own status is reported, not assumed" "rebase --abort rc=0" "$(cat "$TMP18/err.txt")"
+assert_not_contains "18: the message does not assert the abort succeeded" "The rebase was aborted" "$(cat "$TMP18/err.txt")"
+rm -rf "$TMP18"
+
+# Mutant: the probe back to `|| true` — a real conflict reads as "not a conflict".
+TMP18m="$(setup_branch_mode_repos)"
+f18m="$TMP18m/local/.aitask-scripts/aitask_sync.sh"
+if _sync_replace "$TMP18m/local" \
+'        conflicted="$(task_git diff --name-only --diff-filter=U 2>/dev/null)" || c_rc=$?' \
+'        conflicted=$(task_git diff --name-only --diff-filter=U 2>/dev/null || true)' \
+   && _require absent  "$f18m" 'diff-filter=U 2>/dev/null)" || c_rc=$?' "A5: the status capture is still in place" \
+   && _require present "$f18m" 'batch_out "ERROR:pull_rebase_failed"' "A5: the non-conflict branch was excised" \
+   && _require present "$f18m" 'ERROR:pull_conflict_unverified' "A5: the unverified branch was excised"; then
+    _control_ok
+    install_advance_shim "$TMP18m/shimbin" first-probe
+    run_sync "$TMP18m" "$TMP18m/shimbin"
+    assert_defect_present "18: with the fail-open probe a real conflict is reported as a non-conflict error" \
+        _eq "ERROR:pull_rebase_failed" "$SYNC_OUT"
+else
+    _control_install_failed "A5 probe"
+fi
+rm -rf "$TMP18m"
+
+echo "--- Test 19: A5 — the abort itself fails -> rebase_abort_failed, wedge reported ---"
+TMP19="$(setup_branch_mode_repos)"
+install_advance_shim "$TMP19/shimbin" first-probe+abort
+run_sync "$TMP19" "$TMP19/shimbin"
+assert_eq "19 precondition: the probe failed on a real in-flight conflict" "yes" "$(_a5_precond "$TMP19")"
+assert_contains "19 precondition: the abort was attempted and failed" "abort-failed" \
+    "$(cat "$TMP19/shimbin/precond.log" 2>/dev/null)"
+assert_eq_trim "19: reports ERROR:rebase_abort_failed" "ERROR:rebase_abort_failed" "$SYNC_OUT"
+assert_exit_nonzero_rc "19: exits non-zero" "$SYNC_RC"
+assert_eq "19: the worktree really is still wedged" "yes" "$(_yes_no _a5_wedged "$TMP19")"
+assert_contains "19: the message names the recovery" "./ait git rebase --abort" "$(cat "$TMP19/err.txt")"
+assert_not_contains "19: the message claims no intact commits" "intact" "$(cat "$TMP19/err.txt")"
+git -C "$TMP19/local/.aitask-data" rebase --abort >/dev/null 2>&1
+assert_no_rebase_wedge "19 cleanup" "$TMP19/local"
+rm -rf "$TMP19"
+
+# Mutant: assume the abort recovered — the unverified-recovery shape.
+TMP19m="$(setup_branch_mode_repos)"
+f19m="$TMP19m/local/.aitask-scripts/aitask_sync.sh"
+if _sync_replace "$TMP19m/local" \
+'        wstate="$(_worktree_wedged)" || w_rc=$?' \
+'        w_rc=1' \
+   && _require absent  "$f19m" 'wstate="$(_worktree_wedged)" || w_rc=$?' "A5: the post-abort check is still in place" \
+   && _require present "$f19m" 'ERROR:rebase_abort_failed' "A5: the failed-recovery branch was excised"; then
+    _control_ok
+    install_advance_shim "$TMP19m/shimbin" first-probe+abort
+    run_sync "$TMP19m" "$TMP19m/shimbin"
+    _claims_verified_while_wedged() {
+        [[ "$SYNC_OUT" == "ERROR:pull_conflict_unverified" ]] && _a5_wedged "$1"
+    }
+    assert_defect_present "19: without the post-abort check a wedged worktree is reported as recovered" \
+        _claims_verified_while_wedged "$TMP19m"
+    git -C "$TMP19m/local/.aitask-data" rebase --abort >/dev/null 2>&1
+else
+    _control_install_failed "A5 recovery check"
+fi
+rm -rf "$TMP19m"
+
+echo "--- Test 20: A5 — the git-dir vanishes mid-run -> rebase_abort_unverified ---"
+TMP20="$(setup_branch_mode_repos)"
+GD20="$TMP20/local/.git/worktrees/-aitask-data"
+install_advance_shim "$TMP20/shimbin" first-probe+gitdir-vanish
+run_sync "$TMP20" "$TMP20/shimbin"
+# Restore FIRST, so a failed assertion below never leaves the fixture broken.
+MOVED20="$(grep -c '^moved$' "$TMP20/shimbin/precond.log" 2>/dev/null)"
+[[ -d "$GD20.hidden" && ! -e "$GD20" ]] && mv "$GD20.hidden" "$GD20"
+assert_eq "20 precondition: the probe failed on a real in-flight conflict" "yes" "$(_a5_precond "$TMP20")"
+assert_eq "20 precondition: the admin dir really was moved at the probe" "1" "$MOVED20"
+# The abort ran AFTER the move, so the post-abort check (not Step 1b) saw it.
+PROBE20="$(grep -n -- '--diff-filter=U' "$TMP20/shimbin/git.log" | head -n1 | cut -d: -f1)"
+ABORT20="$(grep -n -- 'rebase --abort' "$TMP20/shimbin/git.log" | head -n1 | cut -d: -f1)"
+assert_eq "20 precondition: the abort was reached after the probe" "yes" \
+    "$([[ -n "$PROBE20" && -n "$ABORT20" && "$ABORT20" -gt "$PROBE20" ]] && echo yes || echo no)"
+assert_eq_trim "20: reports ERROR:rebase_abort_unverified" "ERROR:rebase_abort_unverified" "$SYNC_OUT"
+assert_exit_nonzero_rc "20: exits non-zero" "$SYNC_RC"
+assert_contains "20: the message names ./ait git status" "./ait git status" "$(cat "$TMP20/err.txt")"
+assert_contains "20: the message names the abort" "./ait git rebase --abort" "$(cat "$TMP20/err.txt")"
+assert_not_contains "20: no verified-clean claim" "verified clean" "$(cat "$TMP20/err.txt")"
+assert_not_contains "20: no intact-commits claim" "intact" "$(cat "$TMP20/err.txt")"
+# The discriminating fact: once restored, the worktree is STILL mid-rebase, so a
+# "verified clean" label would have been false.
+assert_eq "20: the worktree really was left wedged" "yes" "$(_yes_no _a5_wedged "$TMP20")"
+git -C "$TMP20/local/.aitask-data" rebase --abort >/dev/null 2>&1
+assert_no_rebase_wedge "20 cleanup" "$TMP20/local"
+rm -rf "$TMP20"
+
+# Mutant: rc 2 read as recovered — what a bare `if _worktree_wedged` would do.
+TMP20m="$(setup_branch_mode_repos)"
+GD20m="$TMP20m/local/.git/worktrees/-aitask-data"
+f20m="$TMP20m/local/.aitask-scripts/aitask_sync.sh"
+if _sync_replace "$TMP20m/local" \
+'            1)  batch_out "ERROR:pull_conflict_unverified"' \
+'            1|2)  batch_out "ERROR:pull_conflict_unverified"' \
+   && _require present "$f20m" '1|2)  batch_out "ERROR:pull_conflict_unverified"' "A5: the rc-2 collapse was not installed" \
+   && _require present "$f20m" 'ERROR:rebase_abort_unverified' "A5: the unverified branch text was excised"; then
+    _control_ok
+    install_advance_shim "$TMP20m/shimbin" first-probe+gitdir-vanish
+    run_sync "$TMP20m" "$TMP20m/shimbin"
+    [[ -d "$GD20m.hidden" && ! -e "$GD20m" ]] && mv "$GD20m.hidden" "$GD20m"
+    _mislabels_uninspectable() {
+        [[ "$SYNC_OUT" == "ERROR:pull_conflict_unverified" ]] && _a5_wedged "$1"
+    }
+    assert_defect_present "20: with rc 2 collapsed, an uninspectable wedged worktree is labelled verified" \
+        _mislabels_uninspectable "$TMP20m"
+    git -C "$TMP20m/local/.aitask-data" rebase --abort >/dev/null 2>&1
+else
+    _control_install_failed "A5 rc-2 mapping"
+fi
+rm -rf "$TMP20m"
 
 # --- Summary ---
 echo ""

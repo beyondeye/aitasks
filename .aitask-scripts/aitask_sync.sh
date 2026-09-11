@@ -535,16 +535,28 @@ _protect() {
 # Resolve the git-dir that owns the data worktree, falling back to this repo's
 # in legacy mode. Used for state that must NOT live under aitasks/ — putting it
 # there would make it the very ownerless-dirty-file problem this sweep skips.
+#
+# Resolved by MODE, never by emptiness, through lib/task_utils.sh::
+# _data_wedge_gitdir. 0 + the path on stdout; 2 = it could not be resolved, and
+# nothing is printed. Never a default: a fabricated git-dir composes into the
+# wedge check (every sentinel test misses) and into the quarantine ledger (a
+# fresh, empty one — every held entry lost). aidocs/framework/failopen_git_probes.md
+# row A10.
 _sync_gitdir() {
     local gd
-    gd="$(_ait_data_gitdir)"
-    if [[ -z "$gd" ]]; then
-        gd="$(git rev-parse --git-dir 2>/dev/null)" || gd=".git"
-    fi
-    printf '%s' "${gd:-.git}"
+    # unverified: an empty answer from either mode means "could not resolve" ⇒ 2
+    gd="$(_data_wedge_gitdir)"
+    [[ -n "$gd" ]] || return 2
+    printf '%s' "$gd"
 }
 
-_quarantine_path() { printf '%s/ait-sync-quarantine' "$(_sync_gitdir)"; }
+# 0 + the ledger path; 2 when the git-dir that holds it cannot be resolved.
+_quarantine_path() {
+    local gd
+    # unverified: propagate 2 — never start a fresh, empty ledger somewhere else
+    gd="$(_sync_gitdir)" || return 2
+    printf '%s/ait-sync-quarantine' "$gd"
+}
 
 # A git path may contain ANY byte except NUL — including `|` and a newline, both
 # of which are legal and both of which would corrupt the `|`-delimited,
@@ -585,16 +597,31 @@ _pct_decode() {
     printf '%s' "$sVar"
 }
 
-# Name the git-dir sentinel when the data worktree is wedged, else return 1.
+# 0 + the git-dir sentinel when the data worktree is wedged; 1 when it is not;
+# 2 when the git-dir cannot be resolved. A consumer must tell 1 from 2 — a bare
+# `if` reads "cannot look" as "not wedged".
 # task_git add/reset/commit are on neither allowlist, so assert_data_worktree_clean
 # would die() — exit 1 with no batch_out — in the middle of this function.
 _worktree_wedged() {
     local gd st
-    gd="$(_sync_gitdir)"
+    # unverified: propagate 2 — "cannot look" is never "not wedged"
+    gd="$(_sync_gitdir)" || return 2
     for st in rebase-merge rebase-apply MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD BISECT_LOG; do
         if [[ -e "$gd/$st" ]]; then printf '%s' "$st"; return 0; fi
     done
     return 1
+}
+
+# Refuse the whole run: the data worktree's git-dir cannot be resolved, so neither
+# the wedge check nor the quarantine ledger can be trusted, and proceeding would
+# publish whatever the ledger withholds. Called before anything is swept or
+# published (main's Step 1b, and auto_commit before its lock). Exits.
+_refuse_unresolved_gitdir() {
+    _note_skip "could not resolve the data worktree's git-dir — nothing swept, nothing published. See why with: git -C .aitask-data rev-parse --absolute-git-dir; 'ait setup' repairs the data worktree layout, 'git worktree repair' re-links a moved worktree. Then re-run sync."
+    report_skipped
+    batch_out "ERROR:data_gitdir_unresolved"
+    iwarn "Could not resolve the data worktree's git-dir; nothing was synced."
+    exit 1
 }
 
 # Path -> owning task id, or exit 1 when the path has no derivable owner.
@@ -860,8 +887,10 @@ _locks_readable() {
 # the SHA and would silently invalidate a SHA-keyed entry.
 # Line format: <path>|<blob>|<task_id>|<first_seen_epoch>
 _quarantine_load_and_prune() {
-    local qf line p p_enc blob tid seen head_blob rc verdict age warn_age
-    qf="$(_quarantine_path)"
+    # $1: the ledger path, resolved ONCE by auto_commit. Nothing is resolved here,
+    # so this can never read a relocated (and therefore empty) ledger.
+    local qf="$1" line p p_enc blob tid seen head_blob rc verdict age warn_age
+    local st st_rc unread
     QUARANTINE_HELD=()
     [[ -s "$qf" ]] || return 0
 
@@ -884,12 +913,20 @@ _quarantine_load_and_prune() {
         # A CLEAN worktree is NOT settlement on its own: `commit -o` committed
         # the worktree bytes, so the path is clean BY CONSTRUCTION right after
         # the race, and a cleanliness-only clause would release immediately.
+        unread=0
         if _locks_readable; then
             verdict="$(_holder_verdict "$tid")"
-            if [[ "$verdict" == "free" || "$verdict" == "dead" ]] \
-               && [[ -z "$(task_git status --porcelain -- "$p" 2>/dev/null)" ]]; then
-                iinfo_err "quarantine released (owner gone, state settled): $p"
-                continue
+            if [[ "$verdict" == "free" || "$verdict" == "dead" ]]; then
+                # unverified: an UNREADABLE worktree is not settled ⇒ hold. Hoisted
+                # out of `[[ -z "$(…)" ]]`, where a failed substitution is invisible
+                # and reads as clean. aidocs/framework/failopen_git_probes.md row A4.
+                st_rc=0
+                st="$(task_git status --porcelain -- "$p" 2>/dev/null)" || st_rc=$?
+                if (( st_rc == 0 )) && [[ -z "$st" ]]; then
+                    iinfo_err "quarantine released (owner gone, state settled): $p"
+                    continue
+                fi
+                (( st_rc == 0 )) || unread=1
             fi
         fi
 
@@ -905,7 +942,9 @@ _quarantine_load_and_prune() {
         # hatch. Past the window the report ESCALATES; only the operator
         # releases, which makes the safety-vs-availability call explicit.
         age=$(( $(date +%s) - ${seen:-0} ))
-        if (( ${seen:-0} > 0 && age > warn_age )); then
+        if (( unread )); then
+            _note_skip "quarantine held: $p (t${tid}) — its owner is gone, but the path's state could not be read (git status rc=${st_rc}), so it was not released. Re-run sync; if this persists check ./ait git status, or release deliberately with: ./ait sync --release-quarantine"
+        elif (( ${seen:-0} > 0 && age > warn_age )); then
             _note_skip "QUARANTINE HELD ${age}s (>${warn_age}s): $p (t${tid}, holder: ${LOCK_HOST[$tid]:-none}) — sync is publishing NOTHING until this clears. Release deliberately with: ./ait sync --release-quarantine"
         else
             _note_skip "quarantine held: $p (t${tid}) — withheld from the remote until t${tid}'s session commits or ends"
@@ -915,8 +954,8 @@ _quarantine_load_and_prune() {
 }
 
 _quarantine_persist() {
-    local qf tmp
-    qf="$(_quarantine_path)"
+    # $1: the ledger path auto_commit resolved (see _quarantine_load_and_prune).
+    local qf="$1" tmp
     if (( ${#QUARANTINE_HELD[@]} == 0 )); then
         rm -f "$qf" 2>/dev/null || true
         return 0
@@ -949,7 +988,16 @@ auto_commit() {
         return 0
     fi
 
-    local qf; qf="$(_quarantine_path)"
+    # The ONE place the ledger path is resolved: _quarantine_load_and_prune and
+    # _quarantine_persist take it from here, so no consumer can open a fresh,
+    # empty ledger somewhere else.
+    local qf="" q_rc=0
+    # unverified: the ledger cannot be located ⇒ refuse, before the lock is taken
+    qf="$(_quarantine_path)" || q_rc=$?
+    if (( q_rc != 0 )); then
+        rm -f "$dirtyf"
+        _refuse_unresolved_gitdir
+    fi
     # Fast path: nothing dirty and nothing quarantined is today's no-op, with no
     # added network cost on the overwhelmingly common clean sync.
     if [[ ! -s "$dirtyf" && ! -s "$qf" ]]; then
@@ -972,19 +1020,19 @@ auto_commit() {
         # No commit was made, so nothing is withheld from the remote; but a
         # quarantine from an EARLIER run must still hold. Evaluate it read-only.
         _lock_snapshot
-        _quarantine_load_and_prune
+        _quarantine_load_and_prune "$qf"
         rm -f "$dirtyf"
         return 0
     fi
 
     _lock_snapshot
-    _quarantine_load_and_prune
+    _quarantine_load_and_prune "$qf"
 
     if [[ -s "$dirtyf" ]]; then
         _sweep_dirty "$dirtyf"
     fi
 
-    _quarantine_persist
+    _quarantine_persist "$qf"
     registry_lock_release "$lock_dir"
     rm -f "$dirtyf"
     return 0
@@ -1231,8 +1279,16 @@ _commit_group() {
     # Hazard B — never touch an index entry another session staged. `add` would
     # replace it and `reset` would remove it, destroying in-flight work while
     # trying not to swallow it. Defer the whole group instead.
-    local staged
-    staged="$(task_git diff --cached --name-only -- "${paths[@]}" 2>/dev/null)" || staged=""
+    local staged="" s_rc=0
+    # unverified: the shared index cannot be read, so whether another session
+    # staged these paths is unknown ⇒ defer the group, the same outcome as a
+    # detection. aidocs/framework/failopen_git_probes.md row A3.
+    staged="$(task_git diff --cached --name-only -- "${paths[@]}" 2>/dev/null)" || s_rc=$?
+    if (( s_rc != 0 )); then
+        _protect_group_paths "unverifiable" "$tid" \
+            "t${tid}: %PATH% — could not read the shared index (git diff --cached rc=${s_rc}), so whether another session staged these paths is unknown; the group was deferred. Re-run sync once the index is readable."
+        return 0
+    fi
     if [[ -n "$staged" ]]; then
         local sp
         for sp in "${paths[@]}"; do
@@ -1842,9 +1898,29 @@ do_pull_rebase() {
     task_git "${AIT_RECONCILE_GIT_OPTS[@]}" pull --rebase --quiet &>/dev/null || pull_exit=$?
 
     if [[ $pull_exit -ne 0 ]]; then
-        # Check if it's a conflict
-        local conflicted
-        conflicted=$(task_git diff --name-only --diff-filter=U 2>/dev/null || true)
+        # Check if it's a conflict. A probe that cannot be read is neither answer:
+        # aidocs/framework/failopen_git_probes.md row A5.
+        local conflicted="" c_rc=0
+        conflicted="$(task_git diff --name-only --diff-filter=U 2>/dev/null)" || c_rc=$?
+        if (( c_rc != 0 )); then
+            # Abort — nothing has been resolved yet, so a successful abort loses
+            # nothing — then VERIFY: whatever failed the probe can fail the abort
+            # too, so the report comes from the worktree's state, never from the
+            # abort's rc (the two disagree in both directions).
+            local a_rc=0 w_rc=0 wstate=""
+            _ait_data_git "${AIT_RECONCILE_GIT_OPTS[@]}" rebase --abort >/dev/null 2>&1 || a_rc=$?
+            # unverified: "cannot inspect" is not "recovered" — rc 2 gets its own token
+            wstate="$(_worktree_wedged)" || w_rc=$?
+            case $w_rc in
+                1)  batch_out "ERROR:pull_conflict_unverified"
+                    warn "Pull --rebase stopped, but whether it stopped on a conflict could not be read (git diff rc=${c_rc}). The data worktree was verified clean afterwards (rebase --abort rc=${a_rc}) — your local commits are intact. Re-run sync." ;;
+                0)  batch_out "ERROR:rebase_abort_failed"
+                    warn "Pull --rebase stopped, and whether it stopped on a conflict could not be read (git diff rc=${c_rc}). The recovery FAILED: rebase --abort rc=${a_rc}, and the data worktree is still mid-${wstate}. Every task write is blocked until it is resolved: ./ait git rebase --abort (or resolve it, then ./ait git rebase --continue); ./ait git status shows where it stopped." ;;
+                *)  batch_out "ERROR:rebase_abort_unverified"
+                    warn "Pull --rebase stopped, and whether it stopped on a conflict could not be read (git diff rc=${c_rc}). rebase --abort rc=${a_rc}, and the data worktree's state could not be inspected, so the recovery is UNVERIFIED — your local commits may still be mid-rebase. Check ./ait git status; if it is mid-rebase: ./ait git rebase --abort." ;;
+            esac
+            return 1
+        fi
 
         if [[ -n "$conflicted" ]]; then
             # The whole resolve-and-advance cycle — including the multi-commit
@@ -2078,8 +2154,13 @@ main() {
     # die()s — with the message swallowed by `&>/dev/null`. The script would
     # exit 1 with empty stdout and empty stderr, which every consumer classifies
     # as `ERROR: empty output from sync script`.
-    local wedged
-    if wedged="$(_worktree_wedged)"; then
+    local wedged="" w_rc=0
+    # unverified: 2 = the git-dir cannot be resolved ⇒ refuse; never "not wedged"
+    wedged="$(_worktree_wedged)" || w_rc=$?
+    if (( w_rc == 2 )); then
+        _refuse_unresolved_gitdir
+    fi
+    if (( w_rc == 0 )); then
         _note_skip "data worktree is stuck mid-${wedged} — nothing swept; resolve the rebase/merge first"
         report_skipped
         batch_out "DEFERRED:worktree_wedged:${wedged}"
