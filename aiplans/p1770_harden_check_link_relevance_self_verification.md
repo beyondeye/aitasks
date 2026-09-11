@@ -187,3 +187,44 @@ None identified.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+- **Actual work done:** As planned. `main()` evaluates the controls right after
+  `scan()` (never inside it) and both modes route failure through
+  `_report_failed_controls()`; `--report` keeps stdout to records only and exits 1
+  on a failed control, naming it on stderr. Full-mode output order is unchanged.
+  `--help`, the module docstring and `website/README.md` state the one resolved
+  contract. The `__main__` guard now ends the test module; the obsolete t1768
+  "sit ABOVE the stranded guard" comment is gone. New tests: the normal-mode
+  display pin (`ControlFailureTests.test_normal_mode_prints_every_control_verdict_exactly_once`),
+  `ReportModeControlTests` (4) and `EntryPointAgreementTests` (3, incl. two
+  negative controls on synthetic source). 70 → 78 tests.
+- **Deviations from plan:** (1) Step 3.c0 — the normal-mode display pin — was
+  added at plan review on the user's request, after verifying no existing test
+  asserted a `control :` stdout line. (2) `ControlFailureTests._run_cli` gained
+  `*extra_args` as planned, but `ReportModeControlTests` ended up with its own
+  `_run_report` because its fixture must yield a reported miss (so "stdout is
+  records only" is never vacuous); `extra_args` is currently unused. Left as-is
+  rather than changing reviewed code after approval.
+- **Issues encountered:** None in the code. At claim time `aitask_pick_own.sh`
+  warned that the task-data sync failed (data worktree had unstaged changes
+  blocking rebase) — non-blocking, ownership was acquired.
+- **Key decisions:** The exit status is the authoritative contract in every mode;
+  `--report` suppresses display only. Entry-point agreement is asserted on the
+  source via `ast` (guard is the last statement, nothing defined after it) rather
+  than by comparing subprocess runs, which would recurse into the test itself.
+  `scan()`, `CONTROLS`, `ENGINE_CONTROL_NAMES` and the ENGINE/CORPUS split are
+  untouched (t1768's replay contract).
+- **Verification results:** direct run and discovery both `Ran 78` / `OK`;
+  `tests/test_check_link_relevance_history.py` 13 OK; live corpus `--report` rc 0
+  with 0 control lines, full run rc 0 with 6 `True` controls. Red proofs, all in
+  isolated scratchpad copies: pre-fix script → report-mode tests fail (7
+  failures: every failing control returned 0, and no control was called);
+  display-loop mutant → only the normal-mode pin fails; guard re-stranded
+  mid-file → `EntryPointAgreementTests` fails naming the stranded classes (and a
+  direct run of that mutant shows the partial green `Ran 56`). Full Python suite
+  not run — only the two affected modules.
+- **Upstream defects identified:**
+  - `tests/test_minimonitor_own_mark.py:786` — `unittest.main()` guard mid-file; `OwnAgentStaysCapturedTests` and `OwnWindowInfoConfirmationTests` never run under direct execution
+  - `tests/test_monitor_finalize_offload.py:418` — `unittest.main()` guard mid-file; `AgentScopingCallSiteTests` never runs under direct execution
+  - `tests/test_shadow_seam.py:1263` — `unittest.main()` guard mid-file; `FormatShadowStaleBannerTests`, `NarrowShadowStaleBannerTests`, `FormatStalenessDetailTests` and `_Meta` never run under direct execution
