@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1733
+implemented_with: claudecode/opus5
 created_at: 2026-09-09 11:13
-updated_at: 2026-09-10 16:00
+updated_at: 2026-09-11 12:43
 ---
 
 ## Context
@@ -203,3 +204,8 @@ problem, since they share a test harness.
 > | Line anchors in your task/plan (A5 ":919", "do_pull_rebase ~910") predate
 > | e2f12c499 (t1731) and 12bfaac90; as of 12bfaac90 do_pull_rebase begins near
 > | aitask_sync.sh:1837. Locate by function name.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-11T09:43:06Z status=pass attempt=1 type=human
