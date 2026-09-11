@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [web_site, testing]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ folded_tasks: [1790]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5
 created_at: 2026-09-09 16:33
-updated_at: 2026-09-11 07:35
+updated_at: 2026-09-11 11:27
+completed_at: 2026-09-11 11:27
 ---
 
 Two defects in the self-verification surface that landed with t1759
@@ -229,3 +230,14 @@ The following existing tasks have been folded into this task. Their requirements
 > **✅ gate:plan_approved** run=2026-09-11T04:35:43Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-09-11T08:22:57Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-11T08:27:09Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:517c8b5e6e295166
+
+> **✅ gate:risk_evaluated** run=2026-09-11T08:27:09Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1770/risk_evaluated_2026-09-11T08:27:09Z-risk_evaluated-a1.log`
