@@ -209,8 +209,10 @@ divide the work and neither should grow into the other's job:
 relevance is a heuristic and some hits are expected to be false positives (link
 text that is a page title, a prose paraphrase, a script name standing in for the
 command a page documents). The script exits non-zero only when one of its own
-self-controls fails, i.e. when it can no longer prove it is still looking; it
-prints every control on every run.
+self-controls fails, i.e. when it can no longer prove it is still looking — in
+every mode, `--report` included. A full run prints every control. `--report`
+keeps stdout to the records alone, for a machine reader, but it still evaluates
+every control and names a failed one on stderr.
 
 It is also **deliberately not folded into `check_links.py`**, not even as a
 non-blocking warning: the relevance question needs the `source_file:line` that

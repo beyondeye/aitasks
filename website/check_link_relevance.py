@@ -104,13 +104,16 @@ anything not named there is treated as corpus-keyed.
 Exit status is **0 even when links are reported** -- the misses are for a human to
 triage, and several are expected to be false positives (link text that is a page
 title, a prose paraphrase). The script exits non-zero only when one of its own
-self-controls fails, i.e. when it can no longer prove it is still looking.
+self-controls fails, i.e. when it can no longer prove it is still looking -- in
+every mode, `--report` included. `--report` suppresses only the display: stdout
+carries the records alone, and a failed control is named on stderr.
 
 Usage:
     python3 check_link_relevance.py                 # sweep ./content
     python3 check_link_relevance.py --content path  # sweep another tree
     python3 check_link_relevance.py -v              # also list hits
-    python3 check_link_relevance.py --report        # records only, no summary
+    python3 check_link_relevance.py --report        # records only on stdout;
+                                                    # a failed control still exits 1
 """
 
 from __future__ import annotations
@@ -615,6 +618,24 @@ def evaluate_controls(result: Result, controls=None) -> Dict[str, bool]:
 
 
 # --- CLI ------------------------------------------------------------------
+def _report_failed_controls(failed: List[str]) -> int:
+    """Name each failed control on stderr; 1 if any failed, else 0.
+
+    Shared by the full run and `--report`, so the two modes cannot disagree about
+    what a failed control means -- only about whether the passing ones are shown.
+    """
+    if not failed:
+        return 0
+    # ANY failed control, not all of them: a run whose extractor collapsed
+    # while the stem control still passes is exactly the silently-stopped-
+    # looking case these exist to catch.
+    print("\nFAILED CONTROL(S) -- this run proves nothing about the content:",
+          file=sys.stderr)
+    for name in failed:
+        print(f"  - {name}", file=sys.stderr)
+    return 1
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--content", default=str(HERE / "content"),
@@ -622,7 +643,8 @@ def main() -> int:
     parser.add_argument("-v", "--verbose", action="store_true",
                         help="also list resolved hits")
     parser.add_argument("--report", action="store_true",
-                        help="print records only, no summary or controls")
+                        help="print records only on stdout; controls still run, "
+                             "and a failed one exits 1 and is named on stderr")
     args = parser.parse_args()
 
     content_dir = Path(args.content)
@@ -631,6 +653,10 @@ def main() -> int:
         return 2
 
     result = scan(content_dir)
+    # Evaluated here, never inside scan(): the historical replay calls scan()
+    # directly and must stay control-free (see "Historical replay" above).
+    controls = evaluate_controls(result)
+    failed = [name for name, ok in controls.items() if not ok]
 
     # Unlabelled records first: they are the ones only a reader can clear.
     ordered = ([m for m in result.misses if not m.subject]
@@ -640,7 +666,10 @@ def main() -> int:
         print(f"{miss.source}:{miss.line}  `{miss.token}`  ->  "
               f"{miss.url} [{miss.scope}]{tag}")
     if args.report:
-        return 0
+        # stdout stays records only, for a machine reader -- but the controls
+        # already ran, so a collapsed extractor fails closed here exactly as it
+        # does in a full run.
+        return _report_failed_controls(failed)
 
     for warning in result.warnings:
         print(f"warning     : {warning}", file=sys.stderr)
@@ -668,20 +697,12 @@ def main() -> int:
           f"{counters['subject_base_matches']} of "
           f"{counters['subject_base_total']} page-scoped token links)")
 
-    controls = evaluate_controls(result)
     for name, ok in controls.items():
         print(f"control       : {name}: {ok}")
 
-    failed = [name for name, ok in controls.items() if not ok]
-    if failed:
-        # ANY failed control, not all of them: a run whose extractor collapsed
-        # while the stem control still passes is exactly the silently-stopped-
-        # looking case these exist to catch.
-        print("\nFAILED CONTROL(S) -- this run proves nothing about the content:",
-              file=sys.stderr)
-        for name in failed:
-            print(f"  - {name}", file=sys.stderr)
-        return 1
+    rc = _report_failed_controls(failed)
+    if rc:
+        return rc
 
     print("\nRelevance is a heuristic: reported links need human triage, and "
           "some are expected to be false positives.")

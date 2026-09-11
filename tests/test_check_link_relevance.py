@@ -12,6 +12,7 @@ stale the moment someone edits a page.
 Run: bash tests/run_all_python_tests.sh
   or: python3 -m pytest tests/test_check_link_relevance.py -v
 """
+import ast
 import io
 import os
 import sys
@@ -547,11 +548,12 @@ class ControlFailureTests(SiteTestCase):
         "subject-of-page label discriminates",
     ]
 
-    def _run_cli(self, controls):
+    def _run_cli(self, controls, *extra_args):
         """Run main() over the fixture with `controls`; return (rc, out, err)."""
         self.site.page("docs/x", "# X\n\nnothing\n")
         out, err = io.StringIO(), io.StringIO()
-        argv = ["check_link_relevance.py", "--content", str(self.site.content)]
+        argv = ["check_link_relevance.py", "--content", str(self.site.content),
+                *extra_args]
         with patch.object(clr, "CONTROLS", controls), patch.object(sys, "argv", argv):
             with redirect_stdout(out), redirect_stderr(err):
                 rc = clr.main()
@@ -583,6 +585,28 @@ class ControlFailureTests(SiteTestCase):
         self.assertEqual(rc, 1)
         for name in self.CONTROL_NAMES:
             self.assertIn(name, err)
+
+    def test_normal_mode_prints_every_control_verdict_exactly_once(self):
+        """The full run's half of the display contract; `--report` is the other.
+
+        Mixed verdicts, so a hard-coded `True` cannot pass, and an exact count, so
+        a duplicated or dropped line cannot either. A regression pin: without it,
+        a refactor that made `--report` fail closed by bypassing the full-mode
+        display would pass every other test here.
+        """
+        verdicts = {name: index != 0
+                    for index, name in enumerate(self.CONTROL_NAMES)}
+        controls = [(name, (lambda ok: lambda r: ok)(ok))
+                    for name, ok in verdicts.items()]
+        rc, out, _ = self._run_cli(controls)
+        self.assertEqual(rc, 1)
+        lines = out.splitlines()
+        for name, ok in verdicts.items():
+            self.assertEqual(
+                lines.count(f"control       : {name}: {ok}"), 1, name)
+        self.assertEqual(
+            len([line for line in lines if line.startswith("control")]),
+            len(self.CONTROL_NAMES))
 
     def test_real_control_list_is_wired_and_named(self):
         """The shipped list must be non-empty and carry callables.
@@ -648,9 +672,6 @@ class SlugOverrideWarningTests(SiteTestCase):
 
 
 # --- subject-of-page label (t1768) ------------------------------------------
-# These classes sit ABOVE the stranded `unittest.main()` guard on purpose. Moving
-# that guard to the end of the file is t1770's fix; until it lands, running this
-# module directly collects only the classes defined before it. Keep them here.
 class SubjectOfPageKeyTests(unittest.TestCase):
     """`subject_of_page` in isolation -- each discriminator pinned by a case."""
 
@@ -862,10 +883,6 @@ class ControlSplitTests(unittest.TestCase):
         self.assertFalse(any(verdicts.values()), verdicts)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class ControlVacuityTests(SiteTestCase):
     """A control must not pass because its subject disappeared.
 
@@ -1033,3 +1050,136 @@ class ScopeProbeControlTests(unittest.TestCase):
         """A right verdict reached with a wrong label is still caught."""
         with patch.object(clr, "anchor_section", lambda body, anchor: None):
             self.assertFalse(clr._probe_scope_narrowing())
+
+
+# --- report mode fails closed (t1770) ---------------------------------------
+class ReportModeControlTests(SiteTestCase):
+    """`--report` keeps stdout to the records alone, but still obeys the controls.
+
+    Its exit status is the same contract as a full run's: only a failed control
+    is an error. A report mode that skipped the controls would turn a collapsed
+    extractor into an empty report that reads as success.
+    """
+
+    CONTROL_NAMES = ControlFailureTests.CONTROL_NAMES
+
+    def _run_report(self, controls):
+        """Run `main() --report` with `controls`; return (rc, out, err)."""
+        # One reported miss, so "stdout is records only" is never vacuously true.
+        self.site.page("docs/target", "# Target\n\nUnrelated prose.\n")
+        self.site.page(
+            "docs/a", '[`ait artifact`]({{< relref "/docs/target" >}})\n'
+        )
+        out, err = io.StringIO(), io.StringIO()
+        argv = ["check_link_relevance.py", "--content", str(self.site.content),
+                "--report"]
+        with patch.object(clr, "CONTROLS", controls), patch.object(sys, "argv", argv):
+            with redirect_stdout(out), redirect_stderr(err):
+                rc = clr.main()
+        return rc, out.getvalue(), err.getvalue()
+
+    def assertRecordsOnly(self, out):
+        lines = [line for line in out.splitlines() if line.strip()]
+        self.assertTrue(lines, "report mode printed no records at all")
+        for line in lines:
+            self.assertIn("  ->  ", line, f"non-record line on stdout: {line!r}")
+        self.assertNotIn("links checked", out)
+        self.assertFalse([l for l in lines if l.startswith("control")])
+
+    def test_each_control_failing_alone_fails_report_mode(self):
+        for index, failing in enumerate(self.CONTROL_NAMES):
+            with self.subTest(control=failing):
+                controls = [
+                    (name, (lambda r: False) if i == index else (lambda r: True))
+                    for i, name in enumerate(self.CONTROL_NAMES)
+                ]
+                rc, out, err = self._run_report(controls)
+                self.assertEqual(rc, 1, f"{failing} should have failed --report")
+                self.assertIn(f"  - {failing}", err)
+                # The passing controls must not be blamed.
+                for other in self.CONTROL_NAMES:
+                    if other != failing:
+                        self.assertNotIn(f"  - {other}", err)
+                self.assertRecordsOnly(out)
+
+    def test_all_controls_passing_exits_zero_with_records_only(self):
+        controls = [(name, lambda r: True) for name in self.CONTROL_NAMES]
+        rc, out, err = self._run_report(controls)
+        self.assertEqual(rc, 0, err)
+        self.assertRecordsOnly(out)
+        self.assertIn("`ait artifact`", out)
+
+    def test_report_mode_evaluates_every_control(self):
+        """Each control is called exactly once -- report mode used to call none."""
+        calls = []
+
+        def spy(name):
+            def predicate(result):
+                calls.append(name)
+                return True
+            return predicate
+
+        rc, _, _ = self._run_report([(n, spy(n)) for n in self.CONTROL_NAMES])
+        self.assertEqual(rc, 0)
+        self.assertEqual(calls, self.CONTROL_NAMES)
+
+    def test_misses_alone_do_not_fail_report_mode(self):
+        """It fails closed on a control, never on a reported link."""
+        rc, out, _ = self._run_report([("always ok", lambda r: True)])
+        self.assertEqual(rc, 0)
+        self.assertIn("`ait artifact`", out)
+
+
+# --- entry points agree (t1770) ---------------------------------------------
+def _defs_after_main_guard(source):
+    """Top-level names defined after `if __name__ == "__main__":`, or None.
+
+    `unittest.main()` calls sys.exit(), so direct execution never defines
+    anything below the guard, while discovery imports the whole module. An empty
+    list is therefore exactly "both entry points collect the same tests".
+    """
+    tree = ast.parse(source)
+    for index, node in enumerate(tree.body):
+        if isinstance(node, ast.If) and ast.unparse(node.test) in (
+                "__name__ == '__main__'", '__name__ == "__main__"'):
+            return [n.name for n in tree.body[index + 1:]
+                    if isinstance(n, (ast.ClassDef, ast.FunctionDef,
+                                      ast.AsyncFunctionDef))]
+    return None
+
+
+class EntryPointAgreementTests(unittest.TestCase):
+    """Direct execution and discovery must collect the same tests.
+
+    Asserted on the source rather than by comparing two subprocess runs: a
+    direct-run subprocess would execute this very test and recurse.
+    """
+
+    def test_guard_is_the_last_statement_of_this_module(self):
+        source = Path(__file__).resolve().read_text()
+        self.assertEqual(_defs_after_main_guard(source), [])
+        last = ast.parse(source).body[-1]
+        self.assertIsInstance(last, ast.If)
+        self.assertIn("__main__", ast.unparse(last.test))
+
+    def test_helper_detects_a_stranded_class(self):
+        source = (
+            "import unittest\n"
+            "class A(unittest.TestCase):\n    pass\n"
+            "if __name__ == '__main__':\n    unittest.main()\n"
+            "class B(unittest.TestCase):\n    pass\n"
+        )
+        self.assertEqual(_defs_after_main_guard(source), ["B"])
+
+    def test_helper_reports_a_missing_guard(self):
+        self.assertIsNone(_defs_after_main_guard("import unittest\n"))
+
+
+# MUST stay at the very END of the file (t1770; t1518 fixed the same defect in
+# tests/test_minimonitor_concern_action.py). `unittest.main()` calls sys.exit(),
+# so a guard placed mid-file stops the interpreter there: every class below it
+# is never defined, and a direct run reports a green partial count. Discovery
+# imports the module instead and is unaffected, which is why it goes unnoticed.
+# EntryPointAgreementTests fails if anything is defined after it.
+if __name__ == "__main__":
+    unittest.main()
