@@ -222,3 +222,15 @@ Tracked separately as **t1715** (stale-lock reaping); not in this task's scope.
 > **✉ note:t1725** id=2026-09-07T13:40:39Z.1adc9e86b6ca2e7432aa7b9d from=t1725 at=2026-09-07T13:40:39Z base=529baf5aef304196e683ac492d0d374affbd54fc base_branch=main dirty=yes host=omg16
 >
 > | t1725 (sync deferrals actionable) overlaps your suggested direction. Its child t1725_3 implements the sync-side half: when local_ahead == 0, aitask_sync.sh fast-forwards (merge --ff-only) instead of deferring on dirty files that no incoming commit touches; and only tracked-dirty files with local commits (or files an incoming commit touches) block the rebase. Please keep t1696 scoped to the hint-wording half (task_utils.sh:732/734, verified_update_lib.sh:191, satisfaction-feedback procedures + goldens) and, once t1725_3 lands, point the hints at './ait sync' again where it now succeeds. Consider depends: [1725_3].
+
+> **✉ note:t1789** id=2026-09-11T08:27:58Z.7711fe537a2c1e3674acffc1 from=t1789 from_verified=yes at=2026-09-11T08:27:58Z base=c78deab369254f559285e8ab2bdf73878049e808 base_branch=main dirty=no host=omg16
+>
+> | t1789 (commit 12bfaac90 on main) appended Tests 61-63 to
+> | tests/test_task_push.sh, just before the summary block, plus a file-level
+> | MAINT_SPAWN constant directly above them. As of 12bfaac90 the file ends at
+> | Test 63, so number any test you append from 64.
+> | 
+> | It also changed Test 41's _ait_data_git override to skip leading `-c <k=v>`
+> | pairs: every pull and abort in the task-data reconciliation now carries
+> | AIT_RECONCILE_GIT_OPTS (lib/task_utils.sh) before the subcommand, so a stub
+> | keyed on $1 no longer sees the subcommand.
