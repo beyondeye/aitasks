@@ -582,3 +582,163 @@ parallel lane, and it ran past 600 s in t1747_2.
 ### Planned mitigations
 - timing: pre-phase | name: baseline_sync_suites | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — unabsorbed set -e capture on the most-run path | desc: run the sync suites and the runner module on the unmodified worktree and record counts before any edit
 - timing: pre-phase | name: measure_a10_discriminator | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — A10 discriminator predicted, not measured | desc: build the linked-worktree A10 fixture first and confirm the unmodified code publishes under the --absolute-git-dir shim; stop and re-plan if not
+
+## Post-Review Changes
+
+### Change Request 1 (2026-09-11 15:00)
+- **Requested by user:** Step-8 review concern (low; the reviewer marked it
+  `Disposition: follow-up` and `CONFIRMED`). In A5's verified-clean branch
+  (`w_rc` 1), the message said "The rebase was aborted" without looking at `a_rc`.
+  But the design explicitly allows the abort to fail while the follow-up state
+  check proves the worktree clean — for example, "no rebase in progress" — so the
+  message could claim a recovery action that did not succeed.
+- **Disposition:** inlined rather than deferred, by explicit user decision. The
+  finding was put to the user rather than overridden unilaterally. The reasons:
+  - it is a wording-only fix to code this task introduced and had not yet
+    committed;
+  - it contradicted this plan's own verified-state contract (item 5);
+  - it adds no policy, predicate or branch.
+- **Changes made:**
+  - The message now reads "The data worktree was verified clean afterwards
+    (rebase --abort rc=${a_rc}) — your local commits are intact". The token
+    `ERROR:pull_conflict_unverified` and the verified-state decision are
+    unchanged.
+  - Test 18 gains two assertions: stderr carries `rebase --abort rc=0`, and it no
+    longer contains "The rebase was aborted".
+- **Files affected:** `.aitask-scripts/aitask_sync.sh`,
+  `tests/test_sync_branch_mode_automerge.sh`
+
+## Final Implementation Notes
+
+- **Actual work done** (line numbers as of this task's commit, base `c78deab36`):
+  - **`.aitask-scripts/aitask_sync.sh`:**
+    - **A10.** `_sync_gitdir:545` now resolves the git-dir through
+      `lib/task_utils.sh::_data_wedge_gitdir` and returns 2 when the answer is
+      empty. `_quarantine_path:554` propagates the 2, and `_worktree_wedged:605` is
+      now tri-state (0/1/2). A new `_refuse_unresolved_gitdir:619` emits
+      `ERROR:data_gitdir_unresolved` and exits 1. It is called from `main` Step 1b
+      (`:2159`) and from `auto_commit` before the lock is taken. `auto_commit`
+      resolves the ledger path once and passes it to `_quarantine_load_and_prune`
+      and `_quarantine_persist` as `$1`.
+    - **A4.** The settlement probe (`:924`) is hoisted out of `[[ -z "$(…)" ]]`. An
+      unreadable path is held, with its own report line naming
+      `--release-quarantine`.
+    - **A3.** The staged guard (`:1286`) captures the rc. When the index cannot be
+      read, it calls `_protect_group_paths "unverifiable"` and defers the group.
+    - **A5.** The conflict classifier (`:1904`) captures the rc. When the probe
+      cannot be read, it runs `rebase --abort` in t1789's pinned
+      `_ait_data_git "${AIT_RECONCILE_GIT_OPTS[@]}"` form, then re-inspects with
+      `_worktree_wedged` and emits one of three tokens:
+      - `ERROR:pull_conflict_unverified` (rc 1, the worktree was verified clean);
+      - `ERROR:rebase_abort_failed` (rc 0, still wedged);
+      - `ERROR:rebase_abort_unverified` (rc 2, the state could not be inspected).
+    - Every call site of the four helpers carries an `# unverified:` tag.
+      Shellcheck is unchanged (SC1091 ×10).
+    - There is no Python change. Every new token is an `ERROR:` suffix, and A3
+      reuses the existing `unverifiable` sub-reason.
+  - **`tests/test_sync_failopen_probes.sh`** (new, 51 assertions):
+    - A10-1 and A10-2: a linked worktree plus a shim that fails
+      `--absolute-git-dir`.
+    - A3-1, which adds an incoming commit so the `DEFERRED_FILE` rows are printed,
+      plus the A3-2 permit case.
+    - A4-1 and its A4-2 control.
+    - Three probe-only mutants.
+    - The call-site identity scan S: six rows, an anti-empty guard, per-site tags,
+      and a scanner self-test.
+  - **`tests/test_sync_branch_mode_automerge.sh`:** `install_advance_shim` gains
+    three modes: `first-probe`, `first-probe+abort` and
+    `first-probe+gitdir-vanish`. Tests 18–20 are added, each with one mutant. The
+    suite goes from 130 to 166 assertions.
+- **Deviations from plan:**
+  - The A5 tests are **Tests 18–20**, not 15–17. t1789 (`12bfaac90`) added its own
+    Tests 15–17 to the same suite after planning.
+  - The A5 abort uses `_ait_data_git "${AIT_RECONCILE_GIT_OPTS[@]}" rebase --abort`
+    rather than the plan snippet's `task_git rebase --abort`. t1789 pinned rerere
+    and auto-maintenance off on every abort in `do_pull_rebase`, and `task_git`'s
+    guard refuses a leading `-c`.
+  - The two A10 refusals share one helper, `_refuse_unresolved_gitdir`. Its recovery
+    text goes through the skip report, which always prints to stderr, instead of
+    through `iwarn`.
+  - **A10 fixture.** `setup_repo` commits `.aitask-data` onto the code branch as a
+    gitlink, so `worktree add` leaves an empty directory, which `--link-worktree`
+    refuses. `build_a10_fixture` asserts the directory is empty, removes it, and
+    then links.
+  - A3-1 needs an incoming commit that touches `t10` (`advance_remote_touching`).
+    Only then does the run end in `DEFERRED:protected_dirty` and print the
+    `DEFERRED_FILE` rows the test checks.
+  - The rc-2 message says "may still be mid-rebase" instead of the planned "do not
+    assume … intact", so Test 20 can assert that "intact" is absent. Post-Review
+    Change 1 reworded the rc-1 message along the same lines.
+- **Issues encountered:**
+  - **`main` moved repeatedly during the session** (t1725_4, t1731, t1789, t1770,
+    t1773). The plan was re-verified against the landed t1731, which added no new
+    consumer. Every edit was applied on top of t1789's changes, and the worktree
+    was cut at `c78deab36`.
+  - **Pre-phase `measure_a10_discriminator`.** On unmodified code, the shimmed run
+    from the linked worktree printed `PUSHED`, exited 0, and published the withheld
+    commit. The unshimmed run from the same worktree held it.
+
+    Before the fixture fix, the *unlinked* route (rung 3 of
+    `_ait_detect_data_worktree`) reached the same probe and also published. The fix
+    covers that second production route identically, but only the linked route is
+    tested.
+  - **Red proof on unmodified code:**
+    - The new file failed 25 of 50. A10 published, A3 replaced the foreign staged
+      blob, and A4 released the entry and published it.
+    - Automerge Tests 18–20 all printed `ERROR:pull_rebase_failed`.
+    - Every mutant failed to install, because its anchors did not exist yet.
+
+    After the fix, everything is green.
+  - **Suite counts, baseline on the unmodified worktree → after the fix:**
+
+    | suite | result |
+    |---|---|
+    | automerge | 130 → 166 |
+    | guarded_merge | 147/147 |
+    | test_sync | 42/42 |
+    | auto_commit_scoping | 38/38 |
+    | deferral_and_quarantine | 138/138 |
+    | protect_paths | 31/31 |
+    | no_unscoped_task_commit | 101/101 |
+    | `test_sync_action_runner.py` | 52 passed |
+    | new `test_sync_failopen_probes.sh` | 51/51 |
+- **Key decisions:**
+  - **Resolve by mode, not by emptiness.** `_sync_gitdir` reuses
+    `_data_wedge_gitdir` rather than a parallel resolver. It relies on
+    `_ait_detect_data_worktree`, which decides the mode by whether
+    `.aitask-data/.git` exists and caches the answer. So an unreadable data git-dir
+    cannot flip detection to legacy mode.
+  - **One resolution site for the ledger** (`auto_commit`) instead of four.
+  - **A5 reports its recovery from verified state.** Each of the three outcomes is
+    driven by a test, including the uninspectable one. Test 20 has its shim move the
+    admin dir aside mid-run, so no production seam is needed.
+  - **The five existing best-effort aborts stay as they are.** These are the
+    `rebase --abort … || true` calls in `do_pull_rebase`, and they remain
+    negative-space rows. Their messages claim nothing, and any wedge they leave
+    behind is caught by Step 1b on the next run.
+  - **Post-Review Change 1 was fixed inline** despite its `Disposition: follow-up`,
+    by explicit user decision.
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/task_utils.sh:236 — _ait_inprogress_state_at answers "clean" for an empty git-dir, so on an unresolvable branch-mode data git-dir _data_wedge_state (:290) reads "not wedged": assert_task_data_writable (:396) lets the write through, and ait_pull_mutex_acquire (:1076) returns 0 without taking the pull mutex. Same fail-open class as A10, outside the audited Group A.`
+- **Notes for sibling tasks:**
+  - **t1747_7.** The canonical doc's rows A3, A4, A5 and A10 still cite the
+    audit's line numbers. As of this commit they are:
+    - A3: `aitask_sync.sh::_commit_group:1286`;
+    - A4: `::_quarantine_load_and_prune:924`;
+    - A5: `::do_pull_rebase:1904`;
+    - A10: `::_sync_gitdir:545`.
+
+    A5's harm was misclassification, not lost work, because the probe runs before
+    any resolution has happened. Its fix verifies the recovery.
+  - **t1740.** It plans to generalize `ait_pull_mutex_acquire`. That function's
+    `[[ -z "$gitdir" ]] && return 0` (`:1076`) is half of the upstream defect
+    above, so decide its "unverified" disposition when touching it.
+  - **Reusable seams.**
+    - In the new file: `install_probe_shim`, which is argv-keyed and logs every
+      call it fails, and `build_a10_fixture`.
+    - The three new `install_advance_shim` modes.
+    - The admin-dir-vanish shim technique, which drives an uninspectable state
+      without any production seam.
+  - **Linked-worktree fixtures.** `setup_repo` commits `.aitask-data` onto the code
+    branch as a gitlink. Any linked-worktree fixture built from it must remove the
+    empty checkout directory before running `--link-worktree`.
