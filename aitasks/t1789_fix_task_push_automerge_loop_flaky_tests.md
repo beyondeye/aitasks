@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1599
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5
 created_at: 2026-09-10 15:47
-updated_at: 2026-09-10 16:09
+updated_at: 2026-09-11 07:41
 ---
 
 ## Origin
@@ -57,3 +58,8 @@ First make it deterministic: run Tests 54–56 in isolation repeatedly (and unde
 load) to separate a real loop/cap defect from fixture timing (remote-ahead setup,
 fetch freshness — the stderr notes the remote side is "as of the last successful
 fetch"). Then fix the cause, not the retry count.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-11T04:41:15Z status=pass attempt=1 type=human
