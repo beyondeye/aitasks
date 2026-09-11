@@ -14,9 +14,13 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 children_to_implement: [t1705_10, t1705_11]
 created_at: 2026-09-04 10:50
-updated_at: 2026-09-10 12:11
+updated_at: 2026-09-11 11:22
 boardcol: now
 boardidx: 27718
+artifacts:
+  - handle: art:trail-frozen-codeagents
+    kind: implementation_trail
+    name: "Frozen code agents: remaining work"
 ---
 
 ## Goal

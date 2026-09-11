@@ -1,0 +1,10 @@
+{
+  "backend": "local",
+  "created_at": 1789114960,
+  "current": "sha256:a364e29321598bf14e2213727124225e55e91d0630ef80e2eb9edd46531b4ee1",
+  "handle": "art:trail-frozen-codeagents",
+  "updated_at": 1789114960,
+  "versions": [
+    "sha256:a364e29321598bf14e2213727124225e55e91d0630ef80e2eb9edd46531b4ee1"
+  ]
+}
