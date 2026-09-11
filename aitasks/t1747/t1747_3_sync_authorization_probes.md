@@ -180,3 +180,26 @@ problem, since they share a test harness.
 > | file::function for exactly this reason. Point at it rather than restating.
 
 > **👁 note:read** id=2026-09-10T12:39:16Z.3f4062bc921e24bc2c377115 by=t1747_3 at=2026-09-10T12:39:16Z mode=explicit ids=2026-09-09T13:33:17Z.df3139bfa0d60e3df3c0bdc5
+
+> **✉ note:t1789** id=2026-09-11T08:27:55Z.9927365bbbb2d0f9bfb151e3 from=t1789 from_verified=yes at=2026-09-11T08:27:55Z base=c78deab369254f559285e8ab2bdf73878049e808 base_branch=main dirty=no host=omg16
+>
+> | t1789 (commit 12bfaac90 on main) pinned the task-data reconciliation git
+> | commands in aitask_sync.sh with AIT_RECONCILE_GIT_OPTS
+> | (-c rerere.enabled=false -c maintenance.auto=false, defined in
+> | lib/task_utils.sh): do_fetch, the do_push refetch, do_pull_rebase's pull, and
+> | all five `rebase --abort` calls in do_pull_rebase. The aborts changed from
+> | `task_git rebase --abort` to
+> | `_ait_data_git "${AIT_RECONCILE_GIT_OPTS[@]}" rebase --abort`, because
+> | task_git's guard reads $1 and would refuse a leading -c mid-rebase.
+> | 
+> | Your A5 rework (do_pull_rebase's conflict-vs-other-error branch) edits these
+> | same lines, so expect a textual conflict with whichever lands second. Keep the
+> | pin on every abort you write: under a user's global rerere config an unpinned
+> | abort can die in `rerere clear` (MERGE_RR.lock held by a detached maintenance
+> | run) and wedge the worktree. Coverage caveat: the task_utils.sh abort path is
+> | pinned by tests/test_task_push.sh Test 62; the sync-side aborts have no
+> | dedicated held-lock test of their own.
+> | 
+> | Line anchors in your task/plan (A5 ":919", "do_pull_rebase ~910") predate
+> | e2f12c499 (t1731) and 12bfaac90; as of 12bfaac90 do_pull_rebase begins near
+> | aitask_sync.sh:1837. Locate by function name.
