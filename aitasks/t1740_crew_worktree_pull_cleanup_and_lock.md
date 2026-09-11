@@ -97,3 +97,14 @@ Consequences to design for, found while planning t1725_1:
   cleanup assertions fail; neuter the ownership check and confirm the
   "left in place" assertions fail. Cheap, and it caught a vacuous lock assertion
   in t1725_1.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1747_3** id=2026-09-11T12:10:57Z.b79db71fa293b319a9a596d6 from=t1747_3 from_verified=yes at=2026-09-11T12:10:57Z base=c78deab369254f559285e8ab2bdf73878049e808 base_branch=main dirty=no host=omg16
+>
+> | Context for the planned ait_pull_mutex_acquire generalization. Line numbers are as of c78deab36, the base t1747_3 was cut from; re-resolve them by function name.
+> | 
+> | lib/task_utils.sh::ait_pull_mutex_acquire:1071 derives its git-dir from _data_wedge_gitdir, and `[[ -z "$gitdir" ]] && return 0` (:1076) runs WITHOUT the mutex when that git-dir cannot be resolved. The comment calls this "the pre-existing behaviour". t1747_3 measured the condition as reachable: from linked and crew worktrees, a failing `git -C .aitask-data rev-parse --absolute-git-dir` leaves the data git-dir unresolvable. In its A10 fixture, that path published a withheld commit through ait sync.
+> | 
+> | The unlocked fallback is half of the upstream defect now tracked as t1796 (_ait_inprogress_state_at reads an empty git-dir as "clean"). When you change the mutex to take a git-dir, give the empty/unresolvable case an explicit disposition rather than carrying the silent unlocked return forward, and coordinate with t1796 so the two tasks do not choose different answers for the same helper. The rule and dispositions are in aidocs/framework/failopen_git_probes.md.
