@@ -213,7 +213,7 @@ Step 8 review and commit.
 - A fifth `-e` flag rides the `if-shell` branch unquoted. Repeated `-e` is measured for four flags (spike Case 3c), and the value is limited to the store's agent-string regex before it is spliced in. · severity: low · → mitigation: None needed (covered by the malformed-value unit test)
 
 ### Goal-achievement risk: medium
-- Unit tests prove each half separately, for both modes. Only the live suites prove the composed hook → store → coordinator path, and they cannot run inside this tmux session. · severity: medium · → mitigation: run_live_restore_suites_outside_tmux
+- Unit tests prove each half separately, for both modes. Only the live suites prove the composed hook → store → coordinator path, and they cannot run inside this tmux session. · severity: medium · → mitigation: t1806
 
 ### Planned mitigations
 - timing: after | name: run_live_restore_suites_outside_tmux | type: manual_verification | priority: medium | effort: low | inline_risk: high | added_complexity: low | addresses: goal-achievement — the composed restore path is only provable by the live suites, which refuse to run inside tmux | desc: From a terminal NOT inside tmux with the `-L ait` server stopped, run tests/test_frozen_agents_acceptance.sh and tests/test_restore_flows_live.sh; confirm the t1802 env + record assertions (acceptance Cases 5 and 6c, restore-flows Cases 1 and 2 incl. the repick case) pass, and once with the agent_restore.py change reverted confirm the env assertions FAIL (pre-fix control) | created: t1806
