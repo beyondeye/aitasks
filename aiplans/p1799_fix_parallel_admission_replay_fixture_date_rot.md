@@ -168,3 +168,27 @@ Build verification/gates, then archival via `aitask_archive.sh 1799`.
 
 ### Goal-achievement risk: low
 - The preflight 2026-09-16 rot comes from reading `tier()`, not from an observed failure · severity: low · → mitigation: none (the Step 3 red proof confirms it before commit)
+
+## Post-Review Changes
+
+### Change Request 1 (2026-09-14 17:40)
+- **Requested by user:** (1) the inner `collect_population` → `collect(now=now)` handoff had no test: the roadmap test stubs `collect_population`, so dropping the inner forward would pass every test; (2) the negative control restored the real clock and assumed the machine date is after the 2026 fixture, so it fails on a historical or time-faked runner.
+- **Changes made:** added `FixtureClockTests.test_collect_population_forwards_now_to_the_snapshot`, which pins `now=NOW+60`, deliberately different from the scaffold's frozen clock so a dropped `now` cannot pass by fallback. Replaced `test_an_unpinned_clock_reproduces_the_rot` with `test_a_clock_past_max_claim_age_reproduces_the_rot`, which uses `_FrozenClock(NOW + MAX_CLAIM_AGE_S + 3600)` and asserts that SNAPSHOT equals that instant and that the verdict is exactly `VERDICT_FOR:11|CLEAR_CAVEATED`. Verified: an in-process mutant that drops the inner `now` fails the new test, and `FixtureClockTests` passes with `time.time` patched to 2020-01-01.
+- **Files affected:** `tests/test_parallel_admission_collect.py`
+
+## Final Implementation Notes
+- **Actual work done:** Step 0 merged `origin/main` into `main` as `c90ae55e8` (`ait: Merge origin/main into main`). No local SHA was rewritten and nothing was pushed. The merge brought in upstream's `_FrozenClock` fix for the 4 original failures (`44f92f5fa`, t1763); the collect test was then 101/101 on the merged tree. After that:
+  - `collect_population` gained `now=None` and forwards it to `collect`, and `roadmap_run.run` forwards its own `now`. A caller-level `NowForwardingTests` in `tests/test_roadmap_run.py` covers the outer handoff, and `FixtureClockTests.test_collect_population_forwards_now_to_the_snapshot` covers the inner one.
+  - Added behavioral clock guards in `tests/test_parallel_admission_collect.py`: `FixtureClockTests` (fixture freshness at the scaffold clock, SNAPSHOT equals the scaffold `NOW`, and a deterministic aged-clock negative control), plus a freshness test in `ExcludeNoPlanPredicateTests`.
+  - `tests/test_parallel_admission_preflight.sh` stamps its fixtures with the current time via `NOW_TS`.
+  - Corrected the `shortcut_scopes._ensure_import_paths` docstring, and pointed the `KNOWN_COLLISIONS` comment at it. The pin stays.
+- **Deviations from plan:**
+  - The merge brought in 5 upstream commits, not 2: t1783, t1784 and t1802 landed during the session. The trial merge was re-run against the new tip before merging.
+  - The first merge attempt was blocked because the shared tree had 23 uncommitted paths from concurrent sessions (t1794_2, t1797), `monitor_core.py` among them. I waited until they committed, re-checked, and merged into a clean tree.
+  - The plan said the scaffold's `_restore` "re-pins" the clock. It actually restores the real `time` module. After review, the negative control was changed to a frozen aged clock anyway (Change Request 1).
+- **Issues encountered:** The original red proofs held: the caller-level test failed with `[None]` before the forwarding edit, and the preflight script with a 44-day-old `updated_at` failed 5 asserts (CONFLICT → CLEAR_CAVEATED, UNCHECKABLE → CLEAR). That confirms the predicted 2026-09-16 09:00 breakage. After review, an in-process mutant that drops the inner `now` fails the new forwarding test, and `FixtureClockTests` passes with `time.time` patched to 2020-01-01. The full Python suite PASSED (runner=pytest) before Change Request 1. CR1 changed only `test_parallel_admission_collect.py`, which re-ran green (128 targeted tests).
+- **Key decisions:**
+  - Integrated by merge, per the user, rather than by rebase, which would have rewritten 12 unpushed local SHAs.
+  - Built on upstream's `_FrozenClock` instead of adding a second clock seam. No AST or structural rule.
+  - Documented the applink/chatlink basename collision rather than renaming modules; the blast radius was too wide for a latent issue.
+- **Upstream defects identified:** None
