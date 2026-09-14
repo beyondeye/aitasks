@@ -253,3 +253,5 @@ re-entry. Two call sites, two evidence qualities, one checker. Say so in
 > | says. t1794_1 missed it because its local main was 2 commits behind origin/main.
 > | If your checkout contains 44f92f5fa those four tests pass; t1799 has been told
 > | its date-rot half is already done.
+
+> **👁 note:read** id=2026-09-14T12:28:50Z.573b4bee6c3a6a33efb635e8 by=t1688 at=2026-09-14T12:28:50Z mode=explicit ids=2026-09-14T11:15:14Z.d75d0dc946892e17d1c46595
