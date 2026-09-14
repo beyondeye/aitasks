@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [test_infrastructure, python]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 1794
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5
 created_at: 2026-09-14 14:07
-updated_at: 2026-09-14 16:29
+updated_at: 2026-09-14 21:17
+completed_at: 2026-09-14 21:17
 ---
 
 ## Origin
@@ -106,3 +107,14 @@ PYTHONHASHSEED 0–7, so this is latent, not failing.
 > **✅ gate:plan_approved** run=2026-09-14T13:29:57Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-09-14T15:14:44Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-14T18:17:04Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:cd647a030e5c0abd
+
+> **✅ gate:risk_evaluated** run=2026-09-14T18:17:04Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1799/risk_evaluated_2026-09-14T18:17:04Z-risk_evaluated-a1.log`
