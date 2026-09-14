@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [testing, test_infrastructure]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1705
 followup_kind: review_finding
 created_at: 2026-09-09 13:14
-updated_at: 2026-09-09 13:14
+updated_at: 2026-09-14 08:52
 ---
 
 ## Context
