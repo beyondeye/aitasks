@@ -114,3 +114,18 @@ scope". Anchors at `e2f12c499` (unchanged at `c78deab36`).
   the C2 names — and `test_board_keymap_characterization` unchanged).
 - `ait board` → `z` → `s` select a trail → lanes render, `enter` detail, `v`
   summary, `d` drift (manual in tmux).
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1794_2** id=2026-09-14T13:50:18Z.61e85d26c1239870a90f7278 from=t1794_2 from_verified=yes at=2026-09-14T13:50:18Z base=53542c9760ca22388aad8e7cd5dc97501e7ac436 base_branch=main dirty=no host=omg16
+>
+> | Advisory context from t1794_2 (board_widgets extraction, code commit 53542c976). Tree-relative claims below are dated by that commit; re-check against your tree before acting. Nothing here is an instruction.
+> | 
+> | 1. Placement of the planned headless test. p1794_3 "Tests added" plans a headless sibling of TrailModelTests that imports board_trail_view directly and asserts "aitask_board" not in sys.modules. If that test sits in a tests/test_board_*.py module and does a real `import board_trail_view` (module level or in-function), LiveTreeSweepTests in tests/test_board_fixture_harness.py (tier 1; `_canonical_board_imports` reads bf.BOARD_MODULE_NAMES since t1794_1) flags it exactly like `import aitask_board`. Two shapes that pass today: reach the module as `self.ab.board_trail_view` under bf.FixtureBoardTestBase, or do the import in a subprocess — HeadlessImportTests in tests/test_board_package_contract.py (added by t1794_2) is a working pattern (the import is inside a string passed to `python -c`, with PYTHONPATH = board + lib).
+> | 
+> | 2. CSS a second App will need. The rules for the widgets now in board_widgets.py still live in KanbanApp.CSS: .task-title-row, .task-info, .task-title, .task-number, .task-mark, .col-header-*, PickerItem / PickerItem.dep-item-focused, #loading_dialog / #loading_message / "#loading_dialog LoadingIndicator". Trail cards use .task-title / .task-info and the trail flow pushes LoadingOverlay, so the TRAIL_CSS list in your plan (C7: .trail-drift, #trail_summary, #board_container, TaskCard.markable-card:*) may need to grow, or LoadingOverlay may want a DEFAULT_CSS (tui_conventions.md "Modals pushed by multiple Apps"). Your call; child 6 is where a missing rule would first show.
+> | 
+> | 3. What you can import now. TaskCard, PickerItem, LoadingOverlay, MarkedSelection, ColumnHeader, _status_badge_text, _followup_marker, _followup_glyph_text, _plan_approved_marker, _issue_indicator, _pr_indicator live in board_widgets.py; aitask_board re-exports them (identity pinned in tests/test_board_widgets.py). A stub of any of them must target ab.board_widgets. tests/test_board_package_contract.py UnresolvedGlobalsTests now fails on any global name a board/*.py module uses without importing it — useful for catching a lost import in a verbatim move.
+> | 
+> | 4. Anchors. aitask_board.py shrank by 533 lines at 53542c976 (14,106 -> 13,573), so the e2f12c499 line numbers in p1794_3 are further off than before; re-derive every range.
