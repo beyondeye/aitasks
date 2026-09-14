@@ -48,6 +48,15 @@ to settle abandoned restores with no coordinator present; the dependency arrow
 runs one way, into `agent_frozen_ops` only. (That is also why the ack grace lives
 there — parent-plan amendment B6.)
 
+WHERE A GONE-PANE RESTORE LANDS (t1784). With the recorded pane gone, the
+replacement starts in a new window of the project's own tmux session. After a
+server restart there may be none, so `_launch_into_new_window` creates it
+through `tmux_bootstrap.sh --create-only` — and uses only a session discovery
+attributed to the root before anything changed, or one this call created. A
+session name already held by another project is refused and left untouched,
+never adopted: discovery's registry fallback would otherwise let a clobbered
+`AITASKS_PROJECT_<session>` entry hand this restore a stranger's session.
+
 Test seams, honoured **only** under ``AITASKS_TEST_MODE=1``:
 
 * ``AITASKS_RESTORE_FAIL_AT=begin|respawn|ack`` — raise at that stage. Bound from
@@ -66,6 +75,7 @@ from __future__ import annotations
 
 import os
 import shlex
+import subprocess
 import sys
 import time
 from dataclasses import dataclass
@@ -285,23 +295,101 @@ def _settle(decided: "RestoreResult", record_id: str, nonce: str,
     return decided
 
 
+#: Bound on one project-session bootstrap — the TUI switcher's, for the same
+#: helper. It runs inside the lease `restore-begin` minted, well below the
+#: stale-op grace (60 s by default) after which reconcile may take that lease.
+BOOTSTRAP_TIMEOUT = 15
+
+#: The canonical project-session bootstrap, shared with `ait ide` and the TUI
+#: switcher. It owns the session's NAME (`tmux.default_session`), its seeded
+#: `monitor` window and the registry entries — none of which is re-derived here.
+_BOOTSTRAP_SH = _LIB_DIR / "tmux_bootstrap.sh"
+
+
+def _session_for_root(root_real: str, *, name: str | None = None):
+    """The first live session discovery attributes to ``root_real``, or None.
+
+    With ``name`` the session must also carry that tmux session name — how a
+    caller insists on the one session it created itself.
+    """
+    for session in discover_aitasks_sessions():
+        if os.path.realpath(str(session.project_root)) != root_real:
+            continue
+        if name is None or session.session == name:
+            return session
+    return None
+
+
+def _bootstrap_project_session(root: str) -> tuple[str, str]:
+    """Create ``root``'s own tmux session. Returns ``(created_session, why)``.
+
+    Runs the canonical `tmux_bootstrap.sh` in ``--create-only`` mode, which
+    CREATES the session or changes NOTHING. Its default "ensure" mode would be
+    wrong here: on a session name already held by another project it still
+    writes `AITASKS_PROJECT_<session>` and a syncer window into that session,
+    and discovery falls back to that registry entry — so a restore would
+    re-point a stranger's session at this project and then launch into it.
+
+    Only a non-empty ``created_session`` is ownership, and it comes only from the
+    helper's own ``BOOTSTRAP_CREATED:<name>``. Every other outcome — an exit 0
+    that reported no creation included — returns ``("", <reason>)``.
+
+    Why a new session rather than the invoking pane's: a project's agents live
+    in that project's one session (`aidocs/framework/tui_conventions.md`), which
+    `ait monitor` maps back to the project root; and a restore from a bare shell,
+    or with no tmux server at all, has no invoking session to borrow — the
+    bootstrap creates the server too.
+    """
+    try:
+        done = subprocess.run(
+            ["bash", str(_BOOTSTRAP_SH), "--create-only", root],
+            capture_output=True, text=True, timeout=BOOTSTRAP_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return "", "timeout"
+    except OSError as exc:
+        return "", str(exc)
+    if done.returncode == 0:
+        for line in (done.stdout or "").splitlines():
+            if line.startswith("BOOTSTRAP_CREATED:"):
+                return line[len("BOOTSTRAP_CREATED:"):].strip(), ""
+        return "", "no creation reported"
+    stderr = done.stderr or ""
+    for line in stderr.splitlines():
+        if line.startswith("BOOTSTRAP_FAILED:session_exists:"):
+            return "", "session_name_taken:" + line.split(":", 2)[2].strip()
+        if line.startswith("BOOTSTRAP_FAILED:stale_path"):
+            return "", "stale_path"
+    lines = [ln.strip() for ln in stderr.splitlines() if ln.strip()]
+    return "", lines[-1] if lines else f"rc={done.returncode}"
+
+
 def _launch_into_new_window(rec: dict, command: str, env: dict) -> tuple[str, int, str]:
     """Gone-pane branch: start the replacement in a NEW window.
 
     Returns ``(pane_id, pane_pid, error)``. The record keeps its identity, so the
     acknowledgement still selects the *old* record rather than creating a second
     one — the record id travels in the environment, not on the (nonexistent) pane.
+
+    The window goes into the project's own session. When none is attributed to
+    the root — the ordinary state after a tmux server restart — that session is
+    created first (t1784), under an OWNERSHIP rule: use only a session discovery
+    attributed to the root before anything changed, or one this call created.
     """
     root = os.path.realpath(rec.get("root", ""))
-    target = None
-    for session in discover_aitasks_sessions():
-        if os.path.realpath(str(session.project_root)) == root:
-            target = session
-            break
+    target = _session_for_root(root)
     if target is None:
-        # Name the project: the persisted `last_error` is the only channel by
-        # which the user learns WHICH root has no tmux session to launch into.
-        return "", 0, f"no_session_for_root:{rec.get('root', '')}"
+        created, why = _bootstrap_project_session(rec.get("root", ""))
+        # Only the session THIS call created. `--create-only` left any existing
+        # one untouched, so nothing here can have re-pointed a foreign session's
+        # registry entry at this root — and a refusal gets no second lookup: a
+        # same-root session created concurrently by another restore of this
+        # project is a lost race, fail-safe, and the retry finds it above.
+        target = _session_for_root(root, name=created) if created else None
+        if target is None:
+            # Name the project AND the cause: `_rollback` persists this on the
+            # record, the only channel by which the user learns why.
+            detail = why or f"created {created} but no pane of it sits under the root"
+            return "", 0, f"no_session_for_root:{rec.get('root', '')}|bootstrap:{detail}"
 
     rc, out = frozen_ops.run(
         ["list-windows", "-t", target.session, "-F", "#{window_name}"])
@@ -438,7 +526,9 @@ def restore(record_id: str, *, repick: bool = False) -> RestoreResult:
             if error:
                 raise OSError(error)
     except (_StageFailure, OSError, ValueError) as exc:
-        detail = _rollback(record_id, nonce, pane_id, "respawn")
+        # The reason is PERSISTED as `last_error` — the only channel back to the
+        # user — so it carries the failure itself, not just the stage (t1784).
+        detail = _rollback(record_id, nonce, pane_id, f"respawn:{exc}")
         suffix = f"|{detail}" if detail else ""
         return RestoreResult(record_id, False, "respawn",
                              f"RESTORE_FAILED:{record_id}|respawn:{exc}{suffix}")

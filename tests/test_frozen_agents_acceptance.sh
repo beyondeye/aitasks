@@ -52,7 +52,9 @@
 # Structure
 #   Probes A-E  the env/config seams take effect AT ALL (see "why probes")
 #   Cases 1-9   launch, freeze, the three restore outcomes, gone pane, two
-#               dead-coordinator recoveries, ambiguous relocation
+#               dead-coordinator recoveries, ambiguous relocation; 6c/6d
+#               restore after a tmux restart with NO session for the project
+#               (and, in 6d, no server at all) — each re-creates the fixture
 #   Cases 10a/b the two drop verbs, which have DIFFERENT contracts
 #
 # TMUX-STRESS. Run from a shell that is NOT inside tmux, with the dedicated
@@ -140,6 +142,15 @@ AIT="$SCRATCH/ait"
 # The store and the capture tree, redirected into the scratch project.
 export AITASKS_AGENT_SESSIONS_FILE="$SCRATCH/.sessions.json"
 export AITASKS_FROZEN_DIR="$SCRATCH/.frozen"
+# Two more side effects of a restore that has to CREATE its project's tmux
+# session (cases 6c/6d, t1784), redirected here — before the server starts, so
+# it captures them too. `tmux_bootstrap.sh` registers the project through
+# `aitask_projects.sh add`, which would otherwise write the developer's REAL
+# ~/.config/aitasks/projects.yaml. And a bootstrap that creates the tmux SERVER
+# would, where `systemd --user` is available, start it inside a user unit that
+# does not inherit TMUX_TMPDIR — i.e. on the developer's real socket.
+export AITASKS_PROJECTS_INDEX="$SCRATCH/projects.yaml"
+export AIT_NO_SYSTEMD_RUN=1
 export AITASKS_TEST_MODE=1
 # ENV-ONLY. `agent_sessions._stale_op_grace()` reads this variable and nothing
 # else — it never opens project_config.yaml — so a `frozen: stale_op_grace:` key
@@ -184,7 +195,8 @@ FAKE_AGENT="$PROJECT_DIR/tests/lib/fake_agent.sh"
 
 acceptance_cleanup() {
     PATH="$REAL_PATH" "$REAL_TMUX" kill-server 2>/dev/null || true
-    rm -rf "$SCRATCH" "$TARBALL" "$SCRATCH.install.log" 2>/dev/null || true
+    # `${SCRATCH}_other` is case 6c's non-project sibling dir.
+    rm -rf "$SCRATCH" "${SCRATCH}_other" "$TARBALL" "$SCRATCH.install.log" 2>/dev/null || true
 }
 trap acceptance_cleanup EXIT
 
@@ -847,6 +859,141 @@ section "Case 6b — a COMMITTED frozen record whose window is closed (t1773)"
 )
 
 # ---------------------------------------------------------------------------
+# Cases 6c/6d — NO tmux session for the project at all (t1784)
+# ---------------------------------------------------------------------------
+# After a tmux server restart nothing may be attributed to the project, and the
+# gone-pane branch used to fail `no_session_for_root`. It now creates the
+# project's OWN session through `tmux_bootstrap.sh --create-only` — named by
+# `tmux.default_session` (blank in the seed, so `aitasks`) and seeded with a
+# `monitor` window, exactly as `ait ide` would — and lands the agent there. Both
+# cases restart the isolated server, so each ends by re-creating the fixture
+# session the later cases expect.
+#
+# THE MONITOR STUB. Booting the real monitor TUI here would be slow and would act
+# on the store, and a seeded window that dies at once would take a one-window
+# session with it. `$BOOT_BIN/ait` sleeps for `monitor` / `syncer` and forwards
+# everything else to this tree's dispatcher. It is on the PATH of the restarted
+# server ONLY: 6c sets it with `set-environment -g PATH` (a `new-session` on a
+# running server spawns under the server's global env); in 6d the bootstrap
+# creates the server, which inherits the restore's own PATH.
+#
+# The collision / ownership contract — a session name held by ANOTHER project
+# is refused and left untouched — is proven against real tmux in
+# tests/test_restore_session_bootstrap_live.sh, which can run inside tmux.
+BOOT_BIN="$SCRATCH/bin_boot"
+mkdir -p "$BOOT_BIN"
+cat > "$BOOT_BIN/ait" <<STUB
+#!/usr/bin/env bash
+case "\${1:-}" in monitor|syncer) exec sleep 1000 ;; esac
+exec "$AIT" "\$@"
+STUB
+chmod +x "$BOOT_BIN/ait"
+# A SIBLING of the project, never inside it: its cwd must not walk up into it.
+OTHER_DIR="${SCRATCH}_other"
+mkdir -p "$OTHER_DIR"
+# The seed ships `default_session:` blank, which resolves to this.
+BOOT_SESSION="aitasks"
+
+# Put the fixture server back exactly as the suite started it, from the suite's
+# own environment, so cases 7-10b run on the fixture they were written against.
+reestablish_fixture_server() {
+    tm kill-server 2>/dev/null || true
+    sleep 0.3
+    tm new-session -d -s "$SESSION" -n scratch -c "$SCRATCH" "sleep 1000"
+    sleep 0.4
+}
+
+# Panes whose cwd is the project root or below it.
+panes_in_project() {
+    tm list-panes -a -F '#{pane_current_path}' 2>/dev/null \
+        | awk -v r="$SCRATCH" '$0 == r || index($0, r "/") == 1' | wc -l | tr -d ' '
+}
+
+# ---------------------------------------------------------------------------
+section "Case 6c — tmux restarted; only an UNRELATED session exists"
+# ---------------------------------------------------------------------------
+(
+    W="agent-pick-6c"
+    read -r RID PANE _ < <(make_live_agent "$W")
+    before="$(store list 2>/dev/null | grep -c '^SESSION:')"
+    slot_before="$(record_field "$RID" window_slot)"
+    freeze_and_wait "$PANE" "$RID"
+
+    tm kill-server 2>/dev/null || true
+    sleep 0.3
+    tm new-session -d -s "other_$$" -n base -c "$OTHER_DIR" "sleep 1000"
+    tm set-environment -g PATH "$BOOT_BIN:$PATH"
+    sleep 0.3
+    assert_eq "case 6c: the record is still frozen" "frozen" "$(record_field "$RID" state)"
+    assert_eq "case 6c: premise — no pane on the server sits in the project" "0" \
+        "$(panes_in_project)"
+
+    out="$("$FROZEN_SH" restore "$RID" 2>&1)"
+    assert_contains "case 6c: the restore succeeded" "RESTORED:$RID" "$out"
+    assert_eq "case 6c: the record is live" "live" "$(record_field "$RID" state)"
+    new_pane="$(record_field "$RID" pane_id)"
+    assert_eq "case 6c: its pane is real" "yes" \
+        "$([ -n "$new_pane" ] && pane_exists "$new_pane" && echo yes || echo no)"
+    assert_eq "case 6c: in the project's own, newly created session" "$BOOT_SESSION" \
+        "$([ -n "$new_pane" ] && pane_fmt "$new_pane" '#{session_name}')"
+    assert_eq "case 6c: a window with the recorded name is back" "yes" \
+        "$(window_exists "$W" "$BOOT_SESSION" && echo yes || echo no)"
+    assert_eq "case 6c: the session was seeded as \`ait ide\` seeds it" "yes" \
+        "$(window_exists monitor "$BOOT_SESSION" && echo yes || echo no)"
+    assert_eq "case 6c: and registered to this project" \
+        "AITASKS_PROJECT_$BOOT_SESSION=$SCRATCH" \
+        "$(tm show-environment -g "AITASKS_PROJECT_$BOOT_SESSION" 2>/dev/null)"
+    assert_eq "case 6c: the unrelated session was NOT borrowed" "base" \
+        "$(tm list-windows -t "=other_$$" -F '#{window_name}' 2>/dev/null | paste -sd ' ' -)"
+    assert_eq "case 6c: no second record was created" "$before" \
+        "$(store list 2>/dev/null | grep -c '^SESSION:')"
+    assert_eq "case 6c: the window slot is unchanged" "$slot_before" \
+        "$(record_field "$RID" window_slot)"
+    assert_eq "case 6c: the captures were deleted" "no" \
+        "$([ -d "$AITASKS_FROZEN_DIR/$RID" ] && echo yes || echo no)"
+    assert_contains "case 6c: the registry write went to the redirected index" \
+        "$SCRATCH" "$(cat "$AITASKS_PROJECTS_INDEX" 2>/dev/null)"
+    drop_record "$RID"
+    reestablish_fixture_server
+)
+
+# ---------------------------------------------------------------------------
+section "Case 6d — NO tmux server at all (a restore from a plain shell)"
+# ---------------------------------------------------------------------------
+# The reboot case: `ait frozen restore` from a terminal outside tmux. A missing
+# server must read as pane-GONE, not `unknown` — `unknown` fails closed at the
+# preflight and the restore would never start — and the bootstrap must create
+# the server as well as the session.
+(
+    W="agent-pick-6d"
+    read -r RID PANE _ < <(make_live_agent "$W")
+    before="$(store list 2>/dev/null | grep -c '^SESSION:')"
+    freeze_and_wait "$PANE" "$RID"
+
+    tm kill-server 2>/dev/null || true
+    sleep 0.3
+    assert_eq "case 6d: premise — there is no tmux server" "no" \
+        "$(tm list-sessions >/dev/null 2>&1 && echo yes || echo no)"
+
+    out="$(PATH="$BOOT_BIN:$PATH" "$FROZEN_SH" restore "$RID" 2>&1)"
+    assert_contains "case 6d: the restore succeeded" "RESTORED:$RID" "$out"
+    assert_eq "case 6d: the record is live" "live" "$(record_field "$RID" state)"
+    new_pane="$(record_field "$RID" pane_id)"
+    assert_eq "case 6d: its pane is real" "yes" \
+        "$([ -n "$new_pane" ] && pane_exists "$new_pane" && echo yes || echo no)"
+    assert_eq "case 6d: in the project's session, which the bootstrap created" \
+        "$BOOT_SESSION" "$([ -n "$new_pane" ] && pane_fmt "$new_pane" '#{session_name}')"
+    assert_eq "case 6d: a window with the recorded name is back" "yes" \
+        "$(window_exists "$W" "$BOOT_SESSION" && echo yes || echo no)"
+    assert_eq "case 6d: beside the seeded monitor window" "yes" \
+        "$(window_exists monitor "$BOOT_SESSION" && echo yes || echo no)"
+    assert_eq "case 6d: no second record was created" "$before" \
+        "$(store list 2>/dev/null | grep -c '^SESSION:')"
+    drop_record "$RID"
+    reestablish_fixture_server
+)
+
+# ---------------------------------------------------------------------------
 section "Case 7 — a coordinator killed while aborting is settled by reconcile"
 # ---------------------------------------------------------------------------
 (
@@ -1142,6 +1289,13 @@ section "The real \$HOME is still untouched"
 assert_eq "the real \$HOME/.local/bin/ait was not rewritten" \
     "$REAL_SHIM_BEFORE" \
     "$( [ -f "$REAL_SHIM" ] && cksum < "$REAL_SHIM" || echo absent )"
+# Cases 6c/6d run the project-session bootstrap, which registers the project in
+# the per-user registry. A checksum of the real registry would flake — any
+# `ait ide` the developer runs meanwhile legitimately rewrites it — so this asks
+# the one question that matters: did THIS run's scratch project leak into it?
+REAL_REGISTRY="$HOME/.config/aitasks/projects.yaml"
+assert_eq "the real per-user project registry never names the scratch project" "no" \
+    "$( [ -f "$REAL_REGISTRY" ] && grep -qF "$SCRATCH" "$REAL_REGISTRY" && echo yes || echo no )"
 
 # ===========================================================================
 section "Summary"

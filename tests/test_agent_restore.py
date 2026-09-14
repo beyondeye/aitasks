@@ -668,6 +668,203 @@ class TestRecordedPaneIsOnlyAHint(_SwapMixin, unittest.TestCase):
         self.assertNotIn("77777", flat)
 
 
+# ---------------------------------------------------------------------------
+# t1784 — no tmux session exists for the record's root
+# ---------------------------------------------------------------------------
+
+import subprocess  # noqa: E402
+
+from agent_launch_utils import AitasksSession  # noqa: E402
+
+#: `_rec()`'s project root, exactly as `_launch_into_new_window` hands it on.
+_ROOT = str(REPO_ROOT)
+
+
+def _session(name: str = "aitasks", root: str | None = None) -> AitasksSession:
+    path = Path(root or _ROOT)
+    return AitasksSession(session=name, project_root=path, project_name=path.name)
+
+
+class TestNoProjectSessionBootstrapsOne(_SwapMixin, unittest.TestCase):
+    """`_launch_into_new_window` when no tmux session exists for the root (t1784).
+
+    After a tmux server restart nothing may be attributed to the record's
+    project, so the restore creates the project's OWN session through the
+    canonical bootstrap in `--create-only` mode.
+
+    The ownership rule is the point of this class. The restore may use a session
+    that discovery attributed to the root BEFORE anything changed, or one this
+    call itself CREATED — never a session that merely turns up under the root
+    after a create was refused. `discover_aitasks_sessions` falls back to the
+    `AITASKS_PROJECT_<session>` registry, so a foreign session CAN be attributed
+    to this root through it.
+
+    `_bootstrap_project_session` is patched with ``create=True`` so that, run
+    against code that predates it, these tests exercise the real unfixed routing
+    and fail on BEHAVIOUR rather than erroring on a missing attribute.
+    """
+
+    ENV = {"AITASK_RESTORE_RECORD": "7f3a2c1d"}
+
+    def _launch(self, lookups, boot=("", "")):
+        self.swap_tmux(_FakeTmux(out="agent-pick-1705\n"))    # answers list-windows
+        discover = unittest.mock.Mock(side_effect=[list(x) for x in lookups])
+        bootstrap = unittest.mock.Mock(return_value=boot)
+        launch = unittest.mock.Mock(return_value=(51000, None))
+        with unittest.mock.patch.object(agent_restore, "discover_aitasks_sessions", discover), \
+             unittest.mock.patch.object(agent_restore, "_bootstrap_project_session",
+                                        bootstrap, create=True), \
+             unittest.mock.patch.object(agent_restore, "launch_in_tmux", launch), \
+             unittest.mock.patch.object(agent_restore, "resolve_pane_id_by_pid",
+                                        return_value="%900"):
+            result = agent_restore._launch_into_new_window(
+                _rec(), "claude --resume sess-abc", self.ENV)
+        return result, discover, bootstrap, launch
+
+    def test_an_attributed_session_is_used_without_bootstrapping(self):
+        result, _, bootstrap, launch = self._launch([[_session()]])
+        self.assertEqual(("%900", 51000, ""), result)
+        self.assertFalse(bootstrap.called,
+                         "a session already attributed to the root needs no bootstrap")
+        self.assertEqual("aitasks", launch.call_args.args[1].session)
+
+    def test_no_session_bootstraps_the_projects_own_and_launches_into_it(self):
+        result, _, bootstrap, launch = self._launch(
+            [[], [_session()]], boot=("aitasks", ""))
+        self.assertEqual(("%900", 51000, ""), result,
+                         "a project with no tmux session must still restore (t1784)")
+        bootstrap.assert_called_once_with(_ROOT)
+        cfg = launch.call_args.args[1]
+        self.assertEqual("aitasks", cfg.session)
+        self.assertTrue(cfg.new_window)
+        self.assertFalse(cfg.new_session,
+                         "the bootstrap created the session; the launch only adds a window")
+        self.assertEqual(_ROOT, cfg.cwd)
+
+    def test_a_taken_session_name_is_refused_and_named(self):
+        result, discover, _, launch = self._launch(
+            [[], [], []], boot=("", "session_name_taken:aitasks"))
+        self.assertEqual(
+            ("", 0, f"no_session_for_root:{_ROOT}|bootstrap:session_name_taken:aitasks"),
+            result)
+        self.assertFalse(launch.called)
+        self.assertEqual(1, discover.call_count,
+                         "a refused create must not be followed by a second lookup")
+
+    def test_ownership_not_attribution_after_a_refused_create(self):
+        """The clobbered-registry shape.
+
+        Had anything re-pointed `AITASKS_PROJECT_aitasks` at this root, a
+        re-discovery WOULD attribute the foreign `aitasks` session to it. The
+        restore must still refuse: it did not create that session.
+        """
+        result, _, _, launch = self._launch(
+            [[], [_session()]], boot=("", "session_name_taken:aitasks"))
+        self.assertFalse(launch.called,
+                         "a session this call did not create is never launched into")
+        self.assertTrue(result[2].startswith(f"no_session_for_root:{_ROOT}|"))
+
+    def test_a_created_session_attributed_elsewhere_is_not_used(self):
+        result, _, _, launch = self._launch(
+            [[], [_session(root="/somewhere/else")]], boot=("aitasks", ""))
+        self.assertFalse(launch.called)
+        self.assertEqual("", result[0])
+        self.assertIn("|bootstrap:created aitasks", result[2])
+
+    def test_a_stale_project_root_names_the_cause(self):
+        result, _, _, launch = self._launch([[], []], boot=("", "stale_path"))
+        self.assertFalse(launch.called)
+        self.assertEqual(
+            ("", 0, f"no_session_for_root:{_ROOT}|bootstrap:stale_path"), result)
+
+
+class TestBootstrapHelper(unittest.TestCase):
+    """`_bootstrap_project_session` — the subprocess contract (t1784).
+
+    Only ``(<created session>, "")`` is ownership. Every other answer — an exit
+    0 that did not report a creation included — comes back with an EMPTY
+    session, so `_launch_into_new_window` never adopts a session by inference.
+    """
+
+    ROOT = "/proj/b"
+
+    def _call(self, rc=0, stdout="", stderr="", raises=None):
+        done = subprocess.CompletedProcess(args=[], returncode=rc,
+                                           stdout=stdout, stderr=stderr)
+        run = unittest.mock.Mock(return_value=done, side_effect=raises)
+        with unittest.mock.patch.object(agent_restore.subprocess, "run", run):
+            got = agent_restore._bootstrap_project_session(self.ROOT)
+        return got, run
+
+    def test_it_runs_the_canonical_bootstrap_in_create_only_mode(self):
+        _, run = self._call(stdout="BOOTSTRAP_CREATED:aitasks\n")
+        script = str(Path(agent_restore.__file__).resolve().parent / "tmux_bootstrap.sh")
+        self.assertEqual(["bash", script, "--create-only", self.ROOT],
+                         run.call_args.args[0])
+        self.assertGreater(run.call_args.kwargs.get("timeout") or 0, 0,
+                           "an unbounded bootstrap could outlive the restore's lease")
+
+    def test_each_outcome_maps_as_documented(self):
+        cases = [
+            (dict(rc=0, stdout="BOOTSTRAP_CREATED:aitasks\n"), ("aitasks", "")),
+            (dict(rc=0, stdout=""), ("", "no creation reported")),
+            (dict(rc=43, stderr="BOOTSTRAP_FAILED:session_exists:aitasks\n"
+                                "spawn_session_detached: session 'aitasks' already exists\n"),
+             ("", "session_name_taken:aitasks")),
+            (dict(rc=42, stderr="BOOTSTRAP_FAILED:stale_path\n"
+                                "spawn_session_detached: not an aitasks project: /proj/b\n"),
+             ("", "stale_path")),
+            (dict(rc=4, stderr="spawn_session_detached: tmux new-session failed for 'aitasks'\n"),
+             ("", "spawn_session_detached: tmux new-session failed for 'aitasks'")),
+            (dict(rc=3, stderr=""), ("", "rc=3")),
+        ]
+        for kwargs, want in cases:
+            with self.subTest(rc=kwargs["rc"], stdout=kwargs.get("stdout", "")):
+                got, _ = self._call(**kwargs)
+                self.assertEqual(want, got)
+
+    def test_a_timeout_and_a_spawn_error_are_reported_not_raised(self):
+        got, _ = self._call(raises=subprocess.TimeoutExpired(cmd="bash", timeout=15))
+        self.assertEqual(("", "timeout"), got)
+        got, _ = self._call(raises=OSError("bash: not found"))
+        self.assertEqual(("", "bash: not found"), got)
+
+
+class TestRespawnFailureIsPersisted(_SwapMixin, unittest.TestCase):
+    """The rollback reason must carry the launch error to the viewer (t1784).
+
+    The coordinator's wire line goes to a detached `run-shell` job nobody reads,
+    and the viewer that asked for the restore is replaced — so `last_error`,
+    written by `restore-abort --error`, is the only channel by which the user
+    learns WHY a restore failed. A bare `respawn` there hides the root and the
+    bootstrap's verdict that `_launch_into_new_window` took care to name.
+    """
+
+    def test_the_rollback_reason_carries_the_launch_error(self):
+        store = self.swap_store(_RecordingStore(answers={
+            "restore-begin": (0, "RESTORING:7f3a2c1d|deadbeef"),
+            "restore-abort": (0, "ABORTING:7f3a2c1d"),
+            "standin-respawned": (0, "FROZEN:7f3a2c1d"),
+        }))
+        self.swap_tmux(_ScriptedTmux({3: (1, "")}))     # probe: the pane is gone
+        err = "no_session_for_root:/x|bootstrap:session_name_taken:aitasks"
+        with unittest.mock.patch.object(agent_restore, "_reread", return_value=_rec()), \
+             unittest.mock.patch.object(agent_restore, "build_resume_argv",
+                                        return_value="claude --resume sess-abc"), \
+             unittest.mock.patch.object(agent_restore, "_launch_into_new_window",
+                                        return_value=("", 0, err)):
+            result = agent_restore.restore("7f3a2c1d")
+        self.assertFalse(result.ok)
+        self.assertIn(err, result.line)
+        aborts = [list(c) for c in store.calls if c and c[0] == "restore-abort"]
+        self.assertEqual(1, len(aborts))
+        argv = aborts[0]
+        self.assertIn("--error", argv)
+        self.assertEqual(f"respawn:{err}", argv[argv.index("--error") + 1],
+                         "the persisted reason must name the launch failure, "
+                         "not just the stage")
+
+
 class TestSeamsAreBoundToThisEngine(unittest.TestCase):
     """The failure seam must not be shared with the freeze engine."""
 

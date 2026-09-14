@@ -80,6 +80,22 @@ reach this outcome every time.
 If the attempt fails, the viewer comes back and the capture is intact —
 `restore failed: <reason> — capture kept`.
 
+**Where the agent comes back.** While the stand-in viewer is still in its pane,
+a restore reuses that pane. When the pane is gone — its window was closed, or
+tmux itself restarted — the agent comes back in a new window of the project's
+tmux session, under its recorded window name. If the project has no tmux session
+at all (after a tmux restart, before you have run `ait ide`), the restore
+creates it the way `ait ide` would: named by `tmux.default_session`, with a
+`monitor` window beside the agent. Running `ait ide` in the project afterwards
+attaches to it.
+
+A restore never borrows a session it did not create. If another project already
+holds the configured session name, the restore leaves that session alone and
+fails with
+`restore failed: respawn:no_session_for_root:<root>|bootstrap:session_name_taken:<name> — capture kept`.
+Give the two projects different `tmux.default_session` values, then restore
+again.
+
 ## Remove a frozen record
 
 Press **k**, then confirm at
