@@ -5,11 +5,15 @@ depends: []
 issue_type: bug
 status: Implementing
 labels: [tmux, bug]
+active_gates: [risk_evaluated]
+active_gates_filtered: []
+active_gates_profile: fast
+active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1705
 followup_kind: upstream_defect
 created_at: 2026-09-14 15:16
-updated_at: 2026-09-14 15:38
+updated_at: 2026-09-14 15:39
 ---
 
 ## Observed (t1801 manual verification of t1784, real Claude agent, real store)
