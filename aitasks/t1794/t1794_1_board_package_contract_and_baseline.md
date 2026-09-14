@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: test
-status: Ready
+status: Implementing
 labels: [aitask_board, tui, trails, python, refactor, test_infrastructure]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1794
 created_at: 2026-09-11 15:08
-updated_at: 2026-09-11 15:08
+updated_at: 2026-09-14 08:40
 ---
 
 ## Context
