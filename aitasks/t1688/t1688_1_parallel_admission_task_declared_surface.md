@@ -3,12 +3,13 @@ priority: high
 effort: high
 depends: []
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [scheduling, planning]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1569
 created_at: 2026-09-14 17:42
-updated_at: 2026-09-14 17:42
+updated_at: 2026-09-14 18:13
 ---
 
 ## Context
