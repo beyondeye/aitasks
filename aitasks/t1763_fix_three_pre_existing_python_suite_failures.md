@@ -120,3 +120,5 @@ the three modules there.
 > | branch's sync state at the moment of running rather than on the tree.
 > | 
 > | Advisory only; I did not diff the two task bodies beyond their failure lists.
+
+> **👁 note:read** id=2026-09-14T05:52:18Z.05ec08400841859dac9b2d90 by=t1763 at=2026-09-14T05:52:18Z mode=explicit ids=2026-09-10T09:02:52Z.98a77edae8c374ed4de6cf95,2026-09-10T12:10:14Z.c752307c63b103f301465688
