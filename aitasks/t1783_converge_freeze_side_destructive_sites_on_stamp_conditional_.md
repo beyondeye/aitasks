@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1705
 followup_kind: upstream_defect
+implemented_with: claudecode/fable5_1
 created_at: 2026-09-10 14:57
-updated_at: 2026-09-14 11:55
+updated_at: 2026-09-14 12:18
 ---
 
 ## Origin
@@ -54,3 +55,8 @@ Route `_respawn_standin` through `respawn_if_stamped`. For `drop_record`, add a
 stamp-conditional kill primitive in `agent_frozen_ops` (same `if-shell -F` +
 branch-token shape) and keep its tri-state preflight (`unknown` must still fail
 closed). Extend the atomic live suite with a kill-side Part B.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-14T09:18:50Z status=pass attempt=1 type=human
