@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: medium
 depends: [t1794_1]
 issue_type: refactor
-status: Implementing
+status: Done
 labels: [aitask_board, tui, trails, python, refactor]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1794
 implemented_with: claudecode/opus5
 created_at: 2026-09-11 15:08
-updated_at: 2026-09-14 16:10
+updated_at: 2026-09-14 16:50
+completed_at: 2026-09-14 16:50
 ---
 
 ## Context
@@ -116,3 +117,14 @@ board's widget layer lands here, so the trail code never imports
 > **✅ gate:plan_approved** run=2026-09-14T13:10:57Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-09-14T13:44:48Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-14T13:49:41Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:9809d6c6fe201707
+
+> **✅ gate:risk_evaluated** run=2026-09-14T13:49:41Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1794_2/risk_evaluated_2026-09-14T13:49:41Z-risk_evaluated-a1.log`
