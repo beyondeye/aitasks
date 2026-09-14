@@ -3,11 +3,12 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [monitor, codex, shadow, review_loop]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-09-11 15:26
-updated_at: 2026-09-11 15:26
+updated_at: 2026-09-14 13:47
 ---
 
 `ait minimonitor` (and `ait monitor`) report an idle **Codex** pane as *active*
