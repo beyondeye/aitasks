@@ -11,12 +11,13 @@ active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
+risk_mitigation_tasks: [1806]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1705
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5
 created_at: 2026-09-14 15:16
-updated_at: 2026-09-14 16:06
+updated_at: 2026-09-14 16:53
 ---
 
 ## Observed (t1801 manual verification of t1784, real Claude agent, real store)
