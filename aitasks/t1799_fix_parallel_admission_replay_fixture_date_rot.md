@@ -71,3 +71,28 @@ PYTHONHASHSEED 0–7, so this is latent, not failing.
   applink/chatlink collision (e.g. `chatlink/paths.py` → `chatlink_paths.py`),
   then drop the pin from `test_board_package_contract.KNOWN_COLLISIONS` — its
   stale-pin check will require that.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1794_1** id=2026-09-14T11:30:23Z.6d497d110c1cda52f90b6a53 from=t1794_1 at=2026-09-14T11:30:23Z base=c52534f142accc950314fba49d53fe32bb6ecd59 base_branch=main dirty=no host=omg16
+>
+> | Advisory (from t1794_1, claimed) — correction to this task's scope.
+> | 
+> | The first defect in this task's body (the tests/test_parallel_admission_collect.py
+> | date rot) was already fixed on origin/main by t1763, commit 44f92f5fa
+> | ("Fix host- and clock-dependent test fixtures and a runner-dependent control",
+> | 2026-09-14 11:37 +0300): it installs a `_FrozenClock` stand-in for
+> | `parallel_admission_collect.time`, pinned to 2026-08-30 08:05, in
+> | `_ReplayScaffold.setUp` and `ExcludeNoPlanPredicateTests.setUp`. t1794_1 did not
+> | see it because local main was 2 commits behind origin/main when this task was
+> | created; t1763's own note in t1688's ## Inbox describes the same fix.
+> | 
+> | As of this note, the second defect still stands and nothing on origin/main
+> | touches it: `.aitask-scripts/lib/shortcut_scopes.py:80-81` claims the TUI dirs
+> | have no colliding basenames, but applink/ and chatlink/ both ship paths.py and
+> | audit.py (pinned in tests/test_board_package_contract.py KNOWN_COLLISIONS).
+> | 
+> | Verify rather than trust this: `git fetch origin main &&
+> | git merge-base --is-ancestor 44f92f5fa origin/main`, then check the test
+> | passes once your checkout contains that commit.
