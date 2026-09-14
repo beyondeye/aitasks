@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: manual_verification
-status: Ready
+status: Implementing
 labels: [tmux]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1705
 followup_kind: risk_mitigation
 created_at: 2026-09-14 16:52
-updated_at: 2026-09-14 16:52
+updated_at: 2026-09-14 17:06
 ---
 
 ## Origin
