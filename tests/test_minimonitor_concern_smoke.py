@@ -486,6 +486,66 @@ while True:
     time.sleep(0.1)
 '''
 
+# A Codex-shaped SHADOW composer (t1797). Repaints a captured codex-cli frame
+# (mtime-keyed like _FRAME_STUB, so a test can swap frames under it) AND echoes
+# typed input into that frame's composer row. Both are needed: the delivery
+# protocol reads the pane back, pressing Enter only on a composer that holds the
+# typed text (SHADOW_BUSY) and then verifying the text left it -- a repaint-only
+# pane can never pass that. Each submitted line is appended to a log file, which
+# is how the test counts deliveries (the frame itself is restored on submit).
+_CODEX_COMPOSER_STUB = r'''
+import os, re, select, sys, tty
+
+frame_path, height, log_path = sys.argv[1], int(sys.argv[2]), sys.argv[3]
+CSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+buf, last, rows = "", None, []
+
+
+def draw():
+    vis = rows[-height:]
+    comp = max((i for i, r in enumerate(vis) if CSI.sub("", r).startswith("›")),
+               default=None)
+    top = max(0, height - len(vis))
+    out = []
+    for i, row in enumerate(vis):
+        if i == comp and buf:
+            row = "\x1b[1m›\x1b[0m " + buf
+        out.append("\x1b[" + str(top + i + 1) + ";1H\x1b[2K" + row)
+    sys.stdout.write("".join(out))
+    sys.stdout.flush()
+
+
+fd = sys.stdin.fileno()
+tty.setraw(fd)
+while True:
+    try:
+        cur = os.stat(frame_path).st_mtime_ns
+    except OSError:
+        cur = None
+    if cur is not None and cur != last:
+        try:
+            rows = open(frame_path, "r", encoding="utf-8").read().rstrip("\n").split("\n")
+        except OSError:
+            rows = []
+        last = cur
+        draw()
+    if not select.select([fd], [], [], 0.1)[0]:
+        continue
+    ch = os.read(fd, 1).decode("utf-8", "replace")
+    if ch in ("\r", "\n"):
+        if buf:
+            with open(log_path, "a", encoding="utf-8") as fh:
+                fh.write(buf + "\n")
+        buf = ""
+    elif ch == "\x03":
+        break
+    elif ch == "\x7f":
+        buf = buf[:-1]
+    else:
+        buf += ch
+    draw()
+'''
+
 
 @unittest.skipUnless(shutil.which("tmux"), "tmux not available")
 class FollowedPaneClassificationSmokeTests(unittest.TestCase):
@@ -606,6 +666,48 @@ class FollowedPaneClassificationSmokeTests(unittest.TestCase):
                   "@aitask_shadow_target", pane_id)
             cls.shadows[agent] = shadow_id
 
+        # t1797: a dedicated session whose SHADOW is Codex-named and runs the
+        # echoing Codex composer stub over a captured 0.154.0 frame. Its own
+        # session, so the codex subtests above keep resolving the Claude-stub
+        # shadow (the shadow lookup is server-wide and would otherwise see two
+        # shadows bound to one followed pane).
+        key = "codex_shadow"
+        codex_fake = os.path.join(cls.tmpdir, "codex")
+        codex_stub = os.path.join(cls.tmpdir, "codex_composer_stub.py")
+        with open(codex_stub, "w") as fh:
+            fh.write(_CODEX_COMPOSER_STUB)
+        frame = os.path.join(cls.tmpdir, f"{key}.frame")
+        with open(frame, "w", encoding="utf-8") as fh:
+            fh.write("")
+        cls.frame_files[key] = frame
+        cls.codex_shadow_frame = os.path.join(cls.tmpdir, f"{key}_composer.frame")
+        cls.codex_shadow_log = os.path.join(cls.tmpdir, f"{key}_submits.log")
+        with open(cls.codex_shadow_frame, "w", encoding="utf-8") as fh:
+            fh.write(rlfx.CODEX_0154_NOANIM_AT_REST_RAW)
+        session = f"{SESSION}_follow_{key}"
+        res = _tmux("new-session", "-d", "-s", session, "-n", "agent-codex",
+                    "-x", str(FRAME_PANE_W), "-y", str(FRAME_PANE_H),
+                    codex_fake, stub, frame, str(FRAME_PANE_H))
+        if res.returncode != 0:
+            raise unittest.SkipTest(f"could not start {key} pane: {res.stderr}")
+        panes = _tmux("list-panes", "-t", session, "-F", "#{pane_id}")
+        pane_id = (panes.stdout.strip().splitlines()[0]
+                   if panes.stdout.strip() else None)
+        if not pane_id:
+            raise unittest.SkipTest(f"could not resolve {key} pane id")
+        cls.panes[key] = (session, pane_id)
+        shadow_res = _tmux(
+            "new-window", "-d", "-t", session, "-n", "agent-shadow-codex",
+            "-P", "-F", "#{pane_id}", codex_fake, codex_stub,
+            cls.codex_shadow_frame, str(FRAME_PANE_H), cls.codex_shadow_log)
+        shadow_id = shadow_res.stdout.strip()
+        if not shadow_id:
+            raise unittest.SkipTest(
+                f"could not create {key} shadow pane: {shadow_res.stderr}")
+        _tmux("set-option", "-p", "-t", shadow_id,
+              "@aitask_shadow_target", pane_id)
+        cls.shadows[key] = shadow_id
+
     @classmethod
     def tearDownClass(cls):
         _tmux("kill-server")
@@ -620,7 +722,7 @@ class FollowedPaneClassificationSmokeTests(unittest.TestCase):
         else:
             os.environ["AITASKS_TMUX_SOCKET"] = self._prev_socket
 
-    def _pane_info(self, agent: str):
+    def _pane_info(self, agent: str, key: str | None = None):
         """Live pane metadata, built the way `test_prompt_scoping_live` does.
 
         Deliberately NOT `TmuxMonitor.discover_panes()`: the monitor defaults
@@ -632,7 +734,7 @@ class FollowedPaneClassificationSmokeTests(unittest.TestCase):
         """
         from monitor.monitor_core import PaneCategory, TmuxPaneInfo
 
-        session, pane_id = self.panes[agent]
+        session, pane_id = self.panes[key or agent]
         out = _tmux("list-panes", "-t", session, "-F",
                     "#{pane_id}\t#{pane_current_command}\t#{pane_pid}")
         for line in out.stdout.splitlines():
@@ -646,7 +748,8 @@ class FollowedPaneClassificationSmokeTests(unittest.TestCase):
                     category=PaneCategory.AGENT, session_name=session)
         return None
 
-    def _paint(self, agent: str, raw: str, previous=None):
+    def _paint(self, agent: str, raw: str, previous=None,
+               key: str | None = None):
         """Put `raw` on the pane and return the production snapshot of it.
 
         ``previous`` is the snapshot the pane is currently showing, when there
@@ -660,7 +763,7 @@ class FollowedPaneClassificationSmokeTests(unittest.TestCase):
         """
         from monitor.monitor_core import TmuxMonitor
 
-        session, pane_id = self.panes[agent]
+        session, pane_id = self.panes[key or agent]
         # Bottom-align the frame inside the pane so its last row is the pane's
         # last row. Two things depend on this: the frame never overflows into
         # tmux history (see FRAME_PANE_H), and `awaiting_input` detection reads
@@ -671,7 +774,8 @@ class FollowedPaneClassificationSmokeTests(unittest.TestCase):
                              "fixture taller than the pane would overflow "
                              "into tmux history")
         padded = "\n" * (FRAME_PANE_H - len(rows)) + raw
-        with open(self.frame_files[agent], "w", encoding="utf-8") as fh:
+        with open(self.frame_files[key or agent], "w",
+                  encoding="utf-8") as fh:
             fh.write(padded)
         monitor = TmuxMonitor(session=session, idle_threshold=0.05)
         want = _norm(padded)
@@ -683,7 +787,7 @@ class FollowedPaneClassificationSmokeTests(unittest.TestCase):
         seen_command = None
         got = None
         while time.time() < deadline:
-            info = self._pane_info(agent)
+            info = self._pane_info(agent, key)
             if info is not None:
                 seen_command = info.current_command
                 if seen_command == agent:
@@ -806,12 +910,12 @@ class FollowedPaneClassificationSmokeTests(unittest.TestCase):
                 ctrl.confirm_fire(ctrl.delivery_token, float(i))
         self.assertEqual(fires, 1, "exactly one automatic round")
 
-    def _app(self, agent, snap):
+    def _app(self, agent, snap, key=None):
         """A MiniMonitorApp wired to the REAL monitor for `agent`'s session."""
         from monitor.monitor_core import TmuxMonitor
         from monitor import review_loop as rl
 
-        session, _ = self.panes[agent]
+        session, _ = self.panes[key or agent]
         app = mm.MiniMonitorApp.__new__(mm.MiniMonitorApp)
         app._monitor = TmuxMonitor(session=session, idle_threshold=0.05)
         app._review_loop = rl.ReviewLoopController()
@@ -931,6 +1035,129 @@ class FollowedPaneClassificationSmokeTests(unittest.TestCase):
         self.assertIn("refetch and recheck", cap, cap)
         self.assertEqual(cap.count("refetch and recheck"), 1,
                          f"exactly one round should have been injected:\n{cap}")
+
+    # --- t1797: a Codex shadow through the PRODUCTION streak + delivery ---
+
+    def _paint_codex_shadow(self, raw: str) -> None:
+        """Swap the Codex shadow's frame and wait until the pane shows it."""
+        with open(self.codex_shadow_frame, "w", encoding="utf-8") as fh:
+            fh.write(raw)
+        want = _norm(raw)
+        got: list = []
+        deadline = time.time() + 15
+        while time.time() < deadline:
+            got = _norm(_tmux("capture-pane", "-p", "-e", "-t",
+                              self.shadows["codex_shadow"]).stdout)
+            if got[-len(want):] == want:
+                return
+            time.sleep(0.1)
+        self.fail(f"codex shadow never rendered the frame "
+                  f"(want {len(want)} rows, got {len(got)})")
+
+    def _arm_codex_shadow_case(self):
+        """Arm through the real path with the Codex-named shadow; return the
+        app, the post-work followed snapshot, and the shadow lookup."""
+        key = "codex_shadow"
+        _, followed = self.panes[key]
+        snap = self._paint("codex", self.rlfx.CODEX_EXEC_APPROVAL_SEL1_RAW,
+                           key=key)
+        self.assertEqual(snap.agent_key, "codex")
+        self.assertTrue(snap.awaiting_input)
+        app = self._app("codex", snap, key=key)
+        asyncio.run(app.action_toggle_review_loop())
+        self.assertTrue(
+            app._review_loop.armed,
+            f"real arming path refused: {app.spy_notify[-1][0] if app.spy_notify else None}")
+        self.assertFalse(app._review_loop.work_seen)
+        app._shadow_read_recency = mm.ReadRecency(True, 100.0)
+        later_snap = self._paint(
+            "codex", self.rlfx.CODEX_EXEC_APPROVAL_LATER_RAW, previous=snap,
+            key=key)
+        ok, shadow_pane, shadow_cmd, shadow_pid = asyncio.run(
+            mm.find_shadow_pane_info_async(app._monitor, followed))
+        self.assertTrue(ok)
+        self.assertEqual(shadow_pane, self.shadows[key])
+        return app, later_snap, (shadow_pane, shadow_cmd, shadow_pid)
+
+    @staticmethod
+    def _spy_fire(app) -> list:
+        """Record every real `_fire_shadow_recheck` outcome (calls through)."""
+        fired: list = []
+        real = app._fire_shadow_recheck
+
+        async def spy(*args, **kwargs):
+            result = await real(*args, **kwargs)
+            fired.append(result)
+            return result
+
+        app._fire_shadow_recheck = spy
+        return fired
+
+    def test_codex_shadow_fires_through_the_real_path(self):
+        """t1797: a Codex shadow on the ANIMATION-FREE 0.154.0 composer (what
+        `-c tui.animations=false` gives every framework launch) satisfies the
+        production gates, not only the parser: the raw-tail hash streak
+        reaches 1, `_fire_shadow_recheck` revalidates a byte-equal fresh
+        capture and returns 'sent', and exactly one recheck is submitted."""
+        from monitor import review_loop as rl
+
+        self._paint_codex_shadow(self.rlfx.CODEX_0154_NOANIM_AT_REST_RAW)
+        open(self.codex_shadow_log, "w").close()
+        app, later_snap, (pane, cmd, pid) = self._arm_codex_shadow_case()
+        fired = self._spy_fire(app)
+        tick_text = (f"{OPEN}\nRound: 1 @ 2026-09-14T10:00:00Z\n"
+                     f"- [low | smoke] x.\n{CLOSE}\n")
+        streaks = []
+        for _ in range(rl.DEBOUNCE_TICKS + 3):
+            app._loop_last_service_at = None
+            asyncio.run(app._service_review_loop(
+                later_snap, True, pane, cmd, tick_text, pid))
+            streaks.append(app._loop_shadow_hash_streak)
+
+        self.assertGreaterEqual(max(streaks), 1, f"streaks={streaks}")
+        self.assertTrue(fired, f"never reached delivery; banners={app._banners} "
+                               f"notify={app.spy_notify}")
+        self.assertEqual(fired[0][0], "sent", fired)
+        self.assertEqual(app._review_loop.state, rl.FIRED)
+        submitted: list = []
+        deadline = time.time() + 10
+        while time.time() < deadline and not submitted:
+            with open(self.codex_shadow_log, encoding="utf-8") as fh:
+                submitted = [ln for ln in fh.read().splitlines() if ln]
+            time.sleep(0.1)
+        self.assertEqual(len(submitted), 1, submitted)
+        self.assertTrue(submitted[0].startswith("refetch and recheck"),
+                        submitted)
+
+    def test_codex_starfield_shadow_never_fires(self):
+        """Characterization of the t1797 symptom through the same real path:
+        a shadow alternating between two STARFIELD ticks never repeats its
+        raw tail, so the streak stays 0, delivery is never 'sent' and the loop
+        never fires. The detector-side follow-up
+        (codex_braille_detector_defense) is expected to flip this."""
+        from monitor import review_loop as rl
+
+        frames = (self.rlfx.CODEX_0154_STARFIELD_RAW_1,
+                  self.rlfx.CODEX_0154_STARFIELD_RAW_2)
+        self._paint_codex_shadow(frames[0])
+        open(self.codex_shadow_log, "w").close()
+        app, later_snap, (pane, cmd, pid) = self._arm_codex_shadow_case()
+        fired = self._spy_fire(app)
+        tick_text = (f"{OPEN}\nRound: 1 @ 2026-09-14T10:00:00Z\n"
+                     f"- [low | smoke] x.\n{CLOSE}\n")
+        streaks = []
+        for i in range(rl.DEBOUNCE_TICKS + 3):
+            self._paint_codex_shadow(frames[(i + 1) % 2])
+            app._loop_last_service_at = None
+            asyncio.run(app._service_review_loop(
+                later_snap, True, pane, cmd, tick_text, pid))
+            streaks.append(app._loop_shadow_hash_streak)
+
+        self.assertEqual(max(streaks), 0, f"streaks={streaks}")
+        self.assertNotIn("sent", [outcome for outcome, _ in fired])
+        self.assertNotEqual(app._review_loop.state, rl.FIRED)
+        with open(self.codex_shadow_log, encoding="utf-8") as fh:
+            self.assertEqual(fh.read(), "")
 
     def test_app_does_not_fire_on_a_selection_redraw(self):
         """Negative control for the test above, through the same real path.

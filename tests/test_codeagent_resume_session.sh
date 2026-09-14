@@ -84,11 +84,18 @@ assert_eq "codex resume: exits 0" "0" "$RC"
 # rebuilding.
 assert_contains "codex resume: 'resume <sid>' leads, before the model flag" \
     "codex resume sess_9" "$OUT"
+# t1797: the TUI animation override rides along AFTER `resume <sid>` (so
+# `resume` stays the leading positional) and BEFORE the model flag. A real
+# `codex resume` accepting this order was verified live (t1797's plan, 2b).
+assert_contains "codex resume: the TUI override follows the session id" \
+    "codex resume sess_9 -c tui.animations=false -m gpt-5.4" "$OUT"
 
 run_ca --agent-string codex/gpt5_4 --dry-run invoke raw
 assert_eq "codex raw without --resume-session: exits 0" "0" "$RC"
 assert_not_contains "codex raw without --resume-session: no bare 'resume' leaks in" \
     "codex resume" "$OUT"
+assert_contains "codex raw without --resume-session: the TUI override leads" \
+    "codex -c tui.animations=false -m gpt-5.4" "$OUT"
 
 echo ""
 echo "=== --resume-session: opencode is refused with exit 2 ==="

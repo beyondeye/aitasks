@@ -597,6 +597,41 @@ class CodexShadowReadinessTests(unittest.TestCase):
             rl.PROMPT_PATTERNS_BY_AGENT["codex"] = saved
 
 
+class Codex0154ComposerTests(unittest.TestCase):
+    """codex-cli 0.154.0 composer, with and without the starfield (t1797).
+
+    Both pairs are live production-path captures from windows that differ
+    ONLY in ``-c tui.animations`` (see the fixture module docstring).
+    """
+
+    @staticmethod
+    def _braille(raw: str) -> int:
+        return sum("⠀" <= ch <= "⣿" for ch in rl.strip_ansi(raw))
+
+    def test_animation_free_composer_is_ready(self):
+        self.assertEqual(rl._codex_state(fx.CODEX_0154_NOANIM_AT_REST_RAW),
+                         rl.SHADOW_READY)
+        self.assertIs(rl.shadow_prompt_ready(
+            fx.CODEX_0154_NOANIM_AT_REST_RAW, "codex", True), True)
+
+    def test_animation_free_ticks_are_byte_identical(self):
+        """The raw-tail hash-stability conjunct depends on exactly this."""
+        self.assertEqual(fx.CODEX_0154_NOANIM_AT_REST_RAW,
+                         fx.CODEX_0154_NOANIM_AT_REST_TICK2_RAW)
+        self.assertEqual(self._braille(fx.CODEX_0154_NOANIM_AT_REST_RAW), 0)
+
+    def test_starfield_ticks_differ_after_strip(self):
+        """Characterization of the defect the launch flag removes: visible
+        glyphs survive strip_ansi, so no stripped or raw comparison can ever
+        settle. The detector-side follow-up (codex_braille_detector_defense)
+        is expected to flip this."""
+        a, b = fx.CODEX_0154_STARFIELD_RAW_1, fx.CODEX_0154_STARFIELD_RAW_2
+        self.assertGreater(self._braille(a), 0)
+        self.assertGreater(self._braille(b), 0)
+        self.assertNotEqual(rl.strip_ansi(a), rl.strip_ansi(b))
+        self.assertNotEqual(a, b)
+
+
 class CodexIsolatedPositiveHalfTests(unittest.TestCase):
     """The task's explicit safety question, as an executable assertion.
 

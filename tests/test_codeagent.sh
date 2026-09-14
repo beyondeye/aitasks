@@ -243,6 +243,40 @@ for index in "${!codex_operations[@]}"; do
     assert_contains_ci "codex $operation keeps representative argv" "probe" "$output"
 done
 
+# Test 11e: every Codex launch carries the TUI animation override (t1797) —
+# skill composers, explore, and the batch-review/raw passthroughs — placed
+# right after the binary, with the composer prompt still the LAST argv element.
+# Negative control: the other agents never receive it.
+echo "--- Test 11e: Codex launches carry -c tui.animations=false ---"
+dry_run_last_arg() {
+    printf '%s\n' "$1" | python3 -c "
+import shlex, sys
+for line in sys.stdin:
+    if line.startswith('DRY_RUN:'):
+        print(shlex.split(line[len('DRY_RUN:'):])[-1])"
+}
+for operation in pick explain qa shadow learn work-report trail explore batch-review raw; do
+    if [[ "$operation" == "explore" ]]; then
+        output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --agent-string codex/gpt5_4 --dry-run invoke "$operation" 2>&1)
+    else
+        output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --agent-string codex/gpt5_4 --dry-run invoke "$operation" probe 2>&1)
+    fi
+    assert_contains "codex $operation carries the override before the model flag" \
+        "codex -c tui.animations=false -m gpt-5.4" "$output"
+    last_arg="$(dry_run_last_arg "$output")"
+    case "$operation" in
+        batch-review|raw)
+            assert_eq "codex $operation keeps its passthrough argv last" "probe" "$last_arg" ;;
+        *)
+            assert_contains "codex $operation keeps the composer prompt last" "\$aitask-" "$last_arg" ;;
+    esac
+done
+for agent_string in claudecode/opus5 opencode/openai_gpt_5_2; do
+    output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --agent-string "$agent_string" --dry-run invoke pick 42 2>&1)
+    assert_contains "$agent_string pick still dry-runs" "DRY_RUN:" "$output"
+    assert_not_contains "$agent_string pick carries no Codex TUI override" "tui.animations" "$output"
+done
+
 # Test 11d4: a supported operation missing from the nested Codex composer case
 # fails closed. Mutate only a separately copied fixture, validate that the
 # symbol-anchored transform matched exactly once, then remove the probe copy.

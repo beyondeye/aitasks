@@ -11,6 +11,16 @@ default_mode_request_user_input = true
 [sandbox_workspace_write]
 network_access = true
 
+# Codex TUI: disable decorative animations (t1797). codex-cli 0.154.0 draws an
+# animated Braille "starfield" around the idle composer; the glyphs are visible
+# characters, so `ait monitor` / `ait minimonitor` never read an idle Codex pane
+# as idle and the shadow auto-recheck loop never sees it as ready.
+# `ait codeagent invoke` also passes `-c tui.animations=false`, which outranks
+# this file; this block covers Codex sessions started by hand in the project.
+# `ait setup` adds it only when the project config does not set `animations`.
+[tui]
+animations = false
+
 # Protective rules for destructive commands.
 # Aitasks helper allow rules live in .codex/rules/default.rules.
 

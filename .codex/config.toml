@@ -7,6 +7,10 @@ sandbox_mode = "workspace-write"
 [sandbox_workspace_write]
 network_access = true
 
+# Codex TUI: disable decorative animations (t1797) — see seed/codex_config.seed.toml.
+[tui]
+animations = false
+
 # Protective rules for destructive commands.
 # Aitasks helper allow rules live in .codex/rules/default.rules.
 

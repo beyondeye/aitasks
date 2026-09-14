@@ -6,6 +6,10 @@ Exercises _finalize_capture directly — no tmux required. Covers:
   3. Visible-text changes always reset idle, regardless of mode.
   4. cycle_compare_mode walks default → raw → stripped → default and
      clears stored last-content on each transition.
+  5. The codex-cli 0.154.0 composer (t1797): the animation-free composer that
+     every framework launch now gets reaches idle, while the composer
+     "starfield" (visible Braille glyphs) never does — the reason the
+     animation is disabled at launch rather than absorbed here.
 
 Run:
   python3 tests/test_idle_compare_modes.py
@@ -18,7 +22,10 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / ".aitask-scripts"))
+# The live-captured Codex frames live beside this file (review_loop_fixtures).
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import review_loop_fixtures as fx  # noqa: E402
 from monitor.tmux_monitor import (  # noqa: E402
     TmuxMonitor,
     TmuxPaneInfo,
@@ -114,12 +121,39 @@ def _check_set_compare_mode_clears_last_content() -> None:
     assert pane.pane_id not in mon._last_content
 
 
+def _check_codex_animation_free_composer_reaches_idle() -> None:
+    """t1797: two live ticks of the codex-cli 0.154.0 idle composer launched
+    with `-c tui.animations=false` (what every framework launch carries) are
+    byte-identical, so the default stripped mode reaches idle."""
+    mon = TmuxMonitor(session="aitasks", idle_threshold=0.05)
+    pane = make_pane()
+    mon._finalize_capture(pane, fx.CODEX_0154_NOANIM_AT_REST_RAW)
+    time.sleep(0.1)
+    snap = mon._finalize_capture(pane, fx.CODEX_0154_NOANIM_AT_REST_TICK2_RAW)
+    assert snap.is_idle, "the animation-free Codex composer must read idle"
+
+
+def _check_codex_starfield_never_reaches_idle() -> None:
+    """Characterization of the t1797 defect: the composer starfield draws
+    VISIBLE Braille glyphs, which survive strip_ansi, so consecutive ticks
+    differ and idle is never reached. The detector-side follow-up
+    (codex_braille_detector_defense) is expected to flip this."""
+    mon = TmuxMonitor(session="aitasks", idle_threshold=0.05)
+    pane = make_pane()
+    mon._finalize_capture(pane, fx.CODEX_0154_STARFIELD_RAW_1)
+    time.sleep(0.1)
+    snap = mon._finalize_capture(pane, fx.CODEX_0154_STARFIELD_RAW_2)
+    assert not snap.is_idle, "a starfield tick still counts as a change"
+
+
 def main() -> int:
     _check_default_mode_ignores_animated_color()
     _check_raw_mode_preserves_legacy_behavior()
     _check_visible_text_change_resets_idle()
     _check_cycle_compare_mode_sequence()
     _check_set_compare_mode_clears_last_content()
+    _check_codex_animation_free_composer_reaches_idle()
+    _check_codex_starfield_never_reaches_idle()
     print("PASS")
     return 0
 

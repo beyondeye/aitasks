@@ -24,6 +24,15 @@ Use stronger reasoning/model settings when you need reliable workflow compliance
 
 > `ait codeagent invoke` launches every Codex skill in Codex's default mode.
 
+#### Composer animation and idle detection
+
+With some models (currently the Astra family, such as `gpt-6-astra`), Codex animates a field of twinkling dots around the idle input box. The dots are visible characters, so `ait monitor` and `ait minimonitor` would never see such a pane go idle, and a shadow agent would never read as ready for an automatic recheck. The framework therefore turns Codex's TUI animations off:
+
+- `ait codeagent invoke` passes `-c tui.animations=false` to every Codex launch, including shadow agents and restored sessions. A command-line override takes precedence over every config file, so framework-launched Codex panes never animate.
+- `ait setup` adds `[tui] animations = false` to `.codex/config.toml` when the project config does not already set `animations`. An explicit value is kept, so a project that sets `animations = true` keeps the animation in Codex sessions you start by hand. Codex reads a project's `.codex/config.toml` only when the project is trusted.
+
+If you start Codex by hand outside a trusted project, pass `-c tui.animations=false`, or set `animations = false` under `[tui]` in `~/.codex/config.toml`.
+
 #### Reasoning effort and workflow compliance
 
 Set Codex's reasoning effort to **at least `high`** when running the `aitask-*` workflow. At lower effort, Codex may silently skip required non-skippable workflow steps and treat the archive as the end of the workflow even when the interactive prompts are available. Raising the effort to `high` resolves most of these compliance problems.

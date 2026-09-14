@@ -168,7 +168,11 @@ DEFAULT_TUI_NAMES = TUI_NAMES
 #     equality check. Required to detect Codex CLI agents as idle: Codex
 #     animates the spinner color via SGR escape codes even while waiting
 #     on user input, so a raw byte-equal comparison declares the pane
-#     "changed" every refresh tick and idle is never reached.
+#     "changed" every refresh tick and idle is never reached. It cannot
+#     absorb a VISIBLE-glyph animation such as the Codex composer starfield
+#     (Braille dots); that one is disabled at launch instead — see
+#     aidocs/framework/monitor_idle_and_prompt_detection.md, "Visible-glyph
+#     animation" (t1797).
 #   raw — compare the full captured bytes including escape codes. Legacy
 #     behavior; only useful as a fallback if a future agent renders idle
 #     UI by toggling escape codes that semantically matter.

@@ -25,6 +25,16 @@ source "$SCRIPT_DIR/lib/agent_string.sh"
 DEFAULT_COAUTHOR_DOMAIN="aitasks.io"
 SUPPORTED_OPERATIONS=(pick explain batch-review qa explore explore-relay raw shadow learn work-report trail)
 
+# Codex TUI overrides carried by every Codex launch (t1797). codex-cli 0.154.0
+# animates a Braille "starfield" (U+2800-U+28FF) around and inside the idle
+# composer; the glyphs are visible characters that survive strip_ansi, so the
+# monitor idle timer and the review-loop shadow readiness never settle on an
+# idle Codex pane. `tui.animations` is preferred over `tui.whimsy` because it is
+# narrower. Codex ignores unknown `-c tui.*` keys (measured on 0.154.0), so a
+# build without this key is unaffected. A `-c` override outranks every config
+# file, so this holds whatever the user or project config says.
+CODEX_TUI_OVERRIDES=(-c tui.animations=false)
+
 # --- Global flags (set by argument parser) ---
 
 OPT_AGENT_STRING=""
@@ -539,12 +549,15 @@ build_invoke_command() {
         codex)
             case "$operation" in
                 batch-review|raw)
+                    # CMD was pre-seeded as (binary, model_flag, cli_id), so
+                    # every Codex argv is REBUILT to carry the TUI overrides.
                     if [[ -n "$OPT_RESUME_SESSION" ]]; then
                         # `codex resume <sid>` needs `resume` as the LEADING
-                        # positional, but CMD was pre-seeded as
-                        # (binary, model_flag, cli_id) — so rebuild rather than
-                        # append.
-                        CMD=("$binary" resume "$OPT_RESUME_SESSION" "$model_flag" "$cli_id")
+                        # positional; the overrides follow the session id
+                        # (`codex resume` takes `-c` like the root command).
+                        CMD=("$binary" resume "$OPT_RESUME_SESSION" "${CODEX_TUI_OVERRIDES[@]}" "$model_flag" "$cli_id")
+                    else
+                        CMD=("$binary" "${CODEX_TUI_OVERRIDES[@]}" "$model_flag" "$cli_id")
                     fi
                     CMD+=("${args[@]}")
                     ;;
@@ -565,7 +578,7 @@ build_invoke_command() {
                         trail)   prompt=$(build_skill_prompt "\$aitask-trail" "${args[@]}") ;;
                         *) die "operation not wired into the codex composer: $operation" ;;
                     esac
-                    CMD=("$binary" "$model_flag" "$cli_id" "$prompt")
+                    CMD=("$binary" "${CODEX_TUI_OVERRIDES[@]}" "$model_flag" "$cli_id" "$prompt")
                     ;;
             esac
             ;;

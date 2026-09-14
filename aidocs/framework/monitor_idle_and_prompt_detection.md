@@ -136,6 +136,49 @@ including `compare_value`, which is why a hyperlink whose target changes
 between ticks used to keep a pane out of idle forever. A pattern written
 against raw capture bytes rather than stripped text will not match.
 
+### Visible-glyph animation: the Codex composer starfield
+
+`strip_ansi` absorbs *colour* animation — which is why Codex's pulsing spinner
+colour needed nothing more than the `stripped` compare mode (t715). It cannot
+absorb an animation that draws **visible characters**, and Codex has one: the
+composer "starfield" (`codex-rs/tui/src/bottom_pane/chat_composer/sparkle.rs`,
+codex-cli 0.154.0). Braille dots (U+2800–U+28FF) twinkle on the blank cells
+around and *inside* the idle composer line (`›⠁Ask Codex to do anything⡀`) and
+move every 150 ms. On a pane showing it, the idle timer resets on every tick, so
+the pane never reads idle. The review loop's shadow readiness also flaps and
+never sees two identical raw tails, so the `L` recheck never fires (t1797).
+
+Upstream renders it only when all of these hold (`enabled_foreground`):
+`tui.whimsy` and `tui.animations` are on (both default on), the session model
+matches `\bastra\b` (e.g. `gpt-6-astra`), the terminal is truecolor, and the
+terminal's default colours are known. So whether a given Codex pane animates
+depends on its model, not on the framework.
+
+**The sanctioned answer is launch-side.** `aitask_codeagent.sh` passes
+`-c tui.animations=false` on every Codex launch (`CODEX_TUI_OVERRIDES`),
+including `codex resume <sid>`. A `-c` override outranks every config file, so
+framework-spawned panes (skills, shadows, restores) never animate. `ait setup`
+also adds `[tui] animations = false` to the project's `.codex/config.toml`, but
+only as a **default added when absent**: `merge_codex_settings` keeps an
+explicit project value. That covers Codex sessions started by hand in a trusted
+project that has not set `animations` itself.
+
+Measured live on 0.154.0 with `gpt-6-astra`, under identical terminal
+conditions:
+- the control (`-c tui.animations=true`) drew 47–54 dots per capture and changed
+  every tick;
+- the `-c tui.animations=false` flag gave a byte-stable tail with no dots;
+- the project config alone did the same.
+
+- **Do not** strip Braille globally from the compare value. Braille is a common
+  *working* spinner for ordinary CLI tools (`⠋⠙⠹…`), so in a non-agent pane, or
+  for any future agent that spins with it, stripping it would read real activity
+  as idle.
+- Codex ignores unknown `-c tui.*` keys, so a future rename of `animations`
+  would silently bring the starfield back. A Codex-scoped detector-side defense
+  for that case, and for Codex panes the framework did not launch, is t1797's
+  risk-mitigation follow-up `codex_braille_detector_defense`.
+
 ## What NOT to do
 
 - **Do not** strip the subagent activity dot (`●` U+25CF ↔ U+0020 SPACE) in
