@@ -719,14 +719,25 @@ def _apply_upsert_fields(
     operation=None,
     task_id=None,
 ) -> None:
-    """Apply the optional descriptive fields. ``None`` means "not supplied"."""
+    """Apply the optional descriptive fields. ``None`` means "not supplied".
+
+    For ``agent_string`` a blank means "not supplied" too (t1802). A caller
+    sends one when it CANNOT name the agent: the hook, for an agent started by
+    hand outside the wrapper, a legacy launch, or a restored record whose stored
+    string is malformed (the restore coordinator delivers
+    ``AITASK_AGENT_STRING`` only for a well-formed one); and the freeze engine's
+    fallback upsert, which never knows it. Taking the blank as a value would
+    overwrite a good stored string, re-derive ``agent_kind`` as "", and send the
+    next restore to the project's default agent. Same rule, and same reason, as
+    the hook's blank-session-id no-op (its contract 4).
+    """
     if session is not None:
         rec.session = session
     if session_id is not None:
         rec.codeagent_session_id = session_id
     if transcript is not None:
         rec.transcript_path = transcript
-    if agent_string is not None:
+    if agent_string:
         rec.agent_string = agent_string
         rec.agent_kind = agent_kind_of(agent_string)
     if operation is not None:

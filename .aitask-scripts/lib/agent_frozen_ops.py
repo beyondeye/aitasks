@@ -628,7 +628,8 @@ def respawn(pane_id: str, command: str, env: dict[str, str] | None = None) -> bo
 
     ``env`` adds one ``-e NAME=value`` flag per entry (t1705_5), which is how the
     restore coordinator delivers the four ``AITASK_RESTORE_*`` identity variables
-    to the replacement agent. tmux sets them in the spawned process's own
+    and ``AITASK_AGENT_STRING`` (t1802) to the replacement agent. tmux sets them
+    in the spawned process's own
     environment, so the command string carries no wrapper and nothing execs
     through ``env`` — and crucially ``#{pane_pid}`` still names the agent itself,
     which is the property the task-lock liveness anchor depends on (t1465).

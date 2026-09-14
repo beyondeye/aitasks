@@ -132,6 +132,14 @@ ENV_NONCE = "AITASK_RESTORE_NONCE"
 ENV_MODE = "AITASK_RESTORE_MODE"
 ENV_EXPECT_SESSION = "AITASK_RESTORE_EXPECT_SESSION"
 
+#: The fifth variable is not an identity variable: it is the one the wrapper
+#: exports on a real launch (`aitask_codeagent.sh` `cmd_invoke`). The
+#: replacement runs the argv the wrapper's `--dry-run` resolved, which returns
+#: BEFORE that export — so without this, the hook acks with `--agent-string ""`
+#: and the restored agent's own model self-detection loses its authoritative
+#: source (t1802). Delivered only for a well-formed value; see `_restore_env`.
+ENV_AGENT_STRING = "AITASK_AGENT_STRING"
+
 
 @dataclass
 class RestoreResult:
@@ -182,13 +190,22 @@ def build_repick_argv(rec: dict) -> str | None:
     return cmd
 
 
-def _restore_env(record_id: str, nonce: str, mode: str, expect_session: str) -> dict:
-    return {
+def _restore_env(record_id: str, nonce: str, mode: str, expect_session: str,
+                 agent_string: str = "") -> dict:
+    env = {
         ENV_RECORD: record_id,
         ENV_NONCE: nonce,
         ENV_MODE: mode,
         ENV_EXPECT_SESSION: expect_session,
     }
+    # Only a well-formed value rides along. `respawn_if_stamped` joins every
+    # `-e NAME=value` into the `if-shell` branch UNQUOTED, and the store keeps
+    # whatever string a caller upserted; `agent_kind_of` is the store's own
+    # well-formedness check, so nothing else can reach that command line. An
+    # empty record has nothing to deliver, and a blank is a no-op in the store.
+    if agent_sessions.agent_kind_of(agent_string):
+        env[ENV_AGENT_STRING] = agent_string
+    return env
 
 
 def _env_prefixed(command: str, env: dict) -> str:
@@ -505,7 +522,8 @@ def restore(record_id: str, *, repick: bool = False) -> RestoreResult:
         return RestoreResult(record_id, False, "begin",
                              f"RESTORE_FAILED:{record_id}|{out.strip()}")
     nonce = frozen_ops.nonce_from(out.splitlines()[-1])
-    env = _restore_env(record_id, nonce, mode, session_id)
+    env = _restore_env(record_id, nonce, mode, session_id,
+                       agent_string=rec.get("agent_string", ""))
 
     # --- 2. clear the ready mark, then respawn ------------------------------
     try:

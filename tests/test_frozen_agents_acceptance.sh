@@ -33,6 +33,12 @@
 # the pane command exercises both, and `exec` keeps the pid, so `#{pane_pid}`
 # still names the agent (t1465).
 #
+# A RESTORE has no such choice: the coordinator respawns exactly that printed
+# `--dry-run` argv, so it delivers AITASK_AGENT_STRING itself, as a respawn
+# variable (t1802). Cases 5 and 6c assert it from the replacement's own
+# environment report (`FAKE_AGENT_REPORT_ENV`), because the store keeps a stored
+# string on a blank upsert and a record-level check would pass without it.
+#
 # GROUND TRUTH IS THE SERVER AND THE FILESYSTEM, never the store's own claims
 # alone: every case cross-checks a store field against `display-message` /
 # `list-panes` output or against a file on disk.
@@ -716,8 +722,22 @@ section "Case 5 — the happy restore: ack=hook, captures deleted, join intact"
     freeze_and_wait "$PANE" "$RID"
     standin_pid="$(pane_fmt "$PANE" '#{pane_pid}')"
 
+    # Only the REPLACEMENT may write this report: armed after the launch and
+    # the freeze, cleared as soon as the restore returns.
+    envprobe="$FIXTURE_DIR/envprobe_case5.txt"
+    agent_env FAKE_AGENT_REPORT_ENV="$envprobe"
     out="$("$FROZEN_SH" restore "$RID" 2>&1)"
+    agent_env_clear
     assert_contains "case 5: the HOOK verified the restore" "RESTORED:$RID|hook" "$out"
+    # t1802. The ENV assertion is the one that proves the coordinator delivered
+    # the variable: the store keeps a stored string on a blank upsert, so the
+    # record assertions below pass even if nothing was delivered at all.
+    assert_eq "case 5: the replacement got AITASK_AGENT_STRING from the coordinator" \
+        "claudecode/opus5" "$(envprobe_value "$envprobe" AITASK_AGENT_STRING)"
+    assert_eq "case 5: the agent string survived the restore" "claudecode/opus5" \
+        "$(record_field "$RID" agent_string)"
+    assert_eq "case 5: and so did the agent kind" "claudecode" \
+        "$(record_field "$RID" agent_kind)"
     assert_eq "case 5: the record is live again" "live" "$(record_field "$RID" state)"
     assert_eq "case 5: the ack names the hook" "hook" "$(record_field "$RID" ack)"
     assert_eq "case 5: a VERIFIED restore deletes the captures" "no" \
@@ -928,8 +948,20 @@ section "Case 6c — tmux restarted; only an UNRELATED session exists"
     assert_eq "case 6c: premise — no pane on the server sits in the project" "0" \
         "$(panes_in_project)"
 
+    envprobe="$FIXTURE_DIR/envprobe_case6c.txt"
+    agent_env FAKE_AGENT_REPORT_ENV="$envprobe"
     out="$("$FROZEN_SH" restore "$RID" 2>&1)"
+    agent_env_clear
     assert_contains "case 6c: the restore succeeded" "RESTORED:$RID" "$out"
+    # t1802, the NEW-WINDOW branch: it has no `-e`, so the variable rides the
+    # `env A=… <cmd>` prefix. Only the replacement's own report proves that —
+    # the record assertions pass on the store's blank-upsert guard alone.
+    assert_eq "case 6c: the new-window replacement got AITASK_AGENT_STRING" \
+        "claudecode/opus5" "$(envprobe_value "$envprobe" AITASK_AGENT_STRING)"
+    assert_eq "case 6c: the agent string survived the restore" "claudecode/opus5" \
+        "$(record_field "$RID" agent_string)"
+    assert_eq "case 6c: and so did the agent kind" "claudecode" \
+        "$(record_field "$RID" agent_kind)"
     assert_eq "case 6c: the record is live" "live" "$(record_field "$RID" state)"
     new_pane="$(record_field "$RID" pane_id)"
     assert_eq "case 6c: its pane is real" "yes" \

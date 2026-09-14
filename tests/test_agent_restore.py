@@ -455,38 +455,81 @@ class TestNonceMismatchIssuesNoTmux(_SwapMixin, unittest.TestCase):
 
 
 class TestRestoreEnvDelivery(_SwapMixin, unittest.TestCase):
-    """All four identity variables reach the replacement, via `-e`."""
+    """The four identity variables and the agent string reach the replacement.
 
-    def test_four_e_flags_are_passed_to_respawn(self):
-        self.swap_store(_RecordingStore(answers={
-            "restore-begin": (0, "RESTORING:7f3a2c1d|deadbeef"),
-            "restore-launched": (0, "LAUNCHED:7f3a2c1d"),
-            "restore-confirm": (0, "LIVE:7f3a2c1d|liveness"),
-        }))
-        tmux = self.swap_tmux(_ScriptedTmux(_TMUX_OURS_AND_FIRES))
-        rec = _rec()
+    `AITASK_AGENT_STRING` is the fifth (t1802). The replacement runs the bare
+    agent command out of the wrapper's `--dry-run`, which returns BEFORE the
+    wrapper's own export, so the coordinator is the only thing that can hand it
+    over. Every delivery test covers resume AND re-pick: both modes share the
+    one `env` dict, and a later conditional must not silently drop either.
+    """
+
+    _STORE = {
+        "restore-begin": (0, "RESTORING:7f3a2c1d|deadbeef"),
+        "restore-launched": (0, "LAUNCHED:7f3a2c1d"),
+        "restore-confirm": (0, "LIVE:7f3a2c1d|liveness"),
+    }
+    _MODES = ((False, "resume"), (True, "repick"))
+
+    def _restore(self, rec, tmux_answers, *, repick, launched=None):
+        self.swap_store(_RecordingStore(answers=dict(self._STORE)))
+        tmux = self.swap_tmux(_ScriptedTmux(tmux_answers))
+        launched = launched or unittest.mock.Mock(return_value=("%900", 51000, ""))
         with unittest.mock.patch.object(agent_restore, "_reread", return_value=rec), \
              unittest.mock.patch.object(agent_restore, "build_resume_argv",
                                         return_value="claude --resume sess-abc"), \
+             unittest.mock.patch.object(agent_restore, "build_repick_argv",
+                                        return_value="claude '/aitask-pick 1705'"), \
+             unittest.mock.patch.object(agent_restore, "_launch_into_new_window", launched), \
              unittest.mock.patch.object(ops, "restore_ack_grace", return_value=0):
-            agent_restore.restore("7f3a2c1d")
+            agent_restore.restore("7f3a2c1d", repick=repick)
+        return tmux, launched
 
+    def _respawn_branch(self, rec, *, repick=False) -> str:
+        tmux, _ = self._restore(rec, _TMUX_OURS_AND_FIRES, repick=repick)
         # The `-e` flags now ride INSIDE the `if-shell` branch (t1773) rather
         # than on a bare `respawn-pane` argv. Measured on tmux 3.6a: repeated
-        # `-e` survives the wrapping, which is what this assertion protects.
-        branch = _dispatch_argv(tmux)[-1]
-        for name, value in (
-            ("AITASK_RESTORE_RECORD", "7f3a2c1d"),
-            ("AITASK_RESTORE_NONCE", "deadbeef"),
-            ("AITASK_RESTORE_MODE", "resume"),
-            ("AITASK_RESTORE_EXPECT_SESSION", "sess-abc"),
-        ):
-            self.assertIn(f"-e {name}={value}", branch,
-                          f"{name} must reach the replacement agent on its own flag")
-        self.assertEqual(4, branch.count(" -e "),
-                         "one -e flag per variable (spike Case 3c measured four)")
-        self.assertIn("respawn-pane -k ", branch,
-                      "the stand-in must be killed by the respawn")
+        # `-e` survives the wrapping, which is what these assertions protect.
+        return _dispatch_argv(tmux)[-1]
+
+    def test_identity_and_agent_string_e_flags_are_passed_to_respawn(self):
+        for repick, mode in self._MODES:
+            with self.subTest(mode=mode):
+                branch = self._respawn_branch(_rec(), repick=repick)
+                for name, value in (
+                    ("AITASK_RESTORE_RECORD", "7f3a2c1d"),
+                    ("AITASK_RESTORE_NONCE", "deadbeef"),
+                    ("AITASK_RESTORE_MODE", mode),
+                    ("AITASK_RESTORE_EXPECT_SESSION", "sess-abc"),
+                    ("AITASK_AGENT_STRING", "claudecode/opus5"),
+                ):
+                    self.assertIn(f"-e {name}={value}", branch,
+                                  f"{name} must reach the replacement agent on its own flag")
+                self.assertEqual(5, branch.count(" -e "), "one -e flag per variable")
+                self.assertIn("respawn-pane -k ", branch,
+                              "the stand-in must be killed by the respawn")
+
+    def test_a_new_window_launch_carries_the_agent_string(self):
+        """The gone-pane branch has no `-e`: the env rides `_env_prefixed`."""
+        gone = {3: (1, ""), 10: _FACTS_10, 2: _LOCATION_NEW}
+        for repick, mode in self._MODES:
+            with self.subTest(mode=mode):
+                _, launched = self._restore(_rec(), gone, repick=repick)
+                self.assertTrue(launched.called, "a gone pane restores into a new window")
+                env = launched.call_args.args[2]
+                self.assertEqual("claudecode/opus5", env.get("AITASK_AGENT_STRING"))
+                self.assertEqual(mode, env.get("AITASK_RESTORE_MODE"))
+
+    def test_a_record_without_an_agent_string_delivers_only_the_four(self):
+        branch = self._respawn_branch(_rec(agent_string="", agent_kind=""))
+        self.assertNotIn("AITASK_AGENT_STRING", branch)
+        self.assertEqual(4, branch.count(" -e "))
+
+    def test_a_malformed_agent_string_is_never_spliced_into_the_branch(self):
+        """The `-e NAME=value` flags are joined into the branch UNQUOTED."""
+        branch = self._respawn_branch(_rec(agent_string="bad value;x"))
+        self.assertNotIn("AITASK_AGENT_STRING", branch)
+        self.assertNotIn("bad value;x", branch)
 
 
 class TestHookWinsTheLaunchRace(_SwapMixin, unittest.TestCase):

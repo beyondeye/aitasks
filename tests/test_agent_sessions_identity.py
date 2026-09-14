@@ -247,8 +247,9 @@ class RefusalTests(_UpsertTestCase):
 class RestoreAckTests(_UpsertTestCase):
     """The `--restore-of` branch: selects the OLD record from a brand-new pane."""
 
-    def _restoring(self, mode="resume", session_id="sid-1"):
-        rid = self.rid(self.up(pane="%1", pane_pid=100, session_id=session_id))
+    def _restoring(self, mode="resume", session_id="sid-1", agent_string=None):
+        rid = self.rid(self.up(pane="%1", pane_pid=100, session_id=session_id,
+                               agent_string=agent_string))
         rec = self.sf.by_id(rid)
         rec.state = agent_sessions.STATE_FROZEN
         self.sf, line = agent_sessions.restore_begin(
@@ -308,6 +309,55 @@ class RestoreAckTests(_UpsertTestCase):
         rid = self.rid(self.up())
         with self.assertRaises(agent_sessions.TransitionRefused):
             self.up(pane="%42", pane_pid=4242, restore_of=rid, nonce="aabbccdd")
+
+    def test_a_blank_agent_string_on_the_ack_keeps_the_stored_one(self):
+        """t1802: a blank ack keeps the stored string — the defensive layer.
+
+        The restore coordinator delivers AITASK_AGENT_STRING to its replacement
+        (tests/test_agent_restore.py pins that), so a blank ack is the residual
+        case: a record whose stored string is malformed, or a replacement whose
+        environment lost the variable. Before t1802 EVERY restore acked blank,
+        and taking that as a value blanked the record — the NEXT restore then
+        resumed with the project's default agent.
+        """
+        for mode, session_id in (("resume", "sid-1"), ("repick", "new-sid")):
+            with self.subTest(mode=mode):
+                self.sf = agent_sessions.SessionsFile()
+                rid, nonce = self._restoring(mode=mode, agent_string="claudecode/opus5")
+                self.up(pane="%42", pane_pid=4242, restore_of=rid, nonce=nonce,
+                        session_id=session_id, agent_string="")
+                rec = self.sf.by_id(rid)
+                self.assertEqual(rec.state, agent_sessions.STATE_LIVE)
+                self.assertEqual(rec.agent_string, "claudecode/opus5")
+                self.assertEqual(rec.agent_kind, "claudecode")
+
+
+class BlankAgentStringTests(_UpsertTestCase):
+    """t1802: `agent_string=""` means "not supplied", never "clear it".
+
+    Two callers send a blank for an agent they cannot name: the hook, for an
+    agent started by hand outside the wrapper or a restored record whose stored
+    string is malformed, and the freeze engine's fallback upsert
+    (`agent_freeze._resolve_record`), which still SELECTS an existing record by
+    pane identity. Either one used to overwrite a good stored string and
+    re-derive `agent_kind` as "".
+    """
+
+    def test_a_blank_update_keeps_the_stored_agent(self):
+        rid = self.rid(self.up(agent_string="claudecode/opus5"))
+        line = self.up(agent_string="")
+        self.assertEqual(line, f"UPSERTED:{rid}|updated")
+        rec = self.sf.by_id(rid)
+        self.assertEqual(rec.agent_string, "claudecode/opus5")
+        self.assertEqual(rec.agent_kind, "claudecode")
+
+    def test_a_non_blank_update_still_replaces_it(self):
+        """The guard must not freeze the field: a real value still wins."""
+        rid = self.rid(self.up(agent_string="claudecode/opus5"))
+        self.up(agent_string="codex/gpt5")
+        rec = self.sf.by_id(rid)
+        self.assertEqual(rec.agent_string, "codex/gpt5")
+        self.assertEqual(rec.agent_kind, "codex")
 
 
 if __name__ == "__main__":
