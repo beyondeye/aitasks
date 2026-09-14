@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: low
-depends: []
+depends: [t1747_3]
 issue_type: bug
 status: Ready
 labels: [git, bash_scripts, robustness, syncer]
@@ -9,7 +9,7 @@ gates: [risk_evaluated]
 anchor: 1599
 followup_kind: upstream_defect
 created_at: 2026-09-10 21:23
-updated_at: 2026-09-10 21:23
+updated_at: 2026-09-10 21:24
 ---
 
 ## Origin
