@@ -356,9 +356,11 @@ C5 inventory (re-grep of `board/aitask_board.py` in `tests/`, `lib/`,
   controls `:341–353`; child 2); `tests/test_no_raw_tmux.sh:56` (unchanged —
   raw-tmux sites stay); `tests/test_board_reference_doc_literals.py`
   (children 2, 3); `tests/test_metadata_writer_inventory.py:85,130,282`
-  (`aitask_board.py::save_metadata` / `::_write_user_layer` keys; child 4);
-  `tests/test_task_lock.sh:670` (sed-extracts a regex literal from
-  `aitask_board.py`; whichever child moves it); `tests/test_task_dir_module_constants.py`
+  (`aitask_board.py::save_metadata` / `::_write_user_layer` keys and the
+  `must_find` file set — child 4, which moves `TaskManager`);
+  `tests/test_task_lock.sh:670` (sed-extracts the lock-list regex literal at
+  `aitask_board.py:2011`, which sits inside `TaskManager` — child 4 repoints
+  the sed to `board_task_manager.py`); `tests/test_task_dir_module_constants.py`
   (positive control, untouched); `tests/test_shortcuts_registry_coverage.sh:31`
   (child 6); `tests/test_board_fixture_harness.py` `_canonical_board_imports`
   (now reads `board_fixture.BOARD_MODULE_NAMES`).
@@ -370,6 +372,11 @@ C5 inventory (re-grep of `board/aitask_board.py` in `tests/`, `lib/`,
   `lib/board_columns.py:8,103,137`, `lib/record_protocol.py:34`,
   `brainstorm/widgets.py:799`, `board/aitask_merge.py:34`.
 - Launcher, unchanged: `aitask_board.sh:27`.
+- `lib/` ambient-resolver call sites in the canonical board (step 8 re-grep):
+  `discover_trails()` at `aitask_board.py:11816` (imported at `:69`) is the only
+  one — `load_columns()` at `:8193` is prose. The child that moves the trail
+  discovery worker (5) keeps calling `discover_trails`; that is inside the C2
+  boundary, not a violation.
 - Every new `board/*.py` must be added to `board_fixture.BOARD_MODULE_NAMES`
   (drift test) and, if it owns a `patch.object` target, bare-imported by
   `aitask_board.py`. No `board/*.py` may use a dynamic import (deny-by-default,
@@ -440,3 +447,153 @@ position-independent static rule proven by a deferred-read control).
 Task-workflow Step 8 (review, path-scoped code commit `test: … (t1794_1)`,
 plan commit), Step 8b (upstream defect: applink/chatlink basename collision),
 Step 9 (gates run, archive `t1794_1`).
+
+## Post-Review Changes
+
+### Change Request 1 (2026-09-14 12:55)
+- **Requested by user:** the baseline doc claimed `b92aebc20-dirty` held only the
+  package marker and the own-dir insert, but the script collapsed *any*
+  uncommitted change under `.aitask-scripts/` into the same `-dirty` suffix, and
+  the shared worktree held another session's `monitor/` edits at measurement
+  time — so the recorded marker could not prove the documented source set.
+  Measure in an isolated worktree or record an exact diff fingerprint and
+  changed-path list, and state only what that provenance proves.
+- **Changes made:**
+  - `tests/perf/board_footprint.sh` now prints a `provenance head=<full sha>
+    tree=<sha>[+<fp>] changed=<paths>` line and tags every raw line with
+    `<sha>+<fp>` — a 12-hex fingerprint of the uncommitted diff under
+    `.aitask-scripts/` and `tests/perf/` (untracked files included) — instead of
+    a generic `-dirty`. The header documents the shared-worktree caveat.
+  - Re-measured in an isolated detached `git worktree` at `b92aebc20` holding
+    exactly this task's 9 paths; the run aborts unless `git status -uall` there
+    matches that list. The aidoc section is rewritten from that run, with the
+    provenance line quoted verbatim and the claim narrowed to what it proves.
+- **Files affected:** `tests/perf/board_footprint.sh`,
+  `aidocs/framework/python_tui_performance.md`, this plan.
+
+### Change Request 2 (2026-09-14 13:15)
+- **Requested by user:** the Verification step lists
+  `shellcheck tests/perf/board_footprint.sh`, but that exact command exited 1
+  (SC1091 at the variable-path `source` line); only `shellcheck -x` was clean.
+  Make the plain command genuinely clean, or make the required invocation `-x`.
+- **Changes made:**
+  - The `source` line's directive became
+    `# shellcheck source=.aitask-scripts/lib/tmux_exec.sh disable=SC1091`, with
+    a comment justifying it: `-x` still follows and checks the gateway, and the
+    plain invocation is clean. Same pairing as
+    `tests/test_minimonitor_single_instance_guard.sh:68` (the repo has no
+    `.shellcheckrc`; plain `shellcheck` also fails on scripts that carry only
+    `source=`, e.g. `tests/test_no_raw_tmux.sh`).
+  - Because the script's bytes changed, the recorded fingerprint
+    `902deb4c2832` no longer reproduced from the committed script. The baseline
+    was re-measured in a fresh isolated worktree holding exactly this task's
+    files, and the aidoc's provenance line and numbers were replaced with that
+    run. `main` had meanwhile advanced to `59d8fe9db` (t1522 — monitor-only:
+    `monitor/*.py`, its aidoc and five tests; `git diff --stat
+    b92aebc20 59d8fe9db` touches none of this task's paths, `board/` or
+    `tests/lib/`), so the new baseline's head is `59d8fe9db`, and this task's
+    diff against it is unchanged (+579/−3 tracked, same four files).
+- **Files affected:** `tests/perf/board_footprint.sh`,
+  `aidocs/framework/python_tui_performance.md`, this plan.
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - `.aitask-scripts/board/__init__.py` (docstring only, C1/C2 in prose) and the
+    own-directory `sys.path` insert in `aitask_board.py` right below the lib
+    insert.
+  - `tests/lib/board_fixture.py`: `BOARD_MODULE_NAMES` (the ten present/planned
+    board modules) and `BOARD_NON_MEMBERS = {"aitask_merge"}` — the single
+    source every guard reads.
+  - `tests/test_board_package_contract.py` (22 tests): qualified/relative/
+    dynamic board imports (alias-tracked) repo-wide; deny-by-default dynamic
+    loading inside `board/`; no import-back of `aitask_board`; membership
+    drift; basename uniqueness on the flat path (manifest-derived dirs, pinned
+    applink/chatlink collisions, `board/` never pinnable); `patch.object`
+    pairing; and `OwnDirInsertTests` (subprocess, clean `PYTHONPATH`).
+  - `tests/test_board_fixture_harness.py`: `_canonical_board_imports` widened to
+    `BOARD_MODULE_NAMES`; C2 static half `_ambient_task_path_reads`
+    (position-independent: resolver references, `TASK_DIR` env reads, board
+    path constants); C2 runtime half `_fresh_load_report` / `_c2_findings`
+    (fresh interpreter, sentinel `TASK_DIR`, pre-load `sys.modules` snapshot,
+    fail-closed staleness, deferred-call probe); the characterization module
+    added to `MIGRATED_MODULES`.
+  - `tests/test_board_keymap_characterization.py`: 51-row `GOLDEN_BINDINGS`,
+    the 6 × 2 `GOLDEN_CHECK_ACTION` matrix (hidden/greyed sets; every other
+    action asserted exactly `True`), the trail widget contract, readable diff
+    helpers with the update rule in every failure message.
+  - `tests/perf/board_footprint.sh [--runs N]` and `tests/perf/footprint_ceiling.py`;
+    measurements and the margin rule in `aidocs/framework/python_tui_performance.md`
+    "t1794 baseline — board footprint".
+- **Red → green evidence:** `OwnDirInsertTests` red on HEAD (`board_dir: False`,
+  control `lib_dir: True`) and green after the insert. 20 in-process red runs,
+  each control first green against the real checker, then red with it
+  neutered: every C1 checker; the pre-widening literal-only canonical sweep;
+  `_ambient_task_path_reads` emptied and restricted to import-time positions
+  (the pre-revision scope — turns control (iv) red); `_c2_findings` emptied,
+  ignoring `fresh`, and ignoring `calls`; both golden diff helpers. Two
+  behaviour mutants on the fixture's private board copy (a dropped
+  `trail_select` binding; `trail_task` forced visible in By-Trail) turned the
+  golden tests red with readable diffs.
+- **Deviations from plan:**
+  - The repo-wide relative-import rule is scoped: any relative import inside
+    `board/` is a finding, but elsewhere only one naming a board module (or
+    `package="board…"`). `diffviewer/`, `chatlink/` and `brainstorm/` use
+    relative imports legitimately; the plan's unscoped rule would have been red
+    on the tree.
+  - The footprint script uses the `=session:` window target for pane-scoped
+    tmux verbs (see Issues).
+  - The margin rule in the aidoc adds "same session" (re-measure the board
+    alongside the candidate) — this box runs 8+ agents and cross-session
+    absolutes drift ~10%.
+- **Issues encountered:**
+  - First footprint attempt failed closed on all four configurations
+    (`could not read the pane pid (got '')`): with a bare `=session` target,
+    tmux 3.7c's `display-message -p '#{pane_pid}'` formats against no pane and
+    prints nothing. `ait_tmux_window_target "$session" ""` (`=session:`)
+    resolves the active pane. Fixed and commented in the script.
+  - The red-run harness itself misfired twice before it was trusted: subTest
+    failures carry an id suffix (`endswith(method)` missed them), and a bare
+    `TestCase.run()` skips `setUpClass`. Fixed by judging each method with
+    `TextTestRunner().run(TestSuite([Cls(m)])).wasSuccessful()` and
+    baselining every control against the real checker first.
+  - Full suite: 7478 passed, 4 failed — all in
+    `tests/test_parallel_admission_collect.py`, pre-existing date rot unrelated
+    to this change (see Upstream defects). No file on that module's import
+    path is in this diff. Proven by the clock alone: run in-process, all four
+    FAIL on the wall clock and PASS with `time.time` pinned to the test's own
+    `parse_ts("2026-08-30 08:05")`.
+  - Footprint baseline, measured in an isolated worktree at
+    `59d8fe9db+bd477827724b` (exactly this task's files; n=5 each, medians):
+    board 182.8 MiB / 233 ms (CPython), 319.6 MiB / 459 ms (PyPy); ceiling
+    40.1 MiB / 218 ms (CPython), 113.8 MiB / 298 ms (PyPy) — full table,
+    verbatim provenance line, raw runs and margin rule in the aidoc section.
+    Two earlier runs were superseded: one in the shared worktree, whose
+    generic `-dirty` tag also covered another session's `monitor/` edits
+    (Change Request 1), and one isolated run at `b92aebc20+902deb4c2832` whose
+    fingerprint stopped matching the committed script after the lint
+    directive changed (Change Request 2).
+  - The shared worktree picked up another session's uncommitted edits
+    (`monitor/monitor_core.py`, `prompt_patterns.py`, `review_loop.py`); the
+    code commit names only this task's paths.
+- **Key decisions:**
+  - The C2 static rule flags lazy (function/lambda-body) reads as well as
+    import-time bindings; the runtime check runs in a fresh subprocess with a
+    sentinel `TASK_DIR` distinct from the default, so staleness and deferred
+    reads are observable. `lib/` functions that resolve the task dir internally
+    are an explicit, documented boundary (the pinned `discover_trails` seam).
+  - The golden pins the `BINDINGS` class attribute (defaults) and sets
+    `base_filter` directly, so the matrix is a pure function of state with no
+    modal and no worker.
+- **Upstream defects identified:**
+  - `tests/test_parallel_admission_collect.py:500,830 — replay fixtures hard-code locked_at "2026-08-30 08:00" while the replay path reads the wall clock; the lock crossed MAX_CLAIM_AGE_S (14 d, parallel_admission.py:47) at 2026-09-13 08:00, so 4 tests now fail for everyone (stale_claim instead of CONFLICT / no-plan exclusion / threshold sensitivity)`
+  - `.aitask-scripts/lib/shortcut_scopes.py:80-81 — the docstring asserts the TUI dirs have no colliding module basenames, but applink/ and chatlink/ both ship paths.py and audit.py (applink imports them flat); harmless today (8/8 hash seeds load cleanly because applink's own dir wins), now pinned in test_board_package_contract.KNOWN_COLLISIONS`
+- **Notes for sibling tasks:** see `## Notes for sibling tasks` above (C5
+  inventory with owners, lib-resolver boundary, fresh-load staleness rule,
+  golden update rule, footprint margin rule). Additionally:
+  - Adding `board/board_x.py`: add it to `BOARD_MODULE_NAMES`; if it defines a
+    name tests `patch.object`, add a module-level `import board_x` in
+    `aitask_board.py`; take resolved paths as parameters named `tasks_dir`
+    (a local literally named `task_dir` is flagged like the resolver).
+  - Re-measure with `tests/perf/board_footprint.sh --runs 5 <module> <interp>`
+    for both interpreters in one session, board and candidate together.
