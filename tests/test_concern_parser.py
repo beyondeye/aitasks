@@ -2209,15 +2209,21 @@ class TestProducerPlainWordsRule(unittest.TestCase):
         )
 
     def test_no_producer_example_block_carries_a_prose_only_line(self):
-        for name, text in self._producers().items():
-            with self.subTest(producer=name):
-                self.assertEqual(
-                    _example_prose_only_offences(text),
-                    [],
-                    f"{name}: an example concern-block fence carries a "
-                    f"prose-only phrase — the example contradicts the "
-                    f"prose-only rule stated beside it",
-                )
+        # No subTest here: the negative control below calls this method under
+        # assertRaises, and under unittest a subTest records a failure against
+        # the enclosing test instead of raising it, so the control could never
+        # see the offence (t1763).
+        offenders = [
+            f"{name}: {offence}"
+            for name, text in self._producers().items()
+            for offence in _example_prose_only_offences(text)
+        ]
+        self.assertEqual(
+            offenders,
+            [],
+            "an example concern-block fence carries a prose-only phrase — the "
+            "example contradicts the prose-only rule stated beside it",
+        )
 
     def test_guard_flags_a_producer_missing_the_rule(self):
         """Negative control: placement-aware, per placement. Synthetic text —

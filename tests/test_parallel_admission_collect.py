@@ -13,6 +13,7 @@ import os
 import shutil
 import sys
 import tempfile
+import time
 import unittest
 
 TESTS_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -470,6 +471,26 @@ class CliTests(unittest.TestCase):
 
 
 
+class _FrozenClock:
+    """Stand-in for `parallel_admission_collect`'s ``time`` module (t1763).
+
+    The ``replay`` / ``sweep`` / ``check`` CLI path (`col.main`) exposes no
+    ``now``, so `collect()` falls back to ``time.time()`` -- and a fixture whose
+    claims are locked at a fixed timestamp silently ages past --max-claim-age
+    (the hazard `CollectIntegrationTests.NOW` documents). ``time()`` is pinned;
+    every other attribute is the real module.
+    """
+
+    def __init__(self, now):
+        self._now = now
+
+    def time(self):
+        return float(self._now)
+
+    def __getattr__(self, name):
+        return getattr(time, name)
+
+
 class _ReplayScaffold(unittest.TestCase):
     """Synthetic root + injected seams for every `replay` test in this module.
 
@@ -482,6 +503,9 @@ class _ReplayScaffold(unittest.TestCase):
     `t9` is the in-flight task, and its plan collides with the other candidates.
     """
 
+    # The fixture's own clock (see _FrozenClock): t9's lock is 5 minutes old.
+    NOW = col.parse_ts("2026-08-30 08:05")[0]
+
     def setUp(self):
         self.root = tempfile.mkdtemp(prefix="pa_replay_")
         self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
@@ -492,7 +516,7 @@ class _ReplayScaffold(unittest.TestCase):
         self._saved = {n: getattr(col, n) for n in
                        ("_GATE_PROBE", "_LOCK_PROBE", "_STATUS_PROBE",
                         "_TRACKED_SETS", "_DATA_TREE", "_LIVENESS", "_FETCH",
-                        "_BATCH_MAP", "_LOCAL_HOST")}
+                        "_BATCH_MAP", "_LOCAL_HOST", "time")}
         self.addCleanup(self._restore)
         self.calls = {"batch": 0, "corpus": 0}
         col._GATE_PROBE = lambda root: (pa.SourceEvidence("gate"), {})
@@ -508,6 +532,7 @@ class _ReplayScaffold(unittest.TestCase):
         col._FETCH = lambda root: True
         col._BATCH_MAP = self._batch
         col._LOCAL_HOST = "thisbox"
+        col.time = _FrozenClock(self.NOW)
 
     def _tracked(self, root):
         self.calls["corpus"] += 1
@@ -830,6 +855,8 @@ class ExcludeNoPlanPredicateTests(unittest.TestCase):
     LIVE = {"hostname": "thisbox", "locked_at": "2026-08-30 08:00",
             "pid": "1", "pid_starttime": "2", "pid_starttime_kind": "proc"}
     DEAD = dict(LIVE, pid="666")
+    # The fixture's own clock (see _FrozenClock): LIVE's lock is 5 minutes old.
+    NOW = col.parse_ts("2026-08-30 08:05")[0]
 
     def setUp(self):
         self.root = tempfile.mkdtemp(prefix="pa_nopl_")
@@ -841,7 +868,7 @@ class ExcludeNoPlanPredicateTests(unittest.TestCase):
         self._saved = {n: getattr(col, n) for n in
                        ("_GATE_PROBE", "_LOCK_PROBE", "_STATUS_PROBE",
                         "_TRACKED_SETS", "_DATA_TREE", "_LIVENESS", "_FETCH",
-                        "_BATCH_MAP", "_LOCAL_HOST")}
+                        "_BATCH_MAP", "_LOCAL_HOST", "time")}
         self.addCleanup(self._restore)
         col._GATE_PROBE = lambda root: (pa.SourceEvidence("gate"), {})
         col._LOCK_PROBE = lambda root: (pa.SourceEvidence("lock"), {
@@ -855,6 +882,7 @@ class ExcludeNoPlanPredicateTests(unittest.TestCase):
         col._FETCH = lambda root: True
         col._BATCH_MAP = lambda root, with_recovered=False: []
         col._LOCAL_HOST = "thisbox"
+        col.time = _FrozenClock(self.NOW)
 
     def _restore(self):
         for name, value in self._saved.items():

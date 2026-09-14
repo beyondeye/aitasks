@@ -48,6 +48,7 @@ from monitor.tmux_monitor import (  # noqa: E402
 )
 from monitor.prompt_patterns import (  # noqa: E402
     PROMPT_PATTERNS_BY_AGENT,
+    agent_key_from_pane,
     all_patterns,
 )
 
@@ -63,7 +64,11 @@ def make_pane(
         window_name=window_name,
         pane_index="0",
         pane_id=pane_id,
-        pane_pid=1,
+        # 0 is the documented "no pid" value (t1509). A real pid would send an
+        # unresolved command (`node`, `python`) to agent_key_from_pane's second
+        # rung, which scans that pid's children on the host — pid 1 is launchd,
+        # so a lone agent process there scoped these synthetic panes (t1763).
+        pane_pid=0,
         current_command=current_command,
         width=80,
         height=24,
@@ -550,6 +555,30 @@ def _check_scoping_provenance_is_reported() -> None:
         f"expected empty agent_key, got {unresolved.agent_key!r}")
 
 
+def _check_fixture_is_isolated_from_host_process_table() -> None:
+    """Fixture panes must not resolve an agent from the host's processes (t1763).
+
+    Simulates the host state under which the suite went red: exactly one agent
+    process as a child of the fixture pane's pid. With ``make_pane()`` on pid 1,
+    a host where a lone agent was a child of launchd failed both scoping checks;
+    with the documented "no pid" value they cannot. Both caches are cleared
+    first — a cached miss answers ``""`` without ever consulting
+    ``_child_commands``, which would let this pass vacuously.
+    """
+    agent_keys = sys.modules[agent_key_from_pane.__module__]
+    real_child_commands = agent_keys._child_commands
+    agent_keys._PANE_KEY_CACHE.clear()
+    agent_keys._PANE_MISS_CACHE.clear()
+    agent_keys._child_commands = lambda pane_pid: ["claude"]
+    try:
+        _check_characterization_pattern_command_matrix()
+        _check_scoping_provenance_is_reported()
+    finally:
+        agent_keys._child_commands = real_child_commands
+        agent_keys._PANE_KEY_CACHE.clear()
+        agent_keys._PANE_MISS_CACHE.clear()
+
+
 def _check_cross_agent_negative_control() -> None:
     """A foreign agent's prompt text must not set a kind on a resolved pane.
 
@@ -769,6 +798,8 @@ def main() -> int:
          _check_characterization_disable_and_category_gates),
         ("_check_scoping_provenance_is_reported",
          _check_scoping_provenance_is_reported),
+        ("_check_fixture_is_isolated_from_host_process_table",
+         _check_fixture_is_isolated_from_host_process_table),
         ("_check_cross_agent_negative_control",
          _check_cross_agent_negative_control),
         ("_check_custom_pattern_survives_scoping",
