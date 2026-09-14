@@ -13,7 +13,7 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1705
 followup_kind: risk_mitigation
 created_at: 2026-09-14 16:52
-updated_at: 2026-09-14 17:06
+updated_at: 2026-09-14 17:18
 ---
 
 ## Origin
@@ -32,6 +32,6 @@ t1802 (commit 85ed142f6) did two things. The restore coordinator now delivers `A
 
 ## Verification Checklist
 
-- [ ] From a terminal NOT inside tmux, with the `-L ait` server stopped, `bash tests/test_frozen_agents_acceptance.sh` passes, including the t1802 assertions in Cases 5 and 6c: the replacement's environment report has `AITASK_AGENT_STRING=claudecode/opus5`, and the record keeps `agent_string` and `agent_kind`
-- [ ] In the same terminal, `bash tests/test_restore_flows_live.sh` passes, including the t1802 assertions in Case 1 (resume) and Case 2 (re-pick)
-- [ ] Pre-fix control: with the `.aitask-scripts/lib/agent_restore.py` part of 85ed142f6 temporarily reverted, re-run both suites and confirm the `AITASK_AGENT_STRING` environment assertions FAIL. The record assertions may still pass, because the store guard alone satisfies them. Then restore the change.
+- [x] From a terminal NOT inside tmux, with the `-L ait` server stopped, `bash tests/test_frozen_agents_acceptance.sh` passes, including the t1802 assertions in Cases 5 and 6c: the replacement's environment report has `AITASK_AGENT_STRING=claudecode/opus5`, and the record keeps `agent_string` and `agent_kind` — PASS 2026-09-14 17:15 auto: run from a non-tmux shell with -L ait stopped; 160/160 passed (cases 5 and 6c included); the t1802 env assertions are proven live by item 3's pre-fix control
+- [x] In the same terminal, `bash tests/test_restore_flows_live.sh` passes, including the t1802 assertions in Case 1 (resume) and Case 2 (re-pick) — PASS 2026-09-14 17:15 auto: run 1 failed Case 1 at restore preflight (RESTORE_FAILED|no_session) before any t1802 code ran; a pre-existing fixture race (freeze before the hook stamps the pane blanks the seeded session id) reproduced deterministically and filed as a follow-up; run 2 passed 84/84 with the Case 1 and Case 2 t1802 assertions
+- [x] Pre-fix control: with the `.aitask-scripts/lib/agent_restore.py` part of 85ed142f6 temporarily reverted, re-run both suites and confirm the `AITASK_AGENT_STRING` environment assertions FAIL. The record assertions may still pass, because the store guard alone satisfies them. Then restore the change. — PASS 2026-09-14 17:18 auto: with the agent_restore.py hunk of 85ed142f6 reverted, exactly the four AITASK_AGENT_STRING env assertions failed (acceptance cases 5 and 6c: 158/160; restore-flows cases 1 and 2: 82/84) and every record assertion still passed; file restored via git checkout, tree clean
