@@ -425,3 +425,98 @@ review and commit, Step 9 runs build verification and archival
 
 ### Goal-achievement risk: low
 - The two line parsers are separate implementations and could drift on a shape the matrix does not cover. The contract is stated as a subset, the parity matrix pins them against each other and against YAML, and legacy YAML-only forms are pinned from the YAML-backed side so compatibility cannot silently break · severity: low · → mitigation: none (scope stated; oracle + legacy tests)
+
+## Implementation Progress (2026-09-14)
+
+- [x] Steps 1-6 applied; step 7 test written first; step 8 red → green.
+  - Red: `tests/test_tmux_default_session_resolvers.py` exited 1 on unchanged
+    code (the predicted `'None'`/`None`, `# note`/`null`/`~`, bash `-n` → `''`,
+    mismatch and tab-twin failures).
+  - Green after the fix: 9 tests OK.
+  - The related modules (136 tests) pass, and `shellcheck` is clean.
+- **Deviation (step 6) — awk reads to EOF behind a `done` flag instead of
+  `print v; exit`.** The plan's `tr … | awk` pipe made the early `exit` a SIGPIPE
+  source. Measured with extracted functions on a 3.3 MB config:
+  - the `exit` mutant makes `tr` exit 141 on 5/5 runs, while the fix gives `tr=0`;
+  - a **direct** call under `set -euo pipefail` aborts (rc=141) on the mutant
+    and survives on the fix;
+  - today's callers (`$(…)` in `aitask_ide.sh` and `tmux_bootstrap.sh`) survive
+    both, because errexit is not inherited into command substitution.
+
+  So this is defence for direct callers, not a fix for a live abort, and the
+  code comment says exactly that. (An earlier control that seemed to prove
+  a live abort was invalid: it sourced a copied file whose relative
+  `tmux_exec.sh` source did not exist.)
+- **Deviation (step 7) — the YAML oracle uses a test-local blank rule**
+  (`_session_from_yaml`), not `_normalize_default_session`. That keeps the ground
+  truth independent of the code under test, and the red run collectable.
+- **Deviation (step 7)** — 43 parity rows: the 42 simulated plus "no config
+  file". The monitor harness patches `load_tmux_defaults` with `create=True`, so
+  the red run could drive the pre-fix `main()`.
+- **Observation (red proof)** — the monitors' typed legacy rows (`yes`,
+  `0123`) failed pre-fix: `True != 'True'`, `83 != '83'`. The monitors passed
+  the raw `bool`/`int` through. The "legacy rows pass before and after"
+  compatibility proof therefore holds for `load_tmux_defaults` and the
+  monitors' flow/block rows, not the monitors' typed rows. That is the latent
+  defect step 5 names.
+- **Environment** — `main` advanced mid-session (t1784 `68158b17f` touched
+  `tmux_bootstrap.sh`). The file's diff was verified to contain only this task's
+  hunks. `tests/test_session_hook_install.sh` is modified by a concurrent session
+  and is excluded from this task's commit.
+
+## Final Implementation Notes
+- **Actual work done:** Implemented as planned (code commit `d146a440c`).
+  - `_normalize_default_session` holds the one blank rule.
+  - `_yaml_line_scalar` implements YAML-1.1 nulls, inline comments and quoted
+    scalars.
+  - `_read_default_session` was rewritten with the direct-child indent rule and
+    skips whitespace-only and tab-indented lines.
+  - `load_tmux_defaults` keeps YAML and gains only the blank rule. Both
+    monitors' `main()` now read through `load_tmux_defaults`.
+  - The bash `_tmux_bootstrap_resolve_session` twin uses `tr '\r' '\n'`
+    universal newlines, POSIX awk and `printf` output.
+  - The new `tests/test_tmux_default_session_resolvers.py` has 9 tests: 43
+    parity rows across 5 resolver paths, a YAML oracle, 5 legacy YAML-only
+    rows, a tab-indent twin row, the monitor mismatch check and a harness
+    negative control.
+  - Verification: the new test went red (rc=1) on unchanged code and green
+    after the fix. The related modules pass (136 tests), `shellcheck` is
+    clean, and `PYTHON SUITE: PASSED (runner=pytest, exit=0)`.
+- **Deviations from plan:** See "Implementation Progress" above.
+  - The awk reads to EOF behind a `done` flag instead of `print v; exit`. It
+    guards direct callers against a measured SIGPIPE abort (rc=141); the
+    current `$(…)` callers survive either way.
+  - The YAML oracle uses a test-local blank rule.
+  - There are 43 parity rows, not 42 (adds "no config file").
+  - The monitor harness patches with `create=True`, so the red run could drive
+    the pre-fix `main()`.
+- **Issues encountered:**
+  - The plan went through six review rounds, each closing one YAML/shell
+    corner of the parity claim: quoted whitespace, inline comments, null
+    spellings, `echo -n`, a compatibility break (routing YAML readers through
+    the line parser), and CRLF blank lines.
+  - The first SIGPIPE mutant control was invalid: a copied file's relative
+    `tmux_exec.sh` source was missing. It was redone with extracted functions,
+    and the resulting finding corrected an over-strong claim in the code
+    comment.
+  - `main` advanced mid-session: t1784 `68158b17f` touched
+    `tmux_bootstrap.sh`. The diff was verified to contain only this task's
+    hunks before the path-scoped commit.
+  - A concurrent session's dirty and untracked files (board trail view, docs,
+    `tests/test_session_hook_install.sh`) were excluded.
+  - The monitors' typed legacy rows failed pre-fix, because a raw
+    `bool`/`int` was passed as the session.
+- **Key decisions:**
+  - Twin line parsers, not a single YAML authority bridged into bash (user's
+    choice, option A). `ait ide` stays Python-free.
+  - The YAML-backed readers keep YAML, so no configuration form that existing
+    callers accept is removed.
+  - The `ait ide --session` override is kept out of scope (it never reads
+    `tmux.default_session`).
+  - Legacy YAML-only rows are pinned from the YAML-backed side only. Pinning
+    the line parsers' known divergence would make its fix look like a
+    regression.
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_ide.sh:52 — echo "$SESSION_OVERRIDE" swallows an option-like --session value (e.g. --session -n), so ait ide resolves an empty session name; needs printf plus a test seam (the script runs the IDE at top level)`
+  - `.aitask-scripts/aitask_setup.sh:4140 — setup_tmux_default_session's "already configured?" probe (grep | sed) treats a null, comment-only or quoted-empty default_session (# note, "", null, ~) as configured, prints e.g. "already configured: # note" and skips the prompt`
+  - `.aitask-scripts/lib/agent_launch_utils.py:747 / .aitask-scripts/lib/tmux_bootstrap.sh:68 — the line parsers cannot read YAML-only default_session shapes that load_tmux_defaults accepts: a flow mapping resolves to aitasks, a block scalar (>- or |) to its literal indicator (ait ide would name its session '>-'), a typed scalar (yes, 0123) to its source text instead of True/83`
