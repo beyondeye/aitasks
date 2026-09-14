@@ -48,6 +48,15 @@ to settle abandoned restores with no coordinator present; the dependency arrow
 runs one way, into `agent_frozen_ops` only. (That is also why the ack grace lives
 there — parent-plan amendment B6.)
 
+WHERE A GONE-PANE RESTORE LANDS (t1784). With the recorded pane gone, the
+replacement starts in a new window of the project's own tmux session. After a
+server restart there may be none, so `_launch_into_new_window` creates it
+through `tmux_bootstrap.sh --create-only` — and uses only a session discovery
+attributed to the root before anything changed, or one this call created. A
+session name already held by another project is refused and left untouched,
+never adopted: discovery's registry fallback would otherwise let a clobbered
+`AITASKS_PROJECT_<session>` entry hand this restore a stranger's session.
+
 Test seams, honoured **only** under ``AITASKS_TEST_MODE=1``:
 
 * ``AITASKS_RESTORE_FAIL_AT=begin|respawn|ack`` — raise at that stage. Bound from
@@ -66,6 +75,7 @@ from __future__ import annotations
 
 import os
 import shlex
+import subprocess
 import sys
 import time
 from dataclasses import dataclass
@@ -122,6 +132,14 @@ ENV_NONCE = "AITASK_RESTORE_NONCE"
 ENV_MODE = "AITASK_RESTORE_MODE"
 ENV_EXPECT_SESSION = "AITASK_RESTORE_EXPECT_SESSION"
 
+#: The fifth variable is not an identity variable: it is the one the wrapper
+#: exports on a real launch (`aitask_codeagent.sh` `cmd_invoke`). The
+#: replacement runs the argv the wrapper's `--dry-run` resolved, which returns
+#: BEFORE that export — so without this, the hook acks with `--agent-string ""`
+#: and the restored agent's own model self-detection loses its authoritative
+#: source (t1802). Delivered only for a well-formed value; see `_restore_env`.
+ENV_AGENT_STRING = "AITASK_AGENT_STRING"
+
 
 @dataclass
 class RestoreResult:
@@ -172,13 +190,22 @@ def build_repick_argv(rec: dict) -> str | None:
     return cmd
 
 
-def _restore_env(record_id: str, nonce: str, mode: str, expect_session: str) -> dict:
-    return {
+def _restore_env(record_id: str, nonce: str, mode: str, expect_session: str,
+                 agent_string: str = "") -> dict:
+    env = {
         ENV_RECORD: record_id,
         ENV_NONCE: nonce,
         ENV_MODE: mode,
         ENV_EXPECT_SESSION: expect_session,
     }
+    # Only a well-formed value rides along. `respawn_if_stamped` joins every
+    # `-e NAME=value` into the `if-shell` branch UNQUOTED, and the store keeps
+    # whatever string a caller upserted; `agent_kind_of` is the store's own
+    # well-formedness check, so nothing else can reach that command line. An
+    # empty record has nothing to deliver, and a blank is a no-op in the store.
+    if agent_sessions.agent_kind_of(agent_string):
+        env[ENV_AGENT_STRING] = agent_string
+    return env
 
 
 def _env_prefixed(command: str, env: dict) -> str:
@@ -237,18 +264,27 @@ def _rollback(record_id: str, nonce: str, pane_id: str, reason: str = "") -> str
     # the record is still `restoring` until the verb above returns.
     frozen_ops.pause_at("aborting")
 
-    # Clear the ready mark BEFORE the respawn: pane options survive
-    # `respawn-pane`, so a mark left from a previous cycle would read as "this
-    # cycle's viewer is already up" and stop reconcile from repairing it.
+    # The ready mark is cleared BEFORE the respawn — `unset=` puts it first in
+    # the dispatched branch. Pane options survive `respawn-pane`, so a mark left
+    # from a previous cycle would read as "this cycle's viewer is already up"
+    # and stop reconcile from repairing it. Being inside the branch also means
+    # it is not cleared on a pane the dispatch declines to touch.
+    new_pane, new_pid = "", 0
     if pane_id:
-        frozen_ops.unset_option(pane_id, STANDIN_READY_OPTION)
         try:
-            frozen_ops.respawn(pane_id, agent_sessions.standin_command(record_id))
+            # Same atomicity rule as the forward path: putting the stand-in back
+            # is also a `respawn-pane -k`, so it must not fire on a `%N` that
+            # stopped being ours. A miss returns no location, and the ("", 0)
+            # below is exactly the gone-pane pair `_reconcile_restoring` commits
+            # to keep a record restorable into a NEW window.
+            fired, new_pane, new_pid, _why = frozen_ops.respawn_if_stamped(
+                pane_id, agent_sessions.standin_command(record_id),
+                option=FROZEN_OPTION, expect=record_id,
+                unset=STANDIN_READY_OPTION)
+            if not fired:
+                new_pane, new_pid = "", 0
         except ValueError:
-            pass
-        new_pane, new_pid = frozen_ops.pane_location(pane_id)
-    else:
-        new_pane, new_pid = "", 0
+            new_pane, new_pid = "", 0
     frozen_ops.store("standin-respawned", record_id, "--nonce", nonce,
                      "--pane", new_pane, "--pane-pid", str(new_pid))
     return ""
@@ -276,21 +312,101 @@ def _settle(decided: "RestoreResult", record_id: str, nonce: str,
     return decided
 
 
+#: Bound on one project-session bootstrap — the TUI switcher's, for the same
+#: helper. It runs inside the lease `restore-begin` minted, well below the
+#: stale-op grace (60 s by default) after which reconcile may take that lease.
+BOOTSTRAP_TIMEOUT = 15
+
+#: The canonical project-session bootstrap, shared with `ait ide` and the TUI
+#: switcher. It owns the session's NAME (`tmux.default_session`), its seeded
+#: `monitor` window and the registry entries — none of which is re-derived here.
+_BOOTSTRAP_SH = _LIB_DIR / "tmux_bootstrap.sh"
+
+
+def _session_for_root(root_real: str, *, name: str | None = None):
+    """The first live session discovery attributes to ``root_real``, or None.
+
+    With ``name`` the session must also carry that tmux session name — how a
+    caller insists on the one session it created itself.
+    """
+    for session in discover_aitasks_sessions():
+        if os.path.realpath(str(session.project_root)) != root_real:
+            continue
+        if name is None or session.session == name:
+            return session
+    return None
+
+
+def _bootstrap_project_session(root: str) -> tuple[str, str]:
+    """Create ``root``'s own tmux session. Returns ``(created_session, why)``.
+
+    Runs the canonical `tmux_bootstrap.sh` in ``--create-only`` mode, which
+    CREATES the session or changes NOTHING. Its default "ensure" mode would be
+    wrong here: on a session name already held by another project it still
+    writes `AITASKS_PROJECT_<session>` and a syncer window into that session,
+    and discovery falls back to that registry entry — so a restore would
+    re-point a stranger's session at this project and then launch into it.
+
+    Only a non-empty ``created_session`` is ownership, and it comes only from the
+    helper's own ``BOOTSTRAP_CREATED:<name>``. Every other outcome — an exit 0
+    that reported no creation included — returns ``("", <reason>)``.
+
+    Why a new session rather than the invoking pane's: a project's agents live
+    in that project's one session (`aidocs/framework/tui_conventions.md`), which
+    `ait monitor` maps back to the project root; and a restore from a bare shell,
+    or with no tmux server at all, has no invoking session to borrow — the
+    bootstrap creates the server too.
+    """
+    try:
+        done = subprocess.run(
+            ["bash", str(_BOOTSTRAP_SH), "--create-only", root],
+            capture_output=True, text=True, timeout=BOOTSTRAP_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return "", "timeout"
+    except OSError as exc:
+        return "", str(exc)
+    if done.returncode == 0:
+        for line in (done.stdout or "").splitlines():
+            if line.startswith("BOOTSTRAP_CREATED:"):
+                return line[len("BOOTSTRAP_CREATED:"):].strip(), ""
+        return "", "no creation reported"
+    stderr = done.stderr or ""
+    for line in stderr.splitlines():
+        if line.startswith("BOOTSTRAP_FAILED:session_exists:"):
+            return "", "session_name_taken:" + line.split(":", 2)[2].strip()
+        if line.startswith("BOOTSTRAP_FAILED:stale_path"):
+            return "", "stale_path"
+    lines = [ln.strip() for ln in stderr.splitlines() if ln.strip()]
+    return "", lines[-1] if lines else f"rc={done.returncode}"
+
+
 def _launch_into_new_window(rec: dict, command: str, env: dict) -> tuple[str, int, str]:
     """Gone-pane branch: start the replacement in a NEW window.
 
     Returns ``(pane_id, pane_pid, error)``. The record keeps its identity, so the
     acknowledgement still selects the *old* record rather than creating a second
     one — the record id travels in the environment, not on the (nonexistent) pane.
+
+    The window goes into the project's own session. When none is attributed to
+    the root — the ordinary state after a tmux server restart — that session is
+    created first (t1784), under an OWNERSHIP rule: use only a session discovery
+    attributed to the root before anything changed, or one this call created.
     """
     root = os.path.realpath(rec.get("root", ""))
-    target = None
-    for session in discover_aitasks_sessions():
-        if os.path.realpath(str(session.project_root)) == root:
-            target = session
-            break
+    target = _session_for_root(root)
     if target is None:
-        return "", 0, "no_session_for_root"
+        created, why = _bootstrap_project_session(rec.get("root", ""))
+        # Only the session THIS call created. `--create-only` left any existing
+        # one untouched, so nothing here can have re-pointed a foreign session's
+        # registry entry at this root — and a refusal gets no second lookup: a
+        # same-root session created concurrently by another restore of this
+        # project is a lost race, fail-safe, and the retry finds it above.
+        target = _session_for_root(root, name=created) if created else None
+        if target is None:
+            # Name the project AND the cause: `_rollback` persists this on the
+            # record, the only channel by which the user learns why.
+            detail = why or f"created {created} but no pane of it sits under the root"
+            return "", 0, f"no_session_for_root:{rec.get('root', '')}|bootstrap:{detail}"
 
     rc, out = frozen_ops.run(
         ["list-windows", "-t", target.session, "-F", "#{window_name}"])
@@ -358,6 +474,27 @@ def restore(record_id: str, *, repick: bool = False) -> RestoreResult:
         return RestoreResult(record_id, False, "binary",
                              f"RESTORE_FAILED:{record_id}|binary")
 
+    # The recorded `pane_id` is a HINT, not a target. A retained `frozen` record
+    # keeps its old `%N` after the window is closed or the tmux server restarts
+    # — `_reconcile_frozen` returns `KEEP:<id>|pane_gone` and writes NOTHING —
+    # so branching on it respawns a corpse and the record can never be restored
+    # again (t1773). Resolve it against the SERVER before choosing the branch,
+    # exactly as `agent_freeze.drop_record()` preflights its own target.
+    if pane_id:
+        verdict, facts = frozen_ops.probe_pane(pane_id)
+        if verdict == "unknown":
+            # Fail CLOSED, before any write: reading an unreachable tmux as
+            # "gone" would mint a lease and drive a new-window launch that
+            # cannot work, while the original stand-in may still be alive.
+            return RestoreResult(
+                record_id, False, "preflight",
+                f"RESTORE_FAILED:{record_id}|preflight:tmux unreachable")
+        if verdict != "present" or not facts or facts["frozen"] != record_id:
+            # Gone, or a recycled `%N` that now carries somebody else's stamp.
+            # Pane options die with the pane, so a missing stamp means it is not
+            # ours — and `respawn-pane -k` on it would kill a stranger's agent.
+            pane_id = ""
+
     transcript = rec.get("transcript_path", "")
     if transcript and not os.path.exists(transcript):
         # Advisory only: the transcript is not needed to resume, and refusing
@@ -385,22 +522,31 @@ def restore(record_id: str, *, repick: bool = False) -> RestoreResult:
         return RestoreResult(record_id, False, "begin",
                              f"RESTORE_FAILED:{record_id}|{out.strip()}")
     nonce = frozen_ops.nonce_from(out.splitlines()[-1])
-    env = _restore_env(record_id, nonce, mode, session_id)
+    env = _restore_env(record_id, nonce, mode, session_id,
+                       agent_string=rec.get("agent_string", ""))
 
     # --- 2. clear the ready mark, then respawn ------------------------------
     try:
         _fail_at("respawn")
         if pane_id:
-            frozen_ops.unset_option(pane_id, STANDIN_READY_OPTION)
-            if not frozen_ops.respawn(pane_id, command, env=env):
-                raise OSError(f"respawn-pane refused for {pane_id}")
-            new_pane, new_pid = frozen_ops.pane_location(pane_id)
-        else:
+            # ONE dispatch: the stamp check and the respawn cannot be separated,
+            # so a server restart cannot slip between them and hand the kill an
+            # unrelated pane. A miss touches nothing and yields no location.
+            fired, new_pane, new_pid, why = frozen_ops.respawn_if_stamped(
+                pane_id, command, option=FROZEN_OPTION, expect=record_id,
+                env=env, unset=STANDIN_READY_OPTION)
+            if not fired:
+                print(f"WARNING:{record_id}|recorded pane {pane_id} not reused"
+                      f" ({why}); restoring into a new window", file=sys.stderr)
+                pane_id = ""
+        if not pane_id:
             new_pane, new_pid, error = _launch_into_new_window(rec, command, env)
             if error:
                 raise OSError(error)
     except (_StageFailure, OSError, ValueError) as exc:
-        detail = _rollback(record_id, nonce, pane_id, "respawn")
+        # The reason is PERSISTED as `last_error` — the only channel back to the
+        # user — so it carries the failure itself, not just the stage (t1784).
+        detail = _rollback(record_id, nonce, pane_id, f"respawn:{exc}")
         suffix = f"|{detail}" if detail else ""
         return RestoreResult(record_id, False, "respawn",
                              f"RESTORE_FAILED:{record_id}|respawn:{exc}{suffix}")

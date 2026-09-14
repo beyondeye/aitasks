@@ -174,9 +174,20 @@ section "Case 1 — happy resume: ack=hook, captures DELETED"
     wait_for_ready "$PANE" "$RID"
     standin_pid="$(pane_fmt "$PANE" '#{pane_pid}')"
 
+    envprobe="$FIXTURE_DIR/envprobe_case1.txt"
+    agent_env FAKE_AGENT_REPORT_ENV="$envprobe"
     out="$("$FROZEN_SH" restore "$RID" 2>&1)"; rc=$?
+    agent_env_clear
     assert_eq "case 1: restore exits 0" "0" "$rc"
     assert_contains "case 1: reports a HOOK-verified restore" "RESTORED:$RID|hook" "$out"
+    # t1802: the ENV assertion proves delivery; the record ones pass on the
+    # store's blank-upsert guard alone, so they prove only the outcome.
+    assert_eq "case 1: the replacement got AITASK_AGENT_STRING from the coordinator" \
+        "claudecode/opus5" "$(envprobe_value "$envprobe" AITASK_AGENT_STRING)"
+    assert_eq "case 1: the agent string survived the restore" "claudecode/opus5" \
+        "$(record_field "$RID" agent_string)"
+    assert_eq "case 1: and so did the agent kind" "claudecode" \
+        "$(record_field "$RID" agent_kind)"
 
     assert_eq "case 1: record is live" "live" "$(record_field "$RID" state)"
     assert_eq "case 1: ack is the strong one" "hook" "$(record_field "$RID" ack)"
@@ -210,8 +221,20 @@ section "Case 2 — happy re-pick: a new session id is adopted"
     read -r RID PANE < <(make_frozen "agent-pick-1706" "sess-orig")
     wait_for_ready "$PANE" "$RID"
 
+    envprobe="$FIXTURE_DIR/envprobe_case2.txt"
+    agent_env FAKE_AGENT_REPORT_ENV="$envprobe"
     out="$("$FROZEN_SH" restore "$RID" --repick 2>&1)"; rc=$?
+    agent_env_clear
     assert_eq "case 2: re-pick exits 0" "0" "$rc"
+    # t1802: a re-pick launches the pick command out of the wrapper's
+    # `--dry-run`, so it lost the agent exactly the way a resume did. ENV proves
+    # delivery; the record assertions prove the outcome.
+    assert_eq "case 2: the re-picked agent got AITASK_AGENT_STRING from the coordinator" \
+        "claudecode/opus5" "$(envprobe_value "$envprobe" AITASK_AGENT_STRING)"
+    assert_eq "case 2: the agent string survived the re-pick" "claudecode/opus5" \
+        "$(record_field "$RID" agent_string)"
+    assert_eq "case 2: and so did the agent kind" "claudecode" \
+        "$(record_field "$RID" agent_kind)"
     assert_contains "case 2: reports a restore" "RESTORED:$RID" "$out"
     assert_eq "case 2: record is live" "live" "$(record_field "$RID" state)"
     assert_eq "case 2: the mode was recorded as repick" "repick" \
@@ -397,6 +420,13 @@ section "Case 7 — a gone pane restores into a NEW window, one record still"
 
     out="$("$FROZEN_SH" restore "$RID" 2>&1)"; rc=$?
     assert_contains "case 7: the restore reports on the SAME record" "$RID" "$out"
+    # The two assertions above hold just as well when the restore FAILS — the
+    # failure line names the record too, and a failed restore creates no second
+    # record. They are what this case asserted before t1773, and on their own
+    # they said nothing about the title. These two are the title:
+    assert_contains "case 7: the restore actually SUCCEEDED" "RESTORED:$RID" "$out"
+    assert_eq "case 7: a window with the recorded name is back" "yes" \
+        "$(window_exists "agent-pick-1711" "$SESSION" && echo yes || echo no)"
 
     after_records="$(win_records)"
     assert_eq "case 7: no second record was created for the window" \

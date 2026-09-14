@@ -129,6 +129,20 @@ wait_stopped() {
 agent_env() { printf 'export %s\n' "$@" > "$AGENT_ENV_FILE"; }
 agent_env_clear() { : > "$AGENT_ENV_FILE"; }
 
+# envprobe_value <report> <NAME> — wait for a fake agent's environment
+# self-report (`--report-env` / `FAKE_AGENT_REPORT_ENV`, see fake_agent.sh) and
+# print NAME's value from it. A report that never appears prints nothing and
+# returns 1, so an `assert_eq` on the value FAILS rather than skipping.
+envprobe_value() {
+    local report="$1" name="$2" i=0
+    while [ ! -s "$report" ] && [ "$i" -lt "$FROZEN_WAIT_TRIES" ]; do
+        sleep 0.1
+        i=$((i + 1))
+    done
+    [ -s "$report" ] || return 1
+    sed -n "s/^$name=//p" "$report"
+}
+
 # --- teardown ---------------------------------------------------------------
 
 # Kill the isolated server and remove the fixture tree. `PATH="$REAL_PATH"` so a

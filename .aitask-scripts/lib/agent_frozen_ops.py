@@ -63,6 +63,7 @@ Test seams, honoured **only** under ``AITASKS_TEST_MODE=1``:
 from __future__ import annotations
 
 import os
+import secrets
 import signal
 import subprocess
 import sys
@@ -77,6 +78,7 @@ for _p in (str(_SCRIPTS_DIR), str(_LIB_DIR)):
 from monitor.monitor_core import (  # noqa: E402
     FROZEN_OPTION,
     RECORD_OPTION,
+    RESPAWN_TOKEN_OPTION,
     STANDIN_READY_OPTION,
     AGENT_SESSION_OPTION,
 )
@@ -350,6 +352,273 @@ def unset_option(pane_id: str, option: str) -> bool:
     return rc == 0
 
 
+#: `TmuxClient.run`'s rc when tmux could not be reached AT ALL —
+#: `FileNotFoundError` / `OSError` / timeout. Distinct from a non-zero rc, which
+#: is tmux answering "no such pane". See :func:`probe_pane`.
+TMUX_UNREACHABLE = -1
+
+#: The three facts :func:`probe_pane` reads, as one tab-joined format.
+PROBE_PANE_FORMAT = "\t".join(
+    ["#{pane_id}", f"#{{{FROZEN_OPTION}}}", "#{pane_dead}"])
+PROBE_PANE_KEYS = ("pane_id", "frozen", "dead")
+
+
+def probe_pane(pane_id: str) -> tuple[str, dict[str, str] | None]:
+    """Ask tmux about ONE pane. Returns ``(verdict, facts)``.
+
+    Verdicts: ``"present"`` (facts are the pane's), ``"gone"`` (tmux answered
+    that no such pane exists — including "no server running", which means the
+    same thing), or ``"unknown"`` (tmux could not be reached at all).
+
+    The three are kept apart deliberately. Collapsing ``unknown`` into ``gone``
+    is the mistake that reintroduces V9: a coordinator that cannot reach tmux
+    would conclude the stand-in is already gone, skip the kill, and delete the
+    record and its only capture while a live stamped viewer is still sitting in
+    that pane — the one state `reconcile` cannot repair, because it iterates
+    records and that pane no longer has one. The restore router (t1773) needs
+    the same distinction for the mirror-image reason: reading an unreachable
+    tmux as "gone" would launch a SECOND agent into a new window while the
+    original stand-in is still alive.
+
+    Asking about the pane directly, rather than looking for it in a window
+    listing, also means the answer does not depend on the record's `session` /
+    `window` fields still being current: those are display values, and a tmux
+    restart or a rename makes a window-scoped lookup miss a pane that is very
+    much alive.
+
+    Shared surface (t1773): `agent_freeze.drop_record` preflights its
+    destructive kill with this, and `agent_restore.restore` routes on it. It
+    lives here because `agent_restore` must not import `agent_freeze`.
+    """
+    rc, out = run(["display-message", "-p", "-t", pane_id, PROBE_PANE_FORMAT])
+    if rc == TMUX_UNREACHABLE:
+        return "unknown", None
+    if rc != 0:
+        return "gone", None
+    parts = (out.splitlines() or [""])[0].split("\t")
+    if len(parts) != len(PROBE_PANE_KEYS) or not parts[0].strip():
+        return "gone", None
+    return "present", {k: v.strip() for k, v in zip(PROBE_PANE_KEYS, parts)}
+
+
+def tmux_quote(s: str) -> str:
+    r"""Quote a command string for tmux's OWN lexer.
+
+    `if-shell` takes its branch as a single string that the tmux server then
+    parses as commands, so a command that has already been shell-quoted needs
+    one more level. The double-quote form with backslash escaping of ``\``,
+    ``"`` and ``$`` was measured (t1773) to round-trip a command containing
+    ``'``, ``"``, ``$``, ``;`` and ``>`` into the pane's `pane_start_command`
+    unchanged. tmux single-quotes are fully literal with no escape, so they
+    cannot carry a command that itself contains a single quote — which the
+    agent command strings routinely do.
+    """
+    return '"' + s.replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$") + '"'
+
+
+#: Sentinel :func:`_pre_read` returns as the server pid when tmux could not be
+#: reached at all (never a real pid, which is numeric).
+TMUX_UNREACHABLE_MARK = "unreachable"
+
+#: What both stamp-conditional dispatches read BEFORE dispatching: the pane id
+#: and the server pid. Pane-scoped first, because that field is the only one
+#: that says whether the pane exists.
+PRE_READ_FORMAT = "#{pane_id}\t#{pid}"
+
+
+def _pre_read(pane_id: str) -> tuple[str, str]:
+    """``(pane_id, server_pid)`` before a dispatch; ``("", ...)`` when gone.
+
+    `display-message -p -t <gone pane>` exits ZERO, and a server-scoped format
+    like ``#{pid}`` still expands — only the pane-scoped fields come back empty
+    (measured on tmux 3.6a, `tests/test_frozen_respawn_atomic_live.sh` K4). So
+    neither the exit status nor the server pid says whether the pane is there;
+    the pane id is the signal, exactly as :func:`pane_facts` / :func:`probe_pane`
+    validate theirs. The server pid rides along so a later after-read can name a
+    restart. ``server_pid`` is :data:`TMUX_UNREACHABLE_MARK` when tmux could not
+    be reached at all — distinct from "no such pane", for the same V9 reason
+    :func:`probe_pane` keeps its three verdicts apart.
+    """
+    rc, out = run(["display-message", "-p", "-t", pane_id, PRE_READ_FORMAT])
+    if rc == TMUX_UNREACHABLE:
+        return "", TMUX_UNREACHABLE_MARK
+    if rc != 0:
+        return "", ""
+    parts = (out.splitlines() or [""])[0].split("\t")
+    if len(parts) != 2 or not parts[0].strip():
+        return "", ""
+    return parts[0].strip(), parts[1].strip()
+
+
+#: The four FIXED after-facts :func:`respawn_if_stamped` reads in ONE round
+#: trip. The caller's stamp option is appended per call as a fifth field (t1783),
+#: so a miss can say whether the pane is still the caller's.
+RESPAWN_PROBE_FORMAT = "\t".join(
+    [f"#{{{RESPAWN_TOKEN_OPTION}}}", "#{pane_id}", "#{pane_pid}", "#{pid}"])
+
+
+def respawn_if_stamped(
+    pane_id: str,
+    command: str,
+    *,
+    option: str,
+    expect: str,
+    env: dict[str, str] | None = None,
+    unset: str | None = None,
+) -> tuple[bool, str, int, str]:
+    """`respawn-pane -k`, but ONLY if the pane still carries ``option == expect``.
+
+    Returns ``(fired, pane_id, pane_pid, reason)``.
+
+    THE CHECK AND THE KILL TRAVEL AS ONE DISPATCH. `if-shell -F` makes the
+    server evaluate the stamp and run the branch inside a single command-queue
+    execution, so nothing can interleave between them. A two-call
+    probe-then-respawn leaves a window a tmux SERVER RESTART can slip through:
+    pane ids are monotonic within a server and never reused, but a restarted
+    server renumbers from ``%0``, so a recorded ``%N`` can come back owned by an
+    unrelated live agent — and `respawn-pane -k` would kill it.
+
+    `if-shell` exits 0 whether or not its branch ran, so "did it fire" needs
+    evidence. **A pid delta is NOT that evidence.** The same restart window
+    makes the before-read describe the old stamped pane and the after-read an
+    unrelated recycled ``%N``, so a correctly REJECTED dispatch still shows a
+    changed pid. A caller that read that as success would record a stranger's
+    pid as `launch_pid`, and `restore-confirm` would then liveness-confirm
+    somebody else's agent as the restored one.
+
+    The evidence is therefore POSITIVE and BRANCH-SPECIFIC: a fresh per-call
+    token written by a `set-option` that is the LAST command of the matched
+    branch. Pane options die with the pane, so a recycled ``%N`` cannot carry
+    it; a rejected branch never runs it; and an `if-shell` sequence aborts after
+    a failing command, so the token also proves the respawn ahead of it
+    succeeded. **Absent token ⇒ nothing was touched**, and the caller is handed
+    no location at all — ``("", 0)`` — so it cannot adopt a stranger's pane even
+    by accident.
+
+    ``reason`` names why a non-firing dispatch did not fire —
+    ``stamp-mismatch``, ``server-restarted``, ``pane-gone`` or
+    ``respawn-failed``. The token alone decides *whether it fired*; the reason
+    carries one further contract a caller may act on (t1783):
+    ``respawn-failed`` means the after-read found the pane still carrying
+    ``expect`` on the same server — the branch matched and the respawn itself
+    did not take, so the pane is STILL THE CALLER'S. It is the only miss on
+    which a caller may unstamp or retry. Every other miss means nothing of the
+    caller's is in that pane (gone, or a recycled ``%N`` under a stranger), and
+    touching it — even to clear a stamp — would be acting on somebody else's.
+
+    ``unset`` clears one pane option inside the same branch, ahead of the
+    respawn (the stand-in-ready mark, which survives `respawn-pane` and would
+    otherwise read as "this cycle's viewer is already up").
+    """
+    pre_pane, server_before = _pre_read(pane_id)
+    if not pre_pane:
+        return False, "", 0, "pane-gone"
+
+    token = secrets.token_hex(8)
+    inner: list[str] = []
+    if unset:
+        inner.append(f"set-option -pu -t {pane_id} {unset}")
+    respawn_cmd = ["respawn-pane", "-k"]
+    for name, value in (env or {}).items():
+        respawn_cmd += ["-e", f"{name}={value}"]
+    respawn_cmd += ["-t", pane_id, tmux_quote(command)]
+    inner.append(" ".join(respawn_cmd))
+    # LAST, so its presence also proves the respawn ahead of it succeeded.
+    inner.append(f"set-option -p -t {pane_id} {RESPAWN_TOKEN_OPTION} {token}")
+
+    pause_at("respawn_dispatch")
+    run(["if-shell", "-F", "-t", pane_id,
+         f"#{{==:#{{{option}}},{expect}}}", " ; ".join(inner)])
+
+    rc, out = run(["display-message", "-p", "-t", pane_id,
+                   RESPAWN_PROBE_FORMAT + f"\t#{{{option}}}"])
+    if rc != 0:
+        return False, "", 0, "pane-gone"
+    parts = (out.splitlines() or [""])[0].split("\t")
+    if len(parts) != 5:
+        return False, "", 0, "pane-gone"
+    seen_token, new_pane, new_pid, server_after, stamp = (p.strip() for p in parts)
+    if seen_token and seen_token == token:
+        unset_option(pane_id, RESPAWN_TOKEN_OPTION)
+        return True, new_pane, int_or_zero(new_pid), ""
+    if server_after != server_before:
+        return False, "", 0, "server-restarted"
+    if stamp == expect:
+        # Same server, our stamp still on it, no token: the branch matched and
+        # the respawn did not take. The pane is still ours — say so.
+        return False, "", 0, "respawn-failed"
+    return False, "", 0, "stamp-mismatch"
+
+
+def kill_if_stamped(
+    pane_id: str,
+    *,
+    option: str,
+    expect: str,
+    window: bool = False,
+) -> tuple[str, str]:
+    """`kill-pane` (or `kill-window` when ``window``) on ``pane_id``, but ONLY
+    if the pane still carries ``option == expect``. Returns ``(verdict, reason)``.
+
+    Verdicts:
+
+    * ``"gone"`` — the pane no longer exists: our branch fired, or the server
+      that held it restarted (or it was already gone before the dispatch —
+      reason ``pane-gone``). Either way there is nothing left to kill.
+    * ``"present"`` — the pane is untouched. ``reason`` says why:
+      ``kill-failed`` (still carrying ``expect`` — the branch matched and the
+      kill did not take), ``server-restarted`` or ``stamp-mismatch``.
+    * ``"unknown"`` — tmux could not be reached at all. Decide NOTHING on it:
+      the pane may be alive and stamped, and a caller that read this as "gone"
+      would delete a record whose only capture a live viewer still guards.
+
+    THE CHECK AND THE KILL TRAVEL AS ONE DISPATCH, for the same reason as
+    :func:`respawn_if_stamped`: a tmux server restart between a probe and a kill
+    can hand the kill an unrelated agent's recycled ``%N`` (t1773, t1783).
+
+    A kill needs DIFFERENT evidence than a respawn. The branch-token trick
+    cannot apply here: the token would be a pane option on the very pane the
+    branch just killed. But a kill also needs less. The *safety* property —
+    never kill a ``%N`` that is not ours — is delivered by the single
+    `if-shell -F` dispatch on its own. The *outcome* a caller needs is "the
+    pane is gone", which one after-read answers; whether it went because our
+    branch fired or because the server that held it restarted changes nothing
+    the caller does next. So the after-read carries the stamp and the server
+    pid only to NAME a non-firing dispatch, never to decide it.
+
+    ``-t <pane>`` resolves to that pane's window for `kill-window`, so the
+    caller's sibling count and its kill cannot mean different windows
+    (`agent_freeze._other_real_agents`). Pinned in
+    `tests/test_frozen_respawn_atomic_live.sh` (K3).
+    """
+    pre_pane, server_before = _pre_read(pane_id)
+    if server_before == TMUX_UNREACHABLE_MARK:
+        return "unknown", "tmux unreachable"
+    if not pre_pane:
+        return "gone", "pane-gone"
+
+    verb = "kill-window" if window else "kill-pane"
+    pause_at("kill_dispatch")
+    run(["if-shell", "-F", "-t", pane_id,
+         f"#{{==:#{{{option}}},{expect}}}", f"{verb} -t {pane_id}"])
+
+    rc, out = run(["display-message", "-p", "-t", pane_id,
+                   "\t".join(["#{pane_id}", f"#{{{option}}}", "#{pid}"])])
+    if rc == TMUX_UNREACHABLE:
+        return "unknown", "tmux unreachable"
+    if rc != 0:
+        return "gone", ""
+    parts = (out.splitlines() or [""])[0].split("\t")
+    if len(parts) != 3 or not parts[0].strip():
+        return "gone", ""
+    _, stamp, server_after = (p.strip() for p in parts)
+    if stamp == expect:
+        return "present", "kill-failed"
+    if server_after != server_before:
+        return "present", "server-restarted"
+    return "present", "stamp-mismatch"
+
+
 def respawn(pane_id: str, command: str, env: dict[str, str] | None = None) -> bool:
     """`respawn-pane -k` the pane into ``command``.
 
@@ -359,7 +628,8 @@ def respawn(pane_id: str, command: str, env: dict[str, str] | None = None) -> bo
 
     ``env`` adds one ``-e NAME=value`` flag per entry (t1705_5), which is how the
     restore coordinator delivers the four ``AITASK_RESTORE_*`` identity variables
-    to the replacement agent. tmux sets them in the spawned process's own
+    and ``AITASK_AGENT_STRING`` (t1802) to the replacement agent. tmux sets them
+    in the spawned process's own
     environment, so the command string carries no wrapper and nothing execs
     through ``env`` — and crucially ``#{pane_pid}`` still names the agent itself,
     which is the property the task-lock liveness anchor depends on (t1465).

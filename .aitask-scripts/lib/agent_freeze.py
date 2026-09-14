@@ -378,14 +378,25 @@ def freeze_pane(pane_id: str, *, cap: int | None = None) -> FreezeResult:
     frozen_ops.pause_at("stamp")
 
     # --- 5. respawn into the stand-in --------------------------------------
+    # ONE dispatch: the stamp written in step 4 is re-checked by the server in
+    # the same command-queue run as the `respawn-pane -k`, so a tmux restart
+    # landing between the two steps cannot hand the kill a recycled `%N`
+    # (t1773, t1783). A miss that is not `respawn-failed` means the pane is not
+    # ours any more (restart / recycled id) — unstamping it would clear a
+    # stranger's, possibly another record's, stamp.
+    pane_ours = True
     try:
         _fail_at("respawn")
         command = agent_sessions.standin_command(record_id)
-        if not frozen_ops.respawn(pane_id, command):
-            raise OSError(f"respawn-pane refused for {pane_id}")
+        fired, _, _, why = frozen_ops.respawn_if_stamped(
+            pane_id, command, option=FROZEN_OPTION, expect=record_id)
+        if not fired:
+            pane_ours = why == "respawn-failed"
+            raise OSError(f"respawn-pane not fired for {pane_id} ({why})")
     except (_StageFailure, OSError, ValueError) as exc:
-        frozen_ops.unset_option(pane_id, FROZEN_OPTION)
-        frozen_ops.unset_option(pane_id, STANDIN_READY_OPTION)
+        if pane_ours:
+            frozen_ops.unset_option(pane_id, FROZEN_OPTION)
+            frozen_ops.unset_option(pane_id, STANDIN_READY_OPTION)
         frozen_ops.store("freeze-abort", record_id, "--nonce", nonce)
         return FreezeResult(record_id, False, "respawn",
                             f"FREEZE_FAILED:respawn|{record_id}|{exc}")
@@ -661,26 +672,41 @@ def _respawn_standin(pane_id: str, record_id: str, lease: _Lease) -> str:
 
     The order is fixed: `@aitask_standin_ready` must be cleared BEFORE the
     respawn, or the previous viewer's mark would make the next pass believe the
-    new one is already up.
+    new one is already up. Both ride in ONE `if-shell -F` dispatch, gated on the
+    pane still carrying this record's stamp (`frozen_ops.respawn_if_stamped`,
+    t1773 / t1783): reconcile enumerated the pane a moment ago, and a tmux
+    restart in that moment can hand the same `%N` to an unrelated agent. Being
+    inside the branch also means the clear is not applied to a pane the
+    dispatch declines to touch.
 
     The lease is taken FIRST, before anything is touched: a respawn we cannot
     then acknowledge would leave the record describing a stand-in that no longer
     exists.
+
+    A miss that is not `respawn-failed` means the pane stopped being ours
+    between enumeration and dispatch. Nothing was touched, and the gone-pane
+    pair is committed so the record stays restorable into a NEW window — the
+    same pair `agent_restore._rollback` commits for its mirror-image miss.
+    `respawn-failed` (the branch matched, the respawn did not take) keeps the
+    pane ours and the failure retryable on the next pass.
     """
     nonce = lease()
-    frozen_ops.unset_option(pane_id, STANDIN_READY_OPTION)
     try:
         command = agent_sessions.standin_command(record_id)
     except ValueError as exc:
         return f"RECONCILE_FAILED:{record_id}|{exc}"
-    if not frozen_ops.respawn(pane_id, command):
-        return f"RECONCILE_FAILED:{record_id}|respawn refused"
-    new_pane, new_pid = frozen_ops.pane_location(pane_id)
+    fired, new_pane, new_pid, why = frozen_ops.respawn_if_stamped(
+        pane_id, command, option=FROZEN_OPTION, expect=record_id,
+        unset=STANDIN_READY_OPTION)
+    if not fired:
+        if why == "respawn-failed":
+            return f"RECONCILE_FAILED:{record_id}|respawn refused"
+        new_pane, new_pid = "", 0
     rc, out = frozen_ops.store("standin-respawned", record_id, "--nonce", nonce,
                      "--pane", new_pane, "--pane-pid", str(new_pid))
     if rc != 0:
         return f"RECONCILE_FAILED:{record_id}|{out}"
-    return f"STANDIN:{record_id}"
+    return f"STANDIN:{record_id}" if fired else f"STANDIN:{record_id}|pane_gone"
 
 
 def _reconcile_freezing(rec: dict, observed: _Observed | None, lease: _Lease) -> str:
@@ -860,50 +886,6 @@ def _stale_grace() -> float:
 # --- drop -------------------------------------------------------------------
 
 
-#: `display-message` could not reach tmux at all (`TmuxClient.run` returns -1 on
-#: FileNotFoundError / OSError / timeout). Distinct from tmux ANSWERING that the
-#: pane does not exist, which is exit 1 — see :func:`_probe_pane`.
-_TMUX_UNREACHABLE = -1
-
-
-def _probe_pane(pane_id: str) -> tuple[str, dict[str, str] | None]:
-    """Ask tmux about ONE pane. Returns ``(verdict, facts)``.
-
-    Verdicts: ``"present"`` (facts are the pane's), ``"gone"`` (tmux answered
-    that no such pane exists — including "no server running", which means the
-    same thing), or ``"unknown"`` (tmux could not be reached at all).
-
-    The three are kept apart deliberately. Collapsing ``unknown`` into ``gone``
-    is the mistake that reintroduces V9: a coordinator that cannot reach tmux
-    would conclude the stand-in is already gone, skip the kill, and delete the
-    record and its only capture while a live stamped viewer is still sitting in
-    that pane — the one state `reconcile` cannot repair, because it iterates
-    records and that pane no longer has one.
-
-    Asking about the pane directly, rather than looking for it in a window
-    listing, also means the answer does not depend on the record's `session` /
-    `window` fields still being current: those are display values, and a tmux
-    restart or a rename makes a window-scoped lookup miss a pane that is very
-    much alive.
-    """
-    rc, out = frozen_ops.run(
-        ["display-message", "-p", "-t", pane_id,
-         "\t".join(["#{pane_id}", f"#{{{FROZEN_OPTION}}}", "#{pane_dead}"])]
-    )
-    if rc == _TMUX_UNREACHABLE:
-        return "unknown", None
-    if rc != 0:
-        return "gone", None
-    parts = (out.splitlines() or [""])[0].split("\t")
-    if len(parts) != 3 or not parts[0].strip():
-        return "gone", None
-    return "present", {
-        "pane_id": parts[0].strip(),
-        "frozen": parts[1].strip(),
-        "dead": parts[2].strip(),
-    }
-
-
 def _other_real_agents(pane_id: str) -> int | None:
     """Sibling count for the kill rule; ``None`` when it could not be taken.
 
@@ -960,21 +942,25 @@ def drop_record(record_id: str) -> str:
          restart every retained record still names a `%N` that no longer exists.
          Keying "nothing to kill" on an empty `pane_id` would make exactly those
          records undroppable.
-      2. **kill** the stand-in. Pane options are pane-scoped and die with the
-         pane, so this retires all three stamps with no unstamp step to fail. A
-         failed kill changes NOTHING: the user keeps a working viewer and an
-         intact capture.
+      2. **kill** the stand-in — stamp check and kill as ONE `if-shell -F`
+         dispatch (`frozen_ops.kill_if_stamped`), so a tmux restart between the
+         preflight and the kill cannot hand it a recycled `%N` (t1773, t1783).
+         Pane options are pane-scoped and die with the pane, so this retires
+         all three stamps with no unstamp step to fail. A failed or declined
+         kill changes NOTHING: the user keeps a working viewer and an intact
+         capture.
       3. **store**, and only after the target is verified gone, with the claimed
          nonce. A `NONCE_MISMATCH` here means somebody minted a new lease while
          we were killing — the record and capture survive, which is the point.
 
-    The one residual, accepted deliberately: the kill cannot be made
-    conditional, so a restore beginning between step 2 and step 3 costs the user
-    the *stand-in pane* — never the record and never the capture. The record
-    stays restorable into a fresh window (`_reconcile_frozen`'s
-    `KEEP:<id>|pane_gone`). Losing a replaceable viewer is the right trade
-    against losing the only copy of a session's output; do not "fix" it by
-    reordering.
+    The one residual, accepted deliberately: the sibling count that picks
+    `kill-window` over `kill-pane` (`_other_real_agents`) is a separate read,
+    so within one server generation an agent joining the window between the
+    count and the dispatch could widen a `kill-window` beyond what was counted.
+    That read decides *window vs pane*, never *whether* — the stamp check still
+    gates the verb, and a recycled `%N` is never killed. Losing a replaceable
+    viewer is the right trade against losing the only copy of a session's
+    output; do not "fix" it by reordering the store write ahead of the kill.
     """
     lease = _Lease(record_id)
     try:
@@ -1000,10 +986,12 @@ def drop_record(record_id: str) -> str:
         pane_id = rec.get("pane_id", "")
 
         # Resolve the target against what the SERVER says, never the record
-        # alone: `pane_id` is durable but not authoritative (see the docstring).
+        # alone: `pane_id` is durable but not authoritative (see the
+        # docstring). The tri-state resolver lives in the SHARED module so
+        # the restore router can reach it too (t1773).
         must_kill = False
         if pane_id:
-            verdict, facts = _probe_pane(pane_id)
+            verdict, facts = frozen_ops.probe_pane(pane_id)
             if verdict == "unknown":
                 _release()
                 return f"DROP_FAILED:{record_id}|preflight:tmux unreachable"
@@ -1020,18 +1008,18 @@ def drop_record(record_id: str) -> str:
             others = _other_real_agents(pane_id)
             # `None` (the listing failed) downgrades to kill-pane rather than
             # collapsing a window that may still hold a live agent.
-            verb = "kill-window" if others == 0 else "kill-pane"
-            rc, out = frozen_ops.run([verb, "-t", pane_id])
-            if rc != 0:
-                _release()
-                return f"DROP_FAILED:{record_id}|kill:{out.strip() or verb}"
+            verdict, why = frozen_ops.kill_if_stamped(
+                pane_id, option=FROZEN_OPTION, expect=record_id,
+                window=(others == 0))
 
             _drop_fail_at("verify")
-            verdict, _ = _probe_pane(pane_id)
             if verdict != "gone":
+                # `present` (declined, or the kill did not take) and `unknown`
+                # (tmux unreachable) both fail closed: the record and its
+                # capture survive for a retry.
                 _release()
                 return (f"DROP_FAILED:{record_id}|kill:pane not verified gone "
-                        f"({verdict})")
+                        f"({why})")
 
         frozen_ops.pause_at("drop_pre_store")
         _drop_fail_at("store")

@@ -127,6 +127,9 @@ if [[ "$window" =~ ^agent-(pick|qa|resume)-([0-9]+(_[0-9]+)?)$ ]]; then
 fi
 
 # --- 7. upsert -------------------------------------------------------------
+# A blank AITASK_AGENT_STRING (an agent not started through the wrapper) is a
+# no-op in the store, not a clear: the record keeps the string it already has
+# (t1802). The restore coordinator delivers the variable to its replacements.
 args=(upsert
       --root "$root"
       --window "$window"

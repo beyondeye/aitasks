@@ -42,13 +42,21 @@
 #
 # --report-env reports all four AITASK_RESTORE_* names, because the restore
 # coordinator delivers them as four separate `respawn-pane -e` flags and the
-# spike must be able to prove that every one of them arrives (Case 3c).
+# spike must be able to prove that every one of them arrives (Case 3c). It also
+# reports AITASK_AGENT_STRING, the fifth variable the coordinator delivers
+# (t1802).
 #
 # --report-env exists because there is no portable way to read a FOREIGN
 # process's environment: macOS has no /proc, and `ps eww` / `ps -E` return
 # nothing under SIP. The process must self-report, and it writes to a path only
 # the calling run knows, so the reader can never be inspecting a different
 # process by accident (a `pgrep -f 'sleep 1000'` can).
+#
+# FAKE_AGENT_REPORT_ENV=<file> requests the same report through the environment.
+# A replacement the restore COORDINATOR launches runs whatever argv the
+# wrapper's `--dry-run` resolved, so nothing can add `--report-env` to it; the
+# live suites reach it through `agent_env` instead, which the fake-`claude`
+# shims source at exec time. An explicit `--report-env` still wins.
 set -uo pipefail
 
 FAKE_AGENT_SLEEP="${FAKE_AGENT_SLEEP:-1000}"
@@ -60,7 +68,7 @@ if [ "${FAKE_AGENT_EXIT:-0}" = "1" ]; then
 fi
 
 resume_id=""
-report_env=""
+report_env="${FAKE_AGENT_REPORT_ENV:-}"
 
 while [ "$#" -gt 0 ]; do
     case "$1" in

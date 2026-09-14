@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # tmux_bootstrap.sh - Spawn a project's tmux session detached.
 #
-# Shared between `aitask_ide.sh` (sourced) and `tui_switcher.py`
-# (subprocess via the standalone CLI form below). Single source of
+# Shared between `aitask_ide.sh` (sourced), `tui_switcher.py` and
+# `agent_restore.py` (both via the standalone CLI form below). Single source of
 # truth for: how a session is named, which window is seeded first,
 # which env vars are written, and whether the syncer auto-starts.
 #
@@ -13,6 +13,11 @@
 # Standalone form (from tui_switcher.py via `bash <path> <root>`):
 #     bash .aitask-scripts/lib/tmux_bootstrap.sh /path/to/project
 #         Idempotent — no-op if the target session already exists.
+#
+# Create-only form (from agent_restore.py, restoring a frozen agent whose
+# project has no tmux session — t1784):
+#     bash .aitask-scripts/lib/tmux_bootstrap.sh --create-only /path/to/project
+#         Create the session or change nothing; see spawn_session_detached.
 
 # Guard against double-sourcing.
 if [[ -n "${_AIT_TMUX_BOOTSTRAP_LOADED:-}" ]]; then
@@ -124,15 +129,49 @@ _tmux_bootstrap_ensure_syncer_window() {
     fi
 }
 
-# spawn_session_detached <project_root>
+# _tmux_bootstrap_report_exists <session>
+#
+# The --create-only refusal: a structured sentinel first (parsed by
+# agent_restore._bootstrap_project_session), then the human-readable detail —
+# the same two-line shape as the BOOTSTRAP_FAILED:stale_path refusal.
+_tmux_bootstrap_report_exists() {
+    echo "BOOTSTRAP_FAILED:session_exists:$1" >&2
+    echo "spawn_session_detached: session '$1' already exists; --create-only leaves it untouched" >&2
+}
+
+# spawn_session_detached <project_root> [--create-only]
 #
 # Idempotently spawns a detached tmux session for <project_root> with
 # the project's configured session name and a seeded `monitor` window.
 # If the session already exists, only the per-session env / persistent
 # registry / syncer-window steps run (the existing session is left
 # untouched). Safe to call from inside another tmux session.
+#
+# --create-only: CREATE the session or change NOTHING (t1784). The default
+# mode is "ensure", which is right for `ait ide` — a user running it in a
+# project means "this session is mine" — but wrong for a caller that must not
+# claim a session it does not own: the registry and syncer steps would re-point
+# a same-named session belonging to another project at <project_root>, and
+# `discover_aitasks_sessions()` falls back to that registry entry. With the flag:
+#   - an existing session of that name is left completely untouched (no env,
+#     no registry, no syncer window) and reported on stderr as
+#     BOOTSTRAP_FAILED:session_exists:<name>, exit 43;
+#   - so is one created concurrently between the check and `new-session`: the
+#     duplicate `new-session` fails and the name now exists — same report;
+#   - only after THIS call created the session do the registry and syncer steps
+#     run, and stdout then carries BOOTSTRAP_CREATED:<name> — the one answer a
+#     caller may treat as ownership.
+#
+# Exit codes: 2 usage / not a directory, 3 tmux missing, 4 new-session failed,
+# 42 not an aitasks project (BOOTSTRAP_FAILED:stale_path), 43 the session
+# already exists (--create-only only).
 spawn_session_detached() {
     local root="$1"
+    local mode="${2:-}"
+    if [[ -n "$mode" && "$mode" != "--create-only" ]]; then
+        echo "spawn_session_detached: unknown option: $mode" >&2
+        return 2
+    fi
     if [[ -z "$root" ]]; then
         echo "spawn_session_detached: missing <project_root>" >&2
         return 2
@@ -183,13 +222,29 @@ spawn_session_detached() {
         # new-session -s takes a literal session name; do not prefix '='.
         ait_tmux_new_session_persistent "$session" "$root" monitor 'ait monitor' \
             || {
+                # --create-only: a name that exists NOW was created concurrently
+                # by someone else. It is not ours — report it and touch nothing.
+                if [[ "$mode" == "--create-only" ]] \
+                    && ait_tmux has-session -t "$session_t" 2>/dev/null; then
+                    _tmux_bootstrap_report_exists "$session"
+                    return 43
+                fi
                 echo "spawn_session_detached: tmux new-session failed for '$session'" >&2
                 return 4
             }
+    elif [[ "$mode" == "--create-only" ]]; then
+        # An existing session, and the caller asked to create or change nothing:
+        # return BEFORE the registry / syncer steps, which would re-point it.
+        _tmux_bootstrap_report_exists "$session"
+        return 43
     fi
 
     _tmux_bootstrap_set_project_registry "$root" "$session"
     _tmux_bootstrap_ensure_syncer_window "$root" "$session"
+    if [[ "$mode" == "--create-only" ]]; then
+        echo "BOOTSTRAP_CREATED:$session"
+    fi
+    return 0
 }
 
 # --- Standalone CLI dispatch -------------------------------------------
@@ -199,13 +254,18 @@ spawn_session_detached() {
 # BASH_SOURCE[0] == $0.
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     set -euo pipefail
+    _tmux_bootstrap_mode=""
+    if [[ "${1:-}" == "--create-only" ]]; then
+        _tmux_bootstrap_mode="--create-only"
+        shift
+    fi
     if [[ $# -lt 1 ]]; then
-        echo "Usage: tmux_bootstrap.sh <project_root>" >&2
+        echo "Usage: tmux_bootstrap.sh [--create-only] <project_root>" >&2
         exit 2
     fi
     # Source error helpers only when standalone (saves a round-trip
     # when sourced by aitask_ide.sh, which already loads them).
     # shellcheck source=terminal_compat.sh disable=SC1091
     source "$_TMUX_BOOTSTRAP_LIB_DIR/terminal_compat.sh"
-    spawn_session_detached "$1"
+    spawn_session_detached "$1" ${_tmux_bootstrap_mode:+"$_tmux_bootstrap_mode"}
 fi
