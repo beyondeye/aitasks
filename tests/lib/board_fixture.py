@@ -47,7 +47,7 @@ point at files that do not exist:
     DATA_WORKTREE            aitask_board.py:71   -> _task_git_cmd/refresh_git_status
     ./.aitask-scripts/aitask_lock.sh --list       :1084  refresh_lock_map
     ARTIFACT_SCRIPT                               :490   load_trail_blob
-    TRAIL_GATHER_SCRIPT                           :491   run_trail_drift/_trail_versions
+    TRAIL_GATHER_SCRIPT      board_trail_view.py  -> run_trail_drift
     CODEAGENT_SCRIPT / CREATE_SCRIPT              :74/:75
     BRAINSTORM_TUI_SCRIPT                         :76
     agent_command_screen.py:999   ./.aitask-scripts/aitask_skill_rerender.sh
@@ -82,7 +82,7 @@ that cwd=tree buys.
 Fixture contract
 ----------------
 `project_config.yaml` carrying `project.name` is **required** for any trail
-test. `load_local_project_name` (aitask_board.py:544) returns `""` when it is
+test. `load_local_project_name` (board_trail_view.py) returns `""` when it is
 missing, `trail_ref_to_local_id` then returns `None`, and every `aitasks#<id>`
 trail member renders as an unresolvable *cross-repo ghost*. Measured with a
 trail doc referencing `aitasks#9000` and `aitasks#9000_1`: without the file

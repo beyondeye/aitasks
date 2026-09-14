@@ -32,7 +32,7 @@ Each entry is classified by *why it is in that position*:
     * the five classification names -> the `entry.classification` enum in
       .aitask-scripts/lib/implementation_trail.schema.json
     * the glyph mapping (◆ ▲ ● ⇄ ○) -> TRAIL_CLASSIFICATION_GLYPHS in
-      .aitask-scripts/board/aitask_board.py
+      .aitask-scripts/board/board_trail_view.py
   The schema does NOT define the glyphs; checking it alone will not catch a
   glyph change.
 -->

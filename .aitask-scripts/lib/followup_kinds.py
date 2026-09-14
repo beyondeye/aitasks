@@ -19,7 +19,7 @@ Colour is assigned in **families** — colour signals the severity class so
 follow-ups read as a group down a column, while the glyph distinguishes which
 kind. Glyphs are single-cell geometric characters (East-Asian-Width *Ambiguous*,
 width 1 outside CJK locales), the same class as the house precedent
-``TRAIL_CLASSIFICATION_GLYPHS`` in ``board/aitask_board.py``.
+``TRAIL_CLASSIFICATION_GLYPHS`` in ``board/board_trail_view.py``.
 """
 from __future__ import annotations
 

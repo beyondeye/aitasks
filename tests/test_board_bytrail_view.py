@@ -27,6 +27,7 @@ import json
 import os
 import subprocess
 import sys
+import textwrap
 import threading
 import unittest
 from pathlib import Path
@@ -40,10 +41,9 @@ sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "lib"))
 import agent_command_screen as acs  # noqa: E402
 import board_fixture as bf  # noqa: E402
 import task_yaml  # noqa: E402
-
-FIXTURE_PATH = (REPO_ROOT / "aidocs" / "implementation_trail_examples"
-                / "gate_framework.json")
-
+from trail_model_checks import (  # noqa: E402
+    FIXTURE_PATH, TrailModelChecks, ghost_doc as _ghost_doc, load_fixture as _load_fixture,
+)
 
 class FakeClock:
     """Monotonic-clock stand-in so the t1279 debounce tests never sleep."""
@@ -56,10 +56,6 @@ class FakeClock:
 
     def advance(self, seconds: float) -> None:
         self.now += seconds
-
-
-def _load_fixture() -> dict:
-    return json.loads(FIXTURE_PATH.read_text(encoding="utf-8"))
 
 
 def _wave_doc(refs, *, ordinal=1) -> dict:
@@ -83,24 +79,6 @@ def _wave_doc(refs, *, ordinal=1) -> dict:
             } for i, ref in enumerate(refs, start=1)],
         }],
     }
-
-
-def _ghost_doc() -> dict:
-    """Minimal two-wave doc whose members are all foreign (ghost-only)."""
-    waves = []
-    for i in (1, 2):
-        waves.append({
-            "wave_id": f"w{i}", "ordinal": i, "title": f"Wave {i}",
-            "purpose": "p", "entries": [{
-                "entry_id": f"e{i}", "task": f"otherproj#{i}",
-                "topic": "otherproj#1", "position": 1,
-                "classification": "core", "confidence": "high",
-                "rationale": "r", "snapshot": {"status": "Ready"},
-            }],
-        })
-    return {"title": "Ghost trail", "trail_id": "trail-ghost", "waves": waves,
-            "narrative": {"problem_statement": "ps",
-                          "recommendation_summary": "rs"}}
 
 
 class ByTrailTestBase(bf.FixtureBoardTestBase, unittest.TestCase):
@@ -201,80 +179,18 @@ class ByTrailTestBase(bf.FixtureBoardTestBase, unittest.TestCase):
         await pilot.pause()
 
 
-class TrailModelTests(ByTrailTestBase):
-    """Pure-function projection tests (no widgets)."""
+class TrailModelTests(TrailModelChecks, ByTrailTestBase):
+    """Pure-function projection tests (no widgets).
 
-    def test_glyph_map_pins_schema_classification_enum(self):
-        ab = self.ab
-        schema = ab.trail_schema.load_schema()
-        enum = schema["$defs"]["entry"]["properties"]["classification"]["enum"]
-        self.assertEqual(set(ab.TRAIL_CLASSIFICATION_GLYPHS), set(enum))
-        # Wireframe-pinned glyphs (RFC §15).
-        self.assertEqual(ab.TRAIL_CLASSIFICATION_GLYPHS["hard_prerequisite"],
-                         "◆")
-        self.assertEqual(ab.TRAIL_CLASSIFICATION_GLYPHS["core"], "●")
-        # All glyphs distinct.
-        self.assertEqual(len(set(ab.TRAIL_CLASSIFICATION_GLYPHS.values())),
-                         len(ab.TRAIL_CLASSIFICATION_GLYPHS))
+    The model checks live in tests/lib/trail_model_checks.py and run here
+    through the board's re-exports (`tv` = the fixture-loaded board); the
+    two `trail_discovery` tests below stay local. `HeadlessTrailModelTests`
+    runs the same checks with no board loaded.
+    """
 
-    def test_lanes_wave_and_position_order(self):
-        ab = self.ab
-        doc = copy.deepcopy(_load_fixture())
-        # Shuffle wave array order and entry order: ordinal/position must win.
-        doc["waves"].reverse()
-        for wave in doc["waves"]:
-            wave["entries"].reverse()
-        lanes = ab.build_trail_lanes(doc, {}, "aitasks", lambda _id: None)
-        ordinals = [lane.wave["ordinal"] for lane in lanes]
-        self.assertEqual(ordinals, sorted(ordinals))
-        for lane in lanes:
-            positions = [v.entry["position"] for v in lane.entries]
-            self.assertEqual(positions, sorted(positions))
-
-    def test_entry_resolution_live_archived_missing_cross_repo(self):
-        ab = self.ab
-        doc = copy.deepcopy(_load_fixture())
-        refs = sorted(ab.trail_entry_refs(doc))
-        self.assertTrue(refs and all(r.startswith("aitasks#") for r in refs))
-        live_id = refs[0].split("#", 1)[1]
-        archived_id = refs[1].split("#", 1)[1]
-        tasks_by_id = {live_id: self._mk_task(f"t{live_id}_live.md",
-                                              status="Done")}
-        archived_done = self._mk_task(f"t{archived_id}_arch.md", status="Done")
-
-        def archived_lookup(task_id):
-            return archived_done if task_id == archived_id else None
-
-        lanes = ab.build_trail_lanes(doc, tasks_by_id, "aitasks",
-                                     archived_lookup)
-        views = [v for lane in lanes for v in lane.entries]
-        by_ref = {str(v.entry["task"]): v for v in views}
-
-        live = by_ref[f"aitasks#{live_id}"]
-        self.assertIsNotNone(live.task)
-        self.assertEqual(live.ghost_kind, "")
-        self.assertTrue(live.landed)  # live status Done → strike-through
-
-        arch = by_ref[f"aitasks#{archived_id}"]
-        self.assertIsNone(arch.task)
-        self.assertEqual(arch.ghost_kind, "archived")
-        self.assertTrue(arch.landed)
-
-        missing = [v for v in views if v.ghost_kind == "missing"]
-        self.assertTrue(missing)  # every other ref has no live/archived task
-
-        # Foreign project name → everything is a cross-repo ghost.
-        foreign = ab.build_trail_lanes(doc, tasks_by_id, "otherproj",
-                                       archived_lookup)
-        for lane in foreign:
-            for v in lane.entries:
-                self.assertEqual(v.ghost_kind, "cross_repo")
-
-        # Unknown local project name (unavailable config) → same, no crash.
-        blank = ab.build_trail_lanes(doc, tasks_by_id, "", archived_lookup)
-        for lane in blank:
-            for v in lane.entries:
-                self.assertEqual(v.ghost_kind, "cross_repo")
+    @property
+    def tv(self):
+        return self.ab
 
     def test_compute_trail_overlaps(self):
         ab = self.ab
@@ -324,108 +240,77 @@ class TrailModelTests(ByTrailTestBase):
         self.assertEqual([d.handle for d in deduped],
                          ["art:trail-b", "art:trail-a"])
 
-    def test_drift_by_ref_grouping_and_trail_level_drop(self):
-        """t1268: reasons are keyed on the RAW entry ref so ghosts match."""
-        ab = self.ab
-        reasons = [
-            ("status_changed", "aitasks#1", "status 'Ready' -> 'Done'"),
-            ("gate_state_changed", "aitasks#1", "pending gates now []"),
-            ("task_completed", "otherproj#9", "completed and archived"),
-            # Trail-level: no owning card.
-            ("input_missing", "-", "plan input unreadable"),
-            ("other", "", "unattributable digest mismatch"),
-        ]
-        by_ref = ab.trail_drift_by_ref(reasons)
-        self.assertEqual(set(by_ref), {"aitasks#1", "otherproj#9"})
-        self.assertEqual(len(by_ref["aitasks#1"]), 2)
-        self.assertNotIn("-", by_ref)
-        self.assertEqual(ab.trail_drift_by_ref([]), {})
-        self.assertEqual(ab.trail_drift_by_ref(None), {})
 
-    def test_drift_text_bounds_and_truncation(self):
-        ab = self.ab
-        self.assertEqual(ab._trail_drift_text([]), "")
-        one = [("status_changed", "aitasks#1", "status 'Ready' -> 'Done'")]
-        text = ab._trail_drift_text(one)
-        self.assertIn("status_changed", text)
-        self.assertIn("Done", text)
-        self.assertNotIn("more", text)
-        # Past max_shown, the remainder is summarised rather than dropped.
-        many = [("c%d" % i, "aitasks#1", "d%d" % i) for i in range(5)]
-        text = ab._trail_drift_text(many, max_shown=2)
-        self.assertIn("c0", text)
-        self.assertIn("c1", text)
-        self.assertNotIn("c2", text)
-        self.assertIn("(+3 more)", text)
-        # A long detail is truncated, not wrapped into the card unbounded.
-        long_one = [("plan_changed", "aitasks#1", "x" * 300)]
-        text = ab._trail_drift_text(long_one, max_detail=20)
-        self.assertLess(len(text), 80)
-        self.assertIn("…", text)
-        # Newlines in a detail can never break the single-line marker.
-        multi = [("other", "aitasks#1", "line one\nline two")]
-        self.assertNotIn("\n", ab._trail_drift_text(multi))
+class HeadlessTrailModelTests(unittest.TestCase):
+    """The trail-model checks, run with no board loaded (t1794_3).
 
-    def test_drift_matches_the_t_prefixed_ref_spelling(self):
-        """The trail may store `aitasks#t42`; trail_gather always emits drift
-        reasons against the canonical `aitasks#42` (its `inp.canonical`). Both
-        sides must be keyed the same way or the owning card renders nothing."""
-        ab = self.ab
-        self.assertEqual(ab.canonical_trail_ref("aitasks#t42"), "aitasks#42")
-        self.assertEqual(ab.canonical_trail_ref("aitasks#42"), "aitasks#42")
-        self.assertEqual(ab.canonical_trail_ref("aitasks#t635_3"),
-                         "aitasks#635_3")
-        # Unparseable refs keep their raw text rather than vanishing.
-        self.assertEqual(ab.canonical_trail_ref("garbage"), "garbage")
-        self.assertEqual(ab.canonical_trail_ref(None), "")
+    `TrailModelChecks` (tests/lib/trail_model_checks.py) runs in a fresh
+    interpreter against `board_trail_view` imported directly, with a plain
+    namespace standing in for `Task`. Only a subprocess can show that the pure
+    core does not need the board: this process has usually imported
+    `aitask_board` already, and pytest workers share `sys.modules` across
+    modules. The import sits inside the script string, so the tier-1
+    canonical-import sweep does not flag it — the shape of
+    `HeadlessImportTests` in test_board_package_contract.py.
+    """
 
-        doc = _ghost_doc()
-        doc["waves"][0]["entries"][0]["task"] = "aitasks#t42"   # tolerated
-        task = self._mk_task("t42_demo.md")
-        # …while the gatherer reports the canonical spelling.
-        by_ref = ab.trail_drift_by_ref([
-            ("status_changed", "aitasks#42", "status 'Ready' -> 'Implementing'"),
-        ])
-        lanes = ab.build_trail_lanes(
-            doc, {"42": task}, "aitasks", lambda _id: None, by_ref)
-        entry = lanes[0].entries[0]
-        self.assertEqual(entry.ghost_kind, "", "t-prefixed ref did not resolve")
-        self.assertEqual([r[0] for r in entry.drift_reasons],
-                         ["status_changed"],
-                         "drift reason did not attach to the t-spelled member")
-        # And the mirror case: trail stores canonical, gatherer says `t`.
-        doc2 = _ghost_doc()
-        doc2["waves"][0]["entries"][0]["task"] = "aitasks#42"
-        by_ref2 = ab.trail_drift_by_ref([
-            ("status_changed", "aitasks#t42", "status 'Ready' -> 'Done'"),
-        ])
-        lanes2 = ab.build_trail_lanes(
-            doc2, {"42": task}, "aitasks", lambda _id: None, by_ref2)
-        self.assertEqual([r[0] for r in lanes2[0].entries[0].drift_reasons],
-                         ["status_changed"])
+    SCRIPT = textwrap.dedent("""\
+        import json, sys, types, unittest
+        @PREAMBLE@
+        import board_trail_view
+        import trail_model_checks
 
-    def test_build_trail_lanes_threads_drift_to_entries(self):
-        """Ghost and live entries alike receive their own reasons."""
-        ab = self.ab
-        doc = _ghost_doc()
-        doc["waves"][0]["entries"][0]["task"] = "aitasks#42"
-        task = self._mk_task("t42_demo.md")
-        by_ref = ab.trail_drift_by_ref([
-            ("status_changed", "aitasks#42", "status 'Ready' -> 'Done'"),
-            ("task_completed", "otherproj#2", "completed and archived"),
-        ])
-        lanes = ab.build_trail_lanes(
-            doc, {"42": task}, "aitasks", lambda _id: None, by_ref)
-        live = lanes[0].entries[0]
-        ghost = lanes[1].entries[0]
-        self.assertEqual(live.ghost_kind, "")
-        self.assertEqual([r[0] for r in live.drift_reasons], ["status_changed"])
-        self.assertEqual(ghost.ghost_kind, "cross_repo")
-        self.assertEqual([r[0] for r in ghost.drift_reasons], ["task_completed"])
-        # Omitting the map keeps every entry clean (back-compatible signature).
-        lanes = ab.build_trail_lanes(
-            doc, {"42": task}, "aitasks", lambda _id: None)
-        self.assertEqual(lanes[0].entries[0].drift_reasons, [])
+
+        class Headless(trail_model_checks.TrailModelChecks, unittest.TestCase):
+            tv = board_trail_view
+
+            def _mk_task(self, filename, status="Ready"):
+                return types.SimpleNamespace(filename=filename,
+                                             metadata={"status": status})
+
+
+        suite = unittest.defaultTestLoader.loadTestsFromTestCase(Headless)
+        result = unittest.TextTestRunner(stream=sys.stderr, verbosity=2).run(suite)
+        print(json.dumps({
+            "run": result.testsRun,
+            "ok": result.wasSuccessful(),
+            "loaded": sorted(m for m in ("aitask_board", "board_fixture")
+                             if m in sys.modules),
+        }))
+        """)
+
+    def _probe(self, preamble: str = "") -> dict:
+        env = {k: v for k, v in os.environ.items()
+               if k not in ("PYTHONPATH", "TASK_DIR")}
+        env["PYTHONPATH"] = os.pathsep.join(
+            str(REPO_ROOT / sub) for sub in
+            ("tests/lib", ".aitask-scripts/board", ".aitask-scripts/lib"))
+        proc = subprocess.run(
+            [sys.executable, "-c", self.SCRIPT.replace("@PREAMBLE@", preamble)],
+            cwd=str(REPO_ROOT), env=env, capture_output=True, text=True,
+            timeout=120)
+        self.assertEqual(proc.returncode, 0, proc.stderr[-3000:])
+        report = json.loads(proc.stdout.strip().splitlines()[-1])
+        report["stderr"] = proc.stderr
+        return report
+
+    def test_the_model_checks_pass_with_no_board_loaded(self):
+        expected = sorted(n for n in dir(TrailModelChecks)
+                          if n.startswith("test_"))
+        # Anti-vacuity: the shared checks are the seven the move exercises.
+        self.assertEqual(len(expected), 7, expected)
+        report = self._probe()
+        self.assertTrue(report["ok"], report["stderr"][-3000:])
+        self.assertEqual(report["run"], len(expected))
+        self.assertEqual(report["loaded"], [],
+                         "running the trail model loaded the board — "
+                         "board_trail_view must not depend on the Kanban app (C1)")
+
+    def test_the_probe_can_see_the_board_loaded(self):
+        """Negative control: the flag is observable, so `[]` above means
+        something."""
+        self.assertIn("aitask_board",
+                      self._probe("import aitask_board")["loaded"])
 
 
 class TrailCardRenderTests(ByTrailTestBase):
@@ -2774,7 +2659,7 @@ class TrailRefResolutionTests(ByTrailTestBase):
             app = ab.KanbanApp()
             async with app.run_test(size=(160, 48)) as pilot:
                 await pilot.pause()
-                self.assertEqual(ab.load_local_project_name(), "aitasks")
+                self.assertEqual(ab.load_local_project_name(ab.TASKS_DIR), "aitasks")
                 real, ghosts = await self._counts(ab, pilot, app)
                 self.assertEqual((real, ghosts), (2, 0),
                                  "both the parent and the child trail ref must "
@@ -2791,7 +2676,7 @@ class TrailRefResolutionTests(ByTrailTestBase):
             app = ab.KanbanApp()
             async with app.run_test(size=(160, 48)) as pilot:
                 await pilot.pause()
-                self.assertEqual(ab.load_local_project_name(), "")
+                self.assertEqual(ab.load_local_project_name(ab.TASKS_DIR), "")
                 real, ghosts = await self._counts(ab, pilot, app)
                 self.assertEqual((real, ghosts), (0, 2),
                                  "without project_config.yaml every ref must "

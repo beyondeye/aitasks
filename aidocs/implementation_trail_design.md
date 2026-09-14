@@ -619,8 +619,11 @@ edit the bindings / `check_action` surface.
 - **Depth resolver** — `.aitask-scripts/aitask_trail_depth.sh` owns the argument
   grammar (mode × depth), pinned by `tests/test_trail_depth_resolve.sh`.
 - **Board By-Trail view** — the `bytrail` base filter, trail discovery, selection and
-  detail modals, wave columns, ghost cards and the summary pane, all in
-  `.aitask-scripts/board/aitask_board.py`. Tests: `tests/test_board_bytrail_view.py`.
+  detail modals, wave columns, ghost cards and the summary pane. The projection
+  model, cards, columns and modals are in `.aitask-scripts/board/board_trail_view.py`;
+  the view state, workers and key handling in `.aitask-scripts/board/aitask_board.py`;
+  discovery in `.aitask-scripts/lib/trail_discovery.py`. Tests:
+  `tests/test_board_bytrail_view.py`, `tests/test_board_trail_view.py`.
 - **Move-to-column commands** — `m` (focused entry) and `M` (focused wave) in the
   By-Trail view, over `move_task_to_column` / `move_tasks_to_column`; wave moves
   preserve `position` order and ghost members are excluded. Tests:

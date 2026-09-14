@@ -133,10 +133,13 @@ RE_EXPORTS = {
 #: `test_no_waiver_has_gone_stale`.
 ALLOWED_LITERALS = {
     "board/aitask_board.py": {
-        "✓": ("by-trail freshness ('✓ current (recorded)') and the follow-up-kind "
-              "picker's current-selection tick. Both are SINGLE-select 'this one "
-              "is current', not multi-select 'this one is marked' — semantically "
-              "adjacent, deliberately not unified."),
+        "✓": ("the follow-up-kind picker's current-selection tick and the gate "
+              "detail's '✓ <gate> — passed' row. Both are SINGLE-state 'this one "
+              "is current / passed', not multi-select 'this one is marked' — "
+              "semantically adjacent, deliberately not unified. (The By-Trail "
+              "freshness badge '✓ current (recorded)' moved to "
+              "board/board_trail_view.py in t1794_3; that module renders no "
+              "mark, so it is not a CONSUMER.)"),
     },
 }
 

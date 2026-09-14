@@ -178,7 +178,8 @@ class FixtureContractTests(bf.FixtureBoardTestBase, unittest.TestCase):
         self.assertIn("t9000_parent.md", names)
 
     def test_local_project_name_resolves(self):
-        self.assertEqual(self.ab.load_local_project_name(), "aitasks")
+        self.assertEqual(self.ab.load_local_project_name(self.ab.TASKS_DIR),
+                         "aitasks")
 
     def test_no_trails_are_discoverable(self):
         """No `artifacts:` frontmatter anywhere — the explicit no-trails fixture.
@@ -318,6 +319,9 @@ MIGRATED_MODULES = (
     # t1794_2: the board_widgets re-export and host-protocol pins reach the
     # module only as `ab.board_widgets`, through the harness.
     "test_board_widgets.py",
+    # t1794_3: the board_trail_view single-home, identity and CSS pins reach
+    # the module only as `ab.board_trail_view` (or read its source).
+    "test_board_trail_view.py",
 )
 
 #: Tier-1 exemptions, scoped to **specific chdir expressions** — never to a whole
@@ -1244,8 +1248,9 @@ class FreshLoadC2Tests(unittest.TestCase):
     """C2 runtime half — a fresh interpreter, a sentinel TASK_DIR, fail closed.
 
     For the real tree the report covers every sibling the board imports —
-    `board_widgets` since t1794_2 — and the real-tree test asserts that one was
-    executed fresh, so the check cannot quietly exercise nothing. Lazy reads are
+    `board_widgets` since t1794_2, `board_trail_view` since t1794_3 — and the
+    real-tree test asserts each was executed fresh, so the check cannot quietly
+    exercise nothing. Lazy reads are
     enforced by the static half; negative control (iv) below proves both that
     they are a real, silent failure and that the static rule catches them.
     """
@@ -1269,10 +1274,13 @@ class FreshLoadC2Tests(unittest.TestCase):
         self.assertEqual(_c2_findings(report), [])
         self.assertEqual(report["board_tasks_dir"], _C2_SENTINEL,
                          "the real board must have honoured the sentinel")
-        # Anti-vacuity: the board imports board_widgets (t1794_2), so the real
-        # load must have executed it, freshly, under the sentinel.
-        self.assertIn("board_widgets", report["modules"])
-        self.assertTrue(report["modules"]["board_widgets"]["fresh"])
+        # Anti-vacuity: the board imports board_widgets (t1794_2) and
+        # board_trail_view (t1794_3), so the real load must have executed
+        # each, freshly, under the sentinel.
+        for sibling in ("board_widgets", "board_trail_view"):
+            with self.subTest(sibling=sibling):
+                self.assertIn(sibling, report["modules"])
+                self.assertTrue(report["modules"][sibling]["fresh"])
 
     def test_i_import_time_binding_is_flagged(self):
         report = self._probe("from config_utils import task_dir\nTASKS_DIR = task_dir()\n")

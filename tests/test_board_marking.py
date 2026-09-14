@@ -289,17 +289,29 @@ class MarkScopeTests(_BoardMarkTestBase, unittest.TestCase):
         If a future view starts mounting ghosts elsewhere, this fails and forces
         that guard to be reconsidered rather than silently going wrong.
         """
-        source = (REPO_ROOT / ".aitask-scripts" / "board"
-                  / "aitask_board.py").read_text(encoding="utf-8")
+        board_dir = REPO_ROOT / ".aitask-scripts" / "board"
+        scanned = sorted(board_dir.glob("*.py"))
+        # Anti-vacuity: the site moved to board_trail_view.py with TrailColumn
+        # (t1794_3). Scanning aitask_board.py alone now finds none, which would
+        # make the count below fail for the wrong reason — or, rewritten as
+        # "at most one", pass vacuously.
+        self.assertIn(board_dir / "board_trail_view.py", scanned)
         construction_lines = [
-            line for line in source.splitlines()
+            (path.name, lineno, line)
+            for path in scanned
+            for lineno, line in enumerate(
+                path.read_text(encoding="utf-8").splitlines(), start=1)
             if "TrailGhostCard(" in line and "class " not in line
         ]
+        sites = [f"{name}:{lineno}" for name, lineno, _ in construction_lines]
         self.assertEqual(
             len(construction_lines), 1,
-            "exactly one TrailGhostCard construction site expected; a new one "
-            "means ghosts may now appear outside By-Trail")
-        self.assertIn("yield TrailGhostCard(", construction_lines[0])
+            "exactly one TrailGhostCard construction site expected across "
+            f"board/*.py, found {sites}; a new one means ghosts may now appear "
+            "outside By-Trail")
+        name, _lineno, line = construction_lines[0]
+        self.assertEqual(name, "board_trail_view.py", sites)
+        self.assertIn("yield TrailGhostCard(", line)
 
 
 class MarkGatingTests(_BoardMarkTestBase, unittest.TestCase):
