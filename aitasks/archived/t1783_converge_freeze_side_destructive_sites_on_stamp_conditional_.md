@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [tmux, codeagent, session_persistence]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 1705
 followup_kind: upstream_defect
 implemented_with: claudecode/fable5_1
 created_at: 2026-09-10 14:57
-updated_at: 2026-09-14 12:18
+updated_at: 2026-09-14 12:57
+completed_at: 2026-09-14 12:57
 ---
 
 ## Origin
@@ -64,3 +65,14 @@ closed). Extend the atomic live suite with a kill-side Part B.
 > **✅ gate:plan_approved** run=2026-09-14T09:18:50Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-09-14T09:54:00Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-14T09:57:37Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:f2ca0f14398bb0d0
+
+> **✅ gate:risk_evaluated** run=2026-09-14T09:57:37Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1783/risk_evaluated_2026-09-14T09:57:37Z-risk_evaluated-a1.log`
