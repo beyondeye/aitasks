@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1705
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5
 created_at: 2026-09-14 14:47
-updated_at: 2026-09-14 15:03
+updated_at: 2026-09-14 22:31
 ---
 
 ## Origin
@@ -55,3 +56,8 @@ defect.
 Treat a null or empty `default_session` as absent in `load_tmux_defaults()`
 (fall back to `DEFAULT_TMUX_SESSION`), matching the other two resolvers. Add a
 test pinning all three resolvers against the blank-value seed shape.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-14T19:31:22Z status=pass attempt=1 type=human
