@@ -319,3 +319,91 @@ Step 9 (Post-Implementation): current-branch mode. The commit is
 
 ### Planned mitigations
 - timing: after | name: codex_braille_detector_defense | type: enhancement | priority: medium | effort: medium | inline_risk: medium | added_complexity: high | addresses: goal-achievement — silent tui.animations rename / hand-launched Codex panes keep the starfield | desc: Codex-scoped detector-side defense — treat U+2800–U+28FF as decoration in classify_content's compare value, _codex_state's composer line and the minimonitor shadow raw-tail hash, only when the resolved agent is codex, with negative controls proving real content changes still reset idle and Braille spinners in non-Codex panes still count as activity
+
+## Final Implementation Notes
+- **Actual work done:**
+  - **Layer 1.** `CODEX_TUI_OVERRIDES=(-c tui.animations=false)` in
+    `aitask_codeagent.sh`. Every Codex argv carries it: the skill composers
+    (including explore), batch-review/raw, and — after `resume <sid>` — restores.
+  - **Layer 2.** `[tui] animations = false` in `seed/codex_config.seed.toml` and
+    in this repo's `.codex/config.toml`. `merge_codex_settings` is unchanged:
+    its generic `deep_merge` already adds the key when absent and keeps an
+    explicit value.
+  - **Tests:**
+    - `test_codeagent.sh` Test 11e: every Codex operation carries the flag,
+      plus a negative control for Claude Code and OpenCode.
+    - `test_codeagent_resume_session.sh`: order assertions for the resume argv.
+    - New `test_codex_config_tui_seed.sh`: seed value, add-when-absent, explicit
+      value kept, idempotent, no subshells.
+    - `CODEX_0154_*` fixtures plus `Codex0154ComposerTests` in
+      `test_review_loop.py`.
+    - Two idle checks in `test_idle_compare_modes.py`.
+    - Two real-path Codex-shadow cases in `test_minimonitor_concern_smoke.py`.
+      They add an echoing `_CODEX_COMPOSER_STUB`, a dedicated `codex_shadow`
+      session, and a `key=` parameter on `_pane_info` / `_paint` / `_app`.
+  - **Docs:** a "Visible-glyph animation" section in
+    `monitor_idle_and_prompt_detection.md`, a pointer in the `monitor_core.py`
+    compare-mode comment, and a Codex paragraph in the website known-issues
+    page.
+- **Deviations from plan:**
+  1. **The root cause is narrower than the task stated.** Per the upstream
+     source (`codex-rs/tui/src/bottom_pane/chat_composer/sparkle.rs` at
+     `rust-v0.154.0`, `enabled_foreground`), the starfield draws only when all
+     of these hold: `whimsy`, `animations`, a model matching `\bastra\b`,
+     truecolor, and known terminal default colours. It is not a property of
+     every 0.154.0 session. On this machine it showed only in the
+     `gpt-6-astra` shadows (4 of 14 live). The task's kill-switch evidence was
+     one launch per arm and therefore weak; the upstream test
+     `model_changes_and_disable_setting_control_sparkle` and a deterministic
+     probe now establish it.
+  2. **The probes needed three things to see the animation at all:**
+     `-m gpt-6-astra`; a tmux `window-style` fg/bg, so that a server with no
+     real terminal attached can answer the colour queries; and a short
+     `TMUX_TMPDIR` (`/tmp/claude-1000/t1797.XXXXXX`), because the scratchpad
+     path exceeds the Unix socket path limit. Isolation was unchanged: a
+     per-run directory, a PID-suffixed socket, refusal to reuse a server, and
+     teardown of only that server.
+  3. **Fixture extent.** The fixtures are stored at `capture_raw_tail`'s full
+     returned extent (42 rows), not trimmed to 15 lines. That function's
+     docstring requires fixtures at production extent.
+  4. **Resume smoke (2b).** Session creation and resume went through the real
+     launcher (terra). The animation negative control used
+     `codex resume <sid> -c tui.animations={true,false} -m gpt-6-astra`
+     directly, in the launcher's argv shape, because `models_codex.json` has
+     no Astra entry.
+- **Issues encountered:**
+  - The first four probes showed no Braille even in the `animations=true`
+    control. I ruled out `COLORTERM`, pane size, an attached client and idle
+    time before the upstream source identified the model and terminal-colour
+    gates.
+  - Probe v5 used `gpt-6-astra` under identical terminal conditions. The
+    control drew 47–54 dots per capture and changed every tick. The
+    `-c tui.animations=false` flag and the project config alone each gave 0
+    dots and a byte-stable tail, so layer 2 is honoured in a trusted project.
+  - Resume smoke:
+    - The real launcher's argv was
+      `codex resume <sid> -c tui.animations=false -m gpt-5.6-terra`, the
+      transcript was restored (marker visible), and the tail was stable.
+    - On the same session as Astra, `animations=true` drew 28–35 changing
+      dots; `false` gave 0 dots and a stable tail.
+    - `newest_transcript_for` returned a different repo-root Codex session;
+      the marker scan found the right one.
+  - Mistakes caught by the tests:
+    - My first Test 11e assumed `--model`; Codex's flag is `-m`.
+    - I first missed the skill-launch `CMD` line.
+  - The full Python suite reports four failures in
+    `test_parallel_admission_collect.py`. They reproduce on a clean detached
+    worktree of HEAD (`c52534f14`), so they predate this task (see below).
+- **Key decisions:**
+  - The overrides go right after the binary, and after `resume <sid>` for
+    restores, so `resume` stays the leading positional.
+  - `tui.animations` over `tui.whimsy`: it is narrower, and both gate the
+    sparkle.
+  - Layer 3 is deferred to the risk-mitigation "after" follow-up, per the
+    user's decision at planning.
+  - Codex tolerates unknown `-c tui.*` keys (measured), so older builds are
+    unaffected.
+- **Upstream defects identified:**
+  - tests/test_parallel_admission_collect.py:500 — fixtures hard-code `locked_at: "2026-08-30 08:00"` while the `col.main(...)` CLI paths use the wall clock, so four tests (ReplayInvariant, ExcludeNoPlanPredicate ×2, ThresholdSweep) fail once the claim ages past the freshness window; reproduced on a clean HEAD worktree
+  - tests/test_session_hook_install.sh:122 — Groups A–D assert inside `( … )` subshells without `assert_counters_init`/`assert_counters_load`, so a failure there cannot reach the footer and the file still exits 0 (the t1207 pattern)
+  - .aitask-scripts/lib/agent_sessions.py:1659 — `_codex_newest_transcript` returns the newest rollout whose cwd equals the project root, so with several Codex sessions in one repo the restore fallback can resolve a different session than the one being restored (observed live in t1797's resume smoke)
