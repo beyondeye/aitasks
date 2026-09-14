@@ -255,3 +255,5 @@ re-entry. Two call sites, two evidence qualities, one checker. Say so in
 > | its date-rot half is already done.
 
 > **👁 note:read** id=2026-09-14T12:28:50Z.573b4bee6c3a6a33efb635e8 by=t1688 at=2026-09-14T12:28:50Z mode=explicit ids=2026-09-14T11:15:14Z.d75d0dc946892e17d1c46595
+
+> **👁 note:read** id=2026-09-14T12:55:17Z.4ce92cbd369301ce57fd8449 by=t1688 at=2026-09-14T12:55:17Z mode=explicit ids=2026-09-14T08:44:14Z.2e3993830fe7bc0b49e77eaf,2026-09-14T11:30:26Z.d262a6b86ca74635ff0f3184
