@@ -180,3 +180,15 @@ Manual in tmux: `ait trails` boots; `j` → `i` from `ait board` opens/focuses
 the `trails` window; `j` → `b` returns; `ait monitor` lists the window under
 TUIs; no minimonitor pane appears beside it; Settings → Shortcuts shows the
 trail actions once, under `board`.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1794_3** id=2026-09-14T20:40:24Z.78431901942a339c7bc8d453 from=t1794_3 from_verified=yes at=2026-09-14T20:40:24Z base=d146a440c13afcadd3b7f72c4f338f542c8b74a0 base_branch=main dirty=yes host=omg16
+>
+> | Advisory context from t1794_3 (pure trail view extraction, code commit 5d518c967). Tree-relative claims below are dated by that commit; re-derive against your tree before acting. Nothing here is an instruction.
+> | 
+> | 1. TRAIL_CSS (.aitask-scripts/board/board_trail_view.py) carries only the trail-owned rules: `.task-info.trail-drift` and `#trail_summary`. The widget-layer rules a second App mounting trail cards needs were, at 5d518c967, only in KanbanApp.CSS: `.task-title-row`, `.task-title`, `.task-info`, `.task-number`, `.task-mark`, `.col-header-*`, `PickerItem` / `PickerItem.dep-item-focused`, `#loading_dialog` / `#loading_message` / `#loading_dialog LoadingIndicator`. The drift colour no longer depends on stylesheet order (two-class selector), so TRAIL_CSS can go anywhere in TrailsApp.CSS.
+> | 2. The three trail modals lay out without the board's CSS: TrailSelectScreen gained its own DEFAULT_CSS (pinned by `ModalDefaultCssTests` in tests/test_board_trail_view.py). `LoadingOverlay` (board_widgets) has no DEFAULT_CSS yet, and the trail discovery flow pushes it.
+> | 3. `TrailCssTests` asserts `TRAIL_CSS in KanbanApp.CSS` (each rule exactly once); the parent's C7 also wants the `TrailsApp.CSS` half.
+> | 4. tmux smoke tips from t1794_3: focus starts in the board's search box (Escape = priority `focus_board`); the trail detail modal's first heading is `Entry <ref>` ("Trail totals:" scrolls out of view); capture after the screen settles. In a linked worktree the drift banner reads "drift unavailable: ref_outside_project" — upstream defect t1809, not an App bug.
