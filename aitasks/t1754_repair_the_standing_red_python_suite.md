@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Folded
 labels: [testing]
+folded_into: 1763
 followup_kind: upstream_defect
 created_at: 2026-09-09 09:14
-updated_at: 2026-09-09 09:15
+updated_at: 2026-09-14 08:53
 ---
 
 ## Context
