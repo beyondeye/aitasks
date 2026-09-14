@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: bug
@@ -51,3 +53,5 @@ acceptance case 6b.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-09-14T10:56:27Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-09-14T11:39:19Z status=pass attempt=1 type=human
