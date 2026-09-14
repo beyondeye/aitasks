@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [aitask_monitor, codex]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -16,7 +16,8 @@ anchor: 1159
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5
 created_at: 2026-08-14 16:21
-updated_at: 2026-09-14 12:21
+updated_at: 2026-09-14 13:40
+completed_at: 2026-09-14 13:40
 ---
 
 `ait monitor` / `ait minimonitor` do not flag a followed **Codex** pane parked
@@ -88,3 +89,14 @@ pane's `awaiting_input` signal.
 > **✅ gate:plan_approved** run=2026-09-14T09:21:04Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-09-14T10:33:34Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-14T10:40:07Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:0c7b4c0c216e149b
+
+> **✅ gate:risk_evaluated** run=2026-09-14T10:40:07Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1522/risk_evaluated_2026-09-14T10:40:07Z-risk_evaluated-a1.log`
