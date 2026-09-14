@@ -786,7 +786,7 @@ class FollowupKindColourTests(_DetailFollowupBase, unittest.TestCase):
             with self.subTest(kind=kind):
                 resolved = self.ab._followup_colour_hex(colour)
                 self.assertEqual(resolved.lower(),
-                                 self.ab.TextualColor.parse(colour).hex.lower())
+                                 self.ab.board_widgets.TextualColor.parse(colour).hex.lower())
                 if colour.startswith("#"):
                     continue      # a hex is identical under both libraries
                 self.assertNotEqual(

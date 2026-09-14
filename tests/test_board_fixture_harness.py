@@ -315,6 +315,9 @@ MIGRATED_MODULES = (
     # t1794_1: the key-map characterization reaches the board only through the
     # harness too, so it is held to the strict tier from the start.
     "test_board_keymap_characterization.py",
+    # t1794_2: the board_widgets re-export and host-protocol pins reach the
+    # module only as `ab.board_widgets`, through the harness.
+    "test_board_widgets.py",
 )
 
 #: Tier-1 exemptions, scoped to **specific chdir expressions** — never to a whole
@@ -1240,11 +1243,11 @@ import board_c2_probe  # noqa: E402,F401
 class FreshLoadC2Tests(unittest.TestCase):
     """C2 runtime half — a fresh interpreter, a sentinel TASK_DIR, fail closed.
 
-    Vacuous for the real tree until child 2 adds the first sibling module:
-    today the report exercises no sibling at all, which the test records rather
-    than hides. Lazy reads are enforced by the static half; negative control
-    (iv) below proves both that they are a real, silent failure and that the
-    static rule catches them.
+    For the real tree the report covers every sibling the board imports —
+    `board_widgets` since t1794_2 — and the real-tree test asserts that one was
+    executed fresh, so the check cannot quietly exercise nothing. Lazy reads are
+    enforced by the static half; negative control (iv) below proves both that
+    they are a real, silent failure and that the static rule catches them.
     """
 
     def _workdir(self) -> Path:
@@ -1266,8 +1269,10 @@ class FreshLoadC2Tests(unittest.TestCase):
         self.assertEqual(_c2_findings(report), [])
         self.assertEqual(report["board_tasks_dir"], _C2_SENTINEL,
                          "the real board must have honoured the sentinel")
-        # Recorded, not asserted empty: child 2 onward makes this non-empty.
-        self.exercised = sorted(report["modules"])
+        # Anti-vacuity: the board imports board_widgets (t1794_2), so the real
+        # load must have executed it, freshly, under the sentinel.
+        self.assertIn("board_widgets", report["modules"])
+        self.assertTrue(report["modules"]["board_widgets"]["fresh"])
 
     def test_i_import_time_binding_is_flagged(self):
         report = self._probe("from config_utils import task_dir\nTASKS_DIR = task_dir()\n")

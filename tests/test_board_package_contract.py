@@ -19,7 +19,11 @@ the subprocess loaders — is:
   * a sibling that owns a name the tests `patch.object` is bare-imported by
     `aitask_board.py`, so `ab.<module>` is a real patch target;
   * `aitask_board.py` puts its own directory on `sys.path`, so the flat imports
-    resolve under every loader, not only under the tests' pre-seeded path.
+    resolve under every loader, not only under the tests' pre-seeded path;
+  * every free global name in a `board/*.py` resolves to a module binding, a
+    builtin or a module dunder, so a verbatim move that dropped an import fails
+    here rather than as a `NameError` on a rarely-rendered path (t1794_2);
+  * `board_widgets` imports on its own without loading `aitask_board`.
 
 Every checker is a pure function over sources or directories, so each negative
 control feeds a synthetic offender through the SAME checker that scans the
@@ -394,6 +398,52 @@ def _unpaired_patch_targets(board_dir: Path, patched: set[str],
     return findings
 
 
+# --- C1 (g): every free global name in a board module resolves -----------------
+
+#: Module attributes the interpreter provides without an assignment in source.
+#: `__conditional_annotations__` is CPython 3.14's (PEP 649) bookkeeping for
+#: module-level annotations under `if` / `try`; `symtable` reports it as a
+#: referenced name (`aitask_merge.py` has one).
+_MODULE_DUNDERS = frozenset({
+    "__file__", "__name__", "__doc__", "__spec__", "__loader__", "__package__",
+    "__builtins__", "__path__", "__annotations__", "__conditional_annotations__",
+})
+
+
+def _unresolved_globals(source: str, filename: str = "<source>") -> list[str]:
+    """`<scope>: <name>` for every global reference nothing in the module binds.
+
+    A verbatim move out of `aitask_board.py` fails SILENTLY when the moved code
+    uses a name the new module never imported: the import succeeds and the
+    `NameError` fires only when that path runs — a collapsed column header, a
+    GitLab badge, a `date`-typed marker. `symtable` resolves scopes the way the
+    compiler does, so locals, closures, comprehension variables and class
+    attributes are not mistaken for globals. A name used only in annotations
+    under `from __future__ import annotations` is a string, not a reference.
+    """
+    import builtins
+    import symtable
+
+    top = symtable.symtable(source, filename, "exec")
+    bound = {s.get_name() for s in top.get_symbols()
+             if s.is_assigned() or s.is_imported() or s.is_namespace()}
+    known = bound | set(dir(builtins)) | _MODULE_DUNDERS
+    findings: set[str] = set()
+
+    def walk(table):
+        for sym in table.get_symbols():
+            name = sym.get_name()
+            if name in known or not sym.is_referenced():
+                continue
+            if table is top or sym.is_global():
+                findings.add(f"{'<module>' if table is top else table.get_name()}: {name}")
+        for child in table.get_children():
+            walk(child)
+
+    walk(top)
+    return sorted(findings)
+
+
 # --- helpers for synthetic trees ------------------------------------------------
 
 
@@ -684,6 +734,109 @@ class OwnDirInsertTests(unittest.TestCase):
         self.assertTrue(report["board_dir"],
                         "aitask_board.py must insert its own directory so flat "
                         "sibling imports resolve under every loader (C1)")
+
+
+class UnresolvedGlobalsTests(unittest.TestCase):
+    """Every free global name in every `board/*.py` resolves (t1794_2)."""
+
+    def test_board_modules_resolve_every_global(self):
+        for path in _board_files():
+            with self.subTest(module=path.name):
+                self.assertEqual(
+                    _unresolved_globals(_source(path), str(path)), [],
+                    f"{path.name} references names it neither defines nor "
+                    "imports — a moved body that lost its import raises "
+                    "NameError only when that path runs")
+
+    def test_scan_covers_the_extracted_modules(self):
+        names = {p.name for p in _board_files()}
+        self.assertTrue({"aitask_board.py", "board_widgets.py"} <= names,
+                        sorted(names))
+
+    #: `(source, the scope the finding must name)`. Scope names for annotation
+    #: scopes differ across interpreters, so only the stable ones are pinned.
+    FLAGGED = {
+        "function_body": ("import os\ndef f():\n    return Missing(os.sep)\n", "f"),
+        "class_body": ("class C:\n    parse = staticmethod(Missing)\n", "C"),
+        "module_body": ("VALUE = Missing + 1\n", "<module>"),
+        "method_default": ("class C:\n    def f(self, x=Missing):\n        return x\n", None),
+        "annotation_without_future": ("def f(task: Missing) -> None:\n    pass\n", None),
+    }
+
+    NOT_FLAGGED = {
+        "locals_and_closures": ("def f(a):\n    b = 1\n    def g():\n"
+                                "        return a + b\n    return g\n"),
+        "comprehension": "def f(xs):\n    return [x * 2 for x in xs if x]\n",
+        "builtins_and_dunders": "def f():\n    return len(__file__), __name__\n",
+        "future_annotations": ("from __future__ import annotations\nclass C:\n"
+                               "    x: Missing\n    def f(self, t: Missing) -> Missing:\n"
+                               "        return t\n"),
+        "imported_and_defined": ("from os import sep\nclass K:\n    pass\n"
+                                 "def f():\n    return K, sep\n"),
+        "attribute_via_self": ("class C:\n    y = 1\n    def f(self):\n"
+                               "        return self.y\n"),
+    }
+
+    def test_every_unbound_reference_is_flagged(self):
+        for label, (source, scope) in self.FLAGGED.items():
+            with self.subTest(form=label):
+                findings = _unresolved_globals(source)
+                self.assertTrue(findings, f"{label} escaped the guard")
+                self.assertTrue(all(f.endswith(": Missing") for f in findings),
+                                findings)
+                if scope is not None:
+                    self.assertIn(f"{scope}: Missing", findings)
+
+    def test_resolved_names_are_not_flagged(self):
+        for label, source in self.NOT_FLAGGED.items():
+            with self.subTest(form=label):
+                self.assertEqual(_unresolved_globals(source), [],
+                                 f"{label} is a false positive")
+
+
+class HeadlessImportTests(unittest.TestCase):
+    """`board_widgets` imports on its own and does not load the board (t1794_2).
+
+    A subprocess whose `PYTHONPATH` is `board/` + `lib/` only, so nothing but
+    the module's own imports decides what gets loaded. The test process has
+    usually imported `aitask_board` already, so only a fresh interpreter can
+    show that the widget layer does not drag the Kanban app in.
+    """
+
+    CODE = textwrap.dedent("""\
+        import json, sys
+        module = __import__(sys.argv[1])
+        print(json.dumps({
+            "board_loaded": "aitask_board" in sys.modules,
+            "names": sorted(vars(module)),
+        }))
+        """)
+
+    def _probe(self, module: str) -> dict:
+        env = {k: v for k, v in os.environ.items()
+               if k not in ("PYTHONPATH", "TASK_DIR")}
+        env["PYTHONPATH"] = os.pathsep.join((str(BOARD_DIR), str(LIB_DIR)))
+        proc = subprocess.run(
+            [sys.executable, "-c", self.CODE, module],
+            cwd=str(REPO_ROOT), env=env, capture_output=True, text=True,
+            timeout=120)
+        self.assertEqual(proc.returncode, 0, proc.stderr[-2000:])
+        return json.loads(proc.stdout.strip().splitlines()[-1])
+
+    def test_board_widgets_imports_without_the_board(self):
+        report = self._probe("board_widgets")
+        self.assertFalse(report["board_loaded"],
+                         "importing board_widgets loaded aitask_board — the "
+                         "widget layer must not depend on the Kanban app (C1)")
+        for name in ("TaskCard", "PickerItem", "LoadingOverlay", "ColumnHeader",
+                     "MarkedSelection", "_status_badge_text", "CardHost",
+                     "ColumnHeaderHost"):
+            self.assertIn(name, report["names"])
+
+    def test_the_probe_can_see_the_board_loaded(self):
+        """Negative control: the flag is observable, so `False` above means
+        something."""
+        self.assertTrue(self._probe("aitask_board")["board_loaded"])
 
 
 if __name__ == "__main__":

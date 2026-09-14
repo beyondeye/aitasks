@@ -80,6 +80,9 @@ from mark_glyphs import (  # noqa: E402
 #: Every surface that renders the multi-select mark, relative to `.aitask-scripts/`.
 CONSUMERS = (
     "board/aitask_board.py",
+    # TaskCard's mark moved here with the card (t1794_2); the board keeps its
+    # own consumer entry for `_repaint_card_mark` and the declared re-exports.
+    "board/board_widgets.py",
     "brainstorm/brainstorm_dag_display.py",
     "brainstorm/widgets.py",
     "monitor/monitor_shared.py",
@@ -353,6 +356,23 @@ class MarkGlyphsSingleSourceTests(unittest.TestCase):
         self._append(tmp, "board/aitask_board.py",
                      "\n\nMARK_CHECKED_STYLE = mark_markup(True)\n")
         self.assertEqual(scan_tree(tmp), [])
+
+    def test_negative_a_stray_tick_in_board_widgets_is_flagged(self):
+        """The board's `✓` waiver is per file (t1794_2).
+
+        `aitask_board.py` may spell `✓` for its single-select "current" ticks;
+        `board_widgets.py`, which renders the multi-select mark, may not. A
+        waiver that covered the whole board would let a hand-rolled tick into
+        the one file it was never written for.
+        """
+        tmp = self._temp_copy()
+        rel = "board/board_widgets.py"
+        self._append(tmp, rel, '\n\ndef _rogue():\n    return "✓"\n')
+        last = len((tmp / rel).read_text(encoding="utf-8").splitlines())
+        violations = scan_tree(tmp)
+        self.assertIn(f"{rel}:rule2:✓:line{last}", violations)
+        self.assertEqual({v.split(":", 1)[0] for v in violations}, {rel},
+                         violations)
 
     def test_negative_a_glyph_literal_nested_in_a_function_is_flagged(self):
         """The shape that actually shipped in widgets.py and _RejectedRow."""

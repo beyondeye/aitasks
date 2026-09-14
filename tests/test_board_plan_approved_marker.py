@@ -297,8 +297,9 @@ class PlanApprovedMarkerBoundaryTests(_MarkerTestBase, unittest.TestCase):
         """A bare `2026-02-01` parses as a `date`, whose strftime fills 00:00.
 
         This is the row that would raise `NameError` if `date` were not
-        imported at module scope — `aitask_board.py` imported only `datetime`
-        before t1603_1.
+        imported at module scope in `board_widgets.py`, where the helper lives
+        since t1794_2 — `aitask_board.py` imported only `datetime` before
+        t1603_1.
         """
         self.assertEqual(self._marker("plan_approved_at: 2026-02-01"),
                          "2026-02-01 00:00")
@@ -384,33 +385,44 @@ class StatusBadgeTextTests(_MarkerTestBase, unittest.TestCase):
         """
         import ast
 
-        path = REPO_ROOT / ".aitask-scripts" / "board" / "aitask_board.py"
-        tree = ast.parse(path.read_text(encoding="utf-8"))
+        # Every board module, not just aitask_board.py: since t1794_2 the
+        # helper lives in board_widgets.py, so a guard scoped to one file would
+        # find zero literals there and pass while a second one appeared in any
+        # sibling.
+        board_dir = REPO_ROOT / ".aitask-scripts" / "board"
+        paths = sorted(board_dir.glob("*.py"))
+        self.assertIn(board_dir / "board_widgets.py", paths,
+                      "the helper's home is not scanned — the guard would pass "
+                      "vacuously")
 
-        docstrings = set()
-        for node in ast.walk(tree):
-            body = getattr(node, "body", None)
-            if isinstance(node, (ast.Module, ast.ClassDef,
-                                 ast.FunctionDef, ast.AsyncFunctionDef)) and body:
-                first = body[0]
-                if (isinstance(first, ast.Expr)
-                        and isinstance(first.value, ast.Constant)
-                        and isinstance(first.value.value, str)):
-                    docstrings.add(id(first.value))
-
-        hits = [node for node in ast.walk(tree)
-                if isinstance(node, ast.Constant)
-                and isinstance(node.value, str)
-                and id(node) not in docstrings
-                and "📋" in node.value]
-        lines = sorted(node.lineno for node in hits)
+        hits = []
+        for path in paths:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            docstrings = set()
+            for node in ast.walk(tree):
+                body = getattr(node, "body", None)
+                if isinstance(node, (ast.Module, ast.ClassDef,
+                                     ast.FunctionDef, ast.AsyncFunctionDef)) and body:
+                    first = body[0]
+                    if (isinstance(first, ast.Expr)
+                            and isinstance(first.value, ast.Constant)
+                            and isinstance(first.value.value, str)):
+                        docstrings.add(id(first.value))
+            hits.extend(f"{path.name}:{node.lineno}" for node in ast.walk(tree)
+                        if isinstance(node, ast.Constant)
+                        and isinstance(node.value, str)
+                        and id(node) not in docstrings
+                        and "📋" in node.value)
         self.assertEqual(
             len(hits), 1,
             f"expected the 📋 glyph in exactly one rendered literal (inside "
-            f"_status_badge_text), found {len(hits)} at line(s) {lines}. Route "
+            f"_status_badge_text), found {len(hits)} at {sorted(hits)}. Route "
             f"the new badge through _status_badge_text rather than spelling the "
             f"glyph again; widen this guard only if a surface genuinely cannot "
             f"use the helper.")
+        self.assertTrue(hits[0].startswith("board_widgets.py:"),
+                        f"the one 📋 literal is no longer in board_widgets.py, "
+                        f"where _status_badge_text lives: {hits}")
 
 
 class CardQualifierTests(_MarkerTestBase, unittest.TestCase):

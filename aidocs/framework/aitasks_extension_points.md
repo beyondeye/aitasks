@@ -283,7 +283,7 @@ approved, implementation deliberately deferred". Shape-identical to
   `aidocs/gates/ledger-driven-reentry.md`, whose "approved and stopped" section
   would otherwise still claim the ledger entry is the only trace.
 - **Board layer 3 = a render boundary plus its call sites, not a field read.**
-  `_plan_approved_marker` in `board/aitask_board.py` is the metadata-shaped
+  `_plan_approved_marker` in `board/board_widgets.py` is the metadata-shaped
   boundary (the `_followup_marker` pattern: total over the type-honest values
   the loader produces, and a value it cannot read renders a fixed literal rather
   than vanishing). The card badge is single-sourced through

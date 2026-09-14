@@ -3,7 +3,8 @@
 `website/content/docs/tuis/board/reference.md` documents the In-Flight lane
 titles, the workflow-phase chip vocabulary, the card's deferred-plan badge and
 the six `Gates` rows. Website docs pages have no accuracy guard of their own, so
-a rename in `aitask_board.py` silently rots the published page. This module makes
+a rename in a board module (`aitask_board.py`,
+`board_widgets.py`) silently rots the published page. This module makes
 that a test failure instead.
 
 **The source is the authority; the doc is the assertion target.** Nothing here
@@ -225,15 +226,15 @@ class ZeroInterpolationRenderTests(DocLiteralTestBase, unittest.TestCase):
         since the marker branch requires it. Normalizing to `<status>` would
         assert a string the page never presents.
         """
-        got = self.ab._status_badge_text("Ready", "2026-08-25 10:24")
+        got = self.ab.board_widgets._status_badge_text("Ready", "2026-08-25 10:24")
         self.assertDocumented(got, "the deferred-plan card badge")
 
     def test_unmarked_badge_is_the_same_renderer(self):
         """A negative control on the pair: without a marker there is no
         qualifier, so a guard that passed on both would not be reading the
         qualifier at all."""
-        plain = self.ab._status_badge_text("Ready", None)
-        marked = self.ab._status_badge_text("Ready", "2026-08-25 10:24")
+        plain = self.ab.board_widgets._status_badge_text("Ready", None)
+        marked = self.ab.board_widgets._status_badge_text("Ready", "2026-08-25 10:24")
         self.assertNotEqual(plain, marked)
         self.assertTrue(marked.startswith(plain))
 
