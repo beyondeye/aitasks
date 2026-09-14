@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1794
+implemented_with: claudecode/opus5
 created_at: 2026-09-11 15:08
-updated_at: 2026-09-14 08:40
+updated_at: 2026-09-14 12:03
 ---
 
 ## Context
@@ -163,3 +164,8 @@ Why the guards exist (measured, not guessed):
 - `tests/perf/board_footprint.sh` produces three lines (board × 2
   interpreters + ceiling) and they are in `python_tui_performance.md`.
 - `ait board` boots in tmux and `q` quits.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-14T09:03:00Z status=pass attempt=1 type=human
