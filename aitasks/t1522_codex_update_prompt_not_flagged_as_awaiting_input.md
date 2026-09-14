@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [aitask_monitor, codex]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1159
 followup_kind: upstream_defect
 created_at: 2026-08-14 16:21
-updated_at: 2026-08-14 16:21
+updated_at: 2026-09-14 09:20
 ---
 
 `ait monitor` / `ait minimonitor` do not flag a followed **Codex** pane parked
