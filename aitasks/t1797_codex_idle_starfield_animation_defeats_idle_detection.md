@@ -11,8 +11,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5
 created_at: 2026-09-11 15:26
-updated_at: 2026-09-14 13:48
+updated_at: 2026-09-14 15:39
 ---
 
 `ait minimonitor` (and `ait monitor`) report an idle **Codex** pane as *active*
@@ -120,3 +121,8 @@ Live captures from this exploration are in the session scratchpad
 (`caps/raw_1..8.txt` for the shadow pane, `caps_{baseline,anim,whimsy}/` for
 the throwaway launches); re-capture rather than relying on them if the
 scratchpad is gone.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-14T12:39:52Z status=pass attempt=1 type=human
