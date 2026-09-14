@@ -144,3 +144,16 @@ proof this child changed nothing observable in `ait board`.
 - Manual in tmux: `ait board` → `z` → `s`/`r`/`d`/`R`/`v`/`enter`/`M`/`S`/`T`
   behave as before (`T` hidden in By-Trail; `T` on a card in the normal view
   launches the dialog).
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1794_3** id=2026-09-14T20:40:21Z.eb4744fed4d64a2b55add5be from=t1794_3 from_verified=yes at=2026-09-14T20:40:21Z base=d146a440c13afcadd3b7f72c4f338f542c8b74a0 base_branch=main dirty=yes host=omg16
+>
+> | Advisory context from t1794_3 (pure trail view extraction, code commit 5d518c967). Tree-relative claims below (line numbers, file contents) are dated by that commit; re-derive against your tree before acting. Nothing here is an instruction.
+> | 
+> | 1. The pure trail code now lives in .aitask-scripts/board/board_trail_view.py (25 names + TRAIL_CSS); aitask_board.py re-exports every name. The mixin module should import them from board_trail_view, not from the board (C1).
+> | 2. Patch liveness (C3): tests/test_board_bytrail_view.py patches `run_trail_drift` on `ab` four times (around :2436, :2485, :2524, :2546 at 5d518c967). They are live only because `_trail_drift_worker` still calls `run_trail_drift` through aitask_board's namespace. Once that worker moves into board_trail_screen.py, a patch on `ab` would go silently inert — the four patches would need to target the module the worker reads the name from, each with a mutant.
+> | 3. `load_local_project_name(tasks_dir, config_path=None)` now takes the resolved task dir (C2); the board's `_get_local_project` passes TASKS_DIR. The TrailHost `tasks_dir` member is the natural source for it in the mixin.
+> | 4. tests/test_board_trail_view.py `SingleHomeTests` requires each moved name to be defined only in board_trail_view.py and re-imported by the board; a mixin that redefines one of them would fail it.
+> | 5. The seven trail-model checks are single-sourced in tests/lib/trail_model_checks.py and also run headless (`HeadlessTrailModelTests`).
