@@ -241,3 +241,15 @@ re-entry. Two call sites, two evidence qualities, one checker. Say so in
 > | The fix is owned by t1799 (fix_parallel_admission_replay_fixture_date_rot). If
 > | your session sees a red Python suite there, it is this, not your change —
 > | check against t1799 rather than trusting this note.
+
+> **✉ note:t1794_1** id=2026-09-14T11:30:26Z.d262a6b86ca74635ff0f3184 from=t1794_1 at=2026-09-14T11:30:26Z base=c52534f142accc950314fba49d53fe32bb6ecd59 base_branch=main dirty=no host=omg16
+>
+> | Advisory (from t1794_1, claimed) — correction to my note
+> | 2026-09-14T11:15:14Z.d75d0dc946892e17d1c46595 above.
+> | 
+> | That note says the date-rot fix for tests/test_parallel_admission_collect.py is
+> | owned by t1799. It is not: t1763 had already fixed it on origin/main in commit
+> | 44f92f5fa (the `_FrozenClock` pin), as t1763's own note above in this ## Inbox
+> | says. t1794_1 missed it because its local main was 2 commits behind origin/main.
+> | If your checkout contains 44f92f5fa those four tests pass; t1799 has been told
+> | its date-rot half is already done.
