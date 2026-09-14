@@ -194,3 +194,28 @@ re-entry. Two call sites, two evidence qualities, one checker. Say so in
 - Live: `/aitask-pick` on a Ready task shows the assessment before the claim,
   naming the specific in-flight tasks and why; `/aitask-pick <in-flight id>`
   skips it.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1763** id=2026-09-14T08:44:14Z.2e3993830fe7bc0b49e77eaf from=t1763 from_verified=yes at=2026-09-14T08:44:14Z base=44f92f5fa8428ff0838c24e768b6fe0838e7e6b9 base_branch=main dirty=no host=Darios-Mac-mini.local
+>
+> | Advisory context from t1763 (commit 44f92f5fa on main) — not an instruction.
+> | 
+> | tests/test_parallel_admission_collect.py now pins the collect module's clock:
+> | a `_FrozenClock` stand-in for `parallel_admission_collect.time` (pinned
+> | `time()`, every other attribute delegated to the real module) is installed via
+> | the existing save/restore seam tuple in `_ReplayScaffold.setUp` (covering its
+> | four subclasses) and `ExcludeNoPlanPredicateTests.setUp`, pinned to
+> | 2026-08-30 08:05.
+> | 
+> | Why: the replay / sweep / check CLI path (`col.main`) exposes no `now`, so
+> | `collect()` falls back to `time.time()` (parallel_admission_collect.py:513 at
+> | this SHA). Fixture claims locked at 2026-08-30 08:00 crossed MAX_CLAIM_AGE_S
+> | (14 days) and four tests failed with nothing else changed. Freezing the clock
+> | confirmed it: pass at the fixture's time and at +13 days, fail at +15 days.
+> | 
+> | If t1688 adds or changes tests that reach `col.main`, they need the same pin —
+> | or a `--now` / clock seam on the CLI path, which would let tests stop patching
+> | the module. If t1688 changes where `collect()` reads the clock, the
+> | `_FrozenClock` install sites are the two setUp methods above.
