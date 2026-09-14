@@ -39,7 +39,9 @@ under the matching code-agent group (`claude`, `codex`, `opencode`,
 `PaneSnapshot.awaiting_input_kind`, so make it human-readable (e.g.
 `claude_proceed`, `codex_yes_proceed`). The claude group ships
 `claude_askuserquestion`, `claude_plan_approval`, `claude_trust_folder`,
-`claude_proceed` and `claude_help_bar`; codex ships `codex_yes_proceed`.
+`claude_proceed` and `claude_help_bar`; codex ships `codex_question`,
+`codex_permission`, `codex_yes_proceed` and `codex_update_prompt`; opencode
+ships `opencode_question`, `opencode_permission` and `opencode_palette`.
 
 > **Measured drift, 2.1.233 (t1540).** `claude_trust_folder` **no longer fires on
 > the live dialog**, for two independent reasons: its confirm/cancel options now
@@ -72,6 +74,22 @@ t1474). Each one costs a line to follow and a release to discover.
   the permission dialog's default question, and it still almost never fires,
   because it renders above the options and the bottom-anchored
   `claude_help_bar` matches those dialogs first.
+
+  **"The bottom" is the dialog's bottom — and a pre-TUI screen puts that
+  mid-pane.** Inline boot screens drawn before the agent's TUI starts render
+  *top-aligned*, with blank rows filling the rest of the pane, so the shared
+  window is entirely blank however well the pattern is anchored. Measured for
+  Codex's startup update prompt (t1522: hint at row -15 / -21 / -41 at
+  80x24 / 120x30 / 120x50) and for Claude's trust screen (t1540). For such a
+  screen set `skip_trailing_blank_rows=True` on the pattern: it is then matched
+  against the last 6 rows *after* trailing blank rows are dropped. Keep it
+  **per pattern** — trimming the shared window for everyone was measured to
+  break Claude's kind-by-pane-height contract, because its dialogs carry
+  trailing blank rows too (10 pinned tests). A fixture captured from such a
+  screen must keep its blank rows, or a test passes on geometry production
+  never sees. `codex_update_prompt` is the worked example;
+  `claude_trust_folder`'s geometry half is the next candidate (its wording half
+  is a separate defect).
 
 - **Require the anchor to hold its whole line whenever the dialog's own rows are
   editable.** `claude_proceed` is the worked example here too. Claude's

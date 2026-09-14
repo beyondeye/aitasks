@@ -124,9 +124,11 @@ print("MISSING:" + (",".join(missing) if missing else "-"))
 
 # A generic confirmation must never carry a phase — absence is the safety.
 # The three t1467 additions join the list: a tool-permission dialog carries no
-# workflow phase for Codex/OpenCode any more than it does for Claude.
+# workflow phase for Codex/OpenCode any more than it does for Claude. Nor does
+# Codex's startup update gate (t1522).
 generic = ["claude_proceed", "claude_help_bar", "claude_trust_folder",
-           "codex_yes_proceed", "codex_permission", "opencode_permission"]
+           "codex_yes_proceed", "codex_permission", "opencode_permission",
+           "codex_update_prompt"]
 leaked = [g for agent, row in wp.NATIVE_KIND_PHASE.items() for g in generic if g in row]
 print("LEAKED:" + (",".join(leaked) if leaked else "-"))
 

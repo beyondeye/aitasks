@@ -183,9 +183,22 @@ DEFAULT_COMPARE_MODE = COMPARE_MODE_STRIPPED
 _PROMPT_DETECTION_TAIL_LINES = 6
 
 
-def _prompt_detection_text(s: str) -> str:
-    """Return the live bottom slice used for awaiting-input prompt matching."""
+def _prompt_detection_text(s: str, *, skip_trailing_blank_rows: bool = False) -> str:
+    """Return the live bottom slice used for awaiting-input prompt matching.
+
+    ``skip_trailing_blank_rows`` drops whitespace-only rows from the end before
+    slicing — only for patterns that opt in via
+    ``PromptPattern.skip_trailing_blank_rows`` (t1522), because a top-aligned
+    pre-TUI screen leaves the plain bottom window entirely blank. The default
+    path is deliberately untouched: every other pattern, and the t1540/t1557
+    kind-by-pane-height contracts, are measured against it, and a global trim
+    was measured to break them.
+    """
     lines = s.splitlines()
+    if skip_trailing_blank_rows:
+        while lines and not lines[-1].strip():
+            lines.pop()
+        return "\n".join(lines[-_PROMPT_DETECTION_TAIL_LINES:])
     if len(lines) <= _PROMPT_DETECTION_TAIL_LINES:
         return s
     return "\n".join(lines[-_PROMPT_DETECTION_TAIL_LINES:])
@@ -250,6 +263,10 @@ def classify_content(
     The result carries the resolution outcome (``agent_key`` / ``scoped``) so
     that "matched under scoped rules" and "matched from the unscoped flat list"
     are distinguishable downstream instead of looking identical.
+
+    Each pattern searches the shared bottom window, except one that sets
+    ``skip_trailing_blank_rows`` (t1522), which searches the window taken after
+    dropping trailing blank rows. First-match-wins order is unchanged.
     """
     compare_value = strip_ansi(content) if mode == COMPARE_MODE_STRIPPED else content
     agent_key = (agent or "").strip().lower()
@@ -259,8 +276,17 @@ def classify_content(
     if category == PaneCategory.AGENT and prompt_patterns:
         stripped_text = compare_value if mode == COMPARE_MODE_STRIPPED else strip_ansi(content)
         prompt_text = _prompt_detection_text(stripped_text)
+        # Built lazily, only once a pattern that opts into it is reached, so a
+        # pane whose scoped list has none never pays for it.
+        trimmed_text: str | None = None
         for p in scope_patterns(prompt_patterns, agent_key):
-            if p.regex.search(prompt_text):
+            text = prompt_text
+            if p.skip_trailing_blank_rows:
+                if trimmed_text is None:
+                    trimmed_text = _prompt_detection_text(
+                        stripped_text, skip_trailing_blank_rows=True)
+                text = trimmed_text
+            if p.regex.search(text):
                 awaiting_input = True
                 awaiting_input_kind = p.name
                 break

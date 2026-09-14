@@ -25,10 +25,16 @@ reads in production, so a fixture cannot pass on content the app would never
 see. States: at-rest (dim placeholder hint), typed, working, permission
 dialog, question widget, and the startup update prompt.
 
-``CODEX_UPDATE_PROMPT_RAW`` is load-bearing rather than decorative: **no**
-codex prompt pattern matches it, so it is the fixture that proves readiness is
-excluded *structurally* (an option row rendered with the composer glyph) and
-not merely by pattern coverage. Do not drop it when refreshing the others.
+``CODEX_UPDATE_PROMPT_RAW`` is load-bearing rather than decorative: it is the
+fixture that proves readiness is excluded *structurally* (an option row
+rendered with the composer glyph) and not merely by pattern coverage. Since
+t1522 the ``codex_update_prompt`` pattern matches it as well, so that proof now
+runs with the codex pattern list emptied. Do not drop it when refreshing the
+others. It is also **trimmed of trailing blank rows**: live, the dialog is an
+inline pre-TUI screen rendered TOP-aligned (hint at row -15 / -21 / -41 at
+80x24 / 120x30 / 120x50 on 0.154.0, measured t1522), so this fixture does NOT
+carry the followed-pane detection window's geometry — append the blank rows
+back when a test needs it.
 
 Two measured properties the Codex fixtures encode, both of which the detector
 depends on: the placeholder hint ROTATES between sessions (so the hint text is

@@ -44,6 +44,14 @@ from agent_keys import (  # noqa: E402
 class PromptPattern:
     name: str             # short id, surfaced as snap.awaiting_input_kind
     regex: re.Pattern[str]
+    # Match against the tail with its trailing BLANK rows dropped first, instead
+    # of the shared bottom-6 window (t1522). For inline pre-TUI screens that
+    # render TOP-aligned: their bottom element sits above a run of blank rows
+    # filling the rest of the pane, so the shared window is all blank there.
+    # Opt-in per pattern, never global: trimming the shared window was measured
+    # to change which kind Claude's permission dialog reports (its captures
+    # carry trailing blank rows too) — see monitor_core._prompt_detection_text.
+    skip_trailing_blank_rows: bool = False
 
 
 # The two option lines of Claude Code's workspace-trust confirm dialog, each
@@ -230,6 +238,61 @@ PROMPT_PATTERNS_BY_AGENT: dict[str, list[PromptPattern]] = {
         # Verified still live on 0.146.0 (t1467): it renders at distance 5, so it
         # remains a real backstop for the same dialog when the footer scrolls.
         PromptPattern("codex_yes_proceed", re.compile(r"Yes,? proceed \(y\)")),
+        # The startup update-available dialog (t1522): a header naming the old
+        # and new versions, a release-notes line, three numbered options (the
+        # selected one carries the `›` composer glyph) and a bottom hint asking
+        # to press enter to continue. It renders on EVERY launch while a newer
+        # version exists, and is the first screen a freshly spawned agent shows.
+        #
+        # The only pattern with `skip_trailing_blank_rows`, and it cannot work
+        # without it. Measured live against 0.154.0 (npm-managed): the dialog is
+        # an inline pre-TUI screen (alternate_on=0) rendered TOP-aligned — the
+        # hint sits at row -15 / -21 / -41 at 80x24 / 120x30 / 120x50 with only
+        # blank rows below it, so the shared 6-line window is entirely blank on
+        # every real pane. With the blank run dropped the window holds exactly
+        # the dialog's tail: blank, three option rows, blank, hint.
+        # (tests/review_loop_fixtures.py's CODEX_UPDATE_PROMPT_RAW was trimmed of
+        # those rows, which is why it looks bottom-anchored.)
+        #
+        # Dropping an arbitrary blank run is safe on the way OUT as well as in:
+        # measured live (t1522, 0.25 s sampling), the kind clears on the first
+        # sample after the dialog is dismissed and never returns — including
+        # when the dismissed dialog's text stays in scrollback above the next
+        # inline screen (sign-in or directory-trust), because the trimmed window
+        # then ends on THAT screen's rows, whose hint sits under other options.
+        #
+        # Anchored on the LAST option row plus the hint — adjacent, with exactly
+        # the measured one blank row between them, each holding nothing but its
+        # label:
+        #  * the hint alone is generic prose, and Codex's sign-in onboarding
+        #    screen ends with the very same hint over different options — this
+        #    name must not claim that screen;
+        #  * option 3 rather than option 1, because option 1's label embeds the
+        #    install command, which varies with the install method;
+        #  * `›` is the only selection marker recognised WHEN PRESENT, and the
+        #    regex makes it optional on purpose: the option-3 row carries it
+        #    only while option 3 is selected, so requiring it would stop the
+        #    pattern matching in the other two selection states (all three are
+        #    pinned by _check_codex_update_prompt_detected). ASCII `>` is not a
+        #    marker — it is the Markdown blockquote prefix.
+        # Two anchors in fixed geometry are structure, not a quotable phrase:
+        # prose mentioning the hint or the option label cannot match.
+        #
+        # KNOWN LIMIT: a verbatim, geometry-faithful reproduction of the option
+        # row and hint is indistinguishable from the dialog (rule 3 of
+        # monitor_idle_and_prompt_detection.md) — pinned by
+        # _check_codex_update_prompt_known_false_positive.
+        #
+        # Consumers: the followed-pane window gains detection through the
+        # opt-in. The review loop already classified this pane SHADOW_DIALOG
+        # structurally (t1509) and now also matches it in its whole-tail
+        # negative half — same verdict. No NATIVE_DIALOG_BOUNDARIES row: see
+        # review_loop.DELIBERATELY_UNANCHORED_KINDS.
+        PromptPattern("codex_update_prompt",
+                      re.compile(r"(?m)^[ \t]*(?:›[ \t]*)?3\. Skip until next version[ \t]*\n"
+                                 r"[ \t]*\n"
+                                 r"[ \t]*Press enter to continue[ \t]*$"),
+                      skip_trailing_blank_rows=True),
     ],
     "opencode": [
         # OpenCode's interactive question widget. Measured live against 1.18.18

@@ -568,23 +568,33 @@ class CodexShadowReadinessTests(unittest.TestCase):
         for name, want in expected.items():
             self.assertEqual(rl._codex_state(getattr(fx, name)), want, name)
 
-    def test_the_unpatterned_update_prompt_is_a_dialog_not_typed_text(self):
+    def test_the_update_prompt_is_a_dialog_with_or_without_its_pattern(self):
         """The assertion that pins the STRUCTURAL arming rule.
 
-        No codex prompt pattern matches the startup update prompt, and its
-        option row is rendered with the composer glyph followed by visible
-        text — so a detector that classified it from the composer scan alone
-        would call it SHADOW_BUSY. The caller's settle latch arms on anything
-        that is not READY/WORKING either way, but the verdict must be honest
-        about WHY, because a BUSY verdict would mean the loop is relying on
-        pattern coverage it does not have here.
+        The startup update prompt's option row is rendered with the composer
+        glyph followed by visible text, so a detector that classified it from
+        the composer scan alone would call it SHADOW_BUSY. The caller's settle
+        latch arms on anything that is not READY/WORKING either way, but the
+        verdict must be honest about WHY.
+
+        Since t1522 the `codex_update_prompt` pattern matches this capture and
+        the negative half answers SHADOW_DIALOG first — which is exactly why the
+        verdict is re-proved with the codex pattern list emptied: the structural
+        half must still say DIALOG on its own, or the loop would be relying on
+        pattern coverage again (t1509's premise, kept rather than deleted).
         """
         raw = fx.CODEX_UPDATE_PROMPT_RAW
         plain = rl.strip_ansi(raw)
-        # Negative control on the premise: no pattern matches this capture.
-        for pattern in rl.PROMPT_PATTERNS_BY_AGENT.get("codex", []):
-            self.assertIsNone(pattern.regex.search(plain), pattern.name)
+        matched = {p.name for p in rl.PROMPT_PATTERNS_BY_AGENT.get("codex", [])
+                   if p.regex.search(plain)}
+        self.assertEqual(matched, {"codex_update_prompt"})
         self.assertEqual(rl._codex_state(raw), rl.SHADOW_DIALOG)
+        saved = rl.PROMPT_PATTERNS_BY_AGENT.get("codex", [])
+        rl.PROMPT_PATTERNS_BY_AGENT["codex"] = []
+        try:
+            self.assertEqual(rl._codex_state(raw), rl.SHADOW_DIALOG)
+        finally:
+            rl.PROMPT_PATTERNS_BY_AGENT["codex"] = saved
 
 
 class CodexIsolatedPositiveHalfTests(unittest.TestCase):
@@ -2209,6 +2219,22 @@ class ConservativeDefaultSurvivesTests(unittest.TestCase):
             rl.classify_followed_change("a", "opencode_palette",
                                         "b", "opencode_palette",
                                         True, "opencode"),
+            rl.UNKNOWN)
+
+    def test_codex_update_prompt_is_unanchored_and_unknown(self):
+        """The startup update gate (t1522) is exempt, not forgotten.
+
+        Pinned like the palette: no row in either boundary table, an exemption
+        whose reason carries its provenance, and the conservative UNKNOWN when
+        the followed pane changes while parked on it."""
+        key = ("codex", "codex_update_prompt")
+        self.assertNotIn(key, rl.NATIVE_DIALOG_BOUNDARIES)
+        self.assertNotIn(key, rl.NATIVE_DIALOG_STRATEGIES)
+        self.assertIn("t1522", rl.DELIBERATELY_UNANCHORED_KINDS[key])
+        self.assertEqual(
+            rl.classify_followed_change("a", "codex_update_prompt",
+                                        "b", "codex_update_prompt",
+                                        True, "codex"),
             rl.UNKNOWN)
 
     def test_claude_trust_folder_is_still_unanchored_and_unknown(self):

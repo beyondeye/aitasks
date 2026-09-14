@@ -28,12 +28,20 @@ Exercises _finalize_capture directly — no tmux required. Covers:
      wherever it comes from, including inside a fenced code block; that is rule
      3 of `monitor_idle_and_prompt_detection.md` (a verbatim reproduction is
      indistinguishable) and it is pinned here, not merely believed.
+ 13. Codex's startup update-available prompt is detected as
+     `codex_update_prompt` at its PRODUCTION geometry — top-aligned, above a run
+     of blank rows — through the per-pattern `skip_trailing_blank_rows` opt-in
+     (t1522). The opt-in is proven load-bearing (the same regex without it sees
+     nothing) and per-pattern (the shared window stays untrimmed); prose about
+     the dialog, the sign-in screen that shares its hint, and scrollback do not
+     claim the kind; the verbatim-reproduction limit is pinned.
 
 Run:
   python3 tests/test_prompt_detection.py
 """
 from __future__ import annotations
 
+import dataclasses
 import sys
 import time
 import unittest
@@ -41,6 +49,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / ".aitask-scripts"))
 
+import review_loop_fixtures as fx  # noqa: E402
+from monitor.ansi_utils import strip_ansi  # noqa: E402
 from monitor.tmux_monitor import (  # noqa: E402
     TmuxMonitor,
     TmuxPaneInfo,
@@ -270,6 +280,7 @@ def _check_all_patterns_flattens_per_agent_groups() -> None:
     assert "claude_proceed" in names
     assert "claude_trust_folder" in names
     assert "codex_yes_proceed" in names
+    assert "codex_update_prompt" in names
 
 
 # --- workspace-trust dialog (t1474) ------------------------------------------
@@ -464,6 +475,10 @@ _CHARACTERIZATION_BODIES: list[tuple[str, str]] = [
     ("claude_proceed", "Do you want to proceed?\n"),
     ("claude_help_bar", "Esc to cancel · Tab to amend\n"),
     ("codex_yes_proceed", "  Yes, proceed (y)\n"),
+    # Added with the pattern (t1522), not part of the t1467 prediction; its
+    # production geometry (top-aligned, above blank rows) is exercised by
+    # `_check_codex_update_prompt_detected`, not here.
+    ("codex_update_prompt", "  3. Skip until next version\n\n  Press enter to continue\n"),
 ]
 
 # Every command a real pane reports, including the two measured non-resolving
@@ -492,6 +507,8 @@ _CHARACTERIZATION_EXPECTED_FLIPS: dict[tuple[str, str], str] = {
     ("claude_help_bar", "opencode"): "",
     ("codex_yes_proceed", "claude"): "",
     ("codex_yes_proceed", "opencode"): "",
+    ("codex_update_prompt", "claude"): "",
+    ("codex_update_prompt", "opencode"): "",
 }
 
 
@@ -563,6 +580,10 @@ def _check_cross_agent_negative_control() -> None:
         ("codex", "claude_help_bar", "Esc to cancel · Tab to amend\n"),
         ("opencode", "claude_askuserquestion",
          "Enter to select · ↑/↓ to navigate · Esc to cancel\n"),
+        ("claude", "codex_update_prompt",
+         "  3. Skip until next version\n\n  Press enter to continue\n"),
+        ("opencode", "codex_update_prompt",
+         "  3. Skip until next version\n\n  Press enter to continue\n"),
     ]
     for command, foreign_kind, body in cases:
         snap = _characterize(foreign_kind, body, command)
@@ -759,6 +780,185 @@ def _check_unrecognized_rendering_degrades_silently() -> None:
         assert snap.scoped is True, f"{label}: the pane itself did resolve"
 
 
+# --- codex startup update-available prompt (t1522) ---------------------------
+#
+# Live, the dialog is an inline pre-TUI screen rendered TOP-aligned, so its tail
+# sits above a run of blank rows; `codex_update_prompt` opts into matching the
+# tail with that run dropped (`skip_trailing_blank_rows`). Bodies are derived
+# from the committed live capture rather than retyped, so this file adds no
+# second verbatim copy of the dialog.
+
+# Blank rows measured below the hint at 80x24 / 120x30 / 120x50
+# (codex-cli 0.154.0, t1522).
+_UPDATE_PROMPT_MEASURED_BLANK_RUNS = (14, 20, 40)
+
+
+def _update_prompt_tail() -> str:
+    """The dialog as captured, ANSI-stripped, ending on the hint row."""
+    return strip_ansi(fx.CODEX_UPDATE_PROMPT_RAW)
+
+
+def _blank_rows(n: int) -> str:
+    """``n`` blank rows after a final row (the first newline ends that row)."""
+    return "\n" * (n + 1)
+
+
+def _update_prompt_with_selection(option: int) -> str:
+    """The same dialog with the `›` marker moved to ``option`` (1-3)."""
+    lines = _update_prompt_tail().splitlines()
+    rows = [i for i, line in enumerate(lines)
+            if line.lstrip("› ").startswith(("1. ", "2. ", "3. "))]
+    assert len(rows) == 3, f"fixture shape changed: option rows at {rows}"
+    for n, i in enumerate(rows, start=1):
+        lines[i] = ("› " if n == option else "  ") + lines[i].lstrip("› ")
+    return "\n".join(lines)
+
+
+def _codex_snap(content: str, command: str = "codex", patterns=None):
+    """Classify ``content`` on an AGENT pane running ``command``.
+
+    ``pane_pid=0`` is the documented "no pid" value: an unresolved command
+    (`node`) would otherwise send `agent_key_from_pane` to scan that pid's
+    children on the host, making the fail-open case host-dependent.
+    """
+    kwargs = {} if patterns is None else {"prompt_patterns": patterns}
+    mon = TmuxMonitor(session="aitasks", idle_threshold=0.05, **kwargs)
+    pane = dataclasses.replace(
+        make_pane(pane_id="%upd", window_name="agent-pick-1522",
+                  current_command=command),
+        pane_pid=0)
+    return mon._finalize_capture(pane, content)
+
+
+def _check_codex_update_prompt_detected() -> None:
+    """The update prompt reports `codex_update_prompt` in every measured shape.
+
+    The blank-run cases are the production geometry — the ones the shared
+    6-line window alone cannot see. `node` is Codex's npm launcher: the pane
+    command does not resolve there, and the fail-open flat list must still
+    find it.
+    """
+    tail = _update_prompt_tail()
+    cases = {"as captured (bottom-anchored)": (tail, "codex")}
+    for run in _UPDATE_PROMPT_MEASURED_BLANK_RUNS:
+        cases[f"top-aligned, {run} blank rows below"] = (
+            tail + _blank_rows(run), "codex")
+    for option in (1, 2, 3):
+        cases[f"option {option} selected, top-aligned"] = (
+            _update_prompt_with_selection(option) + _blank_rows(20), "codex")
+    cases["unresolved node launcher, top-aligned"] = (
+        tail + _blank_rows(20), "node")
+    for label, (content, command) in cases.items():
+        snap = _codex_snap(content, command)
+        assert snap.awaiting_input, f"{label}: must mark awaiting_input"
+        assert snap.awaiting_input_kind == "codex_update_prompt", (
+            f"{label}: expected codex_update_prompt, "
+            f"got {snap.awaiting_input_kind!r}")
+
+
+def _check_update_prompt_trim_is_load_bearing_and_per_pattern() -> None:
+    """Both halves of the opt-in, each able to fail.
+
+    1. Load-bearing: the same regex WITHOUT the opt-in cannot see the
+       production geometry, so the flag — not the regex — is what makes the
+       pattern live. (That is what any bottom-anchored pattern does on a
+       top-aligned screen; it is `claude_trust_folder`'s geometry half.)
+    2. Per-pattern: a Claude help bar above a run of blank rows still reports
+       no kind. The shared window stays untrimmed for every pattern that did
+       not opt in; a global trim was measured to change Claude's kind
+       selection by pane height.
+    """
+    real = next(p for p in PROMPT_PATTERNS_BY_AGENT["codex"]
+                if p.name == "codex_update_prompt")
+    assert real.skip_trailing_blank_rows, "the shipped pattern must opt in"
+    top_aligned = _update_prompt_tail() + _blank_rows(20)
+
+    with_flag = _codex_snap(top_aligned, patterns=[real])
+    assert with_flag.awaiting_input_kind == "codex_update_prompt", (
+        "control: the opt-in pattern must match, got "
+        f"{with_flag.awaiting_input_kind!r}")
+    without_flag = dataclasses.replace(real, skip_trailing_blank_rows=False)
+    snap = _codex_snap(top_aligned, patterns=[without_flag])
+    assert not snap.awaiting_input, (
+        "without the opt-in the top-aligned dialog must be invisible — if it "
+        "matches, the flag is not what makes the pattern live "
+        f"(got {snap.awaiting_input_kind!r})")
+
+    mon = TmuxMonitor(session="aitasks", idle_threshold=0.05)
+    help_bar = "Esc to cancel · Tab to amend\n" + _blank_rows(8)
+    snap2 = mon._finalize_capture(make_pane(pane_id="%shared"), help_bar)
+    assert not snap2.awaiting_input, (
+        "the shared window must stay untrimmed for patterns that did not opt "
+        f"in (got {snap2.awaiting_input_kind!r})")
+
+
+def _check_codex_update_prompt_negative_controls() -> None:
+    """Text ABOUT the dialog, or a neighbouring screen, must not claim its kind.
+
+    Each case is a distinct way the anchor could be reproduced. Every body is
+    padded with a blank run, so it is judged in the same trimmed window the
+    real pattern sees — an un-padded case would test the wrong window.
+    """
+    hint = "  Press enter to continue"
+    last_option = "  3. Skip until next version"
+    cases = {
+        "hint alone on its own line": hint,
+        "hint quoted inline in prose":
+            "the dialog says Press enter to continue under the options",
+        "hint as a bullet": "- Press enter to continue",
+        "option and hint in a blockquote":
+            "> 3. Skip until next version\n>\n> Press enter to continue",
+        "option label quoted in prose above the hint":
+            f'the third option reads "Skip until next version"\n\n{hint}',
+        "option row with trailing commentary":
+            f"{last_option}   <- dismisses until the next release\n\n{hint}",
+        "option row and hint with no blank row between":
+            f"{last_option}\n{hint}",
+        "option row and hint two blank rows apart":
+            f"{last_option}\n\n\n{hint}",
+        # Scope control: Codex's sign-in onboarding screen ends with the SAME
+        # hint over a different last option (paraphrased, not captured).
+        "sign-in onboarding tail":
+            "  2. Sign in with a device code\n"
+            "     Sign in from another device\n\n"
+            "  3. Provide your own API key\n"
+            "     Pay for what you use\n\n"
+            f"{hint}",
+        # Scrollback: the dialog was answered and later output followed.
+        "update prompt followed by later output":
+            _update_prompt_tail() + "\n"
+            + "\n".join(f"  output line {n}" for n in range(1, 8)),
+    }
+    for label, body in cases.items():
+        snap = _codex_snap(body + _blank_rows(20))
+        assert snap.awaiting_input_kind != "codex_update_prompt", (
+            f"{label}: must not be classified as the update prompt")
+
+    # The neighbouring codex footer keeps its own kind.
+    permission = ("› 1. Yes, proceed (y)\n"
+                  "  2. Yes, and don't ask again (p)\n\n"
+                  "  Press enter to confirm or esc to cancel\n")
+    snap = _codex_snap(permission)
+    assert snap.awaiting_input_kind == "codex_permission", (
+        "the permission footer must stay codex_permission, got "
+        f"{snap.awaiting_input_kind!r}")
+
+
+def _check_codex_update_prompt_known_false_positive() -> None:
+    """The one irreducible limit, asserted so it stays a decision (rule 3).
+
+    A doc or test file showing the last option row, one blank row and the hint
+    in exact geometry IS the dialog as far as captured text goes. Accepted:
+    the signal is advisory and clears once the text scrolls. The mitigation is
+    the documentation rule — describe the dialog in prose, never paste its rows.
+    """
+    snap = _codex_snap(
+        "    3. Skip until next version\n\n    Press enter to continue\n")
+    assert snap.awaiting_input_kind == "codex_update_prompt", (
+        "the known-limit case changed behaviour; if it is now rejected the "
+        "matcher was tightened — update the documented limit to match")
+
+
 def main() -> int:
     tests = [
         ("_check_unrecognized_rendering_degrades_silently",
@@ -804,6 +1004,14 @@ def main() -> int:
          _check_osc_inside_prompt_footer_still_matches),
         ("_check_osc_url_churn_does_not_defeat_idle",
          _check_osc_url_churn_does_not_defeat_idle),
+        ("_check_codex_update_prompt_detected",
+         _check_codex_update_prompt_detected),
+        ("_check_update_prompt_trim_is_load_bearing_and_per_pattern",
+         _check_update_prompt_trim_is_load_bearing_and_per_pattern),
+        ("_check_codex_update_prompt_negative_controls",
+         _check_codex_update_prompt_negative_controls),
+        ("_check_codex_update_prompt_known_false_positive",
+         _check_codex_update_prompt_known_false_positive),
     ]
     failures = 0
     for name, fn in tests:

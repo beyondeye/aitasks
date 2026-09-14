@@ -2301,11 +2301,13 @@ class ShadowSettleLatchTests(unittest.TestCase):
         self._advance(0.2)
         self.assertIs(self._latch(app, mm.review_loop.SHADOW_READY), True)
 
-    def test_the_unpatterned_update_prompt_arms_the_latch_too(self):
-        """End-to-end for the interaction NO prompt pattern matches. A latch
-        armed from a pattern match would never arm here, and the whole window
-        would reopen for it — so this drives the real fixture through the real
-        classifier, not a hand-passed state string."""
+    def test_the_update_prompt_arms_the_latch_too(self):
+        """End-to-end for the startup update prompt. Its DIALOG verdict is
+        structural — it holds with or without the `codex_update_prompt`
+        pattern (t1522; pinned in test_review_loop) — so a latch armed only
+        from a pattern match would be the wrong design here; this drives the
+        real fixture through the real classifier, not a hand-passed state
+        string."""
         app = self._app()
         state = mm.review_loop.shadow_state(
             _rlfx.CODEX_UPDATE_PROMPT_RAW, "codex")

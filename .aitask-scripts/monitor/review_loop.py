@@ -1098,6 +1098,11 @@ DELIBERATELY_UNANCHORED_KINDS: dict[tuple[str, str], str] = {
         "overlay, not a dialog: it renders ~21 lines up, outside "
         "_PROMPT_DETECTION_TAIL_LINES, so it is never a followed-pane "
         "awaiting_input_kind (t1520)",
+    ("codex", "codex_update_prompt"):
+        "pre-TUI startup gate, shown before the session has done any work; "
+        "only one selection state was captured, so no selection-stable "
+        "boundary is measured and UNKNOWN (no recheck) is the conservative "
+        "answer (t1522)",
     # `claude_help_bar` and `claude_proceed` were exempted here as "no measured
     # boundary (pre-t1518)" and are now anchored — t1540 measured both live.
     #
