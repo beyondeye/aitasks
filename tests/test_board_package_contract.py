@@ -64,10 +64,11 @@ import shortcut_scopes  # noqa: E402
 BOARD_PATH = BOARD_DIR / "aitask_board.py"
 
 #: Pre-existing basename collisions on the flat path, pinned so they cannot
-#: grow unnoticed. Both are an upstream defect outside t1794: `applink/` imports
-#: `paths` / `audit` flat while `chatlink/` ships modules of the same names, and
-#: the shortcut sweep puts both directories on `sys.path` in set order. A pin
-#: may never name `board` — the board package must stay collision-free.
+#: grow unnoticed. Both are latent, not failing: `applink/` imports `paths` /
+#: `audit` flat while `chatlink/` ships modules of the same names, and the
+#: shortcut sweep puts both directories on `sys.path` in set order. Why that is
+#: safe today is documented in `shortcut_scopes._ensure_import_paths` (t1799).
+#: A pin may never name `board` — the board package must stay collision-free.
 KNOWN_COLLISIONS: dict[str, frozenset[str]] = {
     "paths.py": frozenset({"applink", "chatlink"}),
     "audit.py": frozenset({"applink", "chatlink"}),

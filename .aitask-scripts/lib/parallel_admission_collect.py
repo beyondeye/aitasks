@@ -1051,7 +1051,8 @@ class Population:
 def collect_population(root, candidates, source="plan",
                        freshness="allow-cached", max_lock_age_s=None,
                        max_claim_age_s=pa.MAX_CLAIM_AGE_S,
-                       hub_threshold=pa.HUB_THRESHOLD, with_recovered=True):
+                       hub_threshold=pa.HUB_THRESHOLD, with_recovered=True,
+                       now=None):
     """ONE snapshot for a whole candidate population, re-aimable per candidate.
 
     Extracted from `_run_replay` (t1569_6) so the two callers that need this
@@ -1063,6 +1064,10 @@ def collect_population(root, candidates, source="plan",
 
     Callers pair this with `_respin` + `pa.decide` per candidate. `replay`
     reports rates over the results; the roadmap ranks them.
+
+    ``now`` is the instant claim ages are judged at (``None`` reads the clock in
+    `collect`). The roadmap passes its own run instant, so its verdicts and the
+    document it stamps describe the same moment (t1799).
     """
     # The batch map and the corpora are resolved HERE and injected, so every
     # candidate is judged against the same world; deriving them per candidate
@@ -1092,7 +1097,7 @@ def collect_population(root, candidates, source="plan",
                    plan_path=None, freshness=freshness,
                    max_lock_age_s=max_lock_age_s,
                    max_claim_age_s=max_claim_age_s,
-                   hub_threshold=hub_threshold,
+                   hub_threshold=hub_threshold, now=now,
                    exclude_self=False, batch_lines=batch_lines,
                    corpus=(tracked, dirs, corpora),
                    candidate_surface=surfaces[pa.canonical_ref(candidates[0])],

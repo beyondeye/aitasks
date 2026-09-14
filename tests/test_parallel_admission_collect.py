@@ -565,6 +565,66 @@ class _ReplayScaffold(unittest.TestCase):
         return buf.getvalue().splitlines()
 
 
+class FixtureClockTests(_ReplayScaffold):
+    """The replay fixture cannot age out again (t1799).
+
+    t9's lock is a fixed timestamp, so every CONFLICT in the `replay` classes
+    depends on the clock the collector reads. These pin both halves -- the
+    fixture is fresh at the scaffold's own clock, and `replay` judges at that
+    clock -- plus a control proving the pin is what keeps it so.
+    """
+
+    def _snapshot_now(self):
+        listing = os.path.join(self.root, "cands.txt")
+        with open(listing, "w", encoding="utf-8") as fh:
+            fh.write("9\n11\n12\n")
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            col.main(["replay", "--candidates", listing, "--from", "plan",
+                      "--lock-freshness", "require-fresh", "--root", self.root,
+                      "--thresholds", "10"])
+        rows = [l for l in buf.getvalue().splitlines() if l.startswith("SNAPSHOT:")]
+        self.assertEqual(len(rows), 1, rows)
+        return int(rows[0][len("SNAPSHOT:"):].split("|")[0])
+
+    def test_the_fixture_lock_is_fresh_at_the_scaffold_clock(self):
+        locked_at = col._LOCK_PROBE(self.root)[1]["9"]["locked_at"]
+        age = self.NOW - col.parse_ts(locked_at)[0]
+        self.assertGreaterEqual(age, 0, "t9 is locked after the scaffold's clock")
+        self.assertLess(age, pa.MAX_CLAIM_AGE_S,
+                        "t9's lock (%s) is older than --max-claim-age at the "
+                        "scaffold's clock, so every CONFLICT assertion would "
+                        "read CLEAR_CAVEATED" % locked_at)
+
+    def test_replay_judges_at_the_scaffold_clock(self):
+        # SNAPSHOT carries `base.now` -- the instant `tier()` ages claims at.
+        self.assertEqual(self._snapshot_now(), self.NOW)
+
+    def test_a_clock_past_max_claim_age_reproduces_the_rot(self):
+        """Negative control: at a clock past --max-claim-age, t9 ages out.
+
+        Deterministic on purpose: the real clock would tie this to the machine
+        date, so it would fail on a historical or time-faked runner.
+        """
+        aged = self.NOW + pa.MAX_CLAIM_AGE_S + 3600
+        col.time = _FrozenClock(aged)
+        self.assertEqual(self._snapshot_now(), aged)
+        self.assertIn("VERDICT_FOR:11|CLEAR_CAVEATED",
+                      self._replay(["9", "11", "12"]))
+
+    def test_collect_population_forwards_now_to_the_snapshot(self):
+        """The inner half of the roadmap's `now` handoff (t1799).
+
+        `test_roadmap_run` stubs `collect_population`, so it cannot see the
+        `collect(now=now)` inside it. The instant differs from the scaffold's
+        frozen clock: were `now` dropped, `collect` would read that clock instead.
+        """
+        pinned = self.NOW + 60
+        population = col.collect_population(self.root, ["9", "11", "12"],
+                                            source="plan", now=pinned)
+        self.assertEqual(population.base.now, pinned)
+
+
 class ReplayInvariantTests(_ReplayScaffold):
     """`replay` must judge every candidate against ONE identical world."""
 
@@ -912,6 +972,13 @@ class ExcludeNoPlanPredicateTests(unittest.TestCase):
         self.assertEqual(by_ref["22"].surface.resolution, "resolved")
         self.assertEqual(
             pa.tier(by_ref["20"], base.max_claim_age_s, base.now), "excluded")
+
+    def test_the_fixture_clock_keeps_the_live_claims_blocking(self):
+        """The four kinds hold only while LIVE is fresh at the fixture's clock (t1799)."""
+        base = self._base()
+        self.assertEqual(base.now, self.NOW)
+        age = self.NOW - col.parse_ts(self.LIVE["locked_at"])[0]
+        self.assertTrue(0 <= age < pa.MAX_CLAIM_AGE_S, age)
 
     def test_only_the_blocking_no_plan_claim_is_selected(self):
         self.assertEqual(col.no_plan_claims(self._base()), ("9",))

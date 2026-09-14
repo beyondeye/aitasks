@@ -334,7 +334,8 @@ def run(root, narrative_path, owner, out_path, title=DEFAULT_TITLE,
         return EXIT_REFUSED, report
 
     population = col.collect_population(
-        root, [c.task_id for c in candidates.values()], source="origin")
+        root, [c.task_id for c in candidates.values()], source="origin",
+        now=now)
 
     # An unavailable corpus is not a per-candidate hedge: every path
     # classification is wrong at once, so the ranking as a whole is unsound.

@@ -49,6 +49,11 @@ TMPROOT="$(mktemp -d "${TMPDIR:-/tmp}/pa_preflight_XXXXXX")"
 cleanup() { rm -rf "$TMPROOT"; }
 trap cleanup EXIT
 
+# Claim ages come from the task files' `updated_at`, and the real CLI judges
+# them against the wall clock: a hard-coded date ages past --max-claim-age
+# (14 d) and turns the CONFLICT / UNCHECKABLE cases into caveats (t1799).
+NOW_TS="$(date '+%Y-%m-%d %H:%M')"
+
 cd "$PROJECT_DIR" || exit 1
 
 # ---------------------------------------------------------------------------
@@ -70,7 +75,7 @@ make_root() {
     echo alpha > "$d/src/alpha.py"
     echo beta  > "$d/src/beta.py"
     echo gamma > "$d/src/gamma.py"
-    printf -- '---\nstatus: Implementing\npriority: high\nupdated_at: 2026-09-02 09:00\n---\n\ncandidate\n' \
+    printf -- '---\nstatus: Implementing\npriority: high\nupdated_at: %s\n---\n\ncandidate\n' "$NOW_TS" \
         > "$d/aitasks/t100_me.md"
     printf '# plan\n\nEdit `src/alpha.py`.\n' > "$d/aiplans/p100_me.md"
     git -C "$d" add -A
@@ -84,7 +89,7 @@ make_root() {
 # Add a SECOND in-flight task. $2 = plan body, or "" for no plan file at all.
 add_inflight() {
     local d="$1" body="$2"
-    printf -- '---\nstatus: Implementing\npriority: high\nupdated_at: 2026-09-02 09:00\n---\n\nother\n' \
+    printf -- '---\nstatus: Implementing\npriority: high\nupdated_at: %s\n---\n\nother\n' "$NOW_TS" \
         > "$d/aitasks/t200_other.md"
     [[ -n "$body" ]] && printf '%s\n' "$body" > "$d/aiplans/p200_other.md"
     git -C "$d" add -A

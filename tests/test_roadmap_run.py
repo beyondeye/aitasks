@@ -294,5 +294,36 @@ class LaneCountTests(unittest.TestCase):
         self.assertIn("safe=2", counts)
 
 
+# --- the driver's clock -----------------------------------------------------
+
+class _StopAtAdmission(Exception):
+    """Raised by the recorder so `run` stops at the collector call."""
+
+
+class NowForwardingTests(_RunHarness):
+    """`run(now=...)` must reach the admission snapshot (t1799).
+
+    The roadmap stamps its generation and freshness with `now`; a collector that
+    read the wall clock instead would age claims at a different instant than the
+    document reports. Asserted at the CALLER: a test of
+    `collect_population(now=...)` alone passes with the forwarding deleted.
+    """
+
+    def test_run_forwards_its_now_to_the_admission_snapshot(self):
+        seen = []
+
+        def recorder(root, candidates, source="plan", now=None, **_kw):
+            seen.append(now)
+            raise _StopAtAdmission
+
+        self.addCleanup(setattr, rr.col, "collect_population",
+                        rr.col.collect_population)
+        rr.col.collect_population = recorder
+        with self.assertRaises(_StopAtAdmission):
+            rr.run(self.tmp, _narrative(self.tmp), "owner",
+                   os.path.join(self.tmp, "out.json"), now=NOW)
+        self.assertEqual(seen, [NOW])
+
+
 if __name__ == "__main__":
     unittest.main()

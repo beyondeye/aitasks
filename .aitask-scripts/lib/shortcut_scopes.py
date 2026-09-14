@@ -77,8 +77,15 @@ def _ensure_import_paths() -> None:
     namespace-package imports like ``brainstorm.brainstorm_dag``). Every
     manifest module's own directory is added too, so a module importing a
     sibling by bare name (e.g. ``codebrowser_app`` → ``history_data`` in
-    ``codebrowser/``) resolves. The TUI dirs have no colliding module
-    basenames, so this is safe.
+    ``codebrowser/``) resolves.
+
+    Basenames DO collide across these dirs: ``applink/`` and ``chatlink/`` both
+    ship ``paths.py`` and ``audit.py``. That is safe only because chatlink
+    imports its own modules package-qualified (``chatlink.paths``), so it never
+    binds the bare ``sys.modules["paths"]`` / ``["audit"]``, and ``applink_app``
+    inserts its own directory at ``sys.path[0]`` before its flat
+    ``from paths import ...``. ``tests/test_board_package_contract.py`` pins the
+    collision set (``KNOWN_COLLISIONS``) so it cannot grow unnoticed.
     """
     dirs = {_LIB_DIR, _SCRIPTS_DIR}
     for _module_name, rel_path, _scopes in KNOWN_BINDING_SOURCES:
