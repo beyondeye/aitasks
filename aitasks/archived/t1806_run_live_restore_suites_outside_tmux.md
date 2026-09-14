@@ -3,7 +3,7 @@ priority: medium
 effort: low
 depends: []
 issue_type: manual_verification
-status: Implementing
+status: Done
 labels: [tmux]
 active_gates: []
 active_gates_filtered: []
@@ -13,7 +13,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1705
 followup_kind: risk_mitigation
 created_at: 2026-09-14 16:52
-updated_at: 2026-09-14 17:18
+updated_at: 2026-09-14 17:19
+completed_at: 2026-09-14 17:19
 ---
 
 ## Origin
