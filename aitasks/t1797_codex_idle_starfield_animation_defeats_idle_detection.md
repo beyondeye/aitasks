@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: low
+risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: bug
@@ -126,3 +128,5 @@ scratchpad is gone.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-09-14T12:39:52Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-09-14T13:36:13Z status=pass attempt=1 type=human
