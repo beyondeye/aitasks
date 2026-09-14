@@ -278,15 +278,19 @@ class _ScriptedTmux:
     `_FakeTmux` replays one answer for every call, which stops working the
     moment more than one `display-message` shape is in play — and three of them
     are: `pane_facts` asks for 10 fields, `probe_pane` for 3, `pane_location`
-    for 2, and `respawn_if_stamped` for 1 (the server pid) then 4 (its
-    after-read). A fake that dispatched on the SUBCOMMAND would hand every one
+    for 2, and `respawn_if_stamped` for 2 (its pre-read: pane id + server pid)
+    then 5 (its after-read). Two reads sharing an arity are scripted as a LIST,
+    consumed in call order. A fake that dispatched on the SUBCOMMAND would hand every one
     of them the same string, and each parser validates field count, so four of
     the five would read as "gone" and silently divert the test into a branch it
     was not written for.
 
     Arity is the right key precisely because it is what the real parsers
     validate; it also needs no new module constants, so this fake keeps working
-    against code that predates them.
+    against code that predates them. For the same reason an UNSCRIPTED arity
+    raises whenever ``answers`` is non-empty (t1783): a scripted fake that
+    quietly answered ``(0, "")`` would send a helper whose read grew a field
+    down its "gone" branch, and the test would pass for the wrong reason.
 
     ``answers`` maps arity -> ``(rc, out)`` or a list of them consumed in order
     (the last one repeats). ``{token}`` in an ``out`` is replaced with the
@@ -315,7 +319,11 @@ class _ScriptedTmux:
             tail = args[-1]
             if marker in tail:
                 self.last_token = tail.split(marker, 1)[1].split()[0].strip("'\"")
-        answer = self.answers.get(self._arity(args), self.DEFAULT)
+        arity = self._arity(args)
+        if arity >= 0 and self.answers and arity not in self.answers:
+            raise AssertionError(
+                f"unscripted display-message arity {arity}: {args}")
+        answer = self.answers.get(arity, self.DEFAULT)
         if isinstance(answer, list):
             answer = answer[0] if len(answer) == 1 else answer.pop(0)
         rc, out = answer
@@ -346,9 +354,8 @@ _LOCATION_NEW = (0, "%900\t51000")
 #: written against when a single 2-field answer still served every read.
 _TMUX_OURS_AND_FIRES = {
     3: _PROBE_OURS,                              # probe_pane: present, ours
-    1: (0, "9999"),                              # respawn_if_stamped: server pid
-    4: (0, "{token}\t%104\t51000\t9999"),       # after-read: our token, new pid
-    2: (0, "%104\t51000"),                       # pane_location
+    2: (0, "%104\t9999"),                        # pre-read: pane present, server pid (t1783)
+    5: (0, "{token}\t%104\t51000\t9999\t7f3a2c1d"),   # after-read: our token, new pid, our stamp
     10: (0, "aitasks\tagent-pick-1705\t%104\t51000\t0\t/tmp"
             "\t7f3a2c1d\t7f3a2c1d\t\tsess-abc"),  # pane_facts
 }
@@ -589,9 +596,10 @@ class TestRecordedPaneIsOnlyAHint(_SwapMixin, unittest.TestCase):
 
     def test_our_own_stamped_pane_is_reused_atomically(self):
         _, _, tmux, launched = self._run({
-            3: _PROBE_OURS, 1: (0, "9999"),
-            4: (0, "{token}\t%104\t51000\t9999"),
-            10: _FACTS_10, 2: (0, "%104\t51000"),
+            3: _PROBE_OURS,
+            2: (0, "%104\t9999"),                 # pre-read: present, server 9999
+            5: (0, "{token}\t%104\t51000\t9999\t7f3a2c1d"),
+            10: _FACTS_10,
         })
         self.assertFalse(launched.called,
                          "our own live stand-in must be reused, not abandoned")
@@ -633,9 +641,11 @@ class TestRecordedPaneIsOnlyAHint(_SwapMixin, unittest.TestCase):
         as `launch_pid` and later liveness-confirm their agent as ours.
         """
         _, store, _, launched = self._run({
-            3: _PROBE_OURS, 1: (0, "9999"),
-            4: (0, "\t%104\t77777\t12345"),   # no token; new pid; NEW server
-            10: _FACTS_10, 2: _LOCATION_NEW,
+            3: _PROBE_OURS,
+            # pre-read: present on server 9999; then pane_location in the new window
+            2: [(0, "%104\t9999"), _LOCATION_NEW],
+            5: (0, "\t%104\t77777\t12345\tf00dfeed"),   # no token; new pid; NEW server; stranger's stamp
+            10: _FACTS_10,
         })
         self.assertTrue(launched.called,
                         "the recorded pane is no longer ours — go to a new window")
@@ -648,9 +658,10 @@ class TestRecordedPaneIsOnlyAHint(_SwapMixin, unittest.TestCase):
 
     def test_a_lost_stamp_without_a_restart_routes_the_same_way(self):
         _, store, _, launched = self._run({
-            3: _PROBE_OURS, 1: (0, "9999"),
-            4: (0, "\t%104\t77777\t9999"),    # no token; same server generation
-            10: _FACTS_10, 2: _LOCATION_NEW,
+            3: _PROBE_OURS,
+            2: [(0, "%104\t9999"), _LOCATION_NEW],   # same server generation as the after-read
+            5: (0, "\t%104\t77777\t9999\tf00dfeed"),    # no token; same server generation; stranger's stamp
+            10: _FACTS_10,
         })
         self.assertTrue(launched.called)
         flat = " ".join(" ".join(c) for c in store.calls if c and c[0] == "restore-launched")

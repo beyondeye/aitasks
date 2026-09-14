@@ -33,6 +33,8 @@ from __future__ import annotations
 
 import copy
 import os
+import re
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -80,6 +82,10 @@ class _FakeTmux:
         self.capture_rc = 0
         self.list_panes_ok = True
         self.kill_ok = True
+        # `#{pid}` is SERVER-scoped: it expands for every pane, and — measured
+        # on tmux 3.6a — even for a gone one. A test models a server restart by
+        # changing it.
+        self.server_pid = "9999"
 
     # -- the TmuxClient surface agent_freeze uses --------------------------
     def run(self, args, timeout=None):
@@ -98,9 +104,39 @@ class _FakeTmux:
             return self._list_panes(args)
         if verb in ("kill-pane", "kill-window"):
             return self._kill(args)
+        if verb == "if-shell":
+            return self._if_shell(args)
         return 0, ""
 
     # -- helpers ------------------------------------------------------------
+    _COND = re.compile(r"^#\{==:#\{([^}]+)\},(.*)\}$")
+
+    def _if_shell(self, args):
+        """`if-shell -F -t <pane> <condition> <branch>`, as the server runs it.
+
+        The condition is evaluated against the pane model and, on a match, the
+        branch's ` ; `-joined commands are run IN ORDER THROUGH `run` — so each
+        nested `set-option` / `respawn-pane` / `kill-*` is recorded in `calls`
+        exactly as a bare one would be, and a rejected branch records nothing.
+        The sequence stops at the first failing command, which is what makes
+        `respawn_ok = False` leave no token and `kill_ok = False` leave the pane
+        present (t1773 measured the real server aborts the same way). The
+        `if-shell` itself always answers 0, as tmux does.
+        """
+        pane = self.panes.get(self._target(args))
+        if pane is None:
+            return 1, ""
+        match = self._COND.match(args[-2])
+        assert match, f"unrecognised if-shell condition: {args[-2]!r}"
+        option, expect = match.group(1), match.group(2)
+        if str(pane.get(option, "")) != expect:
+            return 0, ""
+        for piece in args[-1].split(" ; "):
+            rc, _ = self.run(shlex.split(piece))
+            if rc != 0:
+                break
+        return 0, ""
+
     def _target(self, args):
         return args[args.index("-t") + 1] if "-t" in args else ""
 
@@ -112,7 +148,10 @@ class _FakeTmux:
         fields = []
         for spec in fmt.split("\t"):
             key = spec.strip("#{}")
-            fields.append(str(pane.get(key, "")))
+            if key == "pid":
+                fields.append(self.server_pid)
+            else:
+                fields.append(str(pane.get(key, "")))
         return 0, "\t".join(fields) + "\n"
 
     def _set_option(self, args):
@@ -395,6 +434,23 @@ class _FreezeTestCase(unittest.TestCase):
     def rec(self):
         return self.store.sf.by_id(self.rid)
 
+    def _mirror(self, observed):
+        """Make the fake SERVER agree with what reconcile is told it observed.
+
+        An `_Observed` is a snapshot of the pane model; feeding reconcile one
+        that says "stamped" while the model says otherwise would drive the
+        stamp-conditional dispatch (t1783) into a mismatch the scenario never
+        meant. Panes the model does not hold are left alone — an observation of
+        a pane that is not there is a legitimate scenario, not a fixture bug.
+        """
+        pane = self.panes.get(observed.pane_id)
+        if pane is not None:
+            pane[agent_freeze.FROZEN_OPTION] = observed.frozen
+            pane[agent_freeze.STANDIN_READY_OPTION] = observed.standin_ready
+            pane["pane_pid"] = str(observed.pane_pid)
+            pane["pane_dead"] = "1" if observed.pane_dead else "0"
+        return observed
+
 
 class HappyPathTests(_FreezeTestCase):
     def test_freeze_walks_the_six_stages_in_order(self):
@@ -560,7 +616,44 @@ class FailureInjectionTests(_FreezeTestCase):
         self.tmux.respawn_ok = False
         result = agent_freeze.freeze_pane(AGENT_PANE)
         self.assertEqual(result.stage, "respawn")
+        self.assertIn("respawn-failed", result.line)
         self.assertEqual(self.rec().state, agent_sessions.STATE_LIVE)
+        # `respawn-failed` means the pane is still OURS, so the rollback
+        # unstamps it (t1783) — the agent must not be left carrying a stamp.
+        self.assertEqual(self.panes[AGENT_PANE][agent_freeze.FROZEN_OPTION], "")
+        self.assertEqual(
+            self.panes[AGENT_PANE][agent_freeze.STANDIN_READY_OPTION], "")
+
+    def test_a_pane_recycled_after_the_stamp_is_neither_respawned_nor_unstamped(self):
+        """The t1773 race on the freeze itself (t1783).
+
+        The stamp (step 4) and the respawn (step 5) are two tmux calls. A server
+        restart between them hands the recorded `%N` to a stranger; the guarded
+        dispatch must decline, and the rollback must NOT clear the stranger's
+        stamp either — that stamp may be another record's.
+        """
+        real_run = agent_frozen_ops._TMUX.run
+
+        def stamp_then_restart(args, timeout=None):
+            rc, out = real_run(args, timeout)
+            if (args and args[0] == "set-option" and "-pu" not in args
+                    and args[-2] == agent_freeze.FROZEN_OPTION):
+                # The world moves right after our stamp landed.
+                self.panes[AGENT_PANE][agent_freeze.FROZEN_OPTION] = "deadbeef"
+                self.panes[AGENT_PANE]["pane_pid"] = "31337"
+            return rc, out
+
+        agent_frozen_ops._TMUX.run = stamp_then_restart
+        self.addCleanup(setattr, agent_frozen_ops._TMUX, "run", real_run)
+
+        result = agent_freeze.freeze_pane(AGENT_PANE)
+        self.assertEqual(result.stage, "respawn")
+        self.assertEqual(self.rec().state, agent_sessions.STATE_LIVE)
+        self.assertEqual(self.tmux.calls_of("respawn-pane"), [],
+                         "respawn-pane -k on a recycled pane kills a stranger")
+        self.assertEqual(self.panes[AGENT_PANE][agent_freeze.FROZEN_OPTION],
+                         "deadbeef", "the stranger's stamp must survive the rollback")
+        self.assertEqual(self.panes[AGENT_PANE]["pane_pid"], "31337")
 
     def test_commit_failure_leaves_the_record_freezing_for_reconcile(self):
         """No rollback here, deliberately: the agent is already gone.
@@ -776,7 +869,7 @@ class ReconcileTableTests(_FreezeTestCase):
             frozen="", standin_ready="", record=self.rid,
         )
         pane.update(overrides)
-        return agent_freeze._Observed(**pane)
+        return self._mirror(agent_freeze._Observed(**pane))
 
     def _freezing(self):
         self.store.sf, line = agent_sessions.freeze_begin(
@@ -879,14 +972,61 @@ class ReconcileTableTests(_FreezeTestCase):
     def test_the_ready_mark_is_cleared_BEFORE_every_respawn(self):
         """Otherwise the previous viewer's mark reads as the new one's proof."""
         lease = self._freezing()
+        self.panes[AGENT_PANE][agent_freeze.FROZEN_OPTION] = self.rid
         self.panes[AGENT_PANE][agent_freeze.STANDIN_READY_OPTION] = "deadbeef"
-        agent_freeze._respawn_standin(AGENT_PANE, self.rid, lease)
+        line = agent_freeze._respawn_standin(AGENT_PANE, self.rid, lease)
+        self.assertEqual(line, f"STANDIN:{self.rid}")
         order = [c[0] for c in self.tmux.calls
                  if c[0] in ("set-option", "respawn-pane")]
         self.assertEqual(order[0], "set-option")
         self.assertLess(order.index("set-option"), order.index("respawn-pane"))
         self.assertEqual(
             self.panes[AGENT_PANE][agent_freeze.STANDIN_READY_OPTION], "")
+        # …and both ride inside the ONE guarded dispatch (t1783).
+        dispatches = self.tmux.calls_of("if-shell")
+        self.assertEqual(1, len(dispatches))
+        self.assertIn("set-option -pu -t %1 @aitask_standin_ready ;", dispatches[0][-1])
+
+    def test_a_recycled_standin_pane_commits_the_gone_pane_pair(self):
+        """The t1773 race on reconcile's respawn (t1783).
+
+        Reconcile enumerated a stamped, dead stand-in — but by the time it
+        dispatches, the tmux server has restarted and the same `%N` belongs to
+        a stranger. The guarded dispatch declines; nothing is touched; and the
+        record is committed with the gone-pane pair so it stays restorable into
+        a NEW window — the same pair `agent_restore._rollback` commits.
+        """
+        lease = self._freezing()
+        observed = self._observed(frozen=self.rid, pane_dead=True,
+                                  pane_pid=999999)
+        # The server moved on after the observation: a stranger holds %1.
+        self.panes[AGENT_PANE][agent_freeze.FROZEN_OPTION] = "deadbeef"
+        self.panes[AGENT_PANE]["pane_pid"] = "31337"
+        line = agent_freeze._reconcile_freezing(
+            {"id": self.rid, "pane_pid": AGENT_PID}, observed, lease)
+        self.assertEqual(line, f"STANDIN:{self.rid}|pane_gone")
+        self.assertEqual(self.tmux.calls_of("respawn-pane"), [],
+                         "a recycled pane must never be respawned")
+        self.assertEqual(self.panes[AGENT_PANE][agent_freeze.FROZEN_OPTION],
+                         "deadbeef", "the stranger's stamp is untouched")
+        self.assertEqual(self.panes[AGENT_PANE]["pane_pid"], "31337")
+        commit = next(c for c in self.store.calls if c[0] == "standin-respawned")
+        self.assertEqual(commit[commit.index("--pane") + 1], "")
+        self.assertEqual(commit[commit.index("--pane-pid") + 1], "0")
+
+    def test_a_refused_standin_respawn_is_reported_not_committed(self):
+        """`respawn-failed`: the pane is still ours, so retry — do not record
+        a gone pane over a stamped one that is merely dead."""
+        lease = self._freezing()
+        observed = self._observed(frozen=self.rid, pane_dead=True,
+                                  pane_pid=999999)
+        self.tmux.respawn_ok = False
+        line = agent_freeze._reconcile_freezing(
+            {"id": self.rid, "pane_pid": AGENT_PID}, observed, lease)
+        self.assertEqual(line, f"RECONCILE_FAILED:{self.rid}|respawn refused")
+        self.assertNotIn("standin-respawned", self.store.verbs())
+        self.assertEqual(self.panes[AGENT_PANE][agent_freeze.FROZEN_OPTION],
+                         self.rid, "the stamp stays for the retry")
 
 
 class ReconcileRestoringTests(_FreezeTestCase):
@@ -931,7 +1071,7 @@ class ReconcileRestoringTests(_FreezeTestCase):
             frozen=self.rid, standin_ready="", record=self.rid,
         )
         pane.update(overrides)
-        return agent_freeze._Observed(**pane)
+        return self._mirror(agent_freeze._Observed(**pane))
 
     def test_a_session_mismatch_aborts_and_restores_the_standin(self):
         """The hook's report IS the coordinator's return channel — obey it."""
@@ -1229,6 +1369,26 @@ class DropVerbTests(_FreezeTestCase):
         self.assertIsNone(self.store.sf.by_id(self.rid))
         self.assertFalse(self._capture_dir().exists())
 
+    def test_the_kill_is_one_stamp_conditional_dispatch(self):
+        """The stamp check and the kill must not be two tmux calls (t1783)."""
+        self._freeze()
+        pane_id = self.store.sf.by_id(self.rid).pane_id
+        self.tmux.calls.clear()
+        self.assertEqual(agent_freeze.drop_record(self.rid),
+                         f"DROPPED:{self.rid}")
+        dispatches = self.tmux.calls_of("if-shell")
+        self.assertEqual(1, len(dispatches))
+        self.assertEqual(
+            ["if-shell", "-F", "-t", pane_id,
+             f"#{{==:#{{{agent_freeze.FROZEN_OPTION}}},{self.rid}}}",
+             f"kill-window -t {pane_id}"],
+            dispatches[0])
+        first_destructive = next(
+            c for c in self.tmux.calls
+            if c and c[0] in ("kill-pane", "kill-window", "if-shell"))
+        self.assertEqual("if-shell", first_destructive[0],
+                         "no kill may be issued outside the guarded branch")
+
     def test_the_store_delete_carries_the_claimed_nonce(self):
         """`drop` is a LEASED verb now — an unguarded call could race."""
         self._freeze()
@@ -1288,7 +1448,8 @@ class DropVerbTests(_FreezeTestCase):
         self._freeze()
         self.tmux.kill_ok = False
         line = agent_freeze.drop_record(self.rid)
-        self.assertTrue(line.startswith(f"DROP_FAILED:{self.rid}|kill:"), line)
+        self.assertEqual(
+            line, f"DROP_FAILED:{self.rid}|kill:pane not verified gone (kill-failed)")
         self.assertIsNotNone(self.store.sf.by_id(self.rid))
         self.assertTrue(self._capture_dir().exists())
         # …and the pane keeps every stamp, because nothing was unset.
@@ -1340,6 +1501,49 @@ class DropVerbTests(_FreezeTestCase):
                          f"DROP_FAILED:{self.rid}|preflight:tmux unreachable")
         self.assertIsNotNone(self.store.sf.by_id(self.rid))
         self.assertTrue(self._capture_dir().exists())
+        self.assertEqual(self.tmux.calls_of("kill-pane"), [])
+        self.assertEqual(self.tmux.calls_of("kill-window"), [])
+
+    def test_a_pane_recycled_between_preflight_and_kill_is_not_killed(self):
+        """The t1773 race, on the kill side (t1783).
+
+        Pane ids are monotonic within a tmux server, but a RESTARTED server
+        renumbers from %0, so between the preflight probe and the kill the
+        recorded `%N` can come back holding an unrelated live agent. The fake
+        below models exactly that: on the FIRST destructive call it sees it
+        flips the pane's stamp to a stranger's and its server pid to a new one
+        — after the preflight said "ours", before the verb can act.
+
+        Against the two-call shape this test FAILS: the bare `kill-*` lands on
+        the stranger. The stamp check and the kill must travel as one dispatch.
+        """
+        self._freeze()
+        pane_id = self.store.sf.by_id(self.rid).pane_id
+        real_run = agent_frozen_ops._TMUX.run
+        flipped: list[str] = []
+
+        def restarting_run(args, timeout=None):
+            if (args and args[0] in ("kill-pane", "kill-window", "if-shell")
+                    and not flipped):
+                flipped.append(args[0])
+                self.tmux.panes[pane_id][agent_freeze.FROZEN_OPTION] = "deadbeef"
+                self.tmux.server_pid = "424242"
+            return real_run(args, timeout)
+
+        agent_frozen_ops._TMUX.run = restarting_run
+        self.addCleanup(setattr, agent_frozen_ops._TMUX, "run", real_run)
+
+        line = agent_freeze.drop_record(self.rid)
+        self.assertEqual(flipped, ["if-shell"],
+                         "the first destructive call must be the guarded "
+                         "dispatch, never a bare kill")
+        self.assertTrue(line.startswith(f"DROP_FAILED:{self.rid}|kill:"), line)
+        self.assertIn("server-restarted", line)
+        self.assertIsNotNone(self.store.sf.by_id(self.rid))
+        self.assertTrue(self._capture_dir().exists())
+        self.assertIn(pane_id, self.tmux.panes, "the stranger's pane survived")
+        self.assertEqual(self.tmux.panes[pane_id][agent_freeze.FROZEN_OPTION],
+                         "deadbeef", "and was never unstamped")
         self.assertEqual(self.tmux.calls_of("kill-pane"), [])
         self.assertEqual(self.tmux.calls_of("kill-window"), [])
 

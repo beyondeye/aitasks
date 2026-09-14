@@ -416,7 +416,43 @@ def tmux_quote(s: str) -> str:
     return '"' + s.replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$") + '"'
 
 
-#: The four after-facts :func:`respawn_if_stamped` reads in ONE round trip.
+#: Sentinel :func:`_pre_read` returns as the server pid when tmux could not be
+#: reached at all (never a real pid, which is numeric).
+TMUX_UNREACHABLE_MARK = "unreachable"
+
+#: What both stamp-conditional dispatches read BEFORE dispatching: the pane id
+#: and the server pid. Pane-scoped first, because that field is the only one
+#: that says whether the pane exists.
+PRE_READ_FORMAT = "#{pane_id}\t#{pid}"
+
+
+def _pre_read(pane_id: str) -> tuple[str, str]:
+    """``(pane_id, server_pid)`` before a dispatch; ``("", ...)`` when gone.
+
+    `display-message -p -t <gone pane>` exits ZERO, and a server-scoped format
+    like ``#{pid}`` still expands — only the pane-scoped fields come back empty
+    (measured on tmux 3.6a, `tests/test_frozen_respawn_atomic_live.sh` K4). So
+    neither the exit status nor the server pid says whether the pane is there;
+    the pane id is the signal, exactly as :func:`pane_facts` / :func:`probe_pane`
+    validate theirs. The server pid rides along so a later after-read can name a
+    restart. ``server_pid`` is :data:`TMUX_UNREACHABLE_MARK` when tmux could not
+    be reached at all — distinct from "no such pane", for the same V9 reason
+    :func:`probe_pane` keeps its three verdicts apart.
+    """
+    rc, out = run(["display-message", "-p", "-t", pane_id, PRE_READ_FORMAT])
+    if rc == TMUX_UNREACHABLE:
+        return "", TMUX_UNREACHABLE_MARK
+    if rc != 0:
+        return "", ""
+    parts = (out.splitlines() or [""])[0].split("\t")
+    if len(parts) != 2 or not parts[0].strip():
+        return "", ""
+    return parts[0].strip(), parts[1].strip()
+
+
+#: The four FIXED after-facts :func:`respawn_if_stamped` reads in ONE round
+#: trip. The caller's stamp option is appended per call as a fifth field (t1783),
+#: so a miss can say whether the pane is still the caller's.
 RESPAWN_PROBE_FORMAT = "\t".join(
     [f"#{{{RESPAWN_TOKEN_OPTION}}}", "#{pane_id}", "#{pane_pid}", "#{pid}"])
 
@@ -460,17 +496,23 @@ def respawn_if_stamped(
     by accident.
 
     ``reason`` names why a non-firing dispatch did not fire —
-    ``stamp-mismatch``, ``server-restarted`` or ``pane-gone``. It is diagnostic
-    only; the token alone decides.
+    ``stamp-mismatch``, ``server-restarted``, ``pane-gone`` or
+    ``respawn-failed``. The token alone decides *whether it fired*; the reason
+    carries one further contract a caller may act on (t1783):
+    ``respawn-failed`` means the after-read found the pane still carrying
+    ``expect`` on the same server — the branch matched and the respawn itself
+    did not take, so the pane is STILL THE CALLER'S. It is the only miss on
+    which a caller may unstamp or retry. Every other miss means nothing of the
+    caller's is in that pane (gone, or a recycled ``%N`` under a stranger), and
+    touching it — even to clear a stamp — would be acting on somebody else's.
 
     ``unset`` clears one pane option inside the same branch, ahead of the
     respawn (the stand-in-ready mark, which survives `respawn-pane` and would
     otherwise read as "this cycle's viewer is already up").
     """
-    rc, out = run(["display-message", "-p", "-t", pane_id, "#{pid}"])
-    if rc != 0:
+    pre_pane, server_before = _pre_read(pane_id)
+    if not pre_pane:
         return False, "", 0, "pane-gone"
-    server_before = (out.splitlines() or [""])[0].strip()
 
     token = secrets.token_hex(8)
     inner: list[str] = []
@@ -488,19 +530,93 @@ def respawn_if_stamped(
     run(["if-shell", "-F", "-t", pane_id,
          f"#{{==:#{{{option}}},{expect}}}", " ; ".join(inner)])
 
-    rc, out = run(["display-message", "-p", "-t", pane_id, RESPAWN_PROBE_FORMAT])
+    rc, out = run(["display-message", "-p", "-t", pane_id,
+                   RESPAWN_PROBE_FORMAT + f"\t#{{{option}}}"])
     if rc != 0:
         return False, "", 0, "pane-gone"
     parts = (out.splitlines() or [""])[0].split("\t")
-    if len(parts) != 4:
+    if len(parts) != 5:
         return False, "", 0, "pane-gone"
-    seen_token, new_pane, new_pid, server_after = (p.strip() for p in parts)
+    seen_token, new_pane, new_pid, server_after, stamp = (p.strip() for p in parts)
     if seen_token and seen_token == token:
         unset_option(pane_id, RESPAWN_TOKEN_OPTION)
         return True, new_pane, int_or_zero(new_pid), ""
     if server_after != server_before:
         return False, "", 0, "server-restarted"
+    if stamp == expect:
+        # Same server, our stamp still on it, no token: the branch matched and
+        # the respawn did not take. The pane is still ours — say so.
+        return False, "", 0, "respawn-failed"
     return False, "", 0, "stamp-mismatch"
+
+
+def kill_if_stamped(
+    pane_id: str,
+    *,
+    option: str,
+    expect: str,
+    window: bool = False,
+) -> tuple[str, str]:
+    """`kill-pane` (or `kill-window` when ``window``) on ``pane_id``, but ONLY
+    if the pane still carries ``option == expect``. Returns ``(verdict, reason)``.
+
+    Verdicts:
+
+    * ``"gone"`` — the pane no longer exists: our branch fired, or the server
+      that held it restarted (or it was already gone before the dispatch —
+      reason ``pane-gone``). Either way there is nothing left to kill.
+    * ``"present"`` — the pane is untouched. ``reason`` says why:
+      ``kill-failed`` (still carrying ``expect`` — the branch matched and the
+      kill did not take), ``server-restarted`` or ``stamp-mismatch``.
+    * ``"unknown"`` — tmux could not be reached at all. Decide NOTHING on it:
+      the pane may be alive and stamped, and a caller that read this as "gone"
+      would delete a record whose only capture a live viewer still guards.
+
+    THE CHECK AND THE KILL TRAVEL AS ONE DISPATCH, for the same reason as
+    :func:`respawn_if_stamped`: a tmux server restart between a probe and a kill
+    can hand the kill an unrelated agent's recycled ``%N`` (t1773, t1783).
+
+    A kill needs DIFFERENT evidence than a respawn. The branch-token trick
+    cannot apply here: the token would be a pane option on the very pane the
+    branch just killed. But a kill also needs less. The *safety* property —
+    never kill a ``%N`` that is not ours — is delivered by the single
+    `if-shell -F` dispatch on its own. The *outcome* a caller needs is "the
+    pane is gone", which one after-read answers; whether it went because our
+    branch fired or because the server that held it restarted changes nothing
+    the caller does next. So the after-read carries the stamp and the server
+    pid only to NAME a non-firing dispatch, never to decide it.
+
+    ``-t <pane>`` resolves to that pane's window for `kill-window`, so the
+    caller's sibling count and its kill cannot mean different windows
+    (`agent_freeze._other_real_agents`). Pinned in
+    `tests/test_frozen_respawn_atomic_live.sh` (K3).
+    """
+    pre_pane, server_before = _pre_read(pane_id)
+    if server_before == TMUX_UNREACHABLE_MARK:
+        return "unknown", "tmux unreachable"
+    if not pre_pane:
+        return "gone", "pane-gone"
+
+    verb = "kill-window" if window else "kill-pane"
+    pause_at("kill_dispatch")
+    run(["if-shell", "-F", "-t", pane_id,
+         f"#{{==:#{{{option}}},{expect}}}", f"{verb} -t {pane_id}"])
+
+    rc, out = run(["display-message", "-p", "-t", pane_id,
+                   "\t".join(["#{pane_id}", f"#{{{option}}}", "#{pid}"])])
+    if rc == TMUX_UNREACHABLE:
+        return "unknown", "tmux unreachable"
+    if rc != 0:
+        return "gone", ""
+    parts = (out.splitlines() or [""])[0].split("\t")
+    if len(parts) != 3 or not parts[0].strip():
+        return "gone", ""
+    _, stamp, server_after = (p.strip() for p in parts)
+    if stamp == expect:
+        return "present", "kill-failed"
+    if server_after != server_before:
+        return "present", "server-restarted"
+    return "present", "stamp-mismatch"
 
 
 def respawn(pane_id: str, command: str, env: dict[str, str] | None = None) -> bool:

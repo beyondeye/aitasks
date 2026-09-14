@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # tests/test_frozen_respawn_atomic_live.sh — the REAL-tmux contract for
-# `agent_frozen_ops.respawn_if_stamped` (t1773).
+# `agent_frozen_ops.respawn_if_stamped` (t1773) and its kill-side twin
+# `agent_frozen_ops.kill_if_stamped` (t1783), which `drop` uses.
 #
 # WHY THIS FILE EXISTS. The scripted tests in tests/test_agent_restore.py and
 # tests/test_agent_frozen_ops.py assert the DECISION given a response. They
@@ -16,7 +17,11 @@
 # and the respawn therefore travel as ONE `if-shell -F` dispatch. `if-shell`
 # exits 0 either way, so "did it fire" is proved by a fresh per-call token
 # written as the LAST command of the matched branch — never by a pid delta,
-# which across a restart compares two different panes.
+# which across a restart compares two different panes. The KILL needs different
+# evidence: a token cannot live on the pane the branch just killed, and the
+# caller only needs "the pane is gone" — so Part K pins that a matched dispatch
+# kills, a rejected one leaves the pane untouched, and Part B (kill) drives the
+# same restart race and proves the stranger's pane survives.
 #
 # ISOLATION. `require_isolated_tmux` only (NOT `require_clean_ait_server`):
 # nothing here arms `pane-died` hooks or runs framework code that reaches tmux
@@ -88,6 +93,33 @@ PYEOF
 
 drive() {   # drive <pane> <expect> <command> [unset]
     "$PYTHON_BIN" "$DRIVER" "$PROJECT_DIR" "$1" "$2" "$3" "${4:-}"
+}
+
+# The kill-side driver (t1783). Prints `verdict|reason`.
+KILL_DRIVER="$FIXTURE_DIR/kill_driver.py"
+cat > "$KILL_DRIVER" <<'PYEOF'
+import sys
+sys.path.insert(0, sys.argv[1] + "/.aitask-scripts")
+sys.path.insert(0, sys.argv[1] + "/.aitask-scripts/lib")
+import agent_frozen_ops as ops
+
+pane, expect, window = sys.argv[2], sys.argv[3], sys.argv[4] == "window"
+verdict, reason = ops.kill_if_stamped(
+    pane, option="@aitask_frozen", expect=expect, window=window)
+print(f"{verdict}|{reason}")
+PYEOF
+
+kdrive() {   # kdrive <pane> <expect> [pane|window]
+    "$PYTHON_BIN" "$KILL_DRIVER" "$PROJECT_DIR" "$1" "$2" "${3:-pane}"
+}
+
+# A second window holding two panes, so a kill never takes the server's last
+# pane with it: %1 runs <cmd1>, %2 (a split of %1) runs <cmd2>.
+second_window() {   # second_window <cmd1> <cmd2>
+    tm new-window -d "$1"
+    sleep 0.3
+    tm split-window -d -t %1 "$2"
+    sleep 0.3
 }
 
 fresh_server() {   # fresh_server <pane-command> -> the new session's first pane
@@ -242,6 +274,103 @@ section "A5 — tmux_quote carries a metacharacter-laden command intact"
 )
 
 # ===========================================================================
+section "Part K — the kill-side facts (t1783)"
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+section "K1 — a matched kill-pane dispatch removes the pane and nothing else"
+# ---------------------------------------------------------------------------
+(
+    fresh_server "sleep 3101"
+    second_window "sleep 3102" "sleep 3103"
+    tm set-option -p -t %1 "$FROZEN_OPT" "$RID"
+
+    out="$(kdrive %1 "$RID")"
+    sleep 0.4
+    IFS='|' read -r verdict reason <<<"$out"
+
+    assert_eq "K1: the helper reports the pane gone" "gone" "$verdict"
+    assert_eq "K1: with no reason on success" "" "$reason"
+    assert_eq "K1: the pane really is gone" "no" \
+        "$(pane_exists %1 && echo yes || echo no)"
+    assert_eq "K1: its sibling survived (kill-pane, not kill-window)" "yes" \
+        "$(pane_exists %2 && echo yes || echo no)"
+    assert_eq "K1: and so did the other window" "yes" \
+        "$(pane_exists %0 && echo yes || echo no)"
+)
+
+# ---------------------------------------------------------------------------
+section "K2 — a REJECTED kill dispatch leaves the pane completely untouched"
+# ---------------------------------------------------------------------------
+# The fact `drop` rests on: if this ever stopped holding, the helper would be
+# killing panes it had decided not to kill.
+(
+    fresh_server "sleep 3104"
+    second_window "sleep 3105" "sleep 3106"
+    tm set-option -p -t %1 "$FROZEN_OPT" "$RID"
+    before_pid="$(pane_fmt %1 '#{pane_pid}')"
+    before_cmd="$(pane_fmt %1 '#{pane_start_command}')"
+
+    out="$(kdrive %1 "somebody-else")"
+    sleep 0.4
+    IFS='|' read -r verdict reason <<<"$out"
+
+    assert_eq "K2: the helper reports the pane present" "present" "$verdict"
+    assert_eq "K2: within one server generation that is a stamp mismatch" \
+        "stamp-mismatch" "$reason"
+    assert_eq "K2: the process was not killed" "$before_pid" \
+        "$(pane_fmt %1 '#{pane_pid}')"
+    assert_eq "K2: the command is unchanged" "$before_cmd" \
+        "$(pane_fmt %1 '#{pane_start_command}')"
+    assert_eq "K2: the stamp is still there" "$RID" "$(pane_fmt %1 "#{${FROZEN_OPT}}")"
+    assert_eq "K2: the sibling is untouched too" "yes" \
+        "$(pane_exists %2 && echo yes || echo no)"
+)
+
+# ---------------------------------------------------------------------------
+section "K3 — kill-window by a PANE target takes that pane's whole window"
+# ---------------------------------------------------------------------------
+# `drop` counts siblings from the target pane and then issues `kill-window -t
+# <pane>`; this pins that the two resolve to the same window.
+(
+    fresh_server "sleep 3107"
+    second_window "sleep 3108" "sleep 3109"
+    tm set-option -p -t %1 "$FROZEN_OPT" "$RID"
+
+    out="$(kdrive %1 "$RID" window)"
+    sleep 0.4
+    IFS='|' read -r verdict reason <<<"$out"
+
+    assert_eq "K3: the helper reports the pane gone" "gone" "$verdict"
+    assert_eq "K3: the target is gone" "no" \
+        "$(pane_exists %1 && echo yes || echo no)"
+    assert_eq "K3: and so is its window sibling" "no" \
+        "$(pane_exists %2 && echo yes || echo no)"
+    assert_eq "K3: the other window is untouched" "yes" \
+        "$(pane_exists %0 && echo yes || echo no)"
+)
+
+# ---------------------------------------------------------------------------
+section "K4 — a pane that is already gone is reported gone, nothing dispatched"
+# ---------------------------------------------------------------------------
+# Measured here (tmux 3.6a): `display-message -p -t <gone pane>` exits ZERO,
+# and a SERVER-scoped format like `#{pid}` still expands — only pane-scoped
+# fields come back empty. So neither the exit status nor the server pid can say
+# whether the pane exists; both helpers read `#{pane_id}` in their pre-read and
+# key on it (`agent_frozen_ops._pre_read`). Keying on rc or on `#{pid}` alone
+# dispatched at a pane that was not there and reported the miss as "" — which
+# is exactly what the first cut of this case caught.
+(
+    fresh_server "sleep 3110"
+    out="$(kdrive %7 "$RID")"
+    IFS='|' read -r verdict reason <<<"$out"
+    assert_eq "K4: gone before the dispatch is still gone" "gone" "$verdict"
+    assert_eq "K4: and named as such" "pane-gone" "$reason"
+    assert_eq "K4: the server's own pane is untouched" "yes" \
+        "$(pane_exists %0 && echo yes || echo no)"
+)
+
+# ===========================================================================
 section "Part B — a REAL restart between the pre-read and the dispatch"
 # ===========================================================================
 # The race the token exists for, and the one no mock can prove. The driver is
@@ -296,6 +425,60 @@ section "Part B — a REAL restart between the pre-read and the dispatch"
         "$(pane_fmt %0 '#{pane_start_command}')"
     assert_eq "Part B: and it was never stamped with our token" "" \
         "$(pane_fmt %0 "#{${TOKEN_OPT}}")"
+)
+
+# ===========================================================================
+section "Part B (kill) — a REAL restart between the pre-read and the kill dispatch"
+# ===========================================================================
+# The drop-side race t1783 closes. The kill driver is SIGSTOPped at the
+# `kill_dispatch` seam, the server is restarted underneath it, the recorded %N
+# is recreated holding an UNRELATED process, and only then is it resumed. Under
+# the old two-call `drop_record` the bare `kill-*` would land on that stranger.
+(
+    fresh_server "sleep 3113"
+    tm new-window -d "sleep 3114"
+    sleep 0.3
+    tm set-option -p -t %1 "$FROZEN_OPT" "$RID"
+    srv_before="$(tm display-message -p '#{pid}')"
+
+    outfile="$FIXTURE_DIR/partb_kill.out"
+    AITASKS_TEST_MODE=1 AITASKS_FROZEN_PAUSE_AT=kill_dispatch \
+        "$PYTHON_BIN" "$KILL_DRIVER" "$PROJECT_DIR" %1 "$RID" pane \
+        > "$outfile" 2>&1 &
+    driver=$!
+
+    if wait_stopped "$driver"; then assert_record_pass; else
+        assert_record_fail
+        echo "FAIL: Part B (kill): the driver never paused at kill_dispatch"
+    fi
+
+    # Same socket, new server, and %1 is handed to a process that is not ours.
+    fresh_server "sleep 4243"
+    tm new-window -d "sleep 4244"
+    sleep 0.3
+    srv_after="$(tm display-message -p '#{pid}')"
+    marker_pid="$(pane_fmt %1 '#{pane_pid}')"
+    assert_eq "Part B (kill): the recorded %N was recreated" "%1" \
+        "$(pane_fmt %1 '#{pane_id}')"
+    if [ "$srv_before" != "$srv_after" ]; then assert_record_pass; else
+        assert_record_fail; echo "FAIL: Part B (kill): the server did not restart"
+    fi
+
+    kill -CONT "$driver" 2>/dev/null || true
+    wait "$driver" 2>/dev/null || true
+    sleep 0.4
+
+    IFS='|' read -r verdict reason < "$outfile"
+    assert_eq "Part B (kill): the helper reports the pane PRESENT" "present" "$verdict"
+    assert_eq "Part B (kill): and names the restart" "server-restarted" "$reason"
+
+    # THE POINT: the unrelated process is untouched.
+    assert_eq "Part B (kill): the stranger's process still holds the pane" \
+        "$marker_pid" "$(pane_fmt %1 '#{pane_pid}')"
+    assert_contains "Part B (kill): still running ITS command, not killed" "4244" \
+        "$(pane_fmt %1 '#{pane_start_command}')"
+    assert_eq "Part B (kill): the other window survived too" "yes" \
+        "$(pane_exists %0 && echo yes || echo no)"
 )
 
 # ===========================================================================

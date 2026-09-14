@@ -51,6 +51,8 @@ PROMISED_CALLABLES = (
     # t1773: the tri-state resolver promoted out of `agent_freeze` (the restore
     # coordinator may not import that module), plus the atomic respawn it feeds.
     "probe_pane", "tmux_quote", "respawn_if_stamped",
+    # t1783: the kill-side twin of the atomic respawn, for `drop`.
+    "kill_if_stamped",
 )
 PROMISED_VALUES = (
     "StageFailure", "SESSIONS_SH", "PANE_FACT_FORMAT", "PANE_FACT_KEYS",
@@ -58,6 +60,8 @@ PROMISED_VALUES = (
     "EXIT_LEASE_HELD",
     "TMUX_UNREACHABLE", "PROBE_PANE_FORMAT", "PROBE_PANE_KEYS",
     "RESPAWN_PROBE_FORMAT",
+    # t1783: the shared pre-read of both stamp-conditional dispatches.
+    "PRE_READ_FORMAT", "TMUX_UNREACHABLE_MARK",
 )
 
 #: Engine modules that import the shared surface. `agent_restore` joins this
@@ -335,8 +339,13 @@ class RespawnIfStampedTests(_SwapMixin, unittest.TestCase):
 
     def test_the_dispatch_is_one_if_shell_carrying_the_whole_branch(self):
         _, tmux = self._run(
-            [(0, "9999"), (0, ""), (0, "tok\t%104\t51000\t9999")],
+            [(0, "%104\t9999"), (0, ""), (0, "tok\t%104\t51000\t9999\tabc123")],
             env={"A": "1", "B": "2"}, unset="@aitask_standin_ready")
+        after_read = tmux.calls[-1]
+        self.assertEqual("display-message", after_read[0])
+        self.assertTrue(after_read[-1].endswith("\t#{@aitask_frozen}"),
+                        "the after-read must carry the caller's stamp, so a "
+                        "miss can say whether the pane is still ours (t1783)")
         dispatch = next(c for c in tmux.calls if c and c[0] == "if-shell")
         self.assertEqual(["if-shell", "-F", "-t", "%104"], dispatch[:4])
         self.assertEqual("#{==:#{@aitask_frozen},abc123}", dispatch[4],
@@ -354,7 +363,7 @@ class RespawnIfStampedTests(_SwapMixin, unittest.TestCase):
     def test_the_token_is_fresh_on_every_call(self):
         seen = set()
         for _ in range(2):
-            _, tmux = self._run([(0, "9999"), (0, ""), (0, "no\t%104\t51000\t9999")])
+            _, tmux = self._run([(0, "%104\t9999"), (0, ""), (0, "no\t%104\t51000\t9999\tabc123")])
             seen.add(self._token_of(tmux))
         self.assertEqual(2, len(seen),
                          "a reused token would let a STALE option read as this "
@@ -366,12 +375,12 @@ class RespawnIfStampedTests(_SwapMixin, unittest.TestCase):
                 if args and args[0] == "display-message" and len(self.calls) >= 2:
                     tok = self.token
                     self.calls.append(list(args))
-                    return 0, f"{tok}\t%104\t51000\t9999"
+                    return 0, f"{tok}\t%104\t51000\t9999\tabc123"
                 if args and args[0] == "if-shell":
                     self.token = args[-1].split("@aitask_respawn_token ", 1)[1].split()[0]
                 return super().run(args, timeout)
 
-        tmux = self.swap_tmux(_Echo([(0, "9999"), (0, "")]))
+        tmux = self.swap_tmux(_Echo([(0, "%104\t9999"), (0, "")]))
         fired, pane, pid, reason = ops.respawn_if_stamped(
             "%104", "cmd", option="@aitask_frozen", expect="abc123")
         self.assertEqual((True, "%104", 51000, ""), (fired, pane, pid, reason))
@@ -386,7 +395,7 @@ class RespawnIfStampedTests(_SwapMixin, unittest.TestCase):
         the recorded `%N` now belongs to a stranger whose pid differs.
         """
         (fired, pane, pid, reason), _ = self._run(
-            [(0, "9999"), (0, ""), (0, "\t%104\t77777\t12345")])
+            [(0, "%104\t9999"), (0, ""), (0, "\t%104\t77777\t12345\tf00dfeed")])
         self.assertFalse(fired, "a pid delta is not evidence that the branch ran")
         self.assertEqual(("", 0), (pane, pid),
                          "handing back a location would let the caller adopt a "
@@ -395,12 +404,23 @@ class RespawnIfStampedTests(_SwapMixin, unittest.TestCase):
 
     def test_no_token_within_the_same_server_generation_is_a_stamp_mismatch(self):
         (fired, pane, pid, reason), _ = self._run(
-            [(0, "9999"), (0, ""), (0, "\t%104\t77777\t9999")])
+            [(0, "%104\t9999"), (0, ""), (0, "\t%104\t77777\t9999\tf00dfeed")])
         self.assertEqual((False, "", 0, "stamp-mismatch"), (fired, pane, pid, reason))
+
+    def test_no_token_with_our_stamp_intact_is_respawn_failed(self):
+        """The one miss on which the pane is STILL the caller's (t1783).
+
+        Same server, our stamp still on the pane, no token: the branch matched
+        and the respawn did not take. A caller may unstamp or retry on this
+        reason and on no other — every other miss means a stranger's pane.
+        """
+        (fired, pane, pid, reason), _ = self._run(
+            [(0, "%104\t9999"), (0, ""), (0, "\t%104\t51000\t9999\tabc123")])
+        self.assertEqual((False, "", 0, "respawn-failed"), (fired, pane, pid, reason))
 
     def test_a_foreign_token_is_not_ours(self):
         (fired, _, _, reason), _ = self._run(
-            [(0, "9999"), (0, ""), (0, "somebodyelse\t%104\t51000\t9999")])
+            [(0, "%104\t9999"), (0, ""), (0, "somebodyelse\t%104\t51000\t9999\tf00dfeed")])
         self.assertFalse(fired)
         self.assertEqual("stamp-mismatch", reason)
 
@@ -410,9 +430,119 @@ class RespawnIfStampedTests(_SwapMixin, unittest.TestCase):
         self.assertEqual([], [c for c in tmux.calls if c and c[0] == "if-shell"],
                          "nothing may be dispatched at a pane we could not read")
 
+    def test_an_EMPTY_pane_id_pre_read_is_a_gone_pane_and_dispatches_nothing(self):
+        """`display-message -p -t <gone pane>` exits 0 and `#{pid}` STILL
+        expands — only pane-scoped fields are empty (tmux 3.6a, live K4). So the
+        pane id in the pre-read is the signal, never the rc or the server pid."""
+        (fired, pane, pid, reason), tmux = self._run([(0, "\t9999")])
+        self.assertEqual((False, "", 0, "pane-gone"), (fired, pane, pid, reason))
+        self.assertEqual([], [c for c in tmux.calls if c and c[0] == "if-shell"])
+
     def test_a_short_after_read_is_not_success(self):
-        (fired, _, _, reason), _ = self._run([(0, "9999"), (0, ""), (0, "tok\t%104")])
+        (fired, _, _, reason), _ = self._run([(0, "%104\t9999"), (0, ""), (0, "tok\t%104")])
         self.assertEqual((False, "pane-gone"), (fired, reason))
+
+    def test_a_four_field_after_read_is_a_missing_stamp_not_success(self):
+        """The pre-t1783 shape: a fake still answering four fields must not
+        read as a fired dispatch, whatever token it carries."""
+        (fired, _, _, reason), _ = self._run(
+            [(0, "%104\t9999"), (0, ""), (0, "tok\t%104\t51000\t9999")])
+        self.assertEqual((False, "pane-gone"), (fired, reason))
+
+
+class KillIfStampedTests(_SwapMixin, unittest.TestCase):
+    """The atomic stamp-checked kill (t1783) and its tri-state verdict.
+
+    A kill cannot carry a branch token (it would sit on the pane just killed),
+    and it does not need one: the single `if-shell -F` dispatch is what keeps a
+    recycled `%N` safe, and "the pane is gone" is all the caller acts on. The
+    stamp and the server pid in the after-read NAME a non-firing dispatch; they
+    never decide one.
+    """
+
+    _Seq = RespawnIfStampedTests._Seq
+
+    def _run(self, answers, **kw):
+        tmux = self.swap_tmux(self._Seq(answers))
+        kw.setdefault("option", "@aitask_frozen")
+        kw.setdefault("expect", "abc123")
+        return ops.kill_if_stamped("%104", **kw), tmux
+
+    def _dispatch(self, tmux):
+        return next(c for c in tmux.calls if c and c[0] == "if-shell")
+
+    def test_the_dispatch_is_one_if_shell_gating_a_kill_pane(self):
+        _, tmux = self._run([(0, "%104\t9999"), (0, ""), (1, "")])
+        self.assertEqual(
+            ["if-shell", "-F", "-t", "%104", "#{==:#{@aitask_frozen},abc123}",
+             "kill-pane -t %104"],
+            self._dispatch(tmux),
+            "the stamp check must be the if-shell CONDITION and the kill its "
+            "only branch — nothing may sit between them")
+        self.assertEqual([], [c for c in tmux.calls if c and c[0] == "kill-pane"],
+                         "a bare kill-pane is the unguarded form this replaces")
+
+    def test_window_true_gates_a_kill_window_by_pane_target(self):
+        _, tmux = self._run([(0, "%104\t9999"), (0, ""), (1, "")], window=True)
+        self.assertEqual("kill-window -t %104", self._dispatch(tmux)[-1])
+
+    def test_a_pane_gone_after_the_dispatch_is_the_success(self):
+        (verdict, reason), _ = self._run([(0, "%104\t9999"), (0, ""), (1, "")])
+        self.assertEqual(("gone", ""), (verdict, reason))
+
+    def test_an_empty_after_read_is_gone_too(self):
+        # `display-message -p -t <gone pane>` can exit 0 with empty output.
+        (verdict, reason), _ = self._run([(0, "%104\t9999"), (0, ""), (0, "\t\t")])
+        self.assertEqual(("gone", ""), (verdict, reason))
+
+    def test_our_stamp_still_present_means_the_kill_failed(self):
+        (verdict, reason), _ = self._run(
+            [(0, "%104\t9999"), (0, ""), (0, "%104\tabc123\t9999")])
+        self.assertEqual(("present", "kill-failed"), (verdict, reason))
+
+    def test_a_foreign_stamp_on_a_new_server_names_the_restart(self):
+        """The race this exists for: nothing was killed, and the reason says
+        why the stranger's pane is still there."""
+        (verdict, reason), _ = self._run(
+            [(0, "%104\t9999"), (0, ""), (0, "%104\tf00dfeed\t12345")])
+        self.assertEqual(("present", "server-restarted"), (verdict, reason))
+
+    def test_a_foreign_stamp_on_the_same_server_is_a_stamp_mismatch(self):
+        (verdict, reason), _ = self._run(
+            [(0, "%104\t9999"), (0, ""), (0, "%104\tf00dfeed\t9999")])
+        self.assertEqual(("present", "stamp-mismatch"), (verdict, reason))
+
+    def test_the_pre_read_asks_for_the_pane_id_and_the_server_pid(self):
+        _, tmux = self._run([(0, "%104\t9999"), (0, ""), (1, "")])
+        self.assertEqual(["display-message", "-p", "-t", "%104", "#{pane_id}\t#{pid}"],
+                         tmux.calls[0])
+
+    def test_an_unreachable_tmux_is_unknown_and_dispatches_nothing(self):
+        """"cannot ask" is NOT "already gone" — the V9 hole, kill-side."""
+        (verdict, reason), tmux = self._run([(ops.TMUX_UNREACHABLE, "")])
+        self.assertEqual("unknown", verdict)
+        self.assertEqual("tmux unreachable", reason)
+        self.assertEqual([], [c for c in tmux.calls if c and c[0] == "if-shell"],
+                         "nothing may be dispatched at a pane we could not read")
+
+    def test_an_unreachable_after_read_is_unknown(self):
+        (verdict, _), _ = self._run(
+            [(0, "%104\t9999"), (0, ""), (ops.TMUX_UNREACHABLE, "")])
+        self.assertEqual("unknown", verdict,
+                         "losing tmux after the dispatch proves nothing about "
+                         "the pane — the caller must not delete on it")
+
+    def test_a_pane_gone_before_the_dispatch_is_gone_with_nothing_sent(self):
+        (verdict, reason), tmux = self._run([(1, "")])
+        self.assertEqual(("gone", "pane-gone"), (verdict, reason))
+        self.assertEqual([], [c for c in tmux.calls if c and c[0] == "if-shell"])
+
+    def test_an_EMPTY_pane_id_pre_read_is_gone_too(self):
+        """Real tmux answers a gone pane with exit 0 and the server pid still
+        expanded (K4): the empty pane id is what says gone."""
+        (verdict, reason), tmux = self._run([(0, "\t9999")])
+        self.assertEqual(("gone", "pane-gone"), (verdict, reason))
+        self.assertEqual([], [c for c in tmux.calls if c and c[0] == "if-shell"])
 
 class SeamRuleTests(unittest.TestCase):
     """Case 4 — no engine module import-aliases a swapped name."""
