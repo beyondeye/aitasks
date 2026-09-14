@@ -15,6 +15,10 @@ from pathlib import Path
 from typing import Callable
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+# Own directory too (t1794, C1): sibling board modules are imported by bare
+# name, and not every loader (the fixture's spec_from_file_location, the
+# shortcut sweep, subprocess probes) has put board/ on sys.path first.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from rich.cells import cell_len, set_cell_size
 from rich.markup import escape
 from rich.text import Text

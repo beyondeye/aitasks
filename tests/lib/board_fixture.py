@@ -188,6 +188,29 @@ GATES_REFERENCE = REPO_ROOT / ".aitask-scripts" / "gates_reference.yaml"
 #: The only `TASK_DIR` value this harness accepts — see the module docstring.
 TASK_DIR_VALUE = "aitasks"
 
+#: Every module the board app is split into (t1794, parent plan "Target file
+#: map"), present or planned. The one source the package guards read: the
+#: canonical-import sweep and the fresh-load C2 check in
+#: test_board_fixture_harness.py, and the membership test in
+#: test_board_package_contract.py, which fails until a new `board/*.py` is
+#: classified here or in `BOARD_NON_MEMBERS`.
+BOARD_MODULE_NAMES = frozenset({
+    "aitask_board",
+    "board_widgets",
+    "board_trail_view",
+    "board_task_model",
+    "board_task_manager",
+    "board_workflow_phase",
+    "board_trail_screen",
+    "trails_app",
+    "board_detail_screen",
+    "board_column_dialogs",
+})
+
+#: `board/*.py` files that are not part of the board app: never imported by it
+#: and never loaded under this harness, so the C2 scans skip them.
+BOARD_NON_MEMBERS = frozenset({"aitask_merge"})
+
 # --- Fixture vocabulary ------------------------------------------------------
 
 COLUMNS = [

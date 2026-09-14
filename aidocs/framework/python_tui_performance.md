@@ -326,6 +326,124 @@ C-accelerated layers.
 - Re-measurement is appropriate if either condition is met; otherwise
   do not re-attempt the swap.
 
+## t1794 baseline — board footprint (2026-09-14)
+
+Reference point for the t1794 board split (`board/` package, stand-alone
+`ait trails` TUI). Every later "saves memory / starts faster" claim in that
+task is a signed margin computed with the same script under the rule below —
+never an inference from line counts.
+
+### Protocol
+
+`tests/perf/board_footprint.sh [--runs N] <module> <interpreter>` (manual,
+Linux-only, never collected by a runner). Each run takes two samples that are
+independent of every other run:
+
+- **RSS** — `VmRSS` of a fresh launch of `<module>.py` in its own 200×50 tmux
+  session on a private socket (`-L ait_footprint_<pid>`), sampled once after
+  10 s idle. The script fails closed if the pane process is not the named
+  interpreter or has exited.
+- **Cold start** — median wall time of 5 fresh
+  `<interpreter> -c 'import <module>'` processes, interpreter startup included,
+  after one discarded warm-up import per invocation (bytecode cache).
+
+The **ceiling** module, `tests/perf/footprint_ceiling.py`, imports only
+`textual`, `rich`, `yaml` and the Textual widgets the extracted trail view uses,
+and idles in a minimal App. Its RSS is the floor a stand-alone trails TUI is
+judged against, which makes board − ceiling the *ceiling on achievable
+savings* — an upper bound, not a prediction.
+
+**Provenance.** Measured in an isolated, detached `git worktree` at `59d8fe9db`
+holding exactly t1794_1's files — the run aborts unless that worktree's
+`git status --porcelain -uall` lists those paths and nothing else — so no other
+session's uncommitted edits were present. The script's provenance line, verbatim:
+
+```
+provenance head=59d8fe9dbbd166de9345c1d862cf717e4098bad9 tree=59d8fe9db+bd477827724b changed=.aitask-scripts/board/aitask_board.py,.aitask-scripts/board/__init__.py,tests/perf/board_footprint.sh,tests/perf/footprint_ceiling.py
+```
+
+What it proves: the measured code is `59d8fe9db` plus uncommitted changes to
+exactly those four paths under `.aitask-scripts/` and `tests/perf/`, with the
+content fingerprint `bd477827724b`. Of the four, only
+`.aitask-scripts/board/aitask_board.py` (the one-line own-directory `sys.path`
+insert) and `.aitask-scripts/board/__init__.py` (docstring only) are loaded by
+the board; the other two are the measuring script and the ceiling module.
+Task data: this repo's tree, 405 parent task files, default view, no trail
+selected. Interpreters: `~/.aitask/venv/bin/python` (CPython 3.14.7) and
+`~/.aitask/pypy_venv/bin/python` (PyPy 3.11.15), Textual 8.2.7 in both. Host
+load (1-min) 4.9–8.8 during the runs — other agents were active, which shows
+in the cold-start ranges. Two earlier runs of the same board code on the same
+day gave the same RSS but board cold-start medians of 244 ms and 335 ms under
+CPython (load 2.3–5.6 and 6.4–9.2): the cross-session drift the margin rule
+below exists for.
+
+### Results (n = 5 each; median [min–max])
+
+| Module | Interpreter | RSS (MiB) | Cold start (ms) |
+|---|---|---:|---:|
+| `aitask_board` | CPython 3.14.7 | 182.8 [182.7–182.8] | 233 [208–394] |
+| `footprint_ceiling` | CPython 3.14.7 | 40.1 [40.1–40.2] | 218 [186–251] |
+| `aitask_board` | PyPy 3.11.15 | 319.6 [316.3–321.7] | 459 [428–474] |
+| `footprint_ceiling` | PyPy 3.11.15 | 113.8 [113.7–114.1] | 298 [271–329] |
+
+Ceiling on achievable RSS savings for a stand-alone trails TUI: 142.7 MiB under
+CPython, 205.8 MiB under PyPy. PyPy's board RSS varies by ~5 MiB between
+launches while CPython's stays within 0.1 MiB; a PyPy margin needs that spread
+in view.
+
+<details>
+<summary>Raw runs (verbatim script output)</summary>
+
+```
+provenance head=59d8fe9dbbd166de9345c1d862cf717e4098bad9 tree=59d8fe9db+bd477827724b changed=.aitask-scripts/board/aitask_board.py,.aitask-scripts/board/__init__.py,tests/perf/board_footprint.sh,tests/perf/footprint_ceiling.py
+59d8fe9db+bd477827724b aitask_board cpython-3.14.7 run=1/5 rss_mib=182.7 coldstart_ms=394 load1=5.79 parent_tasks=405
+59d8fe9db+bd477827724b aitask_board cpython-3.14.7 run=2/5 rss_mib=182.8 coldstart_ms=265 load1=5.44 parent_tasks=405
+59d8fe9db+bd477827724b aitask_board cpython-3.14.7 run=3/5 rss_mib=182.8 coldstart_ms=233 load1=5.44 parent_tasks=405
+59d8fe9db+bd477827724b aitask_board cpython-3.14.7 run=4/5 rss_mib=182.8 coldstart_ms=208 load1=5.28 parent_tasks=405
+59d8fe9db+bd477827724b aitask_board cpython-3.14.7 run=5/5 rss_mib=182.7 coldstart_ms=215 load1=4.92 parent_tasks=405
+summary aitask_board cpython-3.14.7 n=5 rss_mib=182.8 [182.7–182.8] coldstart_ms=233 [208–394]
+59d8fe9db+bd477827724b footprint_ceiling cpython-3.14.7 run=1/5 rss_mib=40.2 coldstart_ms=192 load1=5.01 parent_tasks=405
+59d8fe9db+bd477827724b footprint_ceiling cpython-3.14.7 run=2/5 rss_mib=40.1 coldstart_ms=186 load1=5.58 parent_tasks=405
+59d8fe9db+bd477827724b footprint_ceiling cpython-3.14.7 run=3/5 rss_mib=40.1 coldstart_ms=251 load1=5.63 parent_tasks=405
+59d8fe9db+bd477827724b footprint_ceiling cpython-3.14.7 run=4/5 rss_mib=40.1 coldstart_ms=229 load1=8.82 parent_tasks=405
+59d8fe9db+bd477827724b footprint_ceiling cpython-3.14.7 run=5/5 rss_mib=40.1 coldstart_ms=218 load1=8.30 parent_tasks=405
+summary footprint_ceiling cpython-3.14.7 n=5 rss_mib=40.1 [40.1–40.2] coldstart_ms=218 [186–251]
+59d8fe9db+bd477827724b aitask_board pypy-3.11.15 run=1/5 rss_mib=321.1 coldstart_ms=459 load1=8.03 parent_tasks=405
+59d8fe9db+bd477827724b aitask_board pypy-3.11.15 run=2/5 rss_mib=321.7 coldstart_ms=474 load1=7.22 parent_tasks=405
+59d8fe9db+bd477827724b aitask_board pypy-3.11.15 run=3/5 rss_mib=317.6 coldstart_ms=453 load1=6.57 parent_tasks=405
+59d8fe9db+bd477827724b aitask_board pypy-3.11.15 run=4/5 rss_mib=319.6 coldstart_ms=472 load1=6.90 parent_tasks=405
+59d8fe9db+bd477827724b aitask_board pypy-3.11.15 run=5/5 rss_mib=316.3 coldstart_ms=428 load1=6.60 parent_tasks=405
+summary aitask_board pypy-3.11.15 n=5 rss_mib=319.6 [316.3–321.7] coldstart_ms=459 [428–474]
+59d8fe9db+bd477827724b footprint_ceiling pypy-3.11.15 run=1/5 rss_mib=113.8 coldstart_ms=298 load1=6.57 parent_tasks=405
+59d8fe9db+bd477827724b footprint_ceiling pypy-3.11.15 run=2/5 rss_mib=113.7 coldstart_ms=329 load1=7.03 parent_tasks=405
+59d8fe9db+bd477827724b footprint_ceiling pypy-3.11.15 run=3/5 rss_mib=114.1 coldstart_ms=322 load1=6.80 parent_tasks=405
+59d8fe9db+bd477827724b footprint_ceiling pypy-3.11.15 run=4/5 rss_mib=113.8 coldstart_ms=271 load1=5.81 parent_tasks=405
+59d8fe9db+bd477827724b footprint_ceiling pypy-3.11.15 run=5/5 rss_mib=113.8 coldstart_ms=272 load1=5.38 parent_tasks=405
+summary footprint_ceiling pypy-3.11.15 n=5 rss_mib=113.8 [113.7–114.1] coldstart_ms=298 [271–329]
+```
+
+(Each module's provenance line is identical; one copy is kept above.)
+
+</details>
+
+### Margin rule (how later t1794 children report against this)
+
+The numbers above are a **sample, not a threshold** — never derive a
+"noise band" from their spread.
+
+1. Collect n ≥ 5 independent runs per configuration with this script, the same
+   interpreter and the same task tree, **in one session**: re-measure the board
+   alongside the candidate (e.g. `trails_app`) rather than reusing the figures
+   above. This host routinely runs many concurrent agents, and cross-session
+   absolutes drift by ~10%.
+2. Report the margin as the **difference of medians**, always alongside both
+   samples' min–max.
+3. Call it a saving or a regression **only when the two samples do not overlap
+   at all** — complete separation of two 5-samples is the exact Mann–Whitney
+   extreme (two-sided p = 2/252 ≈ 0.008 under exchangeability). Otherwise
+   report it as "within observed variation".
+4. Keep the raw lines, so a later reader can apply a different test.
+
 ## Related Tasks
 
 - **t257** (`aitasks/t257_performance_when_chaning_selection.md`) — codebrowser scroll/selection lag. Likely a Textual render-diff issue, not interpreter speed. Adjacent to PyPy adoption but not duplicated by it.

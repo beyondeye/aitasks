@@ -312,6 +312,9 @@ MIGRATED_MODULES = (
     "test_board_topic_group.py",
     "test_board_topic_view.py",
     "test_board_view_filter.py",
+    # t1794_1: the key-map characterization reaches the board only through the
+    # harness too, so it is held to the strict tier from the start.
+    "test_board_keymap_characterization.py",
 )
 
 #: Tier-1 exemptions, scoped to **specific chdir expressions** — never to a whole
@@ -477,17 +480,24 @@ def _chdir_expressions(source: str) -> list[str]:
 
 
 def _canonical_board_imports(source: str) -> list[str]:
-    """`import aitask_board` / `from aitask_board import ...` occurrences."""
+    """Canonical imports of ANY board module (`bf.BOARD_MODULE_NAMES`).
+
+    `import aitask_board` and, since the t1794 split, a sibling such as
+    `import board_task_manager` alike: a canonically imported sibling holds the
+    shared `sys.modules` copy, never the fixture's, so it is the same live-tree
+    coupling. `board_columns` / `board_groups` are flat lib/ modules, not board
+    modules, and stay importable.
+    """
     import ast
 
     findings = []
     for node in ast.walk(ast.parse(source)):
         if isinstance(node, ast.Import):
             for alias in node.names:
-                if alias.name == "aitask_board":
+                if alias.name in bf.BOARD_MODULE_NAMES:
                     findings.append(f"canonical import: {ast.unparse(node)}")
         elif isinstance(node, ast.ImportFrom):
-            if node.module == "aitask_board":
+            if node.level == 0 and node.module in bf.BOARD_MODULE_NAMES:
                 findings.append(f"canonical import: {ast.unparse(node)}")
     return findings
 
@@ -879,6 +889,428 @@ class MigratedModuleGuardTests(unittest.TestCase):
         benign = source + '\n\n_NOTE = "os.chdir(REPO_ROOT) is what we removed"\n'
         self.assertEqual(_live_tree_couplings(benign), [],
                          "the guard must be structural, not substring-based")
+
+
+# --- C2: only aitask_board.py resolves the task directory (t1794_1) ---------
+#
+# `load_board_module()` re-execs ONLY aitask_board.py with `TASK_DIR` set, and
+# restores the env in `finally`. A sibling board module that resolves the task
+# dir itself is wrong both ways, and silent both ways:
+#   * bound at import  -> it keeps whatever the FIRST import of it saw (sibling
+#     modules come from the shared `sys.modules`, they are not re-executed);
+#   * looked up lazily -> it reads the env the loader has already restored.
+# So the rule is position-independent: board modules receive resolved paths as
+# parameters (parent plan C2: `TaskManager(*, tasks_dir, …)`,
+# `load_local_project_name(tasks_dir, …)`).
+#
+# Boundary, deliberately: this covers DIRECT resolution in board modules. lib/
+# functions that resolve the task dir internally — trail_discovery._tasks_dir
+# (behind discover_trails, the pinned trail seam), config_utils.load_all_models
+# and its import-time MODEL_FILES, work_report_gather.scan_tasks/load_columns,
+# trail_gather._local_dirs, roadmap_origin_facts._dirs,
+# userconfig_persist._userconfig_path — are a pre-existing lib-layer property
+# the canonical board already relies on. A moved function may keep calling them
+# exactly where aitask_board.py did; changing that layer is outside t1794.
+
+#: aitask_board.py's TASKS_DIR-derived module constants; no sibling may name one.
+_BOARD_PATH_CONSTANTS = frozenset({
+    "TASKS_DIR", "METADATA_FILE", "GATES_REGISTRY_FILE", "USERCONFIG_FILE",
+    "EMAILS_FILE", "TASK_TYPES_FILE",
+})
+
+#: The direct ambient resolvers (lib/config_utils.py).
+_TASK_DIR_RESOLVERS = frozenset({"task_dir", "metadata_dir"})
+
+#: Exact-finding exemptions from `_ambient_task_path_reads`, keyed by `board/`
+#: filename. Empty: no board module but aitask_board.py resolves the task dir.
+C2_AMBIENT_ALLOWED: dict[str, frozenset[str]] = {}
+
+#: Sentinel TASK_DIR for the fresh-load check. It must differ from the default
+#: ("aitasks" == bf.TASK_DIR_VALUE), or a stale binding and a lazy read would
+#: be indistinguishable from a correct one.
+_C2_SENTINEL = "c2_sentinel_tasks"
+
+
+def _c2_scanned_modules() -> list[Path]:
+    """Every board/*.py the C2 rule binds: all but aitask_board.py and non-members."""
+    skip = {"aitask_board"} | bf.BOARD_NON_MEMBERS
+    return sorted(p for p in (REPO_ROOT / ".aitask-scripts" / "board").glob("*.py")
+                  if p.stem not in skip)
+
+
+def _ambient_task_path_reads(source: str) -> list[str]:
+    """Every way a module can resolve the task dir itself, in ANY position.
+
+    Reported as ``"<import-time|runtime> <kind>: <expression>"``. The position
+    is for the message only — both are failures. Rejecting the *reference*
+    (not just the call) catches `resolve = config_utils.task_dir` and
+    `getattr(config_utils, "task_dir")` without dataflow, the same rationale as
+    `_chdir_expressions` above. Name the resolved-path parameter `tasks_dir`
+    (plural): a local literally called `task_dir` is flagged like the resolver.
+    """
+    import ast
+
+    tree = ast.parse(source)
+    parents: dict[int, ast.AST] = {}
+    for node in ast.walk(tree):
+        for child in ast.iter_child_nodes(node):
+            parents[id(child)] = node
+
+    def runtime(node) -> bool:
+        """Inside a function/lambda BODY (defaults and decorators run at import)."""
+        child = node
+        while id(child) in parents:
+            parent = parents[id(child)]
+            if (isinstance(parent, (ast.FunctionDef, ast.AsyncFunctionDef))
+                    and any(child is stmt for stmt in parent.body)):
+                return True
+            if isinstance(parent, ast.Lambda) and child is parent.body:
+                return True
+            child = parent
+        return False
+
+    def enclosing(node):
+        cur = node
+        while id(cur) in parents:
+            cur = parents[id(cur)]
+            if isinstance(cur, (ast.Call, ast.stmt)):
+                return cur
+        return node
+
+    watched = _TASK_DIR_RESOLVERS | _BOARD_PATH_CONSTANTS
+    findings: list[str] = []
+    seen: set[str] = set()
+
+    def add(node, kind):
+        where = "runtime" if runtime(node) else "import-time"
+        text = f"{where} {kind}: {ast.unparse(enclosing(node))}"
+        if text not in seen:
+            seen.add(text)
+            findings.append(text)
+
+    def kind_of(name):
+        return ("board path constant" if name in _BOARD_PATH_CONSTANTS
+                else "task-dir resolver")
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                if alias.name in watched:
+                    add(node, f"{kind_of(alias.name)} import")
+        elif isinstance(node, ast.Name) and node.id in watched:
+            add(node, kind_of(node.id))
+        elif isinstance(node, ast.Attribute) and node.attr in watched:
+            add(node, kind_of(node.attr))
+        elif isinstance(node, ast.Call):
+            if (isinstance(node.func, ast.Name) and node.func.id == "getattr"
+                    and len(node.args) >= 2
+                    and isinstance(node.args[1], ast.Constant)
+                    and node.args[1].value in watched):
+                add(node, kind_of(node.args[1].value))
+            if any(isinstance(a, ast.Constant) and a.value == "TASK_DIR"
+                   for a in node.args):
+                add(node, "TASK_DIR env read")
+        elif (isinstance(node, ast.Subscript)
+              and isinstance(node.slice, ast.Constant)
+              and node.slice.value == "TASK_DIR"):
+            add(node, "TASK_DIR env read")
+    return findings
+
+
+#: Runs in a FRESH interpreter so no sibling module is already in
+#: `sys.modules`: in-process, a flat `import sibling` reuses the cached module
+#: and the check would pass without exercising anything.
+_FRESH_LOAD_SCRIPT = """\
+import json, sys
+from pathlib import Path, PurePath
+args = json.loads(sys.argv[1])
+import board_fixture as bf
+names = args["names"]
+dragged = sorted(set(names) & set(sys.modules))
+if args["board_path"]:
+    bf.BOARD_PATH = Path(args["board_path"])
+    stand_in = str(Path(args["board_path"]).parent)
+    if stand_in not in sys.path:
+        sys.path.insert(0, stand_in)
+for name in args["preimport"]:
+    __import__(name)
+before = set(sys.modules)
+board = bf.load_board_module(args["task_dir"], tag="c2fresh")
+cwd = Path.cwd()
+roots = [PurePath(args["task_dir"]), PurePath(bf.TASK_DIR_VALUE), PurePath(".aitask-data")]
+
+def derived(value):
+    if isinstance(value, str):
+        return any(value == str(r) or value.startswith(str(r) + "/") for r in roots)
+    if not isinstance(value, PurePath):
+        return False
+    for r in roots:
+        if not value.is_absolute() and value.parts[:len(r.parts)] == r.parts:
+            return True
+        try:
+            if Path(value).resolve().is_relative_to((cwd / r).resolve()):
+                return True
+        except (OSError, ValueError):
+            pass
+    return False
+
+modules = {}
+for name in names:
+    mod = sys.modules.get(name)
+    if mod is None:
+        continue
+    modules[name] = {
+        "fresh": name not in before,
+        "bound": sorted(k for k, v in vars(mod).items()
+                        if not k.startswith("__") and derived(v)),
+    }
+calls = []
+for spec, pass_tasks_dir in args["calls"]:
+    mod_name, fn_name = spec.split(":")
+    fn = getattr(sys.modules[mod_name], fn_name)
+    result = fn(board.TASKS_DIR) if pass_tasks_dir else fn()
+    calls.append({"call": spec, "result": str(result)})
+print(json.dumps({
+    "board_tasks_dir": str(board.TASKS_DIR),
+    "honoured_sentinel": board.TASKS_DIR == Path(args["task_dir"]),
+    "dragged": dragged,
+    "modules": modules,
+    "calls": calls,
+}))
+"""
+
+
+def _fresh_load_report(workdir: Path, *, board_path=None, names=None,
+                       preimport=(), calls=()) -> dict:
+    """Load the board with the sentinel TASK_DIR in a fresh interpreter.
+
+    `calls` holds ``("module:function", pass_tasks_dir)`` pairs invoked AFTER
+    the load returned — i.e. after the env was restored, as in every fixture
+    test — with the board's own `TASKS_DIR` as argument when `pass_tasks_dir`.
+    """
+    import subprocess
+
+    (workdir / _C2_SENTINEL).mkdir(exist_ok=True)
+    if names is None:
+        names = sorted(bf.BOARD_MODULE_NAMES - {"aitask_board"})
+    scripts = REPO_ROOT / ".aitask-scripts"
+    env = {k: v for k, v in os.environ.items() if k not in ("PYTHONPATH", "TASK_DIR")}
+    env["PYTHONPATH"] = os.pathsep.join(
+        str(p) for p in (REPO_ROOT / "tests" / "lib", scripts,
+                         scripts / "board", scripts / "lib"))
+    args = json.dumps({"task_dir": _C2_SENTINEL, "names": list(names),
+                       "board_path": str(board_path) if board_path else "",
+                       "preimport": list(preimport),
+                       "calls": [list(c) for c in calls]})
+    proc = subprocess.run([sys.executable, "-c", _FRESH_LOAD_SCRIPT, args],
+                          cwd=str(workdir), env=env, capture_output=True,
+                          text=True, timeout=180)
+    if proc.returncode != 0:
+        raise AssertionError(f"fresh-load probe failed:\n{proc.stderr[-3000:]}")
+    return json.loads(proc.stdout.strip().splitlines()[-1])
+
+
+def _c2_findings(report: dict) -> list[str]:
+    """Fail closed: a check that exercised nothing is a finding, not a pass."""
+    findings = []
+    if not report["honoured_sentinel"]:
+        findings.append("the loader did not honour the sentinel TASK_DIR — "
+                        "the check exercised nothing")
+    for name in report["dragged"]:
+        findings.append(f"{name}: imported by board_fixture itself, before any load")
+    for name, info in sorted(report["modules"].items()):
+        if not info["fresh"]:
+            findings.append(f"{name}: imported before the fixture load — the "
+                            "check did not exercise it")
+        for attr in info["bound"]:
+            findings.append(f"{name}.{attr}: task-dir path bound at import")
+    for call in report["calls"]:
+        if call["result"] != report["board_tasks_dir"]:
+            findings.append(
+                f"{call['call']}: resolved {call['result']!r} after the load, "
+                f"while the board resolved {report['board_tasks_dir']!r}")
+    return findings
+
+
+class CanonicalSiblingImportTests(unittest.TestCase):
+    """The canonical-import sweep covers every board module name (t1794_1)."""
+
+    def test_guard_flags_a_canonical_sibling_import(self):
+        for source in ("import board_task_manager\n",
+                       "from board_trail_view import TrailColumn\n",
+                       "import trails_app as ta\n"):
+            with self.subTest(source=source.strip()):
+                self.assertTrue(
+                    any("canonical import" in f
+                        for f in _sweep_findings("synthetic_probe.py", source)),
+                    "a canonical import of a board sibling bypasses the fixture")
+
+    def test_flat_lib_names_are_not_board_modules(self):
+        """`board_columns` & co. live in lib/ — importing them is not coupling."""
+        self.assertEqual(
+            _canonical_board_imports("import board_columns\nimport board_groups\n"),
+            [])
+
+
+class AmbientTaskPathStaticTests(unittest.TestCase):
+    """C2 static half — no board module resolves the task dir, anywhere."""
+
+    FLAGGED = {
+        "module_level": "from config_utils import task_dir\nROOT = task_dir()\n",
+        "class_body": "import config_utils\nclass C:\n    ROOT = config_utils.task_dir()\n",
+        "default_arg": "import config_utils\ndef f(root=config_utils.task_dir()):\n    return root\n",
+        "decorator": ("import config_utils\n@register(config_utils.metadata_dir())\n"
+                      "def f():\n    pass\n"),
+        "in_function": "import config_utils\ndef f():\n    return config_utils.task_dir()\n",
+        "lambda_body": "import config_utils\nROOT = lambda: config_utils.task_dir()\n",
+        "from_import_alias": "from config_utils import task_dir as td\n",
+        "value_alias": "import config_utils\nresolve = config_utils.task_dir\n",
+        "getattr": "import config_utils\nroot = getattr(config_utils, 'task_dir')()\n",
+        "environ_subscript": "import os\ndef f():\n    return os.environ['TASK_DIR']\n",
+        "environ_get": "import os\ndef f():\n    return os.environ.get('TASK_DIR', 'aitasks')\n",
+        "getenv": "import os\nROOT = os.getenv('TASK_DIR')\n",
+        "board_constant_attr": "def f(ab):\n    return ab.TASKS_DIR / 'x'\n",
+        "board_constant_name": "def f():\n    return METADATA_FILE\n",
+    }
+
+    CLEAN = {
+        "parameter": ("from pathlib import Path\n"
+                      "def load(tasks_dir: Path):\n    return tasks_dir / 'metadata'\n"),
+        "docstring": '"""Callers pass what task_dir() resolved; never read TASK_DIR here."""\n',
+        "other_env": "import os\nHOME = os.environ.get('HOME')\n",
+    }
+
+    def test_board_modules_resolve_no_task_dir(self):
+        for path in _c2_scanned_modules():
+            with self.subTest(module=path.name):
+                allowed = C2_AMBIENT_ALLOWED.get(path.name, frozenset())
+                found = [f for f in _ambient_task_path_reads(
+                    path.read_text(encoding="utf-8")) if f not in allowed]
+                self.assertEqual(
+                    found, [],
+                    f"{path.name} must receive resolved paths as parameters (C2)")
+
+    def test_scope_excludes_only_the_board_and_non_members(self):
+        stems = {p.stem for p in _c2_scanned_modules()}
+        self.assertNotIn("aitask_board", stems)
+        self.assertTrue(stems.isdisjoint(bf.BOARD_NON_MEMBERS))
+        self.assertIn("__init__", stems, "the package marker is in scope too")
+
+    def test_every_allowlist_entry_is_still_real(self):
+        board = REPO_ROOT / ".aitask-scripts" / "board"
+        for name, exprs in C2_AMBIENT_ALLOWED.items():
+            found = set(_ambient_task_path_reads((board / name).read_text(encoding="utf-8")))
+            for expr in exprs:
+                with self.subTest(module=name, expr=expr):
+                    self.assertIn(expr, found, "stale exemption")
+
+    def test_every_resolution_form_is_flagged(self):
+        for label, source in self.FLAGGED.items():
+            with self.subTest(form=label):
+                self.assertTrue(_ambient_task_path_reads(source),
+                                f"{label} escaped the C2 static rule")
+
+    def test_runtime_position_is_flagged_not_exempted(self):
+        """The lazy read is a failure mode in its own right (the task names it)."""
+        self.assertTrue(all(f.startswith("import-time ")
+                            for f in _ambient_task_path_reads(self.FLAGGED["module_level"])
+                            if "ROOT" in f))
+        runtime = _ambient_task_path_reads(self.FLAGGED["in_function"])
+        self.assertTrue(any(f.startswith("runtime ") for f in runtime), runtime)
+        lam = _ambient_task_path_reads(self.FLAGGED["lambda_body"])
+        self.assertTrue(any(f.startswith("runtime ") for f in lam), lam)
+
+    def test_compliant_forms_are_not_flagged(self):
+        for label, source in self.CLEAN.items():
+            with self.subTest(form=label):
+                self.assertEqual(_ambient_task_path_reads(source), [],
+                                 f"{label} is a false positive")
+
+
+_STAND_IN_BOARD = """\
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from config_utils import task_dir
+TASKS_DIR = task_dir()
+import board_c2_probe  # noqa: E402,F401
+"""
+
+
+class FreshLoadC2Tests(unittest.TestCase):
+    """C2 runtime half — a fresh interpreter, a sentinel TASK_DIR, fail closed.
+
+    Vacuous for the real tree until child 2 adds the first sibling module:
+    today the report exercises no sibling at all, which the test records rather
+    than hides. Lazy reads are enforced by the static half; negative control
+    (iv) below proves both that they are a real, silent failure and that the
+    static rule catches them.
+    """
+
+    def _workdir(self) -> Path:
+        tmp = tempfile.TemporaryDirectory(prefix="bf_c2_")
+        self.addCleanup(tmp.cleanup)
+        return Path(tmp.name)
+
+    def _probe(self, probe_source: str, **kwargs) -> dict:
+        root = self._workdir()
+        stand_in = root / "fakeboard"
+        stand_in.mkdir()
+        (stand_in / "aitask_board.py").write_text(_STAND_IN_BOARD, encoding="utf-8")
+        (stand_in / "board_c2_probe.py").write_text(probe_source, encoding="utf-8")
+        return _fresh_load_report(root, board_path=stand_in / "aitask_board.py",
+                                  names=["board_c2_probe"], **kwargs)
+
+    def test_real_board_loads_fresh_with_no_bound_sibling_paths(self):
+        report = _fresh_load_report(self._workdir())
+        self.assertEqual(_c2_findings(report), [])
+        self.assertEqual(report["board_tasks_dir"], _C2_SENTINEL,
+                         "the real board must have honoured the sentinel")
+        # Recorded, not asserted empty: child 2 onward makes this non-empty.
+        self.exercised = sorted(report["modules"])
+
+    def test_i_import_time_binding_is_flagged(self):
+        report = self._probe("from config_utils import task_dir\nTASKS_DIR = task_dir()\n")
+        self.assertTrue(report["modules"]["board_c2_probe"]["fresh"])
+        self.assertIn("board_c2_probe.TASKS_DIR: task-dir path bound at import",
+                      _c2_findings(report))
+
+    def test_ii_stale_sibling_is_flagged(self):
+        report = self._probe("VALUE = 1\n", preimport=("board_c2_probe",))
+        self.assertEqual(
+            _c2_findings(report),
+            ["board_c2_probe: imported before the fixture load — the check did "
+             "not exercise it"])
+
+    def test_iii_unrelated_relative_path_is_not_flagged(self):
+        report = self._probe(
+            "from pathlib import Path\nSCRIPT = Path('.aitask-scripts') / 'x.sh'\n")
+        self.assertEqual(_c2_findings(report), [])
+
+    def test_iv_deferred_read_diverges_silently_and_is_statically_flagged(self):
+        source = ("from config_utils import task_dir\n"
+                  "def tasks_root():\n    return task_dir()\n")
+        report = self._probe(source, calls=[("board_c2_probe:tasks_root", False)])
+        self.assertEqual(report["board_tasks_dir"], _C2_SENTINEL)
+        self.assertEqual(report["calls"][0]["result"], bf.TASK_DIR_VALUE,
+                         "after the restore the lazy read sees the default tree")
+        self.assertTrue(any("resolved 'aitasks' after the load" in f
+                            for f in _c2_findings(report)))
+        self.assertTrue(
+            any(f.startswith("runtime ") for f in _ambient_task_path_reads(source)),
+            "the static rule must flag the same deferred read")
+
+    def test_v_resolved_path_parameter_is_clean(self):
+        source = "def tasks_root(tasks_dir):\n    return tasks_dir\n"
+        report = self._probe(source, calls=[("board_c2_probe:tasks_root", True)])
+        self.assertEqual(_c2_findings(report), [])
+        self.assertEqual(_ambient_task_path_reads(source), [])
+
+    def test_a_sentinel_the_loader_ignored_is_a_finding(self):
+        """`_c2_findings` fails closed on a report that proves nothing."""
+        report = {"board_tasks_dir": "aitasks", "honoured_sentinel": False,
+                  "dragged": [], "modules": {}, "calls": []}
+        self.assertTrue(_c2_findings(report))
 
 
 if __name__ == "__main__":
