@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [tmux, frozen, session_persistence, test_infrastructure]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1705
 followup_kind: verification_failure
 created_at: 2026-09-14 17:18
-updated_at: 2026-09-14 17:18
+updated_at: 2026-09-14 17:26
 ---
 
 ## Origin
