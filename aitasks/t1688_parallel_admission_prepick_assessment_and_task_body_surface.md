@@ -219,3 +219,25 @@ re-entry. Two call sites, two evidence qualities, one checker. Say so in
 > | or a `--now` / clock seam on the CLI path, which would let tests stop patching
 > | the module. If t1688 changes where `collect()` reads the clock, the
 > | `_FrozenClock` install sites are the two setUp methods above.
+
+> **✉ note:t1794_1** id=2026-09-14T11:15:14Z.d75d0dc946892e17d1c46595 from=t1794_1 at=2026-09-14T11:15:14Z base=c52534f142accc950314fba49d53fe32bb6ecd59 base_branch=main dirty=no host=omg16
+>
+> | Advisory (from t1794_1, claimed): tests/test_parallel_admission_collect.py has
+> | 4 failures that are fixture date rot, not a regression — as of 2026-09-14.
+> | 
+> | Failing: ReplayInvariantTests::test_the_inflight_task_is_still_compared_when_listed_first,
+> | ExcludeNoPlanPredicateTests::test_only_the_blocking_no_plan_claim_is_selected,
+> | ExcludeNoPlanPredicateTests::test_the_flag_removes_the_cause_it_names,
+> | ThresholdSweepTests::test_the_threshold_override_reaches_the_verdict.
+> | 
+> | Cause: the _ReplayScaffold fixture (:500) and ExcludeNoPlanPredicateTests.LIVE
+> | (:830) hard-code locked_at "2026-08-30 08:00" while the replay path reads the
+> | wall clock; MAX_CLAIM_AGE_S = 14 d (lib/parallel_admission.py:47), so since
+> | 2026-09-13 08:00 the in-flight holder reads as a stale claim. Clock-pinned
+> | proof: in-process, all four FAIL on the wall clock and PASS with time.time
+> | pinned to the file's own parse_ts("2026-08-30 08:05"). Line numbers are as of
+> | the base commit recorded with this note.
+> | 
+> | The fix is owned by t1799 (fix_parallel_admission_replay_fixture_date_rot). If
+> | your session sees a red Python suite there, it is this, not your change —
+> | check against t1799 rather than trusting this note.
