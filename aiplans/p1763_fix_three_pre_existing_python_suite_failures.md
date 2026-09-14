@@ -103,6 +103,22 @@ no pytest dev tier installed) at HEAD `734609846`.
    `tests/test_agent_freeze.py:1152` (`lib/agent_freeze.py` never resolves agent
    keys).
 
+5. **Scope extension (user decision at Step 7, 2026-09-14) —
+   `tests/test_parallel_admission_collect.py`.** The completed baseline showed 4
+   further failures here, outside the original three modules. Cause, proven by
+   freezing the clock (pass at the fixture's time and at +13 days, fail at +15
+   days and on today's clock): the `replay` / `sweep` / `check` CLI path
+   (`col.main`) passes no `now`, so `collect()` falls back to `time.time()`, and
+   the fixture claims locked at `2026-08-30 08:00` aged past `MAX_CLAIM_AGE_S`
+   (14 days) on 2026-09-13 — the hazard the file already documents at
+   `CollectIntegrationTests.NOW`. Fix (test-only): a `_FrozenClock` stand-in for
+   the collect module's `time` (pinned `time()`, every other attribute delegated
+   to the real module), installed through the existing save/restore seam tuple in
+   `_ReplayScaffold.setUp` (covers its four subclasses) and
+   `ExcludeNoPlanPredicateTests.setUp`, pinned to the fixture's own
+   `2026-08-30 08:05`. t1688 (Implementing, locked on omg16) touches the
+   production module, not this test file.
+
 ## Verification
 
 ```bash
@@ -110,6 +126,7 @@ python3 tests/test_prompt_detection.py; echo "exit=$?"     # 23/23, exit 0
 python3 -m unittest tests.test_prompt_detection            # OK
 python3 -m unittest tests.test_concern_parser              # OK, 184 tests
 python3 tests/test_desync_state.py                         # OK, 10 tests
+python3 -m unittest tests.test_parallel_admission_collect   # OK, 101 — also frozen at fixture time and +400 days
 bash tests/run_all_python_tests.sh; echo "exit=$?"         # read ONLY the last line
 ```
 
@@ -156,13 +173,82 @@ archival and report for a re-scope decision.
   per-producer subTest reporting granularity · severity: low · → mitigation: none
   (each offender string names its producer, matching the sibling rule test)
 
-### Goal-achievement risk: low
+### Goal-achievement risk: medium
 - The full-suite verdict may still be red for reasons outside these three modules
-  · severity: low (the pre-change baseline, read through the `test_concern_*`
-  modules so far, shows only the known concern_parser failure) · → mitigation:
+  · severity: medium (re-rated at Step 7: the completed pre-change baseline —
+  7400 tests, `PYTHON SUITE: FAILED` — shows 4 further failures in
+  `tests/test_parallel_admission_collect.py`, outside this plan's three modules)
+  · → mitigation:
   none spawned — the Verification **completion gate** blocks archival unless the
   final run reads `PYTHON SUITE: PASSED`, so an out-of-scope red stalls the task
   for an explicit re-scope decision instead of being archived as done
 - The pytest lane cannot be run on this box (no dev tier) · severity: low ·
   → mitigation: none (the concern_parser fix removes the runner-dependent
   construct by construction; both lanes execute the same assertion path)
+
+## Final Implementation Notes
+- **Actual work done:** Three test-only files changed; no production code.
+  - `tests/test_prompt_detection.py`: `make_pane()` now uses `pane_pid=0` (the
+    documented "no pid" value, t1509), so fixture panes resolve from
+    `current_command` alone; new check
+    `_check_fixture_is_isolated_from_host_process_table` fakes one `claude`
+    child of the fixture pid (clearing both `agent_keys` caches before and
+    after) and re-runs the two scoping checks. 23/23.
+  - `tests/test_concern_parser.py`:
+    `test_no_producer_example_block_carries_a_prose_only_line` collects
+    offenders (`"<producer>: <offence>"`) and asserts once instead of
+    asserting inside `subTest`, so the negative control's `assertRaises` sees
+    the failure under unittest as well as pytest. 184 OK.
+  - `tests/test_parallel_admission_collect.py` (scope extension, step 5):
+    `_FrozenClock` stand-in for the collect module's `time`, installed via the
+    existing save/restore seam tuple in `_ReplayScaffold` and
+    `ExcludeNoPlanPredicateTests`, pinned to `2026-08-30 08:05`. 101 OK.
+  - `tests/test_desync_state.py`: no change — already fixed by `13e5b3d78`
+    (t1745); 10 OK.
+- **Deviations from plan:**
+  - Scope extended at Step 7 by explicit user decision: the completed baseline
+    (7400 tests, `FAILED`, 6 failures) showed 4 clock-dependent failures in
+    `test_parallel_admission_collect.py` outside the original three modules;
+    the completion gate would otherwise have blocked archival.
+  - Goal-achievement risk re-rated low → medium at Step 7 on that evidence
+    (frontmatter and `## Risk` updated together).
+  - The `pane_pid=1` pre-fix control ran in memory (fixture substituted with
+    `dataclasses.replace(..., pane_pid=1)`) instead of editing the file back, so
+    the file was never mutated while other test runs were reading it.
+  - t1754 was folded before entering plan mode (a legal write) rather than
+    inside §6.1.
+- **Issues encountered:**
+  - `test_prompt_detection` passed standalone on this host, contradicting the
+    task text — the failure needs a lone agent process as a child of launchd at
+    run time, and the positive `_PANE_KEY_CACHE` entry then sticks for the
+    process. Reproduced deterministically by faking `_child_commands`.
+  - `test_parallel_admission_collect`: the `replay`/`sweep`/`check` CLI path
+    (`col.main`) passes no `now`, so `collect()` reads `time.time()`; fixture
+    claims locked `2026-08-30 08:00` crossed `MAX_CLAIM_AGE_S` (14 d) on
+    2026-09-13. Proven by freezing the clock: pass at fixture time and +13 d,
+    fail at +15 d.
+  - The Bash shell is zsh: `${PIPESTATUS[0]}` is empty there — exit statuses
+    were read without pipes.
+- **Key decisions:**
+  - `pane_pid=0` rather than patching `_child_commands` in every check: it is
+    the designed "no second rung" value, so the fixture expresses intent; the
+    new check pins the property against regression.
+  - A module-local `_FrozenClock` rather than a process-wide
+    `mock.patch("time.time")`: only the collect module (its sole clock read is
+    `parallel_admission_collect.py:513`) sees the frozen clock.
+  - Aggregated offender list instead of `subTest`, matching the sibling
+    `test_every_producer_states_the_plain_words_rule`; the offender strings keep
+    the producer name the control asserts on.
+- **Upstream defects identified:** None
+- **Verification:** completion gate `PYTHON SUITE: PASSED (runner=unittest,
+  exit=0)` — 7400 tests, OK (skipped=10), vs the pre-change baseline
+  `FAILED` (6 failures). Every fix's pre-fix/mutation control was watched
+  failing: isolation check fails with `pid=1`; plain-words control fails with
+  the offence scan neutered; the 4 clock tests fail with the pin neutered.
+  `test_parallel_admission_collect` also passes with the wall clock frozen at
+  +400 days (no other clock-dependent test in the module).
+- **Notes:** two other fixtures still use `pane_pid=1` but are not affected
+  today — `tests/test_idle_compare_modes.py` (command `codex` resolves at rung 1,
+  so the scan is never reached) and `tests/test_agent_freeze.py:1152`
+  (`lib/agent_freeze.py` never resolves agent keys). The pytest lane was not
+  exercised (no dev tier on this box).
