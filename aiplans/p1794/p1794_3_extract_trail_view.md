@@ -380,3 +380,109 @@ Task-workflow Step 8 (review; path-scoped code commit
 plan commit), Step 8e (offer a note to t1794_6: TRAIL_CSS does not carry the
 widget/card/loading CSS a second App needs), Step 9 (gates — `risk_evaluated`;
 archive `t1794_3`).
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - `.aitask-scripts/board/board_trail_view.py` (1,029 lines): the 25 moved
+    names byte-for-byte plus `TRAIL_CSS`. Built by a script from the original
+    lines (no retyping); 23 unedited top-level blocks verified as substrings of
+    the new module. Three deliberate edits, shown as a diff before writing:
+    `load_local_project_name(tasks_dir, config_path=None)` (C2),
+    `TrailSelectScreen.DEFAULT_CSS` (the KanbanApp picker rules it borrowed +
+    `align: center middle`), and the drift rule as `.task-info.trail-drift`.
+  - `aitask_board.py` 13,574 → 12,665 lines: `import board_trail_view` + flat
+    re-import of all 25 names and `TRAIL_CSS`; three regions cut;
+    `KanbanApp.CSS` ends `""" + TRAIL_CSS` (its `.trail-drift` line and the
+    `#trail_summary` rule + comment removed); `_get_local_project` passes
+    `TASKS_DIR`; dead imports `yaml` and `parse_ref as parse_cross_repo_ref`
+    removed (used only by moved code; no test reads them off the board).
+  - Tests: `tests/lib/trail_model_checks.py` (the 7 projection checks as a
+    mixin, seams `tv` / `_mk_task`; `FIXTURE_PATH`, `load_fixture`, `ghost_doc`
+    single-sourced there); `test_board_bytrail_view.py` (`TrailModelTests`
+    mixes it in with `tv = self.ab`; new `HeadlessTrailModelTests` — subprocess,
+    run-count anti-vacuity, `loaded == []`, negative control importing the
+    board); new `test_board_trail_view.py` (`SingleHomeTests` over all 25 names
+    with both-way completeness, board-imports-every-name, 8 synthetic controls;
+    `ReexportIdentityTests`; `TrailCssTests`; `ModalDefaultCssTests`);
+    `test_board_fixture_harness.py` (`MIGRATED_MODULES`, C2 real-tree
+    anti-vacuity for `board_trail_view`, `:181`); `test_board_marking.py`
+    (construction-site scan over every `board/*.py`, located in
+    `board_trail_view.py`, anti-vacuity); `test_mark_glyphs_single_source.py`
+    (`✓` waiver reason).
+  - Pointers: `lib/followup_kinds.py:22`, the drift note in
+    `website/content/docs/workflows/implementation-trails.md`,
+    `aidocs/implementation_trail_design.md` (component list),
+    `tests/lib/board_fixture.py` docstring.
+- **Verification evidence:**
+  - Full suite in an isolated worktree (BASE `d03e29cf3` + exactly the 12 task
+    paths; diff sha256 `062436ebb1a0a8af…`; new files `60b2d585…`,
+    `f2aa8cf8…`, `1e3c481b…`): 7590 passed, 2 skipped, 2 failed, serial lane
+    11 passed. Both failures are `tests/test_roadmap_drift_contract.py` and fail
+    identically in the BASE worktree while passing in the main checkout —
+    environmental (see Upstream defects). Nothing attributable to this change.
+  - Targeted set 535 passed + the new file 23 passed; C4 bash guards pass;
+    `check_links.py --build` 0 broken; keymap golden unchanged; shell
+    single-home cross-check 25/25.
+  - Red runs (in-process, no repo edits): 9/9 controls green → red with the
+    checker neutered (single-home ×6, identity, C2 anti-vacuity,
+    `TrailSelectScreen.DEFAULT_CSS = ""`). Facts: a copy above the import passes
+    identity and is flagged by the source check; the old marking scope finds 0
+    sites; the pre-move selector loses to a later host `.task-info` rule.
+  - Manual smoke (isolated worktrees, provenance fail-closed; re-run after the
+    driver fixes with the same diff fingerprint): boot → `z` → selector →
+    Enter → lanes → banner → Escape+Enter detail → Esc → `v` summary → Esc →
+    `d` drift → `q`. All 10 steps pass in base and change; settled captures
+    identical (0 differing lines); no traceback. The drift banner reads
+    "drift unavailable: ref_outside_project" in both (upstream defect).
+- **Deviations from plan:**
+  - Task seam `_mk_task`, not `make_task`: `ByTrailTestBase` already provides
+    it, and the rename would have misaligned continuation lines.
+  - Modal tests assert measured layout (region width and x): Textual 8 stores
+    `60%` in a width-relative unit, rendered `60w`.
+  - The full suite ran in the isolated change worktree instead of the shared
+    checkout, which holds another session's uncommitted edits
+    (`agent_launch_utils.py`, `tmux_bootstrap.sh`, monitor apps,
+    `test_session_hook_install.sh`).
+  - Smoke driver: focus starts in the search box, so Escape (priority
+    `focus_board`) precedes Enter; the detail marker is the dialog's first
+    heading (`Entry aitasks#`) because "Trail totals:" scrolls out of view;
+    captures are taken after a settle (two identical frames). The first,
+    unsettled run showed footer / focus / toast timing noise in both worktrees.
+- **Issues encountered:** the extraction dry run failed closed on `yaml`
+  becoming a dead import (fixed by removing it); the first modal assertions
+  compared `str(styles.width)` (fixed as above).
+- **Key decisions:**
+  - `TRAIL_CSS` owns only the trail rules (`.task-info.trail-drift`,
+    `#trail_summary`). Widget-layer CSS (`.task-title`, `.task-info`,
+    `.col-header-*`, `PickerItem*`, `#loading_*`) stays with the host App.
+    Parent C7's list was corrected: no `#board_container` rule exists, and
+    `TaskCard.markable-card:*` are Kanban-only.
+  - Single home is enforced at source level, because re-export identity cannot
+    see a stale copy above the import.
+  - C3: the four `run_trail_drift` patches stay on `ab` (the caller is in the
+    App half) — no repoint, no mutant owed.
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/trail_gather.py:1185 — _contained_plan_path realpath-confines plan refs to the project root, so in a linked worktree (aitask_init_data.sh --link-worktree) the aiplans/ symlink into the primary checkout's .aitask-data resolves outside it: drift returns ERROR:ref_outside_project (board banner "drift unavailable"), and 2 tests in tests/test_roadmap_drift_contract.py fail in any linked worktree`
+  - `tests/test_data_branch_setup.sh:781 — four zero-byte fixture-named task files (t1_alpha.md, t2_beta.md, t10_gamma.md, +1; dated 2026-08-27 / 09-02) sit in the live aitasks/; the names match fixtures written by this test and tests/test_boardcol_update.sh (which run leaked them is not proven); they make every By-Trail discovery toast "skipped 4 unreadable active task file(s)"`
+- **Notes for sibling tasks:**
+  - Child 5 (mixin lift): `run_trail_drift` patches on `ab` are live only
+    because `_trail_drift_worker` calls it from `aitask_board`. When that worker
+    moves to `board_trail_screen.py`, repoint the four patches to the module
+    that calls it (mutant each). `load_local_project_name` needs `tasks_dir` —
+    feed it from the host protocol's `tasks_dir` member.
+  - Child 6 (`TrailsApp`): its `CSS` must carry the widget-layer rules
+    (`.task-title-row`, `.task-title`, `.task-info`, `.col-header-*`,
+    `PickerItem*`, `#loading_dialog` / `#loading_message`) **and**
+    `TRAIL_CSS`; the drift colour no longer depends on their order. The three
+    trail modals already lay out without the board's CSS (pinned);
+    `LoadingOverlay` has no `DEFAULT_CSS` yet.
+  - Adding a name to `board_trail_view.py`: add it to `MOVED_NAMES` /
+    `VIEW_ONLY_NAMES` in `tests/test_board_trail_view.py` and to the board's
+    re-import list — `SingleHomeTests` fails otherwise.
+  - Headless pattern for a board module: a `tests/lib` mixin plus a subprocess
+    script string — never a canonical import in `tests/test_board_*.py`.
+  - The moved classes are one object across fixture loads (as in child 2).
+  - tmux smoke: focus starts in the search box (Escape first); match
+    top-of-dialog markers; settle before capturing; linked worktrees show
+    "drift unavailable" (defect above).
