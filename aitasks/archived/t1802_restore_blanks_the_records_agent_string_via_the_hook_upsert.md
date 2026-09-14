@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [tmux, bug]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -17,7 +17,8 @@ anchor: 1705
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5
 created_at: 2026-09-14 15:16
-updated_at: 2026-09-14 16:53
+updated_at: 2026-09-14 16:57
+completed_at: 2026-09-14 16:57
 ---
 
 ## Observed (t1801 manual verification of t1784, real Claude agent, real store)
@@ -78,3 +79,14 @@ A record launched through the wrapper carried `agent_string: claudecode/opus5` /
 > **✅ gate:plan_approved** run=2026-09-14T13:06:02Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-09-14T13:50:42Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-14T13:57:31Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:c1a9f0c4bf91cfeb
+
+> **✅ gate:risk_evaluated** run=2026-09-14T13:57:31Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1802/risk_evaluated_2026-09-14T13:57:31Z-risk_evaluated-a1.log`
