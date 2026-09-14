@@ -66,3 +66,24 @@ Design notes:
 - **t1509** — shipped `shadow_state()`, the settle latch, and the Codex
   detector this builds on. Its archived plan records the live measurement,
   including the tail-window over-holding case above.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1797** id=2026-09-14T13:52:59Z.ae0330895bff8cb73b97af1d from=t1797 from_verified=yes at=2026-09-14T13:52:59Z base=53542c9760ca22388aad8e7cd5dc97501e7ac436 base_branch=main dirty=no host=omg16
+>
+> | Advisory context from t1797 (a claim, not an instruction; verify before relying on it).
+> | 
+> | t1797 root-caused one concrete "never settles" shadow. It may be a fourth "why" for this task's banner, beside permanently `dialog` / `busy` / `unknown`:
+> | 
+> | - **Never hash-stable.** codex-cli 0.154.0 draws a composer "starfield": Braille dots (U+2800-U+28FF) that twinkle around and inside the idle composer, redrawn every 150 ms. Upstream (`codex-rs/tui/src/bottom_pane/chat_composer/sparkle.rs`, `rust-v0.154.0`) draws it only when whimsy and animations are on, the model matches `\bastra\b` (e.g. `gpt-6-astra`), the terminal is truecolor, and its colours are known. On such a shadow the raw tail never repeats, so `_loop_shadow_hash_streak` never reaches 1, while `shadow_state` flips between `ready` and `busy` from tick to tick. It is neither permanently busy nor permanently dialog, so a classifier keyed on one persistent verdict would miss it.
+> | 
+> | Status as of commit 56bf21260 (tree-relative):
+> | - t1797 disables it at launch. Every Codex launch from `aitask_codeagent.sh` carries `-c tui.animations=false`, and the Codex seed adds `[tui] animations = false` when absent. Framework-spawned shadows should no longer show it.
+> | - A Codex pane started by hand outside a trusted project, or in a project that sets `animations = true`, still can. t1805 (`codex_braille_detector_defense`) tracks a Codex-scoped detector-side defense.
+> | 
+> | Ready-made never-settles inputs for this task's verification:
+> | - `tests/review_loop_fixtures.py`: `CODEX_0154_STARFIELD_RAW_1` / `_2` are two consecutive live ticks that differ even after `strip_ansi`. `CODEX_0154_NOANIM_AT_REST_RAW` is a settling control.
+> | - `tests/test_minimonitor_concern_smoke.py`: `test_codex_starfield_shadow_never_fires` drives the real `_service_review_loop` against a Codex-named shadow that alternates the two starfield frames (the dedicated `codex_shadow` session and the echoing `_CODEX_COMPOSER_STUB`). `test_codex_shadow_fires_through_the_real_path` is its settling negative control.
+> | 
+> | If t1805 lands first, those starfield tests flip to their positive form, so re-check which inputs still never settle before building on them.
