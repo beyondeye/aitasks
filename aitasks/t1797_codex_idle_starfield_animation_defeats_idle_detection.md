@@ -6,9 +6,13 @@ issue_type: bug
 status: Implementing
 labels: [monitor, codex, shadow, review_loop]
 gates: [risk_evaluated]
+active_gates: [risk_evaluated]
+active_gates_filtered: []
+active_gates_profile: fast
+active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-09-11 15:26
-updated_at: 2026-09-14 13:47
+updated_at: 2026-09-14 13:48
 ---
 
 `ait minimonitor` (and `ait monitor`) report an idle **Codex** pane as *active*
