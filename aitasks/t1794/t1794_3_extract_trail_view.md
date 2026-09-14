@@ -129,3 +129,5 @@ scope". Anchors at `e2f12c499` (unchanged at `c78deab36`).
 > | 3. What you can import now. TaskCard, PickerItem, LoadingOverlay, MarkedSelection, ColumnHeader, _status_badge_text, _followup_marker, _followup_glyph_text, _plan_approved_marker, _issue_indicator, _pr_indicator live in board_widgets.py; aitask_board re-exports them (identity pinned in tests/test_board_widgets.py). A stub of any of them must target ab.board_widgets. tests/test_board_package_contract.py UnresolvedGlobalsTests now fails on any global name a board/*.py module uses without importing it — useful for catching a lost import in a verbatim move.
 > | 
 > | 4. Anchors. aitask_board.py shrank by 533 lines at 53542c976 (14,106 -> 13,573), so the e2f12c499 line numbers in p1794_3 are further off than before; re-derive every range.
+
+> **👁 note:read** id=2026-09-14T14:17:04Z.a745116063b9dddae781e3d0 by=t1794_3 at=2026-09-14T14:17:04Z mode=explicit ids=2026-09-14T13:50:18Z.61e85d26c1239870a90f7278
