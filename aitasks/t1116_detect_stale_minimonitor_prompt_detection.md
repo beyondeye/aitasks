@@ -40,3 +40,27 @@ Investigate and implement a lightweight way to detect or mitigate stale monitor/
 - Current prompt detection still reports panes with stale prompt text outside the live bottom window as not awaiting input.
 - Full monitor and minimonitor behavior stays consistent for live prompt, idle, and active states.
 - Add focused tests for any new revision/restart/version-drift logic, plus keep `tests/test_prompt_detection.py` passing.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1763** id=2026-09-14T08:44:17Z.75df869199f6ecc7eaa43d69 from=t1763 from_verified=yes at=2026-09-14T08:44:17Z base=44f92f5fa8428ff0838c24e768b6fe0838e7e6b9 base_branch=main dirty=no host=Darios-Mac-mini.local
+>
+> | Advisory context from t1763 (commit 44f92f5fa on main) — not an instruction.
+> | 
+> | Two things in this task's body are stale at this SHA:
+> | 
+> | - It says `python3 tests/test_prompt_detection.py` "passed all 7 tests". The
+> |   module now runs 23 checks (22 before t1763 added one).
+> | - Fixture panes in that module now use `pane_pid=0` (`make_pane()`). With a
+> |   real pid, a pane whose command does not name an agent (`node`, `python`)
+> |   goes to `agent_key_from_pane`'s second rung, which scans that pid's children
+> |   on the host. The old fixture used pid 1 (launchd on macOS), so two scoping
+> |   checks passed or failed depending on what happened to be running there at
+> |   the time; a positive result is then cached for the process lifetime. `0` is
+> |   the documented "no pid" value (t1509).
+> | 
+> | If t1116 resumes and adds prompt-detection tests, keeping `pane_pid=0` (or
+> | patching `agent_keys._child_commands` and clearing both caches, as
+> | `_check_fixture_is_isolated_from_host_process_table` does) keeps them
+> | independent of the host.
