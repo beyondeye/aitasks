@@ -76,7 +76,7 @@ from shortcuts_mixin import ShortcutsMixin  # noqa: E402
 from tui_clipboard import copy_to_system_clipboard  # noqa: E402
 
 import subprocess  # noqa: E402
-from agent_launch_utils import resolve_dry_run_command, pick_launch_argv, resolve_agent_string, TmuxLaunchConfig, launch_in_tmux, maybe_spawn_minimonitor, mark_monitor_pane, tmux_session_target, unmark_monitor_pane  # noqa: E402
+from agent_launch_utils import resolve_dry_run_command, pick_launch_argv, resolve_agent_string, TmuxLaunchConfig, launch_in_tmux, maybe_spawn_minimonitor, mark_monitor_pane, tmux_session_target, unmark_monitor_pane, load_tmux_defaults  # noqa: E402
 from agent_command_screen import AgentCommandScreen, resolve_skill_profile  # noqa: E402
 from tmux_exec import TmuxClient  # noqa: E402
 
@@ -3890,8 +3890,9 @@ def main() -> None:
     config = load_monitor_config(project_root)
     tmux_config = load_project_tmux_config(project_root)
 
-    # The configured session name (used for mismatch check)
-    configured_session = tmux_config.get("default_session", "aitasks")
+    # The configured session name (used for mismatch check). A blank/null
+    # value means the default, exactly as `ait ide` resolves it (t1800).
+    configured_session = load_tmux_defaults(project_root)["default_session"]
 
     # Resolve session: CLI > current tmux session > config > default
     if args.session:

@@ -43,32 +43,64 @@ source "$_TMUX_BOOTSTRAP_LIB_DIR/tmux_exec.sh"
 
 # _tmux_bootstrap_resolve_session <project_root>
 #
-# Echoes the tmux session name for <project_root>: reads
-# `tmux.default_session` from its project_config.yaml; falls back to
-# the literal "aitasks" (mirrors aitask_ide.sh::resolve_session).
+# Prints the tmux session name for <project_root>: `tmux.default_session`
+# from its project_config.yaml, or the literal "aitasks" (mirrors
+# aitask_ide.sh::resolve_session) when the key is absent or blank.
+#
+# Twin of agent_launch_utils.py::_read_default_session / _yaml_line_scalar;
+# tests/test_tmux_default_session_resolvers.py pins the two against each other
+# and against yaml.safe_load. The shared rule: the key counts only as a direct
+# child of a column-0 `tmux:` block (the block's first indented content line
+# fixes the child indent); a quoted value is the text between its quotes,
+# verbatim; a plain value is cut at an inline comment (`#` at the start or
+# after whitespace) and trimmed; YAML-1.1 nulls (~ null Null NULL), empty and
+# whitespace-only values mean "not configured".
+#
+# `tr '\r' '\n'` gives awk the universal newlines Python's open() applies, so
+# a CRLF blank line (a lone "\r" record) cannot end the block and a CR-only
+# file is not read as one record. awk reads to end of input rather than
+# `exit`ing on the match: an early exit leaves `tr` writing into a closed pipe
+# (SIGPIPE, exit 141), which aborts a direct call under set -e + pipefail.
+# Today's callers run this inside $(…), where errexit is not inherited, so
+# they would survive it — reading to EOF removes the hazard instead of relying
+# on that. Output uses printf, never echo — bash's echo swallows an
+# option-like name such as `-n`.
 _tmux_bootstrap_resolve_session() {
     local root="$1"
     local cfg="$root/aitasks/metadata/project_config.yaml"
     if [[ -f "$cfg" ]]; then
         local name
-        name=$(awk '
-            /^tmux:/ { intmux=1; next }
-            intmux && /^  default_session:/ {
-                sub(/^  default_session:[ \t]*/, "")
-                gsub(/"/, "")
-                gsub(/'"'"'/, "")
-                sub(/[[:space:]]+$/, "")
-                print
-                exit
+        name=$(tr '\r' '\n' < "$cfg" | awk -v SQ="'" '
+            done { next }
+            /^[ \t]*$/ { next }
+            /^tmux:/ { intmux=1; ci=0; next }
+            /^[^ \t#]/ { intmux=0; next }
+            intmux && /^ +[^ #]/ {
+                match($0, /^ +/); ind = RLENGTH
+                if (ci == 0) ci = ind
+                if (ind != ci) next
+                v = substr($0, ind + 1)
+                if (substr(v, 1, 16) != "default_session:") next
+                v = substr(v, 17)
+                sub(/^[ \t]+/, "", v)
+                q = substr(v, 1, 1)
+                if (q == "\"" || q == SQ) {
+                    v = substr(v, 2); i = index(v, q)
+                    if (i > 0) v = substr(v, 1, i - 1)
+                } else {
+                    sub(/^#.*/, "", v); sub(/[ \t]#.*/, "", v)
+                    sub(/[[:space:]]+$/, "", v)
+                    if (v == "~" || v == "null" || v == "Null" || v == "NULL") v = ""
+                }
+                print v; done = 1
             }
-            /^[^ #]/ && !/^tmux:/ { intmux=0 }
-        ' "$cfg")
-        if [[ -n "$name" ]]; then
-            echo "$name"
-            return
+        ')
+        if [[ -n "${name//[[:space:]]/}" ]]; then
+            printf '%s\n' "$name"
+            return 0
         fi
     fi
-    echo "aitasks"
+    printf '%s\n' aitasks
 }
 
 # _tmux_bootstrap_read_syncer_autostart <project_root>

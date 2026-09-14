@@ -89,6 +89,7 @@ from shortcuts_mixin import ShortcutsMixin  # noqa: E402
 from tui_clipboard import copy_to_system_clipboard  # noqa: E402
 from agent_launch_utils import (  # noqa: E402
     DEFAULT_TMUX_SESSION,
+    load_tmux_defaults,
     resolve_dry_run_command,
     pick_launch_argv,
     resolve_agent_string,
@@ -5298,8 +5299,9 @@ def main() -> None:
     config = load_monitor_config(project_root)
     tmux_config = load_project_tmux_config(project_root)
 
-    # Resolve session: CLI > current tmux session > config > default
-    configured_session = tmux_config.get("default_session", "aitasks")
+    # Resolve session: CLI > current tmux session > config > default. A
+    # blank/null value means the default, exactly as `ait ide` resolves it.
+    configured_session = load_tmux_defaults(project_root)["default_session"]
     if args.session:
         session = args.session
     else:

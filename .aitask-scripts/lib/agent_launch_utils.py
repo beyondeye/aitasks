@@ -130,6 +130,21 @@ class TmuxLaunchConfig:
 DEFAULT_TMUX_SESSION = "aitasks"
 
 
+def _normalize_default_session(value: object) -> str:
+    """Map a ``tmux.default_session`` value to the session name it selects.
+
+    ``None`` (YAML null — blank, ``~``, ``null``, comment-only), ``""`` and
+    whitespace-only mean "not configured" → :data:`DEFAULT_TMUX_SESSION`.
+    Anything else is ``str(value)`` unchanged, so every non-blank form the
+    YAML-backed readers accepted before keeps resolving the same way. Shared by
+    :func:`load_tmux_defaults` and :func:`_read_default_session`.
+    """
+    if value is None:
+        return DEFAULT_TMUX_SESSION
+    text = str(value)
+    return text if text.strip() else DEFAULT_TMUX_SESSION
+
+
 @dataclass(frozen=True)
 class AitasksSession:
     """A tmux session identified as belonging to an aitasks project.
@@ -706,44 +721,72 @@ def _resolve_session_group(
     return config_cache[key]
 
 
+_YAML_NULLS = ("", "~", "null", "Null", "NULL")
+
+
+def _yaml_line_scalar(raw: str) -> str | None:
+    """Read the scalar in the text after ``key:`` on one YAML line.
+
+    Quoted: the content between the opening quote and the next matching quote,
+    verbatim (anything after the closing quote, e.g. a comment, is dropped).
+    Plain: cut at the first ``#`` that begins the text or follows whitespace —
+    YAML's inline-comment rule, so ``my#sess`` survives — then trim; YAML-1.1
+    null spellings (and empty) return ``None``. Flow mappings, block and typed
+    scalars are not interpreted. The bash twin is the awk in
+    ``tmux_bootstrap.sh::_tmux_bootstrap_resolve_session``;
+    ``tests/test_tmux_default_session_resolvers.py`` pins them together.
+    """
+    s = raw.strip()
+    if s[:1] in ('"', "'"):
+        end = s.find(s[0], 1)
+        return s[1:end] if end != -1 else s[1:]
+    value = re.split(r"(?:^|\s)#", s, maxsplit=1)[0].rstrip()
+    return None if value in _YAML_NULLS else value
+
+
 def _read_default_session(project_root: Path) -> str:
     """Read ``tmux.default_session`` from a project's config; default ``aitasks``.
 
-    Mirrors ``aitask_ide.sh::resolve_session`` (lines 46-72), reading the
-    top-level ``tmux:`` block and its ``default_session:`` child. Falls back
-    to the literal ``"aitasks"`` when the field is absent (matching the bash
-    default), so an unconfigured project's effective session name is stable
-    across the live-tmux scan and the registry-synthesis path.
+    Line-oriented twin of ``tmux_bootstrap.sh::_tmux_bootstrap_resolve_session``
+    (what ``aitask_ide.sh::resolve_session`` calls). The key counts only as a
+    direct child of the top-level ``tmux:`` block: the block's first indented
+    content line fixes the child indent, so a 4-space block works and a nested
+    ``syncer: default_session:`` is ignored. The value is read by
+    :func:`_yaml_line_scalar`. An absent, blank, null or comment-only value falls
+    back to :data:`DEFAULT_TMUX_SESSION` (matching the bash default), so an
+    unconfigured project's effective session name is stable across the
+    live-tmux scan and the registry-synthesis path. Flow mappings and block
+    scalars are not read here; :func:`load_tmux_defaults` is the YAML-backed
+    reader.
     """
     cfg = project_root / "aitasks" / "metadata" / "project_config.yaml"
     if not cfg.is_file():
         return DEFAULT_TMUX_SESSION
 
-    def _unquote(s: str) -> str:
-        s = s.strip()
-        if len(s) >= 2 and s[0] == s[-1] and s[0] in ('"', "'"):
-            s = s[1:-1]
-        return s
-
     in_tmux_block = False
+    child_indent: int | None = None
     try:
         with open(cfg, encoding="utf-8") as fh:
             for raw in fh:
                 line = raw.rstrip("\n")
-                if not line or line.lstrip().startswith("#"):
+                if not line.strip() or line.lstrip().startswith("#"):
                     continue
                 # Top-level non-comment line: enter / exit tmux: block.
                 if line[:1] not in (" ", "\t"):
                     in_tmux_block = line.startswith("tmux:")
+                    child_indent = None
                     continue
-                if not in_tmux_block:
+                # Tab indentation is invalid YAML; the awk twin ignores it too.
+                if not in_tmux_block or line[:1] == "\t":
                     continue
-                stripped = line.lstrip()
-                if stripped.startswith("default_session:"):
-                    val = _unquote(stripped[len("default_session:"):])
-                    if val:
-                        return val
-                    break
+                stripped = line.lstrip(" ")
+                indent = len(line) - len(stripped)
+                if child_indent is None:
+                    child_indent = indent
+                if indent == child_indent and stripped.startswith("default_session:"):
+                    return _normalize_default_session(
+                        _yaml_line_scalar(stripped[len("default_session:"):])
+                    )
     except OSError:
         pass
     return DEFAULT_TMUX_SESSION
@@ -1892,10 +1935,12 @@ def load_tmux_defaults(project_root: Path) -> dict:
 
     Returns dict with keys: default_session, default_split, prefer_tmux,
     git_tui, syncer_autostart. Falls back to hardcoded defaults if config is
-    absent.
+    absent. A blank, null or comment-only ``default_session`` falls back to
+    :data:`DEFAULT_TMUX_SESSION` like an absent one; any other value is
+    ``str()`` of what YAML read (:func:`_normalize_default_session`).
     """
     defaults = {
-        "default_session": "aitasks",
+        "default_session": DEFAULT_TMUX_SESSION,
         "default_split": "horizontal",
         "prefer_tmux": False,
         "git_tui": "",
@@ -1910,8 +1955,9 @@ def load_tmux_defaults(project_root: Path) -> dict:
             data = yaml.safe_load(f) or {}
         tmux = data.get("tmux", {})
         if isinstance(tmux, dict):
-            if "default_session" in tmux:
-                defaults["default_session"] = str(tmux["default_session"])
+            defaults["default_session"] = _normalize_default_session(
+                tmux.get("default_session")
+            )
             if "default_split" in tmux:
                 val = str(tmux["default_split"]).lower()
                 if val in ("horizontal", "vertical"):
