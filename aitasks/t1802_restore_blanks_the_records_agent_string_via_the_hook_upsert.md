@@ -12,8 +12,9 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1705
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5
 created_at: 2026-09-14 15:16
-updated_at: 2026-09-14 15:39
+updated_at: 2026-09-14 16:06
 ---
 
 ## Observed (t1801 manual verification of t1784, real Claude agent, real store)
@@ -67,3 +68,8 @@ A record launched through the wrapper carried `agent_string: claudecode/opus5` /
 3. Make the store's upsert treat an EMPTY `--agent-string` as "keep existing"
    (`agent_sessions.py:729`) — defensive, and also covers agents launched by
    hand outside the wrapper.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-14T13:06:02Z status=pass attempt=1 type=human
