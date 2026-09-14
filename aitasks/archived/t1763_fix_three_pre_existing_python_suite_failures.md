@@ -1,15 +1,140 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Folded
-labels: [testing]
-folded_into: 1763
-followup_kind: upstream_defect
-created_at: 2026-09-09 09:14
-updated_at: 2026-09-14 08:53
+status: Done
+labels: [testing, test_infrastructure]
+active_gates: [risk_evaluated]
+active_gates_filtered: []
+active_gates_profile: fast
+active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
+folded_tasks: [1754]
+assigned_to: dario-e@beyond-eye.com
+anchor: 1705
+followup_kind: review_finding
+implemented_with: claudecode/opus5
+created_at: 2026-09-09 13:14
+updated_at: 2026-09-14 11:44
+completed_at: 2026-09-14 11:44
 ---
+
+## Context
+
+Found while verifying t1705_7: `bash tests/run_all_python_tests.sh` does not
+pass on `main`. Three modules fail, and all three were confirmed **pre-existing**
+by re-running them in a detached worktree at t1705_7's merge-base — they are not
+caused by that task.
+
+They matter because the suite's last line is the verdict the task workflow reads
+before archival. While it says `FAILED`, that signal carries no information: a
+real regression is indistinguishable from this standing noise, and the honest
+response to a red suite ("find out what you broke") costs a re-verification
+every time.
+
+Observed on macOS 15.6 / CPython 3.13.13, `runner=unittest` (the pytest dev tier
+is not installed on that box, so the parallel lane was not in play — this is not
+a test-isolation artifact of `--dist loadfile`).
+
+## The three failures
+
+1. **`tests/test_desync_state.py`** — `test_changelog_warns_for_data_desync_and_
+   ignores_bad_helper_output`. A fixture-completeness bug: the synthetic project
+   it builds does not include `.aitask-scripts/lib/stale_lock.sh`, so
+   `task_utils.sh:31` fails to source it and `aitask_changelog.sh --gather`
+   exits non-zero:
+   `lib/task_utils.sh: line 31: .../lib/stale_lock.sh: No such file or directory`
+   Likely the fixture's copy-list drifted when `stale_lock.sh` was added.
+
+2. **`tests/test_prompt_detection.py`** — 2 of 22 checks, deterministic:
+   - `_check_characterization_pattern_command_matrix`: "codex_yes_proceed on
+     current_command='node': expected kind 'codex_yes_proceed', got ''"
+   - `_check_scoping_provenance_is_reported`: "an unresolved pane must NOT
+     report itself as scoped"
+   Both look like real assertions about `monitor/prompt_patterns.py` scoping
+   rather than fixture rot — worth reading before "fixing" the test.
+   **Note the output shape:** this file prints TWO summaries, and the passing
+   one is last, so `… | tail -2` shows `PASS: all 22 tests passed` while the
+   process exits 1. Read the exit status, not the tail.
+
+3. **`tests/test_concern_parser.py`** — `TestProducerPlainWordsRule.
+   test_production_assertion_fails_on_a_real_offender` (bare and with
+   `producer='leak.md'`). The negative control for the producer plain-words
+   rule: it asserts the production check FIRES on a planted offender, and it is
+   not firing.
+
+## What to do
+
+Triage each one on its merits — at least (1) is fixture rot, but (2) and (3) are
+assertions about production behaviour and may be reporting something real.
+Do not blanket-skip them: a skipped negative control (3) is worse than a failing
+one, because it stops testing the thing it exists to test.
+
+## Verification
+
+```bash
+python3 tests/test_desync_state.py
+python3 tests/test_prompt_detection.py; echo "exit=$?"   # exit status, not tail
+python3 tests/test_concern_parser.py
+bash tests/run_all_python_tests.sh                       # read ONLY the last line
+```
+
+Baseline to reproduce the "pre-existing" claim:
+`git worktree add --detach <dir> <merge-base of t1705_7 and origin/main>` and run
+the three modules there.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1766** id=2026-09-10T09:02:52Z.98a77edae8c374ed4de6cf95 from=t1766 from_verified=yes at=2026-09-10T09:02:52Z base=80d5ea53221cf89bcf0fbf4bd14e1ae23f9297b0 base_branch=main dirty=yes host=Darios-Mac-mini.local
+>
+> | Suite re-run from t1766 (2026-09-10, macOS 15.6 / CPython 3.13.13,
+> | runner=unittest, full `bash tests/run_all_python_tests.sh`, 7307 tests):
+> | **failure (1) of the three you list no longer reproduces.**
+> | 
+> | - `tests/test_desync_state.py` — 10 tests, `OK` standalone, and absent from the
+> |   full run's FAIL lines. The `stale_lock.sh` fixture gap appears to have been
+> |   repaired since this task was written. Verify before spending triage on it.
+> | - `tests/test_prompt_detection.py` — still failing, same two checks verbatim:
+> |   `_check_characterization_pattern_command_matrix` (codex_yes_proceed on
+> |   current_command='node') and `_check_scoping_provenance_is_reported`.
+> | - `tests/test_concern_parser.py` — still failing, same negative control
+> |   (`TestProducerPlainWordsRule.test_production_assertion_fails_on_a_real_offender`,
+> |   bare and with `producer='leak.md'`).
+> | 
+> | So the standing red is 3 unittest-level failures across **2** modules, not 3.
+> | Confirmed unrelated to t1766: both modules fail identically with t1766's two
+> | changed files stashed.
+> | 
+> | This is a tree-relative reading — the working tree carried only t1766's two
+> | modified files (plus an untracked `website/content/docs/tuis/frozenagent/` from a
+> | concurrent session) at the time.
+
+> **✉ note:t1773** id=2026-09-10T12:10:14Z.c752307c63b103f301465688 from=t1773 at=2026-09-10T12:10:14Z base=6190fff8f35b816c095905189a39e714eee4b81d base_branch=main dirty=no host=Darios-Mac-mini.local
+>
+> | t1754 and t1763 (both Ready) appear to describe the same three pre-existing
+> | Python suite failures — each lists the same three modules:
+> | `tests/test_concern_parser.py`, `tests/test_prompt_detection.py` and
+> | `tests/test_desync_state.py`. Worth folding one into the other before either is
+> | picked, so the work is not done twice.
+> | 
+> | Moment-relative, as of one full-suite run on 2026-09-10 during t1773 (runner=
+> | unittest): `test_concern_parser` (TestProducerPlainWordsRule.
+> | test_production_assertion_fails_on_a_real_offender, bare and producer='leak.md')
+> | and `test_prompt_detection` (ScriptChecksTest.test_all_checks_pass — the
+> | codex_yes_proceed-on-'node' and scoping-provenance checks) failed, and both
+> | reproduced on a clean worktree at HEAD 016dd7b3a, so they predate t1773.
+> | `test_desync_state` did NOT fail in that run — it may depend on the data
+> | branch's sync state at the moment of running rather than on the tree.
+> | 
+> | Advisory only; I did not diff the two task bodies beyond their failure lists.
+
+> **👁 note:read** id=2026-09-14T05:52:18Z.05ec08400841859dac9b2d90 by=t1763 at=2026-09-14T05:52:18Z mode=explicit ids=2026-09-10T09:02:52Z.98a77edae8c374ed4de6cf95,2026-09-10T12:10:14Z.c752307c63b103f301465688
+
+## Merged from t1754: repair the standing red python suite
+
 
 ## Context
 
@@ -173,3 +298,27 @@ and watch the specific assertion fail — so the repair is evidenced, not assume
 > | branch's sync state at the moment of running rather than on the tree.
 > | 
 > | Advisory only; I did not diff the two task bodies beyond their failure lists.
+
+## Folded Tasks
+
+The following existing tasks have been folded into this task. Their requirements are incorporated in the description above. These references exist only for post-implementation cleanup.
+
+- **t1754** (`t1754_repair_the_standing_red_python_suite.md`)
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-14T06:11:51Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-09-14T08:37:56Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-14T08:38:33Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:84cb974f684e9f8c
+
+> **✅ gate:risk_evaluated** run=2026-09-14T08:38:33Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1763/risk_evaluated_2026-09-14T08:38:33Z-risk_evaluated-a1.log`
