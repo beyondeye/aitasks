@@ -315,10 +315,10 @@ Step 9 (Post-Implementation): current-branch mode. The commit is
 - Codex silently ignores unknown `-c` keys, so a future rename of
   `tui.animations` would bring the bug back with no error. Codex panes
   launched outside the framework stay affected. · severity: medium
-  · → mitigation: codex_braille_detector_defense
+  · → mitigation: t1805
 
 ### Planned mitigations
-- timing: after | name: codex_braille_detector_defense | type: enhancement | priority: medium | effort: medium | inline_risk: medium | added_complexity: high | addresses: goal-achievement — silent tui.animations rename / hand-launched Codex panes keep the starfield | desc: Codex-scoped detector-side defense — treat U+2800–U+28FF as decoration in classify_content's compare value, _codex_state's composer line and the minimonitor shadow raw-tail hash, only when the resolved agent is codex, with negative controls proving real content changes still reset idle and Braille spinners in non-Codex panes still count as activity
+- timing: after | name: codex_braille_detector_defense | type: enhancement | priority: medium | effort: medium | inline_risk: medium | added_complexity: high | addresses: goal-achievement — silent tui.animations rename / hand-launched Codex panes keep the starfield | desc: Codex-scoped detector-side defense — treat U+2800–U+28FF as decoration in classify_content's compare value, _codex_state's composer line and the minimonitor shadow raw-tail hash, only when the resolved agent is codex, with negative controls proving real content changes still reset idle and Braille spinners in non-Codex panes still count as activity | created: t1805
 
 ## Final Implementation Notes
 - **Actual work done:**
