@@ -5,11 +5,15 @@ depends: []
 issue_type: bug
 status: Implementing
 labels: [aitask_monitor, codex]
+active_gates: [risk_evaluated]
+active_gates_filtered: []
+active_gates_profile: fast
+active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1159
 followup_kind: upstream_defect
 created_at: 2026-08-14 16:21
-updated_at: 2026-09-14 09:20
+updated_at: 2026-09-14 09:21
 ---
 
 `ait monitor` / `ait minimonitor` do not flag a followed **Codex** pane parked
