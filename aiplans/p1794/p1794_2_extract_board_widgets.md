@@ -261,3 +261,110 @@ Every identified risk is low and already addressed by this plan's own
 numbered steps (the unresolved-globals guard, the one-home rescoping, the
 identity/host tests), so no separate mitigation is proposed
 (`risk_mitigations_planned = false`; no `### Planned mitigations` block).
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - `.aitask-scripts/board/board_widgets.py` (635 lines): the 14 moved names
+    (`_issue_indicator`, `_pr_indicator`, `CollapseToggleButton`,
+    `ColumnEditButton`, `ColumnHeader`, `MarkedSelection`, `TaskCard`,
+    `_followup_marker`, `_plan_approved_marker`, `_status_badge_text`,
+    `_followup_colour_hex`, `_followup_glyph_text`, `PickerItem`,
+    `LoadingOverlay`) plus the documentation-only `CardHost` /
+    `ColumnHeaderHost` Protocols. Verbatim was checked mechanically, not by
+    eye: every top-level block of every removed region appears byte-for-byte
+    in the new module (14/14). The only prose edit is the multi-select comment
+    ("`aitask_board.py` re-exports …").
+  - `aitask_board.py` 14,106 → 13,573 lines: `import board_widgets` + a flat
+    re-import of all 14 names right after the `followup_kinds` import (with a
+    re-export comment mirroring the `trail_discovery` one); the seven regions
+    deleted by an asserting script (first line, trailing blank and following
+    neighbour of each checked before cutting); dead imports removed — `date`,
+    `lru_cache`, `TextualColor`/`ColorParseError`, `LoadingIndicator`,
+    `ComposeResult`, `parse_task_filename`.
+  - Tests: `test_mark_glyphs_single_source` (consumer + per-file `✓` waiver
+    control), `test_board_reference_doc_literals` (pins read
+    `ab.board_widgets._status_badge_text`), `test_board_plan_approved_marker`
+    (📋 one-home scan over every `board/*.py`, anti-vacuity + location),
+    `test_board_detail_followup_kind` (`ab.board_widgets.TextualColor`),
+    `test_board_fixture_harness` (`MIGRATED_MODULES` + the C2 real-tree test
+    now asserts `board_widgets` was exercised fresh), `test_board_package_contract`
+    (`_unresolved_globals` over every `board/*.py`, `HeadlessImportTests`),
+    new `test_board_widgets.py` (re-export identity, host protocols).
+  - `aidocs/framework/aitasks_extension_points.md:286` points at `board_widgets.py`.
+- **Red → green evidence:** seven in-process proofs, each control green against
+  the real checker and red with it neutered: `_unresolved_globals` (flagged
+  forms), the headless probe (can observe `aitask_board` loaded), `_non_identical`,
+  `_missing_members`, `_protocol_members` (anti-vacuity), the per-file `✓`
+  waiver (leaking a waiver to `board_widgets.py` turns the control red), and the
+  C2 real-tree anti-vacuity (dropping `board_widgets` from the report turns it
+  red). The pre-change 📋 scope (`aitask_board.py` only) now finds 0 literals —
+  the vacuity the rescoping fixes; all of `board/*.py` finds exactly 1.
+- **Deviations from plan:** none beyond the two recorded in the plan itself
+  (the two column-header buttons move with `ColumnHeader`; the headless-import
+  test lives in `test_board_package_contract.py`). C3 sweep: empty, so no patch
+  was repointed and no mutant was owed.
+- **Issues encountered:**
+  - Writing the new module resolved three `\uXXXX` escapes into literal glyphs
+    (`▶`/`▼`, `✎`, `⚡`) — same runtime bytes, not verbatim. The block check
+    caught it before the board was edited; the three lines were restored from
+    the original.
+  - Manual smoke: the first run's By-Trail "pass" was a false positive (the
+    pattern matched the always-visible `z · By-Trail` filter label), and its
+    `q` "not quitting" was a script race (keys sent while the selector was
+    still closing). Re-run with every key sent only after the screen reached
+    the expected state, against this change AND a detached `HEAD` worktree
+    (removed afterwards): identical — boot → `q` quits; `z` → "Select trail —
+    ↑/↓ move · Enter open · Esc cancel" with real trails → `Esc` → `q` quits.
+    Cards render with status/effort/label badges and marks; no traceback.
+  - Full suite: `PYTHON SUITE: FAILED` — 7498 passed, 2 skipped, 4 failed;
+    serial lane 11 passed. The four are the pre-existing
+    `tests/test_parallel_admission_collect.py` date-rot failures recorded in
+    p1794_1 (owned by t1799; `origin/main`'s t1763 commit edits that file). No
+    path of this change is on that module's import path. Targeted set: 588
+    passed; C4 bash guards all pass; keymap golden unchanged.
+  - The shared worktree holds another session's uncommitted edits
+    (`aitask_codeagent.sh`, `monitor/monitor_core.py`, codex config, review-loop
+    tests, …); the code commit names only this task's paths.
+- **Key decisions:**
+  - The two buttons are re-exported although the board no longer uses them, so
+    every moved name resolves on `ab` uniformly and the identity test covers the
+    whole list.
+  - `CardHost` is documentation, not `runtime_checkable`; conformance is
+    asserted on a `KanbanApp()` instance because `marked` / `expanded_tasks` are
+    set in `__init__`.
+  - The unresolved-globals guard covers every `board/*.py`, including
+    `aitask_board.py`: it catches both a lost import in moved code and an
+    over-eager dead-import removal, and every later child's module gets it free.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:**
+  - **Tests may not canonically import a board module in `tests/test_board_*.py`.**
+    `LiveTreeSweepTests` (tier 1) flags `import board_widgets` exactly like
+    `import aitask_board`. Reach a sibling as `self.ab.<module>` under the
+    fixture, or put a headless check in a subprocess (see
+    `HeadlessImportTests` in `test_board_package_contract.py`) — child 3's
+    planned headless `TrailModelTests` sibling must follow one of these.
+  - A stub of any moved helper must target `ab.board_widgets` (`TaskCard.compose`
+    calls `_status_badge_text` etc. through its own module). No test does today.
+  - CSS for the moved widgets (`.task-title-row`, `.task-info`, `.task-title`,
+    `.task-number`, `.task-mark`, `.col-header-*`, `PickerItem*`,
+    `#loading_dialog` / `#loading_message`) still lives in `KanbanApp.CSS`.
+    Trail cards use `.task-title` / `.task-info` and the trail flow pushes
+    `LoadingOverlay`, so the second App (child 6) needs those rules —
+    child 3's `TRAIL_CSS` and/or a `LoadingOverlay.DEFAULT_CSS`.
+  - The moved classes are now ONE class object across every
+    `load_board_module()` (each load used to mint its own `TaskCard`). No test
+    mutates them; a class-attribute patch on `ab.TaskCard` is visible to every
+    board module in the worker until restored.
+  - Verify a verbatim move mechanically: assert each region's first line and
+    following neighbour before cutting, and check every top-level block of the
+    region is a substring of the new module. An editor/tool can normalize
+    `\uXXXX` escapes silently.
+  - Smoke tests in tmux: wait for a screen state specific to the next step
+    before each key (the By-Trail selector reads "Select trail — ↑/↓ move ·
+    Enter open · Esc cancel"); compare against a detached `HEAD` worktree
+    (`aitask_init_data.sh --link-worktree`) before calling anything a regression.
+  - `CardHost` members for the trails host (children 5/6): `marked`,
+    `expanded_tasks`, `check_action`, `action_toggle_children`,
+    `action_view_details`; the column buttons need `toggle_column_collapse` /
+    `open_column_edit` only if the host mounts `ColumnHeader`.
