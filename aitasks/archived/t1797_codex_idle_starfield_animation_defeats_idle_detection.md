@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [monitor, codex, shadow, review_loop]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ risk_mitigation_tasks: [1805]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5
 created_at: 2026-09-11 15:26
-updated_at: 2026-09-14 16:50
+updated_at: 2026-09-14 16:53
+completed_at: 2026-09-14 16:53
 ---
 
 `ait minimonitor` (and `ait monitor`) report an idle **Codex** pane as *active*
@@ -131,3 +132,14 @@ scratchpad is gone.
 > **✅ gate:plan_approved** run=2026-09-14T12:39:52Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-09-14T13:36:13Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-14T13:52:22Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:9809d6c6fe201707
+
+> **✅ gate:risk_evaluated** run=2026-09-14T13:52:22Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1797/risk_evaluated_2026-09-14T13:52:22Z-risk_evaluated-a1.log`
