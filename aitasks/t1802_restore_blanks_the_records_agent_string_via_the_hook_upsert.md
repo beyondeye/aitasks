@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [tmux, bug]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1705
 followup_kind: upstream_defect
 created_at: 2026-09-14 15:16
-updated_at: 2026-09-14 15:16
+updated_at: 2026-09-14 15:38
 ---
 
 ## Observed (t1801 manual verification of t1784, real Claude agent, real store)
