@@ -460,3 +460,118 @@ Commit as `bug: … (t1784)`, current branch `main`, and archive with the plan.
 ### Planned mitigations
 - timing: pre-phase | name: pre_fix_control_bootstrap | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — tests written beside the fix could pass without detecting the defect | desc: Write the §3 unit tests (bootstrap patched with create=True) and the §4 live suite first, run both against unfixed code, and record which fail and which pass vacuously; the A0 default-mode control proves the collision detectors can fail.
 - timing: post-phase | name: acceptance_isolation_sweep | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — mid-suite server restarts and bootstrap side effects escaping test isolation; goal-achievement — the full-stack proof cannot run inside tmux | desc: Have the user run the full acceptance suite and test_restore_flows_live.sh outside tmux before commit; confirm cases 7–10b pass after 6c/6d, the real HOME shim and registry fingerprints are unchanged, and restore_flows case 7 never bootstraps.
+
+## Implementation record
+
+**P0 pre-fix control — watched, 2026-09-14**, both lanes against unfixed code
+(tests written first, no source edited).
+
+Unit lane — `python3 tests/test_agent_restore.py TestNoProjectSessionBootstrapsOne
+TestBootstrapHelper TestRespawnFailureIsPersisted`: `Ran 10 tests … FAILED
+(failures=6, errors=8)` (errors count subtests).
+
+- 1 `an_attributed_session_is_used_without_bootstrapping` — ok (regression guard only).
+- 2 `no_session_bootstraps…` — FAIL `('%900', 51000, '') != ('', 0, 'no_session_for_root:…')`.
+- 3 `a_taken_session_name…` / 5 `a_created_session_attributed_elsewhere…` /
+  6 `a_stale_project_root…` — FAIL: the error has no `|bootstrap:` detail.
+- 4 `ownership_not_attribution…` — **deviation from the prediction**: planned
+  as a vacuous pass, it FAILED, but on the error SHAPE (no `|` suffix), not on
+  adoption. Its "launch not called" half passed vacuously pre-fix, so its
+  post-fix green is the only evidence about adoption; B2 is the live evidence.
+- 7 `TestBootstrapHelper` (3 tests, 6 subtests) — ERROR
+  `AttributeError: module 'agent_restore' has no attribute 'subprocess'`: a
+  shape failure; the post-fix green is evidence about the helper contract only.
+- 8 `the_rollback_reason_carries_the_launch_error` — FAIL
+  `'respawn:no_session_for_root:/x|bootstrap:session_name_taken:aitasks' != 'respawn'`.
+
+Live lane — `bash tests/test_restore_session_bootstrap_live.sh` (inside tmux):
+`Passed: 19 / 44`.
+
+- **A0 (control) passed all three assertions** — the unfixed default mode
+  really rewrites the foreign `AITASKS_PROJECT_<name>` to B and adds B's
+  `syncer` window to A's session. The A2/A3 unchanged-state detectors therefore
+  demonstrably can fail.
+- A1–A4 FAIL on shape: `spawn_session_detached: not a directory: --create-only`, exit 2.
+- B1, B3 FAIL: `no_session_for_root:<proj_b>` — no session, no pane.
+- B2: only the error-string assertion failed; its unchanged-state and
+  "launched nowhere" assertions passed vacuously (nothing bootstraps).
+- Observation: `pane_fmt "" …` resolves to the server's default pane, so B1's
+  session/window assertions read `other_<pid>` / `base` pre-fix. The "pane is
+  real" assertion is guarded with `[ -n "$pane" ]`, so this cannot mask a
+  post-fix failure.
+
+Acceptance 6c/6d: their pre-fix control is **not watched** — the suite refuses
+to run inside tmux.
+
+**Post-fix, 2026-09-14 (this session, inside tmux):**
+
+| suite | result |
+|---|---|
+| `tests/test_agent_restore.py` | 40 OK (the 10 new tests included) |
+| `tests/test_restore_session_bootstrap_live.sh` | 44/44 — A0 still clobbers in default mode; A2–A4 untouched; B1–B3 pass; B2 now non-vacuous (the bootstrap ran and refused) |
+| `tests/test_frozen_respawn_atomic_live.sh` | 64/64 (regression) |
+| `tests/test_agent_frozen_ops.py` | 60 OK |
+| `tests/test_no_raw_tmux.sh` | 5/5 |
+| `shellcheck .aitask-scripts/lib/tmux_bootstrap.sh` | clean |
+| `bash tests/run_all_python_tests.sh` | `PYTHON SUITE: PASSED (runner=unittest, exit=0)` |
+| `website/check_links.py --build` | `SWEEP: PASSED`, 0 broken |
+
+**P1 `acceptance_isolation_sweep` — NOT verified.** At Step 8 review the user
+was asked to run `tests/test_frozen_agents_acceptance.sh` (new cases 6c/6d, and
+7–10b after them) and `tests/test_restore_flows_live.sh` outside tmux with the
+`-L ait` server stopped. The user chose "Commit changes" without reporting
+results. Both suites refuse to run inside tmux, so the full-stack path through
+the shipped wrappers is **unverified**, as is the acceptance pre-fix control.
+The acceptance file passes `bash -n`, and its only shellcheck warnings are
+pre-existing variables read by the sourced fixtures.
+
+## Final Implementation Notes
+- **Actual work done:** Implemented as approved.
+  - `tmux_bootstrap.sh` gained an opt-in `--create-only` mode: create the
+    session (then register it and print `BOOTSTRAP_CREATED:<name>`), or change
+    nothing and exit 43 with `BOOTSTRAP_FAILED:session_exists:<name>`. That
+    includes a session created concurrently between `has-session` and
+    `new-session`.
+  - `agent_restore._launch_into_new_window` now bootstraps the project's own
+    session when discovery attributes none to the root. It uses only a session
+    attributed to the root before anything changed, or the session this call
+    created; after a refused create it makes no second lookup.
+  - `restore()` persists `respawn:<error>` rather than a bare `respawn`, so the
+    viewer shows the root and the bootstrap's verdict.
+  - Tests: 10 new unit tests; the new in-tmux live suite
+    `tests/test_restore_session_bootstrap_live.sh`; acceptance cases 6c/6d with
+    registry and systemd isolation and fixture re-establishment.
+  - Docs: one how-to paragraph.
+- **Deviations from plan:**
+  - The collision-ownership design (`--create-only`, the ownership rule, the
+    new live suite) was added at plan review, after the user caught that the
+    bootstrap's default mode would clobber a foreign session. It is part of the
+    approved plan.
+  - The bootstrap's default path is behaviour-identical, but not literally
+    line-for-line as the plan said. It gained an explicit `return 0` (the
+    previous final status, from `_tmux_bootstrap_ensure_syncer_window`, was
+    always 0) and a create-only `if` that is always false in default mode.
+  - The real-`$HOME` registry check greps for the scratch path instead of
+    comparing a checksum. A checksum would flake whenever the developer runs
+    `ait ide` elsewhere during the run.
+- **Issues encountered:**
+  - Pre-fix, unit case 4 failed on the error shape rather than passing
+    vacuously as predicted (recorded above).
+  - `pane_fmt ""` resolves to the server's default pane, so "pane is real"
+    assertions are guarded with `[ -n "$pane" ]`.
+  - The acceptance and restore-flows suites could not run in this session (see
+    P1).
+- **Key decisions:**
+  - Option (b), a dedicated session, over (a), the invoking pane's session:
+    (a) breaks the one-session-per-project rule and misattributes the agent in
+    `ait monitor`, and has no session to borrow from a bare shell or with no
+    server.
+  - Reuse the canonical bootstrap through an opt-in mode rather than forking
+    its naming and registry logic. The session name stays with the single bash
+    resolver.
+  - Ownership is proven only by `BOOTSTRAP_CREATED`; an exit 0 without it is
+    never treated as ownership.
+  - A0 is kept permanently as the control that proves the unchanged-state
+    detectors can fail.
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/agent_launch_utils.py:1913-1914 — load_tmux_defaults() returns the string "None" for a blank tmux.default_session (the seed ships it blank), disagreeing with _read_default_session() and the bash resolver, which both return "aitasks"; callers include aitask_board.py:12205/12375, agent_command_screen.py, agentcrew_runner.py`
