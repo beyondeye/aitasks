@@ -12,8 +12,9 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1705
 followup_kind: verification_failure
+implemented_with: claudecode/opus5
 created_at: 2026-09-14 17:18
-updated_at: 2026-09-14 17:26
+updated_at: 2026-09-14 22:12
 ---
 
 ## Origin
@@ -44,3 +45,8 @@ Reproduction with the suite's own fixtures, `FAKE_AGENT_HOOK_DELAY=3` exported t
 - `.aitask-scripts/lib/agent_sessions.py` (`_apply_upsert_fields`, `upsert`)
 - `tests/test_restore_flows_live.sh` (`make_frozen`)
 - `tests/lib/frozen_fixtures.sh`
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-14T19:12:49Z status=pass attempt=1 type=human
