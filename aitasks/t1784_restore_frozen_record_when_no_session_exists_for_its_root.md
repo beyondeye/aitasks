@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1705
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5
 created_at: 2026-09-10 14:57
-updated_at: 2026-09-14 13:21
+updated_at: 2026-09-14 13:56
 ---
 
 ## Origin
@@ -45,3 +46,8 @@ Decide between (a) falling back to the invoking pane's session with
 `cwd = record root`, and (b) creating a dedicated session for the root. Cover it
 with an end-to-end server-restart-with-no-project-session live test alongside
 acceptance case 6b.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-14T10:56:27Z status=pass attempt=1 type=human
