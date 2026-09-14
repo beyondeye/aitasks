@@ -13,8 +13,9 @@ folded_tasks: [1754]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1705
 followup_kind: review_finding
+implemented_with: claudecode/opus5
 created_at: 2026-09-09 13:14
-updated_at: 2026-09-14 08:53
+updated_at: 2026-09-14 09:11
 ---
 
 ## Context
@@ -300,3 +301,8 @@ and watch the specific assertion fail — so the repair is evidenced, not assume
 The following existing tasks have been folded into this task. Their requirements are incorporated in the description above. These references exist only for post-implementation cleanup.
 
 - **t1754** (`t1754_repair_the_standing_red_python_suite.md`)
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-14T06:11:51Z status=pass attempt=1 type=human
