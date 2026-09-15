@@ -84,13 +84,13 @@ Step 9: current-branch mode (fast profile) — no merge; archive via
 ## Risk
 
 ### Code-health risk: low
-- Recurrence: the t1207 drift guard (`tests/test_asserts_counters.sh` T12/T13) only matches the old private-counter scaffolding, so a future test file that asserts inside `( … )` without the opt-in goes silently green again — exactly how this file slipped through · severity: medium · → mitigation: subshell_optin_drift_guard
+- Recurrence: the t1207 drift guard (`tests/test_asserts_counters.sh` T12/T13) only matches the old private-counter scaffolding, so a future test file that asserts inside `( … )` without the opt-in goes silently green again — exactly how this file slipped through · severity: medium · → mitigation: t1810
 
 ### Goal-achievement risk: low
 None identified.
 
 ### Planned mitigations
-- timing: after | name: subshell_optin_drift_guard | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: medium | addresses: Code-health recurrence — T12/T13 cannot see asserts-in-subshell-without-opt-in | desc: Add a drift guard to tests/test_asserts_counters.sh that fails when a tests/test_*.sh file sources asserts.sh, calls an assert_* helper inside a standalone ( … ) block, and never calls assert_counters_init — plus a negative-control test proving the guard can fire
+- timing: after | name: subshell_optin_drift_guard | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: medium | addresses: Code-health recurrence — T12/T13 cannot see asserts-in-subshell-without-opt-in | desc: Add a drift guard to tests/test_asserts_counters.sh that fails when a tests/test_*.sh file sources asserts.sh, calls an assert_* helper inside a standalone ( … ) block, and never calls assert_counters_init — plus a negative-control test proving the guard can fire | created: t1810
 
 ## Final Implementation Notes
 - **Actual work done:** Implemented as planned in `tests/test_session_hook_install.sh`: `assert_counters_init` right after sourcing `tests/lib/asserts.sh` (with a two-line why-comment), the counter-file cleanup folded into the file's existing `EXIT` trap, and `assert_counters_load` in the footer before the `Results` line (5 insertions, 1 modification). The file now reports 39 assertions instead of 22 — Groups A–D's 17 are counted.
