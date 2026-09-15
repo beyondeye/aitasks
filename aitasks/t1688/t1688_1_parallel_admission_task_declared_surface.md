@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1569
+implemented_with: claudecode/opus5
 created_at: 2026-09-14 17:42
-updated_at: 2026-09-14 18:13
+updated_at: 2026-09-15 09:14
 ---
 
 ## Context
@@ -120,3 +121,8 @@ surface exactly `no_plan`. Precedence: plan → description → `no_plan`.
 - after `measure_task_declared_precision` — create at this child's Step 8d:
   extend `aitask_parallel_admission.sh sweep` with a task-description source and
   score `task_declared` surfaces against landed files over the archived corpus.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-15T06:14:13Z status=pass attempt=1 type=human
