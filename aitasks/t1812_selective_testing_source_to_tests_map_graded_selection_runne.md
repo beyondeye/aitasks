@@ -7,6 +7,13 @@ status: Ready
 labels: [testing, test_infrastructure, brainstorming, gates, framework]
 created_at: 2026-09-15 09:25
 updated_at: 2026-09-15 09:25
+attachments:
+  - hash: sha256:79088753bb9d611ded7e0f4574672b061a800815703883e5667a18e39accf34e
+    name: selective_testing_proposal.md
+    mime: text/plain
+    size: 23963
+    added_at: 2026-09-15 09:25
+    backend: local
 ---
 
 Design and build a generic **selective testing** subsystem for the aitasks
