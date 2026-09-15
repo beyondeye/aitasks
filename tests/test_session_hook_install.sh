@@ -30,9 +30,12 @@ TOTAL=0
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=lib/asserts.sh
 . "$PROJECT_DIR/tests/lib/asserts.sh"
+# Groups A–D assert inside ( … ) subshells, so the counts must be file-backed
+# or they die at subshell exit and the footer never sees them (t1207).
+assert_counters_init
 
 TESTROOT="$(mktemp -d)"
-trap 'rm -rf "$TESTROOT"' EXIT
+trap 'rm -rf "$TESTROOT"; rm -f "$AIT_ASSERT_COUNTER_FILE"' EXIT
 
 SEED_HOOKS="$PROJECT_DIR/seed/claude_settings.hooks.json"
 HOOK_CMD_TAIL=".aitask-scripts/aitask_session_hook.sh"
@@ -354,6 +357,7 @@ assert_eq "E4: and installing it works" "1" "$(count_hook "$E4/.claude/settings.
 assert_eq "E4: settings.local.json was NOT written (permissions declined)" "no" \
     "$([ -f "$E4/.claude/settings.local.json" ] && echo yes || echo no)"
 
+assert_counters_load
 echo ""
 echo "========================================="
 echo "Results: $PASS passed, $FAIL failed, $TOTAL total"
