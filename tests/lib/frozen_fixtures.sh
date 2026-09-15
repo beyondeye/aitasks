@@ -99,6 +99,20 @@ wait_for_ready() {
     return 1
 }
 
+# Wait until the SessionStart hook has bound a record to the pane (its
+# `@aitask_record` stamp) and echo the record id. The optional second argument
+# overrides the poll budget, in 0.1 s units.
+wait_for_record_stamp() {
+    local pane="$1" tries="${2:-$FROZEN_WAIT_TRIES}" i=0 rid=""
+    while [ "$i" -lt "$tries" ]; do
+        rid="$(record_of_pane "$pane")"
+        [ -n "$rid" ] && { printf '%s\n' "$rid"; return 0; }
+        sleep 0.1
+        i=$((i + 1))
+    done
+    return 1
+}
+
 # Wait until a process is in the STOPPED state ('T'). Polling the real state is
 # what makes the paused-coordinator cases honest: sleeping a fixed interval and
 # hoping would race, and a race here reads as a spurious LEASE_HELD.

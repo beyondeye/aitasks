@@ -127,7 +127,8 @@ SESSIONS_SH="$PROJECT_DIR/.aitask-scripts/aitask_agent_sessions.sh"
 #
 # `tm`, `pane_fmt`, `pane_exists`, `window_exists`, `store`, `record_of_pane`,
 # `record_field`, `section`, `make_agent_window`, `wait_for_record_state`,
-# `wait_for_ready`, `wait_stopped`, `agent_env`, `agent_env_clear` and `cleanup`
+# `wait_for_ready`, `wait_for_record_stamp`, `wait_stopped`, `agent_env`,
+# `agent_env_clear` and `cleanup`
 # are shared with `test_freeze_engine_live.sh` and
 # `test_frozen_agents_acceptance.sh` (t1705_8). The variables above (REAL_TMUX,
 # REAL_PATH, SESSIONS_SH, FAKE_AGENT, FIXTURE_DIR, AGENT_ENV_FILE) are this
@@ -144,21 +145,97 @@ trap cleanup EXIT
 # output in later cases.
 drop_record() { store drop "$1" >/dev/null 2>&1 || true; }
 
+# Report a make_frozen setup failure: record it, drop every record the fixture
+# owns, say why on stderr (stdout is the caller's `read` channel), and remove
+# the half-built window.
+#
+# The records go FIRST, through the unconditional store drop (no --nonce) that
+# `drop_record` uses too. A freeze that failed after freeze-begin leaves its
+# record `freezing` under a lease the exited coordinator still holds; once the
+# window is gone, reconcile would commit that record `frozen`, and a later
+# case's `restore --all` or reconcile assertion would see a failed fixture as a
+# real record. Killing the window alone does not prevent that. A drop that does
+# not answer `DROPPED:<id>` is added to the reason, never swallowed.
+#
+#   make_frozen_fail <window> <reason> [record_id...]
+make_frozen_fail() {
+    local window="$1" reason="$2" rid out seen=" "
+    shift 2
+    assert_record_fail
+    for rid in "$@"; do
+        [ -n "$rid" ] || continue
+        case "$seen" in *" $rid "*) continue ;; esac
+        seen="$seen$rid "
+        out="$(store drop "$rid" 2>&1)"
+        [ "${out##*$'\n'}" = "DROPPED:$rid" ] ||
+            reason="$reason; record $rid was NOT dropped (${out:-no output})"
+    done
+    echo "FAIL: make_frozen($window): $reason" >&2
+    tm kill-window -t "=$SESSION:$window" 2>/dev/null || true
+}
+
 # Freeze a fresh agent window and return "<record_id> <pane_id>", with the
 # record's `codeagent_session_id` seeded so a RESUME is possible. Seeding it
 # through the real `upsert` keeps this on the shipped write path.
+#
+# The order is load-bearing: wait for the SessionStart hook's `@aitask_record`
+# stamp, THEN seed, THEN freeze. The hook upserts too (the fake agent reports
+# `fakesess-<pid>`), so a hook that lands after the seed overwrites the seeded
+# id; and a freeze that runs before the stamp takes the engine's unstamped
+# fallback instead of the hook-recorded record (t1807). Each step is checked,
+# not assumed: the seed must UPDATE the hook's record; the freeze must exit 0
+# and report `FROZEN:<that record>` (a freeze that fails at capture or
+# freeze-begin never re-stamps the pane, so the stamp alone cannot tell it from
+# a success); and the freeze must leave the pane stamped with that same record.
+#
+# On any failure it records a FAIL, drops every record it owns by then (the
+# hook's, plus any the seed created or the freeze stamped), gives the reason on
+# stderr and prints NOTHING on stdout. Callers read it through
+# `read -r ... < <(make_frozen ...)`, which discards this function's exit
+# status, so every caller appends `|| exit 1`: `read` fails on the empty stream
+# and ends the case there. The FAIL is recorded too, so a caller missing that
+# guard still fails the suite — the counters are file-backed, and the
+# process-substitution child's write survives it.
 make_frozen() {
     local window="$1" session_id="${2:-sess-orig}" agent_string="${3:-claudecode/opus5}"
-    local agent companion pane_pid
+    local agent companion pane_pid hook_rid seeded seed_rid frozen_out stamp
     read -r agent companion < <(make_agent_window "$SESSION" "$window" "$ROOT")
-    sleep 0.3
+    if ! hook_rid="$(wait_for_record_stamp "$agent")"; then
+        make_frozen_fail "$window" "no @aitask_record stamp on $agent within the wait budget"
+        return 1
+    fi
     pane_pid="$(pane_fmt "$agent" '#{pane_pid}')"
-    store upsert --root "$ROOT" --window "$window" \
+    seeded="$(store upsert --root "$ROOT" --window "$window" \
         --pane "$agent" --pane-pid "$pane_pid" --session "$SESSION" \
         --session-id "$session_id" --agent-string "$agent_string" \
-        --operation pick --task-id 1705 >/dev/null 2>&1
-    "$FROZEN_SH" freeze "$agent" >/dev/null 2>&1
-    printf '%s %s\n' "$(record_of_pane "$agent")" "$agent"
+        --operation pick --task-id 1705 2>/dev/null)"
+    seeded="${seeded##*$'\n'}"
+    if [ "$seeded" != "UPSERTED:$hook_rid|updated" ]; then
+        # A seed that CREATED instead of updating owns a record of its own.
+        seed_rid=""
+        case "$seeded" in
+            UPSERTED:*) seed_rid="${seeded#UPSERTED:}"; seed_rid="${seed_rid%%|*}" ;;
+        esac
+        make_frozen_fail "$window" "the seed did not update the hook's record $hook_rid (got '$seeded')" \
+            "$hook_rid" "$seed_rid"
+        return 1
+    fi
+    if ! frozen_out="$("$FROZEN_SH" freeze "$agent" 2>/dev/null)"; then
+        make_frozen_fail "$window" "the freeze failed (${frozen_out:-no output})" "$hook_rid"
+        return 1
+    fi
+    if ! printf '%s\n' "$frozen_out" | grep -qxF "FROZEN:$hook_rid"; then
+        make_frozen_fail "$window" "the freeze did not report FROZEN:$hook_rid (got '$frozen_out')" \
+            "$hook_rid"
+        return 1
+    fi
+    stamp="$(record_of_pane "$agent")"
+    if [ "$stamp" != "$hook_rid" ]; then
+        make_frozen_fail "$window" "the freeze left $agent stamped '$stamp', not $hook_rid" \
+            "$hook_rid" "$stamp"
+        return 1
+    fi
+    printf '%s %s\n' "$hook_rid" "$agent"
 }
 
 tm new-session -d -s "$SESSION" -n scratch -c "$ROOT" "sleep 1000"
@@ -168,7 +245,7 @@ sleep 0.4
 section "Case 1 — happy resume: ack=hook, captures DELETED"
 # ---------------------------------------------------------------------------
 (
-    read -r RID PANE < <(make_frozen "agent-pick-1705" "sess-orig")
+    read -r RID PANE < <(make_frozen "agent-pick-1705" "sess-orig") || exit 1
     assert_eq "case 1: the record is frozen before the restore" "frozen" \
         "$(record_field "$RID" state)"
     wait_for_ready "$PANE" "$RID"
@@ -218,7 +295,7 @@ section "Case 1 — happy resume: ack=hook, captures DELETED"
 section "Case 2 — happy re-pick: a new session id is adopted"
 # ---------------------------------------------------------------------------
 (
-    read -r RID PANE < <(make_frozen "agent-pick-1706" "sess-orig")
+    read -r RID PANE < <(make_frozen "agent-pick-1706" "sess-orig") || exit 1
     wait_for_ready "$PANE" "$RID"
 
     envprobe="$FIXTURE_DIR/envprobe_case2.txt"
@@ -258,7 +335,7 @@ section "Case 3 — all four -e identity variables arrive (V11)"
 # route every restore to the liveness fallback — which still REPORTS success.
 # This is the assertion that separates "restored" from "restored and verified".
 (
-    read -r RID PANE < <(make_frozen "agent-pick-1707" "sess-orig")
+    read -r RID PANE < <(make_frozen "agent-pick-1707" "sess-orig") || exit 1
     wait_for_ready "$PANE" "$RID"
     report="$FIXTURE_DIR/envprobe_case3.txt"
 
@@ -299,7 +376,7 @@ section "Case 3 — all four -e identity variables arrive (V11)"
 section "Case 4 — the replacement exits at once -> agent_exited"
 # ---------------------------------------------------------------------------
 (
-    read -r RID PANE < <(make_frozen "agent-pick-1708" "sess-orig")
+    read -r RID PANE < <(make_frozen "agent-pick-1708" "sess-orig") || exit 1
     wait_for_ready "$PANE" "$RID"
     # `remain-on-exit` keeps the pane once its process dies, which is both the
     # `pane_dead=1` observation the §C row keys on AND the production shape (the
@@ -344,7 +421,7 @@ section "Case 5 — a MISMATCHED session aborts WITHOUT waiting out the grace"
 # success for an agent running the WRONG session — and delete nothing, but claim
 # a restore that never happened.
 (
-    read -r RID PANE < <(make_frozen "agent-pick-1709" "sess-orig")
+    read -r RID PANE < <(make_frozen "agent-pick-1709" "sess-orig") || exit 1
     wait_for_ready "$PANE" "$RID"
 
     started="$(date +%s)"
@@ -379,7 +456,7 @@ section "Case 5 — a MISMATCHED session aborts WITHOUT waiting out the grace"
 section "Case 6 — no hook at all -> liveness confirm, captures KEPT"
 # ---------------------------------------------------------------------------
 (
-    read -r RID PANE < <(make_frozen "agent-pick-1710" "sess-orig")
+    read -r RID PANE < <(make_frozen "agent-pick-1710" "sess-orig") || exit 1
     wait_for_ready "$PANE" "$RID"
 
     agent_env FAKE_AGENT_NO_HOOK=1
@@ -405,7 +482,7 @@ section "Case 6 — no hook at all -> liveness confirm, captures KEPT"
 section "Case 7 — a gone pane restores into a NEW window, one record still"
 # ---------------------------------------------------------------------------
 (
-    read -r RID PANE < <(make_frozen "agent-pick-1711" "sess-orig")
+    read -r RID PANE < <(make_frozen "agent-pick-1711" "sess-orig") || exit 1
     wait_for_ready "$PANE" "$RID"
     # Count records for THIS window only. A whole-store count is not stable
     # across cases: reconcile legitimately purges dead-window records from
@@ -445,7 +522,7 @@ section "Case 8 — the hook WINS the launch race (V12): success, NO rollback"
 # single worst outcome the task can produce, so the ordering is FORCED (the fake
 # agent acks with no delay), not hoped for.
 (
-    read -r RID PANE < <(make_frozen "agent-pick-1712" "sess-orig")
+    read -r RID PANE < <(make_frozen "agent-pick-1712" "sess-orig") || exit 1
     wait_for_ready "$PANE" "$RID"
 
     agent_env FAKE_AGENT_HOOK_DELAY=0
@@ -476,7 +553,7 @@ section "Case 9 — a PAUSED coordinator's restore is never taken over"
 # refuse takeover no matter how much grace has elapsed. This is the assertion
 # that fails if `--owner-pid` is ever dropped or defaulted.
 (
-    read -r RID PANE < <(make_frozen "agent-pick-1713" "sess-orig")
+    read -r RID PANE < <(make_frozen "agent-pick-1713" "sess-orig") || exit 1
     wait_for_ready "$PANE" "$RID"
 
     # Pause at `ack`, NOT at `respawn`: by then `launch_pid` is recorded and the
@@ -526,7 +603,7 @@ section "Case 10 — failure injection at every stage"
 # Each stage asserts the STATE and the RECOVERY, not just the exit code.
 (
     # begin: the store was never written. Nothing may have moved.
-    read -r RID PANE < <(make_frozen "agent-pick-1714" "sess-orig")
+    read -r RID PANE < <(make_frozen "agent-pick-1714" "sess-orig") || exit 1
     wait_for_ready "$PANE" "$RID"
     AITASKS_RESTORE_FAIL_AT=begin "$FROZEN_SH" restore "$RID" >/dev/null 2>&1
     assert_eq "case 10/begin: record untouched, still frozen" "frozen" \
@@ -544,7 +621,7 @@ section "Case 10 — failure injection at every stage"
 )
 (
     # respawn: the stranded-lease case. Reconcile must put the stand-in back.
-    read -r RID PANE < <(make_frozen "agent-pick-1715" "sess-orig")
+    read -r RID PANE < <(make_frozen "agent-pick-1715" "sess-orig") || exit 1
     wait_for_ready "$PANE" "$RID"
     AITASKS_RESTORE_FAIL_AT=respawn "$FROZEN_SH" restore "$RID" >/dev/null 2>&1
     sleep "$GRACE_SLEEP"
@@ -565,7 +642,7 @@ section "Case 10 — failure injection at every stage"
 (
     # ack: the replacement IS running; the coordinator died before resolving.
     # Reconcile must liveness-confirm it via launch_pid and KEEP the captures.
-    read -r RID PANE < <(make_frozen "agent-pick-1716" "sess-orig")
+    read -r RID PANE < <(make_frozen "agent-pick-1716" "sess-orig") || exit 1
     wait_for_ready "$PANE" "$RID"
     agent_env FAKE_AGENT_NO_HOOK=1
     AITASKS_RESTORE_FAIL_AT=ack "$FROZEN_SH" restore "$RID" >/dev/null 2>&1
@@ -592,7 +669,7 @@ section "Case 11 — coordinator killed after clearing ready, before the respawn
 # `launch_pid` is 0, so reconcile has no positive evidence of a replacement and
 # must ABORT by `standin_pid` — never liveness-confirm.
 (
-    read -r RID PANE < <(make_frozen "agent-pick-1717" "sess-orig")
+    read -r RID PANE < <(make_frozen "agent-pick-1717" "sess-orig") || exit 1
     wait_for_ready "$PANE" "$RID"
 
     AITASKS_FROZEN_PAUSE_AT=respawn "$FROZEN_SH" restore "$RID" >/dev/null 2>&1 &
@@ -623,7 +700,7 @@ section "Case 11 — coordinator killed after clearing ready, before the respawn
 section 'Case 12 — a second restore during aborting is refused'
 # ---------------------------------------------------------------------------
 (
-    read -r RID PANE < <(make_frozen "agent-pick-1718" "sess-orig")
+    read -r RID PANE < <(make_frozen "agent-pick-1718" "sess-orig") || exit 1
     wait_for_ready "$PANE" "$RID"
 
     agent_env FAKE_AGENT_EXIT=1
@@ -655,7 +732,7 @@ section "Case 13 — Restore-All keeps going after one failing record"
 # ---------------------------------------------------------------------------
 (
     agent_env_clear
-    read -r RID_OK PANE_OK < <(make_frozen "agent-pick-1719" "sess-ok")
+    read -r RID_OK PANE_OK < <(make_frozen "agent-pick-1719" "sess-ok") || exit 1
     wait_for_ready "$PANE_OK" "$RID_OK"
     # A record that CANNOT resume: its agent string names a model that does not
     # exist, so the `--dry-run` probe returns nothing and the binary preflight
@@ -664,7 +741,7 @@ section "Case 13 — Restore-All keeps going after one failing record"
     # not a deterministic fixture any more: the replacement agent runs the REAL
     # hook the moment its window is created, so the record legitimately acquires
     # a session id before the case can use its absence.)
-    read -r RID_BAD PANE_BAD < <(make_frozen "agent-pick-1720" "sess-bad" "claudecode/nosuchmodel")
+    read -r RID_BAD PANE_BAD < <(make_frozen "agent-pick-1720" "sess-bad" "claudecode/nosuchmodel") || exit 1
     wait_for_ready "$PANE_BAD" "$RID_BAD"
 
     out="$("$FROZEN_SH" restore --all 2>&1)"; rc=$?

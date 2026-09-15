@@ -535,6 +535,31 @@ class RecordResolutionTests(_FreezeTestCase):
         self.assertEqual(stamped, result.record_id,
                          "the stamp must name the record that was created")
 
+    def test_an_unstamped_pane_keeps_the_stored_session_id(self):
+        """t1807: the fallback upsert must not blank a recorded session id.
+
+        A freeze that races the SessionStart hook finds a record for the pane
+        but neither `@aitask_record` nor `@aitask_agent_session` on it, so the
+        fallback upserts with `--session-id ""`. The store selects the existing
+        record by pane identity; taking the blank as a value turned a resumable
+        record into one the next restore rejects as `no_session`.
+        """
+        self.store.sf, _ = agent_sessions.upsert(
+            self.store.sf, root=str(self.root), window="agent-pick-1705",
+            pane=AGENT_PANE, pane_pid=AGENT_PID, session_id="sess-orig",
+            pane_alive=lambda pid: True,
+        )
+        self.assertEqual(self.rec().codeagent_session_id, "sess-orig")
+        self.panes[AGENT_PANE][agent_freeze.RECORD_OPTION] = ""
+        self.panes[AGENT_PANE][agent_freeze.AGENT_SESSION_OPTION] = ""
+        result = agent_freeze.freeze_pane(AGENT_PANE)
+        self.assertTrue(result.ok, result.line)
+        self.assertEqual(result.record_id, self.rid,
+                         "the fallback must select the pane's record, not create one")
+        self.assertEqual(self.panes[AGENT_PANE][agent_freeze.RECORD_OPTION],
+                         self.rid)
+        self.assertEqual(self.rec().codeagent_session_id, "sess-orig")
+
     def test_a_dangling_stamp_falls_back_to_upsert(self):
         """A stamped id the store does not know is a dangling join.
 

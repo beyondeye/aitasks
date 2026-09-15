@@ -728,12 +728,20 @@ def _apply_upsert_fields(
     ``AITASK_AGENT_STRING`` only for a well-formed one); and the freeze engine's
     fallback upsert, which never knows it. Taking the blank as a value would
     overwrite a good stored string, re-derive ``agent_kind`` as "", and send the
-    next restore to the project's default agent. Same rule, and same reason, as
-    the hook's blank-session-id no-op (its contract 4).
+    next restore to the project's default agent.
+
+    ``session_id`` follows the same rule (t1807). The freeze engine's fallback
+    upsert sends the pane's ``@aitask_agent_session``, which is unset until the
+    SessionStart hook stamps it, and ``upsert`` still selects an existing record
+    by pane identity -- so a freeze that raced the hook would blank a good
+    stored id and the next restore would fail ``no_session``. The restore
+    acknowledgement is unaffected: ``upsert`` compares ``session_id or ""``
+    against the stored id BEFORE calling this, so a blank there is still a
+    mismatch.
     """
     if session is not None:
         rec.session = session
-    if session_id is not None:
+    if session_id:
         rec.codeagent_session_id = session_id
     if transcript is not None:
         rec.transcript_path = transcript
