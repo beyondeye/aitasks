@@ -229,3 +229,187 @@ test. The product fix has a pre-fix-controlled unit test at both the store and
 freeze-engine layers. The fixture now fails definitively whenever the ordering
 it exists to establish does not hold. The guard control exercises that failure
 path, and the hook-delay stress run exercises the success path.
+
+## Implementation Progress (2026-09-14)
+
+- Steps 1–8 implemented as planned.
+- **Pre-fix control (product).** Run against the unfixed store:
+  - exactly the two reproductions failed with `'' != 'sess-orig'`:
+    `test_a_blank_update_keeps_the_stored_session_id` and
+    `test_an_unstamped_pane_keeps_the_stored_session_id`;
+  - the five guard tests passed.
+
+  After the fix, the five named modules pass: 223 tests OK.
+- Hook contracts (`tests/test_session_hook.sh`): 66/66.
+- **Deviation — live suites not run in-session.** This session runs inside the
+  `-L ait` tmux server. `require_clean_ait_server` refuses (exit 2,
+  "cannot run from inside a tmux session") for:
+  - `test_restore_flows_live.sh`, run twice;
+  - `test_frozen_agents_acceptance.sh`;
+  - `test_freeze_engine_live.sh`;
+  - the guard control;
+  - the stress run.
+
+  The only override (`AIT_LIVE_TMUX_TEST_FORCE=1`) is documented as
+  CI-box-only, because pane-died cleanup hooks run raw `tmux`, so it was not
+  used. The user chose: a scratch harness now, plus a manual-verification
+  follow-up for the live suites run outside tmux.
+- **Substitute evidence — scratch harness** (scratchpad only, not committed). It
+  sources the real `tests/lib/asserts.sh` and `tests/lib/frozen_fixtures.sh`,
+  plus `make_frozen_fail` / `make_frozen` extracted from the working tree, with
+  tmux, store and freeze stubbed. Result: 25/25 checks passed.
+  - The success path returns the hook's record, and parses the last upsert
+    line.
+  - Each failure — no stamp, wrong seed disposition, re-stamp after the freeze:
+    - prints nothing on stdout;
+    - records exactly one FAIL through the file-backed counters, from inside
+      the process-substitution child;
+    - fails the suite-shaped verdict;
+    - kills the half-built window;
+    - never reaches the guarded caller's body.
+  - An unguarded caller still fails the verdict.
+  - Pre-fix control: HEAD's `make_frozen` proceeds silently without a stamp,
+    and its verdict passes.
+- **Deviation — stress delay.** The planned `FAKE_AGENT_HOOK_DELAY=3` was
+  changed to `1`. A 3 s delay equals the suite's `AITASKS_RESTORE_ACK_GRACE=3`,
+  so it would push every restore ack past the grace and fail cases for reasons
+  unrelated to this change. The stress run did not execute either (tmux guard),
+  so it moves to the live follow-up with delay 1.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-09-14 23:43)
+- **Requested by user:** `make_frozen` discarded the freeze command's output
+  and exit status, and only checked that `@aitask_record` was unchanged. A
+  freeze that fails at capture or `freeze-begin` never re-stamps the pane, so it
+  handed the caller a record and pane with no frozen setup behind them. Check
+  the freeze's status and its `FROZEN:$hook_rid` result, and route a failure
+  through `make_frozen_fail` before the stamp check.
+- **Verified before changing:** a successful single-pane freeze prints exactly
+  `FROZEN:<rid>` (`agent_freeze.py:441`). Failures print
+  `FREEZE_FAILED:capture|…` / `FREEZE_FAILED:begin|…` / `FREEZE_SKIPPED:…`, and
+  `main()` exits 1 unless every result is ok. `aitask_frozen.sh` `exec`s the
+  engine, so that status is the script's own.
+- **Changes made:** `make_frozen` now captures the freeze's stdout and status.
+  It fails through `make_frozen_fail` on a non-zero exit ("the freeze failed
+  (…)"), or when no line is exactly `FROZEN:$hook_rid` ("the freeze did not
+  report FROZEN:…"). Only then does it run the unchanged stamp check. The
+  function's comment now lists the three post-seed checks and says why the stamp
+  alone cannot tell a failed freeze from a successful one.
+- **Verification:**
+  - The scratch harness gained two scenarios: a freeze exiting 1 with
+    `FREEZE_FAILED:begin|…`, and a freeze exiting 0 but reporting
+    `FROZEN:<other record>`. Result: 35/35 checks. Each new scenario stops at
+    the caller's guard, records exactly one FAIL, fails the verdict, kills the
+    window, and names its reason on stderr.
+  - Pre-change control: the previous `make_frozen` was rebuilt, and confirmed
+    to still run the freeze with `>/dev/null 2>&1`. On the same injected freeze
+    failure it proceeds silently: it reaches the body with `FAIL=0` and exits 0.
+  - `bash -n` passes, and `shellcheck -S warning` reports only the four
+    pre-existing `SC2034` warnings.
+- **Files affected:** `tests/test_restore_flows_live.sh`.
+
+### Change Request 2 (2026-09-15 17:49)
+- **Requested by user:** `make_frozen_fail` killed only the test window. A
+  freeze that fails after `freeze-begin` (e.g. at commit) can leave the record
+  `freezing` in the shared store. With its pane gone, a later reconcile commits
+  it `frozen`, and a later `restore --all` or reconcile assertion can observe
+  the failed fixture as a real record. Clean up the fixture's owned record(s) on
+  the failure path before killing the window, and cover a transitional freeze
+  failure in the harness.
+- **Verified before changing:**
+  - The store's `drop` without `--nonce` is the unconditional form: it removes
+    a record in any state and prints `DROPPED:<id>`. It is the form the suite's
+    own `drop_record` helper already uses.
+  - I checked this against real code: after `freeze_begin` the record was
+    `freezing` with a lease nonce held, and the nonce-less drop still returned
+    `DROPPED:<id>`, leaving zero records.
+  - The engine-level `aitask_frozen.sh drop` is the wrong tool here. It would
+    refuse a held lease (`DROP_REFUSED:…|in_flight`), and it kills stand-in
+    panes.
+- **Changes made:**
+  - `make_frozen_fail <window> <reason> [record_id...]` drops each given
+    record id, de-duplicated, BEFORE killing the window. A drop whose answer is
+    not `DROPPED:<id>` is appended to the failure reason
+    ("record <id> was NOT dropped (…)"), never swallowed.
+  - `make_frozen` passes the hook's record at every failure site after the
+    stamp is known. It additionally passes the record a seed CREATED (parsed
+    from `UPSERTED:<id>|…`) on the bad-seed path, and the foreign stamp on the
+    re-stamp path.
+  - The stamp-timeout path owns no known record, so it drops nothing: killing
+    the window stops the agent, and with it the hook.
+  - Both contract comments now describe the cleanup and why it goes first.
+- **Verification:**
+  - The scratch harness stubs now log store and tmux calls to one shared event
+    log, so the order of a drop and a kill is observable. Result: 67/67 checks.
+    - Every post-stamp failure drops the hook's record, and the drop precedes
+      the kill. The failures covered are: bad seed, freeze exiting 1 at
+      `begin`, freeze exiting 1 at `commit` (the transitional case), a wrong
+      `FROZEN:` line, and a re-stamp.
+    - The bad seed also drops the seed-created record, and the re-stamp also
+      drops the stamped record.
+    - A commit failure drops exactly one record.
+    - A refused drop is reported in the reason.
+    - The success path drops and kills nothing.
+    - The stamp timeout drops nothing.
+  - Pre-change control: the version from before this change was snapshotted
+    and run on the same commit-stage failure. The case still fails, but the
+    record is left behind (no drop) and only the window is killed.
+  - `bash -n` passes, and `shellcheck -S warning` reports only the four
+    pre-existing `SC2034` warnings.
+- **Files affected:** `tests/test_restore_flows_live.sh`.
+
+## Final Implementation Notes
+- **Actual work done:** All eight plan steps, plus two post-review change
+  requests to the fixture.
+  - **Product:** `_apply_upsert_fields` (`agent_sessions.py`) applies
+    `session_id` only when it is non-blank. Its docstring states the rule, and
+    why the restore-ack comparison is unaffected. Comment-only updates went into
+    `aitask_session_hook.sh` (contract 4 and the blank-id block) and
+    `agent_freeze._resolve_record`.
+  - **Tests:**
+    - `BlankSessionIdTests`: a blank update keeps the stored id, and a
+      non-blank one replaces it.
+    - `RestoreAckTests.test_a_blank_resume_ack_is_still_a_mismatch`.
+    - `RecordResolutionTests.test_an_unstamped_pane_keeps_the_stored_session_id`.
+  - **Fixture:**
+    - `wait_for_record_stamp [tries]` now lives in
+      `tests/lib/frozen_fixtures.sh`; the acceptance suite passes `150`.
+    - `make_frozen` runs stamp, then seed (`UPSERTED:<hook>|updated`), then
+      freeze (exit 0 and `FROZEN:<hook>`), then checks the stamp is unchanged.
+    - Every failure goes through `make_frozen_fail`. It records a FAIL, drops
+      the owned records first, gives the reason on stderr, kills the window,
+      and prints nothing on stdout.
+    - All 16 callers end with `|| exit 1`.
+- **Deviations from plan:**
+  1. The live suites could not run in-session. This session lives in the
+     `-L ait` server, and `require_clean_ait_server` refuses; the CI-only
+     override was not used. By the user's choice, a scratch harness
+     substituted, with tmux, store and freeze stubbed and the real asserts and
+     fixtures libraries. A manual-verification follow-up carries the live runs.
+  2. The stress delay changed from 3 to 1, because 3 s equals
+     `AITASKS_RESTORE_ACK_GRACE`.
+  3. Change Request 1: check the freeze's exit status and its `FROZEN:` result.
+  4. Change Request 2: drop the owned records on the failure path.
+- **Issues encountered:**
+  - The shell is zsh, so `${PIPESTATUS[0]}` read empty. Verdicts were re-read
+    from logs, without pipes.
+  - BSD `grep` did not match the `$` in `"$agent"` literally in a pattern, and
+    reported a misleading 0 in the CR1 control. `grep -F` confirmed the
+    control function.
+- **Key decisions:**
+  - Fix at the store rather than by omitting `--session-id` at the freeze
+    caller. This mirrors t1802, protects any future blank sender, and the only
+    affected caller was verified.
+  - The fixture's failure path uses the unconditional, nonce-less store drop.
+    The exited freeze coordinator's lease makes the leased form refuse, and
+    `aitask_frozen.sh drop` also refuses a held lease.
+  - The stamp-timeout path drops nothing: no record is known, and killing the
+    window stops the agent and its hook.
+- **Upstream defects identified:** None
+- **Verification summary:**
+  - Unit modules: 223 OK.
+  - Hook contracts: 66/66.
+  - Full Python suite: PASSED, 7440 tests, unittest runner.
+  - Scratch harness: 67/67, including the HEAD, pre-CR1 and pre-CR2 controls.
+  - Live suites: pending the manual-verification follow-up.
