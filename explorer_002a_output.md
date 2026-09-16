@@ -688,3 +688,263 @@ tradeoff_intersection_can_underselect: 'Risk: intersection across axes is sharpe
   escape hatch a reviewer can always take. The failure is loud in the prediction record
   because every cell row prints its per-axis reason [new]'
 --- NODE_YAML_END ---
+--- PROPOSAL_START ---
+<!-- section: overview [dimensions: requirements_*] -->
+## Overview
+
+The goal is unchanged: a framework feature, generic across `aitasks`,
+`thinking_app`, `thinking_backend`, `aitasks_go` and `aitasks_mobile`, that
+maintains a relation between source files and test units, translates a task's
+change set into a ranked set of tests with a reason on every line, runs them
+through project-defined runners under a standard contract, tracks cost per
+unit by host class, learns from failures the map did not predict, is enforced
+by gates, and is taught to agents by a skill. The static Go engine
+(`ait-testmap`), the per-edge blob-digest stamp with a run-evidence join, the
+scoped table for high-level tests, the graded walk, the scheduler with real
+locks, the cost ledger and the three gates are all kept as designed.
+
+Two things change.
+
+**1. The framework is called `aitasks`, so its home directory is `~/.aitasks`.**
+The engine installs at `~/.aitasks/engine/v<VERSION>/ait-testmap`, not
+`~/.aitask/engine/…`. Rather than leave a user with two dot-directories one
+character apart holding halves of one install, `ait setup` performs a single
+locked migration: the legacy `~/.aitask/` subtrees (`venv`, `bin`, `python`,
+`uv`, `dev_tier`, `update_check`) move into `~/.aitasks/`, the emptied legacy
+root is removed, and `~/.aitask` is left behind as a symlink to `~/.aitasks`.
+That symlink is what makes the change affordable: the 121 hardcoded
+`$HOME/.aitask/…` references across 28 shell and Python files, the venv's
+absolute shebangs, the `~/.aitask/bin/python3` wrappers and the
+`~/.aitask/python/<ver>/bin/python3` symlinks all dereference a path rather
+than compare one, so every one of them keeps working unedited. New code calls
+one resolver — `aitasks_home()` in bash, `internal/home` in Go — and existing
+call sites are ported later, at leisure, by tasks that are already touching
+them. The move is reversible in two commands.
+
+**2. A third association form — axes and cells — because the existing two
+cannot express a product space, and two of the five target repos have one.**
+
+The design so far offers `covers` (a flat source→test edge, digest-stamped)
+and `area`/`scope`/`trigger` (a flat glob→broad-test scope). `thinking_app`'s
+visual suite is neither. Its natural subdivision is a **grid**: 47 screens ×
+10 locale/geometry matrices ≈ 250 tracked goldens, one `@Test` method per
+cell, one Robolectric class per (matrix, catalog slice). The questions a
+change asks of that grid are two-dimensional and independent:
+
+- `app/src/main/res/values-ar/strings.xml` changes → **every screen**, but
+  only in the **Arabic** matrices (`pixel5Ar_rtl`, `shortPhoneAr_rtl`).
+- `ui/screens/QuestionsScreen.kt` changes → the **Questions** screen, in
+  **every** matrix.
+- `res/font/cairo_*.ttf` changes → every screen, Arabic matrices only.
+- Both of the first two in one task → the **union of those two sets**, which
+  is 2 matrices × 47 screens + 10 matrices × 1 screen, not 10 × 47.
+
+Flat edges cannot say this. Encoding the grid as `covers` edges needs one edge
+per (source, cell) pair — thousands of rows meaning less than the grid does —
+and, because flat edges union, a task touching both an Arabic resource and a
+screen composable would still select the whole grid. Encoding it as one
+`area: ui` scope selects the entire ten-matrix suite for any UI edit, behind
+`thinking_app`'s heavy-run lock, which is precisely the all-or-nothing the
+feature exists to remove. So: **no, the design as it stood did not support
+this mapping**; it degraded to one of those two extremes.
+
+The addition is deliberately small and generic:
+
+- `aitestmap/registry/axes.yaml` declares **axes** (`screen`, `locale`,
+  `device`) with their value sets and, per value, the **source globs that are
+  members of it**.
+- An executable under `aitestmap/cells/` enumerates the repo's **cells** — one
+  JSON line per test unit with its coordinate on each axis — derived from the
+  routing statement the project already owns. `ait testmap cells --refresh`
+  writes them, sorted, to the generated `registry/_cells.yaml`.
+- Selection resolves each axis against the change set to either a value set or
+  `ANY`, then selects a cell iff **for every axis** the axis is `ANY` or the
+  cell's value is in the set. **Union within an axis, intersection across
+  axes.** A file matching no member glob of an axis is `ANY` on that axis, so
+  an incomplete declaration over-selects and never under-selects.
+- The `gradle-class` runner gains `unit: method`, so a cell is addressable
+  (`--tests com.…Pixel5ArRtlScreenshotsTest.questions`), and the budget is
+  costed per **invocation group** (the class), because the second cell in an
+  already-booted Robolectric class costs its per-unit mean, not another boot.
+
+The same machinery covers this repository's own product space: `tests/golden/`
+holds `SKILL-<profile>-<agent>.md` and `<procedure>-<profile>.md` renderings,
+so `.opencode/**` is a member of `agent=opencode` and a `{% if profile ==
+"fast" %}` edit is `profile=fast` — a change to one agent's tree selects that
+agent's goldens across every skill, not all of them.
+<!-- /section: overview -->
+
+<!-- section: what_changed [dimensions: component_framework_home, component_axes, component_cell_enumeration] -->
+## What Changed From the Previous Design, and What Did Not
+
+| aspect | previously | now | why |
+|---|---|---|---|
+| engine install root | `~/.aitask/engine/v<V>/` | `~/.aitasks/engine/v<V>/` | the framework is `aitasks`; the engine is a new component with no legacy to preserve, so it starts at the correct path |
+| rest of the user home | `~/.aitask/{venv,bin,python,uv,dev_tier}` | migrated once to `~/.aitasks/`, `~/.aitask` left as a symlink | a split home would have to be explained at every future call site; the symlink makes the move cost nothing at the 121 existing references |
+| path resolution | hardcoded `$HOME/.aitask/…` | `aitasks_home()` / `internal/home`, `AITASKS_HOME` override | one place to change, and a test can point a whole run at a temp home |
+| association forms | `covers` edges, `area`/`scope`/`trigger` scopes | plus **axes + cells** | a product-shaped suite is neither a flat edge set nor one scope |
+| registry tables | five (edges, scopes, areas, rules, waivers) | seven (+ axes, cells) | `axes` is declarative, `cells` is generated — neither is a new hand-authoring surface |
+| runner unit granularity | `file \| class \| suite` | `file \| class \| method \| suite` | a cell is a `@Test` method; without method granularity a cell is not addressable |
+| budget costing | per unit p95 | per **invocation group** for batched runners | a second method in a booted Robolectric class is ~0.3 s, not the ~5 s the class cost |
+| `check` rules | `STALE_PATH`, `UNSTAMPED`, `DEAD_SCOPE`, `KIND_MISMATCH`, `CONTRACT_MISMATCH` | plus `DEAD_AXIS_GLOB`, `UNMAPPED_CELL`, `UNCOVERED_VALUE` | the generic form of the silent-green failure `thinking_app` closes by hand today |
+| `stale` classes | `STALE_PATH`/`STALE`/`EVIDENCED`/`UNSTAMPED`/`STALE_AREA`/`REVIEW_DUE` | plus `STALE_AXIS` | an axis membership glob that has rotted is drift, reported like area drift |
+| `attribute` kinds | missing-edge, test-wrong, source-wrong, missing-trigger, area-too-narrow | plus `axis-membership-missing` | the feedback loop must be able to correct an axis, or a wrong membership is permanent |
+| everything else | — | unchanged | digest stamps, evidence join, gates, scheduler, cost ledger, change-surface intake, boundary rule, release CI shape |
+
+Unchanged and worth restating, because the two additions do not touch them:
+the binary never invokes `aitask_*.sh`; the shim pipes the change surface in;
+the engine never writes `aitasks/`, `aiplans/`, `.aitask-data/` or a gate
+ledger; the repository-local directories keep their existing `.aitask-*`
+prefix (`.aitask-scripts/`, `.aitask-data/`, `.aitask-gates/`,
+`.aitask-explain/`, `.aitask-testmap/`) — renaming those is a different,
+cross-repository change with `.gitignore` and sibling-project blast radius, and
+the mandate is about the user's home, which the framework owns entirely.
+<!-- /section: what_changed -->
+
+<!-- section: architecture [dimensions: component_go_engine, component_engine_binary, component_binary_distribution, component_engine_packaging, component_registry_loader, component_framework_home] -->
+## Architecture
+
+### Process boundary
+
+```
+ait testmap <verb> ...                          (user / skill / gate verifier)
+ └─ .aitask-scripts/aitask_testmap.sh           bash shim, ~35 lines:
+      │   source lib/aitasks_home.sh            → AITASKS_HOME resolved once
+      │   resolve  $AIT_TESTMAP_BIN  >  AIT_ENGINE=dev → $AITASKS_HOME/engine/dev/ait-testmap
+      │            >  $AITASKS_HOME/engine/v$(cat .aitask-scripts/VERSION)/ait-testmap
+      │   verify   `<bin> version` == VERSION (dev slot: <VERSION>-dev+<sha>), else ENGINE_MISSING / ENGINE_MISMATCH, exit 3
+      │   for --task verbs: aitask_change_surface.sh list <id>  |  <bin> <verb> --changes - ...
+      └─ $AITASKS_HOME/engine/v<VERSION>/ait-testmap --repo-root "$AIT_DIR" <verb> ...
+           internal/home            AITASKS_HOME > ~/.aitasks > ~/.aitask; one function, used by nothing on the hot path
+           internal/registry        merge aitestmap/registry/*.yaml → edges, scopes, areas, axes, cells, rules, waivers
+           internal/annot           grammar v2 scanner, stamp reader, line-targeted rewriter
+           internal/deps            bash/python/go/kotlin/gradle forward-dep scanners + plugin exec; blob-keyed cache; inverted in memory
+           internal/axes            axis value sets, member globs, reach: computation, resolve(changeSet) → set | ANY
+           internal/cells           cell-plugin exec, _cells.yaml codec, reconciliation against axis value sets
+           internal/changesurface   parser for BASELINE:/PLANSCOPE:/COMMITTED:/TASK:/OTHER:/UNKNOWN: lines
+           internal/selectr         graded walk, rules, scoped join at d1, cell join at d1, ranking, budgets, stale marks, prediction
+           internal/sched           errgroup waves, flock slot files, admission/allocator exec, broad_after_unit, schedule report
+           internal/runner          manifest/results codec, bindings, builtin: runners, unit granularity, invocation grouping
+           internal/cost            Welford + P² p95 ledger, per-invocation overhead rows, last_pass anchors, flake rate
+           internal/feedback        score, attribute (edges; area/trigger widening; axis membership)
+           internal/stale           digest compare, evidence join, classes, confirm/retarget
+           internal/gitx            git via os/exec: rev-parse, ls-tree, merge-base --is-ancestor, log --name-status -M
+           internal/platform        os/arch naming shared with engine/build.sh
+             ├─ exec:  git, runner scripts or builtin runners, admission/allocator commands, scanner plugins, cell plugins
+             └─ files: aitestmap/** (committed) · .aitask-testmap/ (runs, ledger; gitignored) ·
+                       ${XDG_CACHE_HOME:-~/.cache}/aitasks/testmap/deps/ · ${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/aitasks-testmap-<uid>/
+.aitask-scripts/lib/aitasks_home.sh             aitasks_home(); AITASKS_HOME export; the ONE bash path resolver
+.aitask-scripts/aitask_gate_testmap_check.sh    machine verifier  <task> <attempt> <run-id> → check --task
+.aitask-scripts/aitask_gate_testmap_run.sh      machine verifier  → select --include-stale → schedule → run
+.aitask-scripts/aitask_engine.sh                ait engine build | test | cross | prune | home
+.claude/skills/aitask-gate-testmap-fresh/       procedure gate: consumes `stale` lines, fixes annotations, `verify`
+.claude/skills/aitask-testmap/                  agent skill: annotate, declare axes, cells --refresh, attribute, verify, classify
+engine/                                          Go source — framework repo only; excluded from the release tarball
+```
+
+**Boundary rule (unchanged).** Anything that parses, walks, matches, digests
+or schedules is Go. Anything that touches the gate ledger, the task file, or
+the shell environment is bash and calls the binary. Cell plugins and scanner
+plugins are project-owned executables the engine `exec`s with a fixed
+contract; the engine never interprets a project's build system itself.
+
+### The framework home
+
+```
+~/.aitasks/                     canonical root (AITASKS_HOME overrides)
+  engine/v0.36.0/ait-testmap    + ait-testmap.sha256
+  engine/dev/ait-testmap        + .dev marker {source, commit}
+  venv/                         migrated from ~/.aitask/venv
+  bin/{python,python3}          migrated
+  python/<ver>/bin/python3      migrated (symlinks; targets are absolute and unaffected)
+  uv/                           migrated
+  dev_tier                      migrated marker file
+  update_check                  migrated
+  .home.lock                    flock target for the migration and for `ait engine prune`
+~/.aitask -> ~/.aitasks         compatibility symlink, created by the migration
+```
+
+`aitasks_home()` (bash) and `internal/home.Root()` (Go) implement one rule:
+
+1. `$AITASKS_HOME` if set and non-empty (tests and multi-install hosts).
+2. `$HOME/.aitasks` if it exists.
+3. `$HOME/.aitask` otherwise (a host that has not run `ait setup` since the
+   rename; never created by new code).
+
+`ait engine home` prints the resolved root, whether it is legacy, whether the
+compatibility symlink is in place, and what `ait setup` would do next.
+
+### Migration, and why it is safe
+
+`migrate_framework_home()` runs in `aitask_setup.sh` **before**
+`install_engine_binary()` and `install_global_shim()`:
+
+```
+flock ~/.aitasks/.home.lock (create ~/.aitasks first; fail-fast if another ait holds it)
+  ├─ ~/.aitask absent                     → nothing to do            HOME_SKIPPED:no-legacy-root
+  ├─ ~/.aitask is already a symlink → ~/.aitasks  → idempotent re-run  HOME_SKIPPED:already-migrated
+  ├─ ~/.aitask is a symlink elsewhere     → refuse, name the target   HOME_SKIPPED:foreign-symlink
+  ├─ ~/.aitask and ~/.aitasks on different filesystems → refuse       HOME_SKIPPED:cross-device
+  ├─ an entry under ~/.aitask that is not in the known set            HOME_SKIPPED:unknown-entry:<name>
+  │     {venv, bin, python, uv, dev_tier, update_check, engine}       (report it; do not guess)
+  ├─ for each known entry: mv ~/.aitask/<e> ~/.aitasks/<e>            (same-device rename, atomic per entry)
+  ├─ rmdir ~/.aitask                                                  (fails loudly if not empty)
+  └─ ln -s ~/.aitasks ~/.aitask                                       HOME_MITRATED:<n entries>
+```
+
+The venv keeps working because nothing in it compares a path: `pyvenv.cfg`,
+console-script shebangs and the `~/.aitask/bin/python3` wrapper all
+*dereference* `$HOME/.aitask/venv/bin/python`, which the symlink resolves.
+Same for `~/.aitask/python/pypy-<ver>/bin/python3`, whose symlink target is the
+absolute path of the real interpreter outside the framework home. The
+`PATH` entry `lib/aitask_path.sh` prepends resolves through the symlink too.
+
+`--no-home-migration` / `AIT_HOME_MIGRATE=0` skips the step entirely; the
+engine then installs under the resolved legacy root and everything else is
+unchanged, which is the escape hatch for a host where the symlink is
+unacceptable. Reverting is `rm ~/.aitask && mv ~/.aitasks ~/.aitask`.
+
+### Go module (`engine/`)
+
+```
+engine/
+  go.mod                 module github.com/beyondeye/aitasks/engine; go 1.26; toolchain directive pinned
+  build.sh               the ONE place GOOS/GOARCH matrix, CGO_ENABLED=0, -trimpath, -buildvcs=false,
+                         -ldflags "-s -w -X main.version=<V> -X main.commit=<sha> -X main.contract=1" live
+  cmd/ait-testmap/main.go   stdlib `flag` verb table; per-verb --help; line protocol / --json
+  internal/<pkg>/        as above
+  testdata/              golden registries incl. a 2,500-row cell fixture; fixture repos via `git init` in t.TempDir()
+```
+
+Dependencies unchanged: `gopkg.in/yaml.v3`, `github.com/bmatcuk/doublestar/v4`,
+`golang.org/x/sync`. The cell plugin contract is JSON lines over stdout, so
+`encoding/json` from the standard library covers it; no new module.
+
+### Registry directory (one directory, seven tables)
+
+```
+aitestmap/
+  config.yaml            unit_covers_max: 8 · suite_budget_s: 600 · bootstrap_until · require_stamp · broad_review_days: 0
+                         concurrency: serial|parallel · broad_after_unit: true · device_policy: filter_by_resource
+                         host_class · flake_threshold: 0.2 · axis_fanout_max: 6 · cells: auto|all|none
+  runners.yaml           runner repository (builtin: or script), bindings, command:/cwd: overrides, unit granularity
+  resources.yaml         named resources (mutex / semaphore / admission / allocator; host / worktree / run)
+  registry/
+    _scanned.yaml        generated: unit edges with @date/blob10 stamps        written only by scan --apply
+    _scoped.yaml         generated: broad rows (areas, globs, triggers)         written only by scan --apply
+    _cells.yaml          generated: cell rows (unit, runner, axes, artifact)    written only by cells --refresh
+    observed.yaml        written only by attribute: observed edges, area members, triggers, axis memberships
+    areas.yaml           hand-written named glob sets (seedable via `areas --import-codemap`)
+    axes.yaml            hand-written axis declarations: values, member globs, reach: roots
+    <area>.yaml          hand-written: owns: [globs | area names | axis names], edges, scopes, rules, waivers, areas:
+  cells/*                optional executable cell plugins (one JSON line per unit)
+  costs/<hostclass>.yaml Welford n/mean/sd/p95/last + last_pass + flake per unit + per-invocation overhead rows
+  runners/*.sh           optional project runners (a script named like a builtin shadows it)
+  scanners/*             optional executable scanner plugins
+```
+
+Merge rule unchanged in shape: every file under `registry/` contributes rows to
+the same tables; `owns:` now also accepts an **axis name**, so a hand file may
+own an axis's membership block. A row outside its file's `owns:` fails `check`;
+`declare` routes by `owns:` and refuses when nothing matches.
+<!-- /section: architecture -->
