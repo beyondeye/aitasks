@@ -483,3 +483,13 @@
 [07:28:07] Stale heartbeat (status unchanged): explorer_002a
 [07:28:07] Progress: 83% | Running: 1/3 | ETA: 16m
 [07:28:12] Sleeping 30s
+[07:28:42] --- Iteration 35 ---
+[07:28:43] Progress: 100% | Running: 0/3 | ETA: N/A
+[07:28:43] All agents in terminal state — stopping runner
+
+=== 2026-09-16 08:02:02 | start_runner(brainstorm-1812) ===
+[08:02:03] Starting runner for crew 'brainstorm-1812'
+[08:02:03]   Worktree:       .aitask-crews/crew-brainstorm-1812
+[08:02:03]   Interval:       30s
+[08:02:03]   Max concurrent: 3
+[08:02:03]   Mode:           continuous

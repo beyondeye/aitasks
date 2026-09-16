@@ -1,6 +1,6 @@
-current_head: n005_explorer_002b
+current_head: n004_explorer_002a
 current_heads:
-  _umbrella: n005_explorer_002b
+  _umbrella: n004_explorer_002a
 history:
   _umbrella:
   - n000_init
@@ -8,7 +8,8 @@ history:
   - n002_explorer_001b
   - n003_synthesizer_001
   - n005_explorer_002b
-next_node_id: 6
+  - n004_explorer_002a
+next_node_id: 7
 active_dimensions:
 - requirements_go_engine_and_cli
 - requirements_platform_binaries_in_release
@@ -68,6 +69,19 @@ active_dimensions:
 - tradeoff_axis_projection_coarseness
 - tradeoff_whole_run_filter_soundness
 - tradeoff_member_annotation_drift
+- requirements_framework_home_name
+- requirements_axis_product_selection
+- component_framework_home
+- component_axes
+- component_cell_enumeration
+- assumption_home_symlink_compatibility
+- assumption_axis_membership_declarable
+- assumption_cells_enumerable_by_plugin
+- tradeoff_home_migration_window
+- tradeoff_split_home_rejected
+- tradeoff_axis_declaration_burden
+- tradeoff_cell_table_size
+- tradeoff_intersection_can_underselect
 module_tasks: {}
 last_synced_at: {}
 module_deferred: {}
