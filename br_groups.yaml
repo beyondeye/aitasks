@@ -14,8 +14,9 @@ groups:
     agents:
     - explorer_001a
     - explorer_001b
-    status: Waiting
+    status: Completed
     created_at: 2026-09-16 08:21
     head_at_creation: n000_init
-    nodes_created: []
+    nodes_created:
+    - n001_explorer_001a
     subgraph: _umbrella

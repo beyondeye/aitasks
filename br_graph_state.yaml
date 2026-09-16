@@ -1,11 +1,32 @@
-current_head: n000_init
+current_head: n001_explorer_001a
 current_heads:
-  _umbrella: n000_init
+  _umbrella: n001_explorer_001a
 history:
   _umbrella:
   - n000_init
+  - n001_explorer_001a
 next_node_id: 3
-active_dimensions: []
+active_dimensions:
+- requirements_go_engine_and_cli
+- requirements_platform_binaries_in_release
+- requirements_dev_rebuild_from_source
+- requirements_annotation_freshness
+- requirements_high_level_tests_separate
+- assumption_go_toolchain_available
+- assumption_release_asset_reachable
+- assumption_git_history_is_freshness_clock
+- assumption_passing_run_anchors_edges
+- assumption_areas_express_suite_blast_radius
+- assumption_engine_latency_targets
+- component_go_engine
+- component_binary_distribution
+- component_freshness
+- component_suite_registry
+- tradeoff_two_toolchains
+- tradeoff_setup_network_fetch
+- tradeoff_area_glob_coarseness
+- tradeoff_flaky_pass_anchors
+- tradeoff_strict_version_handshake
 module_tasks: {}
 last_synced_at: {}
 module_deferred: {}

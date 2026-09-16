@@ -1,0 +1,241 @@
+node_id: n001_explorer_001a
+parents:
+- n000_init
+description: Go engine and CLI with per-platform release binaries, evidence-anchored
+  annotation freshness with a commit-time procedure gate, and an area-bound suite
+  lane for high-level tests.
+proposal_file: br_proposals/n001_explorer_001a.md
+created_at: 2026-09-16 08:36
+created_by_group: explore_001
+reference_files:
+- /home/ddt/Work/aitasks/aiwork/t1812_selective_testing_proposal.md
+- aitasks/t1812_selective_testing_source_to_tests_map_graded_selection_runne.md
+- .github/workflows/release.yml
+- .github/workflows/release-packaging.yml
+- .github/workflows/contribution-check.yml
+- aidocs/packaging/packaging_strategy.md
+- packaging/nfpm/nfpm.yaml
+- packaging/shim/ait
+- install.sh
+- .aitask-scripts/aitask_setup.sh
+- .aitask-scripts/aitask_upgrade.sh
+- .aitask-scripts/lib/aitask_path.sh
+- .aitask-scripts/lib/python_resolve.sh
+- .aitask-scripts/VERSION
+- aidocs/framework/aitasks_extension_points.md
+- aidocs/framework/python_tui_performance.md
+- /home/ddt/Work/aitasks_go/go.mod
+- .aitask-scripts/aitask_change_surface.sh
+- .aitask-scripts/lib/gate_verifier_lib.sh
+- .aitask-scripts/aitask_gate_tests_pass.sh
+- .aitask-scripts/gates_reference.yaml
+- aitasks/metadata/gates.yaml
+- .claude/skills/aitask-gate-template/SKILL.md
+- .claude/skills/aitask-gate-docs-updated/SKILL.md
+- .claude/skills/task-workflow/SKILL.md
+- seed/project_config.yaml
+- aidocs/framework/manual_verification_staleness.md
+- .aitask-scripts/aitask_verification_stale.sh
+- .aitask-scripts/aitask_sync.sh
+- tests/run_all_python_tests.sh
+- tests/test_board_header_row_live.py
+- tests/test_brainstorm_cli.sh
+- seed/code_areas.yaml
+- .aitask-scripts/aitask_codemap.sh
+- https://go.dev/doc/install/source#environment
+- https://pkg.go.dev/gopkg.in/yaml.v3
+- https://github.com/bmatcuk/doublestar
+- https://github.com/actions/setup-go
+- https://github.com/softprops/action-gh-release
+- https://git-scm.com/docs/git-log
+requirements_generic_across_projects: A framework feature, generic across projects
+  (aitasks, thinking_app, thinking_backend, aitasks_go, aitasks_mobile), that maintains
+  a relation between source files and test units
+requirements_reason_per_selected_test: Translates a task's change set into the set
+  of tests that must run, with a reason on every line
+requirements_standard_runner_contract: Runs selected tests through project-defined
+  runners under a standard contract (describe/list/run verbs)
+requirements_cost_tracking: Tracks cost per test unit, keyed by host class, using
+  Welford's online update (n, mean, standard deviation, p95, last)
+requirements_feedback_loop: Learns from failures the map did not predict, via a score/attribute
+  feedback loop
+requirements_gate_enforcement: 'Enforced by gates so the map cannot rot silently:
+  a selection gate and a check gate, fail-closed with explicit waivers'
+requirements_agent_skill: 'Agent skills teach agents how to keep the map current as
+  they write code and tests: annotate, attribute, waive'
+requirements_go_engine_and_cli: The engine and CLI are one static Go binary (ait-testmap);
+  bash keeps only the dispatcher arm, the binary resolver, the gate verifier shells
+  and the project-local runner scripts
+requirements_platform_binaries_in_release: Release CI builds and attaches checksummed
+  binaries for linux/darwin x amd64/arm64; ait setup fetches and verifies the one
+  for the host into ~/.aitask/bin; package-manager artifacts stay architecture-independent
+requirements_dev_rebuild_from_source: A framework developer rebuilds the engine from
+  go/ with one command (make install-dev) through the same go/build.sh that CI uses,
+  and selects it with AIT_TESTMAP_DEV=1 or AIT_TESTMAP_BIN
+requirements_annotation_freshness: Annotations carry a CLI-written verified stamp;
+  a stale verb reports rotted paths, missing run evidence and drifted areas for a
+  task or the whole repo; a procedure gate at the review step hands the report to
+  an agent procedure that fixes annotations before the task commit
+requirements_high_level_tests_separate: Integration, e2e and device tests bind to
+  named areas and triggers in a separate suites table with its own annotation vocabulary,
+  are selected in a budgeted second lane, and never enter the per-file edge graph
+assumption_static_granularity_v1: Static file-level facts are enough for v1 - no scanner
+  in use today produces symbol-level coverage; the schema keeps an optional symbols
+  slot on an edge so a hunk-level matcher can be added later
+assumption_change_surface_is_intake: The change-surface script's attribution (aitask_change_surface.sh)
+  is the right intake; selection never reads a raw git diff, and an UNKNOWN path refuses
+  selection
+assumption_existing_locks_wrappable: Existing project locks and allocators (thinking_app's
+  heavy-run lock, emulator allocation) can be wrapped as resources without changing
+  them
+assumption_batch_per_unit_timing_reportable: Runners can report per-unit timing inside
+  a batch from their tool's own report format (JUnit XML, go test -json, pytest junitxml)
+assumption_target_repos_accept_aitestmap_root: Every target repo will accept a root
+  aitestmap/ directory and runner scripts committed into its code tree
+assumption_testmap_token_no_collision: The annotation token 'testmap:' does not collide
+  with existing prose comments in any target repo; this repo's existing 'Covers:'
+  lines are prose and are left alone
+assumption_gate_exit_contract_reused: The framework verifier contract (0 pass / 1
+  fail / 2 skip / 3 error) is reused through two dedicated verifier shells, not through
+  gate_command_exit_contract, which maps only command exits 0/1/2; runner exit 75
+  (admission refused, a thinking_app code absent from the framework) maps to verifier
+  3 and is retried within the gate budget
+assumption_go_toolchain_available: 'A Go toolchain >= 1.26 is available in release
+  CI via actions/setup-go (go-version-file: go/go.mod) and on framework developers''
+  machines; target-project users never need Go'
+assumption_release_asset_reachable: A host running ait setup, or the first ait testmap
+  after an upgrade, can reach github.com/beyondeye/aitasks/releases over HTTPS; air-gapped
+  hosts supply the binary via AIT_TESTMAP_BIN or a pre-seeded ~/.aitask/bin
+assumption_git_history_is_freshness_clock: Freshness is commit-SHA reachability (git
+  log <anchor>..HEAD), never mtime, because clones, checkouts and rebases reset mtimes
+  and git records none; a shallow clone whose anchors are outside fetched history
+  reports those units UNVERIFIED
+assumption_passing_run_anchors_edges: A passing run of a test at commit C, on any
+  host class, is evidence that its annotated edges held at C, so last_pass advances
+  the freshness anchor without touching the test file
+assumption_areas_express_suite_blast_radius: The blast radius of a high-level test
+  is expressible as a union of area glob sets plus trigger globs; what that misses
+  surfaces through score on a full run as an observed trigger
+assumption_engine_latency_targets: On the aitasks repo (about 722 test units, about
+  2,500 edges, 266 scanned sources) the engine meets select < 100 ms warm, scan <
+  400 ms, check < 300 ms, stale --task < 300 ms; these are targets validated by committed
+  go test -bench fixtures before the gates are enabled here
+component_registry_loader: 'Registry loader and writer (Go internal/registry): merges
+  aitestmap/registry/*.yaml into edges/rules/waivers and aitestmap/suites/*.yaml into
+  suites/triggers/waivers, enforces owns: routing (globs for units, area names for
+  suites), write routing, and the check rules including stamp reachability, STALE_PATH
+  rows and the cross-table exclusions'
+component_annotation_scanner: 'Annotation scanner (Go internal/annot): per file type,
+  parses testmap:covers/kind/runner/needs/batch/area/trigger/verified lines (and Python
+  docstrings), refuses unknown keys with a line number, writes the verified stamp
+  for verify, and produces both _scanned.yaml files from every runner''s list output'
+component_dependency_scanners: 'Dependency scanners (Go internal/deps): built-in bash/python/go/kotlin/gradle
+  reverse-dependency scanners plus executable plugins under aitestmap/scanners/ speaking
+  one JSON line per file; results cached by file sha256 under the XDG cache and invalidated
+  per file'
+component_selector: 'Selector (Go internal/selectr): change-set intake from aitask_change_surface.sh
+  list (refusing on UNKNOWN), lane-1 graded walk with select/implies/escalate rules,
+  lane-2 area/trigger match under a suite budget, --include-stale union at distance
+  s, cut knobs, per-lane prediction record, explain'
+component_runner_contract: 'Runner contract and repository (Go internal/runner; runner
+  scripts stay bash): describe/list/run verbs, manifest and results.jsonl/runner.json
+  formats, deterministic binding resolution, batching, units_expected/units_reported
+  reconciliation, exit contract 0/1/2/75 plus 64 for usage errors'
+component_scheduler_resources: 'Scheduler and resources (Go internal/sched): kinds
+  mutex/semaphore/admission/allocator, scopes host/worktree/run, acquired_by planning,
+  canonical-order acquisition with release on every exit path via flock under XDG_RUNTIME_DIR,
+  batch holds, the schedule report; v1 default concurrency: report, execute per project'
+component_cost_ledger: 'Cost ledger (Go internal/cost): local JSONL ledger per host
+  class under the XDG cache with run_id/unit/status/duration/head_sha per result;
+  costs --update folds into aitestmap/costs/<hostclass>.yaml with Welford n/mean/sd/p95/last
+  and the new last_pass {sha, at} anchor per unit; per-lane estimates'
+component_feedback_tools: 'Feedback tools (Go internal/feedback): score splits a full
+  run''s failures into caught/missed for both lanes; attribute records missing-edge/test-wrong/source-wrong
+  for units and missing-trigger/area-too-narrow for suites, with task and run id,
+  into the respective observed.yaml'
+component_gates: 'Gates: three entries in gates_reference.yaml - testmap_fresh (kind:
+  procedure, review step, unlocks testmap_check), testmap_check (machine, unlocks
+  testmap_run), testmap_run (machine, blocks_dependents, max_retries 3); two bash
+  verifier shells mapping engine exits 0/1/2/75/64 to verifier 0/1/2/3/3 and appending
+  via aitask_gate.sh'
+component_skill: 'Skill (aitask-testmap): annotate covers or areas, give a new source
+  an edge/rule/area/waiver, attribute before the gate, run verify after editing an
+  annotation, use classify --suggest to choose the table; plus the aitask-gate-testmap-fresh
+  procedure skill, Claude Code first then ported to the other agent trees as separate
+  tasks'
+component_reference_runners: 'Reference runners (bash under aitestmap/runners/): bash-file,
+  pytest (batched, junitxml, honours batch: no for the serial carve-out), go-test
+  (per file, -run regex, -json), gradle-class (batched, heavy-run, acquired_by runner),
+  a whole-suite wrapper, a device runner using the emulator allocator, and go-test
+  over go/ so the engine''s own tests ride the map'
+component_go_engine: 'Go engine and CLI: go/cmd/ait-testmap with internal/{registry,annot,deps,selectr,sched,runner,cost,feedback,stale,gitx,platform};
+  Go 1.26, CGO_ENABLED=0, -trimpath -ldflags -s -w -X main.version=<VERSION>; deps
+  gopkg.in/yaml.v3 and bmatcuk/doublestar/v4 only; git via os/exec, no go-git; line-protocol
+  stdout, --json, per-verb exit contracts; never writes aitasks/, aiplans/, .aitask-data/
+  or a gate ledger'
+component_binary_distribution: 'Binary distribution and dev rebuild: go/build.sh (the
+  one build command), go/Makefile (build/test/install-dev/dist), build-go matrix job
+  (linux,darwin x amd64,arm64) and five extra release assets incl. ait-testmap_<VERSION>_checksums.txt
+  in release.yml, go-check PR job, lib/platform_detect.sh, lib/testmap_bin.sh resolver
+  with strict version handshake (AIT_TESTMAP_BIN > dev build under AIT_TESTMAP_DEV=1
+  > ~/.aitask/bin/ait-testmap-<VERSION> > lazy fetch > die), _ensure_testmap_binary
+  in aitask_setup.sh with sha256 sidecar, atomic symlink, two-version prune, --no-testmap
+  / AIT_TESTMAP_FETCH=0; go/ excluded from the tarball; PM packages unchanged'
+component_freshness: 'Freshness: testmap:verified <sha> <date> stamp written only
+  by verify/scan --stamp; anchor = newest of verified.sha and last_pass.sha reachable
+  from HEAD; stale verb with classes STALE_PATH (deleted/renamed covered path, fail-closed
+  in check and --strict), STALE_RUN (source changed, no pass since; feeds select --include-stale),
+  STALE_AREA (suite area drifted), UNVERIFIED (no anchor; tolerated until config bootstrap_until,
+  then a check failure under require_anchor); one git log --name-status --find-renames
+  per distinct anchor under a 4-worker pool; testmap_fresh procedure gate and the
+  aitask-gate-testmap-fresh skill; not a git hook and not a Claude Code hook'
+component_suite_registry: 'Suite registry and areas: aitestmap/areas.yaml (named glob
+  sets, seedable from code_areas.yaml via areas --import-codemap), aitestmap/suites/
+  (_scanned.yaml, observed.yaml, hand files owning area names), testmap:kind integration|e2e|device
+  with testmap:area and testmap:trigger, suite check rules (no covers on suites, no
+  area/trigger on units, every area non-empty, max_covers_per_test default 8 with
+  a CONVERT_TO_SUITE hint), classify --suggest heuristics (tmux new-session, ./ait
+  exec, serial carve-out, covers over limit), lane-2 selection with --suites auto|all|none
+  and --suite-budget, DEFERRED lines, suites as sinks in the walk'
+tradeoff_computed_vs_prose: 'Advantage: selection is computed, explained and scored
+  rather than remembered; blast radius becomes data instead of prose'
+tradeoff_fail_closed_bootstrap_cost: 'Disadvantage: fail-closed enforcement means
+  bootstrapping each repo requires an explicit waiver pass before the check gate can
+  be enabled, and now also a first full run before require_anchor can be turned on'
+tradeoff_static_scanner_overselection: 'Disadvantage: static scanners overselect on
+  hot files and cannot see runtime coupling'
+tradeoff_resource_declaration_completeness: 'Risk: declared resources are only as
+  complete as the declarations; an undeclared interference is invisible until a full
+  run or a probe finds it'
+tradeoff_registry_directory_complexity: 'Disadvantage: a merged registry directory
+  needs more CLI logic than a single file would - and there are now two merged directories
+  (registry/ and suites/); mitigated by one loader and one owns: model shared by both'
+tradeoff_attribution_risk: 'Risk: an agent that edits sources without attributing
+  produces a map that looks current and is not; reduced, not removed - stale sees
+  a changed source with no run evidence but cannot see a new coupling with no edge
+  at all, which only score on a full run can catch'
+tradeoff_batch_misreport_risk: 'Risk: a batch runner that misreports per-unit results
+  corrupts attribution, cost and now anchors (a false pass advances last_pass); mitigated
+  by units_expected/units_reported reconciliation and by never anchoring from a run
+  whose runner.json carries a cause; a wrongly scoped resource either serialises everything
+  or protects nothing'
+tradeoff_two_toolchains: 'Disadvantage: bash and Go in one framework; mitigated by
+  the boundary rule (parse/walk/match/schedule in Go; ledger, task file and shell
+  environment in bash), a PR-time go-check job, and Go source confined to go/ and
+  excluded from the tarball so target projects never need Go'
+tradeoff_setup_network_fetch: 'Disadvantage: ait setup gains the framework''s first
+  self-downloaded release asset with checksum verification; mitigated by reusing the
+  CDN URL family install.sh already uses, the .sha256 sidecar, --no-testmap / AIT_TESTMAP_FETCH=0,
+  and setup never depending on the binary for anything else'
+tradeoff_area_glob_coarseness: 'Disadvantage: area globs are coarser than edges -
+  a broad area over-selects its suites on every edit inside it and a suite depending
+  on a file outside its areas is under-selected until a full run scores it; mitigated
+  by the suite budget with explicit DEFERRED lines, triggers for known sharp edges,
+  and the missing-trigger attribution path'
+tradeoff_flaky_pass_anchors: 'Risk: a flaky pass advances the freshness anchor as
+  surely as a real one; mitigated by per-run status in the ledger so costs exposes
+  a flake rate, and a unit above a configured flake threshold is excluded from anchoring'
+tradeoff_strict_version_handshake: 'Risk: the binary must match .aitask-scripts/VERSION
+  exactly, so an ait upgrade on a host that cannot fetch leaves ait testmap refusing
+  to run until a matching binary is supplied; intended fail-closed behaviour, and
+  the error names the fix (ait setup, AIT_TESTMAP_BIN, or make install-dev)'
