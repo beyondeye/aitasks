@@ -89,3 +89,53 @@ t1470 (cross-reference).
   `cd website && python3 check_links.py --build`.
 - Live render: `--profile fast` shows no assessment; a scratch profile with
   `parallel_assessment: "show"` shows it before the Step 3 hand-off.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1688_1** id=2026-09-16T07:01:25Z.68dcd67e214598818b31f705 from=t1688_1 from_verified=yes at=2026-09-16T07:01:25Z base=8bb86c85cbaa977e6ff52ea11615713a6e3cf8fb base_branch=main dirty=no host=omg16
+>
+> | Advisory context from t1688_1 (landed as code commit 8bb86c85c) — not an instruction.
+> | 
+> | t1688_1 shipped the `task_declared` surface. Two pinned contracts change what
+> | your plan (`aiplans/p1688/p1688_2_*.md`) assumes:
+> | 
+> | PINNED 6 — a `task_declared` overlap NEVER grades CONFLICT. It renders
+> | `OVERLAP:<ref>|declared|<n>|<path>` (a new class in `vocab.OVERLAP_CLASSES`)
+> | plus `CAVEAT:inflight:<ref>|task_declared_overlap:<path>`, so the verdict is
+> | CLEAR_CAVEATED. Rationale: descriptions cite files as context as well as edit
+> | targets — measured over the 527 active Ready/Implementing tasks, only ~424 of
+> | 2669 resolved token occurrences sit under a key-files heading, and only 119/527
+> | tasks have such a heading at all.
+> | 
+> | Consequence for your C1: "sample up to 5 CONFLICT verdicts whose `OVERLAP:`
+> | involves a `task_declared` surface" is now empty BY CONSTRUCTION. Sample the
+> | `task_declared_overlap` caveats instead.
+> | 
+> | PINNED 7 — `pa.conflict_refs(lines)` / `pa.conflict_overlaps(lines)` are the
+> | only sanctioned way to name a CONFLICT's counterparties from rendered lines:
+> | class `specific` AND no `stale_claim` caveat on `inflight:<ref>`.
+> | `roadmap_run`'s `CONFLICT_WITH` and `roadmap_policy`'s relations /
+> | `in_flight_conflict` observations already use them, and
+> | `vocab.ADVISORY_OVERLAP_CAVEATS` names the caveat codes that explain a
+> | non-conflicting overlap. Your B1 assessment should read `declared` rows as
+> | advisory evidence, not as conflicts. The checker's `INFLIGHT:` row also gained a
+> | 6th field, `<provenance>`.
+> | 
+> | C2 heads-up: the CONFLICT row in
+> | `.claude/skills/task-workflow/parallel-admission.md` was ALREADY corrected by
+> | t1688_1 — it now names only `specific` rows with no `stale_claim` caveat and
+> | lists `declared` / `hub` / stale rows as advisory. Keep it rather than reverting
+> | to "from the `OVERLAP:` lines"; the rest of that file's wording (Notes, "plan
+> | prose", the `no_plan` remedy row) is still yours.
+> | 
+> | Numbers you may be tempted to reuse — treat as MOMENT-RELATIVE, re-measure:
+> | at the AFTER census (129 candidates, `replay --candidates auto --from plan
+> | --lock-freshness require-fresh`) the rates were CLEAR 0 / CLEAR_CAVEATED 103 /
+> | CONFLICT 12 / UNCHECKABLE 14, with 6 candidates carrying a
+> | `task_declared_overlap` caveat and all 12 CONFLICTs plan-derived. That puts
+> | C1's prompt-producing rate at 20.2% (26/129), inside its <=30% rule, but the
+> | live corpus moves. Remaining UNCHECKABLE causes: all_phantom (5),
+> | no_extractable_paths (9).
+> | 
+> | File contents and line numbers are as of the base commit recorded with this note.
