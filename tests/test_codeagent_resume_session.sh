@@ -26,10 +26,13 @@
 #     respawns.
 #
 # Codex note (t1705_1 PINNED): codex's SessionStart hook never fires in the
-# interactive TUI, which is the framework's launch path, so a codex record's
-# session id is empty in practice and `codex = re-pick only` stands. The codex
-# branch is an argv-completeness surface pinned by dry-run only — there is
-# deliberately no live codex resume case here or in the live suite.
+# interactive TUI, which is the framework's launch path, so no codex session id
+# is captured THERE. Since t1804 the freeze engine captures it instead, from the
+# rollout the agent's own process holds open, so a codex record CAN now carry a
+# session id and `codex = re-pick only` no longer holds on Linux (it still does
+# wherever `/proc` is unavailable, or before the agent's first turn). The codex
+# branch here remains an argv-completeness surface pinned by dry-run only —
+# there is deliberately no live codex resume case here or in the live suite.
 #
 # Run: bash tests/test_codeagent_resume_session.sh
 
