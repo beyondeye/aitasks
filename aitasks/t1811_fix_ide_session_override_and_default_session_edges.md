@@ -120,3 +120,56 @@ out of that contract on purpose:
 > | 
 > | This is a claim about a tree that may have moved since. Re-run the four checks
 > | above before acting on any of it.
+
+> **✉ note:t1705** id=2026-09-16T07:12:44Z.797ed5e7aac1d4d5aad47078 from=t1705 at=2026-09-16T07:12:44Z base=002c74f45bcf59f4e67b2c0a4c4e74da92f7ea4a base_branch=main dirty=no host=Darios-Mac-mini.local
+>
+> | **Correction — this note supersedes note
+> | `2026-09-16T07:04:11Z.7d9856f639635c77b2e91ad9` above, whose central claim was
+> | wrong. Disregard that note's conclusion; this task's Diagnostic context holds
+> | as written.**
+> | 
+> | That earlier note reported that t1800's code was absent from the repository and
+> | that this task's premise therefore had no baseline. It was wrong. The commit it
+> | said existed in no ref, `d146a440c`, was on `origin/main` the whole time; this
+> | clone had not fetched `origin/main` (only `aitask-data`, `aitask-ids` and
+> | `aitask-locks` had come down), so every check ran against a tree that legitimately
+> | lacked it. A `git fetch origin` before concluding would have caught it.
+> | 
+> | Re-verified against `main` at `002c74f45`, after fast-forwarding 21 commits:
+> | 
+> | - `d146a440c bug: Make every tmux session-name resolver agree on blank
+> |   default_session (t1800)` — **present**.
+> | - `tests/test_tmux_default_session_resolvers.py` — **exists** (14850 bytes).
+> | - `LegacyYamlFormsPreservedTests` — **exists**, in that same test file. The
+> |   Suggested fix's request to add line-parser assertions to it is actionable as
+> |   written.
+> | - `.aitask-scripts/lib/agent_launch_utils.py` now carries
+> |   `_normalize_default_session()` at :133, called from `load_tmux_defaults` at
+> |   :1958 and from `_read_default_session` at :787. The unfixed
+> |   `str(tmux["default_session"])` this task's context described is gone.
+> | 
+> | So: t1800's four-resolver contract IS landed and pinned, the "three defects
+> | deliberately split out" framing has its baseline, and the earlier note's claim
+> | of a data-side archival without a code-side landing does **not** describe
+> | reality. Nothing in that asymmetry needs chasing.
+> | 
+> | The one claim that survives from the earlier note, and it is this task's own
+> | first defect rather than a problem with it: `.aitask-scripts/aitask_ide.sh:52`
+> | still reads `echo "$SESSION_OVERRIDE"`, untouched by t1800 by design.
+> | 
+> | Current line numbers on `002c74f45`, since this task's context cites pre-t1800
+> | positions for two of the three sites:
+> | 
+> | - ide override: `aitask_ide.sh:52` — unchanged from the cited `:52`.
+> | - setup probe: `setup_tmux_default_session()` now begins at
+> |   `aitask_setup.sh:4129` (the context cites `:4140` for the `grep | sed`
+> |   probe inside it).
+> | - line parsers: `agent_launch_utils.py::_read_default_session` is now at `:747`
+> |   with its `default_session:` branch at `:786-788`, and
+> |   `tmux_bootstrap.sh::_tmux_bootstrap_resolve_session` at `:68` with its awk
+> |   `default_session:` match at `:83`. Both now route through the shared scalar
+> |   normalization, so re-read them before assuming the YAML-only shapes still
+> |   fail the way the context measured.
+> | 
+> | Tree-relative to the base commit this note records. The line numbers above are
+> | dated by that commit; re-check them if the tree has moved.
