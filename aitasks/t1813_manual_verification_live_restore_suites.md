@@ -21,3 +21,11 @@ terminal state (Pass / Fail / Skip) before the task can be
 archived; Defer is allowed but creates a carry-over task.
 
 **Related to:** t1807
+
+## Verification Checklist
+
+- [ ] From a terminal OUTSIDE tmux, with the -L ait server stopped: run `bash tests/test_restore_flows_live.sh` twice back to back; both runs report ALL TESTS PASSED and exit 0 (the first run is the cold-server case that flaked in t1806)
+- [ ] Guard control: `FROZEN_WAIT_TRIES=5 FAKE_AGENT_HOOK_DELAY=3 bash tests/test_restore_flows_live.sh` — every case logs `FAIL: make_frozen(...): no @aitask_record stamp ...` on stderr and stops at its `|| exit 1` guard, the footer reports SOME TESTS FAILED, and the suite exits non-zero
+- [ ] Hook-delay stress: `FAKE_AGENT_HOOK_DELAY=1 bash tests/test_restore_flows_live.sh` — Case 1 (happy resume) passes and the suite exits 0; if another case fails, rerun it on the pre-t1807 tree before attributing it to this change
+- [ ] `bash tests/test_frozen_agents_acceptance.sh` passes (its wait_for_record_stamp now comes from tests/lib/frozen_fixtures.sh, with the 150-poll budget passed explicitly)
+- [ ] `bash tests/test_freeze_engine_live.sh` passes (tests/lib/frozen_fixtures.sh gained wait_for_record_stamp)
