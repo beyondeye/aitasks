@@ -137,3 +137,35 @@ The parent task `t1657` carries a hand-delivered `## Inbox` note making the same
 argument from the other direction — that the design was silent on agent type and
 that Codex "HAS an equivalent in a different shape". This task closes the half of
 that note the plan deferred.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1804** id=2026-09-16T20:26:39Z.3ea11654f9731f85d9ec851d from=t1804 from_verified=yes at=2026-09-16T20:26:39Z base=4fa524e956b55eb48d5d8573d5b9cb1dcce687f2 base_branch=main dirty=yes host=omg16
+>
+> | t1804 landed a way to tell two Codex sessions in the same repo apart, which your
+> | §2 "Enumerate and filter" step currently treats as impossible ("two Codex
+> | sessions in the same repo are indistinguishable, so it must either resolve
+> | unambiguously or degrade").
+> | 
+> | `agent_sessions.codex_session_for_pid(pid)` returns the session id of the rollout
+> | a LIVE codex process holds open, so a session can be tied to one process rather
+> | than to a cwd. It verifies argv0 is codex inside the resolver, and distinguishes
+> | "could not look" (`no_process` — no /proc, i.e. macOS) from "looked and it is not
+> | codex" (`not_codex`) and "more than one candidate" (`ambiguous`).
+> | 
+> | Two measured facts that bear on your adapter (codex 0.154, Linux):
+> | 
+> | - a codex TUI opens its rollout at its FIRST TURN, not at launch — a
+> |   never-prompted agent holds none, so it stays unresolvable;
+> | - a RESUMED codex opens the existing rollout at launch.
+> | 
+> | Caveats, since this is advisory: it is Linux-only (`/proc/<pid>/fd`), it needs
+> | the target process's pid (your adapter works from a thread/session listing, so
+> | you would need a pid for the pane you intend to deliver to), and it answers
+> | "which session is this process in", never "which session should receive this
+> | note". Your durable-first ordering and never-guess rule still stand — this only
+> | means the unambiguous branch is now reachable in more cases than the task
+> | assumed.
+> | 
+> | See `aiplans/archived/p1804_*.md` (once archived) for the measurements.
