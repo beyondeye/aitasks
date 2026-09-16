@@ -86,6 +86,7 @@ memories
 metadata
 metrics
 minimonitor
+modal_dismiss
 model_selection
 modelvrapper
 monitor
