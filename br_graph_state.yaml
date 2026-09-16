@@ -1,6 +1,6 @@
-current_head: n006_synthesizer_002
+current_head: n007_explorer_003a
 current_heads:
-  _umbrella: n006_synthesizer_002
+  _umbrella: n007_explorer_003a
 history:
   _umbrella:
   - n000_init
@@ -10,6 +10,7 @@ history:
   - n005_explorer_002b
   - n004_explorer_002a
   - n006_synthesizer_002
+  - n007_explorer_003a
 next_node_id: 9
 active_dimensions:
 - requirements_go_engine_and_cli
@@ -83,6 +84,27 @@ active_dimensions:
 - tradeoff_axis_declaration_burden
 - tradeoff_cell_table_size
 - tradeoff_intersection_can_underselect
+- assumption_helper_degrades_when_absent
+- assumption_instructions_block_reaches_agents
+- assumption_onboarding_is_a_task
+- assumption_seed_sources_measured
+- assumption_seeds_select_never_evidence
+- assumption_test_tools_detectable
+- component_agent_brief
+- component_onboarding_skill
+- component_seeder
+- component_test_front_verb
+- component_workflow_integration
+- requirements_agent_run_surface
+- requirements_incremental_adoption
+- requirements_workflow_seam
+- requirements_zero_config_onboarding
+- tradeoff_accept_rewrites_history
+- tradeoff_generated_brief_limits
+- tradeoff_onboarding_partial_coverage
+- tradeoff_seed_noise
+- tradeoff_two_edge_states_during_adoption
+- tradeoff_workflow_surface_growth
 module_tasks: {}
 last_synced_at: {}
 module_deferred: {}

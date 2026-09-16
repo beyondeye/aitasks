@@ -1,0 +1,1253 @@
+node_id: n007_explorer_003a
+parents:
+- n006_synthesizer_002
+description: 'n006 plus the missing adoption layer: an attended, resumable, task-shaped
+  onboarding skill (aitask-testmap-onboard) that detects a repo''s test tools, generates
+  aitestmap/ (runners, bindings, areas, config) and seeds edges from four measured
+  sources (naming, literal invocation / imports, (t<id>) co-change history, opt-in
+  per-unit coverage) into a generated seeded.yaml that selects immediately but never
+  evidences; acceptance promotes seeds into testmap: lines in batches or incrementally
+  inside the testmap_fresh gate; one agent-facing front verb (ait test --task|--all|<paths>|brief)
+  plus a generic ''Running Tests'' section in the seeded agent-instructions block
+  so every agent learns the run surface once; and a single workflow helper (aitask_affected_tests.sh)
+  wired into task-workflow Step 7 behind an affected_tests profile key, aitask-qa''s
+  test discovery/execution, and ait setup''s TESTMAP: state line - degrading to a
+  reported skip wherever the engine or registry is absent.'
+proposal_file: br_proposals/n007_explorer_003a.md
+created_at: 2026-09-16 12:14
+created_by_group: explore_003
+reference_files:
+- /home/ddt/Work/aitasks/aiwork/t1812_selective_testing_proposal.md
+- aitasks/t1812_selective_testing_source_to_tests_map_graded_selection_runne.md
+- .github/workflows/release.yml
+- .github/workflows/release-packaging.yml
+- .github/workflows/contribution-check.yml
+- .github/workflows/hugo.yml
+- aidocs/packaging/packaging_strategy.md
+- packaging/nfpm/nfpm.yaml
+- packaging/shim/ait
+- install.sh
+- .aitask-scripts/aitask_setup.sh
+- .aitask-scripts/aitask_upgrade.sh
+- .aitask-scripts/lib/aitask_path.sh
+- .aitask-scripts/lib/python_resolve.sh
+- .aitask-scripts/VERSION
+- ait
+- website/go.mod
+- /home/ddt/Work/aitasks_go/go.mod
+- aidocs/framework/aitasks_extension_points.md
+- aidocs/framework/python_tui_performance.md
+- aidocs/framework/planning_conventions.md
+- .aitask-scripts/aitask_change_surface.sh
+- .aitask-scripts/lib/gate_verifier_lib.sh
+- .aitask-scripts/aitask_gate_tests_pass.sh
+- .aitask-scripts/aitask_gate.sh
+- .aitask-scripts/gates_reference.yaml
+- aitasks/metadata/gates.yaml
+- .claude/skills/aitask-gate-template/SKILL.md
+- .claude/skills/aitask-gate-docs-updated/SKILL.md
+- .claude/skills/task-workflow/SKILL.md
+- seed/project_config.yaml
+- seed/code_areas.yaml
+- .aitask-scripts/aitask_codemap.sh
+- aidocs/framework/manual_verification_staleness.md
+- .aitask-scripts/aitask_verification_stale.sh
+- .aitask-scripts/aitask_sync.sh
+- .aitask-scripts/lib/artifact_utils.sh
+- tests/run_all_python_tests.sh
+- tests/test_serial_carveout_doc_drift.sh
+- tests/test_board_header_row_live.py
+- tests/test_brainstorm_cli.sh
+- tests/test_no_unscoped_task_commit.sh
+- tests/test_gate_verifiers.sh
+- tests/test_frozen_agents_acceptance.sh
+- tests/test_t167_integration.sh
+- https://go.dev/doc/install
+- https://go.dev/doc/install/source#environment
+- https://go.dev/ref/mod#go-mod-file-toolchain
+- https://go.dev/doc/go1.21#tools
+- https://pkg.go.dev/gopkg.in/yaml.v3
+- https://github.com/bmatcuk/doublestar
+- https://pkg.go.dev/github.com/bmatcuk/doublestar/v4
+- https://pkg.go.dev/golang.org/x/sync/errgroup
+- https://github.com/actions/setup-go
+- https://github.com/softprops/action-gh-release
+- https://git-scm.com/docs/git-log
+- https://git-scm.com/docs/git-hash-object
+- https://git-scm.com/docs/git-ls-tree
+- https://git-scm.com/docs/git-merge-base
+- .aitask-scripts/lib/launch_modes_sh.sh
+- .aitask-scripts/lib/followup_kinds_sh.sh
+- aidocs/framework/shell_conventions.md
+- .aitask-scripts/aitask_skill_verify.sh
+- tests/golden/skills/aitask-pick/SKILL-default-claude.md
+- tests/golden/skills/aitask-pick/SKILL-fast-claude.md
+- tests/golden/procs/task-workflow/manual-verification-default.md
+- aidocs/framework/skill_authoring_conventions.md
+- aidocs/framework/stub-skill-pattern.md
+- aidocs/framework/adding_a_new_codeagent.md
+- /home/ddt/Work/thinking_app/app/src/test/java/com/softman/thinking/testing/ScreenshotTestHarness.kt
+- /home/ddt/Work/thinking_app/app/src/test/java/com/softman/thinking/testing/MatrixAuditRegistry.kt
+- /home/ddt/Work/thinking_app/app/src/test/java/com/softman/thinking/testing/MatrixClassificationTest.kt
+- /home/ddt/Work/thinking_app/app/src/test/java/com/softman/thinking/testing/ScreenFixtures.kt
+- /home/ddt/Work/thinking_app/app/src/test/java/com/softman/thinking/testing/CurrentHeadScreenshotsTest.kt
+- /home/ddt/Work/thinking_app/app/src/test/java/com/softman/thinking/testing/ExtendedCatalogScreenshotsTest.kt
+- /home/ddt/Work/thinking_app/app/src/test/resources/screenshot-baseline-map.properties
+- /home/ddt/Work/thinking_app/tools/verification/lib/screenshot-review.sh
+- /home/ddt/Work/thinking_app/tools/verification/screenshot-tests.sh
+- /home/ddt/Work/thinking_app/tools/verification/secondary-matrices-expected.txt
+- /home/ddt/Work/thinking_app/tools/verification/primary-catalog-expected.txt
+- /home/ddt/Work/thinking_app/tools/verification/matrix-audit-evidence-check.py
+- /home/ddt/Work/thinking_app/tools/verification/lib/budget-constants.sh
+- /home/ddt/Work/thinking_app/tools/verification/lib/gradle-invocation.sh
+- /home/ddt/Work/thinking_app/tools/verification/heavy-run-lock.sh
+- /home/ddt/Work/thinking_app/tools/verification/emulator-allot.sh
+- /home/ddt/Work/thinking_app/tools/verification/measurements/suite-split-7943100.tsv
+- /home/ddt/Work/thinking_app/tools/verification/measurements/profile-verify-active-7943100.tsv
+- /home/ddt/Work/thinking_app/app/src/main/res/values-ar
+- /home/ddt/Work/thinking_app/app/src/main/res/values-ru
+- /home/ddt/Work/thinking_app/app/src/main/res/values-iw
+- /home/ddt/Work/thinking_app/app/src/main/res/font
+- https://docs.gradle.org/current/userguide/java_testing.html#test_filtering
+- https://github.com/takahirom/roborazzi
+- https://robolectric.org/device-configuration/
+- https://developer.android.com/guide/topics/resources/providing-resources
+- https://specifications.freedesktop.org/basedir-spec/latest/
+- https://pkg.go.dev/os#Rename
+- .aitask-scripts/aitask_projects.sh
+- .aitask-scripts/aitask_project_resolve.sh
+- /home/ddt/Work/thinking_app/aidocs/testing/change-aware-verification.md
+- /home/ddt/Work/thinking_app/aidocs/testing/rendering-verification.md
+- /home/ddt/Work/thinking_app/aidocs/testing/localized-strings.md
+- /home/ddt/Work/thinking_app/CLAUDE.md
+- /home/ddt/Work/thinking_app/aitasks/metadata/project_config.yaml
+- /home/ddt/Work/thinking_app/tools/verification/lib/screenshot-diff-set.sh
+- /home/ddt/Work/thinking_app/tools/verification/suite-outcome-check.py
+- /home/ddt/Work/thinking_app/app/src/main/java/com/softman/thinking/utils/TypeScale.kt
+- /home/ddt/Work/thinking_app/app/src/main/java/com/softman/thinking/ui/components/AppRoot.kt
+- /home/ddt/Work/thinking_app/aitasks/t384_advisory_affected_surface_for_change_aware_verify.md
+- /home/ddt/Work/thinking_app/aitasks/t386_prediction_accuracy_ledger_for_affected_surface.md
+- /home/ddt/Work/thinking_app/aitasks/t387_test_side_dependency_model_for_change_aware_verify.md
+- /home/ddt/Work/thinking_app/aitasks/t388_conditional_gating_verify_affected_tier.md
+- https://developer.android.com/guide/topics/resources/providing-resources#AlternativeResources
+- /home/ddt/Work/thinking_app/app/src/test/java/com/softman/thinking/testing/ArMatrixArabicOnlyTest.kt
+- /home/ddt/Work/thinking_app/app/src/main/java/com/softman/thinking/ui/mvvm/auth/welcome/WelcomeScreen.kt
+- .claude/skills/aitask-qa/SKILL.md.j2
+- .claude/skills/aitask-qa/test-discovery.md
+- .claude/skills/aitask-qa/test-execution.md
+- .claude/skills/aitask-qa/change-analysis.md
+- .claude/skills/task-workflow/build-verification.md
+- .claude/skills/task-workflow/profiles.md
+- .claude/skills/task-workflow/gate-cli.md
+- .claude/skills/task-workflow/gate-recording.md
+- .claude/skills/aitask-learn-skill/SKILL.md
+- .claude/skills/aitask-pickrem/SKILL.md.j2
+- .claude/skills/aitask-pickweb/SKILL.md.j2
+- .aitask-scripts/aitask_run_project_command.sh
+- .aitask-scripts/aitask_resolve_config_path.sh
+- .aitask-scripts/aitask_skill_render.sh
+- .aitask-scripts/aitask_skill_resolve_profile.sh
+- .aitask-scripts/aitask_audit_wrappers.sh
+- .aitask-scripts/aitask_explain_context.sh
+- .aitask-scripts/aitask_explain_extract_raw_data.sh
+- .aitask-scripts/aitask_create.sh
+- .aitask-scripts/lib/followup_kinds.py
+- .aitask-scripts/lib/config_utils.py
+- seed/aitasks_agent_instructions.seed.md
+- seed/claude_settings.local.json
+- seed/codex_rules.default.rules
+- seed/opencode_config.seed.json
+- .claude/settings.local.json
+- .codex/rules/default.rules
+- aitasks/metadata/profiles/default.yaml
+- aitasks/metadata/profiles/fast.yaml
+- aitasks/metadata/profiles/remote.yaml
+- tests/test_touchpoint_count_contract.sh
+- tests/test_seed_manifest_drift.sh
+- tests/test_gates_reference_drift.sh
+- /home/ddt/Work/thinking_backend/scripts/tests/run_script_tests.sh
+- /home/ddt/Work/thinking_backend/aitasks/metadata/project_config.yaml
+- /home/ddt/Work/aitasks_go/Makefile
+- /home/ddt/Work/aitasks_go/parity/run_parity.sh
+- /home/ddt/Work/aitasks_mobile/shared/src/commonTest
+- /home/ddt/Work/aitasks_mobile/shared/src/androidHostTest
+- /home/ddt/Work/aitasks_mobile/domain/src/androidDeviceTest
+- https://coverage.readthedocs.io/en/latest/contexts.html
+- https://docs.pytest.org/en/stable/how-to/output.html#creating-junitxml-format-files
+- https://go.dev/blog/cover
+- https://www.jacoco.org/jacoco/trunk/doc/
+- https://git-scm.com/docs/git-log#Documentation/git-log.txt---name-status
+assumption_areas_express_suite_blast_radius: The blast radius of a high-level test
+  is expressible as a union of area glob sets plus scope globs plus budget-exempt
+  trigger globs, plus the reads globs of helpers in its test-file closure; what that
+  misses surfaces through score on a full run as an observed trigger or area member
+  (inherited from n005)
+assumption_axis_membership_declarable: 'For a product-shaped suite, which facet value
+  a source belongs to is declarable as globs by the people who own the suite, because
+  the project already routes by exactly that shape - res/values-ar/** and font/cairo_*.ttf
+  are the Arabic matrices'' inputs and matrix_classes() already maps a matrix to its
+  classes; aitasks'' .claude/ vs .opencode/ vs .agents/ trees are the agent facet.
+  A source that matches no axis source is not an axis hit and reaches units only through
+  edges and dependencies, which select every variant - the fail-safe direction n004
+  called ANY. Falsifier: a project whose membership is genuinely dynamic (a runtime
+  flag choosing a locale), for which the answer is to declare no sources on that facet
+  (n004''s general claim, of which assumption_axis_sources_declarable is the thinking_app
+  instance)'
+assumption_axis_sources_declarable: 'The sources that reach one facet value of an
+  axis are declarable as globs in axes.yaml: for thinking_app''s locale facet, values-<q>/**,
+  raw-<q>/** and the per-family fonts (heebo_* for he, roboto_* for en and ru, cairo_*
+  for ar); sources every locale reads (values/**, TypeScale.kt, Fonts.kt, AppRoot.kt)
+  are ordinary edges, scanned dependencies or one hand rule over values/** and reach
+  every variant; the geometry and direction facets have no axis sources because they
+  are test-side constants in ScreenshotTestHarness.kt, reached through the test-dep
+  closure (inherited from n005)'
+assumption_batch_per_unit_timing_reportable: Runners can report per-unit timing inside
+  a batch from their tool's own report format (JUnit XML, go test -json, pytest junitxml),
+  can invert a report row to a registered id (JUnit classname+name back to ScreenFixtures.kt#Welcome@pixel5Ru_ltr
+  through the same routing table the runner's list verb printed), and the same JUnit
+  XML reports each @Test method with its own duration, which is what makes a variant's
+  marginal cost measurable separately from its class's boot - the number the invocation-group
+  budget depends on (n005 inversion, n004 per-method timing)
+assumption_blob_digest_is_staleness_key: The git blob digest of the covered source's
+  content is the staleness key; file mtime (reset by checkout) and the annotation
+  date (day granularity, clock skew) are never compared - the date is display only;
+  the blob id doubles as the join key into any commit's tree for the evidence join
+  (inherited)
+assumption_broad_tests_area_scoped: Integration, e2e and device tests can be described
+  by named areas or globs whose membership changes rarely, so evidence-based drift
+  (STALE_AREA) plus attribute widening is adequate; a calendar cadence (REVIEW_DUE,
+  broad_review_days) is opt-in and off by default (inherited)
+assumption_cells_enumerable_by_plugin: 'The variant universe a repo has is enumerable
+  from the project''s existing single routing statement rather than a second hand-maintained
+  list - and the enumerator is the runner''s list verb, not a separate plugin directory:
+  thinking_app''s runner lists ~300 variant ids from matrix_classes() crossed with
+  the two membership manifests, aitasks'' from its rendered tests/golden/ tree; the
+  framework never infers a variant. Falsifier: a repo whose test methods are only
+  knowable by running the build, for which list may exec the build''s own list task
+  at the cost of a slower scan/check, since select never calls it (n004''s assumption,
+  re-sited onto n005''s runner list)'
+assumption_change_surface_is_intake: 'The change-surface script''s attribution (aitask_change_surface.sh)
+  is the right intake for every --task path: the shim pipes COMMITTED:/TASK:/OTHER:/UNKNOWN:
+  lines into --changes -, selection never reads a raw git diff, and an UNKNOWN: path
+  refuses selection (n006); `ait test --task` and aitask_affected_tests.sh go through
+  the same pipe, so the workflow''s affected run is attributed exactly as the gates
+  are, and an UNKNOWN: row surfaces as VERDICT:skip REASON:unknown_paths naming the
+  paths rather than a run over another task''s work; `ait test <path>...` is the one
+  path-list intake (an explicit source or test list from the user or agent, treated
+  as TASK: rows) and `ait test --all` has no intake'
+assumption_engine_latency_targets: 'On the aitasks repo (about 720 test units, 2,500-3,000
+  edges, about 270 scanned sources) the engine meets select < 200 ms warm, scan <
+  300 ms, check < 300 ms, stale --task < 300 ms, stale --all < 2 s, cold select <
+  1.5 s; on a thinking_app-shaped fixture (about 300 golden variants over 49 member
+  units, about 370 JVM classes, about 900 Kotlin files) select with axis expansion
+  < 250 ms warm, reading the committed variants: lists and never executing a runner;
+  pinned by committed go test -bench fixtures with a 2x regression failing engine-check.yml,
+  validated before the gates are enabled (n005; n004''s 2,500-row cell target dropped
+  with the cell table)'
+assumption_existing_locks_wrappable: Existing project locks and allocators (thinking_app's
+  heavy-run lock with its exit-75 admission in tools/verification/heavy-run-lock.sh,
+  emulator allocation in emulator-allot.sh) can be wrapped as resources without changing
+  them; the Go admission and allocator kinds exec the project's commands and honour
+  their exit codes, deferring on 75 until the run deadline; thinking_app's runner
+  script goes through screenshot-tests.sh unit-tests, which reserves the slot itself
+  (inherited)
+assumption_gate_exit_contract_reused: The framework verifier contract (0 pass / 1
+  fail / 2 skip / 3 error) is reused through two dedicated verifier shells, not through
+  gate_command_exit_contract, which maps only command exits 0/1/2; runner exit 75
+  (admission refused, a thinking_app code absent from the framework) is deferred inside
+  the engine and a final 75 maps to verifier 3; only an empty selection maps to 2;
+  a missing engine maps to 3, never skip (inherited)
+assumption_git_history_is_freshness_clock: Git history is the evidence clock, not
+  the staleness key - commit reachability (merge-base --is-ancestor) decides which
+  last_pass anchors may suppress a STALE row, never whether an edge is stale; mtime
+  is never compared; a shallow clone whose anchors are outside fetched history reports
+  STALE, not EVIDENCED, and remains fully functional (inherited)
+assumption_go_toolchain_available: 'A Go toolchain >= 1.26 is available in release
+  CI through an actions/setup-go step this design adds to release.yml (go-version-file:
+  engine/go.mod) and on framework developers'' machines; target-project users never
+  need Go (inherited)'
+assumption_go_toolchain_ci_and_dev_only: Go is a build-time dependency only - release.yml
+  has no Go step today and the repo's only setup-go is hugo.yml's at website/go.mod's
+  1.25.7, so the engine job provisions its own toolchain; users receive prebuilt binaries
+  and never compile (inherited)
+assumption_helper_degrades_when_absent: 'aitask_affected_tests.sh can always answer:
+  engine missing (ENGINE_MISSING from the shim) -> VERDICT:skip REASON:testmap_absent;
+  no aitestmap/ -> VERDICT:skip REASON:registry_absent; UNKNOWN: rows in the change
+  surface -> VERDICT:skip REASON:unknown_paths naming them; empty selection -> VERDICT:skip
+  REASON:no_selection with UNMAPPED_SOURCE lines; admission refused after the deadline
+  -> VERDICT:skip REASON:admission_refused; only a run that executed maps to pass/fail,
+  and only a helper that cannot write its LOG: exits 3. This is what lets the procedure
+  sit in Step 7 of every profile including remote (Claude Code Web has no engine)
+  without a conditional per environment'
+assumption_home_symlink_compatibility: 'Every existing consumer of the legacy ~/.aitask
+  tree keeps resolving unchanged when ~/.aitask becomes a symlink to ~/.aitasks, because
+  all of them dereference a path rather than compare one - verified: the 35 references
+  across 8 framework files (21 in aitask_setup.sh, 6 in python_resolve.sh, 3 in aitask_path.sh),
+  the venv''s console-script shebangs (#!/home/<u>/.aitask/venv/bin/python3), the
+  ~/.aitask/bin/python3 wrappers, the ~/.aitask/python/<ver>/bin/python3 symlinks
+  whose targets are absolute paths outside the home, and pyvenv.cfg''s informational
+  command = line; no ==, !=, -ef, realpath, os.path.realpath or samefile on the home
+  path anywhere under .aitask-scripts/, ait or install.sh. This is the precondition
+  of ait engine home --migrate, re-checked by tests/test_aitasks_home.sh''s post-migration
+  venv and PyPy-venv exercise before the default is flipped (n004''s assumption, verified
+  and scoped to the verb)'
+assumption_instructions_block_reaches_agents: The seeded agent-instructions block
+  (seed/aitasks_agent_instructions.seed.md, installed to aitasks/metadata/ and assembled
+  by assemble_aitasks_instructions()) is inserted between >>>aitasks / <<<aitasks
+  markers into every supported agent's instructions file by ait setup and refreshed
+  on re-run and on upgrade (insert_aitasks_instructions replaces the marked block)
+  - verified in aitask_setup.sh - so a generic Running Tests section added to the
+  seed reaches every onboarded and not-yet-onboarded project on its next setup with
+  no per-project edit, and is the one always-loaded place an agent learns the run
+  surface. The section names no code agent (documentation convention) and stays under
+  12 lines so it costs every session the same small context
+assumption_kotlin_scanner_fail_closed: A closed construct list (explicit repo import,
+  same-package as fully connected, repo star import as a package edge, fully-qualified
+  in-body reference from the comment-stripped body) is enough to over-approximate
+  the Kotlin import graph, and every construct that defeats such a graph - inline
+  functions, const val, Hilt/DI bindings, Class.forName / ::class.java, generated
+  or KSP sources, an unreadable or untokenizable file - is detectable by pattern and
+  marks the file opaque, so a change to it escalates instead of being silently narrow;
+  measured on thinking_app, 42 main files declare const val or inline fun and 63 carry
+  DI annotations, so escalation is frequent by design; each opaque branch is reachable
+  and red-proved by an engine fixture test (inherited from n005, cost measured)
+assumption_legacy_user_root_coexists: In this release ~/.aitasks/ (engine) and ~/.aitask/
+  (venv, pypy_venv, python, bin, uv, dev_tier, update_check; 8 framework code files
+  with 35 references name it, plus 20 test and 18 doc files) coexist on one host without
+  either reading the other; the migration of the legacy tenants exists as ait engine
+  home --migrate but is not run by ait setup by default, and nothing in this feature
+  depends on it having happened (n005; the default flip is a named follow-up)
+assumption_onboarding_is_a_task: 'Onboarding writes committed files (aitestmap/**,
+  test-file comment lines, a profile edit) across several sessions, so it runs as
+  an aitask: /aitask-testmap-onboard with no argument creates and claims `testmap_onboarding`
+  (issue_type chore, label testmap) through aitask_create.sh --batch and aitask_pick_own.sh,
+  records the task id in onboard.yaml, and every phase commits its files under `chore:
+  Onboard testmap - <phase> (t<id>)` so the change surface attributes them and a resumed
+  session re-enters at ONBOARD_NEXT; the task is archived by `onboard finish`. Falsifier:
+  a repo that forbids tasks on the code branch - for which --no-task writes without
+  committing and prints the commit lines to run'
+assumption_one_engine_per_framework_version: One engine build per framework version
+  suffices; a per-user versioned directory ($AITASKS_HOME/engine/v<VERSION>/) resolves
+  per-project VERSION differences without a compatibility matrix, and exact-version
+  resolution in the shim never falls back to newest-wins (inherited, root corrected)
+assumption_passing_run_anchors_edges: A passing run of a test variant at commit C,
+  on any host class, from an invocation without a cause and for an id under the flake
+  threshold, is evidence that its annotated edges held for that variant against the
+  source content present in C's tree - so an edge whose current blob equals the blob
+  at C is EVIDENCED for that variant without touching the test file; a unit with variants
+  is EVIDENCED only when every variant the change reaches has such a pass; a verify-active
+  full run's child rows anchor all 297 goldens at once (inherited from n005)
+assumption_platform_matrix_sufficient: linux/darwin x amd64/arm64 covers every target
+  host (WSL reports Linux); any other platform builds from source via --engine-from-source
+  (inherited)
+assumption_release_asset_reachable: A host running ait setup or ait upgrade can reach
+  github.com/beyondeye/aitasks/releases over HTTPS, as it already must for the framework
+  tarball; the shim itself never downloads, so a gate run never performs a network
+  fetch (inherited)
+assumption_release_assets_reachable: Air-gapped or off-matrix hosts supply the binary
+  via --local-engine, --engine-from-source, AIT_TESTMAP_BIN or a pre-seeded $AITASKS_HOME/engine/;
+  --no-testmap / AIT_TESTMAP_FETCH=0 skip the fetch and nothing else in setup depends
+  on it (inherited, root corrected)
+assumption_seed_sources_measured: 'Four heuristic origins seed edges, each measured
+  on 2026-09-16 and none trusted alone: naming (test_<x>.sh -> aitask_<x>.sh / lib/<x>.{sh,py}:
+  72/400 aitasks bash tests; test_<x>.py -> <x>.py: 62/320 aitasks Python tests; <Stem>Test.kt
+  -> <Stem>.kt: 48/307 thinking_app tests), literal invocation (a bash test naming
+  an .aitask-scripts path: 350/400, avg 3 distinct paths), imports (255/320 aitasks
+  Python tests import a resolvable module, avg 1; 139/339 thinking_app tests import
+  a resolvable main file, avg 3 - same-package references are invisible to imports
+  and are NOT seeded because the package-connected fact is too coarse), and (t<id>)
+  co-change (aitasks: 439 of 600 task commits touch tests and scripts together, avg
+  2.8 scripts x 2.6 tests, tight; thinking_app: 127 of 400, avg 7.2 main files, noisy
+  - hence min_cochange 2 and the lowest base confidence). Per-unit runtime coverage
+  (coverage.py dynamic contexts, go -coverprofile per -run) is the fifth, opt-in,
+  highest-confidence origin where the tool supports it; JaCoCo per-test sessions are
+  a project plugin. Confidence is a fixed table combined by noisy-OR and orders the
+  review queue; it never hides a row. Seeding is partial by construction: the remainder
+  is rules, waivers and incremental accept'
+assumption_seeds_select_never_evidence: 'A seeded edge is safe to act on in exactly
+  one direction: it may cause a test to run (over-selection costs time) and may never
+  suppress a STALE row, anchor evidence, satisfy require_stamp or count as coverage
+  for UNMAPPED_SOURCE under --strict (under-claiming a freshness fact costs correctness).
+  So seeds live in a generated file, carry no stamp, are excluded from stale, are
+  counted separately by check, and become claims only through an explicit accept that
+  writes the line and the stamp. Falsifier: a project whose full suite is so expensive
+  that seeded over-selection is itself the cost problem - for which the suite budget
+  and --format tokens preview are the levers, not trusting seeds'
+assumption_static_granularity_v1: 'Static file-level facts remain the default for
+  v1, with two narrower granularities in use rather than reserved: a member unit (<path>#<member>,
+  annotations scoped by testmap:unit blocks, no language parsing) and the edge''s
+  symbols slot, whose first consumer is the opt-in android-res scanner that names
+  the string keys a values-<q>/ diff changed; no scanner produces symbol-level coverage
+  of Kotlin or Python code; a change anywhere in a member file is a change to every
+  member until hunk-level attribution exists (n005; n004''s plugin exception subsumed
+  by the runner list)'
+assumption_target_repos_accept_aitestmap_root: Every target repo will accept a root
+  aitestmap/ directory of YAML committed into its code tree, including an optional
+  axes.yaml; runner scripts and axes are both optional (a repo with no product space
+  declares none and gets exactly n003's behaviour) because the reference runners are
+  built into the engine; thinking_app commits one runner script (tools/verification/testmap_runner.sh)
+  because its lowering is the harness's own routing (merged)
+assumption_test_tools_detectable: 'The test tools of every target repo are detectable
+  from the tree and the project config without executing a build: pytest.ini / pyproject
+  [tool.pytest] / tests/*.py with a runner script; go.mod plus *_test.go; gradlew
+  plus src/<sourceSet>/ test roots (commonTest, androidHostTest, androidDeviceTest,
+  test, androidTest); tests/test_*.sh with tests/lib/asserts.sh; package.json scripts.test;
+  a Makefile test target; and project_config.yaml test_command / verify_build. Verified
+  on the five repos: aitasks (bash + pytest via run_all_python_tests.sh), thinking_app
+  (gradlew + the screenshot harness named by test_command), thinking_backend (run_script_tests.sh
+  named under verify_build - detect proposes moving it to test_command with confirmation),
+  aitasks_go (Makefile test = go test ./... plus parity/run_parity.sh), aitasks_mobile
+  (three gradle source-set roots, no test_command). Falsifier: a build-only test discovery
+  (tests generated at build time), for which detect emits DETECT_UNKNOWN and the skill
+  asks'
+assumption_testmap_token_no_collision: The annotation token 'testmap:' does not collide
+  with existing prose comments in any target repo; the 38 existing '# Covers:' headers
+  in aitasks are behavioural prose and are not matched; thinking_app's KDoc mentions
+  no 'testmap:' string (inherited)
+assumption_variant_universe_from_runner_list: 'A runner''s list verb enumerates the
+  complete universe its run filter can address, so whole-run selection is sound: for
+  thinking_app that is every <Screen>_<matrix>.png of the two membership manifests
+  (50 + 247 goldens over 10 matrices) as variant ids plus every other class under
+  app/src/test/java as a file unit; a class absent from list is a check failure (UNREGISTERED),
+  never a silently unfiltered one; scan --apply persists each member''s listed variants
+  so select reads the committed table and only scan and check exec list (inherited
+  from n005; persistence from n004''s committed-table property)'
+component_agent_brief: 'Agent brief and instructions: `ait testmap brief [--md]` (alias
+  `ait test brief`) prints TESTMAP:<state>, one RUNNER:<name>|<kind>|<units>|<how
+  it is invoked>|<resources> line per runner, FULL_GATE:<runner>|<p95 est>|<= project_config
+  test_command>, VERBS: (the four forms), AXES: per declared axis with facets and
+  value counts, RESOURCE: per declared resource with its kind and what a refusal looks
+  like (exit 75 -> deferred), DOCS:<path> per config.yaml docs: entry, NOTES: the
+  config.yaml notes: lines verbatim (<=10, project-declared, e.g. thinking_app''s
+  ''a shared component change must run the full gate; preview is a render loop with
+  no verdict''), and, while bootstrapping, ONBOARD_NEXT:; --md renders the same as
+  markdown for agents; the seeded agent-instructions block gains a generic `## Running
+  Tests` section (the four verbs, ''run `ait test brief` before invoking a test tool
+  directly; prefer the registered runner'', ''a new test file needs testmap: annotations
+  - /aitask-testmap'', ''TESTMAP:absent means not onboarded - /aitask-testmap-onboard''),
+  identical in every project; tests/test_agent_instructions_running_tests.sh pins
+  the section through a real install.sh --dir (new)'
+component_annotation_scanner: 'Annotation scanner and rewriter (internal/annot): grammar
+  v3 with testmap:unit blocks, kind/covers/area/scope/trigger/reads/axis/reviewed/runner/needs/batch,
+  per comment leader and Python docstrings, unknown keys refused with a line number,
+  the line-targeted rewriter with REWRITE_CONFLICT, annotate --from-body (n006); new:
+  `onboard accept` writes the accepted seeds of a file as testmap:covers lines through
+  the rewriter - inserted after the file''s existing header comment block (bash: after
+  the shebang and leading # block; Python: appended to the module docstring; Kotlin:
+  a // block before the class KDoc, or inside the member''s testmap:unit block for
+  a member seed), each stamped @<date>/<blob10> at accept time, one file rewritten
+  per accepted batch item; existing ''# Covers:'' prose headers in aitasks are shown
+  beside the seeds as reviewer context and are never parsed or rewritten'
+component_axes: 'Axis resolver verbs (internal/axes): ait testmap axes --list prints
+  every declared axis with its facets, values and the variant count each value has
+  in list; --check runs the axis rules (DEAD_AXIS_SOURCE, UNKNOWN_VARIANT, UNCOVERED_VALUE);
+  --explain <path> prints AXIS:<axis>.<facet>|<value or ->|<why> per facet for one
+  file - which glob matched, or that no source is declared - so a maintainer sees
+  where a file lands before anything is trusted; n004''s resolve(changeSet) -> set
+  | ANY is the SourcesHit join read the other way, with ANY printed as - and meaning
+  no axis hit (n004''s verbs re-sited onto the variant-axes table)'
+component_binary_distribution: 'Binary distribution: engine/build.sh as the single
+  build and matrix command; the engine job in release.yml (setup-go from engine/go.mod,
+  go vet, go test, build.sh all) producing ait-testmap_<V>_{linux,darwin}_{amd64,arm64}
+  and ait-testmap_<V>_SHA256SUMS.txt attached by both action-gh-release steps with
+  release needs: [plan, engine]; the unchanged VERSION-matches-tag guard; a new engine-check.yml
+  on push/pull_request for engine/** (gofmt, vet, test, 2x bench rule); lib/platform_detect.sh;
+  the shim''s strict handshake (AIT_TESTMAP_BIN with override notice > AIT_ENGINE=dev
+  slot at $AITASKS_HOME/engine/dev/ requiring <V>-dev+<sha> > $AITASKS_HOME/engine/v<V>/
+  requiring == VERSION > ENGINE_MISSING:<path> exit 3 with repair hint); tests test_testmap_shim.sh
+  (extended with an AITASKS_HOME host), test_platform_detect.sh and test_aitasks_home.sh;
+  aidocs/framework/go_engine.md, a CLAUDE.md Engine block and a packaging_strategy.md
+  paragraph naming ~/.aitasks/engine/; release-packaging.yml and nfpm arch: all untouched
+  (inherited from n005)'
+component_broad_test_scopes: 'Broad-test scheduling and staleness policy: kind integration|e2e|device
+  selects the scoped association form; broad_after_unit: true waves run scoped rows
+  only after a green unit wave; device_policy: filter_by_resource default; scoped
+  rows are exempt from per-edit digest staleness, with STALE_AREA as the evidence-based
+  drift signal and REVIEW_DUE as an opt-in cadence; attribute widens areas by evidence;
+  covers on a scoped row is allowed for digest-stamped fixture pins; a suite row (thinking_app''s
+  verify-active) marked full: true with a children: post-processor anchors registered
+  ids on every run; variant-bearing units are unit kind, never area-scoped, and ride
+  the unit wave with admission-holding invocations ordered last (merged from n004
+  and n005)'
+component_cell_enumeration: 'Enumeration and reconciliation: there is no aitestmap/cells/
+  directory and no _cells.yaml - the project''s runner list verb is the enumeration
+  surface and scan --apply persists its output as the variants: list on each member
+  row of _scanned.yaml (49 rows with at most ten values for thinking_app), so select
+  never execs a runner and only scan and check call list; what n004''s enumeration
+  bought - two-way reconciliation - is kept as UNCOVERED_VALUE:<axis>|<value> (a declared
+  value no runner lists) and UNMAPPED_ARTIFACT:<path>|<runner> (a file matching a
+  runner''s declared artifact_glob: that no listed id''s artifact column claims),
+  both failing check --strict after bootstrap; thinking_app''s list reads the two
+  membership manifests and matrix_classes, every fact from a file the project already
+  guards (n004''s component, re-sited onto n005''s runner list)'
+component_cost_ledger: Cost ledger as n006 (Welford per (id, host class) with P2 p95
+  and last; .aitask-testmap/ledger.jsonl per result and per invocation; costs --update;
+  last_pass and flake per id; group costing; costs/predictions.yaml); an `ait test`
+  run writes ordinary rows (run_id prefixed test- for the workflow's affected runs,
+  full- for --all) so Step-7 runs feed cost and evidence exactly like gate runs, and
+  the SELECTED:<n>|<est_s> line's estimate is the same per-group sum the budget uses
+component_dependency_scanners: Dependency scanners (internal/deps) as n006 (bash,
+  python, go, kotlin with the opaque contract, Gradle module graph, plugins, the opt-in
+  android-res symbol scanner, XDG blob-keyed cache); the bash scanner's literal-invocation
+  facts (a test that runs ./.aitask-scripts/x.sh or sources lib/y.sh) and the python/kotlin/go
+  scanners' direct imports of a main-root file are exposed to internal/seed as the
+  invocation and imports origins - same scan, same cache, read once; the deeper closure
+  stays the selector's d2 walk and is never seeded as an edge
+component_engine_binary: 'Engine binary identity and budget as n006 (version/commit/contract
+  embedded; version --json prints ENGINE:<path>; fixed-prefix output; CONTRACT_MISMATCH;
+  go test -bench budgets with the 2x rule; pools capped at 8) with the verb table
+  extended by test, brief, seed, onboard {detect,inventory,status,accept,reject,finish}
+  and runner scaffold; budgets added: brief < 100 ms warm, seed --from naming,invocation,imports
+  < 2 s on the aitasks shape, seed --from cochange < 5 s over 600 (t<id>) commits
+  (one git log --name-status -M --grep pass, parsed once, cached by HEAD sha under
+  the XDG cache), onboard status < 200 ms; contract stays 1 (seeded.yaml and onboard.yaml
+  carry their own contract: field and a newer one is refused the same way)'
+component_engine_packaging: 'Engine install and developer regeneration as n006 (install_engine_binary()
+  reached by ait setup and ait upgrade; source order; checksum; atomic install; version
+  self-check; --no-testmap; HOME_LEGACY: hint; aitask_engine.sh build|test|cross|prune|home;
+  tests/test_install_engine_binary.sh through a real install.sh --dir) plus report_testmap_state()
+  run after it: prints TESTMAP:engine-missing when the binary is absent, TESTMAP:absent
+  (with `run /aitask-testmap-onboard`) when aitestmap/ is absent, TESTMAP:bootstrapping|<next
+  phase> while onboard.yaml has an unfinished phase, and TESTMAP:onboarded otherwise;
+  the seeded agent-instructions block re-inserted by setup gains the Running Tests
+  section; tests/test_install_engine_binary.sh asserts the TESTMAP: line in each state
+  and a new tests/test_agent_instructions_running_tests.sh asserts the section lands
+  in CLAUDE.md / AGENTS.md through a real install.sh --dir'
+component_evidence_join: 'Evidence join (internal/stale + internal/gitx, reads internal/cost):
+  for every edge whose stamped_blob differs from the current blob, collects last_pass
+  shas per reached variant from the local ledger and committed costs (any host class),
+  drops candidates from invocations with a cause or ids over the flake threshold,
+  keeps shas that are ancestors of HEAD, and runs one git ls-tree per distinct sha;
+  an edge is EVIDENCED when every reached variant has a sha whose source object id
+  equals the current blob, otherwise STALE with the unevidenced variants listed; never
+  rewrites - stale --confirm-evidenced is the explicit re-stamp and the only bulk
+  confirmation an autonomous profile may run (inherited from n005)'
+component_feedback_tools: 'Feedback tools (internal/feedback): score (automatic after
+  run --all and after a full: true suite run), attribute (missing-edge / test-wrong
+  / source-wrong, missing-axis-source widen-only, missing-trigger / area-too-narrow),
+  readiness (n006); new: an attribute decision may be `propose` (default in autonomous
+  profiles) which writes the row to seeded.yaml with origin observed and the run id
+  as evidence instead of to observed.yaml, so autonomous runs grow the review queue
+  and never the accepted map; `onboard status` reports phase states, seed queue counts
+  per origin, tests-with-any-edge and sources-with-any-edge ratios, oldest pending
+  seed age, and ONBOARD_NEXT:<phase>'
+component_framework_home: 'Framework home report and migration verb (aitask_engine.sh):
+  ait engine home prints HOME_ROOT:<path>, HOME_LEGACY:<path>|<tenants found>, HOME_SYMLINK:none|<target>
+  and HOME_NEXT:<what --migrate would do>; ait engine home --migrate runs n004''s
+  algorithm under flock $AITASKS_HOME/.home.lock - refuses and reports no-legacy-root,
+  already-migrated, foreign-symlink:<target>, cross-device or unknown-entry:<name>;
+  moves each present entry of the known set {venv, pypy_venv, python, bin, uv, dev_tier,
+  update_check, engine} with a same-device mv, rmdir''s the emptied legacy root and
+  leaves ln -s $AITASKS_HOME ~/.aitask behind; prints HOME_MIGRATED:<n> or HOME_SKIPPED:<reason>.
+  pypy_venv is the correction to n004''s set: setup_pypy_venv() creates it, python_resolve.sh
+  reads it, and the host this was designed on carries it, so n004''s migration would
+  have refused here. In this release ait setup only prints HOME_LEGACY:<path>|run
+  ''ait engine home --migrate''; the follow-up that flips the default (reserving --no-home-migration
+  / AIT_HOME_MIGRATE=0) is admitted when tests/test_aitasks_home.sh, run through a
+  real install.sh --dir, covers fresh install, migration with a working venv and PyPy
+  venv afterwards, idempotent re-run, a hostile pre-existing symlink, cross-device
+  refusal and the AITASKS_HOME override, and updates the 18 doc files naming ~/.aitask
+  (inherited from n004, made explicit and deferred; known set corrected)'
+component_freshness: 'Freshness as n006 (per-edge @<date>/<blob10> stamp written only
+  by verify, annotate and stale --confirm*, scoped to the member block; variants carry
+  no stamp; last_pass per id; bootstrap_until, require_stamp, flake_threshold; the
+  testmap_fresh procedure gate dispatched before the change summary so rewrites ride
+  the (t<id>) commit; not a git hook, not a code-agent hook) with one more stamp writer,
+  `onboard accept`, and one more gate step: testmap_fresh offers to accept the seeds
+  of the test files this task touched - the stamp then rides the same (t<id>) commit
+  as the test edit, which is the moment the accepter has the file open and the claim
+  is cheapest to check'
+component_gates: 'Gates: testmap_fresh (procedure), testmap_check (machine, max_retries
+  0, timeout 120, unlocks [testmap_run]) and testmap_run (machine, blocks_dependents,
+  max_retries 1, timeout 1800) in gates_reference.yaml synced to gates.yaml; two bash
+  verifiers on the tests_pass template mapping engine exits 0/1/2/75/64 and a missing
+  engine to verifier 0/1/2/3/3/3; run_gate_admission + readiness (n006). New rows
+  in testmap_check: SEEDED:<n> (informational, never fails), UNMAPPED_SOURCE:<path>
+  (a changed source with no edge, seed, rule or waiver - reported during bootstrap,
+  fails under --strict past bootstrap_until), and the strict flip is the onboarding
+  `finish` phase''s act, not a hand edit; the verifiers are unchanged - the onboarding
+  skill''s `enable` phase is what adds testmap_check/testmap_fresh to the chosen profile''s
+  default_gates (and rendered_gates when present) with confirmation, and testmap_run
+  only when readiness is ADMISSIBLE (merged from n006; SEEDED / UNMAPPED_SOURCE rows
+  and gate enabling sited in onboarding)'
+component_go_engine: 'Go engine and CLI: engine/cmd/ait-testmap with the n006 packages
+  internal/{registry,axes,annot,deps,changesurface,selectr,sched,runner,cost,feedback,stale,gitx,platform}
+  plus internal/seed (the four seed origins and their confidence table), internal/onboard
+  (detect, inventory, the phase ledger, accept/reject, status, finish) and internal/brief
+  (the generated run brief); Go 1.26, CGO_ENABLED=0, yaml.v3 + doublestar + x/sync
+  only, line-protocol stdout, --json, per-verb exit contracts; never writes aitasks/,
+  aiplans/, .aitask-data/ or a gate ledger, never invokes aitask_*.sh - onboard''s
+  task creation and profile edit are done by the skill through the framework''s own
+  scripts, the engine only reads onboard.yaml''s task: field; fixture repos in t.TempDir()
+  include synthetic git histories with (t<id>) commits for the cochange origin and
+  one fixture per detect shape (bash-only, pytest, go, gradle, gradle-per-source-set)'
+component_onboarding_skill: 'Onboarding skill and verbs: .claude/skills/aitask-testmap-onboard/
+  (static, attended-only; SKILL.md + one procedure file per phase) driving `ait testmap
+  onboard detect [--write] | inventory | status | accept | reject | finish` and `seed`;
+  phases recorded in aitestmap/onboard.yaml {contract, task, phases{detect,inventory,classify,seed,waivers,full_run,accept,enable,finish:
+  {status, at, by, counts}}, rejections[]}: detect writes the aitestmap/ skeleton
+  and a runner table the user confirms per runner (keep / edit command / drop) with
+  the existing test_command wrapped as the `full` suite runner; inventory runs scan
+  + every list, resolves UNREGISTERED files by binding or exclude: glob, classifies
+  broad candidates per batch of 20 with the reason line; seed runs the origins and
+  reports counts; waivers proposes rules for hot directories and expiring waivers
+  for unmapped sources; full_run executes `ait test --all` (child rows anchor, costs
+  --update, no prediction to score); accept reviews seeds per area with evidence,
+  `--batch 50` at a time, writing lines through the rewriter and one commit per batch;
+  enable adds testmap_check and testmap_fresh to the chosen profile''s default_gates
+  / rendered_gates with confirmation, sets bootstrap_until (+30 days), records docs:
+  and notes: for the brief; finish requires status green, flips require_stamp and
+  --strict, archives the task. Re-entry is ONBOARD_NEXT; every phase is idempotent
+  on re-run; wrappers regenerated for Codex and OpenCode (new)'
+component_reference_runners: 'Reference runners built into the binary (bash-file,
+  pytest with junitxml and the serial carve-out pinned, go-test, gradle-class with
+  JUnit inversion and the zero-match trap, suite with children: post-processor, device
+  with allocator handle; command:/cwd: overrides; shadow-by-name; engine-test) and
+  thinking_app''s project runner (n006); new: `ait testmap runner scaffold <builtin>
+  --as <name>` emits aitestmap/runners/<name>.sh whose describe and run exec the builtin
+  and whose list is a stub printing SCAFFOLD_TODO until the project fills it (check
+  reports it), and `onboard detect` generates a `full: true` suite runner named `full`
+  wrapping project_config.yaml test_command (or verify_build when it is the only test-running
+  key, thinking_backend''s case, with confirmation) whose children: post-processor
+  is a builtin that inverts pytest junitxml, bash-file test names from the per-file
+  exit and `go test -json` events to registered ids, so the existing full gate anchors
+  evidence without a project script; the bash-file builtin gains a `list --invocations`
+  mode printing the literal .aitask-scripts/ paths a test references (the seeder''s
+  invocation origin)'
+component_registry_loader: 'Registry loader and writer (internal/registry): merges
+  aitestmap/registry/*.yaml plus axes.yaml into the six n006 tables (edges, scopes,
+  areas, rules, waivers, axes) and a seventh, seeds, loaded from registry/seeded.yaml
+  (rows {test, covers, origin[], confidence, evidence{}, proposed_at}); a seed whose
+  (test, covers) pair also exists as an accepted edge is dropped at load with SEED_SHADOWED
+  reported by check; write routing gains seed -> seeded.yaml and onboard accept/reject
+  -> seeded.yaml (row removed) + onboard.yaml (rejection recorded so the seeder never
+  re-proposes it); config.yaml gains exclude: globs (fixtures, helpers, generated
+  tests - never listed, never UNREGISTERED), docs: (paths the brief prints) and notes:
+  (<=10 lines of project-declared test guidance the brief prints verbatim); unit ids,
+  owns: routing, deterministic writes and the n006 check rules are unchanged; golden
+  tests pin the seed table merge and the shadow rule (n006 + seeds table)'
+component_runner_contract: 'Runner contract and repository (internal/runner): describe
+  (unit file|class|method|variant|suite, axis:, batch, needs, group_by: (n004), token_format:,
+  filter_scope:, full:, children:, artifact_glob: (n004)), list as TSV <id> <kind>
+  <lowering> [<artifact>] with member and variant ids, run --manifest with ids, lowerings
+  and groups, results.jsonl per id with optional child rows under a suite parent,
+  runner.json with per-group overhead rows, first-match bindings and per-test override,
+  the builtin: scheme with command:/cwd: overrides and shadow-by-name, batching by
+  (runner, group, resource set, batch flag), per-unit timeouts, units_expected/units_reported
+  reconciliation per id with zero-reported-some-expected and no-registered-id as mechanism
+  failures, exit contract 0/1/2/75 plus 64 (merged from n004 and n005)'
+component_scheduler_resources: 'Scheduler and resources (internal/sched): kinds mutex/semaphore/admission/allocator,
+  scopes host/worktree/run, acquired_by planning; flock(2) slot files taken in canonical
+  order; admission exec with 75 deferral and backoff to the run deadline; allocator
+  exec with signal-safe release; goroutines under errgroup; batching (variants of
+  one runner and resource set batch into one invocation per group_by group, so thinking_app''s
+  whole selection is one Gradle run holding one heavy-run slot); broad_after_unit
+  waves with variant-bearing units in the unit wave and, within a wave, invocations
+  holding an admission resource ordered last (the ordering half of n004''s placement
+  rule); config concurrency: serial|parallel defaulting to serial at bootstrap with
+  --serial/--parallel overrides; the schedule report and its check half (inherited
+  from n003; ordering refinement)'
+component_seeder: 'Seeder (internal/seed): `ait testmap seed [--from naming,invocation,imports,cochange,coverage]
+  [--min-cochange 2] [--coverage-report <f>|--per-unit] [--apply]` produces registry/seeded.yaml
+  rows {test[#member], covers, origin[], confidence, evidence{naming: pair, invocation:
+  file:line, imports: file:line, cochange: [task ids], coverage: run id}, proposed_at};
+  naming applies per-runner stem rules (bash-file: test_<x>.sh -> aitask_<x>.sh|lib/<x>.sh|lib/<x>.py;
+  pytest: test_<x>.py -> any <x>.py under the main roots; go-test: <x>_test.go ->
+  <x>.go same dir; gradle-class: <Stem>[Test|*Test].kt -> <Stem>.kt under main); invocation
+  and imports read internal/deps facts for the test file only (direct, never the closure);
+  cochange parses one `git log --name-status -M --format=%H%x00%s` pass over commits
+  whose subject matches (t<id>) and counts (test, source) pairs across distinct tasks,
+  cached by HEAD sha; coverage imports coverage.py contexts JSON, go -coverprofile
+  per unit and LCOV with a test-id column, or a project plugin''s {test, covers} lines;
+  confidence table naming 0.6 / invocation 0.9 / imports 0.85 / cochange 0.5 + 0.1
+  per extra task to 0.8 / coverage 0.95 / observed 0.7, noisy-OR across origins; a
+  rejected pair in onboard.yaml is never re-proposed; a pair already accepted is dropped
+  with SEED_SHADOWED; --apply writes, otherwise prints SEED:<test>|<source>|<origins>|<confidence>
+  lines (new)'
+component_selector: 'Selector (internal/selectr, internal/changesurface): n006 unchanged
+  - line-protocol intake refusing UNKNOWN:, the graded walk with select/implies/escalate
+  rules, variant expansion and axis join, test-dep at d1, ESCALATE on opaque files,
+  scoped join, kind-then-cost ranking, invocation groups, stale marks, --include-stale,
+  suite budget with DEFERRED lines, cut knobs incl. --axis, --format lines|json|tokens,
+  prediction record, explain - plus: a seeded edge is walked exactly like an annotation
+  edge at d1 with reason edge(seeded:<origins>) and never contributes a stale mark;
+  `explain --sources <path>...` prints the reverse view (every unit reaching each
+  source with its reason, or UNMAPPED_SOURCE) as the table aitask-qa''s test discovery
+  consumes; and the `test` composite verb prints one SELECTED:<n>|<est_s>|<seeded_n>
+  line and UNMAPPED_SOURCE:<path> lines before the ranked rows so the workflow helper
+  can build its VERDICT without parsing the rows'
+component_skill: 'Skills: aitask-testmap (n006: annotate a file / member / coordinate,
+  declare axis sources, reads on helpers, axes --explain, attribute before the gate,
+  verify after editing, classify --suggest, select --format tokens into a render loop)
+  now opens with `ait test brief` and hands a repo without aitestmap/ to aitask-testmap-onboard;
+  aitask-gate-testmap-fresh (the procedure gate: stale --task, git diff per STALE
+  row with unevidenced variants, retarget STALE_PATH, re-stamp EVIDENCED, resolve
+  check''s structural rows by editing axes.yaml / the runner''s list / the member
+  block, prompt on UNSTAMPED past bootstrap, never guess UNKNOWN, never confirm STALE
+  autonomously) gains one step: for each COMMITTED:/TASK: test file with rows in seeded.yaml
+  it shows the seeds with their evidence and offers accept / reject / leave per row,
+  so a map migrates a few files per task through ordinary work; the new aitask-testmap-onboard
+  is a static, attended-only skill (no profile stub: its every phase is a judgement
+  call) documented in component_onboarding_skill; all three ship Claude Code first
+  with wrapper surfaces regenerated by aitask_audit_wrappers.sh apply-wrapper for
+  Codex and OpenCode (merged from n006; onboarding and accept-in-gate added)'
+component_staleness_tool: Staleness tool (internal/stale) as n006 (stale --task --changes
+  - | --all; the line classes with %25/%7C encoding; unevidenced variants on STALE
+  rows; CHECK_STRUCTURAL:<n> on --all; --strict exits 1 on STALE_PATH; rename hints
+  and culprits from git log -M; --confirm, --confirm-source, --confirm-evidenced,
+  --retarget) with seeded edges excluded from every class and one SEEDED:<n> summary
+  line on --all
+component_suite_registry: 'Scoped-row registry and areas as n006 (areas.yaml seedable
+  via areas --import-codemap; _scoped.yaml rows with reads_from; owns: by area; the
+  d1 join; suite budget with DEFERRED; DEAD_SCOPE and KIND_MISMATCH|CONVERT_TO_SUITE;
+  classify --suggest with the reads-helper and grid heuristics; missing-trigger /
+  area-too-narrow); classify --suggest gains the three signals onboarding''s classify
+  phase uses - a recorded p95 above broad_threshold_s (default 60) from the first
+  full run, a source-set or directory convention (androidTest/, androidDeviceTest/,
+  *_live.py, *_integration.sh, parity/) and a resource declaration in the file (tmux,
+  emulator, docker, network) - each printed as the reason on the CLASSIFY:<test>|<kind>|<reason>
+  line the skill confirms per batch'
+component_test_front_verb: 'Front verb and workflow helper: `ait test` in the dispatcher
+  -> aitask_testmap.sh test -> engine `test` composite: --task <id> pipes the change
+  surface, refuses UNKNOWN:, select --include-stale -> schedule -> run, prints SELECTED:<n>|<est_s>|<seeded_n>,
+  UNMAPPED_SOURCE:<path>, the ranked rows, then RESULT:pass|fail|skip|deferred with
+  the run id; <path>... treats explicit paths as TASK: rows (a test path runs that
+  unit and its variants); --all runs every registered unit through the runners (the
+  same machinery as run --all, anchoring evidence and scoring the newest prediction);
+  brief prints the run brief; --mode show stops after select; --json. .aitask-scripts/aitask_affected_tests.sh
+  <task_id> [--mode run|show] is the workflow seam: sources lib/aitasks_home.sh and
+  the shim, runs `ait test --task`, writes the log to .aitask-gates/<task>/affected_<run-id>.log,
+  prints VERDICT:pass|fail|skip / REASON:all_passed|command_failed|testmap_absent|registry_absent|unknown_paths|no_selection|admission_refused
+  / DETAIL: / LOG: / SELECTED:<n>|<est_s> / UNMAPPED_SOURCE: lines, exits 0/1/2/3
+  with the aitask_run_project_command.sh capture contract, appends nothing to any
+  ledger; allowlisted on the five touchpoints; tests/test_affected_tests_helper.sh
+  covers every REASON against fixture registries and an absent engine (new)'
+component_user_root: 'Per-user root: .aitask-scripts/lib/aitasks_home.sh exports AITASKS_HOME=${AITASKS_HOME:-$HOME/.aitasks}
+  and aitasks_engine_dir <version|dev>, plus $AITASKS_HOME/.home.lock; sourced by
+  the shim, aitask_setup.sh''s install_engine_binary, aitask_engine.sh and the verifiers;
+  never falls back to ~/.aitask/; ait setup creates $AITASKS_HOME/engine/ with mode
+  0755 and prints AITASKS_HOME:<path> in its summary beside the venv line so both
+  roots are visible; ait engine prune walks only $AITASKS_HOME/engine/v*/; test_aitasks_home.sh
+  pins the default, the env override, and that no framework script under this feature
+  names ~/.aitask/ (inherited from n005)'
+component_variant_axes: 'Variant axes (internal/axes, read by registry, selectr, runner,
+  cost): aitestmap/axes.yaml declares axes {name, facets[], values{value: {facet:
+  v}}, sources{facet: {v: [globs]}}}; a runner''s describe names the axis its variants
+  live on and a token_format; list emits <unit>@<value> ids; the selector joins changed
+  paths to facet values through sources and selects the variants carrying them (reason
+  axis(<axis>.<facet>=<v>) <- <path>) plus plain units carrying testmap:axis for that
+  value (n004''s hand-declared coordinate), or every variant of a unit reached by
+  an edge, dep, rule or test-dep; --axis <axis>.<facet>=<v> forces a facet (n004);
+  costs, last_pass, evidence and score are per variant; check enforces DEAD_AXIS_SOURCE,
+  UNKNOWN_VARIANT and UNCOVERED_VALUE (n004); observed sources widen only; the engine
+  holds no project axis - the first consumer is thinking_app''s matrix axis with facets
+  locale/direction/geometry over its 10 recording matrices (inherited from n005; n004
+  bridges)'
+component_workflow_integration: 'Workflow integration: task-workflow gains affected-tests.md
+  (Affected Tests Procedure) called from Step 7 at two points - on demand while implementing
+  (''after editing a source, run the procedure instead of the full suite'') and once
+  before proceeding to Step 8 (the pre-review affected run) - wrapped in {% if profile.affected_tests
+  is not defined or profile.affected_tests != ''off'' %}; the procedure runs the helper
+  with the set -e capture form, branches: pass -> continue; fail -> the build-verification
+  fail loop (caused by this task: fix and re-run; unrelated: log in Final Implementation
+  Notes under ''Affected tests''); skip:no_selection -> display the UNMAPPED_SOURCE
+  paths and offer annotate / attribute --propose / waiver via the aitask-testmap skill;
+  skip:testmap_absent|registry_absent -> one line, continue; skip:unknown_paths ->
+  the Step-2b-style scope prompt; skip:admission_refused -> print DETAIL, continue;
+  rc 3 -> diagnose, never fix code; the verdict line is recorded in the plan''s Final
+  Implementation Notes and never in the gate ledger (advisory); profile key affected_tests
+  documented in profiles.md, default.yaml and fast.yaml omit it (run), remote.yaml
+  sets run; Step 8 (testmap_fresh dispatch) and Step 9 (gate orchestrator, build-verification.md)
+  unchanged; aitask-qa test-discovery.md 3a-3c use `ait testmap explain --sources
+  <changed> --format table` when aitestmap/ exists (gaps = UNMAPPED_SOURCE rows, naming
+  scan otherwise) and test-execution.md 4a prefers `ait test --task <id>` with test_command
+  kept for the exhaustive tier''s fresh full run; pickrem and pickweb inherit Step
+  7 and see a printed skip on Web; goldens under tests/golden/ regenerated for every
+  profile x agent; aitask_skill_verify.sh run; profiles.md row added (new)'
+requirements_agent_run_surface: 'Any code agent runs the right tests in any onboarded
+  project without learning the project: one front verb, `ait test`, with four forms
+  - --task <id> (the tests the task''s attributed change reaches, a reason per row),
+  <path>... (the tests reaching those sources, or those test files themselves), --all
+  (the full registered suite, the completion gate) and brief (this project''s runners,
+  resources, full gate, axes, docs and notes, generated from the registry) - taught
+  once by a generic Running Tests section in the seeded >>>aitasks agent-instructions
+  block that ait setup writes into every supported agent''s instructions file, so
+  the sentence an agent reads is the same in aitasks, thinking_app and aitasks_mobile
+  and the project-specific facts come from `ait test brief`, never from prose the
+  agent has to find'
+requirements_agent_skill: 'Agent skills teach agents how to keep the map current as
+  they write code and tests (annotate a file, a testmap:unit member or a testmap:axis
+  coordinate, declare an axis source, put testmap:reads on a tree-scanning helper,
+  axes --explain, attribute before the gate, verify after editing, classify --suggest,
+  confirm/retarget stamps in the procedure gate, drive a render loop from select --format
+  tokens - n006) AND, new here, how a repository gets onto the map in the first place
+  and how any agent runs tests without learning the project: aitask-testmap-onboard
+  is the attended, resumable migration of an existing test tree (detect tools -> generate
+  aitestmap/ -> inventory and classify -> seed edges from measured sources -> waivers
+  -> first full run -> accept seeds in batches -> enable gates), and the generic ''Running
+  Tests'' section of the seeded agent-instructions block plus `ait test brief` are
+  how an agent learns the run surface once, identically in every project (n006 + onboarding
+  and run surface)'
+requirements_annotation_freshness: Every ACCEPTED unit coverage annotation carries
+  the date and blob digest of the covered source at confirmation, scoped to the member
+  block (n006), with committed last_pass anchors per variant letting stale prove EVIDENCED;
+  a SEEDED edge carries no stamp and makes no freshness claim - it lives in registry/seeded.yaml,
+  selects at d1, and is invisible to stale; `onboard accept` is the act that turns
+  a seed into a stamped testmap:covers line through the rewriter, so a stamp always
+  records who accepted the claim and against which bytes
+requirements_annotation_staleness: A stale verb reports STALE_PATH / STALE / EVIDENCED
+  / UNSTAMPED / STALE_AREA / REVIEW_DUE rows in the fixed line protocol plus CHECK_STRUCTURAL:<n>
+  on --all (n006); seeded edges are excluded from every stale class (they claim nothing),
+  and stale --all adds one SEEDED:<n> summary line so a repo-wide sweep sees how much
+  of the map is still provisional; structural rot stays check's
+requirements_axis_product_selection: 'A project whose tests form a product of named
+  facets (thinking_app: 49 screens x 10 matrices where a matrix is locale x direction
+  x geometry; aitasks: skill x profile x agent goldens) declares the axis with its
+  facets, values and facet-valued source globs, and lets the engine select exact variants
+  - an axis-source hit selects the variants carrying the facet value, any other hit
+  selects every variant, hits union - instead of choosing between thousands of hand
+  edges and one all-or-nothing suite scope; a source matching no axis source reaches
+  units only through edges and dependencies, which select every variant, the fail-safe
+  direction (n004''s requirement, realised by n005''s mechanism; intersection reduces
+  to the facet join on every single-file case)'
+requirements_broad_test_handling: 'Scoped rows are ranked after unit tests at equal
+  distance, selected under an explicit suite budget that prints every DEFERRED cut,
+  scheduled only after the unit wave is green (broad_after_unit), widened by attribute
+  on a full-run miss, and drift-flagged by evidence (STALE_AREA) rather than by calendar;
+  a suite row marked full: true with a children: post-processor anchors registered
+  ids on every run (inherited)'
+requirements_cost_tracking: Tracks cost per test unit and per variant, keyed by host
+  class, using Welford's online update (n, mean, standard deviation, p95, last), plus
+  a last_pass {sha, at, run_id} anchor and a flake rate per id; per-invocation overhead
+  rows are a first-class input keyed by invocation group, so a selection's estimate
+  is the sum over groups of overhead.p95 + the marginal p95 of each selected id -
+  a second method in a booted Robolectric class costs its per-unit mean, not another
+  boot (n005 rows, n004 group costing)
+requirements_dev_rebuild_from_source: A framework developer rebuilds the engine with
+  one command (ait engine build) through the same engine/build.sh that CI uses, into
+  $AITASKS_HOME/engine/dev/ which the shim selects via AIT_ENGINE=dev (version must
+  read <V>-dev+<sha>); ait engine cross produces the CI matrix locally, byte-identical
+  (inherited, root corrected)
+requirements_engine_dev_regeneration: The GOOS/GOARCH matrix, CGO_ENABLED=0 and ldflags
+  live in one script (engine/build.sh) shared by release CI, ait engine build and
+  ait engine cross; ait engine test runs go vet and go test; ait engine prune removes
+  versions under $AITASKS_HOME/engine/ that no registered project is on; ait engine
+  home reports the root, legacy tenants and symlink state and performs the migration
+  on --migrate (merged)
+requirements_engine_packaging: 'ait setup and ait upgrade install the host''s binary
+  under $AITASKS_HOME/engine/v<VERSION>/ with checksum verification and a version
+  --json self-check; fallbacks --local-engine, --engine-from-source, AIT_TESTMAP_BIN;
+  opt-out --no-testmap / AIT_TESTMAP_FETCH=0; AITASKS_HOME: and HOME_LEGACY: lines
+  (n006); new: setup''s summary ends with one TESTMAP:absent|bootstrapping|onboarded[|engine-missing]
+  line computed by report_testmap_state() from the presence of aitestmap/ and onboard.yaml''s
+  phase ledger, with the hint `run /aitask-testmap-onboard` on absent - setup reports,
+  it never onboards; and the re-inserted >>>aitasks instructions block now carries
+  the generic Running Tests section, so the run surface reaches every project''s agent
+  instructions on the next setup or upgrade with no per-project step'
+requirements_feedback_loop: 'Learns from failures the map did not predict via score/attribute
+  (n006: automatic score after every full run, PREDICTION_FALSE_NEGATIVES / PREDICTION_MISSED
+  lines, costs/predictions.yaml; attribute records observed edges, axis sources (widen
+  only), triggers and area members merged at load); new here, an attribute proposal
+  a reviewer has not decided lands in registry/seeded.yaml with origin `observed`
+  so it selects immediately and is reviewed through the same accept/reject queue as
+  onboarding seeds, and `onboard status` reports the queue (accepted / rejected /
+  pending, oldest pending age) so adoption is measurable rather than remembered'
+requirements_framework_home_name: 'The framework is named aitasks, so every path it
+  owns under the user''s home should be ~/.aitasks - the engine installs there now,
+  and the legacy ~/.aitask tree is migrated by an explicit verb, ait engine home --migrate
+  (flock, per-entry rename, rmdir, compatibility symlink; known set corrected to include
+  pypy_venv), with ait setup printing a HOME_LEGACY: hint in this release and a named
+  follow-up flipping the default once the verb has passed a real install.sh --dir
+  test (n004''s principle and mechanism, n005''s default)'
+requirements_gate_enforcement: 'Enforced by gates so the map cannot rot silently:
+  testmap_fresh (procedure, before the task commit; now also offers to accept seeded
+  edges on the test files this task touched), testmap_check (fails STALE_PATH on its
+  own; reports SEEDED:<n> and UNMAPPED_SOURCE:<path> rows and fails the structural
+  rows plus UNMAPPED_SOURCE only under --strict past bootstrap_until) and testmap_run
+  (fail-closed with explicit waivers, admitted by readiness); only check unlocks run;
+  a project whose completion invariant is a full suite keeps tests_pass. Gates are
+  enabled by the onboarding skill''s `enable` phase (which edits the profile''s default_gates
+  / rendered_gates with confirmation and sets bootstrap_until), never by hand and
+  never by ait setup (n006 rules; enabling moved into onboarding)'
+requirements_generic_across_projects: 'A framework feature, generic across projects
+  (aitasks, thinking_app, thinking_backend, aitasks_go, aitasks_mobile), that maintains
+  a relation between source files and test units - including a project''s own finer
+  subdivision expressed through member units and variant axes, with the project''s
+  runner lowering ids - never project-specific code in the engine (n006); and whose
+  onboarding is generic too: `onboard detect` recognises each repo''s test tools from
+  the tree and from project_config.yaml (aitasks: tests/test_*.sh + run_all_python_tests.sh
+  with its serial carve-out; thinking_app: gradlew + the screenshot harness; thinking_backend:
+  run_script_tests.sh named under verify_build, bash + pytest; aitasks_go: Makefile
+  test = go test ./... plus the tmux parity suite; aitasks_mobile: one gradle-class
+  runner per source set - commonTest and androidHostTest as unit, androidDeviceTest
+  as device - which is the answer to n006''s open question 9: a kind/runner distinction,
+  no axis) and writes runners.yaml from builtins, scaffolding a project runner script
+  only where an axis or a full-suite post-processor needs one'
+requirements_go_engine: Scan, check, select and stale finish in well under a second
+  on a ~720-test repo - and select stays under 250 ms warm on thinking_app's ~300
+  golden variants over 49 members plus ~370 JVM classes with axis expansion, never
+  executing a runner - and the scheduler runs concurrently with real cross-process
+  locks, so selection overhead stays negligible against the shortest test and check
+  can run at every commit step (n005 target; n004's 2,500-row cell target has no referent
+  in the merged design)
+requirements_go_engine_and_cli: The engine and CLI are one static Go binary (ait-testmap)
+  built from engine/; bash keeps only the dispatcher arm, the shim that resolves the
+  binary under $AITASKS_HOME and pipes the change surface in, the two gate verifier
+  shells, lib/aitasks_home.sh, the ait engine developer verbs (incl. home [--migrate])
+  and any project-local runner or scanner scripts; the binary never invokes aitask_*.sh
+  and never needs its own install root (n005; n004's ait engine home verb added, its
+  internal/home dropped)
+requirements_high_level_tests_separate: Integration, e2e and device tests declare
+  areas, scope globs or budget-exempt trigger globs instead of covers, live in registry/_scoped.yaml
+  beside the unit table, join the ranked list at distance 1 as sinks, and never enter
+  the per-file edge graph or its digest staleness; a helper file may declare testmap:reads
+  <glob> so every unit whose test-file closure contains it inherits the glob as a
+  trigger; variant-bearing units are unit kind and never scoped rows (inherited from
+  n005)
+requirements_incremental_adoption: 'Adoption is incremental and measurable, never
+  big-bang: a seeded edge selects from the moment seed runs (fail-safe direction)
+  but claims no freshness; acceptance - the act that writes testmap: lines and stamps
+  - happens in onboarding batches by area or, inside the testmap_fresh gate, for the
+  test files a task already touched; `onboard status` prints the ratios (tests with
+  an edge, sources with an edge, seeds pending per origin, oldest pending age) and
+  ONBOARD_NEXT so a half-migrated repo is a known state with a next step, and check
+  reports SEEDED:<n> until the queue is empty'
+requirements_platform_binaries_in_release: Release CI builds and attaches checksummed
+  binaries for linux/darwin x amd64/arm64 (ait-testmap_<V>_<os>_<arch> + ait-testmap_<V>_SHA256SUMS.txt)
+  from one engine job that also runs go vet and go test; a new engine-check.yml runs
+  the same on push/PR for engine/**; tarball and package-manager artifacts stay architecture-independent
+  (inherited)
+requirements_reason_per_selected_test: 'Translates a task''s change set into one ranked
+  list of tests that must run with a reason on every line (n006''s reasons: edge(annotation|declared|observed),
+  dep, rule, axis(...)[keys], test-dep, reads(...), area/scope/trigger, stale-evidence,
+  ESCALATE:, facet value or @*, invocation group and cost, DEFERRED:) plus `edge(seeded:<origins>)`
+  for a seeded edge - the origins list (naming, invocation, imports, cochange, coverage,
+  observed) is printed so a reader knows the row rests on a heuristic, and `ait test`
+  prints a SELECTED:<n>|<est_s>|<seeded_n> summary line ahead of the rows'
+requirements_screen_locale_subdivision: 'A test unit may be a member of a file (<path>#<member>,
+  opened by a testmap:unit block) and may carry variants on a declared axis (<unit>@<variant>);
+  a source change reaches a unit on every variant, or reaches an axis facet value
+  (matrix.locale=ru) and thereby only the variants carrying it plus any plain unit
+  carrying testmap:axis matrix.locale=ru; the runner lowers a variant id to what it
+  executes (thinking_app: <Class>.<method> per matrix through matrix_classes / preview_resolve_token)
+  so the engine never learns Gradle, Roborazzi or the membership manifests (inherited
+  from n005; testmap:axis from n004)'
+requirements_standard_runner_contract: 'Runs selected tests through project-defined
+  runners under a standard contract (describe/list/run; n006 fields incl. group_by,
+  token_format, filter_scope, full, children, artifact_glob; TSV list; results.jsonl
+  with child rows; runner.json overhead; builtins bash-file, pytest, go-test, gradle-class,
+  suite, device with command:/cwd: overrides and shadow-by-name) plus two onboarding
+  affordances: `ait testmap runner scaffold <builtin> --as <name>` writes a project
+  runner script skeleton whose describe/run delegate to the builtin and whose list
+  is the one function the project fills (thinking_app''s tools/verification/testmap_runner.sh
+  is that scaffold completed), and `onboard detect` wraps an existing project_config.yaml
+  test_command as a `full: true` suite runner with a children: post-processor generated
+  for pytest junitxml, bash-file names and go test -json, so the project''s full gate
+  feeds evidence from day one without anyone writing a runner'
+requirements_user_root: Every per-user artifact this feature installs lives under
+  the framework's own root, ~/.aitasks/ (env override AITASKS_HOME, one owner file
+  lib/aitasks_home.sh, no fallback to ~/.aitask), beside the existing ~/.config/aitasks/
+  and ~/.cache/aitasks/ roots; the engine is the root's first tenant at $AITASKS_HOME/engine/v<VERSION>/
+  and $AITASKS_HOME/engine/dev/; the legacy ~/.aitask/ tenants (venv, pypy_venv, python,
+  bin, uv, dev_tier, update_check) are neither moved nor read by this feature's default
+  path (inherited from n005)
+requirements_workflow_seam: 'The change-aware run is reached from the existing workflows
+  without a new workflow: task-workflow Step 7 gains an Affected Tests procedure (affected-tests.md)
+  behind an affected_tests: run|show|off profile key (default run) that calls one
+  helper, aitask_affected_tests.sh <task_id>, speaking the VERDICT:/REASON:/DETAIL:/LOG:
+  line shape and set -e capture form aitask_run_project_command.sh already established;
+  Step 8''s procedure-gate block dispatches testmap_fresh unchanged; Step 9''s gate
+  orchestrator and legacy build-verification path are untouched; aitask-qa''s test
+  discovery reads the map (explain --sources) instead of naming conventions when aitestmap/
+  exists and its execution step prefers `ait test --task`; aitask-pickrem and aitask-pickweb
+  inherit Step 7 through the shared task-workflow; ait setup prints TESTMAP:<state>;
+  and every seam degrades to a printed skip where the engine or registry is absent'
+requirements_zero_config_onboarding: 'A repository with an existing test tree is brought
+  onto the map by one attended run of /aitask-testmap-onboard and nothing typed by
+  hand: the skill detects the test tools (pytest, go test, gradle per source set,
+  bash tests/test_*.sh, npm test, Makefile test, and the project_config.yaml test_command
+  / verify_build), generates aitestmap/ (config.yaml, runners.yaml with bindings,
+  resources.yaml stub, registry/areas.yaml from code_areas.yaml), inventories every
+  test unit through the runners'' list, classifies broad tests with confirmation,
+  seeds edges from the four origins, proposes rules and waivers for the remainder,
+  wraps the existing full gate as a suite runner and runs it once, accepts seeds in
+  batches, and enables the gates - each phase idempotent and resumable from a committed
+  ledger (aitestmap/onboard.yaml), the whole run shaped as an aitask so its writes
+  land under (t<id>) commits and the change surface attributes them'
+tradeoff_accept_rewrites_history: 'Disadvantage: accepting seeds inserts comment lines
+  into hundreds of test files, so `git blame` on any test header points at the acceptance
+  commit and a concurrent task editing the same file hits a textual conflict on the
+  header; mitigated by comment-only insertions at a fixed position (after the header
+  block / docstring), per-area batch commits named for what they are, the incremental
+  path that accepts a file''s seeds only inside a task that already edits it, and
+  the rewriter''s REWRITE_CONFLICT refusing a file that changed under it; a project
+  that wants no comment churn keeps seeds unaccepted and accepts selection-only enforcement,
+  which onboard status reports as the state it is'
+tradeoff_area_glob_coarseness: 'Disadvantage: area and scope globs are coarser than
+  edges - a broad area over-selects its tests on every edit inside it and a scoped
+  test depending on a file outside its scope is under-selected until a full run scores
+  it; mitigated by the suite budget with explicit DEFERRED lines, budget-exempt triggers
+  and reads globs for known sharp edges, and the missing-trigger / area-too-narrow
+  attribution path (inherited)'
+tradeoff_attribution_risk: 'Risk: an agent that edits sources without attributing
+  produces a map that looks current and is not; narrowed (n006) by STALE on the next
+  task, stale marks on every selection, and the automatic score within one task where
+  a full suite runs at completion. Narrowed further here: the Step-7 affected run
+  reports UNMAPPED_SOURCE:<path> for a changed source no unit reaches, at the moment
+  the agent introduced it, and the procedure offers annotate / attribute / waiver
+  right there - so a new coupling with no edge is surfaced during the task rather
+  than only on a full run; what still escapes is a coupling to a source that already
+  has some edge, which only score can find'
+tradeoff_autonomous_confirmation_weak: 'Risk: treating a green test as evidence that
+  a coverage claim still holds is weaker than review; narrowed - the only autonomous
+  confirmation is --confirm-evidenced, which requires a pass on every reached variant
+  whose tree held the current bytes of the specific source, records confirmed_by:
+  <run_id>, and is re-opened by a later score miss; a STALE row is never confirmed
+  without a human (inherited from n005)'
+tradeoff_axis_declaration_burden: 'Disadvantage: axes are a third authoring surface,
+  and a project that declares them wrongly gets confidently wrong selection. Concretely:
+  thinking_app must declare ten matrix values with three facets, four locale source-glob
+  sets, one values/** rule, one runner script (list/describe/run/children over its
+  existing routing) and one testmap:axis line per non-capturing coordinate test. Mitigated
+  by making membership declarative and checkable - DEAD_AXIS_SOURCE fails a source
+  glob that matches nothing, UNKNOWN_VARIANT a listed variant outside the axis, UNCOVERED_VALUE
+  a declared value no runner lists, and axes --explain <path> answers why one file
+  landed where it did before anything is trusted; and by an undeclared source reaching
+  every variant, so an incomplete axis over-selects rather than under-selects (n004''s
+  burden, restated for the merged mechanism)'
+tradeoff_axis_projection_coarseness: 'Disadvantage: the default axis join is file-level
+  - a one-key edit to values-ru/strings.xml selects every enrolled screen on both
+  ru matrices (about 65 variants) rather than the screens naming that key; sound but
+  2/10 of the matrices rather than 1/50 of the screens; mitigated by the opt-in android-res
+  symbol scanner (keys changed -> referencing Kotlin files -> member units), by select
+  --format tokens feeding the project''s own render loop so the over-selection costs
+  a preview rather than a gate, and by the group-costed budget (inherited from n005)'
+tradeoff_batch_misreport_risk: 'Risk: a batch runner that misreports per-unit results
+  corrupts attribution, cost and evidence (a false pass could manufacture an EVIDENCED
+  row); two more places to misreport than n003 - the JUnit classname/name to variant-id
+  inversion, and the zero-match trap at method granularity where a Gradle --tests
+  filter matching nothing exits 0 with zero tests; mitigated by units_expected/units_reported
+  reconciliation per id, a row inverting to no registered id and units_reported ==
+  0 with units_expected > 0 both being mechanism failures, and no line from an invocation
+  with a cause ever anchoring (merged from n004 and n005)'
+tradeoff_broad_scope_coarseness: 'Disadvantage: a test scoped to a large area is selected
+  for any change inside it; mitigated by ranking last at its distance, running only
+  after a green unit wave, being cut first by the suite budget with the cut printed
+  as DEFERRED, and the cost visible in schedule (inherited)'
+tradeoff_cell_table_size: 'Disadvantage, inverted: instead of n004''s ~2,500 generated
+  cell rows that churn whenever a screen or matrix is added, _scanned.yaml carries
+  49 member rows with a variants: list of at most ten values; the price is that scan
+  and check exec each runner''s list (thinking_app: a bash script reading two manifests,
+  milliseconds) and that a matrix added to the manifests is invisible to select until
+  the next scan --apply - which check reports as UNKNOWN_VARIANT/UNCOVERED_VALUE drift
+  the same day. Enumerating at every select was rejected for the reason n004 gave:
+  it would put a build-adjacent exec on the hot path of every gate (n004''s tradeoff,
+  re-cut for the runner-list universe)'
+tradeoff_compiled_component_cost: 'Disadvantage: the framework gains a compiled component
+  - contributors touching the engine need Go, a release fails if go test fails, install
+  gains a fetch and checksum step; mitigated by a single build.sh matrix, ait engine
+  build, and the engine being optional until a testmap gate is enabled (inherited)'
+tradeoff_computed_vs_prose: 'Advantage: selection is computed, explained and scored
+  rather than remembered (n006); and so is the run surface - `ait test brief` prints
+  the runners, resources, full gate, axes and doc pointers from the registry, and
+  the generic Running Tests section is identical in every project, so an agent never
+  learns ''how do I run tests here'' from a 200-line CLAUDE.md testing section again
+  (thinking_app''s is 200 lines today); the project''s judgement calls (when a preview
+  loop is acceptable) become config.yaml notes: lines and docs: pointers the brief
+  prints, still prose, but reached through one verb rather than found'
+tradeoff_engine_absent_on_host: 'Risk: an unsigned macOS binary or a blocked download
+  leaves a host without an engine; mitigated by ENGINE_MISSING naming the path and
+  repair verb, the fallbacks, and the testmap gates exiting 3, never skip (n006);
+  the workflow helper is the one deliberate exception: aitask_affected_tests.sh reports
+  VERDICT:skip REASON:testmap_absent (engine or registry missing) so task-workflow,
+  pickrem and pickweb - which has no ait setup at all - continue exactly as today,
+  because an advisory Step-7 run must never block a task the way a declared gate legitimately
+  does; the skip is printed, never silent'
+tradeoff_engine_speed_enables_per_task_use: 'Advantage: sub-second select/check/stale
+  on a 720-test repo, and sub-250 ms select over 300 variants with axis expansion,
+  makes selection overhead negligible against the shortest test and lets check run
+  at every commit step; the facet join is one glob match per changed file per facet
+  and one set test per member, select never execs a runner, and a bash+Python engine
+  would spend seconds in start-up and YAML parsing first (merged)'
+tradeoff_engine_version_skew: 'Disadvantage: one user with several projects on different
+  framework versions keeps several ~10 MB binaries under $AITASKS_HOME/engine/; mitigated
+  by exact-version resolution in the shim (never newest-wins) and ait engine prune
+  against the project registry, never a count-based prune (inherited, root corrected)'
+tradeoff_evidence_requires_reachable_history: 'Risk: the evidence join can only suppress
+  a STALE row when the anchoring commit is reachable, so a depth-1 CI clone or a fresh
+  shallow worktree sees the precise digest verdict with no self-healing; the safe
+  direction, and the reason stale --strict fails only on STALE_PATH (structural rot
+  is check''s); a repo-wide stale --all --strict job should run on a full clone or
+  accept STALE noise (inherited)'
+tradeoff_fail_closed_bootstrap_cost: 'Disadvantage: fail-closed enforcement means
+  each repo pays a bootstrap - a waiver pass before testmap_check, a green full run
+  before require_stamp and --strict, a green runner list before the structural rules
+  fail, min_scored_full_runs before testmap_run (n006). Now owned rather than described:
+  the onboarding skill''s phase ledger sequences it, the seeder replaces most of the
+  hand waiver pass (measured on aitasks: 88% of bash tests and 80% of Python tests
+  carry a literal invocation or import that seeds at least one edge), the first full
+  run is the project''s existing test_command wrapped as a suite runner, and acceptance
+  is incremental, so the attended cost is one onboarding session of a few hours per
+  repo plus a few rows per later task rather than a big-bang rewrite; the cost that
+  remains is the judgement in classify and accept, which no seeder can take (n006,
+  cost re-cut by onboarding)'
+tradeoff_flaky_pass_anchors: 'Risk: a flaky pass anchors evidence as surely as a real
+  one; mitigated by per-run status in the ledger so costs exposes a flake rate per
+  id, and an id above flake_threshold is excluded from the evidence join (inherited)'
+tradeoff_generated_brief_limits: 'Disadvantage: a brief computed from the registry
+  cannot say what a project''s people know about when a narrow run is acceptable,
+  which device is the real test device, or why RTL is the design gate - thinking_app''s
+  testing prose carries exactly that; mitigated by config.yaml docs: (paths the brief
+  prints, so the prose is one hop away and named) and notes: (<=10 verbatim lines
+  for the rules that must not be one hop away), and by the seeded instructions telling
+  agents to read the brief before touching a test tool; the limit that stays is that
+  notes: is prose an agent may still misread, which the gates and the full completion
+  gate backstop'
+tradeoff_home_migration_window: 'Risk: when run, the migration has a sub-millisecond
+  window between rmdir ~/.aitask and ln -s during which a concurrent process that
+  hardcodes the legacy path (rather than using the resolver) sees ENOENT; narrowed
+  by the flock, by symlinking immediately after the rmdir, and by refusing while another
+  ait holds the home lock - not eliminated. Measured surface: 8 framework code files
+  with 35 references (21 in aitask_setup.sh), 20 test files, 18 doc files, the venv''s
+  absolute shebangs and two symlink trees - none rewritten by the migration, all resolving
+  through the symlink. And its refusal cases are the ones a designer does not see
+  on their own host: n004''s known-entry set lacked pypy_venv, which this host carries.
+  Both are why the verb is explicit in this release and the default flip waits for
+  the real-install test (n004''s risk, re-measured and scoped to the verb)'
+tradeoff_intersection_can_underselect: 'Risk: an axis-source hit is sharper than a
+  file edge - it selects only the variants carrying the facet value - and is therefore
+  capable of missing a real coupling that a plain covers edge (every variant) would
+  have caught, e.g. a font family assigned to the wrong locale''s glob. Narrowed structurally:
+  under-selection needs an explicit, reviewable wrong glob, never an omission, because
+  a file matching no axis source reaches every variant; score on a full run raises
+  missing-axis-source; observed sources may only widen; --axis and --format tokens
+  with preview are the reviewer''s escape; and every variant row prints the facet
+  value that placed it, so what a sharp selection excluded is visible in the prediction
+  record (n004''s risk, restated for the facet join)'
+tradeoff_member_annotation_drift: 'Risk: a member unit''s annotation lives in a block
+  keyed by name (testmap:unit Welcome) and the runner''s list keys the same member
+  by another artifact (the golden manifest''s Welcome_<matrix>.png); a rename on one
+  side orphans the other; mitigated by check reporting a listed member with no block
+  (UNANNOTATED_MEMBER) and a block with no listed member (DEAD_MEMBER), both fail-closed,
+  by scan --apply refusing rather than guessing, and by thinking_app''s own manifest/@Test
+  drift loop failing the rename on its side (inherited from n005)'
+tradeoff_noarch_packages_preserved: 'Advantage: Homebrew, AUR, .deb, .rpm and the
+  tarball ship nothing compiled; the per-arch concern is contained in one release
+  job and one setup function (inherited)'
+tradeoff_onboarding_partial_coverage: 'Disadvantage: onboarding cannot map what no
+  origin reaches - thinking_app''s same-package tests (imports resolve for 139 of
+  339 files), fixture-driven tests, and any source with no naming, invocation, import,
+  co-change or coverage relation - so a freshly onboarded repo has UNMAPPED_SOURCE
+  rows and area-only coverage for a share of its tree; mitigated by the waivers phase
+  (rules for hot directories, expiring waivers for the rest) so check can be enabled
+  non-strict, by the Step-7 UNMAPPED_SOURCE prompt that maps a source the first time
+  a task touches it, by opt-in per-unit coverage where the tool supports it, and by
+  the full gate staying the completion criterion; the honest reading of `onboard status`
+  after one session is ''selecting on most tests, claiming on few'', and the design
+  treats that as a state, not a failure'
+tradeoff_real_scheduler: 'Advantage: goroutines plus flock(2) give correct cross-worktree
+  contention and a critical-path report; the shell suite and the pytest lane get the
+  enforced do-not-overlap that is only a comment today; a variant batch is one Gradle
+  invocation holding one heavy-run slot, ordered after cheaper invocations in its
+  wave; thinking_app''s heavy-run lock and emulator allocator become declared resources
+  the schedule report can reason about (merged)'
+tradeoff_registry_directory_complexity: 'Disadvantage: a merged registry directory
+  needs more CLI logic than a single file would - now six tables, two generated files,
+  an id grammar with member and variant fragments and an artifact column in list;
+  kept to one directory with one merge rule in one Go package with golden tests, no
+  second plugin directory or generated cell table, and the axis table is empty for
+  every project that declares none (merged)'
+tradeoff_resource_declaration_completeness: 'Risk: declared resources are only as
+  complete as the declarations; an undeclared interference is invisible until a full
+  run or a probe finds it; serial-by-default at bootstrap means declarations are reviewed
+  in the schedule report before concurrency is trusted (inherited)'
+tradeoff_seed_noise: 'Risk: heuristic seeds are wrong in both directions - naming
+  pairs a test with a homonym, an import names a helper the test only uses, co-change
+  ties every file of a wide task to every test of that task (thinking_app: 7.2 main
+  files per co-changing commit), and a wrong seed selects tests that cannot fail for
+  the change. Mitigated by seeds selecting (wasted minutes) and never claiming (no
+  false EVIDENCED), by the confidence table ordering review rather than gating it,
+  min_cochange 2 across distinct tasks, imports restricted to direct main-root imports
+  (same-package facts excluded), the evidence printed beside every seed at review,
+  rejection memory in onboard.yaml, and the suite budget and --format tokens for a
+  repo where over-selection is expensive; what remains is reviewer fatigue on a 1,000-seed
+  queue, which the per-area batches and the in-gate incremental path spread over time'
+tradeoff_setup_network_fetch: 'Disadvantage: ait setup gains the framework''s first
+  self-downloaded release asset; mitigated by reusing the CDN URL family install.sh
+  already uses, SHA256SUMS verification, the .sha256 sidecar, --no-testmap / AIT_TESTMAP_FETCH=0,
+  the shim never fetching on its own, and setup never depending on the binary for
+  anything else (inherited)'
+tradeoff_split_home_rejected: 'Disadvantage of the alternative n005 took as permanent
+  and n004 rejected: installing only the engine at ~/.aitasks/engine/ and leaving
+  venv, pypy_venv, python, bin and uv at ~/.aitask/ satisfies the mandate literally
+  with zero migration risk, but leaves a user with two dot-directories one character
+  apart holding halves of one install, which ait setup --repair, ait engine prune,
+  backup advice and every doc page would have to explain forever. Chosen: the split
+  as the transition, not the end state - the migration is designed, shipped as an
+  explicit verb and testable now, with the symlink making it reversible (rm ~/.aitask
+  && mv ~/.aitasks ~/.aitask), and becomes ait setup''s default in a named follow-up
+  (n004''s argument, n005''s timing)'
+tradeoff_stamp_churn: 'Disadvantage: confirming stamps rewrites test files - a source
+  named by 72 tests could yield a 72-file diff (n006: EVIDENCED needs no rewrite,
+  --confirm-source is one commit, member blocks keep a screen''s stamps in one file,
+  variants carry no stamp, KIND_MISMATCH nudges fan-out toward a scope or axis); onboarding
+  adds the largest rewrite of all - accepting seeds touches most test files once (aitasks:
+  up to ~700 files) - mitigated by seeds selecting without any rewrite, by accept
+  being batched per area into `chore: Accept testmap seeds for <area> (t<id>)` commits
+  that add comment lines only, and by the incremental path that accepts a file''s
+  seeds only when a task already has it open'
+tradeoff_static_scanner_overselection: 'Disadvantage: static scanners overselect on
+  hot files and cannot see runtime coupling; a shared component (thinking_app''s ui/components/*)
+  fans out to most screens on every matrix, which is the correct answer and close
+  to a full run, and ScreenFixtures.kt reaches every member because the change surface
+  is file-level; kind ranking, the suite budget and --budget-s trim scoped rows first,
+  the android-res symbol scanner narrows a catalog edit to the screens naming the
+  changed keys, a project scanner plugin can narrow a hot resource file, and hunk-level
+  attribution inside a member file is the later narrowing tool (merged)'
+tradeoff_strict_version_handshake: 'Risk: the binary must match .aitask-scripts/VERSION
+  exactly, so an ait upgrade on a host that cannot fetch leaves ait testmap refusing
+  to run until a matching binary is supplied; intended fail-closed behaviour, and
+  the error names the fix (ait setup, AIT_TESTMAP_BIN, ait engine build) and the $AITASKS_HOME
+  path it looked in (inherited)'
+tradeoff_two_edge_states_during_adoption: 'Disadvantage: until the seed queue is empty
+  a repo has two kinds of edge - accepted (stamped, evidenced, stale-checked) and
+  seeded (selecting only) - and a reader of a selection or a check report must keep
+  them apart; mitigated by the seeded origin printed on every row, SEEDED:<n> on check
+  and stale --all, `onboard status` as the one place the ratio lives, and the rule
+  that no seed ever changes a freshness verdict; the cost is real: --strict cannot
+  be enabled while UNMAPPED_SOURCE rows are only seed-covered, so a repo that never
+  finishes accepting stays at bootstrap enforcement indefinitely, which `onboard status`
+  makes visible rather than silent'
+tradeoff_two_toolchains: 'Disadvantage: bash and Go in one framework; mitigated by
+  the boundary rule (parse/walk/match/digest/schedule in Go; gate ledger, task file
+  and shell environment in bash; builtins exec configured commands and never source
+  shell state), the engine-check.yml job, and Go source confined to engine/ and excluded
+  from the tarball so target projects never need Go (inherited)'
+tradeoff_two_user_roots: 'Disadvantage: until ait engine home --migrate is run, a
+  host carries ~/.aitask/ (venv, pypy_venv, python, bin, uv) and ~/.aitasks/ (engine)
+  side by side, and a user who deletes one to reset the framework removes half of
+  it; mitigated by one variable (AITASKS_HOME) with one library owner, ait setup printing
+  both roots and the HOME_LEGACY: hint, ENGINE_MISSING naming the exact path, ait
+  engine home reporting the state, a test that fails if any script of this feature
+  names ~/.aitask/, and the migration verb existing now rather than as an unowned
+  ''later change'' (n005, narrowed by n004''s verb)'
+tradeoff_whole_run_filter_soundness: 'Risk: where a runner''s filter restricts a whole
+  test run (Gradle --tests on thinking_app''s single testDebugUnitTest task), every
+  class not selected is silently not run, so a narrow selection is only as sound as
+  the test-side closure, the reads globs and the opaque contract; mitigated by list
+  enumerating the whole universe so an unlisted class fails check, the test-dep closure
+  over abstract bases and helpers, testmap:reads on tree-scanning helpers (71 SourceFence
+  importers stay selected on any Kotlin change), ESCALATE on opaque files, red-proof
+  fixtures per branch, readiness gating the run gate on scored history, and the project
+  keeping its full suite as the completion gate until readiness is met - the risk
+  n004''s cell selection would have carried unmitigated (inherited from n005)'
+tradeoff_workflow_surface_growth: 'Disadvantage: the seam adds one task-workflow procedure
+  file, one profile key, one dispatcher verb, one skill-invoked helper (five allowlist
+  touchpoints - .claude/settings.local.json, .codex/rules/default.rules and the three
+  seeds - pinned by tests/test_touchpoint_count_contract.sh), a Step-7 render change
+  across every profile x agent golden, two aitask-qa procedure edits, a seed-instructions
+  edit and a static skill with two wrapper surfaces; mitigated by all of it degrading
+  to a printed skip where the engine is absent (no environment conditionals), by the
+  helper reusing the exact VERDICT:/REASON: contract and capture form the build-verification
+  path already teaches, and by aitask_skill_verify.sh plus the goldens catching a
+  drifted render before commit'

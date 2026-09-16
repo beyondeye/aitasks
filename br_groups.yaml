@@ -58,8 +58,9 @@ groups:
     agents:
     - explorer_003a
     - explorer_003b
-    status: Waiting
+    status: Completed
     created_at: 2026-09-16 11:55
     head_at_creation: n006_synthesizer_002
-    nodes_created: []
+    nodes_created:
+    - n007_explorer_003a
     subgraph: _umbrella
