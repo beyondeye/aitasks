@@ -19,3 +19,7 @@ groups:
   sequence: 5
   description: ''
   created_at: '2026-09-16 08:01:56'
+- name: explore_003
+  sequence: 6
+  description: ''
+  created_at: '2026-09-16 08:55:43'
