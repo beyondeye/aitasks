@@ -3,11 +3,12 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [ait_brainstorm, tui, textual, modal_dismiss]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-09-16 11:22
-updated_at: 2026-09-16 11:22
+updated_at: 2026-09-16 11:34
 ---
 
 ## Symptom (as reported)
