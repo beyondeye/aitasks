@@ -1,8 +1,83 @@
 node_id: n000_init
 parents: []
-description: 'Imported proposal (awaiting reformat): t1812_selective_testing_proposal.md'
+description: A source-to-tests map with graded selection, a standard runner contract,
+  and declared concurrency for aitasks.
 proposal_file: br_proposals/n000_init.md
-created_at: 2026-09-15 09:26
+created_at: 2026-09-15 09:27
 created_by_group: bootstrap
 reference_files:
 - /home/ddt/Work/aitasks/aiwork/t1812_selective_testing_proposal.md
+- aitasks/t1812_selective_testing_source_to_tests_map_graded_selection_runne.md
+requirements_generic_across_projects: A framework feature, generic across projects
+  (aitasks, thinking_app, thinking_backend, aitasks_go, aitasks_mobile), that maintains
+  a relation between source files and test units
+requirements_reason_per_selected_test: Translates a task's change set into the set
+  of tests that must run, with a reason on every line
+requirements_standard_runner_contract: Runs selected tests through project-defined
+  runners under a standard contract (describe/list/run verbs)
+requirements_cost_tracking: Tracks cost per test unit, keyed by host class, using
+  Welford's online update (n, mean, standard deviation, p95, last)
+requirements_feedback_loop: Learns from failures the map did not predict, via a score/attribute
+  feedback loop
+requirements_gate_enforcement: 'Enforced by gates so the map cannot rot silently:
+  a selection gate and a check gate, fail-closed with explicit waivers'
+requirements_agent_skill: 'Agent skills teach agents how to keep the map current as
+  they write code and tests: annotate, attribute, waive'
+assumption_static_granularity_v1: Static file-level facts are enough for v1 - no scanner
+  in use today produces symbol-level coverage; the schema keeps an optional symbols
+  slot on an edge so a hunk-level matcher can be added later
+assumption_change_surface_is_intake: The change-surface script's attribution (aitask_change_surface.sh)
+  is the right intake; selection never reads a raw git diff, and an UNKNOWN path refuses
+  selection
+assumption_existing_locks_wrappable: Existing project locks and allocators (thinking_app's
+  heavy-run lock, emulator allocation) can be wrapped as resources without changing
+  them
+assumption_gate_exit_contract_reused: The gate verifier's exit-contract mapping (gate_command_exit_contract)
+  is reused unchanged for the new runner exit codes
+assumption_batch_per_unit_timing_reportable: Runners can report per-unit timing inside
+  a batch from their tool's own report format (JUnit XML, go test -json, pytest junitxml)
+assumption_target_repos_accept_aitestmap_root: Every target repo will accept a root
+  aitestmap/ directory and runner scripts committed into its code tree
+assumption_testmap_token_no_collision: The annotation token 'testmap:' does not collide
+  with existing prose comments in any target repo
+component_registry_loader: 'Registry loader and writer: merges aitestmap/registry/*.yaml,
+  enforces owns: routing and the check rules'
+component_annotation_scanner: 'Annotation scanner: per file type, produces _scanned.yaml
+  from testmap:covers/kind/runner/needs/batch comment lines'
+component_dependency_scanners: 'Dependency scanners: per language, plugin slot, produce
+  reverse-dependency facts cached by content digest'
+component_selector: 'Selector: the graded walk, rules engine (select/implies/escalate),
+  change-set intake from the change-surface script, prediction record writer'
+component_runner_contract: 'Runner contract and runner repository: describe/list/run
+  verbs, manifest and results.jsonl formats, exit contract 0/1/2/75, bindings, per-test
+  overrides'
+component_scheduler_resources: 'Scheduler and resources: scopes (host/worktree/run),
+  kinds (mutex/semaphore/admission/allocator), acquisition order, batching, the schedule
+  report'
+component_cost_ledger: 'Cost ledger: local ledger under the XDG cache, committed per-host-class
+  summaries, costs --update fold step'
+component_feedback_tools: 'Feedback tools: score splits a full run''s failures into
+  caught/missed against a prediction record; attribute records a missing-edge/test-wrong/source-wrong
+  decision'
+component_gates: 'Gates: two machine gates registered in gates.yaml - a selection-run
+  gate and a check gate'
+component_skill: 'Skill: teaches agents the annotation, attribution and waiver obligations'
+component_reference_runners: 'Reference runners: bash-file, pytest, go-test, gradle-class,
+  a whole-suite wrapper, a device runner using an allocator'
+tradeoff_computed_vs_prose: 'Advantage: selection is computed, explained and scored
+  rather than remembered; blast radius becomes data instead of prose'
+tradeoff_registry_directory_complexity: 'Disadvantage: a merged registry directory
+  needs more CLI logic than a single file would'
+tradeoff_fail_closed_bootstrap_cost: 'Disadvantage: fail-closed enforcement means
+  bootstrapping each repo requires an explicit waiver pass before the gate can be
+  enabled'
+tradeoff_static_scanner_overselection: 'Disadvantage: static scanners overselect on
+  hot files and cannot see runtime coupling'
+tradeoff_resource_declaration_completeness: 'Risk: declared resources are only as
+  complete as the declarations; an undeclared interference is invisible until a full
+  run or a probe finds it'
+tradeoff_attribution_risk: 'Risk: an agent that edits sources without attributing
+  produces a map that looks current and is not, which only a full-run score can catch'
+tradeoff_batch_misreport_risk: 'Risk: a batch runner that misreports per-unit results
+  corrupts both attribution and cost; a wrongly scoped resource either serialises
+  everything or protects nothing'
