@@ -1,6 +1,6 @@
-current_head: n007_explorer_003a
+current_head: n008_explorer_003b
 current_heads:
-  _umbrella: n007_explorer_003a
+  _umbrella: n008_explorer_003b
 history:
   _umbrella:
   - n000_init
@@ -11,7 +11,8 @@ history:
   - n004_explorer_002a
   - n006_synthesizer_002
   - n007_explorer_003a
-next_node_id: 9
+  - n008_explorer_003b
+next_node_id: 10
 active_dimensions:
 - requirements_go_engine_and_cli
 - requirements_platform_binaries_in_release
@@ -105,6 +106,29 @@ active_dimensions:
 - tradeoff_seed_noise
 - tradeoff_two_edge_states_during_adoption
 - tradeoff_workflow_surface_growth
+- assumption_annotation_is_comment_only
+- assumption_cochange_is_corroboration
+- assumption_full_run_expressible_per_repo
+- assumption_helpers_separable_by_fanin
+- assumption_instruction_block_is_read
+- assumption_static_closure_seeds_edges
+- assumption_task_resolvable_from_session
+- component_agent_instructions
+- component_completion_policy
+- component_onboarding_engine_verbs
+- component_qa_integration
+- component_test_entrypoint
+- component_workflow_seam
+- requirements_agent_instructions_seeded
+- requirements_onboarding_existing_tests
+- requirements_workflow_seam_is_data
+- requirements_zero_config_entrypoint
+- tradeoff_bulk_confirmation_granularity
+- tradeoff_dispatcher_verb_added
+- tradeoff_fallback_runs_more
+- tradeoff_one_gate_not_two
+- tradeoff_seed_precision
+- tradeoff_verify_build_wired_suites
 module_tasks: {}
 last_synced_at: {}
 module_deferred: {}
