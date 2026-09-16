@@ -172,6 +172,10 @@ def _fixtures():
         dict(locks=pa.LockEvidence("allow-cached", "cached", 900, None)),
         dict(locks=pa.LockEvidence("require-fresh", "cached", 900, "no_reflog")),
         dict(locks=pa.LockEvidence("require-fresh", "unavailable", None, "timeout")),
+        # t1688: description-derived surfaces, on each side.
+        dict(inflight=[c(paths=("a.py",), provenance="task_declared")]),
+        dict(candidate=s("cand", ("a.py",), provenance="task_declared"),
+             inflight=[c(paths=("z.py",))]),
     ]
 
 
@@ -221,6 +225,9 @@ class ClosedSetTests(unittest.TestCase):
                 elif prefix == "INFLIGHT":
                     self.assertIn(rest.split("|")[2], vocab.LIVENESS_CLASSES)
                     self.assertIn(rest.split("|")[4], vocab.PATH_STATES)
+                    self.assertIn(rest.split("|")[5], vocab.PROVENANCES)
+                elif prefix == "CANDIDATE":
+                    self.assertIn(rest.split("|")[1], vocab.PROVENANCES)
                 elif prefix == "INFLIGHT_SOURCE":
                     self.assertIn(rest.split("|")[0], vocab.SOURCE_NAMES)
                     self.assertIn(rest.split("|")[1], vocab.SOURCE_STATUSES)
@@ -253,6 +260,27 @@ class UpstreamDriftTests(unittest.TestCase):
             self.assertIn(code, decl[0],
                           "%r is imported from the gatherer but is no longer in "
                           "its declared vocabulary -- reconcile, do not fork" % code)
+
+    def test_the_task_declared_marker_is_in_both_gatherer_grammars(self):
+        """The adapter consumes the marker by name (t1688); the producer's
+        declared grammar -- the skill contract AND the module docstring -- must
+        carry it, or the marker is an undocumented class a consumer files as
+        phantom."""
+        contract = os.path.join(REPO_ROOT, ".claude", "skills", "aitask-trail",
+                                "SKILL.md.j2")
+        src = os.path.join(LIB_DIR, "trail_gather.py")
+        for path in (contract, src):
+            if not os.path.isfile(path):
+                self.skipTest("%s not present" % path)
+            with open(path, encoding="utf-8") as fh:
+                decl = [l for l in fh.read().splitlines()
+                        if l.strip().startswith("INFLIGHT_PATH:<ref>|")]
+            self.assertTrue(decl, path)
+            self.assertIn("task_declared", decl[0], path)
+
+    def test_advisory_overlap_caveats_are_declared_caveats(self):
+        for code in vocab.ADVISORY_OVERLAP_CAVEATS:
+            self.assertIn(code, vocab.CAVEAT_REASONS)
 
     def test_lock_cache_reasons_match_trail_gather(self):
         src = os.path.join(LIB_DIR, "trail_gather.py")

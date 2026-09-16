@@ -37,8 +37,12 @@ outcome including ERROR lines, 2 usage, 3 infra):
   Only under --with-inflight (t1569_1) -- VOLATILE, see the determinism note:
     INFLIGHT_SOURCE:<gate|lock|tracked>|<ok|degraded|unavailable|not_consulted>|<age_seconds|->|<reason|->
     INFLIGHT:<ref>|<gate|lock|both>|<PLAN|IMPLEMENT|POSTIMPL|->|<archive_status>
-    INFLIGHT_PATH:<ref>|<tracked|planned_new|phantom|malformed|no_tokens|unreadable|no_plan|unclassified>|<path|->
+    INFLIGHT_PATH:<ref>|<tracked|planned_new|phantom|malformed|no_tokens|unreadable|no_plan|unclassified|task_declared>|<path|->
     INFLIGHT_SCAN:<n_tasks>|<corpus_status>|<source_status>
+
+  `task_declared` is a provenance MARKER, not a class (t1688):
+  `INFLIGHT_PATH:<ref>|task_declared|-` precedes the classified records of an
+  in-flight task that has no plan but whose description names paths.
 
 Deterministic ordering: INPUT lines in canonical (kind, ref) order (the
 same order the digest hashes), MEMBER / MEMBER_EXT lines sorted by ref,
@@ -820,10 +824,27 @@ def _classify_plan_paths(row, tree, tracked, tracked_dirs):
     (durable, nothing to retry) from "plans exist but none could be read" (an
     I/O failure, retryable) -- the per-task sentinels already separate them, and
     a global field must not be less precise than the lines it summarizes.
+
+    A task with no plan is read from its DESCRIPTION (t1688): when the body
+    (frontmatter stripped, cut at the first `## Inbox` / `## Gate Runs`) yields
+    a non-malformed token, the records are a `task_declared` marker followed by
+    EVERY classified token. Emitting all of them is deliberate: this gatherer
+    sees the code branch only, so a task-data path classifies `phantom` here,
+    and the phantom-only judgement belongs to the adapter, which holds the
+    task-data corpus. `has_plan`/`read_ok`/`yielded` stay False either way --
+    the corpus axis is about plans.
     """
     plan = plan_path_for(row, tree) if row is not None else None
     if plan is None:
-        return [("no_plan", "-")], False, False, False
+        if row is None:
+            return [("no_plan", "-")], False, False, False
+        tokens = plan_paths.extract(plan_paths.task_body_text(row.text))
+        if not any(not plan_paths.is_malformed(t) for t in tokens):
+            return [("no_plan", "-")], False, False, False
+        return ([("task_declared", "-")]
+                + [(plan_paths.classify(t, tracked, tracked_dirs), t)
+                   for t in tokens],
+                False, False, False)
     try:
         tokens = plan_paths.extract_file(plan)
     except (OSError, UnicodeDecodeError):
@@ -969,6 +990,10 @@ def _corpus_status(n_tasks: int, n_plan: int, n_read: int, n_yield: int,
     Unreadable and absent plans are EXCLUDED rather than counted as empty:
     counting them would let one permissions error file an I/O failure as a
     durable corpus fact.
+
+    A task read from its description (t1688 `task_declared`) is not a plan
+    here: it counts toward `no_plans` like any other plan-less task, because
+    this axis reports plan evidence and the marker already names the rest.
     """
     if truncated:
         return "truncated"

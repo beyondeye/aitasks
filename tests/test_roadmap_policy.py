@@ -55,10 +55,16 @@ def origin_fact(task_id, origin, quality="exact", rch="-", rga="-",
         (task_id, origin, quality, rch, rga, source))
 
 
-def admission(verdict, overlaps=()):
-    """An AdmissionResult with the verdict and OVERLAP rows a real run emits."""
-    lines = tuple("OVERLAP:%s|specific|1|%s" % (ref, path)
-                  for ref, path in overlaps) + ("VERDICT:%s" % verdict,)
+def admission(verdict, overlaps=(), caveats=()):
+    """An AdmissionResult with the verdict and OVERLAP rows a real run emits.
+
+    ``overlaps`` entries are ``(ref, path)`` -- a ``specific`` row -- or
+    ``(ref, path, cls)``; ``caveats`` are raw ``CAVEAT:`` lines.
+    """
+    rows = tuple("OVERLAP:%s|%s|1|%s" % (o[0], o[2] if len(o) > 2 else "specific",
+                                         o[1])
+                 for o in overlaps)
+    lines = rows + tuple(caveats) + ("VERDICT:%s" % verdict,)
     return pa.AdmissionResult(verdict=verdict, lines=lines)
 
 
@@ -561,6 +567,33 @@ class TrailEncodingTests(unittest.TestCase):
         self.assertEqual(relation["type"], "coordinates_with")
         self.assertEqual(relation["provenance"], "advisory")
         self.assertEqual((relation["from"], relation["to"]), (ref, inflight))
+        self._assert_valid(document)
+
+    def test_a_mixed_conflict_relates_only_to_the_real_counterparty(self):
+        """A CONFLICT that also carries a description-derived overlap (t1688):
+        the advisory one is neither an edge nor a conflict `affects`, and the
+        caveat that says why survives on the entry."""
+        ref = "%s#100" % PROJECT
+        strong, weak = "%s#900" % PROJECT, "%s#901" % PROJECT
+        roadmap = rp.build(
+            rp.parse_members(member("100")),
+            rp.parse_origin_facts([origin_fact("100", "9000")]),
+            {ref: admission(
+                "CONFLICT",
+                overlaps=[(strong, "hot.py"), (weak, "cited.py", "declared")],
+                caveats=["CAVEAT:inflight:%s|task_declared_overlap:cited.py"
+                         % weak])},
+            {}, {}, (), NOW_ORD)
+        document = rp.to_trail(roadmap.entries, "trail-backlog-roadmap", "T",
+                               "%s#1569" % PROJECT,
+                               SCOPE, GENERATION, FRESHNESS, NARRATIVE,
+                               EVIDENCE, inflight_refs=[strong, weak])
+        self.assertEqual([r["to"] for r in document["relations"]], [strong])
+        conflict = [o for o in document["observations"]
+                    if o["kind"] == "in_flight_conflict"][0]
+        self.assertEqual(conflict["affects"], [ref, strong])
+        self.assertIn("inflight:%s: task_declared_overlap:cited.py" % weak,
+                      roadmap.entries[0].caveats)
         self._assert_valid(document)
 
     def test_a_zero_candidate_scope_raises_instead_of_emitting_empty_waves(self):

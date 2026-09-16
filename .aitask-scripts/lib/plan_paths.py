@@ -10,7 +10,10 @@ need this and must not drift apart:
   * ``lib/trail_gather.py`` (Python) -- emits ``INFLIGHT_PATH:`` records under
     ``--with-inflight``. Imports this module directly.
 
-t1569_3's parallel-admission checker is a third consumer, also by import. The
+t1569_3's parallel-admission checker is a third consumer, also by import. Since
+t1688 both importers also read task DESCRIPTIONS, for a task that has no plan
+yet (``task_body_text`` / ``cut_task_framework_sections``) -- the same grammar
+and classifier over a different document, never a second extractor. The
 extraction previously lived inline in the drift check as a one-line
 ``grep -oE ... | sed | sort -u`` pipeline; forking it would guarantee divergence
 on the edges recorded in
@@ -75,6 +78,37 @@ CLASSES = ("malformed", "tracked", "planned_new", "phantom")
 def extract(text: str) -> list[str]:
     """Every distinct path token in `text`, `./`-stripped, codepoint-sorted."""
     return sorted({_strip_dot_slash(m) for m in _TOKEN.findall(text)})
+
+
+def cut_task_framework_sections(body: str) -> str:
+    """Truncate a task body at the first framework-appended section.
+
+    `## Inbox` (note framework) is inserted BEFORE `## Gate Runs`
+    (aitask_note.sh), so cutting only at Gate Runs would leave other agents'
+    note prose -- arbitrary paths from other tasks -- in a task-declared
+    surface. Note bodies cannot fake either header: every body line is prefixed
+    `> | `, so an anchored match on the bare header is exact.
+    """
+    import gate_ledger   # lazy: keeps the plan_paths_sh.sh bridge's load path unchanged
+    import note_inbox
+    headers = (note_inbox.SECTION_HEADER, gate_ledger.SECTION_HEADER)
+    pattern = re.compile(
+        r"^(?:%s)[ \t]*$" % "|".join(re.escape(h) for h in headers), re.MULTILINE)
+    match = pattern.search(body)
+    return body if match is None else body[:match.start()]
+
+
+def task_body_text(raw: str) -> str:
+    """A task file's declared text: frontmatter stripped, framework sections cut.
+
+    The frontmatter shape is `parallel_admission_collect.strip_frontmatter`'s:
+    a leading `---` block closed by the next `\\n---`.
+    """
+    if raw.startswith("---"):
+        end = raw.find("\n---", 3)
+        if end != -1:
+            raw = raw[end + 4:]
+    return cut_task_framework_sections(raw)
 
 
 def extract_file(path) -> list[str]:

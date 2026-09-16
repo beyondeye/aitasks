@@ -30,13 +30,14 @@ def surface(ref, paths=(), resolution="resolved", provenance="plan_declared"):
 
 
 def claim(ref="t9", paths=("shared.py",), liveness="live", age=0,
-          resolution="resolved", same_host=True, age_reason=None, at=None):
+          resolution="resolved", same_host=True, age_reason=None, at=None,
+          provenance="plan_declared"):
     return pa.InflightClaim(
         ref=ref, sources=("lock",), task_status="Implementing", liveness=liveness,
         same_host=same_host,
         claim_at_s=(NOW - age) if (at is None and age_reason is None) else at,
         claim_age_reason=age_reason,
-        surface=surface(ref, paths, resolution))
+        surface=surface(ref, paths, resolution, provenance))
 
 
 def build(candidate=None, inflight=(), touch=None, **kw):
@@ -123,7 +124,7 @@ class TierTests(unittest.TestCase):
         self.assertFalse([l for l in out if l.startswith("OVERLAP:")])
         self.assertFalse([l for l in out if l.startswith("CAVEAT:")])
         # ...but stays visible, so the exclusion is auditable rather than silent.
-        self.assertIn("INFLIGHT:t9|lock|dead|1|resolved", out)
+        self.assertIn("INFLIGHT:t9|lock|dead|1|resolved|plan_declared", out)
 
     def test_positive_control_same_fixture_alive_conflicts(self):
         # Proves the dead fixture's paths really do intersect.
@@ -482,6 +483,203 @@ class NegativeControlTests(unittest.TestCase):
             self.assertNotEqual(
                 verdict(inflight=[claim(paths=("z.py",), liveness=liveness)]),
                 "CLEAR", liveness)
+
+
+class TaskDeclaredTests(unittest.TestCase):
+    """A no-plan task read from its description is unverified evidence (t1688)."""
+
+    def test_an_inflight_description_surface_grades_clear_caveated(self):
+        out = lines(inflight=[claim(paths=("z.py",), provenance="task_declared")])
+        self.assertIn("VERDICT:CLEAR_CAVEATED", out)
+        self.assertIn("CAVEAT:inflight:t9|task_declared", out)
+        self.assertIn("INFLIGHT:t9|lock|live|1|resolved|task_declared", out)
+
+    def test_control_the_same_claim_from_a_plan_is_bare_clear(self):
+        self.assertEqual(verdict(inflight=[claim(paths=("z.py",))]), "CLEAR")
+
+    def test_a_candidate_description_surface_grades_clear_caveated(self):
+        out = lines(candidate=surface("cand", ("a.py",), provenance="task_declared"))
+        self.assertIn("VERDICT:CLEAR_CAVEATED", out)
+        self.assertIn("CAVEAT:candidate|task_declared", out)
+        self.assertIn("CANDIDATE:cand|task_declared|1|resolved|n/a", out)
+
+    def test_an_advisory_tier_description_claim_gets_no_task_declared_caveat(self):
+        out = lines(inflight=[claim(paths=("z.py",), age=20 * DAY,
+                                    provenance="task_declared")])
+        self.assertFalse([l for l in out
+                          if l.startswith("CAVEAT:") and "|task_declared" in l])
+
+    def test_an_undeclared_inflight_provenance_raises(self):
+        bad = pa.InflightClaim(ref="t9", sources=("lock",), liveness="live",
+                               same_host=True, claim_at_s=NOW,
+                               surface=surface("t9", ("z.py",),
+                                               provenance="not_a_provenance"))
+        with self.assertRaises(vocab.VocabularyError):
+            pa.decide(build(inflight=[bad]))
+
+
+class TaskDeclaredOverlapTests(unittest.TestCase):
+    """Description evidence reports an overlap; it never asserts a conflict."""
+
+    def test_an_inflight_description_overlap_is_declared_not_a_conflict(self):
+        out = lines(inflight=[claim(paths=("a.py",), provenance="task_declared")])
+        self.assertIn("VERDICT:CLEAR_CAVEATED", out)
+        self.assertIn("OVERLAP:t9|declared|0|a.py", out)
+        self.assertIn("CAVEAT:inflight:t9|task_declared_overlap:a.py", out)
+        self.assertIn("CAVEAT:inflight:t9|task_declared", out)
+        self.assertFalse([l for l in out
+                          if l.startswith("OVERLAP:") and "|specific|" in l])
+
+    def test_a_candidate_description_overlapping_a_plan_is_declared_too(self):
+        out = lines(candidate=surface("cand", ("a.py",), provenance="task_declared"),
+                    inflight=[claim(paths=("a.py",))])
+        self.assertIn("VERDICT:CLEAR_CAVEATED", out)
+        self.assertIn("OVERLAP:t9|declared|0|a.py", out)
+        self.assertIn("CAVEAT:inflight:t9|task_declared_overlap:a.py", out)
+
+    def test_control_plans_on_both_sides_conflict(self):
+        out = lines(inflight=[claim(paths=("a.py",))])
+        self.assertIn("VERDICT:CONFLICT", out)
+        self.assertIn("OVERLAP:t9|specific|0|a.py", out)
+
+    def test_a_mixed_result_names_only_the_strong_counterparty(self):
+        result = pa.decide(build(inflight=[
+            claim(ref="t9", paths=("a.py",), provenance="task_declared"),
+            claim(ref="t10", paths=("a.py",))]))
+        self.assertEqual(result.verdict, "CONFLICT")
+        self.assertIn("OVERLAP:t9|declared|0|a.py", result.lines)
+        self.assertIn("OVERLAP:t10|specific|0|a.py", result.lines)
+        # The weak overlap is not masked: its evidence is still rendered.
+        self.assertIn("CAVEAT:inflight:t9|task_declared_overlap:a.py", result.lines)
+        display = [l for l in result.lines if l.startswith("DISPLAY:")][0]
+        self.assertIn("t10", display)
+        self.assertNotIn("t9", display)
+        self.assertEqual(pa.conflict_refs(result.lines), ("t10",))
+
+    def test_a_weak_overlap_on_a_hub_path_stays_hub(self):
+        out = lines(inflight=[claim(paths=("a.py",), provenance="task_declared")],
+                    touch={"a.py": 50})
+        self.assertIn("OVERLAP:t9|hub|50|a.py", out)
+        self.assertTrue(any("hub_overlap_only:a.py" in l for l in out))
+        self.assertFalse(any("task_declared_overlap" in l for l in out))
+
+    def test_an_advisory_tier_declared_overlap_carries_the_stale_caveat_only(self):
+        out = lines(inflight=[claim(paths=("a.py",), age=20 * DAY,
+                                    provenance="task_declared")])
+        self.assertIn("OVERLAP:t9|declared|0|a.py", out)
+        self.assertTrue(any("stale_claim_overlap:a.py" in l for l in out))
+        self.assertFalse(any("task_declared_overlap" in l for l in out))
+
+
+class ConflictRefsTests(unittest.TestCase):
+    """`conflict_refs` recovers `decide`'s own counterparties from its lines."""
+
+    def test_a_stale_claims_specific_row_is_not_a_counterparty(self):
+        result = pa.decide(build(inflight=[
+            claim(ref="t9", paths=("a.py",), age=20 * DAY),
+            claim(ref="t10", paths=("a.py",))]))
+        self.assertEqual(result.verdict, "CONFLICT")
+        # The stale claim still renders a `specific` row -- which is exactly
+        # why a consumer cannot read the class alone.
+        self.assertIn("OVERLAP:t9|specific|0|a.py", result.lines)
+        self.assertEqual(pa.conflict_refs(result.lines), ("t10",))
+
+    def test_a_hub_row_is_not_a_counterparty(self):
+        result = pa.decide(build(
+            candidate=surface("cand", ("a.py", "b.py")),
+            inflight=[claim(ref="t9", paths=("a.py",)),
+                      claim(ref="t10", paths=("b.py",))],
+            touch={"a.py": 50}))
+        self.assertEqual(pa.conflict_refs(result.lines), ("t10",))
+
+    def test_conflict_overlaps_decodes_the_path(self):
+        result = pa.decide(build(candidate=surface("cand", ("we|ird.py",)),
+                                 inflight=[claim(paths=("we|ird.py",))]))
+        self.assertEqual(pa.conflict_overlaps(result.lines), (("t9", "we|ird.py"),))
+
+    def test_nothing_conflicts_nothing_is_returned(self):
+        result = pa.decide(build(inflight=[claim(paths=("a.py",),
+                                                 provenance="task_declared")]))
+        self.assertEqual(pa.conflict_refs(result.lines), ())
+
+
+def _fake_classify(path, files, dirs):
+    """`plan_paths.classify`'s rule without importing it (this module is pure)."""
+    if path in files:
+        return "tracked"
+    parent = os.path.dirname(path)
+    return "planned_new" if parent and parent in dirs else "phantom"
+
+
+class AdapterTaskDeclaredTests(unittest.TestCase):
+    """The gatherer's `task_declared` marker and the injected classifier."""
+
+    def test_the_marker_retags_a_resolved_surface(self):
+        s = pa.surfaces_from_inflight_records([
+            "INFLIGHT_PATH:t9|task_declared|-",
+            "INFLIGHT_PATH:t9|tracked|a.py"])["t9"]
+        self.assertEqual((s.resolution, s.provenance, s.paths),
+                         ("resolved", "task_declared", ("a.py",)))
+
+    def test_a_marked_ref_that_resolves_nothing_is_no_plan_not_all_phantom(self):
+        s = pa.surfaces_from_inflight_records([
+            "INFLIGHT_PATH:t9|task_declared|-",
+            "INFLIGHT_PATH:t9|phantom|nowhere/x.py",
+            "INFLIGHT_PATH:t9|malformed|-x.md"])["t9"]
+        self.assertEqual((s.resolution, s.provenance, s.paths),
+                         ("no_plan", "plan_declared", ()))
+
+    def test_control_an_unmarked_phantom_only_plan_is_still_all_phantom(self):
+        s = pa.surfaces_from_inflight_records(
+            ["INFLIGHT_PATH:t9|phantom|nowhere/x.py"])["t9"]
+        self.assertEqual(s.resolution, "all_phantom")
+
+    def test_the_injected_classifier_promotes_a_new_file_under_a_data_directory(self):
+        line = ["INFLIGHT_PATH:t9|phantom|aitasks/metadata/profiles/custom.yaml"]
+        data = {"aitasks/metadata/profiles/fast.yaml"}
+        exact = pa.surfaces_from_inflight_records(line, data_tracked=data)["t9"]
+        self.assertEqual(exact.resolution, "all_phantom")
+        promoted = pa.surfaces_from_inflight_records(
+            line, data_tracked=data, data_dirs={"aitasks/metadata/profiles"},
+            classify=_fake_classify)["t9"]
+        self.assertEqual((promoted.resolution, promoted.paths),
+                         ("resolved", ("aitasks/metadata/profiles/custom.yaml",)))
+
+    def test_input_from_records_threads_the_classifier_through(self):
+        path = "aitasks/metadata/profiles/custom.yaml"
+        holder = pa.InflightClaim(ref="t9", sources=("lock",), liveness="live",
+                                  same_host=True, claim_at_s=NOW)
+        kw = dict(candidate_ref="cand", candidate_surface=surface("cand", (path,)),
+                  inflight_lines=["INFLIGHT_PATH:t9|phantom|" + path],
+                  batch_map_lines=[], inflight_claims=[holder], now=NOW,
+                  data_tracked={"x"}, data_dirs={"aitasks/metadata/profiles"})
+        self.assertEqual(
+            pa.decide(pa.input_from_records(classify=_fake_classify, **kw)).verdict,
+            "CONFLICT")
+        self.assertNotEqual(pa.decide(pa.input_from_records(**kw)).verdict,
+                            "CONFLICT")
+
+
+class TaskDeclaredNegativeControlTests(unittest.TestCase):
+    def test_no_description_surface_ever_conflicts_or_reads_bare_clear(self):
+        """Every provenance pair where either side is a description."""
+        provenances = ("plan_declared", "origin_derived", "task_declared")
+        checked = 0
+        for cand_prov in provenances:
+            for inf_prov in ("plan_declared", "task_declared"):
+                if "task_declared" not in (cand_prov, inf_prov):
+                    continue
+                for paths in (("a.py",), ("z.py",)):
+                    out = lines(
+                        candidate=surface("cand", ("a.py",), provenance=cand_prov),
+                        inflight=[claim(paths=paths, provenance=inf_prov)])
+                    what = (cand_prov, inf_prov, paths)
+                    self.assertNotIn("VERDICT:CONFLICT", out, what)
+                    self.assertNotIn("VERDICT:CLEAR", out, what)
+                    self.assertFalse([l for l in out if l.startswith("OVERLAP:")
+                                      and "|specific|" in l], what)
+                    checked += 1
+        self.assertEqual(checked, 8)
 
 
 if __name__ == "__main__":

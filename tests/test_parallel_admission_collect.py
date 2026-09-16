@@ -1259,5 +1259,207 @@ class SweepPopulationTests(unittest.TestCase):
         self.assertEqual(drift[2], 1)
 
 
+# A code-branch file the no-plan fixtures can name as a REAL path.
+REAL_CODE = ".aitask-scripts/lib/real.py"
+
+
+class _NoPlanScaffold(unittest.TestCase):
+    """Seams + a synthetic root for the no-plan / task-description tests (t1688).
+
+    TEST-FREE ON PURPOSE (see `_ReplayScaffold`). t9 is locked, in flight and
+    never has a plan; the candidate t11 has a plan naming PROFILE. `REAL_CODE`
+    is code-tracked and PROFILE is in the task-data corpus.
+    """
+
+    LIVE = {"hostname": "thisbox", "locked_at": "2026-08-30 08:00",
+            "pid": "1", "pid_starttime": "2", "pid_starttime_kind": "proc"}
+    # The fixture's own clock (see _FrozenClock): LIVE's lock is 5 minutes old.
+    NOW = col.parse_ts("2026-08-30 08:05")[0]
+    NO_PLAN = pa.Surface("9", "plan_declared", (), "no_plan", "n/a")
+
+    PATHLESS = "Tidy the wording of the thing; no file is named here.\n"
+    PHANTOM_ONLY = ("Edit `nowhere/ghost.py` and `src/missing/thing.sh` --\n"
+                    "neither exists on the code or the task-data branch.\n")
+    FRAMEWORK_SECTIONS_ONLY = (
+        "Tidy the wording of the thing; no file is named here.\n\n"
+        "## Inbox\n"
+        "<!-- Appended by the note framework. Do not edit by hand. -->\n\n"
+        "> **✉ note:t5** id=2026-08-30T08:00:00Z.aa from=t5\n"
+        ">\n"
+        "> | t5 edits `%s` and `%s`.\n\n"
+        "## Gate Runs\n\n"
+        "> **✅ gate:plan_approved** run=2026-08-30T08:00:00Z "
+        "status=pass note=%s\n" % (PROFILE, REAL_CODE, REAL_CODE))
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp(prefix="pa_nplc_")
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+        # The candidate (11) has a plan; the in-flight task (9) never does.
+        self._write("aiplans/p11_x.md", "# t11\n\nEdit `%s`.\n" % PROFILE)
+        self._saved = {n: getattr(col, n) for n in
+                       ("_GATE_PROBE", "_LOCK_PROBE", "_STATUS_PROBE",
+                        "_TRACKED_SETS", "_DATA_TREE", "_LIVENESS", "_FETCH",
+                        "_BATCH_MAP", "_LOCAL_HOST", "time")}
+        self.addCleanup(self._restore)
+        col._GATE_PROBE = lambda root: (pa.SourceEvidence("gate"), {})
+        col._LOCK_PROBE = lambda root: (pa.SourceEvidence("lock"), {"9": self.LIVE})
+        col._STATUS_PROBE = lambda root, **kw: (pa.SourceEvidence("status"), {})
+        col._TRACKED_SETS = lambda root: ({REAL_CODE},
+                                          {".aitask-scripts", ".aitask-scripts/lib"})
+        col._DATA_TREE = lambda root: ({PROFILE},
+                                       {"aitasks", "aitasks/metadata",
+                                        "aitasks/metadata/profiles"}, None)
+        col._LIVENESS = lambda pid, st, kind: "alive"
+        col._FETCH = lambda root: True
+        col._BATCH_MAP = lambda root, with_recovered=False: []
+        col._LOCAL_HOST = "thisbox"
+        col.time = _FrozenClock(self.NOW)
+
+    def _restore(self):
+        for name, value in self._saved.items():
+            setattr(col, name, value)
+
+    def _write(self, rel, text):
+        path = os.path.join(self.root, rel)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(text)
+
+    def _task(self, body):
+        self._write("aitasks/t9_x.md",
+                    "---\nstatus: Implementing\npriority: high\n---\n\n" + body)
+
+    def _base(self):
+        return col.collect(self.root, "11", source="plan",
+                           freshness="require-fresh", exclude_self=False,
+                           batch_lines=[])
+
+    def _claim_surface(self):
+        return {c.ref: c for c in self._base().inflight}["9"].surface
+
+
+class NoPlanFallbackControlTests(_NoPlanScaffold):
+    """What must STAY `no_plan` once a no-plan task is read from its description.
+
+    Pre-phase `pin_no_plan_controls` (t1688_1): written, and green, against the
+    code BEFORE the task-description fallback existed. The fallback may upgrade
+    a `no_plan` into a resolved `task_declared` surface only when the
+    description names a path resolving in the code or task-data corpus; each
+    case below names nothing that does, so each must read exactly `no_plan` --
+    on the in-flight side (`collect`) AND the candidate side
+    (`resolve_candidate_surface`) -- before and after the change.
+
+    Case (d) is the section-cut guard: the paths under `## Inbox` and
+    `## Gate Runs` ARE real in this fixture's corpus, but they are other
+    agents' notes and the framework's own ledger, never this task's surface.
+    """
+
+    def _assert_no_plan_on_both_sides(self):
+        base = col.collect(self.root, "11", source="plan",
+                           freshness="require-fresh", exclude_self=False,
+                           batch_lines=[])
+        claim = {c.ref: c for c in base.inflight}["9"]
+        self.assertEqual(claim.surface, self.NO_PLAN)
+        # The observable consequence, not only the surface: one blocking
+        # no-plan claim forces the UNCHECKABLE this whole task is about.
+        self.assertIn("UNCHECKABLE_CAUSE:inflight:9|no_plan",
+                      pa.decide(base).lines)
+        tracked, dirs, _corpora = col.resolve_corpora(self.root)
+        self.assertEqual(
+            col.resolve_candidate_surface(self.root, "9", "plan", [],
+                                          tracked, dirs),
+            self.NO_PLAN)
+
+    def test_a_no_task_file(self):
+        self._assert_no_plan_on_both_sides()
+
+    def test_b_pathless_body(self):
+        self._task(self.PATHLESS)
+        self._assert_no_plan_on_both_sides()
+
+    def test_c_body_naming_only_paths_resolvable_in_neither_corpus(self):
+        self._task(self.PHANTOM_ONLY)
+        self._assert_no_plan_on_both_sides()
+
+    def test_d_real_paths_only_under_inbox_and_gate_runs(self):
+        self._task(self.FRAMEWORK_SECTIONS_ONLY)
+        self._assert_no_plan_on_both_sides()
+
+
+class TaskDeclaredCollectTests(_NoPlanScaffold):
+    """A no-plan task is read from its description (t1688)."""
+
+    def test_a_description_naming_a_code_path_resolves_as_task_declared(self):
+        self._task("Refactor `%s`.\n" % REAL_CODE)
+        self.assertEqual(self._claim_surface(),
+                         pa.Surface("9", "task_declared", (REAL_CODE,),
+                                    "resolved", "n/a"))
+        out = pa.decide(self._base()).lines
+        self.assertIn("VERDICT:CLEAR_CAVEATED", out)
+        self.assertIn("CAVEAT:inflight:9|task_declared", out)
+        self.assertFalse([l for l in out if l.startswith("UNCHECKABLE_CAUSE:")])
+
+    def test_a_task_data_path_resolves_through_the_data_corpus(self):
+        self._task("Tune `%s`.\n" % PROFILE)
+        self.assertEqual(self._claim_surface().paths, (PROFILE,))
+
+    def test_a_referenced_not_edited_file_is_reported_never_a_conflict(self):
+        """The review's regression, below the CLI: t9 only CITES the file the
+        candidate's plan edits."""
+        self._task("## Key files to modify\n\n- `%s`\n\n"
+                   "## Reference files / patterns\n\n- `%s` for the pattern\n"
+                   % (REAL_CODE, PROFILE))
+        out = pa.decide(self._base()).lines
+        self.assertIn("VERDICT:CLEAR_CAVEATED", out)
+        self.assertTrue([l for l in out if l.startswith("OVERLAP:9|declared|")])
+        self.assertIn("CAVEAT:inflight:9|task_declared_overlap:%s" % PROFILE, out)
+
+    def test_section_cut_control_the_same_paths_above_the_inbox_do_resolve(self):
+        """Makes case (d) of the controls discriminating: it read `no_plan`
+        because of the cut, not because the corpus lacks the paths."""
+        self._task("Edit `%s`.\n\n## Inbox\n\n> | `nowhere/x.py`\n" % REAL_CODE)
+        self.assertEqual(self._claim_surface().paths, (REAL_CODE,))
+
+    def test_a_candidate_without_a_plan_resolves_from_its_description(self):
+        self._task("Refactor `%s`.\n" % REAL_CODE)
+        tracked, dirs, _corpora = col.resolve_corpora(self.root)
+        cand = col.resolve_candidate_surface(self.root, "9", "plan", [],
+                                             tracked, dirs)
+        self.assertEqual((cand.provenance, cand.paths),
+                         ("task_declared", (REAL_CODE,)))
+
+    def test_a_plan_wins_and_the_two_are_never_merged(self):
+        self._task("Refactor `%s`.\n" % REAL_CODE)
+        self._write("aiplans/p9_x.md", "# t9\n\nEdit `%s`.\n" % PROFILE)
+        self.assertEqual(self._claim_surface(),
+                         pa.Surface("9", "plan_declared", (PROFILE,),
+                                    "resolved", "n/a"))
+
+    def test_the_description_is_read_once_per_run(self):
+        self._task("Refactor `%s`.\n" % REAL_CODE)
+        calls, real = [], col.task_surface
+
+        def spy(*args, **kwargs):
+            calls.append(args[0])
+            return real(*args, **kwargs)
+        col.task_surface = spy
+        self.addCleanup(setattr, col, "task_surface", real)
+        tracked, dirs, corpora = col.resolve_corpora(self.root)
+        cache = {}
+        cand = col.resolve_candidate_surface(self.root, "9", "plan", [],
+                                             tracked, dirs, cache=cache)
+        col.collect(self.root, "9", source="plan", freshness="require-fresh",
+                    exclude_self=False, batch_lines=[],
+                    corpus=(tracked, dirs, corpora), candidate_surface=cand,
+                    surface_cache=cache)
+        self.assertEqual(calls, ["9"])
+
+    def test_no_plan_claims_omits_a_claim_resolved_from_its_description(self):
+        self._task("Refactor `%s`.\n" % REAL_CODE)
+        self.assertEqual(col.no_plan_claims(self._base()), ())
+        self._task(NoPlanFallbackControlTests.PATHLESS)
+        self.assertEqual(col.no_plan_claims(self._base()), ("9",))
+
+
 if __name__ == "__main__":
     unittest.main()

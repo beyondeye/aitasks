@@ -87,13 +87,15 @@ class PlanExtraction:
     tokens_total: int = 0
     tokens_dropped: int = 0
 
-    def as_surface(self):
+    def as_surface(self, provenance="plan_declared"):
         """The ``Surface`` this extraction represents.
 
         One constructor, so a caller cannot build a surface whose paths and
-        resolution disagree with the record's own accounting.
+        resolution disagree with the record's own accounting. ``provenance``
+        names the document that was read: a plan (the default) or, for a task
+        that has no plan yet, its description (``task_declared``, t1688).
         """
-        return pa.Surface(ref=self.ref, provenance="plan_declared",
+        return pa.Surface(ref=self.ref, provenance=provenance,
                           paths=self.paths, resolution=self.resolution,
                           quality="n/a")
 

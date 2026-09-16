@@ -86,12 +86,14 @@ make_root() {
     git -C "$d" fetch -q origin
 }
 
-# Add a SECOND in-flight task. $2 = plan body, or "" for no plan file at all.
+# Add another in-flight task. $2 = plan body, or "" for no plan file at all;
+# $3 = its task description (default `other`, which names no path); $4 = its
+# task id (default 200).
 add_inflight() {
-    local d="$1" body="$2"
-    printf -- '---\nstatus: Implementing\npriority: high\nupdated_at: %s\n---\n\nother\n' "$NOW_TS" \
-        > "$d/aitasks/t200_other.md"
-    [[ -n "$body" ]] && printf '%s\n' "$body" > "$d/aiplans/p200_other.md"
+    local d="$1" body="$2" desc="${3:-other}" id="${4:-200}"
+    printf -- '---\nstatus: Implementing\npriority: high\nupdated_at: %s\n---\n\n%s\n' \
+        "$NOW_TS" "$desc" > "$d/aitasks/t${id}_other.md"
+    [[ -n "$body" ]] && printf '%s\n' "$body" > "$d/aiplans/p${id}_other.md"
     git -C "$d" add -A
     git -C "$d" commit -qm inflight
     git -C "$d" branch -f aitask-data HEAD
@@ -155,6 +157,62 @@ assert_contains "UNCHECKABLE: names the cause per source" \
 assert_not_contains "UNCHECKABLE: missing evidence never reads as CLEAR" \
     "VERDICT:CLEAR" "$out_unchk"
 
+# --- task_declared (t1688): a no-plan task is read from its DESCRIPTION -------
+# Same fixture shape as the UNCHECKABLE case above, whose description (`other`)
+# names no path -- that case is the control proving the description is what
+# changes the verdict.
+d="$TMPROOT/tdecl"; make_root "$d"
+add_inflight "$d" "" 'Refactor `src/beta.py`.'
+out_tdecl="$(run_check "$d")"
+assert_eq "task_declared: a no-plan task whose description names a file is not UNCHECKABLE" \
+    "CLEAR_CAVEATED" "$(verdict_of "$out_tdecl")"
+assert_contains "task_declared: the description is named as unverified evidence" \
+    "CAVEAT:inflight:200|task_declared" "$out_tdecl"
+assert_contains "task_declared: the INFLIGHT row carries the provenance" \
+    "|task_declared" "$(printf '%s\n' "$out_tdecl" | grep '^INFLIGHT:200|')"
+assert_not_contains "task_declared: a disjoint description reports no overlap" \
+    "OVERLAP:" "$out_tdecl"
+
+# --- the review's regression: a file REFERENCED, not edited -----------------
+# The in-flight description edits src/gamma.py and only cites the candidate's
+# planned file as a pattern. Descriptions mix both, so this must not conflict.
+d="$TMPROOT/tdecl_ref"; make_root "$d"
+add_inflight "$d" "" '## Key files to modify
+
+- `src/gamma.py`
+
+## Reference files / patterns
+
+- `src/alpha.py` for the pattern'
+out_ref="$(run_check "$d")"
+assert_eq "referenced-not-edited: a description overlap is never a CONFLICT" \
+    "CLEAR_CAVEATED" "$(verdict_of "$out_ref")"
+assert_contains "referenced-not-edited: the overlap is still reported, as declared" \
+    "OVERLAP:200|declared|" "$out_ref"
+assert_contains "referenced-not-edited: and caveated with its path" \
+    "CAVEAT:inflight:200|task_declared_overlap:src/alpha.py" "$out_ref"
+assert_not_contains "referenced-not-edited: the display does not claim a conflict" \
+    "DISPLAY:conflict with" "$out_ref"
+# (The CONFLICT case above is the paired control: the SAME file declared by
+# t200's PLAN is a `specific` overlap and a CONFLICT.)
+
+# --- mixed result: a real conflict AND a description overlap ------------------
+d="$TMPROOT/mixed"; make_root "$d"
+add_inflight "$d" '# other
+
+Edit `src/alpha.py`.'
+add_inflight "$d" "" 'See `src/alpha.py` for the pattern.' 300
+out_mixed="$(run_check "$d")"
+assert_eq "mixed: the plan-declared overlap still conflicts" \
+    "CONFLICT" "$(verdict_of "$out_mixed")"
+assert_contains "mixed: the plan overlap is specific" "OVERLAP:200|specific|" "$out_mixed"
+assert_contains "mixed: the description overlap is declared" "OVERLAP:300|declared|" "$out_mixed"
+assert_contains "mixed: the description overlap keeps its advisory caveat" \
+    "CAVEAT:inflight:300|task_declared_overlap:src/alpha.py" "$out_mixed"
+display_mixed="$(printf '%s\n' "$out_mixed" | sed -n 's/^DISPLAY://p')"
+assert_contains "mixed: the display names the real counterparty" "200" "$display_mixed"
+assert_not_contains "mixed: the display does not name the advisory one" "300" "$display_mixed"
+
 # Each produced verdict must have a row in the procedure's disposition table.
 for v in CLEAR CLEAR_CAVEATED CONFLICT UNCHECKABLE; do
     assert_contains "procedure has a disposition row for $v" \
@@ -174,6 +232,15 @@ for v in $vocab_verdicts; do
     printf '%s' "$proc_default" | grep -qF "| \`$v\` |" || missing_rows+="$v "
 done
 assert_eq "the procedure covers every member of vocab.VERDICTS" "" "$missing_rows"
+
+# The CONFLICT disposition names only what the verdict rests on (t1688) -- the
+# prose form of `pa.conflict_refs`, exercised by the mixed case above. An
+# advisory overlap (description-derived, hub, a stale claim's) is listed, never
+# named as a conflict.
+assert_contains "procedure: CONFLICT names only specific rows with no stale_claim caveat" \
+    'lines of class **`specific`** whose task has **no** `stale_claim` caveat' "$proc_default"
+assert_contains "procedure: every other overlap is advisory, never a conflict" \
+    '(`stale_claim_overlap`) — never as conflicts' "$proc_default"
 
 echo "=== 2. Self-exclusion through the REAL Step-4 claim path ==="
 

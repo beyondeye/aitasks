@@ -294,6 +294,42 @@ class LaneCountTests(unittest.TestCase):
         self.assertIn("safe=2", counts)
 
 
+# --- conflict counterparties -------------------------------------------------
+
+class ConflictCounterpartyTests(unittest.TestCase):
+    """`CONFLICT_WITH` names only what a CONFLICT rests on (t1688)."""
+
+    class _Entry:
+        def __init__(self, lines, classification="coordination_only"):
+            self.admission_lines = tuple(lines)
+            self.classification = classification
+
+    MIXED = ["OVERLAP:900|specific|1|a.py", "OVERLAP:900|specific|1|b.py",
+             "OVERLAP:901|declared|1|a.py",
+             "CAVEAT:inflight:901|task_declared_overlap:a.py",
+             "VERDICT:CONFLICT"]
+
+    def test_an_advisory_overlap_is_not_a_counterparty(self):
+        counts = rr._conflict_counterparties([self._Entry(self.MIXED)], PROJECT)
+        self.assertEqual(counts, {"%s#900" % PROJECT: 2})
+
+    def test_control_two_specific_counterparties_are_both_counted(self):
+        lines = [l.replace("901|declared", "901|specific") for l in self.MIXED
+                 if not l.startswith("CAVEAT:")]
+        counts = rr._conflict_counterparties([self._Entry(lines)], PROJECT)
+        self.assertEqual(counts, {"%s#900" % PROJECT: 2, "%s#901" % PROJECT: 1})
+
+    def test_a_stale_claims_row_is_not_a_counterparty(self):
+        lines = ["OVERLAP:900|specific|1|a.py", "OVERLAP:902|specific|1|a.py",
+                 "CAVEAT:inflight:902|stale_claim:20d", "VERDICT:CONFLICT"]
+        counts = rr._conflict_counterparties([self._Entry(lines)], PROJECT)
+        self.assertEqual(counts, {"%s#900" % PROJECT: 1})
+
+    def test_only_conflict_entries_are_counted(self):
+        entry = self._Entry(self.MIXED, classification="core")
+        self.assertEqual(rr._conflict_counterparties([entry], PROJECT), {})
+
+
 # --- the driver's clock -----------------------------------------------------
 
 class _StopAtAdmission(Exception):

@@ -525,6 +525,17 @@ def _caveats(candidate, origin, verdict, premise_result, admission_result):
         for line in admission_result.lines:
             if line.startswith(("CAVEAT:", "UNCHECKABLE_CAUSE:")):
                 out.append(line.split(":", 1)[1].replace("|", ": "))
+    elif verdict == "CONFLICT" and admission_result:
+        # A CONFLICT can also carry overlaps that are NOT conflicts -- a
+        # description-derived `declared` row, a hub, a stale claim. The
+        # relations name only the real counterparties, so the reason the others
+        # were left out must survive on the entry (t1688).
+        for line in admission_result.lines:
+            if not line.startswith("CAVEAT:") or "|" not in line:
+                continue
+            reason = line.split("|", 1)[1]
+            if reason.partition(":")[0] in vocab.ADVISORY_OVERLAP_CAVEATS:
+                out.append(line.split(":", 1)[1].replace("|", ": "))
     return tuple(out)
 
 
@@ -805,15 +816,19 @@ def _overlapping_refs(scored):
     -- so both shapes converge on the same value instead of one of them being
     silently dropped by a set intersection. The project is taken from the
     candidate's own ref, the same rule `_topic_ref` uses.
+
+    Only the refs a CONFLICT actually rests on (`pa.conflict_refs`): a CONFLICT
+    result can also carry advisory overlaps -- a description-derived
+    `declared` row, a `hub`, a stale claim's row -- and those must not become
+    `coordinates_with` edges or `in_flight_conflict` affects. Their evidence
+    survives as entry caveats (`_caveats`), t1688.
     """
     project = scored.candidate.ref.split("#", 1)[0]
     refs = set()
-    for line in scored.admission_lines:
-        if line.startswith("OVERLAP:"):
-            ref = line[len("OVERLAP:"):].split("|", 1)[0]
-            if "#" not in ref:
-                ref = "%s#%s" % (project, pa.canonical_ref(ref))
-            refs.add(ref)
+    for ref in pa.conflict_refs(scored.admission_lines):
+        if "#" not in ref:
+            ref = "%s#%s" % (project, pa.canonical_ref(ref))
+        refs.add(ref)
     return refs
 
 

@@ -222,5 +222,52 @@ class CliTests(unittest.TestCase):
         self.assertEqual(self.run_cli().returncode, 2)
 
 
+class TaskBodyTests(unittest.TestCase):
+    """The text a no-plan task is read from (t1688)."""
+
+    def test_cuts_at_the_inbox(self):
+        self.assertEqual(
+            plan_paths.cut_task_framework_sections(
+                "keep a/b.py\n\n## Inbox\n> | c/d.py\n"),
+            "keep a/b.py\n\n")
+
+    def test_cuts_at_the_first_header_in_either_order(self):
+        body = "a/b.py\n## Gate Runs\nx/y.py\n## Inbox\nc/d.py\n"
+        self.assertEqual(plan_paths.cut_task_framework_sections(body), "a/b.py\n")
+
+    def test_trailing_whitespace_after_the_header_still_cuts(self):
+        self.assertEqual(
+            plan_paths.cut_task_framework_sections("a/b.py\n## Inbox  \nc/d.py\n"),
+            "a/b.py\n")
+
+    def test_a_header_quoted_inside_a_note_body_does_not_cut(self):
+        body = "keep\n> | ## Inbox\nstill a/b.py\n"
+        self.assertEqual(plan_paths.cut_task_framework_sections(body), body)
+
+    def test_other_headings_are_not_framework_sections(self):
+        for body in ("## Inbox zero\na/b.py\n", "### Inbox\na/b.py\n",
+                     "## Merged from t42: x\na/b.py\n"):
+            self.assertEqual(plan_paths.cut_task_framework_sections(body), body)
+
+    def test_the_headers_are_the_owning_modules_constants(self):
+        import gate_ledger
+        import note_inbox
+        for header in (note_inbox.SECTION_HEADER, gate_ledger.SECTION_HEADER):
+            self.assertEqual(
+                plan_paths.cut_task_framework_sections("a/b.py\n%s\nc/d.py\n"
+                                                       % header),
+                "a/b.py\n")
+
+    def test_task_body_text_strips_frontmatter_then_cuts(self):
+        raw = ("---\nlabels: [x]\nnote: see a/b.py\n---\n\nbody c/d.py\n"
+               "## Gate Runs\n\ne/f.py\n")
+        self.assertEqual(plan_paths.extract(plan_paths.task_body_text(raw)),
+                         ["c/d.py"])
+
+    def test_task_body_text_without_frontmatter_is_only_cut(self):
+        self.assertEqual(plan_paths.task_body_text("c/d.py\n## Inbox\ne/f.py\n"),
+                         "c/d.py\n")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -61,7 +61,7 @@ Adding `--with-inflight` emits four further prefixes:
 ```
 INFLIGHT_SOURCE:<gate|lock|tracked>|<ok|degraded|unavailable|not_consulted>|<age_seconds|->|<reason|->
 INFLIGHT:<ref>|<gate|lock|both>|<PLAN|IMPLEMENT|POSTIMPL|->|<archive_status>
-INFLIGHT_PATH:<ref>|<tracked|planned_new|phantom|malformed|no_tokens|unreadable|no_plan|unclassified>|<path|->
+INFLIGHT_PATH:<ref>|<tracked|planned_new|phantom|malformed|no_tokens|unreadable|no_plan|unclassified|task_declared>|<path|->
 INFLIGHT_SCAN:<n_tasks>|<corpus_status>|<source_status>
 ```
 
@@ -76,6 +76,15 @@ its `DIGEST:` is, so every stored trail stays comparable.
 producer: `NO_GATES` / `ALL_PASS` / `BLOCKED:<csv>`, plus `unknown` for a
 lock-only task. It is *not* a gate state, and the `unknown` sentinel is
 part of the enum.
+
+`task_declared` in `INFLIGHT_PATH:` is a **provenance marker**, not a path
+class and not a sentinel: `INFLIGHT_PATH:<ref>|task_declared|-` precedes the
+classified records of an in-flight task that has **no plan** but whose
+description names paths (read up to its first `## Inbox` / `## Gate Runs`). A
+description that names nothing still yields `no_plan`. A marked surface is
+description-derived — coarser than a plan's — so the parallel-admission checker
+reports overlaps with it but never grades them a conflict, and `corpus_status`
+still counts the task among the plan-less ones.
 
 `INFLIGHT_SOURCE:tracked` reports the **classification evidence**
 (`git ls-files`) and is **always emitted** — with `not_consulted` when

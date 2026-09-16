@@ -213,6 +213,8 @@ Report, in plain prose:
 - **`followup_kind` is not ordering-relevant** and is never read by the scorer.
   Do not introduce it as a ranking signal.
 - The parallel-safe lane may be empty for reasons of **evidence availability**,
-  not ranking: an in-flight claim's surface is read from its plan file, and most
-  `Implementing` tasks carry no plan (t1688 owns that gap). Report the cause;
-  do not work around it.
+  not ranking. An in-flight claim with no plan is read from its task
+  description (`task_declared`), which grades at best `CLEAR_CAVEATED` and is
+  never a conflict; only a claim whose description names no resolvable file
+  still reads `no_plan` and forces `UNCHECKABLE`. Report the cause; do not work
+  around it.

@@ -94,7 +94,7 @@ the caller immediately. Nothing below applies.
    | `CLEAR` | proceed. Word it **"no known conflict at check time"** — never "safe to run in parallel" |{% if profile.parallel_admission is defined and profile.parallel_admission == "confirm" %}
    | `CLEAR_CAVEATED` | **Profile '{{ profile.name }}' sets `parallel_admission: confirm`** — ask the step-6 question, naming each unverified source from the `CAVEAT:` lines |{% else %}
    | `CLEAR_CAVEATED` | display a visible note naming each unverified source from the `CAVEAT:` lines, then proceed. **Render it distinctly from `CLEAR`** — "no known conflict, but evidence was unverified: …", never the bare `CLEAR` wording |{% endif %}
-   | `CONFLICT` | name the overlapping task(s) and file(s) from the `OVERLAP:` lines, then ask the step-6 question |
+   | `CONFLICT` | name the conflicting task(s) and file(s) from the `OVERLAP:` lines of class **`specific`** whose task has **no** `stale_claim` caveat (`CAVEAT:inflight:<ref>\|stale_claim:…`) — those are what the verdict rests on. List every other overlap separately, as advisory, with the reason from its `CAVEAT:` line — `declared` (description-derived: `task_declared_overlap`), `hub` (`hub_overlap_only`), and a stale claim's `specific` row (`stale_claim_overlap`) — never as conflicts; then ask the step-6 question |
    | `UNCHECKABLE` | name *why*, with the remedy from step 5 for each cause, then ask the step-6 question |
 
    `DISPLAY:` carries a one-line human summary built by the checker — show it

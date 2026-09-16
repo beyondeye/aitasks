@@ -359,6 +359,23 @@ def surface_from_plan(ref, plan_path, tracked, tracked_dirs, body_transform=None
     return extraction.as_surface(), stripped
 
 
+def task_surface(ref, task_path, tracked, tracked_dirs):
+    """Description-derived surface, or None when the description resolves nothing.
+
+    THE ONE EXTRACTOR again (`plan_extraction`), with the task-body cut as its
+    body_transform -- a second extractor could disagree with the plan path on
+    exactly the edges plan_paths documents. None (never an unresolved Surface)
+    because the caller's fallback is `no_plan`: a description may upgrade that
+    state, never replace it with a different cause (t1688 invariant).
+    """
+    extraction, _stripped = plan_extraction(
+        ref, task_path, tracked, tracked_dirs,
+        body_transform=plan_paths.cut_task_framework_sections)
+    if extraction.resolution != "resolved":
+        return None
+    return extraction.as_surface(provenance="task_declared")
+
+
 # --- injectable seams -------------------------------------------------------
 
 _GATE_PROBE = probe_gate_source
@@ -567,7 +584,8 @@ def collect(root, candidate_id, source="plan", plan_path=None,
             at, reason = parse_ts((status_ids.get(ref) or {}).get("updated_at"))
         p = plan_path_for(root, ref)
         if p is None:
-            surf = pa.Surface(ref, "plan_declared", (), "no_plan", "n/a")
+            surf = _no_plan_fallback(root, ref, all_tracked, all_dirs,
+                                     surface_cache)
         else:
             surf = _plan_surface(ref, p, all_tracked, all_dirs, surface_cache)
         claims.append(pa.InflightClaim(
@@ -800,6 +818,38 @@ def _plan_surface(ref, path, tracked, dirs, cache=None):
     return surf
 
 
+def _task_surface(ref, path, tracked, dirs, cache=None):
+    """`task_surface` memoised per run -- the same one-read rule as `_plan_surface`.
+
+    The key is `(ref, task file)`; a plan path and a task path never coincide,
+    so the two memos share one cache. The memo also stores `None` (the
+    description resolved nothing), so a no-path description is read once too.
+    """
+    key = (ref, path)
+    if cache is not None and key in cache:
+        return cache[key]
+    surf = task_surface(ref, path, tracked, dirs)
+    if cache is not None:
+        cache[key] = surf
+    return surf
+
+
+def _no_plan_fallback(root, ref, tracked, dirs, cache=None):
+    """The surface of a task with no plan: its description, else `no_plan` (t1688).
+
+    Precedence is plan -> description -> `no_plan`, and the two documents are
+    never merged: this is only reached when no plan file exists. A description
+    that cannot be read, names no path, or names only paths resolving in
+    neither corpus leaves the surface EXACTLY `no_plan` -- the fallback can
+    upgrade that state, never replace it with a different cause.
+    """
+    path = task_file_for(root, ref)
+    surf = _task_surface(ref, path, tracked, dirs, cache) if path else None
+    if surf is None:
+        return pa.Surface(ref, "plan_declared", (), "no_plan", "n/a")
+    return surf
+
+
 def resolve_candidate_surface(root, candidate_id, source, batch_lines,
                               tracked, dirs, plan_path=None, cache=None):
     """The candidate's own surface, for one provenance.
@@ -814,7 +864,8 @@ def resolve_candidate_surface(root, candidate_id, source, batch_lines,
         return origin_surface(root, key, batch_lines)
     p = plan_path or plan_path_for(root, key)
     if p is None:
-        cand = pa.Surface(key, "plan_declared", (), "no_plan", "n/a")
+        # A pre-pick call has no plan yet: read the description (t1688).
+        cand = _no_plan_fallback(root, key, tracked, dirs, cache)
     else:
         cand = _plan_surface(key, p, tracked, dirs, cache)
     if source == "auto" and cand.resolution != "resolved":
@@ -891,6 +942,10 @@ def no_plan_claims(base):
         claims alongside live ones. Without this half the reported exclusion set
         would name ids that were never affecting anything, and the record would
         misdescribe its own counterfactual.
+
+    A plan-less claim whose DESCRIPTION resolves (t1688, provenance
+    ``task_declared``) is not ``no_plan`` and is therefore not selected: only a
+    claim whose description names nothing resolvable still forces the cause.
     """
     out = set()
     for claim in base.inflight:

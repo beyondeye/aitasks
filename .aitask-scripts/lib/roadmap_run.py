@@ -383,15 +383,7 @@ def run(root, narrative_path, owner, out_path, title=DEFAULT_TITLE,
     # name them. A conflict count with no counterparty invites the reader to
     # assume a diffuse problem when it is usually one broad in-flight surface.
     project = _project_of(candidates)
-    counterparties = {}
-    for entry in published:
-        if entry.classification == "coordination_only":
-            for line in entry.admission_lines:
-                if line.startswith("OVERLAP:"):
-                    ref = line[len("OVERLAP:"):].split("|", 1)[0]
-                    if "#" not in ref:      # same qualification the doc uses
-                        ref = "%s#%s" % (project, pa.canonical_ref(ref))
-                    counterparties[ref] = counterparties.get(ref, 0) + 1
+    counterparties = _conflict_counterparties(published, project)
     for ref in sorted(counterparties, key=lambda r: (-counterparties[r], r)):
         report.append("CONFLICT_WITH:%s|%d" % (ref, counterparties[ref]))
 
@@ -443,6 +435,27 @@ def run(root, narrative_path, owner, out_path, title=DEFAULT_TITLE,
     for ref in (e.candidate.ref for e in published):
         report.append("MEMBER:%s" % ref)
     return EXIT_OK, report
+
+
+def _conflict_counterparties(published, project):
+    """``{qualified in-flight ref: n}`` over the published CONFLICT entries.
+
+    ``n`` counts overlapping files summed over entries -- the row count this
+    summary has always reported -- but only the overlaps a CONFLICT actually
+    rests on (`pa.conflict_overlaps`). A CONFLICT result can also carry
+    advisory overlaps (a description-derived `declared` row, a `hub`, a stale
+    claim's row); counting those named work that conflicts with nothing as a
+    counterparty (t1688).
+    """
+    counterparties = {}
+    for entry in published:
+        if entry.classification != "coordination_only":
+            continue
+        for ref, _path in pa.conflict_overlaps(entry.admission_lines):
+            if "#" not in ref:      # same qualification the doc uses
+                ref = "%s#%s" % (project, pa.canonical_ref(ref))
+            counterparties[ref] = counterparties.get(ref, 0) + 1
+    return counterparties
 
 
 def _lane_counts(entries):

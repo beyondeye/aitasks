@@ -57,7 +57,11 @@ LOCK_MODES = ("require-fresh", "allow-cached")
 
 VERDICTS = ("CLEAR", "CLEAR_CAVEATED", "CONFLICT", "UNCHECKABLE")
 
-OVERLAP_CLASSES = ("specific", "hub")
+# `specific` is the only class that can drive CONFLICT. `declared` (t1688) is
+# an overlap whose evidence on one side is a task DESCRIPTION -- reported and
+# caveated, never a conflict: a description names files as context as well as
+# edit targets.
+OVERLAP_CLASSES = ("specific", "hub", "declared")
 NARROWED_CLASSES = ("hub", "frontmatter")
 
 # Liveness classes (t1569_3 Step 7). `status_only` is a status without a lock,
@@ -71,6 +75,8 @@ PROVENANCES = (
     "plan_declared",
     "origin_derived",
     "plan_declared+origin_fallback",
+    # t1688: a task with no plan, read from its description (unverified).
+    "task_declared",
 )
 
 ORIGIN_QUALITIES = ("exact", "topic", "unknown", "n/a")
@@ -106,7 +112,23 @@ CAVEAT_REASONS = {
     "source_unavailable": SOURCE_NAMES,        # Step 2
     "source_degraded": SOURCE_NAMES,           # Step 2
     "recovered_only": NONE,            # Step 5b: RECOVERED_* caveated the verdict
+    # t1688: the surface was derived from the task description, not a plan --
+    # unverified evidence.
+    "task_declared": NONE,
+    # t1688: an overlap whose evidence on one side is a task description --
+    # reported, never a CONFLICT (descriptions cite files as context as well as
+    # edit targets).
+    "task_declared_overlap": PATH,
 }
+
+# The caveat codes that explain an overlap which is NOT a conflict. A consumer
+# naming a CONFLICT's counterparties keeps these beside it, so the evidence that
+# a second overlap is advisory is not discarded with the verdict (t1688).
+ADVISORY_OVERLAP_CAVEATS = (
+    "task_declared_overlap",
+    "hub_overlap_only",
+    "stale_claim_overlap",
+)
 
 UNCHECKABLE_REASONS = {
     # Imported verbatim from t1569_1's INFLIGHT_PATH: per-task sentinels.

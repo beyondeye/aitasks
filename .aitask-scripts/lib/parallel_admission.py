@@ -29,6 +29,22 @@ the *task*, never the *file surface*. Hence the fixed wording "no known conflict
 at check time", never "safe to run in parallel". The residual closes only when
 t1343's declared-claims backend is adopted; this checker deliberately does not
 attempt that reservation.
+
+DESCRIPTION EVIDENCE CAN DOWNGRADE, NEVER ASSERT (t1688). A task with no plan
+yet is read from its task description (surface provenance ``task_declared``).
+A description names files as context as well as edit targets, so such a surface
+grades a no-collision result ``CLEAR_CAVEATED``, and an intersection with it
+renders class ``declared`` -- reported and caveated (``task_declared_overlap``),
+never a ``CONFLICT``. The same one-directional rule as ``recovered_only``.
+
+ROW GRAMMAR -- the rows consumers parse:
+
+    INFLIGHT:<ref>|<sources>|<liveness>|<n_paths>|<path_state>|<provenance>
+    OVERLAP:<ref>|<specific|hub|declared>|<n_tasks>|<path>
+
+Only ``specific`` can drive ``CONFLICT``, and only for a claim in the blocking
+tier; a consumer that names a CONFLICT's counterparties from rendered lines uses
+``conflict_refs`` rather than reading every ``OVERLAP:`` row as a conflict.
 """
 
 from dataclasses import dataclass, field
@@ -203,8 +219,15 @@ def _validate_enumeration(enumeration):
     return {e.name: e for e in enumeration}
 
 
-def _classify_overlap(path, touch_counts, hub_threshold):
-    return "hub" if touch_counts.get(path, 0) >= hub_threshold else "specific"
+def _classify_overlap(path, touch_counts, hub_threshold, weak=False):
+    """``hub`` | ``declared`` | ``specific`` -- only ``specific`` drives CONFLICT.
+
+    Hub first: a hub path is non-blocking whatever its evidence. ``weak`` means
+    one side of the pair was read from a task description (t1688).
+    """
+    if touch_counts.get(path, 0) >= hub_threshold:
+        return "hub"
+    return "declared" if weak else "specific"
 
 
 def decide(inp):
@@ -263,6 +286,10 @@ def decide(inp):
         # An empty intersection is meaningless when the candidate side is
         # unknown, so this is UNCHECKABLE and never CLEAR.
         causes.append(("candidate", cand.resolution, None))
+    elif cand.provenance == "task_declared":
+        # No plan yet: the candidate was read from its description, so a
+        # no-collision result is unverified evidence, never bare CLEAR.
+        caveat("candidate", "task_declared")
 
     # --- lock freshness --------------------------------------------------
     if inp.locks.state != "fetched":
@@ -285,11 +312,15 @@ def decide(inp):
         t = tier(claim, inp.max_claim_age_s, inp.now)
         surf = claim.surface or Surface(claim.ref, "plan_declared", (), "no_plan")
         check_member(surf.resolution, vocab.SURFACE_RESOLUTIONS, "inflight resolution")
+        check_member(surf.provenance, vocab.PROVENANCES, "inflight provenance")
         n_paths = len(surf.paths)
         path_state = _path_state(surf)
         inflight_rows.append(
             (claim.ref, ",".join(claim.sources) or "-", claim.liveness,
-             n_paths, path_state, t))
+             n_paths, path_state, t, surf.provenance))
+        # Either side read from a task description makes the pair's overlap
+        # `declared`: reported, never a conflict (t1688).
+        weak = "task_declared" in (surf.provenance, cand.provenance)
 
         if t == "excluded":
             # A provably-dead holder is not concurrent work, so its declared
@@ -307,7 +338,7 @@ def decide(inp):
 
         hit = sorted(set(cand.paths) & set(surf.paths))
         for p in hit:
-            cls = _classify_overlap(p, inp.touch_counts, inp.hub_threshold)
+            cls = _classify_overlap(p, inp.touch_counts, inp.hub_threshold, weak)
             overlaps.append((claim.ref, cls, inp.touch_counts.get(p, 0), p, t))
             if cls == "hub":
                 narrowed[p] = ("hub", inp.touch_counts.get(p, 0))
@@ -320,6 +351,13 @@ def decide(inp):
             for (_r, _c, _n, p, _t) in [o for o in overlaps if o[0] == claim.ref]:
                 caveat(scope, "stale_claim_overlap", p)
         else:
+            if surf.resolution == "resolved" and surf.provenance == "task_declared":
+                # No plan yet: the claim was read from its description, so a
+                # no-collision result against it is unverified evidence.
+                caveat(scope, "task_declared")
+            for (_r, ocls, _n, p, _t) in [o for o in overlaps if o[0] == claim.ref]:
+                if ocls == "declared":
+                    caveat(scope, "task_declared_overlap", p)
             _age, unknown = claim_age(claim, inp.now)
             if unknown is not None:
                 caveat(scope, "unknown_claim_age", unknown)
@@ -409,12 +447,13 @@ def _render_lines(inp, by_name, inflight_rows, overlaps, narrowed,
                % (inp.locks.state,
                   "-" if inp.locks.age_s is None else inp.locks.age_s,
                   inp.locks.reason or "-"))
-    for (ref, sources, liveness, n_paths, path_state, _t) in inflight_rows:
-        out.append("INFLIGHT:%s|%s|%s|%d|%s"
+    for (ref, sources, liveness, n_paths, path_state, _t, prov) in inflight_rows:
+        out.append("INFLIGHT:%s|%s|%s|%d|%s|%s"
                    % (ref, sources,
                       check_member(liveness, vocab.LIVENESS_CLASSES, "liveness"),
                       n_paths,
-                      check_member(path_state, vocab.PATH_STATES, "path state")))
+                      check_member(path_state, vocab.PATH_STATES, "path state"),
+                      check_member(prov, vocab.PROVENANCES, "inflight provenance")))
     for (ref, cls, n, p, _t) in sorted(overlaps, key=lambda o: (o[0], o[3])):
         out.append("OVERLAP:%s|%s|%d|%s"
                    % (ref, check_member(cls, vocab.OVERLAP_CLASSES, "overlap class"),
@@ -519,8 +558,30 @@ def surfaces_from_batch_map(lines, ids=None):
     return out
 
 
-def surfaces_from_inflight_records(lines, local_name=None, data_tracked=None):
-    """Gatherer ``INFLIGHT_PATH:`` rows -> ``{ref: Surface}`` (plan-declared).
+# A provenance MARKER, not a path class (t1688): the gatherer emits
+# `INFLIGHT_PATH:<ref>|task_declared|-` before the records of a task that has
+# no plan but whose description names paths.
+_TASK_DECLARED_MARKER = "task_declared"
+
+
+def _data_side_resolves(path, data_tracked, data_dirs, classify):
+    """Does `path` resolve on the task-data side the gatherer cannot see?
+
+    With an injected classifier this is the collector's own rule
+    (``plan_paths.classify`` over files AND directories), so code-branch
+    phantom AND data-side resolved <=> union resolved. Injected because this
+    module is pure and ``plan_paths`` imports ``subprocess``. Without one:
+    exact membership, the documented degraded mode.
+    """
+    if classify is not None:
+        return classify(path, data_tracked or set(), data_dirs or set()) \
+            in ("tracked", "planned_new")
+    return bool(data_tracked) and path in data_tracked
+
+
+def surfaces_from_inflight_records(lines, local_name=None, data_tracked=None,
+                                   data_dirs=None, classify=None):
+    """Gatherer ``INFLIGHT_PATH:`` rows -> ``{ref: Surface}``.
 
     ``planned_new`` counts as RESOLVED: it is a legitimately planned new file,
     not a phantom. Treating it otherwise would report ``all_phantom`` for a plan
@@ -533,8 +594,16 @@ def surfaces_from_inflight_records(lines, local_name=None, data_tracked=None):
     Passing the set reclassifies them, which is what stops two tasks editing the
     same profile YAML from reporting no conflict. Omitting it reproduces the
     upstream blind spot, so callers on the injected path must supply it.
+    ``data_dirs`` + ``classify`` (inject ``plan_paths.classify``) extend that to
+    the collector's full rule, so a proposed NEW file under a task-data
+    directory resolves here exactly as it resolves in the collector.
+
+    A ``task_declared`` marker (t1688) only retags a resolved surface's
+    provenance. A marked ref whose records resolve nothing stays ``no_plan``:
+    a description may upgrade that state, never replace it with a different
+    cause -- so it is never ``all_phantom``.
     """
-    resolved, phantom, sentinel = {}, {}, {}
+    resolved, phantom, sentinel, declared = {}, {}, {}, set()
     for line in lines:
         rest = _strip("INFLIGHT_PATH:", line.rstrip("\n"))
         if rest is None:
@@ -545,21 +614,29 @@ def surfaces_from_inflight_records(lines, local_name=None, data_tracked=None):
             ref = ref.split("#", 1)[1]
         if cls in _SENTINELS:
             sentinel[ref] = cls
+        elif cls == _TASK_DECLARED_MARKER:
+            declared.add(ref)
         elif cls in _RESOLVED_CLASSES:
             resolved.setdefault(ref, set()).add(path)
-        elif cls == "phantom" and data_tracked and path in data_tracked:
+        elif cls == "phantom" and _data_side_resolves(path, data_tracked,
+                                                      data_dirs, classify):
             resolved.setdefault(ref, set()).add(path)
         else:
             phantom.setdefault(ref, set()).add(path)
     out = {}
-    for ref in sorted(set(resolved) | set(phantom) | set(sentinel)):
+    for ref in sorted(set(resolved) | set(phantom) | set(sentinel) | declared):
+        provenance = "plan_declared"
         if ref in sentinel:
             res, paths = sentinel[ref], ()
         elif resolved.get(ref):
             res, paths = "resolved", tuple(sorted(resolved[ref]))
+            if ref in declared:
+                provenance = "task_declared"
+        elif ref in declared:
+            res, paths = "no_plan", ()
         else:
             res, paths = "all_phantom", ()
-        out[ref] = Surface(ref=ref, provenance="plan_declared", paths=paths,
+        out[ref] = Surface(ref=ref, provenance=provenance, paths=paths,
                            resolution=res, quality="n/a")
     return out
 
@@ -567,6 +644,7 @@ def surfaces_from_inflight_records(lines, local_name=None, data_tracked=None):
 def input_from_records(candidate_ref, candidate_surface, inflight_lines,
                        batch_map_lines, enumeration=None, inflight_claims=None,
                        locks=None, corpora=(), now=0, data_tracked=None,
+                       data_dirs=None, classify=None,
                        hub_threshold=HUB_THRESHOLD,
                        max_claim_age_s=MAX_CLAIM_AGE_S, max_lock_age_s=None,
                        recovered_used=False):
@@ -581,7 +659,8 @@ def input_from_records(candidate_ref, candidate_surface, inflight_lines,
     """
     key = canonical_ref(candidate_ref)
     surfaces = surfaces_from_inflight_records(
-        inflight_lines, data_tracked=data_tracked)
+        inflight_lines, data_tracked=data_tracked, data_dirs=data_dirs,
+        classify=classify)
     # Canonicalise BOTH sides of the lookup. The gatherer spells refs
     # `<project>#t<id>` / `t<id>`, the claims may spell them bare; comparing a
     # canonical key against a raw one silently finds nothing, and a missing
@@ -618,6 +697,41 @@ def _with_surface(claim, surface):
         liveness=claim.liveness, same_host=claim.same_host,
         claim_at_s=claim.claim_at_s, claim_age_reason=claim.claim_age_reason,
         surface=surface or Surface(claim.ref, "plan_declared", (), "no_plan"))
+
+
+def conflict_overlaps(lines):
+    """``(ref, path)`` for every rendered overlap a CONFLICT verdict rests on.
+
+    THE definition for line consumers (the roadmap summary, its relations and
+    observations, and -- in prose -- the preflight's CONFLICT display): an
+    ``OVERLAP:`` row of class ``specific`` whose claim is in the blocking tier,
+    i.e. ``decide``'s own ``blocking_specific`` set recovered from its output.
+    ``declared`` (t1688) and ``hub`` rows are advisory by construction; an
+    advisory-tier (stale) claim still renders ``specific`` rows and is
+    recognised by its ``stale_claim`` caveat. Reading every ``OVERLAP:`` row as a
+    conflict labels an advisory overlap as a counterparty.
+    """
+    stale, rows = set(), []
+    for line in lines:
+        line = line.rstrip("\n")
+        rest = _strip("OVERLAP:", line)
+        if rest is not None:
+            parts = rest.split("|", 3)
+            if len(parts) == 4 and parts[1] == "specific":
+                rows.append((parts[0], vocab.decode_path(parts[3])))
+            continue
+        rest = _strip("CAVEAT:", line)
+        if rest is not None:
+            scope, _, reason = rest.partition("|")
+            if scope.startswith("inflight:") \
+                    and reason.partition(":")[0] == "stale_claim":
+                stale.add(scope[len("inflight:"):])
+    return tuple(sorted((r, p) for r, p in rows if r not in stale))
+
+
+def conflict_refs(lines):
+    """The in-flight refs a CONFLICT verdict rests on -- see ``conflict_overlaps``."""
+    return tuple(sorted({ref for ref, _path in conflict_overlaps(lines)}))
 
 
 def canonical_ref(ref):

@@ -563,8 +563,16 @@ for prof in warn absent; do
         "sets \`parallel_admission: confirm\`" "$out"
     assert_contains "pa/$prof: CLEAR_CAVEATED is rendered distinctly from CLEAR" \
         'Render it distinctly from `CLEAR`' "$out"
-    assert_contains "pa/$prof: CONFLICT names the tasks and files, then asks" \
-        'name the overlapping task(s) and file(s) from the `OVERLAP:` lines, then ask' "$out"
+    # t1688: CONFLICT names only what the verdict rests on -- the prose form of
+    # `pa.conflict_refs` -- and lists every advisory overlap separately.
+    assert_contains "pa/$prof: CONFLICT names only specific, non-stale overlaps" \
+        'lines of class **`specific`** whose task has **no** `stale_claim` caveat' "$out"
+    assert_contains "pa/$prof: CONFLICT lists description-derived overlaps as advisory" \
+        '`declared` (description-derived: `task_declared_overlap`)' "$out"
+    assert_contains "pa/$prof: CONFLICT lists hub overlaps as advisory" \
+        '`hub` (`hub_overlap_only`)' "$out"
+    assert_contains "pa/$prof: a stale claim's row is advisory too, never a conflict, then asks" \
+        '(`stale_claim_overlap`) — never as conflicts; then ask the step-6 question' "$out"
     assert_contains "pa/$prof: UNCHECKABLE names why and asks" \
         'name *why*, with the remedy from step 5' "$out"
     # Continue-first is the advisory posture, and it is an ORDER claim.
@@ -598,7 +606,20 @@ assert_contains "pa/confirm: CLEAR_CAVEATED asks instead of noting" \
 assert_not_contains "pa/confirm: the warn note text is suppressed" \
     'display a visible note naming each unverified source' "$out_confirm"
 assert_contains "pa/confirm: CONFLICT is unchanged by the knob" \
-    'name the overlapping task(s) and file(s)' "$out_confirm"
+    'lines of class **`specific`** whose task has **no** `stale_claim` caveat' "$out_confirm"
+
+# The CONFLICT instruction is the prose form of `pa.conflict_refs` (t1688). The
+# two must test the same two things, or the attended display and the roadmap
+# disagree about who a CONFLICT is against.
+pa_lib="$(cat .aitask-scripts/lib/parallel_admission.py)"
+assert_contains "conflict_refs keys on class specific" \
+    'parts[1] == "specific"' "$pa_lib"
+assert_contains "conflict_refs excludes a stale claim by its caveat" \
+    '== "stale_claim"' "$pa_lib"
+assert_contains "the procedure states the same class condition" \
+    'lines of class **`specific`**' "$(cat "$PA_SRC")"
+assert_contains "the procedure states the same stale_claim exclusion" \
+    'whose task has **no** `stale_claim` caveat' "$(cat "$PA_SRC")"
 
 # --- `off`: the WHOLE step is absent, not merely quiet ---------------------
 for label in "synthetic:$TMP_PA_OFF" "default:$PROFILES_DIR/default.yaml" \
@@ -610,6 +631,8 @@ for label in "synthetic:$TMP_PA_OFF" "default:$PROFILES_DIR/default.yaml" \
         'aitask_parallel_admission.sh' "$out_off"
     assert_not_contains "pa/off($name): no prompt" 'AskUserQuestion' "$out_off"
     assert_not_contains "pa/off($name): no disposition table" 'CLEAR_CAVEATED' "$out_off"
+    assert_not_contains "pa/off($name): no CONFLICT instruction" \
+        'stale_claim_overlap' "$out_off"
 done
 
 # --- NO render, in ANY profile, may claim the step stops on its own --------

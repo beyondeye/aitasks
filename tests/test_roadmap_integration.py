@@ -242,6 +242,72 @@ class EndToEndTests(unittest.TestCase):
         self.assertEqual(first, second)
 
 
+class MixedResultTests(unittest.TestCase):
+    """A CONFLICT that also carries a description-derived overlap (t1688).
+
+    Through the REAL `decide` and the real trail encoder: in-flight A was read
+    from its task description and only cites a file the candidate touches; B's
+    plan declares another. The document must relate the candidate to B alone,
+    and keep the evidence that A's overlap is advisory.
+    """
+
+    WEAK = "%s#901" % PROJECT
+    CITED = "docs/cited.md"
+
+    def _roadmap(self, weak_provenance):
+        candidates = rp.parse_members(member("100", "high", "low"))
+        origin_rows = rp.parse_origin_facts(ORIGIN_FACTS[:2])
+        surface = pa.Surface(ref="100", provenance="origin_derived",
+                             paths=(SHARED, self.CITED), resolution="resolved",
+                             quality="exact")
+
+        def holder(ref, provenance, paths):
+            return pa.InflightClaim(
+                ref=ref, sources=("lock",), task_status="Implementing",
+                liveness="live", same_host=True, claim_at_s=NOW - 3600,
+                surface=pa.Surface(ref, provenance, paths, "resolved"))
+
+        admission = {CANDIDATE: pa.decide(pa.input_from_records(
+            candidate_ref="100", candidate_surface=surface, inflight_lines=[],
+            batch_map_lines=BATCH_MAP,
+            inflight_claims=[holder(INFLIGHT, "plan_declared", (SHARED,)),
+                             holder(self.WEAK, weak_provenance, (self.CITED,))],
+            locks=pa.LockEvidence(mode="allow-cached"),
+            corpora=(pa.CorpusEvidence("code", "ok", 10),
+                     pa.CorpusEvidence("data", "ok", 5)),
+            now=NOW))}
+        roadmap = rp.build(candidates, origin_rows, admission, {},
+                           {CANDIDATE: set(surface.paths)}, set(), NOW_ORD)
+        document = rp.to_trail(roadmap.entries, "trail-backlog-roadmap",
+                               "Background-work roadmap", "%s#1500" % PROJECT,
+                               SCOPE, GENERATION, FRESHNESS, NARRATIVE,
+                               EVIDENCE, inflight_refs=[INFLIGHT, self.WEAK])
+        return roadmap.entries[0], document
+
+    def _conflict_affects(self, document):
+        return [o for o in document["observations"]
+                if o["kind"] == "in_flight_conflict"][0]["affects"]
+
+    def test_the_advisory_overlap_is_neither_an_edge_nor_an_affected_task(self):
+        entry, document = self._roadmap("task_declared")
+        self.assertEqual(entry.verdict, "CONFLICT")
+        self.assertEqual([r["to"] for r in document["relations"]], [INFLIGHT])
+        self.assertEqual(self._conflict_affects(document), [CANDIDATE, INFLIGHT])
+        self.assertIn("inflight:%s: task_declared_overlap:%s"
+                      % (self.WEAK, self.CITED), entry.caveats)
+        issues = trail_schema.validate_trail(document, expect_depth="deep")
+        self.assertEqual([str(i) for i in issues], [])
+
+    def test_control_with_both_plan_declared_both_are_counterparties(self):
+        entry, document = self._roadmap("plan_declared")
+        self.assertEqual([r["to"] for r in document["relations"]],
+                         [INFLIGHT, self.WEAK])
+        self.assertEqual(self._conflict_affects(document),
+                         [CANDIDATE, INFLIGHT, self.WEAK])
+        self.assertFalse([c for c in entry.caveats
+                          if "task_declared_overlap" in c])
+
+
 class NegativeControlTests(unittest.TestCase):
     """Each control must CHANGE the result, so the assertions above cannot pass
     vacuously."""

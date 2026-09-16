@@ -42,6 +42,7 @@ sys.path.insert(0, str(SCRIPTS_DIR / "lib"))
 import trail_gather  # noqa: E402
 import plan_paths  # noqa: E402
 import trail_schema  # noqa: E402
+import parallel_admission as pa  # noqa: E402
 
 WRAPPER = SCRIPTS_DIR / "aitask_trail_gather.sh"
 
@@ -2707,6 +2708,122 @@ class VersionLockTests(TrailGatherCase):
                 self.assertNotIn("STALE", out)
         self.assertNotIn("STALE", out)
         self.assertNotIn("CURRENT", out)
+
+
+class InflightNoPlanFallbackControlTests(InflightCase):
+    """What must STAY `no_plan` through the gatherer path (t1688_1 pre-phase).
+
+    Asserted on the surface the ADAPTER builds from the gatherer's
+    `INFLIGHT_PATH:` lines, never on the raw lines: the task-description
+    fallback legitimately changes those (a `task_declared` marker plus the
+    description's classified records). Whatever the lines become, a description
+    naming nothing resolvable must still reach `decide` as `no_plan`.
+
+    Task 101 is the snapshot member; task 100 is the in-flight task, and it
+    never has a plan. Case (d)'s paths are real in this fixture -- `src/real.py`
+    is git-tracked and the profile YAML is in the task-data corpus -- but they
+    sit only under `## Inbox` / `## Gate Runs`.
+    """
+
+    DATA_TRACKED = {"aitasks/metadata/profiles/fast.yaml"}
+    DATA_DIRS = {"aitasks", "aitasks/metadata", "aitasks/metadata/profiles"}
+
+    def setUp(self):
+        super().setUp()
+        self.repo.write_task("101", "member")
+        self.inject(gate=self.src("gate", {"100": ("PLAN", "NO_GATES")}))
+
+    def adapter_surface(self):
+        snap = self.snap_inflight("101")
+        lines = [l for l in snap["raw"].splitlines()
+                 if l.startswith("INFLIGHT_PATH:")]
+        self.assertTrue(lines, "the in-flight task must be classified at all")
+        return pa.surfaces_from_inflight_records(
+            lines, local_name=self.LOCAL, data_tracked=self.DATA_TRACKED,
+            data_dirs=self.DATA_DIRS, classify=plan_paths.classify)["100"]
+
+    def assert_no_plan(self):
+        surface = self.adapter_surface()
+        self.assertEqual((surface.resolution, surface.paths), ("no_plan", ()))
+
+    def test_a_no_task_file(self):
+        self.assert_no_plan()
+
+    def test_b_pathless_body(self):
+        self.repo.write_task("100", "t", body="Tidy the wording; no file named.\n")
+        self.assert_no_plan()
+
+    def test_c_body_naming_only_paths_resolvable_in_neither_corpus(self):
+        self.repo.write_task("100", "t", body=(
+            "Edit `nowhere/ghost.py` and `src/missing/thing.sh`.\n"))
+        self.assert_no_plan()
+
+    def test_d_real_paths_only_under_inbox_and_gate_runs(self):
+        self.repo.git_track("src/real.py")
+        self.repo.write_task("100", "t", body=(
+            "Tidy the wording; no file named.\n\n"
+            "## Inbox\n"
+            "<!-- Appended by the note framework. Do not edit by hand. -->\n\n"
+            "> **✉ note:t5** id=2026-08-30T08:00:00Z.aa from=t5\n"
+            ">\n"
+            "> | t5 edits `src/real.py` and "
+            "`aitasks/metadata/profiles/fast.yaml`.\n\n"
+            "## Gate Runs\n\n"
+            "> **✅ gate:plan_approved** run=2026-08-30T08:00:00Z "
+            "status=pass note=src/real.py\n"))
+        self.assert_no_plan()
+
+
+class InflightTaskDeclaredTests(InflightCase):
+    """A no-plan in-flight task is classified from its description (t1688)."""
+
+    BODY = "Edit `src/real.py` and `aitasks/metadata/profiles/fast.yaml`.\n"
+
+    def setUp(self):
+        super().setUp()
+        self.repo.write_task("101", "member")
+        self.inject(gate=self.src("gate", {"100": ("PLAN", "NO_GATES")}))
+
+    def records(self, snap):
+        return [(c, p) for r, c, p in snap["paths"] if r == "mainproj#100"]
+
+    def test_the_marker_precedes_every_classified_record(self):
+        """EVERY record, phantom included: this gatherer sees the code branch
+        only, so the task-data path reads phantom here and the judgement
+        belongs to the adapter."""
+        self.repo.git_track("src/real.py")
+        self.repo.write_task("100", "t", body=self.BODY)
+        self.assertEqual(self.records(self.snap_inflight("101")), [
+            ("task_declared", "-"),
+            ("phantom", "aitasks/metadata/profiles/fast.yaml"),
+            ("tracked", "src/real.py")])
+
+    def test_the_adapter_resolves_the_record_the_gatherer_cannot(self):
+        self.repo.git_track("src/real.py")
+        self.repo.write_task("100", "t", body=self.BODY)
+        snap = self.snap_inflight("101")
+        lines = [l for l in snap["raw"].splitlines()
+                 if l.startswith("INFLIGHT_PATH:")]
+        surface = pa.surfaces_from_inflight_records(
+            lines, local_name=self.LOCAL,
+            data_tracked={"aitasks/metadata/profiles/fast.yaml"},
+            data_dirs={"aitasks", "aitasks/metadata", "aitasks/metadata/profiles"},
+            classify=plan_paths.classify)["100"]
+        self.assertEqual(
+            (surface.resolution, surface.provenance, surface.paths),
+            ("resolved", "task_declared",
+             ("aitasks/metadata/profiles/fast.yaml", "src/real.py")))
+
+    def test_a_malformed_only_description_is_no_plan(self):
+        self.repo.write_task("100", "t",
+                             body="Regenerate the `SKILL-${p}-claude.md` goldens.\n")
+        self.assertEqual(self.records(self.snap_inflight("101")),
+                         [("no_plan", "-")])
+
+    def test_the_corpus_axis_still_reports_plans_only(self):
+        self.repo.git_track("src/real.py")
+        self.repo.write_task("100", "t", body=self.BODY)
+        self.assertEqual(self.snap_inflight("101")["scan"][1], "no_plans")
 
 
 if __name__ == "__main__":
