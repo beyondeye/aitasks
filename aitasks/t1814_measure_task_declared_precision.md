@@ -3,13 +3,14 @@ priority: medium
 effort: medium
 depends: []
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [scheduling, planning]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1569
 followup_kind: risk_mitigation
 created_at: 2026-09-16 09:59
-updated_at: 2026-09-16 09:59
+updated_at: 2026-09-16 11:16
 ---
 
 ## Origin
