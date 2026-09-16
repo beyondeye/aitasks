@@ -1344,7 +1344,7 @@ requires all reached variants evidenced. `--confirm-source <path>` and
 `--retarget` are unchanged. `verify <file>#<member>` re-stamps one member.
 <!-- /section: freshness -->
 
-<!-- section: selection [dimensions: component_selector, component_dependency_scanners, assumption_change_surface_is_intake, assumption_kotlin_scanner_fail_closed] -->
+<!-- section: selection [dimensions: component_selector, component_dependency_scanners, assumption_change_surface_is_intake] -->
 ## Selection: Fail-Closed Scanners and the Test-Side Closure
 
 Intake, refusal on `UNKNOWN:`, the graded walk, rules and cut knobs are the
@@ -1392,7 +1392,7 @@ Reasons, in full: `edge(annotation|declared|observed)`, `dep <a> <- <b>`,
 `ESCALATE:` line.
 <!-- /section: selection -->
 
-<!-- section: runner_contract [dimensions: component_runner_contract, component_reference_runners, assumption_gate_exit_contract_reused, assumption_existing_locks_wrappable, assumption_batch_per_unit_timing_reportable, assumption_variant_universe_from_runner_list] -->
+<!-- section: runner_contract [dimensions: component_runner_contract, component_reference_runners, assumption_gate_exit_contract_reused, assumption_existing_locks_wrappable, assumption_batch_per_unit_timing_reportable] -->
 ## Runner Contract
 
 ```
