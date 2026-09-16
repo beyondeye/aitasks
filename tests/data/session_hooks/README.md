@@ -121,10 +121,18 @@ must also flip `_fixture_status` to `captured`, set
 ## `transcript_layout.json` — the fallback resolver's ground truth
 
 Added by t1705_3. `newest_transcript_for` in `lib/agent_sessions.py` recovers a
-session id from the agent's own transcript store when the hook never fired —
-which, for interactive codex, is the ONLY mechanism. This fixture records the
-real store layouts it is written against, captured from live stores on
-2026-09-07.
+session id from the agent's own transcript store when the hook never fired.
+This fixture records the real store layouts it is written against, captured
+from live stores on 2026-09-07.
+
+**Since t1804 it is no longer the mechanism for interactive codex.** Matching on
+`cwd` alone answers "some session of this project", and with several codex
+agents in one repo the newest match is routinely a *different* agent's
+conversation. A codex session is now captured at freeze time from the rollout
+the agent's own process holds open (`codex_session_for_pid`), and this scan
+refuses to choose between two sessions under one root (`MISS_AMBIGUOUS`). The
+layouts below still describe both paths — the rollout filename and `payload`
+shape are what the pid resolver reads too.
 
 It exists because **two of the planned assumptions were wrong**, and both fail
 *silently* (an empty result is indistinguishable from "this agent has no

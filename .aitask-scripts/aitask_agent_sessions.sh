@@ -34,8 +34,15 @@
 # Verbs (mutating verbs take the lock; `list` / `show` do not):
 #   upsert  --root <r> --window <w> --pane <id> --pane-pid <pid>
 #           [--id <rid>] [--session <name>] [--session-id <sid>]
-#           [--transcript <p>] [--agent-string <s>] [--operation <op>]
-#           [--task-id <t>] [--restore-of <rid> --nonce <n>]
+#           [--clear-session-id] [--transcript <p>] [--agent-string <s>]
+#           [--operation <op>] [--task-id <t>] [--restore-of <rid> --nonce <n>]
+#
+#   `--clear-session-id` DELIBERATELY forgets the recorded session (id and
+#   transcript together), so the next restore re-picks instead of resuming. A
+#   blank `--session-id ""` cannot do this -- it means "not supplied" (t1807) --
+#   and the two must stay distinguishable: one is an accident, the other is
+#   evidence. Refused with `--restore-of`, whose whole purpose is to assert
+#   which session came back.
 #   freeze-begin      <id> --owner-pid <pid> --capture-ansi <p>
 #                          --capture-txt <p> --lines <n> [--phase <t>]
 #   freeze-commit     <id> --nonce <n> --pane <pane_id|""> --pane-pid <pid|0>

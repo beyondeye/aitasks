@@ -89,6 +89,56 @@ class _TranscriptTestCase(unittest.TestCase):
             os.utime(path, (mtime, mtime))
         return path
 
+    def write_codex_named(self, name: str, session_id: str, cwd: str, *,
+                          date="2026/09/07", mtime: float | None = None) -> Path:
+        """A rollout whose FILENAME id need not match its payload session id.
+
+        Real stores hold both shapes: a subagent thread carries its parent's
+        `session_id`, and 159 of 1168 measured rollouts carry no `session_id` at
+        all (the filename is then the only source).
+        """
+        d = self.home / ".codex" / "sessions" / date
+        d.mkdir(parents=True, exist_ok=True)
+        path = d / name
+        payload = {"cwd": cwd, "originator": "codex-tui"}
+        if session_id:
+            payload["session_id"] = session_id
+        path.write_text(json.dumps(
+            {"type": "session_meta", "payload": payload}) + "\n")
+        if mtime is not None:
+            os.utime(path, (mtime, mtime))
+        return path
+
+    def write_not_a_rollout(self, name: str) -> Path:
+        """A rollout-SHAPED filename whose first line is not a `session_meta`.
+
+        The pid resolver reads whatever a process holds open, so a shaped name
+        is not by itself evidence that the file is a codex session.
+        """
+        d = self.home / ".codex" / "sessions" / "2026/09/07"
+        d.mkdir(parents=True, exist_ok=True)
+        path = d / name
+        path.write_text(json.dumps({"type": "turn", "payload": {}}) + "\n")
+        return path
+
+    def write_proc(self, pid: int, *, argv=("/usr/bin/codex", "-m", "gpt-5.6-terra"),
+                   fds=()) -> Path:
+        """A fake `/proc/<pid>`: a cmdline plus one symlink per open file."""
+        d = self.home / "proc" / str(pid)
+        (d / "fd").mkdir(parents=True, exist_ok=True)
+        (d / "cmdline").write_bytes(
+            b"\0".join(a.encode() for a in argv) + b"\0")
+        for index, target in enumerate(fds):
+            link = d / "fd" / str(index)
+            if link.is_symlink() or link.exists():
+                link.unlink()
+            link.symlink_to(str(target))
+        return d
+
+    def resolve_pid(self, pid):
+        return agent_sessions.codex_session_for_pid(
+            pid, proc_root=str(self.home / "proc"))
+
     def resolve(self, root, kind, env=None):
         # env={} by default: HERMETIC. Without it, a developer whose shell
         # exports CODEX_HOME or CLAUDE_CONFIG_DIR would have these tests scan
@@ -173,14 +223,45 @@ class CodexLayoutTests(_TranscriptTestCase):
         self.assertEqual(sid, "01a07b46-2849-7612-bc01-ec1403808969")
         self.assertIn("rollout-", path)
 
-    def test_date_partitioned_selection_picks_the_newest(self):
+    def test_two_sessions_under_one_root_are_ambiguous(self):
+        """REGRESSION (t1804): this used to return the NEWEST match.
+
+        Nothing here ties a rollout to a particular agent, so with two codex
+        agents in one repo the newest match is routinely a *different* agent's
+        conversation -- and a restore would replay it into the frozen pane.
+        Refusing is the only honest answer; correlating needs the live process
+        (`codex_session_for_pid`).
+        """
         root = os.path.realpath(str(self.home / "proj"))
         self.write_codex("01a00000-0000-7000-8000-000000000001", root,
                          date="2026/09/06", mtime=1_000_000)
         self.write_codex("01a00000-0000-7000-8000-000000000002", root,
                          date="2026/09/07", mtime=2_000_000)
-        sid, _, _ = self.resolve(root, "codex")
-        self.assertEqual(sid, "01a00000-0000-7000-8000-000000000002")
+        sid, path, miss = self.resolve(root, "codex")
+        self.assertEqual((sid, path), ("", ""))
+        self.assertEqual(miss, agent_sessions.MISS_AMBIGUOUS)
+
+    def test_a_single_session_root_still_resolves(self):
+        """The refusal is about ambiguity, not about codex."""
+        root = os.path.realpath(str(self.home / "proj"))
+        self.write_codex("01a00000-0000-7000-8000-000000000009", root,
+                         date="2026/09/06", mtime=1_000_000)
+        sid, _, miss = self.resolve(root, "codex")
+        self.assertEqual((sid, miss),
+                         ("01a00000-0000-7000-8000-000000000009", ""))
+
+    def test_one_session_in_several_files_is_not_ambiguous(self):
+        """Grouping is by SESSION, not by file: a resumed session can appear in
+        more than one rollout, and that is still one conversation."""
+        root = os.path.realpath(str(self.home / "proj"))
+        sid_one = "01a00000-0000-7000-8000-00000000000b"
+        self.write_codex(sid_one, root, date="2026/09/06", mtime=1_000_000)
+        newer = self.write_codex_named(
+            "rollout-2026-09-07T12-00-00-01a00000-0000-7000-8000-0000000000ff.jsonl",
+            sid_one, root, date="2026/09/07", mtime=2_000_000)
+        sid, path, miss = self.resolve(root, "codex")
+        self.assertEqual((sid, miss), (sid_one, ""))
+        self.assertEqual(path, str(newer), "newest file OF THAT SESSION")
 
     def test_other_projects_are_not_matched(self):
         root = os.path.realpath(str(self.home / "mine"))
@@ -188,6 +269,152 @@ class CodexLayoutTests(_TranscriptTestCase):
         self.write_codex("01a00000-0000-7000-8000-00000000000a", other)
         sid, _, miss = self.resolve(root, "codex")
         self.assertEqual((sid, miss), ("", agent_sessions.MISS_NO_MATCH))
+
+
+class CodexPidCorrelationTests(_TranscriptTestCase):
+    """`codex_session_for_pid` — the correlated resolver (t1804).
+
+    A codex process holds its rollout OPEN (measured, codex 0.154), so the open
+    fd ties one session to one process. That is the identity a cwd scan cannot
+    supply, and it is why the freeze engine resolves while the agent is alive.
+    """
+
+    def test_each_agent_resolves_its_own_session_not_the_newest(self):
+        """THE t1797 REGRESSION, in one fixture.
+
+        Two codex agents in one repo. The uncorrelated scan can only refuse;
+        each pid resolves to the rollout IT holds — including the agent whose
+        session is the OLDER one, which is exactly the case that used to hand
+        back a stranger's conversation.
+        """
+        root = os.path.realpath(str(self.home / "proj"))
+        mine = "01a00000-0000-7000-8000-00000000aaaa"
+        theirs = "01a00000-0000-7000-8000-00000000bbbb"
+        mine_path = self.write_codex(mine, root, date="2026/09/06",
+                                     mtime=1_000_000)
+        theirs_path = self.write_codex(theirs, root, date="2026/09/07",
+                                       mtime=2_000_000)
+        self.write_proc(101, fds=[mine_path])
+        self.write_proc(102, fds=[theirs_path])
+
+        self.assertEqual(self.resolve_pid(101), (mine, str(mine_path), ""))
+        self.assertEqual(self.resolve_pid(102), (theirs, str(theirs_path), ""))
+        self.assertEqual(self.resolve(root, "codex")[2],
+                         agent_sessions.MISS_AMBIGUOUS,
+                         "uncorrelated, the resolver must refuse to choose")
+
+    def test_a_subagent_rollout_folds_into_its_parent_session(self):
+        """A subagent thread carries its PARENT's session id, so a process
+        holding both is running ONE session, not two rival ones."""
+        root = os.path.realpath(str(self.home / "proj"))
+        parent = "01a00000-0000-7000-8000-00000000cccc"
+        main_path = self.write_codex(parent, root)
+        sub_path = self.write_codex_named(
+            "rollout-2026-09-07T13-00-00-01a00000-0000-7000-8000-00000000dddd.jsonl",
+            parent, root)
+        self.write_proc(103, fds=[main_path, sub_path])
+        sid, path, miss = self.resolve_pid(103)
+        self.assertEqual((sid, miss), (parent, ""))
+        self.assertEqual(path, str(main_path),
+                         "the path whose filename id IS the session id")
+
+    def test_two_distinct_sessions_held_at_once_are_ambiguous(self):
+        root = os.path.realpath(str(self.home / "proj"))
+        one = self.write_codex("01a00000-0000-7000-8000-00000000eeee", root)
+        two = self.write_codex("01a00000-0000-7000-8000-00000000ffff", root,
+                               date="2026/09/08")
+        self.write_proc(104, fds=[one, two])
+        sid, path, miss = self.resolve_pid(104)
+        self.assertEqual((sid, path), ("", ""))
+        self.assertEqual(miss, agent_sessions.MISS_AMBIGUOUS)
+
+    def test_a_non_codex_process_holding_a_rollout_is_refused(self):
+        """THE WRONG-AGENT GUARD. A recycled pane, or any program holding a
+        rollout-shaped file, must never write its session into a codex record.
+        """
+        root = os.path.realpath(str(self.home / "proj"))
+        rollout = self.write_codex("01a00000-0000-7000-8000-000000001111", root)
+        self.write_proc(105, argv=("/usr/bin/python3", "-m", "http.server"),
+                        fds=[rollout])
+        self.assertEqual(self.resolve_pid(105),
+                         ("", "", agent_sessions.MISS_NOT_CODEX))
+
+    def test_a_codex_process_holding_no_rollout_is_a_plain_miss(self):
+        """A codex that has taken no turn yet holds nothing — it opens its
+        rollout at the FIRST turn (measured). Distinct from "not codex"."""
+        self.write_proc(106, fds=[])
+        self.assertEqual(self.resolve_pid(106),
+                         ("", "", agent_sessions.MISS_NO_MATCH))
+
+    def test_files_that_are_not_rollouts_are_ignored(self):
+        root = os.path.realpath(str(self.home / "proj"))
+        shaped = self.write_not_a_rollout(
+            "rollout-2026-09-07T14-00-00-01a00000-0000-7000-8000-000000002222.jsonl")
+        ordinary = self.home / "notes.txt"
+        ordinary.write_text("hello\n")
+        self.write_proc(107, fds=[shaped, ordinary])
+        self.assertEqual(self.resolve_pid(107)[2], agent_sessions.MISS_NO_MATCH)
+        # ...and the same process ALSO holding a real one still resolves.
+        real = self.write_codex("01a00000-0000-7000-8000-000000003333", root)
+        self.write_proc(108, fds=[shaped, ordinary, real])
+        self.assertEqual(self.resolve_pid(108)[0],
+                         "01a00000-0000-7000-8000-000000003333")
+
+    def test_a_rollout_without_a_payload_session_id_falls_back_to_the_filename(self):
+        root = os.path.realpath(str(self.home / "proj"))
+        path = self.write_codex_named(
+            "rollout-2026-09-07T15-00-00-01a00000-0000-7000-8000-000000004444.jsonl",
+            "", root)
+        self.write_proc(109, fds=[path])
+        self.assertEqual(self.resolve_pid(109),
+                         ("01a00000-0000-7000-8000-000000004444", str(path), ""))
+
+    def test_an_uninspectable_process_is_not_evidence(self):
+        """`MISS_NO_PROCESS` vs `MISS_NOT_CODEX` is load-bearing: the freeze
+        engine CLEARS a stale session id on the latter and must not on the
+        former (no `/proc` at all — every macOS freeze)."""
+        self.assertEqual(self.resolve_pid(4242)[2],
+                         agent_sessions.MISS_NO_PROCESS)
+        self.assertEqual(self.resolve_pid(0)[2], agent_sessions.MISS_NO_PROCESS)
+        self.assertEqual(self.resolve_pid(-1)[2], agent_sessions.MISS_NO_PROCESS)
+        # A pid whose fd dir exists but whose cmdline does not: "could not
+        # look", never "not codex".
+        (self.home / "proc" / "110" / "fd").mkdir(parents=True)
+        self.assertEqual(self.resolve_pid(110)[2],
+                         agent_sessions.MISS_NO_PROCESS)
+
+
+class CodexProcessModelTests(_TranscriptTestCase):
+    """`codex_process_model` — is this process codex, and which model?"""
+
+    def model(self, pid):
+        return agent_sessions.codex_process_model(
+            pid, proc_root=str(self.home / "proc"))
+
+    def test_reads_the_model_flag_in_each_accepted_spelling(self):
+        for index, argv in enumerate((
+            ("/usr/bin/codex", "-m", "gpt-5.6-terra"),
+            ("/usr/bin/codex", "--model", "gpt-5.6-terra"),
+            ("/usr/bin/codex", "--model=gpt-5.6-terra"),
+            # A resumed agent: the flag is NOT adjacent to the binary.
+            ("/usr/bin/codex", "resume", "01a0-sid", "-c", "tui.animations=false",
+             "-m", "gpt-5.6-terra"),
+        )):
+            with self.subTest(argv=argv):
+                self.write_proc(200 + index, argv=argv)
+                self.assertEqual(self.model(200 + index),
+                                 (True, "gpt-5.6-terra"))
+
+    def test_a_codex_launched_without_a_model_is_still_codex(self):
+        self.write_proc(210, argv=("/usr/bin/codex",))
+        self.assertEqual(self.model(210), (True, ""))
+
+    def test_a_non_codex_process_names_no_model(self):
+        self.write_proc(211, argv=("/usr/bin/claude", "-m", "opus"))
+        self.assertEqual(self.model(211), (False, ""))
+
+    def test_an_unreadable_process_is_not_codex(self):
+        self.assertEqual(self.model(9999), (False, ""))
 
 
 class MissReasonTests(_TranscriptTestCase):
@@ -219,9 +446,22 @@ class MissReasonTests(_TranscriptTestCase):
             agent_sessions.MISS_NO_PROJECT_DIR,
             agent_sessions.MISS_NO_MATCH,
             agent_sessions.MISS_UNSUPPORTED_AGENT,
+            agent_sessions.MISS_AMBIGUOUS,
+            agent_sessions.MISS_NO_PROCESS,
+            agent_sessions.MISS_NOT_CODEX,
         }
-        self.assertEqual(len(reasons), 4)
+        self.assertEqual(len(reasons), 7)
         self.assertNotIn("", reasons)
+
+    def test_could_not_look_is_distinct_from_looked_and_found_nothing(self):
+        """The t1804 pair the freeze engine BRANCHES on: `MISS_NO_PROCESS`
+        (absence of evidence) must never read as `MISS_NOT_CODEX` /
+        `MISS_NO_MATCH` (positive evidence), because only the latter may clear a
+        recorded session id."""
+        self.assertNotEqual(agent_sessions.MISS_NO_PROCESS,
+                            agent_sessions.MISS_NOT_CODEX)
+        self.assertNotEqual(agent_sessions.MISS_NO_PROCESS,
+                            agent_sessions.MISS_NO_MATCH)
 
 
 class StoreRootOverrideTests(_TranscriptTestCase):

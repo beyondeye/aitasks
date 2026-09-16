@@ -398,5 +398,55 @@ class BlankSessionIdTests(_UpsertTestCase):
         self.assertEqual(self.sf.by_id(rid).codeagent_session_id, "sess-new")
 
 
+class ClearSessionIdTests(_UpsertTestCase):
+    """t1804: DELIBERATELY forgetting a recorded session needs its own word.
+
+    Since t1807 a blank means "not supplied", so an accident can no longer
+    clear — which is right, but the freeze engine still needs a way to say "I
+    have evidence this record no longer points at the conversation its process
+    is in" (a recycled pane, a `/new` in the TUI). One is an accident, the other
+    is evidence; the store must never have to guess which it was handed.
+    """
+
+    def test_clear_forgets_the_id_and_the_transcript_together(self):
+        rid = self.rid(self.up(session_id="sess-orig", transcript="/t/a.jsonl"))
+        line = self.up(clear_session_id=True)
+        self.assertEqual(line, f"UPSERTED:{rid}|updated")
+        rec = self.sf.by_id(rid)
+        self.assertEqual(rec.codeagent_session_id, "")
+        self.assertEqual(rec.transcript_path, "",
+                         "a transcript path without an id is a dangling reference")
+
+    def test_clear_keeps_the_agent_string(self):
+        """The record degrades to re-pick, and re-pick must still launch the
+        agent it was — which is what `agent_string` decides."""
+        rid = self.rid(self.up(session_id="s",
+                               agent_string="codex/gpt5_6_terra"))
+        self.up(clear_session_id=True)
+        rec = self.sf.by_id(rid)
+        self.assertEqual(rec.agent_string, "codex/gpt5_6_terra")
+        self.assertEqual(rec.agent_kind, "codex")
+
+    def test_a_blank_still_does_not_clear(self):
+        """t1807 stays intact: only the explicit flag forgets a session."""
+        rid = self.rid(self.up(session_id="sess-orig"))
+        self.up(session_id="")
+        self.assertEqual(self.sf.by_id(rid).codeagent_session_id, "sess-orig")
+
+    def test_clear_wins_over_a_value_supplied_in_the_same_call(self):
+        rid = self.rid(self.up(session_id="sess-orig"))
+        self.up(session_id="sess-new", clear_session_id=True)
+        self.assertEqual(self.sf.by_id(rid).codeagent_session_id, "")
+
+    def test_clear_is_refused_on_a_restore_acknowledgement(self):
+        """The ack asserts WHICH session came back, and `upsert` compares that
+        id before applying any field — so a clear there would read as a session
+        mismatch and abort a legitimate restore. Refuse rather than interpret.
+        """
+        rid = self.rid(self.up(session_id="sess-orig"))
+        with self.assertRaises(ValueError):
+            self.up(restore_of=rid, nonce="deadbeef", clear_session_id=True)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

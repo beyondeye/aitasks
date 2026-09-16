@@ -454,8 +454,14 @@ def restore(record_id: str, *, repick: bool = False) -> RestoreResult:
     # --- preflight: everything that can fail WITHOUT touching the store -----
     if mode == "resume":
         if not session_id:
-            # The common "codex was never hooked" case, and the reason
-            # `--repick` exists. Nothing changes; the record stays frozen.
+            # No captured session. Since t1804 a codex agent's id is captured at
+            # freeze time from the rollout its process held open, so this now
+            # means that correlation was unavailable: no `/proc` (macOS), the
+            # pane was not running codex directly, the agent had taken no turn
+            # yet (codex opens its rollout at the FIRST turn), its model is not
+            # in `models_codex.json`, or the freeze could not prove which of
+            # several rollouts was its own. The reason `--repick` exists;
+            # nothing changes and the record stays frozen.
             return RestoreResult(record_id, False, "no_session",
                                  f"RESTORE_FAILED:{record_id}|no_session")
         if agent_kind == "opencode":

@@ -61,6 +61,21 @@ CALL_SITES = [
     # --- §C freeze flow -----------------------------------------------------
     ("C.freeze.1 fallback record resolution", A.STATE_LIVE, "upsert",
      ["root", "window", "pane", "pane_pid"]),
+    # t1804. The same fallback also carries the codex session it observed from
+    # the live process, and the agent string without which a restore would
+    # resolve the project's default agent instead of codex.
+    ("C.freeze.1 fallback resolution + codex capture", A.STATE_LIVE, "upsert",
+     ["root", "window", "pane", "pane_pid", "session_id", "transcript",
+      "agent_string"]),
+    # t1804. A record the store already knows is updated BY ID, so the capture
+    # cannot relocate it or create a second record beside it.
+    ("C.freeze.1b codex session capture on a known record", A.STATE_LIVE,
+     "upsert", ["root", "window", "pane", "pane_pid", "session_id",
+                "transcript", "agent_string"]),
+    # t1804. The invalidation half: a blank cannot clear (t1807), so forgetting
+    # a disproved session has its own argument.
+    ("C.freeze.1c codex session invalidation", A.STATE_LIVE, "upsert",
+     ["root", "window", "pane", "pane_pid", "clear_session_id"]),
     ("C.freeze.3 begin", A.STATE_LIVE, "freeze-begin",
      ["capture_ansi", "capture_txt", "lines", "phase", "owner_pid"]),
     ("C.freeze.6 commit", A.STATE_FREEZING, "freeze-commit",

@@ -1208,15 +1208,32 @@ def _classify_stored_inputs(doc: dict, errors: list[str]) -> list[StoredInput]:
 
 
 def _contained_plan_path(tree: ProjectTree, relpath: str) -> Path | None:
-    """Resolve a plan relpath under its project root, realpath-confined."""
+    """Resolve a plan relpath under its project root, realpath-confined.
+
+    TWO bases are trusted: the project root, and the realpath of the project's
+    OWN plan dir. The root alone is not enough, because a project's plans need
+    not live inside it (t1809):
+
+    - a linked worktree (`aitask_init_data.sh --link-worktree`) keeps
+      `aiplans/` as a symlink into the PRIMARY checkout's `.aitask-data`, so
+      every legitimate plan realpaths out of the worktree root;
+    - a `PLAN_DIR` pointing outside the checkout arrives with upward segments,
+      since refs are spelled `os.path.relpath(plan_path, tree.root)`.
+
+    Both used to stage `ref_outside_project` and error the whole drift run.
+    The plan dir is project LAYOUT, not caller input, so trusting its target
+    widens nothing an untrusted ref controls: a ref that climbs back out of it
+    (`aiplans/../../etc/passwd`) lands under neither base and is still refused.
+    """
     root_real = os.path.realpath(tree.root)
     target = os.path.realpath(os.path.join(root_real, relpath))
-    try:
-        if os.path.commonpath([root_real, target]) != root_real:
-            return None
-    except ValueError:
-        return None
-    return Path(target)
+    for base in (root_real, os.path.realpath(tree.root / tree.plan_dir)):
+        try:
+            if os.path.commonpath([base, target]) == base:
+                return Path(target)
+        except ValueError:  # e.g. different drives -- not contained
+            continue
+    return None
 
 
 def _doc_task_refs(doc: dict) -> tuple[set[str], set[str], dict[str, dict]]:

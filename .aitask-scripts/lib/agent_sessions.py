@@ -718,6 +718,7 @@ def _apply_upsert_fields(
     agent_string=None,
     operation=None,
     task_id=None,
+    clear_session_id=False,
 ) -> None:
     """Apply the optional descriptive fields. ``None`` means "not supplied".
 
@@ -738,6 +739,14 @@ def _apply_upsert_fields(
     acknowledgement is unaffected: ``upsert`` compares ``session_id or ""``
     against the stored id BEFORE calling this, so a blank there is still a
     mismatch.
+
+    Because a blank can no longer clear, DELIBERATE invalidation needs its own
+    word: ``clear_session_id`` (t1804). The freeze engine sets it when it has
+    positive evidence that the pane's live process is not in the recorded
+    conversation, and it drops the transcript path with the id -- the two are
+    one fact ("which conversation this record points at"), and a path without
+    an id is a dangling reference. An accidental blank and a deliberate clear
+    are then impossible to confuse, which is what keeps t1807's guarantee.
     """
     if session is not None:
         rec.session = session
@@ -752,6 +761,10 @@ def _apply_upsert_fields(
         rec.operation = operation
     if task_id is not None:
         rec.task_id = task_id
+    # Last, so an explicit clear is never re-filled by a value in the same call.
+    if clear_session_id:
+        rec.codeagent_session_id = ""
+        rec.transcript_path = ""
 
 
 def upsert(
@@ -772,6 +785,7 @@ def upsert(
     nonce: str | None = None,
     now: float | None = None,
     pane_alive=None,
+    clear_session_id: bool = False,
 ) -> tuple[SessionsFile, str]:
     """The ONLY creator of records. See the pinned conflict policy.
 
@@ -791,6 +805,13 @@ def upsert(
     now = _now() if now is None else now
     alive = pane_alive or _pid_alive
     croot = os.path.realpath(root)
+
+    # A restore ack asserts WHICH session came back; clearing that assertion in
+    # the same breath is incoherent, and the comparison below would read the
+    # clear as a session mismatch and abort a legitimate restore. Refuse it
+    # rather than pick an interpretation.
+    if clear_session_id and restore_of is not None:
+        raise ValueError("--clear-session-id cannot be combined with --restore-of")
 
     # --- the restore acknowledgement ----------------------------------------
     if restore_of is not None:
@@ -863,6 +884,7 @@ def upsert(
             agent_string=agent_string,
             operation=operation,
             task_id=task_id,
+            clear_session_id=clear_session_id,
         )
         # Follow a renamed window. `id` is the PRIMARY KEY and rule 1 says a
         # renamed window keeps its record -- but "keeps" only holds if the
@@ -1513,11 +1535,35 @@ def drop_verdict(
 #     unobserved character from silently yielding "no session".
 #   * codex puts cwd and session_id under `payload`, not at the top level, and
 #     partitions by DATE rather than by project.
+#
+# CORRELATION, NOT RECENCY (t1804). Matching on cwd alone answers "some session
+# of this project", which is NOT the question: with several codex agents in one
+# repo the newest match is routinely a DIFFERENT agent's conversation, and
+# restoring it replays a stranger's session into the frozen pane. So:
+#
+#   * :func:`codex_session_for_pid` resolves a session from the rollout the
+#     agent's OWN process holds open -- exact, and the mechanism the freeze
+#     engine uses while the agent is still alive;
+#   * the uncorrelated scan below REFUSES to guess: more than one session id
+#     under a root is `MISS_AMBIGUOUS`, never "the newest one".
+#
+# Measured (codex 0.154, t1804): a codex TUI opens its rollout at its FIRST
+# TURN, not at launch -- a never-prompted agent holds no rollout and resolves to
+# `MISS_NO_MATCH`, which correctly degrades to re-pick.
 
 MISS_NO_STORE_DIR = "no_store_dir"
 MISS_NO_PROJECT_DIR = "no_project_dir"
 MISS_NO_MATCH = "no_match"
 MISS_UNSUPPORTED_AGENT = "unsupported_agent"
+#: More than one candidate session -- the resolver refuses to pick one.
+MISS_AMBIGUOUS = "ambiguous"
+#: The process could not be inspected at all (no `/proc`, e.g. macOS; a gone or
+#: unreadable pid). ABSENCE OF EVIDENCE -- never evidence that a stored session
+#: id is stale, which is why `agent_freeze` does not clear on it.
+MISS_NO_PROCESS = "no_process"
+#: The process is inspectable and is NOT codex, so its open files say nothing
+#: about a codex session.
+MISS_NOT_CODEX = "not_codex"
 
 _CODEX_ROLLOUT_RE = re.compile(
     r"^rollout-.+?-(?P<session_id>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-"
@@ -1559,25 +1605,177 @@ def _claude_transcript_cwd(path: Path) -> str:
     return ""
 
 
+def _codex_meta_payload(path: Path) -> dict | None:
+    """A codex rollout's first-line ``payload``, or None if it is not one.
+
+    The ``type == "session_meta"`` check is what lets a caller treat "this file
+    is a codex rollout" as established rather than assumed -- the pid resolver
+    reads files an arbitrary process holds open, and a rollout-SHAPED name is
+    not by itself evidence.
+    """
+    try:
+        with path.open(encoding="utf-8", errors="replace") as fh:
+            first = fh.readline()
+    except OSError:
+        return None
+    try:
+        obj = json.loads(first)
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(obj, dict) or obj.get("type") != "session_meta":
+        return None
+    payload = obj.get("payload")
+    return payload if isinstance(payload, dict) else None
+
+
 def _codex_session_meta(path: Path) -> tuple[str, str]:
     """``(cwd, session_id)`` from a codex rollout's first line.
 
     First line is ``type: session_meta`` and both values live under ``payload``
     -- a top-level lookup returns nothing for every codex session.
     """
-    try:
-        with path.open(encoding="utf-8", errors="replace") as fh:
-            first = fh.readline()
-    except OSError:
-        return "", ""
-    try:
-        obj = json.loads(first)
-    except (ValueError, TypeError):
-        return "", ""
-    payload = obj.get("payload") if isinstance(obj, dict) else None
-    if not isinstance(payload, dict):
+    payload = _codex_meta_payload(path)
+    if payload is None:
         return "", ""
     return str(payload.get("cwd") or ""), str(payload.get("session_id") or "")
+
+
+def _codex_rollout_identity(path: Path) -> tuple[str, str]:
+    """``(session_id, cwd)`` for a codex rollout; ``("", "")`` if it is not one.
+
+    The id falls back to the FILENAME's uuid when ``payload.session_id`` is
+    absent -- 159 of 1168 real rollouts are that shape, and their filename id
+    matches ``payload.id`` (measured, t1804).
+
+    A subagent-thread rollout carries its PARENT's ``session_id``, so grouping
+    candidates by this value folds a subagent into the session that spawned it
+    instead of reading as two rival sessions. That is why callers group by id
+    rather than by path, and why no explicit subagent branch is needed.
+    """
+    payload = _codex_meta_payload(path)
+    if payload is None:
+        return "", ""
+    session_id = str(payload.get("session_id") or "")
+    if not session_id:
+        match = _CODEX_ROLLOUT_RE.match(path.name)
+        session_id = match.group("session_id") if match else ""
+    return session_id, str(payload.get("cwd") or "")
+
+
+def _codex_cmdline_argv(pid: int, proc_root: str) -> list[str] | None:
+    """``/proc/<pid>/cmdline`` as argv; **None when it could not be read**.
+
+    The None-vs-empty distinction is load-bearing: "could not look" and "looked,
+    and it is not codex" drive opposite decisions in the freeze engine (keep a
+    stored session id vs. clear it). Collapsing them would make every macOS
+    freeze -- where there is no `/proc` at all -- claim positive evidence that a
+    valid session id is stale.
+    """
+    try:
+        with open(f"{proc_root}/{int(pid)}/cmdline", "rb") as fh:
+            raw = fh.read()
+    except (OSError, ValueError, TypeError):
+        return None
+    return [arg for arg in raw.decode("utf-8", errors="replace").split("\0") if arg]
+
+
+def codex_process_model(pid: int, *, proc_root: str = "/proc") -> tuple[bool, str]:
+    """``(is_codex, cli_id)`` for a running process. Never raises.
+
+    ``is_codex`` is decided by argv0's basename. A wrapper prefix does not
+    defeat it: `env A=B codex …` **execs into** codex, so the cmdline is codex's
+    own (the same property `agent_restore._env_prefixed` relies on for the
+    pane-pid anchor).
+
+    ``cli_id`` is the value after ``-m`` / ``--model`` / ``--model=`` ANYWHERE in
+    argv, because a resumed agent is ``codex resume <sid> … -m <id>``. It is ""
+    when the launch named no model.
+    """
+    argv = _codex_cmdline_argv(pid, proc_root)
+    if not argv or os.path.basename(argv[0]) != "codex":
+        return False, ""
+    for index in range(1, len(argv)):
+        arg = argv[index]
+        if arg in ("-m", "--model"):
+            return True, argv[index + 1] if index + 1 < len(argv) else ""
+        if arg.startswith("--model="):
+            return True, arg.split("=", 1)[1]
+    return True, ""
+
+
+def codex_session_for_pid(
+    pid: int, *, proc_root: str = "/proc"
+) -> tuple[str, str, str]:
+    """Resolve ``(session_id, transcript_path, miss_reason)`` from the rollout
+    the codex process ``pid`` currently holds OPEN.
+
+    This is the correlated answer :func:`newest_transcript_for` cannot give: the
+    open file descriptor ties a session to ONE process, so several codex agents
+    in one repo stay distinguishable. The freeze engine calls it while the agent
+    is still alive (its `pane_pid` IS the codex process); by restore time the
+    process is gone and only the recorded id remains.
+
+    **Verifying the process is codex happens HERE, not at the call site**, so no
+    caller can bypass it: a recycled pane, or any program holding a
+    rollout-shaped file, must never be able to write its session into a codex
+    record.
+
+    Linux-only: it reads `/proc/<pid>/fd`. Elsewhere every answer is
+    ``MISS_NO_PROCESS``, which leaves callers exactly where they were before
+    this existed (no captured id -> restore falls back to re-pick).
+
+    Miss reasons are distinct on purpose -- see :data:`MISS_NO_PROCESS` vs
+    :data:`MISS_NOT_CODEX`, which the freeze engine treats differently.
+    """
+    try:
+        pid_int = int(pid)
+    except (TypeError, ValueError):
+        return "", "", MISS_NO_PROCESS
+    if pid_int <= 0:
+        return "", "", MISS_NO_PROCESS
+
+    try:
+        entries = sorted(Path(proc_root, str(pid_int), "fd").iterdir())
+    except OSError:
+        return "", "", MISS_NO_PROCESS
+
+    # Read the cmdline only after the fd directory proved readable, so an
+    # unreadable /proc reports "could not look", never "not codex".
+    argv = _codex_cmdline_argv(pid_int, proc_root)
+    if argv is None:
+        return "", "", MISS_NO_PROCESS
+    if not argv or os.path.basename(argv[0]) != "codex":
+        return "", "", MISS_NOT_CODEX
+
+    # Depth 0 only. The pane's process IS the agent (launches exec through), and
+    # descending would let a claude pane whose Bash tool ran codex capture that
+    # child tool's rollout as if it were the pane's own session.
+    candidates: dict[str, list[Path]] = {}
+    for entry in entries:
+        try:
+            target = os.readlink(str(entry))
+        except OSError:
+            continue
+        if target.endswith(" (deleted)"):
+            continue
+        path = Path(target)
+        if not _CODEX_ROLLOUT_RE.match(path.name):
+            continue
+        session_id, _cwd = _codex_rollout_identity(path)
+        if session_id:
+            candidates.setdefault(session_id, []).append(path)
+
+    if not candidates:
+        return "", "", MISS_NO_MATCH
+    if len(candidates) > 1:
+        return "", "", MISS_AMBIGUOUS
+
+    session_id, paths = next(iter(candidates.items()))
+    for path in sorted(paths):
+        match = _CODEX_ROLLOUT_RE.match(path.name)
+        if match and match.group("session_id") == session_id:
+            return session_id, str(path), ""
+    return session_id, str(sorted(paths)[0]), ""
 
 
 def _newest(paths: list[Path]) -> list[Path]:
@@ -1687,16 +1885,27 @@ def _codex_newest_transcript(root: str, home: Path, env) -> tuple[str, str, str]
             continue
     if not rollouts:
         return "", "", MISS_NO_MATCH
+
+    # Group every cwd-match by session id -- newest first, so each group's first
+    # path is its newest file. Returning the newest MATCH (the pre-t1804
+    # behaviour) silently handed back another agent's conversation whenever two
+    # codex sessions shared a root, and nothing downstream could tell.
+    candidates: dict[str, list[Path]] = {}
     for path in _newest(rollouts):
-        cwd, session_id = _codex_session_meta(path)
-        if cwd != root:
+        session_id, cwd = _codex_rollout_identity(path)
+        if cwd != root or not session_id:
             continue
-        if not session_id:
-            m = _CODEX_ROLLOUT_RE.match(path.name)
-            session_id = m.group("session_id") if m else ""
-        if session_id:
-            return session_id, str(path), ""
-    return "", "", MISS_NO_MATCH
+        candidates.setdefault(session_id, []).append(path)
+
+    if not candidates:
+        return "", "", MISS_NO_MATCH
+    if len(candidates) > 1:
+        # Refuse rather than guess: re-picking a task is recoverable, resuming
+        # a stranger's session is not. Correlating a session to its own agent
+        # needs `codex_session_for_pid`, which requires the live process.
+        return "", "", MISS_AMBIGUOUS
+    session_id, paths = next(iter(candidates.items()))
+    return session_id, str(paths[0]), ""
 
 
 def newest_transcript_for(
@@ -1720,6 +1929,13 @@ def newest_transcript_for(
     whole point: without it a wrong layout assumption is indistinguishable from
     "this agent genuinely has no session", and a store-layout change after an
     agent release would look exactly like normal operation.
+
+    **The codex branch resolves only single-session roots** (t1804). Nothing
+    here ties a rollout to a particular agent, so two codex sessions under one
+    root are `MISS_AMBIGUOUS` rather than a guess -- on a busy machine that is
+    the usual answer, and it is the honest one. Capturing a codex session id is
+    the job of :func:`codex_session_for_pid`, called by the freeze engine while
+    the agent's process is still alive.
     """
     home = Path(os.path.expanduser("~")) if home is None else home
     env = os.environ if env is None else env
@@ -1868,6 +2084,7 @@ def main(argv: list[str] | None = None) -> int:
                 id=_id_arg(_arg(rest, "id"), "--id") if _arg(rest, "id") else None,
                 session=_arg(rest, "session"),
                 session_id=_arg(rest, "session-id"),
+                clear_session_id="--clear-session-id" in rest,
                 transcript=_arg(rest, "transcript"),
                 agent_string=_arg(rest, "agent-string"),
                 operation=_arg(rest, "operation"),

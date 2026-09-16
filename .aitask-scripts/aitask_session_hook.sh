@@ -27,7 +27,14 @@
 # CODEX LIMITATION (established 2026-09-06, codex 0.153.4): SessionStart fires
 # under `codex exec` but NOT in the interactive TUI, which is the framework's
 # production launch path. Interactive codex sessions therefore capture no
-# session id here and fall back to newest_transcript_for(), or to re-pick.
+# session id HERE.
+#
+# They are captured instead at FREEZE time (t1804): the freeze engine reads the
+# rollout the agent's own process holds open (`codex_session_for_pid`) while it
+# is still alive, which ties the session to that one agent -- something no
+# transcript-store scan can do. `newest_transcript_for()` remains only for a
+# single-session root; it refuses to guess between two. A codex agent that has
+# taken no turn yet holds no rollout, so it still restores via re-pick.
 # ---------------------------------------------------------------------------
 
 set -uo pipefail

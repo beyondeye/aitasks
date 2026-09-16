@@ -58,6 +58,7 @@ Test seams, honoured **only** under ``AITASKS_TEST_MODE=1``. They are built from
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass
@@ -242,6 +243,212 @@ def _walk_up_to_project(path: str) -> str:
     return str(current)
 
 
+#: The canonical cli-id -> agent-string resolver. The models JSON is never
+#: parsed here (encapsulation rule); this script owns that lookup.
+_RESOLVE_AGENT_SH = _SCRIPTS_DIR / "aitask_resolve_detected_agent.sh"
+
+#: Misses that are positive evidence the pane's process is NOT running the
+#: recorded codex session. `MISS_NO_PROCESS` is deliberately absent: it means
+#: the process could not be inspected at all (no `/proc` -- every macOS freeze),
+#: which is absence of evidence and must never clear a stored id.
+#:
+#: `MISS_NO_MATCH` belongs here because a RESUMED codex opens its rollout at
+#: launch, before any turn (measured, codex 0.154 -- t1804). So "codex process,
+#: no rollout open" cannot be a restored agent still holding the recorded
+#: conversation; a never-turned FRESH agent has no recorded id to lose either.
+_CODEX_DISPROVING_MISSES = (
+    agent_sessions.MISS_NO_MATCH,
+    agent_sessions.MISS_AMBIGUOUS,
+    agent_sessions.MISS_NOT_CODEX,
+)
+
+
+def _codex_agent_string(cli_id: str, root: str) -> str:
+    """``codex/<model>`` for a live codex process's ``-m`` value, else ``""``.
+
+    Identity is NOT decided here -- `agent_sessions.codex_session_for_pid` has
+    already proved the process is codex; this only names its model.
+
+    Why the capture is gated on it: a record's `agent_string` is what
+    `agent_restore.build_resume_argv` resolves the binary from, and with a blank
+    one it falls back to the project's `raw` default -- `claudecode/*` in the
+    shipped config. Recording a codex session id WITHOUT the agent string would
+    therefore turn today's clean `no_session` refusal into
+    `claude --resume <codex-uuid>`: a restore that kills the stand-in and then
+    fails.
+
+    Only an exact ``AGENT_STRING:`` match counts. ``AGENT_STRING_FALLBACK:``
+    means the cli id is absent from `models_codex.json`, and the raw id it
+    echoes would not satisfy the store's own well-formedness check.
+    """
+    if not cli_id:
+        return ""
+    env = {name: value for name, value in os.environ.items() if name != "TASK_DIR"}
+    try:
+        proc = subprocess.run(
+            [str(_RESOLVE_AGENT_SH), "--agent", "codex", "--cli-id", cli_id],
+            capture_output=True, text=True, timeout=15, cwd=root, env=env,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    if proc.returncode != 0:
+        return ""
+    value = ""
+    for line in (proc.stdout or "").splitlines():
+        if line.startswith("AGENT_STRING:"):
+            value = line.split(":", 1)[1].strip()
+            break
+    return value if agent_sessions.agent_kind_of(value) == "codex" else ""
+
+
+def _observe_codex_session(
+    pane_pid: str, root: str, stored: dict[str, str]
+) -> tuple[str, str, str, str, bool]:
+    """``(session_id, transcript, agent_string, miss, unnameable_model)``.
+
+    The last value distinguishes the two ways an agent string can come back
+    empty, which are opposite kinds of evidence:
+
+    * argv named NO model -> nothing is contradicted (the record's own label,
+      when it has one, still describes this agent);
+    * argv named a model this framework cannot map -> the record's label is
+      positively CONTRADICTED; it names a model the agent is demonstrably not
+      running, so the recorded pair must not survive.
+
+    Runs while the agent is still alive -- stage 5 respawns the pane and the
+    process is gone for good, so this is the only moment the correlation exists.
+
+    A stored `agent_string` may supply the MODEL LABEL only when the cmdline
+    names NO model, and never the identity: `codex_session_for_pid` proved that
+    from the live process before we get here.
+    """
+    pid = frozen_ops.int_or_zero(pane_pid)
+    session_id, transcript, miss = agent_sessions.codex_session_for_pid(pid)
+    if miss or not session_id:
+        return "", "", "", miss, False
+    _is_codex, cli_id = agent_sessions.codex_process_model(pid)
+    if cli_id:
+        # The live model is stated, so it DECIDES. When it resolves to nothing
+        # -- a model absent from `models_codex.json` -- the honest answer is no
+        # capture: inheriting the record's older label would file this session
+        # under a model the agent is not running, and the restore would then
+        # launch that conversation with the wrong one. No capture keeps the
+        # recoverable re-pick path instead.
+        agent_string = _codex_agent_string(cli_id, root)
+        return session_id, transcript, agent_string, "", not agent_string
+    # Only an argv that names no model at all may fall back to the record's own
+    # label: it describes the same agent and nothing contradicts it.
+    remembered = stored.get("agent_string", "")
+    agent_string = (
+        remembered if agent_sessions.agent_kind_of(remembered) == "codex"
+        else "")
+    return session_id, transcript, agent_string, "", False
+
+
+def _capture_codex_session(
+    record_id: str, stored: dict[str, str], facts: dict[str, str], root: str
+) -> None:
+    """Best-effort: keep a known record's codex session id true to its process.
+
+    Four outcomes, and the difference between them is the whole point (t1804):
+
+    * a usable observation that differs from the record -> RECORD it, so the
+      restore resumes the conversation this agent is actually in;
+    * a DISPROVING miss on a record that holds a codex id -> CLEAR it. The
+      observation ran and could not prove the stored id belongs to this process
+      (a `/new` in the TUI, a recycled pane), and an id-less record degrades to
+      re-pick -- recoverable, unlike resuming a stranger's session;
+    * a VERIFIED session this code cannot record safely -> CLEAR it too, both
+      when the conversation differs and when argv names an unmapped model (the
+      session id survives a resume, so a matching id proves nothing about the
+      model). Being unable to record the replacement does not make the stored
+      pair true again;
+    * anything else (including `MISS_NO_PROCESS`, i.e. "could not look") ->
+      change nothing.
+
+    Never raises and never fails the freeze: the agent is live and its pane is
+    untouched at this stage, so a capture problem must not cost the user a
+    freeze. Failures are reported on stderr instead.
+    """
+    try:
+        stored_id = stored.get("codeagent_session_id", "")
+        stored_is_codex = stored.get("agent_kind", "") == "codex"
+        if stored_id and not stored_is_codex:
+            # A hook-owned record for another agent. Not ours to touch -- and
+            # not even to look at, so a claude pane costs nothing here.
+            return
+
+        session_id, transcript, agent_string, miss, unnameable_model = (
+            _observe_codex_session(facts.get("pane_pid", "0"), root, stored))
+
+        if miss in _CODEX_DISPROVING_MISSES:
+            if not (stored_id and stored_is_codex):
+                return
+            # NOT `--session-id ""`: the store reads a blank as "not supplied"
+            # (t1807), so it would silently keep the stale id. The explicit flag
+            # is the only thing that forgets a recorded session.
+            fields = ["--clear-session-id"]
+            action = f"cleared unprovable session id ({miss})"
+        elif session_id and agent_string:
+            # The MODEL and the rollout path are part of what the record
+            # promises, not just the id. A session resumed under a different
+            # `-m` keeps its id, so comparing ids alone would leave the record
+            # naming the previous model and a restore would launch that
+            # conversation with it. Refresh whenever any of the three differs.
+            if (session_id == stored_id
+                    and stored_is_codex
+                    and stored.get("agent_string", "") == agent_string
+                    and stored.get("transcript_path", "") == transcript):
+                return
+            fields = ["--session-id", session_id, "--transcript", transcript,
+                      "--agent-string", agent_string]
+            action = f"recorded codex session {session_id}"
+        elif session_id and (unnameable_model or session_id != stored_id):
+            # A VERIFIED session this code cannot record safely, for one of two
+            # reasons — and BOTH disprove what the record says:
+            #
+            # * the process is in a different conversation from the stored one;
+            # * argv names a model absent from `models_codex.json`, so the
+            #   stored label describes a model the agent is demonstrably NOT
+            #   running. A resume keeps the session id, so the ids matching
+            #   proves nothing about the model — restoring would relaunch this
+            #   conversation under the old label.
+            #
+            # Being unable to record the replacement does not make the stored
+            # pair true again. Forget it and let the restore re-pick.
+            if not (stored_id and stored_is_codex):
+                return
+            fields = ["--clear-session-id"]
+            action = ("cleared session id contradicted by an unnameable model"
+                      if unnameable_model
+                      else "cleared session id superseded by an unnameable session")
+        else:
+            # `MISS_NO_PROCESS` (could not look), or an argv that names no model
+            # at all against a record that already agrees. Nothing is disproved.
+            return
+
+        rc, out = frozen_ops.store(
+            "upsert", "--id", record_id,
+            "--root", stored.get("root") or root,
+            "--window", stored.get("window") or facts.get("window", ""),
+            "--pane", facts.get("pane_id", ""),
+            "--pane-pid", facts.get("pane_pid", "0"),
+            *fields,
+        )
+        lines = out.splitlines()
+        last = lines[-1] if lines else ""
+        # `UPSERT_REFUSED` exits 0, so the LINE is the success test, not `rc`.
+        if rc != 0 or not last.startswith("UPSERTED:"):
+            print(f"WARNING:{record_id}|session capture: {action} failed: "
+                  f"{last or rc}", file=sys.stderr)
+        elif miss == agent_sessions.MISS_AMBIGUOUS:
+            print(f"WARNING:{record_id}|session capture: {action}",
+                  file=sys.stderr)
+    except Exception as exc:  # noqa: BLE001 - must never break a freeze
+        print(f"WARNING:{record_id}|session capture skipped: {exc}",
+              file=sys.stderr)
+
+
 def _resolve_record(facts: dict[str, str]) -> tuple[str, str]:
     """``(record_id, wire_line)`` for the pane described by ``facts``.
 
@@ -257,27 +464,51 @@ def _resolve_record(facts: dict[str, str]) -> tuple[str, str]:
     A stamped id the store does NOT know falls through to (2) deliberately: the
     stamp is a dangling join — the record was dropped, or the store was reset —
     and reusing the id would `freeze-begin` a record that does not exist.
-    """
-    stamped = facts.get("record", "")
-    if stamped and agent_sessions.valid_id(stamped) and frozen_ops.store_show(stamped):
-        return stamped, f"RECORD:{stamped}|stamped"
 
+    BOTH paths also capture the agent's codex session while it is still running
+    (t1804) — see :func:`_capture_codex_session`. Interactive codex fires no
+    SessionStart hook, so this is the only moment a codex record can learn which
+    conversation it holds; by restore time the process is gone.
+    """
     root = _walk_up_to_project(facts.get("path", ""))
-    # Both may be blank: `@aitask_agent_session` is unset until the hook's
-    # stamp, and this engine never knows the agent string. The store takes a
-    # blank for either as "not supplied", so a record this upsert selects by
-    # pane identity keeps the id and string it already has.
+    stamped = facts.get("record", "")
+    if stamped and agent_sessions.valid_id(stamped):
+        stored = frozen_ops.store_show(stamped)
+        if stored:
+            _capture_codex_session(stamped, stored, facts, root)
+            return stamped, f"RECORD:{stamped}|stamped"
+
+    # `@aitask_agent_session` is unset until the hook's stamp, which interactive
+    # codex never reaches — so the live observation is usually the only source.
     session_id = facts.get("agent_session", "")
-    rc, out = frozen_ops.store(
+    transcript = ""
+    agent_string = ""
+    observed_id, observed_path, observed_agent, _miss, _unnameable = (
+        _observe_codex_session(facts.get("pane_pid", "0"), root, {}))
+    if observed_id and observed_agent:
+        session_id, transcript, agent_string = (
+            observed_id, observed_path, observed_agent)
+
+    args = [
         "upsert",
         "--root", root,
         "--window", facts.get("window", ""),
         "--pane", facts.get("pane_id", ""),
         "--pane-pid", facts.get("pane_pid", "0"),
         "--session", facts.get("session", ""),
-        "--session-id", session_id,
-        "--agent-string", "",
-    )
+    ]
+    # An empty `--session-id` is NOT "not supplied": the CLI passes `""` through
+    # and `_apply_upsert_fields` overwrites with it. This upsert can select an
+    # existing record by pane identity, so sending a blank would wipe a
+    # hook-captured id and silently downgrade a resumable agent to re-pick.
+    if session_id:
+        args += ["--session-id", session_id]
+    if transcript:
+        args += ["--transcript", transcript]
+    # A blank agent string, by contrast, IS "not supplied" to the store (t1802),
+    # so this stays unconditional — it never overwrites a good stored value.
+    args += ["--agent-string", agent_string]
+    rc, out = frozen_ops.store(*args)
     if rc != 0:
         raise OSError(f"upsert failed: {out}")
     # `UPSERTED:<id>|<how>`

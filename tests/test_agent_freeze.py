@@ -31,7 +31,9 @@ Run: python3 tests/test_agent_freeze.py
 
 from __future__ import annotations
 
+import contextlib
 import copy
+import io
 import os
 import re
 import shlex
@@ -276,13 +278,21 @@ class _FakeStore:
                            f"{rec.agent_string}|{rec.state_at}")
             return 0, "\n".join(out)
         if verb == "upsert":
+            # ABSENT MUST BE `None`, NOT `""`. Both the store's blank-is-not-
+            # supplied rule (t1807) and the deliberate clear (t1804) hinge on
+            # that distinction, so a fake that flattens it would pass while the
+            # real wrapper failed.
             self.sf, line = agent_sessions.upsert(
                 self.sf,
                 root=self._arg(argv, "--root"),
                 window=self._arg(argv, "--window"),
                 pane=self._arg(argv, "--pane"),
                 pane_pid=int(self._arg(argv, "--pane-pid", "0")),
-                session_id=self._arg(argv, "--session-id"),
+                id=self._arg(argv, "--id", None),
+                session_id=self._arg(argv, "--session-id", None),
+                transcript=self._arg(argv, "--transcript", None),
+                agent_string=self._arg(argv, "--agent-string", None),
+                clear_session_id="--clear-session-id" in argv,
             )
             return 0, line
         if verb == "freeze-begin":
@@ -420,6 +430,57 @@ class _FreezeTestCase(unittest.TestCase):
         self.tmux = _FakeTmux(self.panes)
         self.store = _FakeStore(self.sf)
         self._install(self.tmux, self.store)
+        self._install_codex_observers()
+
+    # --- codex session capture (t1804) ------------------------------------
+    #
+    # Stubbed for EVERY test, not just the capture ones: `AGENT_PID` is a plain
+    # integer that may name a real process on the machine running the suite, and
+    # an unstubbed observer would read that stranger's `/proc` entry — a unit
+    # test whose result depends on what else is running. The default is the
+    # quietest possible answer ("could not look"), which changes nothing.
+
+    def _patch(self, obj, name, value) -> None:
+        previous = getattr(obj, name)
+        setattr(obj, name, value)
+        self.addCleanup(setattr, obj, name, previous)
+
+    def _install_codex_observers(self) -> None:
+        self.codex_session = ("", "", agent_sessions.MISS_NO_PROCESS)
+        self.codex_model = (False, "")
+        self.codex_agent_strings: dict[str, str] = {}
+        self.codex_probe_pids: list[int] = []
+
+        def _session_for_pid(pid, **_kw):
+            self.codex_probe_pids.append(pid)
+            return self.codex_session
+
+        self._patch(agent_sessions, "codex_session_for_pid", _session_for_pid)
+        self._patch(agent_sessions, "codex_process_model",
+                    lambda pid, **_kw: self.codex_model)
+        self._patch(agent_freeze, "_codex_agent_string",
+                    lambda cli_id, root: self.codex_agent_strings.get(cli_id, ""))
+
+    def observe_codex(self, session_id, *, path="/t/rollout.jsonl",
+                      cli_id="gpt-5.6-terra",
+                      agent_string="codex/gpt5_6_terra") -> None:
+        """The pane's process is codex and holds ``session_id`` open."""
+        self.codex_session = (session_id, path, "")
+        self.codex_model = (True, cli_id)
+        if cli_id and agent_string:
+            self.codex_agent_strings[cli_id] = agent_string
+
+    def observe_miss(self, miss, *, is_codex=True) -> None:
+        self.codex_session = ("", "", miss)
+        self.codex_model = (is_codex, "gpt-5.6-terra" if is_codex else "")
+
+    def seed_record(self, **fields) -> None:
+        """Give the fixture's record stored values (id, agent string, …)."""
+        self.store.sf, _ = agent_sessions.upsert(
+            self.store.sf, root=str(self.root), window="agent-pick-1705",
+            pane=AGENT_PANE, pane_pid=AGENT_PID, pane_alive=lambda pid: True,
+            **fields,
+        )
 
     def _install(self, tmux, store) -> None:
         # The seams live on the shared module, and every engine reaches them by
@@ -587,6 +648,260 @@ class RecordResolutionTests(_FreezeTestCase):
         self.assertFalse(result.ok)
         self.assertTrue(result.line.startswith("FREEZE_FAILED:resolve"))
         self.assertEqual(self.store.calls, [])
+
+
+class CodexSessionCaptureTests(_FreezeTestCase):
+    """t1804: a codex agent's session is captured AT FREEZE, from the rollout
+    its own process holds open.
+
+    Interactive codex fires no SessionStart hook, so this is the only moment the
+    correlation exists — stage 5 respawns the pane and the process is gone. Two
+    rules run through every case below:
+
+    * an id is recorded only WITH a codex agent string. `build_resume_argv`
+      resolves the binary from that field, and a blank one falls back to the
+      project's `raw` default (claude today), which would turn a clean
+      `no_session` refusal into `claude --resume <codex-uuid>`;
+    * an observation that RAN and disproved the stored id clears it, while one
+      that could not look leaves it alone.
+    """
+
+    def upserts(self):
+        return [call for call in self.store.calls if call[0] == "upsert"]
+
+    def _freeze_capturing_stderr(self):
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            result = agent_freeze.freeze_pane(AGENT_PANE)
+        return result, err.getvalue()
+
+    # --- recording ---------------------------------------------------------
+
+    def test_an_unstamped_codex_pane_records_its_session(self):
+        self.panes[AGENT_PANE][agent_freeze.RECORD_OPTION] = ""
+        self.observe_codex("sess-codex")
+        result = agent_freeze.freeze_pane(AGENT_PANE)
+        self.assertTrue(result.ok, result.line)
+        rec = self.store.sf.by_id(result.record_id)
+        self.assertEqual(rec.codeagent_session_id, "sess-codex")
+        self.assertEqual(rec.transcript_path, "/t/rollout.jsonl")
+        self.assertEqual(rec.agent_string, "codex/gpt5_6_terra")
+        self.assertEqual(rec.agent_kind, "codex")
+
+    def test_a_stamped_record_gains_the_session_the_hook_never_recorded(self):
+        self.observe_codex("sess-codex")
+        result = agent_freeze.freeze_pane(AGENT_PANE)
+        self.assertTrue(result.ok, result.line)
+        rec = self.rec()
+        self.assertEqual(rec.codeagent_session_id, "sess-codex")
+        self.assertEqual(rec.agent_string, "codex/gpt5_6_terra")
+        self.assertTrue(any("--id" in call for call in self.upserts()),
+                        "the known record must be updated by id, not re-created")
+
+    def test_the_live_observation_replaces_a_differing_stored_id(self):
+        """A `/new` in the TUI leaves the record naming a conversation the agent
+        is no longer in; the fd says which one it IS in."""
+        self.seed_record(session_id="sess-old",
+                         agent_string="codex/gpt5_6_terra")
+        self.observe_codex("sess-new")
+        agent_freeze.freeze_pane(AGENT_PANE)
+        self.assertEqual(self.rec().codeagent_session_id, "sess-new")
+
+    def test_a_stored_agent_string_may_name_a_model_argv_does_not(self):
+        """The stored label supplies the MODEL when the cmdline carries no
+        `-m` — never the identity, which the live process already proved."""
+        self.seed_record(agent_string="codex/gpt5_6_terra")
+        self.observe_codex("sess-codex", cli_id="", agent_string="")
+        agent_freeze.freeze_pane(AGENT_PANE)
+        self.assertEqual(self.rec().codeagent_session_id, "sess-codex")
+
+    def test_an_explicitly_named_but_unmapped_model_records_nothing(self):
+        """REGRESSION: a stored label must not stand in for a model the agent is
+        NOT running.
+
+        The live argv names a model absent from `models_codex.json` (a new
+        release, say). Inheriting the record's older label would file THIS
+        session under the previous model, and the restore would launch the
+        conversation with it. Declining to capture keeps the recoverable
+        re-pick path instead.
+        """
+        self.seed_record(agent_string="codex/gpt5_6_terra")
+        self.observe_codex("sess-codex", cli_id="gpt-9-unreleased",
+                           agent_string="")
+        result = agent_freeze.freeze_pane(AGENT_PANE)
+        self.assertTrue(result.ok, result.line)
+        rec = self.rec()
+        self.assertEqual(rec.codeagent_session_id, "")
+        self.assertEqual(rec.agent_string, "codex/gpt5_6_terra",
+                         "the stored label is left exactly as it was")
+
+    def test_an_unnameable_new_session_still_invalidates_the_stored_one(self):
+        """REGRESSION: being unable to RECORD the live session does not make the
+        stored one true again.
+
+        The process is verified codex and demonstrably in `sess-new`, but its
+        `-m` is unmapped so no safe agent string exists. Leaving `sess-old`
+        behind would let a restore reopen a conversation this agent has left —
+        the exact failure the capture exists to prevent.
+        """
+        self.seed_record(session_id="sess-old", transcript="/t/old.jsonl",
+                         agent_string="codex/gpt5_6_terra")
+        self.observe_codex("sess-new", cli_id="gpt-9-unreleased",
+                           agent_string="")
+        result, _ = self._freeze_capturing_stderr()
+        self.assertTrue(result.ok, result.line)
+        rec = self.rec()
+        self.assertEqual(rec.codeagent_session_id, "",
+                         "a disproved id must not survive just because its "
+                         "replacement could not be named")
+        self.assertEqual(rec.agent_string, "codex/gpt5_6_terra",
+                         "re-pick still needs to know which agent it was")
+
+    def test_an_unnameable_model_clears_even_when_the_session_matches(self):
+        """REGRESSION: a matching id proves nothing about the MODEL.
+
+        A resume keeps the session id while `-m` can change, so a record saying
+        `sess-x @ terra` against a live argv naming an unmapped model is
+        positively contradicted: restoring would relaunch that conversation
+        under terra. The id alone is not what the record promises.
+        """
+        self.seed_record(session_id="sess-x", transcript="/t/rollout.jsonl",
+                         agent_string="codex/gpt5_6_terra")
+        self.observe_codex("sess-x", cli_id="gpt-9-unreleased", agent_string="")
+        result, _ = self._freeze_capturing_stderr()
+        self.assertTrue(result.ok, result.line)
+        self.assertEqual(self.rec().codeagent_session_id, "",
+                         "a label the live argv contradicts must not survive")
+
+    def test_an_argv_naming_no_model_leaves_an_agreeing_record_alone(self):
+        """The true mirror: with no model in argv nothing is contradicted, so
+        the record's own label still stands and nothing is written."""
+        self.seed_record(session_id="sess-x", transcript="/t/rollout.jsonl",
+                         agent_string="codex/gpt5_6_terra")
+        self.observe_codex("sess-x", cli_id="", agent_string="")
+        agent_freeze.freeze_pane(AGENT_PANE)
+        self.assertEqual(self.rec().codeagent_session_id, "sess-x")
+        self.assertEqual(self.upserts(), [])
+
+    def test_the_same_session_under_a_new_model_refreshes_the_label(self):
+        """REGRESSION: a resume with a different `-m` KEEPS the session id, so
+        comparing ids alone would leave the record naming the old model — and a
+        later restore would launch that conversation with it."""
+        self.seed_record(session_id="sess-x", transcript="/t/rollout.jsonl",
+                         agent_string="codex/gpt5_6_terra")
+        self.observe_codex("sess-x", cli_id="gpt-5.6-luna",
+                           agent_string="codex/gpt5_6_luna")
+        agent_freeze.freeze_pane(AGENT_PANE)
+        rec = self.rec()
+        self.assertEqual(rec.agent_string, "codex/gpt5_6_luna")
+        self.assertEqual(rec.codeagent_session_id, "sess-x")
+
+    def test_a_moved_rollout_path_refreshes_the_record(self):
+        """The transcript is part of what the record promises, too."""
+        self.seed_record(session_id="sess-x", transcript="/t/old-path.jsonl",
+                         agent_string="codex/gpt5_6_terra")
+        self.observe_codex("sess-x", path="/t/rollout.jsonl")
+        agent_freeze.freeze_pane(AGENT_PANE)
+        self.assertEqual(self.rec().transcript_path, "/t/rollout.jsonl")
+
+    def test_an_observation_that_changes_nothing_writes_nothing(self):
+        self.seed_record(session_id="sess-x", transcript="/t/rollout.jsonl",
+                         agent_string="codex/gpt5_6_terra")
+        self.observe_codex("sess-x")
+        agent_freeze.freeze_pane(AGENT_PANE)
+        self.assertEqual(self.upserts(), [],
+                         "a record already true to its process needs no write")
+
+    def test_nothing_is_recorded_when_the_agent_cannot_be_named(self):
+        self.observe_codex("sess-codex", cli_id="", agent_string="")
+        result = agent_freeze.freeze_pane(AGENT_PANE)
+        self.assertTrue(result.ok, result.line)
+        self.assertEqual(self.rec().codeagent_session_id, "",
+                         "an id without an agent string resumes the WRONG agent")
+
+    def test_a_record_owned_by_another_agent_is_not_touched_or_even_observed(self):
+        self.seed_record(session_id="claude-sid",
+                         agent_string="claudecode/opus5")
+        self.codex_probe_pids.clear()
+        agent_freeze.freeze_pane(AGENT_PANE)
+        self.assertEqual(self.rec().codeagent_session_id, "claude-sid")
+        self.assertEqual(self.codex_probe_pids, [],
+                         "a hook-owned record for another agent is not ours to inspect")
+
+    # --- clearing ----------------------------------------------------------
+
+    def _stale_record_then(self, miss, *, is_codex=True):
+        self.seed_record(session_id="sess-stale", transcript="/t/old.jsonl",
+                         agent_string="codex/gpt5_6_terra")
+        self.observe_miss(miss, is_codex=is_codex)
+        result, err = self._freeze_capturing_stderr()
+        self.assertTrue(result.ok, result.line)
+        return self.rec(), err
+
+    def test_a_codex_process_holding_no_rollout_clears_the_stale_id(self):
+        """A RESUMED codex opens its rollout at launch (measured), so "codex,
+        but no rollout" cannot be an agent still in the recorded conversation.
+        """
+        rec, _ = self._stale_record_then(agent_sessions.MISS_NO_MATCH)
+        self.assertEqual(rec.codeagent_session_id, "")
+        self.assertEqual(rec.transcript_path, "")
+        self.assertEqual(rec.agent_string, "codex/gpt5_6_terra",
+                         "re-pick must still launch the agent it was")
+
+    def test_an_ambiguous_observation_clears_and_warns(self):
+        rec, err = self._stale_record_then(agent_sessions.MISS_AMBIGUOUS)
+        self.assertEqual(rec.codeagent_session_id, "")
+        self.assertIn("session capture", err)
+
+    def test_a_pane_now_running_something_else_clears(self):
+        rec, _ = self._stale_record_then(agent_sessions.MISS_NOT_CODEX,
+                                         is_codex=False)
+        self.assertEqual(rec.codeagent_session_id, "")
+
+    def test_an_uninspectable_process_keeps_the_stored_id(self):
+        """`MISS_NO_PROCESS` is absence of evidence — no `/proc` at all, which
+        is EVERY macOS freeze. Clearing there would discard a valid
+        hook-captured `codex exec` id on every freeze."""
+        rec, _ = self._stale_record_then(agent_sessions.MISS_NO_PROCESS)
+        self.assertEqual(rec.codeagent_session_id, "sess-stale")
+        self.assertEqual(rec.transcript_path, "/t/old.jsonl")
+
+    def test_a_record_with_no_session_id_is_left_alone_on_a_miss(self):
+        self.observe_miss(agent_sessions.MISS_NO_MATCH)
+        result, _ = self._freeze_capturing_stderr()
+        self.assertTrue(result.ok, result.line)
+        self.assertEqual(self.rec().codeagent_session_id, "")
+        self.assertEqual(
+            [call for call in self.upserts() if "--clear-session-id" in call], [],
+            "nothing to forget means no write at all")
+
+    # --- the capture never costs a freeze ----------------------------------
+
+    def test_a_refused_capture_warns_and_the_freeze_still_succeeds(self):
+        self.seed_record(agent_string="codex/gpt5_6_terra")
+        self.observe_codex("sess-codex")
+        self.store.fail_verbs["upsert"] = 1
+        result, err = self._freeze_capturing_stderr()
+        self.assertTrue(result.ok, result.line)
+        self.assertEqual(result.line, f"FROZEN:{self.rid}")
+        self.assertIn("session capture", err)
+
+    # --- the t1807 guarantee, preserved ------------------------------------
+
+    def test_the_fallback_upsert_sends_no_blank_session_id(self):
+        """A blank must not travel at all: the store reads one as "not
+        supplied" (t1807), so sending it is at best a lie about intent."""
+        self.panes[AGENT_PANE][agent_freeze.RECORD_OPTION] = ""
+        self.panes[AGENT_PANE][agent_freeze.AGENT_SESSION_OPTION] = ""
+        agent_freeze.freeze_pane(AGENT_PANE)
+        self.assertNotIn("--session-id", self.upserts()[0])
+
+    def test_the_pane_option_still_feeds_the_fallback_upsert(self):
+        """With no observation, the hook's stamp remains the source."""
+        self.panes[AGENT_PANE][agent_freeze.RECORD_OPTION] = ""
+        agent_freeze.freeze_pane(AGENT_PANE)
+        call = self.upserts()[0]
+        self.assertEqual(call[call.index("--session-id") + 1], "sess-abc")
 
 
 class FailureInjectionTests(_FreezeTestCase):
