@@ -1,12 +1,13 @@
-current_head: n003_synthesizer_001
+current_head: n005_explorer_002b
 current_heads:
-  _umbrella: n003_synthesizer_001
+  _umbrella: n005_explorer_002b
 history:
   _umbrella:
   - n000_init
   - n001_explorer_001a
   - n002_explorer_001b
   - n003_synthesizer_001
+  - n005_explorer_002b
 next_node_id: 6
 active_dimensions:
 - requirements_go_engine_and_cli
@@ -55,6 +56,18 @@ active_dimensions:
 - tradeoff_engine_absent_on_host
 - component_evidence_join
 - tradeoff_evidence_requires_reachable_history
+- requirements_screen_locale_subdivision
+- requirements_user_root
+- assumption_variant_universe_from_runner_list
+- assumption_axis_sources_declarable
+- assumption_kotlin_scanner_fail_closed
+- assumption_legacy_user_root_coexists
+- component_variant_axes
+- component_user_root
+- tradeoff_two_user_roots
+- tradeoff_axis_projection_coarseness
+- tradeoff_whole_run_filter_soundness
+- tradeoff_member_annotation_drift
 module_tasks: {}
 last_synced_at: {}
 module_deferred: {}
