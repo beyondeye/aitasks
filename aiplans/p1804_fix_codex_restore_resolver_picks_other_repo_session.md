@@ -254,3 +254,138 @@ Step 9 of the task workflow: current-branch profile — no merge; archive via
 ### Planned mitigations
 - timing: pre-phase | name: probe_pick_codex_fd | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — fd evidence comes from shadow companions only | desc: Launch a pick-style codex in an isolated tmux server and confirm it holds its rollout fd (before/after the first turn) and carries -m in its cmdline.
 - timing: post-phase | name: live_capture_resume_argv_smoke | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — a captured id resuming under the wrong agent | desc: Run the pid resolver and agent-string derivation against live codex pids, and confirm build_resume_argv yields a codex resume argv (claude argv for a blank agent string as the control).
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - `agent_sessions.py`: new `codex_session_for_pid()` (resolves a session from
+    the rollout a live codex process holds open, verifying argv0 is codex
+    itself), `codex_process_model()` (`is_codex` + the `-m` cli id),
+    `_codex_rollout_identity()` / `_codex_meta_payload()` helpers, and three new
+    miss reasons (`ambiguous`, `no_process`, `not_codex`).
+    `_codex_newest_transcript()` now groups cwd-matches by session id and
+    answers `MISS_AMBIGUOUS` instead of returning the newest.
+  - `agent_sessions.upsert()`: new `clear_session_id` argument (+
+    `--clear-session-id` on the wrapper CLI) that forgets the recorded session
+    id and transcript together; refused with `--restore-of`.
+  - `agent_freeze.py`: `_codex_agent_string()`, `_observe_codex_session()` and
+    `_capture_codex_session()`; `_resolve_record()` now captures on BOTH paths
+    (fallback upsert and stamped record) and stops sending a blank
+    `--session-id`.
+  - Comments corrected in `aitask_session_hook.sh`, `agent_restore.py`,
+    `tests/data/session_hooks/README.md`, `tests/test_codeagent_resume_session.sh`.
+  - Tests: 15 new in `test_agent_sessions_transcripts.py` (pid correlation +
+    `codex_process_model`), 20 in `test_agent_freeze.py` (capture / clear /
+    model-label freshness / invalidation / never-fail-a-freeze), 5 in
+    `test_agent_sessions_identity.py` (the clear contract), 3 contract
+    call-site rows. Suites run: freeze 98, transcripts 42, identity 37, store
+    63, contract/restore/frozen_ops/transitions/observation/liveness/lease all
+    OK; `test_session_hook.sh` 66/66; `test_codeagent_resume_session.sh` 39/39;
+    full Python suite PASSED (runner=pytest, exit=0); shellcheck unchanged from
+    HEAD (4 pre-existing SC1091 infos).
+
+- **Deviations from plan:** three, all forced by evidence found during the work.
+  1. **The clear needed a new store argument.** The plan cleared with
+     `--session-id ""`. Mid-session, t1807 landed on `main` and made a blank mean
+     "not supplied" — so that clear would have been a silent no-op. Added the
+     explicit `clear_session_id` instead, which also keeps an *accidental* blank
+     and a *deliberate* forget impossible to confuse (t1807's guarantee intact).
+  2. **No store-root filter on the fd candidates.** The plan filtered rollouts by
+     the codex store roots; the freezer's `CODEX_HOME` need not equal the
+     observed process's, so the filter could only cause false misses. The fd is
+     held by that very process, and the first line must be a `session_meta`.
+  3. **No descendant walk, and no explicit subagent branch.** Depth 0 only: a
+     claude pane whose Bash tool ran codex would otherwise capture the child
+     tool's rollout. Grouping candidates by session id already folds a subagent
+     thread into its parent (a subagent rollout carries the parent's id).
+
+- **Issues encountered:**
+  - **The blocking one:** freeze records carry a blank `agent_string`, and
+    `build_resume_argv` then resolves the project's `raw` default
+    (`claudecode/sonnet5`). Capturing only a session id would have produced
+    `claude --resume <codex-uuid>` — worse than today's clean `no_session`
+    refusal. Fixed by gating every capture on a codex agent string, derived from
+    the live process's `-m` via `aitask_resolve_detected_agent.sh`. The
+    post-phase smoke asserts both halves, control included.
+  - **Codex opens its rollout lazily**, at the FIRST turn — measured in the
+    pre-phase probe. A never-prompted agent therefore captures nothing and
+    restores by re-pick (correct, and it has no id to lose). A **resumed** agent,
+    by contrast, opens the existing rollout at launch; that is what makes
+    "codex process, no rollout" positive evidence of staleness rather than a
+    freeze→restore→freeze regression, and it is why `MISS_NO_MATCH` clears.
+  - `MISS_NO_PROCESS` had to stay distinct from `MISS_NOT_CODEX`: on a platform
+    with no `/proc` the cmdline read fails, and collapsing the two would have
+    made every macOS freeze "prove" staleness and wipe valid ids.
+  - Another session was working in this shared worktree (`trail_gather.py`), so
+    every commit here names its own paths.
+
+- **Post-review changes (two blocking defects found at Step 8 review):**
+  1. **An explicitly named but unmapped model no longer inherits the stored
+     label.** `_observe_codex_session` fell back to the record's remembered
+     agent string whenever resolution returned empty — including when argv DID
+     name a model that is absent from `models_codex.json`. That would file the
+     current session under the previous model, and restore would launch the
+     conversation with it. The fallback is now permitted only when argv names no
+     model at all; an unresolvable explicit model captures nothing and keeps the
+     re-pick path. Regression: `test_an_explicitly_named_but_unmapped_model_records_nothing`.
+  2. **A same-id observation now compares the model and the rollout path too.**
+     `_capture_codex_session` returned early on `session_id == stored_id`, so a
+     session resumed under a different `-m` kept its old label (the id survives a
+     resume). The record is refreshed when the agent string or transcript
+     differs. Regressions: `test_the_same_session_under_a_new_model_refreshes_the_label`,
+     `test_a_moved_rollout_path_refreshes_the_record`, balanced by
+     `test_an_observation_that_changes_nothing_writes_nothing`.
+
+  3. **A verified session that cannot be named still invalidates a different
+     stored one.** Fix 1 introduced this gap: with the record holding
+     `sess-old` and the live (verified codex) process in `sess-new` under an
+     unmapped `-m`, the capture returned without recording *and* without
+     clearing, leaving `sess-old` resumable — the wrong-conversation restore
+     this task exists to prevent. Being unable to record the replacement does
+     not make the old id true again, so that case now clears. The mirror case
+     (an unnameable observation of the SAME session) still touches nothing.
+     Regressions: `test_an_unnameable_new_session_still_invalidates_the_stored_one`,
+     `test_an_unnameable_observation_of_the_SAME_session_changes_nothing`.
+
+  4. **An explicit unmapped model invalidates a stored session even when the id
+     matches.** Fix 3 still exempted the same-id case, but a resume KEEPS the
+     session id while `-m` can change — so `sess-x @ terra` against a live argv
+     naming an unmapped model is positively contradicted, and a restore would
+     relaunch that conversation under terra. `_observe_codex_session` now
+     reports a fifth value, `unnameable_model`, which separates "argv named no
+     model" (nothing contradicted — the record's own label still stands) from
+     "argv named a model we cannot map" (the label is contradicted). Only the
+     latter clears. Regressions: `test_an_unnameable_model_clears_even_when_the_session_matches`,
+     with `test_an_argv_naming_no_model_leaves_an_agreeing_record_alone` as the
+     true mirror.
+
+     All four were falsified with in-process mutants: restoring the old
+     fallback reds fix 1's test only (legitimate inheritance still passes);
+     restoring the id-only comparison reds the two refresh tests while the
+     no-write test passes; making fix 3's branch unreachable reds its test alone
+     (`'sess-old' != ''`); dropping fix 4's `unnameable_model` term reds its
+     test alone (`'sess-x' != ''`) with all three mirrors green — so each guard
+     is pinned in both directions rather than merely satisfied.
+
+     **The through-line of all four:** a record does not promise a session id,
+     it promises a *pair* — which conversation, under which model (and where its
+     rollout is). Every defect above came from treating the id as the whole
+     identity, and none of them is fixed by being unable to record a
+     replacement: re-pick is the recoverable answer, resuming under a
+     contradicted label is not.
+
+- **Key decisions:**
+  - Process verification lives INSIDE `codex_session_for_pid`, not at the call
+    site, so no caller can bypass it; a stored agent label may name the model
+    **only when argv names none**, and never establish identity.
+  - A record promises three things about a session — id, model, transcript — so
+    any of the three differing is a reason to refresh it.
+  - Clearing is keyed on evidence: `no_match` / `ambiguous` / `not_codex` clear;
+    `no_process` (absence of evidence) never does.
+  - The capture is best-effort at every step — it never raises, and never fails a
+    freeze (the agent is live and its pane untouched at stage 1).
+  - Linux-only by design; macOS degrades to exactly today's behaviour.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/agent_sessions.py:1839 — _claude_newest_transcript has the same uncorrelated newest-by-cwd guess; with two claude sessions in one repo it can return another agent's transcript. Lower impact than the codex case (claude's SessionStart hook normally records the id, so this is only a backstop), and deliberately left unchanged here to keep this task codex-scoped.`
+  - `.aitask-scripts/lib/agent_freeze.py:464-465 — the fallback upsert parses any "<WORD>:<id>|…" line as success, so an UPSERT_REFUSED reply (which exits 0) is read as the record id. The freeze then fails at freeze-begin with a misleading "begin" stage error instead of reporting the refusal. Pre-existing; not triggered by this change.`
