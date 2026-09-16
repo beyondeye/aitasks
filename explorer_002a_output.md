@@ -1255,3 +1255,423 @@ ait engine home  → print resolved root, legacy/migrated state, symlink status
 AIT_ENGINE=dev ait testmap ...  → shim picks the dev slot (version must read <V>-dev+<sha>)
 ```
 <!-- /section: data_flow -->
+
+<!-- section: freshness [dimensions: component_freshness, component_staleness_tool, component_evidence_join, assumption_blob_digest_is_staleness_key, assumption_git_history_is_freshness_clock, assumption_passing_run_anchors_edges] -->
+## Annotation Freshness: Digest Key, Evidence Anchor
+
+Unchanged from the design this refines, and restated because the cell work
+deliberately does not touch it.
+
+### The stamp
+
+```
+# testmap:kind unit
+# testmap:covers .aitask-scripts/aitask_gate_pass.sh        @2026-09-16/8f3a1c2d9e
+# testmap:covers .aitask-scripts/lib/gate_verifier_lib.sh   @2026-09-16/41b0c7e2aa
+```
+
+`<blob10>` is the first ten hex digits of the git blob object id of the covered
+source's content when the claim was last confirmed — `sha1("blob <len>\0" +
+bytes)`, what `git hash-object` prints — computed in Go without invoking git.
+Humans never type it: `annotate`, `verify` and `stale --confirm*` write it
+through the line-targeted rewriter, which refuses (`REWRITE_CONFLICT:`) if the
+text at that line no longer matches the registry row. The date is for the
+reader; the digest is what is compared. A repository using git's sha256 object
+format is detected once (`git rev-parse --show-object-format`) and stamped with
+the matching function.
+
+### The anchor and the evidence join
+
+Re-flagging every edge whenever its source changes would be noise:
+`aitask_update.sh` is named by 72 tests. Most of that staleness is
+self-healing, because a test that ran and passed against the current content of
+a source has demonstrated that its edge still holds at least as far as a test
+can.
+
+- Every passing result line records `last_pass: {sha: <HEAD at run>, at,
+  run_id}` for its unit in the local ledger and, after `costs --update`, in the
+  committed `costs/<hostclass>.yaml` (any host class counts). Lines from an
+  invocation whose `runner.json` has a `cause`, and units whose flake rate
+  exceeds `flake_threshold`, never anchor.
+- For an edge whose `stamped_blob ≠ current_blob`, the **evidence join** asks:
+  is there a `last_pass.sha` for this test, reachable from HEAD (`git merge-base
+  --is-ancestor`), whose tree holds the source at exactly `current_blob`?
+  Implementation: group mismatched edges by candidate sha, run one `git ls-tree
+  <sha> -- <paths...>` per distinct sha under a bounded pool, compare object
+  ids. A hit is `EVIDENCED`; no hit is `STALE`.
+- Where the sha is not in fetched history the join yields nothing and the edge
+  is `STALE` — the fail-safe direction. Digest comparison itself never needs
+  history; history only ever *removes* nags.
+
+`stale --confirm-evidenced` re-stamps exactly the `EVIDENCED` rows (recording
+`confirmed_by: <run_id>`) and is the only bulk confirmation an autonomous
+profile may perform.
+
+### Why cells carry no stamp
+
+A cell claims a *configuration*, not a source's content, so there is nothing to
+digest. Its analogue of rot is structural and is caught by `check` and `stale`
+without any test-file rewrite: a member glob that stopped matching
+(`STALE_AXIS … dead`), a coordinate whose value was retired (`STALE_AXIS …
+undeclared`), an artefact nobody claims (`UNMAPPED_CELL`), a value nobody
+occupies (`UNCOVERED_VALUE`). This is a feature, not an omission: stamping
+2,500 cell rows would put the stamp-churn problem back at ten times the scale
+the `EVIDENCED` class was introduced to remove.
+
+### Classes and report
+
+```
+SURFACE:task|all
+EDGES:<n>                                                   stamped unit edges examined
+CELLS:<n>                                                   enumerated cells examined
+STALE_PATH:<test>|<source>|deleted|<culprit_tasks>
+STALE_PATH:<test>|<source>|renamed|<new_path>|<culprit_tasks>
+STALE:<test>|<source>|<stamped_at>|<stamped_blob>|<current_blob>
+EVIDENCED:<test>|<source>|<stamped_blob>|<current_blob>|<run_sha>|<run_id>
+UNSTAMPED:<test>|<source>
+STALE_AREA:<test>|<area-or-glob>|<n_files>|<n_commits>
+STALE_AXIS:<axis>|<value>|<glob-or-unit>|dead|undeclared
+UNMAPPED_CELL:<artifact>|unclaimed
+UNCOVERED_VALUE:<axis>|<value>
+REVIEW_DUE:<test>|<area-or-glob>|<reviewed_at>|<age_days>
+UNKNOWN:<path>|<reason>
+DISPLAY:<one-line human summary>
+DECISION:FRESH|REVIEW|SKIP
+```
+
+Fields are `|`-separated with `%`→`%25` then `|`→`%7C` encoding, matching
+`aitask_verification_stale.sh` exactly; every content state exits 0, only CLI
+misuse exits non-zero, and `--strict` exits 1 on `STALE_PATH` and
+`UNMAPPED_CELL` for CI.
+
+### The procedure gate
+
+`testmap_fresh` is a `kind: procedure` gate (the `docs_updated` shape),
+dispatched by the existing generic procedure-gate block of the
+post-implementation step — before the change summary, so rewritten stamps and
+annotation edits are part of the reviewed diff and land in the task's `(t<id>)`
+commit. It is not a git hook (the framework installs none, and `commit --only`
+makes a pre-commit hook unusable) and not a Claude Code hook (those must stay
+silent and cannot take an editing decision). The `aitask-gate-testmap-fresh`
+skill:
+
+1. `aitask_gate.sh begin-procedure <task> testmap_fresh` → `RUN_ID:`, `ATTEMPT:`.
+2. `ait testmap stale --task <task>` (the shim pipes the change surface).
+3. `UNKNOWN:` paths: resolve with the user; under an autonomous profile exclude
+   and log them — never guess.
+4. `STALE_PATH:` rows: retarget to the renamed path, or to the successor the
+   culprit task's plan names; else drop the line and note it.
+5. `STALE:` rows: show `git diff <stamped_blob> <current_blob> --stat` and the
+   hunks; ask confirm / retarget / `annotate --covers <new>` / `--drop` /
+   follow-up task. Autonomous profiles never confirm a `STALE:` row.
+6. `EVIDENCED:` rows: `stale --confirm-evidenced` (allowed autonomously).
+7. `UNSTAMPED:` rows outside the bootstrap window: verify now or waive with an
+   `until` date.
+8. `STALE_AXIS:` / `UNCOVERED_VALUE:` rows: edit `axes.yaml`, or record the
+   value as retired. `UNMAPPED_CELL:` rows: `cells --refresh --diff`, then
+   refresh; a row that survives a refresh is reported as a plugin defect and
+   never waved through.
+9. `ait testmap scan --apply`; `aitask_gate.sh append --only-if-running
+   <run-id> <task> testmap_fresh pass|skip|fail` with per-class counts and the
+   resolved/unresolved rows in the sidecar log.
+<!-- /section: freshness -->
+
+<!-- section: broad_tests [dimensions: component_suite_registry, component_broad_test_scopes, assumption_areas_express_suite_blast_radius, assumption_broad_tests_area_scoped] -->
+## High-Level Tests: Scoped Rows, and Where Cells Take Over
+
+### Why they are not edges
+
+Measured on this repository: 4 tests are in the serial carve-out, 29 boot a
+real tmux pane, 46 bash tests drive `./ait` end to end, and
+`tests/test_brainstorm_cli.sh` statically names 24 scripts. As `covers` edges
+they would sit at distance 1 from most of the tree, every edit would
+stale-flag them, and `_scanned.yaml` would carry thousands of rows meaning
+"everything". So they are scoped rows in their own generated table.
+
+### Vocabulary
+
+```
+# testmap:kind e2e                        integration | e2e | device | cell
+# testmap:area brainstorm                 named glob set from areas.yaml; budgeted
+# testmap:scope .aitask-scripts/aitask_*.sh          inline globs; budgeted like an area
+# testmap:trigger .aitask-scripts/lib/launch_modes*.py   a hit always selects, never deferred
+# testmap:axis locale=ar                  a hand-declared coordinate for the minority a plugin cannot reach
+# testmap:reviewed 2026-09-16             display; REVIEW_DUE only when broad_review_days > 0
+# testmap:covers tests/fixtures/board_seed.yaml @2026-09-16/0c1d2e3f4a   optional fixture pin, digest-stamped
+# testmap:runner bash-file   testmap:needs tmux-server   testmap:batch no
+```
+
+`testmap:axis` exists for the handful of tests that occupy a coordinate but are
+not produced by any plugin — `thinking_app`'s `ArabicFontMetricsTest` and
+`ArabicMatrixAuditVerdictProbeTest` are `locale=ar` without being captures, so
+an Arabic resource change should select them even though they write no golden.
+Hand-declared coordinates merge into the same cell table with `from:
+annotation` instead of `from: plugin`.
+
+### Check rules
+
+- `kind ∈ {integration, e2e, device}` for scoped rows; `kind: cell` rows come
+  from the cell table and may not be hand-authored except through
+  `testmap:axis`. A unit test carrying `area`/`scope`/`trigger` fails; a scoped
+  row without at least one `area`/`scope`/`trigger` fails.
+- Every named area exists; every area glob and scope glob matches at least one
+  file (`DEAD_SCOPE:`); every axis member glob matches at least one file
+  (`DEAD_AXIS_GLOB:`).
+- A unit test with more than `unit_covers_max` (default 8) covers lines gets
+  `KIND_MISMATCH:<test>|<n>|CONVERT_TO_SUITE` — a warning normally, a failure
+  under `check --strict`.
+- `ait testmap classify --suggest` lists scope candidates from heuristics
+  (`tmux new-session`, an exec of `./ait`, membership in a runner's serial
+  carve-out, covers above the limit) and now also flags an area-scoped suite
+  whose members decompose into a grid — the signal being a set of test classes
+  whose names share a stem and differ by a token that also appears in a
+  directory or resource-qualifier name.
+
+### Selection and scheduling
+
+A scoped row joins the ranked list at distance 1 when the change set intersects
+any glob of any of its areas, any scope glob, or any trigger
+(`doublestar.Match`). Within a distance the list is ranked
+`unit < cell < integration < e2e < device`, then by estimated cost ascending.
+Scoped rows never contribute distance, never appear in `implies`, and are sinks
+in the walk. Then the budget: trigger hits always run; area, scope and cell
+groups are taken in ascending cost until `suite_budget_s` (default 600) is
+spent, and the remainder is printed as `DEFERRED:<test>|budget` so every cut is
+explicit and lands in the prediction record. `--suites auto|all|none` and
+`--cells auto|all|none` select the policies independently.
+
+`broad_after_unit: true` makes wave 1 unit-kind invocations only. **Cells ride
+wave 1** when their invocation groups do not contend for a declared resource,
+and wave 2 otherwise — for `thinking_app` they contend for the heavy-run lock
+and therefore land in wave 2, so a cheap red unit test never pays for a
+Robolectric boot. `device_policy: filter_by_resource` selects device units by
+distance but runs them only when the emulator allocator hands out a handle.
+<!-- /section: broad_tests -->
+
+<!-- section: selection [dimensions: component_selector, assumption_change_surface_is_intake] -->
+## Selection: the Graded Walk, One List
+
+Intake is the change-surface line protocol — `BASELINE:`, `PLANSCOPE:`, then
+`COMMITTED:`/`TASK:`/`OTHER:`/`UNKNOWN:` per path — piped in by the shim
+(`--changes -`) or read from a file (`--changes <file>`, for engine tests
+outside the framework). `COMMITTED:` and `TASK:` are the change set; `OTHER:` is
+ignored; any `UNKNOWN:` refuses selection with exit 1 and the lines echoed.
+Paths under `aitasks/`, `aiplans/`, `.aitask-data/`, `.aitask-gates/` are
+excluded before the walk. A changed source with no edge, no rule, no area, no
+scope, no axis membership and no waiver refuses the same way.
+
+The graded walk: d0 for a changed test and for escalation, d1 for a direct
+edge, a scoped join and a cell join, d2+ for reverse-dependency hops, rules
+injecting at a declared distance with `select`, `implies`, `escalate`. Reverse
+dependencies come from the in-process scanners (bash `source`/`.` lines and
+`$SCRIPT_DIR/aitask_*.sh` sibling invocations; Python `import`/`from` resolved
+under configured roots; `go list -deps -json ./...` cached by the `go.sum`
+digest; Kotlin imports within a Gradle module plus the module graph from
+`settings.gradle(.kts)`) and from executable plugins under
+`aitestmap/scanners/`; forward deps are cached per source blob under the XDG
+cache and inverted in memory, and the same inverted graph backs `reach:` axis
+membership, so nothing is walked twice.
+
+A selection in `thinking_app` for a task that edited `values-ar/strings.xml`
+and `ui/screens/QuestionsScreen.kt`:
+
+```
+ArabicFontPolicyTest                                d=1 unit  edge(annotation) res/values-ar/strings.xml
+QuestionsScreenBehaviorTest                         d=1 unit  edge(annotation) ui/screens/QuestionsScreen.kt
+QuestionsHeaderFitTest                              d=2 unit  dep ui/screens/QuestionsScreen.kt
+…Pixel5ArRtlScreenshotsTest.welcome                 d=1 cell  screen=ANY<-values-ar/strings.xml; locale=ar; device=pixel5     grp A est 0.31s
+…Pixel5ArRtlScreenshotsTest.questions               d=1 cell  screen=ANY; locale=ar                                          grp A est 0.34s
+…  (45 more cells in group A)                                                                                grp A overhead est 4.8s
+…ShortPhoneArRtlScreenshotsTest.*                   d=1 cell  locale=ar; device=shortPhone                    grp B overhead est 3.9s
+…CurrentHeadScreenshotsTest.questions               d=1 cell  screen=Questions<-QuestionsScreen.kt; locale=ANY grp C est 0.42s
+…Pixel5LtrScreenshotsTest.questions                 d=1 cell  screen=Questions; locale=ANY                    grp D est 0.38s
+…  (6 more single-cell groups, one per remaining matrix)
+ArabicMatrixAudit                                   d=1 cell  locale=ar (testmap:axis)                        grp A
+tools/verification/depin-checks-test.sh             d=1 integration  DEFERRED budget  area(verification)      est 61s
+```
+
+Every selected unit row carries a `stale` mark when any edge that selected it
+is `STALE` — visible in the reason column, never a filter. Every cell row
+carries its per-axis reason, including which axes resolved to `ANY` and why,
+because a reader's first question about a sharp selection is what it left out.
+`select` writes `selection.json` and `prediction.json` under
+`.aitask-testmap/runs/<run-id>/` (`r-<YYYYMMDD>-<HHMMSS>-<4 hex>`). The
+prediction record holds task, knobs, change set, unit rows with distances,
+scoped rows with reasons and deferrals, cell rows with coordinates and
+invocation groups, escalations fired, and the estimate per kind. Cuts are knobs
+applied after ranking: `--max-distance`, `--budget-s`, `--kind`,
+`--resource-filter`, `--suite-budget`, `--suites`, `--cells`, `--axis
+<name>=<value>` (force a coordinate, for a reviewer probing one matrix).
+`explain <test|source|unit>` prints the binding chain, every reason path, the
+axis coordinates, and which runner (builtin or shadowing script) won.
+<!-- /section: selection -->
+
+<!-- section: runner_contract [dimensions: component_runner_contract, component_reference_runners, assumption_gate_exit_contract_reused, assumption_existing_locks_wrappable, assumption_batch_per_unit_timing_reportable] -->
+## Runner Contract, Builtin Runners, Exit Mapping
+
+The three verbs (`describe`, `list`, `run --manifest <f> --out <d>`), the
+manifest and `results.jsonl` / `runner.json` shapes, first-match bindings with
+the per-test `testmap:runner` override, batching and `unit: suite` wrappers are
+unchanged. `runners.yaml` carries the `builtin:` scheme with `command:` and
+`cwd:` overrides, and **unit granularity is now declared per runner**:
+
+```yaml
+runners:
+  bash-file:    {exec: "builtin:bash-file",  unit: file,   batch: false, needs: [git-index]}
+  pytest:       {exec: "builtin:pytest",     unit: file,   batch: true,  needs: [git-index],
+                 command: ["$AITASKS_HOME/venv/bin/python", "-m", "pytest"]}
+  go-test:      {exec: "builtin:go-test",    unit: file,   batch: true}
+  gradle-class: {exec: "builtin:gradle-class", unit: method, batch: true, needs: [heavy-run],
+                 command: ["tools/verification/lib/jvm-gradle.sh"],
+                 group_by: class}                       # the invocation group for costing and batching
+  verify-active:{exec: tools/verification/screenshot-tests.sh, unit: suite}
+  engine-test:  {exec: "builtin:go-test",    unit: file,   batch: true,  cwd: engine/}
+bindings:
+  - {glob: "tests/test_*.sh",  runner: bash-file}
+  - {glob: "tests/test_*.py",  runner: pytest}
+  - {glob: "engine/**/*_test.go", runner: engine-test}
+  - {glob: "**/*_test.go",     runner: go-test}
+```
+
+`unit: method` is what makes a cell addressable. The `gradle-class` builtin
+emits one `--tests <FQCN>.<method>` argument per selected cell in a single
+invocation per group, and parses per-method status and duration out of the JUnit
+XML the Gradle test task already writes. `group_by: class` tells the scheduler
+and the budget that all methods of one class share one boot.
+
+**The zero-match trap is handled explicitly.** A Gradle `--tests` filter that
+matches no test can complete successfully with zero tests executed, which would
+otherwise read as "all passed". The runner therefore treats
+`units_reported == 0 with units_expected > 0` as a mechanism failure with a
+`cause`, never a pass — and such an invocation anchors no evidence. This is the
+same `units_expected`/`units_reported` reconciliation every batch runner
+performs, made load-bearing at method granularity.
+
+Builtin runners (`ait-testmap runner <name> describe|list|run`): `bash-file`
+(one process per file, stdout+stderr to `logs/<name>.log`), `pytest` (one
+interpreter per invocation, `--junitxml` parsed; a unit annotated
+`testmap:batch no` gets its own invocation — this repository's four
+serial-carve-out modules carry that annotation, and
+`tests/test_serial_carveout_doc_drift.sh` is extended to pin the annotations
+against the runner's list so the two cannot diverge), `go-test` (per-file
+`-run` regex from `func Test…` names, `-json` for per-test timing),
+`gradle-class` (above), `suite` (any command as one unit), `device` (takes the
+allocator handle from the manifest). A project script of the same name under
+`aitestmap/runners/` shadows the builtin and `explain` shows which won.
+`thinking_app` keeps `verify-active` as a suite runner for the full
+record/promote flow and uses the builtin `gradle-class` for selected cells.
+
+Runner exit codes are unchanged (0 all passed; 1 a unit failed or the mechanism
+broke, `cause` set only for the mechanism; 2 did not run for a self-clearing
+reason; 75 admission refused); the engine's `run` adds 64 for a usage or
+configuration error.
+
+The verifier shells, not the engine, map to the framework's verifier contract
+`0 pass / 1 fail / 2 skip / 3 error`:
+
+| engine exit | `aitask_gate_testmap_run.sh` | `aitask_gate_testmap_check.sh` |
+|---|---|---|
+| 0 | 0 pass | 0 pass |
+| 1 | 1 fail | 1 fail |
+| 2 (nothing selected) | 2 skip | — |
+| 75 (admission refused past the run deadline) | 3 error → retried within `max_retries` | — |
+| 64 / other / engine absent (shim exit 3) | 3 error | 3 error |
+
+Admission refusal and a missing engine must never become a skip, because a
+skipped test gate reads as a pass. Verifier 3 appends nothing to the ledger.
+<!-- /section: runner_contract -->
+
+<!-- section: gates [dimensions: component_gates, requirements_gate_enforcement] -->
+## Gates
+
+Registered in `.aitask-scripts/gates_reference.yaml` (canonical) and synced to
+`aitasks/metadata/gates.yaml`; every field key already exists:
+
+```yaml
+  testmap_fresh:
+    type: machine
+    kind: procedure                              # skill aitask-gate-testmap-fresh
+    description: "Source-to-test annotations and axis memberships on this task's changed sources reviewed and re-stamped"
+    blocks_dependents: false
+    verifier: aitask-gate-testmap-fresh
+    max_retries: 0
+    # unlocks ABSENT (linear-default), like docs_updated: a headless run defers procedure gates.
+  testmap_check:
+    type: machine
+    description: "Test map consistent: changed sources mapped, tests registered, cells reconciled, no rotted paths"
+    blocks_dependents: false
+    verifier: aitask-gate-testmap-check
+    max_retries: 0
+    timeout_seconds: 120
+    unlocks: [testmap_run]
+  testmap_run:
+    type: machine
+    description: "Selected tests (unit, cell and scoped, stale-evidence included) pass"
+    blocks_dependents: true
+    verifier: aitask-gate-testmap-run
+    max_retries: 1
+    timeout_seconds: 1800
+```
+
+`testmap_check` does not depend on `testmap_fresh` having run: it fails
+`STALE_PATH` rows, `UNMAPPED_CELL` rows, and — past bootstrap under
+`require_stamp` — `UNSTAMPED` rows, on its own. The procedure gate exists so the
+fix happens *before* the check fails, in the reviewed diff. A project enables
+the three by adding them to its profile's declared gate set; `tests_pass` may
+stay for a monolithic `test_command`; the manual-verification reachable-gate
+filter leaves all three unreachable for `manual_verification` tasks, which is
+correct. The full run is `ait testmap run --all`, the same machinery with every
+unit and every cell selected.
+<!-- /section: gates -->
+
+<!-- section: go_engine [dimensions: component_go_engine, component_engine_binary, assumption_engine_latency_targets, assumption_go_toolchain_available, assumption_go_toolchain_ci_and_dev_only] -->
+## The Go Engine: Why, and What It Must Cost
+
+The wall time of a selected run is dominated by the tests, but the engine's own
+latency is paid at every gate and every commit step (`select`, `check`,
+`stale`), interactively (`explain`), and on every `scan`. The framework already
+routes `ait board` through a PyPy fast path for exactly this class of cost; a
+pure-Python parse of ~720 units and ~2,500–3,000 edges is in the hundreds of
+milliseconds before any walk starts, and a real concurrent scheduler with
+cross-process locks is something bash cannot do well and Python does slowly.
+Targets on this repository, warm cache, pinned by `go test -bench` fixtures with
+a golden registry in `internal/selectr`; a regression past 2× fails
+`engine-check.yml`; the gates are not enabled here until the benchmarks pass:
+
+| verb | target | what dominates |
+|---|---|---|
+| `select` (with stale marks) | < 200 ms | YAML load + walk + digest of covered sources of selected units |
+| `select` with a 2,500-row cell table | < 400 ms | + one glob match per changed file per axis, one set test per cell |
+| `select` cold | < 1.5 s | ~270 files regex-scanned, blob-hashed, cached |
+| `scan` | < 300 ms | ~720 file reads + comment parse over a pool |
+| `check` | < 300 ms | merged-table rules + `list` per runner + cell reconciliation |
+| `stale --task` | < 300 ms | digests of the task's sources + one `ls-tree` per distinct evidence sha |
+| `stale --all` | < 2 s | same, whole registry |
+| `cells --refresh` | < 2 s | project plugin exec, pooled; **never on the hot path** |
+
+The cell join is deliberately the cheapest thing in the table: axis resolution
+is `O(|changed files| × |axes| × |member globs|)` and the cell filter is a hash
+lookup per cell, so the 2,500-row table costs tens of milliseconds. The
+expensive part — asking the project what its cells *are* — happens in
+`cells --refresh`, on the cadence of "a screen or a matrix was added", and its
+output is committed.
+
+The scanner, dependency and cell-plugin passes fan out over a pool sized to
+`runtime.NumCPU()`, capped at 8, so the engine never competes with the tests it
+is about to launch.
+
+CLI: `ait testmap <verb>` with verbs `scan | check | select | schedule | run |
+stale | verify | annotate | score | attribute | declare | explain | costs |
+areas | axes | cells | classify | runner | version`. Every verb prints
+fixed-prefix `KEY:value` lines on stdout, `--json` prints one object,
+diagnostics go to stderr, exit codes are per verb (`0` ok / findings-free, `1`
+refused or failed, `2` nothing to do, `3` mechanism error, `64` usage).
+Mutating verbs write only the files the registry's write-routing rules name and
+print `WROTE:<path>` per file.
+
+Go ≥ 1.26 is needed in release CI (added: `actions/setup-go@v5` with
+`go-version-file: engine/go.mod` in the new `engine` job — `release.yml` has no
+Go step today; the only `setup-go` is `hugo.yml`'s, at `website/go.mod`'s
+1.25.7, which is not this) and on framework developers' machines;
+target-project users never compile.
+<!-- /section: go_engine -->
