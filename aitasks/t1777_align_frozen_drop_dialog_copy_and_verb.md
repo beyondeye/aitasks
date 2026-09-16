@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1705
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5
 created_at: 2026-09-10 12:09
-updated_at: 2026-09-16 10:22
+updated_at: 2026-09-16 12:05
 ---
 
 ## Origin
@@ -80,3 +81,8 @@ Docs to update in the same change: `website/content/docs/tuis/frozenagent/`
 (`_index.md`, `how-to.md`) quote the viewer's dialog verbatim, and
 `website/content/docs/tuis/minimonitor/how-to.md` and `monitor/how-to.md` quote
 the monitors' — all four move together with the strings.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-16T09:05:20Z status=pass attempt=1 type=human
