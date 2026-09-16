@@ -12,10 +12,10 @@ active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
-children_to_implement: [t1688_1, t1688_2]
+children_to_implement: [t1688_2]
 anchor: 1569
 created_at: 2026-09-02 14:47
-updated_at: 2026-09-14 17:43
+updated_at: 2026-09-16 10:02
 ---
 
 Make parallel admission actually usable: give the checker an evidence source
