@@ -49,3 +49,8 @@ the rollout path or id at freeze time (e.g. from the codex process's open file
 descriptors), or match the rollout's start time against the pane process's
 start. Where no such correlation is possible and more than one candidate
 rollout exists for the root, fall back to re-pick instead of guessing.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-16T07:29:49Z status=pass attempt=1 type=human
