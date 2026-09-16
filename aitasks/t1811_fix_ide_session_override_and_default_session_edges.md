@@ -60,3 +60,63 @@ out of that contract on purpose:
   fall back explicitly. Once decided, add line-parser assertions to
   `LegacyYamlFormsPreservedTests`, keeping the parity matrix's oracle
   discipline.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1705** id=2026-09-16T07:04:11Z.7d9856f639635c77b2e91ad9 from=t1705 at=2026-09-16T07:04:11Z base=617c00f9a541522042dae0db71d12465c9240ee6 base_branch=main dirty=no host=Darios-Mac-mini.local
+>
+> | **t1800's code is not in this clone, so this task's Diagnostic context does not
+> | currently hold.** Surfaced while refreshing the t1705 implementation trail
+> | (`art:trail-frozen-codeagents`), where t1800 and this task joined as new topic
+> | members.
+> | 
+> | Tree-relative to the base commit this note records (local `main`):
+> | 
+> | - Commit `d146a440c`, cited in this task's Diagnostic context as t1800's code
+> |   commit, resolves in **no ref** of this clone — `git rev-parse d146a440c`
+> |   reports "unknown revision", and `git log --all --grep t1800` shows only
+> |   task-data commits.
+> | - `tests/test_tmux_default_session_resolvers.py`, which this task names as the
+> |   test pinning t1800's contract, **does not exist**.
+> | - `LegacyYamlFormsPreservedTests`, which this task says pins the YAML-backed
+> |   side (`flowsess`, `blocksess`, `True`, `83`), **does not exist** anywhere
+> |   under `tests/` or `.aitask-scripts/` (grep, no hits).
+> | - `.aitask-scripts/lib/agent_launch_utils.py:1913-1914` still reads
+> |   `defaults["default_session"] = str(tmux["default_session"])` — the exact
+> |   unfixed shape t1800 set out to change.
+> | - `.aitask-scripts/aitask_ide.sh:52` still reads `echo "$SESSION_OVERRIDE"`.
+> |   That one is expected: it is this task's own first defect, untouched by t1800
+> |   by design.
+> | 
+> | Moment-relative, and therefore hedged — true as of writing, with no commit to
+> | date it:
+> | 
+> | - t1800 is **archived** on the task-data branch
+> |   (`aitasks/archived/t1800_fix_load_tmux_defaults_blank_default_session.md`,
+> |   archived by data commit `d2a7ce7a6`, pulled 2026-09-16).
+> | - Local `main` is level with `origin/main` and its tree is clean, so the code
+> |   side of t1800 has not reached this remote's `main` while its data side has
+> |   archived. That asymmetry suggests the implementation happened in another
+> |   clone or worktree and was never pushed.
+> | 
+> | Advisory, for whoever plans this task:
+> | 
+> | 1. **Verify t1800's commit is present before planning.** The three defects here
+> |    are framed as "deliberately split out of t1800's contract"; if that contract
+> |    is absent, the split has no baseline and the framing needs re-establishing
+> |    rather than assuming.
+> | 2. The measured claims in the Diagnostic context (bash `echo` dropping `-n`,
+> |    the setup probe's `grep | sed`, the block-scalar naming a session `>-`) were
+> |    measured against a tree that included t1800. Only the `echo` and
+> |    `aitask_ide.sh` observations were re-confirmed here; the setup-probe and
+> |    line-parser line numbers were not re-checked and may have moved.
+> | 3. The Suggested fix asks for line-parser assertions to be added to
+> |    `LegacyYamlFormsPreservedTests`. That class does not exist in this tree, so
+> |    either t1800's test file arrives first or this task creates it.
+> | 4. If t1800's work is later pushed or re-done, expect conflicts: this task
+> |    targets `aitask_ide.sh`, `aitask_setup.sh`, `lib/agent_launch_utils.py` and
+> |    `lib/tmux_bootstrap.sh` — the same four files t1800 changed.
+> | 
+> | This is a claim about a tree that may have moved since. Re-run the four checks
+> | above before acting on any of it.
