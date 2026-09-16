@@ -1675,3 +1675,393 @@ Go step today; the only `setup-go` is `hugo.yml`'s, at `website/go.mod`'s
 1.25.7, which is not this) and on framework developers' machines;
 target-project users never compile.
 <!-- /section: go_engine -->
+
+<!-- section: components [dimensions: component_*] -->
+## Components
+
+*(new)* marks a component this proposal introduces; *(revised)* marks one whose
+design changed here; the rest are carried forward unchanged in substance.
+
+<!-- section: component_framework_home [dimensions: component_framework_home] -->
+### Framework home *(new)*
+
+**Technology.** `.aitask-scripts/lib/aitasks_home.sh` (bash, sourced by the
+dispatcher and by `aitask_setup.sh`) and `engine/internal/home` (Go).
+**Resolution.** `AITASKS_HOME` → `$HOME/.aitasks` if it exists → `$HOME/.aitask`.
+The resolved value is exported once as `AITASKS_HOME` so subprocesses and the
+engine agree without re-resolving.
+**Migration.** `migrate_framework_home()` in `aitask_setup.sh`: `flock` on
+`~/.aitasks/.home.lock`; refuse on a foreign symlink, a cross-device pair, or an
+unrecognised entry under the legacy root; `mv` each of
+`{venv, bin, python, uv, dev_tier, update_check, engine}` that exists;
+`rmdir ~/.aitask`; `ln -s ~/.aitasks ~/.aitask`. Prints
+`HOME_MIGRATED:<n>` or `HOME_SKIPPED:<reason>`.
+**Opt-out.** `--no-home-migration` / `AIT_HOME_MIGRATE=0`.
+**Verb.** `ait engine home` prints root, legacy flag, symlink state and the next
+action.
+**Tests.** `tests/test_aitasks_home.sh`: fresh install (no legacy root);
+migration from a populated legacy root with a working venv afterwards;
+idempotent re-run; hostile pre-existing `~/.aitask` symlink pointing elsewhere;
+cross-device refusal (simulated by an `AITASKS_HOME` on a `tmpfs`);
+`AITASKS_HOME` override isolating a whole run into `t.TempDir()`-style scratch.
+**Documentation.** `aidocs/packaging/packaging_strategy.md` gains a home
+paragraph; the 16 documentation files naming `~/.aitask` are updated in the
+same change because doc prose is current-state-only.
+<!-- /section: component_framework_home -->
+
+<!-- section: component_axes [dimensions: component_axes] -->
+### Axis registry and membership resolver *(new)*
+
+**Technology.** `engine/internal/axes`, `doublestar/v4` for globs, the existing
+`internal/deps` inverted graph for `reach:`.
+**Schema.** `aitestmap/registry/axes.yaml`: per axis a `values:` list or
+`values_from: cells`, an optional `default:`, `members: {value: [globs]}`, and
+an optional `reach: {from: <pattern with {value}>, scanner: <name>, fanout_max: N}`.
+`axis_fanout_max` in `config.yaml` is the global default (6).
+**API.** `resolve(axis, file) → set|ANY`; `coordinateFilter(file) → predicate over cells`.
+**Verbs.** `ait testmap axes --list | --check | --explain <path>`.
+**Check rules.** `DEAD_AXIS_GLOB` (a member glob matching nothing),
+`UNCOVERED_VALUE` (a declared value with no cell), value-set reconciliation
+against `_cells.yaml` in both directions.
+**Configuration in `thinking_app`.** Four `locale` values with
+`res/values-*/**` and `res/font/{heebo,roboto,cairo}_*.ttf` globs; a `device`
+axis with four values and no members (visible, not yet narrowing); a `screen`
+axis with `values_from: cells` and a `reach:` root of
+`app/src/main/java/com/softman/thinking/ui/screens/{value}Screen.kt`.
+**Configuration in `aitasks`.** `agent` (`claude`→`.claude/**`,
+`opencode`→`.opencode/**`, `codex`/`agy`→`.agents/**`), `profile`
+(`default`/`fast`/`remote`, members being the per-profile Jinja partials),
+`skill` (`values_from: cells`, `reach:` from each skill's `SKILL.md.j2`).
+<!-- /section: component_axes -->
+
+<!-- section: component_cell_enumeration [dimensions: component_cell_enumeration] -->
+### Cell enumeration *(new)*
+
+**Technology.** `engine/internal/cells`; project plugins are any executable
+under `aitestmap/cells/`, run with `cwd` at the repository root, printing one
+JSON object per line to stdout and diagnostics to stderr; a non-zero exit fails
+`cells --refresh` and names the plugin.
+**Line schema.** `{"unit": string, "runner": string, "axes": {name: value},
+"artifact": string?, "needs": [string]?}`. `unit` is whatever the named runner's
+`list` verb also produces, so the two tables join.
+**Generated table.** `registry/_cells.yaml`, rows
+`{unit, runner, axes, artifact, needs, plugin, from: plugin|annotation}`,
+sorted by `unit`, written only when the content changed.
+**Verbs.** `cells --refresh [--diff] [--plugin <name>]`, `cells --list`,
+`cells --explain <unit>`.
+**Scale.** `thinking_app` ≈ 2,500 rows (ten matrices over the 47-screen base and
+extended catalogues plus hand-enrolled screens and the `testmap:axis` minority);
+`aitasks` ≈ 60 rows (13 skills × 3 profiles for the Claude tree, plus the
+procedure renderings).
+**The `thinking_app` plugin**, concretely: source
+`tools/verification/lib/screenshot-review.sh`; for each `known_matrices()` entry
+take `matrix_classes()`; decompose `<geometry><Locale>_<direction>` with the
+`GOLDEN_TOKEN` grammar; read
+`tools/verification/{primary-catalog-expected.txt,secondary-matrices-expected.txt}`
+for which screens each matrix actually produces; emit one line per
+`(class, method)` with `artifact` set to the manifest's path. It restates
+nothing — every fact comes from a file the project already guards.
+<!-- /section: component_cell_enumeration -->
+
+<!-- section: component_go_engine [dimensions: component_go_engine] -->
+### Go engine and CLI *(revised)*
+
+`engine/cmd/ait-testmap` with
+`internal/{registry,annot,deps,changesurface,axes,cells,selectr,sched,runner,cost,feedback,stale,gitx,home,platform}`.
+Go 1.26 with a pinned toolchain directive, `CGO_ENABLED=0`, `-trimpath
+-buildvcs=false -ldflags "-s -w -X main.version -X main.commit -X
+main.contract"`. Dependencies: `gopkg.in/yaml.v3`, `bmatcuk/doublestar/v4`,
+`golang.org/x/sync`; everything else standard library (`flag`, `os/exec`,
+`encoding/json`, `crypto/sha1`, `crypto/sha256`, `syscall.Flock`). No cobra, no
+go-git, no gofrs/flock. Line-protocol stdout with `--json`, per-verb exit
+contracts. The binary never writes `aitasks/`, `aiplans/`, `.aitask-data/` or a
+gate ledger and never invokes `aitask_*.sh`. Tests run against fixture repos
+created with `git init` in `t.TempDir()`, never the framework repo.
+<!-- /section: component_go_engine -->
+
+<!-- section: component_engine_binary [dimensions: component_engine_binary] -->
+### Engine binary: identity, output contract, performance budget *(revised)*
+
+Embeds `version`, `commit` and `contract`; `version --json` is the install-time
+self-check; fixed-prefix structured output plus `--json`; `CONTRACT_MISMATCH`
+refusal on registry files from a newer contract. The performance budget is
+pinned by `go test -bench` over a golden registry that now includes a
+2,500-row cell fixture and a four-axis declaration, with a 2× regression failing
+`engine-check.yml`. Scanner, dependency and cell-plugin pools are capped at 8.
+<!-- /section: component_engine_binary -->
+
+<!-- section: component_binary_distribution [dimensions: component_binary_distribution] -->
+### Binary distribution: release assets and the host-side handshake *(revised)*
+
+`engine/build.sh` is the single build and matrix command. The `engine` job in
+`release.yml` (`setup-go` from `engine/go.mod`, `go vet`, `go test`, `build.sh
+all`) produces `ait-testmap_<V>_{linux,darwin}_{amd64,arm64}` and
+`ait-testmap_<V>_SHA256SUMS.txt`, attached by both `action-gh-release` steps
+with `release needs: [plan, engine]`; the VERSION-matches-tag guard is
+unchanged. A new `engine-check.yml` runs on `push`/`pull_request` for
+`engine/**` (`gofmt -l`, `vet`, `test`, the 2× bench rule).
+`lib/platform_detect.sh` maps `uname`. The shim's strict handshake resolves
+`AIT_TESTMAP_BIN` (with an override notice) → `AIT_ENGINE=dev` slot requiring
+`<V>-dev+<sha>` → `$(aitasks_home)/engine/v<V>/` requiring `== VERSION` →
+`ENGINE_MISSING` exit 3 with a repair hint. Tests: `test_testmap_shim.sh`
+(extended with a legacy-home host and an `AITASKS_HOME` host) and
+`test_platform_detect.sh`. Docs: `aidocs/framework/go_engine.md`, a `CLAUDE.md`
+Engine block, a `packaging_strategy.md` paragraph. `release-packaging.yml` and
+nfpm `arch: all` are untouched.
+<!-- /section: component_binary_distribution -->
+
+<!-- section: component_engine_packaging [dimensions: component_engine_packaging] -->
+### Engine install, upgrade and developer regeneration *(revised)*
+
+`install_engine_binary()` in `aitask_setup.sh`, reached by `ait setup` and by
+`ait upgrade` through `install.sh`'s `--source-only` path, beside
+`install_global_shim` and **after** `migrate_framework_home()`. `uname` mapping;
+`.sha256` sidecar short-circuit; source order `--local-engine` → exact-version
+release asset → `--engine-from-source` → `ENGINE_MISSING` warning; `sha256sum -c`
+(`shasum -a 256` on macOS); atomic install into `$(aitasks_home)/engine/v<V>/`;
+`version --json` must echo `<V>`; `.dev`-marked binaries are never overwritten
+without `--force-engine`; `--no-testmap` / `AIT_TESTMAP_FETCH=0` print
+`TESTMAP_BINARY:skipped`. `.aitask-testmap/` is gitignored by setup.
+`aitask_engine.sh` provides `ait engine build|test|cross|prune|home` (prune
+against `~/.config/aitasks/projects.yaml`, never automatic in upgrade).
+`tests/test_install_engine_binary.sh` drives a real `install.sh --dir
+--local-engine` and asserts the binary lands under `~/.aitasks/engine/`.
+<!-- /section: component_engine_packaging -->
+
+<!-- section: component_registry_loader [dimensions: component_registry_loader] -->
+### Registry loader and writer *(revised)*
+
+`internal/registry` merges `aitestmap/registry/*.yaml` into **seven** tables:
+edges, scopes, areas, **axes**, **cells**, rules, waivers. `owns:` routes by
+glob (edges, rules), by area name (hand-declared scopes) and now by axis name
+(membership blocks in a hand file). Write routing: `scan --apply` →
+`_scanned.yaml` and `_scoped.yaml`; `cells --refresh` → `_cells.yaml`;
+`attribute` → `observed.yaml`; `declare` → the owning hand file, refusing when
+nothing owns. Deterministic sorted writes, only on change. Check rules:
+`STALE_PATH`, `UNSTAMPED` past bootstrap under `require_stamp`, `DEAD_SCOPE`,
+`DEAD_AXIS_GLOB`, `UNMAPPED_CELL`, `UNCOVERED_VALUE`,
+`KIND_MISMATCH|CONVERT_TO_SUITE` above `unit_covers_max` (warn; fail under
+`--strict`), `CONTRACT_MISMATCH`. Golden tests pin the merge rule, including
+the precedence of `observed.yaml` axis memberships over declared ones (they
+widen, never narrow).
+<!-- /section: component_registry_loader -->
+
+<!-- section: component_annotation_scanner [dimensions: component_annotation_scanner] -->
+### Annotation scanner and rewriter *(revised)*
+
+Grammar v2: `testmap:kind`, `testmap:covers <path> @<date>/<blob10>`,
+`testmap:area`, `testmap:scope`, `testmap:trigger`, **`testmap:axis
+<name>=<value>`**, `testmap:reviewed`, `testmap:runner`, `testmap:needs`,
+`testmap:batch` — per comment leader and Python module docstrings. Unknown keys
+are refused with a line number. `kind` decides the association form. A
+line-targeted rewriter edits stamps by `(file, line, current text)` and refuses
+on `REWRITE_CONFLICT`. `testmap:axis` lines contribute cell rows with
+`from: annotation`, which is how a coordinate-bearing test that produces no
+artefact joins the grid.
+<!-- /section: component_annotation_scanner -->
+
+<!-- section: component_dependency_scanners [dimensions: component_dependency_scanners] -->
+### Dependency scanners *(revised)*
+
+Built-in bash, Python, Go (`go list -deps -json` cached by the `go.sum` digest),
+Kotlin and Gradle module-graph scanners, plus executable plugins under
+`aitestmap/scanners/` speaking one JSON line per file. Forward deps are cached
+per source blob under
+`${XDG_CACHE_HOME:-~/.cache}/aitasks/testmap/deps/<blob-sha1>.json` and inverted
+in memory. The inverted graph now has a second consumer: `reach:` axis
+membership walks it from each value's declared roots, so a `screen` coordinate
+costs no extra scan.
+<!-- /section: component_dependency_scanners -->
+
+<!-- section: component_selector [dimensions: component_selector] -->
+### Selector *(revised)*
+
+`internal/selectr` with `internal/changesurface`: line-protocol intake via
+`--changes -` or a file, refusing on `UNKNOWN:`; the graded walk with
+`select`/`implies`/`escalate` rules; scoped join at d1; **cell join at d1** by
+per-file coordinate filter, unioned across the change set; ranking by distance,
+then kind (`unit < cell < integration < e2e < device`), then cost; stale marks
+from digest compare plus the evidence join; `--include-stale` union of `STALE`,
+`STALE_AREA` and `STALE_AXIS` rows at distance `s`; the suite budget costed per
+**invocation group** with `DEFERRED` lines and budget-exempt triggers;
+`--suites` and `--cells` policies; cut knobs including `--axis <name>=<value>`;
+the prediction record with per-kind estimates; `explain`.
+<!-- /section: component_selector -->
+
+<!-- section: component_runner_contract [dimensions: component_runner_contract] -->
+### Runner contract and repository *(revised)*
+
+`internal/runner`: `describe`/`list`/`run` verbs, manifest and
+`results.jsonl`/`runner.json` formats, first-match bindings and the per-test
+override, the `builtin:` scheme with `command:`/`cwd:` overrides and
+shadow-by-name, **unit granularity declared per runner as `file | class |
+method | suite`**, **batching by `(runner, invocation group, resource set, batch
+flag)`** where `group_by: class` makes the group the class for method-granularity
+runners, per-unit timeouts, `units_expected`/`units_reported` reconciliation
+(with `units_reported == 0 && units_expected > 0` as a mechanism failure), exit
+contract `0/1/2/75` plus `64` for usage errors.
+<!-- /section: component_runner_contract -->
+
+<!-- section: component_scheduler_resources [dimensions: component_scheduler_resources] -->
+### Scheduler and resources *(revised)*
+
+`internal/sched`: resource kinds `mutex`/`semaphore`/`admission`/`allocator`,
+scopes `host`/`worktree`/`run`, `acquired_by` planning; `flock(2)` slot files
+taken in canonical order; admission `exec` with 75 deferral and backoff to the
+run deadline; allocator `exec` with signal-safe release; goroutines under
+`errgroup`; batching; `broad_after_unit` waves with **cells riding wave 1 when
+their invocation groups hold no contended resource and wave 2 otherwise**;
+`concurrency: serial|parallel` defaulting to `serial` at bootstrap (one
+invocation at a time, schedule printed) with `--serial`/`--parallel` overrides;
+the schedule report and its check half. `thinking_app`'s heavy-run lock
+(`tools/verification/heavy-run-lock.sh`) and emulator allocator
+(`tools/verification/emulator-allot.sh`) are wrapped as an `admission` and an
+`allocator` resource without modification.
+<!-- /section: component_scheduler_resources -->
+
+<!-- section: component_cost_ledger [dimensions: component_cost_ledger] -->
+### Cost ledger *(revised)*
+
+`internal/cost`: Welford per `(unit, host class)` with P² p95 and last; per-repo
+ledger `.aitask-testmap/ledger.jsonl` carrying `run_id`, `unit`, `status`,
+`duration_ms`, `head_sha` per result; `costs --update` folds into
+`aitestmap/costs/<hostclass>.yaml` and truncates. **Per-invocation overhead rows
+are promoted from bookkeeping to a first-class input**: the row is
+`{group, overhead_ms, units_reported}`, and a cell group's estimated cost is
+`overhead.p95 + Σ unit.p95` over its selected cells — the number the budget
+reads. `last_pass {sha, at, run_id}` per unit and a flake rate with
+`flake_threshold` excluding a unit from anchoring; per-kind estimates.
+<!-- /section: component_cost_ledger -->
+
+<!-- section: component_evidence_join [dimensions: component_evidence_join] -->
+### Evidence join *(carried forward)*
+
+`internal/stale` with `internal/gitx`, reading `internal/cost`: for every edge
+whose `stamped_blob` differs from the current blob, collect the test's
+`last_pass` shas from the local ledger and committed costs (any host class),
+drop candidates from invocations with a `cause` or units over the flake
+threshold, keep shas that are ancestors of HEAD, and run one `git ls-tree` per
+distinct sha. An edge whose source object id at that sha equals the current blob
+is `EVIDENCED`, otherwise `STALE`. It never rewrites; `stale
+--confirm-evidenced` is the explicit re-stamp and the only bulk confirmation an
+autonomous profile may run. Cells have no edges and never enter this join.
+<!-- /section: component_evidence_join -->
+
+<!-- section: component_feedback_tools [dimensions: component_feedback_tools] -->
+### Feedback tools *(revised)*
+
+`internal/feedback`: `score` splits a full run's failures into caught/missed for
+unit, scoped **and cell** rows against a prediction record. `attribute` records
+`missing-edge`/`test-wrong`/`source-wrong` for units,
+`missing-trigger`/`area-too-narrow` for scoped rows, and
+**`axis-membership-missing`** for a cell miss — naming the axis, the changed
+file and the value that should have been reachable — each with task and run id,
+written to `registry/observed.yaml`. Observed axis memberships are merged at
+load and may only **widen** a value's member set, never narrow it, so evidence
+can correct an over-narrow declaration but cannot silently sharpen selection.
+<!-- /section: component_feedback_tools -->
+
+<!-- section: component_gates [dimensions: component_gates] -->
+### Gates *(revised)*
+
+Three entries in `gates_reference.yaml` synced to `gates.yaml`: `testmap_fresh`
+(`kind: procedure`, verifier `aitask-gate-testmap-fresh`, no `unlocks`, the
+`docs_updated` shape), `testmap_check` (machine, `max_retries: 0`,
+`timeout_seconds: 120`, `unlocks: [testmap_run]`), `testmap_run` (machine,
+`blocks_dependents: true`, `max_retries: 1`, `timeout_seconds: 1800`). Two bash
+verifiers on the `tests_pass` template map engine exits `0/1/2/75/64` and a
+missing engine to verifier `0/1/2/3/3/3`, appending via `aitask_gate.sh`.
+`testmap_check` additionally fails `UNMAPPED_CELL` rows.
+<!-- /section: component_gates -->
+
+<!-- section: component_skill [dimensions: component_skill] -->
+### Skills *(revised)*
+
+`aitask-testmap` teaches: annotate (`covers`, or `area`/`scope`/`trigger`, or
+`testmap:axis`); declare an axis, a value or a member glob; run `cells --refresh
+--diff` after adding a screen, a locale or an agent tree; give a new source an
+edge, rule, area, axis membership or waiver; `attribute` before the gate;
+`verify` after editing an annotation; `classify --suggest` to choose the table,
+including the grid suggestion. `aitask-gate-testmap-fresh` is the procedure gate
+that runs `stale --task`, shows `git diff <stamped_blob> <current_blob>` per
+`STALE` row, retargets `STALE_PATH` rows from the culprit task's plan, re-stamps
+`EVIDENCED` rows, resolves `STALE_AXIS`/`UNCOVERED_VALUE`/`UNMAPPED_CELL` rows,
+prompts on `UNSTAMPED` rows past bootstrap, never guesses `UNKNOWN` and never
+confirms a `STALE` row autonomously. Authored for Claude Code first, then ported
+to the other supported agents.
+<!-- /section: component_skill -->
+
+<!-- section: component_reference_runners [dimensions: component_reference_runners] -->
+### Reference runners *(revised)*
+
+Built into the binary as `ait-testmap runner <name>`: `bash-file`, `pytest`
+(junitxml; `testmap:batch no` forces its own invocation — the serial carve-out,
+pinned by extending `tests/test_serial_carveout_doc_drift.sh`), `go-test`
+(per-file `-run` regex, `-json`), **`gradle-class` with `unit: class` or
+`unit: method`** (method granularity emits one `--tests <FQCN>.<method>` per
+selected cell in one invocation per `group_by` group and parses per-method JUnit
+XML), `suite`, `device` (allocator handle). `command:`/`cwd:` overrides live in
+`runners.yaml`; a project script of the same name shadows a builtin and
+`explain` shows which won. `engine-test` runs `go-test` over `engine/` so the
+engine's own tests ride the map.
+<!-- /section: component_reference_runners -->
+
+<!-- section: component_freshness [dimensions: component_freshness] -->
+### Freshness: stamps, anchors, `verify`, the procedure gate *(revised)*
+
+The per-edge `@<date>/<blob10>` stamp is written only by `verify`, `annotate`
+and `stale --confirm*`. `last_pass` anchors live in the ledger and in committed
+costs. `verify` and `verify --all-evidenced` re-stamp. Config: `bootstrap_until`,
+`require_stamp`, `flake_threshold`. The `testmap_fresh` procedure gate is
+dispatched by the existing procedure-gate block before the change summary, so
+stamp rewrites ride the `(t<id>)` commit; it is not a git hook and not a Claude
+Code hook. **Cells carry no stamp** — their freshness is structural, and the
+reasons are in the freshness section.
+<!-- /section: component_freshness -->
+
+<!-- section: component_staleness_tool [dimensions: component_staleness_tool] -->
+### Staleness tool *(revised)*
+
+`internal/stale`: `stale --task --changes - | --all` prints
+`SURFACE`/`EDGES`/`CELLS`/`STALE_PATH`/`STALE`/`EVIDENCED`/`UNSTAMPED`/`STALE_AREA`/`STALE_AXIS`/`UNMAPPED_CELL`/`UNCOVERED_VALUE`/`REVIEW_DUE`/`UNKNOWN`/`DISPLAY`/`DECISION`
+lines with `%25`/`%7C` encoding; content states exit 0; `--strict` exits 1 on
+`STALE_PATH` and `UNMAPPED_CELL`. It compares blob digests of the working tree
+only, consults the evidence join, and adds rename hints and culprit task ids
+from `git log --name-status -M` when history is reachable. Mutations:
+`--confirm`, `--confirm-source`, `--confirm-evidenced`, `--retarget`, through
+the rewriter with a re-scan of touched files.
+<!-- /section: component_staleness_tool -->
+
+<!-- section: component_suite_registry [dimensions: component_suite_registry] -->
+### Scoped-row registry and areas *(revised)*
+
+`registry/areas.yaml` plus `areas:` blocks in hand files, seedable via
+`ait testmap areas --import-codemap` from `aitasks/metadata/code_areas.yaml` as
+`<path>/**`. `registry/_scoped.yaml` rows are
+`{test, kind, runner, areas, globs, triggers, needs, reviewed_at, line}`, with
+`owns:` by area name for hand-declared rows. The d1 join, kind ranking and the
+suite budget (`suite_budget_s` default 600, `--suite-budget`, `--suites
+auto|all|none`) with `DEFERRED` lines and budget-exempt triggers are unchanged.
+Check rules include `DEAD_SCOPE` and `KIND_MISMATCH|CONVERT_TO_SUITE`. `ait
+testmap areas` gains nothing; `classify --suggest` gains one heuristic — an
+area-scoped suite whose test classes share a stem and differ by a token that
+also names a directory or a resource qualifier is proposed as an axis product,
+with the candidate axis and values printed.
+<!-- /section: component_suite_registry -->
+
+<!-- section: component_broad_test_scopes [dimensions: component_broad_test_scopes] -->
+### Broad-test scheduling policy *(revised)*
+
+`kind: integration|e2e|device` selects the scoped association form;
+`broad_after_unit: true` runs scoped rows only after a green unit wave;
+`device_policy: filter_by_resource` is the default. Scoped rows are exempt from
+per-edit digest staleness, with `STALE_AREA` (files in scope changed since
+`last_pass`, no pass since) as the evidence-based drift signal feeding
+`--include-stale`, and `REVIEW_DUE` as an opt-in cadence (`broad_review_days`,
+default 0). `attribute` widens areas by evidence. `covers` on a scoped row is
+allowed for digest-stamped fixture pins. **`kind: cell` is a separate third
+category**: cells are never area-scoped, never carry `area`/`scope`/`trigger`,
+and their wave placement follows their invocation group's resources rather than
+`broad_after_unit` alone.
+<!-- /section: component_broad_test_scopes -->
+<!-- /section: components -->
