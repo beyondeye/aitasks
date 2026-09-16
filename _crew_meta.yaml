@@ -2,7 +2,7 @@ id: brainstorm-1812
 name: Brainstorm t1812
 created_at: 2026-09-15 06:26:08
 created_by: dario-e@beyond-eye.com
-agents: [initializer_bootstrap, explorer_001a, explorer_001b, synthesizer_001, explorer_002a]
+agents: [initializer_bootstrap, explorer_001a, explorer_001b, synthesizer_001, explorer_002a, explorer_002b]
 agent_types:
   explorer:
     agent_string: claudecode/opus5
