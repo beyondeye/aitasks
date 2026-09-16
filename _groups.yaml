@@ -23,3 +23,7 @@ groups:
   sequence: 6
   description: ''
   created_at: '2026-09-16 08:55:43'
+- name: synthesize_003
+  sequence: 7
+  description: ''
+  created_at: '2026-09-16 09:23:40'
