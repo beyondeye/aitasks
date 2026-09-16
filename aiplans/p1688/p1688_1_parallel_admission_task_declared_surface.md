@@ -725,14 +725,14 @@ advisory `./ait note 1688_2` at Step 8e.
   `task_declared` overlaps are coarse · severity: medium (residual — they can no
   longer produce a false CONFLICT, PINNED 6; the cost is caveat noise, and a
   real description-only collision is reported as a caveat rather than stopped)
-  · → mitigation: measure_task_declared_precision
+  · → mitigation: t1814
 - Only `no_plan`-driven UNCHECKABLEs are fixed; other causes remain · severity:
   medium · → mitigation: covered in-plan — the AFTER census names them;
   acceptance is the mechanism, not a corpus statistic
 
 ### Planned mitigations
 - timing: pre-phase | name: pin_no_plan_controls | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — fallback changes every consumer's surface / body-cut leak | desc: pin today's no_plan output on the collector and gatherer paths (no task file, pathless body, phantom-only body, paths only under Inbox/Gate Runs) before A changes code
-- timing: after | name: measure_task_declared_precision | type: enhancement | priority: medium | effort: medium | inline_risk: low | added_complexity: medium | addresses: goal-achievement — description surfaces may be too coarse to justify warn | desc: extend `aitask_parallel_admission.sh sweep` with a task-description source and score task_declared surfaces against landed files over the archived corpus (precision/recall, as t1643 did for plan surfaces), comparing whole-body extraction with a key-files-section-preferred variant, to decide whether task_declared overlaps may ever grade CONFLICT (t1688_1 ships them non-blocking)
+- timing: after | name: measure_task_declared_precision | type: enhancement | priority: medium | effort: medium | inline_risk: low | added_complexity: medium | addresses: goal-achievement — description surfaces may be too coarse to justify warn | desc: extend `aitask_parallel_admission.sh sweep` with a task-description source and score task_declared surfaces against landed files over the archived corpus (precision/recall, as t1643 did for plan surfaces), comparing whole-body extraction with a key-files-section-preferred variant, to decide whether task_declared overlaps may ever grade CONFLICT (t1688_1 ships them non-blocking) | created: t1814
 
 The `after` line is created at **this child's Step 8d**.
 
