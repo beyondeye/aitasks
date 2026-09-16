@@ -740,3 +740,115 @@ The `after` line is created at **this child's Step 8d**.
 
 Current-branch mode (profile `fast`): no merge. Archive with
 `./.aitask-scripts/aitask_archive.sh 1688_1`.
+
+## Implementation progress (2026-09-15)
+
+All plan steps implemented: pre-phase `pin_no_plan_controls` (8 tests, green
+on the unmodified code before any change), A1–A6, the procedure's CONFLICT row,
+the trail grammar + goldens, the roadmap-skill sentence, and every test listed
+above including the new `tests/test_task_declared_parity.py`.
+
+### Replay census (same HEAD `757a7e59f`, same 129 candidates, `--candidates auto --from plan --lock-freshness require-fresh`)
+
+| | CLEAR | CLEAR_CAVEATED | CONFLICT | UNCHECKABLE |
+|---|---|---|---|---|
+| BEFORE | 0 | 0 | 12 | 117 |
+| AFTER | 0 | 103 | 12 | 14 |
+
+- `CAUSE_RATE:` BEFORE — all_phantom 5, cross_host_lock 128, hub_overlap_only
+  11, no_extractable_paths 9, no_liveness_token 129, **no_plan 129**,
+  stale_claim 129.
+- `CAUSE_RATE:` AFTER — all_phantom 5, cross_host_lock 128, hub_overlap_only
+  64, no_extractable_paths 9, no_liveness_token 129, stale_claim 129,
+  **task_declared 129**, **task_declared_overlap 6**; `no_plan` is gone.
+- Remaining UNCHECKABLE causes by name: `all_phantom` (5) and
+  `no_extractable_paths` (9) — 14, matching the 14 UNCHECKABLE verdicts.
+- Prompt-producing rate (CONFLICT + UNCHECKABLE) / candidates: **100%
+  (129/129) → 20.2% (26/129)**.
+- Would-have-been CONFLICTs (candidates whose CLEAR_CAVEATED carries a
+  `task_declared_overlap` caveat): **6**. CONFLICT stayed at 12 — description
+  evidence added no conflicts (PINNED 6).
+- (`CAUSE_RATE:` counts every reason code, caveats included, per candidate.)
+
+### Live check
+
+`check --candidate 1688_2 --from plan --lock-freshness require-fresh`: 8
+in-flight rows now read `…|resolved|task_declared` (incl. t1555_2 and t1576,
+two of the seven no-plan tasks from the original problem statement), zero
+`UNCHECKABLE_CAUSE:` lines, and a genuine plan-vs-plan CONFLICT with sibling
+t1688_1 (the two children do share files).
+
+### Mutation check (isolated scratch copy of `.aitask-scripts/` + `tests/`)
+
+- M1 — `_classify_overlap` returns `specific` for weak overlaps (description
+  evidence may conflict): 6 of the targeted tests fail.
+- M2 — `conflict_overlaps` stops excluding stale claims: 2 fail
+  (checker + roadmap run summary).
+- M3 — `cut_task_framework_sections` cuts nothing: 8 fail (both pre-phase
+  case-(d) guards + `TaskBodyTests`).
+- Unmutated control over the same files: 146 passed.
+
+## Final Implementation Notes
+
+- **Actual work done:** A1–A6 as planned, plus both review revisions. A no-plan
+  in-flight task (and a no-plan candidate) is now read from its task
+  description through the ONE extractor (`plan_extraction` +
+  `plan_paths.cut_task_framework_sections`), provenance `task_declared`,
+  memoised per run; precedence plan → description → `no_plan` with no merging.
+  `decide` caveats it (`task_declared`), renders the provenance as the
+  `INFLIGHT:` row's 6th field, and classes any overlap involving a description
+  `declared` — reported, never a CONFLICT. The gatherer emits a
+  `task_declared` marker before the description's classified records and the
+  adapter judges phantom-only with an injected `plan_paths.classify` over the
+  task-data corpus. Consumers: `pa.conflict_overlaps` / `pa.conflict_refs` are
+  the one definition of "what a CONFLICT rests on", used by `roadmap_run`'s
+  `CONFLICT_WITH` and `roadmap_policy._overlapping_refs` (relations +
+  `in_flight_conflict` affects), with `vocab.ADVISORY_OVERLAP_CAVEATS` kept on
+  CONFLICT entries by `_caveats`. Docs: the preflight's CONFLICT row, the trail
+  grammar + 3 goldens, the backlog-roadmap sentence.
+- **Deviations from plan:** (1) review revision 1 proposed a hidden "6th
+  overlap-tuple element"; revision 2 replaced it with the `declared` overlap
+  CLASS, which is self-describing to every row consumer and touched no
+  unpacking site. (2) Added `conflict_overlaps` beside `conflict_refs` so
+  `roadmap_run` keeps its per-file counting semantics (`CONFLICT_WITH:<ref>|<n>`
+  is documented as a file count) while filtering to real conflicts. (3) The
+  same helper also fixes a PRE-EXISTING miscount — an advisory-tier (stale)
+  claim still renders `specific` rows and was being counted as a conflict
+  counterparty; one condition plus two tests, deliberately in scope because a
+  helper named "the refs a CONFLICT rests on" cannot encode a known-wrong
+  definition. (4) The procedure's CONFLICT row was corrected here rather than
+  deferred to t1688_2 (review), since this task is what makes it wrong.
+- **Issues encountered:** the `_overlapping_refs` docstring edit first landed
+  AFTER the closing `"""` (a syntax error) — caught immediately by the targeted
+  suite and fixed. Three Test 4e pins in
+  `tests/test_skill_render_task_workflow.sh` asserted the old CONFLICT wording
+  verbatim; they were repinned to the new condition (the wording change is the
+  point of A6), and a source-level parity pin now asserts the prose and
+  `conflict_refs` test the same two things.
+- **Key decisions:** whole-body extraction is kept for RESOLUTION (measured:
+  only ~16% of resolved description tokens sit under a key-files heading, and
+  just 119/527 active tasks have such a heading, so a section allowlist would
+  return ~75% of tasks to `no_plan` and miss the goal), while precision is
+  handled by making description evidence NON-BLOCKING. `task_declared` is a
+  provenance marker, never a sentinel or an UNCHECKABLE code. The corpus axis
+  (`INFLIGHT_SCAN`) still reports plan evidence only, so a description-read task
+  counts toward `no_plans`.
+- **Upstream defects identified:** None. (The stale-claim counterparty miscount
+  found during review is fixed in this task, not deferred — see Deviations (3).)
+- **Notes for sibling tasks:** for **t1688_2** — the PINNED contracts hold as
+  written, plus two additions it must build on. **PINNED 6:** a `task_declared`
+  overlap renders `OVERLAP:<ref>|declared|<n>|<path>` and NEVER grades CONFLICT,
+  so C1's planned "precision sample of CONFLICT verdicts involving a
+  `task_declared` surface" is empty by construction — sample the
+  `task_declared_overlap` caveats instead (the AFTER census has 6 across 129
+  candidates, against 12 CONFLICTs that are all plan-derived). **PINNED 7:**
+  `pa.conflict_refs(lines)` / `pa.conflict_overlaps(lines)` are the only
+  sanctioned way to name a CONFLICT's counterparties from rendered lines (class
+  `specific` AND no `stale_claim` caveat on `inflight:<ref>`); the pre-claim
+  assessment should read `declared` rows as advisory evidence and use these for
+  conflicts. C1's prompt-producing rate at this commit is **20.2% (26/129)**,
+  already inside C1's ≤30% rule, but C1 must re-measure. C2 must KEEP the
+  corrected CONFLICT row in `parallel-admission.md` (A6) — do not revert it to
+  "from the `OVERLAP:` lines"; the rest of that file's wording (Notes, "plan
+  prose", the `no_plan` remedy row) is still C2's. `vocab.ADVISORY_OVERLAP_CAVEATS`
+  names the caveat codes that explain a non-conflicting overlap.
