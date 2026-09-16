@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [tmux]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 1705
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5
 created_at: 2026-09-14 14:47
-updated_at: 2026-09-14 22:31
+updated_at: 2026-09-16 09:30
+completed_at: 2026-09-16 09:30
 ---
 
 ## Origin
@@ -65,3 +66,14 @@ test pinning all three resolvers against the blank-value seed shape.
 > **✅ gate:plan_approved** run=2026-09-14T19:31:22Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-09-14T20:38:10Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-16T06:30:10Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:10210d3caf93b25b
+
+> **✅ gate:risk_evaluated** run=2026-09-16T06:30:10Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1800/risk_evaluated_2026-09-16T06:30:10Z-risk_evaluated-a1.log`
