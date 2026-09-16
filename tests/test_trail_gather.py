@@ -148,14 +148,19 @@ class SyntheticRepo:
         return path
 
     def write_plan(self, task_id: str, slug: str = "task",
-                   content: str = "plan\n") -> Path:
+                   content: str = "plan\n", *,
+                   plan_dir: Path | None = None) -> Path:
+        """`plan_dir` overrides the conventional `<root>/aiplans` location, so
+        a fixture can put its plans OUTSIDE the project root (t1809). The
+        default keeps every existing caller unchanged."""
+        base = self.root / "aiplans" if plan_dir is None else plan_dir
         if "_" in task_id:
-            parent = task_id.split("_", 1)[0]
-            directory = self.root / "aiplans" / f"p{parent}"
-            directory.mkdir(exist_ok=True)
+            directory = base / f"p{task_id.split('_', 1)[0]}"
             path = directory / f"p{task_id}_{slug}.md"
         else:
-            path = self.root / "aiplans" / f"p{task_id}_{slug}.md"
+            directory = base
+            path = directory / f"p{task_id}_{slug}.md"
+        directory.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
         return path
 
@@ -1094,8 +1099,9 @@ class PlanIdentityTests(TrailGatherCase):
         self.assertEqual(
             [f for f in snap["inputs"] if f[0] == "plan_file"], [])
 
-    def _trail_with_plan(self, complete_snapshots: bool) -> tuple[Path, Path]:
-        plan = self.repo.write_plan("100", "root")
+    def _trail_with_plan(self, complete_snapshots: bool, *,
+                         plan_dir: Path | None = None) -> tuple[Path, Path]:
+        plan = self.repo.write_plan("100", "root", plan_dir=plan_dir)
         snap = self.snapshot("--scope", "task", "100")
         if complete_snapshots:
             entries = [
@@ -1198,6 +1204,79 @@ class PlanIdentityTests(TrailGatherCase):
         self.assertIsNone(result["verdict"])
         self.assertEqual(result["errors"],
                          [f"ref_outside_project:{self.LOCAL}:../../etc/passwd"])
+
+    def _relocate_plan_dir(self, *, symlink: bool) -> Path:
+        """Move the fixture's plan dir OUTSIDE the project root, reproducing
+        the two layouts whose plans realpath out of it (t1809).
+
+        `symlink=True` is the linked-worktree layout (`aitask_init_data.sh
+        --link-worktree`): `aiplans/` stays in place as a symlink pointing into
+        the primary checkout's `.aitask-data`. `symlink=False` is the
+        plans-outside-the-checkout layout, reached by pointing `PLAN_DIR` at
+        the moved directory.
+        """
+        outside = Path(self._tmp.name) / "data" / "aiplans"
+        outside.parent.mkdir(parents=True, exist_ok=True)
+        (self.repo.root / "aiplans").rename(outside)
+        if symlink:
+            (self.repo.root / "aiplans").symlink_to(outside)
+        return outside
+
+    def test_symlinked_plan_dir_is_contained(self):
+        """A linked worktree symlinks `aiplans/` into the primary checkout's
+        `.aitask-data`, so every legitimate plan ref realpaths outside the
+        worktree root. Confining to the root ALONE refused them all: drift
+        answered `ref_outside_project` for a trail that is CURRENT in the
+        primary checkout, and the board read `drift unavailable` (t1809).
+        """
+        self._relocate_plan_dir(symlink=True)
+        _, trail = self._trail_with_plan(True)
+        result = self.drift(trail)
+        self.assertEqual(result["errors"], [], result["raw"])
+        self.assertEqual(result["verdict"], "CURRENT", result["raw"])
+
+    def test_traversal_out_of_symlinked_plan_dir_still_refused(self):
+        """NEGATIVE CONTROL for the widened base: trusting the plan dir's
+        target must not turn that target into a doorway. A ref climbing OUT of
+        it is refused exactly as under the root-only rule. Without this,
+        widening containment to the symlink's whole PARENT would leave the
+        test above green.
+        """
+        outside = self._relocate_plan_dir(symlink=True)
+        (outside.parent / "secret.md").write_text("x\n", encoding="utf-8")
+        snap = self.snapshot("--scope", "task", "100")
+        trail = self.make_trail(snap)
+        doc = json.loads(trail.read_text())
+        ref = f"{self.LOCAL}:aiplans/../secret.md"
+        doc["generation"]["inputs"].append({"ref": ref, "kind": "plan_file"})
+        trail.write_text(json.dumps(doc))
+        result = self.drift(trail)
+        self.assertIsNone(result["verdict"])
+        self.assertEqual(result["errors"], [f"ref_outside_project:{ref}"])
+
+    def test_absolute_plan_dir_outside_root_is_contained(self):
+        """The second layout the root-only rule broke: `PLAN_DIR` pointing
+        outside the checkout. Refs are spelled `os.path.relpath(plan, root)`,
+        so such a plan arrives carrying upward segments -- asserted here, since
+        a ref that lost them would exercise nothing.
+
+        This pins the rule as "confined to the plan dir's realpath" rather than
+        "symlinks are special": a fix special-casing `Path.is_symlink()` would
+        satisfy the symlink test above and still fail this one.
+        """
+        outside = self._relocate_plan_dir(symlink=False)
+        # Restored by the base class, which isolates PLAN_DIR in setUp.
+        os.environ["PLAN_DIR"] = str(outside)
+        _, trail = self._trail_with_plan(True, plan_dir=outside)
+        stored = [r["ref"] for r
+                  in json.loads(trail.read_text())["generation"]["inputs"]
+                  if r["kind"] == "plan_file"]
+        self.assertTrue(
+            stored and all(r.startswith(f"{self.LOCAL}:../") for r in stored),
+            stored)
+        result = self.drift(trail)
+        self.assertEqual(result["errors"], [], result["raw"])
+        self.assertEqual(result["verdict"], "CURRENT", result["raw"])
 
 
 # --- F. Presence tracking ----------------------------------------------------
