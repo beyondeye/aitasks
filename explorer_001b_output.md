@@ -107,10 +107,10 @@ assumption_testmap_token_no_collision: The annotation token 'testmap:' does not 
   with existing prose comments in any target repo; the 38 existing '# Covers:' headers in
   aitasks are behavioural prose and are not matched
 # --- assumptions (inherited, made precise) ---
-assumption_change_surface_is_intake: The change-surface script's attribution (aitask_change_surface.sh)
+assumption_change_surface_is_intake: 'The change-surface script''s attribution (aitask_change_surface.sh)
   is the right intake; the engine parses only its COMMITTED:/TASK:/OTHER:/UNKNOWN: lines
   (its exit codes carry no meaning), selection never reads a raw git diff, and an UNKNOWN
-  path refuses selection and drives the stale decision
+  path refuses selection and drives the stale decision'
 assumption_gate_exit_contract_reused: The gate verifier's exit contract is the framework's
   0 pass / 1 fail / 2 skip / 3 error (there is no 75 in the framework); the runner contract
   keeps 75 for admission internally and the verifier maps it to 3 (retryable error), mapping
