@@ -16,7 +16,7 @@ description: Best-of-both synthesis of the two explore_002 answers on n003's bas
   makes that omission justifiable, and because n004's cells sat outside the stamp-and-evidence
   model entirely.
 proposal_file: br_proposals/n006_synthesizer_002.md
-created_at: 2026-09-16 11:24
+created_at: "2026-09-16 11:24"
 created_by_group: synthesize_002
 reference_files:
 - /home/ddt/Work/aitasks/aiwork/t1812_selective_testing_proposal.md
