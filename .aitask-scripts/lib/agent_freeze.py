@@ -263,6 +263,10 @@ def _resolve_record(facts: dict[str, str]) -> tuple[str, str]:
         return stamped, f"RECORD:{stamped}|stamped"
 
     root = _walk_up_to_project(facts.get("path", ""))
+    # Both may be blank: `@aitask_agent_session` is unset until the hook's
+    # stamp, and this engine never knows the agent string. The store takes a
+    # blank for either as "not supplied", so a record this upsert selects by
+    # pane identity keeps the id and string it already has.
     session_id = facts.get("agent_session", "")
     rc, out = frozen_ops.store(
         "upsert",

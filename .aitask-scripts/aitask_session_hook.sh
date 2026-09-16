@@ -20,8 +20,9 @@
 #   3. Stamp the pane ONLY after a successful upsert (t1705_2 A8). The store
 #      never touches tmux, so establishing the @aitask_record join is this
 #      caller's obligation -- discharged via ait_stamp_record.
-#   4. A blank session id is a NO-OP. Recording "" would overwrite a good
-#      stored id (see below).
+#   4. A blank session id is a NO-OP. The store ignores a blank id on an
+#      ordinary update, but on a restore ack it reads as a session mismatch
+#      (see below).
 #
 # CODEX LIMITATION (established 2026-09-06, codex 0.153.4): SessionStart fires
 # under `codex exec` but NOT in the interactive TUI, which is the framework's
@@ -77,12 +78,12 @@ payload_cwd="${_fields[2]}"
 # shellcheck disable=SC2034  # Captured for completeness / future use.
 source_kind="${_fields[3]}"
 
-# A blank session id is a NO-OP -- never an upsert, never a pane option.
-# `--session-id ""` is NOT None to the store, so _apply_upsert_fields would
-# overwrite a good codeagent_session_id with "", silently downgrading a
-# resumable frozen agent to re-pick only. During a restore it is worse: the ack
-# path compares (session_id or "") against the stored id and would persist
-# "<nonce>:session_mismatch", aborting a legitimate restore.
+# A blank session id is a NO-OP -- never an upsert, never a pane option. The
+# store treats a blank id as "not supplied" on an ordinary update (t1807), so
+# recording one would at best be a wasted upsert and stamp for a session nobody
+# can resume. During a restore it is harmful: the ack path compares
+# (session_id or "") against the stored id BEFORE applying any field, so a
+# blank would persist "<nonce>:session_mismatch", aborting a legitimate restore.
 if [ -z "$session_id" ]; then
     echo "aitask_session_hook: empty session_id; nothing recorded" >&2
     exit 0

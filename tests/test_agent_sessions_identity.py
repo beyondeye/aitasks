@@ -287,6 +287,21 @@ class RestoreAckTests(_UpsertTestCase):
         self.assertEqual(rec.last_error, f"{nonce}:session_mismatch")
         self.assertEqual(rec.state, agent_sessions.STATE_RESTORING)
 
+    def test_a_blank_resume_ack_is_still_a_mismatch(self):
+        """t1807 made a blank id a no-op on UPDATE; the ack must not follow.
+
+        The comparison runs before any field is applied, so a resume ack that
+        carries no session id still aborts via last_error rather than
+        confirming a resume that never proved its session.
+        """
+        rid, nonce = self._restoring(session_id="sid-1")
+        with self.assertRaises(agent_sessions.SessionMismatch):
+            self.up(pane="%42", pane_pid=4242, restore_of=rid, nonce=nonce,
+                    session_id="")
+        rec = self.sf.by_id(rid)
+        self.assertEqual(rec.last_error, f"{nonce}:session_mismatch")
+        self.assertEqual(rec.codeagent_session_id, "sid-1")
+
     def test_repick_mode_adopts_the_new_session_id(self):
         rid, nonce = self._restoring(mode="repick", session_id="old-sid")
         line = self.up(
@@ -358,6 +373,29 @@ class BlankAgentStringTests(_UpsertTestCase):
         rec = self.sf.by_id(rid)
         self.assertEqual(rec.agent_string, "codex/gpt5")
         self.assertEqual(rec.agent_kind, "codex")
+
+
+class BlankSessionIdTests(_UpsertTestCase):
+    """t1807: `session_id=""` means "not supplied", never "clear it".
+
+    The freeze engine's fallback upsert (`agent_freeze._resolve_record`) sends
+    the pane's `@aitask_agent_session`, which is unset until the SessionStart
+    hook stamps it, and still SELECTS an existing record by pane identity. A
+    freeze that raced the hook used to blank a good stored id, and the next
+    restore failed `no_session`.
+    """
+
+    def test_a_blank_update_keeps_the_stored_session_id(self):
+        rid = self.rid(self.up(session_id="sess-orig"))
+        line = self.up(session_id="")
+        self.assertEqual(line, f"UPSERTED:{rid}|updated")
+        self.assertEqual(self.sf.by_id(rid).codeagent_session_id, "sess-orig")
+
+    def test_a_non_blank_update_still_replaces_it(self):
+        """The guard must not freeze the field: a real value still wins."""
+        rid = self.rid(self.up(session_id="sess-orig"))
+        self.up(session_id="sess-new")
+        self.assertEqual(self.sf.by_id(rid).codeagent_session_id, "sess-new")
 
 
 if __name__ == "__main__":

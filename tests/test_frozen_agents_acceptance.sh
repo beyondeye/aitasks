@@ -336,24 +336,14 @@ PY
     printf '%s %s\n' "$agent" "$companion"
 }
 
-# Wait until the hook has bound a record to the pane, and echo the record id.
-wait_for_record_stamp() {
-    local pane="$1" i=0 rid=""
-    while [ "$i" -lt 150 ]; do
-        rid="$(record_of_pane "$pane")"
-        [ -n "$rid" ] && { printf '%s\n' "$rid"; return 0; }
-        sleep 0.1
-        i=$((i + 1))
-    done
-    return 1
-}
-
 # A launched, hook-bound agent. Echoes "<record_id> <agent_pane> <companion>".
+# `wait_for_record_stamp` lives in tests/lib/frozen_fixtures.sh; this suite
+# passes a 15 s budget (150 polls) rather than the shared default.
 make_live_agent() {
     local window="$1"
     local agent companion rid
     read -r agent companion < <(launch_agent "$window")
-    rid="$(wait_for_record_stamp "$agent")" || rid=""
+    rid="$(wait_for_record_stamp "$agent" 150)" || rid=""
     printf '%s %s %s\n' "$rid" "$agent" "$companion"
 }
 
@@ -1165,7 +1155,7 @@ section "Case 9 — an AMBIGUOUS relocation fails closed and is then purged"
     # A second agent in the SAME window -> slot 1.
     PANE_B="$(tm split-window -d -t "$PANE_A" -c "$SCRATCH" -P -F '#{pane_id}' \
         "$CODEAGENT_SH --agent-string claudecode/opus5 invoke raw")"
-    RID_B="$(wait_for_record_stamp "$PANE_B")" || RID_B=""
+    RID_B="$(wait_for_record_stamp "$PANE_B" 150)" || RID_B=""
 
     assert_eq "case 9: the second agent got its own record" "yes" \
         "$([ -n "$RID_B" ] && [ "$RID_B" != "$RID_A" ] && echo yes || echo no)"
