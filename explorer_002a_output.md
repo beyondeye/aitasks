@@ -889,7 +889,7 @@ flock ~/.aitasks/.home.lock (create ~/.aitasks first; fail-fast if another ait h
   │     {venv, bin, python, uv, dev_tier, update_check, engine}       (report it; do not guess)
   ├─ for each known entry: mv ~/.aitask/<e> ~/.aitasks/<e>            (same-device rename, atomic per entry)
   ├─ rmdir ~/.aitask                                                  (fails loudly if not empty)
-  └─ ln -s ~/.aitasks ~/.aitask                                       HOME_MITRATED:<n entries>
+  └─ ln -s ~/.aitasks ~/.aitask                                       HOME_MIGRATED:<n entries>
 ```
 
 The venv keeps working because nothing in it compares a path: `pyvenv.cfg`,
@@ -948,3 +948,310 @@ the same tables; `owns:` now also accepts an **axis name**, so a hand file may
 own an axis's membership block. A row outside its file's `owns:` fails `check`;
 `declare` routes by `owns:` and refuses when nothing matches.
 <!-- /section: architecture -->
+
+<!-- section: axes_and_cells [dimensions: component_axes, component_cell_enumeration, requirements_axis_product_selection, assumption_axis_membership_declarable, assumption_cells_enumerable_by_plugin] -->
+## Axes and Cells: Mapping Source Changes Into a Product Space
+
+### The shape being modelled
+
+`thinking_app`'s visual verification is a grid, and the repository already
+states the grid in exactly one place per dimension:
+
+- **Matrices** — `known_matrices()` in `tools/verification/lib/screenshot-review.sh`
+  lists ten: `pixel5_rtl`, `pixel5_ltr`, `shortPhone_rtl`, `shortPhone_ltr`,
+  `imeProxy_rtl`, `bidiSampler_rtl`, `pixel5Ru_ltr`, `shortPhoneRu_ltr`,
+  `pixel5Ar_rtl`, `shortPhoneAr_rtl`. Each decomposes into a **locale** (`he`,
+  `en`, `ru`, `ar`), a **device geometry** (`pixel5`, `shortPhone`,
+  `imeProxy`, `bidiSampler`) and a **direction** (`rtl`, `ltr`) — the
+  qualifier constants in `ScreenshotTestHarness.kt` are literally
+  `"$LOCALE-$DIRECTION-$GEOMETRY"`.
+- **Classes per matrix** — `matrix_classes()` in the same file maps each
+  matrix to the one or two Robolectric classes that render it. A Robolectric
+  class carries exactly one `@Config(qualifiers = …)`, which is *why* there is
+  a class per matrix and not one generalised renderer.
+- **Screens** — one `@Test` method per screen on
+  `ScreenCatalogScreenshotsTest` and its extended sibling, and the exact set of
+  produced goldens is a membership manifest:
+  `tools/verification/primary-catalog-expected.txt` and
+  `tools/verification/secondary-matrices-expected.txt` (247 secondary lines).
+- **Golden naming** — `secondaryGoldenPath()` writes
+  `<Screen>_<matrix>_<direction>.png` under a `GOLDEN_TOKEN = [A-Za-z0-9]+`
+  grammar that exists precisely so the name decomposes back into its
+  coordinates.
+
+So the coordinate of every test unit is already derivable from artefacts the
+project maintains and guards. What is missing is a framework that can consume
+it.
+
+### Axis declaration
+
+```yaml
+# aitestmap/registry/axes.yaml   (hand-written, in thinking_app)
+contract: 1
+axes:
+  locale:
+    values: [he, en, ru, ar]
+    members:
+      he: ["app/src/main/res/values/**", "app/src/main/res/values-iw/**",
+           "app/src/main/res/font/heebo_*.ttf"]
+      en: ["app/src/main/res/values-en/**", "app/src/main/res/font/roboto_*.ttf"]
+      ru: ["app/src/main/res/values-ru/**"]
+      ar: ["app/src/main/res/values-ar/**", "app/src/main/res/font/cairo_*.ttf"]
+  device:
+    values: [pixel5, shortPhone, imeProxy, bidiSampler]
+    members: {}          # no source is device-specific today; every change is ANY here
+  screen:
+    values_from: cells   # the value set is whatever the cell plugin enumerates
+    reach:
+      from: "app/src/main/java/com/softman/thinking/ui/screens/{value}Screen.kt"
+      scanner: kotlin
+      fanout_max: 6      # a source reaching more than 6 screens resolves to ANY
+```
+
+Three membership styles, in increasing cost:
+
+1. **Explicit globs** (`locale`). The strongest and the cheapest to check: a
+   glob that matches nothing is `DEAD_AXIS_GLOB` at `check` time.
+2. **Empty membership** (`device`). Every change is `ANY` on that axis, so the
+   axis constrains nothing until someone declares members. Declaring an axis
+   with no members is legal and useful: it makes the coordinate visible in
+   reasons and in `explain` before anyone commits to narrowing on it.
+3. **Computed reach** (`screen`). For each value `v`, the root file
+   `…/{v}Screen.kt` is walked through the existing Kotlin dependency scanner;
+   every source reachable from it is a member of `v`. A source reachable from
+   more than `fanout_max` values resolves to `ANY` — which is what a shared
+   design-system file such as `ui/components/Buttons.kt` correctly becomes.
+
+`ait testmap axes --explain app/src/main/res/font/cairo_bold.ttf` prints:
+
+```
+AXIS:locale|ar|glob app/src/main/res/font/cairo_*.ttf|axes.yaml:11
+AXIS:device|ANY|no member glob matched
+AXIS:screen|ANY|no member glob matched; reach: not computed for non-Kotlin sources
+```
+
+### Resolution and the selection rule
+
+For a change set `S`, each axis `A` resolves to either an explicit value set or
+`ANY`:
+
+```
+resolve(A, S):
+    if ∃ f ∈ S with no member of A matching f:  return ANY        # fail-safe
+    return ⋃ { members(A, f) : f ∈ S }
+```
+
+A cell `c` is selected iff, **for every axis** `A`:
+`resolve(A, S) == ANY  ∨  c.axes[A] ∈ resolve(A, S)`.
+
+That is **union within an axis, intersection across axes** — and it is the
+whole of the mandate's question. Worked examples on the real grid:
+
+| change set | locale | device | screen | cells selected |
+|---|---|---|---|---|
+| `res/values-ar/strings.xml` | `{ar}` | ANY | ANY | 47 screens × 2 Arabic matrices = 94 |
+| `ui/screens/QuestionsScreen.kt` | ANY | ANY | `{Questions}` | 1 screen × 10 matrices = 10 |
+| both of the above | `{ar}` | ANY | ANY ∪ `{Questions}` → ANY¹ | 94 ∪ 10 |
+| `res/font/cairo_bold.ttf` | `{ar}` | ANY | ANY | 94 |
+| `ui/components/Buttons.kt` | ANY | ANY | ANY (fan-out > 6) | all ≈ 250 |
+| `ScreenshotTestHarness.kt` | ANY | ANY | ANY | all ≈ 250 |
+
+¹ The third row is the important one and the reason the rule is stated as it
+is. `values-ar/strings.xml` has no `screen` membership, so `screen` resolves to
+`ANY`; `QuestionsScreen.kt` has no `locale` membership, so `locale` would
+resolve to `ANY` too — giving the whole grid. That is correct but coarse, so
+the selector applies the rule **per changed file and unions the resulting cell
+sets**, rather than resolving each axis once over the whole change set:
+
+```
+select(S) = ⋃ { cells matching coordinate-filter(f) : f ∈ S }
+```
+
+Each file contributes the cells its own coordinate implies; the union across
+files is the answer. This keeps intersection sharp within a file (an Arabic
+resource is Arabic-only) and union safe across files (two unrelated edits do
+not cancel each other), and it is what makes the two-edit case 104 cells
+instead of 470. `resolve` over the whole change set is kept only for
+`--explain` and for the `DISPLAY:` summary line.
+
+### Cell enumeration
+
+Cells are never hand-written. A project-owned executable under
+`aitestmap/cells/` prints one JSON object per line:
+
+```json
+{"unit":"com.softman.thinking.testing.Pixel5ArRtlScreenshotsTest.questions",
+ "runner":"gradle-class",
+ "axes":{"screen":"Questions","locale":"ar","device":"pixel5","direction":"rtl"},
+ "artifact":"app/src/test/screenshots/secondary-matrices/Questions_pixel5Ar_rtl.png"}
+```
+
+In `thinking_app` that plugin is roughly sixty lines of bash: source
+`lib/screenshot-review.sh`, iterate `known_matrices()`, ask `matrix_classes()`
+for the classes, read the membership manifest for the screens each class
+produces, decompose the matrix token into `locale`/`device`/`direction` with
+the same grammar `secondaryGoldenPath()` writes. It reads the project's single
+routing statement rather than restating it — the rule this repository already
+holds for any list appearing in three or more places.
+
+In `aitasks` the plugin walks `tests/golden/skills/<skill>/SKILL-<profile>-<agent>.md`
+and `tests/golden/procs/<proc>/<procedure>-<profile>.md` and emits
+`{"axes":{"skill":"aitask-pick","profile":"fast","agent":"claude"}}` per
+rendered variant, with the verifying test as the unit.
+
+`ait testmap cells --refresh` execs every plugin under a bounded pool
+(cap 8), validates that each axis value is declared (or, under
+`values_from: cells`, collects it), and writes `registry/_cells.yaml` sorted by
+`(unit)`, only when the content changed. `--diff` shows what a refresh would
+change without writing. `--list` and `--explain <unit>` are read-only.
+
+### Reconciliation: the silent-green class, generically
+
+Enumeration lets `check` ask two questions no flat table can:
+
+- `UNMAPPED_CELL:<artifact>|<reason>` — an artefact the project tracks that no
+  enumerated cell claims. This is exactly the failure
+  `MatrixClassificationTest` and `MatrixAuditRegistry` exist to close by hand
+  in `thinking_app`: an entire matrix's goldens entering the tracked tree
+  audited by nobody, with every gate green. Here it is a framework rule any
+  repo with an `artifact:` field gets.
+- `UNCOVERED_VALUE:<axis>|<value>` — a declared axis value that no cell
+  occupies. A new locale added to `values:` with no matrix registered is
+  reported the day it is declared rather than the day someone notices.
+
+Both fail `check --strict`; `UNMAPPED_CELL` also fails `stale --strict`, so a
+repo-wide CI sweep catches it outside a task.
+
+### What axes are not
+
+- Not a replacement for `covers`. A test that names specific sources still
+  names them; a cell coordinate answers *which configuration*, never *which
+  source*.
+- Not a replacement for `area`/`scope`. A broad test with no grid is a scoped
+  row, and a cell is never area-scoped.
+- Not digest-stamped. A cell's freshness is structural — membership globs that
+  still match, enumeration that still reconciles — not content-based. There is
+  no per-cell `@blob` and no `EVIDENCED` class for cells.
+- Not inferred. The framework never guesses a coordinate; an axis with no
+  declaration is `ANY`, which selects more, not less.
+<!-- /section: axes_and_cells -->
+
+<!-- section: data_flow [dimensions: component_selector, component_staleness_tool, component_freshness, component_evidence_join, component_cost_ledger, component_engine_packaging, component_binary_distribution, component_cell_enumeration] -->
+## Data Flow
+
+### Authoring → registry
+
+```
+test files ──annotations──▶ ait testmap scan --apply ──▶ registry/_scanned.yaml   unit edges {test, covers, line, stamped_at, stamped_blob}
+                                                     └▶ registry/_scoped.yaml    broad rows {test, kind, areas, globs, triggers, needs, reviewed_at}
+aitestmap/cells/* ──────────▶ ait testmap cells --refresh ──▶ registry/_cells.yaml  cell rows {unit, runner, axes, artifact, plugin}
+hand files + areas.yaml + axes.yaml + observed.yaml ─────▶ merged registry (in memory, seven tables)
+```
+
+`scan` asks every runner's `list` verb for the units it owns, reads each file
+once, matches `testmap:` lines with a compiled regexp per comment leader (and
+Python module docstrings), refuses unknown keys with a line number, and
+rewrites each generated file only when its content changed, keys sorted.
+`cells --refresh` is a separate verb on a separate cadence because it execs the
+project's build-adjacent tooling; it is never on the hot path of `select`.
+
+### Task → selection → run
+
+```
+aitask_change_surface.sh list t1234 ──▶ BASELINE:/PLANSCOPE:/COMMITTED:/TASK:/OTHER:/UNKNOWN: lines
+        │  (the shim pipes; exit codes carry no meaning, lines do)
+        ▼
+ait-testmap select --task t1234 --changes - --include-stale [knobs] --run <run-id>
+        ├─ UNKNOWN: present ──▶ refuse (exit 1, the lines echoed)
+        ├─ exclude aitasks/ aiplans/ .aitask-data/ .aitask-gates/ before the walk
+        ├─ walk:  d0 changed tests + escalation · d1 unit edges + scoped join + CELL JOIN
+        │         d2.. reverse-dependency hops from the blob-keyed cache · rules inject select/implies/escalate
+        ├─ cell join: per changed file, coordinate-filter over _cells.yaml (union across files,
+        │             intersection across axes within a file); reasons carry every axis
+        ├─ stale: `stale` mark on a unit row when a selecting edge's stamped_blob ≠ current blob and no evidence covers it
+        ├─ union: --include-stale adds STALE / STALE_AREA / STALE_AXIS rows at distance s
+        ├─ rank:  distance → kind (unit < cell < integration < e2e < device) → est. cost ascending
+        ├─ budget: cell rows grouped into invocation groups (one Robolectric class = one group);
+        │          a group costs overhead(p95 of the invocation) + Σ per-unit p95 of its selected cells;
+        │          groups taken in ascending group cost until suite_budget_s; remainder DEFERRED:<unit>|budget
+        └─ write .aitask-testmap/runs/<run-id>/{selection.json, prediction.json}
+```
+
+The invocation-group costing is the difference between this being usable and
+not. Measured on `thinking_app` at an earlier catalogue size, a capturing
+Robolectric class costs ~3.8–5.9 s of test time for 14–18 captures, inside a
+Gradle invocation whose total build time was ~93 s. Charging each cell the
+class's cost would make any multi-cell selection look like the full suite and
+the budget would cut almost everything; charging the group once and each extra
+cell its ~0.3 s marginal mean is both true and what makes "run 12 cells across
+3 classes" a cheap, obvious selection.
+
+### Results → evidence → cost
+
+Unchanged, with one addition: every invocation writes a **per-invocation
+overhead row** (`{group, overhead_ms, units_reported}`) alongside the per-unit
+rows, and `costs --update` folds both. Cells do not anchor edges — they have no
+edges — but their per-unit timings and their invocation overheads are what the
+budget reads.
+
+### Post-implementation → staleness → fix in the same commit
+
+```
+aitask_change_surface.sh list t1234  |  ait-testmap stale --task t1234 --changes -
+        ├─ edges: STALE_PATH / STALE / EVIDENCED / UNSTAMPED            (unchanged)
+        ├─ broad rows: STALE_AREA, REVIEW_DUE (opt-in)                  (unchanged)
+        ├─ axes:  member glob matching nothing                          → STALE_AXIS:<axis>|<value>|<glob>|dead
+        │         cell axis value absent from the declared value set    → STALE_AXIS:<axis>|<value>|<unit>|undeclared
+        ├─ cells: tracked artifact with no enumerated cell              → UNMAPPED_CELL:<artifact>|unclaimed
+        │         declared value with no cell                           → UNCOVERED_VALUE:<axis>|<value>
+        ├─ UNKNOWN:<path>|<reason>  from the change surface
+        └─ DISPLAY:<summary>  DECISION:FRESH|REVIEW|SKIP   (content states exit 0; --strict exits 1 on STALE_PATH, UNMAPPED_CELL)
+```
+
+The procedure gate gains two duties: a `STALE_AXIS` row is fixed by editing
+`axes.yaml` (or dropping a retired value), and an `UNMAPPED_CELL` row is fixed
+by re-running `cells --refresh` and, if it persists, by the plugin being
+wrong — which is a defect in the project's routing, exactly the thing worth
+surfacing at review time rather than at the next full run.
+
+### Full run → score → attribute
+
+`score` now classifies cell misses too. A cell that failed in a full run but
+was not selected proposes `axis-membership-missing:<axis>|<file>|<value>` —
+either the changed file was `ANY` on an axis where it should have had a
+membership, or it was given a membership that excluded the failing value.
+`attribute` writes it to `registry/observed.yaml`, which the loader merges into
+the axis at load, so a wrong narrowing is corrected by evidence rather than by
+argument.
+
+### Release → host
+
+```
+git tag v0.36.0 ──▶ release.yml
+   ├─ plan
+   ├─ engine  (needs: plan)   setup-go (go-version-file: engine/go.mod) → go vet ./... → go test ./...
+   │                          → engine/build.sh all 0.36.0 → dist/ait-testmap_0.36.0_{linux,darwin}_{amd64,arm64}
+   │                                                        + dist/ait-testmap_0.36.0_SHA256SUMS.txt → upload-artifact
+   ├─ release (needs: [plan, engine])  Verify VERSION == tag (unchanged) → tarball (noarch, engine/ excluded)
+   │                                   → action-gh-release files: tarball + shim + 4 binaries + SHA256SUMS (both steps)
+   └─ packaging (unchanged)            Homebrew / AUR / .deb / .rpm ship only the shim; nfpm arch: all
+.github/workflows/engine-check.yml  (new)  on: push, pull_request  paths: [engine/**]  → gofmt -l, go vet, go test
+
+ait setup   (or ait upgrade → install.sh --force → aitask_setup.sh --source-only)
+   ├─ migrate_framework_home()   → HOME_MIGRATED:<n> | HOME_SKIPPED:<reason>   (first, under the home lock)
+   ├─ install_engine_binary()    (beside install_global_shim)
+   │    ├─ os = uname -s → linux|darwin ; arch = uname -m → amd64|arm64 ; else ENGINE_UNSUPPORTED (skip, exit 0)
+   │    ├─ $(aitasks_home)/engine/v<V>/ait-testmap exists and .sha256 sidecar matches → return
+   │    ├─ --local-engine <path> | curl -fsSL --max-time 60 <asset> + SHA256SUMS | --engine-from-source
+   │    ├─ sha256sum -c (shasum -a 256 on macOS) → install -m 0755 to .tmp → mv -f (atomic) → write .sha256
+   │    ├─ `<bin> version --json` must echo <V>, else remove and fail loudly
+   │    └─ --no-testmap / AIT_TESTMAP_FETCH=0 → TESTMAP_BINARY:skipped:<reason>
+   └─ nothing else in setup depends on the engine
+
+ait engine build → engine/build.sh host → $(aitasks_home)/engine/dev/ait-testmap + .dev marker
+ait engine test  → go vet + go test ./... [-race]     ait engine cross → build.sh all into engine/dist/
+ait engine prune → remove $(aitasks_home)/engine/v*/ no project in ~/.config/aitasks/projects.yaml is on
+ait engine home  → print resolved root, legacy/migrated state, symlink status
+AIT_ENGINE=dev ait testmap ...  → shim picks the dev slot (version must read <V>-dev+<sha>)
+```
+<!-- /section: data_flow -->
