@@ -3,7 +3,7 @@ priority: medium
 effort: medium
 depends: [1809]
 issue_type: manual_verification
-status: Implementing
+status: Done
 labels: [verification, manual]
 active_gates: []
 active_gates_filtered: []
@@ -15,6 +15,7 @@ anchor: 1794
 followup_kind: manual_verification
 created_at: 2026-09-16 12:12
 updated_at: 2026-09-16 12:39
+completed_at: 2026-09-16 12:39
 ---
 
 ## Manual Verification Task
