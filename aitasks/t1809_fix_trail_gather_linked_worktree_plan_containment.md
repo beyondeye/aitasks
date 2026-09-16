@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1794
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5
 created_at: 2026-09-14 23:39
-updated_at: 2026-09-15 09:26
+updated_at: 2026-09-16 10:31
 ---
 
 ## Origin
@@ -62,3 +63,8 @@ Spawned from t1794_3 during Step 8b review.
 - Stray files (may deserve its own task): find the test that writes into the
   live tree (cwd or TASK_DIR not isolated), fix it, then remove the files once
   no other session owns them.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-16T07:31:14Z status=pass attempt=1 type=human
