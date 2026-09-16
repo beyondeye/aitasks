@@ -96,10 +96,10 @@ fails with
 Give the two projects different `tmux.default_session` values, then restore
 again.
 
-## Remove a frozen record
+## Drop a frozen record
 
 Press **k**, then confirm at
-`Remove the frozen record and its capture? This cannot be undone.`
+`Drop the frozen record and its capture? This cannot be undone.`
 
 Dropping deletes the retained capture along with the record, and closes the
 stand-in pane. It is the only action that discards the record *and* its

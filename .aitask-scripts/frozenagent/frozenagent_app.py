@@ -131,7 +131,10 @@ class ConfirmDialog(ModalScreen[bool]):
             yield Static(markup_escape(self._message), id="fa-confirm-text")
             with Horizontal(id="fa-confirm-buttons"):
                 yield Button("Cancel", id="fa-confirm-no")
-                yield Button("Remove", variant="error", id="fa-confirm-yes")
+                # The destructive verb must name itself, and it must be the
+                # SAME verb the monitors and the `k` binding use (t1705_7,
+                # t1777) — "Remove" was a third name for one operation.
+                yield Button("Drop", variant="error", id="fa-confirm-yes")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         self.dismiss(event.button.id == "fa-confirm-yes")
@@ -924,7 +927,7 @@ class FrozenAgentApp(TuiSwitcherMixin, ShortcutsMixin, App):
             )
 
         self.push_screen(
-            ConfirmDialog("Remove the frozen record and its capture? "
+            ConfirmDialog("Drop the frozen record and its capture? "
                           "This cannot be undone."),
             confirmed,
         )

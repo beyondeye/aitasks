@@ -3012,10 +3012,16 @@ class MiniMonitorApp(
         self.push_screen(
             FreezeConfirmDialog(
                 "Drop this frozen agent?",
+                # NOT "restore or re-pick it instead": a VERIFIED restore or
+                # re-pick deletes the capture too (`agent_sessions.py`, the
+                # `ack = "hook"` branch). Only a failed or liveness-only one
+                # keeps it, so the only reliable way to keep the transcript is
+                # to copy it out of the viewer (t1777).
                 f"[bold]{escape(window)}[/]\n\n"
                 "[bold red]Its captured output is deleted[/] along with the "
                 "record, and the stand-in pane is closed. This cannot be "
-                "undone — restore or re-pick it instead if you still want it.",
+                "undone. A verified restore or re-pick deletes it too — "
+                "copy it first.",
                 # The button must name THIS verb, not the screen's default one:
                 # a "Freeze" button here would read as the reversible operation
                 # while deleting the only copy of the agent's output (t1705_7).

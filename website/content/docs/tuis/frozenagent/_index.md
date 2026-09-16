@@ -115,8 +115,8 @@ Three ways out of a frozen record, none of which is reversible in the same way:
   says `This record has no task id — restore instead`.
 - **k — drop.** Deletes the record *and* its capture, and closes the stand-in
   pane, leaving nothing running. It confirms first:
-  `Remove the frozen record and its capture? This cannot be undone.` with a
-  **Remove** button. **R** and **p** do not confirm, because a failed attempt
+  `Drop the frozen record and its capture? This cannot be undone.` with a
+  **Drop** button. **R** and **p** do not confirm, because a failed attempt
   leaves the viewer and the capture where they were.
 
 **The capture is not preserved by choosing restore or re-pick.** Once the resumed

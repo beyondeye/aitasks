@@ -282,6 +282,8 @@ keep their live meaning everywhere else:
   monitor; on a live card it simply says there is nothing to re-pick.
 - **k** — drop it (on a live card, `k` is still Kill). This confirms with a red
   **Drop** button, because it deletes the captured output along with the record.
+  Restore and re-pick are not a way to keep that output either: a *verified* one
+  deletes the capture too, so copy it from the viewer first if you want it.
 
 `P` hides frozen agents together with parked ones — one filter over both — while
 the `N frozen` counter keeps reporting them either way.

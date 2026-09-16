@@ -343,7 +343,7 @@ Three keys act on the followed agent once it is frozen:
 - **k** — drop it. This one confirms with a red **Drop** button, because it
   deletes the captured output along with the record: `Its captured output is
   deleted along with the record, and the stand-in pane is closed. This cannot be
-  undone — restore or re-pick it instead if you still want it.`
+  undone. A verified restore or re-pick deletes it too — copy it first.`
 
 **Z freezes everything, and it reaches further than this list.** Freeze-All
 covers every aitasks session on the machine — other projects included, and parked
