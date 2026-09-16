@@ -1,11 +1,12 @@
-current_head: n001_explorer_001a
+current_head: n002_explorer_001b
 current_heads:
-  _umbrella: n001_explorer_001a
+  _umbrella: n002_explorer_001b
 history:
   _umbrella:
   - n000_init
   - n001_explorer_001a
-next_node_id: 3
+  - n002_explorer_001b
+next_node_id: 4
 active_dimensions:
 - requirements_go_engine_and_cli
 - requirements_platform_binaries_in_release
@@ -27,6 +28,30 @@ active_dimensions:
 - tradeoff_area_glob_coarseness
 - tradeoff_flaky_pass_anchors
 - tradeoff_strict_version_handshake
+- requirements_go_engine
+- requirements_engine_packaging
+- requirements_engine_dev_regeneration
+- requirements_annotation_staleness
+- requirements_broad_test_handling
+- assumption_go_toolchain_ci_and_dev_only
+- assumption_release_assets_reachable
+- assumption_platform_matrix_sufficient
+- assumption_blob_digest_is_staleness_key
+- assumption_broad_tests_area_scoped
+- assumption_one_engine_per_framework_version
+- component_engine_binary
+- component_engine_packaging
+- component_staleness_tool
+- component_broad_test_scopes
+- tradeoff_engine_speed_enables_per_task_use
+- tradeoff_real_scheduler
+- tradeoff_noarch_packages_preserved
+- tradeoff_compiled_component_cost
+- tradeoff_engine_version_skew
+- tradeoff_stamp_churn
+- tradeoff_broad_scope_coarseness
+- tradeoff_autonomous_confirmation_weak
+- tradeoff_engine_absent_on_host
 module_tasks: {}
 last_synced_at: {}
 module_deferred: {}

@@ -208,3 +208,13 @@
 [05:45:41] --- Iteration 45 ---
 [05:45:41] Progress: 66% | Running: 1/3 | ETA: 9m
 [05:45:43] Sleeping 30s
+[05:46:13] --- Iteration 46 ---
+[05:46:13] Progress: 100% | Running: 0/3 | ETA: N/A
+[05:46:13] All agents in terminal state — stopping runner
+
+=== 2026-09-16 06:24:09 | start_runner(brainstorm-1812) ===
+[06:24:09] Starting runner for crew 'brainstorm-1812'
+[06:24:09]   Worktree:       .aitask-crews/crew-brainstorm-1812
+[06:24:09]   Interval:       30s
+[06:24:09]   Max concurrent: 3
+[06:24:09]   Mode:           continuous
