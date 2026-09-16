@@ -950,3 +950,7 @@
 [09:44:51] --- Iteration 40 ---
 [09:44:52] Stale heartbeat (status unchanged): synthesizer_003
 [09:44:52] Progress: 90% | Running: 1/3 | ETA: 18m
+[09:44:53] Sleeping 30s
+[09:45:23] --- Iteration 41 ---
+[09:45:24] Stale heartbeat (status unchanged): synthesizer_003
+[09:45:24] Progress: 90% | Running: 1/3 | ETA: 18m
