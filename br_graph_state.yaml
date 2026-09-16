@@ -1,12 +1,13 @@
-current_head: n002_explorer_001b
+current_head: n003_synthesizer_001
 current_heads:
-  _umbrella: n002_explorer_001b
+  _umbrella: n003_synthesizer_001
 history:
   _umbrella:
   - n000_init
   - n001_explorer_001a
   - n002_explorer_001b
-next_node_id: 4
+  - n003_synthesizer_001
+next_node_id: 6
 active_dimensions:
 - requirements_go_engine_and_cli
 - requirements_platform_binaries_in_release
@@ -52,6 +53,8 @@ active_dimensions:
 - tradeoff_broad_scope_coarseness
 - tradeoff_autonomous_confirmation_weak
 - tradeoff_engine_absent_on_host
+- component_evidence_join
+- tradeoff_evidence_requires_reachable_history
 module_tasks: {}
 last_synced_at: {}
 module_deferred: {}

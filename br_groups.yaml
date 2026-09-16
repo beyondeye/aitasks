@@ -25,8 +25,19 @@ groups:
     operation: synthesize
     agents:
     - synthesizer_001
-    status: Waiting
+    status: Completed
     created_at: 2026-09-16 09:23
     head_at_creation: n002_explorer_001b
+    nodes_created:
+    - n003_synthesizer_001
+    subgraph: _umbrella
+  explore_002:
+    operation: explore
+    agents:
+    - explorer_002a
+    - explorer_002b
+    status: Waiting
+    created_at: 2026-09-16 10:09
+    head_at_creation: n003_synthesizer_001
     nodes_created: []
     subgraph: _umbrella
