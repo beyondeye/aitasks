@@ -194,3 +194,70 @@ inline.
 Current-branch mode (profile `fast`): nothing is cut and nothing is merged, so
 Step 9 skips the merge and runs `ait gates run 1809` (`risk_evaluated`) before
 archival.
+
+## Final Implementation Notes
+
+- **Actual work done:** Exactly the approved plan.
+  `_contained_plan_path` (`.aitask-scripts/lib/trail_gather.py:1210`) now
+  accepts a target under **either** the project root or the realpath of the
+  project's own plan dir, iterating both bases and keeping the per-base
+  `ValueError` guard. `tests/test_trail_gather.py` gained an optional
+  keyword-only `plan_dir` on `SyntheticRepo.write_plan` and
+  `PlanIdentityTests._trail_with_plan`, a `_relocate_plan_dir(symlink=…)`
+  helper, and three tests: `test_symlinked_plan_dir_is_contained`,
+  `test_absolute_plan_dir_outside_root_is_contained`, and the negative control
+  `test_traversal_out_of_symlinked_plan_dir_still_refused`.
+
+- **Deviations from plan:** The plan's temp-index commit mechanics
+  (`read-tree` / `apply --cached` / `commit-tree` / `update-ref`) were designed
+  around another session's uncommitted hunks in the same two files. That
+  session committed its work mid-implementation as `8bb86c85c`
+  (`enhancement: Read a no-plan in-flight task from its description
+  (t1688_1)`), so those files then carried only this task's change and nothing
+  was staged — the standard path-scoped `git commit -- <paths>` became both
+  correct and simpler, and was used instead. The plumbing was never needed; the
+  precondition it guarded against disappeared.
+
+- **Issues encountered:**
+  - `aitask_plan_externalize.sh` first answered `MULTIPLE_CANDIDATES` (four
+    recent internal plan files); re-run with `--internal <path>` preserving
+    `--force` and the branch flags.
+  - `main` advanced during the session (`757a7e59f` → `002c74f45`), which is
+    why the verification worktree was cut from the live HEAD rather than the
+    branch tip recorded at session start.
+
+- **Key decisions:**
+  - Trust the **plan dir's realpath** as the second base rather than
+    special-casing symlinks. `Path.is_symlink()` would have satisfied the
+    linked-worktree case and still refused a `PLAN_DIR` pointing outside the
+    checkout; the absolute-`PLAN_DIR` test exists specifically to pin that
+    distinction.
+  - The plan dir is project *layout*, never caller input, so the widening is
+    not reachable by an untrusted ref — asserted by the negative control, which
+    shows a ref climbing back out of the trusted target is still refused.
+  - Implemented in an isolated linked worktree first, then ported by patch, so
+    the change was proven to stand alone on a clean `HEAD`.
+
+- **Upstream defects identified:**
+  - `tests/test_data_branch_setup.sh:779-781 — zero-byte fixture task files
+    (t1_alpha.md, t2_beta.md, t10_gamma.md) leak into the live aitasks/ tree
+    and are tracked on the aitask-data branch (swept in by 2dabfae81,
+    "ait: Auto-commit task changes before sync", 2026-08-27; t1_alpha.md
+    rewritten 2026-09-02, so the leak recurs). These names are written by this
+    test's Test 11 and by tests/test_boardcol_update.sh; which run actually
+    leaks them is NOT proven — the Test 11 subshell appears isolated. They make
+    every By-Trail discovery toast report "Trail scan skipped 4 unreadable
+    active task file(s)". Deliberately out of scope here (scope confirmed with
+    the user): fixing it means finding the leaking test, fixing its isolation,
+    then deleting the files with a scoped aitask-data commit.`
+
+- **Verification performed:**
+  - Red proof: both containment tests failed with `ref_outside_project` before
+    the fix; both traversal controls passed.
+  - Linked worktree (`git worktree add --detach` + `aitask_init_data.sh
+    --link-worktree`): `tests/test_roadmap_drift_contract.py` reproduced the
+    reported 2 failures as a pre-fix control, then passed 3/3 after the fix.
+  - Isolated worktree (clean HEAD + this change only):
+    `PYTHON SUITE: PASSED (runner=pytest, exit=0)`.
+  - Main tree: `tests/test_trail_gather.py` + `tests/test_roadmap_drift_contract.py`
+    = 169 passed, confirming the change composes with t1688_1's landed work.
