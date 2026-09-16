@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [tmux, frozen, session_persistence, test_infrastructure]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -16,7 +16,8 @@ anchor: 1705
 followup_kind: verification_failure
 implemented_with: claudecode/opus5
 created_at: 2026-09-14 17:18
-updated_at: 2026-09-14 22:12
+updated_at: 2026-09-16 09:11
+completed_at: 2026-09-16 09:11
 ---
 
 ## Origin
@@ -54,3 +55,14 @@ Reproduction with the suite's own fixtures, `FAKE_AGENT_HOOK_DELAY=3` exported t
 > **✅ gate:plan_approved** run=2026-09-14T19:12:49Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-09-15T15:18:33Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-16T06:11:15Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:7187c4bc4da3b6f4
+
+> **✅ gate:risk_evaluated** run=2026-09-16T06:11:15Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1807/risk_evaluated_2026-09-16T06:11:15Z-risk_evaluated-a1.log`
