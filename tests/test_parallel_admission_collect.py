@@ -840,6 +840,37 @@ class SweepCliArgTests(unittest.TestCase):
         verb, _opts = col._parse_args(["sweep"])
         self.assertEqual(verb, "sweep")
 
+    def _dies(self, argv):
+        with self.assertRaises(SystemExit) as cm:
+            col._parse_args(argv)
+        self.assertEqual(cm.exception.code, 2, argv)
+
+    def test_source_and_population_vocabulary(self):
+        _verb, opts = col._parse_args(["sweep"])
+        self.assertEqual((opts["source"], opts["population"]), ("plan", "own"))
+        self._dies(["sweep", "--source", "sideways"])
+        self._dies(["sweep", "--population", "everyone"])
+
+    def test_source_and_population_are_sweep_only(self):
+        for flag, value in (("--source", "task"), ("--population", "common")):
+            self._dies(["check", "--candidate", "1", flag, value])
+            self._dies(["replay", "--candidates", "-", flag, value])
+
+    def test_plan_scope_on_a_description_sweep_needs_a_plan_read(self):
+        """Refused where no plan is read; accepted where one selects the cohort."""
+        for source in ("task", "task-keyfiles"):
+            self._dies(["sweep", "--source", source,
+                        "--plan-scope", "pre-implementation"])
+            self._dies(["sweep", "--source", source, "--population", "own",
+                        "--plan-scope", "pre-implementation"])
+            _verb, opts = col._parse_args(
+                ["sweep", "--source", source, "--population", "common",
+                 "--plan-scope", "pre-implementation"])
+            self.assertEqual(opts["plan_scope"], "pre-implementation")
+        _verb, opts = col._parse_args(["sweep", "--source", "task-vs-plan",
+                                       "--plan-scope", "pre-implementation"])
+        self.assertEqual(opts["source"], "task-vs-plan")
+
 
 class ExclusionBehaviourTests(_ReplayScaffold):
     """`--exclude` must MOVE the comparison, not merely label the output.
@@ -1257,6 +1288,152 @@ class SweepPopulationTests(unittest.TestCase):
         self.BATCH = self.BATCH + ["TASKFILES:54|alpha.py", "STATUS:54|OK"]
         _pop, _touch, drift = col.sweep_population(self.root)
         self.assertEqual(drift[2], 1)
+
+
+class DescriptionSweepTests(unittest.TestCase):
+    """Description sources, the shared cohort and the CLI output (t1814)."""
+
+    BATCH = ["TASKFILES:50|alpha.py", "STATUS:50|OK",
+             "TASKFILES:51|alpha.py", "STATUS:51|OK",
+             "TASKFILES:52|beta.py", "STATUS:52|OK",
+             "TASKFILES:55|beta.py", "STATUS:55|OK",
+             "TASKFILES:56_1|gamma.py", "STATUS:56_1|OK"]
+    TRACKED = {"alpha.py", "beta.py", "gamma.py"}
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp(prefix="pa_desc_")
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+        self._doc("aiplans/archived/p50_a.md", "Edit `alpha.py`.\n")
+        self._doc("aiplans/archived/p51_b.md", "Edit `alpha.py`.\n")
+        self._doc("aiplans/archived/p52_c.md", "Edit `beta.py`.\n")
+        # Resolves ONLY under `full`: its sole path is hindsight.
+        self._doc("aiplans/archived/p55_e.md", "Nothing named.\n\n"
+                  "## Final Implementation Notes\n\nTouched `beta.py`.\n")
+        self._doc("aiplans/archived/p56/p56_1_f.md", "Edit `gamma.py`.\n")
+        # t50: whole body names alpha + beta; its key-files section only alpha.
+        self._doc("aitasks/archived/t50_a.md",
+                  "---\npriority: high\n---\n\n## Key Files to Modify\n\n"
+                  "- `alpha.py`\n\n## Context\n\nSee `beta.py`.\n")
+        # t51: `gamma.py` sits only under the framework's Gate Runs section.
+        self._doc("aitasks/archived/t51_b.md",
+                  "Edit `alpha.py`.\n\n## Gate Runs\n\n> note=`gamma.py`\n")
+        self._doc("aitasks/archived/t52_c.md", "Edit `beta.py`.\n")
+        self._doc("aitasks/archived/t55_e.md", "Edit `beta.py`.\n")
+        self._doc("aitasks/archived/t56/t56_1_f.md", "Edit `gamma.py`.\n")
+        self._saved = {n: getattr(col, n) for n in ("_BATCH_MAP", "_TRACKED_SETS",
+                                                    "_DATA_TREE")}
+        self.addCleanup(self._restore)
+        col._BATCH_MAP = lambda root, with_recovered=False: self.BATCH
+        col._TRACKED_SETS = lambda root: (set(self.TRACKED), set())
+        col._DATA_TREE = lambda root: (set(), set(), None)
+
+    def _restore(self):
+        for name, value in self._saved.items():
+            setattr(col, name, value)
+
+    def _doc(self, rel, text):
+        path = os.path.join(self.root, rel)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(text)
+
+    def _surfaces(self, source, scope="full"):
+        pop, _t, _d = col.sweep_population(self.root, plan_scope=scope,
+                                           source=source)
+        return {ref: surf for ref, surf, _l in pop}
+
+    def _sweep(self, *args):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = col.main(["sweep", "--root", self.root, "--thresholds", "10"]
+                          + list(args))
+        self.assertEqual(rc, 0)
+        return buf.getvalue().splitlines()
+
+    @staticmethod
+    def _field(lines, prefix):
+        hits = [l for l in lines if l.startswith(prefix + ":")]
+        return hits[0][len(prefix) + 1:] if len(hits) == 1 else hits
+
+    def test_default_source_still_reads_plans(self):
+        surfaces = self._surfaces("plan")
+        self.assertEqual(set(surfaces), {"50", "51", "52", "55", "56_1"})
+        self.assertEqual({s.provenance for s in surfaces.values()},
+                         {"plan_declared"})
+
+    def test_task_source_reads_descriptions_truthfully(self):
+        surfaces = self._surfaces("task")
+        self.assertEqual(set(surfaces), {"50", "51", "52", "55", "56_1"})
+        self.assertEqual({s.provenance for s in surfaces.values()},
+                         {"task_declared"})
+        self.assertEqual(surfaces["50"].paths, ("alpha.py", "beta.py"))
+
+    def test_task_source_cuts_framework_sections(self):
+        self.assertEqual(self._surfaces("task")["51"].paths, ("alpha.py",))
+
+    def test_keyfiles_narrows_only_when_a_section_exists(self):
+        whole, narrow = self._surfaces("task"), self._surfaces("task-keyfiles")
+        self.assertEqual(narrow["50"].paths, ("alpha.py",))
+        self.assertEqual(narrow["52"].paths, whole["52"].paths)
+
+    def test_source_and_population_are_echoed(self):
+        out = self._sweep("--source", "task")
+        self.assertEqual(self._field(out, "SWEEP_SOURCE"), "task|promoted|own")
+        out = self._sweep()
+        self.assertEqual(self._field(out, "SWEEP_SOURCE"), "plan|as-shipped|own")
+
+    def test_legacy_line_order_is_unchanged_for_plan(self):
+        prefixes = [l.split(":", 1)[0] for l in self._sweep()
+                    if not l.startswith(("SWEEP_SOURCE:", "SWEEP_COHORT:"))]
+        self.assertEqual(prefixes, ["SWEEP_SCOPE", "SWEEP_POP", "SWEEP_DRIFT",
+                                    "SWEEP", "SWEEP_METRIC"])
+
+    def test_task_vs_plan_scores_ordered_pairs_with_a_narrowed_block(self):
+        out = self._sweep("--source", "task-vs-plan")
+        self.assertEqual(self._field(out, "SWEEP_SOURCE"),
+                         "task-vs-plan|promoted|own")
+        self.assertTrue(self._field(out, "SWEEP_DRIFT_PLAN"))
+        n, pairs, _col = self._field(out, "SWEEP_POP").split("|")
+        self.assertEqual(int(pairs), int(n) * (int(n) - 1))
+        whole = self._field(out, "SWEEP").split("|")
+        narrow = self._field(out, "SWEEP_KF").split("|")
+        # t50's description names beta.py only outside its key-files section,
+        # so the (t50, t52) and (t50, t55) hard stops exist only in the whole body.
+        self.assertGreater(int(whole[3]), int(narrow[3]))
+        self.assertTrue(self._field(out, "SWEEP_KF_METRIC"))
+
+    def test_common_population_is_the_same_cohort_everywhere(self):
+        for scope in ("full", "pre-implementation"):
+            digests = {
+                self._field(self._sweep("--plan-scope", scope, *args),
+                            "SWEEP_COHORT")
+                for args in (("--population", "common"),
+                             ("--source", "task", "--population", "common"),
+                             ("--source", "task-keyfiles", "--population", "common"),
+                             ("--source", "task-vs-plan"))}
+            self.assertEqual(len(digests), 1, scope)
+
+    def test_the_cohort_follows_the_plan_scope(self):
+        """A scope-blind cohort would keep t55, whose plan is only hindsight."""
+        full = self._field(self._sweep("--source", "task-vs-plan"), "SWEEP_COHORT")
+        cut = self._field(self._sweep("--source", "task-vs-plan", "--plan-scope",
+                                      "pre-implementation"), "SWEEP_COHORT")
+        self.assertNotEqual(full, cut)
+        self.assertEqual(full.split("|")[1], "5")
+        self.assertEqual(cut.split("|")[1], "4")
+
+    def test_common_shrinks_a_description_sweep(self):
+        self._doc("aitasks/archived/t57_g.md", "Edit `alpha.py`.\n")
+        self.BATCH = self.BATCH + ["TASKFILES:57|alpha.py", "STATUS:57|OK"]
+        own = self._field(self._sweep("--source", "task"), "SWEEP_COHORT")
+        common = self._field(self._sweep("--source", "task", "--population",
+                                         "common"), "SWEEP_COHORT")
+        self.assertEqual(own.split("|")[1], "6")    # t57 has no plan
+        self.assertEqual(common.split("|")[1], "5")
+
+    def test_keyfiles_coverage_is_reported(self):
+        out = self._sweep("--source", "task-keyfiles")
+        self.assertEqual(self._field(out, "SWEEP_KEYFILES"), "1|5")
 
 
 # A code-branch file the no-plan fixtures can name as a REAL path.

@@ -32,8 +32,24 @@ PURE. No ``os``, no ``time``, no ``subprocess``, no I/O -- the same contract as
 archived plans, reading them, running the batch map -- lives in
 ``parallel_admission_collect``, which builds the ``PlanExtraction`` records this
 module's callers consume.
+
+DESCRIPTION SURFACES AND THE GRADING TRAP (t1814). The same oracle scores
+``task_declared`` surfaces -- a task's DESCRIPTION read as its file surface
+(t1688). Graded as shipped, a description surface can never produce a number:
+the candidate's own ``task_declared`` caveat makes EVERY pair
+``CLEAR_CAVEATED`` and PINNED 6 forbids a description overlap from grading
+``CONFLICT``, so CONFLICT precision is undefined by construction. ``promoted``
+is therefore the measurement: it relabels description surfaces as
+``plan_declared`` and lets the shipped ``decide`` grade them, answering "what
+would a hard stop on description evidence cost?". Its CONFLICTs are exactly the
+pairs that ship as ``CLEAR_CAVEATED`` with a ``task_declared_overlap`` caveat.
+``cross_confusion`` scores the realistic pairing -- a described candidate
+against a planned in-flight task -- and ``key_files_preferred`` is the narrowed
+extraction variant being evaluated, NOT a shipped grammar.
 """
 
+import dataclasses
+import hashlib
 import itertools
 import re
 from dataclasses import dataclass
@@ -210,26 +226,24 @@ def pair_verdict(a_surface, b_ref, b_surface, touch_counts, hub_threshold, now=0
                                 hub_threshold, now)).verdict
 
 
-def confusion(population, touch_counts, hub_threshold, now=0):
-    """Tally every unordered pair of ``population`` at one hub threshold.
+def _tally(pairs, touch_counts, hub_threshold, now):
+    """Grade ``pairs`` with ``decide`` and count the outcomes.
 
-    ``population`` is ``((ref, plan_surface, landed_paths_frozenset), ...)``.
-    ``plan_surface`` is what a ``check`` would have compared; ``landed_paths`` is
-    the oracle -- what the task actually changed. Unordered pairs are sound
-    because the verdict is symmetric in the two surfaces (pinned by a test, not
-    assumed).
+    ``pairs`` yields ``(a_surface, a_landed, b_ref, b_surface, b_landed)``: A is
+    the candidate, B the in-flight claim. The ONE counting loop, shared by the
+    unordered (``confusion``) and ordered (``cross_confusion``) populations so
+    the two can never count differently.
     """
     counts = {}
-    pairs = colliding = 0
+    n_pairs = colliding = 0
     pred_conflict = pred_flagged = 0
     tp_conflict = tp_caveated = missed = 0
 
-    for (_a_ref, a_surf, a_landed), (b_ref, b_surf, b_landed) in \
-            itertools.combinations(population, 2):
+    for a_surf, a_landed, b_ref, b_surf, b_landed in pairs:
         verdict = pair_verdict(a_surf, b_ref, b_surf, touch_counts,
                                hub_threshold, now)
         counts[verdict] = counts.get(verdict, 0) + 1
-        pairs += 1
+        n_pairs += 1
         really = bool(a_landed & b_landed)
         colliding += really
         if verdict == "CONFLICT":
@@ -243,10 +257,69 @@ def confusion(population, touch_counts, hub_threshold, now=0):
             missed += 1
 
     return Confusion(
-        hub_threshold=hub_threshold, pairs=pairs, colliding=colliding,
+        hub_threshold=hub_threshold, pairs=n_pairs, colliding=colliding,
         verdicts=tuple(sorted(counts.items())), pred_conflict=pred_conflict,
         pred_flagged=pred_flagged, tp_conflict=tp_conflict,
         tp_caveated=tp_caveated, missed=missed)
+
+
+def confusion(population, touch_counts, hub_threshold, now=0):
+    """Tally every unordered pair of ``population`` at one hub threshold.
+
+    ``population`` is ``((ref, plan_surface, landed_paths_frozenset), ...)``.
+    ``plan_surface`` is what a ``check`` would have compared; ``landed_paths`` is
+    the oracle -- what the task actually changed. Unordered pairs are sound
+    because the verdict is symmetric in the two surfaces (pinned by a test, not
+    assumed).
+    """
+    pairs = ((a_surf, a_landed, b_ref, b_surf, b_landed)
+             for (_a_ref, a_surf, a_landed), (b_ref, b_surf, b_landed)
+             in itertools.combinations(population, 2))
+    return _tally(pairs, touch_counts, hub_threshold, now)
+
+
+def cross_confusion(candidates, inflight, touch_counts, hub_threshold, now=0):
+    """Tally ORDERED pairs: candidate A's surface against in-flight B's.
+
+    Both arguments are sweep populations over (usually) the same tasks read from
+    different documents -- t1688_2's realistic case is a candidate known only by
+    its description checked against an in-flight task that has a plan. The
+    pairs are ordered because (A's description, B's plan) and (B's description,
+    A's plan) are different comparisons; the verdict's symmetry in its two
+    ARGUMENTS does not make them the same pair. Only refs present on BOTH sides
+    are scored, and never against themselves, so ``pairs == n * (n - 1)``.
+    """
+    cand = {ref: (surf, landed) for ref, surf, landed in candidates}
+    infl = {ref: (surf, landed) for ref, surf, landed in inflight}
+    refs = sorted(set(cand) & set(infl))
+    pairs = ((cand[a][0], cand[a][1], b, infl[b][0], infl[b][1])
+             for a in refs for b in refs if a != b)
+    return _tally(pairs, touch_counts, hub_threshold, now)
+
+
+def promoted(population):
+    """``population`` with every ``task_declared`` surface graded as a plan.
+
+    The counterfactual "what if PINNED 6 were lifted": ``decide`` still does all
+    of the grading, it merely sees description evidence under the provenance
+    that is allowed to hard-stop. Every other provenance is left untouched, so
+    promoting a plan population is the identity.
+    """
+    return tuple(
+        (ref, dataclasses.replace(surf, provenance="plan_declared")
+         if surf.provenance == "task_declared" else surf, landed)
+        for ref, surf, landed in population)
+
+
+def cohort_digest(refs):
+    """Short, order-independent identity of a set of task refs.
+
+    Printed beside every sweep so two runs can be checked for IDENTICAL task
+    membership before their rates are compared -- a precision difference
+    between two different samples is not a difference between two sources.
+    """
+    joined = "\n".join(sorted(set(refs)))
+    return hashlib.sha256(joined.encode("utf-8")).hexdigest()[:16]
 
 
 def cut_post_implementation(body):
@@ -258,3 +331,47 @@ def cut_post_implementation(body):
     """
     match = _POST_WORK_RE.search(body)
     return body if match is None else body[:match.start()]
+
+
+# Headings whose section names the files a task will EDIT (t1814). Measured over
+# the active + archived task bodies on 2026-09-16: "key files to modify" 125,
+# "key files" 32, "key files to create" 15, "key files to create/modify" 6, and
+# a tail of "files to modify" / "files to touch" / "files likely to touch" /
+# "files in scope". DELIBERATELY EXCLUDED, because their sections cite context
+# rather than edit targets: "reference files for patterns" (121),
+# "key files for reference", "files touched by those commits" (an upstream-defect
+# provenance list). This is the MEASURED VARIANT, not a shipped grammar: the
+# checker reads whole descriptions (t1688_1), and this regex exists only so the
+# sweep can price the narrower alternative.
+KEY_FILES_HEADING_RE = re.compile(
+    r"^(#{1,6})[ \t]+(?:key[ \t]+files?\b(?![^\n]*reference)"
+    r"|files?[ \t]+(?:to|likely[ \t]+to|in[ \t]+scope)\b)[^\n]*$",
+    re.IGNORECASE | re.MULTILINE)
+
+_ANY_HEADING_RE = re.compile(r"^(#{1,6})[ \t]+", re.MULTILINE)
+
+
+def key_files_sections(body):
+    """The text of every key-files section, or ``None`` when there is none.
+
+    A section runs from the end of its heading line to the next heading of the
+    same or a higher level; deeper sub-headings stay inside it. Sections are
+    joined in document order. ``None`` (never ``""``) so a caller can tell "no
+    such heading" from "a heading with nothing under it".
+    """
+    parts = []
+    for match in KEY_FILES_HEADING_RE.finditer(body):
+        level = len(match.group(1))
+        end = len(body)
+        for nxt in _ANY_HEADING_RE.finditer(body, match.end()):
+            if len(nxt.group(1)) <= level:
+                end = nxt.start()
+                break
+        parts.append(body[match.end():end])
+    return None if not parts else "\n".join(parts)
+
+
+def key_files_preferred(body):
+    """The key-files sections when the body has any, else the whole body."""
+    sections = key_files_sections(body)
+    return body if sections is None else sections

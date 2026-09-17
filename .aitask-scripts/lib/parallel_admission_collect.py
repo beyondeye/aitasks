@@ -636,13 +636,15 @@ def _parse_args(argv):
             "max_claim_age": pa.MAX_CLAIM_AGE_S,
             "hub_threshold": pa.HUB_THRESHOLD, "candidate": None,
             "candidates": None, "thresholds": None, "exclude": None,
-            "exclude_no_plan": False, "plan_scope": "full"}
+            "exclude_no_plan": False, "plan_scope": "full",
+            "source": "plan", "population": "own"}
     flags = {"--candidate": "candidate", "--from": "from", "--plan": "plan",
              "--lock-freshness": "lock_freshness", "--max-lock-age": "max_lock_age",
              "--max-claim-age": "max_claim_age", "--hub-threshold": "hub_threshold",
              "--root": "root", "--candidates": "candidates",
              "--thresholds": "thresholds", "--exclude": "exclude",
-             "--plan-scope": "plan_scope"}
+             "--plan-scope": "plan_scope", "--source": "source",
+             "--population": "population"}
     bare = {"--exclude-no-plan": "exclude_no_plan"}
     i = 0
     saw = set()
@@ -756,6 +758,25 @@ def _parse_args(argv):
         opts["thresholds"] = tuple(ordered)
     if opts["plan_scope"] not in ("full", "pre-implementation"):
         _die("--plan-scope expects full|pre-implementation")
+    if opts["source"] not in SWEEP_SOURCES:
+        _die("--source expects %s" % "|".join(SWEEP_SOURCES))
+    if opts["population"] not in SWEEP_POPULATIONS:
+        _die("--population expects %s" % "|".join(SWEEP_POPULATIONS))
+    for flag in ("--source", "--population"):
+        if flag in saw and verb != "sweep":
+            _die("%s is only meaningful for `sweep` (it selects which archived "
+                 "documents are scored); `check` and `replay` read live plans"
+                 % flag)
+    # `--plan-scope` cuts PLAN bodies. A description-only sweep over its own
+    # population reads no plan at all, so the flag would be accepted and
+    # ignored. Under `--population common` (and for `task-vs-plan`) a plan IS
+    # read -- at this scope it decides which tasks belong to the shared cohort --
+    # so the combination is meaningful there.
+    if (opts["plan_scope"] != "full" and opts["source"] in ("task", "task-keyfiles")
+            and opts["population"] == "own"):
+        _die("--plan-scope %s is not valid for `--source %s --population own`: "
+             "no plan is read. Use `--population common` to select the cohort "
+             "by the plan at that scope" % (opts["plan_scope"], opts["source"]))
     if opts["plan_scope"] != "full" and verb != "sweep":
         _die("--plan-scope is only meaningful for `sweep` (it re-reads archived "
              "plan bodies); `check` and `replay` read live plans as they stand")
@@ -1218,29 +1239,65 @@ def _run_replay(opts):
     return 0
 
 
-def _archived_plan_paths(root):
-    """`{task_id: archived plan path}` -- the sweep's plan side."""
-    base = os.path.join(root, "aiplans", "archived")
+_ARCHIVED_PLAN_RE = re.compile(r"^p(\d+(?:_\d+)?)_.*\.md$")
+_ARCHIVED_TASK_RE = re.compile(r"^t(\d+(?:_\d+)?)_.*\.md$")
+
+
+def _archived_doc_paths(root, top, id_re):
+    """`{task_id: path}` for the LOOSE archived documents under ``top``.
+
+    Walks one directory level (the child-task subdirectories). Bundled
+    ``old*.tar.zst`` archives are not read, for plans and tasks alike, so both
+    sides of a sweep see the same slice of history.
+    """
+    base = os.path.join(root, top)
     found = {}
     if not os.path.isdir(base):
         return found
+
+    def add(name, full):
+        match = id_re.match(name)
+        if match:
+            found.setdefault(match.group(1), full)
+
     for entry in sorted(os.listdir(base)):
         full = os.path.join(base, entry)
         if os.path.isfile(full):
-            tid = _plan_id_from_name(entry)
-            if tid:
-                found.setdefault(tid, full)
+            add(entry, full)
         elif os.path.isdir(full):
             for child in sorted(os.listdir(full)):
                 child_full = os.path.join(full, child)
                 if os.path.isfile(child_full):
-                    tid = _plan_id_from_name(child)
-                    if tid:
-                        found.setdefault(tid, child_full)
+                    add(child, child_full)
     return found
 
 
-def sweep_population(root, plan_scope="full", batch_lines=None, corpus=None):
+def _archived_plan_paths(root):
+    """`{task_id: archived plan path}` -- the sweep's plan side."""
+    return _archived_doc_paths(root, os.path.join("aiplans", "archived"),
+                               _ARCHIVED_PLAN_RE)
+
+
+def _archived_task_paths(root):
+    """`{task_id: archived task path}` -- the sweep's description side (t1814)."""
+    return _archived_doc_paths(root, os.path.join("aitasks", "archived"),
+                               _ARCHIVED_TASK_RE)
+
+
+# Which archived documents a sweep scores (t1814). `plan` is t1643's original
+# population; the description sources read TASK FILES through the same one
+# extractor, and `task-vs-plan` pairs a described candidate with a planned
+# in-flight task -- the case t1688_2's pre-claim assessment actually meets.
+SWEEP_SOURCES = ("plan", "task", "task-keyfiles", "task-vs-plan")
+SWEEP_POPULATIONS = ("own", "common")
+
+
+def _keyfiles_transform(body):
+    return pas.key_files_preferred(plan_paths.cut_task_framework_sections(body))
+
+
+def sweep_population(root, plan_scope="full", batch_lines=None, corpus=None,
+                     source="plan"):
     """Build the archived-pairs population and the drift accounting.
 
     Returns ``(population, touch_counts, drift)`` where ``population`` is
@@ -1251,6 +1308,12 @@ def sweep_population(root, plan_scope="full", batch_lines=None, corpus=None):
     `check` would have compared) and a resolved, non-empty landed file set (the
     oracle). A task missing either cannot be scored, and admitting it with an
     empty set would manufacture false no-collisions.
+
+    ``source`` picks the document: ``plan`` (``plan_scope`` applies), or a task
+    DESCRIPTION -- ``task`` (the whole body, exactly as the shipped checker reads
+    it) or ``task-keyfiles`` (its key-files sections when it has any). A
+    description surface carries its truthful ``task_declared`` provenance;
+    grading it as a plan is the caller's explicit ``pas.promoted`` step.
     """
     if batch_lines is None:
         batch_lines = _BATCH_MAP(root, with_recovered=True)
@@ -1260,12 +1323,22 @@ def sweep_population(root, plan_scope="full", batch_lines=None, corpus=None):
         tracked, dirs = corpus[0], corpus[1]
     touch = pa.touch_counts_from_batch_map(batch_lines)
     landed = pa.surfaces_from_batch_map(batch_lines)
-    transform = (pas.cut_post_implementation
-                 if plan_scope == "pre-implementation" else None)
+    if source == "plan":
+        docs = _archived_plan_paths(root)
+        transform = (pas.cut_post_implementation
+                     if plan_scope == "pre-implementation" else None)
+        provenance = "plan_declared"
+    elif source in ("task", "task-keyfiles"):
+        docs = _archived_task_paths(root)
+        transform = (plan_paths.cut_task_framework_sections if source == "task"
+                     else _keyfiles_transform)
+        provenance = "task_declared"
+    else:
+        raise ValueError("sweep_population: unknown source %r" % (source,))
 
     population = []
     tasks = kept = dropped = 0
-    for tid, path in sorted(_archived_plan_paths(root).items()):
+    for tid, path in sorted(docs.items()):
         landed_surface = landed.get(tid)
         if landed_surface is None or landed_surface.resolution != "resolved" \
                 or not landed_surface.paths:
@@ -1277,38 +1350,126 @@ def sweep_population(root, plan_scope="full", batch_lines=None, corpus=None):
         dropped += extraction.tokens_dropped
         if extraction.resolution != "resolved":
             continue
-        population.append((tid, extraction.as_surface(),
+        population.append((tid, extraction.as_surface(provenance=provenance),
                            frozenset(landed_surface.paths)))
     return tuple(population), touch, (tasks, kept, dropped)
 
 
+def key_files_coverage(root):
+    """``(with_section, total)`` over the loose archived task files.
+
+    Reported beside a ``task-keyfiles`` sweep: the narrowed variant only differs
+    from the whole body for tasks that HAVE such a section, so its numbers are
+    unreadable without knowing how many do.
+    """
+    with_section = total = 0
+    for path in _archived_task_paths(root).values():
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                body = plan_paths.task_body_text(fh.read())
+        except (OSError, UnicodeDecodeError):
+            continue
+        total += 1
+        with_section += pas.key_files_sections(body) is not None
+    return with_section, total
+
+
+def _common_refs(populations):
+    """Refs resolved in EVERY given population -- the one cohort definition.
+
+    ``_run_sweep`` always passes the ``plan`` population at the run's own
+    ``--plan-scope`` alongside both description populations, so a
+    ``--population common`` sweep of any source and a ``task-vs-plan`` sweep at
+    the same scope score identical task membership.
+    """
+    refs = None
+    for pop in populations:
+        these = {ref for ref, _surf, _landed in pop}
+        refs = these if refs is None else refs & these
+    return refs or set()
+
+
+def _restrict(population, refs):
+    return tuple(row for row in population if row[0] in refs)
+
+
+def _sweep_rows(prefix, threshold, conf):
+    return [
+        "%s:%d|%d|%d|%d|%d|%d|%d|%d|%d"
+        % (prefix, threshold, conf.count("CLEAR"), conf.count("CLEAR_CAVEATED"),
+           conf.count("CONFLICT"), conf.count("UNCHECKABLE"), conf.pred_conflict,
+           conf.tp_conflict, conf.tp_caveated, conf.missed),
+        "%s_METRIC:%d|%s|%s|%s|%s"
+        % (prefix, threshold,
+           _fmt(pas.precision_conflict(conf)), _fmt(pas.recall_flagged(conf)),
+           _fmt(pas.share_hard_stopped(conf)), _fmt(pas.share_downgraded(conf))),
+    ]
+
+
 def _run_sweep(opts):
     thresholds = opts["thresholds"] or (pa.HUB_THRESHOLD,)
-    population, touch, drift = sweep_population(opts["root"],
-                                                plan_scope=opts["plan_scope"])
-    out = ["SWEEP_SCOPE:%s" % opts["plan_scope"]]
+    root, scope = opts["root"], opts["plan_scope"]
+    source, population = opts["source"], opts["population"]
+    # ONE snapshot: every population below is built from the same batch map and
+    # corpus, so a concurrent archival cannot make the compared sources disagree.
+    batch_lines = _BATCH_MAP(root, with_recovered=True)
+    tracked, dirs, _corpora = resolve_corpora(root)
+    corpus = (tracked, dirs)
+
+    built = {}
+
+    def pop(src):
+        if src not in built:
+            built[src] = sweep_population(root, plan_scope=scope,
+                                          batch_lines=batch_lines,
+                                          corpus=corpus, source=src)
+        return built[src]
+
+    cohort = None
+    if source == "task-vs-plan" or population == "common":
+        cohort = _common_refs([pop(s)[0] for s in ("plan", "task", "task-keyfiles")])
+
+    main_src = "task" if source == "task-vs-plan" else source
+    main_pop, touch, drift = pop(main_src)
+    if cohort is not None:
+        main_pop = _restrict(main_pop, cohort)
+    grade = "as-shipped" if source == "plan" else "promoted"
+
+    out = ["SWEEP_SCOPE:%s" % scope,
+           "SWEEP_SOURCE:%s|%s|%s" % (source, grade, population)]
     # Emitted BEFORE the rows: the drop count is the size of the oracle's
     # corpus-drift bias, and a recall figure read without it looks more precise
     # than it is.
     out.append("SWEEP_DRIFT:%d|%d|%d" % drift)
+    member_refs = [row[0] for row in main_pop]
+    out.append("SWEEP_COHORT:%s|%d" % (pas.cohort_digest(member_refs),
+                                       len(member_refs)))
+    if source == "task-vs-plan":
+        plan_pop, _touch, plan_drift = pop("plan")
+        kf_pop = _restrict(pop("task-keyfiles")[0], cohort)
+        plan_pop = _restrict(plan_pop, cohort)
+        out.append("SWEEP_DRIFT_PLAN:%d|%d|%d" % plan_drift)
+    if source == "task-keyfiles":
+        out.append("SWEEP_KEYFILES:%d|%d" % key_files_coverage(root))
+
     first = True
     for threshold in thresholds:
-        conf = pas.confusion(population, touch, threshold)
+        if source == "task-vs-plan":
+            conf = pas.cross_confusion(pas.promoted(main_pop), plan_pop, touch,
+                                       threshold)
+            kf_conf = pas.cross_confusion(pas.promoted(kf_pop), plan_pop, touch,
+                                          threshold)
+        else:
+            graded = main_pop if source == "plan" else pas.promoted(main_pop)
+            conf = pas.confusion(graded, touch, threshold)
+            kf_conf = None
         if first:
-            out.insert(1, "SWEEP_POP:%d|%d|%d"
-                       % (len(population), conf.pairs, conf.colliding))
+            out.insert(2, "SWEEP_POP:%d|%d|%d"
+                       % (len(main_pop), conf.pairs, conf.colliding))
             first = False
-        out.append("SWEEP:%d|%d|%d|%d|%d|%d|%d|%d|%d"
-                   % (threshold, conf.count("CLEAR"),
-                      conf.count("CLEAR_CAVEATED"), conf.count("CONFLICT"),
-                      conf.count("UNCHECKABLE"), conf.pred_conflict,
-                      conf.tp_conflict, conf.tp_caveated, conf.missed))
-        out.append("SWEEP_METRIC:%d|%s|%s|%s|%s"
-                   % (threshold,
-                      _fmt(pas.precision_conflict(conf)),
-                      _fmt(pas.recall_flagged(conf)),
-                      _fmt(pas.share_hard_stopped(conf)),
-                      _fmt(pas.share_downgraded(conf))))
+        out.extend(_sweep_rows("SWEEP", threshold, conf))
+        if kf_conf is not None:
+            out.extend(_sweep_rows("SWEEP_KF", threshold, kf_conf))
     sys.stdout.write("".join(line + "\n" for line in out))
     return 0
 

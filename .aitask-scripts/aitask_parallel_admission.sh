@@ -21,6 +21,18 @@
 #          -> SWEEP:/SWEEP_METRIC: precision, recall and the hard-stop/caveat
 #          composition over ARCHIVED task pairs, graded against the ground truth
 #          `decide` cannot see: did the two tasks' landed file sets intersect?
+#          [--source plan|task|task-keyfiles|task-vs-plan] (t1814) scores task
+#          DESCRIPTIONS too: `task` reads the whole body (as `check` does),
+#          `task-keyfiles` its key-files sections when present, `task-vs-plan`
+#          ORDERED pairs of a described candidate vs a planned in-flight task,
+#          emitting SWEEP_KF: rows for the narrowed candidate on the same cohort.
+#          Description sources are graded PROMOTED (as if plan evidence): as
+#          shipped they can never CONFLICT, so precision would be undefined.
+#          [--population own|common] restricts to tasks resolved in the plan
+#          (at --plan-scope), task and task-keyfiles populations alike;
+#          `task-vs-plan` always uses that cohort. SWEEP_SOURCE: names
+#          source|grade|population and SWEEP_COHORT:<digest>|<n> identifies the
+#          scored membership, so rates are only compared across equal digests.
 #
 # MEASUREMENT FLAGS ARE REFUSED ON `check` (exit 2). `--exclude*` hides an
 # in-flight task, which at an admission point hides a real collision; `check` is

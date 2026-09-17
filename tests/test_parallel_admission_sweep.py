@@ -336,5 +336,129 @@ class PlanExtractionRecordTests(unittest.TestCase):
             self.assertEqual(surf.paths, ())
 
 
+def described(ref, paths=(), resolution="resolved"):
+    return pa.Surface(ref, "task_declared", tuple(paths), resolution, "n/a")
+
+
+class KeyFilesSectionTests(unittest.TestCase):
+    """The narrowed-description variant the sweep prices (t1814)."""
+
+    BODY = ("# t9\n\nContext names `ctx.py`.\n\n"
+            "## Key Files to Modify\n\n- `edit.py`\n\n"
+            "### Details\n\n- `deeper.py`\n\n"
+            "## Reference Files for Patterns\n\n- `pattern.py`\n\n"
+            "## Verification\n\nRun `verify.py`.\n")
+
+    def test_section_runs_to_the_next_same_or_higher_heading(self):
+        sections = pas.key_files_sections(self.BODY)
+        self.assertIn("edit.py", sections)
+        self.assertIn("deeper.py", sections)      # a deeper sub-heading stays in
+        for outside in ("ctx.py", "pattern.py", "verify.py"):
+            self.assertNotIn(outside, sections)
+
+    def test_multiple_sections_are_joined_in_order(self):
+        body = ("## Key files\n- `a.py`\n## Other\n- `x.py`\n"
+                "## Files to touch\n- `b.py`\n")
+        sections = pas.key_files_sections(body)
+        self.assertLess(sections.index("a.py"), sections.index("b.py"))
+        self.assertNotIn("x.py", sections)
+
+    def test_reference_headings_are_not_key_files(self):
+        for heading in ("Reference files for patterns", "Key files for reference",
+                        "Files touched by those commits"):
+            body = "## %s\n- `a.py`\n" % heading
+            self.assertIsNone(pas.key_files_sections(body), heading)
+
+    def test_matching_is_case_insensitive_and_heading_anchored(self):
+        self.assertIsNotNone(pas.key_files_sections("#### KEY FILES\n- `a.py`\n"))
+        self.assertIsNone(pas.key_files_sections("See the key files below.\n"))
+
+    def test_no_heading_keeps_the_whole_body(self):
+        body = "Edit `a.py` and `b.py`.\n"
+        self.assertIsNone(pas.key_files_sections(body))
+        self.assertEqual(pas.key_files_preferred(body), body)
+
+    def test_a_heading_prefers_the_section(self):
+        self.assertEqual(pas.key_files_preferred(self.BODY),
+                         pas.key_files_sections(self.BODY))
+
+
+class PromotionTests(unittest.TestCase):
+    """Why description sources are graded promoted, and that promotion is exact."""
+
+    # a and b both declare narrow.py (specific) and really collide on x.py.
+    ROWS = (("a", ("narrow.py",), ("x.py",)), ("b", ("narrow.py",), ("x.py",)))
+
+    def _described(self):
+        return tuple((ref, described(ref, plan), frozenset(landed))
+                     for ref, plan, landed in self.ROWS)
+
+    def test_as_shipped_a_description_never_conflicts(self):
+        """The negative control: shipped grading leaves precision undefined."""
+        conf = pas.confusion(self._described(), TOUCH, 10)
+        self.assertEqual(conf.pred_conflict, 0)
+        self.assertEqual(conf.count("CLEAR_CAVEATED"), 1)
+        self.assertIsNone(pas.precision_conflict(conf))
+
+    def test_promoted_descriptions_can_conflict(self):
+        conf = pas.confusion(pas.promoted(self._described()), TOUCH, 10)
+        self.assertEqual(conf.pred_conflict, 1)
+        self.assertEqual(pas.precision_conflict(conf), 1.0)
+
+    def test_promotion_touches_only_task_declared(self):
+        other = pa.Surface("c", "origin_derived", ("narrow.py",), "resolved", "exact")
+        pop = POP + (("c", other, frozenset({"q.py"})),)
+        self.assertEqual(pas.promoted(pop), pop)
+        promoted = pas.promoted(self._described())
+        self.assertEqual({s.provenance for _r, s, _l in promoted}, {"plan_declared"})
+        self.assertEqual([s.paths for _r, s, _l in promoted],
+                         [s.paths for _r, s, _l in self._described()])
+
+
+class CrossConfusionTests(unittest.TestCase):
+    """Ordered candidate-description vs in-flight-plan pairs."""
+
+    # a's description names narrow.py, which b's PLAN also names; b's
+    # description names solo.py, which a's plan does not. Both really collide.
+    DESC = population(("a", ("narrow.py",), ("x.py",)),
+                      ("b", ("solo.py",), ("x.py",)),
+                      ("c", ("zzz.py",), ("z.py",)))
+    PLANS = population(("a", ("hub2.py",), ("x.py",)),
+                       ("b", ("narrow.py",), ("x.py",)),
+                       ("c", ("yyy.py",), ("z.py",)))
+
+    def test_pairs_are_ordered_and_exclude_self(self):
+        conf = pas.cross_confusion(self.DESC, self.PLANS, TOUCH, 10)
+        self.assertEqual(conf.pairs, 3 * 2)
+        self.assertEqual(conf.colliding, 2)       # (a,b) and (b,a)
+
+    def test_the_two_orientations_are_distinct_comparisons(self):
+        conf = pas.cross_confusion(self.DESC, self.PLANS, TOUCH, 10)
+        self.assertEqual(conf.pred_conflict, 1)   # only (a desc, b plan)
+        self.assertEqual(conf.tp_conflict, 1)
+        self.assertEqual(conf.missed, 1)          # (b desc, a plan)
+
+    def test_refs_missing_from_either_side_are_not_scored(self):
+        conf = pas.cross_confusion(self.DESC, self.PLANS[:2], TOUCH, 10)
+        self.assertEqual(conf.pairs, 2)
+
+    def test_same_population_on_both_sides_counts_each_pair_twice(self):
+        unordered = pas.confusion(POP, TOUCH, 10)
+        ordered = pas.cross_confusion(POP, POP, TOUCH, 10)
+        self.assertEqual(ordered.pairs, 2 * unordered.pairs)
+        self.assertEqual(ordered.pred_conflict, 2 * unordered.pred_conflict)
+
+
+class CohortDigestTests(unittest.TestCase):
+
+    def test_order_and_duplicates_do_not_matter(self):
+        self.assertEqual(pas.cohort_digest(["2", "1", "1"]),
+                         pas.cohort_digest(["1", "2"]))
+
+    def test_membership_does(self):
+        self.assertNotEqual(pas.cohort_digest(["1", "2"]),
+                            pas.cohort_digest(["1", "3"]))
+
+
 if __name__ == "__main__":
     unittest.main()

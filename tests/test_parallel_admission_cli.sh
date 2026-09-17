@@ -130,6 +130,17 @@ assert_contains "sweep sizes its own population" "SWEEP_POP:" "$sweep_out"
 assert_contains "sweep reports the corpus-drift bias" "SWEEP_DRIFT:" "$sweep_out"
 assert_contains "sweep derives the metrics" "SWEEP_METRIC:8|" "$sweep_out"
 
+# t1814: description sources are graded promoted and say so; the flag is
+# sweep-only and a scope that no plan read would honour is refused.
+task_sweep_out="$(run_out sweep --thresholds 10 --source task)"
+assert_contains "a description sweep names its source and grading" \
+    "SWEEP_SOURCE:task|promoted|own" "$task_sweep_out"
+assert_contains "a description sweep identifies its cohort" \
+    "SWEEP_COHORT:" "$task_sweep_out"
+assert_eq "check --source exits 2" "2" "$(run_rc check --candidate 1 --source task)"
+assert_eq "an unread plan scope on a description sweep exits 2" "2" \
+    "$(run_rc sweep --source task --plan-scope pre-implementation)"
+
 scoped_out="$(run_out sweep --thresholds 10 --plan-scope pre-implementation)"
 assert_contains "the plan scope is echoed, so a run is self-describing" \
     "SWEEP_SCOPE:pre-implementation" "$scoped_out"
