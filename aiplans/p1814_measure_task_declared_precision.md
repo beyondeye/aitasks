@@ -269,7 +269,7 @@ Commit code (`enhancement: … (t1814)`), commit plan via
 - Two new CLI flags widen the sweep's surface; accepted-and-ignored combinations are the known hazard · severity: low · → mitigation: none (refusals + tests in Step 2/4)
 
 ### Goal-achievement risk: medium
-- Archived task descriptions may have been edited after the work started (hindsight), inflating description precision/recall; the plan side has `--plan-scope pre-implementation` but the description side has no equivalent cut · severity: medium · → mitigation: creation_time_description_hindsight
+- Archived task descriptions may have been edited after the work started (hindsight), inflating description precision/recall; the plan side has `--plan-scope pre-implementation` but the description side has no equivalent cut · severity: medium · → mitigation: t1824
 - Promotion (relabel to `plan_declared`) is a proxy for "if PINNED 6 were lifted"; it is exact only while provenance affects `decide` solely through the `task_declared` caveat and `declared` class · severity: low · → mitigation: none (PromotionTests pin the shipped-vs-promoted difference)
 - The key-files heading regex is heuristic; a miss or false match moves the Q2 numbers · severity: low · → mitigation: none (report `SWEEP_KEYFILES` coverage alongside)
 
