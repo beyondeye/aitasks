@@ -3,12 +3,13 @@ priority: high
 effort: high
 depends: [t1688_1]
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [scheduling, skills, task_workflow, aitask_pick]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1569
 created_at: 2026-09-14 17:42
-updated_at: 2026-09-14 17:42
+updated_at: 2026-09-17 12:06
 ---
 
 ## Context
