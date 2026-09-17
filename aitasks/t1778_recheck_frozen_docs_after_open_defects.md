@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1705
 followup_kind: risk_mitigation
+implemented_with: claudecode/opus5
 created_at: 2026-09-10 12:10
-updated_at: 2026-09-17 15:29
+updated_at: 2026-09-17 15:37
 ---
 
 ## Origin
@@ -102,3 +103,8 @@ staleness it exists to catch.
 > |    section covering the same route. Write it once and link from the other.
 
 > **👁 note:read** id=2026-09-17T12:29:04Z.f246b58f2977d8685401eea3 by=t1778 at=2026-09-17T12:29:04Z mode=explicit ids=2026-09-10T18:36:59Z.3c148acffd8605f0bf51f877
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-17T12:37:41Z status=pass attempt=1 type=human
