@@ -170,7 +170,7 @@ and archive.
 - Other test files have unguarded `cd` lines (about 435 across `tests/*.sh`). Most are harmless (`set -e`, or nothing written), but any one that writes relative paths after a failed `cd` can leak the same way · severity: low · → mitigation: audit_unguarded_test_cds
 
 ### Planned mitigations
-- timing: after | name: audit_unguarded_test_cds | type: bug | priority: low | effort: medium | inline_risk: low | added_complexity: high | addresses: unguarded cd in other tests can leak fixtures into the live tree (and may explain the 2026-09-02 t1_alpha.md truncation) | desc: Audit tests/*.sh for unguarded cd followed by relative writes or git add/commit, and guard them or give the file a scratch cwd
+- timing: after | name: audit_unguarded_test_cds | type: bug | priority: low | effort: medium | inline_risk: low | added_complexity: high | addresses: unguarded cd in other tests can leak fixtures into the live tree (and may explain the 2026-09-02 t1_alpha.md truncation) | desc: Audit tests/*.sh for unguarded cd followed by relative writes or git add/commit, and guard them or give the file a scratch cwd | created: t1826
 
 ## Final Implementation Notes
 - **Actual work done:** Added the scratch-cwd block (fail-closed `git rev-parse --git-dir` check + EXIT-trap cleanup) right after the `asserts.sh` source in `tests/test_data_branch_setup.sh` (+19 lines, no other lines touched). Removed the four leaked fixtures from `aitask-data` in `dbf52f5f5` (exactly 4 deletions, verified by sha) after the per-path preflight passed with no `MISMATCH`; pushed.
