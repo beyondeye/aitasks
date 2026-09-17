@@ -47,8 +47,9 @@ class DialogRunTestBase(bf.FixtureBoardTestBase, unittest.TestCase):
     the mixin's setUpClass.
 
     Every external reach in this module is explicitly stubbed and asserted:
-    `ab.find_terminal` and `ab.subprocess.call`, with `assert_called_once_with`
-    pinning the exact argv. Nothing here can silently take a missing-helper
+    `find_terminal` (on `ab.board_trail_screen`, where the worker reads it) and
+    `subprocess.call`, with `assert_called_once_with` pinning the exact argv.
+    Nothing here can silently take a missing-helper
     fallback under the fixture cwd — the app is a MagicMock, so no board boot
     and no cwd-relative script is reachable.
     """
@@ -227,6 +228,13 @@ class RunDialogCommandWorkerTests(DialogRunTestBase):
     """Both dispatch paths of the shared worker, incl. suspend side effects."""
 
     def _call(self, app, **kwargs):
+        # The worker lives on TrailScreenMixin and hands its post-run refresh to
+        # the host's `_after_dialog_command` hook (t1794_5). Bind the REAL board
+        # hook onto the mock so the reload/refocus assertions below still prove
+        # the end-to-end refresh, not merely that some hook was called.
+        app._after_dialog_command = (
+            lambda refocus_filename="":
+                self.ab.KanbanApp._after_dialog_command(app, refocus_filename))
         coro = self.ab.KanbanApp.run_dialog_command.__wrapped__(
             app, OVERRIDE, **kwargs)
         asyncio.run(coro)
@@ -234,8 +242,9 @@ class RunDialogCommandWorkerTests(DialogRunTestBase):
     def test_terminal_path_shells_out_verbatim(self):
         ab = self.ab
         app = MagicMock()
-        with patch.object(ab, "find_terminal", return_value="footerm"), \
-                patch.object(ab, "spawn_in_terminal") as spawn:
+        with patch.object(ab.board_trail_screen, "find_terminal",
+                          return_value="footerm"), \
+                patch.object(ab.board_trail_screen, "spawn_in_terminal") as spawn:
             self._call(app, refocus_filename=TASK_FILE)
         spawn.assert_called_once_with("footerm", ["sh", "-c", OVERRIDE])
         # Fire-and-forget: the dialog callback owns the post-run refresh.
@@ -245,7 +254,7 @@ class RunDialogCommandWorkerTests(DialogRunTestBase):
     def test_suspend_path_dispatches_reloads_and_refocuses(self):
         ab = self.ab
         app = MagicMock()
-        with patch.object(ab, "find_terminal", return_value=None), \
+        with patch.object(ab.board_trail_screen, "find_terminal", return_value=None), \
                 patch.object(ab.subprocess, "call", return_value=0) as call:
             self._call(app, refocus_filename=TASK_FILE)
         call.assert_called_once_with(["sh", "-c", OVERRIDE])
@@ -256,7 +265,7 @@ class RunDialogCommandWorkerTests(DialogRunTestBase):
     def test_suspend_path_without_refocus_refreshes_whole_board(self):
         ab = self.ab
         app = MagicMock()
-        with patch.object(ab, "find_terminal", return_value=None), \
+        with patch.object(ab.board_trail_screen, "find_terminal", return_value=None), \
                 patch.object(ab.subprocess, "call", return_value=0):
             self._call(app)
         app.refresh_board.assert_called_once_with(refocus_filename="")
@@ -264,7 +273,7 @@ class RunDialogCommandWorkerTests(DialogRunTestBase):
     def test_suspend_path_notifies_on_failure_and_still_refreshes(self):
         ab = self.ab
         app = MagicMock()
-        with patch.object(ab, "find_terminal", return_value=None), \
+        with patch.object(ab.board_trail_screen, "find_terminal", return_value=None), \
                 patch.object(ab.subprocess, "call", return_value=1):
             self._call(app, refocus_filename=TASK_FILE)
         app.notify.assert_called_once_with(
@@ -276,7 +285,7 @@ class RunDialogCommandWorkerTests(DialogRunTestBase):
         """create / brainstorm: a non-zero exit is a cancel, not a failure."""
         ab = self.ab
         app = MagicMock()
-        with patch.object(ab, "find_terminal", return_value=None), \
+        with patch.object(ab.board_trail_screen, "find_terminal", return_value=None), \
                 patch.object(ab.subprocess, "call", return_value=1):
             self._call(app, refocus_filename=TASK_FILE, error_notice=None)
         app.notify.assert_not_called()

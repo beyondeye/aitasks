@@ -615,7 +615,7 @@ class ColumnManageDialogLiveTests(_PristineConfigMixin, _ColumnDialogBase):
                 self.assertTrue(screen._changed)
 
             swapped = [original[1], original[0], *original[2:]]
-            self.assertEqual(list(ab.TaskManager().column_order), swapped,
+            self.assertEqual(list(ab.make_task_manager().column_order), swapped,
                              "the new order must be on disk, not just in memory")
 
         self._run(go)
@@ -649,7 +649,7 @@ class ColumnManageDialogLiveTests(_PristineConfigMixin, _ColumnDialogBase):
                 app.screen.confirm()
                 await pilot.pause()
 
-            fresh = ab.TaskManager()
+            fresh = ab.make_task_manager()
             self.assertNotIn(source, fresh.column_order)
             self.assertIsNone(fresh.get_column_conf(source))
             self.assertEqual(
@@ -677,7 +677,7 @@ class ColumnManageDialogLiveTests(_PristineConfigMixin, _ColumnDialogBase):
                 await pilot.pause()
                 self.assertFalse(screen._changed)
 
-            self.assertEqual(list(ab.TaskManager().column_order), before)
+            self.assertEqual(list(ab.make_task_manager().column_order), before)
 
         self._run(go)
 
@@ -702,7 +702,7 @@ class ColumnManageDialogLiveTests(_PristineConfigMixin, _ColumnDialogBase):
                 self.assertIn("brandnew",
                               [i.col_id for i in screen.query(ab.ColumnManageItem)])
 
-            self.assertIsNotNone(ab.TaskManager().get_column_conf("brandnew"))
+            self.assertIsNotNone(ab.make_task_manager().get_column_conf("brandnew"))
 
         self._run(go)
 
@@ -724,7 +724,7 @@ class ColumnManageDialogLiveTests(_PristineConfigMixin, _ColumnDialogBase):
                 app.screen.confirm()
                 await pilot.pause()
 
-            fresh = ab.TaskManager()
+            fresh = ab.make_task_manager()
             self.assertIsNone(fresh.get_column_conf("c1"))
             self.assertNotIn("c1", fresh.column_order)
 

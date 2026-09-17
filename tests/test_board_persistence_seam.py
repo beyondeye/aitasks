@@ -78,12 +78,16 @@ from task_yaml import (  # noqa: E402
 # Reuse the shared fixture + differ rather than building a second one. These
 # lived in test_board_movement until t1354_1 promoted them to tests/lib/ so the
 # migrated board modules build identical trees.
+import board_fixture as bf  # noqa: E402
 from board_fixture import (  # noqa: E402
     build_tree, diff_snapshots, fixture_name, snapshot,
 )
 import aitask_board as B  # noqa: E402
 
 BOARD_SRC = REPO_ROOT / ".aitask-scripts" / "board" / "aitask_board.py"
+#: Where `TaskManager` — every `reload_and_save_board_fields` caller — lives
+#: since t1794_4.
+MANAGER_SRC = BOARD_SRC.with_name("board_task_manager.py")
 
 # The shared board key: board-owned but NOT per-checkout layout. This was a
 # synthetic stand-in until t1243_8 landed `boardgroup` for real; it is now the
@@ -124,7 +128,8 @@ class _FrozenDatetime(datetime):
 
 @contextlib.contextmanager
 def frozen_clock(stamp: str):
-    """Pin `aitask_board.datetime.now()`.
+    """Pin `board_task_model.datetime.now()` — `Task._update_timestamp` reads it
+    there since t1794_4, so a patch on the board's `datetime` would be inert.
 
     `_update_timestamp` is minute-resolution, so both the "sets the current
     minute" and the "same minute does not advance" assertions would otherwise be
@@ -132,7 +137,7 @@ def frozen_clock(stamp: str):
     """
     cls = type("_FrozenNow", (_FrozenDatetime,),
                {"_frozen": datetime.strptime(stamp, "%Y-%m-%d %H:%M")})
-    with mock.patch.object(B, "datetime", cls):
+    with mock.patch.object(B.board_task_model, "datetime", cls):
         yield
 
 
@@ -188,19 +193,18 @@ class _TreeCase(unittest.TestCase):
         return tree / "aitasks" / fixture_name(i)
 
     def _manager(self, tree: Path):
-        """A real `TaskManager` bound to `tree` via the module globals.
+        """A real `TaskManager` bound to `tree` by its injected paths (t1794_4).
 
         Lives here rather than on one subclass (it started on
         `CallSiteMappingTests`, t1480 lifted it) because both the call-site spy
-        tests and the config-layer tests need the same boot.
+        tests and the config-layer tests need the same boot. No module global is
+        patched: the manager reads exactly the tree its constructor names.
         """
         tasks_dir = tree / "aitasks"
-        for attr, value in (("TASKS_DIR", tasks_dir),
-                            ("METADATA_FILE", tasks_dir / "metadata" / "board_config.json")):
-            patcher = mock.patch.object(B, attr, value)
-            patcher.start()
-            self.addCleanup(patcher.stop)
-        return B.TaskManager()
+        return B.TaskManager(
+            tasks_dir=tasks_dir,
+            metadata_file=tasks_dir / "metadata" / "board_config.json",
+            gates_registry_file=tasks_dir / "metadata" / "gates.yaml")
 
     def allow_semantic_key(self) -> None:
         """Pin `Task`'s board-key vocabulary for these tests.
@@ -578,24 +582,44 @@ def _parse_call_sites(path: Path):
     return [(name, fields) for _lineno, name, fields in found]
 
 
+def _parse_board_call_sites(variants=None):
+    """`_parse_call_sites` over EVERY board module, concatenated in file order.
+
+    Line order is only meaningful inside one file, so each file is parsed on its
+    own. Scanning all of them (not aitask_board.py alone) is what keeps a call
+    site that lands in the board — or stays in the manager — visible after the
+    t1794_4 split. `variants` maps a module path to a rewritten copy.
+    """
+    variants = variants or {}
+    rows = []
+    for path in bf.board_module_paths():
+        rows.extend(_parse_call_sites(variants.get(path, path)))
+    return rows
+
+
 class CallSiteMappingTests(_TreeCase):
     """4C — what the real callers pass, structurally and at runtime."""
 
     def test_ast_maps_every_call_site_to_its_declared_fields(self):
-        self.assertEqual(_parse_call_sites(BOARD_SRC), EXPECTED_CALL_SITES)
+        self.assertEqual(_parse_board_call_sites(), EXPECTED_CALL_SITES)
+        # Anti-vacuity for the scan set: the table's sites really are the
+        # manager's, and the board module itself is still being read.
+        self.assertEqual(_parse_call_sites(MANAGER_SRC), EXPECTED_CALL_SITES)
+        self.assertIn(BOARD_SRC, bf.board_module_paths())
 
     def _parse_variant(self, old: str, new: str):
-        """Parse a temp copy of the board source with one call site rewritten.
+        """Parse the board modules with one manager call site rewritten.
 
         Proves the guard discriminates without mutating production source, so
-        there is nothing to restore if the assertion fails.
+        there is nothing to restore if the assertion fails. The rewrite targets
+        board_task_manager.py, where the call sites live (t1794_4).
         """
-        src = BOARD_SRC.read_text(encoding="utf-8")
+        src = MANAGER_SRC.read_text(encoding="utf-8")
         self.assertIn(old, src)                       # the anchor still exists
         variant = Path(tempfile.mkdtemp(prefix="aitask-ast-")) / "variant.py"
         self.addCleanup(shutil.rmtree, variant.parent, ignore_errors=True)
         variant.write_text(src.replace(old, new, 1), encoding="utf-8")
-        return _parse_call_sites(variant)
+        return _parse_board_call_sites({MANAGER_SRC: variant})
 
     # t1243_3 re-anchored both variants: the old anchor was the `t1.` call
     # inside `swap_tasks`, a method gap indexing removed. `_parse_variant`
@@ -710,17 +734,19 @@ class CallSiteMappingTests(_TreeCase):
         self.assertEqual(meta["boardidx"], 777)
         self.assertEqual(meta["boardcol"], "c9")
 
-    def test_patched_module_globals_are_restored(self):
+    def test_an_injected_manager_leaves_the_module_globals_alone(self):
         """The suite shares one interpreter; a leak would point later tests —
-        including t1243_1's isolation control — at a deleted temp tree."""
-        before = (B.TASKS_DIR, B.METADATA_FILE)
+        including t1243_1's isolation control — at a deleted temp tree. Since
+        t1794_4 nothing here patches the globals at all: the manager is bound to
+        its injected tree, and building one must not rebind the board's."""
+        before = (B.TASKS_DIR, B.METADATA_FILE, B.GATES_REGISTRY_FILE)
         tree = self.make_tree()
-        tasks_dir = tree / "aitasks"
-        with mock.patch.object(B, "TASKS_DIR", tasks_dir), \
-             mock.patch.object(B, "METADATA_FILE",
-                               tasks_dir / "metadata" / "board_config.json"):
-            B.TaskManager()
-        self.assertEqual((B.TASKS_DIR, B.METADATA_FILE), before)
+        manager = self._manager(tree)
+        self.assertEqual((B.TASKS_DIR, B.METADATA_FILE, B.GATES_REGISTRY_FILE), before)
+        self.assertEqual(manager.tasks_dir, tree / "aitasks")
+        self.assertEqual(manager.metadata_file,
+                         tree / "aitasks" / "metadata" / "board_config.json")
+        self.assertNotEqual(manager.tasks_dir, B.TASKS_DIR)
 
 
 class MergeFieldOwnershipTests(unittest.TestCase):
@@ -774,14 +800,16 @@ def _unchanged_skip_body(self, user_data: dict) -> None:
     t1480 chose "always write" over this. It is the only alternative the task
     put on the table, so it is the mutation that has to make a real test fail.
     """
-    path = B.local_path_for(str(B.METADATA_FILE))
+    # The manager's own injected path (t1794_4) — never the board's global,
+    # which names the live tree once no test patches it.
+    path = B.board_task_manager.local_path_for(str(self.metadata_file))
     try:
         on_disk = json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         on_disk = None
     if on_disk == user_data:
         return
-    B.save_local_config(str(path), user_data)
+    B.board_task_manager.save_local_config(str(path), user_data)
 
 
 class _UserLayerCase(_TreeCase):
@@ -800,13 +828,13 @@ class _UserLayerCase(_TreeCase):
         every assertion downstream of it vacuous (the `_spy_project_writes`
         discipline from test_board_group_filtering.py)."""
         calls: list[str] = []
-        original = B.save_local_config
+        original = B.board_task_manager.save_local_config
 
         def spy(p, d):
             calls.append(str(p))
             return original(p, d)
 
-        patcher = mock.patch.object(B, "save_local_config", spy)
+        patcher = mock.patch.object(B.board_task_manager, "save_local_config", spy)
         patcher.start()
         self.addCleanup(patcher.stop)
         return calls

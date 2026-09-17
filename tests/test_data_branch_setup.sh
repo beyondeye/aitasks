@@ -14,6 +14,25 @@ TOTAL=0
 # Shared assertion helpers (see tests/lib/asserts.sh)
 . "$PROJECT_DIR/tests/lib/asserts.sh"
 
+# Run from a throwaway directory, never the invoking one (t1815). Every fixture
+# write below is a relative path inside `( cd "$TMPDIR_N/..." || exit 1; ... )`;
+# when such a `cd` was unguarded, a failed setup_data_branch left the subshell in
+# the caller's cwd -- usually the live repo root -- so fixture tasks landed in the
+# real aitasks/ and `git add . && git commit` committed into the real repository.
+# The guards fix each site; this makes the fallback harmless for any future one.
+# mktemp honors $TMPDIR, and GIT_DIR in the environment makes every directory a
+# repo, so "outside any repository" is checked with git rather than assumed. The
+# fixture dirs come from the same mktemp, so this covers them too.
+command -v git >/dev/null 2>&1 || { echo "FAIL: git not found"; exit 1; }
+TEST_SCRATCH_CWD="$(mktemp -d)" || { echo "FAIL: mktemp for scratch cwd"; exit 1; }
+trap 'rm -rf "$TEST_SCRATCH_CWD"' EXIT
+if git -C "$TEST_SCRATCH_CWD" rev-parse --git-dir >/dev/null 2>&1; then
+    echo "FAIL: scratch dir '$TEST_SCRATCH_CWD' resolves to a git repository" \
+         "(TMPDIR='${TMPDIR:-}' GIT_DIR='${GIT_DIR:-}'); refusing to run fixtures there"
+    exit 1
+fi
+cd "$TEST_SCRATCH_CWD" || { echo "FAIL: cannot enter scratch cwd"; exit 1; }
+
 
 
 

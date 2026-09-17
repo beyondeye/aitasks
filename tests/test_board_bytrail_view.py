@@ -467,7 +467,7 @@ class ByTrailPilotTests(ByTrailTestBase):
                 await pilot.pause()
                 # The live repo has no artifacts: frontmatter — that IS the
                 # no-trails fixture. Stub discovery so the worker is instant.
-                with patch.object(ab, "discover_trails",
+                with patch.object(ab.board_trail_screen, "discover_trails",
                                   lambda: ([], [])):
                     await pilot.press("z")
                     await pilot.pause()
@@ -889,10 +889,10 @@ class TrailLaunchConstructionTests(ByTrailTestBase):
                 self.full_command = full_command
 
         patches = [
-            patch.object(ab, "AgentCommandScreen", FakeScreen),
-            patch.object(ab, "resolve_dry_run_command",
+            patch.object(ab.board_trail_screen, "AgentCommandScreen", FakeScreen),
+            patch.object(ab.board_trail_screen, "resolve_dry_run_command",
                          lambda root, op, *args, **kw: f"CMD {op}"),
-            patch.object(ab, "resolve_agent_string",
+            patch.object(ab.board_trail_screen, "resolve_agent_string",
                          lambda root, op: "claudecode/test"),
             patch.object(app, "push_screen", lambda screen, cb=None: None),
         ]
@@ -1324,10 +1324,10 @@ class TrailWatchTests(ByTrailTestBase):
                 self.full_command = full_command
 
         patches = [
-            patch.object(ab, "AgentCommandScreen", FakeScreen),
-            patch.object(ab, "resolve_dry_run_command",
+            patch.object(ab.board_trail_screen, "AgentCommandScreen", FakeScreen),
+            patch.object(ab.board_trail_screen, "resolve_dry_run_command",
                          lambda root, op, *a, **k: f"CMD {op}"),
-            patch.object(ab, "resolve_agent_string",
+            patch.object(ab.board_trail_screen, "resolve_agent_string",
                          lambda root, op: "claudecode/test"),
             patch.object(app, "push_screen",
                          lambda screen, cb=None: box.__setitem__("cb", cb)),
@@ -1345,23 +1345,25 @@ class TrailWatchTests(ByTrailTestBase):
             window = "w"
 
         patches = [
-            patch.object(ab, "_trail_versions",
+            patch.object(ab.board_trail_screen, "_trail_versions",
                          lambda h: (events.append("versions"), versions)[1]),
             patch.object(app, "run_dialog_command",
                          lambda cmd: events.append("run")),
             # The baseline read is normally a thread worker; run it inline so
             # the launch sequence is deterministic. The REAL worker boundary
             # is exercised by ThreadWorkerTests.
-            patch.object(ab, "launch_in_tmux",
+            patch.object(ab.board_trail_screen, "launch_in_tmux",
                          lambda cmd, cfg: (events.append("tmux"),
                                            tmux_result)[1]),
-            patch.object(ab, "maybe_spawn_minimonitor", lambda s, w: None),
-            patch.object(ab, "TmuxLaunchConfig", FakeTmux),
+            patch.object(ab.board_trail_screen, "maybe_spawn_minimonitor",
+                         lambda s, w: None),
+            patch.object(ab.board_trail_screen, "TmuxLaunchConfig", FakeTmux),
             patch.object(app, "_reload_active_trail",
                          lambda: events.append("reload")),
             patch.object(app, "notify", lambda *a, **k: events.append("notify")),
             patch.object(app, "_trail_baseline_worker",
-                         lambda handle, then: then(ab._trail_versions(handle))),
+                         lambda handle, then: then(ab.board_trail_screen
+                                                   ._trail_versions(handle))),
         ]
         return events, patches, FakeTmux
 
@@ -1388,7 +1390,7 @@ class TrailWatchTests(ByTrailTestBase):
                 await pilot.pause()
                 await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
                 seen = []
-                with patch.object(ab, "_trail_versions",
+                with patch.object(ab.board_trail_screen, "_trail_versions",
                                   lambda h: (seen.append(h), ["v1"])[1]):
                     await self._get_callback(app, pilot)
                 self.assertEqual(seen, [])
@@ -1795,7 +1797,8 @@ class ThreadWorkerTests(ByTrailTestBase):
                 seen = {}
                 app._reload_active_trail = (
                     lambda: seen.update(thread=threading.current_thread()))
-                with patch.object(ab, "_trail_versions", lambda h: ["v2"]):
+                with patch.object(ab.board_trail_screen, "_trail_versions",
+                                  lambda h: ["v2"]):
                     app._install_trail_watch("art:trail-test", ["v1"])
                     app._trail_watch_tick()          # REAL thread worker
                     ok = await self._wait(pilot, lambda: "thread" in seen)
@@ -1816,7 +1819,7 @@ class ThreadWorkerTests(ByTrailTestBase):
                 await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
                 fresh = _ghost_doc()
                 fresh["title"] = "Reloaded trail"
-                with patch.object(ab, "load_trail_blob",
+                with patch.object(ab.board_trail_screen, "load_trail_blob",
                                   lambda h: (fresh, "", [])):
                     app._reload_active_trail()       # REAL thread worker
                     ok = await self._wait(
@@ -1847,7 +1850,7 @@ class ThreadWorkerTests(ByTrailTestBase):
                     threads.append(threading.current_thread())
                     return ["v2"]                   # always "changed"
 
-                with patch.object(ab, "_trail_versions", versions):
+                with patch.object(ab.board_trail_screen, "_trail_versions", versions):
                     app._install_trail_watch("art:trail-test", ["v1"])
                     gen = app._trail_watch_gen
                     for _ in range(50):
@@ -1921,7 +1924,7 @@ class ThreadWorkerTests(ByTrailTestBase):
                 app._reload_active_trail = lambda: None
                 done = []
                 with patch.object(
-                        ab, "_trail_versions",
+                        ab.board_trail_screen, "_trail_versions",
                         lambda h: (done.append(1), ["v1"])[1]):
                     app._install_trail_watch("art:trail-test", ["v1"])
                     # Warm the pool with one run, THEN take the baseline.
@@ -1989,9 +1992,9 @@ class LaunchFallbackTests(ByTrailTestBase):
                 await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
                 events = []
                 patches = [
-                    patch.object(ab, "resolve_dry_run_command",
+                    patch.object(ab.board_trail_screen, "resolve_dry_run_command",
                                  lambda root, op, *a, **k: ""),
-                    patch.object(ab, "_trail_versions",
+                    patch.object(ab.board_trail_screen, "_trail_versions",
                                  lambda h: (events.append("versions"),
                                             ["v1"])[1]),
                     patch.object(app, "run_dialog_command",
@@ -2001,7 +2004,8 @@ class LaunchFallbackTests(ByTrailTestBase):
                     patch.object(app, "notify", lambda *a, **k: None),
                     patch.object(app, "_trail_baseline_worker",
                                  lambda handle, then:
-                                     then(ab._trail_versions(handle))),
+                                     then(ab.board_trail_screen
+                                          ._trail_versions(handle))),
                 ]
                 with patches[0], patches[1], patches[2], patches[3], \
                         patches[4], patches[5]:
@@ -2028,7 +2032,7 @@ class LaunchFallbackTests(ByTrailTestBase):
                 where = {}
                 got = []
                 with patch.object(
-                        ab, "_trail_versions",
+                        ab.board_trail_screen, "_trail_versions",
                         lambda h: (where.update(
                             thread=threading.current_thread()), ["v1"])[1]):
                     app._with_trail_baseline(
@@ -2210,7 +2214,7 @@ class LaunchFallbackTests(ByTrailTestBase):
                 await pilot.pause()
                 got = []
                 called = []
-                with patch.object(ab, "_trail_versions",
+                with patch.object(ab.board_trail_screen, "_trail_versions",
                                   lambda h: called.append(h)):
                     app._with_trail_baseline("", lambda b: got.append(b))
                 # Resolved inline, no worker, no versions read.
@@ -2317,8 +2321,8 @@ class BannerRenderTests(ByTrailTestBase):
                 return ("STALE", [("stale_status", "aitasks#1", "d1"),
                                   ("stale_status", "aitasks#2", "d2")])
 
-            with patch.object(ab, "load_trail_blob", fake_load), \
-                    patch.object(ab, "run_trail_drift", fake_drift):
+            with patch.object(ab.board_trail_screen, "load_trail_blob", fake_load), \
+                    patch.object(ab.board_trail_screen, "run_trail_drift", fake_drift):
                 app = ab.KanbanApp()
                 async with app.run_test(size=(160, 40)) as pilot:
                     await pilot.pause()
@@ -2367,7 +2371,7 @@ class BannerRenderTests(ByTrailTestBase):
                 return (verdict, [("stale_status", f"aitasks#{i}", "d")
                                   for i in range(3)])
 
-            with patch.object(ab, "run_trail_drift", fake_drift):
+            with patch.object(ab.board_trail_screen, "run_trail_drift", fake_drift):
                 app = ab.KanbanApp()
                 async with app.run_test(size=(width, 30)) as pilot:
                     await pilot.pause()
@@ -2406,7 +2410,7 @@ class BannerRenderTests(ByTrailTestBase):
                 gate.wait(timeout=5)
                 return ("STALE", [("stale_status", "aitasks#1", "d")])
 
-            with patch.object(ab, "run_trail_drift", fake_drift):
+            with patch.object(ab.board_trail_screen, "run_trail_drift", fake_drift):
                 app = ab.KanbanApp()
                 async with app.run_test(size=(60, 30)) as pilot:
                     await pilot.pause()
@@ -2428,7 +2432,7 @@ class BannerRenderTests(ByTrailTestBase):
             def fake_drift(handle):
                 return ("STALE", [("stale_status", "aitasks#1", "d")] * 3)
 
-            with patch.object(ab, "run_trail_drift", fake_drift):
+            with patch.object(ab.board_trail_screen, "run_trail_drift", fake_drift):
                 app = ab.KanbanApp()
                 async with app.run_test(size=(44, 30)) as pilot:
                     await pilot.pause()
@@ -2512,18 +2516,19 @@ class RefreshDoubleTapTests(ByTrailTestBase):
                 "default_session": "work",
                 "prefer_tmux": tmux,
             }),
-            patch.object(ab, "resolve_dry_run_command",
+            patch.object(ab.board_trail_screen, "resolve_dry_run_command",
                          lambda root, op, *a, **k: f"CMD {op}"),
-            patch.object(ab, "resolve_agent_string",
+            patch.object(ab.board_trail_screen, "resolve_agent_string",
                          lambda root, op: "claudecode/test"),
-            patch.object(ab, "_trail_versions", lambda h: ["v1"]),
+            patch.object(ab.board_trail_screen, "_trail_versions", lambda h: ["v1"]),
             patch.object(app, "_trail_baseline_worker",
                          lambda handle, then: then(["v1"])),
-            patch.object(ab, "maybe_spawn_minimonitor", lambda s, w: None),
+            patch.object(ab.board_trail_screen, "maybe_spawn_minimonitor",
+                         lambda s, w: None),
             # The two ways a confirmed dialog reaches a real agent.
             patch.object(app, "run_dialog_command",
                          lambda cmd: launches.append(("terminal", cmd))),
-            patch.object(ab, "launch_in_tmux",
+            patch.object(ab.board_trail_screen, "launch_in_tmux",
                          lambda cmd, cfg: (launches.append(("tmux", cmd)),
                                            (123, None))[1]),
             # A confirmed launch reaches _after_trail_launch() -> the real
@@ -2602,7 +2607,8 @@ class RefreshDoubleTapTests(ByTrailTestBase):
                 await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
                 _launches, _reloads, patches = self._env(app, clock, tmux=False)
                 patches.append(patch.object(
-                    ab, "resolve_key", lambda scope, action, default=None: "#"))
+                    ab.board_trail_screen, "resolve_key",
+                    lambda scope, action, default=None: "#"))
                 for ctx in patches:
                     ctx.start()
                 try:
@@ -2845,7 +2851,7 @@ class TrailDiscoveryFreshnessTests(unittest.TestCase):
         """The reported symptom, at the discovery layer."""
         ab = self.ab
         # Built BEFORE the mutation: this real object IS the pre-fix source.
-        manager = ab.TaskManager()
+        manager = ab.make_task_manager()
 
         self._write_task("t43_beta.md", artifacts=[self._trail("art:trail-x")])
 
@@ -2989,7 +2995,8 @@ class TrailDiscoveryErrorReportingTests(ByTrailTestBase):
             async with app.run_test(size=(160, 48)) as pilot:
                 await pilot.pause()
                 app.notify = self._warnings(app, notes)
-                with patch.object(ab, "discover_trails", lambda: ([], [])):
+                with patch.object(ab.board_trail_screen, "discover_trails",
+                                  lambda: ([], [])):
                     app._set_base_filter("bytrail")
                     await pilot.pause()
                     await self._settle(app, pilot)
@@ -3009,7 +3016,8 @@ class TrailDiscoveryErrorReportingTests(ByTrailTestBase):
             app = ab.KanbanApp()
             async with app.run_test(size=(160, 48)) as pilot:
                 await pilot.pause()
-                with patch.object(ab, "discover_trails", lambda: ([], [])):
+                with patch.object(ab.board_trail_screen, "discover_trails",
+                                  lambda: ([], [])):
                     app._set_base_filter("bytrail")
                     await pilot.pause()
                     await self._settle(app, pilot)
@@ -3042,7 +3050,8 @@ class TrailDiscoveryErrorReportingTests(ByTrailTestBase):
             app = ab.KanbanApp()
             async with app.run_test(size=(160, 48)) as pilot:
                 await pilot.pause()
-                with patch.object(ab, "discover_trails", lambda: ([], [])):
+                with patch.object(ab.board_trail_screen, "discover_trails",
+                                  lambda: ([], [])):
                     app._set_base_filter("bytrail")
                     await pilot.pause()
                     await self._settle(app, pilot)
@@ -3109,7 +3118,8 @@ class TrailSelectorLifecycleTests(unittest.TestCase):
             async with app.run_test(size=(160, 48)) as pilot:
                 await pilot.pause()
                 app._start_trail_drift = lambda: None
-                with patch.object(ab, "discover_trails", fake_discover):
+                with patch.object(ab.board_trail_screen, "discover_trails",
+                                  fake_discover):
                     app._set_base_filter("bytrail")
                     await pilot.pause()
                     await pilot.pause()
@@ -3168,7 +3178,7 @@ class TrailSelectorLifecycleTests(unittest.TestCase):
                 await pilot.pause()
                 before = app.manager.task_datas["t42_alpha.md"]
 
-                with patch.object(ab, "discover_trails",
+                with patch.object(ab.board_trail_screen, "discover_trails",
                                   lambda: ([self._info("art:trail-life")], [])):
                     await pilot.press("s")
                     await pilot.pause()
@@ -3200,7 +3210,8 @@ class TrailSelectorLifecycleTests(unittest.TestCase):
             async with app.run_test(size=(160, 48)) as pilot:
                 await pilot.pause()
                 app._start_trail_drift = lambda: None
-                with patch.object(ab, "discover_trails", lambda: ([], [])):
+                with patch.object(ab.board_trail_screen, "discover_trails",
+                                  lambda: ([], [])):
                     app._set_base_filter("bytrail")
                     await pilot.pause()
                     await pilot.pause()
@@ -3251,7 +3262,8 @@ class TrailDiscoveryPilotTests(unittest.TestCase):
                 app._start_trail_drift = lambda: None
                 # Enter the view with nothing to find — the state the user is
                 # in when the trail gets created elsewhere.
-                with patch.object(ab, "discover_trails", lambda: ([], [])):
+                with patch.object(ab.board_trail_screen, "discover_trails",
+                                  lambda: ([], [])):
                     app._set_base_filter("bytrail")
                     await pilot.pause()
                     for _ in range(20):

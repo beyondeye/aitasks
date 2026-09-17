@@ -286,11 +286,11 @@ class _LifecycleBase(bf.FixtureBoardTestBase, bf.PristineTreeMixin):
         payload.setdefault("settings", {})["collapsed_groups"] = list(keys)
         self._local_path.write_text(json.dumps(payload, indent=2) + "\n",
                                     encoding="utf-8")
-        return self.ab.TaskManager()
+        return self.ab.make_task_manager()
 
     def _fresh(self):
         """A second manager reading the same tree — the disk round-trip."""
-        return self.ab.TaskManager()
+        return self.ab.make_task_manager()
 
     def _persisted(self):
         settings = json.loads(self._local_path.read_text(encoding="utf-8"))["settings"]
@@ -1124,13 +1124,13 @@ class ProjectLayerIsNeverWrittenTests(_FilterBase, unittest.TestCase):
 
     def _spy_project_writes(self):
         calls: list[str] = []
-        original = self.ab.save_project_config
+        original = self.ab.board_task_manager.save_project_config
 
         def spy(p, d):                      # call THROUGH, never stub — a stub
             calls.append(str(p))            # would disable the positive control
             return original(p, d)
 
-        patcher = mock.patch.object(self.ab, "save_project_config", spy)
+        patcher = mock.patch.object(self.ab.board_task_manager, "save_project_config", spy)
         patcher.start()
         self.addCleanup(patcher.stop)
         return calls
@@ -1146,7 +1146,7 @@ class ProjectLayerIsNeverWrittenTests(_FilterBase, unittest.TestCase):
         before = self._probe(path, ident)
         self.assertTrue(before["canary"] and before["fs"], "armed")
 
-        self.ab.TaskManager().save_metadata()
+        self.ab.make_task_manager().save_metadata()
 
         after = self._probe(path, ident)
         self.assertEqual(len(calls), 1, f"the write was issued: {calls}")
@@ -1288,7 +1288,7 @@ class CollapseKeyLifecycleTests(_LifecycleBase, unittest.TestCase):
         """The project half lands, the local half does not — the stale key on
         disk is pruned by any later session (the `collapsed_columns` contract)."""
         m = self._seed([f"c0/{PERF}", f"c0/{ONLY_C0}"])
-        with mock.patch.object(self.ab, "save_local_config",
+        with mock.patch.object(self.ab.board_task_manager, "save_local_config",
                                side_effect=OSError(28, "No space")):
             m.merge_columns(["c0"], "c1")
         self.assertIn(f"c0/{PERF}", self._persisted(),
@@ -1478,7 +1478,7 @@ class PruneOnLoadTests(_LifecycleBase, unittest.TestCase):
         payload["settings"]["collapsed_groups"] = f"c0/{PERF}"     # a bare string
         self._local_path.write_text(json.dumps(payload, indent=2) + "\n",
                                     encoding="utf-8")
-        m = self.ab.TaskManager()
+        m = self.ab.make_task_manager()
         self.assertEqual(set(m.collapsed_groups), set(),
                          "a scalar is treated as absent, never iterated as chars")
 

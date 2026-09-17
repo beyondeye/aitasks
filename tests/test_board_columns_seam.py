@@ -569,9 +569,23 @@ class SeamGuardTests(unittest.TestCase):
             self.assertNotIn(forbidden, src,
                              f"{forbidden} would defeat the whole point")
 
+    def _board_union(self) -> str:
+        """Every board module's source (t1794_4): the column-vocabulary consumers
+        now live in board_task_manager.py / board_task_model.py, so a fork left
+        there must fail these `assertNotIn`s too."""
+        paths = bf.board_module_paths()
+        self.assertTrue({"aitask_board.py", "board_task_manager.py",
+                         "board_task_model.py"} <= {p.name for p in paths})
+        return "\n".join(p.read_text(encoding="utf-8") for p in paths)
+
     def test_board_imports_the_vocabulary_instead_of_defining_it(self):
-        src = BOARD_SRC.read_text(encoding="utf-8")
-        self.assertIn("from board_columns import", src)
+        src = self._board_union()
+        self.assertIn("from board_columns import", BOARD_SRC.read_text(encoding="utf-8"))
+        self.assertIn("from board_columns import",
+                      BOARD_SRC.with_name("board_task_manager.py").read_text(encoding="utf-8"))
+        self.assertIn('metadata.get("boardcol", UNORDERED_ID)',
+                      BOARD_SRC.with_name("board_task_model.py").read_text(encoding="utf-8"),
+                      "anti-vacuity: the shared literal's consumer moved")
         self.assertNotIn("DEFAULT_COLUMNS = [", src,
                          "DEFAULT_COLUMNS must live in lib/board_columns.py")
         self.assertNotIn("DEFAULT_ORDER = [", src,
@@ -592,7 +606,7 @@ class SeamGuardTests(unittest.TestCase):
 
     def test_board_imports_the_palette_and_slug_instead_of_defining_them(self):
         """t1377_3: the board delegates rather than carrying a second copy."""
-        src = BOARD_SRC.read_text(encoding="utf-8")
+        src = self._board_union()
         self.assertNotIn("PALETTE_COLORS = [", src,
                          "PALETTE_COLORS must live in lib/board_columns.py")
         self.assertNotIn("slug = slug.strip('_')", src,
@@ -602,13 +616,16 @@ class SeamGuardTests(unittest.TestCase):
 
     def test_board_and_settings_import_the_layer_key_sets(self):
         """t1377_3: `_PROJECT_KEYS` / `_USER_KEYS` had two byte-identical copies."""
-        board = BOARD_SRC.read_text(encoding="utf-8")
+        board = self._board_union()
         settings = SETTINGS_SRC.read_text(encoding="utf-8")
         self.assertNotIn('_PROJECT_KEYS = {"columns"', board)
         self.assertNotIn('_USER_KEYS = {"settings"}', board)
         self.assertNotIn('_BOARD_PROJECT_KEYS = {"columns"', settings)
         self.assertNotIn('_BOARD_USER_KEYS = {"settings"}', settings)
-        self.assertIn("from board_columns import PROJECT_KEYS", board)
+        # The consumer (`TaskManager` via `split_config`) is in board_task_manager.py
+        # since t1794_4; aitask_board.py no longer uses the key sets at all.
+        self.assertIn("from board_columns import PROJECT_KEYS",
+                      BOARD_SRC.with_name("board_task_manager.py").read_text(encoding="utf-8"))
         self.assertIn("from board_columns import PROJECT_KEYS", settings)
 
     def test_stats_config_user_keys_is_a_name_collision_not_a_duplicate(self):

@@ -67,7 +67,7 @@ class ArchivedRelationLookupTests(unittest.TestCase):
 
     def _manager(self):
         board = _load_board_module(self.task_dir)
-        return board, board.TaskManager()
+        return board, board.make_task_manager()
 
     def test_active_task_wins_over_archived_duplicate(self) -> None:
         _write_task(self.task_dir / "t20_active.md", "Active")

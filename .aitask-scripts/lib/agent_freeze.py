@@ -512,8 +512,16 @@ def _resolve_record(facts: dict[str, str]) -> tuple[str, str]:
     rc, out = frozen_ops.store(*args)
     if rc != 0:
         raise OSError(f"upsert failed: {out}")
-    # `UPSERTED:<id>|<how>`
-    payload = out.splitlines()[-1] if out.splitlines() else ""
+    # `UPSERTED:<id>|<how>`. `UPSERT_REFUSED:<id>|<reason>` also exits 0 and
+    # carries a valid id, so the PREFIX is the success test: parsing it as a
+    # record id would stamp the pane and fail later at `freeze-begin` with an
+    # error that hides the refusal.
+    lines = out.splitlines()
+    payload = lines[-1] if lines else ""
+    if payload.startswith("UPSERT_REFUSED:"):
+        raise OSError(f"upsert refused: {payload}")
+    if not payload.startswith("UPSERTED:"):
+        raise OSError(f"upsert returned no usable record id: {out!r}")
     _, _, rest = payload.partition(":")
     record_id = rest.partition("|")[0].strip()
     if not agent_sessions.valid_id(record_id):

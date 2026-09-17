@@ -7,7 +7,7 @@ import sys
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
-from textual.screen import ModalScreen, Screen
+from textual.screen import Screen
 from textual.widgets import Button, Checkbox, Footer, Header, Label, RadioButton, RadioSet, Static
 from textual import on
 
@@ -16,6 +16,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from diffviewer.plan_browser import PlanBrowser
 from diffviewer.plan_loader import load_plan
 from diffviewer.diff_viewer_screen import DiffViewerScreen
+from guarded_dismiss import GuardedDismissMixin, GuardedModalScreen  # lib/ path set by diff_viewer_screen
 
 
 class _LoadedPlanEntry(Horizontal):
@@ -35,7 +36,7 @@ class _LoadedPlanEntry(Horizontal):
         yield Button("Diff as Main", variant="primary", classes="plan-diff")
 
 
-class DiffLaunchDialog(ModalScreen):
+class DiffLaunchDialog(GuardedModalScreen):
     """Modal dialog for configuring and launching a diff."""
 
     BINDINGS = [
@@ -102,7 +103,7 @@ class DiffLaunchDialog(ModalScreen):
         self.dismiss(None)
 
 
-class PlanManagerScreen(Screen):
+class PlanManagerScreen(GuardedDismissMixin, Screen):
     """Home screen with file browser and loaded plans management."""
 
     BINDINGS = [

@@ -102,6 +102,7 @@ from brainstorm.brainstorm_crew import (
     register_synthesizer,
 )
 from agent_launch_utils import is_tmux_available
+from guarded_dismiss import GuardedModalScreen
 from launch_modes import DEFAULT_LAUNCH_MODE, VALID_LAUNCH_MODES
 from agentcrew.agentcrew_utils import (
     list_agent_files,
@@ -454,7 +455,7 @@ from brainstorm.modals import (  # noqa: F401
 # ---------------------------------------------------------------------------
 
 
-class ActionsWizardScreen(RowNavMixin, ModalScreen):
+class ActionsWizardScreen(RowNavMixin, GuardedModalScreen):
     """Contextual multi-step design-op wizard, re-hosted out of the former
     Actions tab into a modal overlay (t983_11).
 
@@ -3223,13 +3224,24 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, RowNavMixin, App):
             self.query_one("#status_polling_indicator", PollingIndicator).start()
         except Exception:
             pass
-        self._status_refresh_timer = self.set_interval(30, self._refresh_runtime)
+        self._restart_status_refresh_timer()
         self._refresh_status_strip()
         self._try_apply_initializer_if_needed()
         self._scan_existing_explorers()
         self._scan_existing_synthesizers()
         self._scan_existing_comparators()
         self._scan_existing_module_agents()
+
+    def _restart_status_refresh_timer(self) -> None:
+        """(Re)start the 30s runtime refresh, stopping the previous interval.
+
+        ``_load_existing_session`` runs again on every explorer/initializer
+        apply; without the stop each reload stacked another 30s timer for the
+        life of the session (t1816).
+        """
+        if self._status_refresh_timer is not None:
+            self._status_refresh_timer.stop()
+        self._status_refresh_timer = self.set_interval(30, self._refresh_runtime)
 
     def _try_apply_initializer_if_needed(self, force: bool = False) -> None:
         """Re-attempt apply_initializer_output if n000_init is still placeholder.

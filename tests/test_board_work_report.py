@@ -239,8 +239,9 @@ class WorkReportLaunchTests(WorkReportTestBase):
         """The worker shells out the given command verbatim (sh -c)."""
         ab = self.ab
         app = MagicMock()
-        with patch.object(ab, "find_terminal", return_value="footerm"), \
-                patch.object(ab, "spawn_in_terminal") as spawn:
+        with patch.object(ab.board_trail_screen, "find_terminal",
+                          return_value="footerm"), \
+                patch.object(ab.board_trail_screen, "spawn_in_terminal") as spawn:
             coro = ab.KanbanApp.run_dialog_command.__wrapped__(
                 app, "claude --model y '/aitask-work-report --columns now'")
             asyncio.run(coro)

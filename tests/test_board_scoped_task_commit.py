@@ -356,8 +356,18 @@ class SourceGuardTests(unittest.TestCase):
     PATTERN = r'\[\*_task_git_cmd\(\),\s*"commit".*'
 
     def test_no_pathspec_less_task_git_commit_in_the_board(self):
-        offenders = [m.group(0) for m in
-                     re.finditer(self.PATTERN, BOARD_PATH.read_text())]
+        # Every board module (t1794_4): `_task_git_cmd` and TaskManager's git
+        # calls live in board_task_manager.py now.
+        paths = sorted(p for p in BOARD_PATH.parent.glob("*.py")
+                       if p.name not in ("__init__.py", "aitask_merge.py"))
+        texts = {p.name: p.read_text() for p in paths}
+        # Anti-vacuity: the scan sees the call sites it guards, in both homes.
+        calls = {n: len(re.findall(r"_task_git_cmd\(\)", t)) for n, t in texts.items()}
+        self.assertGreaterEqual(sum(calls.values()), 3, calls)
+        self.assertGreaterEqual(calls.get("board_task_manager.py", 0), 1, calls)
+        self.assertGreaterEqual(calls.get("aitask_board.py", 0), 1, calls)
+        offenders = [m.group(0) for t in texts.values()
+                     for m in re.finditer(self.PATTERN, t)]
         self.assertEqual(
             [], offenders,
             "a board git-commit site bypasses lib/task_commit.commit_task_paths; "

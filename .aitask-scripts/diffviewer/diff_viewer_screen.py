@@ -6,7 +6,7 @@ import os
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
-from textual.screen import ModalScreen, Screen
+from textual.screen import Screen
 from textual.widgets import Button, Footer, Header, Label, Static
 from textual import on, work
 
@@ -16,8 +16,15 @@ from .merge_engine import MergeSession
 from .merge_screen import MergeScreen
 from .plan_loader import load_plan
 
+try:
+    from guarded_dismiss import GuardedDismissMixin, GuardedModalScreen
+except ImportError:  # imported without the app's sys.path setup
+    import sys
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "lib"))
+    from guarded_dismiss import GuardedDismissMixin, GuardedModalScreen
 
-class SummaryScreen(ModalScreen):
+
+class SummaryScreen(GuardedModalScreen):
     """Modal overlay showing unique line counts per plan."""
 
     BINDINGS = [
@@ -61,7 +68,7 @@ class SummaryScreen(ModalScreen):
         self.dismiss()
 
 
-class DiffViewerScreen(Screen):
+class DiffViewerScreen(GuardedDismissMixin, Screen):
     """Screen for viewing diffs between plans with navigation and mode switching."""
 
     BINDINGS = [
@@ -260,4 +267,6 @@ class DiffViewerScreen(Screen):
         self._compute_diffs()
 
     def action_back(self) -> None:
-        self.app.pop_screen()
+        # dismiss(), not app.pop_screen(): a stale Esc must not pop the screen
+        # this viewer was pushed over (guarded, t1816).
+        self.dismiss()

@@ -90,17 +90,11 @@ class _ManagerBase(unittest.TestCase):
                                        settings=self.FIXTURE_SETTINGS)
         self.tasks_dir = self.tree / "aitasks"
         self.metadata_file = self.tasks_dir / "metadata" / "board_config.json"
-        for attr, value in (("TASKS_DIR", self.tasks_dir),
-                            ("METADATA_FILE", self.metadata_file)):
-            patcher = mock.patch.object(B, attr, value)
-            patcher.start()
-            self.addCleanup(patcher.stop)
-        self.manager = B.TaskManager()
+        # Paths are injected, never patched onto the board module (t1794_4, C2/C3).
+        self.manager = self.fresh_manager()
         self.events: list[tuple[str, str]] = []
         #: Fault-injection state, mutated in place so a test can arm and disarm
-        #: the fault WITHOUT stopping any patch. `mock.patch.stopall()` would
-        #: also drop the TASKS_DIR / METADATA_FILE patches above and silently
-        #: re-point the manager at the real repository.
+        #: the fault WITHOUT stopping any patch.
         self.fault = {"fail_on": None, "n": 0, "hook": None}
         self._spy_writes()
         self.before = snapshot(self.tree)
@@ -160,7 +154,9 @@ class _ManagerBase(unittest.TestCase):
 
     def fresh_manager(self):
         """A brand-new TaskManager over the same tree (reloads from disk)."""
-        return B.TaskManager()
+        return B.TaskManager(
+            tasks_dir=self.tasks_dir, metadata_file=self.metadata_file,
+            gates_registry_file=self.tasks_dir / "metadata" / "gates.yaml")
 
     def col_order(self, col_id: str) -> list[str]:
         return [t.filename for t in self.manager.get_column_tasks(col_id)]
@@ -692,7 +688,7 @@ class MetadataFailureTests(_ManagerBase):
     FIXTURE_SETTINGS = {"collapsed_columns": ["c0"]}
 
     def test_boundary_a_project_write_rolls_back_and_merge_retry_converges(self):
-        with mock.patch.object(B, "save_project_config",
+        with mock.patch.object(B.board_task_manager, "save_project_config",
                                side_effect=OSError(28, "No space")):
             result = self.manager.merge_columns(["c0"], "c2")
 
@@ -710,7 +706,7 @@ class MetadataFailureTests(_ManagerBase):
         self.assertNotIn("c0", self.project_cols())
 
     def test_boundary_b_local_write_keeps_removal_and_reports_asymmetrically(self):
-        with mock.patch.object(B, "save_local_config",
+        with mock.patch.object(B.board_task_manager, "save_local_config",
                                side_effect=OSError(28, "No space")):
             result = self.manager.merge_columns(["c0"], "c2")
 
@@ -726,9 +722,13 @@ class MetadataFailureTests(_ManagerBase):
         self.assertNotIn("c0", self.manager.column_order)
 
     def test_boundary_b_retry_is_save_metadata_not_merge(self):
-        with mock.patch.object(B, "save_local_config",
+        with mock.patch.object(B.board_task_manager, "save_local_config",
                                side_effect=OSError(28, "No space")):
-            self.manager.merge_columns(["c0"], "c2")
+            result = self.manager.merge_columns(["c0"], "c2")
+        # Precondition: the injected local-write failure really fired. Without
+        # it every assertion below also holds after a SUCCESSFUL merge, so a
+        # patch that stopped reaching the manager would pass silently (t1794_4).
+        self.assertIn(B.MERGE_METADATA_LOCAL_KEY, dict(result.failed))
 
         # A fresh manager cannot retry the MERGE: the columns are already gone,
         # so the sources are correctly unknown. This replaces the impossible
@@ -742,9 +742,11 @@ class MetadataFailureTests(_ManagerBase):
         self.assertNotIn("c0", self.fresh_manager().collapsed_columns)
 
     def test_boundary_b_later_save_does_not_resurrect_the_source(self):
-        with mock.patch.object(B, "save_local_config",
+        with mock.patch.object(B.board_task_manager, "save_local_config",
                                side_effect=OSError(28, "No space")):
-            self.manager.merge_columns(["c0"], "c2")
+            result = self.manager.merge_columns(["c0"], "c2")
+        # Precondition, as above: the fault fired (t1794_4).
+        self.assertIn(B.MERGE_METADATA_LOCAL_KEY, dict(result.failed))
 
         # The regression a blanket rollback would cause: save_metadata writes
         # self.columns wholesale, so restored sources would reappear on disk.

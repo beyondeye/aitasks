@@ -1545,7 +1545,9 @@ def drop_verdict(
 #     agent's OWN process holds open -- exact, and the mechanism the freeze
 #     engine uses while the agent is still alive;
 #   * the uncorrelated scan below REFUSES to guess: more than one session id
-#     under a root is `MISS_AMBIGUOUS`, never "the newest one".
+#     under a root is `MISS_AMBIGUOUS`, never "the newest one" -- for claude as
+#     well as codex (t1820). Claude has no fd-correlated resolver: measured, a
+#     live claude process holds no `*.jsonl` open (it appends and closes).
 #
 # Measured (codex 0.154, t1804): a codex TUI opens its rollout at its FIRST
 # TURN, not at launch -- a never-prompted agent holds no rollout and resolves to
@@ -1841,36 +1843,57 @@ def _claude_newest_transcript(root: str, home: Path, env) -> tuple[str, str, str
     if not stores:
         return "", "", MISS_NO_STORE_DIR
 
-    # Fast path: the computed directory name, in each candidate store.
-    computed: list[Path] = []
-    for store in stores:
-        c = store / claude_project_dirname(root)
-        if c.is_dir():
-            computed.append(c)
+    # The computed directory name only chooses the miss reason. It is NOT a
+    # scope to stop at: under a uniqueness rule, a session in the computed
+    # directory would hide a DIFFERENT session for the same root in a directory
+    # only the full scan reaches (a changed encoding, an older layout still on
+    # disk), and the "unique" answer would be a stranger's conversation again.
+    computed = [store / claude_project_dirname(root) for store in stores]
+    computed = [c for c in computed if c.is_dir()]
 
-    # Verify the fast path, then fall back to scanning every store. The encode
-    # rule is only partially determined, so a computed miss is expected rather
-    # than exceptional.
-    everything: list[Path] = []
+    # Every project directory of every store, each read once: a directory
+    # reached twice (override equal to the default via a symlink) would
+    # otherwise contribute its files twice.
+    dirs: list[Path] = []
+    seen: set[str] = set()
     for store in stores:
         try:
-            everything.extend(d for d in store.iterdir() if d.is_dir())
+            children = [d for d in store.iterdir() if d.is_dir()]
+        except OSError:
+            continue
+        for d in children:
+            try:
+                key = str(d.resolve())
+            except OSError:
+                key = str(d)
+            if key not in seen:
+                seen.add(key)
+                dirs.append(d)
+
+    files: list[Path] = []
+    for d in dirs:
+        try:
+            files.extend(p for p in d.glob("*.jsonl") if p.is_file())
         except OSError:
             continue
 
-    for scope in (computed, everything):
-        if not scope:
-            continue
-        files: list[Path] = []
-        for d in scope:
-            try:
-                files.extend(p for p in d.glob("*.jsonl") if p.is_file())
-            except OSError:
-                continue
-        for path in _newest(files):
-            if _claude_transcript_cwd(path) == root:
-                return path.stem, str(path), ""
-    return "", "", (MISS_NO_MATCH if computed else MISS_NO_PROJECT_DIR)
+    # Group every cwd-match by session id (the file stem), newest first. One
+    # session copied into two stores is still one candidate.
+    candidates: dict[str, list[Path]] = {}
+    for path in _newest(files):
+        if _claude_transcript_cwd(path) == root:
+            candidates.setdefault(path.stem, []).append(path)
+
+    if not candidates:
+        return "", "", (MISS_NO_MATCH if computed else MISS_NO_PROJECT_DIR)
+    if len(candidates) > 1:
+        # Refuse rather than guess, as the codex branch does (t1804). Unlike
+        # codex there is no live-process correlation to fall back on: a claude
+        # process holds no transcript fd (measured t1820 -- 0 open `*.jsonl`
+        # across 25 live agents), so the SessionStart hook is the mechanism.
+        return "", "", MISS_AMBIGUOUS
+    session_id, paths = next(iter(candidates.items()))
+    return session_id, str(paths[0]), ""
 
 
 def _codex_newest_transcript(root: str, home: Path, env) -> tuple[str, str, str]:
@@ -1930,12 +1953,14 @@ def newest_transcript_for(
     "this agent genuinely has no session", and a store-layout change after an
     agent release would look exactly like normal operation.
 
-    **The codex branch resolves only single-session roots** (t1804). Nothing
-    here ties a rollout to a particular agent, so two codex sessions under one
-    root are `MISS_AMBIGUOUS` rather than a guess -- on a busy machine that is
-    the usual answer, and it is the honest one. Capturing a codex session id is
-    the job of :func:`codex_session_for_pid`, called by the freeze engine while
-    the agent's process is still alive.
+    **Both branches resolve only single-session roots** (codex t1804, claude
+    t1820). Nothing here ties a transcript to a particular agent, so two
+    sessions under one root are `MISS_AMBIGUOUS` rather than a guess -- on a
+    busy machine that is the usual answer, and it is the honest one. Capturing a
+    codex session id is the job of :func:`codex_session_for_pid`, called by the
+    freeze engine while the agent's process is still alive; claude has no such
+    counterpart (its process holds no transcript open) and relies on its
+    SessionStart hook.
     """
     home = Path(os.path.expanduser("~")) if home is None else home
     env = os.environ if env is None else env

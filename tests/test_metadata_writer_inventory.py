@@ -55,9 +55,12 @@ _SH_WRITE = re.compile(r'^\s*(cp|mv|touch)\s|>\s*"\$|>>\s*"\$|sed_inplace|ait_at
 
 # A file "targets metadata" when it names a path under aitasks/metadata. Kept
 # deliberately generous in spelling — the pins, not this, are the safety net.
+# `metadata_file` is the injected-path spelling (t1794_4): board_task_manager.py
+# receives board_config.json as a constructor argument and never spells the
+# directory, so without it the board's writer would drop out of discovery.
 _TARGETS_METADATA = re.compile(
     r'["\']aitasks/metadata|metadata_dir\(\)|/metadata/|"metadata"\s*/'
-    r'|"aitasks",\s*"metadata"|metadata\s*/\s*"')
+    r'|"aitasks",\s*"metadata"|metadata\s*/\s*"|\bmetadata_file\b')
 
 
 # --- THE INVENTORY -----------------------------------------------------------
@@ -82,7 +85,7 @@ WIRED: dict[str, str] = {
     ".aitask-scripts/settings/settings_app.py::delete_profile": "self._commit(",
     ".aitask-scripts/settings/settings_app.py::_handle_import": "_commit_imported(",
     # Board TUI — column CRUD
-    ".aitask-scripts/board/aitask_board.py::save_metadata": "_commit_metadata_file(",
+    ".aitask-scripts/board/board_task_manager.py::save_metadata": "_commit_metadata_file(",
     # Headless column CLI (the commit lives at top level, after the exec split)
     ".aitask-scripts/aitask_board_column.sh::<module>": "aitask_metadata_commit.sh",
     # chatlink wizard
@@ -127,7 +130,7 @@ KNOWN_UNCOMMITTED: dict[str, str] = {
     # User layer only — gitignored, must never be committed.
     ".aitask-scripts/stats/stats_config.py::save": "user layer, gitignored",
     ".aitask-scripts/diffviewer/plan_browser.py::_save_history": "user layer, gitignored (t1677)",
-    ".aitask-scripts/board/aitask_board.py::_write_user_layer": "user layer, gitignored",
+    ".aitask-scripts/board/board_task_manager.py::_write_user_layer": "user layer, gitignored",
     # Existence-only: `touch` creates an empty file and writes no content, so
     # there is nothing to attribute.
     ".aitask-scripts/aitask_update.sh::ensure_task_types_file": "touch only, no content",
@@ -279,7 +282,7 @@ class NewWriterTripwire(unittest.TestCase):
         found = _files_that_write_metadata()
         must_find = {
             ".aitask-scripts/settings/settings_app.py",
-            ".aitask-scripts/board/aitask_board.py",
+            ".aitask-scripts/board/board_task_manager.py",
             ".aitask-scripts/lib/config_utils.py",
             ".aitask-scripts/aitask_setup.sh",
         }

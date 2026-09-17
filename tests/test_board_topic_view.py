@@ -58,7 +58,7 @@ class BoardTopicViewTests(bf.FixtureBoardTestBase, unittest.TestCase):
         `skipTest`s used to fire. RICH_TOPOLOGY supplies two: the t9000
         parent+children cluster, and an explicit `anchor: 9002` group.
         """
-        mgr = self.ab.TaskManager()
+        mgr = self.ab.make_task_manager()
         mgr.load_tasks()
         lanes = self.ab.group_tasks_by_topic(
             list(mgr.task_datas.values()) + list(mgr.child_task_datas.values()))

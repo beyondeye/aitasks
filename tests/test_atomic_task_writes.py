@@ -4,7 +4,8 @@
 t1371 closed the `frontmatter_patch` window and created `lib/atomic_write.py`;
 this covers the writers t1371 recorded as upstream defects and t1379 converted:
 
-* `board.aitask_board.Task.save` — the board's own task-file writer
+* `board.board_task_model.Task.save` — the board's own task-file writer
+  (moved out of `aitask_board.py` in t1794_4; mutate it there)
 * `board.aitask_merge` — the sync conflict-resolution writer
 * `diffviewer.merge_engine.write_merged_plan` — extracted out of the Textual
   `SaveMergeDialog.on_save` precisely so it can be tested without a `Pilot`
@@ -99,7 +100,7 @@ class _ProbeCase(unittest.TestCase):
 
 
 class TaskSaveTests(_ProbeCase):
-    """board/aitask_board.py — Task.save (reachable from ~12 call sites)."""
+    """board/board_task_model.py — Task.save (reachable from ~12 call sites)."""
 
     def task(self, name="t1_example.md", mode=None):
         path = self.tmp / name

@@ -47,6 +47,11 @@ def _manager(ab):
     TaskManager = ab.TaskManager
 
     mgr = TaskManager.__new__(TaskManager)
+    # `__new__` skips __init__, so the injected paths (t1794_4) are set
+    # by hand — to the values the manager read off the board before.
+    mgr.tasks_dir = ab.TASKS_DIR
+    mgr.metadata_file = ab.METADATA_FILE
+    mgr.gates_registry_file = ab.GATES_REGISTRY_FILE
     mgr.task_datas = {}
     mgr.child_task_datas = {}
     mgr.archived_task_cache = {}
@@ -236,21 +241,23 @@ class PlanProbeCallerBoundaryTests(PlannedLaneTestBase, unittest.TestCase):
     path, the call inside `_inflight_item_for` is the ONLY
     `_resolve_plan_path_for_task` call site (`TaskDetailScreen.plan_path` and
     the `KanbanApp` helper are not on it), and the production function resolves
-    the name as a module global, so patching the attribute on the
-    fixture-bound board module is what it actually sees.
+    the name as a global of ITS module — `board_task_manager` since t1794_4 — so
+    patching the attribute there is what it actually sees. (A spy on the board's
+    re-export would record nothing and turn the zero-call rows below vacuous.)
     """
 
     def _item_with_spy(self, name: str, body: str):
         """`_item`, with every production `_resolve_plan_path_for_task` recorded."""
         calls: list[str] = []
-        real = self.ab._resolve_plan_path_for_task
+        owner = self.ab.board_task_manager
+        real = owner._resolve_plan_path_for_task
 
         def spy(task, manager):
             calls.append(task.filename)
             return real(task, manager)          # delegate: the answers stay real
 
-        self.addCleanup(setattr, self.ab, "_resolve_plan_path_for_task", real)
-        self.ab._resolve_plan_path_for_task = spy
+        self.addCleanup(setattr, owner, "_resolve_plan_path_for_task", real)
+        owner._resolve_plan_path_for_task = spy
         item, _ = self._item(name, body)
         return item, calls
 
@@ -276,6 +283,15 @@ class PlanProbeCallerBoundaryTests(PlannedLaneTestBase, unittest.TestCase):
                 item, calls = self._item_with_spy(name, body)
                 self.assertEqual((item.phase, item.provenance), want)
                 self.assertEqual(calls, [])
+        # Spy liveness, in THIS test (t1794_4): an empty `calls` is also what a
+        # spy on a name the manager no longer resolves would record. The one
+        # state that must read the probe proves the same spy is on the path.
+        item, control = self._item_with_spy("t1313_liveness_no_ledger.md",
+                                            _body("Implementing"))
+        self.assertEqual((item.phase, item.provenance), ("implementing", "unknown"))
+        self.assertEqual(len(control), 1,
+                         "the spy did not see the one call it must see — the "
+                         "zero-call rows above would pass vacuously")
 
     def test_no_ledger_item_resolves_the_plan_path_exactly_once(self):
         """POSITIVE CONTROL at this boundary.
@@ -714,7 +730,18 @@ class PhaseIsTheOnlyLaneAuthorityTest(unittest.TestCase):
                        "current"}
 
     def _tree(self):
-        return ast.parse(BOARD_SRC.read_text(encoding="utf-8"))
+        # Every board module (t1794_4): the lane helpers live in
+        # board_workflow_phase.py and their caller in board_task_manager.py.
+        return bf.board_modules_tree()
+
+    def test_the_scan_reads_the_modules_the_helpers_and_caller_live_in(self):
+        board_dir = BOARD_SRC.parent
+        for name, home in (("_inflight_lane", "board_workflow_phase.py"),
+                           ("_inflight_item_for", "board_task_manager.py")):
+            with self.subTest(name=name):
+                src = (board_dir / home).read_text(encoding="utf-8")
+                self.assertIn(f"def {name}(", src)
+                self.assertIn(board_dir / home, bf.board_module_paths())
 
     def _function(self, name: str) -> ast.FunctionDef:
         for node in ast.walk(self._tree()):

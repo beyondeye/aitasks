@@ -42,7 +42,7 @@ from textual.app import ComposeResult  # noqa: E402
 from textual.binding import Binding  # noqa: E402
 from textual.containers import Container, Horizontal, VerticalScroll  # noqa: E402
 from textual.message import Message  # noqa: E402
-from textual.screen import ModalScreen  # noqa: E402
+from guarded_dismiss import GuardedModalScreen  # noqa: E402
 from textual.widgets import Label, Markdown, Static  # noqa: E402
 
 
@@ -471,7 +471,7 @@ class SectionAwareMarkdown(VerticalScroll):
         self.scroll_to(y=target_y, animate=False)
 
 
-class SectionViewerScreen(ModalScreen):
+class SectionViewerScreen(GuardedModalScreen):
     """Full-screen split-layout modal: minimap on the left, Markdown on the right.
 
     When ``section_filter`` is set, the **minimap row list** is restricted to

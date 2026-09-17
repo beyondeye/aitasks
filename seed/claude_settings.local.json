@@ -34,6 +34,7 @@
       "Bash(./.aitask-scripts/aitask_backlog_origin_facts.sh:*)",
       "Bash(./.aitask-scripts/aitask_backlog_roadmap.sh:*)",
       "Bash(./.aitask-scripts/aitask_brainstorm_apply_initializer.sh:*)",
+      "Bash(./.aitask-scripts/aitask_brainstorm_context.sh:*)",
       "Bash(./.aitask-scripts/aitask_change_surface.sh:*)",
       "Bash(./.aitask-scripts/aitask_changelog.sh:*)",
       "Bash(./.aitask-scripts/aitask_claim_id.sh:*)",

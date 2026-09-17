@@ -31,9 +31,9 @@ def board_columns(repo_root: Path):
         path = str(repo_root / ".aitask-scripts" / sub)
         if path not in sys.path:
             sys.path.insert(0, path)
-    from aitask_board import TaskManager  # noqa: E402  (TASK_DIR-sensitive import)
+    from aitask_board import make_task_manager  # noqa: E402  (TASK_DIR-sensitive import)
 
-    manager = TaskManager()
+    manager = make_task_manager()
     col_ids = ["unordered"] + list(manager.column_order)
     return {cid: [t.filename for t in manager.get_column_tasks(cid)] for cid in col_ids}
 

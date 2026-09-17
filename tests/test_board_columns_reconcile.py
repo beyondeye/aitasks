@@ -41,6 +41,17 @@ import board_columns as bc  # noqa: E402
 import board_fixture as bf  # noqa: E402
 
 BOARD_PATH = REPO_ROOT / ".aitask-scripts" / "board" / "aitask_board.py"
+MANAGER_PATH = BOARD_PATH.with_name("board_task_manager.py")
+
+# The call-graph scans below read EVERY board module (`bf.board_modules_tree`),
+# not aitask_board.py alone: since t1794_4 the watched callees and most of their
+# callers live in board_task_manager.py, and a board-only scan would find nothing
+# and pass. Each class asserts the watched definitions were found where they live.
+
+
+def _defined_in(path: Path) -> set[str]:
+    return {n.name for n in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
 
 TOPOLOGY = (
     bf.FixtureTask(task_id="9000", col="c0", idx=10, slug="parent"),
@@ -107,7 +118,7 @@ class ExternalAdditionTests(_ReconcileCase):
         direct call would prove the reconciliation runs, but not that any
         user-reachable path reaches it.
         """
-        manager = self.ab.TaskManager()
+        manager = self.ab.make_task_manager()
         out = bc.create_column(self.tree, "Spikes", "#8BE9FD")
         self.assertTrue(out.ok, out.refused)
 
@@ -126,7 +137,7 @@ class ExternalAdditionTests(_ReconcileCase):
         Disabling only the reconciliation must lose the column — if this passes
         with it disabled, the test above was measuring something else.
         """
-        manager = self.ab.TaskManager()
+        manager = self.ab.make_task_manager()
         bc.create_column(self.tree, "Spikes", "#8BE9FD")
 
         with mock.patch.object(self.ab.TaskManager,
@@ -137,7 +148,7 @@ class ExternalAdditionTests(_ReconcileCase):
         self.assertNotIn("spikes", self.written_ids())
 
     def test_multiple_external_additions_keep_their_on_disk_order(self):
-        manager = self.ab.TaskManager()
+        manager = self.ab.make_task_manager()
         for title in ("First", "Second", "Third"):
             self.assertTrue(bc.create_column(self.tree, title).ok)
 
@@ -152,7 +163,7 @@ class ExternalAdditionTests(_ReconcileCase):
 class DeletionDiscriminationTests(_ReconcileCase):
     def test_board_side_deletion_is_not_resurrected(self):
         """Case 2 — the discriminator that makes merging safe."""
-        manager = self.ab.TaskManager()
+        manager = self.ab.make_task_manager()
         self.assertIn("c1", [c["id"] for c in manager.columns])
 
         manager.delete_column("c1")  # deletes and saves
@@ -166,7 +177,7 @@ class DeletionDiscriminationTests(_ReconcileCase):
         empty, a column that is on disk but absent from `self.columns` reads as
         an external addition rather than as our own deletion.
         """
-        manager = self.ab.TaskManager()
+        manager = self.ab.make_task_manager()
         manager._known_col_ids = set()
 
         manager.delete_column("c1")
@@ -176,7 +187,7 @@ class DeletionDiscriminationTests(_ReconcileCase):
     def test_deletion_then_external_recreation_is_merged(self):
         """After a delete, the id leaves `_known_col_ids`, so a later external
         creation of the same id is a genuine addition again."""
-        manager = self.ab.TaskManager()
+        manager = self.ab.make_task_manager()
         manager.delete_column("c1")
         self.assertNotIn("c1", manager._known_col_ids)
 
@@ -189,7 +200,7 @@ class DeletionDiscriminationTests(_ReconcileCase):
 class BoardSideEditTests(_ReconcileCase):
     def test_reorder_and_edit_survive_an_external_append(self):
         """Case 3 — merging appends; it never rewrites what the board holds."""
-        manager = self.ab.TaskManager()
+        manager = self.ab.make_task_manager()
         manager.update_column("c0", "c0", "Renamed Zero", "#BD93F9")
         manager.column_order = ["c1", "c0"]
         bc.create_column(self.tree, "Extern", "#FF79C6")
@@ -205,7 +216,7 @@ class BoardSideEditTests(_ReconcileCase):
     def test_board_edit_wins_over_a_concurrent_external_edit_of_a_known_column(self):
         """A column we already knew is ours to define — an external *edit* of it
         is not an addition and is deliberately not merged."""
-        manager = self.ab.TaskManager()
+        manager = self.ab.make_task_manager()
         manager.update_column("c0", "c0", "Mine", "#50FA7B")
 
         raw = json.loads(self.config.read_text(encoding="utf-8"))
@@ -222,7 +233,7 @@ class BoardSideEditTests(_ReconcileCase):
 
 class CollisionTests(_ReconcileCase):
     def test_identical_definition_merges_silently(self):
-        manager = self.ab.TaskManager()
+        manager = self.ab.make_task_manager()
         entry = {"id": "dup", "title": "Dup", "color": "#FF5555"}
         manager.columns.append(dict(entry))
         manager.column_order.append("dup")
@@ -239,7 +250,7 @@ class CollisionTests(_ReconcileCase):
 
     def test_differing_definition_warns_and_keeps_the_boards_version(self):
         warnings = []
-        manager = self.ab.TaskManager(
+        manager = self.ab.make_task_manager(
             on_warning=lambda msg, **kw: warnings.append((msg, kw)))
         manager.columns.append({"id": "dup", "title": "Mine", "color": "#FF5555"})
         manager.column_order.append("dup")
@@ -269,7 +280,7 @@ class LayerIsolationTests(_ReconcileCase):
         legitimately rewrites the local file afterwards, so byte-identity alone
         cannot tell "never read" from "read and rewritten identically".
         """
-        manager = self.ab.TaskManager()
+        manager = self.ab.make_task_manager()
         seen = []
         real = bc.project_columns_at
 
@@ -277,7 +288,7 @@ class LayerIsolationTests(_ReconcileCase):
             seen.append(str(path))
             return real(path)
 
-        with mock.patch.object(self.ab, "project_columns_at", spy):
+        with mock.patch.object(self.ab.board_task_manager, "project_columns_at", spy):
             self.project_save_gesture(manager)
 
         self.assertTrue(seen)
@@ -297,7 +308,7 @@ class LayerIsolationTests(_ReconcileCase):
 class UnreadableConfigTests(_ReconcileCase):
     def test_corrupt_project_config_does_not_break_the_save(self):
         """Losing the *merge* is safe; losing the *save* is not."""
-        manager = self.ab.TaskManager()
+        manager = self.ab.make_task_manager()
         self.config.write_text("{ not json", encoding="utf-8")
 
         self.project_save_gesture(manager)   # must not raise
@@ -305,7 +316,7 @@ class UnreadableConfigTests(_ReconcileCase):
         self.assertIn("c0", self.written_ids())
 
     def test_missing_project_config_does_not_break_the_save(self):
-        manager = self.ab.TaskManager()
+        manager = self.ab.make_task_manager()
         self.config.unlink()
 
         self.project_save_gesture(manager)
@@ -375,7 +386,14 @@ class CallSiteContainmentTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.source = BOARD_PATH.read_text(encoding="utf-8")
-        cls.tree = ast.parse(cls.source)
+        cls.tree = bf.board_modules_tree()
+
+    def test_the_scan_covers_the_modules_the_chain_lives_in(self):
+        scanned = {p.name for p in bf.board_module_paths()}
+        self.assertTrue({"aitask_board.py", "board_task_manager.py"} <= scanned, scanned)
+        self.assertTrue({"save_metadata", "_reconcile_external_columns"}
+                        <= _defined_in(MANAGER_PATH),
+                        "the reload chain moved — point this scan at its home")
 
     def test_reload_is_reachable_only_from_save_metadata(self):
         callers = _callers_of(self.tree)
@@ -428,7 +446,8 @@ class CallSiteContainmentTests(unittest.TestCase):
             1,
         )
         self.assertNotEqual(injected, self.source, "injection anchor not found")
-        sites = _callers_of(ast.parse(injected))["_reconcile_external_columns"]
+        sites = _callers_of(bf.board_modules_tree(
+            {"aitask_board.py": injected}))["_reconcile_external_columns"]
         self.assertIn("refresh_board_probe", sites)
         self.assertFalse(sites <= ALLOWED_CALLERS["_reconcile_external_columns"])
 
@@ -506,7 +525,18 @@ class SavePathContainmentTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.source = BOARD_PATH.read_text(encoding="utf-8")
-        cls.tree = ast.parse(cls.source)
+        cls.tree = bf.board_modules_tree()
+
+    def test_the_scan_sees_callers_in_every_module_they_live_in(self):
+        """Anti-vacuity for the union: allow-listed callers live in BOTH the
+        manager (`add_column` …) and the board (`_shift_column`)."""
+        manager_sites = _callers_of_name(
+            ast.parse(MANAGER_PATH.read_text(encoding="utf-8")), "save_metadata")
+        board_sites = _callers_of_name(ast.parse(self.source), "save_metadata")
+        self.assertIn("merge_columns", manager_sites)
+        self.assertIn("_shift_column", board_sites)
+        self.assertEqual(_callers_of_name(self.tree, "save_metadata"),
+                         manager_sites | board_sites)
 
     def test_only_project_mutating_functions_call_save_metadata(self):
         sites = _callers_of_name(self.tree, "save_metadata")
@@ -533,7 +563,9 @@ class SavePathContainmentTests(unittest.TestCase):
 
     def test_save_settings_exists_and_is_used(self):
         """The guard's message names a remedy; the remedy must be real."""
-        self.assertIn("def save_settings(self)", self.source)
+        # TaskManager's, not SettingsScreen's same-named method in the board.
+        self.assertIn("def save_settings(self) -> None:",
+                      MANAGER_PATH.read_text(encoding="utf-8"))
         users = _callers_of_name(self.tree, "save_settings")
         self.assertTrue(
             users,
@@ -559,7 +591,8 @@ class SavePathContainmentTests(unittest.TestCase):
             1,
         )
         self.assertNotEqual(injected, self.source, "injection anchor not found")
-        sites = _callers_of_name(ast.parse(injected), "save_metadata")
+        sites = _callers_of_name(
+            bf.board_modules_tree({"aitask_board.py": injected}), "save_metadata")
         self.assertIn("on_dismiss", sites,
                       "the scan must see a call nested inside a closure")
         self.assertFalse(sites <= SAVE_METADATA_ALLOWED_CALLERS,

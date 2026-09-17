@@ -15,6 +15,8 @@ while [[ $# -gt 0 ]]; do
         --session)
             SESSION_OVERRIDE="${2:-}"
             [[ -z "$SESSION_OVERRIDE" ]] && die "--session requires a name"
+            _tmux_bootstrap_session_name_ok "$SESSION_OVERRIDE" \
+                || die "Session name contains invalid chars (. or :): $SESSION_OVERRIDE"
             shift 2
             ;;
         -h|--help)
@@ -29,6 +31,7 @@ back to the SessionRenameDialog.
 
 Options:
   --session NAME   Use NAME instead of the configured default_session.
+                   NAME may not contain '.' or ':' (tmux target separators).
   -h, --help       Show this help.
 
 Note: The tmux session is shared, not per-terminal. If you run 'ait ide' in a

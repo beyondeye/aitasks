@@ -10,10 +10,13 @@ Reuses YAML I/O from agentcrew_utils to avoid duplication.
 from __future__ import annotations
 
 import os
+import re
 import sys
 from collections import deque
 from datetime import datetime
 from pathlib import Path
+
+import yaml
 
 # Allow importing agentcrew_utils from sibling package
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -27,6 +30,25 @@ GRAPH_STATE_FILE = "br_graph_state.yaml"
 # single-head session is an implicit ``_umbrella`` subgraph; head/lineage
 # helpers default to it so existing call-sites are unchanged.
 UMBRELLA_SUBGRAPH = "_umbrella"
+
+# Charset of a node id that is safe to turn into a filesystem path or to emit
+# in a ``|``/``,``-delimited record. Ids are minted as ``n###_<agent>``; anything
+# else read back from YAML (``parents`` entries are schema-checked only as a
+# list) must pass this before any path is built from it.
+SAFE_NODE_ID_RE = re.compile(r"[A-Za-z0-9_.-]+")
+
+
+def is_safe_node_id(value: object) -> bool:
+    """True if ``value`` is a string node id safe for paths and delimited output.
+
+    Rejects non-strings, the empty string, ``.`` / ``..`` and anything outside
+    ``SAFE_NODE_ID_RE`` (path separators, delimiters, newlines).
+    """
+    return (
+        isinstance(value, str)
+        and value not in (".", "..")
+        and SAFE_NODE_ID_RE.fullmatch(value) is not None
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -465,6 +487,76 @@ def get_node_lineage(
 
     lineage.reverse()
     return lineage
+
+
+def read_node_safe(session_path: Path, node_id: object) -> dict | None:
+    """Read a node's YAML without trusting ``node_id`` or the file.
+
+    Returns ``None`` — without touching the filesystem — when ``node_id`` fails
+    ``is_safe_node_id``, and ``None`` when the YAML is missing, unreadable or
+    malformed. Never raises for those cases.
+    """
+    if not is_safe_node_id(node_id):
+        return None
+    try:
+        return read_node(session_path, node_id)  # type: ignore[arg-type]
+    except (OSError, ValueError, yaml.YAMLError):
+        return None
+
+
+def node_parents_raw(data: dict | None) -> list | None:
+    """Return the raw ``parents`` list of a node dict (entries NOT validated).
+
+    ``None`` when the node could not be read; ``[]`` when ``parents`` is absent
+    or not a list.
+    """
+    if data is None:
+        return None
+    parents = data.get("parents")
+    return parents if isinstance(parents, list) else []
+
+
+def get_node_ancestors(session_path: Path, node_id: str) -> list[tuple[object, int]]:
+    """Return every ancestor of ``node_id`` as ``(ancestor_id, depth)``.
+
+    Unlike ``get_node_lineage`` (first-parent walk confined to one subgraph),
+    this is a BFS over **all** parent edges and crosses subgraph boundaries, so
+    a synthesized/merged node reports every contributing branch.
+
+    - Each ancestor is reported once, at its shortest depth (diamonds); the
+      start node is never reported, and cycles terminate.
+    - A parent whose YAML is missing or malformed is reported, but traversal
+      stops there.
+    - A parent id that fails ``is_safe_node_id`` (e.g. ``../x`` or a non-string
+      YAML value) is reported as-is but never read and never traversed — no
+      path is ever built from it. Callers must encode ids before emitting them.
+
+    Sorted by ``(depth, str(ancestor_id))``.
+    """
+
+    def _key(value: object) -> object:
+        try:
+            hash(value)
+        except TypeError:
+            return ("unhashable", repr(value))
+        return value
+
+    visited = {_key(node_id)}
+    result: list[tuple[object, int]] = []
+    queue: deque[tuple[object, int]] = deque([(node_id, 0)])
+    while queue:
+        current, depth = queue.popleft()
+        parents = node_parents_raw(read_node_safe(session_path, current))
+        for parent in parents or []:
+            key = _key(parent)
+            if key in visited:
+                continue
+            visited.add(key)
+            result.append((parent, depth + 1))
+            if is_safe_node_id(parent):
+                queue.append((parent, depth + 1))
+    result.sort(key=lambda item: (item[1], str(item[0])))
+    return result
 
 
 def _subgraph_root(session_path: Path, module: str) -> str | None:

@@ -53,6 +53,7 @@ for _p in (str(_TESTS),
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+import board_fixture as bf  # noqa: E402
 from board_fixture import (  # noqa: E402
     FixtureTask, build_fixture_tree, diff_snapshots, snapshot,
 )
@@ -90,13 +91,12 @@ class _ManagerBase(unittest.TestCase):
         self.addCleanup(shutil.rmtree, root, ignore_errors=True)
         self.tree = build_fixture_tree(root, TOPOLOGY)
         tasks_dir = self.tree / "aitasks"
-        for attr, value in (
-                ("TASKS_DIR", tasks_dir),
-                ("METADATA_FILE", tasks_dir / "metadata" / "board_config.json")):
-            patcher = mock.patch.object(B, attr, value)
-            patcher.start()
-            self.addCleanup(patcher.stop)
-        self.manager = B.TaskManager()
+        # Paths are injected, never patched onto the board module (t1794_4, C2/C3):
+        # the manager reads exactly the tree named here.
+        self.manager = B.TaskManager(
+            tasks_dir=tasks_dir,
+            metadata_file=tasks_dir / "metadata" / "board_config.json",
+            gates_registry_file=tasks_dir / "metadata" / "gates.yaml")
         self.writes: list[str] = []
         self.respaces: list[str] = []
         self._spy_writes()
@@ -600,14 +600,20 @@ class SeamGuardTests(unittest.TestCase):
     """
 
     def test_board_imports_board_ordering(self):
-        src = (REPO_ROOT / ".aitask-scripts" / "board" / "aitask_board.py"
-               ).read_text(encoding="utf-8")
-        self.assertIn("import board_ordering", src)
-        for symbol in ("def index_between(", "def indices_between(",
-                       "def index_for_append(", "def index_for_prepend(",
-                       "def respace_indices(", "def stride_for("):
-            self.assertNotIn(symbol, src,
-                             f"{symbol} must live in lib/board_ordering.py")
+        # The gap-indexing consumer (`TaskManager`) lives in board_task_manager.py
+        # since t1794_4; the no-copy rule covers every board module.
+        board_dir = REPO_ROOT / ".aitask-scripts" / "board"
+        self.assertIn("import board_ordering",
+                      (board_dir / "board_task_manager.py").read_text(encoding="utf-8"))
+        paths = bf.board_module_paths()
+        self.assertIn(board_dir / "board_task_manager.py", paths)
+        for path in paths:
+            src = path.read_text(encoding="utf-8")
+            for symbol in ("def index_between(", "def indices_between(",
+                           "def index_for_append(", "def index_for_prepend(",
+                           "def respace_indices(", "def stride_for("):
+                self.assertNotIn(symbol, src,
+                                 f"{symbol} in {path.name} must live in lib/board_ordering.py")
 
     def test_board_ordering_is_headless(self):
         src = (REPO_ROOT / ".aitask-scripts" / "lib" / "board_ordering.py"

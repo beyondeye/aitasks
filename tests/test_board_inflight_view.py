@@ -28,6 +28,11 @@ def _manager(ab):
     TaskManager = ab.TaskManager
 
     mgr = TaskManager.__new__(TaskManager)
+    # `__new__` skips __init__, so the injected paths (t1794_4) are set
+    # by hand — to the values the manager read off the board before.
+    mgr.tasks_dir = ab.TASKS_DIR
+    mgr.metadata_file = ab.METADATA_FILE
+    mgr.gates_registry_file = ab.GATES_REGISTRY_FILE
     mgr.task_datas = {}
     mgr.child_task_datas = {}
     mgr.archived_task_cache = {}
@@ -200,7 +205,7 @@ class InFlightPilotTests(bf.FixtureBoardTestBase, unittest.TestCase):
         """Precondition (t1354_2 Step 2a): the tree must carry an in-flight
         task, or the In-Flight view assertions below would pass against an
         empty view."""
-        mgr = self.ab.TaskManager()
+        mgr = self.ab.make_task_manager()
         mgr.load_tasks()
         implementing = [
             f for f, t in list(mgr.task_datas.items()) + list(mgr.child_task_datas.items())

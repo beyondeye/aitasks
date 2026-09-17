@@ -633,6 +633,26 @@ class RecordResolutionTests(_FreezeTestCase):
         self.assertIn("upsert", self.store.verbs())
         self.assertNotEqual(result.record_id, "deadbeef")
 
+    def test_a_refused_upsert_fails_at_resolve_and_stamps_nothing(self):
+        """REGRESSION (t1820): `UPSERT_REFUSED:<id>|…` exits 0 with a valid id.
+
+        Parsing any `<WORD>:<id>` line as success read the refusal as the
+        record id, stamped the pane with it, and failed later at
+        `freeze-begin` with an error that hid the refusal.
+        """
+        self.store.sf, _ = agent_sessions.freeze_begin(
+            self.store.sf, self.rid, capture_ansi="", capture_txt="",
+            lines=0, owner_pid=os.getpid())
+        self.panes[AGENT_PANE][agent_freeze.RECORD_OPTION] = ""
+        result = agent_freeze.freeze_pane(AGENT_PANE)
+        self.assertFalse(result.ok)
+        self.assertEqual(result.stage, "resolve", result.line)
+        self.assertTrue(result.line.startswith("FREEZE_FAILED:resolve"))
+        self.assertIn("UPSERT_REFUSED", result.line)
+        self.assertNotIn("freeze-begin", self.store.verbs())
+        self.assertEqual(self.panes[AGENT_PANE][agent_freeze.RECORD_OPTION], "",
+                         "a refusal must not stamp the pane")
+
     def test_the_upsert_root_walks_up_to_the_project(self):
         self.panes[AGENT_PANE][agent_freeze.RECORD_OPTION] = ""
         deep = self.root / "a" / "b"

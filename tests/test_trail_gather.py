@@ -2695,11 +2695,21 @@ class InfraExitCharacterizationTests(TrailGatherCase):
 
 class BoardSeamGuardTests(unittest.TestCase):
     def test_board_imports_topic_semantics(self):
-        src = (SCRIPTS_DIR / "board" / "aitask_board.py").read_text(
-            encoding="utf-8")
-        self.assertIn("from topic_semantics import", src)
-        self.assertNotIn("\ndef topic_key(", src)
-        self.assertNotIn("def _parse_filename(", src)
+        # The topic build moved to board_task_manager.py (t1794_4); both it and
+        # the board import the shared rule, and no board module re-forks it.
+        board_dir = SCRIPTS_DIR / "board"
+        for name in ("aitask_board.py", "board_task_manager.py"):
+            with self.subTest(module=name):
+                self.assertIn("from topic_semantics import",
+                              (board_dir / name).read_text(encoding="utf-8"))
+        scanned = [p for p in sorted(board_dir.glob("*.py"))
+                   if p.name not in ("__init__.py", "aitask_merge.py")]
+        self.assertIn(board_dir / "board_task_manager.py", scanned)
+        for path in scanned:
+            src = path.read_text(encoding="utf-8")
+            with self.subTest(module=path.name):
+                self.assertNotIn("\ndef topic_key(", src)
+                self.assertNotIn("def _parse_filename(", src)
 
 
 # --- L. Stable-read policy ---------------------------------------------------

@@ -87,7 +87,7 @@ class BoardRefreshDegradeTests(unittest.TestCase):
         cls._cwd = os.getcwd()
         os.chdir(cls._tmp.name)
         try:
-            cls.manager = cls.board.TaskManager()
+            cls.manager = cls.board.make_task_manager()
         except Exception:
             os.chdir(cls._cwd)
             cls._tmp.cleanup()
