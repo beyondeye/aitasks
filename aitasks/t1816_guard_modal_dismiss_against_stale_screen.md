@@ -11,8 +11,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5
 created_at: 2026-09-16 11:22
-updated_at: 2026-09-16 11:34
+updated_at: 2026-09-17 10:45
 ---
 
 ## Symptom (as reported)
@@ -164,3 +165,8 @@ otherwise split them out as follow-ups.
   never dropping to the Browse screen and never exiting.
 - `bash tests/run_all_python_tests.sh --test-dir tests` for the brainstorm
   modules (read only the last `PYTHON SUITE:` line for the verdict).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-17T07:45:38Z status=pass attempt=1 type=human
