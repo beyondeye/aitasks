@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: medium
 effort: low
 depends: []
 issue_type: bug
@@ -13,8 +15,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1794
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5
 created_at: 2026-09-16 11:20
-updated_at: 2026-09-16 12:30
+updated_at: 2026-09-17 09:02
 ---
 
 ## Origin
@@ -65,3 +68,5 @@ with a path-scoped `./ait git` commit once no other session owns them.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-09-17T06:02:26Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-09-17T06:39:52Z status=pass attempt=1 type=human
