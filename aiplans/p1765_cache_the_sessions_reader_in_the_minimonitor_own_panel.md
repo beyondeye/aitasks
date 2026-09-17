@@ -106,3 +106,11 @@ None identified.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+- **Actual work done:** Added the class-level `_own_sessions_view = None` to `MiniMonitorApp`. `_own_frozen_at` now builds a `SessionsView` on first use and reuses it, with no per-tick invalidate. Added `MinimonitorOwnFrozenReaderCacheTests` (2 tests) to `tests/test_monitor_frozen_filter.py`, using a real sessions store pointed to by `AITASKS_AGENT_SESSIONS_FILE` and a scoped `load_safe` counting spy.
+- **Deviations from plan:** None. At plan review the order was changed to test first, then fix, so no `git stash` touched the shared tree.
+- **Issues encountered:** The first test draft failed in setUp because the record created by `upsert` was never `dump`ed before being reloaded. That was fixed in the fixture before taking the red reading.
+- **Key decisions:** Lazy creation, not an `__init__` assignment. Apps built with `__new__` in tests never run `__init__`, and a missing attribute would be swallowed by the broad `except` as "record unreadable". Other one-off `SessionsView()` call sites (keypress/dispatch) were left unchanged.
+- **Red/green:** before the fix, `test_unchanged_store_is_read_once` failed with `2 != 1`, and the rewrite control passed. After the fix, both pass, as do `test_monitor_frozen_filter.py`, `test_minimonitor_own_mark.py` and `test_agent_sessions.py`.
+- **Upstream defects identified:** None
