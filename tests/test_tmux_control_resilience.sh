@@ -28,6 +28,9 @@ fi
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$REPO_ROOT/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 
 if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
@@ -64,7 +67,7 @@ echo "== case A: reconnect-then-recover =="
 FA=$(make_fixture)
 
 (
-    cd "$REPO_ROOT"
+    cd "$REPO_ROOT" || exit 1
     # shellcheck disable=SC2030
     export TMUX_TMPDIR="$FA"
     unset TMUX
@@ -141,7 +144,7 @@ echo "== case B: max-retries cap =="
 FB=$(make_fixture)
 
 (
-    cd "$REPO_ROOT"
+    cd "$REPO_ROOT" || exit 1
     # shellcheck disable=SC2030,SC2031
     export TMUX_TMPDIR="$FB"
     unset TMUX
@@ -203,7 +206,7 @@ echo "== case C: mid-flight transition =="
 FC=$(make_fixture)
 
 (
-    cd "$REPO_ROOT"
+    cd "$REPO_ROOT" || exit 1
     # shellcheck disable=SC2030,SC2031
     export TMUX_TMPDIR="$FC"
     unset TMUX
@@ -292,7 +295,7 @@ echo "== case D: concurrent sync under reconnect =="
 FD=$(make_fixture)
 
 (
-    cd "$REPO_ROOT"
+    cd "$REPO_ROOT" || exit 1
     # shellcheck disable=SC2030,SC2031
     export TMUX_TMPDIR="$FD"
     unset TMUX
@@ -388,7 +391,7 @@ echo "== case E: state-mutating action parity =="
 FE=$(make_fixture)
 
 (
-    cd "$REPO_ROOT"
+    cd "$REPO_ROOT" || exit 1
     # shellcheck disable=SC2030,SC2031
     export TMUX_TMPDIR="$FE"
     unset TMUX

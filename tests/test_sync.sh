@@ -6,6 +6,9 @@ set -e
 
 TEST_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$TEST_SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 
 PASS=0
 FAIL=0
@@ -31,7 +34,7 @@ setup_sync_repos() {
     # Clone to local (main test repo)
     git clone --quiet "$tmpdir/remote.git" "$tmpdir/local" 2>/dev/null
     (
-        cd "$tmpdir/local"
+        cd "$tmpdir/local" || exit 1
         git config user.email "test@test.com"
         git config user.name "Test"
         mkdir -p aitasks aiplans
@@ -48,7 +51,7 @@ Sample task" > aitasks/t1_sample.md
     # Clone to pc2 (simulates another PC)
     git clone --quiet "$tmpdir/remote.git" "$tmpdir/pc2" 2>/dev/null
     (
-        cd "$tmpdir/pc2"
+        cd "$tmpdir/pc2" || exit 1
         git config user.email "test2@test.com"
         git config user.name "Test2"
     )
@@ -66,7 +69,7 @@ setup_no_remote_repo() {
     local tmpdir
     tmpdir="$(mktemp -d)"
     (
-        cd "$tmpdir"
+        cd "$tmpdir" || exit 1
         git init --quiet
         git config user.email "test@test.com"
         git config user.name "Test"
@@ -125,7 +128,7 @@ TMPDIR_3="$(setup_sync_repos)"
 
 # Push a change from pc2
 (
-    cd "$TMPDIR_3/pc2"
+    cd "$TMPDIR_3/pc2" || exit 1
     echo "from-pc2" > aitasks/t2_from_pc2.md
     git add -A
     git commit -m "add task from pc2" --quiet
@@ -145,7 +148,7 @@ TMPDIR_4="$(setup_sync_repos)"
 
 # Push a change from pc2 (different file)
 (
-    cd "$TMPDIR_4/pc2"
+    cd "$TMPDIR_4/pc2" || exit 1
     echo "remote-task" > aitasks/t3_remote.md
     git add -A
     git commit -m "add remote task" --quiet
@@ -173,7 +176,7 @@ TMPDIR_5="$(setup_sync_repos)"
 
 # Push a change from pc2 to the SAME file
 (
-    cd "$TMPDIR_5/pc2"
+    cd "$TMPDIR_5/pc2" || exit 1
     echo "---
 priority: low
 status: Done
@@ -186,7 +189,7 @@ Modified by pc2" > aitasks/t1_sample.md
 
 # Make conflicting local change to same file (committed, not just dirty)
 (
-    cd "$TMPDIR_5/local"
+    cd "$TMPDIR_5/local" || exit 1
     echo "---
 priority: high
 status: Implementing
@@ -272,7 +275,7 @@ TMPDIR_9="$(setup_sync_repos)"
 
 # Push from pc2
 (
-    cd "$TMPDIR_9/pc2"
+    cd "$TMPDIR_9/pc2" || exit 1
     echo "pc2-file" > aitasks/t7_pc2.md
     git add -A
     git commit -m "add t7 from pc2" --quiet
@@ -281,7 +284,7 @@ TMPDIR_9="$(setup_sync_repos)"
 
 # Commit locally (different file, no conflict)
 (
-    cd "$TMPDIR_9/local"
+    cd "$TMPDIR_9/local" || exit 1
     echo "local-file" > aitasks/t8_local.md
     git add -A
     git commit -m "add t8 locally" --quiet
@@ -340,7 +343,7 @@ TMPDIR_12="$(setup_sync_repos)"
 
 # Create a richer task file with multiple frontmatter fields
 (
-    cd "$TMPDIR_12/local"
+    cd "$TMPDIR_12/local" || exit 1
     cat > aitasks/t1_sample.md <<'TASKEOF'
 ---
 priority: high
@@ -361,7 +364,7 @@ TASKEOF
 
 # pc2: change boardcol
 (
-    cd "$TMPDIR_12/pc2"
+    cd "$TMPDIR_12/pc2" || exit 1
     cat > aitasks/t1_sample.md <<'TASKEOF'
 ---
 priority: high
@@ -379,7 +382,7 @@ TASKEOF
 
 # local: change labels (different field, same body)
 (
-    cd "$TMPDIR_12/local"
+    cd "$TMPDIR_12/local" || exit 1
     cat > aitasks/t1_sample.md <<'TASKEOF'
 ---
 priority: high
@@ -412,7 +415,7 @@ TMPDIR_13="$(setup_sync_repos)"
 
 # Create task with priority field
 (
-    cd "$TMPDIR_13/local"
+    cd "$TMPDIR_13/local" || exit 1
     cat > aitasks/t1_sample.md <<'TASKEOF'
 ---
 priority: high
@@ -431,7 +434,7 @@ TASKEOF
 
 # pc2: change priority to low
 (
-    cd "$TMPDIR_13/pc2"
+    cd "$TMPDIR_13/pc2" || exit 1
     cat > aitasks/t1_sample.md <<'TASKEOF'
 ---
 priority: low
@@ -447,7 +450,7 @@ TASKEOF
 
 # local: change priority to medium
 (
-    cd "$TMPDIR_13/local"
+    cd "$TMPDIR_13/local" || exit 1
     cat > aitasks/t1_sample.md <<'TASKEOF'
 ---
 priority: medium
@@ -476,7 +479,7 @@ TMPDIR_14="$(setup_sync_repos)"
 
 # Create task
 (
-    cd "$TMPDIR_14/local"
+    cd "$TMPDIR_14/local" || exit 1
     cat > aitasks/t1_sample.md <<'TASKEOF'
 ---
 priority: high
@@ -495,7 +498,7 @@ TASKEOF
 
 # pc2: change body
 (
-    cd "$TMPDIR_14/pc2"
+    cd "$TMPDIR_14/pc2" || exit 1
     cat > aitasks/t1_sample.md <<'TASKEOF'
 ---
 priority: high
@@ -511,7 +514,7 @@ TASKEOF
 
 # local: change body differently
 (
-    cd "$TMPDIR_14/local"
+    cd "$TMPDIR_14/local" || exit 1
     cat > aitasks/t1_sample.md <<'TASKEOF'
 ---
 priority: high
@@ -544,7 +547,7 @@ cp -r "$PROJECT_DIR/.aitask-scripts" "$TMPDIR_15/pc2/.aitask-scripts"
 # "untracked working tree files would be overwritten".
 # local: seed a shared gate-run block via the real append path, push.
 (
-    cd "$TMPDIR_15/local"
+    cd "$TMPDIR_15/local" || exit 1
     ./.aitask-scripts/aitask_gate.sh append 1 tests_pass pass >/dev/null 2>&1
     git add aitasks/t1_sample.md
     git commit -m "gate: seed tests_pass on t1" --quiet
@@ -553,7 +556,7 @@ cp -r "$PROJECT_DIR/.aitask-scripts" "$TMPDIR_15/pc2/.aitask-scripts"
 
 # pc2: pull the shared block, then append a DIFFERENT gate, push.
 (
-    cd "$TMPDIR_15/pc2"
+    cd "$TMPDIR_15/pc2" || exit 1
     git pull --quiet 2>/dev/null
     ./.aitask-scripts/aitask_gate.sh append 1 lint pass >/dev/null 2>&1
     git add aitasks/t1_sample.md
@@ -563,7 +566,7 @@ cp -r "$PROJECT_DIR/.aitask-scripts" "$TMPDIR_15/pc2/.aitask-scripts"
 
 # local: append yet another gate concurrently (not yet pulled pc2's commit).
 (
-    cd "$TMPDIR_15/local"
+    cd "$TMPDIR_15/local" || exit 1
     ./.aitask-scripts/aitask_gate.sh append 1 docs_updated pass >/dev/null 2>&1
     git add aitasks/t1_sample.md
     git commit -m "gate: append docs_updated on t1 (local)" --quiet

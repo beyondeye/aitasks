@@ -6,6 +6,9 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 . "$PROJECT_DIR/tests/lib/asserts.sh"
 
 # shellcheck source=lib/test_scaffold.sh
@@ -77,7 +80,7 @@ cleanup_test_env() {
 test_help_flag() {
     local tmpdir
     tmpdir=$(setup_test_env)
-    cd "$tmpdir"
+    cd "$tmpdir" || exit 1
 
     local output
     output=$(./.aitask-scripts/aitask_explain_cleanup.sh --help 2>&1)
@@ -92,7 +95,7 @@ test_help_flag() {
 test_no_aitask_explain_dir() {
     local tmpdir
     tmpdir=$(setup_test_env)
-    cd "$tmpdir"
+    cd "$tmpdir" || exit 1
 
     local output
     output=$(./.aitask-scripts/aitask_explain_cleanup.sh 2>&1)
@@ -106,7 +109,7 @@ test_no_aitask_explain_dir() {
 test_empty_aitask_explain_dir() {
     local tmpdir
     tmpdir=$(setup_test_env)
-    cd "$tmpdir"
+    cd "$tmpdir" || exit 1
     mkdir -p .aitask-explain
 
     local output
@@ -120,7 +123,7 @@ test_empty_aitask_explain_dir() {
 test_dry_run_no_deletion() {
     local tmpdir
     tmpdir=$(setup_test_env)
-    cd "$tmpdir"
+    cd "$tmpdir" || exit 1
     create_fixture "$tmpdir"
 
     local output
@@ -141,7 +144,7 @@ test_dry_run_no_deletion() {
 test_cleanup_codebrowser_keeps_newest() {
     local tmpdir
     tmpdir=$(setup_test_env)
-    cd "$tmpdir"
+    cd "$tmpdir" || exit 1
     create_fixture "$tmpdir"
 
     local output
@@ -178,7 +181,7 @@ test_cleanup_codebrowser_keeps_newest() {
 test_cleanup_all_mode() {
     local tmpdir
     tmpdir=$(setup_test_env)
-    cd "$tmpdir"
+    cd "$tmpdir" || exit 1
     create_fixture "$tmpdir"
 
     local output
@@ -208,7 +211,7 @@ test_cleanup_all_mode() {
 test_all_mode_skips_codebrowser_subdir() {
     local tmpdir
     tmpdir=$(setup_test_env)
-    cd "$tmpdir"
+    cd "$tmpdir" || exit 1
     create_fixture "$tmpdir"
 
     ./.aitask-scripts/aitask_explain_cleanup.sh --all --quiet 2>&1 > /dev/null
@@ -223,7 +226,7 @@ test_all_mode_skips_codebrowser_subdir() {
 test_quiet_mode() {
     local tmpdir
     tmpdir=$(setup_test_env)
-    cd "$tmpdir"
+    cd "$tmpdir" || exit 1
     create_fixture "$tmpdir"
 
     local output
@@ -242,7 +245,7 @@ test_quiet_mode() {
 test_skips_dirs_without_marker_files() {
     local tmpdir
     tmpdir=$(setup_test_env)
-    cd "$tmpdir"
+    cd "$tmpdir" || exit 1
 
     # Create dirs without files.txt or raw_data.txt
     mkdir -p .aitask-explain/codebrowser/aiscripts__20260226_100000
@@ -265,7 +268,7 @@ test_skips_dirs_without_marker_files() {
 test_raw_data_txt_accepted() {
     local tmpdir
     tmpdir=$(setup_test_env)
-    cd "$tmpdir"
+    cd "$tmpdir" || exit 1
 
     mkdir -p .aitask-explain/codebrowser/src__20260226_100000
     echo "data" > .aitask-explain/codebrowser/src__20260226_100000/raw_data.txt
@@ -288,7 +291,7 @@ test_raw_data_txt_accepted() {
 test_unrecognized_dir_skipped() {
     local tmpdir
     tmpdir=$(setup_test_env)
-    cd "$tmpdir"
+    cd "$tmpdir" || exit 1
 
     mkdir -p .aitask-explain/codebrowser/some_random_dir
     echo "stuff" > .aitask-explain/codebrowser/some_random_dir/files.txt
@@ -309,7 +312,7 @@ test_unrecognized_dir_skipped() {
 test_nested_key_with_double_underscore() {
     local tmpdir
     tmpdir=$(setup_test_env)
-    cd "$tmpdir"
+    cd "$tmpdir" || exit 1
 
     # Key with nested path: aiscripts__board -> key "aiscripts__board"
     mkdir -p .aitask-explain/codebrowser/aiscripts__board__20260226_100000
@@ -333,7 +336,7 @@ test_nested_key_with_double_underscore() {
 test_single_entry_per_key_no_deletion() {
     local tmpdir
     tmpdir=$(setup_test_env)
-    cd "$tmpdir"
+    cd "$tmpdir" || exit 1
 
     mkdir -p .aitask-explain/codebrowser/aiscripts__20260226_100000
     echo "files" > .aitask-explain/codebrowser/aiscripts__20260226_100000/files.txt
@@ -356,7 +359,7 @@ test_single_entry_per_key_no_deletion() {
 test_unknown_option_fails() {
     local tmpdir
     tmpdir=$(setup_test_env)
-    cd "$tmpdir"
+    cd "$tmpdir" || exit 1
 
     TOTAL=$((TOTAL + 1))
     if ./.aitask-scripts/aitask_explain_cleanup.sh --invalid 2>/dev/null; then

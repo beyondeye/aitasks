@@ -18,6 +18,9 @@ set -u
 
 TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$TEST_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 
 # Resolve the framework interpreter (prefers the aitask venv, which has the
 # yaml dependency the board task_yaml serializer needs) instead of bare python3.

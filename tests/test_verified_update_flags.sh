@@ -32,19 +32,19 @@ result=$(cd "$PROJECT_DIR" && bash "$UPDATE_SCRIPT" --agent-string claudecode/op
 assert_contains "agent-string still works" "UPDATED:claudecode/opus4_6:test_414_flags:" "$result"
 
 echo "=== Test: --agent-string and --agent together errors ==="
-result=$(cd "$PROJECT_DIR" && bash "$UPDATE_SCRIPT" --agent-string claudecode/opus4_6 --agent claudecode --cli-id claude-opus-4-6 --skill test_414_flags --score 3 --silent 2>&1 || true)
+result=$(cd "$PROJECT_DIR" || exit 1 && bash "$UPDATE_SCRIPT" --agent-string claudecode/opus4_6 --agent claudecode --cli-id claude-opus-4-6 --skill test_414_flags --score 3 --silent 2>&1 || true)
 assert_contains "mutual exclusion error" "cannot be combined" "$result"
 
 echo "=== Test: --agent without --cli-id errors ==="
-result=$(cd "$PROJECT_DIR" && bash "$UPDATE_SCRIPT" --agent claudecode --skill test_414_flags --score 3 --silent 2>&1 || true)
+result=$(cd "$PROJECT_DIR" || exit 1 && bash "$UPDATE_SCRIPT" --agent claudecode --skill test_414_flags --score 3 --silent 2>&1 || true)
 assert_contains "missing cli-id error" "--cli-id is required" "$result"
 
 echo "=== Test: --cli-id without --agent errors ==="
-result=$(cd "$PROJECT_DIR" && bash "$UPDATE_SCRIPT" --cli-id claude-opus-4-6 --skill test_414_flags --score 3 --silent 2>&1 || true)
+result=$(cd "$PROJECT_DIR" || exit 1 && bash "$UPDATE_SCRIPT" --cli-id claude-opus-4-6 --skill test_414_flags --score 3 --silent 2>&1 || true)
 assert_contains "missing agent error" "Either --agent-string or --agent/--cli-id is required" "$result"
 
 echo "=== Test: neither --agent-string nor --agent errors ==="
-result=$(cd "$PROJECT_DIR" && bash "$UPDATE_SCRIPT" --skill test_414_flags --score 3 --silent 2>&1 || true)
+result=$(cd "$PROJECT_DIR" || exit 1 && bash "$UPDATE_SCRIPT" --skill test_414_flags --score 3 --silent 2>&1 || true)
 assert_contains "no agent identifier error" "Either --agent-string or --agent/--cli-id is required" "$result"
 
 # --- Summary ---

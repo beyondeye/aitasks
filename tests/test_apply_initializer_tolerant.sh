@@ -6,6 +6,9 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 . "$PROJECT_DIR/tests/lib/asserts.sh"
 
 # shellcheck source=lib/venv_python.sh
@@ -29,7 +32,7 @@ assert_file_missing() {
 run_apply() {
     local tmp_crew="$1"
     (
-        cd "$PROJECT_DIR"
+        cd "$PROJECT_DIR" || exit 1
         "$AITASK_PYTHON" - <<EOF_PY
 import sys, pathlib
 sys.path.insert(0, ".aitask-scripts")
@@ -165,7 +168,7 @@ rm -f /tmp/tolerant_err1 /tmp/tolerant_err2 /tmp/tolerant_err3
 # --- Test 4: _tolerant_yaml_load unit tests (direct call, no apply) ---
 
 (
-    cd "$PROJECT_DIR"
+    cd "$PROJECT_DIR" || exit 1
     "$AITASK_PYTHON" - <<'EOF_PY'
 import sys
 sys.path.insert(0, ".aitask-scripts")

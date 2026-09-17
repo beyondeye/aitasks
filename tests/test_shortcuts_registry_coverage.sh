@@ -15,12 +15,15 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 LIB_DIR="$PROJECT_DIR/.aitask-scripts/lib"
 
 # shellcheck source=lib/venv_python.sh
 source "$SCRIPT_DIR/lib/venv_python.sh"
 
-cd "$PROJECT_DIR"
+cd "$PROJECT_DIR" || exit 1
 
 # All TUIs that mix in ShortcutsMixin somewhere (App or sub-Screen).
 # Each entry is "<module_path>|<expected_scope>" — the scope MUST appear

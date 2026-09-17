@@ -6,6 +6,9 @@ set -e
 
 TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$TEST_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 SCRIPT_DIR="$PROJECT_DIR/.aitask-scripts"
 source "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh"
 
@@ -36,7 +39,7 @@ BINARY_FILE="imgs/aitasks_logo_dark_theme.png"
 # Text test file (must be git-tracked)
 TEXT_FILE=".aitask-scripts/lib/terminal_compat.sh"
 
-cd "$PROJECT_DIR"
+cd "$PROJECT_DIR" || exit 1
 
 echo "=== Binary File Handling Tests (t255_1) ==="
 echo ""

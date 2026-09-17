@@ -16,6 +16,9 @@ set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 TEST_ROOT="$(mktemp -d)/test_t644"
 
 PASS=0
@@ -35,7 +38,7 @@ echo ""
 TARBALL="/tmp/aitasks_test_t644.tar.gz"
 rm -f "$TARBALL"
 (
-    cd "$PROJECT_DIR"
+    cd "$PROJECT_DIR" || exit 1
     tar czf "$TARBALL" \
         .aitask-scripts/ \
         aitasks/metadata/labels.txt \
@@ -63,7 +66,7 @@ rm -rf "$TEST_ROOT"
 mkdir -p "$PROJECT"
 
 (
-    cd "$PROJECT"
+    cd "$PROJECT" || exit 1
     git init --quiet -b master
     git config user.email "test@test.com"
     git config user.name "Test User"
@@ -87,7 +90,7 @@ fi
 
 # Create an aitask-data orphan branch + worktree (mimics ait setup's branch-mode setup)
 (
-    cd "$PROJECT"
+    cd "$PROJECT" || exit 1
     empty_tree=$(git mktree < /dev/null)
     branch_commit=$(echo "ait: Initialize aitask-data branch" | git commit-tree "$empty_tree")
     git update-ref refs/heads/aitask-data "$branch_commit"
@@ -187,7 +190,7 @@ else
 fi
 
 # Status should be clean for the framework paths on master
-master_dirty=$(cd "$PROJECT" && git ls-files --others --exclude-standard \
+master_dirty=$(cd "$PROJECT" || exit 1 && git ls-files --others --exclude-standard \
     .aitask-scripts/ ait .claude/skills/ 2>/dev/null \
     | grep -Ev '(^|/)__pycache__/|\.py[co]$|\.pyd$' || true)
 assert_eq_trim "A9: No untracked framework files on master after upgrade" "" "$master_dirty"
@@ -218,7 +221,7 @@ echo "=== Scenario C: legacy mode (no aitask-data branch) unchanged ==="
 LEGACY="$TEST_ROOT/legacy"
 mkdir -p "$LEGACY"
 (
-    cd "$LEGACY"
+    cd "$LEGACY" || exit 1
     git init --quiet -b master
     git config user.email "test@test.com"
     git config user.name "Test User"
@@ -235,7 +238,7 @@ bash "$PROJECT_DIR/install.sh" --dir "$LEGACY" --local-tarball "$TARBALL" </dev/
 # Now stage the initial framework so the sentinel is tracked, then re-run install
 # with the bumped tarball to exercise commit_installed_files() in legacy mode.
 (
-    cd "$LEGACY"
+    cd "$LEGACY" || exit 1
     git add -A
     git -c user.email=test@test.com -c user.name=Test commit -q -m "ait: Add aitask framework"
 )

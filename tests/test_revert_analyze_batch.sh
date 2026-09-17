@@ -21,6 +21,9 @@
 set -u
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 . "$PROJECT_DIR/tests/lib/asserts.sh"
 
 PASS=0; FAIL=0; TOTAL=0
@@ -202,7 +205,7 @@ commit_file "$fx" "src/p.py" "p" "feature: parent work (t50)"
 commit_file "$fx" "src/q.py" "q" "feature: child work (t60_1)"   # t60 is off-disk
 printf -- '---\nstatus: Ready\n---\nb\n' > "$fx/aitasks/t70_nohistory.md"  # no commits at all
 
-src_a="$( cd "$fx" && { ls aitasks/t*.md aitasks/t*/t*.md aitasks/archived/t*.md aitasks/archived/t*/t*.md 2>/dev/null; } \
+src_a="$( cd "$fx" || exit 1 && { ls aitasks/t*.md aitasks/t*/t*.md aitasks/archived/t*.md aitasks/archived/t*/t*.md 2>/dev/null; } \
     | sed -E 's#.*/t([0-9]+(_[0-9]+)?)_.*#\1#' | sort -u )"
 src_b="$( cd "$fx" && git log --all --format='%B' | grep -oE '\(t[0-9]+(_[0-9]+)?\)' | tr -d '()' | sed 's/^t//' | sort -u )"
 src_c="$( printf '%s\n%s\n' "$src_a" "$src_b" | grep '_' | cut -d'_' -f1 | sort -u )"

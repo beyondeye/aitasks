@@ -16,6 +16,9 @@
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$REPO_ROOT/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 cd "$REPO_ROOT" || exit 1
 
 # shellcheck source=tests/lib/asserts.sh

@@ -6,6 +6,9 @@ set -e
 
 TEST_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$TEST_SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 
 PASS=0
 FAIL=0
@@ -28,7 +31,7 @@ setup_repo_with_remote() {
     git init --bare --quiet "$tmpdir/remote.git"
     git clone --quiet "$tmpdir/remote.git" "$tmpdir/local" 2>/dev/null
     (
-        cd "$tmpdir/local"
+        cd "$tmpdir/local" || exit 1
         git config user.email "test@test.com"
         git config user.name "Test"
         echo "# Test Project" > README.md
@@ -43,7 +46,7 @@ setup_local_repo() {
     local tmpdir
     tmpdir="$(mktemp -d)"
     (
-        cd "$tmpdir"
+        cd "$tmpdir" || exit 1
         git init --quiet
         git config user.email "test@test.com"
         git config user.name "Test"
@@ -72,7 +75,7 @@ echo "--- Test 1: Legacy mode detection ---"
 TMPDIR_1="$(setup_local_repo)"
 
 _AIT_DATA_WORKTREE=""
-pushd "$TMPDIR_1" >/dev/null
+pushd "$TMPDIR_1" >/dev/null || exit 1
 _ait_detect_data_worktree
 assert_eq_trim "Legacy mode: _AIT_DATA_WORKTREE is '.'" "." "$_AIT_DATA_WORKTREE"
 popd >/dev/null
@@ -88,7 +91,7 @@ mkdir -p "$TMPDIR_2/.aitask-data"
 echo "gitdir: ../.git/worktrees/.aitask-data" > "$TMPDIR_2/.aitask-data/.git"
 
 _AIT_DATA_WORKTREE=""
-pushd "$TMPDIR_2" >/dev/null
+pushd "$TMPDIR_2" >/dev/null || exit 1
 _ait_detect_data_worktree
 assert_eq_trim "Branch mode (.git file): _AIT_DATA_WORKTREE is '.aitask-data'" ".aitask-data" "$_AIT_DATA_WORKTREE"
 popd >/dev/null
@@ -103,7 +106,7 @@ TMPDIR_3="$(setup_local_repo)"
 mkdir -p "$TMPDIR_3/.aitask-data/.git"
 
 _AIT_DATA_WORKTREE=""
-pushd "$TMPDIR_3" >/dev/null
+pushd "$TMPDIR_3" >/dev/null || exit 1
 _ait_detect_data_worktree
 assert_eq_trim "Branch mode (.git dir): _AIT_DATA_WORKTREE is '.aitask-data'" ".aitask-data" "$_AIT_DATA_WORKTREE"
 popd >/dev/null
@@ -116,7 +119,7 @@ echo "--- Test 4: task_git passthrough (legacy) ---"
 TMPDIR_4="$(setup_local_repo)"
 
 _AIT_DATA_WORKTREE=""
-pushd "$TMPDIR_4" >/dev/null
+pushd "$TMPDIR_4" >/dev/null || exit 1
 tg_toplevel=$(task_git rev-parse --show-toplevel 2>/dev/null)
 g_toplevel=$(git rev-parse --show-toplevel 2>/dev/null)
 assert_eq_trim "task_git toplevel matches git toplevel" "$g_toplevel" "$tg_toplevel"
@@ -134,7 +137,7 @@ mkdir -p "$SCRIPT_DIR"
 (cd "$TMPDIR_5/local" && setup_data_branch </dev/null >/dev/null 2>&1)
 
 _AIT_DATA_WORKTREE=""
-pushd "$TMPDIR_5/local" >/dev/null
+pushd "$TMPDIR_5/local" >/dev/null || exit 1
 tg_branch=$(task_git branch --show-current 2>/dev/null)
 g_branch=$(git branch --show-current 2>/dev/null)
 assert_eq_trim "task_git on aitask-data branch" "aitask-data" "$tg_branch"
@@ -154,7 +157,7 @@ cp -r "$PROJECT_DIR/.aitask-scripts" "$TMPDIR_6/local/.aitask-scripts"
 chmod +x "$TMPDIR_6/local/ait"
 
 (
-    cd "$TMPDIR_6/local"
+    cd "$TMPDIR_6/local" || exit 1
     git add -A && git commit -m "add scripts" --quiet
 )
 
@@ -213,7 +216,7 @@ TMPDIR_8="$(setup_repo_with_remote)"
 # Push a change from a second clone
 git clone --quiet "$TMPDIR_8/remote.git" "$TMPDIR_8/pc2" 2>/dev/null
 (
-    cd "$TMPDIR_8/pc2"
+    cd "$TMPDIR_8/pc2" || exit 1
     git config user.email "test@test.com"
     git config user.name "Test"
     echo "synced content" > synced_file.txt
@@ -224,7 +227,7 @@ git clone --quiet "$TMPDIR_8/remote.git" "$TMPDIR_8/pc2" 2>/dev/null
 
 # Sync in the original clone
 _AIT_DATA_WORKTREE=""
-pushd "$TMPDIR_8/local" >/dev/null
+pushd "$TMPDIR_8/local" >/dev/null || exit 1
 task_sync
 assert_file_exists "task_sync pulled synced_file.txt" "$TMPDIR_8/local/synced_file.txt"
 popd >/dev/null
@@ -237,14 +240,14 @@ echo "--- Test 9: task_push sends changes ---"
 TMPDIR_9="$(setup_repo_with_remote)"
 
 (
-    cd "$TMPDIR_9/local"
+    cd "$TMPDIR_9/local" || exit 1
     echo "pushed content" > pushed_file.txt
     git add pushed_file.txt
     git commit -m "add pushed file" --quiet
 )
 
 _AIT_DATA_WORKTREE=""
-pushd "$TMPDIR_9/local" >/dev/null
+pushd "$TMPDIR_9/local" >/dev/null || exit 1
 task_push
 popd >/dev/null
 
@@ -260,7 +263,7 @@ echo "--- Test 10: Caching behavior ---"
 TMPDIR_10="$(setup_local_repo)"
 
 _AIT_DATA_WORKTREE=""
-pushd "$TMPDIR_10" >/dev/null
+pushd "$TMPDIR_10" >/dev/null || exit 1
 
 # First detection: no .aitask-data, should be legacy
 _ait_detect_data_worktree
@@ -323,7 +326,7 @@ mkdir -p "$SCRIPT_DIR"
 
 # Positive control: it resolves in the primary checkout.
 _AIT_DATA_WORKTREE=""
-pushd "$TMPDIR_12/local" >/dev/null
+pushd "$TMPDIR_12/local" >/dev/null || exit 1
 primary_rc=0
 primary_gitdir="$(_ait_data_gitdir)" || primary_rc=$?
 popd >/dev/null
@@ -343,7 +346,7 @@ bash "$PROJECT_DIR/.aitask-scripts/aitask_init_data.sh" \
     --link-worktree "$TMPDIR_12/local/aiwork/tG" >/dev/null 2>&1
 
 _AIT_DATA_WORKTREE=""
-pushd "$TMPDIR_12/local/aiwork/tG" >/dev/null
+pushd "$TMPDIR_12/local/aiwork/tG" >/dev/null || exit 1
 # Precondition: .git really is a file here, so the relative admin path is absent.
 assert_eq_trim "12: .git is a file in the linked worktree" "file" \
     "$([[ -f .git ]] && echo file || echo notfile)"
@@ -396,7 +399,7 @@ ROOT_13="$TMPDIR_13/local"
 # Probe helper: resolve with a cold cache from <dir>, echo the answer.
 detect_from() {
     _AIT_DATA_WORKTREE=""
-    pushd "$1" >/dev/null || { echo "PUSHD_FAILED"; return 0; }
+    pushd "$1" >/dev/null || { echo "PUSHD_FAILED"; return 0; }  # cd-guard: returns the sentinel the assertion compares; nothing runs after a failed pushd
     _ait_detect_data_worktree
     popd >/dev/null
     printf '%s' "$_AIT_DATA_WORKTREE"
@@ -493,7 +496,7 @@ source "$PROJECT_DIR/.aitask-scripts/lib/artifact_backends/local.sh"
 consumer_canon() {
     local val="$1" dir="$2" p
     _AIT_DATA_WORKTREE="$val"
-    pushd "$dir" >/dev/null || { echo "PUSHD_FAILED"; return 0; }
+    pushd "$dir" >/dev/null || { echo "PUSHD_FAILED"; return 0; }  # cd-guard: returns the sentinel the assertion compares; nothing runs after a failed pushd
     for p in "$(artifact_manifest_dir)" "$(attach_meta_dir)" \
              "$(attachment_lock_dir)" "$(_artifact_local_root)"; do
         mkdir -p "$p"
@@ -524,7 +527,7 @@ assert_eq_trim "13g: negative control — the relative spelling off-root does NO
 
 # The `git -C` consumers, driven from a SUBDIRECTORY with the absolute value.
 _AIT_DATA_WORKTREE="$ROOT_13/.aitask-data"
-pushd "$ROOT_13/website" >/dev/null
+pushd "$ROOT_13/website" >/dev/null || exit 1
 abs_branch_13="$(_ait_data_git rev-parse --abbrev-ref HEAD 2>/dev/null)"
 # _ait_data_gitdir's relative fast path (.git/worktrees/-aitask-data) cannot hit
 # from here, so this exercises its `git -C ... --absolute-git-dir` fallback.
@@ -684,7 +687,7 @@ git -c protocol.file.allow=always -C "$ROOT_15" \
 # Probe helper: resolve with a cold cache from <dir>, echo the answer.
 detect_from_15() {
     _AIT_DATA_WORKTREE=""
-    pushd "$1" >/dev/null || { echo "PUSHD_FAILED"; return 0; }
+    pushd "$1" >/dev/null || { echo "PUSHD_FAILED"; return 0; }  # cd-guard: returns the sentinel the assertion compares; nothing runs after a failed pushd
     _ait_detect_data_worktree
     popd >/dev/null
     printf '%s' "$_AIT_DATA_WORKTREE"

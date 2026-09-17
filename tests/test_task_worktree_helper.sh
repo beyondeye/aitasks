@@ -17,6 +17,9 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 . "$PROJECT_DIR/tests/lib/asserts.sh"
 HELPER="$PROJECT_DIR/.aitask-scripts/aitask_task_worktree.sh"
 
@@ -26,7 +29,7 @@ TOTAL=0
 
 ROOTS=()
 cleanup() {
-    cd "$PROJECT_DIR" || true
+    cd "$PROJECT_DIR" || true  # cd-guard: cleanup only removes absolute paths below
     local r
     for r in "${ROOTS[@]:-}"; do
         [[ -n "$r" && -d "$r" ]] && chmod -R u+w "$r" 2>/dev/null
@@ -48,7 +51,7 @@ fresh_repo() {
     git -C "$REPO" config user.email t@t
     git -C "$REPO" config user.name t
     git -C "$REPO" commit -q --allow-empty -m init
-    cd "$REPO"
+    cd "$REPO" || exit 1
     PRIMARY="$(git symbolic-ref --short HEAD)"
 }
 
@@ -201,9 +204,9 @@ assert_eq "13: git still works" "aitask/tA" "$(git symbolic-ref --short HEAD)"
 echo "=== Case 14: remove --force with cwd INSIDE the worktree ==="
 fresh_repo
 git worktree add -q -b aitask/tA aiwork/tA "$PRIMARY"
-cd aiwork/tA
+cd aiwork/tA || exit 1
 run_helper remove tA --force
-cd "$REPO"
+cd "$REPO" || exit 1
 assert_contains "14: worktree removed from inside itself" "WORKTREE_REMOVED" "$OUT"
 assert_contains "14: verdict CLEAN" "CLEAN" "$OUT"
 assert_eq "14: exits 0" "0" "$RC"
@@ -276,7 +279,7 @@ echo "=== Case 20: a producer error is its own state, never a negative result ==
 fresh_repo
 NOREPO="$(mktemp -d "${TMPDIR:-/tmp}/t1548norepo.XXXXXX")"
 ROOTS+=("$NOREPO")
-cd "$NOREPO"
+cd "$NOREPO" || exit 1
 run_helper resolve tA
 assert_eq "20: resolve outside a repo exits non-zero" "3" "$RC"
 assert_eq "20: resolve prints no state" "" "$OUT"
@@ -285,7 +288,7 @@ run_helper remove tA --force
 assert_eq "20: remove outside a repo exits non-zero" "3" "$RC"
 assert_not_contains "20: remove never claims CLEAN" "CLEAN" "$OUT"
 assert_not_contains "20: remove never claims NONE" "NONE" "$OUT"
-cd "$PROJECT_DIR"
+cd "$PROJECT_DIR" || exit 1
 
 echo "=== Case 21: a failed run produces NO stdout (the callers' fail-closed premise) ==="
 # Both call sites parse stdout. `read -r state path <<<"$(helper resolve X)"`

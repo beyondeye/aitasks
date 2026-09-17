@@ -12,6 +12,9 @@ set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 . "$PROJECT_DIR/tests/lib/asserts.sh"
 
 PASS=0
@@ -217,7 +220,7 @@ for (( i=1; i<=N; i++ )); do
     [[ "$r" == "0" ]] || rc_bad=$((rc_bad + 1))
 done
 merge_commits="$( cd "$R2" && git rev-list --count --merges main )"
-distinct="$( cd "$R2" && git log --merges --format=%s main | grep -c "aitask/t" || true )"
+distinct="$( cd "$R2" || exit 1 && git log --merges --format=%s main | grep -c "aitask/t" || true )"
 
 if [[ "$timed_out" -eq 1 ]]; then
     echo "DIAGNOSTIC: case 2 exceeded its ${CASE_BUDGET}s wall-clock GUARD."

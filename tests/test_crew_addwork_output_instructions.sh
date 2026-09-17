@@ -13,6 +13,9 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 ORIG_DIR="$(pwd)"
 
 # --- Test helpers ---
@@ -32,7 +35,7 @@ setup_test_repo() {
     tmpdir="$(mktemp -d)"
 
     (
-        cd "$tmpdir"
+        cd "$tmpdir" || exit 1
         git init --quiet
         git config user.email "test@test.com"
         git config user.name "Test"
@@ -55,9 +58,9 @@ setup_test_repo() {
 
 cleanup_test_repo() {
     local tmpdir="$1"
-    cd "$ORIG_DIR"
+    cd "$ORIG_DIR" || exit 1
     if [[ -d "$tmpdir" ]]; then
-        (cd "$tmpdir" && git worktree prune 2>/dev/null || true)
+        (cd "$tmpdir" || exit 1 && git worktree prune 2>/dev/null || true)
         rm -rf "$tmpdir"
     fi
 }
@@ -74,7 +77,7 @@ echo ""
 echo "Test 1: _instructions.md carries the read-before-write note"
 TMPDIR_T1="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T1"
+    cd "$TMPDIR_T1" || exit 1
 
     bash .aitask-scripts/aitask_crew_init.sh --id testcrew --batch \
         --add-type "impl:claudecode/opus4_6" >/dev/null 2>&1

@@ -6,6 +6,9 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 
 # shellcheck source=lib/test_scaffold.sh
 . "$PROJECT_DIR/tests/lib/test_scaffold.sh"
@@ -47,7 +50,7 @@ setup_project() {
     local local_dir="$tmpdir/local"
     git clone --quiet "$remote_dir" "$local_dir"
     (
-        cd "$local_dir"
+        cd "$local_dir" || exit 1
         git config user.email "test@test.com"
         git config user.name "Test"
 
@@ -183,7 +186,7 @@ based_on_version: 0.9.1
 # We can't call the full import flow (needs gh CLI), but we can test
 # parse_contribute_metadata + aitask_create.sh with contributor flags
 (
-    cd "$TMPDIR_5/local"
+    cd "$TMPDIR_5/local" || exit 1
     echo "Test task with contributor" | bash .aitask-scripts/aitask_create.sh --batch --name "contribute_import" \
         --contributor "external_dev" \
         --contributor-email "555+external_dev@users.noreply.github.com" \
@@ -204,7 +207,7 @@ echo "--- Test 6: Batch import without contribute metadata ---"
 TMPDIR_6="$(setup_project)"
 
 (
-    cd "$TMPDIR_6/local"
+    cd "$TMPDIR_6/local" || exit 1
     echo "Normal issue body" | bash .aitask-scripts/aitask_create.sh --batch --name "normal_import" \
         --issue "https://github.com/owner/repo/issues/10" \
         --desc-file - >/dev/null 2>&1

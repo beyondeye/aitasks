@@ -24,6 +24,9 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 
 # shellcheck source=lib/test_scaffold.sh
 . "$PROJECT_DIR/tests/lib/test_scaffold.sh"
@@ -67,7 +70,7 @@ setup_repo() {
     git init --bare --quiet "$tmpdir/remote.git"
     git clone --quiet "$tmpdir/remote.git" "$tmpdir/local" 2>/dev/null
 
-    pushd "$tmpdir/local" >/dev/null || return 1
+    pushd "$tmpdir/local" >/dev/null || exit 1
     git config user.email "t@t"
     git config user.name "t"
     mkdir -p aitasks/metadata aitasks/t900 aiplans
@@ -125,7 +128,7 @@ inject_frontmatter() {   # simulate inject_merge_frontmatter
 test_a1_expected_head_amends() {
     echo "=== A1: expected HEAD is amended, not forked ==="
     local repo; repo="$(setup_repo)"
-    pushd "$repo" >/dev/null || return
+    pushd "$repo" >/dev/null || exit 1
 
     local tf; tf="$(seed_task_commit)"
     local sha_before n_before
@@ -153,7 +156,7 @@ test_a1_expected_head_amends() {
 test_a1b_accepted_cochanges_amend() {
     echo "=== A1b: labels.txt and a child's parent file are accepted co-changes ==="
     local repo; repo="$(setup_repo)"
-    pushd "$repo" >/dev/null || return
+    pushd "$repo" >/dev/null || exit 1
 
     # A child creation commit: child file + parent file + labels.txt
     local child="aitasks/t900/t900_2_child.md"
@@ -184,7 +187,7 @@ test_a1b_accepted_cochanges_amend() {
 test_a2_foreign_head_refuses_without_loss() {
     echo "=== A2: foreign path in HEAD => no rewrite, fresh commit instead ==="
     local repo; repo="$(setup_repo)"
-    pushd "$repo" >/dev/null || return
+    pushd "$repo" >/dev/null || exit 1
 
     local foreign="aiplans/p999_unrelated.md"
     printf 'someone elses work\n' > "$foreign"
@@ -217,7 +220,7 @@ test_a2_foreign_head_refuses_without_loss() {
 test_a4_refusal_is_reported() {
     echo "=== A4: the refusal warning names the offending path ==="
     local repo; repo="$(setup_repo)"
-    pushd "$repo" >/dev/null || return
+    pushd "$repo" >/dev/null || exit 1
 
     local foreign="aiplans/p999_unrelated.md"
     printf 'someone elses work\n' > "$foreign"
@@ -243,7 +246,7 @@ test_a4_refusal_is_reported() {
 test_a5_ambiguous_parent_refuses() {
     echo "=== A5: two same-prefix parent candidates => refuse, do not rewrite ==="
     local repo; repo="$(setup_repo)"
-    pushd "$repo" >/dev/null || return
+    pushd "$repo" >/dev/null || exit 1
 
     local child="aitasks/t900/t900_2_child.md"
     local parent="aitasks/t900_parent.md"
@@ -285,7 +288,7 @@ test_a5_ambiguous_parent_refuses() {
 test_a6_unreadable_head_fails_closed() {
     echo "=== A6a: an unreadable HEAD refuses instead of permitting ==="
     local repo; repo="$(setup_repo)"
-    pushd "$repo" >/dev/null || return
+    pushd "$repo" >/dev/null || exit 1
 
     # A fresh orphan branch has no commits, so `git show HEAD` fails outright.
     git checkout -q --orphan unborn 2>/dev/null
@@ -307,7 +310,7 @@ test_a6_unreadable_head_fails_closed() {
 test_a6b_merge_head_fails_closed() {
     echo "=== A6b: a MERGE HEAD (empty path list) refuses ==="
     local repo; repo="$(setup_repo)"
-    pushd "$repo" >/dev/null || return
+    pushd "$repo" >/dev/null || exit 1
 
     local tf; tf="$(seed_task_commit)"
     # Build a merge whose --name-only output is empty.
@@ -338,7 +341,7 @@ test_a6b_merge_head_fails_closed() {
 test_a3_published_head_refuses() {
     echo "=== A3: published HEAD => no rewrite of pushed history ==="
     local repo; repo="$(setup_repo)"
-    pushd "$repo" >/dev/null || return
+    pushd "$repo" >/dev/null || exit 1
 
     local tf; tf="$(seed_task_commit)"
     git push -q -u origin HEAD >/dev/null 2>&1      # HEAD is now an ancestor of @{u}
@@ -376,7 +379,7 @@ install_guard_stub() {   # <always_rc> <dest>
 test_neg_guard_stripped_reintroduces_the_defect() {
     echo "=== NEG 1: guard stripped => contaminated HEAD is rewritten (defect returns) ==="
     local repo; repo="$(setup_repo)"
-    pushd "$repo" >/dev/null || return
+    pushd "$repo" >/dev/null || exit 1
 
     local foreign="aiplans/p999_unrelated.md"
     printf 'someone elses work\n' > "$foreign"
@@ -402,7 +405,7 @@ test_neg_guard_stripped_reintroduces_the_defect() {
 test_neg_always_refuse_breaks_the_permit_path() {
     echo "=== NEG 2: always-refusing guard => the normal amend path is lost ==="
     local repo; repo="$(setup_repo)"
-    pushd "$repo" >/dev/null || return
+    pushd "$repo" >/dev/null || exit 1
 
     local tf; tf="$(seed_task_commit)"
     local n_before; n_before=$(count_commits)

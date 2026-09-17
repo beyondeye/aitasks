@@ -7,6 +7,9 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 
 PASS=0
 FAIL=0
@@ -38,7 +41,7 @@ EOF
 # Initialise OK_ROOT as a git repo so `git clone file://$OK_ROOT ...` works
 # in the happy-path test.
 (
-    cd "$OK_ROOT"
+    cd "$OK_ROOT" || exit 1
     git init -q
     git config user.email "test@example.test"
     git config user.name "Test"

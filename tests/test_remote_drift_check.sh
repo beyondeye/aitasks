@@ -6,6 +6,9 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 HELPER="$PROJECT_DIR/.aitask-scripts/aitask_remote_drift_check.sh"
 
 PASS=0
@@ -31,7 +34,7 @@ make_branch_mode_pair() {
 
     git clone --quiet "$root/origin.git" "$root/local" 2>/dev/null
     (
-        cd "$root/local"
+        cd "$root/local" || exit 1
         git config user.email "test@example.com"
         git config user.name  "Test"
         echo "v1" > README.md
@@ -52,7 +55,7 @@ make_legacy_mode_repo() {
     root=$(mktemp -d "${TMPDIR:-/tmp}/aitask_drift_legacy_XXXXXX")
     git init --quiet "$root"
     (
-        cd "$root"
+        cd "$root" || exit 1
         git config user.email "test@example.com"
         git config user.name  "Test"
         echo "v1" > README.md
@@ -81,7 +84,7 @@ make_legacy_mode_pair_with_stale_dev() {
     git clone --quiet "$root/origin.git" "$root/local" 2>/dev/null
     local default_branch
     (
-        cd "$root/local"
+        cd "$root/local" || exit 1
         git config user.email "test@example.com"
         git config user.name  "Test"
         echo "v1" > README.md
@@ -219,7 +222,7 @@ register_cleanup "$root"
 # Make a "second clone" to push from, simulating another PC
 git clone --quiet "$root/origin.git" "$root/other" 2>/dev/null
 (
-    cd "$root/other"
+    cd "$root/other" || exit 1
     git config user.email "other@example.com"
     git config user.name  "Other"
     mkdir -p docs
@@ -250,7 +253,7 @@ register_cleanup "$root"
 
 git clone --quiet "$root/origin.git" "$root/other" 2>/dev/null
 (
-    cd "$root/other"
+    cd "$root/other" || exit 1
     git config user.email "other@example.com"
     git config user.name  "Other"
     mkdir -p .aitask-scripts
@@ -278,7 +281,7 @@ broken=$(make_legacy_mode_repo)
 register_cleanup "$broken"
 mark_branch_mode "$broken"
 (
-    cd "$broken"
+    cd "$broken" || exit 1
     git remote add origin "file:///nonexistent_$$_$RANDOM/origin.git"
 )
 plan_path="$broken/plan.md"
@@ -425,7 +428,7 @@ assert_contains "12a: stale merge target reports AHEAD" "AHEAD:1" "$result"
 #      divergence survives it untouched. This is what makes "Step 9's own merge
 #      surfaces the divergence" false: nothing fetched, so nothing was seen.
 if (
-    cd "$mlocal"
+    cd "$mlocal" || exit 1
     git checkout --quiet -b aitask/t_demo dev
     echo "task work" > task_file.txt
     git add task_file.txt
@@ -450,7 +453,7 @@ clocal="$croot/local"
 # instead — succeeding while leaving `dev` exactly as stale as before. The
 # `symbolic-ref` assertion in merge-target-sync.md exists for this.
 if (
-    cd "$clocal"
+    cd "$clocal" || exit 1
     git checkout --quiet dev --
     [ "$(git symbolic-ref --short HEAD)" = "dev" ]
     git merge --ff-only origin/dev
@@ -479,7 +482,7 @@ droot="${dpair%|*}"
 register_cleanup "$droot"
 dlocal="$droot/local"
 (
-    cd "$dlocal"
+    cd "$dlocal" || exit 1
     git checkout --quiet dev
     echo "local only" > local_only.txt
     git add local_only.txt
@@ -523,7 +526,7 @@ register_cleanup "$root"
 
 git clone --quiet "$root/origin.git" "$root/other" 2>/dev/null
 (
-    cd "$root/other"
+    cd "$root/other" || exit 1
     git config user.email "other@example.com"
     git config user.name  "Other"
     mkdir -p src/app aidocs/framework
@@ -625,7 +628,7 @@ register_cleanup "$root"
 # extracted set and nothing is hidden by a non-matching remote.
 git clone --quiet "$root/origin.git" "$root/other" 2>/dev/null
 (
-    cd "$root/other"
+    cd "$root/other" || exit 1
     git config user.email "other@example.com"
     git config user.name  "Other"
     while IFS= read -r f; do
@@ -682,7 +685,7 @@ register_cleanup "$root"
 
 # Both sides share tests/test_archive.sh at a common base commit.
 (
-    cd "$root/local"
+    cd "$root/local" || exit 1
     mkdir -p tests
     echo "baseline" > tests/test_archive.sh
     git add tests/test_archive.sh
@@ -693,7 +696,7 @@ register_cleanup "$root"
 # Another PC pushes a change to a DIFFERENT plan-referenced file.
 git clone --quiet "$root/origin.git" "$root/other" 2>/dev/null
 (
-    cd "$root/other"
+    cd "$root/other" || exit 1
     git config user.email "other@example.com"
     git config user.name  "Other"
     mkdir -p .aitask-scripts
@@ -705,7 +708,7 @@ git clone --quiet "$root/origin.git" "$root/other" 2>/dev/null
 
 # The user's OWN local commit touches the shared file. Never pushed.
 (
-    cd "$root/local"
+    cd "$root/local" || exit 1
     echo "local edit" >> tests/test_archive.sh
     git add tests/test_archive.sh
     git commit --quiet -m "local-only change to the shared test file"

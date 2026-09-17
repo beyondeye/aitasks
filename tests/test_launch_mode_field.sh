@@ -6,6 +6,9 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 # shellcheck source=lib/test_scaffold.sh
 . "$PROJECT_DIR/tests/lib/test_scaffold.sh"
 . "$PROJECT_DIR/tests/lib/asserts.sh"
@@ -23,7 +26,7 @@ setup_test_repo() {
     tmpdir="$(mktemp -d)"
 
     (
-        cd "$tmpdir"
+        cd "$tmpdir" || exit 1
         git init --quiet
         git config user.email "test@test.com"
         git config user.name "Test"
@@ -49,9 +52,9 @@ setup_test_repo() {
 
 cleanup_test_repo() {
     local tmpdir="$1"
-    cd "$ORIG_DIR"
+    cd "$ORIG_DIR" || exit 1
     if [[ -d "$tmpdir" ]]; then
-        (cd "$tmpdir" && git worktree prune 2>/dev/null || true)
+        (cd "$tmpdir" || exit 1 && git worktree prune 2>/dev/null || true)
         rm -rf "$tmpdir"
     fi
 }
@@ -67,7 +70,7 @@ echo ""
 echo "Test 1: default launch_mode is headless"
 TMPDIR_T1="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T1"
+    cd "$TMPDIR_T1" || exit 1
     bash .aitask-scripts/aitask_crew_init.sh --id lm1 --add-type impl:claudecode/opus4_6 --batch >/dev/null 2>&1
     bash .aitask-scripts/aitask_crew_addwork.sh --crew lm1 --name a_default --work2do /dev/null --type impl --batch >/dev/null 2>&1
     status_content=$(cat ".aitask-crews/crew-lm1/a_default_status.yaml")
@@ -79,7 +82,7 @@ cleanup_test_repo "$TMPDIR_T1"
 echo "Test 2: --launch-mode headless is explicit"
 TMPDIR_T2="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T2"
+    cd "$TMPDIR_T2" || exit 1
     bash .aitask-scripts/aitask_crew_init.sh --id lm2 --add-type impl:claudecode/opus4_6 --batch >/dev/null 2>&1
     bash .aitask-scripts/aitask_crew_addwork.sh --crew lm2 --name a_headless --work2do /dev/null --type impl --launch-mode headless --batch >/dev/null 2>&1
     status_content=$(cat ".aitask-crews/crew-lm2/a_headless_status.yaml")
@@ -92,7 +95,7 @@ cleanup_test_repo "$TMPDIR_T2"
 echo "Test 3: --launch-mode interactive sets the field"
 TMPDIR_T3="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T3"
+    cd "$TMPDIR_T3" || exit 1
     bash .aitask-scripts/aitask_crew_init.sh --id lm3 --add-type impl:claudecode/opus4_6 --batch >/dev/null 2>&1
     output=$(bash .aitask-scripts/aitask_crew_addwork.sh --crew lm3 --name a_inter --work2do /dev/null --type impl --launch-mode interactive --batch 2>&1)
     assert_contains "addwork with interactive succeeds" "ADDED:a_inter" "$output"
@@ -105,7 +108,7 @@ cleanup_test_repo "$TMPDIR_T3"
 echo "Test 4: invalid --launch-mode value is rejected"
 TMPDIR_T4="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T4"
+    cd "$TMPDIR_T4" || exit 1
     bash .aitask-scripts/aitask_crew_init.sh --id lm4 --add-type impl:claudecode/opus4_6 --batch >/dev/null 2>&1
     assert_exit_nonzero "rejects invalid launch_mode" \
         bash .aitask-scripts/aitask_crew_addwork.sh --crew lm4 --name a_bad --work2do /dev/null --type impl --launch-mode weird --batch
@@ -116,7 +119,7 @@ cleanup_test_repo "$TMPDIR_T4"
 echo "Test 5: --launch-mode without value is rejected"
 TMPDIR_T5="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T5"
+    cd "$TMPDIR_T5" || exit 1
     bash .aitask-scripts/aitask_crew_init.sh --id lm5 --add-type impl:claudecode/opus4_6 --batch >/dev/null 2>&1
     assert_exit_nonzero "rejects empty --launch-mode" \
         bash .aitask-scripts/aitask_crew_addwork.sh --crew lm5 --name a_empty --work2do /dev/null --type impl --launch-mode --batch

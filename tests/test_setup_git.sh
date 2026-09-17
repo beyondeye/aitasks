@@ -4,6 +4,9 @@
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 
 # shellcheck source=lib/test_scaffold.sh
 . "$PROJECT_DIR/tests/lib/test_scaffold.sh"
@@ -220,7 +223,7 @@ git init --bare --quiet "$TMPDIR_9/remote.git"
 # Create local clone
 git clone --quiet "$TMPDIR_9/remote.git" "$TMPDIR_9/local"
 (
-    cd "$TMPDIR_9/local"
+    cd "$TMPDIR_9/local" || exit 1
     git config user.email "t@t.com"
     git config user.name "T"
     mkdir -p aitasks
@@ -254,7 +257,7 @@ TMPDIR_9b="$(mktemp -d)"
 git init --bare --quiet "$TMPDIR_9b/remote.git"
 git clone --quiet "$TMPDIR_9b/remote.git" "$TMPDIR_9b/local"
 (
-    cd "$TMPDIR_9b/local"
+    cd "$TMPDIR_9b/local" || exit 1
     git config user.email "t@t.com"
     git config user.name "T"
     mkdir -p aitasks/archived
@@ -484,7 +487,7 @@ echo "--- Test 18: setup_python_cache_gitignore commits the change ---"
 
 TMPDIR_18="$(setup_fake_project)"
 (
-    cd "$TMPDIR_18"
+    cd "$TMPDIR_18" || exit 1
     git init --quiet
     git config user.email "t@t.com"
     git config user.name "T"
@@ -521,7 +524,7 @@ echo "--- Test 19: setup_python_cache_gitignore idempotent ---"
 
 TMPDIR_19="$(setup_fake_project)"
 (
-    cd "$TMPDIR_19"
+    cd "$TMPDIR_19" || exit 1
     git init --quiet
     git config user.email "t@t.com"
     git config user.name "T"

@@ -25,6 +25,9 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$REPO_ROOT/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 
 if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
@@ -36,7 +39,7 @@ fi
 # Tier 1: pure-unit tests (no tmux)
 # ---------------------------------------------------------------------------
 (
-    cd "$REPO_ROOT"
+    cd "$REPO_ROOT" || exit 1
     PYTHONPATH="$REPO_ROOT/.aitask-scripts" "$PYTHON_BIN" - <<'PYEOF'
 import os
 import sys
@@ -222,7 +225,7 @@ FIXTURE_DIR=$(mktemp -d "${TMPDIR:-/tmp}/ait_multiagent_XXXXXX")
 trap 'TMUX_TMPDIR="$FIXTURE_DIR" tmux kill-server 2>/dev/null || true; rm -rf "$FIXTURE_DIR"' EXIT
 
 (
-    cd "$REPO_ROOT"
+    cd "$REPO_ROOT" || exit 1
     export TMUX_TMPDIR="$FIXTURE_DIR"
     export REPO_ROOT
     unset TMUX

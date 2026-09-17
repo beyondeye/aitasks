@@ -23,6 +23,9 @@ set -uo pipefail
 
 TEST_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$TEST_SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 
 PASS=0
 FAIL=0
@@ -52,7 +55,7 @@ setup_with_seed() {
 run_ensure_phase() {   # <tmpdir> <ensure fn>...
     local t="$1"; shift
     local saved_dir="$PWD" saved_script="$SCRIPT_DIR" fn
-    cd "$t/local" || return 1
+    cd "$t/local" || exit 1
     SCRIPT_DIR="$t/local/.aitask-scripts"
     AIT_SETUP_METADATA_NEW=(); AIT_SETUP_METADATA_EXISTING=()
     for fn in "$@"; do
@@ -60,7 +63,7 @@ run_ensure_phase() {   # <tmpdir> <ensure fn>...
     done
     commit_setup_metadata_writes >/dev/null 2>&1
     SCRIPT_DIR="$saved_script"
-    cd "$saved_dir" || return 1
+    cd "$saved_dir" || exit 1
 }
 
 echo "=== ait setup commits only the metadata IT wrote (t1677) ==="

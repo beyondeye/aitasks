@@ -4,7 +4,10 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-cd "$REPO_ROOT"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$REPO_ROOT/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
+cd "$REPO_ROOT" || exit 1
 
 # shellcheck source=lib/venv_python.sh
 . "$SCRIPT_DIR/lib/venv_python.sh"

@@ -6,6 +6,9 @@ set -e
 
 TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$TEST_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 MERGE_SCRIPT="$PROJECT_DIR/.aitask-scripts/board/aitask_merge.py"
 
 # Prefer aitask venv python, fall back to system python3

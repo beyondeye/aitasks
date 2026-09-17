@@ -6,6 +6,9 @@ set -e
 
 TEST_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$TEST_SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 . "$PROJECT_DIR/tests/lib/asserts.sh"
 
 # shellcheck source=lib/test_scaffold.sh
@@ -49,7 +52,7 @@ setup_repo_with_remote() {
     git init --bare --quiet "$tmpdir/remote.git"
     git clone --quiet "$tmpdir/remote.git" "$tmpdir/local" 2>/dev/null
     (
-        cd "$tmpdir/local"
+        cd "$tmpdir/local" || exit 1
         git config user.email "test@test.com"
         git config user.name "Test"
         echo "# Test Project" > README.md
@@ -64,7 +67,7 @@ setup_local_repo() {
     local tmpdir
     tmpdir="$(mktemp -d)"
     (
-        cd "$tmpdir"
+        cd "$tmpdir" || exit 1
         git init --quiet
         git config user.email "test@test.com"
         git config user.name "Test"
@@ -94,7 +97,7 @@ create_data_branch_setup() {
     cp "$PROJECT_DIR/.aitask-scripts/lib/github_release.sh" "$repo_dir/.aitask-scripts/lib/"
     cp -r "$PROJECT_DIR/seed" "$repo_dir/seed" 2>/dev/null || true
     (
-        cd "$repo_dir"
+        cd "$repo_dir" || exit 1
         # Source setup.sh to get setup_data_branch function
         SCRIPT_DIR="$repo_dir/.aitask-scripts"
         source "$repo_dir/.aitask-scripts/lib/terminal_compat.sh"
@@ -115,7 +118,7 @@ TMPDIR_1="$(setup_local_repo)"
 install_script "$TMPDIR_1"
 mkdir -p "$TMPDIR_1/aitasks/metadata"
 
-pushd "$TMPDIR_1" >/dev/null
+pushd "$TMPDIR_1" >/dev/null || exit 1
 output=$(bash .aitask-scripts/aitask_init_data.sh 2>/dev/null)
 assert_eq_trim "Legacy mode output" "LEGACY_MODE" "$output"
 assert_not_symlink "aitasks/ is not a symlink" "aitasks"
@@ -130,7 +133,7 @@ TMPDIR_2="$(setup_repo_with_remote)"
 install_script "$TMPDIR_2/local"
 create_data_branch_setup "$TMPDIR_2/local"
 
-pushd "$TMPDIR_2/local" >/dev/null
+pushd "$TMPDIR_2/local" >/dev/null || exit 1
 output=$(bash .aitask-scripts/aitask_init_data.sh 2>/dev/null)
 assert_eq_trim "Already init output" "ALREADY_INIT" "$output"
 assert_symlink "aitasks/ is a symlink" "aitasks"
@@ -145,7 +148,7 @@ echo "--- Test 3: No data branch (fresh repo) ---"
 TMPDIR_3="$(setup_local_repo)"
 install_script "$TMPDIR_3"
 
-pushd "$TMPDIR_3" >/dev/null
+pushd "$TMPDIR_3" >/dev/null || exit 1
 output=$(bash .aitask-scripts/aitask_init_data.sh 2>/dev/null)
 assert_eq_trim "No data branch output" "NO_DATA_BRANCH" "$output"
 popd >/dev/null
@@ -160,7 +163,7 @@ install_script "$TMPDIR_4/local"
 create_data_branch_setup "$TMPDIR_4/local"
 
 # Remove worktree and symlinks but keep the branch
-pushd "$TMPDIR_4/local" >/dev/null
+pushd "$TMPDIR_4/local" >/dev/null || exit 1
 git worktree remove .aitask-data --force 2>/dev/null
 rm -f aitasks aiplans
 
@@ -190,7 +193,7 @@ git clone --quiet "$TMPDIR_5/remote.git" "$TMPDIR_5/clone2" 2>/dev/null
 install_script "$TMPDIR_5/clone2"
 (cd "$TMPDIR_5/clone2" && git config user.email "test@test.com" && git config user.name "Test")
 
-pushd "$TMPDIR_5/clone2" >/dev/null
+pushd "$TMPDIR_5/clone2" >/dev/null || exit 1
 # Verify branch is NOT local but IS on remote
 local_branch=$(git show-ref --verify refs/heads/aitask-data 2>/dev/null && echo "yes" || echo "no")
 remote_branch=$(git ls-remote --heads origin aitask-data 2>/dev/null | grep -q aitask-data && echo "yes" || echo "no")
@@ -214,7 +217,7 @@ TMPDIR_6="$(setup_repo_with_remote)"
 install_script "$TMPDIR_6/local"
 create_data_branch_setup "$TMPDIR_6/local"
 
-pushd "$TMPDIR_6/local" >/dev/null
+pushd "$TMPDIR_6/local" >/dev/null || exit 1
 # Remove worktree but leave broken symlinks
 git worktree remove .aitask-data --force 2>/dev/null
 
@@ -243,7 +246,7 @@ TMPDIR_7="$(setup_repo_with_remote)"
 install_script "$TMPDIR_7/local"
 create_data_branch_setup "$TMPDIR_7/local"
 
-pushd "$TMPDIR_7/local" >/dev/null
+pushd "$TMPDIR_7/local" >/dev/null || exit 1
 output1=$(bash .aitask-scripts/aitask_init_data.sh 2>/dev/null)
 output2=$(bash .aitask-scripts/aitask_init_data.sh 2>/dev/null)
 assert_eq_trim "First run: ALREADY_INIT" "ALREADY_INIT" "$output1"
@@ -259,7 +262,7 @@ TMPDIR_8="$(setup_repo_with_remote)"
 install_script "$TMPDIR_8/local"
 create_data_branch_setup "$TMPDIR_8/local"
 
-pushd "$TMPDIR_8/local" >/dev/null
+pushd "$TMPDIR_8/local" >/dev/null || exit 1
 # Delete only symlinks, keep worktree
 rm -f aitasks aiplans
 

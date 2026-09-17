@@ -20,6 +20,9 @@ set -uo pipefail
 
 TEST_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$TEST_SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 
 PASS=0
 FAIL=0
@@ -35,7 +38,7 @@ quarantine_file() { echo "$1/local/.git/worktrees/-aitask-data/ait-sync-quaranti
 run_sync_seam() {
     local tmpdir="$1" point="$2" hook="$3"; shift 3
     (
-        cd "$tmpdir/local"
+        cd "$tmpdir/local" || exit 1
         export PATH="$PWD/bin:$PATH"
         export TEST_HOSTNAME="${TEST_HOSTNAME:-testhost}"
         export AITASKS_LOCK_DIR="$tmpdir/locks"
@@ -50,7 +53,7 @@ run_sync_seam() {
 run_sync_wt() {
     local tmpdir="$1"; shift
     (
-        cd "$tmpdir/wt"
+        cd "$tmpdir/wt" || exit 1
         export PATH="$PWD/bin:$PATH"
         export TEST_HOSTNAME="${TEST_HOSTNAME:-testhost}"
         export AITASKS_LOCK_DIR="$tmpdir/locks"
@@ -69,7 +72,7 @@ advance_remote_touching() {
     rm -rf "$tmpdir/pc2"
     git clone -q --branch aitask-data "$tmpdir/remote.git" "$tmpdir/pc2" 2>/dev/null
     (
-        cd "$tmpdir/pc2"
+        cd "$tmpdir/pc2" || exit 1
         git config user.email pc2@test.com
         git config user.name PC2
         git config commit.gpgsign false

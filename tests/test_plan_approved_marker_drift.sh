@@ -26,6 +26,9 @@ set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 
 # shellcheck source=lib/asserts.sh
 . "$PROJECT_DIR/tests/lib/asserts.sh"
@@ -65,7 +68,7 @@ make_drifted_repo_with_marked_task() {
     git init --bare --quiet "$root/origin.git"
     git clone --quiet "$root/origin.git" "$root/local" 2>/dev/null
     (
-        cd "$root/local"
+        cd "$root/local" || exit 1
         git config user.email "test@example.com"
         git config user.name  "Test"
         mkdir -p .aitask-scripts

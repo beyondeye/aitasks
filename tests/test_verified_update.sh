@@ -4,6 +4,9 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 
 # shellcheck source=lib/test_scaffold.sh
 . "$PROJECT_DIR/tests/lib/test_scaffold.sh"
@@ -24,7 +27,7 @@ setup_repo() {
     tmpdir="$(mktemp -d)"
 
     (
-        cd "$tmpdir"
+        cd "$tmpdir" || exit 1
         git init --quiet
         git config user.email "test@test.com"
         git config user.name "Test"
@@ -95,7 +98,7 @@ setup_remote_repo() {
     mkdir -p "$seed_dir"
 
     (
-        cd "$seed_dir"
+        cd "$seed_dir" || exit 1
         git init --quiet
         git config user.email "test@test.com"
         git config user.name "Test"
@@ -110,7 +113,7 @@ setup_remote_repo() {
     git --git-dir="$origin_dir" symbolic-ref HEAD refs/heads/main
     git clone --quiet --branch main "$origin_dir" "$work_dir" >/dev/null 2>&1
     (
-        cd "$work_dir"
+        cd "$work_dir" || exit 1
         git config user.email "test@test.com"
         git config user.name "Test"
     )
@@ -816,7 +819,7 @@ MF="aitasks/metadata/models_claudecode.json"
 # --- 33A: an unrelated staged path is neither committed nor unstaged ---------
 TMPDIR_33A="$(setup_repo)"
 (
-    cd "$TMPDIR_33A"
+    cd "$TMPDIR_33A" || exit 1
     # A concurrent session's work, staged and not yet committed.
     printf 'concurrent session work\n' > foreign.txt
     git add foreign.txt
@@ -851,7 +854,7 @@ rm -rf "$TMPDIR_33A"
 # `commit -o` alone leaves it untouched. That difference is the whole control.
 TMPDIR_33B="$(setup_repo)"
 (
-    cd "$TMPDIR_33B"
+    cd "$TMPDIR_33B" || exit 1
     # A concurrent session staged version A of the SAME path...
     printf '{"models": [], "_marker": "STAGED_BY_OTHER_SESSION"}\n' > "$MF"
     git add "$MF"
@@ -893,7 +896,7 @@ rm -rf "$TMPDIR_33B"
 # and announce a score that is on no branch at all.
 TMPDIR_33D="$(setup_repo)"
 (
-    cd "$TMPDIR_33D"
+    cd "$TMPDIR_33D" || exit 1
     mkdir -p .git/hooks
     printf '#!/bin/sh\nexit 1\n' > .git/hooks/pre-commit
     chmod +x .git/hooks/pre-commit

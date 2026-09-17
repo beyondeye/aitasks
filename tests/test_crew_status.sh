@@ -6,6 +6,9 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 ORIG_DIR="$(pwd)"
 
 # --- Test helpers ---
@@ -39,7 +42,7 @@ setup_test_repo() {
     tmpdir="$(mktemp -d)"
 
     (
-        cd "$tmpdir"
+        cd "$tmpdir" || exit 1
         git init --quiet
         git config user.email "test@test.com"
         git config user.name "Test"
@@ -67,7 +70,7 @@ setup_test_repo() {
 setup_crew_with_agents() {
     local tmpdir="$1"
     (
-        cd "$tmpdir"
+        cd "$tmpdir" || exit 1
 
         # Init crew with agent type
         bash .aitask-scripts/aitask_crew_init.sh --id testcrew --add-type impl:claudecode/opus4_6 --batch >/dev/null 2>&1
@@ -86,9 +89,9 @@ setup_crew_with_agents() {
 
 cleanup_test_repo() {
     local tmpdir="$1"
-    cd "$ORIG_DIR"
+    cd "$ORIG_DIR" || exit 1
     if [[ -d "$tmpdir" ]]; then
-        (cd "$tmpdir" && git worktree prune 2>/dev/null || true)
+        (cd "$tmpdir" || exit 1 && git worktree prune 2>/dev/null || true)
         rm -rf "$tmpdir"
     fi
 }
@@ -299,7 +302,7 @@ if [[ -n "$PYTHON" ]]; then
     TMPDIR_T7="$(setup_test_repo)"
     setup_crew_with_agents "$TMPDIR_T7"
     (
-        cd "$TMPDIR_T7"
+        cd "$TMPDIR_T7" || exit 1
         export PYTHONPATH=".aitask-scripts"
         output=$($PYTHON .aitask-scripts/agentcrew/agentcrew_status.py --crew testcrew get 2>&1)
         assert_contains_ci "crew status shown" "CREW_STATUS:" "$output"
@@ -322,7 +325,7 @@ if [[ -n "$PYTHON" ]]; then
     TMPDIR_T8="$(setup_test_repo)"
     setup_crew_with_agents "$TMPDIR_T8"
     (
-        cd "$TMPDIR_T8"
+        cd "$TMPDIR_T8" || exit 1
         export PYTHONPATH=".aitask-scripts"
 
         # Waiting -> Ready
@@ -353,7 +356,7 @@ if [[ -n "$PYTHON" ]]; then
     TMPDIR_T9="$(setup_test_repo)"
     setup_crew_with_agents "$TMPDIR_T9"
     (
-        cd "$TMPDIR_T9"
+        cd "$TMPDIR_T9" || exit 1
         export PYTHONPATH=".aitask-scripts"
 
         # Waiting -> Completed (invalid)
@@ -372,7 +375,7 @@ if [[ -n "$PYTHON" ]]; then
     TMPDIR_T10="$(setup_test_repo)"
     setup_crew_with_agents "$TMPDIR_T10"
     (
-        cd "$TMPDIR_T10"
+        cd "$TMPDIR_T10" || exit 1
         export PYTHONPATH=".aitask-scripts"
 
         output=$($PYTHON .aitask-scripts/agentcrew/agentcrew_status.py --crew testcrew --agent planner heartbeat --message "working on it" 2>&1)
@@ -399,7 +402,7 @@ if [[ -n "$PYTHON" ]]; then
     TMPDIR_T11="$(setup_test_repo)"
     setup_crew_with_agents "$TMPDIR_T11"
     (
-        cd "$TMPDIR_T11"
+        cd "$TMPDIR_T11" || exit 1
         export PYTHONPATH=".aitask-scripts"
 
         output=$($PYTHON .aitask-scripts/agentcrew/agentcrew_status.py --crew testcrew list 2>&1)
@@ -418,7 +421,7 @@ echo "Test 12: Command — send and list"
 TMPDIR_T12="$(setup_test_repo)"
 setup_crew_with_agents "$TMPDIR_T12"
 (
-    cd "$TMPDIR_T12"
+    cd "$TMPDIR_T12" || exit 1
 
     # Send a kill command
     output=$(bash .aitask-scripts/aitask_crew_command.sh send --crew testcrew --agent planner --command kill 2>&1)
@@ -436,7 +439,7 @@ echo "Test 13: Command — ack clears commands"
 TMPDIR_T13="$(setup_test_repo)"
 setup_crew_with_agents "$TMPDIR_T13"
 (
-    cd "$TMPDIR_T13"
+    cd "$TMPDIR_T13" || exit 1
 
     # Send a command first
     bash .aitask-scripts/aitask_crew_command.sh send --crew testcrew --agent planner --command pause >/dev/null 2>&1
@@ -456,7 +459,7 @@ echo "Test 14: Command — reject invalid command"
 TMPDIR_T14="$(setup_test_repo)"
 setup_crew_with_agents "$TMPDIR_T14"
 (
-    cd "$TMPDIR_T14"
+    cd "$TMPDIR_T14" || exit 1
     assert_exit_nonzero "reject invalid command" \
         bash .aitask-scripts/aitask_crew_command.sh send --crew testcrew --agent planner --command invalid_cmd
 )
@@ -468,7 +471,7 @@ if [[ -n "$PYTHON" ]]; then
     TMPDIR_T15="$(setup_test_repo)"
     setup_crew_with_agents "$TMPDIR_T15"
     (
-        cd "$TMPDIR_T15"
+        cd "$TMPDIR_T15" || exit 1
         export PYTHONPATH=".aitask-scripts"
 
         # Waiting -> Ready -> Running
@@ -515,7 +518,7 @@ if [[ -n "$PYTHON" ]]; then
     TMPDIR_T16="$(setup_test_repo)"
     setup_crew_with_agents "$TMPDIR_T16"
     (
-        cd "$TMPDIR_T16"
+        cd "$TMPDIR_T16" || exit 1
         export PYTHONPATH=".aitask-scripts"
 
         # Force both members Completed but leave the persisted aggregate stale

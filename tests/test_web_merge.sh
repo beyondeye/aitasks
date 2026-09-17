@@ -6,6 +6,9 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 
 # shellcheck source=lib/test_scaffold.sh
 . "$PROJECT_DIR/tests/lib/test_scaffold.sh"
@@ -37,7 +40,7 @@ setup_paired_repos() {
     local local_dir="$tmpdir/local"
     git clone --quiet "$remote_dir" "$local_dir" 2>/dev/null
     (
-        cd "$local_dir"
+        cd "$local_dir" || exit 1
         git config user.email "test@test.com"
         git config user.name "Test"
         git checkout -b main --quiet 2>/dev/null || true
@@ -63,7 +66,7 @@ create_web_branch() {
     local is_child="${5:-false}"
     local parent_id="${6:-null}"
     (
-        cd "$repo_dir"
+        cd "$repo_dir" || exit 1
         git checkout -b "$branch_name" --quiet
         mkdir -p .aitask-data-updated
 
@@ -98,7 +101,7 @@ EOF
 create_plain_branch() {
     local repo_dir="$1" branch_name="$2"
     (
-        cd "$repo_dir"
+        cd "$repo_dir" || exit 1
         git checkout -b "$branch_name" --quiet
         echo "some work" > work.txt
         git add -A
@@ -156,7 +159,7 @@ echo "--- Test 5: Known branches are skipped ---"
 TMPDIR_5="$(setup_paired_repos)"
 # Create an aitask-data branch (which normally exists in the project)
 (
-    cd "$TMPDIR_5/local"
+    cd "$TMPDIR_5/local" || exit 1
     git checkout -b aitask-data --quiet
     mkdir -p .aitask-data-updated
     echo '{"task_id":"99"}' > .aitask-data-updated/completed_t99.json

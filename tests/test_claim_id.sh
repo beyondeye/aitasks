@@ -6,6 +6,9 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 
 # shellcheck source=lib/test_scaffold.sh
 . "$PROJECT_DIR/tests/lib/test_scaffold.sh"
@@ -33,7 +36,7 @@ setup_paired_repos() {
     local local_dir="$tmpdir/local"
     git clone --quiet "$remote_dir" "$local_dir"
     (
-        cd "$local_dir"
+        cd "$local_dir" || exit 1
         git config user.email "test@test.com"
         git config user.name "Test"
 
@@ -68,7 +71,7 @@ clone_second_local() {
 
     git clone --quiet "$remote_dir" "$local2_dir"
     (
-        cd "$local2_dir"
+        cd "$local2_dir" || exit 1
         git config user.email "test2@test.com"
         git config user.name "Test2"
 
@@ -221,7 +224,7 @@ echo "--- Test 7: No remote = local branch counter ---"
 
 TMPDIR_7="$(mktemp -d)"
 (
-    cd "$TMPDIR_7"
+    cd "$TMPDIR_7" || exit 1
     git init --quiet
     git config user.email "test@test.com"
     git config user.name "Test"
@@ -260,7 +263,7 @@ echo "--- Test 8: Init scans archived tasks ---"
 
 TMPDIR_8="$(setup_paired_repos)"
 (
-    cd "$TMPDIR_8/local"
+    cd "$TMPDIR_8/local" || exit 1
     echo "---" > aitasks/archived/t50_archived_task.md
     git add -A && git commit -m "Add archived" --quiet && git push --quiet 2>/dev/null
 )
@@ -275,7 +278,7 @@ echo "--- Test 9: Init scans tar archive ---"
 
 TMPDIR_9="$(setup_paired_repos)"
 (
-    cd "$TMPDIR_9/local"
+    cd "$TMPDIR_9/local" || exit 1
     mkdir -p /tmp/tartest_$$
     echo "---" > "/tmp/tartest_$$/t100_old_task.md"
     tar -cf - -C "/tmp/tartest_$$" t100_old_task.md | zstd -q -o aitasks/archived/old.tar.zst
@@ -298,7 +301,7 @@ echo "--- Test 11: No remote = init still fails ---"
 
 TMPDIR_11="$(mktemp -d)"
 (
-    cd "$TMPDIR_11"
+    cd "$TMPDIR_11" || exit 1
     git init --quiet
     git config user.email "test@test.com"
     git config user.name "Test"
@@ -318,7 +321,7 @@ echo "--- Test 12: No remote = peek shows counter value ---"
 
 TMPDIR_12="$(mktemp -d)"
 (
-    cd "$TMPDIR_12"
+    cd "$TMPDIR_12" || exit 1
     git init --quiet
     git config user.email "test@test.com"
     git config user.name "Test"
@@ -347,7 +350,7 @@ echo "--- Test 13: No remote, no existing tasks ---"
 
 TMPDIR_13="$(mktemp -d)"
 (
-    cd "$TMPDIR_13"
+    cd "$TMPDIR_13" || exit 1
     git init --quiet
     git config user.email "test@test.com"
     git config user.name "Test"
@@ -371,10 +374,10 @@ echo "--- Test 14: Auto-upgrade local branch to remote ---"
 # Start with no remote, create some IDs
 TMPDIR_14="$(mktemp -d)"
 (
-    cd "$TMPDIR_14"
+    cd "$TMPDIR_14" || exit 1
     git init --bare --quiet remote.git
     git init --quiet local
-    cd local
+    cd local || exit 1
     git config user.email "test@test.com"
     git config user.name "Test"
     mkdir -p aitasks/archived
@@ -587,7 +590,7 @@ echo "--- Test 21: Claim self-heals active drift ---"
 TMPDIR_21="$(setup_paired_repos)"
 (cd "$TMPDIR_21/local" && ./.aitask-scripts/aitask_claim_id.sh --init >/dev/null 2>&1)
 (
-    cd "$TMPDIR_21/local"
+    cd "$TMPDIR_21/local" || exit 1
     echo "---" > aitasks/t20_active_drift.md
     git add aitasks/t20_active_drift.md && git commit -m "Add active drift task" --quiet && git push --quiet 2>/dev/null
 )
@@ -604,7 +607,7 @@ echo "--- Test 22: Local claim self-heals active drift ---"
 
 TMPDIR_22="$(mktemp -d)"
 (
-    cd "$TMPDIR_22"
+    cd "$TMPDIR_22" || exit 1
     git init --quiet
     git config user.email "test@test.com"
     git config user.name "Test"
@@ -633,7 +636,7 @@ echo "--- Test 23: Resync repairs archived drift ---"
 TMPDIR_23="$(setup_paired_repos)"
 (cd "$TMPDIR_23/local" && ./.aitask-scripts/aitask_claim_id.sh --init >/dev/null 2>&1)
 (
-    cd "$TMPDIR_23/local"
+    cd "$TMPDIR_23/local" || exit 1
     echo "---" > aitasks/archived/t50_archived_drift.md
     git add aitasks/archived/t50_archived_drift.md && git commit -m "Add archived drift task" --quiet && git push --quiet 2>/dev/null
 )

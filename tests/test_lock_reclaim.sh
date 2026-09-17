@@ -9,6 +9,9 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 
 # shellcheck source=lib/test_scaffold.sh
 . "$PROJECT_DIR/tests/lib/test_scaffold.sh"
@@ -35,7 +38,7 @@ setup_paired_repos() {
     local local_dir="$tmpdir/local"
     git clone --quiet "$remote_dir" "$local_dir"
     (
-        cd "$local_dir"
+        cd "$local_dir" || exit 1
         git config user.email "test@test.com"
         git config user.name "Test"
 
@@ -164,7 +167,7 @@ TMPDIR_4="$(setup_paired_repos)"
 # Pre-set the task to Implementing assigned to alice (no lock present —
 # simulates the rare "lock cleaned but status stuck" anomaly).
 (
-    cd "$TMPDIR_4/local"
+    cd "$TMPDIR_4/local" || exit 1
     cat > aitasks/t1_test_task.md <<'TASK'
 ---
 priority: medium

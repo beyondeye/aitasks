@@ -45,7 +45,7 @@ setup_repo() {
     git init -q --bare "$tmpdir/remote.git"
     git clone -q "$tmpdir/remote.git" "$tmpdir/local" 2>/dev/null
     (
-        cd "$tmpdir/local"
+        cd "$tmpdir/local" || exit 1
         git config user.email test@test.com
         git config user.name Test
         git config commit.gpgsign false
@@ -109,7 +109,7 @@ HOSTEOF
 plant_lock() {
     local tmpdir="$1" task_id="$2" yaml="$3"
     (
-        cd "$tmpdir/local"
+        cd "$tmpdir/local" || exit 1
         git fetch origin aitask-locks --quiet 2>/dev/null
         local parent_hash current_tree_hash blob_hash new_tree_hash commit_hash
         parent_hash=$(git rev-parse origin/aitask-locks)
@@ -172,7 +172,7 @@ set_userconfig_email() {
 run_sync() {
     local tmpdir="$1"; shift
     (
-        cd "$tmpdir/local"
+        cd "$tmpdir/local" || exit 1
         export PATH="$PWD/bin:$PATH"
         export TEST_HOSTNAME="${TEST_HOSTNAME:-testhost}"
         export AITASKS_LOCK_DIR="$tmpdir/locks"

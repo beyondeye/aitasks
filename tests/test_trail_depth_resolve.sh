@@ -12,6 +12,9 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 
 PASS=0
 FAIL=0
@@ -19,7 +22,7 @@ TOTAL=0
 
 . "$PROJECT_DIR/tests/lib/asserts.sh"
 
-cd "$PROJECT_DIR"
+cd "$PROJECT_DIR" || exit 1
 
 RESOLVER="./.aitask-scripts/aitask_trail_depth.sh"
 

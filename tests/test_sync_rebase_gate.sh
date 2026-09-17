@@ -42,6 +42,9 @@ set -uo pipefail
 
 TEST_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$TEST_SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 
 PASS=0
 FAIL=0
@@ -58,7 +61,7 @@ advance_remote_touching() {
     rm -rf "$tmpdir/pc2"
     git clone -q --branch aitask-data "$tmpdir/remote.git" "$tmpdir/pc2" 2>/dev/null
     (
-        cd "$tmpdir/pc2"
+        cd "$tmpdir/pc2" || exit 1
         git config user.email pc2@test.com
         git config user.name PC2
         git config commit.gpgsign false
@@ -78,7 +81,7 @@ advance_remote_renaming() {
     rm -rf "$tmpdir/pc2"
     git clone -q --branch aitask-data "$tmpdir/remote.git" "$tmpdir/pc2" 2>/dev/null
     (
-        cd "$tmpdir/pc2"
+        cd "$tmpdir/pc2" || exit 1
         git config user.email pc2@test.com
         git config user.name PC2
         git config commit.gpgsign false

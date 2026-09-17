@@ -6,6 +6,9 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 
 # shellcheck source=lib/test_scaffold.sh
 . "$PROJECT_DIR/tests/lib/test_scaffold.sh"
@@ -26,7 +29,7 @@ setup_test_env() {
     tmpdir="$(mktemp -d)"
 
     (
-        cd "$tmpdir"
+        cd "$tmpdir" || exit 1
         git init --quiet
         git config user.email "test@test.com"
         git config user.name "Test"
@@ -82,7 +85,7 @@ assert_contains_ci "Help shows command purpose" "Convert numbered old*.tar.gz ar
 echo "--- Test 3: Dry-run numbered archives ---"
 TMPDIR_3="$(setup_test_env)"
 (
-    cd "$TMPDIR_3"
+    cd "$TMPDIR_3" || exit 1
     stage_task=$(make_staging_dir)
     echo "task 50" > "$stage_task/t50_old.md"
     create_tar_gz_from_dir aitasks/archived/_b0/old0.tar.gz "$stage_task"
@@ -102,7 +105,7 @@ rm -rf "$TMPDIR_3"
 echo "--- Test 4: Numbered archive conversion ---"
 TMPDIR_4="$(setup_test_env)"
 (
-    cd "$TMPDIR_4"
+    cd "$TMPDIR_4" || exit 1
     stage=$(make_staging_dir)
     echo "task 50" > "$stage/t50_old.md"
     echo "task 51" > "$stage/t51_old.md"
@@ -121,7 +124,7 @@ rm -rf "$TMPDIR_4"
 echo "--- Test 5: Delete-old removes converted numbered source ---"
 TMPDIR_5="$(setup_test_env)"
 (
-    cd "$TMPDIR_5"
+    cd "$TMPDIR_5" || exit 1
     stage=$(make_staging_dir)
     echo "task 50" > "$stage/t50_old.md"
     create_tar_gz_from_dir aitasks/archived/_b0/old0.tar.gz "$stage"
@@ -136,7 +139,7 @@ rm -rf "$TMPDIR_5"
 echo "--- Test 6: Legacy task archive rebucketing ---"
 TMPDIR_6="$(setup_test_env)"
 (
-    cd "$TMPDIR_6"
+    cd "$TMPDIR_6" || exit 1
     stage=$(make_staging_dir)
     echo "task 50" > "$stage/t50_parent.md"
     echo "task 150" > "$stage/t150_parent.md"
@@ -161,7 +164,7 @@ rm -rf "$TMPDIR_6"
 echo "--- Test 7: Legacy plan archive rebucketing ---"
 TMPDIR_7="$(setup_test_env)"
 (
-    cd "$TMPDIR_7"
+    cd "$TMPDIR_7" || exit 1
     stage=$(make_staging_dir)
     echo "plan 50" > "$stage/p50_parent.md"
     mkdir -p "$stage/p150"
@@ -182,7 +185,7 @@ rm -rf "$TMPDIR_7"
 echo "--- Test 8: Rebucketing merges into existing tar.zst bundle ---"
 TMPDIR_8="$(setup_test_env)"
 (
-    cd "$TMPDIR_8"
+    cd "$TMPDIR_8" || exit 1
     existing=$(make_staging_dir)
     echo "existing 150" > "$existing/t150_existing.md"
     mkdir -p aitasks/archived/_b0
@@ -204,7 +207,7 @@ rm -rf "$TMPDIR_8"
 echo "--- Test 9: Delete-old removes rebucketed legacy source ---"
 TMPDIR_9="$(setup_test_env)"
 (
-    cd "$TMPDIR_9"
+    cd "$TMPDIR_9" || exit 1
     legacy=$(make_staging_dir)
     echo "task 50" > "$legacy/t50_parent.md"
     create_tar_gz_from_dir aitasks/archived/old.tar.gz "$legacy"
@@ -219,7 +222,7 @@ rm -rf "$TMPDIR_9"
 echo "--- Test 10: Existing target causes skip and cleanup with delete-old ---"
 TMPDIR_10="$(setup_test_env)"
 (
-    cd "$TMPDIR_10"
+    cd "$TMPDIR_10" || exit 1
     stage=$(make_staging_dir)
     echo "converted already" > "$stage/t50_done.md"
     create_tar_gz_from_dir aitasks/archived/_b0/old0.tar.gz "$stage"
@@ -235,7 +238,7 @@ rm -rf "$TMPDIR_10"
 echo "--- Test 11: Dispatcher path ---"
 TMPDIR_11="$(setup_test_env)"
 (
-    cd "$TMPDIR_11"
+    cd "$TMPDIR_11" || exit 1
     stage=$(make_staging_dir)
     echo "task 50" > "$stage/t50_old.md"
     create_tar_gz_from_dir aitasks/archived/_b0/old0.tar.gz "$stage"

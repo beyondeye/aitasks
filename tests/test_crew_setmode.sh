@@ -6,6 +6,9 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 
 # shellcheck source=lib/test_scaffold.sh
 . "$PROJECT_DIR/tests/lib/test_scaffold.sh"
@@ -28,7 +31,7 @@ setup_test_repo() {
     tmpdir="$(mktemp -d)"
 
     (
-        cd "$tmpdir"
+        cd "$tmpdir" || exit 1
         git init --quiet
         git config user.email "test@test.com"
         git config user.name "Test"
@@ -64,9 +67,9 @@ seed_crew_with_agent() {
 
 cleanup_test_repo() {
     local tmpdir="$1"
-    cd "$ORIG_DIR"
+    cd "$ORIG_DIR" || exit 1
     if [[ -d "$tmpdir" ]]; then
-        (cd "$tmpdir" && git worktree prune 2>/dev/null || true)
+        (cd "$tmpdir" || exit 1 && git worktree prune 2>/dev/null || true)
         rm -rf "$tmpdir"
     fi
 }
@@ -82,7 +85,7 @@ echo ""
 echo "Test 1: happy path (headless -> interactive)"
 TMPDIR_T1="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T1"
+    cd "$TMPDIR_T1" || exit 1
     seed_crew_with_agent sm1 worker1
 
     output=$(bash .aitask-scripts/aitask_crew_setmode.sh --crew sm1 --name worker1 --mode interactive 2>&1)
@@ -101,7 +104,7 @@ cleanup_test_repo "$TMPDIR_T1"
 echo "Test 2: round trip (headless -> interactive -> headless)"
 TMPDIR_T2="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T2"
+    cd "$TMPDIR_T2" || exit 1
     seed_crew_with_agent sm2 worker2
 
     bash .aitask-scripts/aitask_crew_setmode.sh --crew sm2 --name worker2 --mode interactive >/dev/null 2>&1
@@ -121,7 +124,7 @@ cleanup_test_repo "$TMPDIR_T2"
 echo "Test 3: idempotent (setting same mode twice creates only one commit)"
 TMPDIR_T3="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T3"
+    cd "$TMPDIR_T3" || exit 1
     seed_crew_with_agent sm3 worker3
 
     bash .aitask-scripts/aitask_crew_setmode.sh --crew sm3 --name worker3 --mode interactive >/dev/null 2>&1
@@ -139,7 +142,7 @@ cleanup_test_repo "$TMPDIR_T3"
 echo "Test 4: status gate rejects non-Waiting agents"
 TMPDIR_T4="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T4"
+    cd "$TMPDIR_T4" || exit 1
     seed_crew_with_agent sm4 worker4
 
     # Manually flip status to Running by rewriting the line
@@ -169,7 +172,7 @@ cleanup_test_repo "$TMPDIR_T4"
 echo "Test 5: bad --mode value is rejected"
 TMPDIR_T5="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T5"
+    cd "$TMPDIR_T5" || exit 1
     seed_crew_with_agent sm5 worker5
 
     set +e
@@ -191,7 +194,7 @@ cleanup_test_repo "$TMPDIR_T5"
 echo "Test 6: missing agent rejected"
 TMPDIR_T6="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T6"
+    cd "$TMPDIR_T6" || exit 1
     seed_crew_with_agent sm6 worker6
     assert_exit_nonzero "missing agent rejected" \
         bash .aitask-scripts/aitask_crew_setmode.sh --crew sm6 --name does_not_exist --mode interactive
@@ -202,7 +205,7 @@ cleanup_test_repo "$TMPDIR_T6"
 echo "Test 7: missing crew rejected"
 TMPDIR_T7="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T7"
+    cd "$TMPDIR_T7" || exit 1
     assert_exit_nonzero "missing crew rejected" \
         bash .aitask-scripts/aitask_crew_setmode.sh --crew does_not_exist --name worker --mode interactive
 )
@@ -212,7 +215,7 @@ cleanup_test_repo "$TMPDIR_T7"
 echo "Test 8: missing required flags rejected"
 TMPDIR_T8="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T8"
+    cd "$TMPDIR_T8" || exit 1
     seed_crew_with_agent sm8 worker8
 
     assert_exit_nonzero "missing --mode rejected" \
@@ -228,7 +231,7 @@ cleanup_test_repo "$TMPDIR_T8"
 echo "Test 9: --help shows usage and exits 0"
 TMPDIR_T9="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T9"
+    cd "$TMPDIR_T9" || exit 1
     output=$(bash .aitask-scripts/aitask_crew_setmode.sh --help 2>&1)
     assert_contains "help mentions setmode" "Usage: ait crew setmode" "$output"
     assert_contains "help lists --mode" "--mode" "$output"
