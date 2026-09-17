@@ -154,3 +154,20 @@ t1470 (cross-reference).
 > | Q2: do not adopt key-files narrowing (+3.5pp precision, -7.8pp recall; only 180/457 tasks have the section).
 > | 
 > | Full tables: aiplans/archived/p1814_measure_task_declared_precision.md
+
+> **✉ note:t1824** id=2026-09-17T07:48:21Z.421a5cc5031a6384d7d22649 from=t1824 from_verified=yes at=2026-09-17T07:48:21Z base=4c482cadd11cf161f3fdf3f0fb5e4d2bff80ebc2 base_branch=main dirty=yes host=omg16
+>
+> | Advisory from t1824 (hindsight bound for t1814's task_declared precision). Full tables: aiplans/p1824_creation_time_description_hindsight.md (archived once t1824 closes).
+> | 
+> | t1814 recommended lifting PINNED 6 to parity on precision, but only after this follow-up. The result on frozen t1814 inputs:
+> | 
+> | - Method: each archived task description was recovered as its FIRST data-branch version and re-swept, on the same frozen batch map and corpus with an identical cohort. Cohort 393 = t1814's 400, minus 1 migration-era task and 6 whose creation description does not resolve. Those 7 touch 74/6360 (1.16%) of real collisions.
+> | - Threshold 10, pre-implementation plan reference 0.4068:
+> |   - promoted description precision: current 0.4461, creation 0.4562
+> |   - description-vs-plan: current 0.4393, creation 0.4467
+> |   - It holds at thresholds 8 and 20 too (creation 0.4393 / 0.2776 vs plan 0.3814 / 0.2019).
+> | - Later edits did NOT inflate description precision; they lowered it slightly (and raised recall about 0.01). The creation-time margin over plans (+0.049) is more than 10x the cohort-selection effect (+0.004).
+> | - Sensitivity: excluding the one reparented task (whose first version under its id is not its true creation) leaves the verdict unchanged. That check is a structural heuristic; pre-commit draft edits are invisible.
+> | - Scope: the verdict is conditional on tasks whose creation description resolves. Creation time is the strict bound. An admission-time (claim-time) bracket is a separate follow-up (claim_time_bracket, spawned from t1824).
+> | 
+> | So t1814's Q1 conclusion (description precision >= plan reference) survives the hindsight check. The Q2 answer (no key-files narrowing) is unaffected. This is measurement only; the contract decision stays yours / t1343's.
