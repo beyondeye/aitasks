@@ -1,0 +1,520 @@
+{
+  "schema_version": "1.1.0",
+  "trail_id": "trail-frozen-codeagents",
+  "title": "Frozen code agents: remaining work",
+  "owner": "aitasks#1705",
+  "scope": {
+    "kind": "topic",
+    "topics": [
+      "aitasks#1705"
+    ],
+    "selection_note": "The whole t1705 topic group (every open task anchored to 1705), requested by the user as the trail for the freeze-codeagent-pane feature integrated in minimonitor. Topic membership is recomputed on every refresh, so follow-ups spawned later join automatically; on 2026-09-17 that brought in t1818 and t1828. Landed members stay in their waves as the trail's record."
+  },
+  "generation": {
+    "generated_at": "2026-09-17T12:25:51Z",
+    "generator": {
+      "agent_string": "claudecode/opus5",
+      "skill": "aitask-trail"
+    },
+    "project_revision": {
+      "aitasks": "8b503ff7c"
+    },
+    "input_digest": "af253c8b326da374",
+    "inputs": [
+      {
+        "kind": "plan_file",
+        "ref": "aitasks:aiplans/p1705/p1705_10_freeze_restore_workflow_docs.md"
+      },
+      {
+        "kind": "plan_file",
+        "ref": "aitasks:aiplans/p1705_frozen_codeagents_session_store_and_viewer_tui.md"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1705"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1705_10"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1705_11"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1735"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1778"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1781"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1818"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1828"
+      }
+    ]
+  },
+  "freshness": {
+    "state": "current",
+    "checked_at": "2026-09-17T12:25:51Z"
+  },
+  "narrative": {
+    "problem_statement": "The frozen-agent feature (freeze a code agent's pane, view its capture in place beside the minimonitor companion, restore or re-pick it) has shipped through nine children and most of its review follow-ups. Eight tasks remain in its topic: one dialog layout defect, one in-flight tmux resolver fix, one in-flight test-hygiene fix, two documentation tasks, two manual verifications and the parent. In what order should they land so that the docs and the verifications describe and exercise the final behaviour, not an interim one?",
+    "recommendation_summary": "Six more members have landed since the last refresh: t1736, t1765, t1767, t1769, t1777 and t1811. With t1777 in, the docs wave is open: pick t1778, then t1705_10. t1818 (freeze-confirm dialog overflow) is the one open behaviour defect, but the in-flight t1697 declares its file. t1828 and t1735 are already in flight. Run the verifications (t1781, then t1705_11) after t1818 and the docs; the parent t1705 closes with its last child.",
+    "overview": "Since the last refresh six members have landed: t1777 (dialog copy and verb, 7c20dd43a), t1811 (resolver thread, bc97800ee), t1769 (parked snapshots, 61eaa26f6), t1765 (sessions reader cache, 2d4501148), t1767 (shared Freeze-All eligibility, 8b503ff7c) and t1736 (verification of t1729, archived e7f615742). Two follow-ups joined the topic: t1818 from t1777's review and t1828 from t1825's.\n\n**Pick next: t1778.** t1777 was the last change to what the freeze and restore flows say, and it is in. Both docs tasks can now be written once against the final wording. t1778 corrects the frozen-agent TUI pages and t1705_10 then writes the workflow and concept pages. Nothing in flight declares tuis/frozenagent/; t1697's monitor and minimonitor pages are adjacent, not the same files.\n\n**t1818 is the one open behaviour defect, and it has a live conflict.** The freeze-confirm dialog has no max-height, so on a 40x16 minimonitor host both buttons render off-screen and Escape is the only way out of a destructive confirmation. It edits monitor_shared.py, which the in-flight t1697 still declares alongside monitor_app.py, minimonitor_app.py and monitor_core.py. It changes layout, not copy, so it does not gate the docs, but it should land before the manual verifications, which exercise that dialog.\n\n**Already in flight:** t1828, which rejects configured session names tmux cannot address (declares lib/tmux_bootstrap.sh and two resolver tests), and t1735, which fixes vacuous fake-agent assertions (declares tests/lib/fake_agent_binary.py and the concern smoke test). Neither overlaps another member.\n\nVerification: t1781 verifies t1766's restore deadline, which is archived, so it could run now; it stays in the last wave only to batch the verifications. t1705_11 depends on t1705_10 and checks the whole feature, so it goes last and the parent archives with it. Every external prerequisite (t1705_9, t1729, t1766, t1773) is archived; nothing outside the topic blocks any member.",
+    "method_note": "Lite depth. Membership, statuses, depends, pending gates and in-flight state come only from one gatherer snapshot (aitask_trail_gather.sh snapshot --scope topic --owner 1705 --with-inflight 1705), run 2026-09-17 against revision 8b503ff7c. Landings were attributed from git log subjects at that revision (t1736 by its archive commit). t1818 and t1828 were read from their task files; their measurements and line references are theirs and were NOT re-checked in the code. The carried-over open entries (t1778, t1705_10, t1781, t1705_11, t1705) drew no drift reason and their premises were NOT re-verified. The in-flight conflict claims come from INFLIGHT_PATH task_declared/tracked rows, i.e. what each in-flight task DECLARES it will touch, not its diff. NOT verified: the content of the two plan files; whether the Python suite is green at this revision; the outcome recorded by t1736's verification; how much of its declared surface t1697 has changed. The in-flight probe covers gated and locked tasks only, so other running work may exist."
+  },
+  "waves": [
+    {
+      "wave_id": "w1-baseline-and-inflight",
+      "ordinal": 1,
+      "title": "Landed: suite baseline and the in-flight safety fix",
+      "purpose": "Restored a Python suite verdict that carries information, and landed the drop/respawn race fix, before other members touched agent_freeze.py. Both entries have archived; the wave is kept as the trail's record of what this sequence already achieved.",
+      "why_now": "Complete. Nothing in this wave is pickable.",
+      "entries": [
+        {
+          "entry_id": "e-1763",
+          "task": "aitasks#1763",
+          "topic": "aitasks#1705",
+          "position": 1,
+          "classification": "preferred_predecessor",
+          "snapshot": {
+            "status": "Done",
+            "priority": "medium",
+            "effort": "medium",
+            "depends": [],
+            "gates_pending": [],
+            "followup_kind": "review_finding"
+          },
+          "rationale": "Landed (44f92f5fa). Three pre-existing module failures (test_desync_state, test_prompt_detection, test_concern_parser) kept run_all_python_tests.sh red on main, so a later member's pre-archival run could not tell a regression from standing noise.",
+          "expected_outcome": "The suite's last-line verdict reads PASSED on main, so a FAILED from any later member means that member broke something.",
+          "confidence": "high",
+          "caveats": [
+            "Archived, so the framework's own verification passed for it; the suite was not re-run on this machine for this refresh."
+          ]
+        },
+        {
+          "entry_id": "e-1783",
+          "task": "aitasks#1783",
+          "topic": "aitasks#1705",
+          "position": 2,
+          "classification": "core",
+          "snapshot": {
+            "status": "Done",
+            "priority": "medium",
+            "effort": "medium",
+            "depends": [],
+            "gates_pending": [],
+            "followup_kind": "upstream_defect"
+          },
+          "rationale": "Landed (781ae82aa). Closed the probe-then-kill race in drop_record and _respawn_standin, where a tmux server restart could hand the kill an unrelated agent's recycled pane id. Its landing also released agent_freeze.py, which is what t1767 was waiting for.",
+          "expected_outcome": "Both freeze-side destructive sites use the stamp-conditional single dispatch that t1773 introduced for restore.",
+          "confidence": "high"
+        }
+      ]
+    },
+    {
+      "wave_id": "w2-behaviour-and-copy",
+      "ordinal": 2,
+      "title": "Close the last behaviour and copy defect",
+      "purpose": "Settle the restore behaviour and the user-facing dialog copy that the documentation and the manual verifications will describe and exercise. t1784, t1777 and t1767 have landed; t1818, a layout defect in the same freeze-confirm dialog found while reviewing t1777, is the one open item.",
+      "why_now": "The copy is settled. t1818 is layout only (the dialog's height at a small minimonitor host), so it does not hold back the docs; it belongs before the verifications, which exercise that dialog.",
+      "consequence_of_delay": "Until t1818 lands, a 40x16 minimonitor host renders both confirm buttons off-screen, leaving Escape as the only way out of a destructive confirmation; a manual verification run in that state records a defect already filed.",
+      "entries": [
+        {
+          "entry_id": "e-1784",
+          "task": "aitasks#1784",
+          "topic": "aitasks#1705",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Done",
+            "priority": "medium",
+            "effort": "medium",
+            "depends": [],
+            "gates_pending": [],
+            "followup_kind": "upstream_defect"
+          },
+          "rationale": "Landed (68158b17f). After a tmux server restart with no session open for the record's project, restore rolled back with no_session_for_root:<root> and could never succeed; it now restores into a new session of the record's own project. Its landing is what narrows the remaining docs risk to t1777's wording, and it is also where t1800 was spawned from.",
+          "expected_outcome": "Restore has no permanently-unrecoverable route, so the docs describe a complete flow rather than a limit.",
+          "confidence": "high"
+        },
+        {
+          "entry_id": "e-1777",
+          "task": "aitasks#1777",
+          "topic": "aitasks#1705",
+          "position": 2,
+          "classification": "core",
+          "snapshot": {
+            "status": "Done",
+            "priority": "medium",
+            "effort": "low",
+            "depends": [],
+            "gates_pending": [],
+            "followup_kind": "upstream_defect"
+          },
+          "rationale": "Landed (7c20dd43a). The frozen-drop dialog in both monitors implied restore and re-pick keep the capture, when a verified restore or re-pick deletes it, and the frozenagent viewer said Remove where both monitors say Drop. Its landing settles the wording t1778 and t1705_10 quote.",
+          "expected_outcome": "The dialog's advice matches what the routes actually do, and one verb names the action across all three surfaces — the wording the docs wave can then quote once.",
+          "confidence": "high"
+        },
+        {
+          "entry_id": "e-1767",
+          "task": "aitasks#1767",
+          "topic": "aitasks#1705",
+          "position": 3,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Done",
+            "priority": "low",
+            "effort": "low",
+            "depends": [],
+            "gates_pending": [],
+            "followup_kind": "review_finding"
+          },
+          "rationale": "Landed (8b503ff7c). freeze_all() duplicated the selection logic instead of calling freeze_all_eligible(); both the Z confirmation count and the mutation now share one eligibility rule.",
+          "expected_outcome": "One eligibility rule behind both the listing and the mutation, so a future change to it cannot desynchronize the count from the effect.",
+          "confidence": "high"
+        },
+        {
+          "entry_id": "e-1818",
+          "task": "aitasks#1818",
+          "topic": "aitasks#1705",
+          "position": 4,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "followup_kind": "upstream_defect"
+          },
+          "rationale": "Spawned from t1777's review. FreezeConfirmDialog in monitor_shared.py has height: auto with no max-height and a plain Container, so at 40x16 both buttons render past the bottom edge and at 40x15 the body is clipped. The horizontal version of this was fixed in t1705_7; the vertical axis never was, and the existing 40-column test checks only the right edge with placeholder copy.",
+          "expected_outcome": "The freeze-confirm dialog stays reachable at small minimonitor heights, and a test asserts the bottom edge with the real drop-confirmation body.",
+          "confidence": "high",
+          "caveats": [
+            "Edits monitor_shared.py, which the in-flight t1697 declares, so this is a live conflict; check what t1697 has changed in the dialog CSS before planning.",
+            "Measurements are the task body's, taken against t1777's tree; not re-measured on this refresh."
+          ]
+        }
+      ]
+    },
+    {
+      "wave_id": "w3-tmux-session-resolvers",
+      "ordinal": 3,
+      "title": "Finish the tmux session-name resolver thread",
+      "purpose": "Make the framework's tmux session-name resolvers agree on what tmux.default_session means, and on when a configured value is unusable. One thread over one set of files, anchored to this topic by review provenance rather than by the freeze feature. t1800 and t1811 have landed; t1828 is in flight.",
+      "why_now": "Already in flight (t1828). Nothing else in this trail waits on it.",
+      "consequence_of_delay": "A hand-edited default_session holding '.' or ':' still reaches tmux as a name it cannot target, from every reader.",
+      "entries": [
+        {
+          "entry_id": "e-1800",
+          "task": "aitasks#1800",
+          "topic": "aitasks#1705",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Done",
+            "priority": "medium",
+            "effort": "low",
+            "depends": [],
+            "gates_pending": [],
+            "followup_kind": "upstream_defect"
+          },
+          "rationale": "Landed (d146a440c), spawned from t1784's review. load_tmux_defaults() returned the literal string 'None' for the blank tmux.default_session that seed/project_config.yaml ships, while _read_default_session() and the bash resolver both returned 'aitasks' — so a caller reading that key would target a tmux session named 'None' while ait ide attached to 'aitasks'. All four resolvers now route through a shared _normalize_default_session().",
+          "expected_outcome": "All four resolvers agree on a blank, null or comment-only default_session, pinned by tests/test_tmux_default_session_resolvers.py.",
+          "why_order_matters": "t1811 is built on this task's contract and edits the same files; it is now in the tree, so t1811 has its baseline.",
+          "confidence": "high",
+          "caveats": [
+            "The prior version of this trail recorded this task's code as absent from the repository. That was a clone-visibility artifact: the commit was on origin/main but origin/main had not been fetched. Verified present on 2026-09-16 at revision 002c74f45."
+          ]
+        },
+        {
+          "entry_id": "e-1811",
+          "task": "aitasks#1811",
+          "topic": "aitasks#1705",
+          "position": 2,
+          "classification": "core",
+          "snapshot": {
+            "status": "Done",
+            "priority": "medium",
+            "effort": "medium",
+            "depends": [],
+            "gates_pending": [],
+            "followup_kind": "upstream_defect"
+          },
+          "rationale": "Landed (bc97800ee). The three defects t1800's review left out of its contract on purpose: ait ide --session swallowing an option-like value through echo, the setup probe reading a comment-only or quoted-empty default_session as configured, and the line parsers accepting YAML-only shapes they could not read. The readers now report a value only when YAML would agree.",
+          "expected_outcome": "The session-name surface is correct on the paths t1800's contract deliberately excluded, with the ide override given a test seam it currently has no way to have.",
+          "confidence": "high"
+        },
+        {
+          "entry_id": "e-1828",
+          "task": "aitasks#1828",
+          "topic": "aitasks#1705",
+          "position": 3,
+          "classification": "core",
+          "snapshot": {
+            "status": "Implementing",
+            "priority": "medium",
+            "effort": "low",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "followup_kind": "upstream_defect"
+          },
+          "rationale": "Spawned from t1825's review. t1825 made ait ide --session and ait setup's writer reject session names containing '.' or ':', but a hand-edited tmux.default_session holding one is still accepted by _tmux_bootstrap_resolve_session, read_default_session_status and load_tmux_defaults, so every reader agrees on a name tmux cannot address.",
+          "expected_outcome": "A configured session name tmux cannot target is either reported as a problem shape by both resolver twins or rejected at the consumers, with the resolver test pinning the choice.",
+          "confidence": "high",
+          "caveats": [
+            "In flight (lock only); the gatherer reports no phase for it. Its declared surface is lib/tmux_bootstrap.sh, tests/test_ide_session_override.sh and tests/test_tmux_default_session_resolvers.py; no other member of this trail touches those."
+          ]
+        }
+      ]
+    },
+    {
+      "wave_id": "w4-polish-and-hygiene",
+      "ordinal": 4,
+      "title": "Monitor polish and test hygiene (pick anytime)",
+      "purpose": "Independent improvements that neither block nor are blocked by the feature's behaviour; a pool, not a sequence. t1765, t1769 and t1736 have landed; t1735 is in flight.",
+      "why_now": "Nothing left to pick here: the only open member is already being worked on.",
+      "entries": [
+        {
+          "entry_id": "e-1765",
+          "task": "aitasks#1765",
+          "topic": "aitasks#1705",
+          "position": 1,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Done",
+            "priority": "low",
+            "effort": "low",
+            "depends": [],
+            "gates_pending": [],
+            "followup_kind": "review_finding"
+          },
+          "rationale": "Landed (2d4501148). The minimonitor own panel built a fresh SessionsView on every refresh while the followed agent was frozen; the sessions reader is now cached.",
+          "expected_outcome": "An unchanged session store costs a stat per tick rather than a parse.",
+          "confidence": "high"
+        },
+        {
+          "entry_id": "e-1769",
+          "task": "aitasks#1769",
+          "topic": "aitasks#1705",
+          "position": 2,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Done",
+            "priority": "medium",
+            "effort": "low",
+            "depends": [],
+            "gates_pending": [],
+            "followup_kind": "upstream_defect"
+          },
+          "rationale": "Landed (61eaa26f6). The single-pane fast-preview capture route had no parked branch, so focusing a parked card overwrote its parked snapshot; parked snapshots now stay on that route, as frozen ones already did.",
+          "expected_outcome": "A parked card's snapshot survives being focused, as a frozen card's now does.",
+          "confidence": "high"
+        },
+        {
+          "entry_id": "e-1735",
+          "task": "aitasks#1735",
+          "topic": "aitasks#1705",
+          "position": 3,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Implementing",
+            "priority": "medium",
+            "effort": "low",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "followup_kind": "upstream_defect"
+          },
+          "rationale": "The minimonitor concern smoke test builds fake agent binaries by copying sys.executable, which on Homebrew CPython reports as Python in tmux. The assertions that depend on the pane resolving to an agent name are vacuous: green, but not testing what they claim.",
+          "expected_outcome": "Those assertions fail when the behaviour they name is broken.",
+          "confidence": "medium",
+          "caveats": [
+            "In flight (lock only). Its declared surface is tests/lib/fake_agent_binary.py and tests/test_minimonitor_concern_smoke.py; no other member touches those."
+          ]
+        },
+        {
+          "entry_id": "e-1736",
+          "task": "aitasks#1736",
+          "topic": "aitasks#1705",
+          "position": 4,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Done",
+            "priority": "medium",
+            "effort": "medium",
+            "depends": [
+              "aitasks#1729"
+            ],
+            "gates_pending": [],
+            "followup_kind": "manual_verification"
+          },
+          "rationale": "Archived (e7f615742). Manual verification of t1729's unique-per-run tmpfile fixes, anchored here but unrelated to the freeze feature.",
+          "expected_outcome": "t1729's fixes are confirmed on a real macOS box, or a follow-up is spawned.",
+          "confidence": "high"
+        }
+      ]
+    },
+    {
+      "wave_id": "w5-docs",
+      "ordinal": 5,
+      "title": "Document the final freeze and restore behaviour",
+      "purpose": "Correct the frozen-agent TUI pages and write the freeze-and-restore workflow and framework-session concept pages, against the behaviour settled in wave 2.",
+      "why_now": "t1777 has landed, so the dialog copy has stopped moving; this wave is open now. t1818 changes the dialog's layout, not its words, so it does not need to land first.",
+      "consequence_of_delay": "Nothing else waits on the docs, but t1705_11 checks them, so postponing this wave postpones closure of the parent.",
+      "entries": [
+        {
+          "entry_id": "e-1778",
+          "task": "aitasks#1778",
+          "topic": "aitasks#1705",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "depends": [
+              "aitasks#1766",
+              "aitasks#1773"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "followup_kind": "risk_mitigation"
+          },
+          "rationale": "Both defects it waited for (t1766, t1773) have landed, as have t1784's no-session restore route and t1777's dialog wording, so the frozen-agent TUI pages can now be written once against the final copy.",
+          "expected_outcome": "The frozen-agent TUI pages match the shipped routes and the shipped wording.",
+          "confidence": "medium",
+          "caveats": [
+            "art:trail-website-docs-backlog places this task in its first wave; with t1777 landed, picking it from there no longer costs a later correction.",
+            "The in-flight t1697 declares website/content/docs/tuis/monitor/ and tuis/minimonitor/ pages. This task's pages are under tuis/frozenagent/, so the collision is adjacent, not direct."
+          ]
+        },
+        {
+          "entry_id": "e-1705_10",
+          "task": "aitasks#1705_10",
+          "topic": "aitasks#1705",
+          "position": 2,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "depends": [
+              "aitasks#1705_9"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ]
+          },
+          "rationale": "The user-requested workflow documentation. It covers when to freeze, restore, re-pick or drop, the framework-session concept, and the session hooks ait setup installs for it. Its prerequisite t1705_9 (the TUI pages) is archived.",
+          "expected_outcome": "A workflow page, a framework-session concept page and a session-hooks section, cross-linked from the TUI pages — the last child holding the parent open besides t1705_11.",
+          "confidence": "high",
+          "caveats": [
+            "Its ait setup section covers the session hooks written to .claude/settings.json and .codex/config.toml, not tmux.default_session, so wave 3 does not constrain it."
+          ]
+        }
+      ]
+    },
+    {
+      "wave_id": "w6-verify-and-close",
+      "ordinal": 6,
+      "title": "Manual verification and closure",
+      "purpose": "Exercise the shipped feature end to end on a real machine, then close the parent.",
+      "why_now": "Verification run before t1818 and wave 5 land would check a dialog and docs that later change, and would have to be repeated.",
+      "entries": [
+        {
+          "entry_id": "e-1781",
+          "task": "aitasks#1781",
+          "topic": "aitasks#1705",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "depends": [
+              "aitasks#1766"
+            ],
+            "gates_pending": [],
+            "followup_kind": "manual_verification"
+          },
+          "rationale": "Manual verification of t1766, which made the frozenagent viewer's restore deadline follow the record's project restore_ack_grace. t1766 is archived and t1784 has now landed, so the restore path it was waiting to settle behind has settled; it stays here only to batch the verifications together.",
+          "expected_outcome": "The viewer's deadline is confirmed to follow the record's own project config on a real machine.",
+          "confidence": "medium",
+          "caveats": [
+            "Could be run now; its position is a batching preference, not a constraint."
+          ]
+        },
+        {
+          "entry_id": "e-1705_11",
+          "task": "aitasks#1705_11",
+          "topic": "aitasks#1705",
+          "position": 2,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "depends": [
+              "aitasks#1705_10"
+            ],
+            "gates_pending": [],
+            "followup_kind": "manual_verification"
+          },
+          "rationale": "The feature-wide manual checklist, covering t1705_1 through t1705_10: session store, hooks, freeze, restore and re-pick, viewer, monitor rows, acceptance suite and docs. It includes the one check no agent can run for itself (the cleanup-rule parity test from outside tmux).",
+          "expected_outcome": "The shipped feature is confirmed end to end, or the gaps become follow-ups.",
+          "confidence": "high"
+        },
+        {
+          "entry_id": "e-1705",
+          "task": "aitasks#1705",
+          "topic": "aitasks#1705",
+          "position": 3,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "high",
+            "boardcol": "now",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ]
+          },
+          "rationale": "The parent. Its children_to_implement lists only t1705_10 and t1705_11, so it archives when those two do. The follow-ups anchored here, including the new t1818 and t1828, do not hold it open.",
+          "expected_outcome": "The topic's parent archives, leaving any remaining anchored follow-ups as independent work.",
+          "confidence": "high"
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    {
+      "evidence_id": "ev-snapshot",
+      "source_type": "command_output",
+      "ref": "./.aitask-scripts/aitask_trail_gather.sh snapshot --scope topic --owner 1705 --with-inflight 1705",
+      "observed_at": "2026-09-17T12:25:51Z",
+      "summary": "8 members (6 Ready; t1735 and t1828 Implementing); OWNER aitasks#1705; DIGEST af253c8b326da374. t1736, t1765, t1767, t1769, t1777 and t1811 from the prior version are gone (archived); t1818 and t1828 are new. In-flight probes both_enumeration_ok over 12 tasks, corpus extractable; members in flight are t1735 and t1828 (lock). t1697 (lock) declares monitor_app.py, minimonitor_app.py, monitor_core.py, monitor_shared.py and the monitor/minimonitor how-to/reference pages."
+    }
+  ],
+  "rendering_hints": {
+    "depth": "lite"
+  }
+}

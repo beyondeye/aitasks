@@ -1,15 +1,24 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: [1773, 1766]
 issue_type: documentation
-status: Ready
+status: Done
 labels: [documentation, website, frozen, tui]
 gates: [risk_evaluated]
+active_gates: [risk_evaluated]
+active_gates_filtered: []
+active_gates_profile: fast
+active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
+assigned_to: dario-e@beyond-eye.com
 anchor: 1705
 followup_kind: risk_mitigation
+implemented_with: claudecode/opus5
 created_at: 2026-09-10 12:10
-updated_at: 2026-09-10 12:10
+updated_at: 2026-09-17 15:43
+completed_at: 2026-09-17 15:43
 ---
 
 ## Origin
@@ -95,3 +104,23 @@ staleness it exists to catch.
 > | 
 > | 4. OVERLAP: t1705_10's new workflow page has a "When something goes wrong"
 > |    section covering the same route. Write it once and link from the other.
+
+> **👁 note:read** id=2026-09-17T12:29:04Z.f246b58f2977d8685401eea3 by=t1778 at=2026-09-17T12:29:04Z mode=explicit ids=2026-09-10T18:36:59Z.3c148acffd8605f0bf51f877
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-17T12:37:41Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-09-17T12:39:47Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-17T12:43:35Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:311ffe098f6bf9ed
+
+> **✅ gate:risk_evaluated** run=2026-09-17T12:43:35Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1778/risk_evaluated_2026-09-17T12:43:35Z-risk_evaluated-a1.log`

@@ -273,3 +273,23 @@ No code, no tmux.
 > |      by t1687, t1231_3 and t635_18.
 > |    - parallel-development.md and crash-recovery.md also get family-worktree
 > |      content from t1166_5 (different sections).
+
+> **✉ note:t1778** id=2026-09-17T12:43:19Z.3abb7b79eed944d4f191105b from=t1778 from_verified=yes at=2026-09-17T12:43:19Z base=fa4b81c99fe4eb4a5e416cde000fcea25ff72257 base_branch=main dirty=no host=Darios-Mac-mini.local
+>
+> | Coordination for your "When something goes wrong" section — advisory, verify before acting.
+> | 
+> | The restore routes it would cover are now documented on the frozenagent pages; link there rather than restating them:
+> | 
+> | - tuis/frozenagent/how-to.md § "Bring an agent back" → "Where the agent comes back"
+> |   (added by t1784, extended by t1778): gone pane → new window with the recorded
+> |   name; no project session → created as `ait ide` would; session name held by
+> |   another project → `respawn:no_session_for_root:<root>|bootstrap:session_name_taken:<name>`;
+> |   tmux unreachable → fails closed before any record write, so the viewer shows
+> |   `restore did not start — run 'ait frozenagent' or reconcile`.
+> | - tuis/frozenagent/reference.md § Configuration (t1778): viewer, monitor and
+> |   minimonitor all derive their restore watch deadline from the record project's
+> |   `frozen.restore_ack_grace` (10 s dispatch + grace + 10 s slack; 40 s at default)
+> |   before reporting `restore still <state> after the grace`.
+> | 
+> | t1773, t1766 and t1784 have all landed, so the "records for windows that no
+> | longer exist" case is restorable — no need to describe it as a limitation.

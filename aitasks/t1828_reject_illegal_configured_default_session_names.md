@@ -3,17 +3,19 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [tmux]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
+assigned_to: dario-e@beyond-eye.com
 anchor: 1705
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5
 created_at: 2026-09-17 11:31
-updated_at: 2026-09-17 22:06
+updated_at: 2026-09-17 22:51
 ---
 
 ## Origin
@@ -52,3 +54,12 @@ same `a.b`, so every reader agrees on a name tmux cannot target.
     check.
   - Extend `tests/test_tmux_default_session_resolvers.py` and
     `tests/test_ide_session_override.sh`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-17T19:45:32Z status=pass attempt=1 type=human
+>
+> Note: drift
+
+> **✅ gate:plan_approved** run=2026-09-17T19:52:20Z status=pass attempt=2 type=human
