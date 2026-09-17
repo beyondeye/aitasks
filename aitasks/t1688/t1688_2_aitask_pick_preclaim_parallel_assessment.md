@@ -171,3 +171,5 @@ t1470 (cross-reference).
 > | - Scope: the verdict is conditional on tasks whose creation description resolves. Creation time is the strict bound. An admission-time (claim-time) bracket is a separate follow-up (claim_time_bracket, spawned from t1824).
 > | 
 > | So t1814's Q1 conclusion (description precision >= plan reference) survives the hindsight check. The Q2 answer (no key-files narrowing) is unaffected. This is measurement only; the contract decision stays yours / t1343's.
+
+> **👁 note:read** id=2026-09-17T09:05:32Z.ead4c7a40973fa7c6933e6ca by=t1688_2 at=2026-09-17T09:05:32Z mode=explicit ids=2026-09-16T07:01:25Z.68dcd67e214598818b31f705,2026-09-17T06:17:43Z.324bc13440fe95a636080e18,2026-09-17T07:48:21Z.421a5cc5031a6384d7d22649
