@@ -53,3 +53,10 @@ same `a.b`, so every reader agrees on a name tmux cannot target.
     check.
   - Extend `tests/test_tmux_default_session_resolvers.py` and
     `tests/test_ide_session_override.sh`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-17T19:45:32Z status=pass attempt=1 type=human
+>
+> Note: drift
