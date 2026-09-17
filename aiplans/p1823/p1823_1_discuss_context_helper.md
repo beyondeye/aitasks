@@ -269,3 +269,31 @@ consumed by a not-yet-written sibling, so it is pinned by tests now. The three
 review findings (unvalidated graph ids, missing `yaml` import, unescaped
 delimiters) are designed in with red-proof tests; the cwd-relative crew path is
 handled in step 3.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-09-17 11:40)
+- **Requested by user:** the plan's required check `shellcheck .aitask-scripts/aitask_brainstorm_context.sh` exited 1 (SC1091 info on the three dynamic `source` lines) — make the stated command pass as written.
+- **Changes made:** verified (rc=1 on SC1091 alone). Adopted the repo precedent `# shellcheck source=<lib> disable=SC1091` (e.g. `aitask_backlog_roadmap.sh:46`) on all three helper source lines, and on both source lines of the new test file. Plain `shellcheck` now exits 0 on both files; the test still passes 60/60.
+- **Files affected:** `.aitask-scripts/aitask_brainstorm_context.sh`, `tests/test_brainstorm_context_helper.sh`
+
+## Final Implementation Notes
+
+- **Actual work done:** as planned (steps 1-5).
+  - `brainstorm_dag.py`: `import re`, `import yaml`; public `SAFE_NODE_ID_RE`, `is_safe_node_id()`, `read_node_safe()` (None for an unsafe id — no filesystem access — or a missing/malformed YAML), `node_parents_raw()` (None/[]/raw list), `get_node_ancestors()` (BFS over all parents, cross-module, unsafe ids reported but never read or traversed, sorted `(depth, str(id))`).
+  - `brainstorm_cli.py`: `import re`, `import yaml`; `paths` subcommand + `cmd_paths` with encoders `_tok` / `_tokens` / `_path` / `_existing`, task-file allowlist `_task_file_allowed`, `_module_token`. Grammar documented in a comment block above `cmd_paths`.
+  - `.aitask-scripts/aitask_brainstorm_context.sh`: thin wrapper; `cd` to repo root, then `exec` the CLI. Validation lives only in Python.
+  - Whitelist: 5 touchpoints via `apply-helper-whitelist` (audit clean) + `aitasks/metadata/opencode_config.seed.json`.
+  - Tests: `tests/test_brainstorm_node_ancestors.py` (10 tests), `tests/test_brainstorm_context_helper.sh` (60 asserts).
+- **Deviations from plan:** `read_node_safe` / `node_parents_raw` are public (the plan named a private `_read_parents_safe`) because the CLI needs one guarded read per node to derive both `MODULE` and `PARENTS`. The shell test's bad-task-num loop asserts non-zero for `""` (wrapper `die`, exit 1) and exactly 2 for a Python-validated value (`12a`).
+- **Issues encountered:** plain `shellcheck` exits 1 on SC1091 info alone — fixed in review (see Post-Review Changes). The real session `crew-brainstorm-1812` has a live runner, so its `git status` is dirty independently of this helper; the read-only proof is the fixture tree digest in the shell test.
+- **Key decisions:** constrained encoding instead of escaping (no raw YAML value ever reaches stdout); `!`-prefixed sentinels in token fields so a node literally named `INVALID` cannot collide; `TASK_FILE` allowlisted to the task's own file shape; task num tightened to `^[0-9]+(_[0-9]+)?$`. Mutation-verified in an isolated copy: removing either `yaml` import, the id check in `read_node_safe`, the `_tok` encoding, or the task-file allowlist each fails a test.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:** **Final output grammar (t1823_2 parses this):**
+  ```
+  SESSION_PATH:<path>|NOT_FOUND                      # NOT_FOUND ends output
+  TASK_FILE:<path>|NOT_FOUND|INVALID
+  NODE:<id>|PROPOSAL:<path|NOT_FOUND>|META:<path|NOT_FOUND>|PARENTS:<tokens>
+  ANCESTOR:<node>|<token>|DEPTH:<n>|MODULE:<token>|PARENTS:<tokens>|PROPOSAL:<path|NOT_FOUND>   # --lineage
+  ```
+  token = `[A-Za-z0-9_.-]+` id, or `!INVALID` (unsafe value) / `!MISSING` (MODULE only: ancestor YAML unreadable). `MODULE` is `_umbrella` when unset. Unsafe ancestor line is always `ANCESTOR:<node>|!INVALID|DEPTH:<n>|MODULE:!MISSING|PARENTS:|PROPOSAL:NOT_FOUND`. `NODE` lines: 4 `|`-fields; `ANCESTOR` lines: 6. Paths are repo-relative. Exit 0 on every resolution outcome; exit 2 for a malformed task num or node id (stderr message, no stdout). Invoke as `./.aitask-scripts/aitask_brainstorm_context.sh [--lineage] <task_num> [<node_id>...]` (whitelisted in Claude/Codex/OpenCode). With no node ids, every node in the session is listed. `get_node_ancestors` / `is_safe_node_id` / `read_node_safe` in `brainstorm_dag.py` are reusable if the TUI (t1823_4) needs the same data in-process.
