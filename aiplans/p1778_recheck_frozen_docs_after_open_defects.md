@@ -91,3 +91,10 @@ None identified.
 - The "Where the agent comes back" text was written by t1784, not this task; if
   t1784's prose has a subtle inaccuracy it rides along unchecked · severity: low
   · → mitigation: none (re-read against `agent_restore.py` during step 2)
+
+## Final Implementation Notes
+- **Actual work done:** Steps 1 and 2 as planned — `reference.md` § Configuration now states the viewer/monitor/minimonitor watch deadline (10 s dispatch + `restore_ack_grace` + 10 s slack, read from the record's project); `how-to.md` § "Where the agent comes back" gains the tmux-unreachable fail-closed sentence. Step 3 (note to t1705_10) is sent at Step 8e.
+- **Deviations from plan:** None.
+- **Issues encountered:** The t1773 half of this task had already been covered by t1784 (68158b17f), which added the "Where the agent comes back" paragraph; re-read it against `agent_restore.py` and found it accurate.
+- **Key decisions:** Verified the tmux-unreachable message against `agent_sessions.restore_verdict`: the preflight fails before `restore-begin`, so `restore_attempts` never bumps and the verdict is `restore did not start — …` (not `restore failed: preflight:…`).
+- **Upstream defects identified:** None
