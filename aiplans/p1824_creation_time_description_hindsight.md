@@ -185,3 +185,139 @@ None identified. (Scratch scripts only; git access on the data branch is read-on
 ### Planned mitigations
 - timing: post-phase | name: rider_sensitivity | type: test | priority: low | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — first committed version may already include edits | desc: classify first-add commits structurally (single create / multi-task add / start-work / sync autocommit / other), re-run threshold-10 sweeps excluding each suspect group, report whether Q1 changes, qualified as a heuristic
 - timing: after | name: claim_time_bracket | type: enhancement | priority: low | effort: medium | inline_risk: low | added_complexity: medium | addresses: goal-achievement — creation time is stricter than admission time | desc: measure the task body as of just before its own `Start work on t<id>` commit as an admission-time bracket between t1824's creation-time and current numbers
+
+## Implementation progress (2026-09-17)
+
+All steps done: pre-phase, Steps 1–4 and post-phase `rider_sensitivity`. Every
+measurement ran on t1814's frozen snapshot, copied into this session's
+scratchpad; `MANIFEST.sha256` verified before and after.
+
+### Pre-phase validation
+
+The final root-aware wrapper (`sweep_root.py` over `frozen_io.py`) run on the
+untouched snapshot produced output **byte-identical** to t1814's published
+`tvp_pre`, `task_pre_common` and `plan_pre_common`. `cohort.py` reproduced
+`7b0461e726532b5c|400`.
+
+### Recovery and cohort accounting
+
+- 457 archived task files in the snapshot. 454 were recovered from their first
+  data-branch add (one `git log --reverse --no-renames --diff-filter=A` pass,
+  keyed by task id); 3 were excluded because they were first added in a
+  `Migrate task data from main branch` commit.
+- After the framework cut, 311 creation bodies are identical to the current
+  version and 143 differ. Within the final cohort: 297 identical, 96 differ.
+- From t1814's 400: −1 migration (`t219`) = 399 resolvable on current bodies.
+  Then −6 whose creation description does not resolve (`1657_7`, `369_1`,
+  `369_2`, `369_3`, `417_9`, `635_36`), and +0 that resolve only at creation.
+  **COHORT = `e845e8423e8130f9|393`.**
+- Dropped subset (7): 4 feature (`369_1`–`369_3`, `417_9`), 1
+  manual_verification (`1657_7`), 1 refactor (`219`), 1 chore (`635_36`), vs
+  the cohort's feature 35.9% / bug 35.4% and no bugs dropped. So the dropped
+  tasks are feature-heavy, but they touch only **74 of the 400
+  cohort's 6360 real colliding pairs (1.16%)**.
+- Controls: all six Step 3 outputs print `e845e8423e8130f9|393`. The `plan`
+  outputs are byte-identical across roots. The `task` outputs differ across
+  roots (negative control).
+
+### Measurement (pre-implementation plan scope, frozen inputs)
+
+Columns: CONFLICT precision · flagged recall · hard-stopped · downgraded · CONFLICT verdicts.
+
+**Unordered pairs, `--population common`, COHORT 393 (77028 pairs, 6286 colliding):**
+
+| source | th | precision | recall | hard-stop | downgr. | CONFLICT |
+|---|---|---|---|---|---|---|
+| plan (reference) | 8 | 0.3814 | 0.8540 | 0.2475 | 0.6064 | 4080 |
+| plan (reference) | 10 | **0.4068** | 0.8540 | 0.2972 | 0.5568 | 4592 |
+| plan (reference) | 20 | 0.2019 | 0.8540 | 0.6737 | 0.1802 | 20974 |
+| task, current | 8 | 0.4285 | 0.4878 | 0.0872 | 0.4006 | 1279 |
+| task, current | 10 | 0.4461 | 0.4878 | 0.1087 | 0.3791 | 1531 |
+| task, current | 20 | 0.2779 | 0.4878 | 0.2358 | 0.2520 | 5332 |
+| task, creation | 8 | 0.4393 | 0.4803 | 0.0853 | 0.3950 | 1220 |
+| task, creation | 10 | **0.4562** | 0.4803 | 0.1053 | 0.3750 | 1451 |
+| task, creation | 20 | 0.2776 | 0.4803 | 0.2310 | 0.2493 | 5231 |
+
+**Ordered pairs, `task-vs-plan`, COHORT 393 (154056 pairs, 12572 colliding):**
+
+| candidate | th | precision | recall | hard-stop | downgr. | CONFLICT |
+|---|---|---|---|---|---|---|
+| whole body, current | 8 | 0.4107 | 0.6168 | 0.1217 | 0.4951 | 3725 |
+| whole body, current | 10 | 0.4393 | 0.6168 | 0.1549 | 0.4620 | 4432 |
+| whole body, current | 20 | 0.2331 | 0.6168 | 0.3793 | 0.2375 | 20460 |
+| whole body, creation | 8 | 0.4176 | 0.6078 | 0.1189 | 0.4889 | 3580 |
+| whole body, creation | 10 | **0.4467** | 0.6078 | 0.1514 | 0.4564 | 4260 |
+| whole body, creation | 20 | 0.2327 | 0.6078 | 0.3751 | 0.2327 | 20269 |
+| key-files, current | 10 | 0.4743 | 0.5380 | 0.1106 | 0.4274 | 2933 |
+| key-files, creation | 10 | 0.4857 | 0.5276 | 0.1078 | 0.4198 | 2790 |
+
+### Selection vs hindsight (threshold 10)
+
+| quantity | t1814 @400 (current) | current @393 | creation @393 |
+|---|---|---|---|
+| plan pre-impl precision | 0.4036 | 0.4068 | 0.4068 |
+| task precision | 0.4387 | 0.4461 | 0.4562 |
+| task − plan gap | +0.0351 | +0.0393 | +0.0494 |
+| task-vs-plan precision | 0.4333 | 0.4393 | 0.4467 |
+
+- **Selection effect** (400 → 393, current bodies) raises the task-minus-plan
+  gap by +0.0042 (task +0.0074, plan +0.0032).
+- **Hindsight effect** (creation − current on the same 393): later edits
+  *lowered* precision rather than inflating it. Creation minus current: task
+  +0.0101, task-vs-plan +0.0074, key-files +0.0114. Creation-time
+  descriptions are slightly MORE precise and slightly less recalling (task
+  recall −0.0075, task-vs-plan −0.0090). At thresholds 8 and 20 the direction is
+  the same or flat (task at 20: 0.2779 → 0.2776).
+- The creation-time margin over the plan reference (+0.0494) is more than 10×
+  the selection effect on the gap (+0.0042). So the verdict is distinguishable
+  from selection.
+- Unverified explanation for the direction: content added after creation
+  (verification checklists, `Coordination (from tN)` sections, extra key-files
+  lists) names more paths, some of which are never edited. No per-heading
+  attribution was run.
+
+### Post-phase: rider_sensitivity (structural heuristic)
+
+Each cohort task's first-add commit, classified by structure: `create_single`
+393/393 (the commit adds files for exactly one task id), `multi_task_add` 0,
+`start_work` 0, `sync_autocommit` 0, `other` 1. The single `other` is
+`635_13`, first added by `ait: Reparent tN as tN …`. Its id was reassigned, so
+its "first version" under the current id is the reparent-time body and not its
+true creation. Excluding it (union of suspect groups, cohort
+`713a0c19e5c88b29|392`, same controls passed) at threshold 10: plan 0.4068;
+task current 0.4481 → creation **0.4582**; task-vs-plan 0.4398 → **0.4475**;
+key-files 0.4751 → 0.4868. **Q1 verdict unchanged.** Limit: this is a
+structural heuristic. A `create_single` commit can still carry pre-commit edits
+(a draft edited before its first commit), and no commit metadata reveals that.
+
+### Verdict (Q1, cohort-conditional)
+
+On the **393-task cohort of tasks whose creation-time description resolves**,
+t1814's Q1 rule **holds**. Creation-time promoted description precision is ≥ the
+plan pre-implementation reference at every threshold. Unordered: 0.4393 /
+0.4562 / 0.2776 vs 0.3814 / 0.4068 / 0.2019. Description-vs-plan: 0.4176 /
+0.4467 / 0.2327. The hindsight concern t1814 raised does not inflate
+description precision in this corpus; if anything it slightly deflates it. The
+statement does not extend to the 7 excluded tasks (1.16% of real collisions).
+Creation time is the strict bound; the admission-time (claim-time) bracket is
+the spawned follow-up `claim_time_bracket`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Measurement only, no repo code changes. Scratch tooling
+  (this session's scratchpad): `frozen_io.py`, `sweep_root.py`, `cohort.py`,
+  `recover.py`, `prune.py`, `rider.py`; outputs `m/*.txt`, `rider/*.txt`,
+  `recovery.tsv`, `cohort_ids.txt`, `dropped_ids.txt`.
+- **Deviations from plan:** `recovery.tsv` records `ids_added_in_commit` (the
+  structural field) instead of the dropped subject-names-id `rider` flag, per
+  the revised post-phase. The dropped-subset issue_type mix is reported as
+  counts per id, since 7 tasks are too few for a percentage mix.
+- **Issues encountered:** One reparented task (`635_13`): keying first-add by
+  task id cannot see history under a previous id. Only 1 cohort task is affected
+  and the verdict holds without it. None of the 21 `Start work on` rider adds
+  seen during exploration belong to cohort tasks.
+- **Key decisions:** The cohort is fixed explicitly (intersection across both
+  roots) and imposed by pruning the roots, so the shipped CLI's own `common`
+  cohort computes it with no new code path. The wrapper was validated in its
+  final form before use.
+- **Upstream defects identified:** None
