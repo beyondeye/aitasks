@@ -184,3 +184,31 @@ current branch under the `fast` profile.
 - A structurally malformed line elsewhere in the file remains undetected. This was
   accepted by the user's scope decision and is documented in both twins.
   · severity: low · → mitigation: none (accepted by user decision)
+
+## Final Implementation Notes
+- **Actual work done:** as planned.
+  - `_tmux_bootstrap_session_name_ok` is shared by `ait ide --session` (die) and `ait setup` (warn, then fall back).
+  - Both default_session line readers detect whole-file invalid UTF-8 (`encoding`, which now also reaches bash) and PyYAML Reader non-printables anywhere, NUL included (new `non_printable` shape, after the line shapes).
+  - `DEFAULT_SESSION_FILE_SHAPES` drives the "not valid YAML" wording in the bash warning and the TUI switcher notice.
+  - The structural gap (a malformed line under another key) is documented in both twins and in the test docstring.
+- **Deviations from plan:**
+  - The corpus scan harness was extracted into `_bash_scan_many` and reused by the corpus test and the new `GeneratedWholeFileMutationTests`: 300 fixtures, with floors on all three outcomes.
+  - `test_setup_tmux_default_session.sh` got two probes (DEL → `non_printable`, `\377` → `encoding`) rather than a NUL probe.
+- **Issues encountered:**
+  - glibc `iconv -f UTF-8 -t UTF-8` accepts code points above U+10FFFF, `F5..FF` leads and 5-byte forms, so an awk RFC 3629 state machine is used instead: bytes are mapped to ordinals through an env byte table, with no `\x` escapes.
+  - shellcheck SC2059 on the byte-table builder was fixed with `printf '%b' "\\0ooo"`, and the table bytes were verified identical.
+- **Key decisions:**
+  - NUL is mapped to `\001` by `tr` before awk, and `\x00` is added to the Python line-control set, so a NUL on the value line is `tab_or_control` in both twins.
+  - Precedence is `encoding` > line shape > `non_printable`, which keeps every pre-existing row's shape unchanged.
+- **Verification:**
+  - Test results:
+    - ide 40/40
+    - setup 52/52
+    - resolvers 25 OK
+    - notify 6 OK
+    - full Python suite PASSED (pytest, exit 0)
+  - A 31-row byte probe showed bash == Python == PyYAML on every row.
+  - Negative control: removing the F4 upper bound in a scratch copy made the matrix test fail.
+  - The live repo config and the seed still read cleanly.
+  - Only gawk is available here; mawk and BSD awk (macOS) are untested.
+- **Upstream defects identified:** None
