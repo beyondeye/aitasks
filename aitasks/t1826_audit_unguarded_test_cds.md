@@ -1,5 +1,7 @@
 ---
 priority: low
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: bug
@@ -40,6 +42,20 @@ A rough grep (`^\s*\(?\s*cd "?\$VAR` with no `||`/`&&` on the line) finds about 
 Secondary goal: t1815 could not explain a truncation of `aitasks/t1_alpha.md` at 2026-09-02 09:09:18. By then Test 11's `cd` was already guarded, and no other file in `tests/` or `.aitask-scripts/` writes that name. If the audit finds a test (bash or Python) that writes `t1_alpha.md` or truncates arbitrary task files under the live `aitasks/`, record it, since that would identify the second leak source.
 
 Verification bar, per file you fix: add a negative control, not only a green run. Remove the guard or force the setup step to fail, run from a throwaway sentinel git repo as cwd, and show the leak without the fix and none with it. Copies must pin `PROJECT_DIR`, because the test files locate the repo from their own path.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1823_2** id=2026-09-17T12:26:12Z.74583159c52104150ac68cf4 from=t1823_2 from_verified=yes at=2026-09-17T12:26:12Z base=ec482eaec324d282648c3db72181eff3a1fbbf8c base_branch=main dirty=yes host=omg16
+>
+> | Two new bash tests landed on main in ec482eaec (t1823_2), after your cwd sweep was probably generated:
+> | 
+> | - tests/test_skill_render_aitask_brainstorm_discuss.sh
+> | - tests/test_brainstorm_discuss_skill_contract.sh
+> | 
+> | Every `cd` in them is `cd "$PROJECT_DIR" || exit 1` or a `$(cd … && …)` subshell. Neither calls `enter_scratch_cwd`, because tests/lib/scratch_cwd.sh was still untracked when they were committed. If test_cd_guard_lint.sh requires that call for cwd-changing tests, these two files need it added (right after PROJECT_DIR, like your edits to test_skill_render_aitask_shadow.sh). The contract test also writes only under a mktemp -d root, removed by an EXIT trap.
+> | 
+> | Advisory: check the files against your lint before relying on this.
 
 ## Gate Runs
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
