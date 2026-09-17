@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -15,7 +17,7 @@ anchor: 1705
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5
 created_at: 2026-09-17 11:31
-updated_at: 2026-09-17 22:51
+updated_at: 2026-09-17 22:52
 ---
 
 ## Origin
@@ -63,3 +65,5 @@ same `a.b`, so every reader agrees on a name tmux cannot target.
 > Note: drift
 
 > **✅ gate:plan_approved** run=2026-09-17T19:52:20Z status=pass attempt=2 type=human
+
+> **✅ gate:review_approved** run=2026-09-17T20:33:08Z status=pass attempt=1 type=human
