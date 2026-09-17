@@ -3,12 +3,13 @@ priority: low
 effort: low
 depends: []
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [monitor, frozen]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1705
 followup_kind: review_finding
 created_at: 2026-09-09 15:31
-updated_at: 2026-09-09 15:31
+updated_at: 2026-09-17 12:56
 ---
 
 `agent_freeze.freeze_all_eligible()` documents itself as THE eligibility rule,
