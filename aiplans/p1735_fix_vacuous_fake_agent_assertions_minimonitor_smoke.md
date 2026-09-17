@@ -177,3 +177,31 @@ per-PID socket and `TMUX_TMPDIR`, so it is safe with `env -u TMUX`):
 
 ### Planned mitigations
 - timing: pre-phase | name: probe_fork_launcher | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: fork launcher pgrp/tty assumption unmeasured | desc: scratch tmux probe that the launcher pane keeps its agent name, the stub keeps the tty, and kill-server ends both sleeper and stub (frame + composer) within 5 s
+
+## Final Implementation Notes
+
+- **Actual work done:** All plan steps landed in `tests/test_minimonitor_concern_smoke.py`: the `fake_agent_binary` import, `_short_tmpdir()` for all three classes, `_AGENT_LAUNCHER`, binaries built once up front, every agent-named pane (3 followed, 3 claude shadows, codex_shadow followed + shadow) routed through the launcher, premise comments rewritten, `test_pane_commands_are_the_agent_names`, and the `tearDownClass` leak check.
+- **Pre-phase probe_fork_launcher (done):** the exec variant passed everything. (a) The pane read `{'codex'}` across 5 s. (b) Typed `hi` arrived as `❯\xa0hi` on the composer line. (c) After `kill-server`, both sleeper and stub were gone within 5 s for both the composer stub and `_FRAME_STUB`. The watchdog variant was not needed.
+- **Deviations from plan:** none in substance. `pane_argv` turned out to be written but never read, so it was just updated to the launcher tuple.
+- **Verification results:**
+  - Pre-fix control: default TMPDIR gave `OK (skipped=3)` in 0.01 s, and `TMPDIR=/tmp` gave `FAILED (failures=17)` in 513 s with `command='Python'`.
+  - Fixed, default TMPDIR: `Ran 17 tests in 14.487s, OK`, 0 skips. The `_case` `agent_key == agent` and kind/verdict assertions are now actually reached.
+  - Leak-check control: importing the real module with `kill-server` suppressed made teardown raise `fixture processes outlived kill-server (now SIGKILLed)` listing the tmux server, 8 sleepers and 8 stubs. `pgrep` found nothing afterwards.
+- **Follow-up check:** the other `TMUX_TMPDIR` modules (`test_launch_in_tmux_pane_pid`, `test_pane_state_probe`, `test_tmux_exec`, `test_agent_restore`, `test_minimonitor_shadow_pick`, `test_monitor_shadow_pick`) run with 0 skips under the default TMPDIR. The socket-length skip was specific to this module, so there is no follow-up.
+- **Key decisions:** kept the Python stubs and put the agent name on the pane pid through a fork launcher rather than rewriting the stubs. Leaks are SIGKILLed before they are reported, so a failing teardown cannot itself leak.
+- **Upstream defects identified:** None
+- **Issues encountered:** the task's "passes vacuously" claim was inaccurate. The module either skipped (default macOS TMPDIR) or failed hard. Both were fixed.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-09-17 13:20)
+- **Requested by user:** the leak check returned early when `pgrep` was missing, so a tmux-capable environment without that optional binary could leak forked stubs while the module still passed — contradicting the durable-cleanup mitigation. Track fixture PIDs at launch or use a portable fallback instead.
+- **Changes made:** `_AGENT_LAUNCHER` now takes a pid-file path as `argv[1]` and writes both its own pid (the pane pid, which becomes the agent binary) and the forked stub's pid before exec'ing. `_assert_no_fixture_process_survives` reads those files and decides purely with `os.kill(pid, 0)` — no process search, no optional binary, and the check now runs everywhere. `ps` is used only to label a survivor in the message, degrading to `?`; the verdict never depends on it. Two defects found while verifying: survivors were described one-at-a-time *while* being killed, so each stub read `?` because killing its agent binary made tmux tear the pane down first (now all are described before any is killed); and `pane_argv` called `as_agent()` a second time, allocating a pid file no process would ever write (now it reuses the launched pane's argv).
+- **Files affected:** `tests/test_minimonitor_concern_smoke.py`
+- **Re-verified:** module `Ran 17 tests in 13.680s, OK` (default TMPDIR, 0 skips). Leak control with `kill-server` suppressed now names all **16** processes (8 agent binaries + 8 stubs) with full command lines, SIGKILLs them, and leaves nothing behind.
+
+### Change Request 2 (2026-09-17 13:35)
+- **Requested by user:** the pid files record numbers but no identity. If a fixture process exits and its pid is reused while another survivor keeps the 5 s wait alive, `os.kill(pid, 0)` would treat the replacement as the fixture and the later SIGKILL could terminate an unrelated process. Validate the command before signalling, or report an unverified pid without killing it.
+- **Changes made:** the aliveness test became a three-state identity check (`gone` / `ours` / `unverified`). A pid that exists is described with `ps` and counts as a fixture process only when its command still contains this class's tmpdir; a pid whose command names something else is treated as recycled and **ignored entirely** (neither reported nor signalled); a pid `ps` cannot describe is reported as `[unverified]` and **never signalled**. Only `[ours]` is SIGKILLed. The report labels each survivor with its state.
+- **Files affected:** `tests/test_minimonitor_concern_smoke.py`
+- **Re-verified:** module `Ran 17 tests in 14.372s, OK` (default TMPDIR, 0 skips). New controls: a live `sleep 60` planted in a pid file is not reported and stays alive (recycled path, returns in 0.0 s); with `_process_command` stubbed to `?` the same pid is reported `[unverified]` and still alive afterwards. The kill-server-suppressed control still names all 16 fixture processes as `[ours]`, kills them, and leaves nothing behind.
