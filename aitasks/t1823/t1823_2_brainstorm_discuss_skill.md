@@ -3,12 +3,13 @@ priority: medium
 effort: high
 depends: [t1823_1]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [ait_brainstorm, skills, codeagent]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1823
 created_at: 2026-09-17 09:50
-updated_at: 2026-09-17 09:50
+updated_at: 2026-09-17 13:04
 ---
 
 ## Context
