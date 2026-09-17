@@ -87,6 +87,28 @@ class EnsureSessionLiveNotifyTests(unittest.TestCase):
             self.assertIn(part, message)
         self.assertTrue(ov._all_sessions[0].is_live, "the bootstrap still counts as done")
 
+    def test_a_file_level_shape_is_worded_as_invalid_yaml(self):
+        """encoding / non_printable describe the file, not the default_session line (t1825)."""
+        for shape in ("non_printable", "encoding"):
+            with self.subTest(route="stderr", shape=shape):
+                ok, _ov, _app, warnings = self._run(
+                    _entry(), rc=0, stderr=_real_sentinel_stderr(shape))
+                self.assertTrue(ok)
+                self.assertEqual(len(warnings), 1)
+                message = warnings[0].args[0]
+                for part in ("proj_b", "project_config.yaml is not valid YAML", shape, "'aitasks'"):
+                    self.assertIn(part, message)
+                self.assertNotIn("single-line", message)
+            with self.subTest(route="field", shape=shape):
+                _ok, _ov, _app, warnings = self._run(_entry(problem=shape), rc=0, stderr="")
+                self.assertIn("not valid YAML", warnings[0].args[0])
+
+    def test_a_line_shape_keeps_the_value_wording(self):
+        """CONTROL for the branch above: a line shape still names the value form."""
+        _ok, _ov, _app, warnings = self._run(_entry(problem="block_scalar"), rc=0, stderr="")
+        self.assertIn("single-line plain or quoted value", warnings[0].args[0])
+        self.assertNotIn("not valid YAML", warnings[0].args[0])
+
     def test_the_entry_field_alone_also_warns(self):
         ok, _ov, _app, warnings = self._run(_entry(problem="typed_scalar"), rc=0, stderr="")
         self.assertTrue(ok)

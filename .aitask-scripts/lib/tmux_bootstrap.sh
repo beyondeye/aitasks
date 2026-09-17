@@ -69,8 +69,16 @@ source "$_TMUX_BOOTSTRAP_LIB_DIR/tmux_exec.sh"
 #     keeps the last one).
 #   * Null spellings, empty, comment-only and Unicode-whitespace-only values mean
 #     "not configured".
+#   * The whole file is checked for the bytes PyYAML's Reader refuses before it
+#     parses anything: invalid UTF-8 (`encoding`, which wins over every other
+#     shape) and a non-printable character on any line (`non_printable`, reported
+#     only when no line shape was). NUL is mapped to \001 first, since awk cannot
+#     carry it portably; both are non-printable, and \001 is a line control.
+#   * Not detected, by decision (t1825): a structurally invalid line elsewhere in
+#     the file. Only a full YAML parse sees it; there load_tmux_defaults falls
+#     back to "aitasks" while this reader returns the configured value.
 #
-# `tr '\r' '\n'` gives awk the universal newlines Python's open() applies, so
+# `tr '\r\000' '\n\001'` gives awk the universal newlines Python's open() applies, so
 # a CRLF blank line (a lone "\r" record) cannot end the block and a CR-only
 # file is not read as one record. awk reads to end of input rather than
 # `exit`ing on the match: an early exit leaves `tr` writing into a closed pipe
@@ -87,6 +95,10 @@ _TMUX_BOOTSTRAP_YAML_C1TAIL="$(printf '\200\201\202\203\204\205\206\207\210\211\
 _TMUX_BOOTSTRAP_YAML_BREAKS="$(printf '\342\200\250|\342\200\251|\357\277\276|\357\277\277')"
 _TMUX_BOOTSTRAP_YAML_BLANKS="$(printf ' |\t|\302\240|\341\232\200|\342\200\200|\342\200\201|\342\200\202|\342\200\203|\342\200\204|\342\200\205|\342\200\206|\342\200\207|\342\200\210|\342\200\211|\342\200\212|\342\200\257|\342\201\237|\343\200\200')"
 _TMUX_BOOTSTRAP_YAML_BOM="$(printf '\357\273\277')"
+# Bytes \001-\377 in order, so awk can map a byte to its ordinal (ORD[]) without
+# `\x` escapes or locale-dependent classes.
+_TMUX_BOOTSTRAP_YAML_BYTES="$(for _b in {1..255}; do printf '%b' "\\0$(printf '%03o' "$_b")"; done)"
+unset _b
 
 # awk functions shared by the reader (scan) and the writer (render), so both
 # agree on which line opens the `tmux` block and which carries the key. Callers
@@ -144,7 +156,7 @@ _tmux_bootstrap_default_session_scan() {
         printf 'ok\t\n'
         return 0
     fi
-    tr '\r' '\n' < "$cfg" | LC_ALL=C \
+    tr '\r\000' '\n\001' < "$cfg" | LC_ALL=C BYTES="$_TMUX_BOOTSTRAP_YAML_BYTES" \
         CTRL="$_TMUX_BOOTSTRAP_YAML_CTRL" C1LEAD="$_TMUX_BOOTSTRAP_YAML_C1LEAD" \
         C1TAIL="$_TMUX_BOOTSTRAP_YAML_C1TAIL" BREAKS="$_TMUX_BOOTSTRAP_YAML_BREAKS" \
         BLANKS="$_TMUX_BOOTSTRAP_YAML_BLANKS" BOM="$_TMUX_BOOTSTRAP_YAML_BOM" \
@@ -158,6 +170,39 @@ _tmux_bootstrap_default_session_scan() {
             }
             for (k = 1; k <= nbreaks; k++) if (index(s, BRK[k])) return 1
             return 0
+        }
+        # Whole-file byte check (see the header): sets ENC_BAD on invalid UTF-8
+        # (RFC 3629 table, as Python strict decode) and NON_PRINT on a character
+        # PyYAML 6.0.3 Reader.NON_PRINTABLE refuses. Keep in sync with
+        # agent_launch_utils._YAML_NON_PRINTABLE.
+        function bytes_check(s,    i, n, b, need, lo, hi, lead, b2) {
+            n = length(s); need = 0
+            for (i = 1; i <= n; i++) {
+                b = ORD[substr(s, i, 1)]
+                if (need) {
+                    if (b < lo || b > hi) { ENC_BAD = 1; return }
+                    if (b2 < 0) b2 = b
+                    lo = 128; hi = 191; need--
+                    # NON_PRINTABLE multibyte: U+0080-U+0084, U+0086-U+009F, U+FFFE/F.
+                    if (need == 0 && lead == 194 && b2 <= 159 && b2 != 133) NON_PRINT = 1
+                    if (need == 0 && lead == 239 && b2 == 191 && b >= 190) NON_PRINT = 1
+                    continue
+                }
+                if (b < 128) {
+                    if (b < 9 || b == 11 || b == 12 || (b >= 14 && b <= 31) || b == 127) NON_PRINT = 1
+                    continue
+                }
+                lead = b; b2 = -1; lo = 128; hi = 191
+                if (b >= 194 && b <= 223) need = 1
+                else if (b == 224) { need = 2; lo = 160 }
+                else if ((b >= 225 && b <= 236) || b == 238 || b == 239) need = 2
+                else if (b == 237) { need = 2; hi = 159 }
+                else if (b == 240) { need = 3; lo = 144 }
+                else if (b >= 241 && b <= 243) need = 3
+                else if (b == 244) { need = 3; hi = 143 }
+                else { ENC_BAD = 1; return }
+            }
+            if (need) ENC_BAD = 1
         }
         function strip_blank(s,    k, p, seq) {
             for (k = 1; k <= nblanks; k++) {
@@ -221,9 +266,12 @@ _tmux_bootstrap_default_session_scan() {
         BEGIN {
             nbreaks = split(ENVIRON["BREAKS"], BRK, "|")
             nblanks = split(ENVIRON["BLANKS"], BLK, "|")
+            for (i = 1; i <= 255; i++) ORD[substr(ENVIRON["BYTES"], i, 1)] = i
+            ENC_BAD = 0; NON_PRINT = 0
             block = ""; ci = -1; found = 0; val = ""; problem = ""; check_next = 0
         }
         {
+            if (!ENC_BAD) bytes_check($0)
             line = $0
             if (NR == 1 && substr(line, 1, length(ENVIRON["BOM"])) == ENVIRON["BOM"])
                 line = substr(line, length(ENVIRON["BOM"]) + 1)
@@ -273,7 +321,9 @@ _tmux_bootstrap_default_session_scan() {
             check_next = 1
         }
         END {
-            if (problem != "") printf "bad\t%s\n", problem
+            if (ENC_BAD) printf "bad\tencoding\n"
+            else if (problem != "") printf "bad\t%s\n", problem
+            else if (NON_PRINT) printf "bad\tnon_printable\n"
             else printf "ok\t%s\n", val
         }
     '
@@ -286,6 +336,12 @@ _tmux_bootstrap_default_session_scan() {
 # the same two-line shape as the BOOTSTRAP_FAILED: refusals.
 _tmux_bootstrap_report_unreadable() {
     printf 'DEFAULT_SESSION_UNREADABLE:%s:%s\n' "$2" "$1" >&2
+    case "$2" in
+        encoding|non_printable)
+            printf 'Warning: %s is not valid YAML (%s: invalid UTF-8 or a non-printable character); tmux.default_session cannot be trusted\n' "$1" "$2" >&2
+            return 0
+            ;;
+    esac
     # shellcheck disable=SC2016  # the backticks are literal text in the message
     printf 'Warning: tmux.default_session in %s is not a single-line plain or quoted value (%s); write it as e.g. `default_session: myproject`\n' "$1" "$2" >&2
 }
@@ -327,6 +383,15 @@ _tmux_bootstrap_resolve_session() {
         name=aitasks
     fi
     printf '%s\n' "$name"
+}
+
+# _tmux_bootstrap_session_name_ok <name>
+#
+# Returns 1 when <name> holds `.` or `:` — tmux reads both as target separators,
+# so such a session can be created but never addressed. Shared by `ait setup`
+# (which falls back to the default) and `ait ide --session` (which refuses).
+_tmux_bootstrap_session_name_ok() {
+    [[ "$1" != *[.:]* ]]
 }
 
 # _tmux_bootstrap_session_for <project_root> [override]

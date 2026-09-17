@@ -731,15 +731,18 @@ _YAML_NULLS = ("", "~", "null", "Null", "NULL")
 
 #: Every ``shape`` :func:`read_default_session_status` can report. The bash twin
 #: (``tmux_bootstrap.sh::_tmux_bootstrap_default_session_raw``) reports the same
-#: vocabulary in its ``DEFAULT_SESSION_UNREADABLE:<shape>:<cfg>`` sentinel, except
-#: ``encoding``, which only this reader can detect (it decodes the file as UTF-8;
-#: the awk reads bytes).
+#: vocabulary in its ``DEFAULT_SESSION_UNREADABLE:<shape>:<cfg>`` sentinel.
 DEFAULT_SESSION_PROBLEM_SHAPES = (
     "tab_or_control", "missing_separator", "continuation", "quoted_escape",
     "trailing_content", "block_scalar", "flow_collection", "node_property",
     "indicator", "mapping_indicator", "typed_scalar", "duplicate_key",
-    "flow_mapping", "invalid_block", "encoding",
+    "flow_mapping", "invalid_block", "encoding", "non_printable",
 )
+
+#: The shapes that describe the whole file rather than the ``default_session``
+#: line: bytes PyYAML's Reader rejects before parsing, so every YAML-backed reader
+#: (:func:`load_tmux_defaults`) falls back too. Notices word these differently.
+DEFAULT_SESSION_FILE_SHAPES = ("encoding", "non_printable")
 
 #: Stderr sentinel the bash twin writes before its human-readable warning.
 DEFAULT_SESSION_UNREADABLE_SENTINEL = "DEFAULT_SESSION_UNREADABLE:"
@@ -774,9 +777,15 @@ _YAML_ROUND_TRIP_TYPED = re.compile(r"^(?:0|-?[1-9][0-9]*|True|False)$")
 
 # Characters PyYAML rejects anywhere in the stream (ReaderError) or scans as a
 # line break (NEL, LS, PS). Tab is handled separately: legal in quotes and
-# comments, an error everywhere else on the value line. NUL is not listed: bash
-# cannot carry it, so the twins could not agree on it.
-_YAML_LINE_CONTROL = re.compile("[\x01-\x08\x0a-\x1f\x7f-\x9f  ￾￿]")
+# comments, an error everywhere else on the value line. NUL is listed too: the
+# bash twin cannot carry it, so it maps NUL to \x01 before its awk reads the file.
+_YAML_LINE_CONTROL = re.compile("[\x00-\x08\x0a-\x1f\x7f-\x9f  ￾￿]")
+
+# PyYAML 6.0.3 Reader.NON_PRINTABLE, verbatim:
+#   [^\x09\x0A\x0D\x20-\x7E\x85\xA0-\uD7FF\uE000-\uFFFD\U00010000-\U0010ffff]
+# restricted to what a strict UTF-8 decode can yield (no surrogates survive it).
+# Matched anywhere in the file: YAML refuses the whole stream, not one line.
+_YAML_NON_PRINTABLE = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x84\x86-\x9f\ufffe\uffff]")
 
 _TMUX_KEY = re.compile(r"""^(?:tmux|"tmux"|'tmux') *:(.*)$""")
 # A named anchor alone on the `tmux:` line (PyYAML's scan_anchor alphabet).
@@ -906,8 +915,15 @@ def read_default_session_status(project_root: Path) -> tuple[str, str | None]:
     follow is reported rather than guessed: a flow-collection or non-mapping
     ``tmux`` block holding the key, a value continued onto a deeper (or
     shallower) line, a second ``default_session`` or a later ``tmux`` block
-    (YAML keeps the last one), and a file that is not valid UTF-8.
-    :func:`load_tmux_defaults` is the YAML-backed reader.
+    (YAML keeps the last one), a file that is not valid UTF-8 (``encoding``), and
+    a character PyYAML's Reader refuses anywhere in the file (``non_printable``).
+    Precedence: ``encoding`` first (nothing else can be read), then the line
+    shapes, then ``non_printable``.
+
+    Deliberately NOT detected: a line elsewhere in the file that is structurally
+    invalid YAML (e.g. a malformed entry under another top-level key). Only a full
+    parse sees it; there :func:`load_tmux_defaults`, the YAML-backed reader, falls
+    back to :data:`DEFAULT_TMUX_SESSION` while this reader returns the value.
     """
     cfg = project_root / "aitasks" / "metadata" / "project_config.yaml"
     try:
@@ -970,6 +986,8 @@ def read_default_session_status(project_root: Path) -> tuple[str, str | None]:
         problem = problem or shape
         check_next = True
 
+    if problem is None and _YAML_NON_PRINTABLE.search(text):
+        problem = "non_printable"
     if problem is not None:
         return DEFAULT_TMUX_SESSION, problem
     return _normalize_default_session(value), None

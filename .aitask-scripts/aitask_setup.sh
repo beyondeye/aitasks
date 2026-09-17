@@ -4184,7 +4184,7 @@ setup_tmux_default_session() {
     fi
 
     # tmux session names cannot contain . or :
-    if [[ "$session_name" == *"."* || "$session_name" == *":"* ]]; then
+    if ! _setup_tmux_bootstrap_call _tmux_bootstrap_session_name_ok "$session_name"; then
         warn "Session name contains invalid chars (. or :); falling back to '$default_name'"
         session_name="$default_name"
     fi

@@ -48,6 +48,7 @@ if _LIB_DIR not in sys.path:
 from agent_launch_utils import (  # noqa: E402
     DEFAULT_TMUX_SESSION,
     PROJECT_GROUP_UNGROUPED_LABEL,
+    DEFAULT_SESSION_FILE_SHAPES,
     AitasksSession,
     advance_group_selection,
     cross_group_ring,
@@ -695,9 +696,13 @@ class TuiSwitcherOverlay(ModalScreen):
         problem = entry.default_session_problem or parse_default_session_unreadable(
             result.stderr or "")
         if problem:
+            if problem in DEFAULT_SESSION_FILE_SHAPES:
+                what = f"project_config.yaml is not valid YAML ({problem})"
+            else:
+                what = (f"tmux.default_session is not a single-line plain or "
+                        f"quoted value ({problem})")
             self.app.notify(
-                f"{entry.project_name}: tmux.default_session is not a single-line "
-                f"plain or quoted value ({problem}); using session "
+                f"{entry.project_name}: {what}; using session "
                 f"'{DEFAULT_TMUX_SESSION}'",
                 severity="warning",
             )

@@ -88,6 +88,33 @@ assert_contains "ait ide resolved --session -n to '-n'" \
 assert_contains "the stub answered the nesting probe (the check really ran)" \
     "display-message" "$(cat "$STUB_LOG" 2>/dev/null)"
 
+# --- 2b. --session refuses tmux target separators (t1825) ---------------------
+
+for v in a.b a:b .lead trail:; do
+    rc=0
+    bash -c 'source "$1"; _tmux_bootstrap_session_name_ok "$2"' _ "$LIB" "$v" || rc=$?
+    assert_eq "session_name_ok rejects '$v'" "1" "$rc"
+done
+for v in ok -n "a b" my_proj-2; do
+    rc=0
+    bash -c 'source "$1"; _tmux_bootstrap_session_name_ok "$2"' _ "$LIB" "$v" || rc=$?
+    assert_eq "session_name_ok accepts '$v'" "0" "$rc"
+done
+
+for v in a.b a:b; do
+    STUB_LOG="$TMP/ide_illegal.log"
+    : > "$STUB_LOG"
+    rc=0
+    err="$(cd "$TMP/plain" && isolated TMUX="$TMP/ait,1,0" AITASKS_TMUX_SOCKET=ait \
+        bash "$IDE" --session "$v" 2>&1 >/dev/null)" || rc=$?
+    assert_eq "ait ide --session '$v' exits 1" "1" "$rc"
+    assert_contains "ait ide --session '$v' names the invalid chars" \
+        "Session name contains invalid chars (. or :): $v" "$err"
+    assert_not_contains "ait ide --session '$v' never reaches the nesting check" \
+        "configured session is" "$err"
+    assert_eq "ait ide --session '$v' makes no tmux call" "" "$(cat "$STUB_LOG")"
+done
+
 # --- 3. ait ide with an unreadable default_session ----------------------------
 
 make_project "$TMP/block" 'tmux:\n  default_session: >-\n    blocksess\n'

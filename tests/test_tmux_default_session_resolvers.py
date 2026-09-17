@@ -40,6 +40,12 @@ The contract pinned here, and its deliberate limits:
   value is read the same as YAML or announced, and the two twins agree on value
   and shape.
 * ``LineParserTwinTests`` — on invalid YAML the two line parsers still agree.
+* ``FileLevelByteTests`` / ``GeneratedWholeFileMutationTests`` (t1825) — invalid
+  UTF-8 on any line is ``encoding``, and a character PyYAML's Reader refuses on
+  any line is ``non_printable`` unless a line shape was already reported. Both
+  twins agree, and the oracle (strict decode / ``yaml.reader.ReaderError``)
+  decides every row. By decision, a structurally invalid line elsewhere in the
+  file is not detected; only a full parse sees it.
 
 The monitors' ``main()`` is driven for real — not re-implemented, not grepped —
 through its module-level seams, and the assertion is on the kwargs its
@@ -71,6 +77,7 @@ sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "monitor"))
 import minimonitor_app as mm  # noqa: E402
 import monitor_app as ma  # noqa: E402
 from agent_launch_utils import (  # noqa: E402
+    DEFAULT_SESSION_FILE_SHAPES,
     DEFAULT_SESSION_PROBLEM_SHAPES,
     DEFAULT_TMUX_SESSION,
     _read_default_session,
@@ -603,12 +610,125 @@ class StatusApiTests(unittest.TestCase):
             self.assertEqual(read_default_session_status(root), (D, None))
 
 
+# --- whole-file bytes (t1825) ------------------------------------------------
+
+# Byte sequences placed on a comment line AFTER a readable `default_session: ok`.
+# The oracle, not this table, decides which outcome each one has.
+FILE_BYTE_ROWS: list[tuple[str, bytes]] = [
+    # valid UTF-8, printable for YAML
+    ("ascii", b"a"), ("2-byte", b"\xc3\xa9"), ("3-byte", b"\xe2\x82\xac"),
+    ("4-byte", b"\xf0\x9f\x98\x80"), ("U+10FFFF", b"\xf4\x8f\xbf\xbf"),
+    ("BOM mid-file", b"\xef\xbb\xbf"), ("NEL", b"\xc2\x85"), ("NBSP", b"\xc2\xa0"),
+    ("LS", b"\xe2\x80\xa8"), ("U+FFFD", b"\xef\xbf\xbd"), ("tab", b"\t"), ("CR", b"\r"),
+    # invalid UTF-8
+    ("overlong C0 80", b"\xc0\x80"), ("overlong E0 80 80", b"\xe0\x80\x80"),
+    ("surrogate", b"\xed\xa0\x80"), ("above U+10FFFF", b"\xf4\x90\x80\x80"),
+    ("F5 lead", b"\xf5\x80\x80\x80"), ("FF", b"\xff"), ("5-byte", b"\xf8\x88\x80\x80\x80"),
+    ("truncated 2", b"\xc3"), ("truncated 3", b"\xe2\x82"), ("lone continuation", b"\x80"),
+    # valid UTF-8, refused by PyYAML's Reader
+    ("NUL", b"\x00"), ("SOH", b"\x01"), ("VT", b"\x0b"), ("US", b"\x1f"), ("DEL", b"\x7f"),
+    ("U+0080", b"\xc2\x80"), ("U+009F", b"\xc2\x9f"), ("U+FFFE", b"\xef\xbf\xbe"),
+    ("U+FFFF", b"\xef\xbf\xbf"),
+]
+
+
+def _oracle_file_shape(data: bytes) -> str | None:
+    """The whole-file shape YAML itself implies — NOT the code under test."""
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        return "encoding"
+    try:
+        yaml.safe_load(text)
+    except yaml.reader.ReaderError:
+        return "non_printable"
+    except yaml.YAMLError:
+        return None
+    return None
+
+
+@contextlib.contextmanager
+def _bash_scan_many(fixtures: list[bytes]):
+    """The bash raw reader over many fixtures in ONE bash process.
+
+    Yields ``[(rc, sentinel shape, stdout value, root), ...]`` in fixture order;
+    the roots exist until the ``with`` block exits.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        roots = []
+        for i, data in enumerate(fixtures):
+            root = Path(tmp) / f"c{i}"
+            (root / "aitasks" / "metadata").mkdir(parents=True)
+            (root / "aitasks" / "metadata" / "project_config.yaml").write_bytes(data)
+            roots.append(root)
+        script = (
+            'source "$1"; shift; err=$(mktemp); '
+            'for r in "$@"; do '
+            '  rc=0; out=$(_tmux_bootstrap_default_session_raw "$r" 2>"$err") || rc=$?; '
+            '  printf "%s\\t%s\\t%s\\0" "$rc" "$(head -n1 "$err")" "$out"; '
+            'done; rm -f "$err"'
+        )
+        done = subprocess.run(["bash", "-c", script, "_", str(BOOTSTRAP), *map(str, roots)],
+                              capture_output=True, check=True)
+        records = done.stdout.split(b"\0")[:-1]
+        if len(records) != len(fixtures):
+            raise AssertionError(f"{len(records)} records for {len(fixtures)} fixtures")
+        scans = []
+        for root, rec in zip(roots, records):
+            rc_s, sentinel, value = rec.decode("utf-8").split("\t", 2)
+            scans.append((int(rc_s), _sentinel_shape(sentinel), value, root))
+        yield scans
+
+
+class FileLevelByteTests(unittest.TestCase):
+    def test_both_twins_follow_the_oracle_on_every_row(self):
+        outcomes = set()
+        for name, seq in FILE_BYTE_ROWS:
+            data = b"tmux:\n  default_session: ok\n# note " + seq + b"\n"
+            expected = _oracle_file_shape(data)
+            outcomes.add(expected)
+            with _project(data) as root, self.subTest(fixture=name, expected=expected):
+                bash = _bash_raw(root)
+                if expected is None:
+                    self.assertEqual(read_default_session_status(root), ("ok", None))
+                    self.assertEqual((bash.returncode, bash.stdout), (0, "ok\n"))
+                else:
+                    self.assertIn(expected, DEFAULT_SESSION_FILE_SHAPES)
+                    self.assertEqual(read_default_session_status(root), (D, expected))
+                    self.assertEqual(bash.returncode, 2)
+                    self.assertEqual(_sentinel_shape(bash.stderr), expected)
+                    self.assertIn("is not valid YAML", bash.stderr)
+                    # The divergence this closes: the YAML-backed reader falls back too.
+                    self.assertEqual(_yaml_backed(root), D)
+        self.assertEqual(outcomes, {None, "encoding", "non_printable"},
+                         "the table must exercise all three outcomes")
+
+    def test_precedence(self):
+        rows = [
+            ("bad UTF-8 beats a line shape",
+             b"tmux:\n  default_session: >-\n    x\n# \xff\n", "encoding"),
+            ("DEL on the value line stays a line shape",
+             b"tmux:\n  default_session: a\x7fb\n", "tab_or_control"),
+            ("NUL on the value line stays a line shape",
+             b"tmux:\n  default_session: a\x00b\n", "tab_or_control"),
+            ("a line shape beats non_printable elsewhere",
+             b"tmux:\n  default_session: >-\n    x\n# \x7f\n", "block_scalar"),
+            ("NUL before the tmux block",
+             b"# \x00\ntmux:\n  default_session: ok\n", "non_printable"),
+        ]
+        for name, data, shape in rows:
+            with _project(data) as root, self.subTest(fixture=name):
+                self.assertEqual(read_default_session_status(root), (D, shape))
+                self.assertEqual(_sentinel_shape(_bash_raw(root).stderr), shape)
+                self.assertEqual(_yaml_backed(root), D, "every row is invalid for YAML")
+
+
 # --- generated corpus (t1811 post-phase: twin_regex_generated_corpus) ---------
 
 _CORPUS_SEED = 1811
 _CORPUS_SIZE = 2000
 _CORPUS_CHARS = list("0123456789_.:-+xboeE#azAZnulTr\"' ") + [
-    "\t", " ", "\x7f", "é"]
+    "\t", " ", "\x7f", "é", "\x00", "\x85"]
 _CORPUS_WORDS = [
     "yes", "Yes", "YES", "no", "No", "NO", "true", "True", "TRUE", "false",
     "False", "FALSE", "on", "On", "ON", "off", "Off", "OFF", "y", "n",
@@ -651,34 +771,13 @@ class GeneratedCorpusInvariantTests(unittest.TestCase):
 
     def test_every_value_is_read_like_yaml_or_announced_and_twins_agree(self):
         values = _corpus_values()
-        with tempfile.TemporaryDirectory() as tmp:
-            roots = []
-            for i, value in enumerate(values):
-                root = Path(tmp) / f"c{i}"
-                (root / "aitasks" / "metadata").mkdir(parents=True)
-                (root / "aitasks" / "metadata" / "project_config.yaml").write_bytes(
-                    _row(value))
-                roots.append(str(root))
-            script = (
-                'source "$1"; shift; err=$(mktemp); '
-                'for r in "$@"; do '
-                '  rc=0; out=$(_tmux_bootstrap_default_session_raw "$r" 2>"$err") || rc=$?; '
-                '  printf "%s\\t%s\\t%s\\0" "$rc" "$(head -n1 "$err")" "$out"; '
-                'done; rm -f "$err"'
-            )
-            done = subprocess.run(["bash", "-c", script, "_", str(BOOTSTRAP), *roots],
-                                  capture_output=True, check=True)
-            records = done.stdout.split(b"\0")[:-1]
-            self.assertEqual(len(records), len(values))
-
-            failures = []
-            kept_hash = cut_comment = fell_back = agreed = 0
-            for value, root, rec in zip(values, roots, records):
-                rc_s, sentinel, out = rec.decode("utf-8").split("\t", 2)
-                rc, b_shape = int(rc_s), _sentinel_shape(sentinel)
+        failures = []
+        kept_hash = cut_comment = fell_back = agreed = 0
+        with _bash_scan_many([_row(v) for v in values]) as scans:
+            for value, (rc, b_shape, out, root) in zip(values, scans):
                 b_session = D if rc != 0 or not out.strip() else out
-                p_session, p_shape = read_default_session_status(Path(root))
-                yaml_session = _yaml_backed(Path(root))
+                p_session, p_shape = read_default_session_status(root)
+                yaml_session = _yaml_backed(root)
 
                 if (b_session, b_shape) != (p_session, p_shape):
                     failures.append(("twin", value, (b_session, b_shape), (p_session, p_shape)))
@@ -705,6 +804,46 @@ class GeneratedCorpusInvariantTests(unittest.TestCase):
                              ("fell back", fell_back), ("agreed with YAML", agreed)):
             with self.subTest(floor=label):
                 self.assertGreaterEqual(count, 50, f"generator produced only {count}")
+
+
+class GeneratedWholeFileMutationTests(unittest.TestCase):
+    """Corpus fixtures with one Reader-level byte appended on a comment line (t1825).
+
+    The value line is the corpus's own; the appended byte is drawn from
+    FILE_BYTE_ROWS. The oracle decides: invalid UTF-8 must be `encoding`, a
+    ReaderError must be announced (by a line shape or `non_printable`), and a
+    fixture both twins read must match what YAML reads.
+    """
+
+    def test_twins_agree_and_reader_errors_are_announced(self):
+        rng = random.Random(_CORPUS_SEED + 1825)
+        pool = [seq for _name, seq in FILE_BYTE_ROWS]
+        cases = []
+        for value in rng.sample(_corpus_values(), 300):
+            cases.append((value, _row(value) + b"# m " + rng.choice(pool) + b"\n"))
+        failures = []
+        seen = {"encoding": 0, "non_printable": 0, "readable": 0}
+        with _bash_scan_many([data for _v, data in cases]) as scans:
+            for (value, data), (rc, b_shape, out, root) in zip(cases, scans):
+                b_session = D if rc != 0 or not out.strip() else out
+                p_session, p_shape = read_default_session_status(root)
+                if (b_session, b_shape) != (p_session, p_shape):
+                    failures.append(("twin", data, (b_session, b_shape), (p_session, p_shape)))
+                oracle = _oracle_file_shape(data)
+                if oracle == "encoding" and p_shape != "encoding":
+                    failures.append(("encoding missed", data, p_shape))
+                if oracle == "non_printable" and p_shape is None:
+                    failures.append(("reader error silent", data))
+                if p_shape is None and _yaml_backed(root) != p_session:
+                    failures.append(("silent divergence", data, p_session))
+                if p_shape is None:
+                    seen["readable"] += 1
+                elif p_shape in seen:
+                    seen[p_shape] += 1
+        self.assertFalse(failures, f"{len(failures)} failures, first: {failures[:5]}")
+        for label, count in seen.items():
+            with self.subTest(floor=label):
+                self.assertGreaterEqual(count, 30, f"generator produced only {count}")
 
 
 class LineParserTwinTests(unittest.TestCase):
