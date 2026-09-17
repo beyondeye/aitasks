@@ -1,0 +1,187 @@
+---
+Task: t1824_creation_time_description_hindsight.md
+Base branch: main
+Output branch: main
+---
+
+# t1824 — Bound hindsight bias in t1814's `task_declared` precision
+
+## Context
+
+t1814 measured that promoted task-description overlaps grade CONFLICT with
+precision ≥ the plan pre-implementation reference (0.4387 vs 0.4036 unordered,
+0.4333 desc-vs-plan, threshold 10, cohort `7b0461e726532b5c|400`), and
+recommended lifting PINNED 6 to parity **after** this follow-up bounds hindsight
+bias: those numbers read the CURRENT archived task files, and a description
+edited during/after the work would look more precise than at admission.
+
+This is a **measurement task**: no shipped code changes. The deliverable is a
+creation-time vs current table, a Q1 verdict, and a note to t1688_2 (Ready).
+
+### Exploration findings (read-only)
+
+- t1814's frozen snapshot still exists, manifest verifies:
+  `SNAP0=/tmp/claude-1000/-home-ddt-Work-aitasks/c384901e-…/scratchpad/snapshot`
+  (+ `frozen_sweep.py`, and `measure/*.txt` with the published outputs). It is in
+  another session's `/tmp` scratchpad, so it gets copied first.
+- Recovery in ONE git pass (1.5s) on the data branch:
+  `git -C .aitask-data log --reverse --no-renames --diff-filter=A --name-only --format='C %H %s' -- aitasks/`,
+  keyed by task id (`(?:^|/)t(\d+(?:_\d+)?)_[^/]*\.md$`), first occurrence wins.
+  Keying by id (not path) handles renames and the later `archived/` move without
+  `--follow`'s per-file heuristic.
+- Of the snapshot's 457 archived task files: 454 recoverable; 3 first appear in a
+  `Migrate task data from main branch` commit (creation predates the data
+  branch → excluded); 1 was renamed after creation (kept, keyed by id).
+- After the sweep's own framework cut (`cut_task_framework_sections`), **143/454**
+  creation bodies differ from current (median +1686 chars; added headings include
+  `Verification Checklist`, `Coordination (from tN)`, `Key Files to Modify`), so
+  the comparison has real signal. 311 are identical.
+- 21 first-add commits are `Start work on tN` commits — a new file riding
+  another session's commit (shared-index leakage); its first committed version
+  may already include pre-commit edits.
+
+## Pre-phase
+
+0. `SP=<this session's scratchpad>`. `cp -a $SNAP0 $SP/snapshot` and copy
+   t1814's `measure/` outputs; `sha256sum -c` the manifest in the copy.
+1. Write the **final** measurement tooling now, before any recovery, so what gets
+   validated is exactly what later measures both roots:
+   - `$SP/frozen_io.py` — the one place that loads `batch_map.txt` /
+     `corpus.json` **from the fixed snapshot copy** (never from the root being
+     swept) and patches `_BATCH_MAP`, `_TRACKED_SETS`, `_DATA_TREE` (logic
+     copied from t1814's `frozen_sweep.py`).
+   - `$SP/sweep_root.py <root> <sweep args…>` — imports `frozen_io`, asserts the
+     imported module is `<repo>/.aitask-scripts/lib`, calls
+     `main(["sweep", "--root", <root>, …])`.
+   - `$SP/cohort.py` (Step 2) imports the same `frozen_io`.
+2. Validate the root-aware wrapper against the **untouched** snapshot copy,
+   `root=$SP/snapshot`: require byte-identity with t1814's published
+   `measure/tvp_pre.txt`, `measure/task_pre_common.txt` and
+   `measure/plan_pre_common.txt` (the three sources Step 3 uses, same args).
+   Also run `cohort.py` on the untouched snapshot and require its cohort digest
+   to equal `7b0461e726532b5c|400`. Any mismatch → stop and report; nothing is
+   measured through an unvalidated wrapper or on moved code.
+
+## Step 1 — Recover creation-time bodies (`$SP/recover.py`)
+
+- Parse the one `git log` pass above into `{id: (commit, subject, path)}`.
+- For every `aitasks/archived/**/t<id>_*.md` in the snapshot:
+  - `excluded:migration` when the subject contains `Migrate task data`;
+    `excluded:not_found` when the id never appears.
+  - else `git show <commit>:<path>` → body.
+- Write `$SP/roots/creation/` = copy of the snapshot with each recoverable task
+  file's content replaced **at the same snapshot path** (so
+  `_archived_task_paths` maps unchanged). Excluded task files are removed from
+  this root.
+- Write `$SP/roots/current/` = the snapshot with the same excluded files removed.
+- Emit `$SP/recovery.tsv` (id, commit, subject, first path, identical-after-cut
+  y/n, rider y/n where rider = the subject does not name `t<id>`) and counts.
+
+## Step 2 — One cohort for both roots (`$SP/cohort.py`)
+
+The shipped CLI computes its `common` cohort internally, so the two roots would
+diverge wherever a creation body does not resolve. Fix membership explicitly:
+
+- With the frozen batch map + corpus patched exactly as `frozen_sweep.py` does,
+  call `parallel_admission_collect.sweep_population(root, plan_scope=
+  "pre-implementation", source=s, batch_lines=…, corpus=…)` for
+  `s in plan, task, task-keyfiles` on each root; `C_root = _common_refs([...])`.
+- `COHORT = C_current ∩ C_creation`. Dropout accounting from the t1814 400:
+  `excluded:migration`, `excluded:not_found`, `unresolved_at_creation`
+  (`C_current − C_creation`), `resolved_only_at_creation` (`C_creation −
+  C_current`, expected 0; reported), = `|COHORT|`. Record the dropped ids.
+- Prune both roots to `COHORT` (remove task AND plan files outside it). Then the
+  CLI's own intersection equals `COHORT` on both, with no new code path.
+
+## Step 3 — Measure with the shipped CLI (frozen inputs)
+
+Using the pre-phase-validated `sweep_root.py`, for
+`R in current, creation`, thresholds `8,10,20`, all `--plan-scope pre-implementation`:
+
+- `--source plan --population common` (the Q1 reference)
+- `--source task --population common`
+- `--source task-vs-plan` (gives `SWEEP` whole-body and `SWEEP_KF` rows)
+
+Checks before any table is written:
+- All six outputs print the same `SWEEP_COHORT:` digest and `n = |COHORT|`.
+- The two `plan` outputs are byte-identical across roots (control: only task
+  bodies differ).
+- Negative control: `task` output for `current` ≠ `creation` (otherwise the
+  replacement did not take effect). Verify the manifest in `$SP/snapshot` again
+  at the end.
+
+## Step 4 — Verdict, conditional bracket, records
+
+- Table: precision / recall / hard-stopped / downgraded / CONFLICT count per
+  root × source × threshold, plus the recovery and cohort accounting.
+- **Selection effect, separated from hindsight.** Dropping tasks is not
+  neutral: whether a creation body resolves depends on its content, so precision
+  can move either way. Measure it instead of assuming it, all on CURRENT bodies:
+  the t1814 published rows (400 cohort) vs the `current` root on `COHORT`, for
+  `plan`, `task` and `task-vs-plan` at 8/10/20. The difference is the selection
+  effect; `current@COHORT − creation@COHORT` is the hindsight effect. Also
+  characterize the dropped subset: count, share of the 400's real colliding
+  pairs that involve ≥1 dropped task, and those tasks' `issue_type` mix vs the
+  cohort's.
+- **Q1 rule (same as t1814), stated cohort-conditionally:** on `COHORT`,
+  creation-time promoted `task` precision ≥ `plan` pre-implementation precision
+  at threshold 10, and likewise for `task-vs-plan` whole body; report 8 and 20
+  alongside. The verdict is written as "holds / fails **on the N-task cohort of
+  tasks whose creation description resolves**", never as t1814's 400-task
+  conclusion surviving unqualified. If the selection effect alone moves the
+  plan-vs-task gap by as much as the margin, say the verdict is not
+  distinguishable from selection.
+- Write the table, verdict and accounting into this plan's Final Implementation
+  Notes, then (after the post-phase) send a note to t1688_2 either way (survives
+  or not; t1814's recommendation said to wait for this), stating that the
+  claim-time bracket is a separate follow-up:
+  `./ait note 1688_2 --from 1824 --file - <<'EOF' … EOF`.
+
+### Post-phase (risk mitigations)
+
+1. [rider_sensitivity] Classify each cohort task's first-add commit by
+   **structure**, not by whether the subject names the id (from the same
+   `git log` pass, plus `git show --name-status` of that commit):
+   - `create_single` — the commit adds exactly one task-id file (this one);
+   - `multi_task_add` — the commit adds task files for ≥2 distinct ids;
+   - `start_work` — subject begins `ait: Start work on`;
+   - `sync_autocommit` — subject begins `ait: Auto-commit task changes`;
+   - `other` — anything else (counted and listed).
+   Groups can overlap (a start-work commit that also adds several tasks); report
+   the overlap. For each non-`create_single` group, and for their union, remove
+   those tasks from both pruned roots, re-derive `COHORT` per Step 2, and re-run
+   the threshold-10 `plan` / `task --population common` and `task-vs-plan`
+   sweeps with the same digest-equality checks. Report per group: size, new
+   cohort size, precisions, and whether the Q1 verdict changes. State the limit
+   explicitly: this is a **structural heuristic** for contamination. A
+   `create_single` commit can still carry pre-commit edits, which no commit
+   metadata reveals. Include this in the table and the t1688_2 note.
+
+## Verification
+
+- Pre-phase: the final `sweep_root.py` on the untouched snapshot is byte-identical
+  to t1814's `tvp_pre` / `task_pre_common` / `plan_pre_common`, and `cohort.py`
+  reproduces `7b0461e726532b5c|400`.
+- Step 3 digest equality, plan byte-identity, and the negative control.
+- No repo code changes: `git status` shows no new modifications from this task
+  (other sessions' dirty files are pre-existing and untouched).
+
+## Step 9 (Post-Implementation)
+
+No code commit. Commit the plan with `aitask_task_commit.sh`, then archive per
+task-workflow Step 9.
+
+## Risk
+
+### Code-health risk: low
+None identified. (Scratch scripts only; git access on the data branch is read-only.)
+
+### Goal-achievement risk: medium
+- The cohort conditions on the creation body resolving to paths. Resolution correlates with description content, so dropping the non-resolving tasks can move precision and recall either way · severity: medium · → mitigation: none (Step 4 measures the selection effect on current bodies, separately from hindsight; the verdict is stated as conditional on the cohort)
+- The wrapper that measures both roots is new code; a wrong root, corpus or batch-map binding could make the two roots agree while measuring the wrong population · severity: low (residual — addressed by pre-phase validation of the final wrapper against t1814's published outputs) · → mitigation: none
+- Creation-time is stricter than admission-time; legitimate pre-claim edits (coordination sections, checklists) are admission-visible, so creation time is only the strict bound · severity: low · → mitigation: claim_time_bracket
+- A first committed version may already include edits (rider commits, uncommitted drafts), which understates the hindsight effect · severity: low (residual — addressed by inline post-phase rider_sensitivity) · → mitigation: inline post-phase rider_sensitivity
+
+### Planned mitigations
+- timing: post-phase | name: rider_sensitivity | type: test | priority: low | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — first committed version may already include edits | desc: classify first-add commits structurally (single create / multi-task add / start-work / sync autocommit / other), re-run threshold-10 sweeps excluding each suspect group, report whether Q1 changes, qualified as a heuristic
+- timing: after | name: claim_time_bracket | type: enhancement | priority: low | effort: medium | inline_risk: low | added_complexity: medium | addresses: goal-achievement — creation time is stricter than admission time | desc: measure the task body as of just before its own `Start work on t<id>` commit as an admission-time bracket between t1824's creation-time and current numbers
