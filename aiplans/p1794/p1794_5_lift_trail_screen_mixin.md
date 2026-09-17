@@ -344,3 +344,107 @@ ownership, the `TRAIL_BINDING` map, and `_after_dialog_command(refocus)`).
 - The hook binding in the MagicMock worker tests could weaken what they prove ·
   severity: low · → mitigation: none (assertions unchanged; hook reached through
   the real board method)
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - `.aitask-scripts/board/board_trail_screen.py` (new, 1,074 lines): `TrailHost`
+    Protocol (23 members + `REQUIRED_WIDGETS` / `MANAGER_MEMBERS` ClassVars),
+    `TRAIL_BINDINGS` (9 rows) + `TRAIL_BINDING` action map,
+    `TRAIL_ACTION_CAPABILITIES`, `CODEAGENT_SCRIPT` / `CODEAGENT_FAILURE_NOTICE`,
+    and `TrailScreenMixin` (`_init_trail_state`, `_has_trail_capability`,
+    `_open_trail_entry_detail`, and 38 methods moved out of `KanbanApp`). Built by
+    a script from AST line ranges; the 33 unedited bodies were verified as
+    verbatim substrings of the new module before the board was touched. Five
+    planned edits: `_get_local_project` reads `self.tasks_dir`; capability guard
+    first in `action_trail_sync` / `action_trail_move_wave`;
+    `action_trail_task` → `_trail_task_target()` seam; `run_dialog_command` tail
+    → `self._after_dialog_command(refocus_filename)`.
+  - `aitask_board.py` 10,277 → 9,460 lines: `import board_trail_screen` +
+    re-import; `KanbanApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin,
+    App)`; the 9 trail rows replaced in place by `TRAIL_BINDING["<action>"]`;
+    `__init__` calls `_init_trail_state()`; new `tasks_dir` property,
+    `_after_dialog_command`, `_trail_task_target` (the old `action_trail_task`
+    body with `return None` / `return target`); `action_view_details` delegates
+    to `_open_trail_entry_detail`. Dead imports `set_cell_size` and `NoMatches`
+    removed; the `trail_discovery` / `board_trail_view` re-exports stay.
+    Residual `def .*trail` in the board: `action_view_bytrail`,
+    `_trail_task_target` (as planned).
+  - Tests: 36 `patch.object` sites + 2 direct lambda reads repointed to
+    `ab.board_trail_screen` in `test_board_bytrail_view.py` (incl. 3 multi-line
+    spellings), 5+1 in `test_board_dialog_run_dispatch.py`, 1+1 in
+    `test_board_work_report.py`; the MagicMock worker `_call` binds the real
+    `KanbanApp._after_dialog_command`. New `tests/test_trail_screen_host_protocol.py`
+    (22 tests); `HeadlessImportTests` gains `board_trail_screen`;
+    `MIGRATED_MODULES` and the C2 fresh-load sibling list gain the new
+    file/module. Docs: `board_trail_view.py` docstring, `board_fixture.py`
+    inventory, `aidocs/implementation_trail_design.md` component list.
+- **Deviations from plan:**
+  - `resolve_key` (read by `action_trail_refresh_agent`) also needed a repoint —
+    missed by the plan's C3 list; `RefreshDoubleTapTests::
+    test_board_threads_the_resolved_key_through_normalisation` failed until it
+    was repointed.
+  - `find_terminal` / `spawn_in_terminal` are still called by the board's own
+    pick / brainstorm launches, so the AST-computed inert-patch guard cannot rule
+    on them (nor on `resolve_agent_string`, `AgentCommandScreen`,
+    `launch_in_tmux`); those are covered by the mutants below. The guard's
+    computed set covers the mixin-only names (`discover_trails`,
+    `_trail_versions`, `run_trail_drift`, `load_trail_blob`,
+    `build_trail_lanes`, the trail screens, …).
+  - `find_terminal` had 5 dispatch-test sites, not 6.
+- **C3 mutants** (in-process pytest plugin redirecting `patch.object(board_trail_screen,
+  <name>)` to a decoy, i.e. the state a stale `ab` patch leaves; no file edits):
+  `discover_trails` 2 red · `_trail_versions` 7 red · `run_trail_drift` 3 red ·
+  `load_trail_blob` 2 red · `resolve_dry_run_command` 10 red ·
+  `AgentCommandScreen` 2 red · `launch_in_tmux` 3 red · `TmuxLaunchConfig` 2 red ·
+  `resolve_key` 1 red · `find_terminal` 6 red · `spawn_in_terminal` 2 red.
+  `resolve_agent_string` (10 patches hit) and `maybe_spawn_minimonitor` (7 hit)
+  stay green: hermeticity stubs no assertion reads (the real functions degrade
+  harmlessly under the fixture) — pre-existing, not introduced by the repoint.
+  `TrailTaskRealPathTests` carries its own in-process mutant (board `topic_key`
+  → None turns the By-Topic anchored row from `9002` to `9003`).
+- **Verification evidence:** keymap characterization golden green unchanged;
+  targeted set 378 passed; `bash tests/run_all_python_tests.sh` →
+  `PYTHON SUITE: PASSED (runner=pytest, exit=0)` (7844 passed, 2 skipped;
+  serial lane 11 passed) — run in the shared checkout, which also held another
+  session's uncommitted `tests/*.sh` / settings / seed edits (none on board
+  paths). C4 bash guards (`test_shortcuts_registry_coverage`,
+  `test_keybinding_registry`, `test_no_raw_tmux`, `test_no_lib_to_tui_import`,
+  `test_serial_carveout_doc_drift`) pass. Manual smoke on the live repo in a
+  private tmux server: `T` on a normal card → trail dialog; `z` → selector →
+  Enter → lanes + summary banner; `v` summary; Enter detail; `d`; `r`; `s`; `R`
+  dialog with `--refresh art:…`; `M` → "Nothing movable in this wave — 1 child";
+  By-Trail footer shows `M Move Wave` and no `T`; `q` → exit 0, no traceback.
+  `S` not pressed live (real task-data sync); covered by the capability tests.
+- **Issues encountered:** the first continuation-line realignment shifted
+  arguments that were aligned to the unchanged first argument — reverted.
+  Redirecting the board's stderr in the smoke (`./ait board 2>file`) sent the
+  rendered UI into that file, leaving the pane blank — re-run without it.
+- **Key decisions:** `_refresh_subtitle` is mixin-owned (overridable), not a host
+  member; `TRAIL_BINDING` map instead of one splice (rows interleave with
+  duplicate-key board rows); the MagicMock dispatch tests bind the REAL board
+  hook rather than asserting a mock hook, so their reload/refocus assertions keep
+  proving the end-to-end refresh; `_has_trail_capability` uses `hasattr` over the
+  whole move chain.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:**
+  - **t1794_6 (`TrailsApp`):** mix in `TrailScreenMixin` and call
+    `_init_trail_state()` in `__init__`; provide every `TrailHost` member —
+    notably `tasks_dir`, `_banner_budget`, `_after_dialog_command(refocus_filename="")`,
+    `_trail_task_target()`, and a manager with `auto_refresh_minutes` /
+    `settings` (`_refresh_subtitle`'s non-trail fallback reads them; override
+    `_refresh_subtitle` if "Auto-refresh:" is wrong for a stand-alone app).
+    Compose `HeaderTitle` (a `Header`), `#trail_summary` > `#trail_summary_body`,
+    `#board_container`. Declare `*TRAIL_BINDINGS` (the same objects); omit the
+    board-only capability members so `M` / `S` refuse. Add the App to `HOSTS`
+    in `tests/test_trail_screen_host_protocol.py`.
+  - `run_dialog_command` lives in the mixin and is also used by the board's
+    pick / create / brainstorm / work-report launches — stubs of `find_terminal`
+    / `spawn_in_terminal` for it target `ab.board_trail_screen`.
+  - Any stub for a trail launch / drift / discovery / reload / watch path
+    targets `ab.board_trail_screen`; the inert-patch guard flags mixin-only
+    names stubbed on the board, but not names the board still calls itself.
+  - The pytest plugin technique (redirect `unittest.mock.patch.object` for one
+    target/name to a decoy) gives a cheap, file-edit-free C3 mutant over a
+    selected set of test classes; xdist workers load it via `-p` with
+    `PYTHONPATH`, but its hit counter only reports in-process (`-p no:xdist`).
