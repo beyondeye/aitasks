@@ -53,6 +53,7 @@ os.environ.pop("TMUX", None)
 os.environ.pop("TMUX_PANE", None)
 
 import agent_marks  # noqa: E402
+import agent_sessions  # noqa: E402
 from rich.text import Text  # noqa: E402
 
 from monitor.minimonitor_app import MiniMonitorApp  # noqa: E402
@@ -1382,6 +1383,85 @@ class MinimonitorOwnPanelTests(_Fixture):
         plain = Text.from_markup(
             app._own_card_text(None, "planning", None)).plain
         self.assertIn("planning", plain)
+
+
+class MinimonitorOwnFrozenReaderCacheTests(_Fixture):
+    """The own panel keeps ONE sessions reader across ticks (t1765).
+
+    `_own_frozen_at` runs on every refresh tick while the followed agent is
+    frozen, and the store is unchanged between almost all of them. A reader
+    built per call never gets to use its stamp cache, so each tick paid a full
+    `load_safe` — a JSON read and parse — for a file whose stamp said nothing
+    happened.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.sessions = self.tmp / "agent_sessions.json"
+        env = patch.dict(os.environ, {
+            agent_sessions.SESSIONS_ENV: str(self.sessions),
+            agent_sessions.FROZEN_DIR_ENV: str(self.tmp / "frozen"),
+        })
+        env.start()
+        self.addCleanup(env.stop)
+        sf = agent_sessions.load(self.sessions)
+        sf, line = agent_sessions.upsert(
+            sf, root=str(self.root), window="agent-f", pane="%1",
+            pane_pid=4242, pane_alive=lambda pid: True,
+        )
+        self.record_id = line.split(":")[1].split("|")[0]
+        agent_sessions.dump(sf, self.sessions)
+        self.write_frozen_at("2026-09-04T09:20:00Z")
+
+    def write_frozen_at(self, stamp: str) -> None:
+        """Rewrite the record through the real `dump` (an `os.replace`)."""
+        sf = agent_sessions.load(self.sessions)
+        rec = sf.by_id(self.record_id)
+        rec.state = agent_sessions.STATE_FROZEN
+        rec.frozen_at = stamp
+        agent_sessions.dump(sf, self.sessions)
+
+    def frozen_snap(self) -> PaneSnapshot:
+        return PaneSnapshot(
+            pane=pane("agent-f", frozen_record=self.record_id), content="",
+            timestamp=0.0, idle_seconds=0.0, is_idle=False,
+            awaiting_input=False, frozen=True,
+            frozen_record_id=self.record_id,
+        )
+
+    def counting_load_safe(self) -> list:
+        """Count real reads. Scoped `patch.object`, never an assignment: the
+        module object is shared by every test module in the process."""
+        calls: list = []
+        real = agent_sessions.load_safe
+
+        def spy(*a, **k):
+            calls.append(a)
+            return real(*a, **k)
+
+        p = patch.object(agent_sessions, "load_safe", spy)
+        p.start()
+        self.addCleanup(p.stop)
+        return calls
+
+    def test_unchanged_store_is_read_once(self):
+        app = self.app(MiniMonitorApp, [])
+        snap = self.frozen_snap()
+        calls = self.counting_load_safe()
+        self.assertEqual(app._own_frozen_at(snap), "2026-09-04T09:20:00Z")
+        self.assertEqual(app._own_frozen_at(snap), "2026-09-04T09:20:00Z")
+        self.assertEqual(
+            len(calls), 1,
+            "an unchanged store must cost a stamp check, not a re-parse")
+
+    def test_a_rewritten_store_is_picked_up(self):
+        """Control for the cache: it must not serve a stale record. `dump`
+        replaces the file, so the inode in the stamp changes."""
+        app = self.app(MiniMonitorApp, [])
+        snap = self.frozen_snap()
+        self.assertEqual(app._own_frozen_at(snap), "2026-09-04T09:20:00Z")
+        self.write_frozen_at("2026-09-05T10:00:00Z")
+        self.assertEqual(app._own_frozen_at(snap), "2026-09-05T10:00:00Z")
 
 
 if __name__ == "__main__":
