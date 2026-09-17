@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: high
 depends: [t1794_3]
 issue_type: refactor
@@ -135,3 +137,5 @@ at `e2f12c499` (unchanged at `c78deab36`).
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-09-17T06:42:32Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-09-17T08:35:41Z status=pass attempt=1 type=human
