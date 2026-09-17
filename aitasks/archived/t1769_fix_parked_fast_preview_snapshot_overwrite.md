@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [minimonitor, aitask_monitor, aitask_monitormini, tui, textual, python, testing]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -16,7 +16,8 @@ anchor: 1705
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5
 created_at: 2026-09-09 16:28
-updated_at: 2026-09-17 09:46
+updated_at: 2026-09-17 10:00
+completed_at: 2026-09-17 10:00
 ---
 
 ## Origin
@@ -118,3 +119,14 @@ control). Both have pre-fix controls recorded — removing the core guard fails 
 > **✅ gate:plan_approved** run=2026-09-17T06:46:07Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-09-17T06:55:37Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-17T07:00:30Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:ad5ab479de485e5b
+
+> **✅ gate:risk_evaluated** run=2026-09-17T07:00:30Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1769/risk_evaluated_2026-09-17T07:00:30Z-risk_evaluated-a1.log`
