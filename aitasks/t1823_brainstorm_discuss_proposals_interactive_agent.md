@@ -3,7 +3,7 @@ priority: medium
 effort: high
 depends: []
 issue_type: feature
-status: Implementing
+status: Ready
 labels: [ait_brainstorm, tui, skills, codeagent]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -11,9 +11,8 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 children_to_implement: [t1823_1, t1823_2, t1823_3, t1823_4, t1823_5]
-assigned_to: dario-e@beyond-eye.com
 created_at: 2026-09-17 08:21
-updated_at: 2026-09-17 09:51
+updated_at: 2026-09-17 09:53
 ---
 
 ## Goal
