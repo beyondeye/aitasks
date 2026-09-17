@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -62,3 +64,5 @@ surface `UPSERT_REFUSED:` as its own resolve-stage failure.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-09-17T06:02:29Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-09-17T06:37:46Z status=pass attempt=1 type=human
