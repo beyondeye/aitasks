@@ -179,7 +179,7 @@ None identified. (Scratch scripts only; git access on the data branch is read-on
 ### Goal-achievement risk: medium
 - The cohort conditions on the creation body resolving to paths. Resolution correlates with description content, so dropping the non-resolving tasks can move precision and recall either way · severity: medium · → mitigation: none (Step 4 measures the selection effect on current bodies, separately from hindsight; the verdict is stated as conditional on the cohort)
 - The wrapper that measures both roots is new code; a wrong root, corpus or batch-map binding could make the two roots agree while measuring the wrong population · severity: low (residual — addressed by pre-phase validation of the final wrapper against t1814's published outputs) · → mitigation: none
-- Creation-time is stricter than admission-time; legitimate pre-claim edits (coordination sections, checklists) are admission-visible, so creation time is only the strict bound · severity: low · → mitigation: claim_time_bracket
+- Creation-time is stricter than admission-time; legitimate pre-claim edits (coordination sections, checklists) are admission-visible, so creation time is only the strict bound · severity: low · → mitigation: t1827
 - A first committed version may already include edits (rider commits, uncommitted drafts), which understates the hindsight effect · severity: low (residual — addressed by inline post-phase rider_sensitivity) · → mitigation: inline post-phase rider_sensitivity
 
 ### Planned mitigations
