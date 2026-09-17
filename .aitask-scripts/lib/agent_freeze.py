@@ -61,6 +61,7 @@ import os
 import subprocess
 import sys
 import tempfile
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -693,12 +694,36 @@ def _agent_panes_for(session: str) -> list:
     return monitor.discover_panes()
 
 
+def _eligible_by_session() -> Iterator[tuple[str, list | None, Exception | None]]:
+    """THE Freeze-All eligibility rule: ``(session, eligible_panes, error)`` per session.
+
+    Stated once and read by both :func:`freeze_all_eligible` (the listing) and
+    :func:`freeze_all` (the mutation), so a UI that shows a confirmation count
+    cannot drift from what confirming actually does.
+
+    Lazy, one session at a time: `freeze_all` freezes a session's panes before
+    this scans the next one. A session that vanished mid-scan yields
+    ``(session, None, exc)`` — what that means is the CALLER's policy: a listing
+    skips it, a mutation reports it.
+    """
+    for session in discover_aitasks_sessions():
+        try:
+            panes = _agent_panes_for(session.session)
+        except Exception as exc:   # a session that vanished mid-scan
+            yield session.session, None, exc
+            continue
+        yield session.session, [
+            pane for pane in panes
+            if pane.category == PaneCategory.AGENT
+            and not pane.frozen_record          # already a stand-in
+        ], None
+
+
 def freeze_all_eligible() -> list:
     """Every pane `freeze --all` would act on, in the order it would act.
 
-    THE eligibility rule, stated once. `freeze_all` below and the `--dry-run`
-    listing both read it, so a UI that shows a confirmation count cannot drift
-    from what confirming actually does.
+    The listing view of :func:`_eligible_by_session`, which holds the rule;
+    `freeze_all` below reads the same selector.
 
     Note how much wider this is than any monitor's view: it spans EVERY aitasks
     session on the machine, and it does not exclude parked agents — parking is a
@@ -710,17 +735,9 @@ def freeze_all_eligible() -> list:
     must not be abandoned because one session went away.
     """
     eligible = []
-    for session in discover_aitasks_sessions():
-        try:
-            panes = _agent_panes_for(session.session)
-        except Exception:          # a session that vanished mid-scan
-            continue
-        for pane in panes:
-            if pane.category != PaneCategory.AGENT:
-                continue
-            if pane.frozen_record:
-                continue          # already a stand-in
-            eligible.append(pane)
+    for _session, panes, error in _eligible_by_session():
+        if error is None:
+            eligible.extend(panes)
     return eligible
 
 
@@ -736,19 +753,13 @@ def freeze_all() -> list[FreezeResult]:
     mutation and is owed the news that one session's worth did not happen.
     """
     results: list[FreezeResult] = []
-    for session in discover_aitasks_sessions():
-        try:
-            panes = _agent_panes_for(session.session)
-        except Exception as exc:   # a session that vanished mid-scan
+    for session, panes, error in _eligible_by_session():
+        if error is not None:
             results.append(FreezeResult(
                 "", False, "resolve",
-                f"FREEZE_FAILED:resolve|{session.session}|{exc}"))
+                f"FREEZE_FAILED:resolve|{session}|{error}"))
             continue
         for pane in panes:
-            if pane.category != PaneCategory.AGENT:
-                continue
-            if pane.frozen_record:
-                continue          # already a stand-in
             results.append(freeze_pane(pane.pane_id))
     return results
 
