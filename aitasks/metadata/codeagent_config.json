@@ -7,6 +7,7 @@
     "raw": "claudecode/sonnet5",
     "explore": "claudecode/opus5",
     "shadow": "codex/gpt5_6_terra",
+    "discuss": "codex/gpt5_6_terra",
     "learn": "claudecode/opus5",
     "brainstorm-explorer": "claudecode/opus5",
     "brainstorm-comparator": "claudecode/sonnet5",
