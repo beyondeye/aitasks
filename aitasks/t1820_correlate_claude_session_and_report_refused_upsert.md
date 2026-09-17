@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1797
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5
 created_at: 2026-09-16 18:08
-updated_at: 2026-09-16 23:34
+updated_at: 2026-09-17 09:02
 ---
 
 ## Origin
@@ -56,3 +57,8 @@ first) or, failing that, apply t1804's refusal rule — group candidates by
 session id and return an ambiguity miss rather than the newest. For the second:
 test the `UPSERTED:` prefix before parsing a record id out of the line, and
 surface `UPSERT_REFUSED:` as its own resolve-stage failure.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-17T06:02:29Z status=pass attempt=1 type=human
