@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [ait_brainstorm, tui, textual, modal_dismiss]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ risk_mitigation_tasks: [1830]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5
 created_at: 2026-09-16 11:22
-updated_at: 2026-09-17 12:58
+updated_at: 2026-09-17 13:04
+completed_at: 2026-09-17 13:04
 ---
 
 ## Symptom (as reported)
@@ -175,3 +176,14 @@ otherwise split them out as follow-ups.
 > **✅ gate:plan_approved** run=2026-09-17T07:45:38Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-09-17T09:09:16Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-17T10:04:42Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:50aa5df501be526b
+
+> **✅ gate:risk_evaluated** run=2026-09-17T10:04:42Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1816/risk_evaluated_2026-09-17T10:04:42Z-risk_evaluated-a1.log`
