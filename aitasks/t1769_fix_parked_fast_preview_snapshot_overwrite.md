@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -14,7 +16,7 @@ anchor: 1705
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5
 created_at: 2026-09-09 16:28
-updated_at: 2026-09-17 09:45
+updated_at: 2026-09-17 09:46
 ---
 
 ## Origin
@@ -114,3 +116,5 @@ control). Both have pre-fix controls recorded — removing the core guard fails 
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-09-17T06:46:07Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-09-17T06:55:37Z status=pass attempt=1 type=human
