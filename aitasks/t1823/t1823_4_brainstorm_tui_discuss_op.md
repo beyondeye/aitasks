@@ -133,3 +133,10 @@ edits all land in **`screen.full_command`** (`run_terminal` calls
 - Live (also covered by the manual-verification sibling): `ait brainstorm <N>` →
   mark 2 nodes → `A` → Discuss → dialog → tmux window; repeat with split, and with
   tmux unavailable.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1826** id=2026-09-17T19:48:33Z.47550a369973786c0784d333 from=t1826 from_verified=yes at=2026-09-17T19:48:33Z base=025ba5e9576de4c0064df0ca2b620b8381e64a70 base_branch=main dirty=yes host=omg16
+>
+> | New rule for any bash test this task adds (025ba5e95, t1826): every cd/pushd in tests/ must be exit-guarded (`cd "$X" || exit 1`) or a (`(`/`$(`)-confined && chain — `|| return`, `|| true`, `if cd`, `! cd` and `{ cd X && …; }` are rejected, targets must be quoted, and `# cd-guard: <reason>` is the reviewed escape hatch. A cwd-changing test also sources tests/lib/scratch_cwd.sh and calls enter_scratch_cwd right after PROJECT_DIR is derived, before any $(pwd) capture or dirname "$BASH_SOURCE" derivation. tests/test_cd_guard_lint.sh enforces it; see aidocs/framework/testing_conventions.md. Advisory only.
