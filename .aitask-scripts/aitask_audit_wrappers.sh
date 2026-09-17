@@ -356,6 +356,40 @@ EOF
 
 render_opencode_command() {
     local skill="$1" description="$2"
+
+    # A templated skill's command wrapper must be a profile-aware stub, exactly
+    # like its skill-dir sibling above: the legacy form @-includes the *Claude*
+    # stub, which renders `--agent claude` and dispatches to the wrong agent's
+    # variant (t1831).
+    if _skill_is_templated "$skill"; then
+        local resolver_key="${skill#aitask-}"
+        cat <<EOF
+---
+description: ${description}
+---
+
+@.opencode/skills/opencode_planmode_prereqs.md
+@.opencode/skills/opencode_tool_mapping.md
+
+This is a profile-aware skill stub. Execute these steps in order, then stop:
+
+1. **Resolve active profile.** Parse \$ARGUMENTS for \`--profile <name>\`.
+   If found, use that as \`<profile>\` and remove the \`--profile <name>\`
+   pair. Otherwise run:
+   \`./.aitask-scripts/aitask_skill_resolve_profile.sh ${resolver_key}\`
+   and use the single-line stdout as \`<profile>\`.
+
+2. **Render per-profile variant.** Run:
+   \`./.aitask-scripts/aitask_skill_render.sh ${skill} --profile <profile> --agent opencode\`
+
+3. **Dispatch via Read-and-follow.** Read the file at
+   \`.opencode/skills/${skill}-<profile>-/SKILL.md\` and execute its
+   instructions as if they were this command, forwarding the (possibly
+   stripped) \$ARGUMENTS unchanged.
+EOF
+        return
+    fi
+
     cat <<EOF
 ---
 description: ${description}
