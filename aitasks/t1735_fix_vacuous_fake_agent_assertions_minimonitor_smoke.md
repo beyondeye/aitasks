@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1705
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5
 created_at: 2026-09-08 11:28
-updated_at: 2026-09-17 15:21
+updated_at: 2026-09-17 15:53
 ---
 
 ## Origin
@@ -77,3 +78,8 @@ Two things to check while porting:
 Follow `tests/lib/fake_agent_binary.py`'s docstring for why a symlink and an
 `exec -a` rename both fail here (tmux names a process after the resolved
 executable, never after `argv[0]`).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-17T12:53:46Z status=pass attempt=1 type=human
