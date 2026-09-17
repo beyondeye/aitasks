@@ -218,3 +218,5 @@ trail actions once, under `board`.
 > | - `TRAIL_BINDINGS` (9 objects incl. `enter view_details`) and a `TRAIL_BINDING` action map are exported; the board places each object individually, and `*TRAIL_BINDINGS` works as-is for TrailsApp.
 > | - Extension point: add TrailsApp to `HOSTS` in tests/test_trail_screen_host_protocol.py.
 > | - Patch targets: `resolve_key` (used by action_trail_refresh_agent), `find_terminal`, `spawn_in_terminal`, `discover_trails`, `_trail_versions`, `load_trail_blob`, `run_trail_drift`, `resolve_dry_run_command`, `AgentCommandScreen`, `launch_in_tmux` are read from board_trail_screen. Details: aiplans/archived/p1794/p1794_5_*.md "Notes for sibling tasks" (after archival).
+
+> **👁 note:read** id=2026-09-17T20:12:50Z.e0b328532a46d49810e653e4 by=t1794_6 at=2026-09-17T20:12:50Z mode=explicit ids=2026-09-14T20:40:24Z.78431901942a339c7bc8d453,2026-09-17T08:51:11Z.e08a7057f52ee22b70ce99ac,2026-09-17T12:43:46Z.1b1baf0a3180dabb34316b1b
