@@ -171,3 +171,17 @@ and archive.
 
 ### Planned mitigations
 - timing: after | name: audit_unguarded_test_cds | type: bug | priority: low | effort: medium | inline_risk: low | added_complexity: high | addresses: unguarded cd in other tests can leak fixtures into the live tree (and may explain the 2026-09-02 t1_alpha.md truncation) | desc: Audit tests/*.sh for unguarded cd followed by relative writes or git add/commit, and guard them or give the file a scratch cwd
+
+## Final Implementation Notes
+- **Actual work done:** Added the scratch-cwd block (fail-closed `git rev-parse --git-dir` check + EXIT-trap cleanup) right after the `asserts.sh` source in `tests/test_data_branch_setup.sh` (+19 lines, no other lines touched). Removed the four leaked fixtures from `aitask-data` in `dbf52f5f5` (exactly 4 deletions, verified by sha) after the per-path preflight passed with no `MISMATCH`; pushed.
+- **Deviations from plan:** None in substance. The baseline run used the unmodified tracked file in place rather than a scratchpad copy, because the test derives `PROJECT_DIR` from its own location — a copy elsewhere cannot run without rewriting that line. The negative-control copies therefore pin `PROJECT_DIR` to the repo explicitly.
+- **Issues encountered:** A first attempt at building the control variants with `sed` used `|` as the delimiter, which collided with `|| exit 1` and produced empty files that "passed" trivially; caught by the zero mutation counts, redone with Python and a printed substitution count per mutation (1/1/1).
+- **Verification results:**
+  - Suite: 214 passed / 0 failed before and after; live fixture mtimes and main HEAD unchanged across runs; no leftover scratch dirs.
+  - Failed-`cd` control (Test 11 guard removed, `setup_data_branch` stubbed to fail, cwd = sentinel repo): pre-fix leaked `t1_alpha.md t2_beta.md t10_gamma.md` and an `ait: seed tasks` commit into the sentinel — the historical leak reproduced; post-fix sentinel untouched.
+  - `TMPDIR=<sentinel>/tmp` and `GIT_DIR=<sentinel>/.git`: both exit 1 with the refusal message before any fixture work; sentinel HEAD/status unchanged, scratch dir removed by the trap.
+  - Removal preflight (block extracted verbatim from this plan) against a sentinel data repo: clean → exactly 4 deletions, an unrelated staged change stayed out of the commit; worktree byte appended + staged edit → two `dirty` MISMATCHes, nothing removed; name re-committed with real content → `HEAD blob` MISMATCH, nothing removed.
+  - shellcheck: identical 29-line output before and after (pre-existing findings only).
+- **Key decisions:** Fail closed (refuse to run) rather than `unset GIT_DIR` when the scratch dir resolves to a repo — silently rewriting the caller's git environment would hide the condition. Removal commit names its four paths so nothing else in the shared, dirty data index rides along; `git rm` without `-f`.
+- **Upstream defects identified:** None
+- **Open question (not a defect with a known location):** `aitasks/t1_alpha.md` was truncated again at 2026-09-02 09:09:18, after the `|| exit 1` guards existed, with no matching reflog/stash entry and no other writer of the name in `tests/` or `.aitask-scripts/`. Unexplained; the planned `audit_unguarded_test_cds` follow-up is the vehicle for narrowing it down.
