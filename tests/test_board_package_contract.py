@@ -796,7 +796,8 @@ class UnresolvedGlobalsTests(unittest.TestCase):
 
 
 class HeadlessImportTests(unittest.TestCase):
-    """`board_widgets` imports on its own and does not load the board (t1794_2).
+    """`board_widgets` (t1794_2) and `board_trail_screen` (t1794_5) import on
+    their own and do not load the board.
 
     A subprocess whose `PYTHONPATH` is `board/` + `lib/` only, so nothing but
     the module's own imports decides what gets loaded. The test process has
@@ -832,6 +833,18 @@ class HeadlessImportTests(unittest.TestCase):
         for name in ("TaskCard", "PickerItem", "LoadingOverlay", "ColumnHeader",
                      "MarkedSelection", "_status_badge_text", "CardHost",
                      "ColumnHeaderHost"):
+            self.assertIn(name, report["names"])
+
+    def test_board_trail_screen_imports_without_the_board(self):
+        """The By-Trail App half (t1794_5) is hostable by an App that is not
+        the Kanban board: importing it must not load `aitask_board`."""
+        report = self._probe("board_trail_screen")
+        self.assertFalse(report["board_loaded"],
+                         "importing board_trail_screen loaded aitask_board — the "
+                         "trail mixin must not depend on the Kanban app (C1)")
+        for name in ("TrailScreenMixin", "TrailHost", "TRAIL_BINDINGS",
+                     "TRAIL_BINDING", "TRAIL_ACTION_CAPABILITIES",
+                     "CODEAGENT_SCRIPT", "CODEAGENT_FAILURE_NOTICE"):
             self.assertIn(name, report["names"])
 
     def test_the_probe_can_see_the_board_loaded(self):

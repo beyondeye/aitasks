@@ -27,7 +27,9 @@ Contracts (see ``board/__init__.py`` and the parent plan):
 * C2 — resolves no task directory, neither at import nor at runtime:
   ``load_local_project_name`` takes the resolved ``tasks_dir`` from its caller.
 
-The view state, workers, key handling and trail launch stay in ``KanbanApp``.
+The view state, workers, trail actions and launch live on ``TrailScreenMixin``
+(``board_trail_screen.py``); the board's view switch and footer gating stay in
+``KanbanApp``.
 """
 
 from __future__ import annotations

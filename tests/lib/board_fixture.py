@@ -53,7 +53,8 @@ point at files that do not exist:
     ./.aitask-scripts/aitask_lock.sh --list       :1084  refresh_lock_map
     ARTIFACT_SCRIPT                               :490   load_trail_blob
     TRAIL_GATHER_SCRIPT      board_trail_view.py  -> run_trail_drift
-    CODEAGENT_SCRIPT / CREATE_SCRIPT              :74/:75
+    CODEAGENT_SCRIPT         board_trail_screen.py (re-exported by the board)
+    CREATE_SCRIPT                                 :75
     BRAINSTORM_TUI_SCRIPT                         :76
     agent_command_screen.py:999   ./.aitask-scripts/aitask_skill_rerender.sh
     sync_action_runner.py:76      ./.aitask-scripts/aitask_sync.sh
