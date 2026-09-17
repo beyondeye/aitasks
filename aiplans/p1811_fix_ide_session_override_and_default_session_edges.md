@@ -488,3 +488,181 @@ archival.
 ### Planned mitigations
 - timing: pre-phase | name: pin_real_config_sessions | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: readable-scalar rule over-flags a real value | desc: snapshot every registered project's resolved session across all readers before/after; diff must be empty with no sentinel and no status problem
 - timing: post-phase | name: twin_regex_generated_corpus | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: awk/Python PyYAML-regex and byte-class transcription drift | desc: seeded ~2000-value unfiltered corpus asserting yaml==line or (default+rc2+sentinel+matching shape), bash==python, with >=50 floors on kept-hash, cut-comment, fallback and agreement
+
+## Implementation progress (2026-09-16)
+
+All steps done: pre-phase, steps 1–6, post-phase, tests, verification.
+
+- **Pre-phase `pin_real_config_sessions`:** snapshot before any edit
+  (7 projects × 3 readers, all agreeing, empty stderr). The re-run after all
+  edits is byte-identical, and `read_default_session_status` reports `None` for
+  all 7.
+- **Rule refined against the oracle while implementing** (PyYAML 6.0.3 probes;
+  both twins updated together):
+  - `duplicate_key`: YAML keeps the last `default_session`, and a later `tmux:`
+    block replaces the whole block.
+  - A flow `[` tmux block counts as `flow_mapping`. Other inline content on the
+    header counts as `invalid_block`. `tmux:x` and `tmux:#` are different keys.
+  - A key may be quoted or have spaces before its colon (YAML reads both), and a
+    leading BOM is stripped.
+  - `-` / `?` / `:` are indicators only before a space or at the end (`-x` is a
+    string). `,` `]` `}` `%` `@` and a backtick are always indicators.
+    `&` `*` `!` count as `node_property`.
+  - Continuation also applies to empty and quoted values and to a line shallower
+    than the child indent. Comment and blank lines are skipped first.
+  - Tabs inside a comment are fine. A quoted body that is only Unicode
+    whitespace counts as blank (mirrors Python `str.strip()`).
+  - U+FFFE/FFFF are controls. NUL is out of scope, since bash can't carry it.
+- **Final shape vocabulary** (`DEFAULT_SESSION_PROBLEM_SHAPES`):
+  tab_or_control, missing_separator, continuation, quoted_escape,
+  trailing_content, block_scalar, flow_collection, node_property, indicator,
+  mapping_indicator, typed_scalar, duplicate_key, flow_mapping, invalid_block,
+  encoding. `encoding` is Python-only.
+- **Pre-existing crash fixed:** `_read_default_session` raised
+  `UnicodeDecodeError` out of `discover_aitasks_sessions()` whenever a
+  registered project's config held a non-UTF-8 byte anywhere. It now returns
+  `(aitasks, "encoding")`.
+- **Writer placement (deviation):** the writer lives in `lib/tmux_bootstrap.sh`
+  as `_tmux_bootstrap_render_default_session` and
+  `_tmux_bootstrap_yaml_session_literal`, sharing the reader's
+  `key_match` / `header_kind` awk functions (`_TMUX_BOOTSTRAP_AWK_KEYS`), so
+  both agree on which block and key line they mean. setup's
+  `_set_tmux_default_session_config` renders into a scratch project and only
+  writes the real config when the scratch copy reads back exactly. A name
+  containing `'` is double-quoted, because the reader refuses `''`.
+- **Test changes (deviations):**
+  - Typed values that round-trip (canonical ints, True, False) moved into
+    `ROUND_TRIP_ROWS`, since `test_parity_rows_match_yaml` rejects typed rows.
+  - Floats and timestamps whose `str()` round-trips (`1.0`, `2024-01-01`, a
+    datetime) are pinned in `ANNOUNCED_ROUND_TRIP_ROWS`, not `UNREADABLE_ROWS`,
+    whose oracle control demands a real divergence.
+  - The corpus word list also includes `\`, `''`, indicators, LS and NEL, so
+    every shape branch gets twin coverage.
+- **Restore test hazard found and closed:** under `systemd --user`,
+  `ait_tmux_new_session_persistent` runs `systemd-run ... tmux`, whose `tmux`
+  comes from the user manager's `PATH`, not the test's. The end-to-end
+  `--create-only` test therefore also sets `AIT_NO_SYSTEMD_RUN=1`, an isolated
+  `AITASKS_TMUX_SOCKET` and `TMUX_TMPDIR`. A mutant with the refusal removed
+  hit the stub, not a real server.
+- **Evidence:**
+  - Twin check: 206 documents, 0 mismatches, 0 invariant violations.
+  - Corpus floors: kept-hash 129, cut-comment 71, fell-back 828,
+    agreed-with-YAML 1098.
+  - Mutants on isolated copies, each red only on its own rows: awk typed check
+    removed, Python NBSP cut, awk continuation removed, Python duplicate-key
+    removed, switcher notify silenced, create-only refusal removed.
+  - Red proof: HEAD's `aitask_ide.sh --session -n` prints
+    `configured session is ''`; the fix prints `'-n'`.
+- **Concurrent commits:** t1809 and t1804 landed on `main` mid-session. t1804
+  touched `agent_restore.py`, and my uncommitted edit stayed out of it (checked
+  with `git show`).
+
+## Post-Review Changes
+
+### Change Request 1 (2026-09-17)
+- **Requested by user:** a blocking review finding (confirmed).
+  `_tmux_header_kind` and the awk `header_kind` accepted any compact tag after
+  `tmux:` as a mapping. For `tmux: !foo` followed by `default_session: x`,
+  PyYAML raises `ConstructorError` and `load_tmux_defaults` returns `aitasks`,
+  while both line parsers returned `x` with no sentinel, and setup treated `x`
+  as configured. The request: classify tags conservatively as unreadable unless
+  deliberately supported, and add Python/Bash regression rows.
+- **Verified wider than reported:**
+  - These headers were all silent divergences: `!foo`, `!!omap`, `!!set`
+    (tmux becomes a set), `!!pairs`, `!!str`, `!!seq`, `!<!foo>`,
+    `!!python/dict`, and a bare `&`.
+  - YAML reads `x` from only `!`, `!!map`, `!<tag:yaml.org,2002:map>` and a
+    named `&anchor`.
+- **Changes made:**
+  - Both twins now accept, after `tmux:`, only nothing, a comment, a named
+    anchor matching `^&[0-9A-Za-z_-]+$` (PyYAML's anchor alphabet) or exactly
+    `!!map`.
+  - Every other inline content, every other tag included, counts as
+    `invalid_block`. `!`, the verbatim map tag and `&a !!map` are therefore
+    announced even though YAML reads them — a deliberate over-approximation the
+    invariant allows.
+  - The writer shares the awk `header_kind`, so setup refuses these headers too.
+- **Tests:**
+  - PARITY row: `!!map`.
+  - UNREADABLE rows: `!foo`, `!!omap`, `!!set`, and a bare `&` (each
+    oracle-proven to diverge).
+  - New `HeaderInvariantTests`: 28 header tokens, where the twins must agree and
+    either match PyYAML or announce.
+  - New setup probe row: `tmux: !foo` is left byte-identical.
+  - Red proof on isolated copies: restoring the old rule in the Python twin only,
+    or the awk twin only, fails 18 checks each (4 rows + 14 header tokens).
+  - Full Python suite passes. The real-project snapshot is still identical.
+- **Files affected:** `.aitask-scripts/lib/agent_launch_utils.py`,
+  `.aitask-scripts/lib/tmux_bootstrap.sh`,
+  `tests/test_tmux_default_session_resolvers.py`,
+  `tests/test_setup_tmux_default_session.sh`
+
+## Final Implementation Notes
+- **Actual work done:** all three declared defects are fixed, plus the two
+  adjacent writer bugs.
+  - **(1) `ait ide --session`:** resolves through the new
+    `_tmux_bootstrap_session_for`, which uses `printf`, so `-n`, `-e`, `-E` and
+    `-neE` survive. It is proven through the real `aitask_ide.sh` with a stub
+    `tmux`, and HEAD prints `''` there.
+  - **(2) Setup probe:** decides "configured?" with the resolvers' own reader.
+    Unreadable values are reported and left byte-identical.
+  - **(3) YAML-only shapes:**
+    - Both line parsers (`read_default_session_status` in Python,
+      `_tmux_bootstrap_default_session_scan` / `_raw` in bash) read a value only
+      when YAML reads back the same string. Otherwise they return `aitasks` and
+      report a shape.
+    - Python reports it as a return value. Bash reports it as exit 2 plus a
+      `DEFAULT_SESSION_UNREADABLE:<shape>:<cfg>` stderr sentinel.
+    - The rule was measured against PyYAML 6.0.3 and pinned by oracle rows, a
+      header-token matrix, and a seeded 2,000-value unfiltered corpus.
+  - **Every session-creating consumer shows the problem:**
+    - `ait ide` and ensure-mode bootstrap: stderr, then fall back.
+    - TUI switcher: a warning notification after a successful bootstrap, from
+      the new `AitasksSession.default_session_problem` field or the sentinel.
+    - Frozen-agent restore: `--create-only` refuses with exit 44
+      (`BOOTSTRAP_FAILED:default_session_unreadable:<shape>`), which reaches the
+      viewer through `last_error` → `restore_verdict`.
+  - **Writer:** now in the lib (`_tmux_bootstrap_render_default_session`). It is
+    block-scoped, quotes values YAML would type, keeps names out of `sed`,
+    preserves CRLF, and writes only when the result reads back exactly.
+  - **Docs:** the seed comment and the monitor reference row describe the
+    single-line rule.
+- **Deviations from plan:**
+  - The rule grew during implementation, driven by oracle measurements:
+    duplicate key and later `tmux:` block, quoted keys and a space before the
+    colon, BOM, the `-`/`?`/`:` indicator semantics, and Unicode-whitespace blank
+    bodies.
+  - After review, the `tmux:` header accepts only a named `&anchor` or exactly
+    `!!map` (Change Request 1).
+  - The writer moved into `lib/tmux_bootstrap.sh`, sharing the reader's awk key
+    functions.
+  - `2024-01-01`, `1.0` and datetimes moved out of `UNREADABLE_ROWS` into
+    `ANNOUNCED_ROUND_TRIP_ROWS`, because their `str()` round-trips. Round-trip
+    ints and bools got `ROUND_TRIP_ROWS`, because
+    `test_parity_rows_match_yaml` rejects typed rows.
+- **Issues encountered:**
+  - **(a) Pre-existing crash:** `_read_default_session` raised
+    `UnicodeDecodeError` out of `discover_aitasks_sessions()` for any registered
+    project whose config held a non-UTF-8 byte. It now reports `encoding`
+    (Python only).
+  - **(b) Test hazard:** under `systemd --user`,
+    `ait_tmux_new_session_persistent` runs `tmux` through `systemd-run`, which
+    resolves it from the user manager's `PATH`, so a PATH stub does not isolate
+    it. The end-to-end restore test also sets `AIT_NO_SYSTEMD_RUN=1`, an
+    isolated socket and `TMUX_TMPDIR`.
+  - **(c) Concurrent commits:** t1809 and t1804 landed on `main` mid-task.
+    t1804 touched `agent_restore.py`, and my uncommitted edit stayed out of its
+    commit.
+  - **(d) Review round:** the compact-tag header gap (`tmux: !foo`) was
+    confirmed and fixed.
+- **Key decisions:**
+  - A *single precondition* (the readable scalar) instead of per-shape special
+    cases.
+  - Over-announcing is allowed; silently disagreeing is not. That is the
+    invariant the corpus and header tests enforce.
+  - Detached restore refuses rather than falling back, because its only user
+    channel is the saved record.
+  - NUL is out of scope, since bash can't carry it.
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_ide.sh:16 — ait ide --session accepts tmux-illegal session names (containing '.' or ':'), which ait setup rejects for the configured value; tmux then fails with a less helpful error`
+  - `.aitask-scripts/lib/tmux_bootstrap.sh:141 — the line-oriented default_session reader cannot see YAML errors elsewhere in project_config.yaml (an invalid line or non-UTF-8 byte on another line, a NUL byte): load_tmux_defaults falls back to aitasks while the bash reader still returns default_session (the Python twin reports only the encoding case)`
