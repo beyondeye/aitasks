@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -51,3 +53,5 @@ Add a `_skill_is_templated` branch to `render_opencode_command` emitting the sha
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-09-17T19:19:30Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-09-17T19:58:07Z status=pass attempt=1 type=human
