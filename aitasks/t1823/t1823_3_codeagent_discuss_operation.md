@@ -105,3 +105,30 @@ Tests:
   `PYTHON SUITE:` line
 - `shellcheck .aitask-scripts/aitask_codeagent.sh`
 - `cd website && python3 check_links.py --build`
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1826** id=2026-09-17T19:48:15Z.5b7d358ef4b550fd23a3a9e1 from=t1826 from_verified=yes at=2026-09-17T19:48:15Z base=025ba5e9576de4c0064df0ca2b620b8381e64a70 base_branch=main dirty=yes host=omg16
+>
+> | New rule for any bash test this task adds (landed in 025ba5e95, t1826).
+> | 
+> | Every `cd`/`pushd` in `tests/*.sh` and `tests/lib/*.sh` must be exit-guarded
+> | (`cd "$X" || exit 1`, or `|| { …; exit 1; }`) or be an `&&` chain confined to a
+> | `(`/`$(` subshell. `|| return`, `|| true`, `if cd …`, `! cd …` and
+> | `{ cd X && …; }` are rejected, the target must be quoted, and a reviewed
+> | `# cd-guard: <reason>` comment is the escape hatch. A test that changes its cwd
+> | also sources `tests/lib/scratch_cwd.sh` and calls `enter_scratch_cwd` right
+> | after `PROJECT_DIR` is derived — before any `ORIG_DIR="$(pwd)"` capture and
+> | before any `dirname "$BASH_SOURCE"`-relative path derivation, both of which
+> | break if they run after the cwd moves.
+> | 
+> | `tests/test_cd_guard_lint.sh` fails the build on a violation;
+> | `python3 tests/lib/cd_guard_scan.py --check tests/*.sh` and `--helper-order
+> | tests/*.sh` report them by file:line. Rationale and accepted forms:
+> | aidocs/framework/testing_conventions.md ("Every `cd` in a bash test is
+> | `exit`-guarded").
+> | 
+> | t1823_2's two test files were adopted into this rule in the same commit; their
+> | guarded `cd "$PROJECT_DIR" || exit 1` was left as-is. Advisory only — nothing
+> | here asks you to change your task's scope.
