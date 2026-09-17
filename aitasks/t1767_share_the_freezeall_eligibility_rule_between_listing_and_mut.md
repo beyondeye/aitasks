@@ -37,3 +37,8 @@ flattening that difference — e.g. have the mutation iterate the shared
 enumeration while keeping its own per-session error reporting.
 
 Found by review of t1705_7. Disposition there: follow-up, not blocking.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-17T10:06:05Z status=pass attempt=1 type=human
