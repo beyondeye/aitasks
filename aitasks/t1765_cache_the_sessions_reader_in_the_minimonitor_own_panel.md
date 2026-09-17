@@ -3,12 +3,13 @@ priority: low
 effort: low
 depends: []
 issue_type: performance
-status: Ready
+status: Implementing
 labels: [monitor, frozen]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1705
 followup_kind: review_finding
 created_at: 2026-09-09 15:31
-updated_at: 2026-09-09 15:31
+updated_at: 2026-09-17 11:16
 ---
 
 `MiniMonitorApp._own_frozen_at` constructs a fresh `agent_sessions.SessionsView()`
