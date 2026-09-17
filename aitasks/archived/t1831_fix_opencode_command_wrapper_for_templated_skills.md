@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [skills, codeagent]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 1823
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5
 created_at: 2026-09-17 15:25
-updated_at: 2026-09-17 22:19
+updated_at: 2026-09-17 23:13
+completed_at: 2026-09-17 23:13
 ---
 
 ## Origin
@@ -55,3 +56,14 @@ Add a `_skill_is_templated` branch to `render_opencode_command` emitting the sha
 > **✅ gate:plan_approved** run=2026-09-17T19:19:30Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-09-17T19:58:07Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-17T20:13:25Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:27bbb87d915274cf
+
+> **✅ gate:risk_evaluated** run=2026-09-17T20:13:25Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1831/risk_evaluated_2026-09-17T20:13:25Z-risk_evaluated-a1.log`
