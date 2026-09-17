@@ -1164,7 +1164,7 @@
         },
         "pick": {
           "all_time": {
-            "runs": 371
+            "runs": 372
           },
           "prev_month": {
             "period": "2026-08",
@@ -1172,11 +1172,11 @@
           },
           "month": {
             "period": "2026-09",
-            "runs": 128
+            "runs": 129
           },
           "week": {
             "period": "2026-W38",
-            "runs": 28
+            "runs": 29
           }
         },
         "changelog": {
