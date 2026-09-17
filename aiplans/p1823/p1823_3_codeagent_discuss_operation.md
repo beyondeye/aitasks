@@ -118,6 +118,11 @@ alternation `:443`, claudecode arms `:481-496`, codex composer `:571-579`
 - `bash tests/run_all_python_tests.sh --test-dir tests` — last line only
   (`test_settings_brainstorm_descriptions.py`, settings tests)
 - `shellcheck .aitask-scripts/aitask_codeagent.sh tests/test_codeagent_discuss.sh tests/test_codeagent_op_wiring.sh`
+  must exit **0**, plain and with `-x`. A source line that shellcheck cannot
+  follow is SC1091 *info*, which still exits 1, so each `.` of a `tests/lib/`
+  helper in the new files carries `# shellcheck source=<rel> disable=SC1091`
+  (precedent: `tests/test_brainstorm_context_helper.sh:16`). An unrelated file
+  sharing the baseline is not a reason to leave the declared command red.
 - `cd website && python3 check_links.py --build`
 - `./.aitask-scripts/aitask_codeagent.sh --dry-run invoke discuss 42 n001 n002`
 - Selective-staging check: detached worktree at the code commit, run the three
@@ -145,3 +150,65 @@ None identified.
 
 ### Planned mitigations
 - timing: post-phase | name: unwired_op_guard | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: codeagent op list duplicated across ~8 sites, fail-open on claudecode/opencode | desc: guard test that every skill-backed SUPPORTED_OPERATIONS op is wired and validated for claudecode and opencode, with mutant negative controls
+
+## Final Implementation Notes
+
+- **Actual work done:** `discuss` wired into `aitask_codeagent.sh` at all six
+  sites (`SUPPORTED_OPERATIONS`, the argument-validation alternation, the
+  claudecode / codex-composer / opencode arms, `--help`), mapping to
+  `/aitask-brainstorm-discuss <task_num> <node_id>...`. Defaults added to
+  `seed/codeagent_config.json` (`claudecode/opus5`) and
+  `aitasks/metadata/codeagent_config.json` (`codex/gpt5_6_terra`) — each the
+  file's own `shadow` value. `OPERATION_DESCRIPTIONS["discuss"]` added to
+  `settings_app.py`; Operations-table row added to
+  `website/content/docs/commands/codeagent.md`. `tests/test_codeagent.sh` lists
+  extended (11d2 `skill_operations`, 11d3 `codex_operations`/`codex_skills`,
+  11e override loop). New `tests/test_codeagent_discuss.sh` (34 assertions) and
+  the post-phase guard `tests/test_codeagent_op_wiring.sh` (19 assertions).
+- **Deviations from plan:**
+  - The op-wiring guard checks validation coverage **behaviourally** (an
+    arg-bearing op must refuse an empty argument) instead of regex-parsing the
+    `:443` alternation. The property that matters is the refusal, and this form
+    exempts `explore` (which ignores argv) with no list to maintain.
+  - The guard lives in its own `tests/test_codeagent_op_wiring.sh` rather than
+    inside the discuss test — the plan allowed either; it is cross-op, not
+    discuss-specific.
+  - Review round 1 (lint): the plan's `shellcheck` command exited 1 on SC1091
+    *info* for the new files' `tests/lib/` source lines. Each now carries
+    `# shellcheck source=<rel> disable=SC1091` (precedent
+    `tests/test_brainstorm_context_helper.sh:16`), so the declared command
+    exits 0 plain and with `-x`.
+- **Issues encountered:**
+  - The first draft's "transform matched exactly once" mutant assertions were
+    vacuous (`test -s <file>` on awk output, which is non-empty even when awk
+    exits 1). Replaced with the captured awk exit status plus a `cmp` proving
+    the mutant actually differs from the shipped script.
+  - `tests/test_codeagent.sh` also holds **t1826's** uncommitted hunks (it
+    sources the still-untracked `tests/lib/scratch_cwd.sh`). Only this task's
+    four list-line hunks were committed, by swapping in a HEAD+mine blob for
+    the commit and restoring the full working file immediately after
+    (backup-and-`cmp`-verified); `git commit -- <path>` takes worktree content,
+    so index-only staging would not have worked. For the same reason the two
+    new test files deliberately do **not** source `scratch_cwd.sh`.
+- **Key decisions:**
+  - Op name `discuss`, not `brainstorm-discuss`: confirmed at implementation
+    time that `tests/test_settings_brainstorm_descriptions.py` treats every
+    `brainstorm-*` config key as a `BRAINSTORM_AGENT_TYPES` crew agent type and
+    rejects orphans.
+  - The guard's exemption list (`batch-review`, `raw`, `explore-relay`) is
+    explicit and asserted to be a subset of the parsed operations, so a renamed
+    op cannot turn it into a blanket exemption.
+  - Codex arm left in default mode (no plan mode, no sandbox), matching the
+    advisory read-only nature of the skill and the `trail` precedent.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:**
+  - t1823_4 (brainstorm TUI op): launch with
+    `resolve_dry_run_command(root, "discuss", <task_num>, *<node_ids>)`; argv
+    must be whitespace-free and non-empty — the wrapper refuses otherwise, and
+    it refuses under `--dry-run` too, so a pre-flight dry-run surfaces it.
+    `lib/agent_command_screen.py` `_FRESH_WINDOW_OPERATIONS` does **not** list
+    `discuss` (trail added itself there); whether the discuss dialog should
+    default to a fresh window is a launch-UX call owned by t1823_4.
+  - Any future operation added to `SUPPORTED_OPERATIONS` is now automatically
+    covered by `tests/test_codeagent_op_wiring.sh` — a new op that is wired
+    only at line 26 fails that suite for claudecode and opencode.
