@@ -42,8 +42,13 @@ sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "board"))
 # The captured-frame fixtures live beside this file (t1518). Resolved against
 # THIS directory rather than the cwd — the suite chdirs in ~39 modules.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
 
 from monitor import minimonitor_app as mm  # noqa: E402
+from fake_agent_binary import (  # noqa: E402
+    FakeAgentBinaryUnavailable,
+    fake_agent_binary,
+)
 
 OPEN = "===AITASK-CONCERNS==="
 CLOSE = "===END-CONCERNS==="
@@ -62,6 +67,21 @@ OFFER_RE = re.compile(r"Shadow raised \d+ concern", re.IGNORECASE)
 # and tests/lib/tmux_socket_containment.py.
 SOCKET = f"ait_t1187_smoke_{os.getpid()}"
 SESSION = f"t1187_concern_smoke_{os.getpid()}"
+
+
+def _short_tmpdir(prefix: str) -> str:
+    """A private TMUX_TMPDIR short enough to hold tmux's socket path.
+
+    Rooted at /tmp, not the default tempdir: macOS's `/var/folders/…/T/` plus
+    `<prefix>XXXX/tmux-<uid>/<SOCKET>` exceeds the 104-byte unix-socket path
+    limit, every `new-session` fails with `File name too long`, and each class
+    turned that into a SkipTest — so on macOS this whole module reported
+    `OK (skipped=3)` while running nothing (measured, t1735).
+    """
+    return tempfile.mkdtemp(prefix=prefix,
+                            dir="/tmp" if os.path.isdir("/tmp") else None)
+
+
 PANE_WIDTH = 55      # the narrow width from the failing scenario
 PANE_HEIGHT = 10     # pinned so the capture-window arithmetic is deterministic
 
@@ -136,6 +156,20 @@ def _pane_payload() -> str:
     return "\n".join(lines)
 
 
+def _process_command(pid: int) -> str:
+    """`ps`'s name for `pid`, for a leak report; "?" when it cannot be read.
+
+    Report-only — the leak verdict is decided by `os.kill(pid, 0)`, never by
+    this, so a missing or unhelpful `ps` costs a label and nothing else.
+    """
+    try:
+        out = subprocess.run(["ps", "-o", "command=", "-p", str(pid)],
+                             capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return "?"
+    return out.stdout.strip() or "?"
+
+
 def _tmux(*args: str) -> subprocess.CompletedProcess:
     return subprocess.run(
         ["tmux", "-L", SOCKET, *args],
@@ -168,7 +202,7 @@ class ConcernCaptureSmokeTests(unittest.TestCase):
         # aitask_shadow_capture.sh -> lib/tmux_exec.sh — spawns its own tmux and
         # inherits os.environ. Must be in place before the first _tmux() call.
         # Cleanups run after tearDownClass, so the server is killed first.
-        tmpdir = tempfile.mkdtemp(prefix="ait_t1187_tmux_")
+        tmpdir = _short_tmpdir("ait_t1187_tmux_")
         prev_tmpdir = os.environ.get("TMUX_TMPDIR")
         os.environ["TMUX_TMPDIR"] = tmpdir
         cls.addClassCleanup(shutil.rmtree, tmpdir, ignore_errors=True)
@@ -338,7 +372,7 @@ class RecheckInjectionSmokeTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        tmpdir = tempfile.mkdtemp(prefix="ait_t1159_inject_")
+        tmpdir = _short_tmpdir("ait_t1159_inject_")
         prev_tmpdir = os.environ.get("TMUX_TMPDIR")
         os.environ["TMUX_TMPDIR"] = tmpdir
         cls.addClassCleanup(shutil.rmtree, tmpdir, ignore_errors=True)
@@ -546,6 +580,38 @@ while True:
     draw()
 '''
 
+# Runs a Python stub in a pane whose `pane_current_command` really is an agent
+# name (t1735). tmux names a pane after its foreground process-group leader —
+# the pane's own pid — by the file that process executed. So the pane pid execs
+# an agent-named binary from `fake_agent_binary` and the stub runs as its forked
+# child, sharing the pty and the foreground group (the composer stubs' raw-mode
+# stdin reads keep working).
+#
+# What this replaces: a `shutil.copy2(sys.executable, "<dir>/codex")` pane. On
+# macOS a copied Homebrew interpreter re-execs its framework app bundle, so the
+# pane reads `codex` for well under a second and `Python` from then on (measured)
+# — every `_paint` below waited out its deadline on `command='Python'`. A symlink
+# or `exec -a` rename does not help either; see `tests/lib/fake_agent_binary.py`.
+#
+# Measured before adoption: the name holds, typed keys reach a composer stub, and
+# `kill-server` ends both the sleeper and the stub — including `_FRAME_STUB`,
+# which never reads stdin and so depends on SIGHUP alone. tearDownClass keeps
+# that last property checked.
+#
+# `argv[1]` is a pid file: the launcher writes both pids into it before exec'ing,
+# so tearDownClass knows exactly which processes to outlive it and needs no
+# process search (and so no optional binary) to find them.
+_AGENT_LAUNCHER = r'''
+import os, sys
+pidfile, agent, stub = sys.argv[1], sys.argv[2], sys.argv[3:]
+child = os.fork()
+if child == 0:
+    os.execv(sys.executable, [sys.executable, *stub])
+with open(pidfile, "w") as fh:
+    fh.write("%d\n%d\n" % (os.getpid(), child))
+os.execv(agent, [agent, "100000"])
+'''
+
 
 @unittest.skipUnless(shutil.which("tmux"), "tmux not available")
 class FollowedPaneClassificationSmokeTests(unittest.TestCase):
@@ -560,9 +626,11 @@ class FollowedPaneClassificationSmokeTests(unittest.TestCase):
     for).
 
     So this drives REAL tmux panes whose `pane_current_command` really is
-    `codex` / `opencode`, paints the REAL captured dialog frames into them, and
-    classifies through `TmuxMonitor.capture_pane` — the production capture. The
-    agent process is a repaint stub rather than the CLI itself: the boundary
+    `codex` / `opencode` / `claude`, paints the REAL captured dialog frames into
+    them, and classifies through `TmuxMonitor.capture_pane` — the production
+    capture. The name is real because the pane pid is an agent-named binary
+    (`_AGENT_LAUNCHER`); `test_pane_commands_are_the_agent_names` guards that.
+    The painting is a repaint stub rather than the CLI itself: the boundary
     geometry was measured against the real CLIs in the task's pre-phase (the
     frames here ARE those captures), and what is unproven without a live pane
     is the wiring, not the geometry.
@@ -579,7 +647,7 @@ class FollowedPaneClassificationSmokeTests(unittest.TestCase):
     def setUpClass(cls):
         import review_loop_fixtures as rlfx
         cls.rlfx = rlfx
-        cls.tmpdir = tempfile.mkdtemp(prefix="ait_t1518_follow_")
+        cls.tmpdir = _short_tmpdir("ait_t1518_follow_")
         cls.addClassCleanup(shutil.rmtree, cls.tmpdir, ignore_errors=True)
         prev_tmpdir = os.environ.get("TMUX_TMPDIR")
         os.environ["TMUX_TMPDIR"] = cls.tmpdir
@@ -597,30 +665,37 @@ class FollowedPaneClassificationSmokeTests(unittest.TestCase):
         cls.frame_files = {}
         cls.pane_argv = {}
         cls.shadows = {}
-        claude_bin = os.path.join(cls.tmpdir, "claude")
-        shutil.copy2(sys.executable, claude_bin)
-        os.chmod(claude_bin, 0o755)
+        # `pane_current_command` must really be the agent name — rung 1 of
+        # `agent_key_from_pane` reads it, and a `Python` pane resolves to "".
+        # Every binary is built once, before any pane execs one, so no pane can
+        # be running a file that is still being copied. Not being able to
+        # build one is environment unavailability, so it skips.
+        try:
+            cls.agent_bins = {agent: fake_agent_binary(cls.tmpdir, agent)
+                              for agent in ("codex", "opencode", "claude")}
+        except FakeAgentBinaryUnavailable as exc:
+            raise unittest.SkipTest(str(exc))
+        launcher = os.path.join(cls.tmpdir, "agent_launcher.py")
+        with open(launcher, "w") as fh:
+            fh.write(_AGENT_LAUNCHER)
+
+        cls.pidfiles = []
+
+        def as_agent(agent, *stub_argv):
+            pidfile = os.path.join(cls.tmpdir,
+                                   f"pids_{len(cls.pidfiles)}_{agent}")
+            cls.pidfiles.append(pidfile)
+            return (sys.executable, launcher, pidfile,
+                    cls.agent_bins[agent], *stub_argv)
+
         composer_stub = os.path.join(cls.tmpdir, "composer_stub.py")
         with open(composer_stub, "w") as fh:
             fh.write(_COMPOSER_STUB)
         # `claude` joins the set in t1540, once its tool-permission dialog got a
-        # measured boundary. Its followed-pane binary is the same file the
-        # shadow already uses (both are named `claude`), which is harmless:
-        # the two panes are bound by `@aitask_shadow_target`, not by argv.
+        # measured boundary. Its followed pane runs the same `claude` binary as
+        # every shadow, which is harmless: the two panes are bound by
+        # `@aitask_shadow_target`, not by argv.
         for agent in ("codex", "opencode", "claude"):
-            # `pane_current_command` must really be the agent name — rung 1 of
-            # `agent_key_from_pane` reads it, and a `python3` pane would
-            # resolve to "" and silently classify unscoped.
-            fake = os.path.join(cls.tmpdir, agent)
-            # `claude` already exists: it is `claude_bin` above, and by this
-            # iteration the earlier agents' shadow panes are already executing
-            # it, so copying over it raises ETXTBSY (racily — it depends on
-            # whether those panes have exec'd yet). Reuse the file instead;
-            # one binary serving both roles is fine because the followed and
-            # shadow panes are bound by `@aitask_shadow_target`, not by argv.
-            if not os.path.exists(fake):
-                shutil.copy2(sys.executable, fake)
-                os.chmod(fake, 0o755)
             frame = os.path.join(cls.tmpdir, f"{agent}.frame")
             with open(frame, "w", encoding="utf-8") as fh:
                 fh.write("")
@@ -628,10 +703,11 @@ class FollowedPaneClassificationSmokeTests(unittest.TestCase):
             session = f"{SESSION}_follow_{agent}"
             # Window name carries the `agent-` prefix: PaneCategory.AGENT comes
             # from it, and prompt matching runs only for AGENT panes.
+            pane_argv = as_agent(agent, stub, frame, str(FRAME_PANE_H))
             res = _tmux("new-session", "-d", "-s", session,
                         "-n", f"agent-{agent}",
                         "-x", str(FRAME_PANE_W), "-y", str(FRAME_PANE_H),
-                        fake, stub, frame, str(FRAME_PANE_H))
+                        *pane_argv)
             if res.returncode != 0:
                 raise unittest.SkipTest(
                     f"could not start {agent} pane: {res.stderr}")
@@ -641,11 +717,14 @@ class FollowedPaneClassificationSmokeTests(unittest.TestCase):
             if not pane_id:
                 raise unittest.SkipTest(f"could not resolve {agent} pane id")
             cls.panes[agent] = (session, pane_id)
-            cls.pane_argv[agent] = (fake, stub, frame, str(FRAME_PANE_H))
+            # The argv of the pane that IS running, pid file included — a
+            # second as_agent() call would allocate a pid file no process ever
+            # writes.
+            cls.pane_argv[agent] = pane_argv
 
             # A REAL shadow pane beside it, bound the way spawn_shadow binds
-            # one. Runs the Claude-shaped composer stub under a binary named
-            # `claude`, so the app's own shadow lookup + agent resolution +
+            # one. Runs the Claude-shaped composer stub in a pane whose command
+            # is `claude`, so the app's own shadow lookup + agent resolution +
             # readiness detection all run for real, and an injected recheck is
             # readable back out of the pane.
             # Its OWN WINDOW, not a split: splitting the followed pane halves
@@ -656,7 +735,7 @@ class FollowedPaneClassificationSmokeTests(unittest.TestCase):
             shadow_res = _tmux(
                 "new-window", "-d", "-t", session,
                 "-n", f"agent-shadow-{agent}", "-P", "-F",
-                "#{pane_id}", claude_bin, composer_stub)
+                "#{pane_id}", *as_agent("claude", composer_stub))
             shadow_id = shadow_res.stdout.strip()
             if not shadow_id:
                 raise unittest.SkipTest(
@@ -672,7 +751,6 @@ class FollowedPaneClassificationSmokeTests(unittest.TestCase):
         # shadow (the shadow lookup is server-wide and would otherwise see two
         # shadows bound to one followed pane).
         key = "codex_shadow"
-        codex_fake = os.path.join(cls.tmpdir, "codex")
         codex_stub = os.path.join(cls.tmpdir, "codex_composer_stub.py")
         with open(codex_stub, "w") as fh:
             fh.write(_CODEX_COMPOSER_STUB)
@@ -687,7 +765,7 @@ class FollowedPaneClassificationSmokeTests(unittest.TestCase):
         session = f"{SESSION}_follow_{key}"
         res = _tmux("new-session", "-d", "-s", session, "-n", "agent-codex",
                     "-x", str(FRAME_PANE_W), "-y", str(FRAME_PANE_H),
-                    codex_fake, stub, frame, str(FRAME_PANE_H))
+                    *as_agent("codex", stub, frame, str(FRAME_PANE_H)))
         if res.returncode != 0:
             raise unittest.SkipTest(f"could not start {key} pane: {res.stderr}")
         panes = _tmux("list-panes", "-t", session, "-F", "#{pane_id}")
@@ -698,8 +776,9 @@ class FollowedPaneClassificationSmokeTests(unittest.TestCase):
         cls.panes[key] = (session, pane_id)
         shadow_res = _tmux(
             "new-window", "-d", "-t", session, "-n", "agent-shadow-codex",
-            "-P", "-F", "#{pane_id}", codex_fake, codex_stub,
-            cls.codex_shadow_frame, str(FRAME_PANE_H), cls.codex_shadow_log)
+            "-P", "-F", "#{pane_id}",
+            *as_agent("codex", codex_stub, cls.codex_shadow_frame,
+                      str(FRAME_PANE_H), cls.codex_shadow_log))
         shadow_id = shadow_res.stdout.strip()
         if not shadow_id:
             raise unittest.SkipTest(
@@ -711,6 +790,114 @@ class FollowedPaneClassificationSmokeTests(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         _tmux("kill-server")
+        cls._assert_no_fixture_process_survives()
+
+    @classmethod
+    def _assert_no_fixture_process_survives(cls):
+        """Every agent binary and stub must end with the server.
+
+        Each pane is two processes (`_AGENT_LAUNCHER`), and the repaint stub
+        never reads stdin, so it dies only if SIGHUP reaches it. A survivor
+        would keep repainting into files and burning CPU across runs while the
+        module still reported OK — so a leak is killed, then reported.
+
+        The pids come from the launcher's own pid files, not from a process
+        search: `pgrep` is an optional binary, and skipping the check where it
+        is absent would leave exactly the environments that leak unguarded.
+        `os.kill(pid, 0)` is in the standard library and works everywhere this
+        module runs.
+        """
+        pids = []
+        for pidfile in getattr(cls, "pidfiles", []):
+            try:
+                with open(pidfile) as fh:
+                    pids.extend(int(line) for line in fh.read().split())
+            except (OSError, ValueError):
+                # The pane never got as far as writing its pids. It has no
+                # processes to leak that this class could name.
+                continue
+
+        def state(pid):
+            """`gone` | `ours` | `unverified` — a pid alone is not an identity.
+
+            A fixture process can exit while a later one keeps the wait going,
+            and the kernel can hand its pid to an unrelated process in the
+            meantime. Signalling on the number alone would then SIGKILL a
+            stranger, so the command must still name this class's tmpdir before
+            anything is sent. When `ps` cannot answer, the pid is reported but
+            never signalled.
+            """
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                return "gone", ""
+            except PermissionError:
+                pass            # exists, owned elsewhere
+            command = _process_command(pid)
+            if command == "?":
+                return "unverified", command
+            if cls.tmpdir in command:
+                return "ours", command
+            return "gone", command      # pid reused by something unrelated
+
+        survivors = {}
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            survivors = {pid: st for pid in pids
+                         for st in [state(pid)] if st[0] != "gone"}
+            if not survivors:
+                return
+            time.sleep(0.1)
+        if not survivors:
+            return
+        # Describe every survivor BEFORE killing any of them: killing a pane's
+        # agent binary makes tmux tear the pane down, so its stub child is gone
+        # by the time the loop reaches it and would be reported as "?".
+        described = [
+            f"{pid} [{st}] {command}" for pid, (st, command) in survivors.items()
+        ]
+        for pid, (st, _command) in survivors.items():
+            if st != "ours":
+                continue        # identity unproven — report it, never signal it
+            try:
+                os.kill(pid, 9)
+            except (ProcessLookupError, PermissionError):
+                pass
+        raise AssertionError(
+            "fixture processes outlived kill-server ([ours] SIGKILLed, "
+            "[unverified] left alone):\n" + "\n".join(described))
+
+    def test_pane_commands_are_the_agent_names(self):
+        """Guards the fixture: every assertion in this class rests on it.
+
+        Checked twice, a second apart, because the defect this replaced was a
+        name that is right for the first instant only — a copied interpreter
+        reads `codex` until it re-execs as `Python`.
+        """
+        # `codex_shadow` is a codex followed pane with a codex shadow; every
+        # other shadow runs as `claude`.
+        want = {}
+        for key, (_, pane) in self.panes.items():
+            want[pane] = "codex" if key == "codex_shadow" else key
+        for key, pane in self.shadows.items():
+            want[pane] = "codex" if key == "codex_shadow" else "claude"
+
+        def commands():
+            out = _tmux("list-panes", "-a", "-F",
+                        "#{pane_id}\t#{pane_current_command}").stdout
+            return {pane: cmd for pane, _, cmd in
+                    (line.partition("\t") for line in out.splitlines())
+                    if pane in want}
+
+        deadline = time.time() + 30
+        seen = commands()
+        while seen != want and time.time() < deadline:
+            time.sleep(0.15)
+            seen = commands()
+        self.assertEqual(seen, want, "panes never settled to the agent names")
+        time.sleep(1.0)
+        self.assertEqual(commands(), want,
+                         "a pane lost its agent name after settling")
 
     def setUp(self):
         self._prev_socket = os.environ.get("AITASKS_TMUX_SOCKET")
