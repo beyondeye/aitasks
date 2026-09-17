@@ -12,8 +12,9 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1705
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5
 created_at: 2026-09-09 16:28
-updated_at: 2026-09-17 09:28
+updated_at: 2026-09-17 09:45
 ---
 
 ## Origin
@@ -108,3 +109,8 @@ control). Both have pre-fix controls recorded — removing the core guard fails 
 > | why frozen needed no publish-down and parked may.
 
 > **👁 note:read** id=2026-09-17T06:27:41Z.e32cbb11510721c1ec20f037 by=t1769 at=2026-09-17T06:27:41Z mode=explicit ids=2026-09-09T13:31:56Z.06bccdc278d72e2185e0deff
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-17T06:46:07Z status=pass attempt=1 type=human
