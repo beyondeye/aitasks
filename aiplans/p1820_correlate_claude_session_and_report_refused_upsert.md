@@ -155,3 +155,10 @@ Step 9.
 
 ### Goal-achievement risk: low
 - None identified.
+
+## Final Implementation Notes
+- **Actual work done:** `_claude_newest_transcript` now aggregates cwd-matching transcripts over every project directory of every store (directories deduplicated by resolved path), groups them by session id (file stem), and returns `MISS_AMBIGUOUS` for more than one session; the computed dirname only picks the miss reason. `_resolve_record`'s fallback upsert now requires the `UPSERTED:` prefix and raises on `UPSERT_REFUSED:`, so the freeze fails at `resolve` naming the refusal and never stamps the pane. Module note and `newest_transcript_for` docstring updated.
+- **Deviations from plan:** Plan review (user) caught that a per-scope early return (computed dir, then full scan) would let one session in the computed dir hide a distinct session for the same root elsewhere — the resolver now decides uniqueness over all directories. The symlinked-directory test was named to pin the outcome (still one session), since stem grouping, not the directory dedup, is what makes it unambiguous.
+- **Issues encountered:** A red-proof copy that only included `lib/` failed collection; copying the full `.aitask-scripts` tree fixed it.
+- **Key decisions:** Measured before designing: 0 open `*.jsonl` fds across 25 live claude processes, so no fd-correlated claude resolver exists — refusal rule only. Red proofs: HEAD freeze code fails the refusal test at stage `begin`; a scope-ordered mutant fails the scanned-only-dir test.
+- **Upstream defects identified:** None
