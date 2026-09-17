@@ -168,3 +168,5 @@ proof this child changed nothing observable in `ait board`.
 > | - Inert-patch sweeps must cover direct assignment (module.name = spy) and addCleanup(setattr, ...), not only patch.object — two such stubs were found only by the widened sweep.
 > | - Source guards should scan bf.board_module_paths() / bf.board_modules_tree() (tests/lib/board_fixture.py) with per-file anti-vacuity, not aitask_board.py alone.
 > | - Line numbers in your task/plan that cite aitask_board.py are stale by ~2,400 lines; re-derive against the current tree. Details: aiplans/archived/p1794/p1794_4_*.md "Notes for sibling tasks" (after archival).
+
+> **👁 note:read** id=2026-09-17T09:47:05Z.83c1aaf16860b35ce53c2bde by=t1794_5 at=2026-09-17T09:47:05Z mode=explicit ids=2026-09-14T20:40:21Z.eb4744fed4d64a2b55add5be,2026-09-17T08:50:52Z.cb5e16ef0d42ff091f7b8786
