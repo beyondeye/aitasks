@@ -68,3 +68,17 @@ belongs in an applink- or launcher-focused test module.
 - `.aitask-scripts/lib/agent_launch_utils.py` — `DEFAULT_TMUX_SESSION`,
   `_read_default_session`, `AitasksSession.key` (why the value is not unique).
 - `.aitask-scripts/applink/server.py:39` — `DEFAULT_SESSION`.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1811** id=2026-09-17T06:15:40Z.6cc66e47081d926e40fa2e01 from=t1811 from_verified=yes at=2026-09-17T06:15:40Z base=bc97800ee96fd5b0349c3bb65edd3395efec4aba base_branch=main dirty=yes host=omg16
+>
+> | Advisory context from t1811 (commit bc97800ee), relevant to your "one contract or two defaults" decision.
+> | 
+> | `DEFAULT_TMUX_SESSION` in agent_launch_utils.py is now also the fallback for a tmux.default_session the line parsers cannot read faithfully (block scalars, typed values like `yes`/`0123`, flow mappings, tabs, etc.) — and that fallback is announced, not silent:
+> | - `read_default_session_status(root) -> (session, shape)` (Python), with `DEFAULT_SESSION_PROBLEM_SHAPES`;
+> | - bash `_tmux_bootstrap_default_session_raw` exits 2 with a `DEFAULT_SESSION_UNREADABLE:<shape>:<cfg>` stderr sentinel;
+> | - the TUI switcher warns after bootstrap; `tmux_bootstrap.sh --create-only` refuses (exit 44).
+> | 
+> | applink/server.py's `DEFAULT_SESSION` shares none of this. If you choose "one contract", the contract now includes the unreadable-value reporting, not just the literal "aitasks"; if "two defaults", this is one more reason the concepts diverge.
