@@ -2845,7 +2845,7 @@ class TrailDiscoveryFreshnessTests(unittest.TestCase):
         """The reported symptom, at the discovery layer."""
         ab = self.ab
         # Built BEFORE the mutation: this real object IS the pre-fix source.
-        manager = ab.TaskManager()
+        manager = ab.make_task_manager()
 
         self._write_task("t43_beta.md", artifacts=[self._trail("art:trail-x")])
 

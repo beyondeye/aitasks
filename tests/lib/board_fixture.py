@@ -23,10 +23,14 @@ Two seams, and when to use which
   The synthetic name is what keeps the *canonical* `aitask_board` module
   untouched — `test_board_movement.IsolationNegativeControlTests` asserts
   `aitask_board.TASKS_DIR == Path("aitasks")`, and that stays true.
-* **patch mode** — `mock.patch.object(aitask_board, "TASKS_DIR", ...)`. Cheaper,
-  but it does **not** update the derived constants above, so it is valid only
-  for non-boot tests that touch `TASKS_DIR` alone. See
-  `tests/test_board_persistence_seam.py`'s module docstring.
+* **injection mode** (formerly "patch mode") — no board load at all:
+  `aitask_board.TaskManager(tasks_dir=..., metadata_file=...,
+  gates_registry_file=...)` over a `build_fixture_tree` root. Since t1794_4 the
+  manager takes its paths as required keywords, so nothing patches the board's
+  module globals; valid only for non-boot tests (no `KanbanApp`). See
+  `tests/test_board_manager_moves.py` / `test_board_column_manage.py`. A test
+  that loads the board builds a manager with `ab.make_task_manager()`, which
+  binds that load's constants.
 
 The TASK_DIR invariant (do not "fix" this to an absolute path)
 --------------------------------------------------------------
@@ -44,7 +48,8 @@ cwd-relative dependencies (why cwd=tree is safe, and what it costs)
 These board paths resolve relative to the process cwd, so under `cwd=tree` they
 point at files that do not exist:
 
-    DATA_WORKTREE            aitask_board.py:71   -> _task_git_cmd/refresh_git_status
+    DATA_WORKTREE / ".aitask-data"  aitask_board.py, board_task_manager._task_git_cmd
+                                  -> refresh_git_status
     ./.aitask-scripts/aitask_lock.sh --list       :1084  refresh_lock_map
     ARTIFACT_SCRIPT                               :490   load_trail_blob
     TRAIL_GATHER_SCRIPT      board_trail_view.py  -> run_trail_drift
@@ -99,7 +104,7 @@ gate-satisfied upstream as still blocking. Nothing raises. Pass
 
 Every fixture task carries at least one non-board metadata key. A task whose
 keys are a subset of `BOARD_KEYS` is dropped by `TaskManager._is_phantom_stub`
-(aitask_board.py:921), which would load zero tasks and pass every assertion
+(board_task_manager.py), which would load zero tasks and pass every assertion
 vacuously.
 
 No `@work` worker may still be running when a test's `async with app.run_test(…)`
@@ -210,6 +215,38 @@ BOARD_MODULE_NAMES = frozenset({
 #: `board/*.py` files that are not part of the board app: never imported by it
 #: and never loaded under this harness, so the C2 scans skip them.
 BOARD_NON_MEMBERS = frozenset({"aitask_merge"})
+
+
+def board_module_paths() -> list[Path]:
+    """Every board-app module on disk, sorted — the scan set for source guards.
+
+    A guard that reads `aitask_board.py` alone goes silently vacuous once the
+    code it inspects moves to a sibling (t1794_4 moved `TaskManager`, `Task` and
+    the workflow phase out). Reading this set instead follows the code wherever
+    the split puts it; a guard should still assert the definitions it watches
+    were found, so an empty match is a failure rather than a pass.
+    """
+    return sorted(p for p in _BOARD.glob("*.py") if p.stem in BOARD_MODULE_NAMES)
+
+
+def board_modules_tree(overrides: dict[str, str] | None = None):
+    """One `ast.Module` whose body is every board module's body, in file order.
+
+    For call-graph and definition scans that key on names, not line numbers
+    (line numbers repeat across files). `overrides` maps a basename
+    (`"aitask_board.py"`) to replacement source, so a negative control can
+    inject into one file and still scan the union.
+    """
+    import ast
+
+    overrides = overrides or {}
+    body = []
+    for path in board_module_paths():
+        source = overrides.get(path.name)
+        if source is None:
+            source = path.read_text(encoding="utf-8")
+        body.extend(ast.parse(source, filename=str(path)).body)
+    return ast.Module(body=body, type_ignores=[])
 
 # --- Fixture vocabulary ------------------------------------------------------
 

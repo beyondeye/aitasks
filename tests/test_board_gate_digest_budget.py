@@ -113,8 +113,8 @@ class _DigestFixture(unittest.TestCase):
             self.calls["n"] += 1
             return self._real_digest(*a, **k)
 
-        self.ab.gate_ledger.code_digest = counting
-        self.addCleanup(setattr, self.ab.gate_ledger, "code_digest",
+        self.ab.board_task_manager.gate_ledger.code_digest = counting
+        self.addCleanup(setattr, self.ab.board_task_manager.gate_ledger, "code_digest",
                         self._real_digest)
 
     def _git(self, *args):
@@ -154,7 +154,7 @@ class _DigestFixture(unittest.TestCase):
         return manager.get_inflight_items()
 
     def _new_manager(self):
-        manager = self.ab.TaskManager()
+        manager = self.ab.make_task_manager()
         manager.load_tasks()
         return manager
 
@@ -366,7 +366,23 @@ class SharedGatePredicateContractTest(unittest.TestCase):
     FORBIDDEN_LITERALS = {"pass", "skip", "fail", "error", "human"}
 
     def _tree(self):
-        return ast.parse(BOARD_SRC.read_text(encoding="utf-8"))
+        # Every board module, not aitask_board.py alone (t1794_4): the predicates
+        # live in board_workflow_phase.py, the TaskManager helpers in
+        # board_task_manager.py, `_build_gate_fields` in the board.
+        return bf.board_modules_tree()
+
+    def test_the_scan_reads_every_module_the_contract_spans(self):
+        board_dir = BOARD_SRC.parent
+        homes = {"_pending_human_gates": "board_workflow_phase.py",
+                 "_human_pending_gates": "board_task_manager.py",
+                 "_build_gate_fields": "aitask_board.py"}
+        for name, home in homes.items():
+            with self.subTest(name=name):
+                defs = {n.name for n in ast.walk(ast.parse(
+                    (board_dir / home).read_text(encoding="utf-8")))
+                    if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+                self.assertIn(name, defs, f"{name} moved out of {home}")
+                self.assertIn(board_dir / home, bf.board_module_paths())
 
     def _callers_of(self, name: str) -> set[str]:
         """Enclosing functions that CALL ``name``.
@@ -444,8 +460,9 @@ class SharedGatePredicateContractTest(unittest.TestCase):
         simply deleted the feature."""
         for name in self.EXPECTED_CONSUMERS:
             with self.subTest(predicate=name):
-                fn = next(n for n in ast.walk(self._tree())
-                          if isinstance(n, ast.FunctionDef) and n.name == name)
+                fn = next((n for n in ast.walk(self._tree())
+                           if isinstance(n, ast.FunctionDef) and n.name == name), None)
+                self.assertIsNotNone(fn, f"{name} not found in any board module")
                 attrs = {n.attr for n in ast.walk(fn) if isinstance(n, ast.Attribute)}
                 self.assertTrue(attrs & self.FORBIDDEN_ATTRS,
                                 f"{name} reads no gate state at all")
@@ -463,7 +480,7 @@ class ClearGateCacheCallersTest(unittest.TestCase):
     EXPECTED_CALLERS = {"load_tasks", "refresh_board"}
 
     def _callers_of(self, name: str) -> set[str]:
-        tree = ast.parse(BOARD_SRC.read_text(encoding="utf-8"))
+        tree = bf.board_modules_tree()   # load_tasks moved to board_task_manager.py
         found: set[str] = set()
         stack: list[str] = []
 
@@ -491,7 +508,7 @@ class ClearGateCacheCallersTest(unittest.TestCase):
 
     def test_digest_memo_is_reset_only_in_clear_gate_cache(self):
         """Assignment sites of `gate_digest_cache = _DIGEST_UNSET`."""
-        tree = ast.parse(BOARD_SRC.read_text(encoding="utf-8"))
+        tree = bf.board_modules_tree()   # load_tasks moved to board_task_manager.py
         sites: set[str] = set()
         stack: list[str] = []
 

@@ -179,7 +179,7 @@ def group_members(tasks, slug):
 # A group's *view* state (collapsed / expanded) is per-user, so it lives in the
 # USER layer of board_config as a list of ``"<col_id>/<slug>"`` keys. The key is
 # composite, which means it goes stale whenever EITHER half changes -- hence the
-# lifecycle owners in aitask_board.TaskManager. Everything about the key's
+# lifecycle owners in board_task_manager.TaskManager. Everything about the key's
 # shape, parsing and rewriting lives here, pure and unit-testable.
 
 #: Separator between the two halves of a collapse key. The COLUMN half is

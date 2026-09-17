@@ -34,9 +34,9 @@ def board_flow_args(repo_root: Path):
         path = str(repo_root / ".aitask-scripts" / sub)
         if path not in sys.path:
             sys.path.insert(0, path)
-    from aitask_board import KanbanApp, TaskCard, TaskManager  # noqa: E402
+    from aitask_board import KanbanApp, TaskCard, make_task_manager  # noqa: E402
 
-    manager = TaskManager()
+    manager = make_task_manager()
     shim = SimpleNamespace(manager=manager)
     columns = KanbanApp._work_report_columns(shim)
     col_ids = [col_id for col_id, _ in columns]

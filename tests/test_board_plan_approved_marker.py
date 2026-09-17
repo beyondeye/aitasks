@@ -75,6 +75,11 @@ def _manager(ab):
     TaskManager = ab.TaskManager
 
     mgr = TaskManager.__new__(TaskManager)
+    # `__new__` skips __init__, so the injected paths (t1794_4) are set
+    # by hand — to the values the manager read off the board before.
+    mgr.tasks_dir = ab.TASKS_DIR
+    mgr.metadata_file = ab.METADATA_FILE
+    mgr.gates_registry_file = ab.GATES_REGISTRY_FILE
     mgr.task_datas = {}
     mgr.child_task_datas = {}
     mgr.archived_task_cache = {}
@@ -166,7 +171,7 @@ class _MarkerTestBase(bf.FixtureBoardTestBase):
     def _implementing_child_card(self, extra: str = ""):
         """A parent whose child is `Implementing` — the third suppression path.
 
-        `get_child_tasks_for_parent` (aitask_board.py:1604) matches
+        `get_child_tasks_for_parent` (board_task_manager.py) matches
         `child_task_datas` **keys** by the `t<parent>_` prefix, so the dict key
         is what makes the child discoverable, not anything on the Task.
         """

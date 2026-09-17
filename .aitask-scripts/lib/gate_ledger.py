@@ -1447,7 +1447,7 @@ class DependentsEvaluator:
     a frozen registry hides an edited ``gates.yaml``, and a frozen digest hides
     the code change that should re-pend a signed human approval — the fail-open
     t1416 closed. This is the same rule
-    ``aitask_board.TaskManager.clear_gate_cache`` states for
+    ``board_task_manager.TaskManager.clear_gate_cache`` states for
     ``gate_digest_cache``: "a lifetime longer than one refresh cycle is not a
     cache miss — it silently freezes every signature verdict until the process
     restarts". Construct a new evaluator per cycle; do not reuse one across
@@ -1590,7 +1590,7 @@ def _resolve_digest(current_digest):
        "cannot check" from being silently re-read as "compute it".
 
     Deliberately does NOT catch exceptions from a provider. Making a provider
-    total is the provider's job (see ``aitask_board.TaskManager
+    total is the provider's job (see ``board_task_manager.TaskManager
     .code_digest_for_refresh``); swallowing here would reinterpret a caller bug
     as "unverifiable" and quietly accept a signature nobody validated.
     """

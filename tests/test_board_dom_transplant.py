@@ -144,7 +144,7 @@ class LateralTransplantTests(_TransplantTestBase, unittest.TestCase):
 
     def test_fixture_facts(self):
         """The preconditions every other case in this class relies on."""
-        manager = self.ab.TaskManager()
+        manager = self.ab.make_task_manager()
         self.assertEqual([t.filename for t in manager.get_column_tasks("c0")],
                          ["t9000_wide0.md", MID, BOTTOM],
                          "c0's contents and ORDER are load-bearing: MID must be "
@@ -368,7 +368,7 @@ class EdgeTransplantTests(_TransplantTestBase, unittest.TestCase):
     FIXTURE_TASKS = bf.wide_topology(15)
 
     def test_fixture_facts(self):
-        manager = self.ab.TaskManager()
+        manager = self.ab.make_task_manager()
         order = [t.filename for t in manager.get_column_tasks("c0")]
         self.assertEqual(order, ["t9000_wide0.md", MID, BOTTOM])
         self.assertNotEqual(order[0], MID,
@@ -440,7 +440,7 @@ class ExpandedBlockTransplantTests(_TransplantTestBase, unittest.TestCase):
     PARENT = "t9000_wide0.md"
 
     def test_fixture_facts(self):
-        manager = self.ab.TaskManager()
+        manager = self.ab.make_task_manager()
         num, _ = self.ab.TaskCard._parse_filename(self.PARENT)
         self.assertEqual(len(manager.get_child_tasks_for_parent(num)), 2,
                          "the parent must have children or every assertion in "
@@ -522,7 +522,7 @@ class TransplantScrollTests(_TransplantTestBase, unittest.TestCase):
     FIXTURE_TASKS = bf.wide_topology(60, tall_titles=True)
 
     def test_fixture_facts(self):
-        manager = self.ab.TaskManager()
+        manager = self.ab.make_task_manager()
         self.assertGreaterEqual(len(manager.get_column_tasks("c1")), 10)
 
     def test_moved_card_is_scrolled_into_view_not_left_off_screen(self):
@@ -578,7 +578,7 @@ class UnorderedColumnFallbackTests(_TransplantTestBase, unittest.TestCase):
     ORPHAN = "t9100_inbox.md"
 
     def test_fixture_facts(self):
-        manager = self.ab.TaskManager()
+        manager = self.ab.make_task_manager()
         self.assertEqual([t.filename for t in manager.get_column_tasks("unordered")],
                          [self.ORPHAN],
                          "exactly one unordered task, so moving it empties the "

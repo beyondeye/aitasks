@@ -666,9 +666,14 @@ list_output_13d=$(cd "$TMPDIR_13D/local" && ./.aitask-scripts/aitask_lock.sh --l
 
 # Assert against the board's OWN parser, read out of the board source rather than
 # copied here, so this pins the real consumer contract and fails loudly if the
-# board's regex moves.
-board_re=$(sed -n "s/^ *r'\(\^t(.*\)',\$/\1/p" "$PROJECT_DIR/.aitask-scripts/board/aitask_board.py")
-assert_exit_zero "board lock regex located in aitask_board.py" test -n "$board_re"
+# board's regex moves. Scanned across every board module (TaskManager, its owner,
+# lives in board_task_manager.py since t1794_4) and required to match EXACTLY once:
+# zero would make the row checks below match the empty regex and pass vacuously.
+board_re_all=$(sed -n "s/^ *r'\(\^t(.*\)',\$/\1/p" "$PROJECT_DIR"/.aitask-scripts/board/*.py)
+board_re_count=$(printf '%s' "$board_re_all" | grep -c '')
+assert_eq "board lock regex located exactly once in board/*.py" "1" "$board_re_count"
+board_re=$board_re_all
+assert_exit_zero "board lock regex is non-empty" test -n "$board_re"
 
 # Exact full-line equality, not `contains`: a default wired to the wrong variable
 # would still contain "unknown". The fixture authors its own timestamps, so the

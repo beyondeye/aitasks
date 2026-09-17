@@ -293,17 +293,19 @@ class TopicBuildCacheTests(bf.FixtureBoardTestBase, unittest.TestCase):
 
     def setUp(self):
         # Call-counting spy over the module-global build fn (restored in tearDown).
-        self._orig_build = self.b._build_topic_lanes
+        # `grouped_topic_lanes` resolves it in board_task_manager (t1794_4); a spy
+        # on the board's re-export would never be called.
+        self._orig_build = self.b.board_task_manager._build_topic_lanes
         self.build_calls = {"n": 0}
 
         def spy(tasks):
             self.build_calls["n"] += 1
             return self._orig_build(tasks)
 
-        self.b._build_topic_lanes = spy
+        self.b.board_task_manager._build_topic_lanes = spy
 
     def tearDown(self):
-        self.b._build_topic_lanes = self._orig_build
+        self.b.board_task_manager._build_topic_lanes = self._orig_build
 
     def _mk(self, filename, anchor=None, updated=None):
         fm = "---\n"
@@ -316,6 +318,11 @@ class TopicBuildCacheTests(bf.FixtureBoardTestBase, unittest.TestCase):
 
     def _mgr(self):
         mgr = self.b.TaskManager.__new__(self.b.TaskManager)
+        # `__new__` skips __init__, so the injected paths (t1794_4) are set
+        # by hand — to the values the manager read off the board before.
+        mgr.tasks_dir = self.b.TASKS_DIR
+        mgr.metadata_file = self.b.METADATA_FILE
+        mgr.gates_registry_file = self.b.GATES_REGISTRY_FILE
         mgr.topic_lane_cache = None
         return mgr
 

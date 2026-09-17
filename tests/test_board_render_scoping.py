@@ -796,7 +796,7 @@ class MovementSideEffectTests(bf.FixtureBoardTestBase, _PristineTreeMixin,
 
     def test_fixture_facts(self):
         """Every column holds enough parents for every move to be performable."""
-        manager = self.ab.TaskManager()
+        manager = self.ab.make_task_manager()
         for col in ("c0", "c1"):
             self.assertGreaterEqual(
                 len(manager.get_column_tasks(col)), 3,
@@ -962,7 +962,7 @@ class TargetedMarkingTests(bf.FixtureBoardTestBase, _PristineTreeMixin,
 
     def _independent_scan(self) -> set:
         """A real `git status` from a manager that has never been mutated here."""
-        scanner = self.ab.TaskManager()
+        scanner = self.ab.make_task_manager()
         scanner.refresh_git_status()
         return set(scanner.modified_files)
 
@@ -980,26 +980,26 @@ class TargetedMarkingTests(bf.FixtureBoardTestBase, _PristineTreeMixin,
                          f"filesystem delta {set(changed)}")
 
     def test_fixture_facts(self):
-        manager = self.ab.TaskManager()
+        manager = self.ab.make_task_manager()
         self.assertEqual(self._independent_scan(), set(),
                          "the fixture tree must start committed-clean, or every "
                          "marking comparison starts from pre-existing dirt")
         self.assertGreaterEqual(len(manager.get_column_tasks("c0")), 3)
 
     def test_move_to_column_marks_what_it_wrote(self):
-        manager = self.ab.TaskManager()
+        manager = self.ab.make_task_manager()
         before = bf.snapshot(self.tree)
         manager.move_task_to_column("t9005_wide5.md", "c2")
         self._assert_marking_agrees(manager, before, "move_task_to_column")
 
     def test_move_to_edge_marks_what_it_wrote(self):
-        manager = self.ab.TaskManager()
+        manager = self.ab.make_task_manager()
         before = bf.snapshot(self.tree)
         manager.move_task_to_edge("t9005_wide5.md", "c0", to_top=True)
         self._assert_marking_agrees(manager, before, "move_task_to_edge")
 
     def test_reposition_marks_what_it_wrote(self):
-        manager = self.ab.TaskManager()
+        manager = self.ab.make_task_manager()
         tasks = manager.get_column_tasks("c0")
         before = bf.snapshot(self.tree)
         manager.reposition_task(tasks[2].filename, tasks[0], tasks[1])
@@ -1011,7 +1011,7 @@ class TargetedMarkingTests(bf.FixtureBoardTestBase, _PristineTreeMixin,
         A respace rewrites N files that `moved` never names; marking at the write
         site is what keeps the marker exact through a compaction.
         """
-        manager = self.ab.TaskManager()
+        manager = self.ab.make_task_manager()
         tasks = manager.get_column_tasks("c0")
         # Exhaust the interval so `index_between` fails and `reposition_task`
         # respaces the whole column.

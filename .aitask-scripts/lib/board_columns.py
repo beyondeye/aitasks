@@ -471,7 +471,7 @@ def load_columns(root, *, task_dir: str = DEFAULT_TASK_DIR):
 def _eligible(metadata) -> bool:
     """Board parity: is this file a card the board actually renders?
 
-    Mirrors `TaskManager._is_phantom_stub` (aitask_board.py:1097) and the
+    Mirrors `TaskManager._is_phantom_stub` (board/board_task_manager.py) and the
     identical probe in `work_report_gather.scan_tasks`. An unparseable file
     lands here too, because `Task.load()` swallows the failure and leaves the
     metadata empty.

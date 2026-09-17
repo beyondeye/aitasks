@@ -52,7 +52,7 @@ class TaskDirInvariantTests(unittest.TestCase):
         os.chdir(tree)
         self.addCleanup(os.chdir, original)
         ab = bf.load_board_module(task_dir, tag="inv", allow_absolute=allow_absolute)
-        manager = ab.TaskManager()
+        manager = ab.make_task_manager()
         manager.refresh_git_status()
         return (sorted(manager.modified_files),
                 sorted(t.filename for t in manager.task_datas.values()
@@ -163,7 +163,7 @@ class FixtureContractTests(bf.FixtureBoardTestBase, unittest.TestCase):
     """The default topology loads the tasks the migrated modules rely on."""
 
     def test_parents_and_children_load(self):
-        manager = self.ab.TaskManager()
+        manager = self.ab.make_task_manager()
         parents = sorted(manager.task_datas)
         children = sorted(manager.child_task_datas)
         self.assertIn("t9000_parent.md", parents)
@@ -172,7 +172,7 @@ class FixtureContractTests(bf.FixtureBoardTestBase, unittest.TestCase):
 
     def test_numberless_task_sits_in_the_column_under_test(self):
         """t1352: the filename filter only runs if the file is in that column."""
-        manager = self.ab.TaskManager()
+        manager = self.ab.make_task_manager()
         names = [t.filename for t in manager.get_column_tasks("c0")]
         self.assertIn("t_unparseable.md", names)
         self.assertIn("t9000_parent.md", names)
@@ -195,6 +195,58 @@ class FixtureContractTests(bf.FixtureBoardTestBase, unittest.TestCase):
         self.assertTrue(resolved.is_relative_to(self.tree.resolve()),
                         f"{resolved} is not inside the fixture tree {self.tree}")
         self.assertFalse(resolved.is_relative_to(REPO_ROOT / "aitasks"))
+
+
+class InjectedManagerPathTests(bf.FixtureBoardTestBase, unittest.TestCase):
+    """C2/C3 pin (t1794_4): a `TaskManager` built the way the injection-mode
+    files build it reads the tree its keywords name — not the process cwd's.
+
+    The class's cwd is the fixture tree (DEFAULT_TOPOLOGY, `t9000_parent.md` …);
+    a second tree with disjoint task ids is injected. A manager that still read
+    ambient state would list the cwd tree, which the negative control shows is
+    distinguishable, so the positive rows discriminate.
+    """
+
+    OTHER = (bf.FixtureTask(task_id="9701", col="c0", idx=10, slug="injected_a"),
+             bf.FixtureTask(task_id="9702", col="c1", idx=10, slug="injected_b"))
+
+    def _other_tasks_dir(self) -> Path:
+        tmp = tempfile.TemporaryDirectory(prefix="bf_inject_")
+        self.addCleanup(tmp.cleanup)
+        return bf.build_fixture_tree(Path(tmp.name), self.OTHER) / "aitasks"
+
+    def _manager_for(self, tasks_dir: Path):
+        return self.ab.TaskManager(
+            tasks_dir=tasks_dir,
+            metadata_file=tasks_dir / "metadata" / "board_config.json",
+            gates_registry_file=tasks_dir / "metadata" / "gates.yaml")
+
+    def test_the_manager_lists_the_injected_tree_not_the_cwd(self):
+        self.assertEqual(Path.cwd().resolve(), self.tree.resolve(), "precondition")
+        other = self._other_tasks_dir()
+        manager = self._manager_for(other)
+        self.assertEqual(sorted(manager.task_datas),
+                         ["t9701_injected_a.md", "t9702_injected_b.md"])
+        for task in manager.task_datas.values():
+            self.assertTrue(Path(task.filepath).resolve().is_relative_to(other.resolve()))
+
+    def test_a_metadata_save_lands_in_the_injected_tree(self):
+        other = self._other_tasks_dir()
+        cwd_config = Path("aitasks") / "metadata" / "board_config.json"
+        before = cwd_config.read_bytes()
+        manager = self._manager_for(other)
+        manager.columns.append({"id": "pin", "title": "Pin", "color": "#FFFFFF"})
+        manager.column_order.append("pin")
+        manager.save_metadata(commit=False)
+        self.assertIn('"pin"', (other / "metadata" / "board_config.json")
+                      .read_text(encoding="utf-8"))
+        self.assertEqual(cwd_config.read_bytes(), before,
+                         "the cwd tree's config must be untouched")
+
+    def test_negative_control_a_cwd_relative_manager_lists_the_cwd_tree(self):
+        manager = self._manager_for(Path("aitasks"))
+        self.assertIn("t9000_parent.md", manager.task_datas)
+        self.assertNotIn("t9701_injected_a.md", manager.task_datas)
 
 
 class PristineRestoreTests(bf.FixtureBoardTestBase, bf.PristineTreeMixin,
@@ -263,7 +315,7 @@ class PhantomStubTests(unittest.TestCase):
         os.chdir(tree)
         self.addCleanup(os.chdir, original)
         ab = bf.load_board_module(tag="stub")
-        manager = ab.TaskManager()
+        manager = ab.make_task_manager()
         self.assertIn("t9000_real.md", manager.task_datas)
         self.assertNotIn("t9500_stub.md", manager.task_datas,
                          "a board-keys-only task must be dropped as a phantom stub")
@@ -322,6 +374,9 @@ MIGRATED_MODULES = (
     # t1794_3: the board_trail_view single-home, identity and CSS pins reach
     # the module only as `ab.board_trail_view` (or read its source).
     "test_board_trail_view.py",
+    # t1794_4: the task-model/manager/phase single-home, identity and
+    # constructor pins reach the modules only as `ab.<module>`.
+    "test_board_task_manager.py",
 )
 
 #: Tier-1 exemptions, scoped to **specific chdir expressions** — never to a whole
@@ -354,24 +409,23 @@ CHDIR_ALLOWED = {
 #: reached the live tree before t1354_2 — they had no chdir at all.) So tier 1
 #: flags it, and the three modules that import canonically *by design* pin their
 #: exact import statements here:
-#:   * test_board_persistence_seam.py — patch mode. It never boots an app; it
-#:     patches `TASKS_DIR` on the canonical module on purpose.
-#:   * test_board_manager_moves.py — the same patch mode, for the gap-indexing
-#:     move API (t1243_3). It constructs `TaskManager` only inside
-#:     `mock.patch.object(B, "TASKS_DIR" / "METADATA_FILE")` over a
-#:     `build_fixture_tree` root, never boots `KanbanApp` and never chdirs; the
-#:     patches are `addCleanup`-scoped, so the canonical module is restored.
+#:   * test_board_persistence_seam.py — injection mode (formerly patch mode). It
+#:     never boots an app; since t1794_4 it constructs `TaskManager` with
+#:     explicit `tasks_dir` / `metadata_file` / `gates_registry_file` over a
+#:     temp tree and patches no module global of the canonical board.
+#:   * test_board_manager_moves.py — the same injection mode, for the
+#:     gap-indexing move API (t1243_3). It constructs `TaskManager` with the
+#:     paths of a `build_fixture_tree` root, never boots `KanbanApp` and never
+#:     chdirs.
 #:   * test_board_movement.py — its IsolationNegativeControlTests asserts the
 #:     canonical module still has `TASKS_DIR == Path("aitasks")`, i.e. that the
 #:     harness did not contaminate it. Importing canonically IS the control.
-#:   * test_board_column_manage.py — the same patch mode again, for the column
-#:     merge engine (t1377_4). Identical shape to test_board_manager_moves.py:
-#:     `TaskManager` is constructed only inside
-#:     `mock.patch.object(B, "TASKS_DIR" / "METADATA_FILE")` over a
-#:     `build_fixture_tree` root, no `KanbanApp`, no chdir, and the patches are
-#:     `addCleanup`-scoped so the canonical module is restored. It deliberately
-#:     never calls `mock.patch.stopall()`, which would drop those two patches and
-#:     silently re-point the manager at the live tree.
+#:   * test_board_column_manage.py — the same injection mode again, for the
+#:     column merge engine (t1377_4). Identical shape to
+#:     test_board_manager_moves.py: explicit paths over a `build_fixture_tree`
+#:     root, no `KanbanApp`, no chdir. Because the paths are constructor
+#:     arguments, no patch lifecycle can re-point the manager at the live tree
+#:     (`InjectedManagerPathTests` below pins that the injected tree is read).
 CANONICAL_IMPORT_ALLOWED = {
     "test_board_persistence_seam.py": frozenset({
         "canonical import: import aitask_board as B",
@@ -718,7 +772,7 @@ class FixtureFactControlTests(unittest.TestCase):
     """
 
     def _lanes(self, ab):
-        mgr = ab.TaskManager()
+        mgr = ab.make_task_manager()
         mgr.load_tasks()
         lanes = ab.group_tasks_by_topic(
             list(mgr.task_datas.values()) + list(mgr.child_task_datas.values()))
@@ -739,7 +793,7 @@ class FixtureFactControlTests(unittest.TestCase):
     def test_default_topology_carries_no_issue_metadata(self):
         """test_board_view_filter's git filter needs issue:/pull_request:."""
         def git_set(ab):
-            mgr = ab.TaskManager()
+            mgr = ab.make_task_manager()
             mgr.load_tasks()
             return [f for f, t in list(mgr.task_datas.items())
                                 + list(mgr.child_task_datas.items())
@@ -833,7 +887,7 @@ class FixtureFactControlTests(unittest.TestCase):
             path = tree / "aitasks" / "t9000_gated.md"
             path.write_text(path.read_text(encoding="utf-8") + ledger,
                             encoding="utf-8")
-            mgr = ab.TaskManager()
+            mgr = ab.make_task_manager()
             mgr.load_tasks()
             items = mgr.get_inflight_items()
             self.assertTrue(items, "the gated task must be in flight")
@@ -1197,6 +1251,21 @@ class AmbientTaskPathStaticTests(unittest.TestCase):
                     found, [],
                     f"{path.name} must receive resolved paths as parameters (C2)")
 
+    def test_board_task_manager_takes_its_paths_by_parameter(self):
+        """The documented example of C2 (t1794_4). `TaskManager` used to read the
+        board's `TASKS_DIR` / `METADATA_FILE` / `GATES_REGISTRY_FILE` at call time;
+        in its own module every such read is an attribute of the constructor's
+        arguments, and reverting a single one is flagged."""
+        src = (REPO_ROOT / ".aitask-scripts" / "board" / "board_task_manager.py"
+               ).read_text(encoding="utf-8")
+        self.assertEqual(_ambient_task_path_reads(src), [])
+        for attr in ("self.tasks_dir", "self.metadata_file", "self.gates_registry_file"):
+            self.assertIn(attr, src, "anti-vacuity: the injected reads are present")
+        reverted = src.replace("self.metadata_file", "METADATA_FILE", 1)
+        self.assertNotEqual(reverted, src)
+        self.assertTrue(_ambient_task_path_reads(reverted),
+                        "one reverted global read must be flagged")
+
     def test_scope_excludes_only_the_board_and_non_members(self):
         stems = {p.stem for p in _c2_scanned_modules()}
         self.assertNotIn("aitask_board", stems)
@@ -1274,10 +1343,11 @@ class FreshLoadC2Tests(unittest.TestCase):
         self.assertEqual(_c2_findings(report), [])
         self.assertEqual(report["board_tasks_dir"], _C2_SENTINEL,
                          "the real board must have honoured the sentinel")
-        # Anti-vacuity: the board imports board_widgets (t1794_2) and
-        # board_trail_view (t1794_3), so the real load must have executed
-        # each, freshly, under the sentinel.
-        for sibling in ("board_widgets", "board_trail_view"):
+        # Anti-vacuity: the board imports board_widgets (t1794_2),
+        # board_trail_view (t1794_3) and the three t1794_4 data-layer modules,
+        # so the real load must have executed each, freshly, under the sentinel.
+        for sibling in ("board_widgets", "board_trail_view", "board_task_model",
+                        "board_workflow_phase", "board_task_manager"):
             with self.subTest(sibling=sibling):
                 self.assertIn(sibling, report["modules"])
                 self.assertTrue(report["modules"][sibling]["fresh"])
