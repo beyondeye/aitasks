@@ -87,7 +87,9 @@ tmux session, under its recorded window name. If the project has no tmux session
 at all (after a tmux restart, before you have run `ait ide`), the restore
 creates it the way `ait ide` would: named by `tmux.default_session`, with a
 `monitor` window beside the agent. Running `ait ide` in the project afterwards
-attaches to it.
+attaches to it. If tmux cannot be queried to tell whether the old pane is still
+there, the restore does not guess: it stops before touching the record, and the
+viewer reports `restore did not start — run 'ait frozenagent' or reconcile`.
 
 A restore never borrows a session it did not create. If another project already
 holds the configured session name, the restore leaves that session alone and

@@ -101,6 +101,13 @@ unless you add one.
 `restore_ack_grace` is read from the **record's own project**, not from whichever
 project you happen to be viewing from, because a freeze-all spans projects.
 
+The same grace sets how long the viewer, `ait monitor` and `ait minimonitor`
+watch a restore before reporting
+`restore still <state> after the grace — run reconcile; capture kept`: 10 seconds
+for the dispatch, plus `restore_ack_grace`, plus 10 seconds of slack — 40 seconds
+at the default. All three read it from the record's project, so raising the grace
+never turns a slow but successful restore into a stall report.
+
 It sets a **waiting period, not an outcome.** Raising it only helps an agent
 whose acknowledgement is slow to arrive; one that never acknowledges at all —
 because its CLI reports no session on startup, or because the session hook is not
