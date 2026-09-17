@@ -3,13 +3,14 @@ priority: medium
 effort: low
 depends: [1773, 1766]
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [documentation, website, frozen, tui]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1705
 followup_kind: risk_mitigation
 created_at: 2026-09-10 12:10
-updated_at: 2026-09-10 12:10
+updated_at: 2026-09-17 15:29
 ---
 
 ## Origin
