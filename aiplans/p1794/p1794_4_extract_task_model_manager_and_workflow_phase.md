@@ -440,3 +440,208 @@ plan commit); Step 8e offer notes to t1794_5/t1794_6 (use `make_task_manager`
 or inject paths; patch manager-called lib globals on `board_task_manager`) and
 t1243/t1632/t1714 (manager now lives in `board_task_manager.py`); Step 9
 (gates — `risk_evaluated`; archive `t1794_4`).
+
+## Implementation Record
+
+### Step 0 — frozen before the first edit (2026-09-17)
+- `BASE=4c482cadd11cf161f3fdf3f0fb5e4d2bff80ebc2`. `main` advanced 8 commits
+  since planning (`4fa524e95`); `git diff --stat 4fa524e95 BASE` touches none of
+  the 42 listed paths, so every HEAD anchor above still holds.
+- `expected_paths.txt`: 42 paths (the list above), LC_ALL=C sorted, read-only,
+  sha256 `ea3b9123cfd5836a6eea0eeb37948c6f5c22492ba3c838850f1ead305c482389`.
+- `tm_sites_before.txt` (AST inventory, `tm_inventory.py`): 55 `TaskManager`
+  calls + 9 `__new__` stubs, sha256
+  `7dae580cd0a797a6ed88e649cc0e95890e2d761eec9f3ee559ed20dda64c2468`.
+  Gate self-test: old-style keyword call, a call missing one path, a positional
+  call and a stub missing `gates_registry_file` are all flagged; a full call is clean.
+
+### Steps 1–6 — done in `aiwork/t1794_4_impl` (detached at BASE)
+- Extraction by script (`extract.py`): AST node spans with attached leading
+  comments; every unedited block asserted byte-for-byte in its new module;
+  `TaskManager` diffed back to the original modulo the constructor header and
+  exactly 20 attribute rewrites (all inside `self` methods, none in a nested
+  function). `aitask_board.py` 12,664 → 10,277 lines; `board_task_manager.py`
+  1,744, `board_workflow_phase.py` 514, `board_task_model.py` 283.
+- Dead imports pruned only where THIS move made them dead (diffed against the
+  BASE board's unused-import set).
+- **Deviation — `DATA_WORKTREE` stays in `aitask_board.py`.** The C2 runtime
+  check (`FreshLoadC2Tests`) counts `.aitask-data` as a task-data root and
+  flagged `board_task_manager.DATA_WORKTREE` as bound at import. The moved
+  `_task_git_cmd` now builds `Path(".aitask-data")` at call time; the board
+  keeps its constant for `KanbanApp`. Behaviour identical (cwd-relative either way).
+- **Deviation — `board_columns` key-set imports kept as two separate lines**
+  (`from board_columns import PROJECT_KEYS as _PROJECT_KEYS`), because
+  `test_board_columns_seam` pins that spelling; the generated merged import
+  would have failed it.
+- **Two more inert stubs found beyond the `patch.object` sweep** (direct
+  attribute assignment): `test_board_topic_group.TopicBuildCacheTests`
+  (`self.b._build_topic_lanes = spy`) and
+  `test_board_inflight_planned_lane.PlanProbeCallerBoundaryTests`
+  (`self.ab._resolve_plan_path_for_task = spy`). The positive controls failed
+  loudly; the zero-call rows would have passed vacuously forever. Repointed to
+  `board_task_manager`. A widened AST sweep (assignments, `setattr`,
+  `addCleanup(setattr, …)`, `patch.object`) over every name bound in the three
+  modules found no others (`self.ab.subprocess` stays: its caller is in the board).
+- **Hazard found and fixed:** `test_board_persistence_seam._unchanged_skip_body`
+  (a rejected implementation the negative control installs as
+  `_write_user_layer`) read `B.METADATA_FILE`; with the global patches gone it
+  would have written the LIVE repo's `board_config.local.json`. It now reads
+  the manager's own `self.metadata_file`.
+- `test_metadata_writer_inventory`: `_TARGETS_METADATA` gains `\bmetadata_file\b`
+  (measured: adds exactly `board_task_manager.py` to discovery, nothing else);
+  pins re-keyed to `board_task_manager.py`.
+- Shared scan set `bf.board_module_paths()` / `bf.board_modules_tree()` in
+  `tests/lib/board_fixture.py`; every rescoped guard adds per-file anti-vacuity.
+
+### Construction-site gate (Step 0(a) re-run on the edited tree) — PASS
+Before: 55 calls + 9 stubs. After: 51 `make_task_manager(...)` (49 renamed
+fixture sites + `KanbanApp.__init__` + `test_board_task_manager`), 5 explicit
+all-paths calls (the factory body; the three injection-mode builders —
+`persistence_seam._manager` absorbs :722, `column_manage.fresh_manager` absorbs
+`setUp` :98 — and the harness pin `_manager_for`), 9 stubs setting all three
+paths, 3 sanctioned negatives inside `assertRaises(TypeError)`
+(`test_board_task_manager.py:153,161,163`). Gate self-test controls:
+old-style keyword call, missing path, positional call, stub missing
+`gates_registry_file`, and a bad call under `assertRaises(ValueError)` — all flagged.
+
+### Mutants (in-process plugin, no file edited; each OFF = green)
+| mutant (bypass binds the original object) | red with mutant ON |
+|---|---|
+| `Task._update_timestamp` → `datetime` | 3 (`persistence_seam` timestamp + combined-mutation tests) |
+| `TaskManager._write_user_layer` → `save_local_config` | 3 (`persistence_seam` unchanged-payload, `column_manage` boundary_b_local_write, `group_filtering` failed-user-layer heal) |
+| `TaskManager.save_metadata` → `save_project_config` | 2 (`column_manage` boundary_a, `group_filtering` fixture_facts) |
+| `_reconcile_external_columns` → `project_columns_at` | 1 (`columns_reconcile` local-config-never-read) |
+| `grouped_topic_lanes` → `_build_topic_lanes` | 4 (`topic_group` TopicBuildCacheTests) |
+| `_inflight_item_for` → `_resolve_plan_path_for_task` | 1 (`inflight_planned_lane` exactly-once positive control) |
+`gate_ledger.code_digest` (digest_budget) is a read of a shared lib module
+object — identical through either path, no inertness possible, no mutant owed.
+Note: `column_manage` boundary_b `retry_is_save_metadata` /
+`later_save_does_not_resurrect` stay green under the mutant (their assertions
+do not check that the injected fault fired); the identical patch spelling is
+proven live by their sibling above. Pre-existing weakness, not introduced here.
+
+### Verification evidence
+- Full suite in the edit worktree: `PYTHON SUITE: PASSED (runner=pytest, exit=0)`
+  — 7789 passed, 2 skipped; serial lane 11 passed.
+- Bash: `test_task_lock.sh` 94/94, `test_no_lib_to_tui_import` 13/13,
+  `test_no_raw_tmux` 5/5, `test_shortcuts_registry_coverage` PASS,
+  `test_keybinding_registry` 10/10, `test_serial_carveout_doc_drift` 18/18.
+- Old single-file scopes shown empty: `aitask_board.py` now has 0
+  `reload_and_save_board_fields` / `_reconcile_external_columns` /
+  `project_columns_at` / `_inflight_lane` / `_pending_human_gates` calls and 0
+  lock-regex lines (manager: 6/1/1/1/1/1).
+- Manual smoke, private tmux socket, fixture trees (never the live task data),
+  state-gated keys: boot → `shift+right` (disk `boardcol` c0→c1, boardidx 1034)
+  → Enter detail → Right on Priority → `s` (disk `priority: high`,
+  `updated_at` written) → Esc → `z` By-Trail ("No implementation trails
+  found") → `q` exits. BASE worktree and change worktree: identical disk
+  results, all 5 captures identical (0 differing lines), no traceback; no live
+  smoke tmux server left.
+- Provenance: `status --porcelain -uall` of the edit worktree is byte-identical
+  to `expected_paths.txt` (sha256 `ea3b9123…`, unamended). Change diff sha256
+  `8960388f2120df3bc0f590e631407504aae59ae6e4f767055b6f088dbc950e61`
+  (37 tracked files, +536/−2705, plus 5 new files).
+
+## Post-Review Changes
+
+### Change Request 1 (2026-09-17 10:40)
+- **Requested by user:** `test_board_column_manage` boundary_b
+  `retry_is_save_metadata_not_merge` and `later_save_does_not_resurrect_the_source`
+  stayed green under the `save_local_config` bypass mutant, so their fault
+  injection was not independently proven live (the C3 inert-patch hazard). Make
+  each test prove its injected failure path was reached.
+- **Changes made:**
+  - Both tests now capture the merge result and assert
+    `B.MERGE_METADATA_LOCAL_KEY in dict(result.failed)` before their existing
+    assertions. Mutant ON: all three boundary_b tests red (was 1); OFF: 40 passed.
+  - Same bar applied to every other test using a repointed patch/spy (AST list
+    of 22 users). `PlanProbeCallerBoundaryTests.test_admitted_items_that_do_not_read_it_resolve_no_plan_path`
+    had only zero-call assertions with its positive control in a sibling test;
+    it now carries its own spy-liveness row (a no-ledger item must record
+    exactly one call). Mutant ON: 2 red (was 1); OFF: 28 passed.
+  - Reviewed and left, with reason: the three `frozen_clock` layout tests in
+    `persistence_seam` assert that NO timestamp is written, so the pinned clock
+    is incidental, not their oracle; `group_filtering.test_collapse_issues_no_project_layer_write`
+    backs its zero-call spy with an independent on-disk proof (canary content +
+    inode/mtime of the project file), which a regression still trips under the
+    bypass; `topic_group` reload/load_child seam tests do not use the build spy
+    (their `glob.glob` stub is on the shared stdlib module, so it is live).
+- **Files affected:** `tests/test_board_column_manage.py`,
+  `tests/test_board_inflight_planned_lane.py` (both on the frozen list;
+  provenance still byte-identical).
+
+### Change Request 2 (2026-09-17 10:55)
+- **Requested by user:** the recorded full-suite pass predated Change Request 1;
+  re-run `bash tests/run_all_python_tests.sh` in `aiwork/t1794_4_impl` on the
+  final candidate and record it before committing.
+- **Changes made:** none to code. Final candidate fingerprinted BEFORE the run
+  (diff vs BASE sha256
+  `b6ac88416f973c87cd1363ab114d7c0e910106bf5000fde52ce832aeb263e5c2`; this
+  supersedes the pre-review `8960388f…`), then the full suite:
+  `PYTHON SUITE: PASSED (runner=pytest, exit=0)` — 7789 passed, 2 skipped;
+  serial lane 11 passed. Re-fingerprinted AFTER the run: identical sha256, and
+  `status --porcelain -uall` still byte-identical to `expected_paths.txt`, so
+  the result describes exactly the commit candidate.
+- **Files affected:** none.
+
+## Final Implementation Notes
+
+- **Actual work done:** `Task`, `MoveResult`, `MergeResult` and the `MERGE_*`
+  keys → `board/board_task_model.py`; the workflow-phase derivation and the
+  in-flight row model → `board/board_workflow_phase.py`; `TaskManager`,
+  `MetadataWriteError`, `_DIGEST_UNSET`, `_task_git_cmd` and the topic-grouping
+  build → `board/board_task_manager.py`. `aitask_board.py` bare-imports all three
+  and re-exports every name; `make_task_manager(**kw)` binds the board's
+  constants and is what `KanbanApp` and fixture-mode tests use. `TaskManager`
+  takes `tasks_dir` / `metadata_file` / `gates_registry_file` as REQUIRED
+  keywords (20 call-time global reads rewritten). Tests: 3 injection-mode files
+  pass explicit paths; 49 fixture sites use the factory; 9 `__new__` stubs set
+  all three paths; 9 patches/spies repointed to the owning module (each proven
+  live by an in-process mutant); 13 source-text guards rescoped to every board
+  module via `bf.board_module_paths()` / `bf.board_modules_tree()` with
+  per-file anti-vacuity; single-home helpers lifted to
+  `tests/lib/board_single_home.py`; new `tests/test_board_task_manager.py`;
+  harness gains the injected-path pin and the explicit C2 manager case.
+- **Deviations from plan:** `DATA_WORKTREE` stays in `aitask_board.py` (the C2
+  runtime check treats `.aitask-data` as a task-data root; the moved
+  `_task_git_cmd` builds the relative path at call time). The board_columns
+  key-set imports keep their original two-line spelling (pinned by
+  `test_board_columns_seam`). `_TARGETS_METADATA` gains `\bmetadata_file\b`
+  (measured: discovers exactly `board_task_manager.py`). All implementation
+  happened in the isolated `aiwork/t1794_4_impl` worktree against the frozen
+  path list (no amendment was needed); the fingerprinted diff was applied to the
+  shared checkout only after the final suite and review.
+- **Issues encountered:** two inert stubs by direct attribute assignment that
+  the `patch.object` sweep could not see (topic build cache, plan-path probe);
+  a rejected-implementation control in `test_board_persistence_seam` that would
+  have written the live repo's `board_config.local.json` once the global
+  patches were gone; four tests whose fault/spy was not independently proven
+  (fixed in Change Request 1). `main` advanced during implementation (t1825
+  touched `tui_switcher.py` / `agent_launch_utils.py`, which the board imports);
+  after landing, 1653 board-facing tests passed on the combined tree in the
+  shared checkout.
+- **Key decisions:** a board-side factory instead of editing ~50 call sites to
+  spell three paths; C3 liveness proven by in-process mutants that bind the
+  ORIGINAL object at mutation time (no file edits); the construction-site gate
+  is an AST inventory frozen before editing, not a grep of one spelling.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:**
+  - **t1794_5 / t1794_6 (trail mixin, `ait trails`):** build a manager with
+    `TaskManager(tasks_dir=…, metadata_file=…, gates_registry_file=…)` — the
+    trails App has no board constants; never import `aitask_board`. A stub of
+    anything the MANAGER calls (`save_local_config`, `project_columns_at`,
+    `_build_topic_lanes`, `_resolve_plan_path_for_task`, `datetime` in `Task`)
+    goes on `ab.board_task_manager` / `ab.board_task_model`.
+  - Sweeping for inert patches: `patch.object` alone misses
+    `module.name = spy` and `addCleanup(setattr, module, …)` — scan all three
+    spellings over every name the moved module binds (see the widened sweep).
+  - A zero-call spy assertion needs a liveness row IN THE SAME TEST.
+  - Source guards: read `bf.board_module_paths()` (or `bf.board_modules_tree()`
+    for call-graph scans) and assert the watched definitions were found in
+    their home file — a board-only read goes vacuous at the next split.
+  - `Task` / `TaskManager` are now ONE class object across fixture loads; a
+    class-attribute mutation must be `patch.object`-scoped.
+  - C2 runtime roots include `.aitask-data`: no sibling may bind a
+    data-worktree path at import.
+  - Adding a name to one of the three modules: add it to `MOVED` in
+    `tests/test_board_task_manager.py` and to the board's re-import list.
