@@ -156,7 +156,12 @@ _tmux_bootstrap_default_session_scan() {
         printf 'ok\t\n'
         return 0
     fi
-    tr '\r\000' '\n\001' < "$cfg" | LC_ALL=C BYTES="$_TMUX_BOOTSTRAP_YAML_BYTES" \
+    # `tr` needs LC_ALL=C too, not just the awk below it: BSD tr (macOS) reads
+    # its input as characters in the caller's locale and aborts with "Illegal
+    # byte sequence" on invalid UTF-8, truncating the stream — so the very bytes
+    # the ENC_BAD check exists to find never reach awk, and `encoding` is
+    # silently never reported on macOS.
+    LC_ALL=C tr '\r\000' '\n\001' < "$cfg" | LC_ALL=C BYTES="$_TMUX_BOOTSTRAP_YAML_BYTES" \
         CTRL="$_TMUX_BOOTSTRAP_YAML_CTRL" C1LEAD="$_TMUX_BOOTSTRAP_YAML_C1LEAD" \
         C1TAIL="$_TMUX_BOOTSTRAP_YAML_C1TAIL" BREAKS="$_TMUX_BOOTSTRAP_YAML_BREAKS" \
         BLANKS="$_TMUX_BOOTSTRAP_YAML_BLANKS" BOM="$_TMUX_BOOTSTRAP_YAML_BOM" \
