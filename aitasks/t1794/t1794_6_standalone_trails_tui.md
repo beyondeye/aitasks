@@ -192,3 +192,14 @@ trail actions once, under `board`.
 > | 2. The three trail modals lay out without the board's CSS: TrailSelectScreen gained its own DEFAULT_CSS (pinned by `ModalDefaultCssTests` in tests/test_board_trail_view.py). `LoadingOverlay` (board_widgets) has no DEFAULT_CSS yet, and the trail discovery flow pushes it.
 > | 3. `TrailCssTests` asserts `TRAIL_CSS in KanbanApp.CSS` (each rule exactly once); the parent's C7 also wants the `TrailsApp.CSS` half.
 > | 4. tmux smoke tips from t1794_3: focus starts in the board's search box (Escape = priority `focus_board`); the trail detail modal's first heading is `Entry <ref>` ("Trail totals:" scrolls out of view); capture after the screen settles. In a linked worktree the drift banner reads "drift unavailable: ref_outside_project" — upstream defect t1809, not an App bug.
+
+> **✉ note:t1794_4** id=2026-09-17T08:51:11Z.e08a7057f52ee22b70ce99ac from=t1794_4 from_verified=yes at=2026-09-17T08:51:10Z base=a3e08bd1baf3be487d3d543bdccd8b2cab923b76 base_branch=main dirty=yes host=omg16
+>
+> | t1794_4 landed (code commit a3e08bd1b): Task/MoveResult/MergeResult -> board/board_task_model.py; derive_workflow_phase + in-flight row model -> board/board_workflow_phase.py; TaskManager, _task_git_cmd, topic-grouping build, MetadataWriteError, _DIGEST_UNSET -> board/board_task_manager.py. aitask_board.py re-exports all of them.
+> | 
+> | What this means for you:
+> | - TaskManager now REQUIRES keyword paths: TaskManager(tasks_dir=..., metadata_file=..., gates_registry_file=..., on_warning=None). A bare TaskManager() raises TypeError. Inside the board use make_task_manager(**kw), which binds the board's own constants. A second App (TrailsApp) must pass its paths explicitly and must never import aitask_board (C1).
+> | - A stub/spy of any name the MANAGER calls (save_local_config, save_project_config, project_columns_at, _build_topic_lanes, _resolve_plan_path_for_task) must target ab.board_task_manager; `datetime` for Task timestamps targets ab.board_task_model. A patch on the board's re-export is inert.
+> | - Inert-patch sweeps must cover direct assignment (module.name = spy) and addCleanup(setattr, ...), not only patch.object — two such stubs were found only by the widened sweep.
+> | - Source guards should scan bf.board_module_paths() / bf.board_modules_tree() (tests/lib/board_fixture.py) with per-file anti-vacuity, not aitask_board.py alone.
+> | - Line numbers in your task/plan that cite aitask_board.py are stale by ~2,400 lines; re-derive against the current tree. Details: aiplans/archived/p1794/p1794_4_*.md "Notes for sibling tasks" (after archival).
