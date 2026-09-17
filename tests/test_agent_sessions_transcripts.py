@@ -188,13 +188,20 @@ class ClaudeLayoutTests(_TranscriptTestCase):
         sid, _, miss = self.resolve(root, "claudecode")
         self.assertEqual((sid, miss), ("sid-scan", ""))
 
-    def test_selection_picks_the_newest(self):
+    def test_two_sessions_under_one_root_are_ambiguous(self):
+        """REGRESSION (t1820): this used to return the NEWEST match.
+
+        Two claude agents in one repo write to the same project directory, so
+        the newest cwd-match is routinely another agent's conversation. Unlike
+        codex there is no live-process correlation (a claude process holds no
+        transcript fd), so refusing is the only honest answer.
+        """
         root = os.path.realpath(str(self.home / "proj"))
         d = agent_sessions.claude_project_dirname(root)
         self.write_claude(d, "old", root, mtime=1_000_000)
         self.write_claude(d, "new", root, mtime=2_000_000)
-        sid, _, _ = self.resolve(root, "claudecode")
-        self.assertEqual(sid, "new")
+        sid, path, miss = self.resolve(root, "claudecode")
+        self.assertEqual((sid, path, miss), ("", "", agent_sessions.MISS_AMBIGUOUS))
 
     def test_other_projects_are_not_matched(self):
         root = os.path.realpath(str(self.home / "mine"))
@@ -203,14 +210,69 @@ class ClaudeLayoutTests(_TranscriptTestCase):
         sid, _, miss = self.resolve(root, "claudecode")
         self.assertEqual((sid, miss), ("", agent_sessions.MISS_NO_PROJECT_DIR))
 
-    def test_tie_break_is_deterministic(self):
-        """Equal mtimes must not make the answer depend on readdir order."""
+    def test_equal_mtimes_are_ambiguous_not_a_tie_break(self):
+        """Equal mtimes used to be settled by name; now nothing is picked."""
         root = os.path.realpath(str(self.home / "proj"))
         d = agent_sessions.claude_project_dirname(root)
         self.write_claude(d, "aaa", root, mtime=5_000_000)
         self.write_claude(d, "zzz", root, mtime=5_000_000)
-        picks = {self.resolve(root, "claudecode")[0] for _ in range(5)}
-        self.assertEqual(picks, {"zzz"}, "name-descending tie-break, stable")
+        answers = {self.resolve(root, "claudecode") for _ in range(5)}
+        self.assertEqual(answers, {("", "", agent_sessions.MISS_AMBIGUOUS)})
+
+    def test_another_projects_session_does_not_make_it_ambiguous(self):
+        """The refusal counts sessions OF THIS ROOT, not files in the dir."""
+        root = os.path.realpath(str(self.home / "proj"))
+        other = os.path.realpath(str(self.home / "other"))
+        d = agent_sessions.claude_project_dirname(root)
+        self.write_claude(d, "mine", root, mtime=1_000_000)
+        self.write_claude(d, "theirs", other, mtime=2_000_000)
+        sid, _, miss = self.resolve(root, "claudecode")
+        self.assertEqual((sid, miss), ("mine", ""))
+
+    def test_a_session_in_a_scanned_only_dir_is_not_hidden_by_the_computed_dir(self):
+        """Uniqueness is decided over EVERY directory, not the first that matches.
+
+        Stopping at the computed directory would call its one session unique
+        while a different session for the same root sits in a directory whose
+        name the encode rule did not predict (a changed or older layout).
+        """
+        root = os.path.realpath(str(self.home / "proj"))
+        self.write_claude(agent_sessions.claude_project_dirname(root),
+                          "computed", root, mtime=2_000_000)
+        self.write_claude("an-older-encoding", "scanned", root, mtime=1_000_000)
+        sid, path, miss = self.resolve(root, "claudecode")
+        self.assertEqual((sid, path, miss), ("", "", agent_sessions.MISS_AMBIGUOUS))
+
+    def test_one_session_in_two_stores_is_not_ambiguous(self):
+        """The same session id under the override and the default store is one
+        candidate; its newest file answers."""
+        root = os.path.realpath(str(self.home / "proj"))
+        d = agent_sessions.claude_project_dirname(root)
+        self.write_claude(d, "sid-both", root, mtime=1_000_000)
+        override = self.home / "cfg"
+        dest = override / "projects" / d
+        dest.mkdir(parents=True)
+        newer = dest / "sid-both.jsonl"
+        newer.write_text((self.home / ".claude" / "projects" / d
+                          / "sid-both.jsonl").read_text())
+        os.utime(newer, (2_000_000, 2_000_000))
+        sid, path, miss = self.resolve(
+            root, "claudecode", env={"CLAUDE_CONFIG_DIR": str(override)})
+        self.assertEqual((sid, path, miss), ("sid-both", str(newer), ""))
+
+    def test_a_directory_reached_twice_is_still_one_session(self):
+        """A symlinked project directory must not be read as a second session.
+
+        (Directory dedup only saves the re-read; the stem grouping is what
+        keeps this unambiguous, so this pins the outcome, not the dedup.)"""
+        root = os.path.realpath(str(self.home / "proj"))
+        d = agent_sessions.claude_project_dirname(root)
+        real = self.write_claude(d, "sid-once", root)
+        store = self.home / ".claude" / "projects"
+        (store / "alias-of-the-same-dir").symlink_to(store / d)
+        sid, path, miss = self.resolve(root, "claudecode")
+        self.assertEqual((sid, miss), ("sid-once", ""))
+        self.assertEqual(os.path.realpath(path), os.path.realpath(str(real)))
 
 
 class CodexLayoutTests(_TranscriptTestCase):
