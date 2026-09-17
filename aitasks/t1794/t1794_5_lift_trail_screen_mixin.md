@@ -3,12 +3,13 @@ priority: medium
 effort: high
 depends: [t1794_4]
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [aitask_board, tui, trails, python, refactor]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1794
 created_at: 2026-09-11 15:08
-updated_at: 2026-09-11 15:08
+updated_at: 2026-09-17 12:47
 ---
 
 ## Context
