@@ -6,7 +6,7 @@ import os
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
-from textual.screen import ModalScreen, Screen
+from textual.screen import Screen
 from textual.widgets import Button, Footer, Header, Input, Label, Static
 from textual import on
 
@@ -25,6 +25,13 @@ from .merge_engine import (
     write_merged_plan,
 )
 from .plan_loader import load_plan
+
+try:
+    from guarded_dismiss import GuardedDismissMixin, GuardedModalScreen
+except ImportError:  # imported without the app's sys.path setup
+    import sys
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "lib"))
+    from guarded_dismiss import GuardedDismissMixin, GuardedModalScreen
 
 
 # Styles for hunk display
@@ -47,7 +54,7 @@ class _HunkEntry:
         return (self.plan_path, self.hunk_idx)
 
 
-class SaveMergeDialog(ModalScreen):
+class SaveMergeDialog(GuardedModalScreen):
     """Modal dialog for saving the merged plan file."""
 
     BINDINGS = [
@@ -125,7 +132,7 @@ class SaveMergeDialog(ModalScreen):
         self.dismiss(None)
 
 
-class MergeScreen(Screen):
+class MergeScreen(GuardedDismissMixin, Screen):
     """Screen for selective hunk acceptance with live preview."""
 
     BINDINGS = [

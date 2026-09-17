@@ -251,6 +251,44 @@ but only if the click is posted as a real `events.MouseDown` onto the app queue.
 "mouse already queued" interleaving becomes unreachable. See
 `tests/test_minimonitor_focus_in_click.py`.
 
+## Modal dismissal: subclass `GuardedModalScreen`, never bare `ModalScreen`
+
+Textual's `Screen.dismiss()` does not pop *the screen being dismissed* — it calls
+`app.pop_screen()`, which pops **whatever is on top**. A key already dispatched
+to a modal that has just closed (rapid or held `Esc`) therefore dismisses the
+wrong screen: the first `Esc` closes the dialog, the second pops the screen
+beneath it (a wizard and all its entered config, silently), and once the stack
+is down to one screen the next raises `ScreenStackError` and the TUI exits. This
+is how `ait brainstorm`'s operation-help dialog destroyed the Actions wizard.
+
+- Derive modals from `lib/guarded_dismiss.GuardedModalScreen`. For a screen with
+  another base, mix `GuardedDismissMixin` in **before** it
+  (`class X(GuardedDismissMixin, Screen)`).
+- Keep call sites plain `self.dismiss(result)`. The guard is in the base class —
+  dismissing a screen that is not `app.screen` is a no-op (no pop, no result
+  callback, a log warning) — so there is no per-site check to forget.
+- A result callback that dismisses its *own* screen is safe: Textual runs the
+  callback via `call_next` after the child has popped, so the parent is the
+  active screen again by then.
+- Close a screen with `self.dismiss()`, never `self.app.pop_screen()` — a direct
+  pop has the same pop-whatever-is-on-top behavior and bypasses the guard.
+- Guard every overlay a guarded screen can push, not just the screen itself: a
+  parent's guard cannot intercept a pop issued by the child above it. A stale
+  close on an unguarded viewer pushed from a guarded modal still pops that modal.
+- Do not write your own `if self.app.screen is self` guard with a blanket
+  `except`: only `NoActiveAppError` and `ScreenStackError` mean "no active
+  screen"; anything else is a real fault and must surface.
+
+Enforcement: `tests/test_brainstorm_guarded_dismiss.py` scans brainstorm, the
+overlays it pushes (`lib/section_viewer.py` and the `diffviewer/` screens), and
+fails on an unguarded `ModalScreen`/`Screen` base or a direct `pop_screen()`
+call. Other TUIs and the remaining shared `lib/` screens are not yet converted;
+until they are, the same cascade is reachable wherever one screen is pushed on
+top of another.
+
+This section covers *which screen* a dismiss pops. What result a modal returns
+when it is closed by `Escape` or an app-level binding is a separate rule (t1450).
+
 ## Modals pushed by multiple Apps must carry their own DEFAULT_CSS
 
 A `lib/` `ModalScreen` that can be pushed by more than one App must define its

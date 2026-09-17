@@ -14,7 +14,6 @@ from textual.containers import (
     Horizontal,
     VerticalScroll,
 )
-from textual.screen import ModalScreen
 from textual.widgets import (
     Button,
     Checkbox,
@@ -50,6 +49,7 @@ from brainstorm.brainstorm_op_refs import (
     list_op_inputs,
     resolve_ref,
 )
+from guarded_dismiss import GuardedModalScreen
 from launch_modes import DEFAULT_LAUNCH_MODE, VALID_LAUNCH_MODES
 from agentcrew.agentcrew_utils import read_yaml
 from agentcrew.agentcrew_log_utils import (
@@ -89,7 +89,7 @@ class _MarkdownOnlyDirectoryTree(DirectoryTree):
         ]
 
 
-class ImportProposalFilePicker(ModalScreen):
+class ImportProposalFilePicker(GuardedModalScreen):
     """Markdown-only file picker for the initial proposal import flow."""
 
     BINDINGS = [Binding("escape", "cancel", "Cancel", show=False)]
@@ -110,7 +110,7 @@ class ImportProposalFilePicker(ModalScreen):
         self.dismiss(None)
 
 
-class InitSessionModal(ModalScreen):
+class InitSessionModal(GuardedModalScreen):
     """Modal shown when no brainstorm session exists yet."""
 
     BINDINGS = [Binding("escape", "cancel", "Cancel", show=False)]
@@ -157,7 +157,7 @@ class InitSessionModal(ModalScreen):
         self.dismiss(None)
 
 
-class InitFailureModal(ModalScreen):
+class InitFailureModal(GuardedModalScreen):
     """Modal shown when ``ait brainstorm init`` fails or its runner crashes.
 
     Replaces the previous fire-and-forget `notify(...)` + `app.exit()` pattern
@@ -220,7 +220,7 @@ class InitFailureModal(ModalScreen):
         self.dismiss("quit")
 
 
-class DeleteSessionModal(ModalScreen):
+class DeleteSessionModal(GuardedModalScreen):
     """Double-confirmation modal for deleting a brainstorm session."""
 
     BINDINGS = [Binding("escape", "cancel", "Cancel", show=False)]
@@ -269,7 +269,7 @@ class DeleteSessionModal(ModalScreen):
         self.dismiss(False)
 
 
-class DeleteNodeModal(ModalScreen):
+class DeleteNodeModal(GuardedModalScreen):
     """Double-confirmation modal for cascade-deleting a DAG node + descendants.
 
     Lists every node in the deletion closure, warns (does not block) when an
@@ -396,7 +396,7 @@ class DeleteNodeModal(ModalScreen):
         self.dismiss(False)
 
 
-class CleanupAgentModal(ModalScreen):
+class CleanupAgentModal(GuardedModalScreen):
     """Confirm removal of a finished/failed agent's status artifacts (t983_9 /
     t535). Returns True (confirmed) or False (cancelled) via dismiss(). Carries
     its own DEFAULT_CSS so it is self-contained (per tui_conventions).
@@ -473,7 +473,7 @@ class CleanupAgentModal(ModalScreen):
         self.dismiss(False)
 
 
-class NodeDetailModal(ModalScreen):
+class NodeDetailModal(GuardedModalScreen):
     """Modal for viewing node details with tabbed content (Metadata, Proposal)."""
 
     BINDINGS = [
@@ -696,7 +696,7 @@ class NodeHub(NodeDetailModal):
         self.dismiss(NodeHubResult(NODE_HUB_COMPARE, self.node_id))
 
 
-class CompareMatrixModal(ModalScreen):
+class CompareMatrixModal(GuardedModalScreen):
     """Dimension-comparison matrix overlay (t983_7).
 
     Re-homes the former Compare-tab matrix as a modal opened from the marked set
@@ -772,7 +772,7 @@ class CompareMatrixModal(ModalScreen):
         )
 
 
-class ExportNodeDetailModal(ModalScreen):
+class ExportNodeDetailModal(GuardedModalScreen):
     """Modal: pick what to export (proposal) and the output directory."""
 
     BINDINGS = [
@@ -848,7 +848,7 @@ class ExportNodeDetailModal(ModalScreen):
         self.dismiss({"dir": str(target), "written": written})
 
 
-class OperationDetailScreen(ModalScreen):
+class OperationDetailScreen(GuardedModalScreen):
     """Modal showing everything about the operation that generated a node.
 
     Pushed by the 'o' keybinding (wired in t749_6) from the brainstorm
@@ -1049,7 +1049,7 @@ class OperationDetailScreen(ModalScreen):
         self.dismiss(None)
 
 
-class AgentModeEditModal(ModalScreen):
+class AgentModeEditModal(GuardedModalScreen):
     """Modal to pick an agent's launch_mode from VALID_LAUNCH_MODES."""
 
     BINDINGS = [Binding("escape", "cancel", "Cancel", show=False)]
@@ -1114,7 +1114,7 @@ class AgentModeEditModal(ModalScreen):
         self.dismiss(None)
 
 
-class LogDetailModal(ModalScreen):
+class LogDetailModal(GuardedModalScreen):
     """Modal for viewing agent log file content with Tail/Full tabs."""
 
     BINDINGS = [
@@ -1193,7 +1193,7 @@ class LogDetailModal(ModalScreen):
         self.dismiss(None)
 
 
-class OperationHelpModal(ModalScreen):
+class OperationHelpModal(GuardedModalScreen):
     """Modal showing summary, I/O contract, and use cases for an operation.
 
     Triggered by the op-help shortcut from any Actions wizard step. On Step 1
@@ -1242,7 +1242,7 @@ class OperationHelpModal(ModalScreen):
         self.dismiss(None)
 
 
-class NodeActionSelectModal(ModalScreen):
+class NodeActionSelectModal(GuardedModalScreen):
     """The contextual **Operations** dialog for the current Browse selection.
 
     Surfaced via the `A` keybinding on the Browse tab. Offers every operation
@@ -1409,7 +1409,7 @@ class NodeActionSelectModal(ModalScreen):
             )
 
 
-class ModulePreviewScreen(ModalScreen):
+class ModulePreviewScreen(GuardedModalScreen):
     """Review gate for ``module_decompose`` (t929_1: iterate-before-apply).
 
     Shows the module roots a decomposer proposed and lets the operator:
