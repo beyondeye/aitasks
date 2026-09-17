@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: high
 depends: [t1794_4]
 issue_type: refactor
-status: Implementing
+status: Done
 labels: [aitask_board, tui, trails, python, refactor]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1794
 implemented_with: claudecode/opus5
 created_at: 2026-09-11 15:08
-updated_at: 2026-09-17 14:50
+updated_at: 2026-09-17 15:44
+completed_at: 2026-09-17 15:44
 ---
 
 ## Context
@@ -185,3 +186,14 @@ proof this child changed nothing observable in `ait board`.
 > **✅ gate:plan_approved** run=2026-09-17T11:50:13Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-09-17T12:41:58Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-17T12:43:57Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:8c6bcc5345eac438
+
+> **✅ gate:risk_evaluated** run=2026-09-17T12:43:57Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1794_5/risk_evaluated_2026-09-17T12:43:57Z-risk_evaluated-a1.log`
