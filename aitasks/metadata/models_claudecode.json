@@ -1061,8 +1061,8 @@
         },
         "pick": {
           "all_time": {
-            "runs": 338,
-            "score_sum": 33800
+            "runs": 344,
+            "score_sum": 34400
           },
           "prev_month": {
             "period": "2026-08",
@@ -1071,13 +1071,13 @@
           },
           "month": {
             "period": "2026-09",
-            "runs": 117,
-            "score_sum": 11700
+            "runs": 123,
+            "score_sum": 12300
           },
           "week": {
             "period": "2026-W38",
-            "runs": 19,
-            "score_sum": 1900
+            "runs": 25,
+            "score_sum": 2500
           }
         },
         "changelog": {
@@ -1164,7 +1164,7 @@
         },
         "pick": {
           "all_time": {
-            "runs": 362
+            "runs": 368
           },
           "prev_month": {
             "period": "2026-08",
@@ -1172,11 +1172,11 @@
           },
           "month": {
             "period": "2026-09",
-            "runs": 119
+            "runs": 125
           },
           "week": {
             "period": "2026-W38",
-            "runs": 19
+            "runs": 25
           }
         },
         "changelog": {

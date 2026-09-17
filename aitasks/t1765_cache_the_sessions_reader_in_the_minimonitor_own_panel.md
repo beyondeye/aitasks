@@ -3,12 +3,18 @@ priority: low
 effort: low
 depends: []
 issue_type: performance
-status: Ready
+status: Implementing
 labels: [monitor, frozen]
+active_gates: [risk_evaluated]
+active_gates_filtered: []
+active_gates_profile: fast
+active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
+assigned_to: dario-e@beyond-eye.com
 anchor: 1705
 followup_kind: review_finding
+implemented_with: claudecode/opus5
 created_at: 2026-09-09 15:31
-updated_at: 2026-09-09 15:31
+updated_at: 2026-09-17 11:32
 ---
 
 `MiniMonitorApp._own_frozen_at` constructs a fresh `agent_sessions.SessionsView()`
@@ -29,3 +35,8 @@ frozen state costs a stamp check rather than a re-parse.
 Low severity: it costs one small read per tick while the followed agent is
 frozen, and nothing is incorrect. Found by review of t1705_7; disposition
 there: follow-up, not blocking.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-17T08:32:47Z status=pass attempt=1 type=human
