@@ -136,3 +136,14 @@ None identified.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+- **Actual work done:** Added `_eligible_by_session()` to `.aitask-scripts/lib/agent_freeze.py`. It is a lazy generator that yields `(session, eligible_panes, error)` for each aitasks session and holds the discovery loop plus both filters. `freeze_all_eligible()` now flattens it and skips errored sessions. `freeze_all()` iterates it, reports errored sessions as `FREEZE_FAILED:resolve|<session>|<exc>` and freezes each eligible pane. Added `SharedSelectionTests` (4 tests) to `tests/test_freeze_argument_grammar.py`:
+  - the mutation acts on exactly the listed panes
+  - both callers read the one selector (a fake selector yields a TUI pane that the real filters would reject)
+  - per-session laziness is preserved
+  - the mutation still reports a vanished session
+- **Deviations from plan:** None. At plan review the temporary pre-fix control was removed, so the checkout shared on `main` is never mutated.
+- **Issues encountered:** None. The grammar, agent_freeze and monitor_frozen_filter suites all pass (15 / 99 / 71 tests).
+- **Key decisions:** A generator instead of a precomputed list, so `freeze_all` keeps its interleaved scan-then-freeze order per session. The vanished-session policy stays with each caller rather than living in the selector.
+- **Upstream defects identified:** None
