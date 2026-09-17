@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: performance
-status: Implementing
+status: Done
 labels: [monitor, frozen]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -16,7 +16,8 @@ anchor: 1705
 followup_kind: review_finding
 implemented_with: claudecode/opus5
 created_at: 2026-09-09 15:31
-updated_at: 2026-09-17 11:32
+updated_at: 2026-09-17 12:48
+completed_at: 2026-09-17 12:48
 ---
 
 `MiniMonitorApp._own_frozen_at` constructs a fresh `agent_sessions.SessionsView()`
@@ -44,3 +45,14 @@ there: follow-up, not blocking.
 > **✅ gate:plan_approved** run=2026-09-17T08:32:47Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-09-17T09:06:23Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-17T09:48:10Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:8bb7383868e98f2f
+
+> **✅ gate:risk_evaluated** run=2026-09-17T09:48:10Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1765/risk_evaluated_2026-09-17T09:48:10Z-risk_evaluated-a1.log`
