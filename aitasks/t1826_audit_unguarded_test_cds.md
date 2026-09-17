@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1794
 followup_kind: risk_mitigation
+implemented_with: claudecode/opus5
 created_at: 2026-09-17 09:44
-updated_at: 2026-09-17 09:55
+updated_at: 2026-09-17 12:57
 ---
 
 ## Origin
@@ -39,3 +40,8 @@ A rough grep (`^\s*\(?\s*cd "?\$VAR` with no `||`/`&&` on the line) finds about 
 Secondary goal: t1815 could not explain a truncation of `aitasks/t1_alpha.md` at 2026-09-02 09:09:18. By then Test 11's `cd` was already guarded, and no other file in `tests/` or `.aitask-scripts/` writes that name. If the audit finds a test (bash or Python) that writes `t1_alpha.md` or truncates arbitrary task files under the live `aitasks/`, record it, since that would identify the second leak source.
 
 Verification bar, per file you fix: add a negative control, not only a green run. Remove the guard or force the setup step to fail, run from a throwaway sentinel git repo as cwd, and show the leak without the fix and none with it. Copies must pin `PROJECT_DIR`, because the test files locate the repo from their own path.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-17T09:57:47Z status=pass attempt=1 type=human
