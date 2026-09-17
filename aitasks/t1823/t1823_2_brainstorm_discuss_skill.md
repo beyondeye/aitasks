@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: medium
 effort: high
 depends: [t1823_1]
 issue_type: feature
@@ -198,3 +200,5 @@ Separate aitasks for the Codex CLI and OpenCode behavioural ports of this skill.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-09-17T11:50:21Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-09-17T12:23:38Z status=pass attempt=1 type=human
