@@ -166,8 +166,8 @@ and archive.
 - The fail-closed repository check refuses to run the file when the caller exports `GIT_DIR` (e.g. from inside a git hook) or sets `TMPDIR` inside a repo — a deliberate behavior change for such invocations, with an explicit message naming both variables · severity: low · → mitigation: none (intended; pinned by the Verification 2 negative controls)
 
 ### Goal-achievement risk: medium
-- The 2026-09-02 truncation of `t1_alpha.md` happened after the guards landed and remains unexplained. If some process other than this test file writes that name, deleting the files is temporary and the toast returns · severity: medium · → mitigation: audit_unguarded_test_cds
-- Other test files have unguarded `cd` lines (about 435 across `tests/*.sh`). Most are harmless (`set -e`, or nothing written), but any one that writes relative paths after a failed `cd` can leak the same way · severity: low · → mitigation: audit_unguarded_test_cds
+- The 2026-09-02 truncation of `t1_alpha.md` happened after the guards landed and remains unexplained. If some process other than this test file writes that name, deleting the files is temporary and the toast returns · severity: medium · → mitigation: t1826
+- Other test files have unguarded `cd` lines (about 435 across `tests/*.sh`). Most are harmless (`set -e`, or nothing written), but any one that writes relative paths after a failed `cd` can leak the same way · severity: low · → mitigation: t1826
 
 ### Planned mitigations
 - timing: after | name: audit_unguarded_test_cds | type: bug | priority: low | effort: medium | inline_risk: low | added_complexity: high | addresses: unguarded cd in other tests can leak fixtures into the live tree (and may explain the 2026-09-02 t1_alpha.md truncation) | desc: Audit tests/*.sh for unguarded cd followed by relative writes or git add/commit, and guard them or give the file a scratch cwd | created: t1826
