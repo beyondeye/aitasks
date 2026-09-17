@@ -3002,14 +3002,17 @@ class TmuxMonitor:
 
         Returns ``None`` (writing nothing) when ``gen`` has been superseded by a
         newer reservation — protecting both the idle bookkeeping and the returned
-        snapshot. Symmetric with :meth:`commit_snapshots`, including its frozen
-        branch: a frozen pane produced no content, so letting it reach
+        snapshot. Symmetric with :meth:`commit_snapshots`, including both of its
+        state branches in the same order (frozen first, then parked): neither a
+        frozen nor a parked pane produced content, so letting one reach
         `_apply_bookkeeping` would reset the idle clock it has no verdict for.
         """
         if gen != self._capture_generation:
             return None
         if result is not None and result.frozen:
             return _frozen_snapshot(pane, time.monotonic())
+        if result is not None and result.parked:
+            return _parked_snapshot(pane, time.monotonic())
         return self._apply_bookkeeping(pane, content, result, time.monotonic())
 
     async def capture_pane_async(
@@ -3087,11 +3090,31 @@ class TmuxMonitor:
         placeholder and the action guards on the very pane being looked at. The
         guard lives HERE, in the monitor, rather than at the app's call site, so
         every present and future caller of this route inherits it.
+
+        **A parked agent is refused the same way** (t1769), and the loss was the
+        same: focusing a parked card replaced its `parked=True` snapshot, so the
+        parked placeholder, row render and session-bar term vanished on the pane
+        being looked at. Frozen is checked FIRST, exactly as at the bulk
+        partition: a pane can carry the parked mark and be frozen, and a
+        parked-first check would return `parked=True, frozen=False`, a flag no
+        renderer can recover.
+
+        The parked check runs once, before the await, with no commit-time
+        re-check. That is safe for the one case it leaves open — a capture that
+        passed the check and is still in flight when the agent is parked. Such a
+        park reaches the App's snapshot through the full refresh the park
+        schedules (this capture already missed the new set), and that refresh
+        publishes the set and then reserves a NEWER generation. So this capture's
+        commit is either rejected by the generation guard or lands first and is
+        overwritten by the refresh's parked snapshot. (A capture that STARTS
+        after the publish takes the guard above and commits parked directly.)
         """
         gen = self._next_generation()
         pane = self._pane_cache.get(pane_id)
         if pane is not None and self._is_frozen_pane(pane):
             return gen, pane, "", ClassifyResult(compare_value="", frozen=True)
+        if pane is not None and self._is_parked_pane(pane):
+            return gen, pane, "", ClassifyResult(compare_value="", parked=True)
         raw = await self.capture_pane_content_async(pane_id, capture_lines)
         if raw is None:
             return gen, None, None, None

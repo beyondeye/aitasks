@@ -363,6 +363,24 @@ class FastPreviewRouteTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertNotIn("%2", mon._last_content)
 
+    async def test_a_frozen_and_parked_pane_is_frozen_on_the_fast_route(self):
+        """Frozen-first precedence at the SECOND partition site (t1769). The
+        pane carries the parked mark AND the frozen stamp; a parked-first check
+        would hand it `parked=True, frozen=False` and lose the frozen flag."""
+        p = pane("demo", "agent-both", "%2", frozen_record=RECORD)
+        mon = self._monitor(p)
+        mon.set_parked_agents({("demo", "agent-both")})
+
+        gen, got, content, result = await mon.capture_pane_classified_async("%2")
+
+        self.assertEqual(self.captured, [])
+        self.assertTrue(result.frozen)
+        self.assertFalse(result.parked)
+        snap = mon.commit_snapshot(gen, got, content, result)
+        self.assertTrue(snap.frozen)
+        self.assertFalse(snap.parked)
+        self.assertEqual(snap.frozen_record_id, RECORD)
+
     async def test_a_superseded_generation_still_commits_nothing(self):
         """The frozen branch lands after the generation guard, not before it."""
         p = pane("demo", "agent-frozen", "%2", frozen_record=RECORD)
