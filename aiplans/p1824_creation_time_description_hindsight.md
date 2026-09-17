@@ -184,7 +184,7 @@ None identified. (Scratch scripts only; git access on the data branch is read-on
 
 ### Planned mitigations
 - timing: post-phase | name: rider_sensitivity | type: test | priority: low | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — first committed version may already include edits | desc: classify first-add commits structurally (single create / multi-task add / start-work / sync autocommit / other), re-run threshold-10 sweeps excluding each suspect group, report whether Q1 changes, qualified as a heuristic
-- timing: after | name: claim_time_bracket | type: enhancement | priority: low | effort: medium | inline_risk: low | added_complexity: medium | addresses: goal-achievement — creation time is stricter than admission time | desc: measure the task body as of just before its own `Start work on t<id>` commit as an admission-time bracket between t1824's creation-time and current numbers
+- timing: after | name: claim_time_bracket | type: enhancement | priority: low | effort: medium | inline_risk: low | added_complexity: medium | addresses: goal-achievement — creation time is stricter than admission time | desc: measure the task body as of just before its own `Start work on t<id>` commit as an admission-time bracket between t1824's creation-time and current numbers | created: t1827
 
 ## Implementation progress (2026-09-17)
 
