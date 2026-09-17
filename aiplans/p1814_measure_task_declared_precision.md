@@ -276,3 +276,135 @@ Commit code (`enhancement: … (t1814)`), commit plan via
 ### Planned mitigations
 - timing: pre-phase | name: baseline_sweep_parity | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — `_tally` refactor could move published plan-sweep numbers | desc: capture sweep output before any edit and diff it byte-for-byte after implementation
 - timing: after | name: creation_time_description_hindsight | type: enhancement | priority: low | effort: medium | inline_risk: low | added_complexity: medium | addresses: goal-achievement — post-hoc description edits may inflate task_declared precision | desc: re-run the description sweep over each archived task file's first data-branch version (git log --diff-filter=A) and compare against the current version to bound hindsight bias
+
+## Implementation progress (2026-09-17)
+
+All steps implemented: pre-phase `baseline_sweep_parity`, Steps 1–4, and the
+Step 5 measurement below.
+
+### Pre-phase parity (frozen snapshot)
+
+Snapshot: 907 loose archived plan + task files, 89652 batch-map lines, code
+corpus 2102 files + task-data corpus 1685 files, `MANIFEST.sha256` verified
+before and after every measurement. `baseline_lib` (the pre-edit
+`.aitask-scripts/lib/`) and the revised lib were run on that one dataset for
+`--thresholds 8,10,20` at both plan scopes. After removing the
+`SWEEP_SOURCE:` / `SWEEP_COHORT:` lines (each present exactly once), the output
+was **byte-identical** to the baseline. The live CLI `sweep --source
+task-vs-plan --thresholds 10` then reproduced the frozen numbers exactly, so the
+archive did not move during the session.
+
+### Measurement (frozen snapshot; hub threshold 10 is the shipped default)
+
+Columns: CONFLICT precision · flagged recall (CONFLICT ∪ CAVEATED) · share of
+real collisions hard-stopped · share downgraded to a caveat. Description sources
+are graded **promoted** (as if plan evidence). Graded as shipped they cannot
+CONFLICT: `PromotionTests` pins that.
+
+**Unordered pairs over the common cohort** (`SWEEP_COHORT:7b0461e726532b5c|400`,
+79800 pairs, 6360 really colliding; the cohort is identical at both plan scopes,
+because in this corpus no plan loses resolution under the pre-implementation cut):
+
+| source | th | precision | recall | hard-stopped | downgraded | CONFLICT verdicts |
+|---|---|---|---|---|---|---|
+| plan, full | 8 | 0.3610 | 0.8794 | 0.2574 | 0.6220 | 4534 |
+| plan, full | 10 | 0.3871 | 0.8794 | 0.3129 | 0.5665 | 5141 |
+| plan, full | 20 | 0.2005 | 0.8794 | 0.6903 | 0.1892 | 21891 |
+| **plan, pre-impl (reference)** | 8 | 0.3786 | 0.8535 | 0.2464 | 0.6071 | 4139 |
+| **plan, pre-impl (reference)** | 10 | **0.4036** | 0.8535 | 0.2961 | 0.5574 | 4666 |
+| **plan, pre-impl (reference)** | 20 | 0.2016 | 0.8535 | 0.6690 | 0.1844 | 21108 |
+| task (whole body) | 8 | 0.4235 | 0.4888 | 0.0871 | 0.4017 | 1308 |
+| task (whole body) | 10 | **0.4387** | 0.4888 | 0.1086 | 0.3802 | 1575 |
+| task (whole body) | 20 | 0.2773 | 0.4888 | 0.2346 | 0.2542 | 5381 |
+| task-keyfiles | 8 | 0.5315 | 0.4057 | 0.0505 | 0.3552 | 604 |
+| task-keyfiles | 10 | 0.5568 | 0.4057 | 0.0640 | 0.3417 | 731 |
+| task-keyfiles | 20 | 0.4780 | 0.4057 | 0.1335 | 0.2722 | 1776 |
+
+**Ordered pairs, described candidate vs planned in-flight task** (`task-vs-plan`,
+same cohort digest, 159600 ordered pairs, 12720 really colliding):
+
+| plan side | candidate | th | precision | recall | hard-stopped | downgraded | CONFLICT | missed |
+|---|---|---|---|---|---|---|---|---|
+| pre-impl | whole body | 8 | 0.4056 | 0.6177 | 0.1214 | 0.4963 | 3807 | 4863 |
+| pre-impl | whole body | 10 | **0.4333** | 0.6177 | 0.1548 | 0.4629 | 4544 | 4863 |
+| pre-impl | whole body | 20 | 0.2328 | 0.6177 | 0.3772 | 0.2405 | 20609 | 4863 |
+| pre-impl | key-files | 8 | 0.4472 | 0.5397 | 0.0899 | 0.4498 | 2558 | 5855 |
+| pre-impl | key-files | 10 | **0.4685** | 0.5397 | 0.1109 | 0.4288 | 3012 | 5855 |
+| pre-impl | key-files | 20 | 0.3096 | 0.5397 | 0.2551 | 0.2846 | 10480 | 5855 |
+| full | whole body | 10 | 0.4258 | 0.6442 | 0.1599 | 0.4843 | 4777 | 4526 |
+| full | key-files | 10 | 0.4596 | 0.5760 | 0.1153 | 0.4607 | 3192 | 5393 |
+
+Own populations: plan 412 tasks (`41809b1907ca236f`), task 402
+(`9ad7fe6de5380b9e`, precision 0.4368 at 10, within 0.002 of common), and
+task-keyfiles 400. Drift (tasks|kept|dropped): plan full 412|5030|5806, plan
+pre-impl 412|4686|5012, task 412|2486|1530, task-keyfiles 412|1765|925.
+Key-files coverage: **180 / 457** archived task files carry a key-files heading.
+
+### Recommendation (advisory; the contract change belongs to t1688_2 / t1343)
+
+- **Q1: may a `task_declared` overlap grade CONFLICT?** The pre-set rule is met.
+  Promoted description precision is at least the plan pre-implementation
+  reference on the identical cohort, at every threshold. Unordered: 0.4235 /
+  0.4387 / 0.2773 vs 0.3786 / 0.4036 / 0.2016. In the realistic
+  description-vs-plan pairing: 0.4056 / 0.4333 / 0.2328. So the premise behind
+  PINNED 6, that descriptions are too coarse to hard-stop *compared with plans*,
+  is **not supported**. Description hard stops are about as trustworthy as plan
+  hard stops. They are also rarer: 1575 vs 4666 CONFLICTs, and a hard-stopped
+  share of 0.1086 vs 0.2961. The cost is recall, not precision (0.49 vs 0.85
+  flagged). Two limits apply. First, both sources are wrong on about 56–60% of
+  hard stops, so this argues for **parity** (grade description evidence like
+  plan evidence) and not for making either one a blocking stop. The procedure's
+  advisory-by-design posture stands. Second, the description numbers may carry
+  hindsight bias from post-hoc edits. Recommendation: lifting PINNED 6 to parity
+  is justified on precision, but **wait for the `creation_time_description_hindsight`
+  follow-up** to bound that bias before changing the contract.
+- **Q2: adopt key-files-section-preferred extraction?** **No.** Measured in the
+  deciding pairing (description vs plan, pre-implementation, threshold 10),
+  narrowing gains +3.5pp precision (0.4333 → 0.4685). It loses 7.8pp flagged
+  recall (0.6177 → 0.5397), adds 992 missed real collisions (4863 → 5855), and
+  applies to only 180/457 tasks. The larger desc-vs-desc gain (0.4387 → 0.5568)
+  does **not** carry over to the realistic pairing, which is exactly why that
+  comparison was added. Whole-body extraction (t1688_1) stays.
+
+## Final Implementation Notes
+
+- **Actual work done:** as planned. Steps 1–5 plus the inline pre-phase.
+  - `parallel_admission_sweep.py` (pure): `key_files_sections` /
+    `key_files_preferred` with `KEY_FILES_HEADING_RE`, `promoted`, `cross_confusion`
+    (ordered pairs), `cohort_digest`, and a shared `_tally` counting loop behind
+    `confusion`.
+  - `parallel_admission_collect.py`: `_archived_doc_paths` (plans and tasks),
+    `sweep_population(source=…)`, `key_files_coverage`, the `_common_refs` cohort,
+    `--source plan|task|task-keyfiles|task-vs-plan`, `--population own|common`,
+    and the new output lines `SWEEP_SOURCE:`, `SWEEP_COHORT:`,
+    `SWEEP_DRIFT_PLAN:`, `SWEEP_KEYFILES:`, `SWEEP_KF:` / `SWEEP_KF_METRIC:`.
+  - CLI header comment updated. Tests: 32 new Python tests, 4 new CLI checks.
+  - The measurement table and recommendation are above.
+- **Deviations from plan:** `_common_refs` takes the three already-built
+  populations instead of `(root, plan_scope, batch_lines, corpus)`. `_run_sweep`
+  builds each population once from a single batch map and corpus, and always
+  passes the `plan` population at the run's own `--plan-scope`. That keeps it
+  the single cohort definition without rebuilding anything.
+  `SWEEP_DRIFT:` for `task-vs-plan` reports the description side over its full
+  population, before the cohort restriction, matching every other source.
+- **Issues encountered:**
+  - The full Python suite reported `FAILED` only in
+    `tests/test_minimonitor_bottom_pin_live.py` (test_2 / test_5, "no grab was
+    observed"). That file is a live tmux TUI test in the serial carve-out, and
+    run alone it passes 6/6. It is unrelated to this change; the checkout also
+    carried other sessions' uncommitted tmux/TUI edits.
+  - Mutation checks run in an isolated scratch copy: a scope-blind cohort fails
+    `test_the_cohort_follows_the_plan_scope`, and a narrowed block built on the
+    wrong population fails `test_task_vs_plan_scores_ordered_pairs_with_a_narrowed_block`.
+  - In the live corpus, the cohort is identical at both plan scopes: no archived
+    plan loses resolution under the pre-implementation cut. The scope sensitivity
+    is therefore pinned by the fixture, not by the corpus.
+- **Key decisions:**
+  - Description sources are always graded **promoted**. As shipped, the
+    candidate's own `task_declared` caveat makes every pair `CLEAR_CAVEATED`, so
+    precision is undefined.
+  - `task-vs-plan` always uses the three-way cohort, so its whole-body and
+    key-files blocks share membership, plan scope, oracle and thresholds.
+  - The key-files regex lives in the sweep module as a measured variant, not in
+    `plan_paths`: the shipped grammar is untouched.
+- **Upstream defects identified:** None
