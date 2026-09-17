@@ -115,7 +115,8 @@ for spec in 'block scalar|tmux:\n  default_session: >-\n    x\n|block_scalar' \
             'tab before comment|tmux:\n  default_session: mysess\t# c\n|tab_or_control' \
             'unknown tag on the tmux header|tmux: !foo\n  default_session: mysess\n|invalid_block' \
             'DEL on another line (t1825)|tmux:\n  default_session: mysess\n# \0177\n|non_printable' \
-            'invalid UTF-8 on another line (t1825)|tmux:\n  default_session: mysess\n# \0377\n|encoding'; do
+            'invalid UTF-8 on another line (t1825)|tmux:\n  default_session: mysess\n# \0377\n|encoding' \
+            'configured name tmux cannot address (t1828)|tmux:\n  default_session: a.b\n|illegal_tmux_name'; do
     label="${spec%%|*}"; rest="${spec#*|}"; body="${rest%|*}"; shape="${rest##*|}"
     set_cfg "$body"
     cp "$CFG" "$TMP/before"

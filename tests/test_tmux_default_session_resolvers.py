@@ -46,6 +46,15 @@ The contract pinned here, and its deliberate limits:
   twins agree, and the oracle (strict decode / ``yaml.reader.ReaderError``)
   decides every row. By decision, a structurally invalid line elsewhere in the
   file is not detected; only a full parse sees it.
+* ``IllegalTmuxNameTests`` (t1828) — **readable is not usable.** A name holding
+  ``.`` or ``:`` is read perfectly by YAML but cannot be addressed by tmux,
+  which treats both as target separators. All five paths fall back to the
+  default and the two line parsers report ``illegal_tmux_name`` — including the
+  YAML-backed family, which applies the same rule rather than failing to parse,
+  since it is the one behind session *creation* (agentcrew) and window
+  targeting. It is last in precedence (a value must be readable before it can
+  be judged unusable), and its oracle control asserts YAML *agrees* with the
+  value — the mirror image of ``UnreadableScalarTests``' divergence control.
 
 The monitors' ``main()`` is driven for real — not re-implemented, not grepped —
 through its module-level seams, and the assertion is on the kwargs its
@@ -180,8 +189,9 @@ PARITY_ROWS: list[tuple[str, bytes | None, str]] = [
     ("hash kept: a##b", _row(" a##b"), "a##b"),
     ("hash kept, then a real comment", _row(" team#1 # note"), "team#1"),
     ("tab inside a comment", _row(" x # a\tb"), "x"),
-    ("colon without a following space", _row(" a:b"), "a:b"),
-    ("space before a colon", _row(" a :b"), "a :b"),
+    # `a:b` / `a :b` — plain scalars YAML reads fine, but tmux cannot address
+    # them. They moved to ILLEGAL_NAME_ROWS in t1828; parity now means the
+    # resolvers agree on the FALLBACK, which is that table's contract.
     ("non-ascii", _row(" xé"), "xé"),
     ("NBSP before a hash is content", _row(" team #1"), "team #1"),
     ("trailing NBSP is content", _row(" team#1 "), "team#1 "),
@@ -309,6 +319,33 @@ UNREADABLE_ROWS: list[tuple[str, bytes, str, str]] = [
      b"tmux: !!set\n  default_session: x\n", "invalid_block", "x"),
     ("bare anchor indicator on the tmux header",
      b"tmux: &\n  default_session: x\n", "invalid_block", "x"),
+]
+
+# Names YAML reads perfectly but tmux cannot address: `.` and `:` are tmux
+# target separators, so such a session can be created and never reached (t1828).
+# (fixture, config, the value YAML reads — which every reader now refuses).
+#
+# These are NOT UNREADABLE_ROWS: that table's contract is that YAML disagrees
+# with the naive reading, and here YAML agrees with it. The refusal is about
+# usability, not readability, so it gets its own table and its own oracle
+# control (`test_rows_are_read_faithfully_by_yaml`).
+ILLEGAL_NAME_ROWS: list[tuple[str, bytes, str]] = [
+    ("colon without a following space", _row(" a:b"), "a:b"),
+    ("space before a colon", _row(" a :b"), "a :b"),
+    ("dotted", _row(" a.b"), "a.b"),
+    ("leading dot", _row(" .lead"), ".lead"),
+    ("quoted dotted", _row(" 'x.y'"), "x.y"),
+    ("trailing colon", _row(" 'trail:'"), "trail:"),
+    ("both separators", _row(" 'a.b:c'"), "a.b:c"),
+]
+
+# Punctuation tmux is fine with — the control that keeps the refusal narrow.
+LEGAL_NAME_ROWS: list[tuple[str, bytes, str]] = [
+    ("underscore and dash", _row(" my_proj-2"), "my_proj-2"),
+    ("option-like", _row(" -n"), "-n"),
+    ("inner space", _row(" a b"), "a b"),
+    ("hash inside a plain value", _row(" team#1"), "team#1"),
+    ("slash", _row(" team/one"), "team/one"),
 ]
 
 # Node properties and other inline content after `tmux:`, each followed by an
@@ -559,6 +596,81 @@ class UnreadableScalarTests(unittest.TestCase):
                 self.assertNotEqual(_yaml_backed(root), naive)
 
 
+class IllegalTmuxNameTests(unittest.TestCase):
+    """A configured name tmux cannot address is refused by EVERY reader (t1828).
+
+    t1825 rejected `.`/`:` only where a user *types* a name (`ait ide --session`,
+    `ait setup`'s prompt). A hand-edited `tmux.default_session: a.b` reached tmux
+    through all five resolvers, and `tmux new-session -s a.b` creates a session
+    that `ait_tmux_session_target` can never address.
+    """
+
+    def test_every_resolver_falls_back_to_the_default(self):
+        """The divergence this closes — the YAML-backed readers included."""
+        for name, data, _value in ILLEGAL_NAME_ROWS:
+            with _project(data) as root:
+                for resolver, resolve in RESOLVERS.items():
+                    with self.subTest(fixture=name, resolver=resolver):
+                        self.assertEqual(resolve(root), D)
+
+    def test_both_line_readers_announce_the_shape(self):
+        for name, data, _value in ILLEGAL_NAME_ROWS:
+            with _project(data) as root, self.subTest(fixture=name):
+                self.assertIn("illegal_tmux_name", DEFAULT_SESSION_PROBLEM_SHAPES)
+                self.assertEqual(read_default_session_status(root),
+                                 (D, "illegal_tmux_name"))
+                raw = _bash_raw(root)
+                self.assertEqual((raw.returncode, raw.stdout), (2, ""))
+                self.assertEqual(_sentinel_shape(raw.stderr), "illegal_tmux_name")
+
+    def test_the_warning_names_the_real_problem(self):
+        """Neither pre-existing sentence is true of `a.b` — it IS a single-line
+        plain value, and the file IS valid YAML."""
+        with _project(_row(" a.b")) as root:
+            stderr = _bash_raw(root).stderr
+            self.assertIn("cannot address", stderr)
+            self.assertNotIn("single-line plain or quoted value", stderr)
+            self.assertNotIn("is not valid YAML", stderr)
+
+    def test_rows_are_read_faithfully_by_yaml(self):
+        """ORACLE CONTROL: YAML reads every row exactly as the third column says.
+
+        That is what makes this table a *usability* refusal rather than a
+        readability one, and stops a genuinely unreadable fixture being filed
+        here to dodge UNREADABLE_ROWS' own divergence control.
+        """
+        for name, data, value in ILLEGAL_NAME_ROWS:
+            with self.subTest(fixture=name):
+                self.assertEqual(_yaml_value(data), value)
+
+    def test_an_unreadable_shape_wins(self):
+        """Precedence: the value must be readable before it can be unusable."""
+        rows = [
+            ("block scalar carrying a dotted name",
+             b"tmux:\n  default_session: >-\n    a.b\n", "block_scalar"),
+            ("invalid UTF-8 beside a dotted name",
+             b"tmux:\n  default_session: a.b\n# \xff\n", "encoding"),
+            ("non-printable beside a dotted name",
+             b"tmux:\n  default_session: a.b\n# \x7f\n", "non_printable"),
+            ("tab on a dotted value line",
+             _row(" a.b\t"), "tab_or_control"),
+        ]
+        for name, data, shape in rows:
+            with _project(data) as root, self.subTest(fixture=name):
+                self.assertEqual(read_default_session_status(root), (D, shape))
+                self.assertEqual(_sentinel_shape(_bash_raw(root).stderr), shape)
+
+    def test_legal_punctuation_is_unaffected(self):
+        """CONTROL: the refusal stays narrow — only `.` and `:`."""
+        for name, data, value in LEGAL_NAME_ROWS:
+            with _project(data) as root:
+                for resolver, resolve in RESOLVERS.items():
+                    with self.subTest(fixture=name, resolver=resolver):
+                        self.assertEqual(resolve(root), value)
+                with self.subTest(fixture=name, check="no shape"):
+                    self.assertIsNone(read_default_session_status(root)[1])
+
+
 class HeaderInvariantTests(unittest.TestCase):
     """Whatever follows `tmux:`, the twins match YAML or announce — and agree."""
 
@@ -772,7 +884,7 @@ class GeneratedCorpusInvariantTests(unittest.TestCase):
     def test_every_value_is_read_like_yaml_or_announced_and_twins_agree(self):
         values = _corpus_values()
         failures = []
-        kept_hash = cut_comment = fell_back = agreed = 0
+        fell_back = agreed = illegal = 0
         with _bash_scan_many([_row(v) for v in values]) as scans:
             for value, (rc, b_shape, out, root) in zip(values, scans):
                 b_session = D if rc != 0 or not out.strip() else out
@@ -789,19 +901,47 @@ class GeneratedCorpusInvariantTests(unittest.TestCase):
                 else:
                     if not (p_session == D and rc == 2 and b_shape == p_shape):
                         failures.append(("announcement", value, rc, b_shape, p_shape))
+                    if p_shape == "illegal_tmux_name":
+                        illegal += 1
+                        # The divergence t1828 closes: the YAML-backed reader
+                        # falls back too, even though YAML read the value.
+                        if yaml_session != D:
+                            failures.append(("illegal not refused by yaml reader",
+                                             value, yaml_session))
 
                 if p_shape is None and p_session != D:
                     agreed += 1
-                    if "#" in p_session:
-                        kept_hash += 1
-                    if " #" in value.lstrip(" ") and "#" not in p_session:
-                        cut_comment += 1
                 if p_shape is not None:
                     fell_back += 1
 
+        # kept_hash / cut_comment are generator-shape floors, so they are counted
+        # from PyYAML rather than from the reader's answer (t1828). Sourcing them
+        # from `p_session` tied them to what the reader chooses to return: once
+        # `.`/`:` names started falling back, `cut_comment` dropped 64 -> 42 and
+        # broke its own floor without the generator changing at all. The oracle
+        # states the thing the floor is actually about — that the corpus still
+        # emits hash-bearing and comment-cutting values — and is immune to any
+        # future fallback rule. Rows that are not valid YAML are skipped: they
+        # are announced by both readers and were never in this population.
+        kept_hash = cut_comment = 0
+        for value in values:
+            try:
+                yaml_value = _yaml_value(_row(value))
+            except yaml.YAMLError:
+                continue
+            if yaml_value is None or not str(yaml_value).strip():
+                continue
+            text = str(yaml_value)
+            if "#" in text:
+                kept_hash += 1
+            if " #" in value.lstrip(" ") and "#" not in text:
+                cut_comment += 1
+
         self.assertFalse(failures, f"{len(failures)} failures, first: {failures[:5]}")
+        # Measured on the seeded corpus after t1828: 113 / 75 / 1246 / 681 / 256.
         for label, count in (("kept hash", kept_hash), ("cut comment", cut_comment),
-                             ("fell back", fell_back), ("agreed with YAML", agreed)):
+                             ("fell back", fell_back), ("agreed with YAML", agreed),
+                             ("illegal tmux name", illegal)):
             with self.subTest(floor=label):
                 self.assertGreaterEqual(count, 50, f"generator produced only {count}")
 
@@ -841,6 +981,10 @@ class GeneratedWholeFileMutationTests(unittest.TestCase):
                 elif p_shape in seen:
                     seen[p_shape] += 1
         self.assertFalse(failures, f"{len(failures)} failures, first: {failures[:5]}")
+        # Measured after t1828: encoding 104, non_printable 43, readable 39.
+        # 17 of the 300 fixtures now report illegal_tmux_name instead of being
+        # readable, which is why `readable` sits closer to the floor than the
+        # other two; it is still comfortably above it.
         for label, count in seen.items():
             with self.subTest(floor=label):
                 self.assertGreaterEqual(count, 30, f"generator produced only {count}")

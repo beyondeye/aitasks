@@ -77,6 +77,13 @@ source "$_TMUX_BOOTSTRAP_LIB_DIR/tmux_exec.sh"
 #   * Not detected, by decision (t1825): a structurally invalid line elsewhere in
 #     the file. Only a full YAML parse sees it; there load_tmux_defaults falls
 #     back to "aitasks" while this reader returns the configured value.
+#   * Readable is not the same as usable (t1828). A value the rules above accept
+#     is additionally refused when tmux cannot address it — `.` or `:` anywhere
+#     in the name — as `illegal_tmux_name`, the last shape in precedence and the
+#     only one where YAML read the value correctly. That check lives in
+#     _tmux_bootstrap_default_session_scan_checked, NOT in the awk below, which
+#     keeps reporting only what YAML reads. load_tmux_defaults applies the same
+#     rule, so every reader agrees on a name tmux can target.
 #
 # `tr '\r\000' '\n\001'` gives awk the universal newlines Python's open() applies, so
 # a CRLF blank line (a lone "\r" record) cannot end the block and a CR-only
@@ -150,6 +157,10 @@ _TMUX_BOOTSTRAP_AWK_KEYS='
 # configured", including a missing config file) or `bad<TAB><shape>`, with
 # <shape> from agent_launch_utils.DEFAULT_SESSION_PROBLEM_SHAPES. Writes nothing
 # to stderr and always returns 0; the public helpers below decide what to say.
+#
+# Reports only what YAML reads. Callers wanting the usability rule too (a name
+# tmux cannot address) call _tmux_bootstrap_default_session_scan_checked, which
+# wraps this — both production consumers do.
 _tmux_bootstrap_default_session_scan() {
     local cfg="$1/aitasks/metadata/project_config.yaml"
     if [[ ! -f "$cfg" ]]; then
@@ -342,6 +353,14 @@ _tmux_bootstrap_default_session_scan() {
 _tmux_bootstrap_report_unreadable() {
     printf 'DEFAULT_SESSION_UNREADABLE:%s:%s\n' "$2" "$1" >&2
     case "$2" in
+        illegal_tmux_name)
+            # Neither sentence below is true of `a.b`: it IS a single-line plain
+            # value, and the file IS valid YAML. The value was read correctly and
+            # is simply unusable as a tmux target.
+            # shellcheck disable=SC2016  # the backticks are literal text
+            printf 'Warning: tmux.default_session in %s is a name tmux cannot address (%s: `.` and `:` are tmux target separators); write a name without them\n' "$1" "$2" >&2
+            return 0
+            ;;
         encoding|non_printable)
             printf 'Warning: %s is not valid YAML (%s: invalid UTF-8 or a non-printable character); tmux.default_session cannot be trusted\n' "$1" "$2" >&2
             return 0
@@ -360,7 +379,7 @@ _tmux_bootstrap_report_unreadable() {
 # (--create-only), or to leave the file alone (ait setup).
 _tmux_bootstrap_default_session_raw() {
     local scan
-    scan=$(_tmux_bootstrap_default_session_scan "$1")
+    scan=$(_tmux_bootstrap_default_session_scan_checked "$1")
     case "$scan" in
         bad$'\t'*)
             _tmux_bootstrap_report_unreadable "$1/aitasks/metadata/project_config.yaml" "${scan#bad$'\t'}"
@@ -397,6 +416,32 @@ _tmux_bootstrap_resolve_session() {
 # (which falls back to the default) and `ait ide --session` (which refuses).
 _tmux_bootstrap_session_name_ok() {
     [[ "$1" != *[.:]* ]]
+}
+
+# _tmux_bootstrap_default_session_scan_checked <project_root>
+#
+# _tmux_bootstrap_default_session_scan with one further rejection layered on
+# top: a value the scanner read faithfully but tmux cannot address becomes
+# `bad<TAB>illegal_tmux_name`. Same one-line contract as the scanner.
+#
+# The check is deliberately NOT inside the awk. The scanner's contract is "what
+# YAML reads", and `a.b` is read correctly — it is unusable, not unreadable. So
+# the usability layer sits here, in bash, where it can reuse
+# _tmux_bootstrap_session_name_ok and keep one definition of the rule shared
+# with `ait ide --session` and `ait setup`.
+#
+# Both scan consumers route through this, which is the point: spawn_session_detached
+# reads the scan directly and would otherwise still hand tmux the name (t1828).
+_tmux_bootstrap_default_session_scan_checked() {
+    local scan
+    scan=$(_tmux_bootstrap_default_session_scan "$1")
+    case "$scan" in
+        ok$'\t'?*)
+            _tmux_bootstrap_session_name_ok "${scan#ok$'\t'}" \
+                || scan=$'bad\tillegal_tmux_name'
+            ;;
+    esac
+    printf '%s\n' "$scan"
 }
 
 # _tmux_bootstrap_session_for <project_root> [override]
@@ -625,7 +670,7 @@ spawn_session_detached() {
     fi
 
     local session session_t scan shape
-    scan=$(_tmux_bootstrap_default_session_scan "$root")
+    scan=$(_tmux_bootstrap_default_session_scan_checked "$root")
     if [[ "$scan" == bad$'\t'* ]]; then
         shape="${scan#bad$'\t'}"
         _tmux_bootstrap_report_unreadable "$root/aitasks/metadata/project_config.yaml" "$shape"

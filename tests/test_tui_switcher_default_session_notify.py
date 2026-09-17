@@ -103,6 +103,29 @@ class EnsureSessionLiveNotifyTests(unittest.TestCase):
                 _ok, _ov, _app, warnings = self._run(_entry(problem=shape), rc=0, stderr="")
                 self.assertIn("not valid YAML", warnings[0].args[0])
 
+    def test_an_illegal_name_is_worded_as_a_tmux_target_problem(self):
+        """illegal_tmux_name is neither wording above (t1828).
+
+        The value IS a single-line plain scalar and the file IS valid YAML —
+        it was read correctly and is simply unusable as a tmux target, so it
+        needs its own sentence in both the bash reporter and this notice.
+        """
+        for route, kwargs in (
+            ("stderr", dict(entry=_entry(),
+                            stderr=_real_sentinel_stderr("illegal_tmux_name"))),
+            ("field", dict(entry=_entry(problem="illegal_tmux_name"), stderr="")),
+        ):
+            with self.subTest(route=route):
+                ok, _ov, _app, warnings = self._run(
+                    kwargs["entry"], rc=0, stderr=kwargs["stderr"])
+                self.assertTrue(ok)
+                self.assertEqual(len(warnings), 1)
+                message = warnings[0].args[0]
+                for part in ("proj_b", "target separators", "'aitasks'"):
+                    self.assertIn(part, message)
+                self.assertNotIn("single-line", message)
+                self.assertNotIn("not valid YAML", message)
+
     def test_a_line_shape_keeps_the_value_wording(self):
         """CONTROL for the branch above: a line shape still names the value form."""
         _ok, _ov, _app, warnings = self._run(_entry(problem="block_scalar"), rc=0, stderr="")

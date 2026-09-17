@@ -696,7 +696,12 @@ class TuiSwitcherOverlay(ModalScreen):
         problem = entry.default_session_problem or parse_default_session_unreadable(
             result.stderr or "")
         if problem:
-            if problem in DEFAULT_SESSION_FILE_SHAPES:
+            if problem == "illegal_tmux_name":
+                # Read fine, unusable anyway (t1828) — neither sentence below
+                # applies: it IS a single-line plain value in valid YAML.
+                what = ("tmux.default_session holds `.` or `:`, which tmux "
+                        "reads as target separators")
+            elif problem in DEFAULT_SESSION_FILE_SHAPES:
                 what = f"project_config.yaml is not valid YAML ({problem})"
             else:
                 what = (f"tmux.default_session is not a single-line plain or "

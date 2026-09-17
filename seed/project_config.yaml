@@ -438,6 +438,12 @@ tmux:
   # scalars, flow mappings, or unquoted values YAML reads as a bool, number
   # or date, e.g. yes or 0123) fall back to "aitasks" with a warning.
   #
+  # The name may not contain "." or ":" — tmux reads both as target
+  # separators, so such a session can be created but never addressed. A
+  # value holding either is ignored and "aitasks" is used instead.
+  # `ait ide`, `ait setup` and the TUI switcher say so; the other TUIs
+  # fall back without a message.
+  #
   # Example:
   #   default_session: aitasks
   # ──────────────────────────────────────────────────────────────────

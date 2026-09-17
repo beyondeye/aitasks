@@ -146,6 +146,21 @@ def _normalize_default_session(value: object) -> str:
     return text if text.strip() else DEFAULT_TMUX_SESSION
 
 
+def _tmux_session_name_ok(name: str) -> bool:
+    """False when tmux cannot address ``name``.
+
+    tmux reads ``.`` and ``:`` as target separators, so a session so named can be
+    created and then never reached. Twin of
+    ``tmux_bootstrap.sh::_tmux_bootstrap_session_name_ok``.
+
+    Deliberately kept out of :func:`_normalize_default_session`: that function
+    cannot distinguish its callers, and :func:`read_default_session_status` must
+    still tell an illegal name apart from a blank one to report a shape for it.
+    Both readers apply this check themselves (t1828).
+    """
+    return "." not in name and ":" not in name
+
+
 @dataclass(frozen=True)
 class AitasksSession:
     """A tmux session identified as belonging to an aitasks project.
@@ -732,11 +747,18 @@ _YAML_NULLS = ("", "~", "null", "Null", "NULL")
 #: Every ``shape`` :func:`read_default_session_status` can report. The bash twin
 #: (``tmux_bootstrap.sh::_tmux_bootstrap_default_session_raw``) reports the same
 #: vocabulary in its ``DEFAULT_SESSION_UNREADABLE:<shape>:<cfg>`` sentinel.
+#:
+#: All but the last mean the value could not be *read*. ``illegal_tmux_name``
+#: (t1828) means the opposite: it was read correctly and is simply unusable, so
+#: the "cannot be read" framing does not cover the whole tuple. It is also the
+#: only shape :func:`load_tmux_defaults` reproduces by applying the same rule
+#: rather than by failing to parse.
 DEFAULT_SESSION_PROBLEM_SHAPES = (
     "tab_or_control", "missing_separator", "continuation", "quoted_escape",
     "trailing_content", "block_scalar", "flow_collection", "node_property",
     "indicator", "mapping_indicator", "typed_scalar", "duplicate_key",
     "flow_mapping", "invalid_block", "encoding", "non_printable",
+    "illegal_tmux_name",
 )
 
 #: The shapes that describe the whole file rather than the ``default_session``
@@ -918,7 +940,14 @@ def read_default_session_status(project_root: Path) -> tuple[str, str | None]:
     (YAML keeps the last one), a file that is not valid UTF-8 (``encoding``), and
     a character PyYAML's Reader refuses anywhere in the file (``non_printable``).
     Precedence: ``encoding`` first (nothing else can be read), then the line
-    shapes, then ``non_printable``.
+    shapes, then ``non_printable``, then ``illegal_tmux_name``.
+
+    ``illegal_tmux_name`` (t1828) is the odd one out: the value was read
+    faithfully, but it holds ``.`` or ``:``, which tmux reads as target
+    separators, so the session could be created and never addressed. It comes
+    last because a value must be readable before it can be judged unusable, and
+    it is the one shape :func:`load_tmux_defaults` also honours — by applying
+    the same rule — so no reader is left handing tmux a name it cannot target.
 
     Deliberately NOT detected: a line elsewhere in the file that is structurally
     invalid YAML (e.g. a malformed entry under another top-level key). Only a full
@@ -990,7 +1019,10 @@ def read_default_session_status(project_root: Path) -> tuple[str, str | None]:
         problem = "non_printable"
     if problem is not None:
         return DEFAULT_TMUX_SESSION, problem
-    return _normalize_default_session(value), None
+    session = _normalize_default_session(value)
+    if not _tmux_session_name_ok(session):
+        return DEFAULT_TMUX_SESSION, "illegal_tmux_name"
+    return session, None
 
 
 def _read_default_session(project_root: Path) -> str:
@@ -2166,6 +2198,18 @@ def load_tmux_defaults(project_root: Path) -> dict:
     absent. A blank, null or comment-only ``default_session`` falls back to
     :data:`DEFAULT_TMUX_SESSION` like an absent one; any other value is
     ``str()`` of what YAML read (:func:`_normalize_default_session`).
+
+    One value YAML reads happily is refused anyway: a name holding ``.`` or
+    ``:``, which tmux cannot address (:func:`_tmux_session_name_ok`, t1828).
+    Without that check this reader would keep returning ``a.b`` while the line
+    readers announced ``illegal_tmux_name`` and fell back — and since this is the
+    reader behind session *creation* (agentcrew) and window targeting (board,
+    monitors), it is the one that would actually hand tmux the bad name.
+
+    It reports nothing: the dict has no channel for a problem, so these
+    consumers substitute the default silently. Only the readers that return a
+    shape (:func:`read_default_session_status`, the bash twin) can drive a
+    notice.
     """
     defaults = {
         "default_session": DEFAULT_TMUX_SESSION,
@@ -2183,8 +2227,9 @@ def load_tmux_defaults(project_root: Path) -> dict:
             data = yaml.safe_load(f) or {}
         tmux = data.get("tmux", {})
         if isinstance(tmux, dict):
-            defaults["default_session"] = _normalize_default_session(
-                tmux.get("default_session")
+            session = _normalize_default_session(tmux.get("default_session"))
+            defaults["default_session"] = (
+                session if _tmux_session_name_ok(session) else DEFAULT_TMUX_SESSION
             )
             if "default_split" in tmux:
                 val = str(tmux["default_split"]).lower()

@@ -115,6 +115,64 @@ for v in a.b a:b; do
     assert_eq "ait ide --session '$v' makes no tmux call" "" "$(cat "$STUB_LOG")"
 done
 
+# --- 2c. a CONFIGURED illegal name is refused by the readers too (t1828) ------
+#
+# t1825 covered only the name a user types. A hand-edited `default_session: a.b`
+# was read by every resolver and handed to `tmux new-session -s a.b`, creating a
+# session that can never be addressed.
+
+make_project "$TMP/dotted" 'tmux:\n  default_session: a.b\n'
+
+rc=0
+raw_err="$(bash -c 'source "$1"; _tmux_bootstrap_default_session_raw "$2"' \
+    _ "$LIB" "$TMP/dotted" 2>&1 >/dev/null)" || rc=$?
+assert_eq "raw reader exits 2 on a configured illegal name" "2" "$rc"
+assert_contains "raw reader reports the illegal_tmux_name sentinel" \
+    "DEFAULT_SESSION_UNREADABLE:illegal_tmux_name:" "$raw_err"
+assert_contains "the warning says the name cannot be addressed" \
+    "is a name tmux cannot address" "$raw_err"
+assert_not_contains "the warning does not claim a YAML-form problem" \
+    "single-line plain or quoted value" "$raw_err"
+
+got="$(bash -c 'source "$1"; _tmux_bootstrap_resolve_session "$2"' _ "$LIB" "$TMP/dotted" 2>/dev/null)"
+assert_eq "resolve_session falls back to 'aitasks'" "aitasks" "$got"
+
+# Control: the same reader still returns a legal name with other punctuation.
+make_project "$TMP/legal" 'tmux:\n  default_session: my_proj-2\n'
+got="$(bash -c 'source "$1"; _tmux_bootstrap_resolve_session "$2"' _ "$LIB" "$TMP/legal" 2>/dev/null)"
+assert_eq "resolve_session keeps a legal name" "my_proj-2" "$got"
+
+STUB_LOG="$TMP/ide_dotted.log"
+: > "$STUB_LOG"
+rc=0
+err="$(cd "$TMP/dotted" && isolated TMUX="$TMP/ait,1,0" AITASKS_TMUX_SOCKET=ait \
+    bash "$IDE" 2>&1 >/dev/null)" || rc=$?
+assert_eq "ait ide on a dotted config still reaches the nesting refusal" "1" "$rc"
+assert_contains "ait ide falls back to 'aitasks', not 'a.b'" \
+    "configured session is 'aitasks'" "$err"
+
+# --create-only must refuse rather than create an unaddressable session.
+STUB_LOG="$TMP/create_only_dotted.log"
+: > "$STUB_LOG"
+rc=0
+out="$(isolated bash "$LIB" --create-only "$TMP/dotted" 2>"$TMP/create_only_dotted.err")" || rc=$?
+err="$(cat "$TMP/create_only_dotted.err")"
+assert_eq "--create-only exits 44 on a configured illegal name" "44" "$rc"
+assert_contains "--create-only reports the refusal" \
+    "BOOTSTRAP_FAILED:default_session_unreadable:illegal_tmux_name" "$err"
+assert_not_contains "--create-only claims no creation" "BOOTSTRAP_CREATED:" "$out"
+assert_eq "--create-only makes no tmux call at all" "" "$(cat "$STUB_LOG")"
+
+# Control: ensure mode falls back and creates `aitasks`, never `a.b`.
+STUB_LOG="$TMP/ensure_dotted.log"
+: > "$STUB_LOG"
+rc=0
+isolated bash "$LIB" "$TMP/dotted" >/dev/null 2>"$TMP/ensure_dotted.err" || rc=$?
+assert_eq "ensure mode exits 0 on a dotted config" "0" "$rc"
+assert_contains "ensure mode creates the fallback session" \
+    "new-session" "$(cat "$STUB_LOG")"
+assert_not_contains "ensure mode never names 'a.b' to tmux" "a.b" "$(cat "$STUB_LOG")"
+
 # --- 3. ait ide with an unreadable default_session ----------------------------
 
 make_project "$TMP/block" 'tmux:\n  default_session: >-\n    blocksess\n'
