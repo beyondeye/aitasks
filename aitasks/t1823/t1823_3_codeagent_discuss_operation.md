@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1823
+implemented_with: claudecode/opus5
 created_at: 2026-09-17 09:50
-updated_at: 2026-09-17 15:39
+updated_at: 2026-09-17 22:56
 ---
 
 ## Context
@@ -132,3 +133,8 @@ Tests:
 > | t1823_2's two test files were adopted into this rule in the same commit; their
 > | guarded `cd "$PROJECT_DIR" || exit 1` was left as-is. Advisory only — nothing
 > | here asks you to change your task's scope.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-17T19:56:11Z status=pass attempt=1 type=human
