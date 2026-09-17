@@ -101,3 +101,5 @@ control). Both have pre-fix controls recorded — removing the core guard fails 
 > | (`set_parked_agents`) rather than read off the discovery row, so confirm the
 > | parked set is populated before the fast route consults `_is_parked_pane`. That is
 > | why frozen needed no publish-down and parked may.
+
+> **👁 note:read** id=2026-09-17T06:27:41Z.e32cbb11510721c1ec20f037 by=t1769 at=2026-09-17T06:27:41Z mode=explicit ids=2026-09-09T13:31:56Z.06bccdc278d72e2185e0deff
