@@ -105,3 +105,55 @@ legacy path is unchanged and covered by a negative control.
 ### Goal-achievement risk: low
 None identified. The generated output is pinned byte-for-byte to committed,
 known-good commands.
+
+## Final Implementation Notes
+
+- **Actual work done:** `render_opencode_command` in
+  `.aitask-scripts/aitask_audit_wrappers.sh` gained a `_skill_is_templated` branch
+  (+34 lines) emitting the profile-aware command stub — `opencode_planmode_prereqs.md`
+  + `opencode_tool_mapping.md` includes, the 3-step resolver/render/Read-and-follow
+  body, resolver key `${skill#aitask-}`, `--agent opencode`, and the
+  `.opencode/skills/<skill>-<profile>-/SKILL.md` dispatch target. The legacy heredoc
+  is unchanged and still serves non-templated skills. New test
+  `tests/test_audit_wrappers_render_opencode_command.sh` (64 assertions) pins the
+  output: byte-identical to the committed `aitask-shadow` / `aitask-brainstorm-discuss`
+  commands, body-identical for all 14 templated skills, legacy form preserved for a
+  non-templated skill, and the three `aitask_skill_verify.sh` opencode-cmd markers
+  present in the new form / absent from the legacy one.
+- **Deviations from plan:** none in substance. Two mechanical adjustments: the test
+  routes every audit call through a small `audit()` wrapper that runs
+  `(cd "$PROJECT_DIR" && …)`, because `aitask_audit_wrappers.sh` resolves its repo
+  root from the cwd and `scratch_cwd.sh` starts the file in a non-repo scratch dir;
+  and the red proof used an out-of-tree mutant copy of the script (in the scratchpad,
+  with a symlink to `.aitask-scripts/lib`) rather than any working-tree mutation —
+  31 of 64 assertions fail pre-fix while the legacy-path controls (Test 3, Test 4's
+  legacy half) stay green, so the signal is specific to the fix.
+- **Issues encountered:** the first mutant cut left a dangling `fi` (the excised span
+  had to run through `    fi\n\n` before the legacy `cat <<EOF`, not just to the first
+  `cat <<EOF`), and the copied script needed `lib/` beside it for its
+  `terminal_compat.sh` / `task_utils.sh` sources.
+- **Key decisions:** the templated body stays a literal heredoc duplicated from
+  `render_opencode_skill` rather than being factored into a shared helper — each
+  renderer in this file owns its heredoc, and Test 2 pins the duplicate to the
+  committed commands, which is what would catch drift. Test 2 compares *bodies*
+  because `aitask-pick` / `aitask-pickrem` / `aitask-pickweb` carry a pre-existing
+  description difference (backticks stripped in the committed command) that is a
+  header-only, non-dispatch issue and out of scope here; Test 1 pins two files
+  byte-for-byte.
+- **Verify question answered:** `aitask_skill_verify.sh` **would** have caught a
+  generated legacy command for a templated skill — its opencode-cmd stub-surface
+  check greps for the resolver call, the render call and the trailing-hyphen Read
+  path, and the legacy form has none of the three. `test_opencode_skill_legacy_pointers.sh`
+  was not the gate here. Test 4 records this as an executable control.
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_audit_wrappers.sh:245,~250 — render_agents_skill and
+    render_opencode_skill (and now render_opencode_command) derive the resolver key
+    as `${skill#aitask-}` and ignore the `resolver_key.txt` sidecar that
+    `aitask_skill_verify.sh::_resolver_key_for()` honours. No skill ships a sidecar
+    today, so the two agree by accident; the first one to do so would get generated
+    wrappers that fail the verifier's resolver-call grep.
+  - `.opencode/commands/aitask-pick.md`, `aitask-pickrem.md`, `aitask-pickweb.md` —
+    committed `description:` has the backticks stripped relative to the source
+    `.claude/skills/<skill>/SKILL.md`, so a regenerated command differs from the
+    committed file in the header. Cosmetic (dispatch is unaffected), but it blocks a
+    byte-exact regeneration check over the whole templated set.
