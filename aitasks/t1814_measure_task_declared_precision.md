@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1569
 followup_kind: risk_mitigation
+implemented_with: claudecode/opus5
 created_at: 2026-09-16 09:59
-updated_at: 2026-09-16 11:16
+updated_at: 2026-09-17 08:16
 ---
 
 ## Origin
@@ -77,3 +78,8 @@ the would-have-been CONFLICTs whose precision this task measures.
 - `bash tests/run_all_python_tests.sh --test-dir tests` (read the LAST line only).
 - Record the precision/recall table and the recommendation in the plan's Final
   Implementation Notes, and note it to t1688_2 if that task is still open.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-17T05:16:22Z status=pass attempt=1 type=human
