@@ -275,7 +275,7 @@ Commit code (`enhancement: … (t1814)`), commit plan via
 
 ### Planned mitigations
 - timing: pre-phase | name: baseline_sweep_parity | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — `_tally` refactor could move published plan-sweep numbers | desc: capture sweep output before any edit and diff it byte-for-byte after implementation
-- timing: after | name: creation_time_description_hindsight | type: enhancement | priority: low | effort: medium | inline_risk: low | added_complexity: medium | addresses: goal-achievement — post-hoc description edits may inflate task_declared precision | desc: re-run the description sweep over each archived task file's first data-branch version (git log --diff-filter=A) and compare against the current version to bound hindsight bias
+- timing: after | name: creation_time_description_hindsight | type: enhancement | priority: low | effort: medium | inline_risk: low | added_complexity: medium | addresses: goal-achievement — post-hoc description edits may inflate task_declared precision | desc: re-run the description sweep over each archived task file's first data-branch version (git log --diff-filter=A) and compare against the current version to bound hindsight bias | created: t1824
 
 ## Implementation progress (2026-09-17)
 
