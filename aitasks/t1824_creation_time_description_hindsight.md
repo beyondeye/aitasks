@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1569
 followup_kind: risk_mitigation
+implemented_with: claudecode/opus5
 created_at: 2026-09-17 09:02
-updated_at: 2026-09-17 09:36
+updated_at: 2026-09-17 10:44
 ---
 
 ## Origin
@@ -64,3 +65,8 @@ Key files: `.aitask-scripts/lib/parallel_admission_collect.py`
 (`sweep_population`, `_archived_task_paths`),
 `.aitask-scripts/lib/parallel_admission_sweep.py`, and the measurement tables in
 `aiplans/archived/p1814_measure_task_declared_precision.md`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-17T07:44:21Z status=pass attempt=1 type=human
