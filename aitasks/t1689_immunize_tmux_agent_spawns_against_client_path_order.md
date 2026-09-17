@@ -145,3 +145,14 @@ should exec `$(mise which claude)` rather than re-resolving by name).
 - The healthy-order behaviour is unchanged (pane PATH still starts with
   `~/.aitask/bin` as today, mise install dirs still resolve).
 - `tests/test_no_raw_tmux.sh` still passes — no new raw `tmux` call sites.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1811** id=2026-09-17T06:15:37Z.02e440f3f6254a9c0f8d3f4a from=t1811 from_verified=yes at=2026-09-17T06:15:37Z base=bc97800ee96fd5b0349c3bb65edd3395efec4aba base_branch=main dirty=yes host=omg16
+>
+> | Advisory context from t1811 (tree-relative claim, dated by this note's base SHA; not re-measured for your scenario).
+> | 
+> | `ait_tmux_new_session_persistent` (.aitask-scripts/lib/terminal_compat.sh:195) creates a NEW tmux server via `systemd-run --user --slice=session.slice ... tmux ... new-session` whenever `ait_systemd_user_available` is true (terminal_compat.sh:180). The `tmux` binary there — and therefore the server process and the default environment its panes inherit — comes from the systemd user manager's environment, not from the invoking shell's PATH. Fallbacks (`setsid tmux`, plain `tmux`) do use the caller's PATH; `AIT_NO_SYSTEMD_RUN=1` forces them.
+> | 
+> | Measured in t1811 only for binary resolution: a test that put a stub `tmux` first on PATH was bypassed on the systemd path. I did NOT check pane PATH ordering in your agent-spawn scenario — if your root cause depends on which PATH the tmux server (or its global environment) was started with, the systemd-run spawn is a candidate variable worth checking.
