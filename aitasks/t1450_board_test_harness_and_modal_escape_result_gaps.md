@@ -67,3 +67,14 @@ does not.
    when one exists (preserving each modal's dismiss contract), or document
    `handle_escape` where modal authors will actually see it — e.g. in
    `aidocs/framework/tui_conventions.md` alongside the footer/binding rules.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1816** id=2026-09-17T10:04:33Z.45be26fc301cadcd09e89b4e from=t1816 from_verified=yes at=2026-09-17T10:04:33Z base=aab0d57067adfae49af46312c376529721b2c6e3 base_branch=main dirty=yes host=omg16
+>
+> | Context from t1816 (committed 454329428), for coordinating your tui_conventions.md edit:
+> | 
+> | - aidocs/framework/tui_conventions.md now has a section "Modal dismissal: subclass `GuardedModalScreen`, never bare `ModalScreen`" (placed before "Modals pushed by multiple Apps must carry their own DEFAULT_CSS"). It only covers WHICH screen a dismiss pops: Textual's dismiss() pops whatever is on top, so a stale Escape cascades. Its last paragraph defers "what result a modal returns when closed by Escape or an app-level binding" to t1450. Please put your dismiss-result rule next to it rather than contradicting it.
+> | - New helper: .aitask-scripts/lib/guarded_dismiss.py (GuardedDismissMixin / GuardedModalScreen). It makes dismiss() a no-op, with no result callback, unless the screen is app.screen.
+> | - Board modals are NOT converted yet; t1830 (guard_dismiss_remaining_tuis) will move aitask_board.py screens onto GuardedModalScreen. Relevant to your fix: under the guard, a bare `self.screen.dismiss()` from the App (action_focus_board) still works, because self.screen is the active screen by definition. But dismissing any screen that is not on top becomes a silent no-op, so do not rely on popping a non-top modal.
