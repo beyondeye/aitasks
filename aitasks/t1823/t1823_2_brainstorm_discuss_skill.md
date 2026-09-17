@@ -185,3 +185,5 @@ Separate aitasks for the Codex CLI and OpenCode behavioural ports of this skill.
 > | - Exit 0 for every lookup result. Exit 2 (stderr message, no stdout) for a malformed task number (must match ^[0-9]+(_[0-9]+)?$) or node id. With no node ids, every node is listed. Paths are repo-relative and the helper works from any directory.
 > | 
 > | This is advisory: check the format against the helper's header comment or `--help` before relying on it.
+
+> **👁 note:read** id=2026-09-17T10:03:51Z.a4cabe564bbc51581241e337 by=t1823_2 at=2026-09-17T10:03:51Z mode=explicit ids=2026-09-17T09:52:49Z.05cbd47b937116aeb739d292
