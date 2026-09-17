@@ -23,7 +23,7 @@ source "$SCRIPT_DIR/lib/agent_string.sh"
 # come from lib/agent_string.sh.
 
 DEFAULT_COAUTHOR_DOMAIN="aitasks.io"
-SUPPORTED_OPERATIONS=(pick explain batch-review qa explore explore-relay raw shadow learn work-report trail)
+SUPPORTED_OPERATIONS=(pick explain batch-review qa explore explore-relay raw shadow learn work-report trail discuss)
 
 # Codex TUI overrides carried by every Codex launch (t1797). codex-cli 0.154.0
 # animates a Braille "starfield" (U+2800-U+28FF) around and inside the idle
@@ -440,7 +440,7 @@ build_invoke_command() {
     # undetectably, so reject both before per-agent dispatch (including under
     # --dry-run). Passthrough operations preserve argv and are excluded.
     case "$operation" in
-        pick|explain|qa|shadow|learn|work-report|trail)
+        pick|explain|qa|shadow|learn|work-report|trail|discuss)
             local skill_arg
             for skill_arg in "${args[@]}"; do
                 if [[ -z "$skill_arg" ]]; then
@@ -493,6 +493,10 @@ build_invoke_command() {
                 trail)
                     # claude --model <id> "/aitask-trail <args>"
                     CMD+=("/aitask-trail ${args[*]}")
+                    ;;
+                discuss)
+                    # claude --model <id> "/aitask-brainstorm-discuss <task_num> <node_id>..."
+                    CMD+=("/aitask-brainstorm-discuss ${args[*]}")
                     ;;
                 batch-review)
                     # Interactive by default (no billing surcharge); opt into
@@ -576,6 +580,7 @@ build_invoke_command() {
                         learn)   prompt=$(build_skill_prompt "\$aitask-learn-skill" "${args[@]}") ;;
                         work-report) prompt=$(build_skill_prompt "\$aitask-work-report" "${args[@]}") ;;
                         trail)   prompt=$(build_skill_prompt "\$aitask-trail" "${args[@]}") ;;
+                        discuss) prompt=$(build_skill_prompt "\$aitask-brainstorm-discuss" "${args[@]}") ;;
                         *) die "operation not wired into the codex composer: $operation" ;;
                     esac
                     CMD=("$binary" "${CODEX_TUI_OVERRIDES[@]}" "$model_flag" "$cli_id" "$prompt")
@@ -607,6 +612,9 @@ build_invoke_command() {
                     ;;
                 trail)
                     CMD+=("--prompt" "/aitask-trail ${args[*]}")
+                    ;;
+                discuss)
+                    CMD+=("--prompt" "/aitask-brainstorm-discuss ${args[*]}")
                     ;;
                 batch-review|raw)
                     if [[ -n "$OPT_RESUME_SESSION" ]]; then
@@ -697,7 +705,7 @@ Options:
   -h, --help             Show this help
 
 Operations: pick, explain, batch-review, qa, explore, explore-relay, raw,
-            shadow, learn, work-report, trail
+            shadow, learn, work-report, trail, discuss
   explore-relay: chat-native explore spawned by the chatlink gateway
   (claudecode only). Requires --headless plus CHATLINK_RELAY_DIR and
   CHATLINK_BUG_REPORT_FILE in the environment.
