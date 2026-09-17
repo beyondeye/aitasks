@@ -331,13 +331,13 @@ archive per task-workflow Step 9.
 - The `t1_alpha.md` truncation stays unexplained. Transcripts, reflog and code
   search rule out a Claude-run test and any other writer in `tests/`, but not a
   git rewrite inside `.aitask-data` or a non-Claude agent · severity: medium ·
-  → mitigation: live_tree_leak_tripwire
+  → mitigation: t1832
 - The audit covers bash tests only. A Python test that `os.chdir`s into the
   repo and fails a fixture step is outside the lint (none found today) ·
-  severity: low · → mitigation: live_tree_leak_tripwire
+  severity: low · → mitigation: t1832
 
 ### Planned mitigations
-- timing: after | name: live_tree_leak_tripwire | type: test | priority: low | effort: medium | inline_risk: low | added_complexity: medium | addresses: unexplained t1_alpha.md truncation; bash-only audit scope | desc: Snapshot the live aitasks/ (names, sizes, mtimes) before and after run_all_python_tests.sh and fail loudly if a suite run changed it
+- timing: after | name: live_tree_leak_tripwire | type: test | priority: low | effort: medium | inline_risk: low | added_complexity: medium | addresses: unexplained t1_alpha.md truncation; bash-only audit scope | desc: Snapshot the live aitasks/ (names, sizes, mtimes) before and after run_all_python_tests.sh and fail loudly if a suite run changed it | created: t1832
 - timing: post-phase | name: sample_cwd_regression_review | type: test | priority: low | effort: low | inline_risk: low | added_complexity: low | addresses: cwd dependence and new early exits in edited files whose baseline cannot prove behavior unchanged | desc: Review edited files whose baseline run skipped or failed for relative writes before any cd and for exit guards in cleanup paths
 
 ## Post-Review Changes
