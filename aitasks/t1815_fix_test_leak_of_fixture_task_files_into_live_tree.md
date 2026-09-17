@@ -60,3 +60,8 @@ Reproduce first — run each suspect test from a dirty cwd and watch whether
 would leave the `cd` target missing and could drop the writes into the live
 tree). Fix that test's isolation (cwd or TASK_DIR), then delete the three files
 with a path-scoped `./ait git` commit once no other session owns them.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-17T06:02:26Z status=pass attempt=1 type=human
