@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: high
 depends: [t1794_4]
 issue_type: refactor
@@ -181,3 +183,5 @@ proof this child changed nothing observable in `ait board`.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-09-17T11:50:13Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-09-17T12:41:58Z status=pass attempt=1 type=human
