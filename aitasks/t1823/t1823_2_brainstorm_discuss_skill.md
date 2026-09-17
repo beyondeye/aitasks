@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1823
+implemented_with: claudecode/opus5
 created_at: 2026-09-17 09:50
-updated_at: 2026-09-17 13:04
+updated_at: 2026-09-17 14:50
 ---
 
 ## Context
@@ -192,3 +193,8 @@ Separate aitasks for the Codex CLI and OpenCode behavioural ports of this skill.
 > | This is advisory: check the format against the helper's header comment or `--help` before relying on it.
 
 > **👁 note:read** id=2026-09-17T10:03:51Z.a4cabe564bbc51581241e337 by=t1823_2 at=2026-09-17T10:03:51Z mode=explicit ids=2026-09-17T09:52:49Z.05cbd47b937116aeb739d292
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-17T11:50:21Z status=pass attempt=1 type=human
