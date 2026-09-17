@@ -11,7 +11,7 @@
         "changelog": 97,
         "explore": 98,
         "revert": 100,
-        "test_414_flags": 90,
+        "test_414_flags": 91,
         "qa": 100,
         "wrap": 100,
         "work-report": 80,
@@ -89,8 +89,8 @@
         },
         "test_414_flags": {
           "all_time": {
-            "runs": 79,
-            "score_sum": 7140
+            "runs": 80,
+            "score_sum": 7240
           },
           "prev_month": {
             "period": "2026-08",
@@ -99,13 +99,13 @@
           },
           "month": {
             "period": "2026-09",
-            "runs": 4,
-            "score_sum": 400
+            "runs": 5,
+            "score_sum": 500
           },
           "week": {
-            "period": "2026-W37",
-            "runs": 4,
-            "score_sum": 400
+            "period": "2026-W38",
+            "runs": 1,
+            "score_sum": 100
           }
         },
         "qa": {
