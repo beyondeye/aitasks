@@ -353,3 +353,84 @@ as an unvalidated free-text field (`settings/settings_app.py:277`,
 `TMUX_CONFIG_SCHEMA`, `type: string`) — a third way to write a name tmux cannot
 address. Reader-side fallback neutralizes it, but the TUI should refuse it at the
 point of entry, as `ait setup` and `ait ide` already do. `upstream_defect`.
+
+## Final Implementation Notes
+
+- **Actual work done:** as planned. `illegal_tmux_name` is now a problem shape
+  reported by both line readers and honoured by `load_tmux_defaults`, so all five
+  resolvers refuse a configured name holding `.` or `:` and fall back to
+  `aitasks`.
+  - bash: `_tmux_bootstrap_default_session_scan_checked` wraps the awk scanner
+    and reuses `_tmux_bootstrap_session_name_ok`, keeping one definition of the
+    rule. **Both** scan consumers route through it — `_tmux_bootstrap_default_session_raw`
+    and `spawn_session_detached`, which reads the scan directly.
+  - `_tmux_bootstrap_report_unreadable` and `tui_switcher.py` each gained a third
+    wording arm; neither existing sentence is true of `a.b`.
+  - Python: `_tmux_session_name_ok` twin, applied in `read_default_session_status`
+    (last in precedence) and in `load_tmux_defaults` (the divergence closed).
+  - `seed/project_config.yaml` documents the rule and names only the surfaces
+    that actually report it.
+
+- **Deviations from plan:**
+  - **The plan's oracle-floor numbers were wrong.** It claimed `kept_hash` /
+    `cut_comment` would "hold at 108 / 64" once sourced from PyYAML. Measured:
+    **113 / 75**. The oracle population is the YAML-*parseable* rows, which is
+    strictly larger than the reader-*readable* rows (a block scalar parses for
+    YAML but is announced by the line reader). Both are far above the floor of
+    50, so the fix stood; only the recorded numbers changed.
+  - The plan's `_yaml_value(_row(value))` needed a `yaml.YAMLError` guard — the
+    corpus is deliberately unfiltered, so many rows are not valid YAML and
+    `_yaml_value` raises on them. Those rows are announced by both readers and
+    were never in that population.
+  - Added `LEGAL_NAME_ROWS` and `test_legal_punctuation_is_unaffected` beyond the
+    plan, to pin the refusal as narrow (`my_proj-2`, `-n`, `a b`, `team#1`,
+    `team/one` all still read).
+  - `GeneratedWholeFileMutationTests` needed no logic change, as planned; only a
+    measured-numbers comment was added.
+
+- **Issues encountered:**
+  - **A pre-existing t1825 defect blocked verification and was fixed in its own
+    commit** (`c4292217b`, user-approved scope decision):
+    `_tmux_bootstrap_default_session_scan` set `LC_ALL=C` on the awk stage but
+    left the `tr` feeding it in the caller's locale. BSD `tr` (macOS) reads its
+    input as characters and aborts with "Illegal byte sequence" on invalid UTF-8,
+    truncating the stream — so the bytes the `ENC_BAD` state machine exists to
+    find never reached awk and `encoding` was silently never reported. 12 tests
+    were red on macOS before any t1828 change; all 12 pass with the locale set.
+    GNU `tr` is byte-oriented, which is why t1825 shipped green on Linux.
+  - Two `PARITY_ROWS` rows (`a:b`, `a :b`) had to move to `ILLEGAL_NAME_ROWS`;
+    leaving them failed `ResolverParityTests` and `ReadableRowsReportNoProblemTests`.
+
+- **Key decisions:**
+  - The usability check lives in bash, **not** in the awk. The scanner's contract
+    is "what YAML reads", and `a.b` is read correctly — it is unusable, not
+    unreadable. Keeping awk pure also avoided a fourth spelling of the rule.
+  - `illegal_tmux_name` is **not** a `DEFAULT_SESSION_FILE_SHAPES` member: it is a
+    value shape, and it is last in precedence because a value must be readable
+    before it can be judged unusable.
+  - `kept_hash` / `cut_comment` are now counted from PyYAML rather than from the
+    reader's answer. Those floors are about the *generator*; tying them to what
+    the reader returns is what broke `cut_comment` (64 → 42) without the
+    generator changing at all.
+
+- **Verification:**
+  - Pre-fix control: `IllegalTmuxNameTests` failed 44 times across all five
+    resolvers, while both of its controls passed — so the fixtures were sound and
+    the test was not vacuous.
+  - Negative control: reverting only the `spawn_session_detached` call site
+    produced `BOOTSTRAP_CREATED:a.b` and `tmux has-session -t =a.b` — exactly the
+    bug. This is the call site a `_raw`-only fix would have missed.
+  - Post-fix: resolvers 31/31, ide 55/55, setup 55/55, switcher notify 7/7.
+  - **Full Python suite: PASSED (runner=unittest, exit=0)** — 7882 tests, 7
+    skipped. No pytest/xdist tier on this box, so the serial lane ran (~1118s).
+  - `shellcheck` clean on `tmux_bootstrap.sh`.
+  - No false positive: the live repo (`default_session: aitasks`) and the seed
+    (blank) both still read with no shape.
+  - Post-phase mitigation `remeasure_corpus_floors` done: measured live at
+    113 / 75 / 1246 / 681 / 256 and 104 / 43 / 39, recorded beside each floor.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/settings/settings_app.py:277` — `TMUX_CONFIG_SCHEMA["default_session"]`
+    is an unvalidated free-text string field, so `ait settings` is a third way to
+    write a name tmux cannot address. Reader-side fallback neutralizes it, but the
+    TUI should refuse it at the point of entry as `ait setup` and `ait ide` do.
