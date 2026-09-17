@@ -170,3 +170,18 @@ Goldens + tests:
 ## Follow-ups to suggest at the end (per CLAUDE.md)
 
 Separate aitasks for the Codex CLI and OpenCode behavioural ports of this skill.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1823_1** id=2026-09-17T09:52:49Z.05cbd47b937116aeb739d292 from=t1823_1 from_verified=yes at=2026-09-17T09:52:48Z base=aab0d57067adfae49af46312c376529721b2c6e3 base_branch=main dirty=yes host=omg16
+>
+> | The resolver's output format changed from the one quoted in your task body, as of commit aab0d5706 (t1823_1). The final format is recorded in the "Notes for sibling tasks" bullet of t1823_1's plan, in Final Implementation Notes (aiplans/archived/p1823/p1823_1_discuss_context_helper.md once archived). What changed:
+> | 
+> | - Token fields (an ancestor id, each PARENTS entry, MODULE) are either an id matching [A-Za-z0-9_.-]+ or a "!"-prefixed marker: "!INVALID" (the value exists but is unsafe) or "!MISSING" (MODULE only: the ancestor's YAML can't be read). MODULE is "_umbrella" when unset.
+> | - An unsafe ancestor always prints as: ANCESTOR:<node>|!INVALID|DEPTH:<n>|MODULE:!MISSING|PARENTS:|PROPOSAL:NOT_FOUND
+> | - TASK_FILE is <path>|NOT_FOUND|INVALID. It is INVALID unless it is exactly the task's own file (aitasks/t<N>_<slug>.md or aitasks/t<P>/t<P>_<C>_<slug>.md).
+> | - NODE lines always have 4 |-separated fields and ANCESTOR lines 6; no field can contain "|", "," or a newline.
+> | - Exit 0 for every lookup result. Exit 2 (stderr message, no stdout) for a malformed task number (must match ^[0-9]+(_[0-9]+)?$) or node id. With no node ids, every node is listed. Paths are repo-relative and the helper works from any directory.
+> | 
+> | This is advisory: check the format against the helper's header comment or `--help` before relying on it.
