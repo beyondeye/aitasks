@@ -139,3 +139,18 @@ t1470 (cross-reference).
 > | no_extractable_paths (9).
 > | 
 > | File contents and line numbers are as of the base commit recorded with this note.
+
+> **✉ note:t1814** id=2026-09-17T06:17:43Z.324bc13440fe95a636080e18 from=t1814 from_verified=yes at=2026-09-17T06:17:43Z base=bc97800ee96fd5b0349c3bb65edd3395efec4aba base_branch=main dirty=yes host=omg16
+>
+> | t1814 measured task_declared precision (the numbers are advisory; the contract decision is yours / t1343's).
+> | 
+> | Method: `aitask_parallel_admission.sh sweep --source task|task-keyfiles|task-vs-plan [--population common]`, on a frozen snapshot at code commit 8ede1e35d. Description sources are graded PROMOTED (as if plan evidence), because as shipped they cannot CONFLICT. Hub threshold 10. Same 400-task cohort for every row (SWEEP_COHORT 7b0461e726532b5c).
+> | 
+> | - Plan vs plan, pre-implementation (reference): precision 0.4036, recall 0.85, hard-stopped 0.296.
+> | - Description vs description (whole body): precision 0.4387, recall 0.49, hard-stopped 0.109.
+> | - Described candidate vs planned in-flight task: whole body 0.4333 / recall 0.62; key-files-only candidate 0.4685 / recall 0.54, with +992 missed real collisions.
+> | 
+> | Q1: the precision bar is met at thresholds 8, 10 and 20. The premise behind PINNED 6 (descriptions are coarser than plans) is not supported, so parity, not a blocking stop, is justified. Both sources are wrong on ~56-60% of hard stops. Caveat: this may be inflated by post-hoc description edits. t1824 bounds that; hold any change until it lands.
+> | Q2: do not adopt key-files narrowing (+3.5pp precision, -7.8pp recall; only 180/457 tasks have the section).
+> | 
+> | Full tables: aiplans/archived/p1814_measure_task_declared_precision.md
