@@ -95,3 +95,5 @@ staleness it exists to catch.
 > | 
 > | 4. OVERLAP: t1705_10's new workflow page has a "When something goes wrong"
 > |    section covering the same route. Write it once and link from the other.
+
+> **👁 note:read** id=2026-09-17T12:29:04Z.f246b58f2977d8685401eea3 by=t1778 at=2026-09-17T12:29:04Z mode=explicit ids=2026-09-10T18:36:59Z.3c148acffd8605f0bf51f877
