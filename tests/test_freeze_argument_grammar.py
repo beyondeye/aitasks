@@ -45,6 +45,9 @@ sys.path.insert(0, str(PROJECT_DIR / ".aitask-scripts" / "lib"))
 import agent_freeze  # noqa: E402
 from monitor.monitor_core import PaneCategory  # noqa: E402
 
+#: The real mutator, captured before `_GrammarCase` replaces it with a spy.
+_REAL_FREEZE_ALL = agent_freeze.freeze_all
+
 
 def _pane(pane_id, session, window, *, category=PaneCategory.AGENT,
           frozen_record=""):
@@ -212,6 +215,79 @@ class DryRunTests(_GrammarCase):
             rc, out = self.run_main(["freeze", "--all", "--dry-run"])
         self.assertEqual(rc, 0)
         self.assertEqual(out.strip().splitlines()[-1], "FREEZE_ELIGIBLE:1")
+
+
+class SharedSelectionTests(_GrammarCase):
+    """`freeze_all` acts on the SAME selection the listing counts (t1767).
+
+    It used to restate the discovery loop and both filters inline, so the
+    confirmation count and the freeze it authorised agreed only by coincidence.
+    These drive the real `freeze_all` (captured above) with `freeze_pane` still
+    spied, so nothing is frozen.
+    """
+
+    def frozen_by_real_freeze_all(self):
+        results = _REAL_FREEZE_ALL()
+        return results, list(self.froze_panes)
+
+    def test_freeze_all_acts_on_exactly_the_eligible_listing(self):
+        listed = [p.pane_id for p in agent_freeze.freeze_all_eligible()]
+        _results, frozen = self.frozen_by_real_freeze_all()
+        self.assertEqual(frozen, listed)
+        self.assertEqual(frozen, ["%1", "%2", "%9"])
+
+    def test_both_callers_read_the_one_selector(self):
+        """The anti-drift pin. The fake selector returns a TUI pane the real
+        filters would reject, so a mutation that kept its own copy of the rule
+        would not freeze it — and would not report the vanished session."""
+        helper = FAKE_PANES["aitasks"][3]          # %4, a TUI pane
+
+        def fake_selector():
+            yield "aitasks", [helper], None
+            yield "gone", None, OSError("vanished")
+
+        with patch.object(agent_freeze, "_eligible_by_session", fake_selector):
+            listed = [p.pane_id for p in agent_freeze.freeze_all_eligible()]
+            results, frozen = self.frozen_by_real_freeze_all()
+        self.assertEqual(listed, ["%4"])
+        self.assertEqual(frozen, ["%4"])
+        self.assertIn("FREEZE_FAILED:resolve|gone|vanished",
+                      [r.line for r in results])
+
+    def test_freeze_all_still_scans_lazily_per_session(self):
+        """Sharing the selection must not turn it into an up-front scan: a
+        session's panes are frozen before the next session is enumerated."""
+        events = []
+
+        def scan(session):
+            events.append(("scan", session))
+            return list(FAKE_PANES[session])
+
+        def freeze(pane_id, **kw):
+            events.append(("freeze", pane_id))
+            return agent_freeze.FreezeResult(pane_id, True, "", f"FROZEN:{pane_id}")
+
+        with patch.object(agent_freeze, "_agent_panes_for", scan), \
+                patch.object(agent_freeze, "freeze_pane", freeze):
+            _REAL_FREEZE_ALL()
+        self.assertLess(events.index(("freeze", "%2")),
+                        events.index(("scan", "otherproj")))
+
+    def test_a_vanished_session_is_reported_by_the_mutation(self):
+        """The difference the refactor must keep: the listing skips a vanished
+        session (see `DryRunTests`), the mutation reports it."""
+        def boom(session):
+            if session == "aitasks":
+                raise OSError("session vanished")
+            return list(FAKE_PANES[session])
+
+        with patch.object(agent_freeze, "_agent_panes_for", boom):
+            results, frozen = self.frozen_by_real_freeze_all()
+        self.assertEqual(frozen, ["%9"])
+        failed = [r for r in results if not r.ok]
+        self.assertEqual(len(failed), 1)
+        self.assertEqual(failed[0].line,
+                         "FREEZE_FAILED:resolve|aitasks|session vanished")
 
 
 if __name__ == "__main__":

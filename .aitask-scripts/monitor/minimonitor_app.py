@@ -953,6 +953,13 @@ class MiniMonitorApp(
     _monitor: "TmuxMonitor | None" = None
     _project_root: "Path | None" = None
 
+    # The own panel's cached sessions reader (t1765), built on first use by
+    # `_own_frozen_at`. A CLASS-level None rather than an `__init__` assignment
+    # for the `__new__`-built-test reason above — and here a missing attribute
+    # would not even fail loudly: `_own_frozen_at`'s broad `except` would turn
+    # it into "record unreadable".
+    _own_sessions_view: "agent_sessions.SessionsView | None" = None
+
     CSS = """
     /* Top chrome. NEVER re-add `dock:` to any of these four (t1499). Textual
        places same-edge docked siblings at the SAME offset instead of stacking
@@ -2637,8 +2644,15 @@ class MiniMonitorApp(
         record_id = snap.frozen_record_id
         if not record_id:
             return ""
+        # One reader for the app's lifetime, so an unchanged store costs a stat
+        # rather than a re-parse on every tick (t1765). No `invalidate()`: this
+        # app never writes the store (restore/drop run detached), and every
+        # write is an `os.replace`, whose new inode the stamp already catches.
         try:
-            rec = agent_sessions.SessionsView().by_id(record_id)
+            view = self._own_sessions_view
+            if view is None:
+                view = self._own_sessions_view = agent_sessions.SessionsView()
+            rec = view.by_id(record_id)
         except Exception:  # noqa: BLE001 - an unreadable store is not fatal here
             return ""
         return (rec.frozen_at or "") if rec is not None else ""

@@ -22,6 +22,17 @@ parked branch lands immediately beside that drop, so the drop's own semantics ar
 pinned first and separately — a parked pane must not be routed down the
 failed-capture path, and a failed capture must not start looking parked.
 
+SECOND CAPTURE ROUTE (t1769): `FastPreviewRouteTests` and
+`FastPreviewAppRouteTests` pin the same no-capture rule on
+`capture_pane_classified_async` + `commit_snapshot`, the single-pane route
+`_fast_preview_refresh` uses and then writes into `_snapshots` unconditionally.
+Without the guard, focusing a parked card replaced its `parked=True` snapshot.
+The two `FastPreviewAppRouteTests` race tests pin why no commit-time re-check
+is needed: a fast capture that was already in flight when the agent was parked
+is either rejected by the generation guard, because the full refresh that
+delivers the park reserved a newer generation, or commits first and is then
+overwritten by that refresh.
+
 NEGATIVE CONTROL for the characterization: make `commit_snapshots` emit a
 snapshot for a `result is None` entry -> `test_a_failed_capture_produces_no_
 snapshot` fails. Make it drop the pane id from the `_clean_stale` set ->
@@ -29,6 +40,7 @@ snapshot` fails. Make it drop the pane id from the `_clean_stale` set ->
 """
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import os
 import sys
@@ -458,6 +470,251 @@ class RefreshOrderingTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(order[:2], ["publish", "capture"])
         self.assertIn(("demo", "agent-parked"), published[0])
+
+
+class FastPreviewRouteTests(unittest.IsolatedAsyncioTestCase):
+    """The SECOND capture route must honour the no-capture rule (t1769).
+
+    `capture_pane_classified_async` + `commit_snapshot` is what
+    `monitor_app._fast_preview_refresh` uses, and it had no parked branch — the
+    bulk route's exclusion never applied to the focused pane.
+    """
+
+    def _monitor(self, p, parked=()):
+        mon = _monitor()
+        self.captured: list[str] = []
+
+        async def fake_capture(pane_id, capture_lines=None, pane=None):
+            self.captured.append(pane_id)
+            return (p, "content")
+
+        async def run_offloaded(fn):
+            return fn()
+
+        mon._pane_cache[p.pane_id] = p
+        mon.capture_pane_content_async = fake_capture
+        mon._run_offloaded = run_offloaded
+        mon.set_parked_agents(set(parked))
+        return mon
+
+    async def test_a_parked_pane_is_not_captured_on_the_fast_route(self):
+        p = pane("demo", "agent-parked", "%2")
+        mon = self._monitor(p, parked={("demo", "agent-parked")})
+
+        gen, got, content, result = await mon.capture_pane_classified_async("%2")
+
+        self.assertEqual(self.captured, [],
+                         "the parked pane reached capture_pane_content_async")
+        self.assertIs(got, p)
+        self.assertEqual(content, "")
+        self.assertTrue(result.parked)
+        self.assertFalse(result.frozen)
+
+    async def test_the_control_shows_a_live_pane_is_still_captured(self):
+        """NEGATIVE CONTROL: an unparked pane, and one whose window is not the
+        parked pair, are captured exactly as before."""
+        p = pane("demo", "agent-live", "%1")
+        mon = self._monitor(p)
+        await mon.capture_pane_classified_async("%1")
+        self.assertEqual(self.captured, ["%1"])
+
+        other = pane("demo", "agent-live", "%3")
+        mon = self._monitor(other, parked={("demo", "agent-other")})
+        _, _, _, result = await mon.capture_pane_classified_async("%3")
+        self.assertEqual(self.captured, ["%3"])
+        self.assertFalse(result.parked)
+
+    async def test_the_single_pane_commit_returns_a_parked_snapshot(self):
+        p = pane("demo", "agent-parked", "%2")
+        mon = self._monitor(p, parked={("demo", "agent-parked")})
+
+        gen, got, content, result = await mon.capture_pane_classified_async("%2")
+        snap = mon.commit_snapshot(gen, got, content, result)
+
+        self.assertTrue(snap.parked)
+        self.assertFalse(snap.frozen)
+        self.assertEqual(snap.content, "")
+
+    async def test_the_single_pane_commit_bypasses_the_idle_clock(self):
+        p = pane("demo", "agent-parked", "%2")
+        mon = self._monitor(p, parked={("demo", "agent-parked")})
+
+        gen, got, content, result = await mon.capture_pane_classified_async("%2")
+        mon.commit_snapshot(gen, got, content, result)
+
+        self.assertNotIn("%2", mon._last_content)
+
+    async def test_a_superseded_generation_still_commits_nothing(self):
+        """The parked branch lands after the generation guard, not before it."""
+        p = pane("demo", "agent-parked", "%2")
+        mon = self._monitor(p, parked={("demo", "agent-parked")})
+
+        gen, got, content, result = await mon.capture_pane_classified_async("%2")
+        mon._next_generation()          # a newer capture reserves
+        self.assertIsNone(mon.commit_snapshot(gen, got, content, result))
+
+
+class FastPreviewAppRouteTests(unittest.IsolatedAsyncioTestCase):
+    """The same route, driven through the mounted APP that uses it (t1769).
+
+    The defect is visible as a reverting preview, not as a core call, so the
+    core tests above are not sufficient on their own: `_fast_preview_refresh`
+    writes `self._snapshots[pane_id] = snap` unconditionally and repaints.
+    """
+
+    LIVE = "LIVE CONTENT FROM THE CAPTURE"
+
+    async def _app(self, p, barrier: bool = False):
+        from monitor.monitor_app import MonitorApp
+
+        mon = _monitor()
+        self.captured: list[str] = []
+        self.entered = asyncio.Event()
+        self.release = asyncio.Event()
+
+        async def fake_capture(pane_id, capture_lines=None, pane=None):
+            self.captured.append(pane_id)
+            if barrier:
+                self.entered.set()
+                await self.release.wait()
+            return (p, self.LIVE)
+
+        async def fake_discover(enum_sink=None):
+            if enum_sink is not None:
+                enum_sink.append(frozenset({"demo"}))
+            return [p], []
+
+        async def run_offloaded(fn):
+            return fn()
+
+        mon._pane_cache[p.pane_id] = p
+        mon.capture_pane_content_async = fake_capture
+        mon.discover_panes_with_shadows_async = fake_discover
+        mon._run_offloaded = run_offloaded
+
+        app = MonitorApp(session="demo", project_root=REPO_ROOT)
+        return app, mon
+
+    @staticmethod
+    def _parked_snap(p):
+        return monitor_core.PaneSnapshot(
+            pane=p, content="", timestamp=0.0, idle_seconds=0.0,
+            is_idle=False, awaiting_input=False, parked=True)
+
+    @staticmethod
+    async def _full_refresh_commit(app, mon):
+        """The full refresh's capture-and-commit half, as `_refresh_data` runs
+        it: what delivers a park to a fast capture that was already in flight
+        (a capture started after the park commits parked on its own)."""
+        gen, classified = await mon.capture_all_classified_async()
+        if mon.capture_generation != gen:
+            return
+        snaps = mon.commit_snapshots(gen, classified)
+        if snaps is not None:
+            app._snapshots = snaps
+
+    async def test_focusing_a_parked_pane_does_not_overwrite_its_snapshot(self):
+        """THE defect, at the layer it is visible."""
+        p = pane("demo", "agent-parked", "%2")
+        app, mon = await self._app(p)
+        async with app.run_test(size=(120, 40)):
+            app._monitor = mon
+            mon.set_parked_agents({("demo", "agent-parked")})
+            app._focused_pane_id = "%2"
+            app._snapshots["%2"] = self._parked_snap(p)
+
+            await app._fast_preview_refresh()
+
+            self.assertEqual(self.captured, [], "the app captured a parked pane")
+            snap = app._snapshots["%2"]
+            self.assertTrue(snap.parked, "the parked flag was overwritten")
+            self.assertEqual(snap.content, "")
+
+    async def test_the_preview_shows_the_parked_placeholder_not_stale_output(
+            self):
+        p = pane("demo", "agent-parked", "%2")
+        app, mon = await self._app(p)
+        async with app.run_test(size=(120, 40)) as pilot:
+            app._monitor = mon
+            mon.set_parked_agents({("demo", "agent-parked")})
+            app._focused_pane_id = "%2"
+            app._snapshots["%2"] = self._parked_snap(p)
+
+            await app._fast_preview_refresh()
+            await pilot.pause()
+
+            rendered = app.query_one("#content-preview").render()
+            plain = getattr(rendered, "plain", str(rendered))
+            self.assertIn("parked", plain)
+            self.assertNotIn(self.LIVE, plain)
+
+    async def test_the_control_shows_a_live_focused_pane_is_still_captured(
+            self):
+        """NEGATIVE CONTROL: without it the assertions above would pass for an
+        app whose fast preview had simply stopped working."""
+        p = pane("demo", "agent-live", "%1")
+        app, mon = await self._app(p)
+        async with app.run_test(size=(120, 40)):
+            app._monitor = mon
+            app._focused_pane_id = "%1"
+
+            await app._fast_preview_refresh()
+
+            self.assertEqual(self.captured, ["%1"])
+            self.assertFalse(app._snapshots["%1"].parked)
+            self.assertEqual(app._snapshots["%1"].content, self.LIVE)
+
+    async def test_a_park_during_an_in_flight_fast_refresh_stays_parked(self):
+        """Barrier-controlled race: the fast capture checks "not parked", the
+        agent is parked and a full refresh commits while the capture is still
+        in flight, then the capture returns. The generation guard must reject
+        it — the parked check is deliberately not repeated at commit time."""
+        p = pane("demo", "agent-racy", "%2")
+        app, mon = await self._app(p, barrier=True)
+        async with app.run_test(size=(120, 40)):
+            app._monitor = mon
+            app._focused_pane_id = "%2"
+
+            task = asyncio.create_task(app._fast_preview_refresh())
+            await asyncio.wait_for(self.entered.wait(), timeout=5)
+
+            mon.set_parked_agents({("demo", "agent-racy")})
+            await self._full_refresh_commit(app, mon)
+            self.assertTrue(app._snapshots["%2"].parked)
+
+            self.release.set()
+            await asyncio.wait_for(task, timeout=5)
+
+            self.assertEqual(self.captured, ["%2"],
+                             "the full refresh captured the parked pane")
+            snap = app._snapshots["%2"]
+            self.assertTrue(snap.parked,
+                            "the in-flight fast capture overwrote the parked "
+                            "snapshot")
+            self.assertEqual(snap.content, "")
+
+    async def test_a_park_after_the_fast_commit_ends_parked_too(self):
+        """The other interleaving: the fast capture commits before the full
+        refresh. It only overwrote an ordinary snapshot, and the refresh then
+        writes the parked one."""
+        p = pane("demo", "agent-racy", "%2")
+        app, mon = await self._app(p, barrier=True)
+        async with app.run_test(size=(120, 40)):
+            app._monitor = mon
+            app._focused_pane_id = "%2"
+
+            task = asyncio.create_task(app._fast_preview_refresh())
+            await asyncio.wait_for(self.entered.wait(), timeout=5)
+            mon.set_parked_agents({("demo", "agent-racy")})
+            self.release.set()
+            await asyncio.wait_for(task, timeout=5)
+            self.assertFalse(app._snapshots["%2"].parked)
+            self.assertEqual(app._snapshots["%2"].content, self.LIVE)
+
+            await self._full_refresh_commit(app, mon)
+
+            self.assertTrue(app._snapshots["%2"].parked)
+            self.assertEqual(app._snapshots["%2"].content, "")
 
 
 class _FakeCache:
