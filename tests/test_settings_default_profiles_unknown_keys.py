@@ -96,6 +96,12 @@ class NegativeControlTests(_Fixture):
         """
         self.assertIn("shadow", VALID_PROFILE_SKILLS)
 
+    def test_brainstorm_discuss_is_a_known_skill(self):
+        """t1823_2: the brainstorm discuss skill resolves a profile under the
+        key `brainstorm-discuss` (its stub's resolver key), so the settings TUI
+        must treat `default_profiles.brainstorm-discuss` as editable."""
+        self.assertIn("brainstorm-discuss", VALID_PROFILE_SKILLS)
+
 
 class SavePathTests(_Fixture):
     def test_unknown_key_survives_save(self):
