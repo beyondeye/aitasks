@@ -203,3 +203,18 @@ trail actions once, under `board`.
 > | - Inert-patch sweeps must cover direct assignment (module.name = spy) and addCleanup(setattr, ...), not only patch.object — two such stubs were found only by the widened sweep.
 > | - Source guards should scan bf.board_module_paths() / bf.board_modules_tree() (tests/lib/board_fixture.py) with per-file anti-vacuity, not aitask_board.py alone.
 > | - Line numbers in your task/plan that cite aitask_board.py are stale by ~2,400 lines; re-derive against the current tree. Details: aiplans/archived/p1794/p1794_4_*.md "Notes for sibling tasks" (after archival).
+
+> **✉ note:t1794_5** id=2026-09-17T12:43:46Z.1b1baf0a3180dabb34316b1b from=t1794_5 from_verified=yes at=2026-09-17T12:43:46Z base=13818b52ff2f3bd4db48602000d6f8c6dc65d907 base_branch=main dirty=yes host=omg16
+>
+> | t1794_5 landed (code commit 13818b52f): the By-Trail App half is `TrailScreenMixin` in .aitask-scripts/board/board_trail_screen.py. Tree-relative claims below are dated by that commit; re-derive before acting. Advisory only.
+> | 
+> | Host contract as implemented (differs from your task/plan text in places):
+> | - `_after_dialog_command(refocus_filename="")` takes the refocus filename (run_dialog_command's suspend path passes it). Your plan says `_after_dialog_command()`.
+> | - `_refresh_subtitle` is OWNED BY THE MIXIN (not a host member). Its non-trail fallback writes "Auto-refresh: …" from `manager.auto_refresh_minutes` / `manager.settings`; override it in TrailsApp if that text is wrong for a stand-alone app.
+> | - The mixin has no __init__: call `self._init_trail_state()` from TrailsApp.__init__.
+> | - TrailHost members (pinned in tests/test_trail_screen_host_protocol.py EXPECTED_MEMBERS): manager, tasks_dir, base_filter, sub_title, title, refresh_board, _focused_card, _modal_is_active, _get_focused_col_id, _queue_refocus, apply_filter, refresh_bindings, _banner_budget, _after_dialog_command, _trail_task_target, notify, push_screen, pop_screen, set_interval, call_after_refresh, query_one, query, suspend. `_banner_budget`, `_focused_card`, `_modal_is_active`, `_get_focused_col_id`, `_queue_refocus`, `apply_filter` stay in aitask_board.py, so TrailsApp needs its own.
+> | - REQUIRED_WIDGETS: HeaderTitle (a Header), #trail_summary > #trail_summary_body, #board_container. MANAGER_MEMBERS: load_tasks, task_datas, child_task_datas, find_task_including_archived, auto_refresh_minutes, settings.
+> | - `M`/`S` refusal: `_has_trail_capability(action)` is `hasattr` over TRAIL_ACTION_CAPABILITIES (trail_move_wave: _review_then, _choose_move_destination, _column_title, marked, _reject_stale, _apply_move_to_column; trail_sync: _run_sync). Defining none of them makes both actions return early; your check_action gate is still needed for the footer.
+> | - `TRAIL_BINDINGS` (9 objects incl. `enter view_details`) and a `TRAIL_BINDING` action map are exported; the board places each object individually, and `*TRAIL_BINDINGS` works as-is for TrailsApp.
+> | - Extension point: add TrailsApp to `HOSTS` in tests/test_trail_screen_host_protocol.py.
+> | - Patch targets: `resolve_key` (used by action_trail_refresh_agent), `find_terminal`, `spawn_in_terminal`, `discover_trails`, `_trail_versions`, `load_trail_blob`, `run_trail_drift`, `resolve_dry_run_command`, `AgentCommandScreen`, `launch_in_tmux` are read from board_trail_screen. Details: aiplans/archived/p1794/p1794_5_*.md "Notes for sibling tasks" (after archival).
