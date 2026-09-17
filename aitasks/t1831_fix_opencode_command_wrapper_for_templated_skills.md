@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1823
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5
 created_at: 2026-09-17 15:25
-updated_at: 2026-09-17 15:39
+updated_at: 2026-09-17 22:19
 ---
 
 ## Origin
@@ -45,3 +46,8 @@ For a templated skill that `@`-includes the *Claude* stub, which tells the agent
 ## Suggested fix
 
 Add a `_skill_is_templated` branch to `render_opencode_command` emitting the shadow/trail command-stub shape (resolver key `${skill#aitask-}`), and a test that renders `render-wrapper opencode-command <templated skill>` and diffs it against a committed profile-aware command (e.g. aitask-shadow). Also check whether `aitask_skill_verify.sh`'s stub-surface check rejects the legacy form for a templated skill.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-17T19:19:30Z status=pass attempt=1 type=human
