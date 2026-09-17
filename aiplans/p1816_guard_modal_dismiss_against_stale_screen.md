@@ -236,13 +236,13 @@ Current-branch mode: no merge; post-implementation runs the gate orchestrator
 
 ### Code-health risk: low
 - Overriding `dismiss` changes behavior for all 16 brainstorm screens at once; a dismiss issued while a child screen is legitimately on top (e.g. a worker/timer-driven close) would now silently no-op instead of popping. Exploration found no such site, and the no-op is logged, but a missed one would present as "dialog won't close" · severity: low (residual — addressed by inline post-phase audit_dismiss_while_covered) · → mitigation: inline post-phase audit_dismiss_while_covered
-- The ~314 sites in other TUIs remain unguarded after this task, so the convention is enforced only in brainstorm · severity: low · → mitigation: guard_dismiss_remaining_tuis
+- The ~314 sites in other TUIs remain unguarded after this task, so the convention is enforced only in brainstorm · severity: low · → mitigation: t1830
 
 ### Goal-achievement risk: low
 - The red proof simulates stale dispatch by calling `action_close()` directly rather than reproducing the terminal key-dispatch interleaving, so the live `H`+rapid-`Esc` check stays manual · severity: low · → mitigation: none (manual verification offered at Step 8c)
 
 ### Planned mitigations
-- timing: after | name: guard_dismiss_remaining_tuis | type: bug | priority: medium | effort: high | inline_risk: high | added_complexity: high | addresses: code-health — other TUIs' ~314 dismiss sites stay unguarded | desc: Convert board/monitor/settings/syncer/chatlink/other TUI screens to lib/guarded_dismiss.GuardedModalScreen and extend the AST enforcement test to their directories
+- timing: after | name: guard_dismiss_remaining_tuis | type: bug | priority: medium | effort: high | inline_risk: high | added_complexity: high | addresses: code-health — other TUIs' ~314 dismiss sites stay unguarded | desc: Convert board/monitor/settings/syncer/chatlink/other TUI screens to lib/guarded_dismiss.GuardedModalScreen and extend the AST enforcement test to their directories | created: t1830
 - timing: post-phase | name: audit_dismiss_while_covered | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — a legitimate covered-screen dismiss silently no-ops | desc: Audit worker/timer/callback dismiss paths in brainstorm and pin the child-result-callback parent dismiss with a pilot test
 
 ## Post-Review Changes
