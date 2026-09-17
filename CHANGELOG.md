@@ -1,5 +1,65 @@
 # Changelog
 
+## v0.35.1
+
+### Features
+
+- **Frozen agents in monitor and minimonitor** (t1705_7): Both monitors now show frozen agents as their own rows, with counters, a shared filter, and keys to restore or drop them.
+- **Holder pane and prompt state in sync deferrals** (t1725_4): When a sync is deferred because another session holds a file, the report names that agent's tmux pane and says whether it is waiting on a question.
+- **Shadow shortcodes and task-in-plain-words** (t1771): Each shadow companion capability now has a short `>` code, listed in the greeting, and a new `>t` summarizes the task in plain words on request.
+
+### Bug Fixes
+
+- **Codex update prompt detected** (t1522): The monitors now flag Codex's "update available" screen as waiting for input.
+- **Per-file sync deferral reports** (t1725_3): `ait syncer` now shows which file was deferred, which task holds it, and what would clear it, instead of a single summary count.
+- **Automerge never drops a commit on a failed probe** (t1747_2): If the automerge step can't read the conflict state during a pull/rebase, it stops instead of assuming it is safe to skip the commit.
+- **Sync permission checks fail safe** (t1747_3): Four git checks in `ait sync` now refuse when they error, instead of treating the error as permission to go ahead.
+- **`ait create` aborts on a failed id claim** (t1755): Create no longer writes and commits a task file with no id when claiming the id fails.
+- **Scoped `git commit` sites on main** (t1762): The 26 places where procedures told agents to run a plain `git commit` on `main` now name their paths.
+- **Pre-existing Python suite failures fixed** (t1763): Fixed three failing test modules; no production code changed.
+- **Frozen-agent viewer honors restore grace** (t1766): The viewer's restore deadline now follows the project's `frozen.restore_ack_grace` instead of a hardcoded 40s.
+- **Link-relevance self-check hardened** (t1770): `check_link_relevance.py` now runs its self-check controls before reporting.
+- **Upgrade keeps your CHANGELOG.md** (t1772): `ait upgrade` and fresh installs no longer overwrite or delete the project's own root `CHANGELOG.md`.
+- **Restore after the window was closed** (t1773): A frozen agent whose window was closed, or whose tmux server was restarted, now restores into a new window.
+- **Minimonitor bottom-pin test deflaked** (t1774): This test no longer fails intermittently when the parallel test lane is under load.
+- **Frozen-drop dialog wording** (t1777): The drop dialog's wording and button label now match across the monitors and the viewer.
+- **Docs README links** (t1782): Rewrote `docs/README.md` as a section index with working links.
+- **Safer freeze-side pane kills** (t1783): Freeze and drop only kill or respawn a tmux pane after confirming the pane still belongs to that agent.
+- **Restore with no session for the project** (t1784): A frozen agent can now be restored even when no tmux session exists for its project.
+- **Automerge loop tests deflaked** (t1789): Git's rerere and background maintenance are now turned off while task data is being merged, fixing tests that failed under load.
+- **Codex idle animation no longer defeats idle detection** (t1797): Codex's animated idle screen no longer keeps its pane looking active in the monitors and the shadow companion.
+- **Parallel-admission fixture date rot** (t1799): Replay fixtures no longer start failing as calendar time passes.
+- **Blank `default_session` handled consistently** (t1800): A blank, null, or commented `default_session` now resolves to the same tmux session name in every part of the framework.
+- **Restore keeps the agent string** (t1802): Restoring an agent no longer clears the agent string on its stored record.
+- **Session-hook install test counts every assertion** (t1803): The test now counts the assertions that run inside subshells, so a failure there can no longer pass unnoticed.
+- **Codex restore picks its own session** (t1804): With several Codex agents in one repo, freeze now records each agent's own session, so restore no longer resumes another agent's conversation.
+- **Freeze keeps the stored session id** (t1807): Freezing an agent whose session hook has not run yet no longer clears the stored session id.
+- **Trail plans in linked worktrees** (t1809): Trail gathering no longer rejects valid plan references when run from a linked worktree.
+
+### Improvements
+
+- **Parallel admission reads task descriptions** (t1688_1): The parallel-admission checker now works out which files an in-flight task will touch from its description when the task has no plan yet.
+- **Diverged data branch converges** (t1731): When a rebase is blocked, `ait sync` now tries a guarded merge (only when both sides changed different files and the merge is clean) instead of deferring.
+- **Link-relevance checker decisions** (t1768): Decided, from measurements, to keep the link-relevance report separate from `check_links.py`. Added a subject-of-page label and a script that replays the check against past versions of the docs.
+- **Board split: package contract** (t1794_1): Laid the groundwork for splitting the board into modules: guard tests, a characterization golden, and a size baseline.
+- **Board split: widgets** (t1794_2): Moved the board's general-purpose widgets into their own module.
+- **Board split: trail view** (t1794_3): Moved the pure By-Trail view code into its own module.
+
+### Documentation
+
+- **Notes documentation** (t1657_6): Website and internal docs for task notes and the `/aitask-note` skill.
+- **Frozen-agent TUI docs** (t1705_9): New website pages for the frozen-agent viewer.
+- **Fail-open git probe audit** (t1747_1): An internal doc listing every git check that treats an error as permission, with the rule and the fix for each.
+- **Docs gaps since v0.34.1** (t1760): Filled the documentation gaps found for recent releases.
+
+### Tests
+
+- **Frozen agents acceptance test** (t1705_8): An end-to-end acceptance suite for the freeze and restore flows.
+
+### Maintenance
+
+- **Dead-end link sweep** (t1759): Added `check_link_relevance.py`, which reports doc links whose target page never mentions what the link names, and fixed the links it found.
+
 ## v0.35.0
 
 ### Features
