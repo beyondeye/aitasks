@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: [t1823_2]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [codeagent, skills]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1823
 created_at: 2026-09-17 09:50
-updated_at: 2026-09-17 09:50
+updated_at: 2026-09-17 15:39
 ---
 
 ## Context
