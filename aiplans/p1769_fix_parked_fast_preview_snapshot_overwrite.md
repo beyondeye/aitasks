@@ -40,8 +40,11 @@ already accepts. No new publish-down is needed.
 parked check runs once, before the tmux await, and there is deliberately **no
 second check at commit time**. The generation guard already covers the race:
 
-- A `parked=True` snapshot can only reach `App._snapshots` through a full
-  refresh. That refresh calls `_publish_parked_agents()` synchronously
+- The race case is a fast capture that already passed the parked check and is
+  still in flight when the agent is parked. (A capture that *starts* after the
+  publish takes the new guard and commits a parked snapshot itself, so that case
+  is not a race.) For the in-flight capture, the park reaches
+  `App._snapshots` through the full refresh. That refresh calls `_publish_parked_agents()` synchronously
   (`monitor_app.py:1047`), then `capture_all_classified_async` reserves its
   generation `g_full` before its first await (`monitor_core.py`, first statement
   of the method).
@@ -53,8 +56,9 @@ second check at commit time**. The generation guard already covers the race:
 - **If it commits before,** it overwrites an *ordinary* snapshot, because the
   pane has not been rendered as parked yet, and the full refresh then writes the
   parked snapshot on top. The final state is parked either way.
-- The mark-toggle publish (`monitor_shared.py:870`) writes no snapshot, so a
-  parked snapshot still only arrives through the full refresh it schedules.
+- The mark-toggle publish (`monitor_shared.py:870`) writes no snapshot itself.
+  For a capture already in flight, the parked snapshot arrives through the full
+  refresh that the toggle schedules.
 - The reverse direction (unparking) has no window: the parked guard returns
   without awaiting, so `_fast_preview_refresh` commits in the same synchronous
   run.
@@ -185,3 +189,29 @@ None identified.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-09-17)
+- **Requested by user:** the `capture_pane_classified_async` docstring stated as
+  a general rule that a parked snapshot reaches the App only through a full
+  refresh. This change makes the fast route commit parked snapshots too, so the
+  claim is false in general.
+- **Changes made:** narrowed the explanation to the race case (a capture already
+  in flight when the agent is parked) in the core docstring, in the parked test
+  module docstring and `_full_refresh_commit` helper, and in this plan's
+  "Commit-time state semantics" section. No behaviour change.
+- **Files affected:** `.aitask-scripts/monitor/monitor_core.py`,
+  `tests/test_monitor_parked_capture.py`
+
+## Final Implementation Notes
+- **Actual work done:** Added a parked guard to `capture_pane_classified_async`, placed after the frozen guard, which returns before the tmux await. Added a `result.parked` branch to `commit_snapshot`, placed after the generation guard and the frozen branch, which routes to `_parked_snapshot`. Added `FastPreviewRouteTests` (5) and `FastPreviewAppRouteTests` (5, mounted) to `tests/test_monitor_parked_capture.py`: T1–T8, with T7 as two barrier-controlled race tests covering both interleavings. Added the frozen-and-parked precedence pin (T9) to `tests/test_monitor_frozen_capture.py`.
+- **Deviations from plan:** T2 tests two negative controls (an unparked pane, and a parked pair from a different window) in one test method. T8's live-pane control is its own test method. The docstring wording was narrowed after review; see Post-Review Changes.
+- **Issues encountered:** None. The mounted app tests run inside `run_test` with the fake monitor swapped in, as in the frozen suite's precedent. No timer interference was observed.
+- **Key decisions:** No commit-time parked re-check. The generation guard already rejects an in-flight fast capture that the park-delivering full refresh superseded, and T7 pins that. Pre-fix controls:
+  - **C1**, parked guard removed: 5 failures (T1, T3, T4, T6, T8 placeholder).
+  - **C2**, commit branch removed: 4 failures (T3, T4, T6, T8 placeholder).
+  - **C3**, guards swapped: 1 failure (T9).
+  - **C4**, generation checks removed from `commit_snapshot` and `_fast_preview_refresh`: T7's in-flight case fails, plus the superseded-generation test in both suites.
+  - Code restored after each control. All non-live `test_monitor_*` / `test_minimonitor_*` modules pass. The full suite was not run, because this session is inside tmux and the live suites need an external terminal.
+- **Upstream defects identified:** None
