@@ -46,6 +46,7 @@ if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 
 from agent_launch_utils import (  # noqa: E402
+    DEFAULT_TMUX_SESSION,
     PROJECT_GROUP_UNGROUPED_LABEL,
     AitasksSession,
     advance_group_selection,
@@ -58,6 +59,7 @@ from agent_launch_utils import (  # noqa: E402
     group_members,
     group_sessions,
     load_tmux_defaults,
+    parse_default_session_unreadable,
     resolve_selected_key,
     tmux_session_target,
     tmux_window_target,
@@ -686,6 +688,19 @@ class TuiSwitcherOverlay(ModalScreen):
                 severity="error",
             )
             return False
+        # The bootstrap succeeded, but under the fallback name if the project's
+        # tmux.default_session could not be read (t1811). This is the one moment
+        # the user is creating that session, so say so: the discovery-time field
+        # and the helper's stderr sentinel are two routes to the same shape.
+        problem = entry.default_session_problem or parse_default_session_unreadable(
+            result.stderr or "")
+        if problem:
+            self.app.notify(
+                f"{entry.project_name}: tmux.default_session is not a single-line "
+                f"plain or quoted value ({problem}); using session "
+                f"'{DEFAULT_TMUX_SESSION}'",
+                severity="warning",
+            )
         # Flip the cached entry to live so _teleport_if_cross and any
         # follow-up actions in this overlay session no longer re-trigger
         # the bootstrap. Dataclass is frozen, so replace only is_live via

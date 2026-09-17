@@ -351,6 +351,13 @@ def _bootstrap_project_session(root: str) -> tuple[str, str]:
     helper's own ``BOOTSTRAP_CREATED:<name>``. Every other outcome — an exit 0
     that reported no creation included — returns ``("", <reason>)``.
 
+    An unreadable ``tmux.default_session`` is one of those refusals
+    (``default_session_unreadable:<shape>``, t1811): `--create-only` will not
+    create a session under the fallback name, because this detached restore has
+    no way to warn about the fallback. The reason travels the ordinary failure
+    path — `_launch_into_new_window` → `_rollback` → ``last_error`` →
+    `restore_verdict` — so the viewer shows it and the record stays restorable.
+
     Why a new session rather than the invoking pane's: a project's agents live
     in that project's one session (`aidocs/framework/tui_conventions.md`), which
     `ait monitor` maps back to the project root; and a restore from a bare shell,
@@ -376,6 +383,8 @@ def _bootstrap_project_session(root: str) -> tuple[str, str]:
             return "", "session_name_taken:" + line.split(":", 2)[2].strip()
         if line.startswith("BOOTSTRAP_FAILED:stale_path"):
             return "", "stale_path"
+        if line.startswith("BOOTSTRAP_FAILED:default_session_unreadable:"):
+            return "", "default_session_unreadable:" + line.split(":", 2)[2].strip()
     lines = [ln.strip() for ln in stderr.splitlines() if ln.strip()]
     return "", lines[-1] if lines else f"rc={done.returncode}"
 

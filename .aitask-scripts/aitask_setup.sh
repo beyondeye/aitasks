@@ -4104,26 +4104,45 @@ setup_git_tui() {
 }
 
 # --- Tmux default_session detection and configuration ---
+# Read and write through lib/tmux_bootstrap.sh — the reader `ait ide`, the TUI
+# switcher and frozen-agent restore resolve with — so setup's "configured?"
+# answer and what it writes are exactly what those paths will read (t1811). It
+# runs in an isolated `bash -c`: sourcing the lib here would pull in
+# terminal_compat.sh and redefine this script's [ait]-prefixed
+# info/warn/success/die for the rest of setup.
+_setup_tmux_bootstrap_call() {
+    bash -c 'source "$1" || exit 3; shift; "$@"' _ "$SCRIPT_DIR/lib/tmux_bootstrap.sh" "$@"
+}
+
+# _set_tmux_default_session_config <config_file> <name>
+#
+# Sets tmux.default_session to <name> only if the result reads back as <name>:
+# the edit is rendered into a scratch project and read there first, so a name no
+# YAML spelling carries (or a control character) leaves the real file untouched
+# and returns 1.
 _set_tmux_default_session_config() {
     local config_file="$1" value="$2"
-    local tmpf
-    tmpf=$(mktemp)
-
-    if grep -qE '^[[:space:]]*default_session:' "$config_file"; then
-        # Update existing default_session line
-        sed "s/^\([[:space:]]*\)default_session:.*/\1default_session: $value/" "$config_file" > "$tmpf" \
-            && cat "$tmpf" > "$config_file" && rm "$tmpf"
-    elif grep -qE '^tmux:[[:space:]]*$' "$config_file"; then
-        # tmux: section exists, append default_session inside it
-        awk -v val="$value" '
-            /^tmux:[[:space:]]*$/ { print; print "  default_session: " val; next }
-            { print }
-        ' "$config_file" > "$tmpf" && cat "$tmpf" > "$config_file" && rm "$tmpf"
-    else
-        # No tmux: section — append whole block
-        { cat "$config_file"; printf '\ntmux:\n  default_session: %s\n' "$value"; } > "$tmpf" \
-            && cat "$tmpf" > "$config_file" && rm "$tmpf"
+    local literal tmproot readback rc=0
+    if ! literal=$(_setup_tmux_bootstrap_call _tmux_bootstrap_yaml_session_literal "$value"); then
+        warn "tmux session name '$value' cannot be written as a YAML value"
+        return 1
     fi
+    tmproot=$(mktemp -d)
+    mkdir -p "$tmproot/aitasks/metadata"
+    if ! _setup_tmux_bootstrap_call _tmux_bootstrap_render_default_session "$config_file" "$literal" \
+            > "$tmproot/aitasks/metadata/project_config.yaml"; then
+        rm -rf "$tmproot"
+        warn "Could not render tmux default_session into $config_file"
+        return 1
+    fi
+    readback=$(_setup_tmux_bootstrap_call _tmux_bootstrap_default_session_raw "$tmproot" 2>/dev/null) || rc=$?
+    if [[ $rc -ne 0 || "$readback" != "$value" ]]; then
+        rm -rf "$tmproot"
+        warn "tmux session name '$value' would not read back as written; leaving project_config.yaml unchanged"
+        return 1
+    fi
+    cat "$tmproot/aitasks/metadata/project_config.yaml" > "$config_file"
+    rm -rf "$tmproot"
 }
 
 setup_tmux_default_session() {
@@ -4135,10 +4154,18 @@ setup_tmux_default_session() {
         return
     fi
 
-    # Skip if already set (non-empty value)
-    local current
-    current=$(grep -E '^[[:space:]]*default_session:' "$config_file" 2>/dev/null | sed 's/.*default_session:[[:space:]]*//' || true)
-    if [[ -n "$current" ]]; then
+    # Skip if already configured. rc 2 means a value is set that the resolvers
+    # cannot read — the reader has already reported it on stderr. Leave it alone:
+    # rewriting a shape we do not parse could corrupt it (e.g. duplicate the
+    # `tmux:` block after a flow mapping). Any other failure reads as "not
+    # configured", so setup prompts — the fail-safe, idempotent direction.
+    local current rc=0
+    current=$(_setup_tmux_bootstrap_call _tmux_bootstrap_default_session_raw "$project_dir") || rc=$?
+    if [[ $rc -eq 2 ]]; then
+        warn "tmux default_session is set but not readable — leaving it untouched; edit $config_file by hand"
+        return
+    fi
+    if [[ $rc -eq 0 && -n "$current" ]]; then
         success "tmux default_session already configured: $current"
         return
     fi
@@ -4162,12 +4189,23 @@ setup_tmux_default_session() {
         session_name="$default_name"
     fi
 
-    _set_tmux_default_session_config "$config_file" "$session_name"
+    if ! _set_tmux_default_session_config "$config_file" "$session_name"; then
+        if [[ "$session_name" == "$default_name" ]]; then
+            warn "tmux default_session write failed"
+            return
+        fi
+        warn "Falling back to '$default_name'"
+        session_name="$default_name"
+        _set_tmux_default_session_config "$config_file" "$session_name" || {
+            warn "tmux default_session write failed"
+            return
+        }
+    fi
 
-    # Verify the write took effect
-    local after_write
-    after_write=$(grep -E '^[[:space:]]*default_session:' "$config_file" 2>/dev/null | sed 's/.*default_session:[[:space:]]*//' || true)
-    if [[ "$after_write" != "$session_name" ]]; then
+    # Verify the write took effect, through the same reader the resolvers use
+    local after_write rc_after=0
+    after_write=$(_setup_tmux_bootstrap_call _tmux_bootstrap_default_session_raw "$project_dir" 2>/dev/null) || rc_after=$?
+    if [[ $rc_after -ne 0 || "$after_write" != "$session_name" ]]; then
         warn "tmux default_session write failed — expected '$session_name' but got '$after_write'"
     else
         success "tmux default_session configured: $session_name"

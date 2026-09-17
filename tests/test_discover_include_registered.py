@@ -269,6 +269,35 @@ class IncludeRegisteredTests(unittest.TestCase):
         # manually for documentation; the real check is on result.
         self.assertEqual(live_entry.project_name, "shared")
 
+    def test_unreadable_default_session_is_carried_on_the_entry(self):
+        # t1811: registry synthesis never prints (it runs inside TUIs), so the
+        # problem travels on the entry for a session-creating consumer to show.
+        proj = _make_fake_project(self.tmp / "proj_block", default_session=">-")
+        self._set_registry([("proj_block", proj)])
+        entry = discover_aitasks_sessions(include_registered=True)[0]
+        self.assertEqual(entry.session, "aitasks")
+        self.assertEqual(entry.default_session_problem, "block_scalar")
+
+    def test_readable_default_session_carries_no_problem(self):
+        # Control for the test above: the same fixture shape with a plain name.
+        proj = _make_fake_project(self.tmp / "proj_plain", default_session="plainsess")
+        self._set_registry([("proj_plain", proj)])
+        entry = discover_aitasks_sessions(include_registered=True)[0]
+        self.assertEqual(entry.session, "plainsess")
+        self.assertIsNone(entry.default_session_problem)
+
+    def test_problem_survives_the_live_flip_and_is_not_identity(self):
+        # The switcher flips is_live with dataclasses.replace; the field must
+        # survive it, and it must not leak into the unique key (t1099).
+        import dataclasses
+        proj = _make_fake_project(self.tmp / "proj_flip", default_session=">-")
+        self._set_registry([("proj_flip", proj)])
+        entry = discover_aitasks_sessions(include_registered=True)[0]
+        flipped = dataclasses.replace(entry, is_live=True)
+        self.assertEqual(flipped.default_session_problem, "block_scalar")
+        clean = dataclasses.replace(entry, default_session_problem=None)
+        self.assertEqual(clean.key, entry.key)
+
 
 if __name__ == "__main__":
     unittest.main()

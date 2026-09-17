@@ -820,6 +820,17 @@ class TestNoProjectSessionBootstrapsOne(_SwapMixin, unittest.TestCase):
         self.assertEqual(
             ("", 0, f"no_session_for_root:{_ROOT}|bootstrap:stale_path"), result)
 
+    def test_an_unreadable_default_session_is_refused_and_named(self):
+        """t1811: no session under a guessed name; the shape reaches `last_error`."""
+        result, discover, _, launch = self._launch(
+            [[], []], boot=("", "default_session_unreadable:block_scalar"))
+        self.assertFalse(launch.called)
+        self.assertEqual(
+            ("", 0, f"no_session_for_root:{_ROOT}"
+                    "|bootstrap:default_session_unreadable:block_scalar"),
+            result)
+        self.assertEqual(1, discover.call_count)
+
 
 class TestBootstrapHelper(unittest.TestCase):
     """`_bootstrap_project_session` — the subprocess contract (t1784).
@@ -865,6 +876,36 @@ class TestBootstrapHelper(unittest.TestCase):
             with self.subTest(rc=kwargs["rc"], stdout=kwargs.get("stdout", "")):
                 got, _ = self._call(**kwargs)
                 self.assertEqual(want, got)
+
+    def test_the_real_helper_refuses_an_unreadable_default_session(self):
+        """t1811, end to end: the real `--create-only` bootstrap, unpatched.
+
+        A config whose `tmux.default_session` is a block scalar. The helper must
+        refuse before touching tmux (exit 44), and this parser must turn its real
+        stderr into the named reason. A logging `tmux` stub sits first on PATH:
+        if the refusal ever regressed, the create attempt would hit the stub, not
+        a real server, and the empty log below would catch it. The stub is only
+        reachable because `AIT_NO_SYSTEMD_RUN` disables the `systemd-run --user`
+        spawn (whose `tmux` resolves through the user manager's PATH, not ours);
+        the socket and TMUX_TMPDIR are isolated as a second barrier.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _root_with_config(
+                str(Path(tmp) / "proj"), "tmux:\n  default_session: >-\n    x\n")
+            stub_dir = Path(tmp) / "bin"
+            stub_dir.mkdir()
+            log = Path(tmp) / "tmux_calls.log"
+            stub = stub_dir / "tmux"
+            stub.write_text(f'#!/usr/bin/env bash\necho "$*" >> "{log}"\nexit 1\n')
+            stub.chmod(0o755)
+            with _EnvGuard(PATH=f"{stub_dir}{os.pathsep}{os.environ.get('PATH', '')}",
+                           AIT_NO_SYSTEMD_RUN="1",
+                           AITASKS_TMUX_SOCKET=f"t1811-test-{os.getpid()}",
+                           TMUX_TMPDIR=tmp, TMUX=None):
+                got = agent_restore._bootstrap_project_session(root)
+            self.assertEqual(("", "default_session_unreadable:block_scalar"), got)
+            self.assertFalse(log.exists() and log.read_text().strip(),
+                             "a refused create must not call tmux at all")
 
     def test_a_timeout_and_a_spawn_error_are_reported_not_raised(self):
         got, _ = self._call(raises=subprocess.TimeoutExpired(cmd="bash", timeout=15))

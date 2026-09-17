@@ -196,7 +196,7 @@ tmux:
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `tmux.default_session` | string | `aitasks` | Expected tmux session name. Monitor matches the current session against this and offers to rename if they differ. |
+| `tmux.default_session` | string | `aitasks` | Expected tmux session name. Monitor matches the current session against this and offers to rename if they differ. Write it as a single-line plain or quoted value. Other YAML forms (block scalars, flow mappings, or unquoted values YAML reads as a bool, number or date, such as `yes` or `0123`) make `ait ide` and the TUI switcher warn and use `aitasks`, and a frozen-agent restore that would have to create the session stops with that reason instead. |
 | `tmux.default_split` | string | `horizontal` | How new panes are split when TUIs are launched from the switcher. |
 | `tmux.prefer_tmux` | bool | `true` | Whether tmux-based workflows are the default for related commands. |
 | `tmux.git_tui` | string | `lazygit` | Which git TUI the switcher targets for git windows. |

@@ -47,15 +47,9 @@ EOF
     esac
 done
 
-resolve_session() {
-    if [[ -n "$SESSION_OVERRIDE" ]]; then
-        echo "$SESSION_OVERRIDE"
-        return
-    fi
-    _tmux_bootstrap_resolve_session "$(pwd)"
-}
-
-SESSION=$(resolve_session)
+# --session wins verbatim (printf, so an option-like name such as `-n` survives);
+# otherwise tmux.default_session, warning on stderr when it is unreadable.
+SESSION=$(_tmux_bootstrap_session_for "$(pwd)" "$SESSION_OVERRIDE")
 # Exact-match tmux target — prevents prefix-match collisions when another
 # project's session name shares a prefix (e.g. 'aitasks' vs 'aitasks_mob').
 SESSION_T="$(ait_tmux_session_target "$SESSION")"

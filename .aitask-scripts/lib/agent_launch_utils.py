@@ -118,7 +118,8 @@ class TmuxLaunchConfig:
 
 #: The tmux session name an unconfigured repo reports — the fallback
 #: :func:`_read_default_session` returns when ``tmux.default_session`` is
-#: absent, matching ``aitask_ide.sh::resolve_session``'s bash default.
+#: absent, matching ``tmux_bootstrap.sh::_tmux_bootstrap_resolve_session``'s bash
+#: default (what ``ait ide`` resolves through).
 #:
 #: **It is NOT unique across repos**, for two independent reasons: every
 #: unconfigured repo reports it, and a repo may also configure it deliberately
@@ -172,6 +173,11 @@ class AitasksSession:
     # own project_config.yaml project_group, else None (ungrouped). Only a
     # *valid* slug ever populates this — invalid config values resolve to None.
     project_group: str | None = None
+    # Set on registry-synthesized entries whose `tmux.default_session` could not
+    # be read faithfully (t1811): the shape from `read_default_session_status`,
+    # while `session` fell back to DEFAULT_TMUX_SESSION. Not part of `key`.
+    # Consumers that create the session show it (TUI switcher bootstrap).
+    default_session_problem: str | None = None
 
     @property
     def key(self) -> str:
@@ -723,73 +729,275 @@ def _resolve_session_group(
 
 _YAML_NULLS = ("", "~", "null", "Null", "NULL")
 
+#: Every ``shape`` :func:`read_default_session_status` can report. The bash twin
+#: (``tmux_bootstrap.sh::_tmux_bootstrap_default_session_raw``) reports the same
+#: vocabulary in its ``DEFAULT_SESSION_UNREADABLE:<shape>:<cfg>`` sentinel, except
+#: ``encoding``, which only this reader can detect (it decodes the file as UTF-8;
+#: the awk reads bytes).
+DEFAULT_SESSION_PROBLEM_SHAPES = (
+    "tab_or_control", "missing_separator", "continuation", "quoted_escape",
+    "trailing_content", "block_scalar", "flow_collection", "node_property",
+    "indicator", "mapping_indicator", "typed_scalar", "duplicate_key",
+    "flow_mapping", "invalid_block", "encoding",
+)
 
-def _yaml_line_scalar(raw: str) -> str | None:
-    """Read the scalar in the text after ``key:`` on one YAML line.
+#: Stderr sentinel the bash twin writes before its human-readable warning.
+DEFAULT_SESSION_UNREADABLE_SENTINEL = "DEFAULT_SESSION_UNREADABLE:"
 
-    Quoted: the content between the opening quote and the next matching quote,
-    verbatim (anything after the closing quote, e.g. a comment, is dropped).
-    Plain: cut at the first ``#`` that begins the text or follows whitespace —
-    YAML's inline-comment rule, so ``my#sess`` survives — then trim; YAML-1.1
-    null spellings (and empty) return ``None``. Flow mappings, block and typed
-    scalars are not interpreted. The bash twin is the awk in
-    ``tmux_bootstrap.sh::_tmux_bootstrap_resolve_session``;
-    ``tests/test_tmux_default_session_resolvers.py`` pins them together.
+# PyYAML 6.0.3's implicit resolvers (yaml/resolver.py) for bool, int, float,
+# timestamp, merge and value, copied verbatim. A plain scalar matching one is
+# typed by YAML rather than read as a string. The awk twin carries the same
+# alternations; tests/test_tmux_default_session_resolvers.py checks both against
+# the installed PyYAML over a generated corpus.
+_YAML_TYPED_PLAIN = re.compile(r"""^(?:
+      yes|Yes|YES|no|No|NO|true|True|TRUE|false|False|FALSE|on|On|ON|off|Off|OFF
+    | [-+]?0b[0-1_]+
+    | [-+]?0[0-7_]+
+    | [-+]?(?:0|[1-9][0-9_]*)
+    | [-+]?0x[0-9a-fA-F_]+
+    | [-+]?[1-9][0-9_]*(?::[0-5]?[0-9])+
+    | [-+]?(?:[0-9][0-9_]*)\.[0-9_]*(?:[eE][-+][0-9]+)?
+    | \.[0-9][0-9_]*(?:[eE][-+][0-9]+)?
+    | [-+]?[0-9][0-9_]*(?::[0-5]?[0-9])+\.[0-9_]*
+    | [-+]?\.(?:inf|Inf|INF)
+    | \.(?:nan|NaN|NAN)
+    | [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]
+    | [0-9][0-9][0-9][0-9]-[0-9][0-9]?-[0-9][0-9]?(?:[Tt]|[ \t]+)[0-9][0-9]?
+      :[0-9][0-9]:[0-9][0-9](?:\.[0-9]*)?(?:[ \t]*(?:Z|[-+][0-9][0-9]?(?::[0-9][0-9])?))?
+    | <<
+    | =
+)$""", re.X)
+
+# Typed values whose ``str()`` is the source text itself, so the YAML-backed
+# readers and this reader still agree: canonical decimal ints and True/False.
+_YAML_ROUND_TRIP_TYPED = re.compile(r"^(?:0|-?[1-9][0-9]*|True|False)$")
+
+# Characters PyYAML rejects anywhere in the stream (ReaderError) or scans as a
+# line break (NEL, LS, PS). Tab is handled separately: legal in quotes and
+# comments, an error everywhere else on the value line. NUL is not listed: bash
+# cannot carry it, so the twins could not agree on it.
+_YAML_LINE_CONTROL = re.compile("[\x01-\x08\x0a-\x1f\x7f-\x9f  ￾￿]")
+
+_TMUX_KEY = re.compile(r"""^(?:tmux|"tmux"|'tmux') *:(.*)$""")
+# A named anchor alone on the `tmux:` line (PyYAML's scan_anchor alphabet).
+_YAML_ANCHOR_ONLY = re.compile(r"^&[0-9A-Za-z_-]+$")
+_DEFAULT_SESSION_KEY = re.compile(
+    r"""^(?:default_session|"default_session"|'default_session') *:(.*)$"""
+)
+
+
+def _classify_line_value(raw: str) -> tuple[str | None, str | None]:
+    """Read the text after ``default_session:`` the way YAML would, or refuse.
+
+    Returns ``(value, shape)``. ``(None, None)`` means "not configured" (empty,
+    null, comment-only or whitespace-only); ``(text, None)`` is a value YAML
+    reads back as exactly ``text``; ``(None, shape)`` is a value this reader
+    cannot read faithfully. Each rule below was measured against PyYAML 6.0.3:
+
+    * Only a space separates: a non-empty value must start with one, and
+      trimming removes spaces only (NBSP and other Unicode spaces are content).
+    * A tab outside quotes or a comment, and any character in
+      :data:`_YAML_LINE_CONTROL`, is an error for YAML.
+    * Quoted: the closing quote must be on this line; ``"…"`` must hold no
+      backslash escape and ``'…'`` no doubled quote; after the closing quote only
+      spaces may follow, optionally then a ``#`` comment.
+    * Plain: ``#`` starts a comment only as the first character or right after a
+      space, so ``team#1`` keeps its hash. The value must not start with an
+      indicator, contain ``": "`` or end with ``:``, and must not be typed by
+      :data:`_YAML_TYPED_PLAIN` unless it round-trips
+      (:data:`_YAML_ROUND_TRIP_TYPED`).
+
+    The awk twin in ``tmux_bootstrap.sh`` implements the same rules.
     """
-    s = raw.strip()
-    if s[:1] in ('"', "'"):
-        end = s.find(s[0], 1)
-        return s[1:end] if end != -1 else s[1:]
-    value = re.split(r"(?:^|\s)#", s, maxsplit=1)[0].rstrip()
-    return None if value in _YAML_NULLS else value
+    if raw == "":
+        return None, None
+    if _YAML_LINE_CONTROL.search(raw):
+        return None, "tab_or_control"
+    if raw[0] != " ":
+        return None, "tab_or_control" if raw[0] == "\t" else "missing_separator"
+    s = raw.lstrip(" ")
+    if s == "":
+        return None, None
+
+    if s[0] in "\"'":
+        quote = s[0]
+        end = s.find(quote, 1)
+        if end == -1:
+            return None, "continuation"
+        if quote == "'" and s[end + 1:end + 2] == "'":
+            return None, "quoted_escape"
+        body = s[1:end]
+        if quote == '"' and "\\" in body:
+            return None, "quoted_escape"
+        trailer = s[end + 1:].lstrip(" ")
+        if trailer and trailer[0] != "#":
+            return None, "tab_or_control" if trailer[0] == "\t" else "trailing_content"
+        return (body if body.strip() else None), None
+
+    if s[0] == "#":
+        return None, None
+    cut = s.find(" #")
+    value = (s if cut == -1 else s[:cut]).rstrip(" ")
+    if "\t" in value:
+        return None, "tab_or_control"
+    head = value[0]
+    if head in "|>":
+        return None, "block_scalar"
+    if head in "[{":
+        return None, "flow_collection"
+    if head in "&*!":
+        return None, "node_property"
+    if head in ",]}%@`" or (head in "-?:" and value[1:2] in ("", " ")):
+        return None, "indicator"
+    if value in _YAML_NULLS:
+        return None, None
+    if ": " in value or value.endswith(":"):
+        return None, "mapping_indicator"
+    if _YAML_TYPED_PLAIN.match(value) and not _YAML_ROUND_TRIP_TYPED.match(value):
+        return None, "typed_scalar"
+    return (value if value.strip() else None), None
+
+
+def _tmux_header_kind(line: str) -> str | None:
+    """Classify a column-0 line: ``None`` unless it opens the ``tmux`` key.
+
+    ``"map"`` is a block mapping, optionally followed by a comment, a named anchor
+    (``&name``, PyYAML's anchor alphabet) or exactly the ``!!map`` tag — the only
+    node properties deliberately supported. ``"flow"`` is a flow collection
+    (``{`` / ``[``) that this reader cannot parse. ``"invalid"`` is any other
+    inline content, including every other tag: ``!foo``, ``!!omap``, ``!!set``,
+    ``!!str`` and friends make YAML fail or read ``tmux`` as a non-mapping, so
+    they are reported rather than guessed. ``tmux:x`` is a different key.
+    """
+    m = _TMUX_KEY.match(line)
+    if not m:
+        return None
+    rest = m.group(1)
+    if rest == "":
+        return "map"
+    if rest[0] != " ":
+        return None
+    cut = rest.find(" #")
+    rest = (rest if cut == -1 else rest[:cut]).strip(" ")
+    if rest == "":
+        return "map"
+    if rest[0] in "{[":
+        return "flow"
+    if rest == "!!map" or _YAML_ANCHOR_ONLY.match(rest):
+        return "map"
+    return "invalid"
+
+
+def read_default_session_status(project_root: Path) -> tuple[str, str | None]:
+    """Resolve ``tmux.default_session`` and report whether it could be read.
+
+    Returns ``(session, shape)``. ``shape`` is ``None`` when the configured value
+    (or its absence) was read faithfully; otherwise it names why not, from
+    :data:`DEFAULT_SESSION_PROBLEM_SHAPES`, and ``session`` is
+    :data:`DEFAULT_TMUX_SESSION`. Never prints: this runs inside Textual TUIs
+    through :func:`discover_aitasks_sessions`, where stderr corrupts the screen.
+    Callers that can show a notice do so from the returned shape.
+
+    Line-oriented twin of ``tmux_bootstrap.sh::_tmux_bootstrap_default_session_raw``.
+    The key counts only as a direct child of a column-0 ``tmux:`` block (the
+    block's first indented content line fixes the child indent, so a 4-space
+    block works and a nested ``syncer: default_session:`` is ignored), and its
+    value is read by :func:`_classify_line_value`. Structure this reader cannot
+    follow is reported rather than guessed: a flow-collection or non-mapping
+    ``tmux`` block holding the key, a value continued onto a deeper (or
+    shallower) line, a second ``default_session`` or a later ``tmux`` block
+    (YAML keeps the last one), and a file that is not valid UTF-8.
+    :func:`load_tmux_defaults` is the YAML-backed reader.
+    """
+    cfg = project_root / "aitasks" / "metadata" / "project_config.yaml"
+    try:
+        data = cfg.read_bytes()
+    except OSError:
+        return DEFAULT_TMUX_SESSION, None
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        return DEFAULT_TMUX_SESSION, "encoding"
+    if text.startswith("﻿"):
+        text = text[1:]
+
+    block: str | None = None
+    child_indent: int | None = None
+    found = False
+    value: str | None = None
+    problem: str | None = None
+    check_next = False
+    # Universal newlines, the same split open() applies; NOT str.splitlines(),
+    # which would also split on NEL/LS/PS and hide them from the control check.
+    for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        if line.strip(" \t") == "" or line.lstrip(" \t").startswith("#"):
+            continue
+        if check_next:
+            # The line after the key decides whether its value continues.
+            check_next = False
+            if line[:1] == " " and len(line) - len(line.lstrip(" ")) != child_indent:
+                problem = problem or "continuation"
+        if line[:1] not in (" ", "\t"):
+            header = _tmux_header_kind(line)
+            if header is not None and found:
+                problem = problem or "duplicate_key"
+            if header in ("flow", "invalid") and "default_session" in line:
+                problem = problem or ("flow_mapping" if header == "flow" else "invalid_block")
+            block = header
+            child_indent = None
+            continue
+        # Tab indentation is invalid YAML; the awk twin ignores it too.
+        if block is None or line[:1] == "\t":
+            continue
+        if block != "map":
+            if "default_session" in line:
+                problem = problem or ("flow_mapping" if block == "flow" else "invalid_block")
+            continue
+        stripped = line.lstrip(" ")
+        indent = len(line) - len(stripped)
+        if child_indent is None:
+            child_indent = indent
+        if indent != child_indent:
+            continue
+        m = _DEFAULT_SESSION_KEY.match(stripped)
+        if not m:
+            continue
+        if found:
+            problem = problem or "duplicate_key"
+            continue
+        found = True
+        value, shape = _classify_line_value(m.group(1))
+        problem = problem or shape
+        check_next = True
+
+    if problem is not None:
+        return DEFAULT_TMUX_SESSION, problem
+    return _normalize_default_session(value), None
 
 
 def _read_default_session(project_root: Path) -> str:
     """Read ``tmux.default_session`` from a project's config; default ``aitasks``.
 
-    Line-oriented twin of ``tmux_bootstrap.sh::_tmux_bootstrap_resolve_session``
-    (what ``aitask_ide.sh::resolve_session`` calls). The key counts only as a
-    direct child of the top-level ``tmux:`` block: the block's first indented
-    content line fixes the child indent, so a 4-space block works and a nested
-    ``syncer: default_session:`` is ignored. The value is read by
-    :func:`_yaml_line_scalar`. An absent, blank, null or comment-only value falls
+    The session half of :func:`read_default_session_status`: an absent, blank,
+    null or comment-only value, and one that reader cannot read faithfully, fall
     back to :data:`DEFAULT_TMUX_SESSION` (matching the bash default), so an
-    unconfigured project's effective session name is stable across the
-    live-tmux scan and the registry-synthesis path. Flow mappings and block
-    scalars are not read here; :func:`load_tmux_defaults` is the YAML-backed
-    reader.
+    unconfigured project's effective session name is stable across the live-tmux
+    scan and the registry-synthesis path.
     """
-    cfg = project_root / "aitasks" / "metadata" / "project_config.yaml"
-    if not cfg.is_file():
-        return DEFAULT_TMUX_SESSION
+    return read_default_session_status(project_root)[0]
 
-    in_tmux_block = False
-    child_indent: int | None = None
-    try:
-        with open(cfg, encoding="utf-8") as fh:
-            for raw in fh:
-                line = raw.rstrip("\n")
-                if not line.strip() or line.lstrip().startswith("#"):
-                    continue
-                # Top-level non-comment line: enter / exit tmux: block.
-                if line[:1] not in (" ", "\t"):
-                    in_tmux_block = line.startswith("tmux:")
-                    child_indent = None
-                    continue
-                # Tab indentation is invalid YAML; the awk twin ignores it too.
-                if not in_tmux_block or line[:1] == "\t":
-                    continue
-                stripped = line.lstrip(" ")
-                indent = len(line) - len(stripped)
-                if child_indent is None:
-                    child_indent = indent
-                if indent == child_indent and stripped.startswith("default_session:"):
-                    return _normalize_default_session(
-                        _yaml_line_scalar(stripped[len("default_session:"):])
-                    )
-    except OSError:
-        pass
-    return DEFAULT_TMUX_SESSION
+
+def parse_default_session_unreadable(stderr: str) -> str | None:
+    """The ``shape`` from a ``DEFAULT_SESSION_UNREADABLE:<shape>:<cfg>`` line, or None.
+
+    The one parser for the bash twin's sentinel, for callers that run
+    ``tmux_bootstrap.sh`` as a subprocess and can show a notice.
+    """
+    for line in stderr.splitlines():
+        if line.startswith(DEFAULT_SESSION_UNREADABLE_SENTINEL):
+            shape = line[len(DEFAULT_SESSION_UNREADABLE_SENTINEL):].split(":", 1)[0]
+            return shape.strip() or None
+    return None
 
 
 def _project_root_from_pane_paths(pane_paths: list[str]) -> Path | None:
@@ -899,13 +1107,15 @@ def _assemble_aitasks_sessions(
         for name, root, status, group in _read_registry_index():
             if name in live_names:
                 continue
+            session, problem = read_default_session_status(root)
             found.append(AitasksSession(
-                session=_read_default_session(root),
+                session=session,
                 project_root=root,
                 project_name=name,
                 is_live=False,
                 is_stale=(status == "STALE"),
                 project_group=_group_for(root, group),
+                default_session_problem=problem,
             ))
 
         # One record per repo for the project-oriented consumers (t1544_1).

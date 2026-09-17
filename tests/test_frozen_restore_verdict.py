@@ -131,6 +131,17 @@ class StaleNonceTrapTests(unittest.TestCase):
         self.assertEqual(_restore(rec, 0)[1],
                          "restore failed: a:b — capture kept")
 
+    def test_an_unreadable_default_session_refusal_is_shown_as_a_warning(self):
+        """t1811: the detached restore's only channel to the user is this verdict."""
+        rec = _rec(state=agent_sessions.STATE_FROZEN, restore_attempts=1,
+                   last_error="deadbeef:respawn:no_session_for_root:/p"
+                              "|bootstrap:default_session_unreadable:block_scalar")
+        done, message, warn = _restore(rec, prev_attempts=0)
+        self.assertTrue(done)
+        self.assertTrue(warn)
+        self.assertIn("default_session_unreadable:block_scalar", message)
+        self.assertIn("capture kept", message)
+
     def test_an_uncolonned_error_is_used_whole(self):
         rec = _rec(state=agent_sessions.STATE_FROZEN, restore_attempts=1,
                    last_error="boom")
