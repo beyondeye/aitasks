@@ -84,6 +84,14 @@ Create reusable skills from source material.
 |-------|-------------|
 | [`/aitask-learn-skill`](aitask-learn-skill/) | Learn a new static skill from a pane, file, URL, or repository source |
 
+### Design
+
+Reason about design proposals before committing to one.
+
+| Skill | Description |
+|-------|-------------|
+| [`/aitask-brainstorm-discuss`](aitask-brainstorm-discuss/) | Discuss brainstorm proposals with an advisory agent: compare, explain, question, and check for flaws and risks. Launched from the brainstorm TUI |
+
 ### Configuration & Reporting
 
 Settings, statistics, and model management.

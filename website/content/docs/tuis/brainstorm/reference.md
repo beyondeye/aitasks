@@ -58,7 +58,7 @@ Opened with `Enter` on a node:
 
 #### Operations dialog and wizard
 
-The Operations dialog (`A` / `a`) lists the operations; selecting one opens a configuration wizard.
+The Operations dialog (`A` / `a`) lists the operations; selecting one opens a configuration wizard. The one exception is **Discuss**, the last row: it skips the wizard and opens the agent-launch dialog instead (see [How to Discuss Proposals with an Agent]({{< relref "/docs/tuis/brainstorm/how-to#how-to-discuss-proposals-with-an-agent" >}})).
 
 | Key | Action | Context |
 |-----|--------|---------|
@@ -141,6 +141,8 @@ Design operations are launched from the Operations dialog (`A`); each dispatches
 | Module Decompose | Fork module subgraph roots from a proposal | module decomposer |
 | Module Merge | Merge a module up into an ancestor | module merger |
 | Module Sync | Pull a linked module's as-implemented design back in | module syncer |
+
+The Operations dialog also lists **Discuss**, which is not a design operation. It launches one *interactive, advisory-only* code agent that runs the [`/aitask-brainstorm-discuss`]({{< relref "/docs/skills/aitask-brainstorm-discuss" >}}) skill over the cursor node or the marked set. You talk to that agent directly in tmux (a new window by default, or a split pane in an existing window) or in a terminal. It is not a background crew agent, so it never appears on the Running tab. It creates no node, so it has no badge color, and it changes no session file. Its default agent and model come from the `discuss` operation of [`ait codeagent`]({{< relref "/docs/commands/codeagent" >}}), not from a `brainstorm-<type>` key, and you can override them in the launch dialog.
 
 Session-lifecycle operations (Session tab) run no agents: **pause**, **resume**, **finalize** (export HEAD proposal to `aiplans/`), **archive**, **delete**.
 
