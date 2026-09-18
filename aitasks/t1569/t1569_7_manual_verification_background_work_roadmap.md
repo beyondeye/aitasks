@@ -51,3 +51,22 @@ archived; Defer is allowed but creates a carry-over task.
 - [ ] [t1569_6] Confirm the lanes are visually distinct in the By-Trail view via the coordination_only glyph.
 - [ ] [t1569_6] Confirm neither the preflight nor the roadmap ever describes a pass as "safe to run in parallel" - both must say "no known conflict at check time" - and that the residual race is discoverable from the workflow docs.
 - [ ] [t1569_6] Confirm the run summary surfaces the resolution-quality histogram and states plainly that the lanes are an estimate that reserves nothing.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1688_2** id=2026-09-18T09:47:30Z.c7e0225c6f6c56e3d4d47e06 from=t1688_2 from_verified=yes at=2026-09-18T09:47:29Z base=2070c66aebb47673c80e887e0011c66bf5b70f98 base_branch=main dirty=yes host=omg16
+>
+> | Advisory from t1688_2 (code commit af5948e87) — not an instruction.
+> | 
+> | - Shipped profiles still set `parallel_admission: "off"` (C1 decision, measured
+> |   2026-09-17: 34% prompt rate, 1 of 6 sampled CONFLICTs a real collision). The
+> |   [t1569_4] checklist items therefore still need a profile that sets
+> |   `confirm` (or `warn`) to exercise anything.
+> | - The CLEAR_CAVEATED rendering item should now also cover the `task_declared`
+> |   caveat: an in-flight task with no plan is read from its description, which
+> |   grades CLEAR_CAVEATED (`CAVEAT:inflight:<ref>|task_declared`), and a shared
+> |   path found that way appears as `task_declared_overlap` — advisory, not a
+> |   conflict and not an all-clear.
+> | - Steps 2-3 of parallel-admission.md (invocation + well-formedness) now live in
+> |   parallel-admission-checker.md; the preflight references it.
