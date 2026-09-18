@@ -5,6 +5,10 @@ depends: [t1823_5]
 issue_type: manual_verification
 status: Implementing
 labels: [verification, manual]
+active_gates: []
+active_gates_filtered: []
+active_gates_profile: fast
+active_gates_digest: 4a36c12bb96d.681bafac2cb9.08c6f06389cd
 verifies: [t1823_1, t1823_2, t1823_3, t1823_4, t1823_5]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1823
