@@ -401,3 +401,204 @@ shows no assessment; rendering against a scratch profile with
 
 Current-branch mode (profile `fast`): no merge. Archive with
 `./.aitask-scripts/aitask_archive.sh 1688_2`; the parent t1688 archives with it.
+
+## C1 — recorded outcome (decided 2026-09-17)
+
+**Decision: all three shipped profiles keep `parallel_admission: "off"`.** The
+recommended rule failed on both of its counts.
+
+Census, `replay --candidates auto --from plan --lock-freshness require-fresh`,
+131 candidates:
+
+| verdict | count |
+|---|---|
+| `CLEAR` | 0 |
+| `CLEAR_CAVEATED` | 86 |
+| `CONFLICT` | 31 |
+| `UNCHECKABLE` | 14 |
+
+Prompt-producing rate (CONFLICT + UNCHECKABLE) = **45/131 = 34.4%**, above the
+≤30% bar (t1688_1's AFTER census was 26/129 = 20.2%; CONFLICTs rose 12 → 31).
+`CAUSE_RATE:` lines: `all_phantom` 5, `no_extractable_paths` 9 (the two
+remaining UNCHECKABLE causes), `hub_overlap_only` 50, `stale_claim_overlap` 11,
+`task_declared_overlap` 8, plus the per-claim `cross_host_lock` 131,
+`no_liveness_token` 130, `stale_claim` 131, `task_declared` 131.
+
+**CONFLICT prompt-quality sample** — 6 CONFLICT candidates, counterparties named
+only through `pa.conflict_overlaps` (class `specific`, no `stale_claim` caveat):
+
+| candidate | counterparty | shared path | classification |
+|---|---|---|---|
+| 1647_4 | 1823_3 | `aitasks/metadata/codeagent_config.json` | **edit collision** — both add a `defaults.<op>` key |
+| 1149 | 1794_5 | `tests/test_shortcut_scopes.py` | context mention — both only *run* it |
+| 1231 | 1823_3 | `tests/test_website_doc_lists.sh` | context mention — 1231 extends it, 1823_3 only cites it as the parser of a line it edits |
+| 1794_6 | 1794_5 | `tests/test_shortcuts_registry_coverage.sh` | context mention — 1794_5 only runs it |
+| 1823_4 | 1794_5 | `tests/test_no_raw_tmux.sh` | context mention — both only run it |
+| 835 | 1688_2 | `.aitask-scripts/aitask_skill_rerender.sh` | context mention — this task only *runs* the rerenderer; 835 edits it |
+
+**1 of 6 is a real edit collision.** More than half the sample are context
+mentions, so the second half of the rule fails too — independently of the rate.
+
+**Secondary sample (for the t1343 hand-off) could not be taken.** The replay
+recorded 8 `task_declared_overlap` caveats, but re-running `check` over ~80
+CLEAR_CAVEATED candidates ~30 minutes later produced **zero** — the tasks that
+had been claimed-but-unplanned at census time had since been planned or landed.
+That is itself the finding worth handing to t1343: a description-derived overlap
+is not just weak evidence, it is *short-lived* evidence, and any precision claim
+about it is a statement about a corpus snapshot rather than about the mechanism.
+t1814 / t1824's frozen-corpus method is the right one for that question.
+
+## Final Implementation Notes
+
+- **Actual work done:** B0 (new ungated `parallel-admission-checker.md`;
+  `parallel-admission.md` steps 2-3 now reference it), B1 (new
+  `parallel-assessment.md`, opt-in), B2 (`aitask-pick/SKILL.md.j2` Step 3 hook +
+  Notes bullet), B3 (`parallel_assessment: "off"` in all 3 profiles and all 3
+  seed mirrors; `profiles.md` row + new section), C1 (measured, decided: keep
+  `off`), C2 (docs), and the tests/goldens. All planned deliverables landed;
+  nothing was deferred.
+- **Deviations from plan:**
+  - *The `off` rationale was rewritten rather than merely re-pointed.* The user
+    asked mid-implementation for the current-state reason to be documented, so
+    `profiles.md`, the website page, the six profile YAML comments and
+    `aidocs/framework/background_work_roadmap.md` now carry the 2026-09-17
+    numbers and the prompt-quality sample instead of the stale 2026-09-02
+    "56% carry no plan" story, which t1688_1 had already fixed.
+  - *The B0 move is verbatim in substance, not byte-for-byte.* Beyond the three
+    allowed differences (the `--plan` optionality paragraph, the
+    "checker unusable" relabel, the closing "this file classifies" paragraph),
+    six phrases were generalized away from the preflight as sole caller:
+    "parsed below" → "a caller parses"; "mandatory here" → "mandatory"; "long
+    before the plan existed" → "By the preflight's call site"; "this is the one
+    call site" → "these are the call sites"; "the table in step 5" → "the
+    caller's remedy table". Each is a pointer, not a rule. Every rule the
+    t1569_4 pins name is intact and now asserted on the new file
+    (`tests/test_parallel_admission_preflight.sh`).
+  - *The pick Notes bullet does not link the procedure file.* It names
+    `profiles.md` instead. A path reference in that always-rendered list would
+    be the only thing a disabled profile could follow at the point of use.
+  - *The planned closure control "both off → neither file in the closure" was
+    NOT implemented, because it is false.* `profiles.md` documents every knob
+    and names `parallel-assessment.md` in prose, and the closure walker follows
+    a bare filename within the same directory — so both files are in every
+    profile's closure already, via the docs, not via the hook. Test 7 asserts
+    what is actually true and load-bearing: the **rendered pick body** for a
+    disabled profile references neither the procedure nor the checker, the
+    disabled procedure body is a no-op that interpolates nothing, and (after
+    review, see Change Request 1) every enabled/headless variant's in-process
+    closure plan contains both files with rewritten references.
+  - *One line in `parallel-admission-checker.md` was re-wrapped* so the moved
+    sentence "token is one of `CLEAR`, `CLEAR_CAVEATED`," stays on one line —
+    the preflight test pins that substring, and reflowing the prose was
+    preferable to weakening the pin.
+- **Issues encountered:**
+  - The disabled branch of `parallel-assessment.md` originally interpolated
+    `{{ profile.name }}`, which would have made the three renders differ and
+    broken its `WRAPPED_FILES_INVARIANT` membership. The branch now interpolates
+    nothing. (`WRAPPED_FILES_VARYING` with three goldens was the alternative;
+    invariance is stronger, and the file only varies on keys no shipped profile
+    sets.)
+  - Two Test 7 assertions matched across a line wrap and were rewritten against
+    single-line substrings.
+  - `./.aitask-scripts/aitask_skill_rerender.sh remote` was run twice: once
+    after B0/B1, and again after the Notes-bullet correction changed the pick
+    body.
+- **Key decisions:**
+  - **PINNED 6 stays.** t1814 and t1824 measured description precision at or
+    above plan precision, which undercuts its premise, but by explicit user
+    decision this task does not lift it: the contract change is t1343's, and it
+    gets the numbers as an advisory note at Step 8e.
+  - **The checker contract is a separate file rather than a Jinja-neutral block
+    inside the preflight**, because the assessment must read it under a profile
+    whose own `parallel_admission` is `off` — which is every shipped profile.
+    `tests/test_skill_render_task_workflow.sh` pins that it stays Jinja-free.
+  - **Headless is a hard "never prompt" in both modes**, not just `show`. `ask`
+    is accepted in a headless profile and behaves like `show`; the test matrix
+    asserts it for both, each paired with an attended control that *does* prompt
+    so the assertion cannot pass vacuously.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:**
+  - The C1 numbers are a **snapshot**, and a fast-moving one: the
+    `task_declared_overlap` population went from 8 to 0 in about half an hour as
+    claimed tasks got planned. Any future decision about the shipped default
+    should re-measure, and any precision claim about description-derived
+    evidence needs a frozen corpus (t1814's method), not a live one.
+  - `pa.conflict_refs` / `pa.conflict_overlaps` are the only sanctioned way to
+    name a CONFLICT's counterparties; the sample above used them, and
+    `tests/test_skill_render_task_workflow.sh` pins that the procedure prose and
+    the library agree on the two conditions (class `specific`, no `stale_claim`).
+  - When adding a procedure file that references another by bare filename, note
+    that the closure walker resolves it within the same directory — so a mention
+    in `profiles.md` is enough to pull a file into every profile's closure, and
+    a "not in the closure" assertion about an opt-in procedure will not hold.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-09-18)
+- **Requested by user:** five review findings, all verified before changing
+  anything:
+  1. *Cause validation* — the checker contract classified an `UNCHECKABLE_CAUSE`
+     as "checker unusable" when its code was missing from **the caller's remedy
+     table**. The assessment has no such table, and the preflight's is rendered
+     away under `off`, so an ordinary `no_plan` / `all_phantom` would read as a
+     checker failure (and force a `show` prompt). Confirmed: that row was a
+     semantic change introduced by the B0 relabel — the original said "still
+     UNCHECKABLE".
+  2. *Independent-toggle coverage* — Test 7's enabled scratch profiles omitted
+     `parallel_admission`, so they ran the default `warn` branch; and the closure
+     check relied on `walk-check`'s exit status, which cannot fail on a
+     mistyped reference because `discover_refs` skips nonexistent targets.
+     Confirmed.
+  3. *Evidence-source semantics* — the contract and the assessment claimed that
+     omitting `--plan` selects `task_declared`. `resolve_candidate_surface` uses
+     `plan_path or plan_path_for(...)` first, so a `Ready` task that already
+     carries a plan resolves `plan_declared`. Confirmed in code
+     (`parallel_admission_collect.py:886-891`). C2's `parallel-admission.md`
+     Notes / `no_plan` remedy updates had also been missed.
+  4. *Overlap explanation* — the website read a `task_declared_overlap` caveat as
+     "nothing collides". Confirmed: the caveat reports a shared path.
+  5. *Current-state docs* — the website page narrated the original availability
+     rationale and its fix. Confirmed against
+     `aidocs/framework/documentation_conventions.md`.
+- **Changes made:**
+  1. `parallel-admission-checker.md`: the unknown-cause row now keys on the
+     checker's vocabulary (`UNCHECKABLE_REASONS`), with a paragraph stating the
+     parse rule (split on the first `|`, code up to the first `:`) and that a
+     declared code without a caller remedy row stays a well-formed
+     `UNCHECKABLE`. `parallel-assessment.md` step 2 says the same.
+     `tests/test_parallel_admission_preflight.sh` section 4 applies that rule to
+     a real checker `no_plan` cause, `all_phantom`, and an undeclared
+     `bogus_future_code`, and pins the contract text (63/63).
+  2. Test 7: all four enabled scratch profiles set `parallel_admission: "off"`
+     explicitly; the closure check now runs `walk_closure(write=False)`
+     in-process and asserts closure membership of both files, the **rewritten**
+     `task-workflow-<profile>-/…` references in the rendered pick and
+     assessment, that the off preflight's Procedure section does not reference
+     the checker, the checker's rendered content, and prompt presence/absence
+     for attended/headless. A typo mutant of the assessment's checker path fails
+     4 assertions (verified, then restored).
+  3. Contract + assessment now describe plan discovery → description fallback
+     and tell the reader to take the provenance from the `CANDIDATE:` line; the
+     assessment reads the candidate's plan when one exists.
+     `parallel-admission.md` Notes gain "two call sites, two evidence
+     qualities, one checker" and the plan/description evidence wording, and the
+     `no_plan` remedy row names the path-bearing-description remedy.
+  4. Website example rewritten: an overlap **was** found in description-derived
+     evidence; it is advisory, not an all-clear, and should be checked.
+  5. Website "why off" keeps only the current dated measurements and reasons;
+     the same current-state trim applied to `profiles.md` and the six profile
+     YAML comments. The historical comparison stays in this plan (C1 section).
+- **Files affected:** `.claude/skills/task-workflow/{parallel-admission-checker,parallel-assessment,parallel-admission,profiles}.md`,
+  `website/content/docs/skills/aitask-pick/parallel-admission.md`,
+  `aitasks/metadata/profiles/*.yaml`, `seed/profiles/*.yaml`,
+  `tests/test_skill_render_aitask_pick.sh`, `tests/test_skill_render_task_workflow.sh`,
+  `tests/test_parallel_admission_preflight.sh`, goldens
+  (`parallel-admission-{default,fast,remote}.md` now change because the Notes
+  render under `off`; `aitask-pick` ×3), and the re-rendered remote prerenders.
+- **Verification:** pick 209/209, task-workflow 337/337, preflight 63/63,
+  pickrem 67/67, pickweb 86/86, `aitask_skill_verify.sh` OK,
+  `check_links.py` 0 broken. The Python suite reported `FAILED` once and
+  `PASSED` on the immediate rerun; the failing test was not captured (the first
+  run's output was piped through `tail`). No Python file is touched by this
+  task and two other sessions were running suites concurrently, but the failure
+  is **unattributed**, not explained.
