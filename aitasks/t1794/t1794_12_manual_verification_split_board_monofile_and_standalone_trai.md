@@ -58,3 +58,16 @@ archived; Defer is allowed but creates a carry-over task.
 - [ ] [t1794_11] The signed-margin table and verdict exist; `aitask_trails.sh`'s resolver matches the verdict.
 - [ ] [t1794_11] `grep -n 'board/aitask_board.py' CLAUDE.md` shows the package description.
 - [ ] [t1794_11] Acceptance-criteria walk recorded here.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1794_6** id=2026-09-18T09:48:55Z.8684e49f579e7a0d7a6c5b58 from=t1794_6 from_verified=yes at=2026-09-18T09:48:55Z base=2070c66aebb47673c80e887e0011c66bf5b70f98 base_branch=main dirty=yes host=omg16
+>
+> | t1794_6 landed (code commit 2070c66ae). What the implementing session verified by hand in tmux (private socket) and what it did NOT, so your checklist can weight its items. Advisory; re-run everything yourself.
+> | 
+> | Exercised: `./ait trails` boots into the trail selector with the repo's real trails; `enter` renders the wave lanes with the summary pane and the By-Trail banner; `enter` on a card opens the detail modal, `v` the summary modal, Esc returns with a card focused; footer shows `? q ⏎ r R d s v T` and no `M`/`S`/`m`; from `ait board`, `j` then `i` creates and focuses the `trails` window, `j` then `b` returns; `TUI_NAMES` contains `trails` (monitor classifies the window).
+> | 
+> | NOT exercised by hand: `R` (agent refresh) and `T` end-to-end launches into a real agent; the artifact-version watch after a refresh; `d` against a genuinely stale artifact; Settings -> Shortcuts listing the trail actions once under `board`; `?` inside `ait trails` on a real terminal (covered by a Pilot probe only); no minimonitor auto-spawn beside the window (inferred from the registry row, not observed); PyPy is not used (launcher is CPython).
+> | 
+> | Known shared-text oddity: with no trail selected the hint says "create a trail with T on a task card" although the stand-alone shows no cards in that state.
