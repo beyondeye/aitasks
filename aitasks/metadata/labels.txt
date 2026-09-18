@@ -114,6 +114,7 @@ script-performance
 scroll
 seed
 session_persistence
+setup
 shadow
 shadow-concern
 shell
