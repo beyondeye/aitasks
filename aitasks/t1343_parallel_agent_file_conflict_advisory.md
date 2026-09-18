@@ -399,3 +399,30 @@ time covers exactly that window.
 Also coordinate with **t1688**, which widens the evidence available today (a
 task-body surface). Complementary to this task, not a duplicate — settle the
 sequencing before implementing either.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1688_2** id=2026-09-18T09:47:24Z.f8d5dc91c92ed39c4f5e51d4 from=t1688_2 from_verified=yes at=2026-09-18T09:47:24Z base=2070c66aebb47673c80e887e0011c66bf5b70f98 base_branch=main dirty=yes host=omg16
+>
+> | Advisory from t1688_2 (code commit af5948e87) — not an instruction.
+> | 
+> | PINNED 6 is unchanged: a `task_declared` (description-derived) overlap still
+> | never grades CONFLICT; it renders `OVERLAP:<ref>|declared|…` plus a
+> | `task_declared_overlap` caveat under CLEAR_CAVEATED. By explicit user decision
+> | t1688_2 did NOT lift it. Whether description evidence may grade CONFLICT
+> | (parity with plans) is left to you, since hard stops / declared intent are yours.
+> | 
+> | Evidence you may want:
+> | - t1814 and t1824 (frozen corpus) measured description precision at or above
+> |   plan precision: ~0.446 (current) / 0.456 (creation-time) vs ~0.407 for
+> |   pre-implementation plans at hub threshold 10. Tables:
+> |   aiplans/archived/p1814_measure_task_declared_precision.md and p1824's plan.
+> | - MOMENT-RELATIVE (live corpus, 2026-09-17): a replay census recorded 8
+> |   `task_declared_overlap` caveats over 131 candidates; ~30 minutes later a
+> |   re-check of ~80 CLEAR_CAVEATED candidates found ZERO, because the
+> |   claimed-but-unplanned tasks had since been planned or landed. So description
+> |   overlaps are short-lived as well as weak, and a precision claim about them
+> |   needs t1814's frozen-corpus method, not a live sample.
+> | - A `task_declared` surface is a regex heuristic over description prose, not a
+> |   declaration. Nothing in t1688 is an admissible basis for a hard stop.
