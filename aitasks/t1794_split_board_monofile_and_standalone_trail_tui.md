@@ -10,9 +10,9 @@ active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
-children_to_implement: [t1794_6, t1794_7, t1794_8, t1794_9, t1794_10, t1794_11, t1794_12]
+children_to_implement: [t1794_7, t1794_8, t1794_9, t1794_10, t1794_11, t1794_12]
 created_at: 2026-09-10 23:34
-updated_at: 2026-09-17 15:44
+updated_at: 2026-09-18 12:49
 ---
 
 ## Goal
