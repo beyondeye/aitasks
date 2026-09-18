@@ -133,3 +133,18 @@ the link checker and doc-list test gate it.
 None identified. Every documented behavior was checked against the landed skill
 template (including its single-proposal branch) and the
 `_open_operations_dialog` availability gate, not only against the plans.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-09-18 10:20)
+- **Requested by user:** (1) document the existing-window / split-pane tmux launch alternative and soften the reference page's "own window" wording; (2) do not guarantee the minimonitor companion — it spawns only for a new-window launch and only when `tmux.minimonitor.auto_spawn` is enabled.
+- **Changes made:** how-to step 3 now names the dialog's **Run in tmux** / **Run in terminal** buttons, describes the default new window + conditional minimonitor, and the **Window** field → existing window → **Split** toggle (horizontal/vertical, no minimonitor). The tmux-integration sentence now scopes `j` discovery to the new-window default. The reference sentence says "a new window by default, or a split pane in an existing window". Verified in `lib/agent_command_screen.py` (`(W)indow:` / `Split:` rows), `lib/agent_launch_utils.py` `maybe_spawn_minimonitor` (`auto_spawn` early return) and `brainstorm_app.py` `_on_discuss_dialog_result` (minimonitor only on `result.new_window`).
+- **Files affected:** website/content/docs/tuis/brainstorm/how-to.md, website/content/docs/tuis/brainstorm/reference.md
+
+## Final Implementation Notes
+- **Actual work done:** Steps 1-5 as planned. `reference.md`: Discuss exception sentence in "Operations dialog and wizard" and a paragraph after the "Operations and agents" table (interactive advisory agent, not crew, no node/badge, default agent/model from the codeagent `discuss` op). `how-to.md`: intro qualified ("Design operations run background agents … Discuss is the exception"), new `### How to Discuss Proposals with an Agent` (availability note, target selection, `A` → Discuss, launch dialog, one-vs-many opening, shortcode table, read-only guarantee), tmux paragraph line. NEW `skills/aitask-brainstorm-discuss.md` (weight 110). `skills/_index.md`: new `### Design` section. `tuis/_index.md`: blurb adds "discuss them with an advisory agent".
+- **Deviations from plan:** Change Request 1 (launch-dialog existing-window/split path and conditional minimonitor) — see Post-Review Changes.
+- **Issues encountered:** Two plan-review findings before approval (single-proposal opening branch; availability restriction not carried into a doc step) and two post-review findings; all verified in source and fixed.
+- **Key decisions:** Documented from source, not the sibling plans: skill template Step 0 (one-proposal branch, `(proposal not found)`), `_open_operations_dialog` gate (read-only / non-init/active status), `AgentCommandScreen` rows, `maybe_spawn_minimonitor` `auto_spawn` guard. New "Design" section in the skills index rather than forcing the skill into an existing category. Hugo build checked into a scratch `-d` dir so `website/public/` was untouched.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:** t1823_6 (manual verification) can use the how-to section as the user-visible contract: availability warning in read-only/paused sessions, one-proposal opening has no handles, existing-window launch splits without a minimonitor.
