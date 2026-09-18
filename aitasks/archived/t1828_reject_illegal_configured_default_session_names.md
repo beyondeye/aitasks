@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [tmux]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -18,7 +18,8 @@ anchor: 1705
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5
 created_at: 2026-09-17 11:31
-updated_at: 2026-09-18 08:08
+updated_at: 2026-09-18 08:12
+completed_at: 2026-09-18 08:12
 ---
 
 ## Origin
@@ -68,3 +69,14 @@ same `a.b`, so every reader agrees on a name tmux cannot target.
 > **✅ gate:plan_approved** run=2026-09-17T19:52:20Z status=pass attempt=2 type=human
 
 > **✅ gate:review_approved** run=2026-09-17T20:33:08Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-18T05:11:51Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:dda30e7eec4f7173
+
+> **✅ gate:risk_evaluated** run=2026-09-18T05:11:51Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1828/risk_evaluated_2026-09-18T05:11:51Z-risk_evaluated-a1.log`
