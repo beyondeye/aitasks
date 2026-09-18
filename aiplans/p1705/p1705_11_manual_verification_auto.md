@@ -103,3 +103,20 @@ merge is unaffected: `merge_codex_settings` in `aitask_setup.sh` prefers
 - Each suite tears down its own isolated tmux server and scratch dirs; the
   spike's end-of-run P1 re-assertion and the acceptance suite's `$HOME`
   probe both reported the real environment untouched
+
+## Final Implementation Notes
+
+- Verification pass completed 2026-09-18 under profile `fast`: 6 pass, 0 fail,
+  0 skip, 10 defer. The user chose **Archive with carry-over**, so the ten
+  deferred items (4–10, 12, 13, 16) move to a new manual-verification task
+  created by `aitask_archive.sh --with-deferred-carryover`.
+- Whoever picks the carry-over: items 4 and 16 unblock only after t1705_10
+  lands; items 5–10, 12, 13 need a live `-L ait` server with real agents and
+  cannot be auto-verified. Item 7 (real `claude --resume` recalling prior
+  context) is the single highest-value hand check. Exercise t1773 (restore
+  after the window is gone) while at it.
+- Follow-up filed: t1841 — `tests/test_session_hook_install.sh` Group D uses
+  the system `python3` for `tomllib` and false-fails on Python < 3.11.
+- All three tmux-stress suites (spike, parity, acceptance) passed today from
+  a plain terminal with the ait server down; the plan's Execution Log holds
+  the exact figures.
