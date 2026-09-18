@@ -426,6 +426,84 @@ summary footprint_ceiling pypy-3.11.15 n=5 rss_mib=113.8 [113.7–114.1] coldsta
 
 </details>
 
+### t1794_6 — stand-alone `trails_app` vs the board (2026-09-18)
+
+Same script, same task tree (this repo, 403 parent task files at this SHA —
+two fewer than at t1794_1, tasks having been archived since), same two
+interpreters, **all four configurations in one session** as the margin rule
+requires; the board was re-measured beside the candidate rather than reusing
+the t1794_1 figures. Host load (1-min) 4.78–7.30 across the twenty runs (the
+raw lines carry each run's value) — the parallel test suite had just finished
+and other agents were active, which shows in the cold-start ranges.
+Provenance line (identical for every run):
+
+```
+provenance head=7f7981bdd7bbbb97c2f91e17d221b584e9c14403 tree=7f7981bdd+709835bda0e6 changed=.aitask-scripts/board/aitask_board.py,.aitask-scripts/board/board_task_manager.py,.aitask-scripts/board/board_trail_view.py,.aitask-scripts/board/board_widgets.py,.aitask-scripts/lib/shortcut_scopes.py,.aitask-scripts/lib/tui_registry.py,.aitask-scripts/lib/tui_switcher.py,.aitask-scripts/aitask_trails.sh,.aitask-scripts/board/trails_app.py
+```
+
+The measured tree is `7f7981bdd` plus this task's uncommitted edits to exactly
+those nine paths (`aitask_trails.sh` and `trails_app.py` are the new files).
+
+| Module | Interpreter | RSS (MiB) | Cold start (ms) |
+|---|---|---:|---:|
+| `trails_app` | CPython 3.14.7 | 59.3 [59.2–59.9] | 243 [205–291] |
+| `aitask_board` | CPython 3.14.7 | 176.3 [176.2–176.5] | 290 [232–306] |
+| `trails_app` | PyPy 3.11.15 | 192.3 [188.6–193.5] | 419 [320–476] |
+| `aitask_board` | PyPy 3.11.15 | 317.5 [232.6–340.7] | 485 [412–489] |
+
+Signed margins (`trails_app` − `aitask_board`, difference of medians):
+
+- **RSS, CPython: −117.0 MiB** — the samples do not overlap (59.9 < 176.2):
+  a saving under the rule. Against the t1794_1 ceiling (40.1 MiB) the
+  stand-alone sits 19.2 MiB above the floor, i.e. it realises 117.0 of the
+  142.7 MiB ceiling on achievable savings measured then (cross-session
+  absolutes, so read that as an order of magnitude, not a number).
+- **RSS, PyPy: −125.2 MiB** — no overlap (193.5 < 232.6): a saving. The board's
+  PyPy sample has one 232.6 MiB run against four at 316–341, the ~5 MiB
+  spread noted at t1794_1 made much wider under this load; the margin holds
+  even against that low run.
+- **Cold start, CPython: −47 ms** — the ranges overlap ([205–291] vs
+  [232–306]): **within observed variation**, no claim.
+- **Cold start, PyPy: −66 ms** — the ranges overlap ([320–476] vs [412–489]):
+  **within observed variation**, no claim.
+
+The launcher stays on `require_ait_python` (CPython): under PyPy the
+stand-alone's RSS is 3.2× its CPython RSS and its cold start slower, the same
+shape t718_6 found for codebrowser, and nothing here argues for the fast path
+(child 11 owns the retrospective).
+
+<details>
+<summary>Raw runs (verbatim script output)</summary>
+
+```
+7f7981bdd+709835bda0e6 trails_app cpython-3.14.7 run=1/5 rss_mib=59.9 coldstart_ms=279 load1=7.26 parent_tasks=403
+7f7981bdd+709835bda0e6 trails_app cpython-3.14.7 run=2/5 rss_mib=59.2 coldstart_ms=205 load1=7.30 parent_tasks=403
+7f7981bdd+709835bda0e6 trails_app cpython-3.14.7 run=3/5 rss_mib=59.2 coldstart_ms=291 load1=6.64 parent_tasks=403
+7f7981bdd+709835bda0e6 trails_app cpython-3.14.7 run=4/5 rss_mib=59.3 coldstart_ms=243 load1=6.37 parent_tasks=403
+7f7981bdd+709835bda0e6 trails_app cpython-3.14.7 run=5/5 rss_mib=59.7 coldstart_ms=243 load1=6.08 parent_tasks=403
+summary trails_app cpython-3.14.7 n=5 rss_mib=59.3 [59.2–59.9] coldstart_ms=243 [205–291]
+7f7981bdd+709835bda0e6 aitask_board cpython-3.14.7 run=1/5 rss_mib=176.2 coldstart_ms=290 load1=5.99 parent_tasks=403
+7f7981bdd+709835bda0e6 aitask_board cpython-3.14.7 run=2/5 rss_mib=176.2 coldstart_ms=306 load1=5.84 parent_tasks=403
+7f7981bdd+709835bda0e6 aitask_board cpython-3.14.7 run=3/5 rss_mib=176.5 coldstart_ms=291 load1=5.77 parent_tasks=403
+7f7981bdd+709835bda0e6 aitask_board cpython-3.14.7 run=4/5 rss_mib=176.4 coldstart_ms=232 load1=5.44 parent_tasks=403
+7f7981bdd+709835bda0e6 aitask_board cpython-3.14.7 run=5/5 rss_mib=176.3 coldstart_ms=243 load1=5.22 parent_tasks=403
+summary aitask_board cpython-3.14.7 n=5 rss_mib=176.3 [176.2–176.5] coldstart_ms=290 [232–306]
+7f7981bdd+709835bda0e6 trails_app pypy-3.11.15 run=1/5 rss_mib=193.5 coldstart_ms=476 load1=5.40 parent_tasks=403
+7f7981bdd+709835bda0e6 trails_app pypy-3.11.15 run=2/5 rss_mib=192.3 coldstart_ms=438 load1=4.78 parent_tasks=403
+7f7981bdd+709835bda0e6 trails_app pypy-3.11.15 run=3/5 rss_mib=192.5 coldstart_ms=320 load1=4.88 parent_tasks=403
+7f7981bdd+709835bda0e6 trails_app pypy-3.11.15 run=4/5 rss_mib=191.3 coldstart_ms=419 load1=5.04 parent_tasks=403
+7f7981bdd+709835bda0e6 trails_app pypy-3.11.15 run=5/5 rss_mib=188.6 coldstart_ms=409 load1=5.18 parent_tasks=403
+summary trails_app pypy-3.11.15 n=5 rss_mib=192.3 [188.6–193.5] coldstart_ms=419 [320–476]
+7f7981bdd+709835bda0e6 aitask_board pypy-3.11.15 run=1/5 rss_mib=309.7 coldstart_ms=489 load1=5.51 parent_tasks=403
+7f7981bdd+709835bda0e6 aitask_board pypy-3.11.15 run=2/5 rss_mib=232.6 coldstart_ms=485 load1=5.37 parent_tasks=403
+7f7981bdd+709835bda0e6 aitask_board pypy-3.11.15 run=3/5 rss_mib=317.5 coldstart_ms=487 load1=5.93 parent_tasks=403
+7f7981bdd+709835bda0e6 aitask_board pypy-3.11.15 run=4/5 rss_mib=340.7 coldstart_ms=412 load1=6.02 parent_tasks=403
+7f7981bdd+709835bda0e6 aitask_board pypy-3.11.15 run=5/5 rss_mib=330.4 coldstart_ms=431 load1=7.10 parent_tasks=403
+summary aitask_board pypy-3.11.15 n=5 rss_mib=317.5 [232.6–340.7] coldstart_ms=485 [412–489]
+```
+
+</details>
+
 ### Margin rule (how later t1794 children report against this)
 
 The numbers above are a **sample, not a threshold** — never derive a

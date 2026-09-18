@@ -75,6 +75,12 @@ def refresh_label_case() -> None:
 
 class ShortcutsMixin:
     _shortcuts_scope: str = ""
+    #: Manifest modules the `?` editor's scope sweep must NOT execute for this
+    #: App, even though they contribute to `_shortcuts_scope`. Empty for every
+    #: App that owns its scope alone; the stand-alone trails app names the
+    #: board module here (it shares the `board` scope but must never load the
+    #: board implementation — t1794_6, C1).
+    _shortcuts_exclude_sources: tuple[str, ...] = ()
 
     SHORTCUTS_MIXIN_BINDINGS = [
         Binding("?", "open_shortcuts_editor", "Keys"),
@@ -152,7 +158,9 @@ class ShortcutsMixin:
             try:
                 import shortcut_scopes
 
-                shortcut_scopes.register_scope_bindings(self._shortcuts_scope)
+                shortcut_scopes.register_scope_bindings(
+                    self._shortcuts_scope,
+                    exclude_modules=self._shortcuts_exclude_sources)
             except Exception:
                 pass  # fail-soft: editor still lists already-registered scopes
             self._subscopes_registered = True

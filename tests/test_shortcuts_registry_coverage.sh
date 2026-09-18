@@ -30,7 +30,7 @@ cd "$PROJECT_DIR" || exit 1
 # in _DEFAULTS after instantiating the App.
 FAIL=0
 
-PYTHONPATH="$LIB_DIR:$PROJECT_DIR/.aitask-scripts:$PROJECT_DIR/.aitask-scripts/codebrowser" \
+PYTHONPATH="$LIB_DIR:$PROJECT_DIR/.aitask-scripts:$PROJECT_DIR/.aitask-scripts/codebrowser:$PROJECT_DIR/.aitask-scripts/board" \
     "$AITASK_PYTHON" - <<'PY' || FAIL=$((FAIL+1))
 import argparse
 import importlib.util
@@ -40,6 +40,7 @@ import os
 sys.path.insert(0, ".aitask-scripts/lib")
 sys.path.insert(0, ".aitask-scripts")
 sys.path.insert(0, ".aitask-scripts/codebrowser")
+sys.path.insert(0, ".aitask-scripts/board")
 
 import keybinding_registry
 keybinding_registry._reset_for_tests()
@@ -82,6 +83,14 @@ TUIS = [
     (".aitask-scripts/settings/settings_app.py", "settings_app", "SettingsApp",
      lambda C: C(),
      "settings"),
+    # The stand-alone trails app registers under the BOARD scope (t1794_6, C10):
+    # its trail bindings are the board's own objects, so one override entry
+    # serves both. Constructed against the repo tree, read-only (no writes).
+    (".aitask-scripts/board/trails_app.py", "trails_app", "TrailsApp",
+     lambda C: C(tasks_dir=__import__("pathlib").Path("aitasks"),
+                 metadata_file=__import__("pathlib").Path("aitasks/metadata/board_config.json"),
+                 gates_registry_file=__import__("pathlib").Path("aitasks/metadata/gates.yaml")),
+     "board"),
     (".aitask-scripts/brainstorm/brainstorm_app.py", "brainstorm_app", "BrainstormApp",
      "register_class_only",  # too heavy to instantiate; emulate mixin's __init__ registration
      "brainstorm"),

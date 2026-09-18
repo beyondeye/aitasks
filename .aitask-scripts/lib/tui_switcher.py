@@ -218,6 +218,7 @@ _TUI_SWITCHER_SCOPE = "shared.tui_switcher"
 # reflected without going stale.
 _TUI_SHORTCUTS = {
     "board": "b",
+    "trails": "i",
     "monitor": "m",
     "frozenagent": "f",
     "codebrowser": "c",
@@ -244,9 +245,10 @@ def _resolve_tui_shortcut(tui_name: str) -> str | None:
 
 
 # Ordered (action_id, label, default_key) for the overlay's bottom hint row.
-# Omits applink (the hint historically does not advertise the App Linker key)
-# and frozenagent (t1705_6): this row already renders 122 columns wide, so it
-# overflows a standard 120-column terminal before anything is added to it.
+# Omits applink (the hint historically does not advertise the App Linker key),
+# frozenagent (t1705_6) and trails (t1794_6): this row already renders 122
+# columns wide (re-measured at t1794_6), so it overflows a standard 120-column
+# terminal before anything is added to it.
 # A TUI is fully reachable without a hint entry — the registry row and the
 # quick-jump key are what make it work — so the budget, not completeness,
 # decides membership here. Measure before adding one:
@@ -404,6 +406,7 @@ _QUICK_JUMP_BINDINGS = [
     Binding("a", "shortcut_applink", "App Linker", show=False),
     Binding("l", "shortcut_chatlink", "Chat Link", show=False),
     Binding("b", "shortcut_board", "Board", show=False),
+    Binding("i", "shortcut_trails", "Trails", show=False),
     Binding("m", "shortcut_monitor", "Monitor", show=False),
     Binding("f", "shortcut_frozenagent", "Frozen Agent", show=False),
     Binding("c", "shortcut_codebrowser", "Code Browser", show=False),
@@ -1124,6 +1127,9 @@ class TuiSwitcherOverlay(ModalScreen):
 
     def action_shortcut_board(self) -> None:
         self._shortcut_switch("board")
+
+    def action_shortcut_trails(self) -> None:
+        self._shortcut_switch("trails")
 
     def action_shortcut_monitor(self) -> None:
         self._shortcut_switch("monitor")

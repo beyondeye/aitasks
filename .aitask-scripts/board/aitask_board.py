@@ -94,8 +94,8 @@ from followup_kinds import (
 # (reachable as `ab.board_widgets`), not here.
 import board_widgets
 from board_widgets import (
-    CollapseToggleButton, ColumnEditButton, ColumnHeader, LoadingOverlay,
-    MarkedSelection, PickerItem, TaskCard,
+    WIDGET_CSS, CollapseToggleButton, ColumnEditButton, ColumnHeader,
+    LoadingOverlay, MarkedSelection, PickerItem, TaskCard,
     _followup_colour_hex, _followup_glyph_text, _followup_marker,
     _issue_indicator, _plan_approved_marker, _pr_indicator, _status_badge_text,
 )
@@ -4687,7 +4687,7 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
     # duplicated as a CSS `min-width` (t1247).
     FILTER_SEARCH_MIN_WIDTH = 30
 
-    CSS = """
+    CSS = WIDGET_CSS + """
     Screen { align: center middle; }
     #detail_dialog {
         width: 80%;
@@ -4739,25 +4739,6 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
     #view_indicator.viewing-task { background: $primary; color: $text; }
     #view_indicator.viewing-plan { background: #FFB86C; color: $background; }
     #md_view { margin: 1 0; border: solid $secondary-background; }
-    .task-title-row { height: auto; }
-    /* Layout and state ONLY — no `color:`, mirroring `.task-followup-glyph`
-       below. The colour is Rich markup from `mark_glyphs.mark_markup()`; a
-       `color:` here would be a second authority that CSS cannot keep in sync
-       with the Python constant, and CSS cannot express the glyph at all, so the
-       two halves of one mark would live in two files. `.task-marked` survives
-       as a STATE HOOK with no declarations — `_repaint_card_mark` and the tests
-       key off it. (t1638; the `color: yellow` this replaces resolved to
-       #ffff00, which was not the Dracula yellow the other surfaces intended.) */
-    .task-mark { width: auto; margin: 0 1 0 0; }
-    .task-marked { }
-    /* Layout ONLY — no `color:`, and no per-kind classes. The colour is a
-       literal Rich style from FOLLOWUP_KINDS (see `_followup_marker`); a
-       `.fk-<kind>` rule here would be a second authority that CSS cannot keep
-       in sync with a Python dict. */
-    .task-followup-glyph { width: auto; margin: 0 1 0 0; }
-    .task-number { color: $accent; text-style: bold; width: auto; margin: 0 1 0 0; }
-    .task-modified { color: #FFB86C; }
-    .task-title { text-style: bold; width: 1fr; }
 
     /* `.markable-card` is set in TaskCard.__init__ — without that assignment
        these two rules match nothing. Scoped to the class, NOT to the bare
@@ -4771,7 +4752,6 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
        (:hover would otherwise override :focus at equal specificity).
        $primary 30% is the board's own idiom — .collapsed-placeholder:focus. */
     TaskCard.markable-card:focus:hover { background: $primary 30%; }
-    .task-info { color: $text-muted; }
     .inflight-action { color: $text; }
     .inflight-phase { color: $text-muted; }
     .inflight-ops { color: $accent; }
@@ -4805,12 +4785,6 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
     .type-filter-summary { height: auto; padding: 0 1; color: $text-muted; }
     .type-filter-summary.hidden { display: none; }
     Input { width: 1fr; }
-    .col-header-btn { width: auto; height: 1; padding: 0 1; }
-    .col-header-edit-btn { width: auto; height: 1; padding: 0 1; background: black; color: white; }
-    .col-header-row { height: auto; width: 100%; }
-    .col-header-title { text-align: center; width: 100%; }
-    .col-header-title-expanded { width: 1fr; text-align: center; }
-    .col-header-count { text-align: center; width: 100%; color: $text-muted; }
     .collapsed-placeholder { height: 1; width: 100%; text-align: center; color: $text-muted; }
     .collapsed-placeholder:focus { background: $primary 30%; }
     .empty-placeholder { height: 1; width: 100%; text-align: center; color: $text-muted; }
@@ -4859,8 +4833,6 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
        outline a blank column to land on instead of covering the first glyph.
        The `height: 1` overrides below MUST stay after this rule: both are bare
        type selectors of equal specificity, so source order decides. */
-    PickerItem { height: auto; width: 100%; padding: 0 1; }
-    PickerItem.dep-item-focused { background: $primary 20%; outline-left: thick $accent; }
     DepPickerItem { height: 1; }
     ChildPickerItem { height: 1; }
     #commit_dialog {
@@ -4955,23 +4927,6 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
     .settings-hint {
         height: 1;
         padding: 0 2;
-    }
-    #loading_dialog {
-        width: 40;
-        height: 7;
-        background: $surface;
-        border: thick $primary;
-        padding: 1 2;
-        align: center middle;
-    }
-    #loading_message {
-        text-align: center;
-        width: 100%;
-        height: 1;
-        padding: 0 0 1 0;
-    }
-    #loading_dialog LoadingIndicator {
-        height: 3;
     }
     """ + TRAIL_CSS
 

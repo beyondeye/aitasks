@@ -191,6 +191,14 @@ class DetectTargetActivityTests(unittest.TestCase):
             fv.detect_target_activity("s", windows), "busy:board"
         )
 
+    def test_trails_tui_busy(self):
+        # The stand-alone trails TUI classifies as a TUI window via its registry
+        # row (t1794_6), so an upgrade sees it as busy like the board.
+        windows = [("0", "zsh"), ("1", "trails")]
+        self.assertEqual(
+            fv.detect_target_activity("s", windows), "busy:trails"
+        )
+
     def test_agent_window_busy(self):
         windows = [("0", "agent-syncfix-pull")]
         self.assertEqual(

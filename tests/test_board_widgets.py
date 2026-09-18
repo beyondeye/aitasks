@@ -130,5 +130,91 @@ class HostProtocolTests(bf.FixtureBoardTestBase, unittest.TestCase):
         self.assertEqual(_missing_members(bw.CardHost, host), ["expanded_tasks"])
 
 
+class WidgetCssPinTests(bf.FixtureBoardTestBase, unittest.TestCase):
+    """Computed styles of the widget-layer rules, pinned BEFORE t1794_6 moved
+    them out of the `KanbanApp.CSS` literal into `board_widgets.WIDGET_CSS`.
+
+    The move changes where the rules sit in the stylesheet, and Textual resolves
+    equal-specificity conflicts by declaration order — so a rule that lands
+    later than a subclass override it used to precede (`PickerItem { height:
+    auto }` vs `DepPickerItem { height: 1 }`) silently restyles the board. Each
+    assertion below is a literal recorded from the untouched tree; the negative
+    control proves the order-sensitive one actually sees a mis-placed block.
+    """
+
+    def _run(self, coro):
+        import asyncio
+        return asyncio.run(coro)
+
+    async def _boot(self, app):
+        """Mount one of each pinned widget kind and return them, laid out."""
+        from textual.widgets import Label, LoadingIndicator
+        from textual.containers import Container
+        ab = self.ab
+        async with app.run_test(size=(200, 48)) as pilot:
+            await pilot.pause()
+            card = app.query(ab.TaskCard).first()
+            title = card.query(".task-title").first()
+            info = card.query(".task-info").first()
+            header_title = app.query(".col-header-title-expanded").first()
+            picker = ab.PickerItem("row")
+            child = ab.ChildPickerItem("1", None, "child", app.manager)
+            dialog = Container(
+                Label("loading", id="loading_message"), LoadingIndicator(),
+                id="loading_dialog")
+            await app.screen.mount(picker, child, dialog)
+            await pilot.pause()
+            return {
+                "title": (title.styles.text_style.bold, str(title.styles.width)),
+                "info_colour": info.styles.color.hex,
+                "header_title": (str(header_title.styles.width),
+                                 header_title.styles.text_align),
+                "picker_height": str(picker.styles.height),
+                "child_height": str(child.styles.height),
+                "picker_padding": tuple(picker.styles.padding),
+                "loading_dialog": (str(dialog.styles.width),
+                                   str(dialog.styles.height),
+                                   dialog.styles.border.top[0]),
+                "loading_message": (
+                    str(dialog.query_one("#loading_message").styles.height),
+                    dialog.query_one("#loading_message").styles.text_align),
+                "loading_indicator": str(
+                    dialog.query_one("LoadingIndicator").styles.height),
+            }
+
+    EXPECTED = {
+        "title": (True, "1fr"),
+        # `$text-muted` under the default theme (auto 60% over the surface).
+        "info_colour": "#FFFFFF99",
+        "header_title": ("1fr", "center"),
+        "picker_height": "auto",
+        "child_height": "1",
+        "picker_padding": (0, 1, 0, 1),
+        "loading_dialog": ("40", "7", "thick"),
+        "loading_message": ("1", "center"),
+        "loading_indicator": "3",
+    }
+
+    def test_widget_layer_styles_are_unchanged(self):
+        got = self._run(self._boot(self.ab.KanbanApp()))
+        self.assertEqual(got, self.EXPECTED)
+
+    def test_a_widget_block_placed_after_the_board_css_is_detected(self):
+        """Negative control for the order-sensitive rule: the widget-layer block
+        APPENDED (instead of prepended) lets `PickerItem { height: auto }` win
+        over `DepPickerItem`/`ChildPickerItem { height: 1 }`."""
+        ab = self.ab
+        widget_block = "\nPickerItem { height: auto; width: 100%; padding: 0 1; }\n"
+        base_css = ab.KanbanApp.CSS.replace(
+            "    PickerItem { height: auto; width: 100%; padding: 0 1; }\n", "")
+        self.assertNotEqual(base_css, ab.KanbanApp.CSS, "the pinned rule text moved")
+
+        class Appended(ab.KanbanApp):
+            CSS = base_css + widget_block
+
+        got = self._run(self._boot(Appended()))
+        self.assertEqual(got["child_height"], "auto")
+
+
 if __name__ == "__main__":
     unittest.main()

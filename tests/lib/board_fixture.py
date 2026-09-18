@@ -605,6 +605,47 @@ def load_board_module(task_dir=TASK_DIR_VALUE, *, tag: str = "fixture",
             os.environ["TASK_DIR"] = previous
 
 
+TRAILS_APP_PATH = _BOARD / "trails_app.py"
+
+
+def load_trails_app():
+    """Import `board/trails_app.py` once, under its canonical name, and return it.
+
+    The stand-alone trails app (t1794_6) resolves no task directory (C2) and
+    binds its siblings by bare name — the SAME `sys.modules` entries the
+    fixture-loaded board binds (`ab.board_trail_screen is
+    sys.modules["board_trail_screen"]`), so a patch on `ab.board_trail_screen`
+    reaches it. It therefore needs no synthetic name; what it must not be is a
+    canonical `import trails_app` statement in a test module, which the
+    tier-1 sweep in test_board_fixture_harness.py rejects for every board
+    module. Load it through here instead, from inside a fixture tree (cwd),
+    and construct it with `make_trails_app`.
+    """
+    module = sys.modules.get("trails_app")
+    if module is not None:
+        return module
+    spec = importlib.util.spec_from_file_location("trails_app", TRAILS_APP_PATH)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["trails_app"] = module
+    assert spec.loader is not None
+    try:
+        spec.loader.exec_module(module)
+    except Exception:
+        sys.modules.pop("trails_app", None)
+        raise
+    return module
+
+
+def make_trails_app(task_dir=TASK_DIR_VALUE):
+    """A `TrailsApp` bound to `<cwd>/<task_dir>` — the fixture tree's paths,
+    passed explicitly exactly as the launcher passes them."""
+    tasks = Path(task_dir)
+    return load_trails_app().TrailsApp(
+        tasks_dir=tasks,
+        metadata_file=tasks / "metadata" / "board_config.json",
+        gates_registry_file=tasks / "metadata" / "gates.yaml")
+
+
 def enter_fixture_tree(add_cleanup, *, tasks_spec=DEFAULT_TOPOLOGY, tag: str = "fixture",
                        branch_mode: bool = True, settings=None,
                        project_name: str | None = "aitasks", load_module: bool = True,

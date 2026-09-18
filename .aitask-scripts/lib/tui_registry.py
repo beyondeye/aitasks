@@ -16,6 +16,7 @@ from __future__ import annotations
 #     from the switcher modal (per-task windows and companion panes)
 TUI_REGISTRY: list[tuple[str, str | None, str | None, bool]] = [
     ("board",       "Task Board",    "ait board",       True),
+    ("trails",      "Trails",        "ait trails",      True),
     ("monitor",     "tmux Monitor",  "ait monitor",     True),
     ("frozenagent", "Frozen Agent",  "ait frozenagent", True),
     ("codebrowser", "Code Browser",  "ait codebrowser", True),

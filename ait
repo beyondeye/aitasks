@@ -28,6 +28,7 @@ Usage: ait <command> [options]
 TUI:
   applink        Launch the App Linker TUI (mobile pairing)
   board          Launch the task board TUI
+  trails         Launch the implementation-trails TUI (read-only trail reader)
   codebrowser    Launch the code browser TUI
   diffviewer     Launch the diff viewer TUI
   frozenagent    Launch the frozen-agent viewer TUI
@@ -204,6 +205,7 @@ case "${1:-help}" in
     note)         shift; exec "$SCRIPTS_DIR/aitask_note.sh" "$@" ;;
     artifact)     shift; exec "$SCRIPTS_DIR/aitask_artifact.sh" "$@" ;;
     board)        shift; exec "$SCRIPTS_DIR/aitask_board.sh" "$@" ;;
+    trails)       shift; exec "$SCRIPTS_DIR/aitask_trails.sh" "$@" ;;
     chatlink)     shift; exec "$SCRIPTS_DIR/aitask_chatlink.sh" "$@" ;;
     codebrowser)  shift; exec "$SCRIPTS_DIR/aitask_codebrowser.sh" "$@" ;;
     diffviewer)   shift; exec "$SCRIPTS_DIR/aitask_diffviewer.sh" "$@" ;;

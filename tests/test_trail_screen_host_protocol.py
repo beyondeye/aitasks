@@ -54,10 +54,16 @@ import board_fixture as bf  # noqa: E402
 BOARD_DIR = REPO_ROOT / ".aitask-scripts" / "board"
 TESTS_DIR = REPO_ROOT / "tests"
 
-#: The hosts held to the contract: `(label, host class getter over the board
-#: module)`. The stand-alone trails app (t1794_6) adds its row here.
+#: The hosts held to the contract: `(label, factory over the board module ->
+#: zero-arg App constructor, the board-only capabilities the host CLAIMS)`.
+#: The board provides every capability; the stand-alone trails app (t1794_6)
+#: provides none — its `M` / `S` keys are declared for shortcut ownership and
+#: refused by the mixin's capability guard. Both answers are asserted, so a
+#: host that grew a capability member by accident is a finding, not a pass.
 HOSTS = [
-    ("KanbanApp", lambda ab: ab.KanbanApp),
+    ("KanbanApp", lambda ab: ab.KanbanApp,
+     {"trail_move_wave", "trail_sync"}),
+    ("TrailsApp", lambda ab: bf.make_trails_app, set()),
 ]
 
 #: The `TrailHost` surface as reviewed for t1794_5. Pinned so an emptied or
@@ -90,6 +96,12 @@ def _protocol_members(protocol) -> set[str]:
 
 def _missing_members(names, obj) -> list[str]:
     return sorted(n for n in names if not hasattr(obj, n))
+
+
+def _claimed_capabilities(ts, app) -> set[str]:
+    """The board-only trail actions `app` answers for, per the mixin's guard."""
+    return {action for action in ts.TRAIL_ACTION_CAPABILITIES
+            if app._has_trail_capability(action)}
 
 
 def _missing_widgets(app, selectors) -> list[str]:
@@ -189,6 +201,102 @@ def _inert_board_patches(sources: dict[str, str], names: set[str]) -> list[str]:
     return findings
 
 
+def _mixin_host_reads(source: str) -> set[str]:
+    """Every `self.<name>` the mixin READS without defining it itself.
+
+    Definitions are the class's own methods and every `self.<name> = …`
+    assignment anywhere in its body (`_init_trail_state` and the workers).
+    Everything else the mixin reads off `self` is host surface — whether or not
+    `TrailHost` lists it — and is what the sweep holds a host to. `self.app`
+    is Textual's own and excluded."""
+    tree = ast.parse(source)
+    cls = next(n for n in tree.body
+               if isinstance(n, ast.ClassDef) and n.name == "TrailScreenMixin")
+    defined = {n.name for n in cls.body
+               if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+    reads: set[str] = set()
+    for node in ast.walk(cls):
+        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) \
+                and node.value.id == "self":
+            if isinstance(node.ctx, ast.Store):
+                defined.add(node.attr)
+            else:
+                reads.add(node.attr)
+    return {r for r in reads if r not in defined and r != "app"}
+
+
+def _answers(host, name: str) -> bool:
+    """Whether `host` has `name` — on its class (a property that raises before
+    the App is mounted, e.g. `screen`, still counts) or on the instance."""
+    if hasattr(type(host), name):
+        return True
+    try:
+        return hasattr(host, name)
+    except Exception:
+        return True
+
+
+def _guarded_capability_reads(source: str, capabilities: dict) -> tuple[set[str], list[str]]:
+    """Split the mixin's capability-member reads into guarded and unguarded.
+
+    A read of `self.<member>` is GUARDED when the method it sits in opens with
+    `if not self._has_trail_capability("<action>"): return …` for an action
+    whose capability tuple names that member — the guard the mixin promises
+    (`_has_trail_capability`'s docstring) and the reason a host may leave the
+    member undefined. Anything else — a read in a method with no such guard,
+    or guarded by the wrong action, or before the guard — is reported as
+    `"<method>: <member>"`. Returns `(guarded_members, findings)`."""
+    tree = ast.parse(source)
+    cls = next(n for n in tree.body
+               if isinstance(n, ast.ClassDef) and n.name == "TrailScreenMixin")
+    member_actions = {m: a for a, members in capabilities.items() for m in members}
+    guarded: set[str] = set()
+    findings: list[str] = []
+    for fn in cls.body:
+        if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        # The actions this method's leading guard(s) establish: `if not
+        # self._has_trail_capability("x"): return` statements before any read.
+        established: set[str] = set()
+        for stmt in fn.body:
+            test = getattr(stmt, "test", None)
+            if (isinstance(stmt, ast.If) and isinstance(test, ast.UnaryOp)
+                    and isinstance(test.op, ast.Not)
+                    and isinstance(test.operand, ast.Call)
+                    and isinstance(test.operand.func, ast.Attribute)
+                    and test.operand.func.attr == "_has_trail_capability"
+                    and test.operand.args
+                    and isinstance(test.operand.args[0], ast.Constant)
+                    and not stmt.orelse
+                    and len(stmt.body) == 1
+                    and isinstance(stmt.body[0], ast.Return)
+                    and (stmt.body[0].value is None
+                         or (isinstance(stmt.body[0].value, ast.Constant)
+                             and stmt.body[0].value.value is None))):
+                # Exactly the safe early-return shape: `if not
+                # self._has_trail_capability("x"): return` (or `return None`).
+                # A guard whose body returns an EXPRESSION is not skipped —
+                # `return self._run_sync()` runs on the unsupported host — so
+                # it falls through to the read scan below like any statement.
+                established.add(test.operand.args[0].value)
+                continue
+            for node in ast.walk(stmt):
+                if (isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name)
+                        and node.value.id == "self" and isinstance(node.ctx, ast.Load)
+                        and node.attr in member_actions):
+                    if member_actions[node.attr] in established:
+                        guarded.add(node.attr)
+                    else:
+                        findings.append(f"{fn.name}: {node.attr}")
+    return guarded, sorted(findings)
+
+
+def _unanswered_reads(reads: set[str], host, guarded_members: set[str]) -> list[str]:
+    """Reads the host does not answer and that are not PROVEN guarded."""
+    return sorted(r for r in reads
+                  if not _answers(host, r) and r not in guarded_members)
+
+
 def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
@@ -216,15 +324,14 @@ class HostSurfaceTests(bf.FixtureBoardTestBase, unittest.TestCase):
     def test_every_host_provides_members_manager_and_capabilities(self):
         ts = self.ab.board_trail_screen
         members = _protocol_members(ts.TrailHost)
-        for label, host_of in HOSTS:
+        for label, host_of, capabilities in HOSTS:
             with self.subTest(host=label):
                 app = host_of(self.ab)()
                 self.assertIsInstance(app, ts.TrailScreenMixin)
                 self.assertEqual(_missing_members(members, app), [])
                 self.assertEqual(
                     _missing_members(ts.TrailHost.MANAGER_MEMBERS, app.manager), [])
-                for action in ts.TRAIL_ACTION_CAPABILITIES:
-                    self.assertTrue(app._has_trail_capability(action), action)
+                self.assertEqual(_claimed_capabilities(ts, app), capabilities)
 
     def test_every_host_composes_the_required_widgets(self):
         ts = self.ab.board_trail_screen
@@ -235,9 +342,19 @@ class HostSurfaceTests(bf.FixtureBoardTestBase, unittest.TestCase):
                 await pilot.pause()
                 return _missing_widgets(app, ts.TrailHost.REQUIRED_WIDGETS)
 
-        for label, host_of in HOSTS:
+        for label, host_of, _capabilities in HOSTS:
             with self.subTest(host=label):
                 self.assertEqual(self._run(go(host_of(self.ab))), [])
+
+    def test_a_host_claiming_a_capability_it_lacks_is_reported(self):
+        """Negative control for the capability half of the row: one member of
+        the chain is enough for `hasattr`-style claims to be wrong, and the
+        checker reads the mixin's own guard so it cannot drift from it."""
+        ts = self.ab.board_trail_screen
+        app = bf.make_trails_app()
+        self.assertEqual(_claimed_capabilities(ts, app), set())
+        app._run_sync = lambda **kw: None
+        self.assertEqual(_claimed_capabilities(ts, app), {"trail_sync"})
 
     def test_a_host_missing_a_member_or_manager_member_is_reported(self):
         ts = self.ab.board_trail_screen
@@ -629,6 +746,101 @@ class InertPatchGuardTests(unittest.TestCase):
         screen = "from x import helper, other\ndef f():\n    helper(); other()\n"
         board = "from x import helper, other\ndef g():\n    return helper\n"
         self.assertEqual(_mixin_only_names(screen, board), {"other"})
+
+
+class MixinSelfAttributeSweepTests(bf.FixtureBoardTestBase, unittest.TestCase):
+    """Post-phase mitigation (t1794_6): every `self.<name>` the mixin reads is
+    answered by the stand-alone host, or is a board-only capability member the
+    mixin reads ONLY behind `_has_trail_capability`. `TrailHost` is what the
+    protocol *says*; this sweep is what the mixin *does*, so an attribute the
+    mixin grew without the Protocol noticing — or a capability member reached
+    from an unguarded method — surfaces here rather than as an AttributeError
+    in `ait trails`."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.source = _read(BOARD_DIR / "board_trail_screen.py")
+        cls.reads = _mixin_host_reads(cls.source)
+        cls.guarded, cls.guard_findings = _guarded_capability_reads(
+            cls.source, cls.ab.board_trail_screen.TRAIL_ACTION_CAPABILITIES)
+
+    def test_the_sweep_sees_the_host_surface(self):
+        # Anti-vacuity: three reads of three different kinds — a plain
+        # attribute, a host helper, and the policy seam.
+        self.assertLessEqual({"manager", "_banner_budget", "_trail_task_target"},
+                             self.reads)
+        # And it does not report what the mixin defines for itself.
+        self.assertNotIn("_trail_gen", self.reads)
+        self.assertNotIn("_rerender_trail", self.reads)
+
+    def test_every_capability_read_sits_behind_its_guard(self):
+        self.assertEqual(self.guard_findings, [])
+        # Anti-vacuity: the two actions' entry members are read, and guarded.
+        self.assertLessEqual({"_run_sync", "_review_then"}, self.guarded)
+
+    def test_every_read_is_answered_by_each_host(self):
+        for label, host_of, _capabilities in HOSTS:
+            with self.subTest(host=label):
+                app = host_of(self.ab)()
+                self.assertEqual(_unanswered_reads(self.reads, app, self.guarded), [])
+
+    def test_the_trails_app_leans_on_the_capability_guard_for_the_rest(self):
+        """What the stand-alone host does NOT answer is exactly the set of
+        capability members the mixin reads behind a guard — nothing else."""
+        app = bf.make_trails_app()
+        gaps = sorted(r for r in self.reads if not _answers(app, r))
+        self.assertTrue(gaps, "the trails app is not expected to answer everything")
+        self.assertLessEqual(set(gaps), self.guarded)
+
+    def test_an_unlisted_read_is_reported(self):
+        injected = self.source.replace(
+            "    def _has_trail_capability(self, action: str) -> bool:",
+            "    def _probe(self):\n        return self._unlisted_thing\n\n"
+            "    def _has_trail_capability(self, action: str) -> bool:", 1)
+        self.assertNotEqual(injected, self.source)
+        reads = _mixin_host_reads(injected)
+        self.assertIn("_unlisted_thing", reads)
+        app = bf.make_trails_app()
+        self.assertEqual(_unanswered_reads(reads, app, self.guarded),
+                         ["_unlisted_thing"])
+
+    def test_an_unguarded_capability_read_is_reported(self):
+        """Negative control for the guard half: a capability member read from
+        a method with no `_has_trail_capability` guard is a finding, and the
+        member no longer counts as guarded for the host check."""
+        caps = self.ab.board_trail_screen.TRAIL_ACTION_CAPABILITIES
+        injected = self.source.replace(
+            "    def _has_trail_capability(self, action: str) -> bool:",
+            "    def _probe(self):\n        return self._run_sync()\n\n"
+            "    def _has_trail_capability(self, action: str) -> bool:", 1)
+        guarded, findings = _guarded_capability_reads(injected, caps)
+        self.assertEqual(findings, ["_probe: _run_sync"])
+        # The genuine guarded read in action_trail_sync still counts.
+        self.assertIn("_run_sync", guarded)
+        # A guard whose body RUNS the member (`return self._run_sync()`) is
+        # not a guard: the read is inside the statement the old checker
+        # skipped, and it executes on exactly the host that lacks the member.
+        unsafe = self.source.replace(
+            "    def _has_trail_capability(self, action: str) -> bool:",
+            "    def _probe(self):\n"
+            "        if not self._has_trail_capability(\"trail_sync\"):\n"
+            "            return self._run_sync()\n\n"
+            "    def _has_trail_capability(self, action: str) -> bool:", 1)
+        self.assertNotEqual(unsafe, self.source)
+        guarded, findings = _guarded_capability_reads(unsafe, caps)
+        self.assertEqual(findings, ["_probe: _run_sync"])
+        # A read guarded by the WRONG action is a finding too.
+        wrong = self.source.replace(
+            'if not self._has_trail_capability("trail_sync"):',
+            'if not self._has_trail_capability("trail_move_wave"):', 1)
+        self.assertNotEqual(wrong, self.source)
+        guarded, findings = _guarded_capability_reads(wrong, caps)
+        self.assertEqual(findings, ["action_trail_sync: _run_sync"])
+        self.assertNotIn("_run_sync", guarded)
+        app = bf.make_trails_app()
+        self.assertIn("_run_sync",
+                      _unanswered_reads(_mixin_host_reads(wrong), app, guarded))
 
 
 if __name__ == "__main__":

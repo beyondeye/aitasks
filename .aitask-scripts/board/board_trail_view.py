@@ -87,8 +87,8 @@ _TRAIL_GHOST_LABELS = {
 # `+ TRAIL_CSS`, and the stand-alone trails app must do the same.
 # Deliberately NOT here: the rules for the board_widgets widgets these cards
 # and modals build on (`.task-title`, `.task-info`, `.col-header-*`,
-# `PickerItem*`, `#loading_*`). They belong to the widget layer and stay with
-# the host App's own CSS, so a second App must supply them itself.
+# `PickerItem*`, `#loading_*`). They belong to the widget layer and live in
+# `board_widgets.WIDGET_CSS`, which every host App prepends to its own CSS.
 TRAIL_CSS = """
     /* Drift marker on trail cards. Two classes, not `.trail-drift` alone: the
        label also carries `.task-info` (colour $text-muted, owned by the host

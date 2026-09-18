@@ -46,6 +46,7 @@ _SCRIPTS_DIR = _LIB_DIR.parent
 # module's own `ShortcutsMixin` classes (see `register_all_known_bindings`).
 KNOWN_BINDING_SOURCES: list[tuple[str, str, tuple[str, ...]]] = [
     ("aitask_board", "board/aitask_board.py", ("board", "board.detail")),
+    ("trails_app", "board/trails_app.py", ("board",)),  # shares the board scope (t1794_6, C10)
     ("brainstorm_app", "brainstorm/brainstorm_app.py", ("brainstorm", "brainstorm.compare_select")),
     ("brainstorm_dag_display", "brainstorm/brainstorm_dag_display.py", ("brainstorm.dag",)),  # class-body
     ("codebrowser_app", "codebrowser/codebrowser_app.py", ("codebrowser", "codebrowser.copypath")),
@@ -208,7 +209,8 @@ def _scope_relevant(scopes: tuple[str, ...], prefix: str) -> bool:
     return False
 
 
-def register_scope_bindings(scope: str) -> list[str]:
+def register_scope_bindings(scope: str, *,
+                            exclude_modules: tuple[str, ...] = ()) -> list[str]:
     """Register only the binding sources relevant to ``scope`` (no instantiation).
 
     The filtered counterpart to :func:`register_all_known_bindings`, for the
@@ -217,12 +219,21 @@ def register_scope_bindings(scope: str) -> list[str]:
     but NOT every other TUI. Loading only the relevant manifest modules keeps
     pressing ``?`` in one TUI from importing every other TUI.
 
+    ``exclude_modules`` names manifest modules to leave unloaded even though
+    they contribute to ``scope``. Two modules may share a scope (t1794_6: the
+    stand-alone trails app registers under ``board``), and the lighter one
+    must not have ``?`` execute the heavier one — the whole board — just to
+    list rows it never dispatches. The excluded module's rows are simply not
+    registered from here; an App that DOES dispatch them loads it itself.
+
     Idempotent and fail-soft (see :func:`_load_and_register`). Returns the list
     of module names that failed to import.
     """
     _ensure_import_paths()
     failed: list[str] = []
     for module_name, rel_path, scopes in KNOWN_BINDING_SOURCES:
+        if module_name in exclude_modules:
+            continue
         if _scope_relevant(scopes, scope):
             _load_and_register(module_name, rel_path, failed)
     return failed

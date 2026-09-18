@@ -239,7 +239,8 @@ class MetadataWriteError(OSError):
 
 class TaskManager:
     def __init__(self, *, tasks_dir: Path, metadata_file: Path,
-                 gates_registry_file: Path, on_warning=None):
+                 gates_registry_file: Path, on_warning=None,
+                 persist_on_init: bool = True):
         # The resolved task-dir paths, injected (t1794_4, C2). This module never
         # resolves the task directory itself: a manager reads exactly the tree its
         # constructor names. `aitask_board.make_task_manager` passes the board's
@@ -301,8 +302,14 @@ class TaskManager:
         # projection, not a second owner. Created before load_metadata(), which
         # fills it.
         self.collapsed_groups: set = set()
-        self._ensure_paths()
-        self.load_metadata()
+        # `persist_on_init=False` is the READ-ONLY host's constructor (t1794_6,
+        # the stand-alone trails app): no directory is created and a missing
+        # `board_config.json` is not first-shipped — the defaults simply stay in
+        # memory. The board keeps the default, so opening it on a fresh project
+        # still lays the metadata down exactly as before.
+        if persist_on_init:
+            self._ensure_paths()
+        self.load_metadata(persist_defaults=persist_on_init)
         self.load_tasks()
 
     def _reset_collapsed_groups(self, keys) -> None:
@@ -327,7 +334,7 @@ class TaskManager:
         self.tasks_dir.mkdir(exist_ok=True)
         self.metadata_file.parent.mkdir(exist_ok=True)
 
-    def load_metadata(self):
+    def load_metadata(self, persist_defaults: bool = True):
         defaults = {
             "columns": DEFAULT_COLUMNS,
             "column_order": DEFAULT_ORDER,
@@ -347,9 +354,10 @@ class TaskManager:
         raw = self.settings.get("collapsed_groups")
         self._reset_collapsed_groups(
             remap_group_keys(raw) if isinstance(raw, list) else ())
-        if not self.metadata_file.exists():
+        if persist_defaults and not self.metadata_file.exists():
             # Startup first-ship, not a user gesture: create the file, commit
-            # nothing. Launching the board must never produce a commit.
+            # nothing. Launching the board must never produce a commit. A
+            # read-only host passes False and never writes (t1794_6).
             self.save_metadata(commit=False)
 
     def _prune_orphan_collapsed_columns(self):

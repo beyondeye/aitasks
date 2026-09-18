@@ -38,6 +38,71 @@ from mark_glyphs import mark_markup
 from topic_semantics import parse_task_filename
 
 
+# --- Widget-layer CSS (t1794_6) ---
+#
+# The rules the widgets in THIS module (and the trail cards built on them) need
+# to lay out: card title row / badges, column-header parts, picker rows and the
+# loading overlay. Single-sourced here so a second App (the stand-alone trails
+# app) renders them identically to the board, and so a rule cannot drift
+# between two literals. Both Apps PREPEND it to their own `CSS`: Textual resolves
+# an equal-specificity conflict by declaration order, and `PickerItem { height:
+# auto }` must stay ahead of the board's `DepPickerItem { height: 1 }` /
+# `ChildPickerItem { height: 1 }` overrides — appended, it would silently win.
+# `tests/test_board_widgets.py` pins the computed styles either side of the
+# move. `TRAIL_CSS` (board_trail_view.py) is the trail-owned complement.
+WIDGET_CSS = """
+    .task-title-row { height: auto; }
+    /* Layout and state ONLY — no `color:`, mirroring `.task-followup-glyph`
+       below. The colour is Rich markup from `mark_glyphs.mark_markup()`; a
+       `color:` here would be a second authority that CSS cannot keep in sync
+       with the Python constant, and CSS cannot express the glyph at all, so the
+       two halves of one mark would live in two files. `.task-marked` survives
+       as a STATE HOOK with no declarations — `_repaint_card_mark` and the tests
+       key off it. (t1638; the `color: yellow` this replaces resolved to
+       #ffff00, which was not the Dracula yellow the other surfaces intended.) */
+    .task-mark { width: auto; margin: 0 1 0 0; }
+    .task-marked { }
+    /* Layout ONLY — no `color:`, and no per-kind classes. The colour is a
+       literal Rich style from FOLLOWUP_KINDS (see `_followup_marker`); a
+       `.fk-<kind>` rule here would be a second authority that CSS cannot keep
+       in sync with a Python dict. */
+    .task-followup-glyph { width: auto; margin: 0 1 0 0; }
+    .task-number { color: $accent; text-style: bold; width: auto; margin: 0 1 0 0; }
+    .task-modified { color: #FFB86C; }
+    .task-title { text-style: bold; width: 1fr; }
+
+    .task-info { color: $text-muted; }
+
+    .col-header-btn { width: auto; height: 1; padding: 0 1; }
+    .col-header-edit-btn { width: auto; height: 1; padding: 0 1; background: black; color: white; }
+    .col-header-row { height: auto; width: 100%; }
+    .col-header-title { text-align: center; width: 100%; }
+    .col-header-title-expanded { width: 1fr; text-align: center; }
+    .col-header-count { text-align: center; width: 100%; color: $text-muted; }
+
+    PickerItem { height: auto; width: 100%; padding: 0 1; }
+    PickerItem.dep-item-focused { background: $primary 20%; outline-left: thick $accent; }
+
+    #loading_dialog {
+        width: 40;
+        height: 7;
+        background: $surface;
+        border: thick $primary;
+        padding: 1 2;
+        align: center middle;
+    }
+    #loading_message {
+        text-align: center;
+        width: 100%;
+        height: 1;
+        padding: 0 0 1 0;
+    }
+    #loading_dialog LoadingIndicator {
+        height: 3;
+    }
+"""
+
+
 # --- Host surfaces (documentation; asserted in tests/test_board_widgets.py) ---
 
 

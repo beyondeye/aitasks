@@ -344,8 +344,8 @@ skill files.
 ## TUI Development
 
 > **Read `aidocs/framework/tui_conventions.md`** when editing any Textual TUI under
-> `.aitask-scripts/` (board, monitor, minimonitor, codebrowser, brainstorm,
-> settings, syncer, stats-tui, diffviewer, TUI switcher) or its launcher
+> `.aitask-scripts/` (board, trails, monitor, minimonitor, codebrowser,
+> brainstorm, settings, syncer, stats-tui, diffviewer, TUI switcher) or its launcher
 > `.sh`, or when adding keybindings to an existing TUI. (For *spawning or
 > commanding* tmux from framework code, see `tmux_gateway.md` below.)
 >
@@ -430,8 +430,8 @@ the existing helper (add a flag) over forking the scan logic.
 
 - **`diffviewer` TUI is transitional.** It will be integrated into the
   `brainstorm` TUI later; omit it from user-facing website docs and
-  lists-of-TUIs (document: board, monitor, minimonitor, codebrowser,
-  settings, brainstorm). Keep `diffviewer` in `KNOWN_TUIS` inside
+  lists-of-TUIs (document: board, trails, monitor, minimonitor,
+  codebrowser, settings, brainstorm). Keep `diffviewer` in `KNOWN_TUIS` inside
   `.aitask-scripts/lib/tui_switcher.py` — it must remain switchable via `j`
   until the brainstorm integration lands.
 - **Cross-repo coordination.** When a task / plan / commit needs to
