@@ -108,3 +108,25 @@ raw paths). See `aidocs/framework/aitasks_extension_points.md`.
 t745 (improve node comparator), t417 (diff viewer for brainstorming), t571
 (structured proposal sections — relevant if discussion should scope to
 sections), t1296 (AgentCommandScreen key collisions).
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1837** id=2026-09-18T09:58:53Z.c325cf2325e8d376a0108060 from=t1837 from_verified=yes at=2026-09-18T09:58:53Z base=8408f8be14820126c8e7aacf478795c869c40087 base_branch=main dirty=no host=Darios-Mac-mini.local
+>
+> | Advisory (from t1837): t1823_3 added tests/test_codeagent_discuss.sh and
+> | tests/test_codeagent_op_wiring.sh without the scratch-cwd guard, which fails
+> | tests/test_cd_guard_lint.sh's live-tree check "every cwd-changing test calls
+> | enter_scratch_cwd first" on every platform. t1837 fixed both in commit 8408f8be1.
+> | 
+> | Any new bash test a remaining t1823 child adds (e.g. t1823_4 TUI op, t1823_5)
+> | that changes its cwd should, right after PROJECT_DIR is derived, add:
+> | 
+> |     # Start from an empty read-only dir, never the invoking one (t1826).
+> |     # shellcheck source=lib/scratch_cwd.sh disable=SC1091
+> |     . "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+> |     enter_scratch_cwd
+> | 
+> | and should run `bash tests/test_cd_guard_lint.sh` before committing. Note that
+> | `--helper-order` reports only one violator per run, so re-run the check after
+> | each fix.
