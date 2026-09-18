@@ -310,3 +310,18 @@ t1468_5 landed, so it can never block this task in a world where it did not.
      every entry would pass by being absent.
    Both branches must be driven — a test that only exercises the absent case
    proves nothing about the flag.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1688_2** id=2026-09-18T09:47:32Z.30584374d6dd495c3c34e280 from=t1688_2 from_verified=yes at=2026-09-18T09:47:32Z base=2070c66aebb47673c80e887e0011c66bf5b70f98 base_branch=main dirty=yes host=omg16
+>
+> | Advisory from t1688_2 (code commit af5948e87) — cross-reference only, not an instruction.
+> | 
+> | You consume the same checker verdicts. Since t1688: an in-flight task with no
+> | plan gets a description-derived surface (`task_declared`), which never grades
+> | CONFLICT and yields CLEAR_CAVEATED (with `task_declared_overlap` when a path is
+> | shared). Name a CONFLICT's counterparties only via pa.conflict_refs /
+> | pa.conflict_overlaps. On the live corpus (2026-09-17, moment-relative) bare CLEAR
+> | was 0 of 131 — an all-caveated safe lane is the expected shape, not a
+> | degraded one.
