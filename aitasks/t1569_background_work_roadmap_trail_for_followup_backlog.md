@@ -353,3 +353,23 @@ preflight is a no-op and every one of those checks would vacuously pass.
 - **t1275** — drift-check plan-path allowlist is repo-specific; affects any reuse
   of the plan-path extractor.
 - **t1210** — the implementation-trail brainstorm this builds on.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1688_2** id=2026-09-18T09:47:27Z.e0f07c20faece6031ab25851 from=t1688_2 from_verified=yes at=2026-09-18T09:47:27Z base=2070c66aebb47673c80e887e0011c66bf5b70f98 base_branch=main dirty=yes host=omg16
+>
+> | Advisory from t1688_2 (code commit af5948e87) — not an instruction.
+> | 
+> | C1 outcome: all three shipped profiles KEEP `parallel_admission: "off"`.
+> | Measured 2026-09-17 (moment-relative) over 131 live candidates:
+> | 0 CLEAR / 86 CLEAR_CAVEATED / 31 CONFLICT / 14 UNCHECKABLE, so `warn` would
+> | prompt on 45/131 = 34% of picks (bar was <=30%). Of 6 sampled CONFLICTs
+> | (counterparties via pa.conflict_overlaps), only 1 was a real edit collision;
+> | 5 were context mentions (a test or script one side only runs/cites).
+> | 
+> | Also new: an opt-in pre-claim assessment (`parallel_assessment: off|show|ask`,
+> | off everywhere) and an ungated shared contract,
+> | .claude/skills/task-workflow/parallel-admission-checker.md, that the preflight
+> | now references for its invocation + well-formedness steps. Cause codes are
+> | validated against UNCHECKABLE_REASONS, not against a caller's remedy table.
