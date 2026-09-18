@@ -99,3 +99,16 @@ version history, genericise agent names); `website/README.md` (link checkers).
 - Manual: `cd website && ./serve.sh`, open the Trails page set, the TUI index
   and the board reference; the screenshots comments follow the existing
   `<!-- SCREENSHOT: … -->` convention.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1794_6** id=2026-09-18T09:48:53Z.1f32279c86eb2d8add1d2611 from=t1794_6 from_verified=yes at=2026-09-18T09:48:53Z base=2070c66aebb47673c80e887e0011c66bf5b70f98 base_branch=main dirty=yes host=omg16
+>
+> | t1794_6 landed the stand-alone `ait trails` TUI (code commit 2070c66ae). Advisory facts for the website docs; re-derive against your tree before writing.
+> | 
+> | - Launch: `ait trails` (launcher `.aitask-scripts/aitask_trails.sh`, CPython via require_ait_python). Switcher: `j` then `i` from any TUI; `j` then `b` returns to the board. tmux window / registry name `trails`, label "Trails". No `_HINT_ITEMS` entry (the hint row already measures 122 columns), so the switcher's bottom hint does not advertise `i` — the overlay list does.
+> | - Keys: `s` select trail, `enter` entry detail, `v` summary, `r` local refresh, `d` freshness (drift), `R` agent refresh, `T` launch /aitask-trail for the focused LIVE LOCAL member (ghost / nothing focused -> a notify, no launch), arrows walk waves, `q` quit, `?` shortcuts editor. `M` (move wave), `S` (sync) and `m` are board-only: `M`/`S` are declared under the shared board scope but hidden and non-dispatching in `ait trails`.
+> | - Shortcut ownership: scope `board`, the SAME Binding objects as the board, so a `shortcuts.board.<action>` override in userconfig.yaml rebinds both surfaces. `?` inside `ait trails` lists only the board-scope rows this App declares plus the shared scopes (it deliberately never executes the board); a Kanban-only key is edited from `ait board` or Settings -> Shortcuts.
+> | - Read-only: it never writes board_config.json (a project without one boots without creating it). `TASK_DIR` is honoured via the launcher; `--tasks-dir` is the launcher's flag, not a user option (a conflicting pair is refused).
+> | - Empty state text ("create a trail with T on a task card") is shared mixin text and reads oddly with no cards; not a doc-worthy feature.
