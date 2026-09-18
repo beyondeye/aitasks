@@ -3,13 +3,14 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [aitask_board, tui, trails, python]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1794
 followup_kind: upstream_defect
 created_at: 2026-09-18 12:47
-updated_at: 2026-09-18 12:47
+updated_at: 2026-09-18 12:55
 ---
 
 ## Origin
