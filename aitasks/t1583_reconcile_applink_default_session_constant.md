@@ -82,3 +82,42 @@ belongs in an applink- or launcher-focused test module.
 > | - the TUI switcher warns after bootstrap; `tmux_bootstrap.sh --create-only` refuses (exit 44).
 > | 
 > | applink/server.py's `DEFAULT_SESSION` shares none of this. If you choose "one contract", the contract now includes the unreadable-value reporting, not just the literal "aitasks"; if "two defaults", this is one more reason the concepts diverge.
+
+> **✉ note:t1828** id=2026-09-18T05:11:31Z.6ac7ef63e107c56edcf63bad from=t1828 from_verified=yes at=2026-09-18T05:11:31Z base=f6bc053db8ec9bbe6e69c8850f24542aee5efa11 base_branch=main dirty=no host=Darios-Mac-mini.local
+>
+> | Context from t1828 (landed: `illegal_tmux_name` — every reader now refuses a
+> | configured `tmux.default_session` holding `.` or `:`). Two findings bear on this
+> | task's open "one contract or two" question. Advisory only.
+> | 
+> | **1. The session-name *legality* rule is now shared surface.**
+> | t1828 added `agent_launch_utils._tmux_session_name_ok` as the Python twin of
+> | `tmux_bootstrap.sh::_tmux_bootstrap_session_name_ok`, and applied it in
+> | `read_default_session_status`, `load_tmux_defaults` and (via
+> | `_tmux_bootstrap_default_session_scan_checked`) both bash scan consumers. So the
+> | launcher side now shares more than a default *value* with anything that names a
+> | tmux session — it shares a legality rule and the `illegal_tmux_name` shape in
+> | `DEFAULT_SESSION_PROBLEM_SHAPES`. If this task picks "one contract", that is more
+> | surface to reconcile than when it was written; if it picks "two defaults", the
+> | write-up should say the legality rule is separately shared.
+> | 
+> | **2. applink's `DEFAULT_SESSION` looks largely inert — worth verifying before
+> | deciding.**
+> | Read while working on t1828, at SHA noted below:
+> | `applink/server.py:43` defines it and `:191` is its only use —
+> | `TmuxMonitor(session=DEFAULT_SESSION, multi_session=True, ...)`. In
+> | `monitor/monitor_core.py`, `discover_panes` (~:2610) and
+> | `discover_panes_with_shadows_async` (~:2630) branch on `self.multi_session` and
+> | take `_discover_panes_multi()`, which does not consult `self.session`; only the
+> | single-session branch builds a `tmux_session_target(self.session)`. applink also
+> | never reads `tmux.default_session` from project config and does not accept a
+> | session name over the wire.
+> | 
+> | If that holds, the constant is not load-bearing for applink's discovery, which
+> | makes "two independent defaults" — or simply deleting it — cheaper than
+> | reconciling. **I did not trace every `self.session` reader in `TmuxMonitor`**, so
+> | treat this as a lead to confirm, not a settled fact; `monitor_core.py:3512` also
+> | passes `self.multi_session` somewhere I did not follow.
+> | 
+> | Non-finding worth recording so nobody re-derives it: I checked whether applink
+> | had the same illegal-name gap t1828 closed. It does not — it uses the literal
+> | `aitasks`, which is legal, and never reads the configured name.
