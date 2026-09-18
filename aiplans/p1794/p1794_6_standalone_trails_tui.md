@@ -230,6 +230,99 @@ Implementation Notes and under "t1794 baseline" in
    contains `manager`, `_banner_budget`, `_trail_task_target`. Negative control:
    an injected `self._unlisted_thing` read in a source copy is reported.
 
+## Implementation progress (2026-09-18)
+
+- [x] Pre-phase `pin_board_css_before_widget_css_move` — `WidgetCssPinTests`
+  in `tests/test_board_widgets.py`, green before and after the move; negative
+  control (block appended) flips `ChildPickerItem` height to `auto`.
+- [x] 1 — `WIDGET_CSS` in `board_widgets.py`, prepended into `KanbanApp.CSS`;
+  moved lines deleted from the board literal; `board_trail_view.py` comment
+  repointed.
+- [x] 1b — `TaskManager(..., persist_on_init=True)`; `load_metadata(persist_defaults=…)`.
+- [x] 2 — `board/trails_app.py` (`TrailsScreen` + `TrailsApp`).
+  **Deviation:** `main()` takes `--tasks-dir` (default `aitasks`) instead of
+  calling `config_utils.task_dir()`: the C2 static guard
+  (`test_board_fixture_harness.AmbientTaskPathStaticTests`) rejects any
+  resolver reference in a board module, in any position, and its exemption
+  table is keyed on exact finding text — the launcher applies the `TASK_DIR`
+  rule in shell (`--tasks-dir "${TASK_DIR:-aitasks}"`) so the module resolves
+  nothing. The bare-invocation default is what `tests/perf/board_footprint.sh`
+  relies on (it launches `<interp> trails_app.py` with no arguments).
+- [x] 3 — `aitask_trails.sh` (`require_ait_python`), `ait trails` row + help line.
+- [x] 4 — registry row, `_TUI_SHORTCUTS["trails"]="i"`, quick-jump binding,
+  `action_shortcut_trails`, `_HINT_ITEMS` comment re-measured (122 columns,
+  item omitted), `KNOWN_BINDING_SOURCES` row, coverage-script path + `TUIS`
+  row, `CLAUDE.md` lists.
+- [x] 5 — `tests/test_trails_app.py` (18 tests); `HOSTS` reshaped with
+  per-host capability expectations + negative control; `test_shortcut_scopes.py`
+  and `test_framework_version.py` extended; `tests/lib/board_fixture.py` gained
+  `load_trails_app()` / `make_trails_app()` (the tier-1 sweep rejects a
+  canonical `import trails_app` in a test module, so the loader lives in the
+  harness).
+- [x] Post-phase `mixin_self_attribute_sweep` — `MixinSelfAttributeSweepTests`
+  in `tests/test_trail_screen_host_protocol.py`: every `self.<name>` the mixin
+  reads is answered by each host or is a capability member; the trails app's
+  only gaps ARE the capability members; injected unlisted read is reported.
+- [x] 6 — measurement recorded under "t1794_6 — stand-alone `trails_app` vs
+  the board" in `aidocs/framework/python_tui_performance.md` (raw lines kept
+  there). Medians, same session, n = 5: RSS CPython 59.3 vs 176.3 MiB
+  (**−117.0**, no overlap → saving); RSS PyPy 192.3 vs 317.5 MiB (**−125.2**,
+  no overlap → saving); cold start CPython 243 vs 290 ms and PyPy 419 vs
+  485 ms — both ranges overlap → within observed variation.
+
+### Review round 1 (Step 8) — four confirmed findings, all addressed
+
+1. **`?` executed the board.** The shortcut editor's scope sweep loaded every
+   `board`-scope manifest module, i.e. `aitask_board.py` under its probe name.
+   Fix: `shortcut_scopes.register_scope_bindings(scope, *, exclude_modules=())`
+   + `ShortcutsMixin._shortcuts_exclude_sources` (empty by default);
+   `TrailsApp` sets `("aitask_board",)`. The editor under `ait trails` lists
+   the board rows this App declares plus the shared scopes; Kanban-only rows
+   are edited from the board or Settings. Test: a fresh-process Pilot probe
+   boots, presses `?`, and asserts no loaded module's **file** is
+   `board/aitask_board.py` (a key check would miss the probe name); negative
+   control clears the exclusion and sees `_shortcut_scopes_probe_aitask_board`.
+   `test_shortcut_scopes.py` pins the sweep half.
+2. **Two task-directory readers.** `--tasks-dir` fed the manager while
+   `trail_discovery` (and every artifact / agent subprocess) read `TASK_DIR`.
+   Fix: the launcher `export`s `TASK_DIR="${TASK_DIR:-aitasks}"` and passes
+   `--tasks-dir "$TASK_DIR"` **after** `"$@"`; `main()` collects the flag with
+   `action="append"` and refuses two distinct values (`parser.error`) instead
+   of letting either win. The flag is suppressed from `--help`.
+3. **Sweep exempted capability members without proving the guard.** Fix:
+   `_guarded_capability_reads()` walks each mixin method and counts a
+   capability-member read as guarded only when the method opens with
+   `if not self._has_trail_capability("<action>"): return` for the action
+   that owns the member; the host check exempts only *proven-guarded* members.
+   Negative controls: an unguarded `self._run_sync()` read and a read guarded
+   by the wrong action are both reported.
+4. **Benchmark prose vs raw lines** (403 parent tasks, load 4.78–7.30):
+   prose corrected; the numbers stand.
+5. **Found while stabilising the new tests under load (not in the review):**
+   the drift callback's `_rerender_trail` can leave `screen.focused` naming a
+   card it just removed. A detached widget's binding chain reaches nothing, so
+   every key was dead — and the rescue's "a `TaskCard` is focused" predicate
+   was satisfied by the dead card. Fix: `_focused_card()` requires
+   `is_attached`; `_refocus` / the rescue re-queue themselves (bounded,
+   `_MOUNT_HOPS`) while the re-mount has not landed. Test:
+   `test_rescue_predicate_moves_focus_off_a_detached_card` builds the
+   precondition (remove the focused card, `set_focus` it back) and shows the
+   attachment-unchecked predicate leaves the dead card focused. The keyboard
+   tests also gained latency-tolerant waits (`_wait_screen` / `_wait_until`,
+   which never re-press a key) and a settle loop that forces a refresh so
+   `call_after_refresh` callbacks fire before the next key.
+
+### Review round 2 (Step 8) — one confirmed finding, addressed
+
+- The guard checker accepted any capability conditional whose body contained
+  a `Return` and skipped that body unread, so `if not
+  self._has_trail_capability("trail_sync"): return self._run_sync()` passed
+  although it runs the member on the unsupported host. Now only the exact
+  safe shape counts — `if not self._has_trail_capability("<action>"):` with
+  a single bare `return` / `return None` body and no `else` — and every other
+  guard body is scanned for reads like any statement. Negative control added
+  for the unsafe-return shape (`findings == ["_probe: _run_sync"]`).
+
 ## Verification
 - `set -o pipefail; bash tests/run_all_python_tests.sh` → last line `PYTHON SUITE: PASSED`.
 - `bash tests/test_shortcuts_registry_coverage.sh`, `test_keybinding_registry.sh`,
@@ -264,3 +357,73 @@ runtime-only behaviour in the new host still rests on the Pilot tests.
 ### Planned mitigations
 - timing: pre-phase | name: pin_board_css_before_widget_css_move | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: board styling change through CSS rule order | desc: pin computed styles of representative board widgets before moving widget CSS into WIDGET_CSS
 - timing: post-phase | name: mixin_self_attribute_sweep | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: unlisted mixin host dependencies and host-member drift | desc: AST sweep asserting every self-read of TrailScreenMixin is answered by TrailsApp or capability-guarded
+
+## Final Implementation Notes
+- **Actual work done:** the stand-alone `ait trails` TUI as planned —
+  `board/trails_app.py` (`TrailsApp` + `TrailsScreen`), `aitask_trails.sh`,
+  the `ait trails` row, the registry / switcher (`i`) / manifest four-part
+  change, `WIDGET_CSS` single-sourcing in `board_widgets.py`,
+  `TaskManager(persist_on_init=…)`, `tests/test_trails_app.py` (20 tests),
+  the reshaped `HOSTS` in the host-protocol test, the two inline mitigations
+  (CSS pin, mixin self-attribute sweep with guard proof), the extended
+  registry tests, the C8 measurement, and the `shortcut_scopes` /
+  `ShortcutsMixin` exclusion so `?` never executes the board.
+- **Deviations from plan:** (1) `main()` takes `--tasks-dir` from the launcher
+  (which exports `TASK_DIR` and appends the flag) instead of calling
+  `config_utils.task_dir()` — the C2 static guard rejects any resolver reference
+  in a board module; conflicting values are refused. (2) `_HINT_ITEMS` gets no
+  `trails` entry (row measured at 122 columns). (3) `register_scope_bindings`
+  grew `exclude_modules` and `ShortcutsMixin` `_shortcuts_exclude_sources`,
+  replacing the parent plan's "documented limitation" that `?` loads the board
+  under a probe name — review found that limitation violated the task's own
+  no-board-import requirement. (4) The `T`-policy, keyboard and focus tests use
+  latency-tolerant waits (never re-pressing keys) after flakes under the
+  parallel suite.
+- **Issues encountered:** the fixture harness's tier-1 sweep rejects a
+  canonical `import trails_app` in tests → `bf.load_trails_app()` /
+  `bf.make_trails_app()`; Textual restores focus to a scroll container (or a
+  detached, just-removed card) after modals / re-renders → `TrailsScreen`
+  resume hook + attachment-checked rescue + bounded re-queue until the mount
+  lands; `hasattr(app, "screen")` raises on an unmounted App → the sweep's
+  `_answers()` helper; the bare-`bash`-on-a-`.py` mistake cost one hung
+  command (harmless).
+- **Key decisions:** rescue predicate = "no ATTACHED `TaskCard` focused";
+  `#board_container` and the summary pane are non-focusable and the default
+  screen has `AUTO_FOCUS = ""`; `M`/`S` stay declared (C10) and are refused by
+  both `check_action` and the mixin's capability guard; the launcher stays on
+  `require_ait_python` (PyPy RSS 3.2× CPython's for this App, cold start not
+  faster — see the measurement).
+- **Upstream defects identified:**
+  - `.aitask-scripts/board/board_trail_screen.py:399-423 — _rerender_trail removes and re-mounts the lanes and queues the refocus with call_after_refresh; if that callback runs before the asynchronous mount lands, screen.focused can be left on a detached card (observed in TrailsApp under load; the board shares this code path and its _focused_card does not check attachment — suspected, not reproduced on the board)`
+- **Notes for sibling tasks:**
+  - t1794_10 (website docs): document `ait trails` as the read-only trail
+    reader: select (`s`), detail (`enter`), summary (`v`), local refresh
+    (`r`), drift (`d`), agent refresh (`R`), `T` for the focused live member;
+    arrows walk waves; `q` quits; `j`→`i` from the board and `j`→`b` back; `?`
+    lists the board-scope keys this App declares plus the shared scopes, and a
+    Kanban-only key is edited from `ait board` / Settings → Shortcuts; `M`/`S`
+    and `m` are board-only. The empty-state hint ("create a trail with T on a
+    task card") is the shared mixin text and reads oddly with no cards — the
+    fix belongs in the mixin if wanted. `TASK_DIR` is honoured via the
+    launcher; `--tasks-dir` is not a user flag.
+  - t1794_11 (measurement retrospective): the C8 numbers and raw lines are
+    under "t1794_6 — stand-alone `trails_app` vs the board" in
+    `aidocs/framework/python_tui_performance.md` (CPython RSS −117.0 MiB, PyPy
+    −125.2 MiB, cold start within variation; 403 parent tasks at `7f7981bdd`).
+    Re-measure the board beside the app again if a later child moves more code.
+  - t1794_12 (manual verification): the tmux smoke performed here —
+    `./ait trails` boots into the selector with real trails; selecting renders
+    the wave lanes with the summary pane; `enter` opens the detail modal, `v`
+    the summary; footer shows `? q ⏎ r R d s v T` and no `M`/`S`/`m`; board
+    `j`→`i` creates/focuses the `trails` window and `j`→`b` returns;
+    `TUI_NAMES` contains `trails` (monitor classifies it). Not exercised by
+    hand: `R` (agent refresh) and `T` end-to-end launches, the artifact watch,
+    `d` against a stale artifact, Settings → Shortcuts listing the trail
+    actions once under `board`.
+  - t1794_7 / t1794_8 (further extractions): `WIDGET_CSS` is prepended to
+    `KanbanApp.CSS` and pinned by `WidgetCssPinTests` — keep any moved rule
+    ahead of the board's equal-specificity overrides (`DepPickerItem` /
+    `ChildPickerItem { height: 1 }`). `bf.BOARD_MODULE_NAMES` already lists
+    the child-7/8 module names; the C2 static guard scans every board module,
+    so a moved `TaskDetailScreen` must take its paths by parameter. The
+    host-protocol `HOSTS` rows are `(label, factory, expected_capabilities)`.
