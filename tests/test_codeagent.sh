@@ -213,7 +213,7 @@ assert_contains_ci "codex batch-review keeps argument" "review-me" "$output"
 # represented after flattening. Passthrough operations continue to preserve
 # whitespace-bearing and empty argv elements.
 echo "--- Test 11d2: skill composer argument validation ---"
-skill_operations=(pick explain qa shadow learn work-report trail)
+skill_operations=(pick explain qa shadow learn work-report trail discuss)
 for operation in "${skill_operations[@]}"; do
     assert_exit_nonzero "$operation rejects whitespace-bearing argv" \
         bash -c "cd '$TMPDIR_TEST' && bash '$CODEAGENT' --dry-run invoke '$operation' 'two words'"
@@ -236,8 +236,8 @@ assert_contains_ci "raw preserves empty argv" "''" "$output"
 
 # Test 11d3: every existing Codex skill-composer arm emits its expected prompt.
 echo "--- Test 11d3: Codex skill composer matrix ---"
-codex_operations=(pick explain qa shadow learn work-report trail)
-codex_skills=(aitask-pick aitask-explain aitask-qa aitask-shadow aitask-learn-skill aitask-work-report aitask-trail)
+codex_operations=(pick explain qa shadow learn work-report trail discuss)
+codex_skills=(aitask-pick aitask-explain aitask-qa aitask-shadow aitask-learn-skill aitask-work-report aitask-trail aitask-brainstorm-discuss)
 for index in "${!codex_operations[@]}"; do
     operation="${codex_operations[$index]}"
     expected_skill="${codex_skills[$index]}"
@@ -258,7 +258,7 @@ for line in sys.stdin:
     if line.startswith('DRY_RUN:'):
         print(shlex.split(line[len('DRY_RUN:'):])[-1])"
 }
-for operation in pick explain qa shadow learn work-report trail explore batch-review raw; do
+for operation in pick explain qa shadow learn work-report trail discuss explore batch-review raw; do
     if [[ "$operation" == "explore" ]]; then
         output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --agent-string codex/gpt5_4 --dry-run invoke "$operation" 2>&1)
     else

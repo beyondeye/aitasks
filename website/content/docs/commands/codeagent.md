@@ -59,6 +59,7 @@ Each operation maps to a different use case with its own default model:
 | `batch-review` | Batch code review | `claudecode/sonnet5` |
 | `qa` | Test coverage analysis | `claudecode/sonnet5` |
 | `shadow` | Advisory companion agent for a followed session | `codex/gpt5_6_terra` |
+| `discuss` | Advisory discussion of brainstorm proposals (compare, explain, question, risk-check) | `codex/gpt5_6_terra` |
 | `learn` | Learning a new skill from source material | `claudecode/opus5` |
 | `raw` | Direct/ad-hoc invocations (passthrough) | `claudecode/sonnet5` |
 

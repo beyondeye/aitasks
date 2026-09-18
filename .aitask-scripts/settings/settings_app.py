@@ -137,6 +137,7 @@ OPERATION_DESCRIPTIONS: dict[str, str] = {
     "raw": "Model used for direct/ad-hoc code agent invocations (passthrough mode)",
     "explore": "Model used for interactive codebase exploration (launched via TUI switcher shortcut 'x')",
     "shadow": "Model used for the shadow companion agent (launched from minimonitor with 'e' to explain/interrogate a followed agent's output)",
+    "discuss": "Model used for the brainstorm discuss agent (launched from the brainstorm TUI to compare, explain, question and risk-check proposals — advisory only)",
     "brainstorm-explorer": "Model for exploring solution space in brainstorming sessions",
     "brainstorm-comparator": "Model for comparing and analyzing design proposals",
     "brainstorm-synthesizer": "Model for merging and synthesizing design proposals",
