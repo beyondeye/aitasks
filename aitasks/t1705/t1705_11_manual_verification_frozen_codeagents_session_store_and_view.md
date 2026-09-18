@@ -5,6 +5,10 @@ depends: [t1705_10]
 issue_type: manual_verification
 status: Implementing
 labels: [verification, manual]
+active_gates: []
+active_gates_filtered: []
+active_gates_profile: fast
+active_gates_digest: 4a36c12bb96d.681bafac2cb9.08c6f06389cd
 verifies: [t1705_1, t1705_2, t1705_3, t1705_4, t1705_5, t1705_6, t1705_7, t1705_8, t1705_9, t1705_10]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1705
