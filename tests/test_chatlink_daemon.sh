@@ -15,6 +15,9 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 
 # shellcheck source=../.aitask-scripts/lib/python_resolve.sh
 source "$PROJECT_DIR/.aitask-scripts/lib/python_resolve.sh"
@@ -1285,7 +1288,7 @@ asyncio.run(main())
 PYEOF
 
 # ---- Part 2: launcher / dispatcher routing ---------------------------------
-cd "$PROJECT_DIR"
+cd "$PROJECT_DIR" || exit 1
 
 # No --headless → the launcher dispatches the TUI module (--smoke
 # constructs the app and exits 0 without entering the event loop).

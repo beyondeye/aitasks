@@ -6,6 +6,9 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 . "$PROJECT_DIR/tests/lib/asserts.sh"
 HELPER="$PROJECT_DIR/.aitask-scripts/aitask_risk_mitigation_landed.sh"
 
@@ -94,7 +97,7 @@ trap 'rm -rf "$SANDBOX"' EXIT
 ADIR="$SANDBOX/archived"
 mkdir -p "$ADIR"
 export ARCHIVED_DIR="$ADIR"
-cd "$PROJECT_DIR"
+cd "$PROJECT_DIR" || exit 1
 
 # --- 1. Absent field → no-op ---
 echo "--- absent risk_mitigation_tasks → FORCE_VERIFY:0 ---"

@@ -6,6 +6,9 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 
 # shellcheck source=lib/test_scaffold.sh
 . "$PROJECT_DIR/tests/lib/test_scaffold.sh"
@@ -214,13 +217,13 @@ skill_operations=(pick explain qa shadow learn work-report trail)
 for operation in "${skill_operations[@]}"; do
     assert_exit_nonzero "$operation rejects whitespace-bearing argv" \
         bash -c "cd '$TMPDIR_TEST' && bash '$CODEAGENT' --dry-run invoke '$operation' 'two words'"
-    output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --dry-run invoke "$operation" "two words" 2>&1 || true)
+    output=$(cd "$TMPDIR_TEST" || exit 1 && bash "$CODEAGENT" --dry-run invoke "$operation" "two words" 2>&1 || true)
     assert_contains_ci "$operation whitespace refusal names cause" "argument contains whitespace" "$output"
     assert_not_contains_ci "$operation whitespace refusal emits no dry-run" "DRY_RUN:" "$output"
 
     assert_exit_nonzero "$operation rejects empty argv" \
         bash -c "cd '$TMPDIR_TEST' && bash '$CODEAGENT' --dry-run invoke '$operation' ''"
-    output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --dry-run invoke "$operation" "" 2>&1 || true)
+    output=$(cd "$TMPDIR_TEST" || exit 1 && bash "$CODEAGENT" --dry-run invoke "$operation" "" 2>&1 || true)
     assert_contains_ci "$operation empty refusal names cause" "argument is empty" "$output"
     assert_not_contains_ci "$operation empty refusal emits no dry-run" "DRY_RUN:" "$output"
 done
@@ -293,7 +296,7 @@ awk '
 chmod +x "$CODEAGENT_UNWIRED"
 assert_exit_nonzero "codex refuses supported but unwired operation" \
     bash -c "cd '$TMPDIR_TEST' && bash '$CODEAGENT_UNWIRED' --agent-string codex/gpt5_4 --dry-run invoke codex-unwired-probe"
-output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT_UNWIRED" --agent-string codex/gpt5_4 --dry-run invoke codex-unwired-probe 2>&1 || true)
+output=$(cd "$TMPDIR_TEST" || exit 1 && bash "$CODEAGENT_UNWIRED" --agent-string codex/gpt5_4 --dry-run invoke codex-unwired-probe 2>&1 || true)
 assert_contains_ci "codex unwired refusal names operation" \
     "operation not wired into the codex composer: codex-unwired-probe" "$output"
 assert_not_contains_ci "codex unwired refusal emits no dry-run" "DRY_RUN:" "$output"

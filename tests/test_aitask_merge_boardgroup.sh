@@ -20,6 +20,9 @@ set -uo pipefail
 
 TEST_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$TEST_SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 
 PASS=0
 FAIL=0
@@ -78,7 +81,7 @@ setup_repos() {
     git init -q --bare "$tmpdir/remote.git"
     git clone -q "$tmpdir/remote.git" "$tmpdir/local" 2>/dev/null
     (
-        cd "$tmpdir/local"
+        cd "$tmpdir/local" || exit 1
         git config user.email test@test.com
         git config user.name Test
         git config commit.gpgsign false
@@ -96,7 +99,7 @@ setup_repos() {
     ) >/dev/null 2>&1
     git clone -q "$tmpdir/remote.git" "$tmpdir/pc2" 2>/dev/null
     (
-        cd "$tmpdir/pc2"
+        cd "$tmpdir/pc2" || exit 1
         git config user.email test2@test.com
         git config user.name Test2
         git config commit.gpgsign false
@@ -114,7 +117,7 @@ TMP1="$(setup_repos)"
 
 # pc2 CLEARS the group (writes the tombstone) and pushes.
 (
-    cd "$TMP1/pc2"
+    cd "$TMP1/pc2" || exit 1
     write_task aitasks/t1_sample.md "[ui]" 'boardgroup: ""' "2026-01-01 10:00"
     git add -A; git commit -q -m "pc2: ungroup"; git push -q 2>/dev/null
 ) >/dev/null 2>&1
@@ -122,19 +125,19 @@ TMP1="$(setup_repos)"
 # local changes ONLY labels, still carrying the old group, with a NEWER stamp.
 # Under newer-wins this side would win a field it never touched.
 (
-    cd "$TMP1/local"
+    cd "$TMP1/local" || exit 1
     write_task aitasks/t1_sample.md "[api, ui]" "boardgroup: perf_work" "2026-01-01 12:00"
     git add -A; git commit -q -m "local: labels only"
 ) >/dev/null 2>&1
 
 # POSITIVE CONTROL: the rebase must genuinely conflict. Without this the test
 # could pass on a clean textual auto-merge that never invoked the driver.
-(cd "$TMP1/local" && git fetch -q origin 2>/dev/null
+(cd "$TMP1/local" || exit 1 && git fetch -q origin 2>/dev/null
  git rebase origin/main >/dev/null 2>&1 || git rebase origin/master >/dev/null 2>&1 || true)
 unmerged=$(cd "$TMP1/local" && git diff --name-only --diff-filter=U 2>/dev/null)
 assert_contains "Fixture produces a real unmerged path (control)" \
     "aitasks/t1_sample.md" "$unmerged"
-(cd "$TMP1/local" && git rebase --abort >/dev/null 2>&1 || true)
+(cd "$TMP1/local" || exit 1 && git rebase --abort >/dev/null 2>&1 || true)
 
 output=$(cd "$TMP1/local" && ./ait sync --batch 2>/dev/null)
 assert_eq_trim "Conflict auto-resolves" "AUTOMERGED" "$output"
@@ -250,18 +253,18 @@ far_task() {
     } > "$path"
 }
 (
-    cd "$TMP5/local"
+    cd "$TMP5/local" || exit 1
     far_task aitasks/t1_sample.md "[ui]" "boardgroup: perf_work"
     git add -A; git commit -q -m "base far"; git push -q 2>/dev/null
 ) >/dev/null 2>&1
 (
-    cd "$TMP5/pc2"
+    cd "$TMP5/pc2" || exit 1
     git pull -q 2>/dev/null
     far_task aitasks/t1_sample.md "[ui]" 'boardgroup: ""'
     git add -A; git commit -q -m "pc2: ungroup far"; git push -q 2>/dev/null
 ) >/dev/null 2>&1
 (
-    cd "$TMP5/local"
+    cd "$TMP5/local" || exit 1
     far_task aitasks/t1_sample.md "[api, ui]" "boardgroup: perf_work"
     git add -A; git commit -q -m "local: status far"
     git fetch -q origin 2>/dev/null

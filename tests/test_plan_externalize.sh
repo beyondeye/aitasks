@@ -6,6 +6,9 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 . "$PROJECT_DIR/tests/lib/asserts.sh"
 EXTERNALIZE="$PROJECT_DIR/.aitask-scripts/aitask_plan_externalize.sh"
 
@@ -714,7 +717,7 @@ TMPDIR8=$(new_sandbox)
 make_fresh_internal "$TMPDIR8/fakehome/.claude/plans/twohours.md"
 make_old "$TMPDIR8/fakehome/.claude/plans/twohours.md" 2
 result=$(
-    cd "$TMPDIR8" && \
+    cd "$TMPDIR8" || exit 1 && \
     AIT_PLAN_EXTERNALIZE_INTERNAL_DIR="$TMPDIR8/fakehome/.claude/plans" \
     AIT_PLAN_EXTERNALIZE_MAX_AGE_SECS=14400 \
     "$EXTERNALIZE" 999
@@ -787,7 +790,7 @@ echo "--- Test 13: master-default repo Base branch ---"
 TMPDIR13=$(new_sandbox)
 make_fresh_internal "$TMPDIR13/fakehome/.claude/plans/master-repo.md"
 (
-    cd "$TMPDIR13"
+    cd "$TMPDIR13" || exit 1
     git init --quiet
     git config user.email "test@test.com"
     git config user.name "Test"

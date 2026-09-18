@@ -35,6 +35,9 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 
 # shellcheck source=lib/test_scaffold.sh
 . "$PROJECT_DIR/tests/lib/test_scaffold.sh"
@@ -57,7 +60,7 @@ setup_paired_repos() {
     local local_dir="$tmpdir/local"
     git clone --quiet "$remote_dir" "$local_dir"
     (
-        cd "$local_dir"
+        cd "$local_dir" || exit 1
         git config user.email "test@test.com"
         git config user.name "Test"
 
@@ -114,7 +117,7 @@ init_lock_branch() {
 plant_lock() {
     local tmpdir="$1" task_id="$2" yaml="$3"
     (
-        cd "$tmpdir/local"
+        cd "$tmpdir/local" || exit 1
         git fetch origin aitask-locks --quiet 2>/dev/null
         local parent_hash current_tree_hash blob_hash new_tree_hash commit_hash
         parent_hash=$(git rev-parse origin/aitask-locks)
@@ -388,7 +391,7 @@ init_lock_branch "$TMPDIR_7" pc-A
 
 for sentinel in "-" "0"; do
     (
-        cd "$TMPDIR_7/local"
+        cd "$TMPDIR_7/local" || exit 1
         cat > aitasks/t1_test_task.md <<'TASK'
 ---
 priority: medium

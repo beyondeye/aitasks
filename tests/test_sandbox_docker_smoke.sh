@@ -56,7 +56,7 @@ echo "ok - image carries a runnable claude CLI"
 # -- production-path assertion 2: explore-relay dry-run argv resolves -------
 mkdir -p "$SCRATCH/relay-env"
 echo "stub report" > "$SCRATCH/relay-env/bug_report.md"
-dry_out="$(cd "$PROJECT_DIR" && \
+dry_out="$(cd "$PROJECT_DIR" || exit 1 && \
     CHATLINK_RELAY_DIR="$SCRATCH/relay-env" \
     CHATLINK_BUG_REPORT_FILE="$SCRATCH/relay-env/bug_report.md" \
     ./ait codeagent invoke explore-relay --headless --dry-run 2>&1 | \

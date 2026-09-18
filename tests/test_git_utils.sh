@@ -6,6 +6,9 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 . "$PROJECT_DIR/tests/lib/asserts.sh"
 # shellcheck source=../.aitask-scripts/lib/git_utils.sh
 . "$PROJECT_DIR/.aitask-scripts/lib/git_utils.sh"
@@ -26,7 +29,7 @@ make_repo() {
     local dir="$1" branch="$2"
     mkdir -p "$dir"
     (
-        cd "$dir"
+        cd "$dir" || exit 1
         git init --quiet
         git config user.email "test@test.com"
         git config user.name "Test"

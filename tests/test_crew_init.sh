@@ -6,6 +6,9 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 
 # shellcheck source=lib/test_scaffold.sh
 . "$PROJECT_DIR/tests/lib/test_scaffold.sh"
@@ -28,7 +31,7 @@ setup_test_repo() {
     tmpdir="$(mktemp -d)"
 
     (
-        cd "$tmpdir"
+        cd "$tmpdir" || exit 1
         git init --quiet
         git config user.email "test@test.com"
         git config user.name "Test"
@@ -54,9 +57,9 @@ setup_test_repo() {
 
 cleanup_test_repo() {
     local tmpdir="$1"
-    cd "$ORIG_DIR"
+    cd "$ORIG_DIR" || exit 1
     if [[ -d "$tmpdir" ]]; then
-        (cd "$tmpdir" && git worktree prune 2>/dev/null || true)
+        (cd "$tmpdir" || exit 1 && git worktree prune 2>/dev/null || true)
         rm -rf "$tmpdir"
     fi
 }
@@ -72,7 +75,7 @@ echo ""
 echo "Test 1: crew init basic"
 TMPDIR_T1="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T1"
+    cd "$TMPDIR_T1" || exit 1
     output=$(bash .aitask-scripts/aitask_crew_init.sh --id testcrew --batch 2>&1)
     assert_contains_ci "init outputs CREATED" "CREATED:testcrew" "$output"
 
@@ -98,7 +101,7 @@ cleanup_test_repo "$TMPDIR_T1"
 echo "Test 2: crew init with --add-type"
 TMPDIR_T2="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T2"
+    cd "$TMPDIR_T2" || exit 1
     output=$(bash .aitask-scripts/aitask_crew_init.sh --id typed --add-type impl:claudecode/opus4_6 --add-type review:claudecode/sonnet4_6 --batch 2>&1)
     assert_contains_ci "init outputs CREATED" "CREATED:typed" "$output"
 
@@ -121,7 +124,7 @@ cleanup_test_repo "$TMPDIR_T2"
 echo "Test 3: crew init rejects invalid ID"
 TMPDIR_T3="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T3"
+    cd "$TMPDIR_T3" || exit 1
     assert_exit_nonzero "rejects uppercase" bash .aitask-scripts/aitask_crew_init.sh --id "UPPER" --batch
     assert_exit_nonzero "rejects spaces" bash .aitask-scripts/aitask_crew_init.sh --id "has space" --batch
     assert_exit_nonzero "rejects dots" bash .aitask-scripts/aitask_crew_init.sh --id "has.dot" --batch
@@ -132,7 +135,7 @@ cleanup_test_repo "$TMPDIR_T3"
 echo "Test 4: crew init rejects duplicate ID"
 TMPDIR_T4="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T4"
+    cd "$TMPDIR_T4" || exit 1
     bash .aitask-scripts/aitask_crew_init.sh --id dup --batch >/dev/null 2>&1
     assert_exit_nonzero "rejects duplicate crew" bash .aitask-scripts/aitask_crew_init.sh --id dup --batch
 )
@@ -142,7 +145,7 @@ cleanup_test_repo "$TMPDIR_T4"
 echo "Test 5: addwork creates all 7 agent files"
 TMPDIR_T5="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T5"
+    cd "$TMPDIR_T5" || exit 1
     bash .aitask-scripts/aitask_crew_init.sh --id files --add-type impl:claudecode/opus4_6 --batch >/dev/null 2>&1
 
     echo "# Do this thing" > /tmp/test_work2do.md
@@ -176,7 +179,7 @@ cleanup_test_repo "$TMPDIR_T5"
 echo "Test 6: addwork rejects duplicate agent name"
 TMPDIR_T6="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T6"
+    cd "$TMPDIR_T6" || exit 1
     bash .aitask-scripts/aitask_crew_init.sh --id uniq --add-type impl:claudecode/opus4_6 --batch >/dev/null 2>&1
     bash .aitask-scripts/aitask_crew_addwork.sh --crew uniq --name agent_x --work2do /dev/null --type impl --batch >/dev/null 2>&1
     assert_exit_nonzero "rejects duplicate agent" bash .aitask-scripts/aitask_crew_addwork.sh --crew uniq --name agent_x --work2do /dev/null --type impl --batch
@@ -187,7 +190,7 @@ cleanup_test_repo "$TMPDIR_T6"
 echo "Test 7: addwork rejects unknown agent type"
 TMPDIR_T7="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T7"
+    cd "$TMPDIR_T7" || exit 1
     bash .aitask-scripts/aitask_crew_init.sh --id typechk --add-type impl:claudecode/opus4_6 --batch >/dev/null 2>&1
     assert_exit_nonzero "rejects unknown type" bash .aitask-scripts/aitask_crew_addwork.sh --crew typechk --name agent_y --work2do /dev/null --type nonexistent --batch
 )
@@ -197,7 +200,7 @@ cleanup_test_repo "$TMPDIR_T7"
 echo "Test 8: addwork with valid dependencies"
 TMPDIR_T8="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T8"
+    cd "$TMPDIR_T8" || exit 1
     bash .aitask-scripts/aitask_crew_init.sh --id deps --add-type impl:claudecode/opus4_6 --batch >/dev/null 2>&1
     bash .aitask-scripts/aitask_crew_addwork.sh --crew deps --name upstream --work2do /dev/null --type impl --batch >/dev/null 2>&1
     output=$(bash .aitask-scripts/aitask_crew_addwork.sh --crew deps --name downstream --work2do /dev/null --type impl --depends upstream --batch 2>&1)
@@ -212,7 +215,7 @@ cleanup_test_repo "$TMPDIR_T8"
 echo "Test 9: addwork rejects missing dependency"
 TMPDIR_T9="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T9"
+    cd "$TMPDIR_T9" || exit 1
     bash .aitask-scripts/aitask_crew_init.sh --id misdep --add-type impl:claudecode/opus4_6 --batch >/dev/null 2>&1
     assert_exit_nonzero "rejects missing dep" bash .aitask-scripts/aitask_crew_addwork.sh --crew misdep --name agent_z --work2do /dev/null --type impl --depends ghost --batch
 )
@@ -222,7 +225,7 @@ cleanup_test_repo "$TMPDIR_T9"
 echo "Test 10: DAG validation accepts valid graph"
 TMPDIR_T10="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T10"
+    cd "$TMPDIR_T10" || exit 1
     bash .aitask-scripts/aitask_crew_init.sh --id dag --add-type impl:claudecode/opus4_6 --batch >/dev/null 2>&1
     bash .aitask-scripts/aitask_crew_addwork.sh --crew dag --name a --work2do /dev/null --type impl --batch >/dev/null 2>&1
     bash .aitask-scripts/aitask_crew_addwork.sh --crew dag --name b --work2do /dev/null --type impl --depends a --batch >/dev/null 2>&1
@@ -235,7 +238,7 @@ cleanup_test_repo "$TMPDIR_T10"
 echo "Test 11: addwork with /dev/null"
 TMPDIR_T11="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T11"
+    cd "$TMPDIR_T11" || exit 1
     bash .aitask-scripts/aitask_crew_init.sh --id devnull --add-type impl:claudecode/opus4_6 --batch >/dev/null 2>&1
     output=$(bash .aitask-scripts/aitask_crew_addwork.sh --crew devnull --name empty_agent --work2do /dev/null --type impl --batch 2>&1)
     assert_contains_ci "addwork with /dev/null succeeds" "ADDED:empty_agent" "$output"

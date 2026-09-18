@@ -6,6 +6,9 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 MERGE_SCRIPT="$PROJECT_DIR/.aitask-scripts/aitask_install_merge.py"
 
 # shellcheck source=lib/venv_python.sh
@@ -278,7 +281,7 @@ cat > "$INSTALL_ROOT/aitasks/metadata/models_claudecode.json" <<'EOF'
 }
 EOF
 if (
-    cd "$PROJECT_DIR"
+    cd "$PROJECT_DIR" || exit 1
     # shellcheck source=../install.sh
     source "$PROJECT_DIR/install.sh" --source-only
     INSTALL_DIR="$INSTALL_ROOT"
@@ -298,7 +301,7 @@ assert_eq "install_seed_models: local verified score preserved" "80" "$install_o
 assert_eq "install_seed_models: seed model appended through install.sh" "fable5" "$install_fable_name"
 
 if (
-    cd "$PROJECT_DIR"
+    cd "$PROJECT_DIR" || exit 1
     # shellcheck source=../install.sh
     source "$PROJECT_DIR/install.sh" --source-only
     INSTALL_DIR="$INSTALL_ROOT"

@@ -33,6 +33,9 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 
 # shellcheck source=lib/test_scaffold.sh
 . "$PROJECT_DIR/tests/lib/test_scaffold.sh"
@@ -74,7 +77,7 @@ setup_paired_repos() {
     local local_dir="$tmpdir/local"
     git clone --quiet "$remote_dir" "$local_dir"
     (
-        cd "$local_dir"
+        cd "$local_dir" || exit 1
         git config user.email "test@test.com"
         git config user.name "Test"
 
@@ -466,7 +469,7 @@ echo "--- Test 2: partial commit captures the WORKTREE version, not the index --
 
 T2="$(setup_paired_repos)"
 (
-    cd "$T2/local"
+    cd "$T2/local" || exit 1
     printf '\nSTAGED_ONLY_MARKER\n' >> aitasks/t1_test_task.md
     git add aitasks/t1_test_task.md
     # Now diverge the worktree from what was just staged.
@@ -760,7 +763,7 @@ echo "--- Test 7: a concurrent session's append never rides in the claim ---"
 
 T7="$(setup_paired_repos)"
 (
-    cd "$T7/local"
+    cd "$T7/local" || exit 1
     printf 'bob@test.com\n' >> "$EMAILS_PATH"
     sort -u "$EMAILS_PATH" -o "$EMAILS_PATH"
 )

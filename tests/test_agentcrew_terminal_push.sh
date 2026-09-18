@@ -10,6 +10,9 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 ORIG_DIR="$(pwd)"
 
 # shellcheck source=lib/venv_python.sh
@@ -24,7 +27,7 @@ fail() { FAIL=$((FAIL + 1)); echo "FAIL: $1"; }
 TMPROOT="$(mktemp -d "${TMPDIR:-/tmp}/aitask_test_terminal_push_XXXXXX")"
 trap 'cd "$ORIG_DIR"; rm -rf "$TMPROOT"' EXIT
 
-cd "$TMPROOT"
+cd "$TMPROOT" || exit 1
 git init -q
 git config user.email "test@example.com"
 git config user.name "Test User"

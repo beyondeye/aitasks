@@ -44,6 +44,9 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 
 # shellcheck source=lib/test_scaffold.sh
 . "$PROJECT_DIR/tests/lib/test_scaffold.sh"
@@ -87,7 +90,7 @@ make_repo() {
     tmpdir="$(cd "$tmpdir" && pwd -P)"
     CLEANUP_DIRS+=("$tmpdir")
     (
-        cd "$tmpdir"
+        cd "$tmpdir" || exit 1
         git init --quiet
         git config user.email "test@test.com"
         git config user.name "Test"
@@ -149,7 +152,7 @@ echo "=== atomic task/plan file writes (t1379) ==="
 echo "--- aitask_update.sh: write_task_file ---"
 REPO="$(make_repo)"
 (
-    cd "$REPO"
+    cd "$REPO" || exit 1
     task="aitasks/t1_example.md"
     chmod 644 "$task"
     ln "$task" aitasks/probe.link
@@ -182,7 +185,7 @@ assert_eq "update: the body survived" "1" "$u_body"
 # The pre-fix code had no $TMPDIR dependency here (it truncated in place), so
 # this is a regression guard on the conversion rather than a fix discriminator.
 (
-    cd "$REPO"
+    cd "$REPO" || exit 1
     TMPDIR=/nonexistent/ait-atomic-probe bash .aitask-scripts/aitask_update.sh \
         --batch 1 --status Ready --silent >/dev/null 2>&1
     echo "$?" > "$REPO/.rc"
@@ -193,7 +196,7 @@ assert_eq "update: succeeds with an unusable TMPDIR" "0" "$(cat "$REPO/.rc")"
 echo "--- aitask_create.sh: all three creation sites ---"
 REPO="$(make_repo)"
 (
-    cd "$REPO"
+    cd "$REPO" || exit 1
     probe_tmp="$(fresh_tmpdir)"
     # Default batch mode -> create_draft_file (aitasks/new/).
     draft="$(TMPDIR="$probe_tmp" bash .aitask-scripts/aitask_create.sh --batch \
@@ -238,7 +241,7 @@ assert_eq "create: no temp left behind in TMPDIR" "0" "$c_tmpn"
 echo "--- aitask_plan_verified.sh: cmd_append ---"
 REPO="$(make_repo)"
 (
-    cd "$REPO"
+    cd "$REPO" || exit 1
     cat > aiplans/p1_example.md <<'PLAN'
 ---
 Task: t1_example.md
@@ -272,7 +275,7 @@ assert_eq "plan_verified: the entry actually landed" "1" "$v_entry"
 # The $TMPDIR discriminator: pre-fix this staged in "${TMPDIR:-/tmp}", so an
 # unusable TMPDIR made mktemp — and the whole append — fail.
 (
-    cd "$REPO"
+    cd "$REPO" || exit 1
     TMPDIR=/nonexistent/ait-atomic-probe bash .aitask-scripts/aitask_plan_verified.sh \
         append aiplans/p1_example.md "claudecode/opus5" >/dev/null 2>&1
     echo "$?" > "$REPO/.rc"
@@ -284,7 +287,7 @@ assert_eq "plan_verified: succeeds with an unusable TMPDIR" "0" "$(cat "$REPO/.r
 # Without the explicit `[[ $inserted -eq 1 ]] || return 1` guard, errexit is
 # disabled inside the renderer and a header-less copy would be committed.
 (
-    cd "$REPO"
+    cd "$REPO" || exit 1
     printf 'no frontmatter here\njust body\n' > aiplans/p2_headerless.md
     cp aiplans/p2_headerless.md "$REPO/.original"
     set +e
@@ -306,7 +309,7 @@ assert_eq "plan_verified: no residue after a failed render" "0" "$f_res"
 echo "--- aitask_issue_import.sh: inject_merge_frontmatter ---"
 REPO="$(make_repo)"
 (
-    cd "$REPO"
+    cd "$REPO" || exit 1
     cp "$PROJECT_DIR/.aitask-scripts/aitask_issue_import.sh" .aitask-scripts/
     chmod +x .aitask-scripts/aitask_issue_import.sh
     task="aitasks/t1_example.md"
@@ -338,7 +341,7 @@ REPO="$(make_repo)"
 # probe above cannot tell the old code apart here: its `mv` is same-filesystem
 # on the test box, so it also yields "probe old, path new, inodes differ".
 (
-    cd "$REPO"
+    cd "$REPO" || exit 1
     set +e
     TMPDIR=/nonexistent/ait-atomic-probe bash -c '
         set -e
@@ -367,7 +370,7 @@ assert_eq "issue_import: and still injects" "1" "$i_nfield"
 echo "--- aitask_gate_pass.sh: witness re-sign ---"
 REPO="$(make_repo)"
 (
-    cd "$REPO"
+    cd "$REPO" || exit 1
     mkdir -p .aitask-gates/t1
     witness=".aitask-gates/t1/review_approved.signal"
     printf 'signer=old\nsigned_at=old\n' > "$witness"
@@ -410,7 +413,7 @@ assert_eq "gate_pass: the witness was re-signed" "1" "$g_signer"
 # be `[[ -n "$digest" ]] && echo …`, which returns 1 in exactly that case — the
 # renderer contract would then read it as a failed render and discard the file.
 (
-    cd "$REPO"
+    cd "$REPO" || exit 1
     rm -f .aitask-gates/t1/empty_digest.signal
     set +e
     bash -c '
@@ -440,7 +443,7 @@ assert_eq "gate_pass: the witness file exists" "yes" "$e_exists"
 echo "--- aitask_plan_externalize.sh: copy path + splice path ---"
 REPO="$(make_repo)"
 (
-    cd "$REPO"
+    cd "$REPO" || exit 1
     cp "$PROJECT_DIR/.aitask-scripts/aitask_plan_externalize.sh" .aitask-scripts/
     cp "$PROJECT_DIR/.aitask-scripts/lib/git_utils.sh" .aitask-scripts/lib/
     chmod +x .aitask-scripts/aitask_plan_externalize.sh
@@ -483,7 +486,7 @@ assert_eq "externalize: the revised body actually landed" "1" "$x_body"
 # externalization — fail. As with issue_import, the hardlink probe alone cannot
 # tell the old code apart, because its `mv` is same-filesystem on the test box.
 (
-    cd "$REPO"
+    cd "$REPO" || exit 1
     printf '# Plan for t1 (third)\n\nthird body\n' > internal/plan.md
     set +e
     TMPDIR=/nonexistent/ait-atomic-probe bash .aitask-scripts/aitask_plan_externalize.sh 1 \
@@ -501,7 +504,7 @@ assert_eq "externalize: and still writes the plan" "1" "$x_nbody"
 # the branch fields have to be spliced into the existing block.
 REPO="$(make_repo)"
 (
-    cd "$REPO"
+    cd "$REPO" || exit 1
     cp "$PROJECT_DIR/.aitask-scripts/aitask_plan_externalize.sh" .aitask-scripts/
     cp "$PROJECT_DIR/.aitask-scripts/lib/git_utils.sh" .aitask-scripts/lib/
     chmod +x .aitask-scripts/aitask_plan_externalize.sh
@@ -537,7 +540,7 @@ assert_eq "externalize/splice: Output branch was spliced" "1" "$s_field"
 # it needs its own discriminator: the copy path's probe above runs a source
 # WITHOUT frontmatter, where build_header fires and the splice never does.
 (
-    cd "$REPO"
+    cd "$REPO" || exit 1
     set +e
     TMPDIR=/nonexistent/ait-atomic-probe bash .aitask-scripts/aitask_plan_externalize.sh 1 \
         --internal internal/plan.md --force --output-branch main >/dev/null 2>&1

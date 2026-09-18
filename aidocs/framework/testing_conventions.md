@@ -143,3 +143,66 @@ set both in the environment and in the project config is exercised only at the
 higher precedence, so the lower layer can be missing entirely and nothing fails.
 Test it with the higher layer removed (`env -u`), or via a knob that has no
 environment override at all.
+
+## Every `cd` in a bash test is `exit`-guarded
+
+A bash test that changes into a fixture directory and then writes relative paths
+is safe only while that `cd` succeeds. When it fails, execution continues in the
+current directory. That is the invoking directory, or the live repository if the
+file returned there earlier with `cd "$PROJECT_DIR"`. The fixture writes,
+`git add` and `git commit` then land in the real tree. t1815 found fixture task
+files and commits in the live `aitask-data` branch from exactly this.
+
+**The rule.** Every `cd`/`pushd` in `tests/*.sh` and `tests/lib/*.sh` must be one
+of the following:
+
+- `cd "$X" || exit 1`, or `|| { …; exit 1; }` with `exit` as the last command in
+  the braces;
+- a `&&` chain confined to a subshell, where the `cd` is the first command inside
+  `(` or `$(` and only `&&` (or a `|` pipeline within one element) leads to that
+  group's `)`. For example `"$(cd "$d" && pwd)"` or `(cd "$X" && git init && …)`;
+- an explicit exemption on the same line, with a reason a reviewer can check:
+  `# cd-guard: <reason>`.
+
+The target must be quoted: `cd $x` with an empty `x` goes to `$HOME` and returns 0.
+
+**Why these, and nothing weaker:**
+
+- `set -e` is suppressed inside `$( … )`, in `if`/`while`/`||`/`&&`/`!` contexts
+  and after `set +e`.
+- `|| return` works only if every caller checks. The common shape `pushd`es in a
+  `setup_project` function and writes relative paths in the caller.
+- `if cd …; then … fi` without `else`, a failing `while cd …` and `! cd …` all
+  continue in the old directory.
+- `{ cd X && a; }` and a top-level `cd X && a` protect only that one line.
+- `(cd X && a || b)` runs `b` in the old directory.
+- **The rule never looks at the target.** A name does not tell a fixture from the
+  live repository: `$REPO` is a fixture in some files and `$REPO_ROOT` the real
+  repo in others. A list of "intentional" targets would pass the exact leak where
+  a file returns to the repo and a later fixture `cd` fails.
+
+**Second layer: start from a scratch cwd.** A test that changes its cwd calls,
+right after `PROJECT_DIR` is derived and before any `ORIG_DIR="$(pwd)"` capture:
+
+```bash
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
+```
+
+This moves the process into `${TMPDIR:-/tmp}/ait-test-cwd-<uid>`: per-user,
+empty, mode 0555 and never deleted. It covers what the lint cannot see: relative
+writes made before the first `cd`, and a `cd` hidden in `eval` or a computed
+command. A stray write fails with `EACCES`. No EXIT trap is involved, so a file's
+own `trap … EXIT` cannot cancel it. Root ignores 0555, so under root a stray
+write can land in that one directory, never in the repository. The next run then
+refuses to start until the directory is emptied, which keeps retention to one
+directory per user. The helper also refuses when `TMPDIR` or an exported
+`GIT_DIR` would place the directory inside a git repository.
+
+**Enforcement.** `tests/lib/cd_guard_scan.py` defines the rule (`--check` lists
+violations as `file:line:class`), and `tests/test_cd_guard_lint.sh` runs it
+over the tree. The same test checks that every cwd-changing test calls
+`enter_scratch_cwd` first. It also proves each rejected form really leaks, and
+that a guarded fixture `cd` after a return to a stand-in repository leaves that
+repository untouched. The scanner is line-based rather than a shell parser: it
+skips comments, quoted text and heredoc bodies, and cannot see into `eval`.

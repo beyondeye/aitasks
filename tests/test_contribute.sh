@@ -6,6 +6,9 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 
 # shellcheck source=lib/test_scaffold.sh
 . "$PROJECT_DIR/tests/lib/test_scaffold.sh"
@@ -78,7 +81,7 @@ setup() {
     # Init git repo with beyondeye/aitasks remote for clone mode detection
     # Set up main branch with upstream files, working branch with modifications
     (
-        cd "$local_dir"
+        cd "$local_dir" || exit 1
         git init --quiet
         git config user.email "test@test.com"
         git config user.name "Test"
@@ -371,7 +374,7 @@ areas:
     description: Test suites
 YAML
 
-output=$(cd "$LOCAL_DIR" && source .aitask-scripts/aitask_contribute.sh 2>/dev/null; parse_code_areas 2>&1)
+output=$(cd "$LOCAL_DIR" || exit 1 && source .aitask-scripts/aitask_contribute.sh 2>/dev/null; parse_code_areas 2>&1)
 exit_code=$?
 assert_eq "parse_code_areas exits 0" "0" "$exit_code"
 assert_contains "has backend area" "AREA|backend|src/backend/|REST API and business logic|" "$output"
@@ -382,7 +385,7 @@ assert_contains "has tests area" "AREA|tests|tests/|Test suites|" "$output"
 
 # --- Test 18: parse_code_areas --parent filter ---
 echo "--- Test 18: parse_code_areas --parent filter ---"
-output=$(cd "$LOCAL_DIR" && source .aitask-scripts/aitask_contribute.sh 2>/dev/null; parse_code_areas --parent backend 2>&1)
+output=$(cd "$LOCAL_DIR" || exit 1 && source .aitask-scripts/aitask_contribute.sh 2>/dev/null; parse_code_areas --parent backend 2>&1)
 exit_code=$?
 assert_eq "parse_code_areas --parent exits 0" "0" "$exit_code"
 assert_contains "filter returns auth child" "AREA|auth|src/backend/auth/" "$output"
@@ -394,7 +397,7 @@ assert_not_contains "filter excludes tests" "AREA|tests|" "$output"
 echo "--- Test 19: parse_code_areas with missing file ---"
 # Remove code_areas.yaml to test missing file behavior
 rm -f "$LOCAL_DIR/aitasks/metadata/code_areas.yaml"
-output=$(cd "$LOCAL_DIR" && source .aitask-scripts/aitask_contribute.sh; parse_code_areas 2>&1)
+output=$(cd "$LOCAL_DIR" || exit 1 && source .aitask-scripts/aitask_contribute.sh; parse_code_areas 2>&1)
 exit_code=$?
 assert_eq "parse_code_areas missing file exits 1" "1" "$exit_code"
 assert_contains "missing file outputs NO_CODE_AREAS" "NO_CODE_AREAS" "$output"
@@ -406,7 +409,7 @@ version: 1
 
 areas: []
 YAML
-output=$(cd "$LOCAL_DIR" && source .aitask-scripts/aitask_contribute.sh 2>/dev/null; parse_code_areas 2>&1)
+output=$(cd "$LOCAL_DIR" || exit 1 && source .aitask-scripts/aitask_contribute.sh 2>/dev/null; parse_code_areas 2>&1)
 exit_code=$?
 assert_eq "parse_code_areas empty areas exits 0" "0" "$exit_code"
 assert_eq "parse_code_areas empty areas has no AREA lines" "" "$output"
@@ -598,7 +601,7 @@ echo 'const App = () => {}' > "$PROJECT_TEST_DIR/src/web/app.js"
 
 # Init git repo with non-aitasks remote
 (
-    cd "$PROJECT_TEST_DIR"
+    cd "$PROJECT_TEST_DIR" || exit 1
     git init --quiet
     git config user.email "test@test.com"
     git config user.name "Test"
@@ -713,7 +716,7 @@ YAML
 echo 'def login(): pass' > "$PROJECT_MASTER_DIR/src/backend/auth/login.py"
 
 (
-    cd "$PROJECT_MASTER_DIR"
+    cd "$PROJECT_MASTER_DIR" || exit 1
     git init --quiet
     git config user.email "test@test.com"
     git config user.name "Test"

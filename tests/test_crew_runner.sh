@@ -6,6 +6,9 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 ORIG_DIR="$(pwd)"
 
 # --- Test helpers ---
@@ -25,7 +28,7 @@ setup_test_repo() {
     tmpdir="$(mktemp -d)"
 
     (
-        cd "$tmpdir"
+        cd "$tmpdir" || exit 1
         git init --quiet
         git config user.email "test@test.com"
         git config user.name "Test"
@@ -53,7 +56,7 @@ setup_test_repo() {
 setup_crew_with_agents() {
     local tmpdir="$1"
     (
-        cd "$tmpdir"
+        cd "$tmpdir" || exit 1
 
         # Init crew with an agent type
         bash .aitask-scripts/aitask_crew_init.sh --id testcrew --batch \
@@ -82,9 +85,9 @@ setup_crew_with_agents() {
 
 cleanup_test_repo() {
     local tmpdir="$1"
-    cd "$ORIG_DIR"
+    cd "$ORIG_DIR" || exit 1
     if [[ -d "$tmpdir" ]]; then
-        (cd "$tmpdir" && git worktree prune 2>/dev/null || true)
+        (cd "$tmpdir" || exit 1 && git worktree prune 2>/dev/null || true)
         rm -rf "$tmpdir"
     fi
 }
@@ -113,7 +116,7 @@ echo "Test 1: Python syntax check"
 echo "Test 2: dry-run shows correct ready agents"
 TMPDIR_T2="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T2"
+    cd "$TMPDIR_T2" || exit 1
     setup_crew_with_agents "$TMPDIR_T2"
 
     output=$(PYTHONPATH=".aitask-scripts" $PYTHON .aitask-scripts/agentcrew/agentcrew_runner.py \
@@ -130,7 +133,7 @@ cleanup_test_repo "$TMPDIR_T2"
 echo "Test 3: dependency resolution after completion"
 TMPDIR_T3="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T3"
+    cd "$TMPDIR_T3" || exit 1
     setup_crew_with_agents "$TMPDIR_T3"
 
     wt=".aitask-crews/crew-testcrew"
@@ -154,7 +157,7 @@ cleanup_test_repo "$TMPDIR_T3"
 echo "Test 4: multi-dependency resolution"
 TMPDIR_T4="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T4"
+    cd "$TMPDIR_T4" || exit 1
     setup_crew_with_agents "$TMPDIR_T4"
 
     wt=".aitask-crews/crew-testcrew"
@@ -183,7 +186,7 @@ cleanup_test_repo "$TMPDIR_T4"
 echo "Test 5: per-type max_parallel limit"
 TMPDIR_T5="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T5"
+    cd "$TMPDIR_T5" || exit 1
 
     # Init crew with max_parallel=1 for impl type
     bash .aitask-scripts/aitask_crew_init.sh --id testcrew --batch \
@@ -222,7 +225,7 @@ cleanup_test_repo "$TMPDIR_T5"
 echo "Test 6: single-instance detection"
 TMPDIR_T6="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T6"
+    cd "$TMPDIR_T6" || exit 1
     setup_crew_with_agents "$TMPDIR_T6"
 
     wt=".aitask-crews/crew-testcrew"
@@ -262,7 +265,7 @@ cleanup_test_repo "$TMPDIR_T6"
 echo "Test 7: diagnostic mode (--check)"
 TMPDIR_T7="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T7"
+    cd "$TMPDIR_T7" || exit 1
     setup_crew_with_agents "$TMPDIR_T7"
 
     wt=".aitask-crews/crew-testcrew"
@@ -310,7 +313,7 @@ cleanup_test_repo "$TMPDIR_T7"
 echo "Test 8: config file resolution"
 TMPDIR_T8="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T8"
+    cd "$TMPDIR_T8" || exit 1
     setup_crew_with_agents "$TMPDIR_T8"
 
     # Create a config file with custom values
@@ -342,7 +345,7 @@ cleanup_test_repo "$TMPDIR_T8"
 echo "Test 9: all terminal state detection"
 TMPDIR_T9="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T9"
+    cd "$TMPDIR_T9" || exit 1
     setup_crew_with_agents "$TMPDIR_T9"
 
     wt=".aitask-crews/crew-testcrew"
@@ -366,7 +369,7 @@ cleanup_test_repo "$TMPDIR_T9"
 echo "Test 10: stale runner takeover"
 TMPDIR_T10="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T10"
+    cd "$TMPDIR_T10" || exit 1
     setup_crew_with_agents "$TMPDIR_T10"
 
     wt=".aitask-crews/crew-testcrew"
@@ -398,7 +401,7 @@ cleanup_test_repo "$TMPDIR_T10"
 echo "Test 11: --reset-errors identifies Error agents in dry-run"
 TMPDIR_T11="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T11"
+    cd "$TMPDIR_T11" || exit 1
     setup_crew_with_agents "$TMPDIR_T11"
 
     wt=".aitask-crews/crew-testcrew"
@@ -428,7 +431,7 @@ cleanup_test_repo "$TMPDIR_T11"
 echo "Test 12: all-Error without --reset-errors triggers ALL_TERMINAL"
 TMPDIR_T12="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T12"
+    cd "$TMPDIR_T12" || exit 1
     setup_crew_with_agents "$TMPDIR_T12"
 
     wt=".aitask-crews/crew-testcrew"
@@ -452,7 +455,7 @@ cleanup_test_repo "$TMPDIR_T12"
 echo "Test 13: reset command accepted by crew command script"
 TMPDIR_T13="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T13"
+    cd "$TMPDIR_T13" || exit 1
     setup_crew_with_agents "$TMPDIR_T13"
 
     output=$(bash .aitask-scripts/aitask_crew_command.sh send --crew testcrew \
@@ -469,7 +472,7 @@ cleanup_test_repo "$TMPDIR_T13"
 echo "Test 14: runner processes pending reset command"
 TMPDIR_T14="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T14"
+    cd "$TMPDIR_T14" || exit 1
     setup_crew_with_agents "$TMPDIR_T14"
 
     wt=".aitask-crews/crew-testcrew"
@@ -528,7 +531,7 @@ print(validate_agent_transition('Completed', 'Waiting'))
 echo "Test 16: stale heartbeat leaves Running agent's status untouched"
 TMPDIR_T16="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T16"
+    cd "$TMPDIR_T16" || exit 1
     setup_crew_with_agents "$TMPDIR_T16"
 
     wt=".aitask-crews/crew-testcrew"
@@ -573,7 +576,7 @@ cleanup_test_repo "$TMPDIR_T16"
 echo "Test 17: heartbeat resume after staleness leaves status untouched"
 TMPDIR_T17="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T17"
+    cd "$TMPDIR_T17" || exit 1
     setup_crew_with_agents "$TMPDIR_T17"
 
     wt=".aitask-crews/crew-testcrew"
@@ -635,7 +638,7 @@ cleanup_test_repo "$TMPDIR_T17"
 echo "Test 18: heartbeat-stale agent self-reporting Completed transitions cleanly"
 TMPDIR_T18="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T18"
+    cd "$TMPDIR_T18" || exit 1
     setup_crew_with_agents "$TMPDIR_T18"
 
     wt=".aitask-crews/crew-testcrew"

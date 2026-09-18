@@ -6,6 +6,9 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 . "$PROJECT_DIR/tests/lib/asserts.sh"
 
 # shellcheck source=lib/venv_python.sh
@@ -22,7 +25,7 @@ TOTAL=0
 run_py() {
     local tmp_crew="$1" task_fixture_id="$2"
     (
-        cd "$PROJECT_DIR"
+        cd "$PROJECT_DIR" || exit 1
         "$AITASK_PYTHON" - <<EOF_PY
 import sys, pathlib
 sys.path.insert(0, ".aitask-scripts")

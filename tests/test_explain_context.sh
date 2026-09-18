@@ -6,6 +6,9 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 
 # shellcheck source=lib/test_scaffold.sh
 . "$PROJECT_DIR/tests/lib/test_scaffold.sh"
@@ -29,7 +32,7 @@ setup_git_repo() {
     local repo_dir="$TMPDIR_BASE/repo"
     mkdir -p "$repo_dir/src"
     setup_fake_aitask_repo "$repo_dir"
-    cd "$repo_dir"
+    cd "$repo_dir" || exit 1
     git init -q
     git config user.email "test@test.com"
     git config user.name "Test"
@@ -191,11 +194,11 @@ output=$(cd "$REPO_DIR" && ./.aitask-scripts/aitask_explain_context.sh -h 2>&1)
 assert_contains "short help flag works" "Usage:" "$output"
 
 # Test 4: No files specified produces error
-output=$(cd "$REPO_DIR" && ./.aitask-scripts/aitask_explain_context.sh --max-plans 2 2>&1 || true)
+output=$(cd "$REPO_DIR" || exit 1 && ./.aitask-scripts/aitask_explain_context.sh --max-plans 2 2>&1 || true)
 assert_contains "no files error" "No input files specified" "$output"
 
 # Test 5: --max-plans without value produces error
-output=$(cd "$REPO_DIR" && ./.aitask-scripts/aitask_explain_context.sh --max-plans 2>&1 || true)
+output=$(cd "$REPO_DIR" || exit 1 && ./.aitask-scripts/aitask_explain_context.sh --max-plans 2>&1 || true)
 assert_contains "missing max-plans value error" "requires a number" "$output"
 
 # Test 6: Non-existent file with no cache exits gracefully
@@ -346,7 +349,7 @@ mv "$REPO_DIR/.aitask-scripts/aitask_explain_extract_raw_data.sh.bak2" \
 
 # Test 17: Cache reuse (second run uses existing cache)
 rm -rf "$REPO_DIR/.aitask-explain/codebrowser"
-cd "$REPO_DIR"
+cd "$REPO_DIR" || exit 1
 ./.aitask-scripts/aitask_explain_context.sh --max-plans 1 src/foo.py >/dev/null 2>&1
 
 # Record cache state

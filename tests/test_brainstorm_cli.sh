@@ -6,6 +6,9 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 
 # shellcheck source=lib/test_scaffold.sh
 . "$PROJECT_DIR/tests/lib/test_scaffold.sh"
@@ -28,7 +31,7 @@ setup_test_repo() {
     tmpdir="$(mktemp -d)"
 
     (
-        cd "$tmpdir"
+        cd "$tmpdir" || exit 1
         git init --quiet
         git config user.email "test@test.com"
         git config user.name "Test"
@@ -99,9 +102,9 @@ TASK
 
 cleanup_test_repo() {
     local tmpdir="$1"
-    cd "$ORIG_DIR"
+    cd "$ORIG_DIR" || exit 1
     if [[ -d "$tmpdir" ]]; then
-        (cd "$tmpdir" && git worktree prune 2>/dev/null || true)
+        (cd "$tmpdir" || exit 1 && git worktree prune 2>/dev/null || true)
         rm -rf "$tmpdir"
     fi
 }
@@ -125,7 +128,7 @@ echo ""
 echo "Test 1: brainstorm init basic"
 TMPDIR_T1="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T1"
+    cd "$TMPDIR_T1" || exit 1
     output=$(bash .aitask-scripts/aitask_brainstorm_init.sh 999 2>&1)
     assert_contains_ci "init outputs INITIALIZED" "INITIALIZED:999" "$output"
 
@@ -149,7 +152,7 @@ cleanup_test_repo "$TMPDIR_T1"
 echo "Test 2: brainstorm init rejects missing task"
 TMPDIR_T2="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T2"
+    cd "$TMPDIR_T2" || exit 1
     assert_exit_nonzero "rejects non-existent task" bash .aitask-scripts/aitask_brainstorm_init.sh 12345
 )
 cleanup_test_repo "$TMPDIR_T2"
@@ -158,7 +161,7 @@ cleanup_test_repo "$TMPDIR_T2"
 echo "Test 3: brainstorm init rejects duplicate session"
 TMPDIR_T3="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T3"
+    cd "$TMPDIR_T3" || exit 1
     bash .aitask-scripts/aitask_brainstorm_init.sh 999 >/dev/null 2>&1
     assert_exit_nonzero "rejects duplicate session" bash .aitask-scripts/aitask_brainstorm_init.sh 999
 )
@@ -168,7 +171,7 @@ cleanup_test_repo "$TMPDIR_T3"
 echo "Test 4: brainstorm status shows session info"
 TMPDIR_T4="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T4"
+    cd "$TMPDIR_T4" || exit 1
     bash .aitask-scripts/aitask_brainstorm_init.sh 999 >/dev/null 2>&1
     output=$(bash .aitask-scripts/aitask_brainstorm_status.sh 999 2>&1)
     assert_contains_ci "status shows task_id" "999" "$output"
@@ -180,7 +183,7 @@ cleanup_test_repo "$TMPDIR_T4"
 echo "Test 5: brainstorm list shows sessions"
 TMPDIR_T5="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T5"
+    cd "$TMPDIR_T5" || exit 1
     bash .aitask-scripts/aitask_brainstorm_init.sh 999 >/dev/null 2>&1
     output=$(bash .aitask-scripts/aitask_brainstorm_status.sh --list 2>&1)
     assert_contains_ci "list shows task num" "999" "$output"
@@ -192,7 +195,7 @@ cleanup_test_repo "$TMPDIR_T5"
 echo "Test 6: brainstorm status with no session"
 TMPDIR_T6="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T6"
+    cd "$TMPDIR_T6" || exit 1
     assert_exit_nonzero "status fails for non-existent session" bash .aitask-scripts/aitask_brainstorm_status.sh 12345
 )
 cleanup_test_repo "$TMPDIR_T6"
@@ -201,7 +204,7 @@ cleanup_test_repo "$TMPDIR_T6"
 echo "Test 7: brainstorm_cli.py exists subcommand"
 TMPDIR_T7="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T7"
+    cd "$TMPDIR_T7" || exit 1
     # Before init: NOT_EXISTS
     output=$("$PYTHON" .aitask-scripts/brainstorm/brainstorm_cli.py exists --task-num 999 2>&1)
     assert_eq "exists returns NOT_EXISTS before init" "NOT_EXISTS" "$output"
@@ -217,7 +220,7 @@ cleanup_test_repo "$TMPDIR_T7"
 echo "Test 8: brainstorm init --help"
 TMPDIR_T8="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T8"
+    cd "$TMPDIR_T8" || exit 1
     output=$(bash .aitask-scripts/aitask_brainstorm_init.sh --help 2>&1)
     assert_contains_ci "help shows usage" "Usage" "$output"
     assert_contains_ci "help shows task_num" "task_num" "$output"
@@ -228,7 +231,7 @@ cleanup_test_repo "$TMPDIR_T8"
 echo "Test 9: brainstorm delete removes session"
 TMPDIR_T9="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T9"
+    cd "$TMPDIR_T9" || exit 1
     bash .aitask-scripts/aitask_brainstorm_init.sh 999 >/dev/null 2>&1
     # Verify session exists
     output=$("$PYTHON" .aitask-scripts/brainstorm/brainstorm_cli.py exists --task-num 999 2>&1)
@@ -248,7 +251,7 @@ cleanup_test_repo "$TMPDIR_T9"
 echo "Test 9b: brainstorm delete cleans up stale crew branch"
 TMPDIR_T9B="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T9B"
+    cd "$TMPDIR_T9B" || exit 1
     # Init creates a real git worktree at .aitask-crews/crew-brainstorm-999
     # registered in .git/worktrees/. The Python delete_session does
     # shutil.rmtree on that dir without unregistering — so .git/worktrees/
@@ -292,7 +295,7 @@ cleanup_test_repo "$TMPDIR_T9B"
 echo "Test 10: brainstorm delete rejects non-existent session"
 TMPDIR_T10="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T10"
+    cd "$TMPDIR_T10" || exit 1
     assert_exit_nonzero "delete rejects non-existent session" bash .aitask-scripts/aitask_brainstorm_delete.sh 12345 --yes
 )
 cleanup_test_repo "$TMPDIR_T10"
@@ -301,7 +304,7 @@ cleanup_test_repo "$TMPDIR_T10"
 echo "Test 11: brainstorm archive exports HEAD proposal and archives"
 TMPDIR_T11="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T11"
+    cd "$TMPDIR_T11" || exit 1
     bash .aitask-scripts/aitask_brainstorm_init.sh 999 >/dev/null 2>&1
     # init seeds HEAD=n000_init with a proposal, so finalize succeeds. There is
     # no "HEAD has no plan" state: t891_3/t891_4 replaced the plan data model
@@ -320,7 +323,7 @@ cleanup_test_repo "$TMPDIR_T11"
 echo "Test 12: brainstorm archive aborts when finalize fails"
 TMPDIR_T12="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T12"
+    cd "$TMPDIR_T12" || exit 1
     WT=".aitask-crews/crew-brainstorm-999"
     bash .aitask-scripts/aitask_brainstorm_init.sh 999 >/dev/null 2>&1
     # Make the HEAD node's proposal unreadable so read_proposal raises. The

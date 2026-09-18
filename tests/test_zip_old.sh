@@ -6,6 +6,9 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 
 # shellcheck source=lib/test_scaffold.sh
 . "$PROJECT_DIR/tests/lib/test_scaffold.sh"
@@ -55,7 +58,7 @@ setup_test_env() {
 
     # Create a git repo so git operations work
     (
-        cd "$tmpdir"
+        cd "$tmpdir" || exit 1
         git init --quiet
         git config user.email "test@test.com"
         git config user.name "Test"
@@ -96,7 +99,7 @@ rm -rf "$TMPDIR_2"
 echo "--- Test 3: All parents archived, no active children ---"
 TMPDIR_3="$(setup_test_env)"
 (
-    cd "$TMPDIR_3"
+    cd "$TMPDIR_3" || exit 1
     create_archived_file aitasks/archived/t50_old_task.md
     create_archived_file aitasks/archived/t51_another_task.md
     create_archived_file aiplans/archived/p50_old_task.md
@@ -113,7 +116,7 @@ rm -rf "$TMPDIR_3"
 echo "--- Test 4: Active parent skips archived children ---"
 TMPDIR_4="$(setup_test_env)"
 (
-    cd "$TMPDIR_4"
+    cd "$TMPDIR_4" || exit 1
     # Active parent with children
     create_task_file aitasks/t10_parent.md
     create_task_file aitasks/t10/t10_3_active_child.md
@@ -137,7 +140,7 @@ rm -rf "$TMPDIR_4"
 echo "--- Test 5: Archived parent, all children done ---"
 TMPDIR_5="$(setup_test_env)"
 (
-    cd "$TMPDIR_5"
+    cd "$TMPDIR_5" || exit 1
     # Parent is archived (no aitasks/t20/ directory)
     create_archived_file aitasks/archived/t20_done_parent.md
     create_archived_file aitasks/archived/t20/t20_1_child.md
@@ -153,7 +156,7 @@ rm -rf "$TMPDIR_5"
 echo "--- Test 6: Inactive parent's children archived ---"
 TMPDIR_6="$(setup_test_env)"
 (
-    cd "$TMPDIR_6"
+    cd "$TMPDIR_6" || exit 1
     # No aitasks/t30/ directory (parent is done)
     create_archived_file aitasks/archived/t30/t30_1_child.md
     create_archived_file aitasks/archived/t30/t30_2_child.md
@@ -167,7 +170,7 @@ rm -rf "$TMPDIR_6"
 echo "--- Test 7: Plan files follow same logic ---"
 TMPDIR_7="$(setup_test_env)"
 (
-    cd "$TMPDIR_7"
+    cd "$TMPDIR_7" || exit 1
     # Active parent
     create_task_file aitasks/t15_parent.md
     create_task_file aitasks/t15/t15_2_active.md
@@ -185,7 +188,7 @@ rm -rf "$TMPDIR_7"
 echo "--- Test 8: Mixed scenario ---"
 TMPDIR_8="$(setup_test_env)"
 (
-    cd "$TMPDIR_8"
+    cd "$TMPDIR_8" || exit 1
     # Active parent with children
     create_task_file aitasks/t10_parent.md
     create_task_file aitasks/t10/t10_3_active.md
@@ -212,7 +215,7 @@ rm -rf "$TMPDIR_8"
 echo "--- Test 9: Actual archive creation ---"
 TMPDIR_9="$(setup_test_env)"
 (
-    cd "$TMPDIR_9"
+    cd "$TMPDIR_9" || exit 1
     create_archived_file aitasks/archived/t50_old.md
     create_archived_file aitasks/archived/t51_old.md
     create_archived_file aiplans/archived/p50_old.md
@@ -234,13 +237,13 @@ rm -rf "$TMPDIR_9"
 echo "--- Test 10: Cumulative archiving ---"
 TMPDIR_10="$(setup_test_env)"
 (
-    cd "$TMPDIR_10"
+    cd "$TMPDIR_10" || exit 1
     create_archived_file aitasks/archived/t50_first.md
     git add -A && git commit -m "First batch" --quiet
 )
 (cd "$TMPDIR_10" && bash .aitask-scripts/aitask_zip_old.sh --no-commit 2>&1 >/dev/null)
 (
-    cd "$TMPDIR_10"
+    cd "$TMPDIR_10" || exit 1
     create_archived_file aitasks/archived/t51_second.md
 )
 (cd "$TMPDIR_10" && bash .aitask-scripts/aitask_zip_old.sh --no-commit 2>&1 >/dev/null)
@@ -253,7 +256,7 @@ rm -rf "$TMPDIR_10"
 echo "--- Test 11: Git commit message ---"
 TMPDIR_11="$(setup_test_env)"
 (
-    cd "$TMPDIR_11"
+    cd "$TMPDIR_11" || exit 1
     # Active parent
     create_task_file aitasks/t10_parent.md
     create_task_file aitasks/t10/t10_2_active.md
@@ -271,7 +274,7 @@ rm -rf "$TMPDIR_11"
 echo "--- Test 12: Empty child dirs cleaned up ---"
 TMPDIR_12="$(setup_test_env)"
 (
-    cd "$TMPDIR_12"
+    cd "$TMPDIR_12" || exit 1
     # Inactive parent with one child to archive
     create_archived_file aitasks/archived/t30/t30_1_child.md
     git add -A && git commit -m "Setup" --quiet
@@ -284,7 +287,7 @@ rm -rf "$TMPDIR_12"
 echo "--- Test 13: No-commit flag ---"
 TMPDIR_13="$(setup_test_env)"
 (
-    cd "$TMPDIR_13"
+    cd "$TMPDIR_13" || exit 1
     create_archived_file aitasks/archived/t50_old.md
     git add -A && git commit -m "Setup" --quiet
 )
@@ -299,7 +302,7 @@ rm -rf "$TMPDIR_13"
 echo "--- Test 14: Verbose output ---"
 TMPDIR_14="$(setup_test_env)"
 (
-    cd "$TMPDIR_14"
+    cd "$TMPDIR_14" || exit 1
     create_task_file aitasks/t10_parent.md
     create_task_file aitasks/t10/t10_2_active.md
     create_archived_file aitasks/archived/t10/t10_1_done.md
@@ -314,7 +317,7 @@ rm -rf "$TMPDIR_14"
 echo "--- Test 15: Dependency keeps archived task ---"
 TMPDIR_15="$(setup_test_env)"
 (
-    cd "$TMPDIR_15"
+    cd "$TMPDIR_15" || exit 1
     # Active task depends on archived t30
     create_task_file aitasks/t50_needs_30.md "['30']"
     create_archived_file aitasks/archived/t30_depended_on.md
@@ -329,7 +332,7 @@ rm -rf "$TMPDIR_15"
 echo "--- Test 16: Dependency keeps archived plan ---"
 TMPDIR_16="$(setup_test_env)"
 (
-    cd "$TMPDIR_16"
+    cd "$TMPDIR_16" || exit 1
     create_task_file aitasks/t50_needs_30.md "[30]"
     create_archived_file aiplans/archived/p30_depended_on.md
     create_archived_file aiplans/archived/p31_not_depended.md
@@ -343,7 +346,7 @@ rm -rf "$TMPDIR_16"
 echo "--- Test 17: Dependency keeps archived child ---"
 TMPDIR_17="$(setup_test_env)"
 (
-    cd "$TMPDIR_17"
+    cd "$TMPDIR_17" || exit 1
     # Active task depends on child 30_2
     create_task_file aitasks/t50_needs_child.md "[30_2]"
     # Parent 30 is inactive (no aitasks/t30/)
@@ -359,7 +362,7 @@ rm -rf "$TMPDIR_17"
 echo "--- Test 18: No dependency, task archived ---"
 TMPDIR_18="$(setup_test_env)"
 (
-    cd "$TMPDIR_18"
+    cd "$TMPDIR_18" || exit 1
     create_task_file aitasks/t50_active.md "[]"
     create_archived_file aitasks/archived/t30_no_dep.md
 )
@@ -371,7 +374,7 @@ rm -rf "$TMPDIR_18"
 echo "--- Test 19: Multiple depends formats ---"
 TMPDIR_19="$(setup_test_env)"
 (
-    cd "$TMPDIR_19"
+    cd "$TMPDIR_19" || exit 1
     # Format 1: quoted number
     create_task_file aitasks/t50_fmt1.md "['30']"
     # Format 2: plain number
@@ -414,7 +417,7 @@ echo ""
 echo "--- Test 20: Unpack parent task from tar.zst ---"
 TMPDIR_20="$(setup_test_env)"
 (
-    cd "$TMPDIR_20"
+    cd "$TMPDIR_20" || exit 1
     # Create tar with a parent task
     staging=$(mktemp -d)
     echo "task 50 content" > "$staging/t50_old_feature.md"
@@ -437,7 +440,7 @@ rm -rf "$TMPDIR_20"
 echo "--- Test 21: Unpack parent + children ---"
 TMPDIR_21="$(setup_test_env)"
 (
-    cd "$TMPDIR_21"
+    cd "$TMPDIR_21" || exit 1
     staging=$(mktemp -d)
     echo "parent task" > "$staging/t50_parent.md"
     mkdir -p "$staging/t50"
@@ -457,7 +460,7 @@ rm -rf "$TMPDIR_21"
 echo "--- Test 22: Unpack extracts plan files too ---"
 TMPDIR_22="$(setup_test_env)"
 (
-    cd "$TMPDIR_22"
+    cd "$TMPDIR_22" || exit 1
     # Task archive
     staging_t=$(mktemp -d)
     echo "task 50" > "$staging_t/t50_feature.md"
@@ -481,7 +484,7 @@ rm -rf "$TMPDIR_22"
 echo "--- Test 23: No-op when not in archive ---"
 TMPDIR_23="$(setup_test_env)"
 (
-    cd "$TMPDIR_23"
+    cd "$TMPDIR_23" || exit 1
     # Task exists on filesystem, not in tar
     create_archived_file aitasks/archived/t50_on_disk.md
     git add -A && git commit -m "Setup" --quiet
@@ -502,7 +505,7 @@ rm -rf "$TMPDIR_24"
 echo "--- Test 25: Archive deleted when emptied ---"
 TMPDIR_25="$(setup_test_env)"
 (
-    cd "$TMPDIR_25"
+    cd "$TMPDIR_25" || exit 1
     # Only one task in the archive
     staging=$(mktemp -d)
     echo "only task" > "$staging/t50_only.md"
@@ -519,7 +522,7 @@ rm -rf "$TMPDIR_25"
 echo "--- Test 26: t prefix accepted ---"
 TMPDIR_26="$(setup_test_env)"
 (
-    cd "$TMPDIR_26"
+    cd "$TMPDIR_26" || exit 1
     staging=$(mktemp -d)
     echo "task 50" > "$staging/t50_prefix_test.md"
     tar -cf - -C "$staging" . | zstd -q -o aitasks/archived/old.tar.zst

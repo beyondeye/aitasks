@@ -14,6 +14,9 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 
 # shellcheck source=lib/test_scaffold.sh
 . "$PROJECT_DIR/tests/lib/test_scaffold.sh"
@@ -154,7 +157,7 @@ assert_eq "no-config resolve explain falls to DEFAULT_AGENT_STRING" \
 echo "--- Test 6: whitespace guard ---"
 assert_exit_nonzero "claudecode whitespace arg refused" \
     bash -c "cd '$TMPDIR_TEST' && bash '$CODEAGENT' --dry-run invoke work-report --columns 'my col'"
-output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --dry-run invoke work-report --columns "my col" 2>&1 || true)
+output=$(cd "$TMPDIR_TEST" || exit 1 && bash "$CODEAGENT" --dry-run invoke work-report --columns "my col" 2>&1 || true)
 assert_contains "whitespace refusal names the cause" "whitespace" "$output"
 assert_not_contains "whitespace refusal emits no DRY_RUN line" "DRY_RUN:" "$output"
 # Guard fires before per-agent dispatch — same refusal under codex.

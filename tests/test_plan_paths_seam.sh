@@ -10,13 +10,16 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 
 PASS=0
 FAIL=0
 TOTAL=0
 
 . "$PROJECT_DIR/tests/lib/asserts.sh"
-cd "$PROJECT_DIR"
+cd "$PROJECT_DIR" || exit 1
 
 # ============================================================
 # guard_single_extractor_source
@@ -104,7 +107,7 @@ trap 'rm -rf "$root"' EXIT
 git init --bare --quiet "$root/origin.git"
 git clone --quiet "$root/origin.git" "$root/local" 2>/dev/null
 (
-    cd "$root/local"
+    cd "$root/local" || exit 1
     git config user.email "t@e.com"
     git config user.name "T"
     echo v1 > README.md
@@ -119,7 +122,7 @@ default_branch=$(git -C "$root/local" rev-parse --abbrev-ref HEAD)
 # genuinely exercised; otherwise this whole section would assert nothing.
 git clone --quiet "$root/origin.git" "$root/other" 2>/dev/null
 (
-    cd "$root/other"
+    cd "$root/other" || exit 1
     git config user.email "o@e.com"
     git config user.name "O"
     mkdir -p .aitask-scripts
@@ -140,12 +143,12 @@ HELPER="$PROJECT_DIR/.aitask-scripts/aitask_remote_drift_check.sh"
 
 # Positive control FIRST: without the fault, this path reaches a real verdict.
 # Without it, a broken invocation would satisfy the negative assertions below.
-ok_out=$(cd "$root/local" && "$HELPER" "$default_branch" "$root/local/plan.md" 2>&1 || true)
+ok_out=$(cd "$root/local" || exit 1 && "$HELPER" "$default_branch" "$root/local/plan.md" 2>&1 || true)
 assert_contains "fail-closed: positive control reaches the extraction path" \
     "OVERLAP:.aitask-scripts/aitask_archive.sh" "$ok_out"
 
 # Now poison the interpreter the bridge resolves.
-bad_out=$(cd "$root/local" && _AIT_RESOLVED_PYTHON=/nonexistent/python \
+bad_out=$(cd "$root/local" || exit 1 && _AIT_RESOLVED_PYTHON=/nonexistent/python \
     "$HELPER" "$default_branch" "$root/local/plan.md" 2>&1 || true)
 bad_rc=0
 (cd "$root/local" && _AIT_RESOLVED_PYTHON=/nonexistent/python \
@@ -167,7 +170,7 @@ chmod 000 "$root/local/unreadable.md"
 if [[ -r "$root/local/unreadable.md" ]]; then
     echo "SKIP: running as root -- mode 000 is still readable"
 else
-    out=$(cd "$root/local" && "$HELPER" "$default_branch" "$root/local/unreadable.md" 2>&1 || true)
+    out=$(cd "$root/local" || exit 1 && "$HELPER" "$default_branch" "$root/local/unreadable.md" 2>&1 || true)
     rc=0
     (cd "$root/local" && "$HELPER" "$default_branch" "$root/local/unreadable.md" >/dev/null 2>&1) || rc=$?
     assert_contains "unreadable plan: emits EXTRACT_FAILED" "EXTRACT_FAILED" "$out"
@@ -178,7 +181,7 @@ chmod 644 "$root/local/unreadable.md" 2>/dev/null || true
 
 # (b) broken symlink -- `-e` is false for it, so the guard must also test `-L`
 ln -s /nonexistent/target.md "$root/local/broken.md"
-out=$(cd "$root/local" && "$HELPER" "$default_branch" "$root/local/broken.md" 2>&1 || true)
+out=$(cd "$root/local" || exit 1 && "$HELPER" "$default_branch" "$root/local/broken.md" 2>&1 || true)
 rc=0
 (cd "$root/local" && "$HELPER" "$default_branch" "$root/local/broken.md" >/dev/null 2>&1) || rc=$?
 assert_contains "broken symlink plan: emits EXTRACT_FAILED" "EXTRACT_FAILED" "$out"
@@ -186,7 +189,7 @@ assert_not_contains "broken symlink plan: never a silent NO_OVERLAP" "NO_OVERLAP
 assert_eq "broken symlink plan: exits 3" "3" "$rc"
 
 # (c) a genuinely ABSENT plan keeps the pre-existing behaviour.
-out=$(cd "$root/local" && "$HELPER" "$default_branch" "$root/local/absent.md" 2>&1 || true)
+out=$(cd "$root/local" || exit 1 && "$HELPER" "$default_branch" "$root/local/absent.md" 2>&1 || true)
 assert_not_contains "absent plan: not treated as an extraction failure" \
     "EXTRACT_FAILED" "$out"
 

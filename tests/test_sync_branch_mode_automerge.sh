@@ -45,6 +45,9 @@ set -uo pipefail
 
 TEST_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$TEST_SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 
 PASS=0
 FAIL=0
@@ -65,7 +68,7 @@ setup_branch_mode_repos() {
     git init -q --bare "$tmpdir/remote.git"
     git clone -q "$tmpdir/remote.git" "$tmpdir/local" 2>/dev/null
     (
-        cd "$tmpdir/local"
+        cd "$tmpdir/local" || exit 1
         git config user.email test@test.com
         git config user.name Test
         git config commit.gpgsign false
@@ -115,7 +118,7 @@ TASKEOF
     # pc2 pushes a conflicting change to the data branch.
     git clone -q "$tmpdir/remote.git" "$tmpdir/pc2" 2>/dev/null
     (
-        cd "$tmpdir/pc2"
+        cd "$tmpdir/pc2" || exit 1
         git config user.email test2@test.com
         git config user.name Test2
         git config commit.gpgsign false
@@ -137,7 +140,7 @@ TASKEOF
 
     # local commits its own conflicting edit on the adjacent `labels` line.
     (
-        cd "$tmpdir/local"
+        cd "$tmpdir/local" || exit 1
         cat > .aitask-data/aitasks/t1_sample.md <<'TASKEOF'
 ---
 priority: high
@@ -202,12 +205,12 @@ TMP1="$(setup_branch_mode_repos)"
 
 # Positive control: the rebase must genuinely conflict. Without this the test
 # could pass on a clean textual auto-merge that never invoked the driver.
-(cd "$TMP1/local" && git -C .aitask-data fetch -q origin 2>/dev/null
+(cd "$TMP1/local" || exit 1 && git -C .aitask-data fetch -q origin 2>/dev/null
  git -C .aitask-data rebase origin/aitask-data >/dev/null 2>&1 || true)
 unmerged=$(cd "$TMP1/local" && git -C .aitask-data diff --name-only --diff-filter=U 2>/dev/null)
 assert_contains "Fixture actually produces an unmerged path" \
     "aitasks/t1_sample.md" "$unmerged"
-(cd "$TMP1/local" && git -C .aitask-data rebase --abort >/dev/null 2>&1 || true)
+(cd "$TMP1/local" || exit 1 && git -C .aitask-data rebase --abort >/dev/null 2>&1 || true)
 
 output=$(cd "$TMP1/local" && ./ait sync --batch 2>/dev/null)
 assert_eq_trim "Branch-mode conflict returns AUTOMERGED" "AUTOMERGED" "$output"
@@ -263,7 +266,7 @@ TMP4="$(setup_branch_mode_repos)"
 # Rewrite both sides so the two edits are far apart (priority vs a trailing
 # field), with enough context between them that git merges cleanly.
 (
-    cd "$TMP4/pc2"
+    cd "$TMP4/pc2" || exit 1
     git pull -q 2>/dev/null
     cat > aitasks/t1_sample.md <<'TASKEOF'
 ---
@@ -281,7 +284,7 @@ TASKEOF
     git add -A; git commit -q -m "pc2: priority only"; git push -q 2>/dev/null
 ) >/dev/null 2>&1
 (
-    cd "$TMP4/local"
+    cd "$TMP4/local" || exit 1
     git -C .aitask-data reset -q --hard origin/aitask-data 2>/dev/null
     git -C .aitask-data fetch -q origin 2>/dev/null
     git -C .aitask-data reset -q --hard HEAD~1 2>/dev/null || true
@@ -291,7 +294,7 @@ TASKEOF
 # adjacency is load-bearing, so Test 1's positive control discriminates rather
 # than always holding.
 (
-    cd "$TMP4/local"
+    cd "$TMP4/local" || exit 1
     cat > .aitask-data/aitasks/t1_sample.md <<'TASKEOF'
 ---
 priority: high
@@ -329,7 +332,7 @@ echo "--- Test 5: interactive conflict list is not polluted with prose ---"
 # file was buried among them.
 TMP5b="$(setup_branch_mode_repos)"
 (
-    cd "$TMP5b/local"
+    cd "$TMP5b/local" || exit 1
     # Add a second task whose BODY diverges, so it cannot auto-merge.
     printf -- '---\npriority: high\nstatus: Ready\n---\nBODY BASE\n' \
         > .aitask-data/aitasks/t2_body.md
@@ -339,14 +342,14 @@ TMP5b="$(setup_branch_mode_repos)"
     git -C .aitask-data push -q 2>/dev/null
 ) >/dev/null 2>&1
 (
-    cd "$TMP5b/pc2"
+    cd "$TMP5b/pc2" || exit 1
     git pull -q 2>/dev/null
     printf -- '---\npriority: high\nstatus: Ready\n---\nBODY FROM PC2\n' \
         > aitasks/t2_body.md
     git add -A; git commit -q -m "pc2: body"; git push -q 2>/dev/null
 ) >/dev/null 2>&1
 (
-    cd "$TMP5b/local"
+    cd "$TMP5b/local" || exit 1
     printf -- '---\npriority: high\nstatus: Ready\n---\nBODY FROM LOCAL\n' \
         > .aitask-data/aitasks/t2_body.md
     git -C .aitask-data add -A
@@ -355,7 +358,7 @@ TMP5b="$(setup_branch_mode_repos)"
 ) >/dev/null 2>&1
 
 # EDITOR=true makes the interactive resolution loop a no-op we can observe.
-int_out=$(cd "$TMP5b/local" && EDITOR=true ./ait sync 2>/dev/null || true)
+int_out=$(cd "$TMP5b/local" || exit 1 && EDITOR=true ./ait sync 2>/dev/null || true)
 int_clean=$(printf '%s' "$int_out" | strip_ansi)
 
 # Portability control for strip_ansi, deliberately INDEPENDENT of whether
@@ -392,7 +395,7 @@ setup_two_body_conflicts() {
     local tmpdir
     tmpdir="$(setup_branch_mode_repos)"
     (
-        cd "$tmpdir/local"
+        cd "$tmpdir/local" || exit 1
         # Drop the base fixture's `local: labels` commit so t1_sample.md does
         # not participate and exactly one local commit is replayed.
         git -C .aitask-data fetch -q origin
@@ -406,7 +409,7 @@ setup_two_body_conflicts() {
             commit -q -m "local: two bodies"
     ) >/dev/null 2>&1
     (
-        cd "$tmpdir/pc2"
+        cd "$tmpdir/pc2" || exit 1
         git pull -q
         printf -- '---\npriority: high\nstatus: Ready\n---\nBODY FROM PC2\n' \
             > aitasks/t2_body.md
@@ -472,12 +475,12 @@ make_resolver_editor "$TMP6/bin"
 # Positive control: the fixture must genuinely deliver BOTH files unmerged. A
 # fixture that only ever produced one conflict would pass pre-fix and prove
 # nothing — which is exactly the shape this defect hides in.
-(cd "$TMP6/local" && git -C .aitask-data fetch -q origin 2>/dev/null
+(cd "$TMP6/local" || exit 1 && git -C .aitask-data fetch -q origin 2>/dev/null
  git -C .aitask-data rebase origin/aitask-data >/dev/null 2>&1 || true)
 ctl6=$(cd "$TMP6/local" && git -C .aitask-data diff --name-only --diff-filter=U 2>/dev/null)
 assert_contains "Fixture yields t2_body.md unmerged" "aitasks/t2_body.md" "$ctl6"
 assert_contains "Fixture yields t3_body.md unmerged" "aitasks/t3_body.md" "$ctl6"
-(cd "$TMP6/local" && git -C .aitask-data rebase --abort >/dev/null 2>&1 || true)
+(cd "$TMP6/local" || exit 1 && git -C .aitask-data rebase --abort >/dev/null 2>&1 || true)
 
 rc6=0
 out6=$(cd "$TMP6/local" && EDITOR="$TMP6/bin/resolve-editor" ./ait sync 2>/dev/null) || rc6=$?
@@ -676,7 +679,7 @@ setup_empty_patch_conflict() {
     local tmpdir
     tmpdir="$(setup_branch_mode_repos)"
     (
-        cd "$tmpdir/local"
+        cd "$tmpdir/local" || exit 1
         git -C .aitask-data fetch -q origin
         git -C .aitask-data reset -q --hard origin/aitask-data~1
         printf -- '---\npriority: high\nupdated_at: 2026-01-01 09:00\n---\nBody\n' \
@@ -686,7 +689,7 @@ setup_empty_patch_conflict() {
             commit -q -m "local: older ts only"
     ) >/dev/null 2>&1
     (
-        cd "$tmpdir/pc2"
+        cd "$tmpdir/pc2" || exit 1
         git fetch -q origin
         git reset -q --hard origin/aitask-data~1
         printf -- '---\npriority: low\nupdated_at: 2026-01-01 12:00\n---\nBody\n' \
@@ -1269,11 +1272,11 @@ lock15="$(git -C "$TMP15/local/.aitask-data" rev-parse --path-format=absolute --
 : > "$lock15"
 
 # Positive control (Test 1's shape): an UNPINNED rebase dies on the held lock.
-ctl15="$(cd "$TMP15/local" && git -C .aitask-data fetch -q origin 2>/dev/null
+ctl15="$(cd "$TMP15/local" || exit 1 && git -C .aitask-data fetch -q origin 2>/dev/null
          git -C .aitask-data rebase origin/aitask-data 2>&1 || true)"
 assert_contains "15: control — an unpinned rebase dies on the held lock" \
     "MERGE_RR.lock" "$ctl15"
-(cd "$TMP15/local" && git -C .aitask-data -c rerere.enabled=false rebase --abort >/dev/null 2>&1 || true)
+(cd "$TMP15/local" || exit 1 && git -C .aitask-data -c rerere.enabled=false rebase --abort >/dev/null 2>&1 || true)
 assert_no_rebase_wedge "Test 15 control cleanup" "$TMP15/local"
 
 run_sync "$TMP15"

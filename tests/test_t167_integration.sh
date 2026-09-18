@@ -7,6 +7,9 @@ set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 TEST_DIR="$(mktemp -d)/test_t167"
 
 PASS=0
@@ -30,7 +33,7 @@ rm -rf "$TEST_DIR"
 mkdir -p "$TEST_DIR"
 
 (
-    cd "$TEST_DIR"
+    cd "$TEST_DIR" || exit 1
     git init --quiet
     git config user.email "test@test.com"
     git config user.name "Test User"
@@ -42,7 +45,7 @@ mkdir -p "$TEST_DIR"
 # Create a local tarball from the current project for install.sh
 TARBALL="/tmp/aitasks_test_t167.tar.gz"
 (
-    cd "$PROJECT_DIR"
+    cd "$PROJECT_DIR" || exit 1
     # Build tarball matching the release structure (install.sh is NOT in the tarball,
     # just like real releases — it's downloaded separately via curl)
     tar czf "$TARBALL" \

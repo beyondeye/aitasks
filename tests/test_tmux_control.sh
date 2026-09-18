@@ -16,6 +16,9 @@ fi
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$REPO_ROOT/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 
 if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
@@ -51,7 +54,7 @@ F1=$(make_fixture)
 trap 'teardown_fixture "$F1"; teardown_fixture "${F2:-}"' EXIT
 
 (
-    cd "$REPO_ROOT"
+    cd "$REPO_ROOT" || exit 1
     # shellcheck disable=SC2030  # subshell-scoped export is intentional (case isolation)
     export TMUX_TMPDIR="$F1"
     unset TMUX
@@ -149,7 +152,7 @@ echo "== case 4: server-kill recovery =="
 F2=$(make_fixture)
 
 (
-    cd "$REPO_ROOT"
+    cd "$REPO_ROOT" || exit 1
     # shellcheck disable=SC2031  # subshell-scoped export is intentional (case isolation)
     export TMUX_TMPDIR="$F2"
     unset TMUX
@@ -214,7 +217,7 @@ F5=$(make_fixture)
 trap 'teardown_fixture "${F5:-}"; teardown_fixture "${F6:-}"; teardown_fixture "${F7:-}"; teardown_fixture "${F8:-}"; teardown_fixture "${F9:-}"; teardown_fixture "${F12:-}"' EXIT
 
 (
-    cd "$REPO_ROOT"
+    cd "$REPO_ROOT" || exit 1
     # shellcheck disable=SC2030,SC2031  # subshell-scoped export is intentional (case isolation)
     export TMUX_TMPDIR="$F5"
     unset TMUX
@@ -284,7 +287,7 @@ echo "== case 6: concurrent sync requests =="
 F6=$(make_fixture)
 
 (
-    cd "$REPO_ROOT"
+    cd "$REPO_ROOT" || exit 1
     # shellcheck disable=SC2030,SC2031  # subshell-scoped export is intentional (case isolation)
     export TMUX_TMPDIR="$F6"
     unset TMUX
@@ -336,7 +339,7 @@ echo "== case 7: mixed sync + async =="
 F7=$(make_fixture)
 
 (
-    cd "$REPO_ROOT"
+    cd "$REPO_ROOT" || exit 1
     # shellcheck disable=SC2030,SC2031  # subshell-scoped export is intentional (case isolation)
     export TMUX_TMPDIR="$F7"
     unset TMUX
@@ -404,7 +407,7 @@ echo "== case 8: lifecycle =="
 F8=$(make_fixture)
 
 (
-    cd "$REPO_ROOT"
+    cd "$REPO_ROOT" || exit 1
     # shellcheck disable=SC2030,SC2031  # subshell-scoped export is intentional (case isolation)
     export TMUX_TMPDIR="$F8"
     unset TMUX
@@ -455,7 +458,7 @@ echo "== case 9: transport failure =="
 F9=$(make_fixture)
 
 (
-    cd "$REPO_ROOT"
+    cd "$REPO_ROOT" || exit 1
     # shellcheck disable=SC2030,SC2031  # subshell-scoped export is intentional (case isolation)
     export TMUX_TMPDIR="$F9"
     unset TMUX
@@ -511,7 +514,7 @@ F9=""
 echo "== case 11: tmux missing on PATH =="
 
 (
-    cd "$REPO_ROOT"
+    cd "$REPO_ROOT" || exit 1
     # Resolve to the *real* python interpreter (not a #!/usr/bin/env bash
     # wrapper). When PATH is restricted, the wrapper's shebang would fail
     # before Python even starts.
@@ -543,7 +546,7 @@ echo "== case 12: shutdown with pending work =="
 F12=$(make_fixture)
 
 (
-    cd "$REPO_ROOT"
+    cd "$REPO_ROOT" || exit 1
     # shellcheck disable=SC2030,SC2031  # subshell-scoped export is intentional (case isolation)
     export TMUX_TMPDIR="$F12"
     unset TMUX

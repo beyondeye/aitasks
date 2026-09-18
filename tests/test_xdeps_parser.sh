@@ -12,6 +12,9 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 
 # Shared assertion helpers (see tests/lib/asserts.sh).
 # shellcheck source=lib/asserts.sh
@@ -79,7 +82,7 @@ assert_eq "read_xdeps on plain task is empty" "" "$xdeps_plain"
 
 # --- aitask_ls.sh round-trip: parser must not crash on the new fields ---
 
-cd "$TMPROOT"
+cd "$TMPROOT" || exit 1
 out=$("$PROJECT_DIR/.aitask-scripts/aitask_ls.sh" -v 2>&1 || true)
 TOTAL=$((TOTAL + 1))
 if grep -q 't42_sample' <<< "$out" && grep -q 't43_plain' <<< "$out"; then
@@ -89,7 +92,7 @@ else
     echo "FAIL: aitask_ls.sh -v should list both task fixtures"
     echo "  output: $out"
 fi
-cd - >/dev/null
+cd - >/dev/null || exit 1
 
 # --- Summary ---
 

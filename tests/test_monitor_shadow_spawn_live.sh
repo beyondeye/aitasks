@@ -51,6 +51,9 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$REPO_ROOT/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 
 if ! command -v tmux >/dev/null 2>&1; then
     echo "SKIP: tmux not available"
@@ -95,7 +98,7 @@ cleanup() {
 trap cleanup EXIT
 
 (
-    cd "$REPO_ROOT"
+    cd "$REPO_ROOT" || exit 1
     export TMUX_TMPDIR="$FIXTURE_DIR"
     unset TMUX
     SESSION="ait_shadowlive_$$"

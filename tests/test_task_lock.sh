@@ -6,6 +6,9 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 
 # shellcheck source=lib/test_scaffold.sh
 . "$PROJECT_DIR/tests/lib/test_scaffold.sh"
@@ -35,7 +38,7 @@ setup_paired_repos() {
     local local_dir="$tmpdir/local"
     git clone --quiet "$remote_dir" "$local_dir"
     (
-        cd "$local_dir"
+        cd "$local_dir" || exit 1
         git config user.email "test@test.com"
         git config user.name "Test"
 
@@ -66,7 +69,7 @@ clone_second_local() {
 
     git clone --quiet "$remote_dir" "$local2_dir"
     (
-        cd "$local2_dir"
+        cd "$local2_dir" || exit 1
         git config user.email "test2@test.com"
         git config user.name "Test2"
 
@@ -168,7 +171,7 @@ assert_exit_nonzero "Check unlocked task exits non-zero" bash -c "cd '$TMPDIR_6/
 # pre-implementation ownership guard for its `hostname:` line). Nothing else may
 # be written there — so an absent lock must produce an empty stdout, not prose
 # saying it is absent. Pinned alongside the --list contract (t1641).
-check_stdout_6=$(cd "$TMPDIR_6/local" && ./.aitask-scripts/aitask_lock.sh --check 99 2>/dev/null || true)
+check_stdout_6=$(cd "$TMPDIR_6/local" || exit 1 && ./.aitask-scripts/aitask_lock.sh --check 99 2>/dev/null || true)
 assert_eq "Check on an unlocked task writes NOTHING to stdout" "" "$check_stdout_6"
 
 rm -rf "$TMPDIR_6"
@@ -218,7 +221,7 @@ TMPDIR_10="$(setup_paired_repos)"
 (cd "$TMPDIR_10/local" && ./.aitask-scripts/aitask_lock.sh --lock 1 --email "alice@test.com" >/dev/null 2>&1)
 
 # Lock with different email should fail
-output10=$(cd "$TMPDIR_10/local" && ./.aitask-scripts/aitask_lock.sh --lock 1 --email "bob@test.com" 2>&1 || true)
+output10=$(cd "$TMPDIR_10/local" || exit 1 && ./.aitask-scripts/aitask_lock.sh --lock 1 --email "bob@test.com" 2>&1 || true)
 assert_exit_nonzero "Different email lock fails" bash -c "cd '$TMPDIR_10/local' && ./.aitask-scripts/aitask_lock.sh --lock 1 --email 'bob@test.com'"
 assert_contains_ci "Error mentions existing locker" "alice@test.com" "$output10"
 
@@ -263,7 +266,7 @@ TMPDIR_12="$(setup_paired_repos)"
 
 # Create archived task file to mark it as stale
 (
-    cd "$TMPDIR_12/local"
+    cd "$TMPDIR_12/local" || exit 1
     echo "---" > aitasks/archived/t1_test_task.md
     git add -A && git commit -m "Archive task" --quiet && git push --quiet 2>/dev/null
 )
@@ -310,7 +313,7 @@ seed_stale_lock() {
     (cd "$dir" && ./.aitask-scripts/aitask_lock.sh --init >/dev/null 2>&1)
     (cd "$dir" && ./.aitask-scripts/aitask_lock.sh --lock 1 --email "user@test.com" >/dev/null 2>&1)
     (
-        cd "$dir"
+        cd "$dir" || exit 1
         echo "---" > aitasks/archived/t1_test_task.md
         git add -A && git commit -m "Archive task" --quiet && git push --quiet 2>/dev/null
     )
@@ -450,7 +453,7 @@ echo "--- Test 12i: an unrecognized lock file is skipped, not fatal ---"
 TMPDIR_12I="$(setup_paired_repos)"
 seed_stale_lock "$TMPDIR_12I/local"
 (
-    cd "$TMPDIR_12I/local"
+    cd "$TMPDIR_12I/local" || exit 1
     git fetch origin aitask-locks --quiet 2>/dev/null
     blob=$(echo "junk" | git hash-object -w --stdin)
     tree=$( { git ls-tree "$(git rev-parse origin/aitask-locks^{tree})"
@@ -508,7 +511,7 @@ rm -rf "$TMPDIR_13"
 plant_lock_blob() {
     local dir="$1" name="$2" body="$3"
     (
-        cd "$dir"
+        cd "$dir" || exit 1
         git fetch origin aitask-locks --quiet 2>/dev/null
         blob=$(printf '%s\n' "$body" | git hash-object -w --stdin)
         tree=$( { git ls-tree "$(git rev-parse origin/aitask-locks^{tree})"
@@ -575,7 +578,7 @@ echo "--- Test 13f: --list with an unresolvable lock ref keeps stdout clean ---"
 TMPDIR_13F="$(setup_paired_repos)"
 (cd "$TMPDIR_13F/local" && ./.aitask-scripts/aitask_lock.sh --init >/dev/null 2>&1)
 (
-    cd "$TMPDIR_13F/local"
+    cd "$TMPDIR_13F/local" || exit 1
     git update-ref -d refs/remotes/origin/aitask-locks
     git config --unset remote.origin.fetch
 )
@@ -708,7 +711,7 @@ TMPDIR_15="$(setup_paired_repos)"
 
 # Create userconfig.yaml with email
 (
-    cd "$TMPDIR_15/local"
+    cd "$TMPDIR_15/local" || exit 1
     mkdir -p aitasks/metadata
     echo "email: autouser@test.com" > aitasks/metadata/userconfig.yaml
 )
@@ -730,7 +733,7 @@ TMPDIR_16="$(setup_paired_repos)"
 
 # Create only emails.txt (no userconfig.yaml)
 (
-    cd "$TMPDIR_16/local"
+    cd "$TMPDIR_16/local" || exit 1
     mkdir -p aitasks/metadata
     echo "fallback@test.com" > aitasks/metadata/emails.txt
 )
@@ -752,11 +755,11 @@ TMPDIR_17="$(setup_paired_repos)"
 
 # No userconfig.yaml, no emails.txt — should fail
 (
-    cd "$TMPDIR_17/local"
+    cd "$TMPDIR_17/local" || exit 1
     rm -f aitasks/metadata/userconfig.yaml aitasks/metadata/emails.txt 2>/dev/null
 )
 
-output17=$(cd "$TMPDIR_17/local" && ./.aitask-scripts/aitask_lock.sh --lock 52 2>&1 || true)
+output17=$(cd "$TMPDIR_17/local" || exit 1 && ./.aitask-scripts/aitask_lock.sh --lock 52 2>&1 || true)
 assert_exit_nonzero "No email source fails" bash -c "cd '$TMPDIR_17/local' && ./.aitask-scripts/aitask_lock.sh --lock 52"
 assert_contains_ci "Error mentions no email" "No email provided" "$output17"
 
@@ -770,7 +773,7 @@ TMPDIR_18="$(setup_paired_repos)"
 
 # Create userconfig for auto-detect
 (
-    cd "$TMPDIR_18/local"
+    cd "$TMPDIR_18/local" || exit 1
     mkdir -p aitasks/metadata
     echo "email: bare@test.com" > aitasks/metadata/userconfig.yaml
 )
@@ -804,7 +807,7 @@ echo "--- Test 20: No remote = lock is no-op ---"
 
 TMPDIR_20="$(mktemp -d)"
 (
-    cd "$TMPDIR_20"
+    cd "$TMPDIR_20" || exit 1
     git init --quiet
     git config user.email "test@test.com"
     git config user.name "Test"
@@ -827,7 +830,7 @@ echo "--- Test 21: No remote = check returns not-locked ---"
 
 TMPDIR_21="$(mktemp -d)"
 (
-    cd "$TMPDIR_21"
+    cd "$TMPDIR_21" || exit 1
     git init --quiet
     git config user.email "test@test.com"
     git config user.name "Test"
@@ -849,7 +852,7 @@ echo "--- Test 22: No remote = list shows no locks ---"
 
 TMPDIR_22="$(mktemp -d)"
 (
-    cd "$TMPDIR_22"
+    cd "$TMPDIR_22" || exit 1
     git init --quiet
     git config user.email "test@test.com"
     git config user.name "Test"
@@ -880,7 +883,7 @@ echo "--- Test 23: No remote = init still fails ---"
 
 TMPDIR_23="$(mktemp -d)"
 (
-    cd "$TMPDIR_23"
+    cd "$TMPDIR_23" || exit 1
     git init --quiet
     git config user.email "test@test.com"
     git config user.name "Test"

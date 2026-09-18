@@ -19,6 +19,9 @@
 set -uo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 # shellcheck source=lib/asserts.sh
 . "$PROJECT_DIR/tests/lib/asserts.sh"
 PASS=0; FAIL=0; TOTAL=0
@@ -271,7 +274,7 @@ cd "$BREPO" || exit 1
 git init -q; git config user.email t@t.t; git config user.name tester
 printf 'code\n' > README.md; git add -A; git commit -q -m init
 git worktree add -q --detach "$BREPO/.aitask-data" HEAD 2>/dev/null
-( cd .aitask-data && git checkout -q --orphan aitask-data && git rm -rq --cached . 2>/dev/null || true
+( cd .aitask-data || exit 1 && git checkout -q --orphan aitask-data && git rm -rq --cached . 2>/dev/null || true
   rm -f README.md
   mkdir -p aitasks attachments/meta/ab
   printf 'pre-transaction meta\n' > attachments/meta/ab/cdef.json

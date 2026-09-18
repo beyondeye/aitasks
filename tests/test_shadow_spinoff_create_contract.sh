@@ -31,6 +31,9 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 
 # shellcheck source=lib/asserts.sh
 . "$PROJECT_DIR/tests/lib/asserts.sh"
@@ -61,7 +64,7 @@ setup_project() {
     tmpdir="$(mktemp -d)"
     CLEANUP_DIRS+=("$tmpdir")
 
-    pushd "$tmpdir" > /dev/null
+    pushd "$tmpdir" > /dev/null || exit 1
     git init --quiet .
     git config user.email "test@test.com"
     git config user.name "Test"

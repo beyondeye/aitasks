@@ -6,6 +6,9 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 
 # shellcheck source=lib/test_scaffold.sh
 . "$PROJECT_DIR/tests/lib/test_scaffold.sh"
@@ -28,7 +31,7 @@ setup_test_repo() {
     tmpdir="$(mktemp -d)"
 
     (
-        cd "$tmpdir"
+        cd "$tmpdir" || exit 1
         git init --quiet
         git config user.email "test@test.com"
         git config user.name "Test"
@@ -54,9 +57,9 @@ setup_test_repo() {
 
 cleanup_test_repo() {
     local tmpdir="$1"
-    cd "$ORIG_DIR"
+    cd "$ORIG_DIR" || exit 1
     if [[ -d "$tmpdir" ]]; then
-        (cd "$tmpdir" && git worktree prune 2>/dev/null || true)
+        (cd "$tmpdir" || exit 1 && git worktree prune 2>/dev/null || true)
         rm -rf "$tmpdir"
     fi
 }
@@ -174,7 +177,7 @@ rm -rf "$TMPDIR_T4"
 echo "Test 5: addwork resolves includes"
 TMPDIR_T5="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T5"
+    cd "$TMPDIR_T5" || exit 1
     bash .aitask-scripts/aitask_crew_init.sh --id incl --add-type impl:claudecode/opus4_6 --batch >/dev/null 2>&1
 
     mkdir -p /tmp/ait_test_templates
@@ -203,7 +206,7 @@ cleanup_test_repo "$TMPDIR_T5"
 echo "Test 6: stdin skips include resolution"
 TMPDIR_T6="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T6"
+    cd "$TMPDIR_T6" || exit 1
     bash .aitask-scripts/aitask_crew_init.sh --id stdin --add-type impl:claudecode/opus4_6 --batch >/dev/null 2>&1
 
     output=$(echo '<!-- include: _nonexistent.md -->' | bash .aitask-scripts/aitask_crew_addwork.sh --crew stdin --name raw --work2do - --type impl --batch 2>&1)

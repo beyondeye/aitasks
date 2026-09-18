@@ -22,6 +22,9 @@ set -uo pipefail
 
 TEST_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$TEST_SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 
 PASS=0
 FAIL=0
@@ -39,7 +42,7 @@ advance_remote() {
     # committed over the real directory by the `git add -A` below.
     git clone -q --branch aitask-data "$tmpdir/remote.git" "$tmpdir/pc2" 2>/dev/null
     (
-        cd "$tmpdir/pc2"
+        cd "$tmpdir/pc2" || exit 1
         git config user.email pc2@test.com
         git config user.name PC2
         git config commit.gpgsign false
@@ -62,7 +65,7 @@ advance_remote_overlapping() {
     rm -rf "$tmpdir/pc2"
     git clone -q --branch aitask-data "$tmpdir/remote.git" "$tmpdir/pc2" 2>/dev/null
     (
-        cd "$tmpdir/pc2"
+        cd "$tmpdir/pc2" || exit 1
         git config user.email pc2@test.com
         git config user.name PC2
         git config commit.gpgsign false
@@ -101,7 +104,7 @@ quarantine_file() { echo "$1/local/.git/worktrees/-aitask-data/ait-sync-quaranti
 run_sync_seam() {
     local tmpdir="$1" point="$2" hook="$3"; shift 3
     (
-        cd "$tmpdir/local"
+        cd "$tmpdir/local" || exit 1
         export PATH="$PWD/bin:$PATH"
         export TEST_HOSTNAME="${TEST_HOSTNAME:-testhost}"
         export AITASKS_LOCK_DIR="$tmpdir/locks"
@@ -216,7 +219,7 @@ plant_lock "$TMP1D" 10 "$(lock_yaml_live 10)"
 rm -rf "$TMP1D/pc2"
 git clone -q --branch aitask-data "$TMP1D/remote.git" "$TMP1D/pc2" 2>/dev/null
 (
-    cd "$TMP1D/pc2"
+    cd "$TMP1D/pc2" || exit 1
     git config user.email pc2@test.com; git config user.name PC2
     git config commit.gpgsign false
     # aiplans/ holds no committed file in the fixture, so git never tracked the
@@ -458,7 +461,7 @@ QF13="$(quarantine_file "$TMP13")"
 # Backdate the entry well past any warn age.
 awk -F'|' 'BEGIN{OFS="|"} {$4=1; print}' "$QF13" > "$QF13.b" && mv "$QF13.b" "$QF13"
 OUT13B="$(
-    cd "$TMP13/local"
+    cd "$TMP13/local" || exit 1
     PATH="$PWD/bin:$PATH" TEST_HOSTNAME=testhost AITASKS_LOCK_DIR="$TMP13/locks" \
     AIT_SYNC_QUARANTINE_WARN_AGE=1 \
         ./.aitask-scripts/aitask_sync.sh --batch 2>"$TMP13/sync_stderr"
@@ -793,7 +796,7 @@ advance_remote_overlapping "$TMP30"
 # an empty TMPDIR proves nothing about a deferral path that never ran. stderr
 # goes to the fixture's sync_stderr, which assert_deferred_on_overlap reads.
 OUT30="$(
-    cd "$TMP30/local"
+    cd "$TMP30/local" || exit 1
     export PATH="$PWD/bin:$PATH" TEST_HOSTNAME=testhost
     export AITASKS_LOCK_DIR="$TMP30/locks" TMPDIR="$TMP30/tmpdir_probe"
     ./.aitask-scripts/aitask_sync.sh --batch 2>"$TMP30/sync_stderr"
@@ -983,7 +986,7 @@ TMP36="$(setup_repo)"
 rm -rf "$TMP36/pc2"
 git clone -q --branch aitask-data "$TMP36/remote.git" "$TMP36/pc2" 2>/dev/null
 (
-    cd "$TMP36/pc2"
+    cd "$TMP36/pc2" || exit 1
     git config user.email pc2@test.com; git config user.name PC2
     git config commit.gpgsign false
     printf 'theirs\n' >> aitasks/t10_alpha.md

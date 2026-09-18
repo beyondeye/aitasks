@@ -8,6 +8,9 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 ORIG_DIR="$(pwd)"
 
 COUNTER_FILE="$(mktemp "${TMPDIR:-/tmp}/ait_test_counters_XXXXXX")"
@@ -41,7 +44,7 @@ setup_test_repo() {
     local tmpdir
     tmpdir="$(mktemp -d)"
     (
-        cd "$tmpdir"
+        cd "$tmpdir" || exit 1
         git init --quiet
         git config user.email "test@test.com"
         git config user.name "Test"
@@ -58,9 +61,9 @@ setup_test_repo() {
 
 cleanup_test_repo() {
     local tmpdir="$1"
-    cd "$ORIG_DIR"
+    cd "$ORIG_DIR" || exit 1
     if [[ -d "$tmpdir" ]]; then
-        (cd "$tmpdir" && git worktree prune 2>/dev/null || true)
+        (cd "$tmpdir" || exit 1 && git worktree prune 2>/dev/null || true)
         rm -rf "$tmpdir"
     fi
 }
@@ -86,7 +89,7 @@ echo "=== AgentCrew Cleanup (member-derived terminal) Tests ==="
 echo "Test 1: stale persisted Running but member Completed -> cleaned"
 T1="$(setup_test_repo)"
 (
-    cd "$T1"
+    cd "$T1" || exit 1
     _seed_crew stale Completed Running 80
     output=$(bash .aitask-scripts/aitask_crew_cleanup.sh --crew stale --batch 2>&1) || true
     _check_contains "stale crew cleaned" "CLEANED:stale" "$output"
@@ -98,7 +101,7 @@ cleanup_test_repo "$T1"
 echo "Test 2: all-aborted member -> cleaned"
 T2="$(setup_test_repo)"
 (
-    cd "$T2"
+    cd "$T2" || exit 1
     _seed_crew killed Aborted Killing 40
     output=$(bash .aitask-scripts/aitask_crew_cleanup.sh --crew killed --batch 2>&1) || true
     _check_contains "aborted crew cleaned" "CLEANED:killed" "$output"
@@ -109,7 +112,7 @@ cleanup_test_repo "$T2"
 echo "Test 3: member Running -> NOT_TERMINAL:members_not_terminal"
 T3="$(setup_test_repo)"
 (
-    cd "$T3"
+    cd "$T3" || exit 1
     _seed_crew busy Running Completed 100   # persisted lies "Completed"; member is Running
     output=$(bash .aitask-scripts/aitask_crew_cleanup.sh --crew busy --batch 2>&1) || true
     _check_contains "running member refused" "NOT_TERMINAL:busy:members_not_terminal" "$output"
@@ -121,7 +124,7 @@ cleanup_test_repo "$T3"
 echo "Test 4: no-member persisted-Completed crew -> cleaned (fallback)"
 T4="$(setup_test_repo)"
 (
-    cd "$T4"
+    cd "$T4" || exit 1
     bash .aitask-scripts/aitask_crew_init.sh --id empty --batch >/dev/null 2>&1
     cf=".aitask-crews/crew-empty/_crew_status.yaml"
     sed 's/^status: .*/status: Completed/' "$cf" > "$cf.tmp" && mv "$cf.tmp" "$cf"

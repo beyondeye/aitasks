@@ -16,6 +16,9 @@ set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 . "$PROJECT_DIR/tests/lib/asserts.sh"
 
 PASS=0
@@ -301,7 +304,7 @@ assert_dir_not_exists "case8c: the lock is free" "$LOCKD"
 rc=0; ( cd "$R8c" && git rev-parse --verify --quiet refs/heads/aitask/tclean >/dev/null ) || rc=$?
 assert_eq "case8c: the task branch still exists for the resume" "0" "$rc"
 assert_dir_exists "case8c: the task WORKTREE also survives the release-and-stop exit" "$WT8c"
-wt_listed="$( cd "$R8c" && git worktree list --porcelain | grep -c 'refs/heads/aitask/tclean' || true )"
+wt_listed="$( cd "$R8c" || exit 1 && git worktree list --porcelain | grep -c 'refs/heads/aitask/tclean' || true )"
 assert_eq "case8c: the worktree record survives too (not just the directory)" "1" "$wt_listed"
 out="$(broker "$R8c" "$A8c" begin tA main aitask/tclean)"
 assert_contains "case8c: re-reservation is idempotent" "MERGE_OK:" "$out"
@@ -337,7 +340,7 @@ broker "$R10b" "$A10b" begin tA main aitask/tclean >/dev/null
 # Advance the task branch AFTER the merge, so it is no longer fully merged -
 # the realistic "agent committed once more" shape. `git branch -d` then refuses,
 # and a refusal must never be reported as a completed cleanup.
-( cd "$R10b" && git checkout -q aitask/tclean &&
+( cd "$R10b" || exit 1 && git checkout -q aitask/tclean &&
   printf 'later\n' > later.txt && git add -A && git commit -qm later &&
   git checkout -q main ) >/dev/null 2>&1
 out="$(broker "$R10b" "$A10b" cleanup tA tclean --task-complete)"
@@ -429,7 +432,7 @@ echo "--- Case 15: a released pre-merge failure never claims MERGE_FAILED ---"
 free_lock
 R15="$(new_repo r15)"; A15="$(spawn_anchor)"
 # an untracked file that checking out `other` would overwrite
-( cd "$R15" && git checkout -q -b other main && printf 'o\n' > collide.txt &&
+( cd "$R15" || exit 1 && git checkout -q -b other main && printf 'o\n' > collide.txt &&
   git add -A && git commit -qm o && git checkout -q main &&
   printf 'untracked\n' > collide.txt ) >/dev/null 2>&1
 out="$(broker "$R15" "$A15" begin tA other aitask/tclean)"

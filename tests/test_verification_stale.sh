@@ -19,6 +19,9 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 . "$PROJECT_DIR/tests/lib/asserts.sh"
 # shellcheck source=lib/test_scaffold.sh
 . "$PROJECT_DIR/tests/lib/test_scaffold.sh"
@@ -578,7 +581,7 @@ setup_update_project() {
     local local_dir="$tmpdir/local"
     git clone --quiet "$remote_dir" "$local_dir" 2>/dev/null
 
-    pushd "$local_dir" > /dev/null
+    pushd "$local_dir" > /dev/null || exit 1
     git config user.email "test@test.com"
     git config user.name "Test"
 
@@ -757,7 +760,7 @@ setup_archive_project() {
     local local_dir="$tmpdir/local"
     git clone --quiet "$remote_dir" "$local_dir" 2>/dev/null
 
-    pushd "$local_dir" > /dev/null
+    pushd "$local_dir" > /dev/null || exit 1
     git config user.email "test@test.com"
     git config user.name "Test"
 
@@ -880,7 +883,7 @@ test_helper_is_in_every_invocation_allowlist() {
 echo "=== test_verification_stale.sh ==="
 echo ""
 
-cd "$PROJECT_DIR"
+cd "$PROJECT_DIR" || exit 1
 
 test_modified_file_is_ask_stale
 test_deleted_file_is_detected_by_probe_not_history

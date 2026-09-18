@@ -6,6 +6,9 @@ set -e
 
 TEST_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$TEST_SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 
 PASS=0
 FAIL=0
@@ -53,7 +56,7 @@ setup_migrated_project() {
     # Create local clone
     git clone --quiet "$tmpdir/remote.git" "$tmpdir/local" 2>/dev/null
     (
-        cd "$tmpdir/local"
+        cd "$tmpdir/local" || exit 1
         git config user.email "test@test.com"
         git config user.name "Test"
 
@@ -178,7 +181,7 @@ echo "--- Test 3: Modify task + ait git commit ---"
 echo "Modified by test" >> "$LOCAL/aitasks/t1_existing_task.md"
 
 (
-    cd "$LOCAL"
+    cd "$LOCAL" || exit 1
     ./ait git add aitasks/t1_existing_task.md
     ./ait git commit -m "test: Modify task t1" --quiet
 )
@@ -200,7 +203,7 @@ assert_contains_ci "ls shows t2_second_task" "t2_second_task" "$ls_output"
 echo "--- Test 5: aitask_create.sh --batch --commit ---"
 
 (
-    cd "$LOCAL"
+    cd "$LOCAL" || exit 1
     ./.aitask-scripts/aitask_create.sh --batch --name "branch_mode_task" --desc "Created in branch mode" --commit --silent 2>/dev/null
 )
 
@@ -226,7 +229,7 @@ assert_not_contains_ci "Create commit NOT on main" "branch mode task" "$main_log
 echo "--- Test 6: aitask_update.sh --batch --commit ---"
 
 (
-    cd "$LOCAL"
+    cd "$LOCAL" || exit 1
     ./.aitask-scripts/aitask_update.sh --batch 1 --status Implementing --commit 2>/dev/null
 )
 

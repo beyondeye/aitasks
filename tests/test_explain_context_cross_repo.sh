@@ -153,27 +153,27 @@ assert_contains "mixed: alpha via --project" "Alpha plan" "$output3"
 assert_contains "mixed: beta via #-notation" "Beta plan"  "$output3"
 
 # 5. NOT_FOUND — unregistered project name surfaces hint and exits non-zero.
-NF_OUT=$(cd "$CALLER" && "$SCRIPT" --max-plans 1 --project notreal_xxx:foo.py 2>&1 || true)
+NF_OUT=$(cd "$CALLER" || exit 1 && "$SCRIPT" --max-plans 1 --project notreal_xxx:foo.py 2>&1 || true)
 assert_contains "NOT_FOUND: hint surfaces" "is not registered" "$NF_OUT"
 assert_exit_nonzero "NOT_FOUND: non-zero exit" \
     bash -c "cd '$CALLER' && AITASKS_PROJECTS_INDEX='$REGISTRY_FILE' '$SCRIPT' --max-plans 1 --project notreal_xxx:foo.py"
 
 # 6. STALE — registered path missing the marker file surfaces hint.
-ST_OUT=$(cd "$CALLER" && "$SCRIPT" --max-plans 1 --project stale_one:foo.py 2>&1 || true)
+ST_OUT=$(cd "$CALLER" || exit 1 && "$SCRIPT" --max-plans 1 --project stale_one:foo.py 2>&1 || true)
 assert_contains "STALE: hint surfaces" "is stale" "$ST_OUT"
 assert_exit_nonzero "STALE: non-zero exit" \
     bash -c "cd '$CALLER' && AITASKS_PROJECTS_INDEX='$REGISTRY_FILE' '$SCRIPT' --max-plans 1 --project stale_one:foo.py"
 
 # 7. --project missing value.
-NV_OUT=$(cd "$CALLER" && "$SCRIPT" --max-plans 1 --project 2>&1 || true)
+NV_OUT=$(cd "$CALLER" || exit 1 && "$SCRIPT" --max-plans 1 --project 2>&1 || true)
 assert_contains "missing --project value" "requires a value" "$NV_OUT"
 
 # 8. --project without colon separator.
-NC_OUT=$(cd "$CALLER" && "$SCRIPT" --max-plans 1 --project alphafoo 2>&1 || true)
+NC_OUT=$(cd "$CALLER" || exit 1 && "$SCRIPT" --max-plans 1 --project alphafoo 2>&1 || true)
 assert_contains "--project without colon rejected" "requires <name>:<file>" "$NC_OUT"
 
 # 9. --project with empty name or empty file.
-EE_OUT=$(cd "$CALLER" && "$SCRIPT" --max-plans 1 --project :foo.py 2>&1 || true)
+EE_OUT=$(cd "$CALLER" || exit 1 && "$SCRIPT" --max-plans 1 --project :foo.py 2>&1 || true)
 assert_contains "--project with empty name rejected" "non-empty name and file" "$EE_OUT"
 
 # 10. Help text mentions new surfaces.

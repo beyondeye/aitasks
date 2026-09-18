@@ -6,6 +6,9 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 EXTRACT_SCRIPT="$PROJECT_DIR/.aitask-scripts/aitask_explain_extract_raw_data.sh"
 
 PASS=0
@@ -33,7 +36,7 @@ assert_match() {
 TMPDIR_BASE=$(mktemp -d "${TMPDIR:-/tmp}/test_no_recurse_XXXXXX")
 trap 'rm -rf "$TMPDIR_BASE"' EXIT
 
-cd "$PROJECT_DIR"
+cd "$PROJECT_DIR" || exit 1
 
 echo "=== --no-recurse flag tests (t195_11) ==="
 echo ""

@@ -6,6 +6,9 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 ORIG_DIR="$(pwd)"
 
 # Resolve the framework interpreter (prefers the aitask venv, which has the
@@ -31,7 +34,7 @@ setup_test_repo() {
     tmpdir="$(mktemp -d)"
 
     (
-        cd "$tmpdir"
+        cd "$tmpdir" || exit 1
         git init --quiet
         git config user.email "test@test.com"
         git config user.name "Test"
@@ -59,7 +62,7 @@ setup_test_repo() {
 setup_crew_with_agents() {
     local tmpdir="$1"
     (
-        cd "$tmpdir"
+        cd "$tmpdir" || exit 1
         bash .aitask-scripts/aitask_crew_init.sh --id rptcrew --add-type impl:claudecode/opus4_6 --batch >/dev/null 2>&1
 
         echo "# Task A work" > /tmp/test_work2do_a.md
@@ -86,9 +89,9 @@ setup_crew_with_agents() {
 
 cleanup_test_repo() {
     local tmpdir="$1"
-    cd "$ORIG_DIR"
+    cd "$ORIG_DIR" || exit 1
     if [[ -d "$tmpdir" ]]; then
-        (cd "$tmpdir" && git worktree prune 2>/dev/null || true)
+        (cd "$tmpdir" || exit 1 && git worktree prune 2>/dev/null || true)
         rm -rf "$tmpdir"
     fi
 }
@@ -104,7 +107,7 @@ echo ""
 echo "Test 1: report summary batch output"
 TMPDIR_T1="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T1"
+    cd "$TMPDIR_T1" || exit 1
     setup_crew_with_agents "$TMPDIR_T1"
     export PYTHONPATH=".aitask-scripts"
     output=$("$PY" .aitask-scripts/agentcrew/agentcrew_report.py --batch summary --crew rptcrew 2>&1)
@@ -120,7 +123,7 @@ cleanup_test_repo "$TMPDIR_T1"
 echo "Test 2: report summary interactive output"
 TMPDIR_T2="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T2"
+    cd "$TMPDIR_T2" || exit 1
     setup_crew_with_agents "$TMPDIR_T2"
     export PYTHONPATH=".aitask-scripts"
     output=$("$PY" .aitask-scripts/agentcrew/agentcrew_report.py summary --crew rptcrew 2>&1)
@@ -134,7 +137,7 @@ cleanup_test_repo "$TMPDIR_T2"
 echo "Test 3: report detail batch output"
 TMPDIR_T3="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T3"
+    cd "$TMPDIR_T3" || exit 1
     setup_crew_with_agents "$TMPDIR_T3"
     export PYTHONPATH=".aitask-scripts"
     output=$("$PY" .aitask-scripts/agentcrew/agentcrew_report.py --batch detail --crew rptcrew --agent agent_a 2>&1)
@@ -149,7 +152,7 @@ cleanup_test_repo "$TMPDIR_T3"
 echo "Test 4: report output aggregation order"
 TMPDIR_T4="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T4"
+    cd "$TMPDIR_T4" || exit 1
     setup_crew_with_agents "$TMPDIR_T4"
     # Add output for agent_b too
     echo "Agent B output here." > .aitask-crews/crew-rptcrew/agent_b_output.md
@@ -174,7 +177,7 @@ cleanup_test_repo "$TMPDIR_T4"
 echo "Test 5: report list"
 TMPDIR_T5="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T5"
+    cd "$TMPDIR_T5" || exit 1
     setup_crew_with_agents "$TMPDIR_T5"
     export PYTHONPATH=".aitask-scripts"
     output=$("$PY" .aitask-scripts/agentcrew/agentcrew_report.py --batch list 2>&1)
@@ -187,7 +190,7 @@ cleanup_test_repo "$TMPDIR_T5"
 echo "Test 6: report for nonexistent crew"
 TMPDIR_T6="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T6"
+    cd "$TMPDIR_T6" || exit 1
     export PYTHONPATH=".aitask-scripts"
     assert_exit_nonzero "summary for nonexistent crew" "$PY" .aitask-scripts/agentcrew/agentcrew_report.py summary --crew nosuch
 )
@@ -197,7 +200,7 @@ cleanup_test_repo "$TMPDIR_T6"
 echo "Test 7: cleanup removes completed crew"
 TMPDIR_T7="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T7"
+    cd "$TMPDIR_T7" || exit 1
     bash .aitask-scripts/aitask_crew_init.sh --id cleanme --batch >/dev/null 2>&1
     # Set crew status to Completed
     tmp_status=$(mktemp "${TMPDIR:-/tmp}/ait_status_XXXXXX")
@@ -220,7 +223,7 @@ cleanup_test_repo "$TMPDIR_T7"
 echo "Test 8: cleanup refuses non-terminal crew"
 TMPDIR_T8="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T8"
+    cd "$TMPDIR_T8" || exit 1
     bash .aitask-scripts/aitask_crew_init.sh --id running --batch >/dev/null 2>&1
     # Status is Initializing (non-terminal) by default
     output=$(bash .aitask-scripts/aitask_crew_cleanup.sh --crew running --batch 2>&1) || true
@@ -239,7 +242,7 @@ cleanup_test_repo "$TMPDIR_T8"
 echo "Test 9: cleanup --all-completed"
 TMPDIR_T9="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T9"
+    cd "$TMPDIR_T9" || exit 1
     bash .aitask-scripts/aitask_crew_init.sh --id done1 --batch >/dev/null 2>&1
     bash .aitask-scripts/aitask_crew_init.sh --id active1 --batch >/dev/null 2>&1
 
@@ -265,7 +268,7 @@ cleanup_test_repo "$TMPDIR_T9"
 echo "Test 10: cleanup --delete-branch"
 TMPDIR_T10="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T10"
+    cd "$TMPDIR_T10" || exit 1
     bash .aitask-scripts/aitask_crew_init.sh --id delbranch --batch >/dev/null 2>&1
 
     # Set to Completed
@@ -289,7 +292,7 @@ cleanup_test_repo "$TMPDIR_T10"
 echo "Test 11: report list with no crews"
 TMPDIR_T11="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T11"
+    cd "$TMPDIR_T11" || exit 1
     export PYTHONPATH=".aitask-scripts"
     output=$("$PY" .aitask-scripts/agentcrew/agentcrew_report.py --batch list 2>&1)
     assert_contains_ci "no crews" "NO_CREWS" "$output"
@@ -300,7 +303,7 @@ cleanup_test_repo "$TMPDIR_T11"
 echo "Test 12: report derives over stale _crew_status.yaml"
 TMPDIR_T12="$(setup_test_repo)"
 (
-    cd "$TMPDIR_T12"
+    cd "$TMPDIR_T12" || exit 1
     setup_crew_with_agents "$TMPDIR_T12"
     export PYTHONPATH=".aitask-scripts"
 
