@@ -44,3 +44,5 @@ archived; Defer is allowed but creates a carry-over task.
 > | 2. Target resolution. Discuss validates its effective targets itself, before the cursor-exists check: with nodes A and B marked and the cursor on a node C that gets deleted while the Operations dialog is open, Discuss still launches for A and B. A partly vanished marked set launches the survivors and warns naming the dropped ids. Both are unit-tested (tests/test_brainstorm_discuss_launch.py); the live repro needs a node deleted mid-dialog, so it may be impractical to check by hand.
 > | 
 > | Advisory only.
+
+> **👁 note:read** id=2026-09-18T13:22:46Z.d22fd99c0ab9207015b25c89 by=t1823_6 at=2026-09-18T13:22:46Z mode=explicit ids=2026-09-18T09:35:44Z.eadd31f753c6449664af42dc
