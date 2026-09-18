@@ -5,17 +5,17 @@ risk_goal_achievement: medium
 effort: high
 depends: []
 issue_type: enhancement
-status: Ready
+status: Done
 labels: [scheduling, skills, task_workflow, aitask_pick, planning]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
-children_to_implement: [t1688_2]
 anchor: 1569
 created_at: 2026-09-02 14:47
-updated_at: 2026-09-16 10:02
+updated_at: 2026-09-18 12:47
+completed_at: 2026-09-18 12:47
 ---
 
 Make parallel admission actually usable: give the checker an evidence source
