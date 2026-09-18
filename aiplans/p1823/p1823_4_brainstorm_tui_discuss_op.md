@@ -260,7 +260,7 @@ no key binding. The siblings are already in place: t1823_1 (context helper), t18
   none; verified that no such site exists, and the full Python suite covers the other hosts
 - A third copy of the "dispatch the dialog's `full_command` via `sh -c` in a terminal or
   under suspend" pattern (board trail screen, board, now brainstorm) · severity: low ·
-  → mitigation: lift_dialog_command_dispatch
+  → mitigation: t1838
 - New imports into `brainstorm_app.py` (`codebrowser.agent_utils`, `agent_command_screen`)
   widen its import surface. A failure at import time would break the whole TUI, not just
   Discuss · severity: low · → mitigation: none (existing integration tests import `brainstorm_app`)
@@ -272,7 +272,7 @@ no key binding. The siblings are already in place: t1823_1 (context helper), t18
   are whitespace-free by construction · severity: low · → mitigation: none (settled design)
 
 ### Planned mitigations
-- timing: after | name: lift_dialog_command_dispatch | type: refactor | priority: low | effort: low | inline_risk: medium | added_complexity: medium | addresses: code-health — third copy of the dialog full_command sh -c dispatch | desc: Lift the "dispatch AgentCommandScreen full_command via sh -c in a terminal or under suspend" pattern (board_trail_screen.run_dialog_command, brainstorm _run_dialog_command/_dispatch_argv) into one lib/ helper and migrate the callers
+- timing: after | name: lift_dialog_command_dispatch | type: refactor | priority: low | effort: low | inline_risk: medium | added_complexity: medium | addresses: code-health — third copy of the dialog full_command sh -c dispatch | desc: Lift the "dispatch AgentCommandScreen full_command via sh -c in a terminal or under suspend" pattern (board_trail_screen.run_dialog_command, brainstorm _run_dialog_command/_dispatch_argv) into one lib/ helper and migrate the callers | created: t1838
 
 ## Final Implementation Notes
 - **Actual work done:** All steps (0–5) implemented as planned. Step 0 guarded the shared launch-dialog chain — `AgentCommandScreen` (mixin: `GuardedDismissMixin, ShortcutsMixin, ModalScreen`), `AgentModelPickerScreen`, `LaunchModePickerScreen`, `ProfileEditScreen`, `EditStringScreen` (→ `GuardedModalScreen`). Brainstorm: `_ANY_NODE_OPS = ("discuss",)`, `_OPERATION_HELP["discuss"]`, confirm-step exclusion, `op_states_for_selection` any-node loop, `discuss` appended last to `NodeActionSelectModal._OPS` with a `_LOCAL_LABELS` entry, and in `brainstorm_app.py` the discuss branch placed immediately after `if not op_key` (before the cursor-exists check) plus `_launch_discuss`, `_on_discuss_dialog_result`, `_run_dialog_command`, `_run_discuss_default`, `_dispatch_argv`. `_REPO_ROOT = Path(AIT_PATH).parent`.
