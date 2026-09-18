@@ -4676,6 +4676,10 @@ class BoardScreen(Screen):
 
     AUTO_FOCUS = ""
 
+    def on_screen_resume(self) -> None:
+        """A modal closed: apply a detached-focus rescue it deferred (t1839)."""
+        self.app._resume_detached_focus()
+
 
 class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
     _shortcuts_scope = "board"
@@ -5073,6 +5077,10 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
         self._auto_refresh_timer = None
         # By-Trail session state lives on TrailScreenMixin (t1794_5).
         self._init_trail_state()
+        # Supersession token for the post-re-render detached-focus watch, and
+        # the (gen, filename, col_id) restore it deferred past a modal (t1839).
+        self._detached_focus_gen = 0
+        self._detached_focus_pending: tuple | None = None
 
     def _notify_metadata_commit(self, result, paths):
         """Surface the outcome of a board_config.json commit.
@@ -5699,6 +5707,118 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
             self.call_after_refresh(self._refocus_card, refocus_filename, refocus_col_id)
         elif refocus_col_id:
             self.call_after_refresh(self._refocus_column, refocus_col_id)
+
+    #: Refresh hops the post-re-render detached-focus watch stays armed (t1839).
+    _DETACHED_FOCUS_HOPS = 5
+
+    def _rerender_trail(self, refocus_filename: str = ""):
+        """`TrailScreenMixin._rerender_trail`, then a bounded detached-focus watch.
+
+        Textual's `Widget.focus()` is deferred (`call_later`) and
+        `Screen.set_focus` does not check `_pruning`, while `App._prune` resets
+        focus only once, when pruning STARTS. So a stale focus call for a card
+        this re-render removes can land after the refocus and leave
+        `screen.focused` on a detached widget, whose binding chain reaches
+        nothing: every key is dead (seen in TrailsApp under load, t1794_6; on
+        the board only constructed, never reproduced organically — t1839).
+
+        Scoped here, not in `_queue_refocus`: that helper serves every board
+        view and the per-column paths, which have no such contract. At most one
+        live watch chain — a newer re-render bumps `_detached_focus_gen` and the
+        older chain stops at its next hop.
+
+        The drift / reload callbacks can re-render UNDER a modal, and the stale
+        focus then lands on the board screen beneath it — so the watch reads
+        the board screen, not `self.screen`, and keeps watching while a modal
+        is up (see `_watch_detached_focus`).
+        """
+        if self.base_filter != "bytrail":
+            return super()._rerender_trail(refocus_filename)
+        watch_filename = refocus_filename
+        watch_col_id = self._get_focused_col_id() or ""
+        if self._modal_is_active():
+            # The caller read focus off the MODAL (`_focused_card` reads
+            # `self.screen`), so it has nothing to restore; the watch takes its
+            # target from the board screen underneath instead.
+            board = self._board_screen()
+            under = board.focused if board is not None else None
+            if isinstance(under, TaskCard) and under.is_attached:
+                watch_filename = watch_filename or under.task_data.filename
+                watch_col_id = watch_col_id or under.column_id
+        super()._rerender_trail(refocus_filename)
+        self._detached_focus_gen += 1
+        self._detached_focus_pending = None
+        self.call_after_refresh(self._watch_detached_focus,
+                                self._detached_focus_gen, watch_filename,
+                                watch_col_id, self._DETACHED_FOCUS_HOPS)
+
+    def _board_screen(self):
+        """The board's own screen — the bottom of the stack, whatever modal is
+        on top (`self.screen` is the modal then)."""
+        return self.screen_stack[0] if self.screen_stack else None
+
+    def _watch_detached_focus(self, gen: int, filename: str, col_id: str,
+                              hops: int) -> None:
+        """One hop of the `_rerender_trail` watch: rescue a detached focus on
+        the board screen, else re-arm until `hops` runs out.
+
+        Under a modal the restore cannot run (the board helpers query the
+        active screen, i.e. the modal), so the dead reference is dropped at once
+        — dismissing the modal must never expose it — and the restore is parked
+        for `BoardScreen.on_screen_resume`.
+        """
+        if gen != self._detached_focus_gen or self.base_filter != "bytrail":
+            return
+        board = self._board_screen()
+        focused = board.focused if board is not None else None
+        if focused is not None and not focused.is_attached:
+            if self._modal_is_active():
+                board.set_focus(None)
+                self._detached_focus_pending = (gen, filename, col_id)
+            else:
+                self._restore_trail_focus(filename, col_id)
+            return
+        if hops > 0:
+            self.call_after_refresh(self._watch_detached_focus,
+                                    gen, filename, col_id, hops - 1)
+
+    def _resume_detached_focus(self) -> None:
+        """Apply a restore the watch parked behind a modal — unless a newer
+        re-render superseded it, the view changed, or the board already holds
+        a live focus."""
+        pending, self._detached_focus_pending = self._detached_focus_pending, None
+        if pending is None:
+            return
+        gen, filename, col_id = pending
+        if (gen != self._detached_focus_gen or self.base_filter != "bytrail"
+                or self._modal_is_active()):
+            return
+        board = self._board_screen()
+        focused = board.focused if board is not None else None
+        if focused is not None and focused.is_attached:
+            return
+        self._restore_trail_focus(filename, col_id)
+
+    def _restore_trail_focus(self, filename: str, col_id: str) -> None:
+        """Restore what the re-render was restoring: the card, else its column,
+        else the board's first target, else nothing.
+
+        Decided up front rather than by re-reading focus: `.focus()` is
+        deferred, so a synchronous check could not tell whether it worked.
+        """
+        if filename and any(card.task_data.filename == filename
+                            and card.styles.display != "none"
+                            for card in self.query(TaskCard)):
+            self._refocus_card(filename, col_id)
+            return
+        if col_id and self._column_focus_target(col_id) is not None:
+            self._refocus_column(col_id)
+            return
+        target = self._first_board_focus_target()
+        if target is not None:
+            target.focus()
+        elif self.screen is not None:
+            self.screen.set_focus(None)
 
     def _recompose_column(self, col_widget: KanbanColumn):
         """Replace a column's children in-place using textual.compose.
@@ -6487,9 +6607,15 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
         sweep**, 59 ms, now zero. t1243_7 added the 28th and tipped
         `test_board_movement`'s attribution benchmark over its 25 ms
         cross-run threshold, which is what surfaced this.
+
+        A card a re-render REMOVED can still be `screen.focused` (t1839); it
+        does not count. `is_attached` is a parent-pointer walk, not a query, so
+        the zero-whole-board-walks property above holds.
         """
         focused = self.screen.focused if self.screen else None
-        return focused if isinstance(focused, TaskCard) else None
+        if isinstance(focused, TaskCard) and focused.is_attached:
+            return focused
+        return None
 
     def _focused_unit(self):
         """The focused navigation UNIT — a `TaskCard` or a `GroupHeader` (t1243_9).
@@ -6503,9 +6629,13 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
 
         `_focused_card()` survives as the narrow "focused *task*" accessor that
         the task-level gates genuinely need; this is its unit-level sibling.
+        A detached (re-render-removed) unit counts as nothing focused, as in
+        `_focused_card` (t1839).
         """
         focused = self.screen.focused if self.screen else None
-        return focused if isinstance(focused, (TaskCard, GroupHeader)) else None
+        if isinstance(focused, (TaskCard, GroupHeader)) and focused.is_attached:
+            return focused
+        return None
 
     def _get_column_cards(self, col_id: str) -> list:
         """Return TaskCard widgets belonging to a column, in DOM order."""

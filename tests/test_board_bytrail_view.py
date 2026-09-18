@@ -4477,5 +4477,226 @@ class RunSummaryBoardPointerTests(ByTrailTestBase):
                 % (action, key, label, line))
 
 
+class DetachedFocusRescueTests(ByTrailTestBase):
+    """t1839: a By-Trail re-render must not leave focus on a detached card.
+
+    The organic trigger was never reproduced on the board (t1794_6 saw it in
+    TrailsApp under load). The one mechanism Textual allows — a deferred
+    `set_focus` for a card the re-render pruned, landing after the refocus —
+    is therefore CONSTRUCTED here, the same way t1794_6's own test does, and
+    each rescue test carries a negative control proving the precondition bites.
+    """
+
+    GHOST_A = "trail-ghost-otherproj#1.md"
+    GHOST_B = "trail-ghost-otherproj#2.md"
+    GHOST_C = "trail-ghost-otherproj#3.md"
+
+    @staticmethod
+    def _three_ghost_doc() -> dict:
+        """`_ghost_doc()` plus a second member in wave 2, so a card can vanish
+        while its column survives — and that column's first card (B) is NOT
+        the board's leftmost target (A), which is what tells the column
+        fallback apart from the last-resort one."""
+        doc = _ghost_doc()
+        extra = copy.deepcopy(doc["waves"][1]["entries"][0])
+        extra.update(entry_id="e3", task="otherproj#3", position=2)
+        doc["waves"][1]["entries"].append(extra)
+        return doc
+
+    def _card(self, app, filename):
+        return next(c for c in app.query(self.ab.TaskCard)
+                    if c.task_data.filename == filename)
+
+    async def _focus(self, app, pilot, filename):
+        self._card(app, filename).focus()
+        await pilot.pause()
+        self.assertEqual(app._focused_card().task_data.filename, filename)
+
+    @staticmethod
+    def _land_stale_focus_late(app, dead):
+        """Queue `set_focus(dead)` two refresh hops out — after the
+        re-render's own refocus has run."""
+        app.call_after_refresh(lambda: app.call_after_refresh(
+            lambda: app.screen.set_focus(dead)))
+
+    def _drift(self, app):
+        app._on_trail_drift(app._trail_gen, "art:trail-test", "CURRENT", [])
+
+    def test_focused_card_ignores_a_detached_card(self):
+        async def go():
+            app = self.ab.KanbanApp()
+            async with app.run_test(size=(220, 60)) as pilot:
+                await pilot.pause()
+                await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
+                await self._focus(app, pilot, self.GHOST_A)
+                card = app._focused_card()
+                await card.remove()
+                await pilot.pause()
+                app.screen.set_focus(card)
+                await pilot.pause()
+                self.assertIs(app.screen.focused, card)
+                self.assertFalse(card.is_attached)
+                self.assertIsNone(app._focused_card())
+                self.assertIsNone(app._focused_unit())
+                self.assertIsNone(app._get_focused_col_id())
+
+        self._run(go())
+
+    def test_drift_rerender_rescues_a_late_stale_focus_to_the_same_card(self):
+        ab = self.ab
+
+        async def scenario(disable_watch: bool):
+            app = ab.KanbanApp()
+            async with app.run_test(size=(220, 60)) as pilot:
+                await pilot.pause()
+                await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
+                # B, not A: A is the board's leftmost target, so restoring B
+                # is what tells "same card" apart from the last resort.
+                await self._focus(app, pilot, self.GHOST_B)
+                dead = self._card(app, self.GHOST_A)
+                if disable_watch:
+                    app._watch_detached_focus = lambda *a, **k: None
+                self._drift(app)
+                self._land_stale_focus_late(app, dead)
+                for _ in range(8):
+                    await pilot.pause()
+                focused = app.screen.focused
+                if disable_watch:
+                    # Negative control: the constructed precondition really
+                    # leaves the removed card holding focus.
+                    self.assertIs(focused, dead)
+                    self.assertFalse(dead.is_attached)
+                    return
+                self.assertIsInstance(focused, ab.TaskCard)
+                self.assertTrue(focused.is_attached)
+                self.assertIsNot(focused, dead)
+                # Restore contract: the card the re-render was restoring, not
+                # the leftmost target.
+                self.assertEqual(focused.task_data.filename, self.GHOST_B)
+                self.assertIn("v", app.screen.active_bindings)
+
+        self._run(scenario(disable_watch=True))
+        self._run(scenario(disable_watch=False))
+
+    def test_rescue_survives_a_modal_open_over_the_rerender(self):
+        """The drift callback re-renders UNDER a modal (it never checks for
+        one), and the stale focus lands on the board screen beneath it. The
+        dead reference must be gone while the modal is still up, and the
+        restore must land once the modal closes."""
+        ab = self.ab
+
+        async def scenario(disable_watch: bool):
+            app = ab.KanbanApp()
+            async with app.run_test(size=(220, 60)) as pilot:
+                await pilot.pause()
+                await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
+                await self._focus(app, pilot, self.GHOST_B)
+                board = app.screen
+                dead = self._card(app, self.GHOST_A)
+                if disable_watch:
+                    app._watch_detached_focus = lambda *a, **k: None
+                app.action_trail_summary_expand()
+                await pilot.pause()
+                self.assertIsInstance(app.screen, ab.TrailSummaryScreen)
+                self._drift(app)
+                app.call_after_refresh(lambda: app.call_after_refresh(
+                    lambda: board.set_focus(dead)))
+                for _ in range(8):
+                    await pilot.pause()
+                self.assertIsInstance(app.screen, ab.TrailSummaryScreen)
+                if disable_watch:
+                    # Negative control: the precondition bites under a modal.
+                    self.assertIs(board.focused, dead)
+                    self.assertFalse(dead.is_attached)
+                    return
+                self.assertIsNot(board.focused, dead)
+                app.pop_screen()
+                for _ in range(4):
+                    await pilot.pause()
+                focused = app.screen.focused
+                self.assertIs(app.screen, board)
+                self.assertIsInstance(focused, ab.TaskCard)
+                self.assertTrue(focused.is_attached)
+                self.assertEqual(focused.task_data.filename, self.GHOST_B)
+                self.assertIn("v", app.screen.active_bindings)
+
+        self._run(scenario(disable_watch=True))
+        self._run(scenario(disable_watch=False))
+
+    def test_restore_falls_back_when_the_card_is_gone(self):
+        ab = self.ab
+
+        async def scenario(drop_wave: bool):
+            app = ab.KanbanApp()
+            async with app.run_test(size=(220, 60)) as pilot:
+                await pilot.pause()
+                await self._enter_synthetic_bytrail(
+                    app, pilot, self._three_ghost_doc())
+                await self._focus(app, pilot, self.GHOST_C)
+                dead = self._card(app, self.GHOST_C)
+                if drop_wave:        # card AND its column trail-w2 disappear
+                    del app._trail_doc["waves"][1]
+                else:                # card disappears, column trail-w2 survives
+                    del app._trail_doc["waves"][1]["entries"][1]
+                self._drift(app)
+                self._land_stale_focus_late(app, dead)
+                for _ in range(8):
+                    await pilot.pause()
+                focused = app.screen.focused
+                self.assertIsInstance(focused, ab.TaskCard)
+                self.assertTrue(focused.is_attached)
+                if drop_wave:        # last resort: the board's first target
+                    self.assertEqual(focused.task_data.filename, self.GHOST_A)
+                    self.assertIs(focused, app._first_board_focus_target())
+                else:                # the captured column, not the leftmost
+                    self.assertEqual(focused.column_id, "trail-w2")
+                    self.assertEqual(focused.task_data.filename, self.GHOST_B)
+
+        self._run(scenario(drop_wave=False))
+        self._run(scenario(drop_wave=True))
+
+    def test_watch_is_scoped_and_bounded(self):
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            calls = []
+            original = ab.KanbanApp._watch_detached_focus
+
+            def spy(self_, *args):
+                calls.append(args)
+                return original(self_, *args)
+
+            with patch.object(ab.KanbanApp, "_watch_detached_focus", spy):
+                async with app.run_test(size=(220, 60)) as pilot:
+                    await pilot.pause()
+                    # (a) Other views never arm the watch.
+                    app.refresh_board()
+                    app.refresh_column(app._get_visible_col_ids()[0])
+                    for _ in range(8):
+                        await pilot.pause()
+                    self.assertEqual(calls, [])
+                    # (b) In By-Trail: one live chain; superseded ones stop.
+                    await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
+                    for _ in range(8):   # let the entry render's chain run out
+                        await pilot.pause()
+                    calls.clear()
+                    for _ in range(10):
+                        app._rerender_trail()
+                    for _ in range(12):
+                        await pilot.pause()
+                    hops = ab.KanbanApp._DETACHED_FOCUS_HOPS
+                    self.assertLessEqual(len(calls), 10 + hops + 1, calls)
+                    # Only the newest generation re-armed, and it ran out.
+                    latest = app._detached_focus_gen
+                    self.assertEqual(
+                        [a[3] for a in calls if a[0] == latest],
+                        list(range(hops, -1, -1)))
+                    self.assertTrue(all(a[3] == hops for a in calls
+                                        if a[0] != latest))
+
+        self._run(go())
+
+
 if __name__ == "__main__":
     unittest.main()
