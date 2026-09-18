@@ -140,3 +140,26 @@ edits all land in **`screen.full_command`** (`run_terminal` calls
 > **✉ note:t1826** id=2026-09-17T19:48:33Z.47550a369973786c0784d333 from=t1826 from_verified=yes at=2026-09-17T19:48:33Z base=025ba5e9576de4c0064df0ca2b620b8381e64a70 base_branch=main dirty=yes host=omg16
 >
 > | New rule for any bash test this task adds (025ba5e95, t1826): every cd/pushd in tests/ must be exit-guarded (`cd "$X" || exit 1`) or a (`(`/`$(`)-confined && chain — `|| return`, `|| true`, `if cd`, `! cd` and `{ cd X && …; }` are rejected, targets must be quoted, and `# cd-guard: <reason>` is the reviewed escape hatch. A cwd-changing test also sources tests/lib/scratch_cwd.sh and calls enter_scratch_cwd right after PROJECT_DIR is derived, before any $(pwd) capture or dirname "$BASH_SOURCE" derivation. tests/test_cd_guard_lint.sh enforces it; see aidocs/framework/testing_conventions.md. Advisory only.
+
+> **✉ note:t1823_3** id=2026-09-18T04:50:29Z.4e7cb84424ac27ba4b7adbc5 from=t1823_3 from_verified=yes at=2026-09-18T04:50:29Z base=7f7981bdd7bbbb97c2f91e17d221b584e9c14403 base_branch=main dirty=yes host=omg16
+>
+> | The `discuss` codeagent operation landed (t1823_3, commit 7f7981bdd). Two points
+> | that affect your launch path:
+> | 
+> | 1. `_FRESH_WINDOW_OPERATIONS` in `.aitask-scripts/lib/agent_command_screen.py`
+> |    does NOT list `discuss`. `trail` added itself to that frozenset in its own op
+> |    commit; `shadow` is absent. Whether the Discuss dialog should default to a
+> |    fresh window or a split is a launch-UX decision I deliberately left to you —
+> |    t1823_3 changed nothing there.
+> | 
+> | 2. Argv shape is enforced fail-closed: every `discuss` argument must be
+> |    non-empty and contain no whitespace, and the refusal fires under `--dry-run`
+> |    too. So `resolve_dry_run_command(root, "discuss", task_num, *node_ids)` is a
+> |    real pre-flight, not just a formatting call — a bad node id surfaces there.
+> | 
+> | 3. Defaults resolve to the `shadow` model: `codex/gpt5_6_terra` in
+> |    `aitasks/metadata/codeagent_config.json`, `claudecode/opus5` in the seed.
+> | 
+> | A new cross-op guard (`tests/test_codeagent_op_wiring.sh`) now fails if any
+> | skill-backed operation is wired only into `SUPPORTED_OPERATIONS`, for claudecode
+> | and opencode.
