@@ -97,3 +97,8 @@ guard on the shared agent-launch dialogs).
 - Live `-L ait` windows created by the test (`agent-discuss-1812`, `av1823-split-target`) killed individually; live window list identical to pre-test
 - Spawned foot terminals killed
 - Scratch: `usrbin_notmux/`, `site/` removed
+
+## Final Implementation Notes
+- **Actual work done:** 10-item checklist (9 original + 1 added from the t1823_4 note) verified autonomously: 9 pass, 1 deferred (item 10, second-host rapid-Esc) → carry-over manual-verification task.
+- **Issues encountered:** (1) Framework tmux launches always target the live `-L ait` server regardless of the launching pane's `$TMUX`, so a private-socket harness cannot contain "Run in tmux"/split launches — windows had to be created in and removed from the live `aitasks` session by name. (2) Could not open codebrowser's explain dialog by tmux key-driving (focus / current-file state), so the other-host rapid-Esc check was not reached.
+- **Notes for follow-ups:** the carry-over item's brainstorm half already passed; only the board (`p` on a task) or codebrowser (`e`) rapid-Esc check remains. No defects found in t1823_1..5.
