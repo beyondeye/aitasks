@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: medium
 depends: [t1823_3]
 issue_type: feature
@@ -176,3 +178,5 @@ edits all land in **`screen.full_command`** (`run_terminal` calls
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-09-18T09:12:23Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-09-18T09:26:46Z status=pass attempt=1 type=human
