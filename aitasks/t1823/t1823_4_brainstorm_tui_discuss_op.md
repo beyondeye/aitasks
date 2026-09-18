@@ -163,3 +163,5 @@ edits all land in **`screen.full_command`** (`run_terminal` calls
 > | A new cross-op guard (`tests/test_codeagent_op_wiring.sh`) now fails if any
 > | skill-backed operation is wired only into `SUPPORTED_OPERATIONS`, for claudecode
 > | and opencode.
+
+> **👁 note:read** id=2026-09-18T05:06:04Z.48ea787b0092fc44233daf5a by=t1823_4 at=2026-09-18T05:06:04Z mode=explicit ids=2026-09-17T19:48:33Z.47550a369973786c0784d333,2026-09-18T04:50:29Z.4e7cb84424ac27ba4b7adbc5
