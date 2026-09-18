@@ -186,6 +186,258 @@ for profile in "${PROFILES[@]}"; do
         "Pick a new (Ready) task instead" "$rendered"
 done
 
+# === Test 7: opt-in pre-claim parallel assessment (t1688_2) ===
+#
+# `parallel_assessment` is OPT-IN: "off" (and an absent key) must render the
+# hook away entirely -- no procedure reference, no checker invocation, no cost
+# on a normal pick. Every shipped profile ships "off", so the enabled bodies
+# have no committed render at all and the scratch profiles below are their only
+# executable coverage (same situation as Test 4e's `parallel_admission: warn`
+# in tests/test_skill_render_task_workflow.sh).
+#
+# The headless assertions are the load-bearing ones: the procedure promises no
+# prompt under `headless: true` in BOTH modes, and a regression in the `ask`
+# branch would leave an unattended pick waiting for an answer nobody can give.
+# Each headless assertion is paired with a non-headless control of the SAME
+# mode that DOES prompt, so "no AskUserQuestion" can never pass vacuously.
+
+echo "=== Test 7: parallel_assessment opt-in (disabled / enabled / headless) ==="
+
+PA_TMPDIR="$(mktemp -d "${TMPDIR:-/tmp}/test_pick_pa_XXXXXX")"
+trap 'rm -rf "$PA_TMPDIR"' EXIT
+
+cat > "$PA_TMPDIR/absent.yaml" <<'YAML'
+name: pa_absent
+description: "Synthetic profile for t1688_2 (parallel_assessment key absent)"
+YAML
+cat > "$PA_TMPDIR/show.yaml" <<'YAML'
+name: pa_show
+description: "Synthetic profile for t1688_2 (parallel_assessment: show)"
+parallel_assessment: "show"
+parallel_admission: "off"
+YAML
+cat > "$PA_TMPDIR/ask.yaml" <<'YAML'
+name: pa_ask
+description: "Synthetic profile for t1688_2 (parallel_assessment: ask)"
+parallel_assessment: "ask"
+parallel_admission: "off"
+YAML
+cat > "$PA_TMPDIR/show_headless.yaml" <<'YAML'
+name: pa_show_headless
+description: "Synthetic profile for t1688_2 (headless + parallel_assessment: show)"
+headless: true
+parallel_assessment: "show"
+parallel_admission: "off"
+YAML
+cat > "$PA_TMPDIR/ask_headless.yaml" <<'YAML'
+name: pa_ask_headless
+description: "Synthetic profile for t1688_2 (headless + parallel_assessment: ask)"
+headless: true
+parallel_assessment: "ask"
+parallel_admission: "off"
+YAML
+
+PROC="$PROJECT_DIR/.claude/skills/task-workflow/parallel-assessment.md"
+CHECKER="$PROJECT_DIR/.claude/skills/task-workflow/parallel-admission-checker.md"
+
+# --- disabled: the three shipped profiles AND a key-absent profile ----------
+for profile in "${PROFILES[@]}"; do
+    rendered="$($RENDER "$TEMPLATE" "$PROFILES_DIR/$profile.yaml" claude 2>&1)"
+    assert_not_contains "pick/$profile: no assessment procedure reference" \
+        "task-workflow/parallel-assessment.md" "$rendered"
+    assert_not_contains "pick/$profile: no checker invocation" \
+        "aitask_parallel_admission.sh" "$rendered"
+done
+rendered_absent="$($RENDER "$TEMPLATE" "$PA_TMPDIR/absent.yaml" claude 2>&1)"
+assert_not_contains "pick/key-absent: absent key means off" \
+    "task-workflow/parallel-assessment.md" "$rendered_absent"
+assert_not_contains "pick/key-absent: no checker invocation" \
+    "aitask_parallel_admission.sh" "$rendered_absent"
+
+# --- enabled: the hook renders, and it renders BEFORE the Step 3 hand-off ---
+#
+# Order is the contract, not mere presence: the assessment exists to run before
+# the task is claimed, and a line that renders after the hand-off would run
+# after Step 4 took the lock. Line-order pattern: tests/test_inbox_surfacing_render.sh.
+for mode in show ask; do
+    rendered="$($RENDER "$TEMPLATE" "$PA_TMPDIR/$mode.yaml" claude 2>&1)"
+    assert_contains "pick/$mode: assessment procedure referenced by full path" \
+        ".claude/skills/task-workflow/parallel-assessment.md" "$rendered"
+    assert_contains "pick/$mode: the profile's mode is named in the render" \
+        "parallel_assessment: $mode" "$rendered"
+    n_assess="$(printf '%s\n' "$rendered" | grep -n 'parallel-assessment.md' | head -n1 | cut -d: -f1)"
+    n_handoff="$(printf '%s\n' "$rendered" | grep -n 'read and follow .*task-workflow/SKILL.md' | head -n1 | cut -d: -f1)"
+    TOTAL=$(( TOTAL + 1 ))
+    if [[ -n "$n_assess" && -n "$n_handoff" && "$n_assess" -lt "$n_handoff" ]]; then
+        PASS=$(( PASS + 1 ))
+        echo "PASS: pick/$mode: assessment precedes the Step 3 hand-off ($n_assess < $n_handoff)"
+    else
+        FAIL=$(( FAIL + 1 ))
+        echo "FAIL: pick/$mode: assessment does not precede the hand-off (assess=$n_assess handoff=$n_handoff)"
+    fi
+done
+
+# --- the procedure itself: disabled body, enabled bodies, headless bodies ---
+proc_render() { $RENDER "$PROC" "$1" claude 2>&1; }
+
+proc_off="$(proc_render "$PROFILES_DIR/fast.yaml")"
+assert_contains "proc/off: says it is a no-op" 'is a **no-op**' "$proc_off"
+assert_not_contains "proc/off: no checker invocation" \
+    'parallel-admission-checker.md' "$proc_off"
+assert_not_contains "proc/off: no prompt" 'AskUserQuestion' "$proc_off"
+assert_not_contains "proc/off: no grading vocabulary" 'not assessed' "$proc_off"
+
+proc_show="$(proc_render "$PA_TMPDIR/show.yaml")"
+proc_ask="$(proc_render "$PA_TMPDIR/ask.yaml")"
+proc_show_hl="$(proc_render "$PA_TMPDIR/show_headless.yaml")"
+proc_ask_hl="$(proc_render "$PA_TMPDIR/ask_headless.yaml")"
+
+for pair in "show:$proc_show" "ask:$proc_ask" "show_headless:$proc_show_hl" "ask_headless:$proc_ask_hl"; do
+    name="${pair%%:*}"; body="${pair#*:}"
+    assert_contains "proc/$name: defers the invocation to the checker contract" \
+        'parallel-admission-checker.md' "$body"
+    assert_contains "proc/$name: runs the checker WITHOUT --plan" \
+        '**without**' "$body"
+    assert_contains "proc/$name: keeps the not-assessed grade" 'not assessed' "$body"
+    assert_contains "proc/$name: skips an already-claimed task" 'Implementing' "$body"
+    assert_contains "proc/$name: never claims parallel safety" \
+        'Never write "safe to run in parallel"' "$body"
+    # The two incompleteness sources are reported SEPARATELY: a well-formed
+    # UNCHECKABLE (or a partial in-flight enumeration) is the checker answering
+    # with gaps; "checker unavailable" is the checker not answering at all.
+    assert_contains "proc/$name: well-formed UNCHECKABLE is an incompleteness gap" \
+        'VERDICT:UNCHECKABLE' "$body"
+    assert_contains "proc/$name: a partial enumeration is named as such" \
+        'enumeration incomplete' "$body"
+    assert_contains "proc/$name: checker-unavailable is its own, separate clause" \
+        'separately, "checker unavailable"' "$body"
+done
+
+# `ask` prompts unconditionally; `show` prompts only on an overlap / unusable
+# checker. Both, attended, must still CARRY the prompt.
+assert_contains "proc/ask: prompts unconditionally" 'always prompt' "$proc_ask"
+assert_contains "proc/ask: attended ask has the prompt" 'AskUserQuestion' "$proc_ask"
+assert_contains "proc/show: prompt is conditional on an overlap or unusable checker" \
+    'prompt **only** when some row is `overlaps` or the checker was' "$proc_show"
+assert_contains "proc/show: attended show has the prompt" 'AskUserQuestion' "$proc_show"
+
+# The headless pair -- the assertions the attended controls above make non-vacuous.
+assert_not_contains "proc/show_headless: headless show never prompts" \
+    'AskUserQuestion' "$proc_show_hl"
+assert_not_contains "proc/ask_headless: headless ask never prompts either" \
+    'AskUserQuestion' "$proc_ask_hl"
+assert_contains "proc/ask_headless: says so explicitly" \
+    'never prompt' "$proc_ask_hl"
+
+# --- closure level: the enabled assessment pulls the checker contract in ----
+#
+# The independent-toggle seam. Every scratch profile above sets
+# `parallel_admission: "off"` EXPLICITLY (an absent key would mean `warn`), so
+# the preflight renders its steps -- and its checker reference -- away, and the
+# assessment's own reference is the edge under test.
+#
+# `walk-check`'s exit status proves nothing here: `discover_refs` silently skips
+# a reference whose target does not exist, so a mistyped path walks "cleanly".
+# Instead walk the closure in-process (write=False, nothing touches disk) and
+# assert on the actual plan: which files are in it, what their rendered
+# references were rewritten to, and what the rendered contract says.
+closure_dump() {
+    "$PYTHON" - "$PROJECT_DIR" "$TEMPLATE" "$1" "$2" <<'PY'
+import sys
+from pathlib import Path
+root = Path(sys.argv[1]).resolve()
+sys.path.insert(0, str(root / ".aitask-scripts" / "lib"))
+import skill_template as st
+entry, prof_yaml, out = (root / sys.argv[2]).resolve(), Path(sys.argv[3]).resolve(), Path(sys.argv[4])
+profile = st._load_profile(prof_yaml)
+plan = st.walk_closure(entry, profile, "claude", st._profile_name(profile, prof_yaml),
+                       prof_yaml, root, write=False, force=False,
+                       profile_filename=st._profile_filename(prof_yaml))
+out.mkdir(parents=True, exist_ok=True)
+with (out / "MEMBERS").open("w") as f:
+    for _src, target, content in plan:
+        rel = target.relative_to(root)
+        f.write(str(rel) + "\n")
+        dest = out / "files" / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(content, encoding="utf-8")
+PY
+}
+
+for variant in show ask show_headless ask_headless; do
+    prof_name="$(sed -n 's/^name: //p' "$PA_TMPDIR/$variant.yaml")"
+    dump="$PA_TMPDIR/closure_$variant"
+    if ! closure_dump "$PA_TMPDIR/$variant.yaml" "$dump" 2>"$dump.err"; then
+        assert_record_fail; echo "FAIL: closure/$variant: walk failed: $(cat "$dump.err")"
+        continue
+    fi
+    wf=".claude/skills/task-workflow-${prof_name}-"
+    members="$(cat "$dump/MEMBERS")"
+    assert_contains "closure/$variant: the assessment procedure is a member" \
+        "$wf/parallel-assessment.md" "$members"
+    assert_contains "closure/$variant: the checker contract is a member" \
+        "$wf/parallel-admission-checker.md" "$members"
+
+    pick_body="$(cat "$dump/files/.claude/skills/aitask-pick-${prof_name}-/SKILL.md")"
+    assess_body="$(cat "$dump/files/$wf/parallel-assessment.md")"
+    checker_body="$(cat "$dump/files/$wf/parallel-admission-checker.md")"
+    preflight_body="$(cat "$dump/files/$wf/parallel-admission.md")"
+
+    # The references were REWRITTEN to this profile's rendered tree -- the edge
+    # the agent will actually follow, not the source path.
+    assert_contains "closure/$variant: pick references the rendered assessment" \
+        "$wf/parallel-assessment.md" "$pick_body"
+    assert_contains "closure/$variant: the assessment references the rendered checker" \
+        "$wf/parallel-admission-checker.md" "$assess_body"
+    assert_not_contains "closure/$variant: no source-tree path survives in the assessment" \
+        ".claude/skills/task-workflow/parallel-admission-checker.md" "$assess_body"
+
+    # Admission is off, so the preflight is a no-op that references nothing:
+    # the checker contract's presence is owed to the assessment, not to it.
+    assert_contains "closure/$variant: the preflight is off in this profile" \
+        'is a **no-op**' "$preflight_body"
+    # Only the Procedure section: the Notes render in every profile and name the
+    # contract as documentation, which is not an instruction to run it.
+    assert_not_contains "closure/$variant: the off preflight's procedure does not run the checker" \
+        'parallel-admission-checker.md' "${preflight_body%%## Notes*}"
+
+    # …and what arrives is the real contract.
+    assert_contains "closure/$variant: checker carries the capture form" \
+        'aitask_parallel_admission.sh check' "$checker_body"
+    assert_contains "closure/$variant: checker keeps require-fresh" \
+        '--lock-freshness require-fresh' "$checker_body"
+    assert_contains "closure/$variant: checker carries the checker-unusable table" \
+        '| more than one `VERDICT:` line | checker unusable' "$checker_body"
+    assert_contains "closure/$variant: checker validates causes against the vocabulary" \
+        'UNCHECKABLE_REASONS' "$checker_body"
+
+    case "$variant" in
+        *_headless)
+            assert_not_contains "closure/$variant: rendered assessment never prompts" \
+                'AskUserQuestion' "$assess_body" ;;
+        *)
+            assert_contains "closure/$variant: rendered attended assessment carries the prompt" \
+                'AskUserQuestion' "$assess_body" ;;
+    esac
+done
+
+# The checker contract is ungated: it must render identically whatever the
+# profile says, because both callers -- including one whose own knob is off --
+# read the same file.
+checker_base="$($RENDER "$CHECKER" "$PROFILES_DIR/default.yaml" claude 2>&1)"
+for profile in "${PROFILES[@]}"; do
+    rendered="$($RENDER "$CHECKER" "$PROFILES_DIR/$profile.yaml" claude 2>&1)"
+    assert_eq "checker contract is profile-invariant ($profile)" "$checker_base" "$rendered"
+done
+assert_contains "checker: carries the capture form" \
+    'aitask_parallel_admission.sh check' "$checker_base"
+assert_contains "checker: require-fresh is mandatory" \
+    '--lock-freshness require-fresh' "$checker_base"
+assert_contains "checker: carries the checker-unusable classification" \
+    'checker unusable' "$checker_base"
+assert_contains "checker: --plan is documented as optional" \
+    'only** optional part' "$checker_base"
+
 # === Summary ===
 
 echo ""

@@ -60,8 +60,10 @@ Use that page for:
 ## Parallel Admission
 
 Before implementation starts, the skill can report which other in-flight tasks
-declare the same files. See [Parallel Admission](parallel-admission/) for the
-verdicts, the `parallel_admission` profile key, and why the check is advisory.
+declare the same files — and, opt-in, it can answer the same question one step
+earlier, *before the task is claimed*. See [Parallel Admission](parallel-admission/)
+for the verdicts, the `parallel_admission` and `parallel_assessment` profile keys,
+why both are advisory, and why the preflight ships off.
 
 ## Build Verification
 

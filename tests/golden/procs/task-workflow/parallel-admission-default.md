@@ -39,11 +39,19 @@ the caller immediately. Nothing below applies.
   begin the instant after it passes, and this procedure makes no promise about
   that. The residual closes only when t1343's declared-claims backend lands.
 - **Advisory by design, not by omission.** No value of `parallel_admission` stops
-  the workflow. The evidence is regex-extracted from plan prose — a path a plan
-  merely *runs* inside a fenced command is indistinguishable from one it declares
-  it will edit — and a measured false `CONFLICT` is on record. A heuristic of that
+  the workflow. The evidence is regex-extracted from prose — an in-flight task's
+  plan, or, for a claimed task that has no plan yet, its task description
+  (`task_declared`, which only ever yields advisory `declared` overlaps) — and a
+  path a plan merely *runs* inside a fenced command is indistinguishable from one
+  it declares it will edit; a measured false `CONFLICT` is on record. A heuristic of that
   shape may inform a decision; it may not make one. Any future hard-stop mode is
   gated on t1343's structured per-task declaration, not on this knob.
+- **Two call sites, two evidence qualities, one checker.** This preflight runs
+  post-plan and passes `--plan`; the opt-in pre-claim assessment
+  (`parallel-assessment.md`, `parallel_assessment` knob) asks the same checker
+  before the task is claimed, on whatever evidence exists then. Both classify
+  the checker's output through `parallel-admission-checker.md`, so they cannot
+  disagree about what a usable answer is.
 - **Not a gate, deliberately.** `MANUAL_VERIFICATION_REACHABLE_GATES` in
   `lib/task_utils.sh` is an allowlist and `filter_gates_for_issue_type()` would
   silently strip a new gate. The precedent is plan-verification staleness — a

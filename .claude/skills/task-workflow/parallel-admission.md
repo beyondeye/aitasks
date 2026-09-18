@@ -34,58 +34,14 @@ the caller immediately. Nothing below applies.
 1. **Profile check.** If the active profile sets `parallel_admission: off`,
    return immediately: no invocation, no display.
 
-2. **Run the checker.** Bind `plan_file` to a variable; never paste a literal
-   into the command line. Capture stdout with the `if`-form — a bare
-   `out="$(…)"; rc=$?` dies under `set -e` before `rc` is read — and **never
-   merge stderr into stdout**, because every line parsed below is `KEY:value` and
-   merging corrupts the parse:
+2. **Run the checker and accept its output only if it is well-formed.** Do
+   both per `.claude/skills/task-workflow/parallel-admission-checker.md`,
+   **with** `--plan "<plan_file>"` — this call site has an externalized plan, so
+   the candidate's surface must be plan-derived rather than description-derived.
 
-   ```bash
-   if out="$(./.aitask-scripts/aitask_parallel_admission.sh check \
-       --candidate <task_id> --from plan --plan "<plan_file>" \
-       --lock-freshness require-fresh)"; then
-     rc=0
-   else
-     rc=$?
-   fi
-   ```
-
-   Three things about that invocation are not preferences:
-
-   - **`--lock-freshness require-fresh` is mandatory here.** A cached lock ref
-     hides a lock another agent took seconds ago — a false `CLEAR` at exactly the
-     admission point this exists to defend.
-   - **The checker excludes the candidate itself, and must.** `task-workflow` set
-     this task `Implementing` and took its lock back at **Step 4**, long before
-     the plan existed. Without the exclusion the candidate overlaps 100% of its
-     own plan and every single pick is a `CONFLICT`. Do not "simplify" the
-     exclusion away.
-   - **Read live state at call time.** Never reuse a roadmap snapshot: it is
-     older by construction, and this is the one call site where that matters.
-
-   Every *content* state exits 0 — read `VERDICT:`, never the exit status.
-
-3. **Accept the result only if it is well-formed.** Stdout must carry **exactly
-   one** `VERDICT:` line whose token is one of `CLEAR`, `CLEAR_CAVEATED`,
-   `CONFLICT`, `UNCHECKABLE`. Anything else takes the **UNCHECKABLE**
-   disposition — never an auto-proceed:
-
-   | observed | treated as |
-   |---|---|
-   | exit 2 (CLI misuse) | UNCHECKABLE · report it as a **wiring error**, naming the stderr line |
-   | any other non-zero exit, or a crash | UNCHECKABLE · report the exit status |
-   | empty stdout, or no `VERDICT:` line | UNCHECKABLE |
-   | more than one `VERDICT:` line | UNCHECKABLE · never pick one |
-   | a `VERDICT:` token outside the closed set | UNCHECKABLE · quote the token verbatim |
-   | an `UNCHECKABLE_CAUSE:` code the table in step 5 does not list | still UNCHECKABLE · print the raw reason field verbatim rather than swallowing it |
-
-   Call this **"checker unusable"** and say plainly that the cause is
-   **procedure-originated, not a checker verdict** — it is not a member of
-   `UNCHECKABLE_REASONS` in `.aitask-scripts/lib/parallel_admission_vocab.py` and
-   must not be reported as one.
-
-   This is fail-safe, not fail-open: a lock fetch that cannot reach the remote, a
-   parser change, or a helper crash must never read as "no known conflict".
+3. **A "checker unusable" classification takes the UNCHECKABLE disposition**
+   below — report the cause as procedure-originated, never as a checker verdict,
+   and never auto-proceed.
 
 4. **Dispositions.**
 
@@ -109,7 +65,7 @@ the caller immediately. Nothing below applies.
 
    | scope | reason | remedy to print |
    |---|---|---|
-   | `inflight:<ref>` | `no_plan` | plan that task, or release its lock (`ait lock --unlock <ref>`), or override for it |
+   | `inflight:<ref>` | `no_plan` | that task has no plan **and** no path-bearing description — plan it, name its files in its description, or release its lock (`ait lock --unlock <ref>`), or override for it |
    | `inflight:<ref>` | `all_phantom` | that plan is stale — refresh or release it |
    | `inflight:<ref>` | `no_tokens`, `unreadable`, `unclassified`, `no_extractable_paths` | that plan declares no usable surface — add concrete paths to it, or release the claim |
    | `inflight:<ref>` | `unknown_history`, `unknown_origin` | no reachable commits for that id — it may predate the history in this checkout; `git fetch`, or override for it |
@@ -160,11 +116,19 @@ the caller immediately. Nothing below applies.
   begin the instant after it passes, and this procedure makes no promise about
   that. The residual closes only when t1343's declared-claims backend lands.
 - **Advisory by design, not by omission.** No value of `parallel_admission` stops
-  the workflow. The evidence is regex-extracted from plan prose — a path a plan
-  merely *runs* inside a fenced command is indistinguishable from one it declares
-  it will edit — and a measured false `CONFLICT` is on record. A heuristic of that
+  the workflow. The evidence is regex-extracted from prose — an in-flight task's
+  plan, or, for a claimed task that has no plan yet, its task description
+  (`task_declared`, which only ever yields advisory `declared` overlaps) — and a
+  path a plan merely *runs* inside a fenced command is indistinguishable from one
+  it declares it will edit; a measured false `CONFLICT` is on record. A heuristic of that
   shape may inform a decision; it may not make one. Any future hard-stop mode is
   gated on t1343's structured per-task declaration, not on this knob.
+- **Two call sites, two evidence qualities, one checker.** This preflight runs
+  post-plan and passes `--plan`; the opt-in pre-claim assessment
+  (`parallel-assessment.md`, `parallel_assessment` knob) asks the same checker
+  before the task is claimed, on whatever evidence exists then. Both classify
+  the checker's output through `parallel-admission-checker.md`, so they cannot
+  disagree about what a usable answer is.
 - **Not a gate, deliberately.** `MANUAL_VERIFICATION_REACHABLE_GATES` in
   `lib/task_utils.sh` is an allowlist and `filter_gates_for_issue_type()` would
   silently strip a new gate. The precedent is plan-verification staleness — a

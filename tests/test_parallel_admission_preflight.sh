@@ -114,6 +114,11 @@ run_check() {  # <root> [extra args…]
 echo "=== 1. Every producible verdict has a disposition in the procedure ==="
 
 proc_default="$(cat "$PROC")"
+# The invocation + well-formedness rules moved to the ungated checker contract
+# (t1688_2) so the pre-claim assessment can reuse them; the pins below follow
+# the text to the file that owns it now.
+PROC_CHECKER="$(dirname "$PROC")/parallel-admission-checker.md"
+proc_checker="$(cat "$PROC_CHECKER")"
 
 # --- CLEAR: a lone candidate, fresh locks, both corpora present -------------
 d="$TMPROOT/clear"; make_root "$d"
@@ -315,27 +320,34 @@ assert_eq "a nonexistent --plan target exits 2" "2" "$?"
 
 # The procedure must route BOTH of those, and the states the helper cannot
 # produce, to UNCHECKABLE rather than to a proceed.
-assert_contains "procedure routes CLI misuse to UNCHECKABLE" \
-    "| exit 2 (CLI misuse) | UNCHECKABLE" "$proc_default"
-assert_contains "procedure routes any other non-zero exit to UNCHECKABLE" \
-    "| any other non-zero exit, or a crash | UNCHECKABLE" "$proc_default"
-assert_contains "procedure routes a missing VERDICT line to UNCHECKABLE" \
-    "| empty stdout, or no \`VERDICT:\` line | UNCHECKABLE |" "$proc_default"
-assert_contains "procedure refuses to pick one of two VERDICT lines" \
-    "never pick one" "$proc_default"
-assert_contains "procedure routes an out-of-vocabulary token to UNCHECKABLE" \
-    "| a \`VERDICT:\` token outside the closed set | UNCHECKABLE" "$proc_default"
-assert_contains "procedure prints an unlisted cause verbatim rather than swallowing it" \
-    "print the raw reason field verbatim" "$proc_default"
-assert_contains "procedure states the direction of the failure mode" \
-    "fail-safe, not fail-open" "$proc_default"
+assert_contains "checker contract routes CLI misuse to checker-unusable" \
+    "| exit 2 (CLI misuse) | checker unusable" "$proc_checker"
+# …and the preflight maps that classification onto its own UNCHECKABLE disposition.
+assert_contains "procedure routes an unusable checker to UNCHECKABLE" \
+    "takes the UNCHECKABLE disposition" "$proc_default"
+assert_contains "checker contract routes any other non-zero exit to checker-unusable" \
+    "| any other non-zero exit, or a crash | checker unusable" "$proc_checker"
+assert_contains "checker contract routes a missing VERDICT line to checker-unusable" \
+    "| empty stdout, or no \`VERDICT:\` line | checker unusable |" "$proc_checker"
+assert_contains "checker contract refuses to pick one of two VERDICT lines" \
+    "never pick one" "$proc_checker"
+assert_contains "checker contract routes an out-of-vocabulary token to checker-unusable" \
+    "| a \`VERDICT:\` token outside the closed set | checker unusable" "$proc_checker"
+assert_contains "checker contract prints an unlisted cause verbatim rather than swallowing it" \
+    "print the raw reason field verbatim" "$proc_checker"
+assert_contains "checker contract states the direction of the failure mode" \
+    "fail-safe, not fail-open" "$proc_checker"
 
 # A malformed stream is only meaningful if the procedure's accept-condition is
 # strict enough to reject it. Pin the condition itself.
-assert_contains "procedure accepts exactly one VERDICT line" \
-    'one** `VERDICT:` line whose' "$proc_default"
-assert_contains "procedure names the closed verdict set at the accept-condition" \
-    'token is one of `CLEAR`, `CLEAR_CAVEATED`,' "$proc_default"
+assert_contains "checker contract accepts exactly one VERDICT line" \
+    'one** `VERDICT:` line whose' "$proc_checker"
+assert_contains "checker contract names the closed verdict set at the accept-condition" \
+    'token is one of `CLEAR`, `CLEAR_CAVEATED`,' "$proc_checker"
+# The contract is shared, so it must stay ungated: a profile conditional here
+# would render it away for exactly the caller that has no knob of its own.
+assert_not_contains "checker contract carries no profile conditional" \
+    '{%' "$proc_checker"
 
 # The cause vocabulary the recovery table keys on must be the checker's own.
 vocab_causes="$("$PY_BIN" -c "
@@ -350,6 +362,52 @@ for c in $vocab_causes; do
     printf '%s' "$proc_default" | grep -qE "\`${c}[\`:]" || uncovered+="$c "
 done
 assert_eq "the recovery table names every UNCHECKABLE_REASONS code" "" "$uncovered"
+
+echo "=== 4. Cause validity is the checker's vocabulary, not a caller's remedy table ==="
+
+# The contract classifies a cause by its code's membership in UNCHECKABLE_REASONS
+# -- independently of any remedy table, because the pre-claim assessment has
+# none and the preflight's is rendered away under `off`. Apply that exact rule
+# (split scope|reason on the first `|`, code = reason up to its first `:`) to a
+# REAL checker cause and to an undeclared one.
+cause_code_valid() {
+    "$PY_BIN" - "$PROJECT_DIR/.aitask-scripts/lib" "$1" <<'PY'
+import sys
+sys.path.insert(0, sys.argv[1])
+import parallel_admission_vocab as v
+line = sys.argv[2]
+rest = line.split("UNCHECKABLE_CAUSE:", 1)[1]
+_scope, _, reason = rest.partition("|")
+code = reason.partition(":")[0]
+sys.exit(0 if code in v.UNCHECKABLE_REASONS else 1)
+PY
+}
+real_cause="$(printf '%s\n' "$out_unchk" | grep -m1 '^UNCHECKABLE_CAUSE:')"
+assert_contains "fixture: the real checker emitted a no_plan cause" \
+    "|no_plan" "$real_cause"
+if cause_code_valid "$real_cause"; then
+    assert_record_pass; echo "PASS: a real no_plan cause is well-formed (declared code)"
+else
+    assert_record_fail; echo "FAIL: a real no_plan cause was classified as undeclared: $real_cause"
+fi
+if cause_code_valid "UNCHECKABLE_CAUSE:inflight:200|all_phantom"; then
+    assert_record_pass; echo "PASS: all_phantom is well-formed (declared code)"
+else
+    assert_record_fail; echo "FAIL: all_phantom was classified as undeclared"
+fi
+if cause_code_valid "UNCHECKABLE_CAUSE:inflight:200|bogus_future_code"; then
+    assert_record_fail; echo "FAIL: an undeclared code was accepted as well-formed"
+else
+    assert_record_pass; echo "PASS: an undeclared code is checker-unusable"
+fi
+# …and the contract states the rule it is tested against, including the
+# no-remedy-table case that motivated it.
+assert_contains "checker contract validates causes against UNCHECKABLE_REASONS" \
+    'Validate cause codes against the checker'"'"'s own vocabulary, never against a' "$proc_checker"
+assert_contains "checker contract: a declared code without a remedy row stays well-formed" \
+    'must never be demoted to "checker unusable"' "$proc_checker"
+assert_not_contains "checker contract no longer keys validity on a remedy table" \
+    "code the caller's remedy table does not list" "$proc_checker"
 
 echo ""
 echo "===================="

@@ -87,9 +87,10 @@ of the run. It **reserves nothing**.
   "safe to run in parallel". Overlapping work can begin the instant after the
   check passes.
 - `/aitask-pick` runs the live parallel-admission preflight before
-  implementation. That check, not this roadmap, is what makes the safety
-  decision — and it too is a snapshot that reserves nothing, so a residual race
-  remains open after it passes.
+  implementation, and — opt-in — a pre-claim assessment before the task is even
+  claimed. Those live checks, not this roadmap, are what make the safety
+  decision — and each is a snapshot that reserves nothing, so a residual race
+  remains open after either passes.
 
 ## Freshness has two limits
 

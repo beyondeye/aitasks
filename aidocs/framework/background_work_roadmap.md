@@ -246,6 +246,19 @@ a collision — a second opinion would be a second definition of "safe".
 tell" is not "conflicts with", and filing it under coordination would assert a
 conflict the checker did not find. What it may never be is wave 1.
 
+**Before t1688 the parallel-safe lane was empty by construction.** An in-flight
+task's surface came from its plan file only, and a task is claimed at Step 4 but
+plans at Step 6 — so any candidate racing a claimed-but-unplanned task returned
+`UNCHECKABLE` (measured: 108 of 122 live candidates), and `CLEAR` needs *every*
+in-flight claim evidenced. The description fallback (`task_declared`, t1688_1)
+supplies that missing evidence, but as **unverified** evidence: it grades
+`CLEAR_CAVEATED`, never bare `CLEAR`. So the lane fills through the
+`CLEAR_CAVEATED` row above — wave 1, `core`, at medium (`exact`) or low
+(`topic` / `unknown`) confidence. Re-measured 2026-09-17 over 131 candidates:
+0 `CLEAR`, 86 `CLEAR_CAVEATED`, 31 `CONFLICT`, 14 `UNCHECKABLE`. A bare `CLEAR`
+stays rare by design — it requires a plan on both sides — so a roadmap run whose
+wave 1 is entirely caveated is the expected shape, not a degraded one.
+
 `confidence` is an enum (`high | medium | low`), so "reduced" is a table. Origin
 quality is carried *into* confidence, which is what stops a `topic` entry from
 reading like an `exact` one:

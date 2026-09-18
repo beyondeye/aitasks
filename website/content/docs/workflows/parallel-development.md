@@ -43,7 +43,9 @@ you which task is a sensible one to start right now. Two surfaces answer that:
 
 - [`/aitask-pick`]({{< relref "/docs/skills/aitask-pick/parallel-admission" >}})
   runs a **parallel-admission preflight** before implementation, checking the
-  task you picked against the file surfaces of work already in flight.
+  task you picked against the file surfaces of work already in flight. Opt in to
+  `parallel_assessment` and it also answers the question **before the task is
+  claimed**, reading what the in-flight tasks' descriptions say they touch.
 - [`/aitask-backlog-roadmap`]({{< relref "/docs/skills/aitask-backlog-roadmap" >}})
   ranks the background-work backlog into parallel-safe and coordination lanes,
   so the question can be answered before a task is picked at all.

@@ -96,6 +96,15 @@ WRAPPED_FILES_VARYING=(
 )
 WRAPPED_FILES_INVARIANT=(
     "remote-drift-check.md"
+    # The opt-in pre-claim parallel-safety assessment (t1688_2).
+    # Profile-invariant because `parallel_assessment` is OPT-IN: all three
+    # committed profiles ship "off", and the disabled branch interpolates
+    # NOTHING (not even the profile name), so the three renders are byte-
+    # identical. The enabled `show` / `ask` bodies -- and the headless pair --
+    # have no committed profile at all; tests/test_skill_render_aitask_pick.sh
+    # Test 7 drives them through synthetic profiles, which is their only
+    # executable coverage.
+    "parallel-assessment.md"
     # The Step 9 merge broker control flow (t1560_2). Profile-invariant: the
     # verdict dispositions are the same under every profile, and Step 9's only
     # profile conditionals (record_gates) stayed in SKILL.md.
@@ -548,6 +557,7 @@ parallel_admission: "off"
 YAML
 
 pa_render() { $RENDER "$PA_SRC" "$1" claude 2>&1; }
+pa_checker_render() { $RENDER "$WORKFLOW_DIR/parallel-admission-checker.md" "$1" claude 2>&1; }
 
 # --- the ACTIVE (warn) body: every verdict maps to its own disposition ------
 for prof in warn absent; do
@@ -594,13 +604,47 @@ for prof in warn absent; do
         echo "FAIL: pa/$prof does not list continue first (continue@$cont_line stop@$stop_line) -- an advisory heuristic must not present a stop as the default"
     fi
     # The fail-safe clause (t1569_4 finding: invalid output is never a pass).
-    assert_contains "pa/$prof: invalid checker output is UNCHECKABLE, not a pass" \
-        'Accept the result only if it is well-formed' "$out"
-    assert_contains "pa/$prof: a duplicate VERDICT line is never resolved by picking one" \
-        'never pick one' "$out"
-    assert_contains "pa/$prof: fail-safe is stated, not implied" \
-        'fail-safe, not fail-open' "$out"
+    # The invocation and well-formedness rules themselves MOVED to the ungated
+    # parallel-admission-checker.md (t1688_2) so the pre-claim assessment can
+    # reuse them under a profile whose own knob is `off`; what the enabled
+    # preflight must still carry is the REFERENCE and the disposition that a
+    # classification maps to. The moved text is pinned on the checker file below.
+    assert_contains "pa/$prof: defers invocation + well-formedness to the checker contract" \
+        'parallel-admission-checker.md' "$out"
+    assert_contains "pa/$prof: this call site passes the plan" \
+        '**with** `--plan "<plan_file>"`' "$out"
+    assert_contains "pa/$prof: an unusable checker takes the UNCHECKABLE disposition" \
+        'takes the UNCHECKABLE disposition' "$out"
 done
+
+# --- the moved contract: ungated, profile-invariant, and complete ----------
+#
+# parallel-admission-checker.md carries NO profile conditional on purpose: both
+# callers need the same invocation, and the pre-claim assessment must be able to
+# read it under a profile whose own `parallel_admission` is `off`. These are the
+# t1569_4 pins, following the text to the file that now owns it.
+PA_CHECKER_SRC="$WORKFLOW_DIR/parallel-admission-checker.md"
+checker_base="$(pa_checker_render "$PROFILES_DIR/default.yaml")"
+for file in "$PROFILES_DIR"/fast.yaml "$PROFILES_DIR"/remote.yaml \
+            "$TMP_PA_WARN" "$TMP_PA_OFF"; do
+    assert_eq "checker contract is profile-invariant ($(basename "$file"))" \
+        "$checker_base" "$(pa_checker_render "$file")"
+done
+assert_contains "checker: invalid output is never a pass" \
+    'Accept the result only if it is well-formed' "$checker_base"
+assert_contains "checker: a duplicate VERDICT line is never resolved by picking one" \
+    'never pick one' "$checker_base"
+assert_contains "checker: fail-safe is stated, not implied" \
+    'fail-safe, not fail-open' "$checker_base"
+assert_contains "checker: require-fresh is mandatory" \
+    '--lock-freshness require-fresh' "$checker_base"
+assert_contains "checker: the self-exclusion is not optional" \
+    'excludes the candidate itself, and must' "$checker_base"
+assert_contains "checker: --plan is the one optional part" \
+    'only** optional part' "$checker_base"
+assert_contains "checker: the disposition belongs to the caller" \
+    'Each caller owns the disposition' "$checker_base"
+assert_not_contains "checker: carries no profile conditional" '{%' "$(cat "$PA_CHECKER_SRC")"
 
 # --- the `confirm` branch (synthetic; no committed profile sets it) ---------
 out_confirm="$(pa_render "$TMP_PA_CONFIRM")"
@@ -667,6 +711,14 @@ for prof in default fast remote; do
     # but a shipped profile must not rely on the tolerance.
     assert_not_contains "profile $prof does not ship a bare (boolean) off" \
         'parallel_admission: off' "$(cat "$PROFILES_DIR/$prof.yaml")"
+    # The opt-in assessment (t1688_2): "off" everywhere, seed mirrors included,
+    # and quoted for the same YAML-boolean reason.
+    assert_contains "profile $prof ships parallel_assessment off" \
+        'parallel_assessment: "off"' "$(cat "$PROFILES_DIR/$prof.yaml")"
+    assert_contains "seed profile $prof mirrors parallel_assessment" \
+        'parallel_assessment: "off"' "$(cat "seed/profiles/$prof.yaml")"
+    assert_not_contains "profile $prof does not ship a bare (boolean) assessment off" \
+        'parallel_assessment: off' "$(cat "$PROFILES_DIR/$prof.yaml")"
 done
 
 # --- profiles.md documents the knob, and agrees with the procedure ---------
@@ -688,6 +740,16 @@ assert_not_contains "profiles.md carries no promotion criterion" \
     'promot' "$profiles_doc_text"
 assert_not_contains "profiles.md carries no stop-and-replan claim" \
     'stop-and-replan' "$profiles_doc_text"
+assert_contains "profiles.md documents parallel_assessment" \
+    '`parallel_assessment`' "$profiles_doc_text"
+assert_contains "profiles.md says the assessment key is opt-in / off by default" \
+    '(**the default**, and also what an absent key means)' "$profiles_doc_text"
+assert_contains "profiles.md states the headless rule for BOTH modes" \
+    '**Headless profiles never prompt**, in either mode' "$profiles_doc_text"
+# Why the preflight still ships off is a measured claim, not a preference --
+# and a stale one trains users to ignore the knob. Pin that the numbers are there.
+assert_contains "profiles.md records why parallel_admission ships off" \
+    'Why it ships off' "$profiles_doc_text"
 assert_contains "profiles.md warns that a bare off is a YAML boolean" \
     'YAML parses a bare `off` as the boolean false' "$profiles_doc_text"
 

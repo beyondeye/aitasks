@@ -48,6 +48,7 @@ Profiles are YAML files stored in `aitasks/metadata/profiles/`. They pre-answer 
 | `explore_label_confirm` | string | no | `"ask"` (default when omitted — show the proposed labels split into existing / near-duplicate / new and confirm), `"auto"` (accept the proposed labels with no prompt; new ones still enter the vocabulary), `"existing_only"` (never mint a new label: keep existing ones, substitute near-duplicates, report the rest as dropped). Headless profiles must set `auto` or `existing_only` so no prompt is emitted. | aitask-explore Step 3a |
 | `remote_drift_check` | string | no | `"warn"` (default — soft warning when remote is ahead with no plan-overlap, strong warning with overlap), `"skip"` (do nothing), `"strong-only"` (only prompt when overlap exists) | Step 6 checkpoint (post-plan) |
 | `parallel_admission` | string | no | `"confirm"`, `"warn"` (**the default** when omitted), or `"off"`. Governs how loudly the [Parallel-Admission Preflight](#parallel-admission) surfaces a non-CLEAR verdict. **No value ever stops the workflow** — every stop is a user choice at the prompt. **All three shipped profiles set `"off"`** (an opt-out; the absent-key default is still `warn`). Quote it: YAML parses a bare `off` as the boolean false (the renderer accepts both, but the quoted form says what it means) | Step 6 checkpoint (post-plan), Re-entry Routing `IMPLEMENT` |
+| `parallel_assessment` | string | no | `"off"` (**the default**, and also what an absent key means), `"show"` or `"ask"`. Opt-in: enables the pre-claim [Parallel-Safety Assessment](#parallel-safety-assessment) in `aitask-pick`, before the task is claimed. Disabled renders the procedure away entirely — no checker invocation, no reading, no prompt. **All three shipped profiles set `"off"`.** Quote it, for the same YAML-boolean reason as `parallel_admission` | `aitask-pick` Step 3 (pre-claim) |
 | `manual_verification_mode` | string | no | `"ask"` (default — prompt fires with autonomous / autonomous_with_plan / skip), `"manual"` (skip prompt; straight to interactive), `"autonomous"` (skip prompt; run autonomous), `"autonomous_with_plan"` (skip prompt; design + approve + execute). Controls only the up-front prompt — the per-item `auto` verb in the interactive loop is always available regardless. | Manual Verification Step 1.5 |
 | `headless` | bool | no | `true` = a fully autonomous profile (no interactive prompts) used where `ait setup` never ran, e.g. Claude Code Web. Marks the profile as one whose `prerender_for_headless` skills ship committed prerenders. Currently only `remote`. | (build-time: `aitask_skill_verify.sh`) |
 
@@ -97,15 +98,63 @@ something stricter.
 
 **Every shipped profile sets `"off"`, and that is an opt-OUT, not the default.**
 An absent key still means `warn`; `default.yaml`, `fast.yaml` and `remote.yaml`
-each opt out explicitly. Measured 2026-09-02: **9 of 16 `Implementing` tasks
-carry no plan file (56%)**, and an in-flight task's surface is derived from its
-plan file **only** — there is no task-body/origin fallback on that side, unlike
-the candidate's `--from auto`. The result is **108 of 122** live candidates
-returning `UNCHECKABLE`: a prompt on roughly nine picks in ten with nothing
-actionable to say. Set `warn` or `confirm` in your own profile to opt in.
+each opt out explicitly.
+
+**Why it ships off, measured 2026-09-17.** Over **131** live candidates the
+verdicts are **0 CLEAR / 86 CLEAR_CAVEATED / 31 CONFLICT / 14 UNCHECKABLE** (an
+in-flight task with no plan is read from its description, so most candidates are
+checkable). But `warn` prompts on both `CONFLICT` and `UNCHECKABLE`, so
+that is **45 prompts — 34% of picks**, above the 30% bar set for flipping the
+default. Prompt *quality* is the second reason: of 6 sampled `CONFLICT`
+verdicts — counterparties named through `pa.conflict_refs`, the only sanctioned
+way — exactly **1 was a real edit collision** (two tasks both adding defaults to
+`codeagent_config.json`). The other 5 named a file one side merely *runs* or
+*cites*: a test both plans execute, a guard script one plan only mentions. That
+is the false-positive shape the Notes below describe, now quantified.
+
+The remaining `UNCHECKABLE` causes are `all_phantom` (5) and
+`no_extractable_paths` (9) — plans whose declared paths no longer exist, and
+plans that declare none. Set `warn` or `confirm` in your own profile to opt in;
+the numbers above are a corpus snapshot and move with the backlog.
 
 Headless profiles must keep `"off"` regardless: under `confirm` and `warn` the
 procedure prompts, which an unattended run cannot answer.
+
+### Parallel-safety assessment
+
+`parallel_assessment` governs the **Parallel-Safety Assessment Procedure**
+(`parallel-assessment.md`), which `aitask-pick` runs **after a task is selected
+and before it is claimed** — the moment a user actually asks "given what is in
+flight, is it safe to pick this?". It is agent judgement over what the in-flight
+tasks' descriptions and plans say they touch, with the deterministic checker's
+output as structured input.
+
+| value | behaviour |
+|---|---|
+| `"off"` | **the default, and what an absent key means.** Whole-procedure no-op: nothing is invoked, read or displayed |
+| `"show"` | assess and display; prompt only when a row is graded `overlaps` or the checker was unusable |
+| `"ask"` | assess, display, and always prompt |
+
+**Opt-in on purpose.** Every enabled pick pays a real cost — a checker call plus
+reading the description (and plan) of every live in-flight task — and pays it
+*before* the claim, on a task the user may not even keep. A knob that charges
+that by default would be paid most often by the picks that least need it, so
+`"off"` ships everywhere and the absent key agrees.
+
+**Headless profiles never prompt**, in either mode: under `headless: true` the
+procedure displays its assessment and continues. `"ask"` is accepted there and
+behaves like `"show"` — an unattended run cannot answer a question, and a mode
+that asked one would hang the pick.
+
+**It is advisory, never a guard**, for the same reason `parallel_admission` is:
+descriptions and plans are heuristic accounts of what a task will edit. A hard
+stop waits on t1343's declared per-task edit manifest.
+
+**Two call sites, two evidence qualities, one checker.** This runs pre-claim
+against task descriptions; `parallel_admission`'s preflight runs post-plan
+against plans. Both classify the checker's output through the same contract
+(`parallel-admission-checker.md`), so they cannot disagree about what a usable
+answer is.
 
 ## Gate Declaration Model
 
