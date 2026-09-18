@@ -20,6 +20,7 @@ from launch_modes import DEFAULT_LAUNCH_MODE, VALID_LAUNCH_MODES
 
 from brainstorm.constants import (
     RUNNER_STATE_DISPLAY,
+    _ANY_NODE_OPS,
     _MODULE_OPS,
     _MULTI_NODE_OPS,
     _MULTI_NODE_REASON,
@@ -422,7 +423,9 @@ def op_states_for_selection(node_ctx: dict, cardinality: int) -> dict:
         (umbrella subgraph / no ancestor subgraph / no linked task) — the
         cardinality reason takes precedence when both apply;
       * multi-node ops (compare / synthesize) are disabled when
-        ``cardinality < 2`` (reason "mark 2+ nodes").
+        ``cardinality < 2`` (reason "mark 2+ nodes");
+      * any-node ops (discuss) are always enabled — at any cardinality and on
+        the root node.
     """
     multi = cardinality > 1
     states: dict[str, tuple[bool, str]] = {}
@@ -458,6 +461,9 @@ def op_states_for_selection(node_ctx: dict, cardinality: int) -> dict:
 
     for op in _MULTI_NODE_OPS:
         states[op] = (False, "") if multi else (True, _MULTI_NODE_REASON)
+
+    for op in _ANY_NODE_OPS:
+        states[op] = (False, "")
 
     return states
 

@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "lib"))
 
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -101,7 +102,18 @@ from brainstorm.brainstorm_crew import (
     register_module_syncer,
     register_synthesizer,
 )
-from agent_launch_utils import is_tmux_available
+from agent_command_screen import AgentCommandScreen, resolve_skill_profile
+from agent_launch_utils import (
+    TmuxLaunchConfig,
+    find_terminal,
+    is_tmux_available,
+    launch_in_tmux,
+    maybe_spawn_minimonitor,
+    resolve_agent_string,
+    resolve_dry_run_command,
+    spawn_in_terminal,
+)
+from codebrowser.agent_utils import resolve_agent_binary
 from guarded_dismiss import GuardedModalScreen
 from launch_modes import DEFAULT_LAUNCH_MODE, VALID_LAUNCH_MODES
 from agentcrew.agentcrew_utils import (
@@ -226,6 +238,10 @@ from brainstorm.modals import (  # noqa: F401
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
+
+# Repo root that owns this .aitask-scripts/ — the cwd for the Discuss agent
+# launch (t1823_4). AIT_PATH is <root>/ait.
+_REPO_ROOT = Path(AIT_PATH).parent
 
 
 
@@ -2944,13 +2960,20 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, RowNavMixin, App):
         wizard (t983_11).
 
         ``op_key`` is the chosen operation string, or None if cancelled. On
-        cancel nothing happens. ``delete`` is handled inline (no wizard); every
-        other op pushes :class:`ActionsWizardScreen`, seeded from the contextual
-        selection — the screen reproduces the per-op starting-step routing in
-        its ``on_mount``, and its dismiss-result is run by ``_on_wizard_result``
-        → ``_execute_design_op``.
+        cancel nothing happens. ``discuss`` launches the advisory agent (no
+        wizard, no crew agent) and validates its own effective targets, so it
+        runs BEFORE the cursor-node existence check: a vanished unmarked cursor
+        must not block a discuss of marked nodes that still exist (t1823_4).
+        ``delete`` is handled inline (no wizard); every other op pushes
+        :class:`ActionsWizardScreen`, seeded from the contextual selection — the
+        screen reproduces the per-op starting-step routing in its ``on_mount``,
+        and its dismiss-result is run by ``_on_wizard_result`` →
+        ``_execute_design_op``.
         """
         if not op_key:
+            return
+        if op_key == "discuss":
+            self._launch_discuss(node_id)
             return
         # The DAG can mutate (background poll timers) while the modal is open.
         if node_id not in list_nodes(self.session_path):
@@ -2971,6 +2994,95 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, RowNavMixin, App):
             ActionsWizardScreen(op_key=op_key, node_id=node_id, marked=marked),
             self._on_wizard_result,
         )
+
+    def _launch_discuss(self, node_id: str) -> None:
+        """Launch the advisory discuss agent over the effective targets (t1823_4).
+
+        Targets are the marked set, else the cursor node, filtered to nodes that
+        still exist (the DAG can mutate while the Operations dialog is open).
+        Opens :class:`AgentCommandScreen` (agent/model + window-vs-split); never
+        enters the wizard and never registers a crew agent.
+        """
+        live = set(list_nodes(self.session_path))
+        wanted = sorted(self._selection.effective()) or [node_id]
+        targets = [n for n in wanted if n in live]
+        if not targets:
+            self.notify("Selected node(s) no longer exist.", severity="error")
+            return
+        vanished = [n for n in wanted if n not in live]
+        if vanished:
+            self.notify(
+                f"Skipping vanished node(s): {', '.join(vanished)}",
+                severity="warning",
+            )
+        agent_name, binary, error_msg = resolve_agent_binary(_REPO_ROOT, "discuss")
+        if not binary:
+            self.notify(
+                error_msg or "Could not resolve code agent configuration",
+                severity="error",
+            )
+            return
+        if not shutil.which(binary):
+            self.notify(
+                f"{agent_name} CLI ({binary}) not found in PATH", severity="error"
+            )
+            return
+        args = [str(self.task_num), *targets]
+        full_cmd = resolve_dry_run_command(_REPO_ROOT, "discuss", *args)
+        if full_cmd is None:
+            self._run_discuss_default(args)
+            return
+        screen = AgentCommandScreen(
+            f"Discuss {', '.join(targets)}",
+            full_cmd,
+            "/aitask-brainstorm-discuss " + " ".join(args),
+            default_window_name=f"agent-discuss-{self.task_num}",
+            project_root=_REPO_ROOT,
+            operation="discuss",
+            operation_args=args,
+            default_agent_string=resolve_agent_string(_REPO_ROOT, "discuss"),
+            skill_name="brainstorm-discuss",
+            default_profile=resolve_skill_profile("brainstorm-discuss", _REPO_ROOT),
+        )
+        self.push_screen(
+            screen, lambda result, s=screen: self._on_discuss_dialog_result(s, result)
+        )
+
+    def _on_discuss_dialog_result(self, screen, result) -> None:
+        """Dispatch the Discuss dialog's result — always ``screen.full_command``.
+
+        The dialog's agent/model picker, temporary profile override and manual
+        edits all land in ``screen.full_command`` (``run_terminal`` stores it,
+        then dismisses the bare ``"run"``), so rebuilding the default wrapper
+        argv here would launch a different configuration from the one shown.
+        """
+        if isinstance(result, TmuxLaunchConfig):
+            _, err = launch_in_tmux(screen.full_command, result)
+            if err:
+                self.notify(err, severity="error")
+            elif result.new_window:
+                maybe_spawn_minimonitor(result.session, result.window)
+        elif result == "run":
+            self._run_dialog_command(screen.full_command)
+
+    def _run_dialog_command(self, command: str) -> None:
+        """Run a dialog's finalized command verbatim (the board's t1225 pattern)."""
+        self._dispatch_argv(["sh", "-c", command])
+
+    def _run_discuss_default(self, args: list[str]) -> None:
+        """Rebuild the default wrapper argv — ONLY when no dialog was available
+        (``resolve_dry_run_command`` returned None)."""
+        wrapper = str(_REPO_ROOT / ".aitask-scripts" / "aitask_codeagent.sh")
+        self._dispatch_argv([wrapper, "invoke", "discuss", *args])
+
+    def _dispatch_argv(self, argv: list[str]) -> None:
+        """Run ``argv`` in a new terminal, else inline with the TUI suspended."""
+        terminal = find_terminal()
+        if terminal:
+            spawn_in_terminal(terminal, argv, cwd=str(_REPO_ROOT))
+        else:
+            with self.suspend():
+                subprocess.call(argv, cwd=str(_REPO_ROOT))
 
     def _on_wizard_result(self, result) -> None:
         """Run the Actions wizard's launch result (t983_11). ``result`` is a

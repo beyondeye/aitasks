@@ -21,7 +21,6 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, VerticalScroll
 from textual.message import Message
-from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Label, Static
 
 # Add sibling lib dir to path so config_utils resolves when this module is
@@ -33,6 +32,7 @@ if _LIB_DIR not in sys.path:
 # MODEL_FILES / load_all_models live in config_utils so headless callers (e.g.
 # cross_repo_settings) can reach the catalog without importing this
 # Textual-dependent module. Re-exported here for the existing importers.
+from guarded_dismiss import GuardedModalScreen  # noqa: E402
 from config_utils import (  # noqa: E402,F401
     MODEL_FILES,
     _load_json,
@@ -282,7 +282,7 @@ class FuzzySelect(Container):
             self.post_message(self.Highlighted(self.filtered[self.highlight_index]["value"]))
 
 
-class AgentModelPickerScreen(ModalScreen):
+class AgentModelPickerScreen(GuardedModalScreen):
     """Single-screen picker that cycles through six model lists.
 
     Lists are switched with Shift+Left / Shift+Right. The fuzzy-search Input
@@ -594,7 +594,7 @@ class AgentModelPickerScreen(ModalScreen):
         return out
 
 
-class LaunchModePickerScreen(ModalScreen):
+class LaunchModePickerScreen(GuardedModalScreen):
     """Pick headless/interactive launch mode for a brainstorm agent type."""
 
     DEFAULT_CSS = """

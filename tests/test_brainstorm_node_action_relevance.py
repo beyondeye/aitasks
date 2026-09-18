@@ -35,6 +35,7 @@ from brainstorm.brainstorm_app import (  # noqa: E402
 _SINGLE = ("explore", "fast_track", "delete")
 _MODULE = ("module_decompose", "module_merge", "module_sync")
 _MULTI = ("compare", "synthesize")
+_ANY = ("discuss",)
 
 
 class OpStatesForSelectionPureTests(unittest.TestCase):
@@ -107,6 +108,16 @@ class OpStatesForSelectionPureTests(unittest.TestCase):
         for op in _MODULE + ("delete",):
             self.assertTrue(states[op][0])
             self.assertEqual(states[op][1], "select a single node")
+
+    def test_any_node_ops_enabled_at_every_cardinality(self):
+        # discuss is advisory and reads any proposal: enabled for one node, for
+        # a marked set, and on the root design (t1823_4).
+        root_ctx = {"is_root": True, "is_umbrella": True,
+                    "has_ancestor": False, "has_linked_task": False}
+        for ctx, n in ((self._FULL_CTX, 1), (self._FULL_CTX, 3), (root_ctx, 1)):
+            states = op_states_for_selection(ctx, n)
+            for op in _ANY:
+                self.assertEqual(states[op], (False, ""), f"{op} at N={n}")
 
     def test_cardinality_roundtrip_flips_states(self):
         # 1 -> 2 -> 1: single ops and multi ops swap enabled/disabled both ways.

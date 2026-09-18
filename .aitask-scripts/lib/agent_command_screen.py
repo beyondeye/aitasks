@@ -59,6 +59,7 @@ from agent_launch_utils import (  # noqa: E402
     load_tmux_defaults,
     resolve_dry_run_command,
 )
+from guarded_dismiss import GuardedDismissMixin  # noqa: E402
 from shortcuts_mixin import ShortcutsMixin  # noqa: E402
 from tui_clipboard import copy_to_system_clipboard  # noqa: E402
 
@@ -173,7 +174,7 @@ def should_default_to_new_window(
     return bool(operation and operation in _FRESH_WINDOW_OPERATIONS)
 
 
-class AgentCommandScreen(ShortcutsMixin, ModalScreen):
+class AgentCommandScreen(GuardedDismissMixin, ShortcutsMixin, ModalScreen):
     # Shared sub-scope: this dialog is reused across multiple TUIs (board,
     # codebrowser, monitor, syncer), so its shortcuts belong under "shared"
     # (like shared.stale_entry), not under any single TUI's scope.

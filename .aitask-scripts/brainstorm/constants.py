@@ -253,6 +253,29 @@ _OPERATION_HELP: dict[str, dict] = {
             "De-stale a module before merging it back up.",
         ],
     },
+    # Source: BrainstormApp._launch_discuss (brainstorm_app.py) +
+    # .claude/skills/aitask-brainstorm-discuss/ (t1823).
+    "discuss": {
+        "title": "Discuss — Advisory Agent",
+        "summary": (
+            "Open an interactive, read-only code agent over the selected "
+            "proposal(s): compare them, explain one plainly, answer questions, "
+            "and check a design for structural flaws and risks. It creates no "
+            "node and changes no file."
+        ),
+        "reads_from_parent": [
+            "The proposal file of every target node (cursor or marked set).",
+            "Node ids resolved to proposal paths by aitask_brainstorm_context.sh.",
+        ],
+        "produces": [
+            "Nothing persisted — a conversation in a tmux window or terminal.",
+        ],
+        "use_cases": [
+            "Compare two marked proposals before choosing one to explore.",
+            "Get a plain-language walkthrough of a dense proposal.",
+            "Stress-test a design for flaws before fast-tracking it.",
+        ],
+    },
     # Source: BrainstormApp._is_session_op_disabled (this file) +
     # session status machine in brainstorm_session.py (init / active /
     # paused / completed / archived).
@@ -382,7 +405,7 @@ _WIZARD_STEPS: list[_WizardStep] = [
         ),
         False,
     ),
-    _WizardStep("confirm", lambda c: c.get("op") not in ("", "delete"), False),
+    _WizardStep("confirm", lambda c: c.get("op") not in ("", "delete", "discuss"), False),
 ]
 
 
@@ -408,6 +431,10 @@ _MODULE_OPS = ("module_decompose", "module_merge", "module_sync")
 
 
 _MULTI_NODE_OPS = ("compare", "synthesize")
+
+
+# Enabled at any cardinality >= 1, including the root node (t1823_4).
+_ANY_NODE_OPS = ("discuss",)
 
 
 _SINGLE_NODE_REASON = "select a single node"

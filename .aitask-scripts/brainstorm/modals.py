@@ -1248,8 +1248,8 @@ class NodeActionSelectModal(GuardedModalScreen):
     Surfaced via the `A` keybinding on the Browse tab. Offers every operation
     that can run from the selection — the single-node ops (explore, the
     fast-track preset, delete), the module ops (module_decompose / module_merge
-    / module_sync, seeded from the node's subgraph), and the multi-node ops
-    (compare / synthesize). Each op is shown disabled with a reason when it does
+    / module_sync, seeded from the node's subgraph), the multi-node ops
+    (compare / synthesize), and the any-cardinality advisory ``discuss`` op. Each op is shown disabled with a reason when it does
     not apply to the current selection — single-node ops grey when 2+ nodes are
     marked, multi-node ops grey when fewer than 2 are — per the ``op_states``
     map (computed by the caller via :func:`op_states_for_selection`). ``H`` on a
@@ -1263,16 +1263,18 @@ class NodeActionSelectModal(GuardedModalScreen):
     ]
 
     # Operation keys offered, in contextual display order (parent t983 design:
-    # explore · compare · synthesize · module_* · fast_track · delete).
-    # Labels/descriptions are pulled from _OP_LABELS so the picker stays in sync
-    # with the wizard. ``fast_track`` (UC-3 preset, t756_6) and ``delete`` are
-    # NOT wizard ops in _OP_LABELS — fast_track seeds a single-module
-    # module_decompose, delete is handled inline via DeleteNodeModal — so their
-    # labels live in _LOCAL_LABELS.
+    # explore · compare · synthesize · module_* · fast_track · delete, then
+    # discuss). Labels/descriptions are pulled from _OP_LABELS so the picker
+    # stays in sync with the wizard. ``fast_track`` (UC-3 preset, t756_6),
+    # ``delete`` and ``discuss`` are NOT wizard ops in _OP_LABELS — fast_track
+    # seeds a single-module module_decompose, delete is handled inline via
+    # DeleteNodeModal, discuss launches an advisory agent via
+    # AgentCommandScreen (t1823_4) — so their labels live in _LOCAL_LABELS.
+    # discuss is appended LAST so the first enabled row stays explore.
     _OPS = [
         "explore", "compare", "synthesize",
         "module_decompose", "module_merge", "module_sync",
-        "fast_track", "delete",
+        "fast_track", "delete", "discuss",
     ]
 
     _LOCAL_LABELS = {
@@ -1283,6 +1285,10 @@ class NodeActionSelectModal(GuardedModalScreen):
         "delete": (
             "Delete this node",
             "Remove this node and all its descendants",
+        ),
+        "discuss": (
+            "Discuss",
+            "Talk the selected proposal(s) over with an advisory agent — read-only",
         ),
     }
 

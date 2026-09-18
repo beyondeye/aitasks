@@ -8,7 +8,7 @@ Public API:
     - CycleField, ConfigRow, EditStringScreen
     - compose_profile_fields(profile_data, *, id_prefix, expanded_field=None)
     - collect_profile_values(query_one, base_data, *, id_prefix)
-    - ProfileEditScreen(ModalScreen)
+    - ProfileEditScreen(GuardedModalScreen)
 
 Widget IDs follow the exact existing scheme used by `settings_app.py` so the
 profile-string Enter handler and value collection stay compatible:
@@ -35,8 +35,9 @@ from textual.app import ComposeResult  # noqa: E402
 from textual.binding import Binding  # noqa: E402
 from textual.containers import Container, Horizontal, VerticalScroll  # noqa: E402
 from textual.message import Message  # noqa: E402
-from textual.screen import ModalScreen  # noqa: E402
 from textual.widgets import Button, Input, Label, Static  # noqa: E402
+
+from guarded_dismiss import GuardedModalScreen  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -570,7 +571,7 @@ class ConfigRow(Static):
 # ---------------------------------------------------------------------------
 # Modal: edit a single string value
 # ---------------------------------------------------------------------------
-class EditStringScreen(ModalScreen):
+class EditStringScreen(GuardedModalScreen):
     """Modal for editing a single string value (profile fields)."""
 
     BINDINGS = [Binding("escape", "cancel", "Cancel", show=False)]
@@ -793,7 +794,7 @@ def collect_profile_values(
 # ---------------------------------------------------------------------------
 # Modal: edit a profile per skill run (consumer: AgentCommandScreen, t777_17)
 # ---------------------------------------------------------------------------
-class ProfileEditScreen(ModalScreen):
+class ProfileEditScreen(GuardedModalScreen):
     """Modal for editing an execution profile's fields.
 
     Usage (single-callback / legacy):

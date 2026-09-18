@@ -110,7 +110,7 @@ class NodeActionSelectModalTests(unittest.TestCase):
                     [r.op_key for r in rows],
                     ["explore", "compare", "synthesize",
                      "module_decompose", "module_merge", "module_sync",
-                     "fast_track", "delete"],
+                     "fast_track", "delete", "discuss"],
                 )
                 self.assertTrue(all(not r.op_disabled for r in rows))
                 self.assertTrue(all(r.can_focus for r in rows))
@@ -235,8 +235,8 @@ class NodeActionSelectModalTests(unittest.TestCase):
                 await pilot.pause()
                 notices = []
                 app.notify = lambda msg, **kw: notices.append((msg, kw))
-                # fast_track is the only op with NO _OPERATION_HELP entry (the
-                # session-level delete/pause/etc. DO have help). It is row index
+                # fast_track has NO _OPERATION_HELP entry (the session-level
+                # delete/pause/etc. and discuss DO have help). It is row index
                 # 6 — 6 downs from explore reach it.
                 for _ in range(6):
                     await pilot.press("down")

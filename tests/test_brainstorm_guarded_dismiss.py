@@ -45,6 +45,10 @@ from brainstorm.utils import next_step_id  # noqa: E402
 BRAINSTORM_DIR = REPO_ROOT / ".aitask-scripts" / "brainstorm"
 DIFFVIEWER_DIR = REPO_ROOT / ".aitask-scripts" / "diffviewer"
 SECTION_VIEWER = REPO_ROOT / ".aitask-scripts" / "lib" / "section_viewer.py"
+SHARED_LAUNCH_DIALOGS = [
+    REPO_ROOT / ".aitask-scripts" / "lib" / name
+    for name in ("agent_command_screen.py", "agent_model_picker.py", "profile_editor.py")
+]
 
 PROPOSAL = """\
 # Proposal
@@ -304,13 +308,16 @@ class GuardedDismissContractTests(unittest.TestCase):
 # Source enforcement
 # --------------------------------------------------------------------------- #
 def _screen_source_files():
-    """Brainstorm plus every overlay it can push: the section viewer and the
+    """Brainstorm plus every overlay it can push: the section viewer, the
     diff viewer's screen set (DiffViewerScreen → SummaryScreen / MergeScreen →
-    SaveMergeDialog; the plan manager lives in the same package)."""
+    SaveMergeDialog; the plan manager lives in the same package), and the shared
+    agent-launch dialog chain the Discuss op opens (AgentCommandScreen →
+    AgentModelPickerScreen / ProfileEditScreen → EditStringScreen, t1823_4)."""
     return (
         sorted(BRAINSTORM_DIR.glob("*.py"))
         + sorted(DIFFVIEWER_DIR.glob("*.py"))
         + [SECTION_VIEWER]
+        + SHARED_LAUNCH_DIALOGS
     )
 
 
@@ -485,6 +492,80 @@ class StatusRefreshTimerTests(unittest.TestCase):
         self.assertEqual(made[0].stops, 1)
         self.assertEqual(made[1].stops, 0)
         self.assertIs(app._status_refresh_timer, made[1])
+
+
+# --------------------------------------------------------------------------- #
+# Shared agent-launch dialog chain reachable from the Discuss op (t1823_4)
+# --------------------------------------------------------------------------- #
+class SharedLaunchDialogGuardTests(unittest.TestCase):
+    """The Discuss op pushes the shared ``AgentCommandScreen`` over brainstorm,
+    and that dialog pushes the model picker and the profile editor. A stale
+    close on any of them must not pop the brainstorm screen beneath it."""
+
+    def test_shared_dialog_classes_are_guarded(self):
+        from guarded_dismiss import GuardedDismissMixin
+        import agent_command_screen as acs_mod
+        import agent_model_picker as amp_mod
+        import profile_editor as pe_mod
+
+        checked = 0
+        for mod in (acs_mod, amp_mod, pe_mod):
+            for _, cls in inspect.getmembers(mod, inspect.isclass):
+                if cls.__module__ != mod.__name__ or not issubclass(cls, Screen):
+                    continue
+                checked += 1
+                self.assertTrue(
+                    issubclass(cls, GuardedDismissMixin), f"{cls.__qualname__} is unguarded"
+                )
+        self.assertGreaterEqual(checked, 5)
+
+    def _assert_repeated_close_keeps_parent(self, make_screen, close):
+        async def runner():
+            app = _StackHost()
+            async with app.run_test(size=(120, 40)) as pilot:
+                parent = _guarded_screen_cls()()
+                app.push_screen(parent)
+                await pilot.pause()
+                screen = make_screen()
+                app.push_screen(screen)
+                await pilot.pause()
+                self.assertIs(app.screen, screen)
+                for _ in range(3):
+                    close(screen)
+                    await pilot.pause()
+                self.assertIs(app.screen, parent)
+                self.assertTrue(app.is_running)
+
+        asyncio.run(runner())
+
+    def test_agent_command_screen_repeated_cancel_keeps_parent(self):
+        from agent_command_screen import AgentCommandScreen
+
+        self._assert_repeated_close_keeps_parent(
+            lambda: AgentCommandScreen(
+                "Discuss n001", "echo discuss", "/aitask-brainstorm-discuss 0 n001",
+                project_root=REPO_ROOT,
+            ),
+            lambda s: s.action_cancel(),
+        )
+
+    def test_edit_string_screen_repeated_cancel_keeps_parent(self):
+        from profile_editor import EditStringScreen
+
+        self._assert_repeated_close_keeps_parent(
+            lambda: EditStringScreen("k", "v"), lambda s: s.action_cancel()
+        )
+
+    def test_agent_model_picker_repeated_back_keeps_parent(self):
+        from agent_model_picker import AgentModelPickerScreen, load_all_models
+
+        self._assert_repeated_close_keeps_parent(
+            lambda: AgentModelPickerScreen(
+                "discuss", "claudecode", "opus5",
+                all_models=load_all_models(REPO_ROOT),
+            ),
+            lambda s: s.action_go_back(),
+        )
 
 
 if __name__ == "__main__":
