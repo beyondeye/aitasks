@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: [t1823_4]
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [ait_brainstorm, skills]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1823
 created_at: 2026-09-17 09:51
-updated_at: 2026-09-17 09:51
+updated_at: 2026-09-18 12:41
 ---
 
 ## Context
