@@ -82,3 +82,5 @@ archived; Defer is allowed but creates a carry-over task.
 > |    it is a dead end rather than data loss. Acceptance case 6b pins only that
 > |    fail-safe half so it needs no rewrite when t1773 lands; case 6a proves the
 > |    gone-pane branch itself works when it is actually reached.
+
+> **👁 note:read** id=2026-09-18T12:37:54Z.75847fc67abbbe64f9e2cff3 by=t1705_11 at=2026-09-18T12:37:54Z mode=explicit ids=2026-09-09T18:30:02Z.c78f5b92fdf9a4beba6d88b7
