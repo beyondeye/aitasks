@@ -53,3 +53,10 @@ None identified.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+- **Actual work done:** Changed `DEFAULT_PREAMBLE` in `.aitask-scripts/monitor/concern_parser.py` to end with "please address them" instead of "please address in the plan". Updated the pinned literal in `tests/test_concern_parser.py` (`test_clipboard_payload_is_byte_identical`) to match.
+- **Deviations from plan:** None.
+- **Issues encountered:** None. `tests/test_concern_parser.py`: 184 passed.
+- **Key decisions:** Changed only the shared constant. Every clipboard path (minimonitor, and monitor through `monitor_shared.py`) uses `build_clipboard_payload()`'s default preamble, so no caller needed an edit.
+- **Upstream defects identified:** None
