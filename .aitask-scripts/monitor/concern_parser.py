@@ -242,7 +242,7 @@ _IMPACT_ENTRY_PARTS = re.compile(
 
 DEFAULT_PREAMBLE = (
     "I have some concerns: please verify them and if valid "
-    "please address in the plan"
+    "please address them"
 )
 
 # The round header a producer emits as the first line inside the fences:

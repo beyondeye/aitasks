@@ -3084,7 +3084,7 @@ class TestFiveFieldProjectionBackCompat(unittest.TestCase):
         self.assertEqual(
             build_clipboard_payload(concerns),
             "I have some concerns: please verify them and if valid "
-            "please address in the plan\n"
+            "please address them\n"
             "\n"
             "- [medium | some region] A plain concern with no trailer at all.\n"
             "- [low | other] Real prose. Disposition: follow-up. "
