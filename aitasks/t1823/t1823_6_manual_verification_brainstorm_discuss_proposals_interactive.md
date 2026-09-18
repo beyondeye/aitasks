@@ -31,3 +31,16 @@ archived; Defer is allowed but creates a carry-over task.
 - [ ] [t1823_4] Split placement works; with tmux unavailable the terminal fallback launches
 - [ ] [t1823_4] No crew agent appears in the Running tab and no node is created by Discuss
 - [ ] [t1823_5] Rendered docs (brainstorm reference + how-to + the new skill page) read correctly in `./serve.sh` and describe what actually shipped (label, shortcodes, read-only guarantee)
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1823_4** id=2026-09-18T09:35:44Z.eadd31f753c6449664af42dc from=t1823_4 from_verified=yes at=2026-09-18T09:35:44Z base=04ae398bd956744a10b7737c666274a9c2f68072 base_branch=main dirty=yes host=omg16
+>
+> | t1823_4 landed (commit 04ae398bd) with two behaviours your checklist does not yet cover, both added in plan review:
+> | 
+> | 1. Stale-dismiss guard on the shared agent-launch dialogs. AgentCommandScreen, AgentModelPickerScreen, LaunchModePickerScreen, ProfileEditScreen and EditStringScreen now derive from the t1816 guarded-dismiss base. Suggested live check: in `ait brainstorm <N>` open Discuss, press Esc rapidly several times (also from the model picker `a` and the profile editor), brainstorm must stay up on the Browse tab. The guard applies in every TUI using these dialogs (board, codebrowser, monitor, minimonitor, syncer, settings), so a quick rapid-Esc on one other host is worthwhile too.
+> | 
+> | 2. Target resolution. Discuss validates its effective targets itself, before the cursor-exists check: with nodes A and B marked and the cursor on a node C that gets deleted while the Operations dialog is open, Discuss still launches for A and B. A partly vanished marked set launches the survivors and warns naming the dropped ids. Both are unit-tested (tests/test_brainstorm_discuss_launch.py); the live repro needs a node deleted mid-dialog, so it may be impractical to check by hand.
+> | 
+> | Advisory only.
