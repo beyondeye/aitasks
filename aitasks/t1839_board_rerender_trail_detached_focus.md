@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1794
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5
 created_at: 2026-09-18 12:47
-updated_at: 2026-09-18 12:55
+updated_at: 2026-09-18 15:49
 ---
 
 ## Origin
@@ -57,3 +58,8 @@ awaitable completes, or make the queued refocus re-queue while no card is
 mounted, as `TrailsApp._refocus` does) or in the board's `_focused_card` /
 `_refocus_card` (treat a detached card as "nothing focused" and fall back to
 the column). Keep `tests/test_board_keymap_characterization.py` green.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-18T12:49:16Z status=pass attempt=1 type=human
