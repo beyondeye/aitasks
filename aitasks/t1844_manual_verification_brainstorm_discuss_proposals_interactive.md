@@ -13,3 +13,7 @@ updated_at: 2026-09-18 17:26
 ---
 
 Carry-over of deferred manual-verification items from t1823_6. Re-pick this task to continue the remaining checklist.
+
+## Verification Checklist
+
+- [ ] [t1823_4] Rapid Esc (several presses) on the Discuss agent dialog, its model picker and its profile editor leaves `ait brainstorm <N>` running on the Browse tab; a rapid-Esc on the same dialogs in one other host TUI (e.g. board or codebrowser) also leaves that TUI up — DEFER 2026-09-18 17:05 brainstorm half PASSED (rapid Esc from Discuss dialog, model picker, profile editor → alive on Browse); other-host half (board p / codebrowser e) still to check by hand
