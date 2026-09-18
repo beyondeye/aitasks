@@ -228,3 +228,65 @@ standard Step 9 flow.
 
 ### Planned mitigations
 - timing: post-phase | name: stress_bytrail_focus_probe | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: organic trigger not reproduced on the board | desc: Loaded, randomized drift-re-render + focus-churn Pilot probe, with/without the rescue; findings recorded, organic sequence promoted to a test if found
+
+## Final Implementation Notes
+
+- **Actual work done:** Steps 1–3 as planned, all in
+  `.aitask-scripts/board/aitask_board.py` + `tests/test_board_bytrail_view.py`:
+  - `_focused_card` / `_focused_unit` require `is_attached`.
+  - `KanbanApp._rerender_trail` override (By-Trail only; delegates to the mixin
+    otherwise) arms `_watch_detached_focus` — generation-scoped via
+    `_detached_focus_gen` (initialised in `__init__` after `_init_trail_state()`),
+    bounded by `_DETACHED_FOCUS_HOPS = 5`.
+  - `_restore_trail_focus`: same card → captured column → `_first_board_focus_target()`
+    → `set_focus(None)`, decided up front.
+  - `DetachedFocusRescueTests` (4 tests).
+- **Deviations from plan:** test fixtures tightened during implementation so each
+  restore rung is discriminated: the same-card test focuses B with A (the
+  leftmost target) as the dead card, and `_three_ghost_doc` adds the extra member
+  to **wave 2** so "column fallback" (→ B in `trail-w2`) differs from "leftmost"
+  (→ A). Before that change the "restore always leftmost" mutant passed both tests.
+- **Mutants (scratch runner patching the fixture-loaded module, tree untouched):**
+  unchecked `_focused_card` → red test 1; watch no-op → red tests 2, 3, 4; no
+  generation check → red test 4; restore-always-leftmost → red tests 2, 3.
+- **Post-phase [stress_bytrail_focus_probe]:** 200 randomized iterations
+  (arrow keys, deferred `card.focus()` on arbitrary cards, real drift re-renders,
+  0–2 pauses) run concurrently with the full Python suite (load avg 6–8):
+  **0/200 detached with the watch, 0/200 with the watch stubbed.** No organic
+  board trigger found, consistent with the pre-plan probe; nothing promoted to a
+  committed test. The goal-achievement residual (fix targets a constructed
+  precondition) stands as recorded in `## Risk`.
+- **Issues encountered:** none beyond the fixture discrimination above.
+- **Upstream defects identified:** None
+- **Key decisions:** watch scoped to By-Trail re-renders via an override rather
+  than the shared `_queue_refocus` (review feedback: 7 other callers, and
+  per-refresh callback cost); no TrailsApp-style wait-for-mount re-queue, since
+  board cards are queryable at hop 0.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-09-18 16:20)
+- **Requested by user:** `_watch_detached_focus` returned permanently on
+  `_modal_is_active()`, but `_on_trail_drift` (board_trail_screen.py:771) re-renders
+  under a By-Trail modal; the stale focus lands on the underlying BoardScreen, so
+  the watch could end before the dead state arose and dismissing the modal exposed
+  dead keys. Confirmed valid — and additionally, under a modal `self.screen` IS the
+  modal, so the watch was reading the wrong screen's focus, and the caller's
+  refocus target (read via `_focused_card` → `self.screen`) was empty.
+- **Changes made:**
+  - `_board_screen()` (bottom of `screen_stack`); the watch reads the board
+    screen's focus and keeps running while a modal is up.
+  - Detached focus found under a modal → `board.set_focus(None)` immediately (the
+    dead reference never survives to dismissal) and the restore is parked in
+    `_detached_focus_pending` (gen, filename, col_id).
+  - New `BoardScreen.on_screen_resume` → `KanbanApp._resume_detached_focus()`:
+    applies the parked restore unless superseded (gen), the view changed, a modal
+    is still up, or the board already holds a live focus.
+  - The override takes the watch's restore target from the board screen when a
+    modal is active (the caller's modal-read target is empty).
+  - Test `test_rescue_survives_a_modal_open_over_the_rerender` (TrailSummaryScreen
+    via `v`, drift + late stale focus on the board screen, with negative control).
+  - Mutants: old return-on-modal, watch-reads-self.screen, resume-hook no-op,
+    no-board-screen-target → each red on the new test (8/8 mutants red overall).
+  - Neighbours 313 passed / 2 skipped; full suite PASSED.
+- **Files affected:** .aitask-scripts/board/aitask_board.py, tests/test_board_bytrail_view.py
