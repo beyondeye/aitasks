@@ -321,10 +321,10 @@ sentence and `assertNotIn("single-line", …)` / `assertNotIn("not valid YAML", 
 - `load_tmux_defaults` now refuses a name it has always returned, and it feeds
   actual session **creation** (`agentcrew_runner.py:437`) plus window targeting in
   the board and both monitors. A project deliberately running a dotted session
-  moves to `aitasks`, which is explicitly *not* unique across repos. · severity: medium (residual — the fallback stays silent for these consumers until `surface_illegal_name_in_yaml_readers` lands) · → mitigation: surface_illegal_name_in_yaml_readers
+  moves to `aitasks`, which is explicitly *not* unique across repos. · severity: medium (residual — the fallback stays silent for these consumers until `surface_illegal_name_in_yaml_readers` lands) · → mitigation: t1835
 - `spawn_session_detached --create-only` gains a new exit-44 refusal on the
   frozen-agent restore path (`agent_restore.py`), for configs that restored
-  before. · severity: medium (residual — pinned by a stub-tmux test row this task adds; live confirmation deferred to the mitigation) · → mitigation: verify_dotted_session_refusal_live
+  before. · severity: medium (residual — pinned by a stub-tmux test row this task adds; live confirmation deferred to the mitigation) · → mitigation: t1836
 - The `GeneratedCorpusInvariantTests` floor rework re-sources two counters from
   the PyYAML oracle. Those floors exist to catch generator degeneration; a
   careless edit (e.g. just lowering 50) would quietly weaken the suite. · severity: low (residual — addressed by inline post-phase remeasure_corpus_floors) · → mitigation: inline post-phase remeasure_corpus_floors
