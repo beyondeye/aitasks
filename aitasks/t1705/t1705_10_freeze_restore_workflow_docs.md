@@ -293,3 +293,5 @@ No code, no tmux.
 > | 
 > | t1773, t1766 and t1784 have all landed, so the "records for windows that no
 > | longer exist" case is restorable — no need to describe it as a limitation.
+
+> **👁 note:read** id=2026-09-19T18:53:14Z.55b3482100cfe4021ea58076 by=t1705_10 at=2026-09-19T18:53:14Z mode=explicit ids=2026-09-09T18:30:27Z.67bdf9e529c168862ec9dce2,2026-09-10T09:04:57Z.c3ed18370a74314077320714,2026-09-10T12:09:48Z.504dfefb9739218af831c9aa,2026-09-10T18:36:47Z.45ef729dc66e52e8a78eaccc,2026-09-17T12:43:19Z.3abb7b79eed944d4f191105b
