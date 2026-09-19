@@ -113,3 +113,8 @@ decisions" (the probe-name second-identity limitation). Anchors at
   (cycle, depends picker, issue URL open, file references, anchor), `?` in the
   detail screen lists `board.detail` keys, `esc` returns; Settings →
   Shortcuts still lists `board.detail`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-19T19:17:17Z status=pass attempt=1 type=human
