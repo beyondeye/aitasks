@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: [t1705_9]
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [documentation, website, docs, workflows, concepts, ait_setup, codeagent]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1705
 created_at: 2026-09-04 16:13
-updated_at: 2026-09-04 16:13
+updated_at: 2026-09-19 21:53
 ---
 
 ## Context
