@@ -3,12 +3,13 @@ priority: low
 effort: low
 depends: []
 issue_type: chore
-status: Ready
+status: Implementing
 labels: [python, testing]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1794
 followup_kind: review_finding
 created_at: 2026-09-20 11:14
-updated_at: 2026-09-20 11:14
+updated_at: 2026-09-20 11:20
 ---
 
 ## Context
