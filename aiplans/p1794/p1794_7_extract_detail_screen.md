@@ -231,3 +231,143 @@ Task-workflow Step 9: path-scoped commits, gates, archive `t1794_7`.
 None identified. The move set is grep/AST-confirmed, and the three corrections
 to the original plan (two shared classes move, `TASKS_DIR` via the manager,
 eight extra detail-only helpers) are covered by existing guards.
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - `.aitask-scripts/board/board_detail_screen.py` (new, 2,244 lines): the 35
+    moved names — `TaskDetailScreen`, the 20 field widgets and their helpers
+    (`CycleField` … `PullRequestField`, `_remove_dep_from_task`,
+    `_remove_verify_from_task`, `_reload_detail_screen`), the detail-only
+    pickers (`DepPickerItem` … `FileReferencePickerScreen`, plus
+    `CrossRepoRefItem`/`CrossRepoRefPickerScreen`) and the four detail-only
+    modals (`AnchorEditScreen`, `RemoveDepConfirmScreen`, `LockEmailScreen`,
+    `UnlockConfirmScreen`, `ResetTaskConfirmScreen`). Built by an asserting
+    script from six contiguous line ranges (each boundary's first line, its
+    successor and its trailing blank checked before cutting; the set of
+    top-level defs inside the ranges asserted equal to the move list). 33 of
+    the 35 blocks were verified as byte-for-byte substrings of the new module
+    before the board was touched — the two exceptions are the two blocks the
+    plan edits.
+  - The only edits in moved code: `TaskDetailScreen.__init__` and
+    `FileReferencesField.__init__` take the board's helpers as **required
+    keyword-only** callables (`task_types_provider`, `user_email_provider`,
+    `tmux_session_provider`; the screen forwards the tmux one to the field),
+    and the child-task branch of `_build_relations_fields` compares against
+    `self.manager.tasks_dir` instead of `TASKS_DIR` (C2).
+  - `aitask_board.py` 9,545 → 7,407 lines: `import board_detail_screen` + a
+    flat re-import of all 35 names; `make_task_detail_screen()` beside
+    `make_task_manager()` binds the three helpers in **lambdas**, so each
+    resolves through the board's namespace at call time and a test stubbing
+    `ab._get_user_email` still reaches the editor; `open_task_detail` is the
+    sole caller. Nine imports this move made dead were removed (`datetime`,
+    `Text`, `launch_or_focus_codebrowser`, `LEVELS_ASCENDING`, `label_for`,
+    `marker_for`, `normalize_followup_kind`, `Collapsible`, `_bare_topic_id`)
+    — chosen by diffing pyflakes against `HEAD` and keeping every name a test
+    reads as `ab.<name>` (the `board_widgets` / `board_workflow_phase`
+    re-exports the identity tests pin).
+  - Manifest: `lib/shortcut_scopes.py` board row → `("board",)` plus a new
+    `("board_detail_screen", …, ("board.detail",))` row;
+    `TrailsApp._shortcuts_exclude_sources` gains `board_detail_screen` so the
+    trails `?` editor neither lists nor executes an editor it never pushes.
+  - Tests: ~30 construction sites → `ab.make_task_detail_screen(`;
+    `test_board_detail_nested_actions` push-site guard rewritten as an AST
+    two-level invariant over `bf.board_module_paths()` (one
+    `TaskDetailScreen(...)` call, inside the factory; one factory call, inside
+    `open_task_detail`) — a text regex would now also match the new module's
+    docstring; `test_board_gate_digest_budget`'s `_build_gate_fields` home;
+    `HeadlessImportTests` + the harness fresh-sibling list gain the module;
+    `test_shortcut_scopes` pins that `board.detail` registers from the new
+    probe and that excluding the board alone no longer hides it; the trails
+    probe now also fails if the editor module is loaded; new
+    `tests/test_board_detail_screen.py` (7 tests: re-export identity with a
+    negative control, `__module__` homes, required-kw-only providers, the
+    factory's call-time binding of each helper, the injected codebrowser
+    session with a no-session control, and the `manager.tasks_dir` parent-row
+    check with both answers).
+- **C3 mutants** (in-process pytest plugin; no file edits): redirecting
+  `patch.object(board_detail_screen, …)` back to the board — the state a stale
+  `ab` patch leaves — turns **6** `FollowupKindApplyTests` red for
+  `subprocess` and **2** tests red for `_reload_detail_screen`, with the plugin
+  loaded but inert as the control (59 passed). The zero-call spy in
+  `test_an_invalid_kind_is_rejected_…` cannot be caught that way (the call
+  never happens), so a **production** mutant — `_apply` reloading even on
+  rejection — was used instead: it turns that test and
+  `test_a_rejection_…does_not_reload` red. The new factory test was mutant-
+  checked too (binding one provider to a different callable → red).
+- **Deviations from the plan:** none beyond the three corrections the plan
+  itself recorded (the two shared classes move; `TASKS_DIR` → the manager;
+  eight extra detail-only names). Two things the plan said "if needed" and did
+  not need: no doc inventory enumerates board modules, and
+  `bf.BOARD_MODULE_NAMES` already listed `board_detail_screen`.
+- **Issues encountered:**
+  - The board's `✓` waiver in `test_mark_glyphs_single_source` no longer
+    covered anything once the picker tick and the gate row left: the two
+    remaining `✓` characters are in docstrings, which rule 2 does not scan. The
+    waiver was dropped (`ALLOWED_LITERALS` is now empty, with a comment naming
+    where the literals went). The staleness check is raw-text, so it could not
+    have noticed — it accepts a docstring occurrence.
+  - The first C3 mutant harness installed itself in `pytest_runtest_setup`,
+    which runs **before** `setUpClass` has loaded the board, so the first test
+    of a class ran unmutated and looked like a surviving mutant. Moving the
+    install to `pytest_runtest_call` turned it red. A mutant that "survives"
+    is worth distrusting before the test is.
+  - Manual smoke: `?` does nothing **inside** the editor. Pre-existing and
+    unchanged by this move — `TaskDetailScreen.BINDINGS` (copied verbatim)
+    never spliced `SHORTCUTS_MIXIN_BINDINGS`; `board.detail` keys are edited
+    from the board's own `?`, which lists all of them, or from Settings.
+    The plan's manual step assumed the editor's own `?` worked.
+- **Key decisions:**
+  - A board-side factory rather than 30 test sites spelling three providers —
+    the `make_task_manager` precedent from t1794_4 — with the providers bound
+    as lambdas so existing `ab.<helper>` stubs keep working.
+  - `manager.tasks_dir` instead of a fourth injected value: the branch already
+    required a manager, and the manager is the task-dir owner since t1794_4.
+  - The editor's CSS stays in `KanbanApp.CSS`: the board is its only host,
+    several rules are shared with modals that stay (`#btn_save:disabled`,
+    `#dep_picker_dialog`), and `DepPickerItem`/`ChildPickerItem { height: 1 }`
+    must keep following `WIDGET_CSS`'s `PickerItem` rule (`WidgetCssPinTests`).
+    `CrossRepoRefPickerScreen.DEFAULT_CSS` moved with its class.
+  - Excluding the new module from the trails `?` sweep rather than letting it
+    list `board.detail`: behaviour there is unchanged, and t1794_6 already
+    established the exclusion over a "documented limitation".
+- **Verification evidence:** `bash tests/run_all_python_tests.sh` →
+  `PYTHON SUITE: PASSED (runner=pytest, exit=0)` — 7,931 passed, 2 skipped;
+  serial lane 11 passed. Targeted set (17 files incl. every `test_board_detail_*`,
+  `test_trails_app`, `test_board_package_contract`, `test_board_fixture_harness`,
+  the keymap characterization golden, `test_settings_shortcuts_tab`): 409
+  passed. C4 bash guards green with allowlists untouched
+  (`test_no_raw_tmux`, `test_shortcuts_registry_coverage`,
+  `test_keybinding_registry`, `test_no_lib_to_tui_import`,
+  `test_serial_carveout_doc_drift`) plus `test_task_dir_module_constants`.
+  `grep '^class TaskDetailScreen\|^class .*Field('` on the board: empty.
+  Manual smoke in a private tmux server against the live repo: card → editor
+  (Type list populated, i.e. the injected provider ran); Priority cycle marks
+  the edit pending; `Esc` leaves the task file byte-identical (`ait git status`
+  clean); Dependencies section expands; children picker lists all 8 children;
+  opening one nested shows its Parent and Anchor rows (the `manager.tasks_dir`
+  path); the board's `?` lists all 13 `board.detail` rows; Options cycles;
+  `q` exits with no traceback.
+- **Upstream defects identified:**
+  - `tests/test_mark_glyphs_single_source.py:283 — test_no_waiver_has_gone_stale checks the raw file text, so a waiver stays "earning its place" on a docstring occurrence even though rule 2 excludes docstrings; a waiver can therefore outlive every literal it waives (found while retiring the board's ✓ waiver, which this check would have kept alive)`
+- **Notes for sibling tasks:**
+  - **t1794_8 (column dialogs):** `ColumnMultiSelectScreen` stayed, and
+    `#btn_save:disabled` / `#btn_delete:disabled` / `#dep_picker_dialog` are
+    shared between moved and staying screens — check a CSS rule's other users
+    before moving it. `CycleField` now lives in `board_detail_screen.py`
+    (`SettingsScreen` reaches it through the board's re-export), so a column
+    dialog that wants it must import it from there, never from the board.
+  - **t1794_9 (notes):** t1521's anchor `aitask_board.py:4899` is now
+    `board_detail_screen.py` (`AnchorField._apply` → `_reload_detail_screen`);
+    every pending task citing a `TaskDetailScreen` / `*Field` / `*Picker*` line
+    number in `aitask_board.py` is stale by ~2,200 lines.
+  - Patching for the editor: `ab.board_detail_screen` is the target for
+    anything it calls (`subprocess`, `_reload_detail_screen`,
+    `launch_or_focus_codebrowser`, `_resolve_plan_path_for_task`, …); the
+    board's re-exports are inert there. Constructing the screen goes through
+    `ab.make_task_detail_screen(...)` — a bare `TaskDetailScreen(task)` now
+    raises `TypeError` by design.
+  - Adding a name to the module: add it to `MOVED_NAMES` in
+    `tests/test_board_detail_screen.py` and to the board's re-import list
+    (`test_board_package_contract`'s pairing guard requires the bare
+    `import board_detail_screen`, which is already there).
