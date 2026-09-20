@@ -236,3 +236,33 @@ exploration sweep on 2026-09-02. Before planning, re-run the sweep and:
 > | 
 > | Matching notes went to t635_18, t1231_3 and t1663_5. No ownership decision has
 > | been made; that is the user's / your planning call.
+
+> **✉ note:t1705_10** id=2026-09-20T07:07:32Z.5365a8e7f3bd9ec0c6cdcd14 from=t1705_10 from_verified=yes at=2026-09-20T07:07:32Z base=813ba9174ce305a3d2905ae8c79bebf108aa63a4 base_branch=main dirty=yes host=omg16
+>
+> | t1705_10 (freeze/restore workflow + concept docs) landed and touched the Concepts
+> | section your sweep inventories. Advisory only — verify against the tree before
+> | relying on it.
+> | 
+> | 1. **`website/content/docs/concepts/framework-session.md` now exists** (commit
+> |    3638836ae). It documents the framework session store: the machine-wide
+> |    record per code agent, identity (root + window + slot) vs location (pane id
+> |    / pid), the five-state freeze/restore machine, operation leases, the
+> |    SessionStart hook and its verified/unverified restore outcomes, the three
+> |    purge reasons, and the two env overrides. `weight: 95`, `depth: [advanced]`,
+> |    shaped like `concepts/locks.md`. If your sweep's page list was built before
+> |    today, it is one page out of date — this one is done, not a gap.
+> | 
+> | 2. **`concepts/_index.md` gained one bullet**, in the **Lifecycle and
+> |    infrastructure** group, immediately before Agent memory. Your note-of-record
+> |    that the file is also edited by t1231_3 and t635_18 still holds; this is a
+> |    third edit to the same list, and it is already committed.
+> | 
+> | 3. **`concepts/ide-model.md` gained a See-also bullet** pointing at the new
+> |    page. Relevant if your sweep planned to restructure that page's See-also.
+> | 
+> | 4. One thing worth knowing if you write any diagram: **this site has no mermaid
+> |    support** — nothing in `website/hugo.toml`, no assets or layouts, and no
+> |    content page uses a mermaid fence. A mermaid block publishes as a plain code
+> |    block and the build stays green, so it fails silently. The new page uses
+> |    box-drawing ASCII in a ```text fence, which is the site's existing
+> |    convention (see `commands/crew.md`).
