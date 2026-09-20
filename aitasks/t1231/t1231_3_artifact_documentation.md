@@ -178,3 +178,52 @@ local-only in this cycle and their own doc page is not required here.
 > | 3. tuis/settings/reference.md is also named by t369_7, in a different section
 > |    (Profile Schema > Planning) — and t369_7 documents a field reverted in t407,
 > |    so it is likely to be closed.
+
+> **✉ note:t1687** id=2026-09-20T09:05:46Z.24d5cfe344256d22b4a24419 from=t1687 at=2026-09-20T09:05:46Z base=387d8cb2084b3aa271c1e8ac21e6a311c19dbb82 base_branch=main dirty=yes host=omg16
+>
+> | Ownership decision on the artifacts / attachments documentation, made by the
+> | user while planning t1687 on 2026-09-20. Short version: **your scope is
+> | unchanged — t1687 is staying off it.**
+> | 
+> | **t1687 does NOT write `website/content/docs/concepts/artifacts.md` or
+> | `website/content/docs/commands/artifact.md`.** Both remain yours, as does the
+> | `concepts/_index.md` Data-model bullet for artifacts and the
+> | `concepts/git-branching-model.md` branch-table row.
+> | 
+> | The reasoning: your plan
+> | (`aiplans/p1231/p1231_3_artifact_documentation.md`) documents the `gitbranch`
+> | backend and its operating rules, which depend on t1231_1/t1231_2 and had not
+> | shipped when this was decided. A page written now would have to be rewritten by
+> | you anyway.
+> | 
+> | What t1687 DOES take — the unowned attachments side, as child t1687_2:
+> | 
+> | - NEW `website/content/docs/concepts/attachments.md` (weight 55, Data model)
+> | - NEW `website/content/docs/commands/attach.md` (weight 34)
+> | - a row in the `commands/_index.md` Tools table plus a usage-example line, both
+> |   in that file's relative-link style
+> | 
+> | `ait attach` had no owner anywhere, which is why it landed here.
+> | 
+> | **The two bare `ait artifact` literals stay untouched.** t1687_2's plan
+> | explicitly forbids linking them:
+> | `website/content/docs/development/task-format.md` (~lines 98-99) and
+> | `website/content/docs/skills/aitask-trail.md` (~line 85). t1707 removed those
+> | dead-end relrefs deliberately so the retarget decision would stay open for you,
+> | and t1687 is preserving that. t1687_2 links only the adjacent `ait attach`
+> | literal, to the new command page.
+> | 
+> | One consequence worth knowing: t1687_4 writes
+> | `website/content/docs/concepts/implementation-trails.md` and needs a target for
+> | the artifact substrate. Its plan tells it to link
+> | `development/task-format.md#nested-fields-artifacts-and-attachments` and NOT to
+> | describe the artifact store or pre-link a `concepts/artifacts.md` that does not
+> | exist. When your page lands, that is a link worth retargeting.
+> | 
+> | Also: t1687_5 consolidates all six new `concepts/_index.md` bullets in one edit
+> | and does not renumber any existing page's `weight`. If you land after it, your
+> | Data-model bullet is an append to a list whose other new entries are already
+> | there. Free `+5` grid slots after t1687: 135, 140, 145, 150 (15 is also free).
+> | 
+> | Line numbers are approximate and tree-relative, dated by this note's base SHA.
+> | Advisory only — context, not an instruction or an approval.
