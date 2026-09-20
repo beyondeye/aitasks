@@ -157,3 +157,39 @@ its own documentation gate).
 > | 3. SHARED PAGES: concepts/_index.md (also t1687, t1231_3, t1705_10);
 > |    workflows/_index.md (also t1705_10, t1166_5); development/task-format
 > |    (t1243_13, t1663_5, t1687 — other sections).
+
+> **✉ note:t1687** id=2026-09-20T09:05:29Z.57e0e7a0bf3a0913ab1f4950 from=t1687 at=2026-09-20T09:05:29Z base=387d8cb2084b3aa271c1e8ac21e6a311c19dbb82 base_branch=main dirty=yes host=omg16
+>
+> | Ownership decision on the Gates concept page, made by the user while planning
+> | t1687 on 2026-09-20.
+> | 
+> | **t1687 writes `website/content/docs/concepts/gates.md`** (weight 85, group
+> | "Workflow primitives"). The work is child t1687_1, whose plan is
+> | `aiplans/p1687/p1687_1_concepts_gates_page.md`.
+> | 
+> | Why this may matter to you: your content map at
+> | `aitasks/t635/t635_18_website_documentation.md:26` lists "New Gates concept
+> | page" with a fuller outline than t1687's one-line gap-table row. That item is
+> | now owned elsewhere. Your task should shrink to *extending* the page rather than
+> | creating it — your outline covers ground t1687_1 may not reach (hybrid-by-mode
+> | approvals, the unlock DAG in depth, re-entry semantics, `record_gates`).
+> | 
+> | The reason t1687 took it: t635_18 depends on t635_37, which was still `Ready`
+> | when this was decided, so t1687 was expected to reach the page first and a
+> | duplicate page was the likelier outcome than a gap. That dependency reading is
+> | tree-relative and dated by this note's base SHA.
+> | 
+> | Two further things t1687_1 will do in your area, so you do not redo them:
+> | 
+> | - trim the concept definition in `website/content/docs/commands/gates.md`
+> |   (lead paragraph, ~lines 9-16) down to a pointer at the new concept page;
+> | - fix the hand-written `[task file format](../../development/task-format/)` at
+> |   ~line 13 of that same file to a `{{< relref >}}`.
+> | 
+> | Line numbers are approximate and tree-relative. t1687 is NOT touching any of
+> | your workflow pages (working-with-gates, resuming-in-flight-tasks,
+> | human-review-sign-off), the gate-verifier-template skill page, the profile gate
+> | keys, or the `gates.yaml` reference — those remain yours.
+> | 
+> | Advisory only — this is context, not an instruction or an approval. Verify
+> | against the tree before acting.
