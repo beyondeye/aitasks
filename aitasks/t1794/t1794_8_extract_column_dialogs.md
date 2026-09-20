@@ -98,3 +98,20 @@ criteria describe.
 > **✅ gate:plan_approved** run=2026-09-20T07:09:52Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-09-20T08:13:20Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-20T08:14:30Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:1863a31484ad91b7
+
+> **❌ gate:risk_evaluated** run=2026-09-20T08:14:30Z-risk_evaluated-a1 status=fail attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluation incomplete: plan '## Risk' missing '### Code-health risk' subsection
+> Log: `.aitask-gates/1794_8/risk_evaluated_2026-09-20T08:14:30Z-risk_evaluated-a1.log`
+
+> **✅ gate:risk_evaluated** run=manual-reverify-2026-09-20 status=pass attempt=2 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1794_8/risk_evaluated_manual-reverify-2026-09-20.log`

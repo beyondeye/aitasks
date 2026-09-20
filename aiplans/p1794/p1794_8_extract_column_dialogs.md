@@ -371,6 +371,19 @@ references no moved class and is board settings, not column management.
   4. Wrote `C` as the column-manage key into the t1794_12 checklist from
      memory; the binding is actually `e` (`aitask_board.py:2333`). Corrected
      before committing.
+  5. **The `risk_evaluated` gate failed on plan FORMAT, not on risk.** I wrote
+     the `## Risk` section as bold paragraphs (`**Code-health risk: low.**`);
+     `aitask_gate_risk.sh` requires literal `### Code-health risk` and
+     `### Goal-achievement risk` **h3 subsections** (it checks evidence in the
+     plan + the two frontmatter levels). The first `ait gates run` recorded
+     `fail`, and the retry budget is 1 — a second `gates run` answered
+     `blocked: exhausted`. Fixed by rewriting the section in the sibling plans'
+     bullet format (see `p1794_7`) and invoking the verifier directly
+     (`aitask_gate_risk.sh <task-id> <attempt> <run-id>`), which appended its
+     own `pass` as attempt 2; `archive-ready` then returned `ALL_PASS`. No
+     hand-recorded pass was used. **Siblings: author `## Risk` with the two h3
+     subsections from the start** — the format is a hard gate, and the one-shot
+     retry budget makes a formatting slip expensive.
 
 - **Key decisions:**
   - **No injection, unlike t1794_7.** The moved classes call no module-level
