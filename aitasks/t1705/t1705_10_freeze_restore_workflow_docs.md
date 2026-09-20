@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1705
+implemented_with: claudecode/opus5
 created_at: 2026-09-04 16:13
-updated_at: 2026-09-19 21:53
+updated_at: 2026-09-20 09:12
 ---
 
 ## Context
@@ -300,3 +301,8 @@ No code, no tmux.
 > | longer exist" case is restorable — no need to describe it as a limitation.
 
 > **👁 note:read** id=2026-09-19T18:53:14Z.55b3482100cfe4021ea58076 by=t1705_10 at=2026-09-19T18:53:14Z mode=explicit ids=2026-09-09T18:30:27Z.67bdf9e529c168862ec9dce2,2026-09-10T09:04:57Z.c3ed18370a74314077320714,2026-09-10T12:09:48Z.504dfefb9739218af831c9aa,2026-09-10T18:36:47Z.45ef729dc66e52e8a78eaccc,2026-09-17T12:43:19Z.3abb7b79eed944d4f191105b
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-20T06:12:19Z status=pass attempt=1 type=human
