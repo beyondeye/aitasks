@@ -1230,3 +1230,7 @@
 [06:21:16] --- Iteration 22 ---
 [06:21:17] Stale heartbeat (status unchanged): explorer_005a, explorer_005b
 [06:21:17] Progress: 84% | Running: 2/3 | ETA: 38m
+[06:21:18] Sleeping 30s
+[06:21:48] --- Iteration 23 ---
+[06:21:49] Stale heartbeat (status unchanged): explorer_005a
+[06:21:49] Progress: 84% | Running: 2/3 | ETA: 38m
