@@ -1,6 +1,6 @@
-current_head: n010_explorer_004
+current_head: n012_explorer_005b
 current_heads:
-  _umbrella: n010_explorer_004
+  _umbrella: n012_explorer_005b
 history:
   _umbrella:
   - n000_init
@@ -14,6 +14,7 @@ history:
   - n008_explorer_003b
   - n009_synthesizer_003
   - n010_explorer_004
+  - n012_explorer_005b
 next_node_id: 13
 active_dimensions:
 - requirements_go_engine_and_cli
@@ -131,6 +132,18 @@ active_dimensions:
 - tradeoff_one_gate_not_two
 - tradeoff_seed_precision
 - tradeoff_verify_build_wired_suites
+- requirements_autonomous_loop_closure
+- assumption_agent_reads_verify_vs_drive
+- assumption_wrong_positive_claim_only_overselects
+- assumption_agent_rejection_is_revocable
+- assumption_headless_launch_is_explicit_opt_in
+- assumption_cadence_bounds_exposure
+- component_agent_review_pass
+- tradeoff_loop_closes_without_a_person
+- tradeoff_wrong_positive_invisible_to_score
+- tradeoff_auto_policy_exposure_window
+- tradeoff_periodic_full_run_cost
+- tradeoff_agent_review_token_cost
 module_tasks: {}
 last_synced_at: {}
 module_deferred: {}

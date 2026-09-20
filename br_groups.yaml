@@ -90,8 +90,9 @@ groups:
     agents:
     - explorer_005a
     - explorer_005b
-    status: Waiting
+    status: Completed
     created_at: 2026-09-20 09:09
     head_at_creation: n010_explorer_004
-    nodes_created: []
+    nodes_created:
+    - n012_explorer_005b
     subgraph: _umbrella
