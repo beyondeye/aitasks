@@ -280,3 +280,48 @@ of observable behaviour ("launched with the record id and a one-time nonce in
 its environment"). It deliberately avoids the `env`-prefix versus
 `respawn-pane -e` detail, so neither the superseded nor the amended wire
 contract is published.
+
+## Implementation notes
+
+All six steps landed, plus the post-phase fact check. Deviations from the plan
+as written:
+
+- **`installation/_index.md`**: the `.claude/settings.json` hook bullet went
+  into the **Per-project files** list, not the Global dependencies list where
+  the permissions bullet sits. The hook file is per-project; the existing
+  permissions bullet's placement there looks like a pre-existing inaccuracy and
+  was left alone rather than widened.
+- **`concepts/framework-session.md`** describes the pane options by role
+  (`@aitask_record` named; the frozen and stand-in-ready options described, not
+  named) rather than tabulating all four. The page is a concept page, and the
+  table already exists in the parent plan.
+- The state diagram is ASCII in a ```` ```text ```` fence, per the approved
+  plan's correction. Verified in the built HTML: one `<pre>` block carrying
+  `freezing`, `aborting` and the box-drawing characters intact.
+
+Verification run: `hugo build --gc --minify` clean;
+`check_links.py --build` → `resolved 32305, broken 0, SWEEP: PASSED`;
+`check_link_relevance.py` → 4 reported links, all pre-existing, none added or
+retargeted by this task.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-09-20 06:40)
+- **Requested by user:** two confirmed correctness defects. (1) `crash-recovery.md`
+  claimed Freeze-All leaves every agent with "its session recorded", but a record
+  may carry no session id and an opencode agent cannot resume at all
+  (`RESTORE_FAILED:<id>|resume_unsupported:opencode`), so those return only by
+  re-pick. (2) The live/parked/frozen table costed a frozen agent as "disk only",
+  but the freeze respawns the pane into `ait frozenagent --record <id>` and
+  records its `standin_pid` — a viewer process remains.
+- **Changes made:** the crash-recovery tip now says the record and capture are
+  kept, then splits the route: restore when a session id was recorded, re-pick
+  when there is none or the CLI cannot resume. The workflow page's intro and
+  cost row now state that the agent process and its context are released while
+  the viewer holds the pane and the capture holds disk. The Restore-All
+  paragraph gained the same distinction, since the plain form reports those
+  records as failures.
+- **Files affected:** `website/content/docs/workflows/crash-recovery.md`,
+  `website/content/docs/workflows/freeze-and-restore-agents.md`
+- **Re-verified:** `hugo build --gc --minify` clean; `check_links.py --build`
+  → `SWEEP: PASSED`.
