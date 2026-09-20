@@ -95,4 +95,14 @@ groups:
     head_at_creation: n010_explorer_004
     nodes_created:
     - n012_explorer_005b
+    - n011_explorer_005a
+    subgraph: _umbrella
+  synthesize_004:
+    operation: synthesize
+    agents:
+    - synthesizer_004
+    status: Waiting
+    created_at: 2026-09-20 09:41
+    head_at_creation: n011_explorer_005a
+    nodes_created: []
     subgraph: _umbrella

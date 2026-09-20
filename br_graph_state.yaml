@@ -1,6 +1,6 @@
-current_head: n012_explorer_005b
+current_head: n011_explorer_005a
 current_heads:
-  _umbrella: n012_explorer_005b
+  _umbrella: n011_explorer_005a
 history:
   _umbrella:
   - n000_init
@@ -15,7 +15,8 @@ history:
   - n009_synthesizer_003
   - n010_explorer_004
   - n012_explorer_005b
-next_node_id: 13
+  - n011_explorer_005a
+next_node_id: 14
 active_dimensions:
 - requirements_go_engine_and_cli
 - requirements_platform_binaries_in_release
@@ -144,6 +145,17 @@ active_dimensions:
 - tradeoff_auto_policy_exposure_window
 - tradeoff_periodic_full_run_cost
 - tradeoff_agent_review_token_cost
+- requirements_agent_driven_adoption
+- assumption_agent_can_judge_verifies
+- assumption_session_agent_is_reviewer
+- assumption_author_annotates_own_surface
+- assumption_cadence_full_run_bounds_miss
+- component_agent_review
+- component_auto_policy
+- component_author_annotation
+- tradeoff_agent_judgement_unmeasured
+- tradeoff_cadence_window_misses
+- tradeoff_review_token_cost
 module_tasks: {}
 last_synced_at: {}
 module_deferred: {}
