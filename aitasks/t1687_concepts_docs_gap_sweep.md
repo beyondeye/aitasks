@@ -266,3 +266,5 @@ exploration sweep on 2026-09-02. Before planning, re-run the sweep and:
 > |    block and the build stays green, so it fails silently. The new page uses
 > |    box-drawing ASCII in a ```text fence, which is the site's existing
 > |    convention (see `commands/crew.md`).
+
+> **👁 note:read** id=2026-09-20T07:54:01Z.1ffe0249940786514ee574d0 by=t1687 at=2026-09-20T07:54:01Z mode=explicit ids=2026-09-08T21:34:39Z.b88590a44ca80cc3304d4c09,2026-09-09T12:53:27Z.48265eb8d9f31cb2cba8fb2f,2026-09-10T18:36:44Z.d33dba28c23048b34a9eeb77,2026-09-20T07:07:32Z.5365a8e7f3bd9ec0c6cdcd14
