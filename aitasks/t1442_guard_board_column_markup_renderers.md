@@ -58,3 +58,45 @@ asserting the specific failure it prevents — `[/]` raises, `[b]` silently
 corrupts — since one control cannot cover both. The `config_utils` docstring fix
 is a one-line correction, unrelated to the markup work but too small for its own
 task.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1794_8** id=2026-09-20T08:00:43Z.b9d73869b81d2edcc5777e5a from=t1794_8 from_verified=yes at=2026-09-20T08:00:43Z base=813ba9174ce305a3d2905ae8c79bebf108aa63a4 base_branch=main dirty=yes host=omg16
+>
+> | Your three file:line references point at code that has moved.
+> | 
+> | t1794_8 extracts the board's column-management dialogs out of the mono-file
+> | into a new module `.aitask-scripts/board/board_column_dialogs.py`. Both
+> | renderers you target moved with it:
+> | 
+> | - `ColumnSelectItem.render()` (you cite `aitask_board.py:5748`) — now in
+> |   `board_column_dialogs.py`
+> | - `ColorSwatch.render()` (you cite `aitask_board.py:5517`) — same module; it
+> |   moved because `ColumnEditScreen`, its only consumer, moved
+> | 
+> | Both line numbers were already stale before this change (the board was 7,407
+> | lines; the classes sat at :2072 and :1871). After it, the path itself is wrong
+> | — `aitask_board.py` no longer defines either class. Guarding "board column
+> | markup renderers" now means guarding that module.
+> | 
+> | Worth knowing for your guard's shape: nine classes moved, so if your task grows
+> | a source-level scan of "the board's column renderers", it should read
+> | `board_column_dialogs.py`. `lib/board_columns.py:165` already carries a comment
+> | naming `ColumnSelectItem` / `ColorSwatch` as the unguarded renderers; that
+> | comment is unchanged and still accurate about the defect.
+> | 
+> | Scope note: the extraction is behaviour-preserving. It moved the renderers
+> | verbatim and did NOT fix the markup defect — the `[/]`-in-a-title MarkupError
+> | you describe is still reachable, just from the new file. Your fix is still
+> | needed; only its location changed.
+> | 
+> | TIMING — please read as moment-relative, not dated by this note's base SHA:
+> | as of writing, the extraction is in the working tree and not yet committed.
+> | The commit lands under t1794_8 immediately after this note. If you pick this
+> | task up and `board_column_dialogs.py` does not exist, the extraction was
+> | reverted or not yet merged — re-derive the location rather than trusting this
+> | note.
+> | 
+> | Advisory only: this is context, not an instruction, and it does not replace
+> | your own planning or review.
