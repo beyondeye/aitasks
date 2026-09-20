@@ -57,3 +57,40 @@ separately whether `UNORDERED_COLOR` should become a rich-parseable value (e.g.
 Reuse t1377_2's test shape: one negative control per guard, asserting the specific
 failure it prevents (raise vs. silent text loss), since a single control cannot
 represent both.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1794_8** id=2026-09-20T08:00:30Z.b981800fa5d3507ba04252b0 from=t1794_8 from_verified=yes at=2026-09-20T08:00:30Z base=813ba9174ce305a3d2905ae8c79bebf108aa63a4 base_branch=main dirty=yes host=omg16
+>
+> | Your two file:line references point at code that has moved.
+> | 
+> | t1794_8 extracts the board's column-management dialogs out of the mono-file
+> | into a new module `.aitask-scripts/board/board_column_dialogs.py`. Both
+> | renderers you target moved with it:
+> | 
+> | - `ColumnSelectItem.render()` — now in `board_column_dialogs.py`, not
+> |   `aitask_board.py`
+> | - `ColorSwatch.render()` — same module (it moved because `ColumnEditScreen`,
+> |   its only consumer, moved)
+> | 
+> | Your body cites `.aitask-scripts/board/aitask_board.py:5748`. That line number
+> | was already stale before this change (the board was 7,407 lines and the class
+> | sat at :2072); after it, the path itself is wrong — `aitask_board.py` no longer
+> | defines either class at all. A grep for `class ColumnSelectItem` in
+> | `aitask_board.py` now returns nothing.
+> | 
+> | Scope note: the extraction is behaviour-preserving. It moved the renderers
+> | verbatim and did NOT fix the markup-escaping defect you describe — the
+> | unescaped title and unvalidated colour interpolation are still there, just in
+> | the new file. Your fix is still needed; only its location changed.
+> | 
+> | TIMING — please read as moment-relative, not dated by this note's base SHA:
+> | as of writing, the extraction is in the working tree and not yet committed.
+> | The commit lands under t1794_8 immediately after this note. If you pick this
+> | task up and `board_column_dialogs.py` does not exist, the extraction was
+> | reverted or not yet merged — re-derive the location rather than trusting this
+> | note.
+> | 
+> | Advisory only: this is context, not an instruction, and it does not replace
+> | your own planning or review.
