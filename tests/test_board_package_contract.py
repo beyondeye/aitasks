@@ -796,9 +796,9 @@ class UnresolvedGlobalsTests(unittest.TestCase):
 
 
 class HeadlessImportTests(unittest.TestCase):
-    """`board_widgets` (t1794_2), `board_trail_screen` (t1794_5) and
-    `board_detail_screen` (t1794_7) import on their own and do not load the
-    board.
+    """`board_widgets` (t1794_2), `board_trail_screen` (t1794_5),
+    `board_detail_screen` (t1794_7) and `board_column_dialogs` (t1794_8) import
+    on their own and do not load the board.
 
     A subprocess whose `PYTHONPATH` is `board/` + `lib/` only, so nothing but
     the module's own imports decides what gets loaded. The test process has
@@ -857,6 +857,20 @@ class HeadlessImportTests(unittest.TestCase):
                          "the editor must take the board's helpers injected (C1)")
         for name in ("TaskDetailScreen", "CycleField", "FileReferencesField",
                      "CrossRepoRefPickerScreen", "_reload_detail_screen"):
+            self.assertIn(name, report["names"])
+
+    def test_board_column_dialogs_imports_without_the_board(self):
+        """The column-management dialogs (t1794_8) reach the board only through
+        `self.app` at call time, so importing them must not load
+        `aitask_board` (C1)."""
+        report = self._probe("board_column_dialogs")
+        self.assertFalse(report["board_loaded"],
+                         "importing board_column_dialogs loaded aitask_board — "
+                         "the dialogs reach the host through self.app (C1)")
+        for name in ("ColumnManageScreen", "ColumnEditScreen", "ColorSwatch",
+                     "ColumnSelectScreen", "ColumnMultiSelectScreen",
+                     "DeleteColumnConfirmScreen", "MergeColumnsConfirmScreen",
+                     "ColumnSelectItem", "ColumnManageItem"):
             self.assertIn(name, report["names"])
 
     def test_the_probe_can_see_the_board_loaded(self):

@@ -380,6 +380,9 @@ MIGRATED_MODULES = (
     # t1794_5: the trail host-protocol, binding-identity, `T` real-path and
     # inert-patch pins reach the board and `board_trail_screen` only as `ab.*`.
     "test_trail_screen_host_protocol.py",
+    # t1794_8: the column-dialog single-home, identity and re-export pins reach
+    # the board and `board_column_dialogs` only as `ab.*` (or read the source).
+    "test_board_column_dialogs.py",
 )
 
 #: Tier-1 exemptions, scoped to **specific chdir expressions** — never to a whole
@@ -1348,11 +1351,13 @@ class FreshLoadC2Tests(unittest.TestCase):
                          "the real board must have honoured the sentinel")
         # Anti-vacuity: the board imports board_widgets (t1794_2),
         # board_trail_view (t1794_3), the three t1794_4 data-layer modules and
-        # board_trail_screen (t1794_5) and board_detail_screen (t1794_7), so the
-        # real load must have executed each, freshly, under the sentinel.
+        # board_trail_screen (t1794_5), board_detail_screen (t1794_7) and
+        # board_column_dialogs (t1794_8), so the real load must have executed
+        # each, freshly, under the sentinel.
         for sibling in ("board_widgets", "board_trail_view", "board_task_model",
                         "board_workflow_phase", "board_task_manager",
-                        "board_trail_screen", "board_detail_screen"):
+                        "board_trail_screen", "board_detail_screen",
+                        "board_column_dialogs"):
             with self.subTest(sibling=sibling):
                 self.assertIn(sibling, report["modules"])
                 self.assertTrue(report["modules"][sibling]["fresh"])

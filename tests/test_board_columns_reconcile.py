@@ -42,6 +42,8 @@ import board_fixture as bf  # noqa: E402
 
 BOARD_PATH = REPO_ROOT / ".aitask-scripts" / "board" / "aitask_board.py"
 MANAGER_PATH = BOARD_PATH.with_name("board_task_manager.py")
+#: ColumnManageScreen._shift moved here from the board in t1794_8.
+DIALOGS_PATH = BOARD_PATH.with_name("board_column_dialogs.py")
 
 # The call-graph scans below read EVERY board module (`bf.board_modules_tree`),
 # not aitask_board.py alone: since t1794_4 the watched callees and most of their
@@ -528,15 +530,20 @@ class SavePathContainmentTests(unittest.TestCase):
         cls.tree = bf.board_modules_tree()
 
     def test_the_scan_sees_callers_in_every_module_they_live_in(self):
-        """Anti-vacuity for the union: allow-listed callers live in BOTH the
-        manager (`add_column` …) and the board (`_shift_column`)."""
+        """Anti-vacuity for the union: allow-listed callers live in all THREE
+        modules that hold them — the manager (`add_column` …), the board
+        (`_shift_column`) and the column dialogs (`ColumnManageScreen._shift`,
+        which moved out of the board in t1794_8)."""
         manager_sites = _callers_of_name(
             ast.parse(MANAGER_PATH.read_text(encoding="utf-8")), "save_metadata")
         board_sites = _callers_of_name(ast.parse(self.source), "save_metadata")
+        dialog_sites = _callers_of_name(
+            ast.parse(DIALOGS_PATH.read_text(encoding="utf-8")), "save_metadata")
         self.assertIn("merge_columns", manager_sites)
         self.assertIn("_shift_column", board_sites)
+        self.assertIn("_shift", dialog_sites)
         self.assertEqual(_callers_of_name(self.tree, "save_metadata"),
-                         manager_sites | board_sites)
+                         manager_sites | board_sites | dialog_sites)
 
     def test_only_project_mutating_functions_call_save_metadata(self):
         sites = _callers_of_name(self.tree, "save_metadata")
