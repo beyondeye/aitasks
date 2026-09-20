@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: medium
 depends: [t1794_7]
 issue_type: refactor
-status: Implementing
+status: Done
 labels: [aitask_board, tui, trails, python, refactor]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1794
 implemented_with: claudecode/opus5
 created_at: 2026-09-11 15:08
-updated_at: 2026-09-20 10:09
+updated_at: 2026-09-20 11:15
+completed_at: 2026-09-20 11:15
 ---
 
 ## Context
