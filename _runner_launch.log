@@ -1150,3 +1150,10 @@
 [06:10:00]   Interval:       30s
 [06:10:00]   Max concurrent: 3
 [06:10:00]   Mode:           continuous
+[06:10:01] --- Iteration 1 ---
+[06:10:02] Ready agents: explorer_005a, explorer_005b
+[06:10:02] Launching agent 'explorer_005a' (type=explorer, string=claudecode/opus5, launch_mode=interactive)
+[06:10:02] WARN: pipe-pane failed for explorer_005a (rc=1)
+[06:10:02] Launching agent 'explorer_005b' (type=explorer, string=claudecode/opus5, launch_mode=interactive)
+[06:10:02] WARN: pipe-pane failed for explorer_005b (rc=1)
+[06:10:02] Progress: 84% | Running: 2/3 | ETA: 38m
