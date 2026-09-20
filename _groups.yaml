@@ -31,3 +31,7 @@ groups:
   sequence: 8
   description: ''
   created_at: '2026-09-16 13:45:16'
+- name: explore_005
+  sequence: 9
+  description: ''
+  created_at: '2026-09-20 06:09:53'
