@@ -325,3 +325,47 @@ retargeted by this task.
   `website/content/docs/workflows/freeze-and-restore-agents.md`
 - **Re-verified:** `hugo build --gc --minify` clean; `check_links.py --build`
   → `SWEEP: PASSED`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Both new pages
+  (`workflows/freeze-and-restore-agents.md`, `concepts/framework-session.md`),
+  the `### Session Hooks` section and guided-flow item on
+  `commands/setup-install.md`, the two index entries, and all five cross-links
+  (`tuis/frozenagent/_index.md`, `concepts/ide-model.md`,
+  `parallel-development.md`, `crash-recovery.md`, `installation/_index.md`).
+  Committed as `3638836ae`.
+- **Deviations from plan:** (1) The `.claude/settings.json` bullet in
+  `installation/_index.md` went into **Per-project files**, not the Global
+  dependencies list where the permissions bullet sits — the hook is a
+  per-project file. The existing permissions bullet's placement looks like a
+  pre-existing inaccuracy and was left alone rather than widened into this
+  task. (2) The concept page describes the pane options by role instead of
+  tabulating all four; the full table lives in the parent plan and would date
+  quickly in user docs. (3) The state diagram is ASCII in a ```` ```text ````
+  fence rather than mermaid — see Issues.
+- **Issues encountered:** The original plan specified a mermaid
+  `stateDiagram-v2` and a verification that grepped the built HTML for a
+  mermaid class. The user blocked the plan on this: `website/hugo.toml` has no
+  mermaid config, there are no mermaid assets or layouts, and no content page
+  uses a mermaid fence, so Hugo would have published the fence as a plain code
+  block with a green build. Replaced with box-drawing ASCII in a ```` ```text ````
+  fence (the site's existing convention, e.g. `commands/crew.md`) and a
+  verification against the actual rendered `<pre>`.
+- **Key decisions:** The restore landing places (closed window, tmux restart,
+  session-name conflict) are **linked**, not restated —
+  `tuis/frozenagent/how-to.md` § "Bring an agent back" owns them (t1784/t1778),
+  and duplicating them would create the drift the code-health risk names.
+  Everything written was checked against the landed code rather than the plan
+  or the inbox notes; five stale claims in the task body were corrected in the
+  process (freeze is `f` not `z`; there is no `ait frozen` verb; closed-window
+  restore works now; the hook opt-out is answering `n`, not deleting the entry;
+  `frozen.stale_op_grace` is not a config key).
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:** The division of labour with t1705_9 held up well:
+  TUI surface (keys, header fields, messages, exit codes) on the frozenagent
+  pages, and when/why plus the cross-cutting concept here. Anything a sibling
+  adds about *where a restore lands* belongs in `tuis/frozenagent/how-to.md`;
+  the workflow page links to it. Also note that `concepts/agent-memory.md` and
+  `concepts/locks.md` list no per-user state, so the planned one-line pointers
+  there had no home — `concepts/ide-model.md` took the See-also instead.
