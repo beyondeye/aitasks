@@ -12,8 +12,9 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1794
 followup_kind: review_finding
+implemented_with: claudecode/opus5
 created_at: 2026-09-20 11:14
-updated_at: 2026-09-20 11:20
+updated_at: 2026-09-20 12:02
 ---
 
 ## Context
@@ -65,3 +66,8 @@ red-then-green check rather than riding along on an unrelated commit.
 - `python -m pytest tests/test_board_fixture_harness.py tests/test_board_detail_screen.py -q` green.
 - The red-then-green probe recorded in the plan's implementation notes.
 - `bash tests/run_all_python_tests.sh` → last line `PYTHON SUITE: PASSED`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-20T09:02:22Z status=pass attempt=1 type=human
