@@ -79,8 +79,19 @@ groups:
     operation: explore
     agents:
     - explorer_004
-    status: Waiting
+    status: Completed
     created_at: 2026-09-16 16:45
     head_at_creation: n009_synthesizer_003
+    nodes_created:
+    - n010_explorer_004
+    subgraph: _umbrella
+  explore_005:
+    operation: explore
+    agents:
+    - explorer_005a
+    - explorer_005b
+    status: Waiting
+    created_at: 2026-09-20 09:09
+    head_at_creation: n010_explorer_004
     nodes_created: []
     subgraph: _umbrella
