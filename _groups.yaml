@@ -35,3 +35,7 @@ groups:
   sequence: 9
   description: ''
   created_at: '2026-09-20 06:09:53'
+- name: synthesize_004
+  sequence: 10
+  description: ''
+  created_at: '2026-09-20 06:41:01'
