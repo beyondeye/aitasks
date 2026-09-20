@@ -29,6 +29,7 @@ Running multiple tasks side by side, front-loading planning work, and farming ou
 
 - [Parallel Development](parallel-development/) — Working on multiple tasks simultaneously with concurrency safety.
 - [Crash Recovery](crash-recovery/) — Resume a task whose prior agent died mid-implementation, with a survey of leftover work before deciding to reclaim or drop.
+- [Freeze and Restore Agents](freeze-and-restore-agents/) — Freeze finished agents to free their processes while keeping their output readable in place, and bring them back by restore or re-pick.
 - [Parallel Planning](parallel-planning/) — Front-load complex task design work while other implementations run in parallel.
 - [Implementation Trails](implementation-trails/) — Record which tasks should land next, in what waves, and why, as a durable artifact you can refresh and read on the board.
 - [Multi-Project](multi_project/) — Coordinate work across linked projects with the project registry and cross-repo task creation.

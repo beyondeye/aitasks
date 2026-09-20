@@ -15,6 +15,8 @@ The aitasks framework supports multiple developers (or multiple AI agent instanc
 - **Atomic ID counter:** The atomic ID counter on the `aitask-ids` branch ensures globally unique task numbers even when multiple PCs create tasks against the same repo
 - **Task data branch (optional):** When enabled, task/plan files live on a separate `aitask-data` branch accessed via a worktree at `.aitask-data/`. This keeps task management commits off the main branch and allows independent sync via `./ait git push`/`./ait git pull`
 
+Running many agents at once also means accumulating agents you are finished with. Rather than killing one and losing its summary, [freeze it]({{< relref "/docs/workflows/freeze-and-restore-agents" >}}): the process ends, its output stays readable in its own pane, and the task can be restored or re-picked later.
+
 ## Git Worktrees for Isolation
 
 When working on multiple tasks in parallel, use the git worktree option in [`/aitask-pick`](../../skills/aitask-pick/). The worktree is an isolated working directory at `aiwork/<task_name>/` on a separate branch, so each task's changes don't interfere with each other. It is created once the plan is approved and the remote drift check has passed — not when the branch is chosen — so the branch is cut from an up-to-date base. After implementation, the branch is merged back into the profile's `output_branch`, which defaults to the base branch the worktree was cut from, and the worktree is cleaned up.

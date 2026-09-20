@@ -36,4 +36,5 @@ How tasks move through the system and how the repository is laid out.
 - **[Task lifecycle]({{< relref "/docs/concepts/task-lifecycle" >}})** — The status transitions a task moves through from creation to archival.
 - **[Git branching model]({{< relref "/docs/concepts/git-branching-model" >}})** — The dedicated branches that hold task data, locks, and IDs, and the `./ait git` wrapper that routes to them.
 - **[The IDE model]({{< relref "/docs/concepts/ide-model" >}})** — How `ait ide` turns tmux into a navigable agentic IDE around the monitor TUI.
+- **[Framework session]({{< relref "/docs/concepts/framework-session" >}})** — The machine-wide record of every code agent's pane, session and freeze state, behind freezing an agent and restoring it.
 - **[Agent memory]({{< relref "/docs/concepts/agent-memory" >}})** — How archived tasks and plans become long-term, queryable context for future agent sessions.

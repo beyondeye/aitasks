@@ -17,6 +17,12 @@ agent's own pane in the agent's own tmux window, replays the captured output in
 place, and offers the three ways back: **restore** the session, **re-pick** the
 task, or **drop** the record for good.
 
+These pages describe the viewer itself. For *when and why* to freeze an agent,
+restore it, re-pick its task or drop it, see
+[Freeze and Restore Agents]({{< relref "/docs/workflows/freeze-and-restore-agents" >}});
+for the record behind it all, see
+[Framework session]({{< relref "/docs/concepts/framework-session" >}}).
+
 > **Customizable keys:** every shortcut here can be rebound. Press `?` in this
 > TUI for the in-place editor, or open
 > [Settings → Shortcuts]({{< relref "/docs/tuis/settings#shortcuts-s" >}}).

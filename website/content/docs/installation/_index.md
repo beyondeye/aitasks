@@ -102,12 +102,13 @@ For background on why task data lives on a separate branch, see the
 - `.claude/skills/aitask-*` — Primary skill definitions (used directly by Claude Code and as the source for wrappers)
 - `aitasks/` — Task data directory (auto-created)
 - `aiplans/` — Implementation plans directory (auto-created)
+- `.claude/settings.json` — Claude Code SessionStart hook, offered by its own prompt (see [Session Hooks](../commands/setup-install/#session-hooks))
 
 **Optional: Codex CLI support** (when `ait setup` detects Codex CLI):
 
 - `.agents/skills/` — Codex CLI skill wrappers
 - `.codex/instructions.md` — aitasks instructions for Codex
-- `.codex/config.toml` — created or merged with aitask settings
+- `.codex/config.toml` — created or merged with aitask settings, including the SessionStart hook (see [Session Hooks](../commands/setup-install/#session-hooks))
 - `.codex/rules/default.rules` — Codex CLI allow rules for aitasks helper scripts
 
 **Optional: OpenCode support** (when `ait setup` detects OpenCode):
