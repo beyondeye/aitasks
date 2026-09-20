@@ -1,0 +1,10 @@
+{
+  "backend": "local",
+  "created_at": 1789896123,
+  "current": "sha256:bb9338b30e7170decf8bf6bc775d4016db8d600801fbd48ed276b6989b47f947",
+  "handle": "art:trail-artifacts-and-attachments",
+  "updated_at": 1789896123,
+  "versions": [
+    "sha256:bb9338b30e7170decf8bf6bc775d4016db8d600801fbd48ed276b6989b47f947"
+  ]
+}

@@ -8,8 +8,12 @@ labels: [html_plans, task_attachments]
 children_to_implement: [t1076_4]
 anchor: 1065
 created_at: 2026-06-25 11:01
-updated_at: 2026-07-09 11:27
+updated_at: 2026-09-20 12:22
 boardidx: 152576
+artifacts:
+  - handle: art:trail-artifacts-and-attachments
+    kind: implementation_trail
+    name: "Artifacts and attachments: landing order"
 ---
 
 Implement the **unified native artifact storage/share model** designed in
