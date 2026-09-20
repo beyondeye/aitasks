@@ -227,7 +227,7 @@ class FollowupKindDetailScreenTests(_DetailFollowupBase, unittest.TestCase):
             app = self.KanbanApp()
             async with app.run_test(size=(160, 48)) as pilot:
                 await self._settle(pilot)
-                app.push_screen(self.TaskDetailScreen(
+                app.push_screen(self.ab.make_task_detail_screen(
                     self._task(app, RISK), app.manager))
                 await self._settle(pilot)
 
@@ -249,7 +249,7 @@ class FollowupKindDetailScreenTests(_DetailFollowupBase, unittest.TestCase):
             async with app.run_test(size=(160, 48)) as pilot:
                 await self._settle(pilot)
                 for filename in (RISK, PLAIN, TYPO):
-                    app.push_screen(self.TaskDetailScreen(
+                    app.push_screen(self.ab.make_task_detail_screen(
                         self._task(app, filename), app.manager))
                     await self._settle(pilot)
                     btn = app.screen.query_one("#btn_save")
@@ -268,7 +268,7 @@ class FollowupKindDetailScreenTests(_DetailFollowupBase, unittest.TestCase):
             app = self.KanbanApp()
             async with app.run_test(size=(160, 48)) as pilot:
                 await self._settle(pilot)
-                app.push_screen(self.TaskDetailScreen(
+                app.push_screen(self.ab.make_task_detail_screen(
                     self._task(app, RISK), app.manager, read_only=True))
                 await self._settle(pilot)
 
@@ -292,7 +292,7 @@ class FollowupKindDetailScreenTests(_DetailFollowupBase, unittest.TestCase):
             app = self.KanbanApp()
             async with app.run_test(size=(160, 48)) as pilot:
                 await self._settle(pilot)
-                app.push_screen(self.TaskDetailScreen(
+                app.push_screen(self.ab.make_task_detail_screen(
                     self._task(app, PLAIN), app.manager, read_only=True))
                 await self._settle(pilot)
                 self.assertIsNone(self._field(app))
@@ -305,7 +305,7 @@ class FollowupKindDetailScreenTests(_DetailFollowupBase, unittest.TestCase):
             app = self.KanbanApp()
             async with app.run_test(size=(160, 48)) as pilot:
                 await self._settle(pilot)
-                app.push_screen(self.TaskDetailScreen(
+                app.push_screen(self.ab.make_task_detail_screen(
                     self._task(app, PLAIN), app.manager))
                 await self._settle(pilot)
                 field = self._field(app)
@@ -327,7 +327,7 @@ class FollowupKindDirtyGuardTests(_DetailFollowupBase, unittest.TestCase):
     """
 
     async def _open(self, app, pilot, filename=RISK):
-        app.push_screen(self.TaskDetailScreen(
+        app.push_screen(self.ab.make_task_detail_screen(
             self._task(app, filename), app.manager))
         await self._settle(pilot)
         return self._field(app)
@@ -412,7 +412,7 @@ class FollowupKindDirtyGuardTests(_DetailFollowupBase, unittest.TestCase):
             app = self.KanbanApp()
             async with app.run_test(size=(160, 48)) as pilot:
                 await self._settle(pilot)
-                app.push_screen(self.TaskDetailScreen(
+                app.push_screen(self.ab.make_task_detail_screen(
                     self._task(app, PLAIN), app.manager, read_only=True))
                 await self._settle(pilot)
                 self.assertIsNone(self._field(app))
@@ -907,7 +907,7 @@ class FollowupKindNarrowWidthTests(_DetailFollowupBase, unittest.TestCase):
             app = self.KanbanApp()
             async with app.run_test(size=(width, 40)) as pilot:
                 await self._settle(pilot)
-                app.push_screen(self.TaskDetailScreen(
+                app.push_screen(self.ab.make_task_detail_screen(
                     self._task(app, filename), app.manager))
                 await self._settle(pilot)
                 out["text"] = self._screen_text(app)
@@ -959,8 +959,8 @@ class FollowupKindApplyTests(_DetailFollowupBase, unittest.TestCase):
             args=[], returncode=returncode, stdout=stdout, stderr=stderr)
         with patch.object(self.FollowupKindField, "app",
                           new_callable=PropertyMock, return_value=app), \
-             patch.object(self.ab, "subprocess") as sp, \
-             patch.object(self.ab, "_reload_detail_screen") as reload_:
+             patch.object(self.ab.board_detail_screen, "subprocess") as sp, \
+             patch.object(self.ab.board_detail_screen, "_reload_detail_screen") as reload_:
             sp.run.return_value = completed
             field._apply("9101", new_kind)
             return {"argv": sp.run.call_args.args[0] if sp.run.call_args else None,
@@ -1174,7 +1174,7 @@ class FollowupKindLiveRoundTripTests(_DetailFollowupBase, bf.PristineTreeMixin,
                     with patch.object(self.FollowupKindField, "app",
                                       new_callable=PropertyMock,
                                       return_value=app), \
-                         patch.object(self.ab, "_reload_detail_screen"):
+                         patch.object(self.ab.board_detail_screen, "_reload_detail_screen"):
                         field._apply("9101", kind)
 
                 # -- set (positive control) --
@@ -1227,7 +1227,7 @@ class FollowupKindLiveRoundTripTests(_DetailFollowupBase, bf.PristineTreeMixin,
         field = self.FollowupKindField("risk_mitigation", MagicMock(), task)
         with patch.object(self.FollowupKindField, "app",
                           new_callable=PropertyMock, return_value=app), \
-             patch.object(self.ab, "_reload_detail_screen") as reload_:
+             patch.object(self.ab.board_detail_screen, "_reload_detail_screen") as reload_:
             field._apply("9101", "not_a_real_kind")
 
         self.assertTrue(app.notify.called, "the refusal must be surfaced")

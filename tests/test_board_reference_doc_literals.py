@@ -284,7 +284,7 @@ class GateRowTests(DocLiteralTestBase, unittest.TestCase):
         path.write_text(body, encoding="utf-8")
         self.addCleanup(path.unlink, missing_ok=True)
 
-        screen = ab.TaskDetailScreen(ab.Task.from_text(path, body),
+        screen = ab.make_task_detail_screen(ab.Task.from_text(path, body),
                                      _manager(ab, digest))
         rows, _ = screen._build_gate_fields()
         out = []

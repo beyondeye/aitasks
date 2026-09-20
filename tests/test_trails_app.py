@@ -710,7 +710,8 @@ class CssAndImportContractTests(TrailsAppTestBase):
     #: Runs in a FRESH interpreter: a fixture tree, the trails app under Pilot,
     #: boot → cancel the selector → `?` (the shortcut editor, whose scope sweep
     #: is the one place a shared-scope App could execute the board) → print the
-    #: loaded modules whose FILE is the board implementation. Checked by file
+    #: loaded modules whose FILE is the board implementation or its task editor
+    #: (board_detail_screen.py, t1794_7 — never pushed here). Checked by file
     #: path, not by `sys.modules` key: the sweep executes manifest modules under
     #: a probe name (`_shortcut_scopes_probe_aitask_board`), so a key check
     #: would pass while the whole board had just been executed.
@@ -726,7 +727,8 @@ import board_trail_screen as ts
 ts.discover_trails = lambda: ([], [])
 def board_files():
     return sorted(k for k, m in list(sys.modules.items())
-                  if str(getattr(m, "__file__", "") or "").endswith("board/aitask_board.py"))
+                  if str(getattr(m, "__file__", "") or "").endswith(
+                      ("board/aitask_board.py", "board/board_detail_screen.py")))
 async def go():
     app = bf.make_trails_app()
     async with app.run_test(size=(200, 48)) as pilot:

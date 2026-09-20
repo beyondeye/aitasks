@@ -45,7 +45,8 @@ _SCRIPTS_DIR = _LIB_DIR.parent
 # class-body / module-level registration; the sweep additionally introspects the
 # module's own `ShortcutsMixin` classes (see `register_all_known_bindings`).
 KNOWN_BINDING_SOURCES: list[tuple[str, str, tuple[str, ...]]] = [
-    ("aitask_board", "board/aitask_board.py", ("board", "board.detail")),
+    ("aitask_board", "board/aitask_board.py", ("board",)),
+    ("board_detail_screen", "board/board_detail_screen.py", ("board.detail",)),  # TaskDetailScreen (t1794_7)
     ("trails_app", "board/trails_app.py", ("board",)),  # shares the board scope (t1794_6, C10)
     ("brainstorm_app", "brainstorm/brainstorm_app.py", ("brainstorm", "brainstorm.compare_select")),
     ("brainstorm_dag_display", "brainstorm/brainstorm_dag_display.py", ("brainstorm.dag",)),  # class-body

@@ -131,16 +131,15 @@ RE_EXPORTS = {
 #: tests/test_plan_paths_seam.sh's "a guard that fails for innocent reasons
 #: trains people to weaken it"). Every entry is re-checked for staleness by
 #: `test_no_waiver_has_gone_stale`.
-ALLOWED_LITERALS = {
-    "board/aitask_board.py": {
-        "✓": ("the follow-up-kind picker's current-selection tick and the gate "
-              "detail's '✓ <gate> — passed' row. Both are SINGLE-state 'this one "
-              "is current / passed', not multi-select 'this one is marked' — "
-              "semantically adjacent, deliberately not unified. (The By-Trail "
-              "freshness badge '✓ current (recorded)' moved to "
-              "board/board_trail_view.py in t1794_3; that module renders no "
-              "mark, so it is not a CONSUMER.)"),
-    },
+ALLOWED_LITERALS: dict = {
+    # Empty. The board's former "✓" waiver covered the follow-up-kind picker's
+    # current-selection tick and the gate detail's '✓ <gate> — passed' row —
+    # SINGLE-state 'this one is current / passed', not multi-select 'this one
+    # is marked'. Both moved to board/board_detail_screen.py with the task
+    # editor (t1794_7), as the By-Trail freshness badge '✓ current (recorded)'
+    # moved to board/board_trail_view.py (t1794_3); neither module renders the
+    # mark, so neither is a CONSUMER, and the board keeps "✓" only in
+    # docstrings, which rule 2 does not scan.
 }
 
 

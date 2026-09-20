@@ -95,7 +95,7 @@ class DetailArrowNavTests(bf.FixtureBoardTestBase, unittest.TestCase):
                 await pilot.pause()
                 task = self._first_parent_task(app)
 
-                app.push_screen(self.TaskDetailScreen(task, app.manager))
+                app.push_screen(self.ab.make_task_detail_screen(task, app.manager))
                 await pilot.pause()
                 self.assertIsInstance(
                     app.screen, self.TaskDetailScreen,
@@ -133,7 +133,7 @@ class DetailArrowNavTests(bf.FixtureBoardTestBase, unittest.TestCase):
                 await pilot.pause()
                 task = self._first_parent_task(app)
 
-                app.push_screen(self.TaskDetailScreen(task, app.manager))
+                app.push_screen(self.ab.make_task_detail_screen(task, app.manager))
                 await pilot.pause()
                 first = app.focused
 

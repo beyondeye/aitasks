@@ -80,7 +80,7 @@ class DetailCollapsibleTests(bf.FixtureBoardTestBase, unittest.TestCase):
                 await pilot.pause()
                 task = self._first_parent_task(app)
 
-                app.push_screen(self.TaskDetailScreen(task, app.manager))
+                app.push_screen(self.ab.make_task_detail_screen(task, app.manager))
                 await pilot.pause()
 
                 sections = list(app.screen.query(".meta-section"))
@@ -109,7 +109,7 @@ class DetailCollapsibleTests(bf.FixtureBoardTestBase, unittest.TestCase):
                 await pilot.pause()
                 task = self._first_parent_task(app)
 
-                app.push_screen(self.TaskDetailScreen(task, app.manager))
+                app.push_screen(self.ab.make_task_detail_screen(task, app.manager))
                 await pilot.pause()
 
                 meta = app.screen.query_one("#meta_editable")
@@ -133,7 +133,7 @@ class DetailCollapsibleTests(bf.FixtureBoardTestBase, unittest.TestCase):
                 await pilot.pause()
                 task = self._first_parent_task(app)
 
-                app.push_screen(self.TaskDetailScreen(task, app.manager))
+                app.push_screen(self.ab.make_task_detail_screen(task, app.manager))
                 await pilot.pause()
                 dialog = app.screen.query_one("#detail_dialog")
                 height = dialog.styles.height
@@ -153,7 +153,7 @@ class DetailCollapsibleTests(bf.FixtureBoardTestBase, unittest.TestCase):
                 await pilot.pause()
                 task = self._first_parent_task(app)
 
-                app.push_screen(self.TaskDetailScreen(task, app.manager))
+                app.push_screen(self.ab.make_task_detail_screen(task, app.manager))
                 await pilot.pause()
 
                 section = app.screen.query_one("#sec_lockfiles", Collapsible)
@@ -187,7 +187,7 @@ class DetailCollapsibleTests(bf.FixtureBoardTestBase, unittest.TestCase):
                 task.metadata["risk_code_health"] = "high"
                 task.metadata["risk_goal_achievement"] = "medium"
 
-                app.push_screen(self.TaskDetailScreen(task, app.manager))
+                app.push_screen(self.ab.make_task_detail_screen(task, app.manager))
                 await pilot.pause()
 
                 risk_sec = app.screen.query_one("#sec_risk", Collapsible)
@@ -216,7 +216,7 @@ class DetailCollapsibleTests(bf.FixtureBoardTestBase, unittest.TestCase):
                 task.metadata.pop("risk_code_health", None)
                 task.metadata.pop("risk_goal_achievement", None)
 
-                app.push_screen(self.TaskDetailScreen(task, app.manager))
+                app.push_screen(self.ab.make_task_detail_screen(task, app.manager))
                 await pilot.pause()
                 self.assertFalse(
                     app.screen.query("#sec_risk"),
@@ -245,7 +245,7 @@ class DetailCollapsibleTests(bf.FixtureBoardTestBase, unittest.TestCase):
                     lambda repo, task_id: statuses.get((repo, task_id), "")
                 )
 
-                app.push_screen(self.TaskDetailScreen(task, app.manager))
+                app.push_screen(self.ab.make_task_detail_screen(task, app.manager))
                 await pilot.pause()
 
                 relations = app.screen.query_one("#sec_relations", Collapsible)
@@ -266,7 +266,7 @@ class DetailCollapsibleTests(bf.FixtureBoardTestBase, unittest.TestCase):
                 task.metadata["xdeprepo"] = "linked"
                 task.metadata.pop("xdeps", None)
 
-                app.push_screen(self.TaskDetailScreen(task, app.manager))
+                app.push_screen(self.ab.make_task_detail_screen(task, app.manager))
                 await pilot.pause()
 
                 self.assertFalse(
@@ -289,7 +289,7 @@ class DetailCollapsibleTests(bf.FixtureBoardTestBase, unittest.TestCase):
                     (repo, task_id)
                 )
 
-                app.push_screen(self.TaskDetailScreen(task, app.manager))
+                app.push_screen(self.ab.make_task_detail_screen(task, app.manager))
                 await pilot.pause()
                 field = app.screen.query_one(self.CrossRepoDepsField)
                 field.focus()
@@ -332,7 +332,7 @@ Body text.
                 await pilot.pause()
                 task = self._first_parent_task(app)
 
-                app.push_screen(self.TaskDetailScreen(task, app.manager))
+                app.push_screen(self.ab.make_task_detail_screen(task, app.manager))
                 await pilot.pause()
                 indicator = app.screen.query_one("#view_indicator")
                 bar = app.screen.query_one("#detail_title_bar")
@@ -355,7 +355,7 @@ Body text.
                 await pilot.pause()
                 task = self._first_parent_task(app)
 
-                app.push_screen(self.TaskDetailScreen(task, app.manager))
+                app.push_screen(self.ab.make_task_detail_screen(task, app.manager))
                 await pilot.pause()
                 first = app.focused
                 await pilot.press("down")

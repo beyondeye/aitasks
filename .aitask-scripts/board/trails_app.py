@@ -84,7 +84,9 @@ class TrailsApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
     # (the trail keys, navigation, quit) plus the shared scopes; a Kanban-only
     # row is edited from `ait board` or Settings → Shortcuts, and because the
     # trail Binding objects are shared, an edit made anywhere reaches both.
-    _shortcuts_exclude_sources = ("aitask_board",)
+    # The board's task editor (`board.detail`, board_detail_screen.py) is
+    # excluded for the same reason: this App never pushes it.
+    _shortcuts_exclude_sources = ("aitask_board", "board_detail_screen")
     TITLE = "aitasks trails"
 
     CSS = WIDGET_CSS + """

@@ -1348,11 +1348,11 @@ class FreshLoadC2Tests(unittest.TestCase):
                          "the real board must have honoured the sentinel")
         # Anti-vacuity: the board imports board_widgets (t1794_2),
         # board_trail_view (t1794_3), the three t1794_4 data-layer modules and
-        # board_trail_screen (t1794_5), so the real load must have executed
-        # each, freshly, under the sentinel.
+        # board_trail_screen (t1794_5) and board_detail_screen (t1794_7), so the
+        # real load must have executed each, freshly, under the sentinel.
         for sibling in ("board_widgets", "board_trail_view", "board_task_model",
                         "board_workflow_phase", "board_task_manager",
-                        "board_trail_screen"):
+                        "board_trail_screen", "board_detail_screen"):
             with self.subTest(sibling=sibling):
                 self.assertIn(sibling, report["modules"])
                 self.assertTrue(report["modules"][sibling]["fresh"])

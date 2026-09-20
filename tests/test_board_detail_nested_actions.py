@@ -20,8 +20,8 @@ Run: bash tests/run_all_python_tests.sh
 
 from __future__ import annotations
 
+import ast
 import asyncio
-import re
 import sys
 import unittest
 from pathlib import Path
@@ -191,27 +191,50 @@ class NestedDetailActionTests(bf.FixtureBoardTestBase, unittest.TestCase):
 
     def test_single_taskdetailscreen_push_site(self):
         """Structural invariant: the find-all conversion left exactly one
-        TaskDetailScreen instantiation, and it lives inside open_task_detail.
+        TaskDetailScreen push, and it lives inside open_task_detail.
         Fails loudly if any nested open site is missed or a new callback-less
-        push is added later."""
-        src = BOARD_SRC.read_text()
-        # Two references total: the `class TaskDetailScreen(...)` definition and
-        # the single push instantiation inside open_task_detail.
-        refs = list(re.finditer(r"\bTaskDetailScreen\(", src))
-        self.assertEqual(
-            len(refs), 2,
-            "expected exactly one TaskDetailScreen instantiation (in "
-            "open_task_detail) plus the class definition; a different count "
-            "means a nested open site was missed or a duplicate push was added",
-        )
-        helper = src.index("def open_task_detail(")
-        next_method = src.index("\n    def ", helper + 1)
-        inst = src.index("TaskDetailScreen(task, self.manager", helper)
-        self.assertTrue(
-            helper < inst < next_method,
-            "the sole TaskDetailScreen push must live inside open_task_detail",
-        )
+        push is added later.
 
+        The class lives in board_detail_screen.py and the board constructs it
+        only through `make_task_detail_screen` (t1794_7), so the invariant is
+        two-level and read over EVERY board module (a board-only read would go
+        vacuous at the next split): exactly one `TaskDetailScreen(...)` call —
+        inside the factory — and exactly one factory call — inside
+        open_task_detail. Calls are found on the AST, so a docstring that
+        spells the constructor is not counted."""
+        calls = {"TaskDetailScreen": [], "make_task_detail_screen": []}
+        defined = {}
+        for path in bf.board_module_paths():
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for fn in ast.walk(tree):
+                if isinstance(fn, (ast.ClassDef, ast.FunctionDef)) and fn.name in calls:
+                    defined[fn.name] = path.name
+                if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                for node in ast.walk(fn):
+                    if (isinstance(node, ast.Call)
+                            and isinstance(node.func, ast.Name)
+                            and node.func.id in calls):
+                        calls[node.func.id].append((path.name, fn.name))
+        self.assertEqual(defined, {
+            "TaskDetailScreen": "board_detail_screen.py",
+            "make_task_detail_screen": "aitask_board.py",
+        })
+        # A method nested in a class is walked both as itself and not as its
+        # class (ClassDef is not a FunctionDef), so each call is counted once
+        # per ENCLOSING function — nested helpers would double-count, and none
+        # exist at these sites.
+        self.assertEqual(
+            calls["TaskDetailScreen"],
+            [("aitask_board.py", "make_task_detail_screen")],
+            "the board must construct TaskDetailScreen only through its factory")
+        self.assertEqual(
+            calls["make_task_detail_screen"],
+            [("aitask_board.py", "open_task_detail")],
+            "expected exactly one detail push (in open_task_detail); a "
+            "different count means a nested open site was missed or a "
+            "duplicate push was added",
+        )
 
 if __name__ == "__main__":
     unittest.main()

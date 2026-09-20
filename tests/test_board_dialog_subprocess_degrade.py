@@ -98,7 +98,7 @@ class DialogSubprocessTestBase(bf.FixtureBoardTestBase, unittest.TestCase):
     def _screen(self, raw=_READY):
         """A real TaskDetailScreen over a real Task (no disk I/O, no app)."""
         task = self.ab.Task.from_text(Path(f"aitasks/t{TASK_ID}_probe.md"), raw)
-        return self.ab.TaskDetailScreen(task)
+        return self.ab.make_task_detail_screen(task)
 
     # -- dispatch introspection ------------------------------------------
 

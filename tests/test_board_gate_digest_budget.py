@@ -368,14 +368,14 @@ class SharedGatePredicateContractTest(unittest.TestCase):
     def _tree(self):
         # Every board module, not aitask_board.py alone (t1794_4): the predicates
         # live in board_workflow_phase.py, the TaskManager helpers in
-        # board_task_manager.py, `_build_gate_fields` in the board.
+        # board_task_manager.py, `_build_gate_fields` in board_detail_screen.py (t1794_7).
         return bf.board_modules_tree()
 
     def test_the_scan_reads_every_module_the_contract_spans(self):
         board_dir = BOARD_SRC.parent
         homes = {"_pending_human_gates": "board_workflow_phase.py",
                  "_human_pending_gates": "board_task_manager.py",
-                 "_build_gate_fields": "aitask_board.py"}
+                 "_build_gate_fields": "board_detail_screen.py"}
         for name, home in homes.items():
             with self.subTest(name=name):
                 defs = {n.name for n in ast.walk(ast.parse(

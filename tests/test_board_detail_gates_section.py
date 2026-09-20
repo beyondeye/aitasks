@@ -153,7 +153,7 @@ class GateSectionTestBase(bf.FixtureBoardTestBase):
         task = ab.Task.from_text(path, body)
         if break_ledger_read:
             task.filepath = self.tasks_dir / "definitely_not_on_disk.md"
-        screen = ab.TaskDetailScreen(
+        screen = ab.make_task_detail_screen(
             task, _manager(ab, digest) if manager else None)
         rows, fraction = screen._build_gate_fields()
         return [str(r.render()) for r in rows], fraction
@@ -433,7 +433,7 @@ class CrossSurfaceParityTests(GateSectionTestBase, unittest.TestCase):
                     task, result, mgr.gate_registry(),
                     plan_exists_probe=lambda: False)
 
-                screen = ab.TaskDetailScreen(task, _manager(ab))
+                screen = ab.make_task_detail_screen(task, _manager(ab))
                 _, fraction = screen._build_gate_fields()
 
                 title = "Gates" if fraction is None else \
@@ -543,7 +543,7 @@ class GateSectionMountTests(bf.FixtureBoardTestBase, unittest.TestCase):
                 task.metadata["risk_code_health"] = "low"
                 task.metadata["risk_goal_achievement"] = "low"
 
-                app.push_screen(self.TaskDetailScreen(task, app.manager))
+                app.push_screen(self.ab.make_task_detail_screen(task, app.manager))
                 await pilot.pause()
 
                 section = app.screen.query_one("#sec_gates", Collapsible)
@@ -563,7 +563,7 @@ class GateSectionMountTests(bf.FixtureBoardTestBase, unittest.TestCase):
             async with app.run_test(size=(160, 48)) as pilot:
                 await pilot.pause()
                 task = self._first_parent_task(app)
-                app.push_screen(self.TaskDetailScreen(task, app.manager))
+                app.push_screen(self.ab.make_task_detail_screen(task, app.manager))
                 await pilot.pause()
                 self.assertFalse(app.screen.query("#sec_gates"),
                                  "ungated task must grow no gates section")

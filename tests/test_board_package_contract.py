@@ -796,8 +796,9 @@ class UnresolvedGlobalsTests(unittest.TestCase):
 
 
 class HeadlessImportTests(unittest.TestCase):
-    """`board_widgets` (t1794_2) and `board_trail_screen` (t1794_5) import on
-    their own and do not load the board.
+    """`board_widgets` (t1794_2), `board_trail_screen` (t1794_5) and
+    `board_detail_screen` (t1794_7) import on their own and do not load the
+    board.
 
     A subprocess whose `PYTHONPATH` is `board/` + `lib/` only, so nothing but
     the module's own imports decides what gets loaded. The test process has
@@ -845,6 +846,17 @@ class HeadlessImportTests(unittest.TestCase):
         for name in ("TrailScreenMixin", "TrailHost", "TRAIL_BINDINGS",
                      "TRAIL_BINDING", "TRAIL_ACTION_CAPABILITIES",
                      "CODEAGENT_SCRIPT", "CODEAGENT_FAILURE_NOTICE"):
+            self.assertIn(name, report["names"])
+
+    def test_board_detail_screen_imports_without_the_board(self):
+        """The task editor (t1794_7) takes the board's helpers by injection:
+        importing it must not load `aitask_board` (C1)."""
+        report = self._probe("board_detail_screen")
+        self.assertFalse(report["board_loaded"],
+                         "importing board_detail_screen loaded aitask_board — "
+                         "the editor must take the board's helpers injected (C1)")
+        for name in ("TaskDetailScreen", "CycleField", "FileReferencesField",
+                     "CrossRepoRefPickerScreen", "_reload_detail_screen"):
             self.assertIn(name, report["names"])
 
     def test_the_probe_can_see_the_board_loaded(self):

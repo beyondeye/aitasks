@@ -116,6 +116,14 @@ class ScopeFilteredSweepTests(unittest.TestCase):
         # TaskDetailScreen ever instantiated.
         for scope in ("board", "board.detail"):
             self.assertIn(scope, registered, f"{scope} not registered eagerly")
+        # board.detail follows TaskDetailScreen into board_detail_screen.py
+        # (t1794_7): the sweep registers it from THAT module's probe, because it
+        # only reads classes whose `__module__` is the module it executed — the
+        # board's re-export of the class is invisible to it.
+        import sys
+        probe = sys.modules[
+            shortcut_scopes._PROBE_PREFIX + "board_detail_screen"]
+        self.assertEqual(probe.TaskDetailScreen._shortcuts_scope, "board.detail")
         # The stand-alone trails app is a second claimant of the board scope
         # (t1794_6, C10): the sweep loads it too, and because it declares the
         # board's own trail Binding objects the defaults are unchanged.
@@ -137,22 +145,32 @@ class ScopeFilteredSweepTests(unittest.TestCase):
 
     def test_exclude_modules_leaves_a_shared_scope_source_unloaded(self):
         """`exclude_modules` (t1794_6): the trails app shares the board scope
-        but must not have `?` execute the board. The excluded module is neither
-        loaded under its probe name nor a reported failure; the other board
+        but must not have `?` execute the board — nor the board's task editor
+        (t1794_7), which it never pushes. Excluded modules are neither loaded
+        under their probe names nor reported failures; the other board
         claimant still registers the scope."""
         import sys
-        probe = shortcut_scopes._PROBE_PREFIX + "aitask_board"
-        sys.modules.pop(probe, None)
+        probes = [shortcut_scopes._PROBE_PREFIX + m
+                  for m in ("aitask_board", "board_detail_screen")]
+        for probe in probes:
+            sys.modules.pop(probe, None)
         failed = shortcut_scopes.register_scope_bindings(
-            "board", exclude_modules=("aitask_board",))
+            "board", exclude_modules=("aitask_board", "board_detail_screen"))
         self.assertEqual(failed, [])
-        self.assertNotIn(probe, sys.modules)
+        for probe in probes:
+            self.assertNotIn(probe, sys.modules)
         self.assertIn("board", self._registered())
         self.assertNotIn("board.detail", self._registered(),
-                         "board.detail lives in the excluded module")
+                         "board.detail lives in an excluded module")
+        # Control: excluding the board alone no longer hides board.detail —
+        # its source is its own manifest row now.
+        shortcut_scopes.register_scope_bindings(
+            "board", exclude_modules=("aitask_board",))
+        self.assertIn("board.detail", self._registered())
+        self.assertNotIn(probes[0], sys.modules)
         # Control: the same sweep without the exclusion executes the board.
         shortcut_scopes.register_scope_bindings("board")
-        self.assertIn(probe, sys.modules)
+        self.assertIn(probes[0], sys.modules)
 
     def test_codebrowser_scope_filtered(self):
         failed = shortcut_scopes.register_scope_bindings("codebrowser")
