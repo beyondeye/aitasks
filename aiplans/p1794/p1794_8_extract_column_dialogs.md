@@ -264,9 +264,34 @@ By-Trail moves a wave.
 - **t1794_9** — `ColumnSelectItem.render()` and `ColorSwatch.render()` move to
   `board/board_column_dialogs.py`; **t1441** and **t1442** both cite them at
   stale `aitask_board.py` line numbers (`:5748`, `:5517`) and need a note.
-- **t1794_11** — residual `^class` list and line count recorded at
-  implementation time. Baseline before this child: **35 classes / 7,407 lines**;
-  this child removes 9 classes / ~590 lines.
+- **t1794_11** — residual `^class` list and line count, recorded at
+  implementation time. Baseline before this child: 35 classes / 7,407 lines.
+  **After t1794_8: 26 classes / 6,843 lines** (−9 classes, −564 lines; the new
+  `board_column_dialogs.py` is 645 lines including its header).
+
+  The 26 residual classes of `aitask_board.py`, in file order — this is the
+  end-state shape the parent's acceptance criteria describe (`KanbanApp`, the
+  Kanban render paths, the key map / `check_action`, `InFlightTaskCard`, the
+  task-select screens, the module constants and the three injected helpers):
+
+  ```
+  CollapsedColumnPlaceholder  EmptyColumnPlaceholder  GroupHeader
+  ViewSelector                InFlightTaskCard        InFlightColumn
+  TopicColumn                 TopicSortModeItem       TopicSortModeScreen
+  GateChoiceItem              GateChoiceScreen        KanbanColumn
+  DeleteConfirmScreen         DeleteArchiveConfirmScreen
+  OrphanParentArchiveScreen   CrossRepoTaskScreen     IssueTypeFilterScreen
+  TaskSelectScreenBase        WorkReportTaskSelectScreen
+  MoveTaskSelectScreen        RenameTaskScreen        CommitMessageScreen
+  SettingsScreen              KanbanCommandProvider   BoardScreen
+  KanbanApp
+  ```
+
+- **t1794_7 follow-up (separate cleanup, not done here)** —
+  `tests/test_board_detail_screen.py` documents itself as held to the strict
+  fixture tier ("see `MIGRATED_MODULES`") but was never added to that tuple.
+  `test_board_column_dialogs.py` *was* added by this child. The older file needs
+  its own red-then-green check and is spawned as an "after" follow-up.
 
 ## Risk
 
@@ -291,3 +316,92 @@ management.
 **Mitigations: none required.** The deviation from the parent file map is
 documented above and is mechanically enforced by the C1 AST guard, which fails
 red if the boundary is drawn wrong.
+
+## Final Implementation Notes
+
+- **Actual work done:** Created `.aitask-scripts/board/board_column_dialogs.py`
+  (645 lines) holding the **9** column-management classes moved verbatim from
+  `aitask_board.py`: `ColumnMultiSelectScreen`, `ColorSwatch`,
+  `ColumnEditScreen`, `DeleteColumnConfirmScreen`, `ColumnSelectItem`,
+  `ColumnSelectScreen`, `ColumnManageItem`, `MergeColumnsConfirmScreen`,
+  `ColumnManageScreen`. Three discontiguous source regions (`1568–1632`,
+  `1871–2012`, `2072–2448`), extracted with a scripted slice so the bodies are
+  byte-identical. `aitask_board.py` went **7,407 → 6,843 lines, 35 → 26
+  classes**; it gained the standard `import board_column_dialogs` +
+  `from board_column_dialogs import (…)` pair with the house comment block.
+  New pin test `tests/test_board_column_dialogs.py`; guard entries added to
+  `tests/test_board_package_contract.py` and `tests/test_board_fixture_harness.py`
+  (both `MIGRATED_MODULES` and the anti-vacuity sibling tuple); one genuine fix
+  in `tests/test_board_columns_reconcile.py`.
+
+- **Deviations from plan:** None from the *approved* plan. The approved plan
+  itself deviated from the pre-existing p1794_8 / parent file map by widening
+  the move set from 6 classes to 9 — forced by C1 ("no `board/*.py` may import
+  `aitask_board`"), since `ColumnManageScreen` pushes `ColumnEditScreen`,
+  `DeleteColumnConfirmScreen` and `MergeColumnsConfirmScreen`. Checked at the
+  pinned SHA `e2f12c499`: the map's range `ColumnManageItem/Screen (:8060–8397)`
+  already spanned `MergeColumnsConfirmScreen (:8089)`, so only two classes were
+  genuinely unnamed. Two further additions came out of user review — the
+  `MIGRATED_MODULES` entry for the new test, and replacing a runtime-only
+  identity pin with the source-level single-home check.
+
+- **Issues encountered:**
+  1. `tests/test_board_columns_reconcile.py::SavePathContainmentTests` failed:
+     its anti-vacuity union compared the whole-board-tree `save_metadata`
+     caller scan against callers found in **two** hardcoded files, and
+     `ColumnManageScreen._shift` moved out of `aitask_board.py`. Fixed by
+     naming all three modules (added `DIALOGS_PATH` + an `assertIn("_shift",
+     dialog_sites)`), keeping the test's meaning rather than loosening it.
+  2. My own first pin test asserted `assertNotIn("aitask_board", source)` for
+     C1 — which the module docstring legitimately violates in prose ("extracted
+     from `aitask_board.py`"). Replaced with an AST scan for real `Import` /
+     `ImportFrom` nodes.
+  3. The `from board_columns import` block lost its last in-file consumer (all
+     uses were inside the move set). It must stay: `test_board_columns_seam.py`
+     asserts the literal import text in `aitask_board.py`, and
+     `test_board_column_manage.py` reads `B.UNORDERED_ID` at 13 sites. Kept with
+     a `# noqa: E402,F401` and a comment saying why, plus a test pinning it.
+  4. Wrote `C` as the column-manage key into the t1794_12 checklist from
+     memory; the binding is actually `e` (`aitask_board.py:2333`). Corrected
+     before committing.
+
+- **Key decisions:**
+  - **No injection, unlike t1794_7.** The moved classes call no module-level
+    board function — their host reach is `self.app.<method>` and
+    `self.manager`, both resolved at call time — so there is no `make_*` binder
+    and no keyword-callable plumbing. This is the simplest of the eight
+    extractions.
+  - **CSS stays in `KanbanApp.CSS`**, following the t1794_7 precedent, not the
+    `WIDGET_CSS` / `TRAIL_CSS` split: the board is the only App that pushes
+    these dialogs (`trails_app` uses none) and several rules are shared with
+    other board modals.
+  - **No `lib/shortcut_scopes.py` row.** Six moved classes carry plain
+    `BINDINGS` but none subclasses `ShortcutsMixin` or sets `_shortcuts_scope`;
+    `KNOWN_BINDING_SOURCES` lists only scope contributors (`board_trail_screen.py`
+    exports `TRAIL_BINDINGS` and is deliberately absent).
+  - **Source-level single home over runtime identity.** Reused the shared
+    `tests/lib/board_single_home.py` helper (t1794_3/_4's precedent) rather than
+    t1794_7's identity-only pins: identity cannot see a stale copy left *above*
+    the board's import. Mutant-checked in-memory — the pin catches a copy below
+    the import, above it, and a duplicate in the new module.
+  - **C3 sweep proven, not assumed:** the concrete 16-name grep returns zero
+    matches, and a positive control with the same regex shape returns 21. Zero
+    patch repoints, zero mutants needed.
+
+- **Upstream defects identified:** None.
+
+- **Notes for sibling tasks:**
+  - **t1794_9** — notes to t1441 and t1442 were **already sent by this child**
+    (ids `2026-09-20T08:00:30Z.b981800f…` and `2026-09-20T08:00:43Z.b9d73869…`),
+    because this change is what invalidated their locations. Do not re-send;
+    check `aitask_query_files.sh inbox 1441 1442` before composing.
+  - **t1794_11** — the residual class list and line count are recorded above
+    under "Notes for sibling tasks".
+  - **t1794_12** — the t1794_8 checklist was expanded from 3 items to 7 to match
+    the widened move set: the grep now names all 9 classes, the merge flow gets
+    an end-to-end item, and the Esc-with-changes dismiss path gets its own.
+  - **Pattern for any future extraction:** the per-module guards are now a
+    four-site checklist — `BOARD_MODULE_NAMES` (already pre-seeded in
+    `board_fixture.py`), a `HeadlessImportTests` probe, the anti-vacuity sibling
+    tuple, and `MIGRATED_MODULES`. t1794_7 missed the last one; see the
+    follow-up recorded above.
