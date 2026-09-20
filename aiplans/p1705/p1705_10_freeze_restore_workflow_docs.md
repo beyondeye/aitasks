@@ -361,7 +361,13 @@ retargeted by this task.
   process (freeze is `f` not `z`; there is no `ait frozen` verb; closed-window
   restore works now; the hook opt-out is answering `n`, not deleting the entry;
   `frozen.stale_op_grace` is not a config key).
-- **Upstream defects identified:** None
+- **Upstream defects identified:**
+  - `website/content/docs/installation/_index.md:126 — Claude Code permissions
+    (.claude/settings.local.json) were listed under "Global dependencies
+    (installed once per machine)", but that file is written per project.`
+    **Fixed in this task** at the user's request (commit `813ba9174`) rather
+    than spawned as a follow-up: the bullet moved to the Per-project files
+    list, beside the session-hook bullet this task added.
 - **Notes for sibling tasks:** The division of labour with t1705_9 held up well:
   TUI surface (keys, header fields, messages, exit codes) on the frozenagent
   pages, and when/why plus the cross-cutting concept here. Anything a sibling
