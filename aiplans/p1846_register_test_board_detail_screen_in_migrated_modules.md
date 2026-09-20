@@ -141,3 +141,70 @@ Step 9 handles archival of the task and this plan.
 - None identified. The change is one tuple entry; the file already satisfies the
   tier-2 rule (verified by reading its imports), and the A/B control proves the
   entry is enforced rather than inert.
+
+## Final Implementation Notes
+
+- **Actual work done:** Exactly the planned one-entry change to
+  `MIGRATED_MODULES` in `tests/test_board_fixture_harness.py` — three lines
+  (`"test_board_detail_screen.py"` plus a two-line `# t1794_7:` comment in the
+  neighbours' style), inserted between the t1794_5 and t1794_8 entries so the
+  tuple stays in ascending sub-task order. `git status` showed that file as the
+  only modification at review time. No production code touched.
+
+- **Deviations from plan:** None in the change itself. One deliberate refinement
+  to the *proof*, decided during planning and carried out as written: the task
+  text prescribed "add a canonical `import aitask_board`, confirm the harness
+  goes red". That probe also trips **tier 1** (`LiveTreeSweepTests`), because
+  `test_board_detail_screen.py` matches the tier-1 glob `test_board_*.py` — so a
+  bare "harness goes red" would not have been attributable to the new tuple
+  entry. The probe was therefore run against the **tier-2 class alone**, in two
+  states, so the signal is guard-specific:
+
+  - **(A) control — probe present, tuple entry temporarily removed:**
+    `pytest tests/test_board_fixture_harness.py -q -k MigratedModuleGuardTests`
+    → `3 passed, 50 deselected`. The guard is blind to the probe while the file
+    is not in the tuple.
+  - **(B) probe present, tuple entry present:** same command →
+    `1 failed, 2 passed, 50 deselected`, failing
+    `MigratedModuleGuardTests::test_migrated_modules_have_no_live_tree_coupling`
+    with `AssertionError: Lists differ: ['canonical import: import aitask_board']
+    != []` and the message naming `test_board_detail_screen.py`.
+
+  The A→B delta is attributable to the new entry alone, which is what proves the
+  entry is enforced rather than inert.
+
+- **Issues encountered:** None. The file already satisfied the tier-2 rule (no
+  chdir of any kind; its only imports are `inspect`, `sys`, `unittest`,
+  `pathlib`, `unittest.mock` and `board_fixture as bf`), so the entry landed
+  green on the first run, which is the outcome the task required. Had it gone
+  red, the instruction was to report the tier violation rather than remove the
+  entry.
+
+- **Key decisions:**
+  - The probe was written as a **never-called function** (`def _t1846_probe():
+    import aitask_board`) rather than a module-level import. `_canonical_board_imports`
+    uses `ast.walk`, so it sees an `Import` node anywhere in the file, while the
+    function form keeps the probe inert at runtime — this checkout is shared with
+    concurrent sessions, and a module-level import would have loaded the real
+    board into `sys.modules` for anyone running that file during the probe window.
+  - The probe was reverted by an **in-place edit** asserting on the exact appended
+    tail, never `git restore` — the worktree is shared and dirty.
+  - `test_sweep_covers_more_than_the_migrated_set` was checked for headroom before
+    the change: tier-1 glob 58 vs tuple 23 → 24. Ample.
+
+- **Upstream defects identified:** None
+
+### Verification record
+
+- Baseline (before the change): `~/.aitask/venv/bin/python -m pytest
+  tests/test_board_fixture_harness.py -q` → **53 passed**.
+- After the entry: same command → **53 passed** (still green, per the task's
+  stated point).
+- Red-then-green A/B control: recorded above.
+- Probe reverted; `git status --short tests/` → only
+  `M tests/test_board_fixture_harness.py`.
+- `pytest tests/test_board_fixture_harness.py tests/test_board_detail_screen.py -q`
+  → **60 passed**.
+- `bash tests/run_all_python_tests.sh` → last line
+  `PYTHON SUITE: PASSED (runner=pytest, exit=0)` (run under `set -o pipefail`,
+  `PIPESTATUS[0]=0`).
