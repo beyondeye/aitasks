@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: medium
 depends: [t1794_7]
 issue_type: refactor
@@ -12,8 +14,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1794
+implemented_with: claudecode/opus5
 created_at: 2026-09-11 15:08
-updated_at: 2026-09-20 09:26
+updated_at: 2026-09-20 10:09
 ---
 
 ## Context
@@ -88,3 +91,8 @@ criteria describe.
 - Manual in tmux: `ait board` → column manage (add / rename / recolour /
   reorder / delete a column, then cancel and confirm paths), `m` move a card
   to a chosen column, `M` in By-Trail moves a wave.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-20T07:09:52Z status=pass attempt=1 type=human
