@@ -380,6 +380,9 @@ MIGRATED_MODULES = (
     # t1794_5: the trail host-protocol, binding-identity, `T` real-path and
     # inert-patch pins reach the board and `board_trail_screen` only as `ab.*`.
     "test_trail_screen_host_protocol.py",
+    # t1794_7: the task-editor re-export identity, injected-helper and
+    # tasks_dir pins reach the board and `board_detail_screen` only as `ab.*`.
+    "test_board_detail_screen.py",
     # t1794_8: the column-dialog single-home, identity and re-export pins reach
     # the board and `board_column_dialogs` only as `ab.*` (or read the source).
     "test_board_column_dialogs.py",
