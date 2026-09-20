@@ -295,27 +295,34 @@ By-Trail moves a wave.
 
 ## Risk
 
-**Code-health risk: low.** Verbatim move, no behaviour change, following a
-pattern executed seven times already in this parent task. Blast radius is 2
-source files + 3 test files; every existing call site keeps resolving through
-the re-export. The module needs no injection and no CSS split, making it the
-simplest of the eight extractions. The commit-boundary save path moves
-untouched. The net is strong and specific: the C1 `ImportBackTests`, the
-`UnresolvedGlobalsTests` symtable scan (which catches a verbatim move that
-forgot an import), the new **source-level** single-home pin (which, unlike a
-runtime identity check, catches dead duplicate source left behind in either
-ordering), and `test_board_column_dialog.py` / `test_board_column_manage.py`.
-The C3 sweep is a proven empty set with a positive control.
+### Code-health risk: low
+- ~590-line mechanical move across a module boundary: a lost import or a global
+  the moved code still expects on the board surfaces only at runtime, in a
+  rarely opened dialog · severity: medium · → mitigation: none (covered in
+  plan: the `UnresolvedGlobalsTests` symtable scan over every board module, the
+  C1 import-back and C2 guards, the headless-import probe, and the new
+  source-level single-home pin)
+- A stale duplicate definition left behind in `aitask_board.py` beside the
+  re-export — invisible to a runtime identity check when it sits ABOVE the
+  import · severity: medium · → mitigation: none (covered in plan: the shared
+  `board_single_home` AST helper checks the SOURCE, exactly for this case, and
+  is mutant-checked in both orderings)
+- Silent patch inertness (t1613 class): a `patch.object(B, …)` site staying
+  green while patching nothing once the lookup moves · severity: low ·
+  → mitigation: none (covered in plan: the C3 sweep is a proven EMPTY set with
+  a positive control, so there is nothing to repoint)
+- The `from board_columns import` block losing its last in-file consumer and
+  being removed as "unused", breaking `test_board_columns_seam` and 13
+  `B.UNORDERED_ID` reads · severity: low · → mitigation: none (covered in plan:
+  kept with `# noqa: E402,F401`, an explanatory comment, and a pin test)
 
-**Goal-achievement risk: low.** The task's own acceptance grep is satisfied by
-the widened set, and the widening is *forced* by a pinned contract rather than
-chosen. The one judgement call — that "column dialogs" excludes `SettingsScreen`
-— is checked: it references no moved class and is board settings, not column
-management.
-
-**Mitigations: none required.** The deviation from the parent file map is
-documented above and is mechanically enforced by the C1 AST guard, which fails
-red if the boundary is drawn wrong.
+### Goal-achievement risk: low
+None identified. The move set is grep/AST-confirmed, and the one correction to
+the original plan — widening from six classes to nine — is forced by the pinned
+C1 contract rather than chosen, and is mechanically enforced by the C1 AST
+guard, which fails red if the boundary is drawn wrong. The single judgement
+call, that "column dialogs" excludes `SettingsScreen`, is checked: it
+references no moved class and is board settings, not column management.
 
 ## Final Implementation Notes
 
