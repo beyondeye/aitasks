@@ -103,6 +103,7 @@ For background on why task data lives on a separate branch, see the
 - `aitasks/` — Task data directory (auto-created)
 - `aiplans/` — Implementation plans directory (auto-created)
 - `.claude/settings.json` — Claude Code SessionStart hook, offered by its own prompt (see [Session Hooks](../commands/setup-install/#session-hooks))
+- `.claude/settings.local.json` — Claude Code permissions, offered by their own prompt (see [Claude Code Permissions](../commands/setup-install/#claude-code-permissions))
 
 **Optional: Codex CLI support** (when `ait setup` detects Codex CLI):
 
@@ -124,7 +125,6 @@ For background on why task data lives on a separate branch, see the
 - Python venv at `~/.aitask/venv/` with `textual` (>=8.1), `pyyaml`, `linkify-it-py`, `tomli`, and `plotext` (for `ait stats-tui` chart panes). Versions are pinned — see `ait setup` for details
 - Optional: PyPy 3.11 venv at `~/.aitask/pypy_venv/` for faster `ait board` — see [PyPy Runtime]({{< relref "pypy" >}})
 - Global `ait` shim at `~/.local/bin/ait`
-- Claude Code permissions in `.claude/settings.local.json` (see [Claude Code Permissions](../commands/setup-install/#claude-code-permissions))
 
 ---
 
