@@ -204,3 +204,41 @@ no mention of the refactor history. Agent names stay generic.
   an App key, or `T`/`r` over-claiming what they write or reload). severity: low. → mitigation:
   none needed. The plan's "key grep both ways" step and the source-backed behavioural claims
   checklist (auto-select, cached vs rescanned, `T` launches a workflow) already cover it.
+
+## Final Implementation Notes
+
+- **Actual work done:** New page set `website/content/docs/tuis/trails/{_index,how-to,reference}.md`
+  (weight 12, experimental). Edited `tuis/_index.md` (Board bullet + new Trails bullet;
+  switcher list gains Trails, and the unadvertised-letter sentence names `i` and `f`),
+  `tuis/board/reference.md` (By-Trail: stand-alone pointer + separate-selection note),
+  `tuis/board/how-to.md` (By-Trail block pointer), `skills/aitask-trail.md` (`:12`, `:87`
+  rewrite, Related bullet), `workflows/implementation-trails.md` (`T` from `ait trails`,
+  stand-alone reading paragraph, `S` row "board only"), `skills/aitask-backlog-roadmap.md:17`.
+- **Deviations from plan:** (1) `T` is documented as the **creation** workflow, not
+  "create-or-refresh": the source shows `action_trail_task` → `_launch_trail([target], target)`
+  with a bare task id, which `/aitask-trail` routes to its Create flow (SKILL.md.j2 mode table);
+  refresh is `R` (`--refresh <handle>`). (2) `tuis/board/_index.md` left unchanged (plan
+  decision). (3) `skills/aitask-trail.md:72` left as is — it describes the skill's own printed
+  board pointer (SKILL.md.j2:801).
+- **Issues encountered:** `tests/lib/docs_vocabulary_scan.py` needs `--root .` (the task's
+  bare invocation is a usage error). Four plan-review concerns (selection vs rescan vs
+  post-sync refresh; `T` as a launch not a write; source-backed behavioural checklist;
+  no trail/focus hand-off to the board) were verified against source and applied before
+  implementation; one review concern (m vs M conflated at `implementation-trails.md:86`)
+  was fixed in review.
+- **Key decisions:** `a`/`Escape` documented in a separate detail-screen table (they are
+  `TrailEntryDetailScreen` bindings, not App keys). Board-only keys get their own "Not
+  available here" table. A "What each refresh reads" table makes `r`/`d`/`s`/`R` scope explicit.
+- **Verification record:** `check_links.py --build` SWEEP PASSED (0 broken); `hugo build
+  --gc --minify` OK; `check_link_relevance.py` — no hits on changed pages;
+  `docs_vocabulary_scan.py --root .` OK; `test_board_reference_doc_literals.py` 10 passed;
+  stale-claim grep empty. Key grep both ways: every `TrailsApp.BINDINGS` + `TRAIL_BINDINGS`
+  key is documented (`M`/`S` under "Not available here"); extra doc keys are `a`/`Escape`
+  (detail modal, `board_trail_view.py:648,655`) and `m` (board-only). Behavioural checklist:
+  `trails_app.py:156` (auto-select), `board_trail_screen.py:449` (`r` cached), `:495`
+  (`s` rescan), `:799` (`d` re-fetch), `:909` (`T` launch, no watch), `aitask_board.py:3729`
+  (board `z` selector only without an active trail).
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:** The trails TUI docs live at `website/content/docs/tuis/trails/`;
+  t1794_11 (retrospective) can link there. t1794_12 (manual verification) can reuse the
+  how-to's three refresh situations and the board hand-off steps as checklist items.
