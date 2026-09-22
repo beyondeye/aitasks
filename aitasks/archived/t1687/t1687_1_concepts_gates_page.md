@@ -5,14 +5,15 @@ risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [documentation, website, concepts]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1687
 implemented_with: claudecode/opus5_1m
 created_at: 2026-09-20 12:01
-updated_at: 2026-09-22 09:12
+updated_at: 2026-09-22 17:00
+completed_at: 2026-09-22 17:00
 ---
 
 ## Context
@@ -114,3 +115,14 @@ Confirm every anchor named above still exists, and that
 > **✅ gate:plan_approved** run=2026-09-22T06:12:38Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-09-22T13:55:17Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-22T14:00:50Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:bd3682b7f105ed6a
+
+> **✅ gate:risk_evaluated** run=2026-09-22T14:00:50Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1687_1/risk_evaluated_2026-09-22T14:00:50Z-risk_evaluated-a1.log`
