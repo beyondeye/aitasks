@@ -4,7 +4,7 @@ effort: low
 depends: []
 issue_type: bug
 status: Ready
-labels: [documentation]
+labels: [documentation, gates]
 gates: [risk_evaluated]
 anchor: 1687
 followup_kind: upstream_defect
