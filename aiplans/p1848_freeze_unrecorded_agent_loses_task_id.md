@@ -138,3 +138,17 @@ Post-implementation: commit code (`bug: … (t1848)`), then archival per Step 9.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-09-22 17:40)
+- **Requested by user:** `_backfill_task_ref` swallowed a failed `fill-task` (warning only) and the freeze continued, so a store lock timeout on an unrecorded agent window still produced a frozen record with no task id and no session id — the exact state this task eliminates. Require the fill (verified by re-read) before the irreversible freeze stages; otherwise fail the freeze with the agent live.
+- **Changes made:** `_backfill_task_ref` now fails closed: when the window names a task it runs `fill-task`, re-reads the record, and raises `OSError` unless `task_id` is recorded; `freeze_pane` turns that into `FREEZE_FAILED:resolve|…` before capture / `freeze-begin`, with the record `live` and the agent running. A window naming no task is never blocked. Replaced `test_a_failed_fill_warns_and_the_freeze_still_succeeds` with: fill failure (LOCK_BUSY) fails at resolve with nothing irreversible run; a success line on a still-blank record is not success; a failed freeze succeeds on retry; a task-less window is unaffected by a failing store. Mutant check: reverting to warn-only turns 3 tests red.
+- **Files affected:** `.aitask-scripts/lib/agent_freeze.py`, `tests/test_agent_freeze.py`
+
+## Final Implementation Notes
+- **Actual work done:** `monitor_core._TASK_ID_RE` now has named groups (`operation`, `task_id`); new `task_ref_from_window_name()` shares it. New blank-only store verb `fill-task` (`agent_sessions.fill_task` + wrapper `cmd_fill_task`). Freeze engine `_backfill_task_ref()` runs on both `_resolve_record` paths (stamped and fallback) and fails the freeze closed at `resolve` when the window names a task but the re-read record holds none. Tests: `TaskRefBackfillTests` (re-pickable via the restore coordinator's repick preflight, with a negative control), `FillTaskTests` (store), wrapper Test 10 in `test_agent_sessions_concurrency.sh`, and a `task_ref_from_window_name` case.
+- **Deviations from plan:** (1) Scope narrowed by the user before approval: no `reconcile()` repair of already-frozen legacy records. (2) Post-review: the backfill fails closed instead of warn-and-continue (Change Request 1). (3) The shared `_FreezeTestCase` fixture record now carries `operation="pick", task_id="1705"`, as a real hook-recorded record would; the happy-path "already-recorded pane is not written again" assertion otherwise failed only because the fixture was unrealistic. `TaskRefBackfillTests.setUp` blanks the pair.
+- **Issues encountered:** none beyond the fixture realism above.
+- **Key decisions:** a dedicated `fill-task` verb instead of passing `--operation/--task-id` to `upsert`: `upsert` takes a blank as a value and can select an existing record by pane identity, so it would overwrite hook-recorded values. The verb is not state-gated and takes no lease (descriptive fields only, under the store mutex). A stamp left on a live record by a resolve-stage failure is the same state the hook produces and makes the retry take the stamped path.
+- **Upstream defects identified:** None
