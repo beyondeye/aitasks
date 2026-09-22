@@ -72,6 +72,7 @@ geminicli
 git
 git-integration
 gitremote
+go_engine
 html_plans
 install
 install_scripts
@@ -135,6 +136,7 @@ test
 test_infrastructure
 test_marker
 testing
+testmap
 tests
 textual
 tmux
