@@ -367,3 +367,81 @@ literals it replaced.
 - `audit_doc_staleness_note` · inline post-phase · `inline_risk: low`
   · `added_complexity: low` — hand the sweep findings to t1341 by `ait note`
   rather than editing `model_reference_locations.md` here.
+
+---
+
+## Final Implementation Notes
+
+- **Actual work done:** All four phases landed as planned. Phase 1 registered
+  `claudecode/opus5_5` (`claude-opus-5-5`) and promoted the 9 heavy ops plus
+  `DEFAULT_AGENT_STRING`, entirely through `aitask_add_model.sh` with a
+  `--dry-run` review of every diff first. Phase 2 updated the five manual-tail
+  sites. Phase 3 converted `tests/test_codeagent.sh` to the t1318 derive idiom.
+  Both inline post-phase mitigations were executed: `codeagent_fixture_metadata`
+  was adopted in that suite's `setup_test_env` (bringing the
+  `AIT_CODEAGENT_FIXTURE_OMIT_OPS` control), and the audit-gap findings were sent
+  to t1341 as note `2026-09-22T20:49:28Z.8c6b09cd83078bc07cd6a436`.
+
+- **Deviations from plan:** None material. One counting correction: the plan's
+  Phase 2 listed 9 lines in `website/content/docs/commands/codeagent.md`; the
+  actual edit is 10 (5 table rows, 3 sample-output lines, the hardcoded-default
+  line, the example config). All ten were intended and the `opus4_6` format
+  illustrations at 17/29/95/124/217 were left alone as specified.
+
+- **Issues encountered:**
+  - The readback's negative control initially reported `rc=141` for its second
+    mutant. That was SIGPIPE from the `| head -6` used to view the output, not
+    the script's verdict — re-run unpiped it is `rc=1`. This is a live
+    demonstration of the plan's own "do not pipe the readback" warning, and is
+    the same class as the documented `PYTHON SUITE` piping hazard.
+  - A concurrent session was editing this worktree throughout (`ait`,
+    `aidocs/task_attachments_design.md`, and several `aidocs/framework/` files
+    changed mid-implementation and are not part of this task). Every commit was
+    path-scoped, so none of it rode along.
+
+- **Key decisions:**
+  - **The exact-ID literal lives in the readback, not the test.** A test that
+    derives its expectation from the registry agrees with a typo'd `cli_id` by
+    construction, because both sides read the same file. So `claude-opus-5-5` is
+    pinned once, in the one-time promotion readback, while the test keeps
+    deriving and cannot rot on the next promotion.
+  - **The readback is fail-closed and was proven to fail.** A per-line
+    `|| echo "FAIL …"` returns 0, so the block would have printed FAIL and still
+    let the commits proceed; every mismatch instead sets `rc` and the script
+    exits on it. Two mutants (old `cli_id`, old agent string) were run to confirm
+    it is not vacuous.
+  - **`seed`'s `shadow` / `discuss` deliberately stay on `claudecode/opus5`.**
+    `promote-config --ops` patches metadata and seed together, so naming them
+    would have clobbered the live `codex/gpt5_6_terra` assignments. Readback 3
+    asserts this non-move rather than leaving it implicit: seed must retain
+    exactly two `claudecode/opus5` defaults.
+  - **`explore-relay` needed no config entry.** It is a real supported operation
+    with no `defaults` key, so it resolves through `DEFAULT_AGENT_STRING` and
+    moved for free; only its doc row needed updating. No follow-up task.
+  - **No `opus5_5_1m`.** The vendor's published model page gives a single ID with
+    a 1M context window and no bracketed variant.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/roadmap_run.py:280,562` — a second hardcoded
+    `claudecode/opus5` default (the `run()` keyword default and the
+    `--agent-string` argparse default) that
+    `aitask_add_model.sh promote-default-agent-string` does not patch and
+    `aidocs/framework/model_reference_locations.md` §3 does not list. Since
+    `.claude/skills/aitask-backlog-roadmap/SKILL.md` invokes the driver with no
+    `--agent-string`, a published roadmap artifact's `generator.agent_string`
+    silently retained the superseded model across the previous promotion. Fixed
+    here; the audit-inventory gap is reported to t1341.
+  - `.aitask-scripts/lib/agent_string.sh:9` — the header comment named
+    `claudecode/opus4_7_1m` as the default, stale across at least two
+    promotions, and is not grep-findable by the current model name. Fixed here.
+  - `aidocs/framework/model_reference_locations.md` — tags
+    `tests/test_brainstorm_crew.py` as `needed_for_promote`; it is not (its
+    `FULL_DEFAULTS` is written into a tmpdir and read back by the same test,
+    `config_root` is always the tmpdir). Its §4 entry for
+    `aitask_brainstorm_init.sh` also no longer corresponds to any model
+    reference in that file. Not fixed here — t1341 owns this file, and both
+    findings were sent to it by note.
+  - `.claude/skills/aitask-add-model/SKILL.md:117-128` — the Step 5
+    manual-review block propagates the same wrong `test_brainstorm_crew.py`
+    claim and omits `roadmap_run.py` and `website/content/docs/tuis/syncer/`.
+    Not fixed here; reported to t1341 alongside the audit doc it mirrors.

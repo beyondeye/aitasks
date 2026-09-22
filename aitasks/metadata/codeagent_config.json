@@ -1,22 +1,22 @@
 {
   "defaults": {
-    "pick": "claudecode/opus5",
+    "pick": "claudecode/opus5_5",
     "explain": "claudecode/sonnet5",
     "batch-review": "claudecode/sonnet5",
     "qa": "claudecode/sonnet5",
     "raw": "claudecode/sonnet5",
-    "explore": "claudecode/opus5",
+    "explore": "claudecode/opus5_5",
     "shadow": "codex/gpt5_6_terra",
     "discuss": "codex/gpt5_6_terra",
-    "learn": "claudecode/opus5",
-    "brainstorm-explorer": "claudecode/opus5",
+    "learn": "claudecode/opus5_5",
+    "brainstorm-explorer": "claudecode/opus5_5",
     "brainstorm-comparator": "claudecode/sonnet5",
-    "brainstorm-synthesizer": "claudecode/opus5",
+    "brainstorm-synthesizer": "claudecode/opus5_5",
     "brainstorm-initializer": "claudecode/sonnet5",
-    "brainstorm-module_decomposer": "claudecode/opus5",
-    "brainstorm-module_merger": "claudecode/opus5",
-    "brainstorm-module_syncer": "claudecode/opus5",
+    "brainstorm-module_decomposer": "claudecode/opus5_5",
+    "brainstorm-module_merger": "claudecode/opus5_5",
+    "brainstorm-module_syncer": "claudecode/opus5_5",
     "work-report": "claudecode/sonnet5",
-    "trail": "claudecode/opus5"
+    "trail": "claudecode/opus5_5"
   }
 }
