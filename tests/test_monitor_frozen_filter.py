@@ -523,6 +523,36 @@ class FrozenActionTests(_Fixture):
                 self.assertIn("aitask_frozen.sh", argv[2])
                 self.assertTrue(argv[2].endswith(f"restore {RECORD}"))
 
+    def test_restore_warns_at_dispatch_when_the_model_is_unknown(self):
+        """t1850: a record with no agent string restores on the default model;
+        dispatch is the only moment the monitor can say so."""
+        class _View:
+            def __init__(self, agent_string):
+                self.agent_string = agent_string
+
+            def __call__(self):
+                return self
+
+            def by_id(self, _rid):
+                return type("R", (), {"restore_attempts": 0,
+                                      "agent_string": self.agent_string})()
+
+        for agent_string, warned in (("", True), ("claudecode/opus5", False)):
+            for cls in BOTH_APPS:
+                with self.subTest(app=cls.__name__, agent_string=agent_string):
+                    self.setUp()
+                    snap = snapshot("agent-f", frozen=True)
+                    app = self._armed(cls, snap)
+                    app._poll_frozen_outcome = lambda *a, **k: None
+                    with patch.object(agent_sessions, "SessionsView",
+                                      _View(agent_string)):
+                        app.action_restore_frozen()
+                    self.assertEqual(
+                        any(agent_sessions.UNKNOWN_MODEL_NOTE in n
+                            for n in self.notes), warned, self.notes)
+                    self.assertTrue(app._monitor.tmux_calls[-1][2].endswith(
+                        f"restore {RECORD}"), "the warning must not stop it")
+
     def test_repick_adds_the_repick_flag(self):
         for cls in BOTH_APPS:
             with self.subTest(app=cls.__name__):

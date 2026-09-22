@@ -100,6 +100,12 @@ class _StoreFixture:
         return str(ansi), str(txt)
 
 
+def agent_sessions_kind(agent_string: str) -> str:
+    """The `agent_kind` the store derives, so a fixture record stays coherent."""
+    import agent_sessions
+    return agent_sessions.agent_kind_of(agent_string)
+
+
 def _header_plain(app) -> str:
     """The header's RENDERED text, with markup already resolved."""
     rendered = app.query_one("#fa-header").render()
@@ -829,6 +835,41 @@ class ActionArgvTests(_AppCase):
         argvs = self.tmux.run_shell_argvs()
         self.assertEqual(len(argvs), 1)
         self.assertIn(f"aitask_frozen.sh restore {self.RECORD_ID}", argvs[0][2])
+
+    async def _dispatch_notes(self, agent_string: str) -> list[str]:
+        self.fx.write([_record(
+            self.RECORD_ID, agent_string=agent_string,
+            agent_kind=agent_sessions_kind(agent_string),
+            capture_ansi=str(self.fx.frozen / self.RECORD_ID / "capture.ansi"),
+            capture_txt=str(self.fx.frozen / self.RECORD_ID / "capture.txt"),
+        )])
+        app = self.make_app()
+        seen: list[str] = []
+        original = app.notify
+
+        def spy(message, **kwargs):
+            seen.append(str(message))
+            return original(message, **kwargs)
+
+        app.notify = spy
+        async with app.run_test(size=(80, 20)) as pilot:
+            await pilot.press("R")
+            await pilot.pause()
+        self.assertEqual(len(self.tmux.run_shell_argvs()), 1,
+                         "the warning must not stop the restore")
+        return seen
+
+    async def test_restoring_a_record_with_no_agent_string_says_so_at_dispatch(self):
+        """t1850: the default model is used, and the viewer is replaced on
+        success, so dispatch is the only moment the user can be told."""
+        import agent_sessions
+        seen = await self._dispatch_notes("")
+        self.assertIn(agent_sessions.UNKNOWN_MODEL_NOTE, seen)
+
+    async def test_a_known_agent_string_restores_without_the_warning(self):
+        import agent_sessions
+        seen = await self._dispatch_notes("claudecode/opus5")
+        self.assertNotIn(agent_sessions.UNKNOWN_MODEL_NOTE, seen)
 
     async def test_repick_is_refused_without_a_task_id(self):
         self.fx.write([_record(

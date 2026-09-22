@@ -868,6 +868,10 @@ class FrozenAgentApp(TuiSwitcherMixin, ShortcutsMixin, App):
         argv = ["restore", rid] + (["--repick"] if repick else [])
         self._run_frozen(argv)
         self._set_note(rid, "dispatching…")
+        # Now, not at the outcome: a successful restore replaces this viewer.
+        note = agent_sessions.unknown_model_note(rec.agent_string)
+        if note:
+            self.notify(note, severity="warning")
         elapsed = {"t": 0.0}
         self._op_timers[rid] = self.set_interval(
             POLL_INTERVAL,

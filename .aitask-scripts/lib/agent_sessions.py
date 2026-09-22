@@ -276,6 +276,20 @@ def standin_command(record_id: str) -> str:
     return f"ait frozenagent --record {record_id}"
 
 
+#: What a viewer says when it dispatches a restore for a record whose agent
+#: string is unknown (t1850). The wrapper then resolves the project's default.
+UNKNOWN_MODEL_NOTE = "original model unknown — restoring with the default model"
+
+
+def unknown_model_note(agent_string: str | None) -> str:
+    """:data:`UNKNOWN_MODEL_NOTE` when ``agent_string`` names no agent, else "".
+
+    Shown at DISPATCH time: a successful restore replaces the viewer that asked
+    for it, so a note shown after the restore would have nowhere to go.
+    """
+    return "" if agent_kind_of(agent_string) else UNKNOWN_MODEL_NOTE
+
+
 def agent_kind_of(agent_string: str | None) -> str:
     """Derive the agent kind from an agent string, non-fatally.
 
@@ -1696,13 +1710,61 @@ def codex_process_model(pid: int, *, proc_root: str = "/proc") -> tuple[bool, st
     argv = _codex_cmdline_argv(pid, proc_root)
     if not argv or os.path.basename(argv[0]) != "codex":
         return False, ""
+    return True, _argv_model(argv)
+
+
+def _argv_model(argv: list[str]) -> str:
+    """The value after ``-m`` / ``--model`` / ``--model=`` anywhere in argv, else ""."""
     for index in range(1, len(argv)):
         arg = argv[index]
         if arg in ("-m", "--model"):
-            return True, argv[index + 1] if index + 1 < len(argv) else ""
+            return argv[index + 1] if index + 1 < len(argv) else ""
         if arg.startswith("--model="):
-            return True, arg.split("=", 1)[1]
-    return True, ""
+            return arg.split("=", 1)[1]
+    return ""
+
+
+#: argv0 basename -> agent kind, for the CLIs whose launch argv names the model.
+#: Only the binaries `aitask_codeagent.sh` launches; anything else has no kind.
+_ARGV0_AGENT_KIND = {"claude": "claudecode", "codex": "codex", "opencode": "opencode"}
+
+
+def process_model_evidence(pid: int, *, proc_root: str = "/proc") -> tuple[str, str]:
+    """``(agent_kind, cli_id)`` read off a live process's argv. Never raises.
+
+    ``agent_kind`` comes from argv0's basename (``claude`` -> ``claudecode``),
+    or "" for an unknown binary or an unreadable cmdline. ``cli_id`` is the
+    ``--model`` value, or "" when the launch named none. The freeze engine uses
+    it to recover a blank record's agent string while the agent is still alive
+    (t1850). `env A=B claude …` execs into claude, so the cmdline is claude's own.
+    """
+    argv = _codex_cmdline_argv(pid, proc_root)
+    if not argv:
+        return "", ""
+    kind = _ARGV0_AGENT_KIND.get(os.path.basename(argv[0]), "")
+    return kind, (_argv_model(argv) if kind else "")
+
+
+def process_environ_value(
+    pid: int, name: str, *, proc_root: str = "/proc"
+) -> str | None:
+    """``name``'s value in ``/proc/<pid>/environ``. Never raises.
+
+    Returns None when the environ could not be read (no `/proc`, another user's
+    process, a gone pid) and "" when it was read and the variable is absent.
+    The environ is the one the process was exec'd with, which is what a launch
+    prefix such as `env AITASK_AGENT_STRING=… claude` sets.
+    """
+    try:
+        with open(f"{proc_root}/{int(pid)}/environ", "rb") as fh:
+            raw = fh.read()
+    except (OSError, ValueError, TypeError):
+        return None
+    prefix = f"{name}="
+    for entry in raw.decode("utf-8", errors="replace").split("\0"):
+        if entry.startswith(prefix):
+            return entry[len(prefix):]
+    return ""
 
 
 def codex_session_for_pid(

@@ -282,12 +282,21 @@ def _codex_agent_string(cli_id: str, root: str) -> str:
     means the cli id is absent from `models_codex.json`, and the raw id it
     echoes would not satisfy the store's own well-formedness check.
     """
-    if not cli_id:
+    return _resolve_cli_model("codex", cli_id, root)
+
+
+def _resolve_cli_model(agent: str, cli_id: str, root: str) -> str:
+    """``<agent>/<model>`` for a live process's model id, else ``""``.
+
+    Only an exact ``AGENT_STRING:`` match whose kind is ``agent`` counts; see
+    :func:`_codex_agent_string` for why a fallback is refused.
+    """
+    if not agent or not cli_id:
         return ""
     env = {name: value for name, value in os.environ.items() if name != "TASK_DIR"}
     try:
         proc = subprocess.run(
-            [str(_RESOLVE_AGENT_SH), "--agent", "codex", "--cli-id", cli_id],
+            [str(_RESOLVE_AGENT_SH), "--agent", agent, "--cli-id", cli_id],
             capture_output=True, text=True, timeout=15, cwd=root, env=env,
         )
     except (OSError, subprocess.SubprocessError):
@@ -299,7 +308,87 @@ def _codex_agent_string(cli_id: str, root: str) -> str:
         if line.startswith("AGENT_STRING:"):
             value = line.split(":", 1)[1].strip()
             break
-    return value if agent_sessions.agent_kind_of(value) == "codex" else ""
+    return value if agent_sessions.agent_kind_of(value) == agent else ""
+
+
+def _recover_agent_string(pane_pid: str, root: str) -> str:
+    """The live agent's agent string, from the only evidence left, else ``""``.
+
+    t1850: TUI launches used to start agents without `AITASK_AGENT_STRING`, so
+    their records carry a blank string, and once the process is killed it can
+    never be learned again. In order:
+
+    1. `AITASK_AGENT_STRING` in the process's environ, when well-formed and not
+       contradicted by argv0 (a launch through the fixed path carries it);
+    2. argv0's agent kind plus its `--model`, resolved via the models JSON;
+    3. nothing. A launch that named no model gives no evidence of which one ran.
+    """
+    pid = frozen_ops.int_or_zero(pane_pid)
+    if pid <= 0:
+        return ""
+    kind, cli_id = agent_sessions.process_model_evidence(pid)
+    from_env = agent_sessions.process_environ_value(
+        pid, "AITASK_AGENT_STRING") or ""
+    env_kind = agent_sessions.agent_kind_of(from_env)
+    if env_kind and (not kind or env_kind == kind):
+        return from_env
+    return _resolve_cli_model(kind, cli_id, root)
+
+
+def _backfill_agent_string(
+    record_id: str, facts: dict[str, str], root: str
+) -> None:
+    """Best-effort: fill a still-blank record's agent string from the live agent.
+
+    Kept SEPARATE from the codex conversation capture on purpose.
+    `_observe_codex_session` returns before it ever reads the model whenever it
+    cannot prove a conversation (e.g. no rollout before the first turn), and a
+    blank record then re-picks on the project default despite readable model
+    evidence.
+
+    It runs against the record AS STORED: re-read here, after the codex capture
+    and after any creating upsert. That upsert may have selected an existing
+    record by pane identity, and the store keeps an omitted session id, so what
+    the caller sent says nothing about what the record holds.
+
+    Two rules keep it from making a record lie:
+
+    * it fills a blank only, and never overwrites a stored value;
+    * it never pairs a codex model with a session id it cannot prove. A
+      blank-kind record holding an id got it from the SessionStart hook, which
+      interactive codex never fires, so filling in `codex/…` would make the
+      restore `codex resume <someone else's id>`.
+
+    Model only: no `--session-id` / `--transcript`, so a cleared or unverified
+    id is never brought back. Never raises and never fails the freeze.
+    """
+    try:
+        stored = frozen_ops.store_show(record_id)
+        if not stored or stored.get("agent_string", ""):
+            return
+        value = _recover_agent_string(facts.get("pane_pid", "0"), root)
+        if not value:
+            return
+        if (stored.get("codeagent_session_id", "")
+                and agent_sessions.agent_kind_of(value) == "codex"):
+            return
+        rc, out = frozen_ops.store(
+            "upsert", "--id", record_id,
+            "--root", stored.get("root") or root,
+            "--window", stored.get("window") or facts.get("window", ""),
+            "--pane", facts.get("pane_id", ""),
+            "--pane-pid", facts.get("pane_pid", "0"),
+            "--agent-string", value,
+        )
+        lines = out.splitlines()
+        last = lines[-1] if lines else ""
+        # `UPSERT_REFUSED` exits 0, so the LINE is the success test, not `rc`.
+        if rc != 0 or not last.startswith("UPSERTED:"):
+            print(f"WARNING:{record_id}|agent string recovery failed: "
+                  f"{last or rc}", file=sys.stderr)
+    except Exception as exc:  # noqa: BLE001 - must never break a freeze
+        print(f"WARNING:{record_id}|agent string recovery skipped: {exc}",
+              file=sys.stderr)
 
 
 def _observe_codex_session(
@@ -467,7 +556,9 @@ def _resolve_record(facts: dict[str, str]) -> tuple[str, str]:
     and reusing the id would `freeze-begin` a record that does not exist.
 
     BOTH paths also capture the agent's codex session while it is still running
-    (t1804) — see :func:`_capture_codex_session`. Interactive codex fires no
+    (t1804) — see :func:`_capture_codex_session` — and then fill a still-blank
+    agent string from the live process (t1850), see
+    :func:`_backfill_agent_string`. Interactive codex fires no
     SessionStart hook, so this is the only moment a codex record can learn which
     conversation it holds; by restore time the process is gone.
     """
@@ -477,6 +568,7 @@ def _resolve_record(facts: dict[str, str]) -> tuple[str, str]:
         stored = frozen_ops.store_show(stamped)
         if stored:
             _capture_codex_session(stamped, stored, facts, root)
+            _backfill_agent_string(stamped, facts, root)
             return stamped, f"RECORD:{stamped}|stamped"
 
     # `@aitask_agent_session` is unset until the hook's stamp, which interactive
@@ -531,6 +623,9 @@ def _resolve_record(facts: dict[str, str]) -> tuple[str, str]:
     # caller's obligation — and only after a success line, which is why this
     # sits below the rc check rather than beside the upsert.
     frozen_ops.set_option(facts.get("pane_id", ""), RECORD_OPTION, record_id)
+    # Against the record the upsert actually SELECTED, not what it was sent:
+    # see `_backfill_agent_string` for why the guard has to read the store.
+    _backfill_agent_string(record_id, facts, root)
     return record_id, f"RECORD:{record_id}|created"
 
 

@@ -460,6 +460,18 @@ class _FreezeTestCase(unittest.TestCase):
                     lambda pid, **_kw: self.codex_model)
         self._patch(agent_freeze, "_codex_agent_string",
                     lambda cli_id, root: self.codex_agent_strings.get(cli_id, ""))
+        # The t1850 agent-string recovery reads the same live process, so it is
+        # stubbed for the same reason: "could not look" by default.
+        self.proc_evidence = ("", "")
+        self.proc_environ: str | None = None
+        self.cli_models: dict[tuple[str, str], str] = {}
+        self._patch(agent_sessions, "process_model_evidence",
+                    lambda pid, **_kw: self.proc_evidence)
+        self._patch(agent_sessions, "process_environ_value",
+                    lambda pid, name, **_kw: self.proc_environ)
+        self._patch(agent_freeze, "_resolve_cli_model",
+                    lambda agent, cli_id, root:
+                        self.cli_models.get((agent, cli_id), ""))
 
     def observe_codex(self, session_id, *, path="/t/rollout.jsonl",
                       cli_id="gpt-5.6-terra",
@@ -922,6 +934,145 @@ class CodexSessionCaptureTests(_FreezeTestCase):
         agent_freeze.freeze_pane(AGENT_PANE)
         call = self.upserts()[0]
         self.assertEqual(call[call.index("--session-id") + 1], "sess-abc")
+
+
+class AgentStringRecoveryTests(_FreezeTestCase):
+    """t1850: a blank record learns its agent string from the live agent.
+
+    TUI launches started agents without `AITASK_AGENT_STRING`, so their records
+    are blank, and the freeze is the last moment the process exists to ask.
+    Rules pinned below:
+
+    * it fills a blank only, and never overwrites;
+    * it upserts the MODEL only, never a session id or transcript;
+    * it never pairs a codex model with a session id it cannot prove, and it
+      checks the record the store actually SELECTED, not what was sent.
+    """
+
+    def upserts(self):
+        return [call for call in self.store.calls if call[0] == "upsert"]
+
+    def claude_with_model(self, cli_id="claude-opus-5",
+                          agent_string="claudecode/opus5"):
+        self.proc_evidence = ("claudecode", cli_id)
+        self.cli_models[("claudecode", cli_id)] = agent_string
+
+    # --- where the value comes from ---------------------------------------
+
+    def test_the_process_environ_wins(self):
+        self.proc_environ = "claudecode/sonnet5"
+        self.claude_with_model()
+        self.assertEqual(agent_freeze._recover_agent_string(str(AGENT_PID), "."),
+                         "claudecode/sonnet5")
+
+    def test_an_environ_value_contradicted_by_argv0_is_ignored(self):
+        self.proc_environ = "codex/gpt5_4"
+        self.claude_with_model()
+        self.assertEqual(agent_freeze._recover_agent_string(str(AGENT_PID), "."),
+                         "claudecode/opus5")
+
+    def test_argv_model_is_resolved_through_the_models_json(self):
+        self.claude_with_model()
+        self.assertEqual(agent_freeze._recover_agent_string(str(AGENT_PID), "."),
+                         "claudecode/opus5")
+
+    def test_no_model_and_no_environ_is_no_evidence(self):
+        self.proc_evidence = ("claudecode", "")
+        self.assertEqual(agent_freeze._recover_agent_string(str(AGENT_PID), "."), "")
+
+    def test_an_unreadable_process_is_no_evidence(self):
+        self.assertEqual(agent_freeze._recover_agent_string(str(AGENT_PID), "."), "")
+        self.assertEqual(agent_freeze._recover_agent_string("0", "."), "")
+
+    # --- the fill ------------------------------------------------------------
+
+    def test_a_stamped_blank_record_is_filled_with_the_model_only(self):
+        self.seed_record(session_id="sess-claude")
+        self.claude_with_model()
+        result = agent_freeze.freeze_pane(AGENT_PANE)
+        self.assertTrue(result.ok, result.line)
+        self.assertEqual(self.rec().agent_string, "claudecode/opus5")
+        self.assertEqual(self.rec().codeagent_session_id, "sess-claude")
+        fill = self.upserts()[-1]
+        self.assertIn("--agent-string", fill)
+        self.assertNotIn("--session-id", fill)
+        self.assertNotIn("--transcript", fill)
+
+    def test_a_stored_agent_string_is_never_overwritten(self):
+        self.seed_record(agent_string="claudecode/sonnet5")
+        self.claude_with_model()
+        agent_freeze.freeze_pane(AGENT_PANE)
+        self.assertEqual(self.rec().agent_string, "claudecode/sonnet5")
+        self.assertEqual(self.upserts(), [])
+
+    def test_a_stamped_blank_codex_record_gets_its_model_despite_a_capture_miss(self):
+        """The codex capture reads no model on a miss (no rollout before the
+        first turn), so model recovery must not depend on it."""
+        self.observe_miss(agent_sessions.MISS_NO_MATCH)
+        self.proc_evidence = ("codex", "gpt-5.4")
+        self.cli_models[("codex", "gpt-5.4")] = "codex/gpt5_4"
+        result = agent_freeze.freeze_pane(AGENT_PANE)
+        self.assertTrue(result.ok, result.line)
+        rec = self.rec()
+        self.assertEqual(rec.agent_string, "codex/gpt5_4")
+        self.assertEqual(rec.codeagent_session_id, "")
+
+        # ...and a re-pick of that record keeps the model.
+        import agent_restore
+        seen = {}
+
+        def fake_pick_launch_argv(root, task_id, agent_string=None):
+            seen["agent_string"] = agent_string
+            return "cmd", f"agent-pick-{task_id}"
+
+        self._patch(agent_restore, "pick_launch_argv", fake_pick_launch_argv)
+        agent_restore.build_repick_argv(
+            {"root": str(self.root), "task_id": "1705",
+             "agent_string": rec.agent_string})
+        self.assertEqual(seen["agent_string"], "codex/gpt5_4")
+
+    def test_a_codex_model_is_never_paired_with_an_unproven_session(self):
+        self.seed_record(session_id="sess-hook")
+        self.observe_miss(agent_sessions.MISS_NO_MATCH)
+        self.proc_evidence = ("codex", "gpt-5.4")
+        self.cli_models[("codex", "gpt-5.4")] = "codex/gpt5_4"
+        agent_freeze.freeze_pane(AGENT_PANE)
+        self.assertEqual(self.rec().agent_string, "")
+        self.assertEqual(self.rec().codeagent_session_id, "sess-hook")
+
+    def test_a_claudecode_model_on_a_record_with_a_session_is_filled(self):
+        self.seed_record(session_id="sess-hook")
+        self.claude_with_model()
+        agent_freeze.freeze_pane(AGENT_PANE)
+        self.assertEqual(self.rec().agent_string, "claudecode/opus5")
+
+    # --- the unstamped path: guard the SELECTED record ------------------------
+
+    def _unstamped_with_stored_session(self):
+        self.seed_record(session_id="sess-unproven")
+        self.panes[AGENT_PANE][agent_freeze.RECORD_OPTION] = ""
+        self.panes[AGENT_PANE][agent_freeze.AGENT_SESSION_OPTION] = ""
+
+    def test_unstamped_codex_keeps_the_selected_records_session_and_stays_blank(self):
+        self._unstamped_with_stored_session()
+        self.observe_miss(agent_sessions.MISS_NO_MATCH)
+        self.proc_evidence = ("codex", "gpt-5.4")
+        self.cli_models[("codex", "gpt-5.4")] = "codex/gpt5_4"
+        result = agent_freeze.freeze_pane(AGENT_PANE)
+        self.assertTrue(result.ok, result.line)
+        self.assertEqual(result.record_id, self.rid,
+                         "the fallback must select the pane's existing record")
+        self.assertEqual(self.rec().codeagent_session_id, "sess-unproven")
+        self.assertEqual(self.rec().agent_string, "")
+
+    def test_unstamped_claude_on_the_same_record_is_filled(self):
+        self._unstamped_with_stored_session()
+        self.claude_with_model()
+        result = agent_freeze.freeze_pane(AGENT_PANE)
+        self.assertTrue(result.ok, result.line)
+        self.assertEqual(result.record_id, self.rid)
+        self.assertEqual(self.rec().codeagent_session_id, "sess-unproven")
+        self.assertEqual(self.rec().agent_string, "claudecode/opus5")
 
 
 class FailureInjectionTests(_FreezeTestCase):

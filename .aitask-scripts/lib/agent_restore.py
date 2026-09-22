@@ -135,9 +135,13 @@ ENV_EXPECT_SESSION = "AITASK_RESTORE_EXPECT_SESSION"
 #: The fifth variable is not an identity variable: it is the one the wrapper
 #: exports on a real launch (`aitask_codeagent.sh` `cmd_invoke`). The
 #: replacement runs the argv the wrapper's `--dry-run` resolved, which returns
-#: BEFORE that export — so without this, the hook acks with `--agent-string ""`
-#: and the restored agent's own model self-detection loses its authoritative
-#: source (t1802). Delivered only for a well-formed value; see `_restore_env`.
+#: BEFORE that export. Since t1850 `resolve_dry_run_command` asks for it back
+#: (`--with-agent-env`), so the argv already starts with `env
+#: AITASK_AGENT_STRING=…`. This delivery stays as a second line of defence: it
+#: carries the RECORD's value, which is the same one the argv was resolved
+#: with. Without either, the hook acks with `--agent-string ""` and the
+#: restored agent's own model self-detection loses its authoritative source
+#: (t1802). Delivered only for a well-formed value; see `_restore_env`.
 ENV_AGENT_STRING = "AITASK_AGENT_STRING"
 
 
@@ -509,6 +513,12 @@ def restore(record_id: str, *, repick: bool = False) -> RestoreResult:
             # Pane options die with the pane, so a missing stamp means it is not
             # ours — and `respawn-pane -k` on it would kill a stranger's agent.
             pane_id = ""
+
+    model_note = agent_sessions.unknown_model_note(rec.get("agent_string", ""))
+    if model_note:
+        # Advisory: the wrapper resolves the project default, so the restore
+        # works, just possibly on a different model than the frozen agent ran.
+        print(f"WARNING:{record_id}|{model_note}", file=sys.stderr)
 
     transcript = rec.get("transcript_path", "")
     if transcript and not os.path.exists(transcript):

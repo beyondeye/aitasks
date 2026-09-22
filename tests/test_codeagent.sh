@@ -167,6 +167,46 @@ assert_contains_ci "dry-run contains claude" "claude" "$output"
 assert_contains_ci "dry-run contains model flag" "claude-opus-5" "$output"
 assert_contains_ci "dry-run contains aitask-pick" "aitask-pick" "$output"
 assert_contains_ci "dry-run contains task number" "42" "$output"
+assert_not_contains_ci "plain dry-run carries no agent env" "AITASK_AGENT_STRING" "$output"
+
+# Test 11a: --with-agent-env prefixes the export a real invoke performs (t1850)
+echo "--- Test 11a: --with-agent-env dry-run ---"
+output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --with-agent-env --dry-run invoke pick 42 2>&1)
+assert_contains "agent-env dry-run prefixes env export" "DRY_RUN: env AITASK_AGENT_STRING=claudecode/opus5 claude --model claude-opus-5" "$output"
+output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --with-agent-env --agent-string codex/gpt5_4 --dry-run invoke pick 42 2>&1)
+assert_contains "agent-env dry-run honors --agent-string" "DRY_RUN: env AITASK_AGENT_STRING=codex/gpt5_4 codex" "$output"
+
+# Test 11a-2: the exported agent string is the one the command was BUILT from.
+# A jq shim makes the per-user config answer opus5 on the first read and
+# sonnet5 on every later one, i.e. the config "changes" mid-invocation. A second
+# resolution for the env prefix would then pair `AITASK_AGENT_STRING=…sonnet5`
+# with `claude --model claude-opus-5`, and the hook would record the wrong model.
+echo "--- Test 11a-2: agent-env value cannot drift from the built command ---"
+shim_dir="$TMPDIR_TEST/.jq_shim"
+mkdir -p "$shim_dir"
+real_jq="$(command -v jq)"
+cat > "$shim_dir/jq" <<EOF
+#!/usr/bin/env bash
+for a in "\$@"; do
+    if [[ "\$a" == *codeagent_config.local.json ]]; then
+        n=\$(cat "$shim_dir/count" 2>/dev/null || echo 0)
+        echo \$((n + 1)) > "$shim_dir/count"
+        if [[ "\$n" -eq 0 ]]; then echo claudecode/opus5; else echo claudecode/sonnet5; fi
+        exit 0
+    fi
+done
+exec "$real_jq" "\$@"
+EOF
+chmod +x "$shim_dir/jq"
+echo '{"defaults":{"pick":"claudecode/opus5"}}' > "$TMPDIR_TEST/aitasks/metadata/codeagent_config.local.json"
+output=$(cd "$TMPDIR_TEST" && PATH="$shim_dir:$PATH" bash "$CODEAGENT" --with-agent-env --dry-run invoke pick 42 2>&1)
+# Control: the shim really does answer differently on a later read, so the
+# assertions below would catch a second resolution.
+control=$(cd "$TMPDIR_TEST" && PATH="$shim_dir:$PATH" bash "$CODEAGENT" resolve pick 2>&1)
+rm -f "$TMPDIR_TEST/aitasks/metadata/codeagent_config.local.json"
+assert_contains "shim switches its answer on a later read (control)" "AGENT_STRING:claudecode/sonnet5" "$control"
+assert_contains "env value matches the launched model" "DRY_RUN: env AITASK_AGENT_STRING=claudecode/opus5 claude --model claude-opus-5" "$output"
+assert_not_contains "no second resolution leaks into the env" "sonnet5" "$output"
 
 # Test 11b: Codex pick launches directly in Codex default mode
 echo "--- Test 11b: Codex pick dry-run stays direct ---"

@@ -276,11 +276,24 @@ def resolve_dry_run_command(
 ) -> str | None:
     """Resolve the full agent command via --dry-run.
 
-    Calls aitask_codeagent.sh --dry-run invoke <operation> <args> and parses
-    the DRY_RUN: <cmd> output. When `agent_string` is provided, prepends
-    `--agent-string <value>` before --dry-run so the wrapper resolves the
-    command for a non-default agent/model. Returns the command string or
-    None on failure.
+    Calls aitask_codeagent.sh --with-agent-env --dry-run invoke <operation>
+    <args> and parses the DRY_RUN: <cmd> output. When `agent_string` is
+    provided, prepends `--agent-string <value>` before --dry-run so the wrapper
+    resolves the command for a non-default agent/model. Returns the command
+    string or None on failure.
+
+    **The command starts with `env AITASK_AGENT_STRING=<resolved> …` (t1850).**
+    Every caller LAUNCHES this string instead of letting the wrapper exec, and a
+    real `invoke` exports that variable just before its exec. Without the prefix
+    the agent starts without it, the SessionStart hook records a blank agent
+    string, and a frozen agent comes back on the project default model. The
+    prefix must stay `env`, because `env` execs into the agent: `#{pane_pid}`
+    remains the agent's pid, which the task-lock liveness anchor depends on
+    (t1465; pinned by `tests/test_launch_agent_string_env.py`).
+
+    One known gap: the command is editable in `AgentCommandScreen`, so a user who
+    hand-edits `--model` there leaves the prefix naming the resolved model. The
+    dialog's agent picker regenerates both.
 
     `extra_global_flags` carries further **global** wrapper flags — currently
     `["--resume-session", "<sid>"]` for the frozen-agent restore coordinator
@@ -294,7 +307,7 @@ def resolve_dry_run_command(
         cmd += ["--agent-string", agent_string]
     if extra_global_flags:
         cmd += list(extra_global_flags)
-    cmd += ["--dry-run", "invoke", operation] + list(args)
+    cmd += ["--with-agent-env", "--dry-run", "invoke", operation] + list(args)
     try:
         result = subprocess.run(
             cmd, capture_output=True, text=True, timeout=10,

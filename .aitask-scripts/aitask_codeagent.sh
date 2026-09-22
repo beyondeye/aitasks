@@ -39,6 +39,14 @@ CODEX_TUI_OVERRIDES=(-c tui.animations=false)
 
 OPT_AGENT_STRING=""
 OPT_DRY_RUN=false
+# With --dry-run: prefix the printed command with `env AITASK_AGENT_STRING=<v>`,
+# the one variable a real `invoke` exports before its exec (t1850). A caller
+# that LAUNCHES the dry-run command (every TUI, via
+# agent_launch_utils.resolve_dry_run_command) needs it, or the SessionStart hook
+# records a blank agent string and a frozen agent restores on the default model.
+# `env` execs into the agent, so the pane pid stays the agent's (t1465). Opt-in:
+# plain `--dry-run` output is unchanged for every consumer that parses it.
+OPT_WITH_AGENT_ENV=false
 # Opt-in headless mode. Affects `claudecode batch-review` (appends `--print`;
 # default interactive) and is REQUIRED for `explore-relay` (headless-only —
 # refuses without it); a no-op for every other agent/operation. Opt-in,
@@ -426,6 +434,11 @@ build_invoke_command() {
 
     local agent_string
     agent_string=$(resolve_agent_string "$operation")
+    # Published like CMD: the ONE resolution this command was built from.
+    # cmd_invoke's env prefix and export read it back instead of resolving
+    # again, so a config change between the two reads cannot make the recorded
+    # agent string name a different model than the one launched (t1850).
+    INVOKE_AGENT_STRING="$agent_string"
     parse_agent_string "$agent_string"
 
     # Operation-support gate BEFORE model resolution: an unsupported
@@ -652,18 +665,26 @@ cmd_invoke() {
     fi
 
     local CMD=()
+    local INVOKE_AGENT_STRING=""
     build_invoke_command "$operation" "$@"
+
+    # The agent string CMD was built from -- never a second resolution: the
+    # dry-run's env prefix and the real launch's export must name the model
+    # that is actually launched.
+    local agent_string="$INVOKE_AGENT_STRING"
 
     if [[ "$OPT_DRY_RUN" == true ]]; then
         printf 'DRY_RUN:'
+        if [[ "$OPT_WITH_AGENT_ENV" == true ]]; then
+            printf ' %q' env "AITASK_AGENT_STRING=$agent_string"
+        fi
         printf ' %q' "${CMD[@]}"
         printf '\n'
         return
     fi
 
-    # Export agent string for skill tracking (implemented_with metadata)
-    local agent_string
-    agent_string=$(resolve_agent_string "$operation")
+    # Export agent string for skill tracking (implemented_with metadata) and
+    # for the SessionStart hook's session record (frozen-agent restore).
     export AITASK_AGENT_STRING="$agent_string"
 
     exec "${CMD[@]}"
@@ -689,6 +710,10 @@ Commands:
 Options:
   --agent-string STR     Override agent string (e.g., claudecode/opus4_6)
   --dry-run              Print command without executing (for invoke)
+  --with-agent-env       With --dry-run: prefix the command with
+                         `env AITASK_AGENT_STRING=<resolved>`, the variable a
+                         real invoke exports. For callers that launch the
+                         printed command themselves.
   --headless             Run claudecode batch-review non-interactively (adds
                          --print); REQUIRED for explore-relay, which is
                          headless-only and refuses without it. No-op for
@@ -747,6 +772,10 @@ main() {
                 ;;
             --dry-run)
                 OPT_DRY_RUN=true
+                shift
+                ;;
+            --with-agent-env)
+                OPT_WITH_AGENT_ENV=true
                 shift
                 ;;
             --headless)

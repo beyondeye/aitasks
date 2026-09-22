@@ -479,6 +479,52 @@ class CodexProcessModelTests(_TranscriptTestCase):
         self.assertEqual(self.model(9999), (False, ""))
 
 
+class ProcessAgentEvidenceTests(_TranscriptTestCase):
+    """t1850: what a live process says about which agent and model it is."""
+
+    def evidence(self, pid):
+        return agent_sessions.process_model_evidence(
+            pid, proc_root=str(self.home / "proc"))
+
+    def environ(self, pid, name="AITASK_AGENT_STRING"):
+        return agent_sessions.process_environ_value(
+            pid, name, proc_root=str(self.home / "proc"))
+
+    def test_argv0_names_the_kind_and_the_model_flag_the_model(self):
+        for index, (argv, expected) in enumerate((
+            (("/opt/claude/latest/claude", "--model", "claude-opus-5",
+              "/aitask-pick 1"), ("claudecode", "claude-opus-5")),
+            (("/usr/bin/codex", "resume", "sid", "-m", "gpt-5.4"),
+             ("codex", "gpt-5.4")),
+            (("opencode", "--model=openai/gpt-5"), ("opencode", "openai/gpt-5")),
+            (("/opt/claude/claude",), ("claudecode", "")),
+            (("/usr/bin/vim", "--model", "x"), ("", "")),
+        )):
+            with self.subTest(argv=argv):
+                self.write_proc(300 + index, argv=argv)
+                self.assertEqual(self.evidence(300 + index), expected)
+
+    def test_an_unreadable_process_gives_no_evidence(self):
+        self.assertEqual(self.evidence(9999), ("", ""))
+
+    def test_environ_value_distinguishes_absent_from_unreadable(self):
+        d = self.write_proc(320, argv=("/opt/claude/claude",))
+        (d / "environ").write_bytes(
+            b"PATH=/bin\0AITASK_AGENT_STRING=claudecode/opus5\0HOME=/h\0")
+        self.assertEqual(self.environ(320), "claudecode/opus5")
+        self.assertEqual(self.environ(320, "AITASK_MISSING"), "")
+        self.assertIsNone(self.environ(9999))
+
+
+class UnknownModelNoteTests(unittest.TestCase):
+    def test_only_a_well_formed_agent_string_suppresses_the_note(self):
+        for value in ("", None, "not-an-agent-string", "claudecode/"):
+            with self.subTest(value=value):
+                self.assertEqual(agent_sessions.unknown_model_note(value),
+                                 agent_sessions.UNKNOWN_MODEL_NOTE)
+        self.assertEqual(agent_sessions.unknown_model_note("claudecode/opus5"), "")
+
+
 class MissReasonTests(_TranscriptTestCase):
     def test_no_store_dir(self):
         for kind in ("claudecode", "codex"):

@@ -1213,7 +1213,16 @@ class AgentMarksMixin:
         if not self._run_frozen_detached(argv):
             self.notify("Could not dispatch the restore", severity="error")
             return
-        self.notify("Re-picking…" if repick else "Restoring…")
+        # The model warning goes here, at dispatch: the monitor never sees the
+        # restored agent's model, and the record's agent string is what the
+        # coordinator resolves the launch from.
+        note = agent_sessions.unknown_model_note(
+            rec.agent_string if rec is not None else "")
+        verb = "Re-picking…" if repick else "Restoring…"
+        if note:
+            self.notify(f"{verb} {note}", severity="warning")
+        else:
+            self.notify(verb)
         self._poll_frozen_outcome(record_id, "restore", prev_attempts)
 
     def action_restore_frozen(self) -> None:
