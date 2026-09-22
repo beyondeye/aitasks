@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1794
+implemented_with: claudecode/opus5
 created_at: 2026-09-11 15:08
-updated_at: 2026-09-22 17:31
+updated_at: 2026-09-22 19:15
 ---
 
 ## Context
@@ -109,3 +110,8 @@ Verification" protocol and the child-1 "t1794 baseline" section);
   was touched (none expected).
 - The parent's acceptance criteria are walked one by one in this child's
   plan with a pointer to the evidence (test / number / page) for each.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-22T16:15:46Z status=pass attempt=1 type=human
