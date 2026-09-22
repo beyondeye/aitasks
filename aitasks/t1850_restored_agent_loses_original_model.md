@@ -3,10 +3,11 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [frozen, model_selection]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-09-21 22:42
-updated_at: 2026-09-21 22:42
+updated_at: 2026-09-22 07:41
 ---
 
 ## Problem
