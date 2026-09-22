@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [frozen, session_persistence]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -14,7 +14,8 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5
 created_at: 2026-09-21 22:42
-updated_at: 2026-09-22 17:22
+updated_at: 2026-09-22 19:20
+completed_at: 2026-09-22 19:20
 ---
 
 ## Problem
@@ -42,3 +43,14 @@ The missing-hook-after-upgrade gap is split into its own task.
 > **✅ gate:plan_approved** run=2026-09-22T14:22:51Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-09-22T16:06:23Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-22T16:20:05Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:4827484117b59fba
+
+> **✅ gate:risk_evaluated** run=2026-09-22T16:20:05Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1848/risk_evaluated_2026-09-22T16:20:05Z-risk_evaluated-a1.log`
