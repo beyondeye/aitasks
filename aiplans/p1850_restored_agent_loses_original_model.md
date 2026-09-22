@@ -258,3 +258,73 @@ and has a blank record. Once an agent is frozen, the string cannot be recovered.
 ## Step 9
 Post-implementation: commit the code, archive the task, and handle the plan file
 per the task-workflow Step 9.
+
+## Final Implementation Notes
+
+- **Actual work done:** all four plan steps and the post-phase were implemented as planned.
+  - The wrapper has a `--with-agent-env` flag. `resolve_dry_run_command` always
+    passes it, so every TUI launch is `env AITASK_AGENT_STRING=<v> <agent argv>`.
+  - Freeze-time recovery: `process_model_evidence` and `process_environ_value`
+    in `agent_sessions.py`, plus `_resolve_cli_model`, `_recover_agent_string`
+    and `_backfill_agent_string` in `agent_freeze.py`. Both `_resolve_record`
+    paths call the backfill after the record is resolved.
+  - `unknown_model_note` / `UNKNOWN_MODEL_NOTE` are shown at dispatch time in
+    the frozenagent viewer and the monitor, and as a coordinator stderr
+    `WARNING:`.
+- **Deviations from plan:**
+  - `_codex_cmdline_argv` kept its name. The new `process_model_evidence`
+    reuses it rather than a renamed public alias.
+  - `codex_process_model` shares `_argv_model` for the model parse.
+- **Issues encountered:**
+  - The shared freeze fixture uses `AGENT_PID=4242`, which can be a real
+    process. The new `/proc` readers are therefore stubbed for every
+    `_FreezeTestCase` test, not only the recovery ones, the same way the codex
+    observers already were.
+  - The live tmux test left stale socket files; its cleanup now unlinks them.
+- **Key decisions:**
+  - Review found two guard gaps, both fixed. Model recovery is separate from
+    the codex conversation capture, and the no-unproven-session guard reads the
+    record the upsert actually selected.
+  - Negative controls:
+    - a non-exec `sh -c` launch fails the live pane-pid test;
+    - removing the codex/session guard fails 2 tests;
+    - dropping the unstamped backfill fails 1 test.
+- **Upstream defects identified:** None
+- **Tests:**
+  - `tests/test_codeagent.sh` 193/193.
+  - Full Python suite passed (`runner=pytest, exit=0`).
+  - `test_shadow_spawn_learner.sh`, `test_frozen_dry_run_wrapper.sh`,
+    `test_no_raw_tmux.sh` and `test_restore_session_bootstrap_live.sh` pass.
+  - Not run: `test_monitor_shadow_spawn_live.sh`, `test_restore_flows_live.sh`,
+    `test_freeze_engine_live.sh` and `test_frozen_agents_acceptance.sh`. They
+    refuse to run inside tmux, and this session is inside tmux.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-09-22 09:40)
+- **Requested by user:** two review findings.
+  - (a) `cmd_invoke` resolved the agent string a second time for the env
+    prefix, separately from the resolution `build_invoke_command` used for
+    `CMD`. A config change between the two reads exported a different model
+    than the one launched. The reviewer reproduced
+    `AITASK_AGENT_STRING=claudecode/sonnet5 claude --model claude-opus-5`.
+  - (b) `test_launch_agent_string_env.py` skipped whenever the resolver
+    returned None, so a broken wrapper flag or output parse passed as
+    "skipped".
+- **Changes made:**
+  - (a) `build_invoke_command` publishes the one value it built `CMD` from as
+    `INVOKE_AGENT_STRING` (declared `local` in `cmd_invoke`, like `CMD`). Both
+    the dry-run prefix and the real export read it, and nothing resolves a
+    second time. New regression test 11a-2 in `tests/test_codeagent.sh` uses a
+    `jq` shim that answers opus5 first and sonnet5 on every later read, with a
+    control proving the shim switches. Negative control: a double-resolve
+    mutant of the wrapper fails 2 of that test's assertions with exactly the
+    reviewer's output.
+  - (b) The dry-run needs only `jq` and the repo metadata (verified: it never
+    looks for the agent binary). The tests now skip only on missing `jq`
+    (plus tmux or `/proc` for the live case), or when `claudecode/sonnet5` is
+    absent from the models JSON. A None from the resolver fails with an
+    explicit message. Negative control: an always-None resolver gives
+    4 failures, 0 skips.
+- **Files affected:** `.aitask-scripts/aitask_codeagent.sh`,
+  `tests/test_codeagent.sh`, `tests/test_launch_agent_string_env.py`
