@@ -6,7 +6,11 @@ issue_type: feature
 status: Ready
 labels: [testing, testmap, go_engine, install, ait_setup]
 created_at: 2026-09-22 09:19
-updated_at: 2026-09-22 09:19
+updated_at: 2026-09-22 10:24
+artifacts:
+  - handle: art:trail-testmap-feature
+    kind: implementation_trail
+    name: "Test map feature: module landing order"
 ---
 
 ## Goal

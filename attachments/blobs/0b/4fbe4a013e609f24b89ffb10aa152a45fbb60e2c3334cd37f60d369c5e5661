@@ -1,0 +1,328 @@
+{
+  "schema_version": "1.1.0",
+  "trail_id": "trail-testmap-feature",
+  "title": "Test map feature: module landing order",
+  "owner": "aitasks#1852",
+  "scope": {
+    "kind": "topic",
+    "topics": [
+      "aitasks#1852"
+    ],
+    "selection_note": "Topic rooted at t1852. All ten module parents t1852 to t1861 carry anchor 1852, and their future children inherit it, so a refresh picks up every child created at the coarse planning pass."
+  },
+  "generation": {
+    "generated_at": "2026-09-22T07:22:24Z",
+    "generator": {
+      "agent_string": "claudecode/opus5",
+      "skill": "aitask-trail"
+    },
+    "input_digest": "0cc6983f4d9c973f",
+    "inputs": [
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1852"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1853"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1854"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1855"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1856"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1857"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1858"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1859"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1860"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1861"
+      }
+    ]
+  },
+  "freshness": {
+    "state": "current",
+    "checked_at": "2026-09-22T07:22:24Z"
+  },
+  "narrative": {
+    "problem_statement": "The test map feature (proposal aidocs/testing_engine/n014_explorer_006_proposal.md) is cut into ten module parents whose submodules depend on each other across parents. This trail answers in which order the parents should be coarse-planned and then worked, before any child tasks exist.",
+    "recommendation_summary": "Coarse-plan all ten parents in wave order (t1852, t1853, t1859, then t1854, then t1855 and t1856, then t1857, t1858 and t1860, then t1861) without implementing anything. Then refresh this trail with --deep so it orders the real child tasks.",
+    "overview": "Start with the coarse planning pass, not with code. Each parent's body requires that all ten be decomposed into one child per submodule before any child is implemented, and that every child run a reality check against the current repository before writing code.\n\nThe waves here order the parents by where their earliest submodule sits in the proposal's wave table. Wave 1 holds the three parents that own dependency-free roots: t1852 (engine skeleton and per-user root), t1853 (registry core and annotation rewriter) and t1859, which is there only for its verifier exit contract. Runners (t1854) follow because the selector ranks by their cost rows. Selection and the run surface (t1855, t1856) come next and reach the first usable milestone. Onboarding, agent review and the workflow seams (t1857, t1858, t1860) interleave closely and form one wave. Rollout (t1861) is last and waits for a release.\n\nA parent is not finished when its wave begins. M8 spans proposal waves A to G and M9 spans F to H, so children of different parents will interleave. The real ordering unit is the child task. Once the coarse pass has created the children, which inherit anchor 1852, run /aitask-trail --refresh trail-testmap-feature --deep to regroup the trail by child.\n\nTwo prerequisites sit outside this trail. The proposal file is untracked in git, and every parent references it by path, so it should be committed before the coarse pass. The proposal's wave table also contradicts its own dependencies around M2.6 and M4.5. That is recorded in t1853, t1855 and t1859 and should be settled on the first planning session that reaches it.",
+    "method_note": "Lite depth. Membership and metadata come from one gatherer snapshot of topic 1852. Ordering and classification are derived from the proposal's Module Map and Suggested implementation order, as transcribed into the ten task bodies. No task has a depends edge or a plan file yet, so every ordering here is advisory. Not verified: whether the proposal's dependency cells are internally consistent beyond the M2.6 and M4.5 conflicts already noted, and the state of any target repository used by t1861."
+  },
+  "waves": [
+    {
+      "wave_id": "w-foundation",
+      "ordinal": 1,
+      "title": "Foundation roots (proposal wave A)",
+      "purpose": "Plan, then land, the three parents that own the dependency-free roots of the whole graph: the Go engine skeleton and per-user root (M1.1, M1.2), the registry core and annotation rewriter (M2.1, M2.2), and the verifier exit contract (M8.1). Every other engine submodule adds a package to the M1.2 binary and reads the M2.1 registry.",
+      "why_now": "Wave A in the proposal's Suggested implementation order: nothing in it depends on anything else, and every later wave names at least one of these submodules.",
+      "consequence_of_delay": "No engine child in M3 to M8 can start; the coarse plans of later parents would be written against providers with no settled shape.",
+      "entries": [
+        {
+          "entry_id": "e-m1",
+          "task": "aitasks#1852",
+          "topic": "aitasks#1852",
+          "position": 1,
+          "classification": "preferred_predecessor",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "high",
+            "depends": [],
+            "gates_pending": []
+          },
+          "rationale": "M1 owns the engine binary, fixture and bench harnesses, the ait testmap shim and the installer. M1.2 is a stated dependency of M2.1, M2.3 and M3.1, so it is the true root of the feature.",
+          "confidence": "high",
+          "expected_outcome": "A buildable ait-testmap with a stub verb table; later M1.3 to M1.6 children land in waves B, C and H.",
+          "why_order_matters": "Every engine package is a package inside the M1.2 module; building any of them first forks the harness."
+        },
+        {
+          "entry_id": "e-m2",
+          "task": "aitasks#1853",
+          "topic": "aitasks#1852",
+          "position": 2,
+          "classification": "preferred_predecessor",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "high",
+            "depends": [],
+            "gates_pending": []
+          },
+          "rationale": "M2 owns the loaded registry, the testmap: grammar and rewriter, and the scanner facts that the selector, stale, the seeder and the packet writer all consume.",
+          "confidence": "high",
+          "expected_outcome": "Registry parse and check, annotation read and rewrite (wave A); scanners and scoped rows (wave B); axes (wave C).",
+          "why_order_matters": "M2.1 and M2.2 are named dependencies of M3.1, M4.x, M6.x and M7.x.",
+          "caveats": [
+            "The proposal places M2.6 (adoption tables) in wave E while M4.1, M4.2, M4.4 and M8.2 depend on it in waves C and D. The t1853 body records this; settle it at the coarse pass."
+          ]
+        },
+        {
+          "entry_id": "e-m8",
+          "task": "aitasks#1859",
+          "topic": "aitasks#1852",
+          "position": 3,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "high",
+            "depends": [],
+            "gates_pending": []
+          },
+          "rationale": "M8 appears here only because M8.1, the verifier exit contract in lib/gate_verifier_lib.sh, has no dependencies and is in wave A. The rest of M8 lands in waves D, E and G.",
+          "confidence": "medium",
+          "expected_outcome": "The 75 and 3 exit rows and the two gate environment variables, which M5.1, M8.4 and M9.1 consume.",
+          "caveats": [
+            "Planning t1859 in this wave means planning all five of its children now, including M8.5 in wave G."
+          ]
+        }
+      ]
+    },
+    {
+      "wave_id": "w-runners",
+      "ordinal": 2,
+      "title": "Runners, scheduling and cost (waves B to C)",
+      "purpose": "Plan and land the runner contract, the reference runners, the scheduler and the cost ledger: everything that executes a test and records what it cost.",
+      "why_now": "M3.1 needs only M1.2 and M2.1. The selector (M4.1) ranks by M3.4's cost rows and the composite (M4.5) runs M3.3's wave plan, so M3 must precede M4.",
+      "entries": [
+        {
+          "entry_id": "e-m3",
+          "task": "aitasks#1854",
+          "topic": "aitasks#1852",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "high",
+            "depends": [],
+            "gates_pending": []
+          },
+          "rationale": "M3 provides the runner interface every builtin implements, the resources.yaml wave plan and the cost rows that anchor last_pass evidence.",
+          "confidence": "high",
+          "expected_outcome": "Builtins that list and run units on every target repository; costs and anchors for selection, evidence and readiness.",
+          "why_order_matters": "M4.1, M4.3, M4.4 and M4.5 consume M3.x outputs directly."
+        }
+      ]
+    },
+    {
+      "wave_id": "w-select-run",
+      "ordinal": 3,
+      "title": "Select, freshness and the run surface (waves C to D)",
+      "purpose": "Plan and land the map put to use (selector, stale, evidence join, score and readiness, the engine test composite) and the ait test bash front with its brief and agent instructions.",
+      "why_now": "After this wave the proposal's first milestone is reachable: the feature is usable interactively on a repository whose map was written by hand.",
+      "consequence_of_delay": "Onboarding (M6) and the reading loop (M7) have nothing to feed; the policy flip has no scored history.",
+      "entries": [
+        {
+          "entry_id": "e-m4",
+          "task": "aitasks#1855",
+          "topic": "aitasks#1852",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "high",
+            "depends": [],
+            "gates_pending": []
+          },
+          "rationale": "M4 turns the registry into answers: the ranked list with reasons, the stale report the freshness gate consumes, and the readiness lines the completion policy flips on.",
+          "confidence": "high",
+          "expected_outcome": "The ranked list, stale, score, readiness and the test composite.",
+          "why_order_matters": "M5.1 calls the M4.5 composite; M8.2 and M8.3 consume the M4.2 report.",
+          "caveats": [
+            "The wave table puts M4.5 in wave C while it depends on M4.4 in wave D; recorded in t1855."
+          ]
+        },
+        {
+          "entry_id": "e-m5",
+          "task": "aitasks#1856",
+          "topic": "aitasks#1852",
+          "position": 2,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "high",
+            "depends": [],
+            "gates_pending": []
+          },
+          "rationale": "M5 is the one verb every agent, gate and procedure calls. It must still answer when no registry or engine exists, so it can land before onboarding.",
+          "confidence": "high",
+          "expected_outcome": "ait test in three modes, ait test --howto, and the Running Tests section in the agent instructions seed.",
+          "why_order_matters": "M5.1 leaves the POLICY hook that M8.4 and M8.5 fill; M9.1 and M9.2 consume its exit table."
+        }
+      ]
+    },
+    {
+      "wave_id": "w-onboard-reading",
+      "ordinal": 4,
+      "title": "Onboarding, the reading loop and workflow seams (waves E to H)",
+      "purpose": "Plan and land onboarding (ledger, seeder, adoption verbs, classify, the onboarding skill), agent review and author annotation, and the workflow, QA, maintenance-skill, docs and port seams. This is where the loop closes without a person.",
+      "why_now": "These parents consume nearly every earlier module. Their submodules interleave tightly: M6.5 needs M8.2 and M8.4, M8.3's seeds step needs M7.1 and M7.2, M7.1 needs M6.2.",
+      "consequence_of_delay": "The feature stays hand-annotated only, and completion always runs the full suite.",
+      "entries": [
+        {
+          "entry_id": "e-m6",
+          "task": "aitasks#1857",
+          "topic": "aitasks#1852",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "high",
+            "depends": [],
+            "gates_pending": []
+          },
+          "rationale": "M6 brings an existing test tree onto the map in levels. Its engine verbs (M6.1 to M6.3) land in wave E, the skill (M6.5) in F, classify and scaffold (M6.4) in G.",
+          "confidence": "high",
+          "expected_outcome": "Level 0 and level 1 onboarding, attended and headless.",
+          "why_order_matters": "M7.1 needs M6.2's seeds; M7.2 reuses M6.3's rewriter path."
+        },
+        {
+          "entry_id": "e-m7",
+          "task": "aitasks#1858",
+          "topic": "aitasks#1852",
+          "position": 2,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "high",
+            "depends": [],
+            "gates_pending": []
+          },
+          "rationale": "M7 is the reading: packets out, verdicts in, calibration, author annotation, the review skill and its launch surfaces.",
+          "confidence": "high",
+          "expected_outcome": "The one verdict intake shared by the in-gate, pre-review and bulk sites; headless level 1.",
+          "why_order_matters": "M8.3's seeds step and M9.1's authoring branch are consumers of M7.2 and M7.4."
+        },
+        {
+          "entry_id": "e-m9",
+          "task": "aitasks#1860",
+          "topic": "aitasks#1852",
+          "position": 3,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "high",
+            "depends": [],
+            "gates_pending": []
+          },
+          "rationale": "M9 carries the seams into task-workflow and aitask-qa, the maintenance skill, the docs and the Codex and OpenCode ports. M9.1 is wave F; M9.4 and M9.5 are wave H and come last.",
+          "confidence": "medium",
+          "expected_outcome": "The pre-review Affected Tests run in every profile, QA that reads the map, ported skills.",
+          "why_order_matters": "M9.5 ports four skills and must follow M6.5, M7.5, M8.3 and M9.3.",
+          "caveats": [
+            "M9.1 edits task-workflow, which every other task in the repository runs through; its goldens and skill verification are the widest blast radius in the feature."
+          ]
+        }
+      ]
+    },
+    {
+      "wave_id": "w-rollout",
+      "ordinal": 5,
+      "title": "Rollout to the target repositories (wave I)",
+      "purpose": "Apply the released feature: aitasks locally, and aitasks_go, thinking_backend, aitasks_mobile and thinking_app as cross-repo level tasks.",
+      "why_now": "Every rollout task depends on the framework release carrying M1 to M9 reaching the target.",
+      "entries": [
+        {
+          "entry_id": "e-m10",
+          "task": "aitasks#1861",
+          "topic": "aitasks#1852",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "high",
+            "depends": [],
+            "gates_pending": []
+          },
+          "rationale": "M10 is the feature applied. It adds no framework code; target-specific needs become notes or follow-ups on the owning parent.",
+          "confidence": "medium",
+          "expected_outcome": "Each target onboarded through its own level tasks, and the first real calibration and cadence data.",
+          "caveats": [
+            "M10.2 to M10.5 are cross-repo; their shape is settled at the coarse pass."
+          ]
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    {
+      "evidence_id": "ev-snapshot",
+      "source_type": "command_output",
+      "ref": "./.aitask-scripts/aitask_trail_gather.sh snapshot --scope topic 1852",
+      "observed_at": "2026-09-22T07:22:24Z",
+      "summary": "Ten members t1852 to t1861, all Ready, medium priority, high effort, no depends, no plan files; owner aitasks#1852; digest 0cc6983f4d9c973f."
+    }
+  ],
+  "rendering_hints": {
+    "depth": "lite"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "backend": "local",
+  "created_at": 1790061898,
+  "current": "sha256:0b4fbe4a013e609f24b89ffb10aa152a45fbb60e2c3334cd37f60d369c5e5661",
+  "handle": "art:trail-testmap-feature",
+  "updated_at": 1790061898,
+  "versions": [
+    "sha256:0b4fbe4a013e609f24b89ffb10aa152a45fbb60e2c3334cd37f60d369c5e5661"
+  ]
+}
