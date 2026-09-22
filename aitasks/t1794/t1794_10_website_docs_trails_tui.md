@@ -1,14 +1,15 @@
 ---
 priority: medium
 effort: medium
-depends: [1794_6]
+depends: [t1794_6]
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [aitask_board, tui, trails, python, refactor, website]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1794
 created_at: 2026-09-11 15:08
-updated_at: 2026-09-11 15:08
+updated_at: 2026-09-22 10:22
 ---
 
 ## Context
