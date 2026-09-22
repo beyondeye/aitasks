@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [documentation, gates]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 1687
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5
 created_at: 2026-09-22 16:56
-updated_at: 2026-09-22 17:11
+updated_at: 2026-09-22 17:15
+completed_at: 2026-09-22 17:15
 ---
 
 ## Origin
@@ -60,3 +61,14 @@ declared set as the fallback when no valid tuple exists — `_active_set_csv` /
 > **✅ gate:plan_approved** run=2026-09-22T14:11:28Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-09-22T14:14:56Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-22T14:15:34Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:82c9372566cea996
+
+> **✅ gate:risk_evaluated** run=2026-09-22T14:15:34Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1862/risk_evaluated_2026-09-22T14:15:34Z-risk_evaluated-a1.log`
