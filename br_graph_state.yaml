@@ -1,6 +1,6 @@
-current_head: n011_explorer_005a
+current_head: n013_synthesizer_004
 current_heads:
-  _umbrella: n011_explorer_005a
+  _umbrella: n013_synthesizer_004
 history:
   _umbrella:
   - n000_init
@@ -16,7 +16,8 @@ history:
   - n010_explorer_004
   - n012_explorer_005b
   - n011_explorer_005a
-next_node_id: 14
+  - n013_synthesizer_004
+next_node_id: 15
 active_dimensions:
 - requirements_go_engine_and_cli
 - requirements_platform_binaries_in_release
