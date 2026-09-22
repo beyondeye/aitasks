@@ -423,9 +423,9 @@ Header per `planning.md` (child form: `Task:`, `Parent Task:`,
 - Cross-parent edges (M2.1 / M2.3 / M3.1 / M5.1 / M6.1 → M1 children) are
   written by other parents' passes; if a later pass names a child by the
   wrong number, the graph silently unblocks work early · severity: medium ·
-  → mitigation: testmap_cross_linking_pass
+  → mitigation: t1863
 
 ### Planned mitigations
 - timing: post-phase | name: verify_child_plans_carry_reality_check | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — child plan lacking the mandatory Reality check | desc: grep every child plan for the Step 0 heading and the no-internals sentence before committing them
 - timing: post-phase | name: verify_child_dependency_graph | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — a wrong depends cell mis-blocking a child | desc: read the six depends lines back and compare with the decomposition table before reverting the parent
-- timing: after | name: testmap_cross_linking_pass | type: chore | priority: medium | effort: low | inline_risk: low | added_complexity: medium | addresses: goal-achievement — cross-parent edges named by the wrong child number | desc: after all ten parents are decomposed, check every "depends on" cell against a real depends entry and the module → task map against real ids, then refresh trail-testmap-feature with --deep (created in this session at post-approval step 5b, not at Step 8d, because this pass stops at the child checkpoint; the witness is written there)
+- timing: after | name: testmap_cross_linking_pass | type: chore | priority: medium | effort: low | inline_risk: low | added_complexity: medium | addresses: goal-achievement — cross-parent edges named by the wrong child number | desc: after all ten parents are decomposed, check every "depends on" cell against a real depends entry and the module → task map against real ids, then refresh trail-testmap-feature with --deep (created in this session at post-approval step 5b, not at Step 8d, because this pass stops at the child checkpoint; the witness is written there) | created: t1863
