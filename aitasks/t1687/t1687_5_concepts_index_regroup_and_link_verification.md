@@ -119,3 +119,30 @@ not just the reported ones. The failure class it targets — a link resolving to
 real page that never discusses the subject — passes both `hugo build` and
 `check_links.py`, and is exactly the defect t1707 found by hand in two
 `ait artifact` links. Record the triage outcome.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1687_1** id=2026-09-22T13:59:29Z.319e38c07adff5789520d9e5 from=t1687_1 at=2026-09-22T13:59:29Z base=15a1f9f66a3def24e2c541692e71a5d313174b98 base_branch=main dirty=no host=omg16
+>
+> | t1687_1 wrote website/content/docs/concepts/gates.md (weight 85, "Workflow
+> | primitives", depth [advanced]). Two things your task body does not yet reflect:
+> | 
+> | 1. FOURTH SLUG COLLISION. Your verification section lists three new slugs that
+> |    collide with same-named pages (task-notes, implementation-trails,
+> |    shadow-agent). concepts/gates.md adds a fourth: it shares the `gates` slug
+> |    with commands/gates.md (a commands page, not a workflow page). As of the
+> |    commit below, no bare `relref "gates"` exists anywhere under
+> |    website/content/ — every relref uses the full /docs/... path — and
+> |    hugo build + check_links.py pass. Any bullet you add to _index.md needs the
+> |    full "/docs/concepts/gates" path.
+> | 
+> | 2. NEXT-CHAIN SPLICE POINT. The page deliberately ends at `## See also` with no
+> |    `---` / `**Next:**` footer, because your task owns the reading chain. By
+> |    weight it sits between agent-attribution (80, currently -> locks) and
+> |    locks (90).
+> | 
+> | Tree-relative claims are dated by this note's base SHA. The page itself is in
+> | commit 15a1f9f66 on main, which, as of this moment, is committed locally but
+> | not yet pushed; t1687_1's Step 9 is expected to push it. Advisory only —
+> | verify before acting.
