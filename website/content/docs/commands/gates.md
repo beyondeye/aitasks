@@ -6,13 +6,13 @@ description: "ait gates and ait gate — run, inspect, sign off, and reconcile t
 depth: [advanced]
 ---
 
-A **gate** is a named check a task must satisfy before it can archive — a build
-that must pass, a test suite that must be green, a risk evaluation that must have
-been done, a review a human must sign off. A task declares the gates it must
-satisfy in its `gates:` frontmatter field, and the framework records every gate
-run in the task's ledger. The [task file format](../../development/task-format/)
-documents the `gates` / `active_gates` fields; the registry of available gates
-lives in `aitasks/metadata/gates.yaml`.
+`ait gates` and `ait gate` operate on a task's **verification gates** — the named
+checks a task must satisfy before it can archive. For the conceptual model
+(declared intent versus the enforced set, the ledger, the registry, and
+gate-guarded archival), see the
+[Gates concept page]({{< relref "/docs/concepts/gates" >}}). The
+[task file format]({{< relref "/docs/development/task-format" >}}#frontmatter-fields)
+documents the `gates` / `active_gates` fields.
 
 Two commands operate on gates:
 

@@ -68,7 +68,7 @@ Detailed description of what needs to be done.
 | `pull_request` | URL | Linked pull request URL (mirrors `issue`) |
 | `contributor` | name | External contributor credited on the commit (used by PR-import flow) |
 | `contributor_email` | email | Email for the contributor's `Co-Authored-By` trailer |
-| `gates` | `[risk_evaluated, tests_pass]` | Declared gate set — the task's gating **intent**. Registered gates live in `aitasks/metadata/gates.yaml`. An explicit `[]` is an opt-out (never backfilled from a profile) |
+| `gates` | `[risk_evaluated, tests_pass]` | Declared gate set — the task's gating **intent**. Registered gates live in `aitasks/metadata/gates.yaml`. An explicit `[]` is an opt-out (never backfilled from a profile). See [Gates]({{< relref "/docs/concepts/gates" >}}) |
 | `also_blocks_dependents` | `[merge_approved]` | Extra gates that must pass before this task's dependents unblock, beyond the registry's `blocks_dependents` defaults. Set with `--also-blocks-dependents` on both `ait create` and `ait update` |
 | `active_gates` | `[risk_evaluated]` | **Framework-derived — never hand-edit.** The profile-filtered *enforced* gate set, materialized at pick/claim time (`resolve(gates, profile default_gates) ∩ profile rendered set`). May be `[]` (fully filtered). Written atomically with the three fields below |
 | `active_gates_filtered` | `[docs_updated]` | **Framework-derived.** Gates the profile ceiling removed (declared but not enforced) |

@@ -92,7 +92,8 @@ reconcile it.
 ## See Also
 
 - [Follow-Up Tasks](../follow-up-tasks/) — the hub for all automatic follow-up flows
-- [Gates](../../commands/gates/) — the `risk_evaluated` gate that verifies this step's output
+- [Gates](../../concepts/gates/) — what a gate is and how enforcement is derived
+- [`ait gates`](../../commands/gates/) — the `risk_evaluated` gate that verifies this step's output
 - [Plans](../../concepts/plans/) — where the `## Risk` section lives
 - [Execution Profiles](../../skills/aitask-pick/execution-profiles/) — the `risk_evaluation` toggle
 - [Task File Format](../../development/task-format/) — the `risk_code_health` / `risk_goal_achievement` / `risk_mitigation_tasks` fields

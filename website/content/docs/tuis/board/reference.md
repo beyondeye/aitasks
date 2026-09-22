@@ -492,8 +492,10 @@ in plainer words than the ledger vocabulary.
 
 #### Gate progress
 
-Where a chip carries a fraction, it counts satisfied gates against enforced ones. Two rules read
-as bugs unless you know them:
+Where a chip carries a fraction, it counts satisfied gates against enforced ones — the
+distinction between declared and enforced gates is explained on the
+[Gates concept page]({{< relref "/docs/concepts/gates" >}}). Two rules read as bugs unless you
+know them:
 
 - **The denominator is the enforced active set, not the declared `gates:` list.** A gate your
   execution profile filters out is not counted at all — it is neither in the numerator nor in the
