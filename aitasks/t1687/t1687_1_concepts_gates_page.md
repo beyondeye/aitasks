@@ -8,8 +8,9 @@ labels: [documentation, website, concepts]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1687
+implemented_with: claudecode/opus5_1m
 created_at: 2026-09-20 12:01
-updated_at: 2026-09-20 12:30
+updated_at: 2026-09-22 09:12
 ---
 
 ## Context
@@ -104,3 +105,8 @@ cd website && python3 check_links.py --build
 Use `set -o pipefail` or check `${PIPESTATUS[0]}` — piping discards the status.
 Confirm every anchor named above still exists, and that
 `website/content/docs/concepts/` still contains zero hand-written relative links.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-22T06:12:38Z status=pass attempt=1 type=human
