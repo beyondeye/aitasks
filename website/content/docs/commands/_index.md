@@ -79,6 +79,7 @@ description: "Complete CLI reference for all ait subcommands"
 | [`ait skillrun`](../concepts/skill-templating/#invocation-paths) | Launch a code agent with a profile-aware aitask skill |
 | [`ait explain-runs`](explain/#ait-explain-runs) | Manage aitask-explain run directories (list, delete, cleanup) |
 | [`ait explain-cleanup`](explain/#ait-explain-cleanup) | Remove stale aitask-explain run directories |
+| [`ait attach`](attach/) | Manage a task's content-addressed file attachments (see [Attachments](../concepts/attachments/)) |
 | [`ait zip-old`](issue-integration/#ait-zip-old) | Archive old completed task and plan files into `tar.zst` bundles — periodic maintenance ([guide](../workflows/repo-maintenance/)) |
 
 ### Infrastructure
@@ -116,6 +117,7 @@ ait lock --list                         # See all active locks
 ait lock --unlock 42                    # Release a lock
 ait note 357 --from 349 --text "..."    # Send a durable note to task 357
 ait note read 357 --by 357 --ids <id>   # Acknowledge a note
+ait attach add 357 screenshot.png       # Attach a file to task 357
 ait sync                               # Interactive sync with progress
 ait sync --batch                        # Batch mode for scripting
 ait git add aitasks/t42.md              # Git operations on task data
