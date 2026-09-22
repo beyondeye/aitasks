@@ -187,16 +187,16 @@ is not implementing this task as specified.
 
 | module | parent task |
 |---|---|
-| M1 — Engine foundation and distribution | @@M1@@ |
-| M2 — Registry and map model | @@M2@@ |
-| M3 — Runners, scheduling and cost | @@M3@@ |
-| M4 — Selection, freshness and feedback | @@M4@@ |
-| M5 — Run surface | @@M5@@ |
-| M6 — Onboarding | @@M6@@ |
-| M7 — Agent review and author annotation | @@M7@@ |
-| M8 — Completion policy and gates | @@M8@@ |
-| M9 — Workflow integration, skills and documentation | @@M9@@ |
-| M10 — Rollout to the target repositories | @@M10@@ |
+| M1 — Engine foundation and distribution | t1852 |
+| M2 — Registry and map model | t1853 |
+| M3 — Runners, scheduling and cost | t1854 |
+| M4 — Selection, freshness and feedback | t1855 |
+| M5 — Run surface | t1856 |
+| M6 — Onboarding | t1857 |
+| M7 — Agent review and author annotation | t1858 |
+| M8 — Completion policy and gates | t1859 |
+| M9 — Workflow integration, skills and documentation | t1860 |
+| M10 — Rollout to the target repositories | t1861 |
 
 All ten share the topic anchor of the M1 task, so the board's By-Topic view
 shows the whole feature as one lane.
