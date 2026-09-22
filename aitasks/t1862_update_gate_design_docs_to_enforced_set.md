@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -56,3 +58,5 @@ declared set as the fallback when no valid tuple exists — `_active_set_csv` /
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-09-22T14:11:28Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-09-22T14:14:56Z status=pass attempt=1 type=human
