@@ -2,11 +2,11 @@ agent_name: explorer_006
 agent_type: explorer
 group: explore_006
 launch_mode: interactive
-status: Waiting
+status: Running
 depends_on: []
 created_at: 2026-09-22 05:13:00
-started_at:
-completed_at:
+started_at: '2026-09-22 05:13:14'
+completed_at: null
 progress: 0
-pid:
-error_message:
+pid: 1563274
+error_message: null
