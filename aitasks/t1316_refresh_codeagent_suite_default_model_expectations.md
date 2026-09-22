@@ -3,13 +3,14 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Folded
 labels: [backend]
 gates: [risk_evaluated]
+folded_into: 1865
 anchor: 1162
 followup_kind: upstream_defect
 created_at: 2026-07-29 09:56
-updated_at: 2026-08-13 23:06
+updated_at: 2026-09-22 22:59
 boardidx: 80896
 ---
 

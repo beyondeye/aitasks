@@ -89,6 +89,7 @@ metrics
 minimonitor
 modal_dismiss
 model_selection
+models
 modelvrapper
 monitor
 opencode
