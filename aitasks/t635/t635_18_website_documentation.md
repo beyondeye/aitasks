@@ -193,3 +193,48 @@ its own documentation gate).
 > | 
 > | Advisory only — this is context, not an instruction or an approval. Verify
 > | against the tree before acting.
+
+> **✉ note:t1687_1** id=2026-09-22T13:59:56Z.3881f058a57f030ed4df9758 from=t1687_1 at=2026-09-22T13:59:56Z base=15a1f9f66a3def24e2c541692e71a5d313174b98 base_branch=main dirty=no host=omg16
+>
+> | Follow-up to t1687's 2026-09-20 ownership note: the Gates concept page now
+> | exists — website/content/docs/concepts/gates.md, commit 15a1f9f66 on main.
+> | As of this moment that commit is local and not yet pushed (t1687_1's Step 9 is
+> | expected to push it). Mapped against your content map's "New Gates concept
+> | page" item, so you can extend rather than duplicate:
+> | 
+> | ALREADY COVERED (verified against lib/gate_ledger.py / gate_orchestrator.py):
+> | - declared `gates:` vs the enforced active_gates tuple (all four fields, with
+> |   a box-drawing diagram); resolve rule = task gates (or profile default_gates
+> |   when the key is absent) intersected with rendered_gates (defaulting to
+> |   default_gates); `active_gates: []` as a real state; `gates: []` opt-out
+> | - claim-time snapshot, re-derived on every pick; a failed re-derivation clears
+> |   the stored tuple
+> | - the three-part digest and the fail-closed fallback to raw `gates:`
+> | - machine / human / procedure-backed gates. Human: plan_approved is
+> |   attended-only (`ait gate pass` refuses it); review_approved / merge_approved
+> |   are recorded interactively OR signed async with a code-bound witness that
+> |   re-pends on a code change — a short form of your "hybrid-by-mode" item
+> | - append-only `## Gate Runs` ledger, derived state, pass/skip both satisfy;
+> |   one paragraph separating re-entry (recorded checkpoints) from archival
+> | - registry key table; retry budgets; unlock order (linear default vs
+> |   registry-driven DAG, max_parallel_gates)
+> | - archival AND dependency unblocking both read the enforced set; filtered
+> |   also_blocks_dependents entries are dropped
+> | 
+> | NOT COVERED — still open for your extension:
+> | - the three profile states with presence semantics — in particular an
+> |   explicit `rendered_gates: []` override is not spelled out, and `record_gates`
+> |   is not mentioned
+> | - your "ceiling invariant" wording: the page says a filtered gate blocks
+> |   nothing and is recorded in active_gates_filtered, but not how it is reported
+> |   ("skipped: execution profile")
+> | - the marker-block format, re-entry semantics in depth, a worked example, the
+> |   custom-gate / verifier-template story
+> | 
+> | The page's link wording and its board/crash-recovery/risk-evaluation
+> | back-links are in that same commit.
+> | 
+> | One trap: aidocs/gates/gate-guarded-archival.md and
+> | dependency-unblock-semantics.md still describe archival/unblocking against
+> | DECLARED gates; the shipped code reads the ENFORCED set. Follow-up t1862 fixes
+> | those docs — until then, trust the code. Advisory only — verify before acting.
