@@ -256,6 +256,11 @@ in a kanban or By-Topic view and press `T` to start one (`T` is hidden in In-Fli
 and in By-Trail itself). The By-Trail view is a **read-only projection** of a stored
 trail: it never writes the trail itself.
 
+The same view also runs on its own as [`ait trails`]({{< relref "/docs/tuis/trails" >}}),
+reached from here with `j` then `i`. It uses these same trail keys; `m`, `M` and `S`
+exist only on the board. The two TUIs keep **separate** trail selections — switching
+between them carries neither the selected trail nor the focused card across.
+
 Press `z` to enter the view and `s` to choose which trail it shows. Each wave
 becomes a column headed `W1 · <title>`, and each card shows the member's
 classification glyph, its confidence, its task status, and any drift marker.

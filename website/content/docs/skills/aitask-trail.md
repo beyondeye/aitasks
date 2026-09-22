@@ -9,7 +9,7 @@ depth: [advanced]
 
 Record which tasks should land next, in what waves, and why — as a stored, versioned artifact rather than a conversation you lose. The skill analyses task and plan state read-only, presents the proposed sequence for review, and writes once after you confirm.
 
-For the end-to-end workflow, including the board's By-Trail view and how a trail feeds a work report, see [Implementation Trails]({{< relref "/docs/workflows/implementation-trails" >}}).
+For the end-to-end workflow, including reading a trail in [`ait trails`]({{< relref "/docs/tuis/trails" >}}) or the board's By-Trail view and how a trail feeds a work report, see [Implementation Trails]({{< relref "/docs/workflows/implementation-trails" >}}).
 
 **Usage:**
 ```
@@ -84,11 +84,12 @@ Create and refresh end by printing a compact account of the trail that was just 
 
 Trails are stored through the artifact substrate, owned by a task and versioned immutably — every earlier version stays retrievable. Manage them with `ait artifact` (`ls`, `get`, `versions`, `rm`). Creating a trail writes the owner task's file, so `ait artifact create` refuses while that file has uncommitted changes — commit or revert them first. Refreshing one only rewrites the manifest, so it is unaffected.
 
-There is no `ait trail` command: trails are reached through this skill and through the board's By-Trail view.
+Trails are authored and refreshed through this skill, and read in [`ait trails`]({{< relref "/docs/tuis/trails" >}}) or in the board's By-Trail view (`z`).
 
 ## Related
 
 - [Implementation Trails]({{< relref "/docs/workflows/implementation-trails" >}}) — the end-to-end workflow
+- [Trails TUI]({{< relref "/docs/tuis/trails" >}}) — the stand-alone trail reader, `ait trails`
 - [Board reference]({{< relref "/docs/tuis/board/reference" >}}#by-trail) — the By-Trail view and its keys
 - [`/aitask-work-report`]({{< relref "/docs/skills/aitask-work-report" >}}) — reporting on a column a trail wave was moved into
 - [Topic anchoring]({{< relref "/docs/concepts/topic-anchoring" >}}) — how topics and trails differ

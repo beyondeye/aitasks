@@ -217,7 +217,9 @@ On a **Planned** row only **p** applies: **g**, **s** and **f** are refused with
 Shows the members of a single [implementation trail]({{< relref "/docs/tuis/board/reference" >}}#by-trail) — a
 stored, wave-structured plan for the order a group of tasks should be done in.
 Each wave is a column; each card carries its classification, confidence, and
-status, and a short pane underneath carries the trail's summary.
+status, and a short pane underneath carries the trail's summary. To read trails
+without the board, the same view runs on its own as
+[`ait trails`]({{< relref "/docs/tuis/trails" >}}) (**j** then **i** from here).
 
 1. Press **z** to enter the view, then **s** to pick which trail to show. If you
    have no trails yet, create one first: from a kanban or By-Topic view, focus a

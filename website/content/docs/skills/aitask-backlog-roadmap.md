@@ -14,7 +14,7 @@ estimate of what is worth picking up alongside work already in flight.
 Most auto-spawned follow-up work is never picked proactively, so it accumulates
 until the backlog itself is the obstacle to choosing what to do next. This skill
 produces a ranked, two-lane ordering of that work and publishes it as a
-versioned artifact, so the board's By-Trail view, drift detection and versioning
+versioned artifact, so the trail viewers (`ait trails` and the board's By-Trail view), drift detection and versioning
 all apply to it unchanged.
 
 **Usage:**

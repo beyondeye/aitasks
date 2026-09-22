@@ -50,6 +50,8 @@ Everything the agent asserts is separated from what it observed: observations ci
 
 **From the board** — focus a task in one of the kanban views or By-Topic, and press **`T`**. In By-Topic this resolves to the focused lane's topic root, so you get a trail for the whole topic rather than the one card. `T` is not available in the In-Flight or By-Trail views; from By-Trail, use **`R`** to re-author the trail you are already looking at.
 
+**From `ait trails`** — focus a live member card and press **`T`** to open the same creation workflow for that task. The trail is written only after you confirm the agent's proposal; press **`s`** afterwards to select it.
+
 **From your agent** — invoke the skill directly:
 
 ```
@@ -81,6 +83,8 @@ Omitting the flag always means lite, including when the board re-authors a trail
 
 Press **`z`** for the By-Trail view, then **`s`** to choose which trail to show. Exactly one trail is active at a time.
 
+To read a trail without the board, run [`ait trails`]({{< relref "/docs/tuis/trails" >}}) — or press **`j`** then **`i`** from any TUI. It opens straight into the trail selector and shows the same view with the same keys; moving tasks into a column stays in the board — **`M`** moves the whole focused wave, **`m`** only the focused card's task — and so does sync (`S`). The two keep separate trail selections.
+
 Each wave becomes a column headed `W1 · …`, with entries in order. Cards carry the classification glyph, the confidence, and the task's live status — a member that has since been completed shows struck through, so a partially-landed wave is obvious at a glance. Members that are not live local tasks — archived, cross-repo, or since deleted — appear as read-only ghost cards.
 
 Below the columns sits the **summary pane**: the trail's prose answer to "what should land next, and why". Press **`v`** to open it full-screen when it outgrows the pane.
@@ -97,7 +101,7 @@ Four keys refresh different things, and they are worth knowing in cost order —
 |---|---|---|
 | `r` | instant | Re-reads task files from disk and redraws — no subprocess, no agent |
 | `d` | seconds | Re-checks the stored trail against live task state and updates the freshness badge |
-| `S` | slower | Syncs task data with the remote (pull / push / merge), then recomputes |
+| `S` | slower | Syncs task data with the remote (pull / push / merge), then recomputes — board only; in `ait trails`, sync with `ait sync` and then use `r`, `d` and `s` |
 | `R` | an agent run | Hands the trail to an agent to be re-authored, producing a new version |
 
 Only **`R`** writes a new trail version — `r` and `d` are read-only projections of what is already stored. **`S`** does not author a trail either, but it is not read-only: it runs a full task-data sync, which can pull, push and merge, exactly as syncing from any other view does.
