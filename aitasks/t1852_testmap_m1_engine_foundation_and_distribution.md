@@ -3,14 +3,15 @@ priority: medium
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [testing, testmap, go_engine, install, ait_setup]
-created_at: 2026-09-22 09:19
-updated_at: 2026-09-22 10:24
+assigned_to: dario-e@beyond-eye.com
 artifacts:
   - handle: art:trail-testmap-feature
     kind: implementation_trail
     name: "Test map feature: module landing order"
+created_at: 2026-09-22 09:19
+updated_at: 2026-09-22 12:15
 ---
 
 ## Goal
