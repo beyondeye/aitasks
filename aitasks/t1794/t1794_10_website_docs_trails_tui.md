@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1794
+implemented_with: claudecode/opus5
 created_at: 2026-09-11 15:08
-updated_at: 2026-09-22 10:22
+updated_at: 2026-09-22 17:13
 ---
 
 ## Context
@@ -119,3 +120,8 @@ version history, genericise agent names); `website/README.md` (link checkers).
 > | - Empty state text ("create a trail with T on a task card") is shared mixin text and reads oddly with no cards; not a doc-worthy feature.
 
 > **👁 note:read** id=2026-09-22T07:22:46Z.71aa78c97f3650b5d6a7355e by=t1794_10 at=2026-09-22T07:22:46Z mode=explicit ids=2026-09-18T09:48:53Z.1f32279c86eb2d8add1d2611
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-22T14:13:01Z status=pass attempt=1 type=human
