@@ -252,3 +252,124 @@ Check `${PIPESTATUS[0]}` if piping. Then confirm:
 
 Standard cleanup, archival and merge. The `risk_evaluated` gate is active and
 must pass before archival.
+
+## Implementation Notes
+
+All four implementation steps done as planned. Deviations and findings:
+
+- **Code, not the design doc, was the source for the enforced tuple.**
+  `aidocs/gates/aitask-gate-framework.md` predates `active_gates*`, and
+  `gate-guarded-archival.md` still says archival requires "every *declared*
+  gate". The shipped code reads the **enforced** set for both archival
+  (`archive_status_from_text`: "a profile-filtered gate can never block
+  archival") and dependency unblocking (`dependents_status`, which also drops
+  `also_blocks_dependents` entries the profile filtered). The page follows the
+  code. Facts taken from `lib/gate_ledger.py` `compute_active_gates` /
+  `build_active_digest` and `lib/gate_orchestrator.py` `successors`.
+- **Two claims corrected against the code before writing:** the archive guard
+  refuses *unless overridden* (`--ignore-gates` exists), so the page does not
+  say "no caller can archive past an unmet gate"; and `max_parallel_gates` is
+  read by `ait gates run` (`aitask_run_gates.sh`, default 2), not the
+  orchestrator module.
+- **`ait create` link:** `--gates` is documented only on the `/aitask-create`
+  skill page (as a batch flag of the create script), so the "How to use" link
+  names that page rather than a nonexistent `ait create` command page.
+- **Back-link wording:** `crash-recovery.md` uses its existing
+  `Concepts: <name>` label; `task-format.md` follows the `See [Agent
+  attribution](…)` pattern already in the same table.
+
+### Post-phase results
+
+- **gates_page_accuracy_review** — every claim re-checked against the code.
+  Three fixes applied: the ledger's first line carries an attempt number only
+  once a run has finished (`pending` blocks carry none); `blocks_dependents`
+  examples narrowed to "review and merge approval" (`plan_approved` is
+  `blocks_dependents: false`); dependency unblocking now stated to read the
+  enforced set. No-restate boundary holds — the definition *moved* off
+  `commands/gates.md` rather than being duplicated, and none of
+  `board/reference.md:462-545` (phases, chips, fractions, degradation, detail
+  rows) is repeated.
+- **link_relevance_triage** — all five back-links land on pages that discuss
+  gates (`crash-recovery.md` has a full "Resuming From the First Unmet
+  Checkpoint" section). One outbound bullet reworded: `concepts/execution-profiles`
+  never mentions gates, so its See-also line no longer implies it covers the
+  ceiling. `check_link_relevance.py` flagged one link from this page
+  (`/aitask-gate-docs-updated` → `#why-it-runs-where-it-runs`), triaged as a
+  **false positive**: the text names the skill whose page it targets, and the
+  section is exactly about the procedure-backed class. The other reported links
+  are on lines this task did not touch — left to t1687_5's site-wide pass.
+
+### Verification
+
+- `hugo build --gc --minify` → exit 0.
+- `check_links.py --build` → `broken: 0`, `SWEEP: PASSED`.
+- `#ait-gates-run`, `#ait-gate-pass`, `#ait-gates-sync-registry`,
+  `#gate-progress`, `#frontmatter-fields`, `#why-it-runs-where-it-runs` all
+  present in the built HTML.
+- `concepts/` hand-written relative links: 0. Bare `relref "gates"`: 0.
+  Mermaid fences in changed files: 0.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-09-22 09:40)
+- **Requested by user:** The human-gates bullet stated that an `ait gate pass`
+  signature is code-bound immediately after listing `plan_approved`,
+  `review_approved` and `merge_approved`, implying all three are code-bound.
+  Only `review_approved` and `merge_approved` are.
+- **Verified:** valid. Only those two carry `signal: file-touch`, and
+  `stale_signed_gates` only considers gates with a stamped witness. Checking it
+  surfaced a second error in the same sentence: "otherwise they pend until
+  someone signs with `ait gate pass`" is false for `plan_approved` —
+  `aitask_gate_pass.sh:72-74` refuses it ("attended-only checkpoint — nothing
+  to sign").
+- **Changes made:** Split the human-gates bullet into two sub-bullets:
+  `plan_approved` (attended-only, `ait gate pass` refuses it) and
+  `review_approved` / `merge_approved` (attended recording, or asynchronous
+  signing with a code-bound witness that re-pends on a code change). Dropped
+  "from anywhere" — the witness file is local (gitignored `.aitask-gates/`).
+  Nested list confirmed rendering in the built HTML.
+- **Files affected:** `website/content/docs/concepts/gates.md`
+
+## Final Implementation Notes
+
+- **Actual work done:** New `website/content/docs/concepts/gates.md` (weight 85,
+  `depth: [advanced]`, no `**Next:**` footer). Its angle is declared intent
+  versus the enforced `active_gates*` tuple and why that tuple is a claim-time
+  snapshot. It covers the profile ceiling, the empty-set and `gates: []` cases,
+  the three-part digest and its one-directional fallback, machine / human /
+  procedure-backed gates, the ledger, the registry, retry budgets, the unlock
+  order, archival and dependency unblocking. Five back-links: the
+  `commands/gates.md` lead was trimmed to a pointer (its lone relative link is
+  now a relref), a `See [Gates]` link was added to the `task-format.md` `gates`
+  row, a pointer under board `#gate-progress`, a `Concepts: Gates` bullet in
+  `crash-recovery.md`, and in `risk-evaluation.md` the existing bullet was
+  relabelled `` `ait gates` `` next to a new `Gates` concept bullet.
+- **Deviations from plan:** None in scope. The pre-phase ownership note was not
+  re-sent (already in t635_18's inbox), as the verified plan recorded.
+- **Issues encountered:** The design docs under `aidocs/gates/` predate the
+  enforced tuple and describe archival/unblocking against *declared* gates; the
+  shipped code reads the *enforced* set. The page follows the code (see
+  Implementation Notes). The review caught one misstatement: code-binding
+  applies only to `review_approved` / `merge_approved`, and `ait gate pass`
+  refuses `plan_approved` (Change Request 1).
+- **Key decisions:** Explain the profile ceiling (`default_gates` /
+  `rendered_gates`) in model terms on this page, since no other website page
+  documents `rendered_gates`. Scope the code-binding claim to the
+  `ait gate pass` signing path — an attended approval writes no witness.
+- **Upstream defects identified:**
+  - `aidocs/gates/gate-guarded-archival.md:28-33` — the stated criterion says a task may archive iff "every *declared* gate" passes, but `archive_status_from_text` reads the enforced active set (t635_33): a profile-filtered gate never blocks archival. Internal design doc is stale.
+  - `aidocs/gates/dependency-unblock-semantics.md:57-60` — the unblock pseudocode computes `required` from `U.gates` (declared); `dependents_status` reads the enforced set and drops profile-filtered `also_blocks_dependents` entries. Internal design doc is stale.
+- **Notes for sibling tasks:**
+  - Verify against the code, not `aidocs/`: several gate design docs are
+    proposals written before the feature shipped, and they describe superseded
+    behaviour.
+  - `check_link_relevance.py` flags `[`/skill`](…#section)` links — link text
+    naming the page, anchor narrowing to a section. Expect it; it was a false
+    positive here.
+  - A concepts page can be cross-checked for nested-list rendering by
+    building into a scratch dir (`hugo build -d <dir>`) and grepping the page's
+    `index.html`.
+  - `commands/gates.md` and `concepts/gates.md` now share the `gates` slug:
+    every relref to either must use the full `/docs/...` path.
+  - The `**Next:**` chain insertion point for this page (agent-attribution 80 →
+    gates 85 → locks 90) is left to t1687_5, as its task file specifies.
