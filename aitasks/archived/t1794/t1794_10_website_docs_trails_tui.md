@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: medium
 depends: [t1794_6]
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [aitask_board, tui, trails, python, refactor, website]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1794
 implemented_with: claudecode/opus5
 created_at: 2026-09-11 15:08
-updated_at: 2026-09-22 17:13
+updated_at: 2026-09-22 17:25
+completed_at: 2026-09-22 17:25
 ---
 
 ## Context
@@ -129,3 +130,14 @@ version history, genericise agent names); `website/README.md` (link checkers).
 > **✅ gate:plan_approved** run=2026-09-22T14:13:01Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-09-22T14:24:56Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-22T14:25:13Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:0d36885bd04d0ec2
+
+> **✅ gate:risk_evaluated** run=2026-09-22T14:25:13Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1794_10/risk_evaluated_2026-09-22T14:25:13Z-risk_evaluated-a1.log`
