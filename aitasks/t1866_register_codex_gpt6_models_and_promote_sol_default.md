@@ -111,14 +111,22 @@ it and is the preferred entry point.
   any of them goes red, that is a real finding, not expected churn.
 - `bash tests/test_add_model.sh`.
 
-## Out of scope / open question
+## Out of scope — OpenCode is t1867
 
-`seed/models_opencode.json` carries `openai/gpt-5.6-terra` and
-`opencode/gpt-5.6-terra` provider variants. OpenCode models are
-provider-gated and CLI-discovered, and `aitask_add_model.sh` deliberately
-**refuses** `--agent opencode` (pointing at `aitask-refresh-code-models`). So
-adding GPT-6 entries for OpenCode is **not** part of this task. If they are
-wanted, run `/aitask-refresh-code-models` separately or spawn a follow-up.
+OpenCode models are provider-gated and CLI-discovered, and
+`aitask_add_model.sh` deliberately **refuses** `--agent opencode`. OpenCode
+registration is **not** part of this task; it is now owned by **t1867**
+(`refresh_opencode_model_registry_gpt6_astra_and_5_6_variants`), which runs the
+full `ait opencode-models --sync-seed` discovery refresh.
+
+Note the two tasks register **different** GPT-6 models, and that is correct:
+Codex CLI and OpenCode expose different provider catalogs. This task registers
+`gpt-6-sol` and `gpt-6-luna` for Codex; OpenCode offers **only**
+`opencode/gpt-6-astra` and has no `gpt-6-sol` or `gpt-6-luna` at all. Do not
+"reconcile" the two lists.
+
+t1867 changes no operation defaults — `shadow` / `discuss` remain this task's
+business. The two can land in either order.
 
 ## Commit layout
 
