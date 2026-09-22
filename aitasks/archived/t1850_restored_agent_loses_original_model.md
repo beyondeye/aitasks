@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [frozen, model_selection]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -14,7 +14,8 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5
 created_at: 2026-09-21 22:42
-updated_at: 2026-09-22 09:57
+updated_at: 2026-09-22 16:24
+completed_at: 2026-09-22 16:24
 ---
 
 ## Problem
@@ -45,3 +46,14 @@ Observed on 2026-09-21: record `7b9ad914` (t1687_1, window `agent-pick-1687_1`, 
 > **✅ gate:plan_approved** run=2026-09-22T06:57:25Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-09-22T09:32:07Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-22T13:24:07Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:f4b80222a3cc8ef5
+
+> **✅ gate:risk_evaluated** run=2026-09-22T13:24:07Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1850/risk_evaluated_2026-09-22T13:24:07Z-risk_evaluated-a1.log`
