@@ -32,3 +32,8 @@ Observed on 2026-09-21: 4 thinking_app records (306a470c, bcd38690, f4e67f01, 2d
 3. Add a test: freeze an unrecorded pane in an `agent-pick-<id>` window → the record has task_id and is re-pickable.
 
 The missing-hook-after-upgrade gap is split into its own task.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-22T14:22:51Z status=pass attempt=1 type=human
