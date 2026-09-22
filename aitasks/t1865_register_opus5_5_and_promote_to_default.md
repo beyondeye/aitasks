@@ -6,6 +6,10 @@ issue_type: feature
 status: Implementing
 labels: [codeagent, models, ait_settings, backend]
 gates: [risk_evaluated]
+active_gates: [risk_evaluated]
+active_gates_filtered: []
+active_gates_profile: fast
+active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 folded_tasks: [1316]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-09-22 22:59
