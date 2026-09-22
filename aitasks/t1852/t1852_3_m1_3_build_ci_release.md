@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: medium
-depends: []
+depends: [t1852_2]
 issue_type: feature
 status: Ready
 labels: [testmap, go_engine, release_scripts]

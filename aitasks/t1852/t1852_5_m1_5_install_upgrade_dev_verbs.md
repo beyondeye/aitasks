@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: high
-depends: []
+depends: [t1852_1, t1852_3, t1852_4]
 issue_type: feature
 status: Ready
 labels: [testmap, install, ait_setup, ait_dispatcher, bash_scripts]

@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: medium
-depends: []
+depends: [t1852_1, t1852_2]
 issue_type: feature
 status: Ready
 labels: [testmap, ait_dispatcher, bash_scripts]
