@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [codeagent, models, ait_settings, backend]
 gates: [risk_evaluated]
 folded_tasks: [1316]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-09-22 22:59
-updated_at: 2026-09-22 22:59
+updated_at: 2026-09-22 23:00
 ---
 
 ## Goal
