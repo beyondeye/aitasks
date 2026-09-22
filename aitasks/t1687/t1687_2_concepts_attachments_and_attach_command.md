@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1687
+implemented_with: claudecode/opus5
 created_at: 2026-09-20 12:01
-updated_at: 2026-09-22 17:05
+updated_at: 2026-09-22 17:30
 ---
 
 ## Context
@@ -105,3 +106,8 @@ cd website && python3 check_links.py --build
 Use `set -o pipefail` or check `${PIPESTATUS[0]}`. Confirm the new
 `commands/attach.md` is reachable from `commands/_index.md`, and that
 `ait artifact` is still unlinked in both places named above.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-22T14:30:23Z status=pass attempt=1 type=human
