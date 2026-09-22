@@ -27,10 +27,11 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=lib/scratch_cwd.sh disable=SC1091
 . "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
 enter_scratch_cwd
 
-# shellcheck source=lib/asserts.sh
+# shellcheck source=lib/asserts.sh disable=SC1091
 . "$PROJECT_DIR/tests/lib/asserts.sh"
 
 PASS=0
@@ -41,6 +42,9 @@ SCAN="$PROJECT_DIR/tests/lib/cd_guard_scan.py"
 HELPER="$PROJECT_DIR/tests/lib/scratch_cwd.sh"
 
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/ait_cd_guard_XXXXXX")" || { echo "FAIL: mktemp"; exit 1; }
+# Canonicalize: macOS TMPDIR ends in '/', so the raw path contains '//', and
+# assertions below compare paths derived from $TMP against real `pwd` output.
+TMP="$(cd "$TMP" && pwd -P)" || { echo "FAIL: canonicalize $TMP"; exit 1; }
 # Fixture scratch dirs are made 0555 by the helper; restore write bits so rm works.
 trap 'chmod -R u+w "$TMP" 2>/dev/null; rm -rf "$TMP"' EXIT
 
