@@ -112,3 +112,5 @@ version history, genericise agent names); `website/README.md` (link checkers).
 > | - Shortcut ownership: scope `board`, the SAME Binding objects as the board, so a `shortcuts.board.<action>` override in userconfig.yaml rebinds both surfaces. `?` inside `ait trails` lists only the board-scope rows this App declares plus the shared scopes (it deliberately never executes the board); a Kanban-only key is edited from `ait board` or Settings -> Shortcuts.
 > | - Read-only: it never writes board_config.json (a project without one boots without creating it). `TASK_DIR` is honoured via the launcher; `--tasks-dir` is the launcher's flag, not a user option (a conflicting pair is refused).
 > | - Empty state text ("create a trail with T on a task card") is shared mixin text and reads oddly with no cards; not a doc-worthy feature.
+
+> **👁 note:read** id=2026-09-22T07:22:46Z.71aa78c97f3650b5d6a7355e by=t1794_10 at=2026-09-22T07:22:46Z mode=explicit ids=2026-09-18T09:48:53Z.1f32279c86eb2d8add1d2611
