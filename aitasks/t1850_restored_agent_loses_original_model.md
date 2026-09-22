@@ -10,8 +10,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5
 created_at: 2026-09-21 22:42
-updated_at: 2026-09-22 07:41
+updated_at: 2026-09-22 09:57
 ---
 
 ## Problem
@@ -35,3 +36,8 @@ Observed on 2026-09-21: record `7b9ad914` (t1687_1, window `agent-pick-1687_1`, 
 2. Fix the broken link so the hook-recorded agent string lands in the store.
 3. Belt and braces: at freeze time, if the record's agent string is blank, try to recover it from the live process (`/proc/<pid>/environ` `AITASK_AGENT_STRING`, or the `--model` in its argv) before the process is killed. Once frozen, it is unrecoverable.
 4. When restoring a record with no agent string, say so in the restore outcome ("restored with default model — original model unknown") instead of silently switching models.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-22T06:57:25Z status=pass attempt=1 type=human
