@@ -336,7 +336,7 @@ Each line carries the module that owns it (see *Module Map*).
 .claude/skills/aitask-qa/{test-discovery,test-execution}.md   [M9.2]  registry-first branches; Covered (adopted by human|agent|auto)
 seed/aitasks_agent_instructions.seed.md            [M5.3]  + `## Running Tests` (generic; installed into every agent surface by ait setup)
 seed/models_{claudecode,codex,opencode}.json        [M7.5]  + verified.testmap-review per model (0 until measured)
-engine/                                             [M1.2, M1.3]  Go source — framework repo only, excluded from the tarball
+goengines/                                          [M1.2, M1.3]  Go source, one module: cmd/ait-testmap · shared internal/{gitx,platform,lineproto} · testmap packages under internal/testmap/ — framework repo only, excluded from the tarball
 ```
 
 ### The registry directory
@@ -677,11 +677,11 @@ project-specific in it yet.
 | submodule | scope | components | owns | provides | depends on |
 |---|---|---|---|---|---|
 | **M1.1** Per-user root | `AITASKS_HOME` resolution, `aitasks_engine_dir`, the home lock; `ait setup` printing `AITASKS_HOME:` | `component_user_root` | `.aitask-scripts/lib/aitasks_home.sh`; `tests/test_aitasks_home.sh` (the default, the env override, the no-`~/.aitask/` grep) | the one path resolver every other bash piece sources | — |
-| **M1.2** Engine skeleton | `engine/` Go module, `cmd/ait-testmap`, the verb table with `version` live and every other verb registered as a stub that exits 64, line-protocol and `--json` helpers, per-verb exit-contract helpers, `-X version/commit/contract`, `CONTRACT_MISMATCH` helper, pool cap 8, `internal/platform`, `internal/gitx` (git exec, blob digests, `merge-base --is-ancestor`, `ls-tree`), the `t.TempDir()` fixture harness with synthetic `(t<id>)` histories, the `go test -bench` harness with the 2× rule | `component_go_engine`, `component_engine_binary` | `engine/**` except later packages; `engine/go.mod` | the binary every engine submodule adds a package to; the fixture and bench harnesses | — |
-| **M1.3** Build, CI and release | `engine/build.sh` (matrix, `CGO_ENABLED=0`, ldflags), `.github/workflows/engine-check.yml`, the `engine` job in `release.yml` with `release needs: [plan, engine]`, SHA256SUMS | `component_binary_distribution` | `engine/build.sh`; the two workflow edits; `aidocs/framework/go_engine.md` (build half) | release assets `ait-testmap_<V>_<os>_<arch>` + sums | M1.2 |
+| **M1.2** Engine skeleton | `goengines/` Go module (one module for every Go executable the framework distributes), `goengines/cmd/ait-testmap`, the verb table with `version` live and every other verb registered as a stub that exits 64, line-protocol and `--json` helpers, per-verb exit-contract helpers, `-X version/commit/contract`, `CONTRACT_MISMATCH` helper, pool cap 8, the shared `internal/lineproto`, `internal/platform`, `internal/gitx` (git exec, blob digests, `merge-base --is-ancestor`, `ls-tree`), the `t.TempDir()` fixture harness with synthetic `(t<id>)` histories, the `go test -bench` harness with the 2× rule | `component_go_engine`, `component_engine_binary` | `goengines/**` except later packages; `goengines/go.mod` | the binary every engine submodule adds a package to; the fixture and bench harnesses | — |
+| **M1.3** Build, CI and release | `goengines/build.sh` (matrix over every `cmd/*`, `CGO_ENABLED=0`, ldflags), `.github/workflows/goengines-check.yml`, the `goengines` job in `release.yml` with `release needs: [plan, goengines]`, SHA256SUMS | `component_binary_distribution` | `goengines/build.sh`; the two workflow edits; `aidocs/framework/go_engine.md` (build half) | release assets `ait-testmap_<V>_<os>_<arch>` + sums | M1.2 |
 | **M1.4** Shim and handshake | `.aitask-scripts/aitask_testmap.sh` (strict handshake `AIT_TESTMAP_BIN` > `AIT_ENGINE=dev` > `$AITASKS_HOME/engine/v<V>/` > `ENGINE_MISSING` exit 3), `lib/platform_detect.sh`, the `ait testmap` dispatcher arm | `component_binary_distribution` | `aitask_testmap.sh`; `lib/platform_detect.sh`; `tests/test_testmap_shim.sh`, `tests/test_platform_detect.sh` | `ait testmap <verb>` for every later bash caller | M1.1, M1.2 |
-| **M1.5** Install, upgrade and developer verbs | `install_engine_binary()` (source order, checksum, atomic install, self-check, `--force-engine`, `--no-testmap` / `AIT_TESTMAP_FETCH=0`, `.aitask-testmap/` gitignore), `install.sh --source-only` reaching it, `aitask_engine.sh` `build\|test\|cross\|prune`, `report_testmap_state()` with the states `engine-missing` / `absent` / `onboarded` (M6.1 adds `bootstrapping\|<next>`) | `component_engine_packaging` | the two functions in `aitask_setup.sh`; `aitask_engine.sh` (except `home`); `tests/test_install_engine_binary.sh`; `packaging_strategy.md` paragraph; `CLAUDE.md` Engine block | an installed engine on every host that ran `ait setup`; `TESTMAP:<state>` | M1.1, M1.3, M1.4 |
-| **M1.6** Framework home report and migration | `ait engine home [--migrate]` | `component_framework_home` | the `home` arm of `aitask_engine.sh`; the `HOME_LEGACY:` hint in setup; `tests/test_aitasks_home.sh` migration cases | the migration verb; the named follow-up that flips the default | M1.1, M1.5 |
+| **M1.5** Install, upgrade and developer verbs | `install_engine_binary()` (source order, checksum, atomic install, self-check, `--force-engine`, `--no-testmap` / `AIT_TESTMAP_FETCH=0`, `.aitask-testmap/` gitignore), `install.sh` reaching it right after `install_global_shim` (the engine flags `--local-engine` / `--engine-from-source` / `--no-testmap` / `--force-engine` in both `install.sh`'s and `aitask_setup.sh::main()`'s parsers), `aitask_engine.sh` `build\|test\|cross\|prune`, `report_testmap_state()` with the states `engine-missing` / `absent` / `onboarded` (M6.1 adds `bootstrapping\|<next>`) | `component_engine_packaging` | the two functions in `aitask_setup.sh` and the four engine flags in its `main()` parser; the four engine flags and the `install_engine_binary` call in `install.sh` (a named extension of the installer); `aitask_engine.sh` (except `home`); `tests/test_install_engine_binary.sh`; `packaging_strategy.md` paragraph; `CLAUDE.md` Engine block | an installed engine on every host that ran `ait setup`; `TESTMAP:<state>` | M1.1, M1.3, M1.4 |
+| **M1.6** Framework home report and migration | `ait engine home [--migrate]`, with a destination-collision preflight before any move (`destination-exists:<name>` refusal, nothing moved) | `component_framework_home` | the `home` arm of `aitask_engine.sh`; the `HOME_LEGACY:` hint in setup; `tests/test_aitasks_home.sh` migration cases | the migration verb; the named follow-up that flips the default | M1.1, M1.5 |
 
 #### M2 — Registry and map model
 
@@ -1926,7 +1926,7 @@ the implementation home (see *Module Map*).
 <!-- section: component_go_engine [dimensions: component_go_engine] -->
 ### Go engine and CLI *(M1.2)*
 
-`engine/cmd/ait-testmap` with packages
+`goengines/cmd/ait-testmap` with packages
 `internal/{registry,axes,annot,deps,changesurface,selectr,sched,runner,cost,feedback,stale,gitx,platform}`
 plus `internal/seed`, `internal/onboard` and `internal/brief`. Go 1.26 with a
 pinned toolchain, `CGO_ENABLED=0`, `-trimpath -buildvcs=false -ldflags "-s -w
@@ -1947,6 +1947,17 @@ fixture per detect shape — bash-only, pytest, go, gradle,
 gradle-per-source-set — one per opaque-scanner branch, one per verdict
 branch and one per packet language are added by the submodules that need
 them) and the `go test -bench` harness with the 2× regression rule.
+
+Path convention. `goengines/` is one Go module
+(`github.com/beyondeye/aitasks/goengines`) shared by every Go executable the
+framework distributes: one executable per `goengines/cmd/<name>/`, the
+cross-executable packages `internal/gitx`, `internal/platform` and the
+line-protocol / exit-contract helpers `internal/lineproto` at
+`goengines/internal/`, and every testmap-specific package under
+`goengines/internal/testmap/<pkg>`. Wherever this document writes
+`internal/<pkg>` for a testmap package, read `goengines/internal/testmap/<pkg>`.
+The per-user install directory `$AITASKS_HOME/engine/`, the `ait engine`
+verbs and the binary name `ait-testmap` are unaffected by the source layout.
 <!-- /section: component_go_engine -->
 
 <!-- section: component_engine_binary [dimensions: component_engine_binary] -->
@@ -1979,13 +1990,13 @@ gate path.
 <!-- section: component_binary_distribution [dimensions: component_binary_distribution] -->
 ### Binary distribution *(M1.3, M1.4)*
 
-`engine/build.sh` is the single build and matrix command. The release
-`engine` job (`actions/setup-go` from `engine/go.mod`, `go vet`, `go test`,
+`goengines/build.sh` is the single build and matrix command. The release
+`goengines` job (`actions/setup-go` from `goengines/go.mod`, `go vet`, `go test`,
 `build.sh all`) produces `ait-testmap_<V>_{linux,darwin}_{amd64,arm64}` and
 `ait-testmap_<V>_SHA256SUMS.txt`, attached by both `action-gh-release` steps
-with `release needs: [plan, engine]`; the VERSION-matches-tag guard is
-unchanged. `engine-check.yml` runs gofmt, vet, test and the 2× bench rule on
-push / PR for `engine/**`. `lib/platform_detect.sh` maps `uname`. The shim
+with `release needs: [plan, goengines]`; the VERSION-matches-tag guard is
+unchanged. `goengines-check.yml` runs gofmt, vet, test and the 2× bench rule on
+push / PR for `goengines/**`. `lib/platform_detect.sh` maps `uname`. The shim
 `aitask_testmap.sh` resolves the binary through a strict handshake:
 `AIT_TESTMAP_BIN` (with an override notice) > `AIT_ENGINE=dev` slot at
 `$AITASKS_HOME/engine/dev/` requiring `<V>-dev+<sha>` >
@@ -2002,7 +2013,12 @@ exit 3 with the repair hint; it never downloads. Tests:
 ### Engine install, upgrade and state report *(M1.5; the `bootstrapping` state M6.1)*
 
 `install_engine_binary()` in `aitask_setup.sh`, reached by `ait setup` and by
-`ait upgrade` through `install.sh`'s `--source-only` path: source order
+`ait upgrade` through `install.sh`, which sources `aitask_setup.sh
+--source-only` and calls it right after `install_global_shim`; the engine
+flags `--local-engine <path>`, `--engine-from-source`, `--no-testmap` and
+`--force-engine` are accepted by both `install.sh`'s parser and
+`aitask_setup.sh::main()`'s, and both surfaces are M1.5's as a named
+extension of the installer. Source order
 `--local-engine` > exact-version release asset > `--engine-from-source` >
 `ENGINE_MISSING` warning; `sha256sum -c` / `shasum -a 256` with a `.sha256`
 sidecar short-circuit; atomic install to `$AITASKS_HOME/engine/v<V>/`;
@@ -2041,9 +2057,14 @@ override, and that no framework script of this feature names `~/.aitask/`.
 
 `ait engine home` prints `HOME_ROOT:<path>`, `HOME_LEGACY:<path>|<tenants>`,
 `HOME_SYMLINK:none|<target>` and `HOME_NEXT:<what --migrate would do>`. `ait
-engine home --migrate` runs under `flock $AITASKS_HOME/.home.lock`; refuses
-and reports `no-legacy-root`, `already-migrated`, `foreign-symlink:<target>`,
-`cross-device` or `unknown-entry:<name>`; moves each present entry of the
+engine home --migrate` runs under `flock $AITASKS_HOME/.home.lock`; runs a
+preflight over every present legacy entry before any move and refuses — with
+nothing moved and both trees intact — reporting `no-legacy-root`,
+`already-migrated`, `foreign-symlink:<target>`, `cross-device`,
+`unknown-entry:<name>` or `destination-exists:<name>` (a present legacy entry
+whose `$AITASKS_HOME/<name>` already exists; `engine/` always does after `ait
+setup`, and a `mv` onto an existing directory would nest the source inside
+it); only then moves each present entry of the
 known set `{venv, pypy_venv, python, bin, uv, dev_tier, update_check,
 engine}` with a same-device `mv`, `rmdir`s the emptied legacy root and leaves
 `ln -s $AITASKS_HOME ~/.aitask` behind; prints `HOME_MIGRATED:<n>` or
@@ -2054,7 +2075,8 @@ default (reserving `--no-home-migration` / `AIT_HOME_MIGRATE=0`) is a named
 follow-up admitted when `tests/test_aitasks_home.sh`, through a real
 `install.sh --dir`, covers fresh install, migration with a working venv and
 PyPy venv afterwards, idempotent re-run, a hostile pre-existing symlink,
-cross-device refusal and the `AITASKS_HOME` override, and the 18 doc files
+cross-device refusal, a destination collision refused with both trees
+unchanged, and the `AITASKS_HOME` override, and the 18 doc files
 naming `~/.aitask` are updated.
 <!-- /section: component_framework_home -->
 
@@ -2285,7 +2307,7 @@ invocation per `group_by` group, JUnit XML inverted to ids through the list
 table, zero-match trap as a mechanism failure); `suite` (any command as one
 unit, optional child rows from a `children:` post-processor); `device`
 (allocator handle); `command:` / `cwd:` overrides; shadow-by-name with
-`explain` showing which won; `engine-test` over `engine/`. thinking_app's
+`explain` showing which won; `engine-test` over `goengines/`. thinking_app's
 `tools/verification/testmap_runner.sh` (`screen-matrix`: `list` from the
 two membership manifests plus `matrix_classes` with an artifact column, `run`
 through `screenshot-tests.sh unit-tests --tests`) and `verify-active` as a
@@ -3144,7 +3166,7 @@ metadata.
 
 - **`assumption_go_toolchain_available`** — Go ≥ 1.26 is available in release
   CI through an `actions/setup-go` step this design adds to `release.yml`
-  (`go-version-file: engine/go.mod`) and on framework developers' machines;
+  (`go-version-file: goengines/go.mod`) and on framework developers' machines;
   target-project users never need Go.
 - **`assumption_go_toolchain_ci_and_dev_only`** — Go is a build-time
   dependency only: `release.yml` has no Go step today and the repository's
@@ -3172,7 +3194,7 @@ metadata.
   (297 variants over 49 members, 374 JVM classes, ~900 Kotlin files) `select`
   with axis expansion < 250 ms warm, reading the committed variants list and
   never executing a runner; pinned by committed `go test -bench` fixtures
-  with a 2× regression failing `engine-check.yml`, validated before the
+  with a 2× regression failing `goengines-check.yml`, validated before the
   gates are enabled.
 - **`assumption_home_symlink_compatibility`** — every existing consumer of
   the legacy `~/.aitask` tree keeps resolving when it becomes a symlink to
@@ -3616,7 +3638,7 @@ document.
   matrix, `ait engine build`, and the engine being optional until a testmap
   gate is enabled.
 - **`tradeoff_two_toolchains`** — bash and Go in one framework; mitigated by
-  the boundary rule, `engine-check.yml`, and Go source confined to `engine/`
+  the boundary rule, `goengines-check.yml`, and Go source confined to `goengines/`
   and excluded from the tarball.
 - **`tradeoff_setup_network_fetch`** — `ait setup` gains its first
   self-downloaded release asset; mitigated by reusing the URL family
