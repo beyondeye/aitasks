@@ -39,3 +39,7 @@ groups:
   sequence: 10
   description: ''
   created_at: '2026-09-20 06:41:01'
+- name: explore_006
+  sequence: 11
+  description: ''
+  created_at: '2026-09-22 05:13:00'
