@@ -29,9 +29,11 @@ not consulted.
 ## Criterion
 
 Re-entry keys off the **recorded `## Gate Runs` checkpoints** (t635_2:
-`plan_approved` → `review_approved`), **not** the declared `gates:` field. This
-is the crucial contrast with [[gate-guarded-archival]]'s `archive_status`, which
-reads declared gates: archival asks "is every *declared* gate pass?"; re-entry
+`plan_approved` → `review_approved`), **not** the task's gate set (neither the
+declared `gates:` field nor the enforced `active_gates` tuple). This is the
+crucial contrast with [[gate-guarded-archival]]'s `archive_status`, which reads
+the enforced active set (t635_33): archival asks "is every *active* gate
+satisfied?"; re-entry
 asks "how far did the *recorded workflow* get?". The two derivations are
 deliberately separate functions in `lib/gate_ledger.py` and must not be
 conflated.

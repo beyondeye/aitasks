@@ -5,7 +5,7 @@ tags: [aitasks, gates, dependencies, unblock, depends, blocking, deferred-archiv
 sources: [aitask-gate-framework.md, integration-roadmap.md]
 confidence: high
 created: 2026-06-14
-updated: 2026-06-14
+updated: 2026-09-22
 ---
 
 # Dependency-Unblock Semantics for Gated Tasks
@@ -23,8 +23,8 @@ present in the active-task set; archival removes the file, and the dependent
 unblocks. (The board TUI has a parallel rule: a dep is unresolved while its
 `status != 'Done'`.)
 
-The gate framework's decision **D5** defers archival until *every* declared gate
-passes (t635_4). That introduces a regression: a task whose substantive work is
+The gate framework's decision **D5** defers archival until *every* active gate
+passes (t635_4; see [[gate-guarded-archival]]). That introduces a regression: a task whose substantive work is
 done — code built, committed, merged — but whose **human or asynchronous
 sign-off pends for days** (async remote review, a documentation gate, a manual
 verification) **stays in the active set**, so its dependents stay blocked
@@ -54,16 +54,31 @@ idea — "which gates must pass before this task releases its dependents":
 For an **active** upstream task `U` referenced by a dependent's `depends:`:
 
 ```
-declared  = U.gates                       (frontmatter; absent/empty = "ungated")
-also      = U.also_blocks_dependents       (per-task additions)
-required  = { g ∈ declared : registry[g].blocks_dependents }  ∪  also
+active    = U.active_gates                 (enforced set, if the tuple is valid;
+                                            else U.gates — absent/empty = "ungated")
+filtered  = U.active_gates_filtered        (if the tuple is valid; else [])
+also      = U.also_blocks_dependents − filtered   (per-task additions)
+required  = { g ∈ active : registry[g].blocks_dependents }  ∪  also
 
-if required is empty            -> NO_GATES   (fall back to file-existence:
-                                              U blocks until archived = today)
-elif every g ∈ required is pass -> SATISFIED  (dependents proceed, even while
-                                              non-required gates still pend)
-else                            -> BLOCKED    (still-pending required gates)
+if required is empty                 -> NO_GATES   (fall back to file-existence:
+                                                   U blocks until archived = today)
+elif every g ∈ required is pass/skip -> SATISFIED  (dependents proceed, even while
+                                                   non-required gates still pend)
+else                                 -> BLOCKED    (still-pending required gates)
 ```
+
+**The enforced set, not the declared one (t635_33).** `active` is the
+`active_gates` tuple materialized at claim time (task-workflow Step 4,
+`aitask_gate.sh materialize-active`) — the declared `gates:` filtered by the
+profile's render ceiling — so a profile-filtered gate never holds dependents.
+`also_blocks_dependents` is filtered by the persisted `active_gates_filtered`
+list, which drops exactly the declared-but-filtered gates while keeping
+independent blockers (e.g. a checkpoint gate like `merge_approved` listed there
+without being declared). Both lists come from the one validated reader,
+`read_active_tuple_from_text()`: a tuple that is absent, stale or corrupt is
+ignored, `active` falls back to the raw `gates:` field and `filtered` to `[]` in
+the same decision, so a stale filtered list can never remove a newly declared
+blocker. [[gate-guarded-archival]] describes the tuple's validation in full.
 
 The decision is a property of the **upstream** task, evaluated per `depends:`
 edge. Derived gate state uses the standard last-run-wins derivation
@@ -122,8 +137,8 @@ facts are not a coincidence; both express "the code is now available for
 dependents to build on". A signature against different code is not an approval of
 the code the dependent would build on, so it must not release it.
 
-The demotion runs over the **required** set — registry-flagged declared gates ∪
-`also_blocks_dependents` — so a per-task addition is re-validated too, and a
+The demotion runs over the **required** set — registry-flagged active gates ∪
+the effective `also_blocks_dependents` — so a per-task addition is re-validated too, and a
 stale signature on a gate nobody flagged blocking still releases dependents
 exactly as before. Cost is bounded by the shared no-git pre-filter: a task with
 no stamped witness pays nothing. See "Which surfaces re-validate" in
@@ -169,8 +184,8 @@ produced once **deferred archival** (t635_4) and a **populated `gates:` field**
 (t635_14, Phase 4) exist.
 
 t635_14 has landed, but profile gate **declaration** does not by itself activate
-the dependency-unblock path: the unblock criterion filters declared gates to those
-flagged `blocks_dependents: true` in the registry, and the shipped `fast` profile
+the dependency-unblock path: the unblock criterion filters the task's active gates
+to those flagged `blocks_dependents: true` in the registry, and the shipped `fast` profile
 declares only `risk_evaluated` (`blocks_dependents: false`). So a `fast` task's
 required-unblock set is still empty → `NO_GATES` → file-existence fallback, exactly
 as before. This path goes live only when a profile/task declares a

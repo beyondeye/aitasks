@@ -5,7 +5,7 @@ tags: [aitasks, gates, archival, task-workflow, re-entry, deferred-archival, led
 sources: [aitask-gate-framework.md, integration-roadmap.md, dependency-unblock-semantics.md]
 confidence: high
 created: 2026-06-14
-updated: 2026-08-04
+updated: 2026-09-22
 ---
 
 # Gate-Guarded Archival
@@ -27,28 +27,41 @@ archive).
 
 ## Criterion (D5 + D6)
 
-A task that declares gates (the `gates:` frontmatter field) may archive **iff
-every declared gate has derived status `pass`** — and, for a human gate signed
+A gated task may archive **iff every gate in its *enforced active set* is
+terminal-satisfied (`pass` or `skip`)** — and, for a human gate signed
 asynchronously, iff that signature still binds the *current* code (see
 "signature re-validation" below). Status is derived from the `## Gate Runs`
 ledger (decision **D6** — no new coarse `status` value, no denormalized
-`gates_summary` field). A declared gate with **no recorded run** counts as
-not-pass (pending).
+`gates_summary` field). An active gate with **no recorded run** counts as
+unsatisfied (pending).
+
+**The active set, not the declared one (t635_33).** The `gates:` frontmatter
+field is the task's *declared intent*. What archival enforces is the
+`active_gates` tuple that task-workflow Step 4 materializes at claim time
+(`aitask_gate.sh materialize-active`): the declared gates filtered by the
+profile's render ceiling. Every enforcer reads it through the one validated
+reader, `read_active_tuple_from_text()` in `lib/gate_ledger.py` (bash twin:
+`_active_set_csv` in `aitask_gate.sh`). A tuple that is present and whose digest
+halves validate is authoritative — even when empty; a tuple that is absent,
+stale (`gates:` edited since materialization) or corrupt (outputs hand-edited)
+is ignored and the raw `gates:` field governs instead. So a declared gate that
+the profile filtered out **never blocks archival**, and the fallback can only
+over-block, never under-enforce.
 
 This differs from the dependency-unblock criterion: unblocking dependents
 filters to the registry's `blocks_dependents` gates (integration gates only);
-**archival requires *all* declared gates**, including post-integration sign-off
-gates (async human review, `docs_updated`, manual verification). So the declared
-list and the ledger settle *which* gates and *whether they passed*; the registry
-is consulted only to re-validate an async human gate's signature.
+**archival requires *all* active gates**, including post-integration sign-off
+gates (async human review, `docs_updated`, manual verification). So the active
+set and the ledger settle *which* gates and *whether they are satisfied*; the
+registry is consulted only to re-validate an async human gate's signature.
 
 `archive_status(task_file, registry_file)` in `lib/gate_ledger.py` returns one of:
 
 | Result | Meaning |
 |--------|---------|
-| `NO_GATES` | No declared gates → archive exactly as today (the dormant case). |
-| `ALL_PASS` | Every declared gate is `pass` → archival may proceed. |
-| `BLOCKED:<csv>` | One or more declared gates are not `pass`, **or** carry a code-stale signature (below). |
+| `NO_GATES` | Empty active set → archive exactly as today (the dormant case). |
+| `ALL_PASS` | Every active gate is `pass` or `skip` → archival may proceed. |
+| `BLOCKED:<csv>` | One or more active gates are unsatisfied, **or** carry a code-stale signature (below). |
 
 Surfaced as `aitask_gate.sh archive-ready <task-id>` (python-delegated,
 degrades to `NO_GATES` if Python is absent), and enforced in
@@ -190,7 +203,8 @@ it (it defers instead).
 
 ## Dormancy / sequencing
 
-The guard keys off the **declared `gates:` field**. `gates:` population is
+The guard keys off the **enforced active set**, whose input (and fallback) is
+the declared `gates:` field. `gates:` population is
 **t635_14** (Phase 4), which has now landed: the shipped `fast` profile declares
 `default_gates: [risk_evaluated]`, so `fast` tasks (and any task backfilled or
 created under `fast`) carry `gates: [risk_evaluated]` and the guard **is now live
