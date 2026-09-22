@@ -235,3 +235,41 @@ set and is recorded by the Step-9 orchestrator.
   "Manage task file attachments (ls; add/get/rm/move/gc pending)", but
   add/get/rm/gc are shipped; only `move` is pending. (Out of scope — docs task;
   record in Final Implementation Notes.)
+
+## Final Implementation Notes
+- **Actual work done:** New `website/content/docs/concepts/attachments.md`
+  (weight 55, `depth: [intermediate]`, ends at `## See also`, no `**Next:**`
+  footer) — angle: the hash is the identity; covers the six-field
+  `attachments:` block (per-task vs blob fields), storage layout (ASCII tree),
+  the one-commit rule and dirty-path refusal, and the reference lifecycle
+  (add / rm / archive / fold / board delete / gc). New
+  `website/content/docs/commands/attach.md` (weight 34) — verb table, one
+  section per shipped verb (`ls`, `add`, `get`, `rm`, `gc`), "Uncommitted
+  changes", "Not available" (`move`, internal `decref-deleted`), and a
+  configuration table (`attachment_max_size_mb`, `attachments_gc_grace`).
+  `commands/_index.md`: Tools row + usage line (relative links).
+  `development/task-format.md`: concept relref on the `attachments` row, a
+  pointer paragraph after the nested-fields block, and a relref on
+  `ait attach` only.
+- **Deviations from plan:** None. The pre-phase note was not re-sent (already
+  in t1231_3's inbox).
+- **Issues encountered:** Plan review (before approval) caught three
+  misstatements drafted from the design doc: the 12-hex `ls` hash is display
+  only (`_attach_resolve_ref` is exact-match); "a backend change never
+  rewrites task files" is an unshipped guarantee; the gc grace window applies
+  only when `orphaned_at` is recorded. All three are stated correctly on the
+  pages.
+- **Key decisions:** Documented against `aitask_attach.sh`, not `aidocs/`
+  (the design doc's §11 still says "decref on archive"; the code never does).
+  `move` gets one sentence as unavailable rather than a section.
+- **Upstream defects identified:**
+  - `ait:51` — the dispatcher help line reads "Manage task file attachments (ls; add/get/rm/move/gc pending)", but add/get/rm/gc are shipped; only `move` is pending.
+  - `aidocs/task_attachments_design.md:396-397` — the §11 decomposition still lists "decref on archive" for the archive-integration child, contradicting §8's resolved "archiving never decrefs" (t1030_3). Internal design doc is stale.
+- **Notes for sibling tasks:**
+  - `check_links.py --build` and `hugo build` both pass; `check_link_relevance.py`
+    reported nothing for the new links.
+  - The `**Next:**` insertion point for this page (weight 55, between
+    review-guides 50 and execution-profiles 60)
+    is left to t1687_5.
+  - `task-format.md:59` (the `artifacts` row) still contains the
+    `#nested-fields-...` anchor link; `ait artifact` itself remains unlinked.
