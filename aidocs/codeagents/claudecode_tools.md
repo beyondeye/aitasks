@@ -2,7 +2,7 @@
 
 **Generated:** 2026-03-05 13:02:58 IST
 **Claude Code Version:** 2.1.69
-**Model:** Claude Opus 5 (`claude-opus-5`)
+**Model:** Claude Opus 5.5 (`claude-opus-5-5`)
 
 ---
 

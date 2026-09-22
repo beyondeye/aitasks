@@ -50,17 +50,17 @@ Each operation maps to a different use case with its own default model:
 
 | Operation | Description | Default |
 |-----------|-------------|---------|
-| `pick` | Picking and implementing tasks | `claudecode/opus5` |
+| `pick` | Picking and implementing tasks | `claudecode/opus5_5` |
 | `explain` | Explaining or documenting code | `claudecode/sonnet5` |
-| `explore` | Exploring the codebase | `claudecode/opus5` |
-| `explore-relay` | Chat-relayed exploration for bug-report intake (Claude Code only) | `claudecode/opus5` |
+| `explore` | Exploring the codebase | `claudecode/opus5_5` |
+| `explore-relay` | Chat-relayed exploration for bug-report intake (Claude Code only) | `claudecode/opus5_5` |
 | `work-report` | Drafting a manager-facing work report from board columns | `claudecode/sonnet5` |
-| `trail` | Creating, refreshing, and showing implementation trails | `claudecode/opus5` |
+| `trail` | Creating, refreshing, and showing implementation trails | `claudecode/opus5_5` |
 | `batch-review` | Batch code review | `claudecode/sonnet5` |
 | `qa` | Test coverage analysis | `claudecode/sonnet5` |
 | `shadow` | Advisory companion agent for a followed session | `codex/gpt5_6_terra` |
 | `discuss` | Advisory discussion of brainstorm proposals (compare, explain, question, risk-check) | `codex/gpt5_6_terra` |
-| `learn` | Learning a new skill from source material | `claudecode/opus5` |
+| `learn` | Learning a new skill from source material | `claudecode/opus5_5` |
 | `raw` | Direct/ad-hoc invocations (passthrough) | `claudecode/sonnet5` |
 
 ### Subcommands
@@ -108,10 +108,10 @@ ait codeagent resolve pick
 
 Output:
 ```
-AGENT_STRING:claudecode/opus5
+AGENT_STRING:claudecode/opus5_5
 AGENT:claudecode
-MODEL:opus5
-CLI_ID:claude-opus-5
+MODEL:opus5_5
+CLI_ID:claude-opus-5-5
 BINARY:claude
 MODEL_FLAG:--model
 ```
@@ -173,7 +173,7 @@ The agent/model for each operation is resolved through a 4-level chain (highest 
 1. **`--agent-string` flag** -- CLI override for a single invocation
 2. **Per-user config** -- `aitasks/metadata/codeagent_config.local.json` (gitignored)
 3. **Per-project config** -- `aitasks/metadata/codeagent_config.json` (git-tracked)
-4. **Hardcoded default** -- `claudecode/opus5`
+4. **Hardcoded default** -- `claudecode/opus5_5`
 
 #### Project config (`codeagent_config.json`)
 
@@ -182,7 +182,7 @@ Shared across the team, checked into git. Sets the default agent/model for each 
 ```json
 {
   "defaults": {
-    "pick": "claudecode/opus5",
+    "pick": "claudecode/opus5_5",
     "explain": "claudecode/sonnet5",
     "batch-review": "claudecode/sonnet5",
     "raw": "claudecode/sonnet5"

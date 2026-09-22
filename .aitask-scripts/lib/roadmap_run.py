@@ -277,7 +277,7 @@ def _generation(lines, agent_string, now):
 
 
 def run(root, narrative_path, owner, out_path, title=DEFAULT_TITLE,
-        cap=DEFAULT_CAP, agent_string="claudecode/opus5", now=None):
+        cap=DEFAULT_CAP, agent_string="claudecode/opus5_5", now=None):
     """The whole pipeline. Returns ``(exit_code, report_lines)``."""
     now = int(time.time()) if now is None else int(now)
     report = []
@@ -559,7 +559,7 @@ def build_parser():
     p.add_argument("--out", required=True, help="path to write the trail JSON")
     p.add_argument("--title", default=DEFAULT_TITLE)
     p.add_argument("--cap", type=_positive_int, default=DEFAULT_CAP)
-    p.add_argument("--agent-string", default="claudecode/opus5")
+    p.add_argument("--agent-string", default="claudecode/opus5_5")
     p.add_argument("--root", default=None,
                    help="repository root (default: cwd)")
     return p

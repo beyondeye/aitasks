@@ -6,7 +6,7 @@
 #
 # Provides:
 #   SUPPORTED_AGENTS           (array of canonical agent names)
-#   DEFAULT_AGENT_STRING       (claudecode/opus4_7_1m at time of writing)
+#   DEFAULT_AGENT_STRING       (claudecode/opus5_5 at time of writing)
 #   METADATA_DIR               (defaults to ${TASK_DIR:-aitasks}/metadata)
 #   PARSED_AGENT / PARSED_MODEL (set by parse_agent_string)
 #   parse_agent_string <s>     (sets PARSED_AGENT, PARSED_MODEL; dies on bad input)
@@ -23,7 +23,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/terminal_compat.sh"
 
 # --- Constants (caller may pre-set any of these to override) ---
 
-DEFAULT_AGENT_STRING="${DEFAULT_AGENT_STRING:-claudecode/opus5}"
+DEFAULT_AGENT_STRING="${DEFAULT_AGENT_STRING:-claudecode/opus5_5}"
 METADATA_DIR="${METADATA_DIR:-${TASK_DIR:-aitasks}/metadata}"
 SUPPORTED_AGENTS=(claudecode codex opencode)
 

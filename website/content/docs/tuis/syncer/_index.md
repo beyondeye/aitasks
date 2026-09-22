@@ -215,9 +215,9 @@ Each cell shows that repo's **effective** value plus a marker naming where it ca
 
 | Cell | Meaning |
 |------|---------|
-| `claudecode/opus5` | Resolved from the repo's project-level config |
-| `claudecode/opus5 (local)` | Resolved from a per-user override in that repo |
-| `claudecode/opus5 (default)` | No config sets it; this is the built-in fallback |
+| `claudecode/opus5_5` | Resolved from the repo's project-level config |
+| `claudecode/opus5_5 (local)` | Resolved from a per-user override in that repo |
+| `claudecode/opus5_5 (default)` | No config sets it; this is the built-in fallback |
 | `conflict` | The config files and the repo's own resolver disagree — the syncer reports the disagreement rather than guessing which is right |
 | `unavailable` | That repo's configuration could not be read |
 

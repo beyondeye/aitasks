@@ -1,5 +1,15 @@
 #!/usr/bin/env bash
 # test_codeagent.sh - Tests for aitask_codeagent.sh
+#
+# Default-resolution expectations are DERIVED from seed/codeagent_config.json —
+# the file the fixture installs as the project config — and checked against an
+# injected sentinel DEFAULT_AGENT_STRING (the t1318 idiom, adopted here by
+# t1865). They are never pinned to a literal model name, which is what would
+# leave this file red after every promotion of the shipped defaults.
+#
+# Negative control — prove the derived assertions are not vacuous:
+#     AIT_CODEAGENT_FIXTURE_OMIT_OPS=pick bash tests/test_codeagent.sh   # MUST fail
+#
 # Run: bash tests/test_codeagent.sh
 
 set -e
@@ -21,6 +31,9 @@ TOTAL=0
 
 # Shared assertion helpers (see tests/lib/asserts.sh)
 . "$PROJECT_DIR/tests/lib/asserts.sh"
+# Derived-default helpers (see tests/lib/codeagent_defaults.sh) — MUST be
+# sourced after asserts.sh.
+. "$PROJECT_DIR/tests/lib/codeagent_defaults.sh"
 
 
 
@@ -43,12 +56,14 @@ setup_test_env() {
     cp "$PROJECT_DIR/.aitask-scripts/lib/agent_string.sh" "$tmpdir/.aitask-scripts/lib/"
     chmod +x "$tmpdir/.aitask-scripts/aitask_codeagent.sh"
 
-    # Copy model configs
-    cp "$PROJECT_DIR/aitasks/metadata/models_claudecode.json" "$tmpdir/aitasks/metadata/"
-    cp "$PROJECT_DIR/aitasks/metadata/models_codex.json" "$tmpdir/aitasks/metadata/"
-    cp "$PROJECT_DIR/aitasks/metadata/models_opencode.json" "$tmpdir/aitasks/metadata/"
-    cp "$PROJECT_DIR/seed/codeagent_config.json" "$tmpdir/aitasks/metadata/"
-    cp "$PROJECT_DIR/aitasks/metadata/project_config.yaml" "$tmpdir/aitasks/metadata/"
+    # Metadata fixture via the shared helper. It copies every models_*.json plus
+    # project_config.yaml from the live metadata dir and installs the SEED
+    # config as codeagent_config.json — the identical file set this used to copy
+    # by hand. Going through the helper additionally brings the
+    # AIT_CODEAGENT_FIXTURE_OMIT_OPS seam, which is the negative control for the
+    # derived default assertions (see the header).
+    codeagent_fixture_metadata "$tmpdir/aitasks/metadata" \
+        "$PROJECT_DIR/seed/codeagent_config.json"
 
     # Initialize git repo (task_utils.sh needs it)
     (cd "$tmpdir" && git init --quiet && git config user.email "test@test.com" && git config user.name "Test")
@@ -109,13 +124,33 @@ assert_contains_ci "list-models codex shows gpt-5.6-sol cli_id" "CLI_ID:gpt-5.6-
 echo "--- Test 4: list-models invalid agent ---"
 assert_exit_nonzero "list-models with invalid agent" bash -c "cd '$TMPDIR_TEST' && bash '$CODEAGENT' list-models notanagent"
 
-# Test 5: resolve pick returns claudecode/opus5 (current default)
+# Test 5: resolve pick returns the SEEDED default — derived, never pinned.
+# The fixture installs seed/codeagent_config.json as the project config, so that
+# file is what these resolutions read.
 echo "--- Test 5: resolve pick ---"
-output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" resolve pick 2>&1)
-assert_contains_ci "resolve returns opus5 for pick" "AGENT_STRING:claudecode/opus5" "$output"
-assert_contains_ci "resolve returns agent" "AGENT:claudecode" "$output"
-assert_contains_ci "resolve returns model" "MODEL:opus5" "$output"
-assert_contains_ci "resolve returns cli_id" "CLI_ID:claude-opus-5" "$output"
+seed_cfg="$PROJECT_DIR/seed/codeagent_config.json"
+seeded_pick=$(codeagent_config_default pick "$seed_cfg")
+assert_exit_zero "seed config declares a pick default" test -n "$seeded_pick"
+# Registered but not the seeded value: injecting it as DEFAULT_AGENT_STRING is
+# what distinguishes "read the config" from "fell through to the hardcoded
+# default", which are otherwise indistinguishable whenever the two agree.
+sentinel=$(codeagent_sentinel_excluding "$TMPDIR_TEST/aitasks/metadata" "$seeded_pick")
+assert_exit_zero "a sentinel agent string is available" test -n "$sentinel"
+
+output=$(cd "$TMPDIR_TEST" && DEFAULT_AGENT_STRING="$sentinel" bash "$CODEAGENT" resolve pick 2>&1)
+# assert_eq on an exactly-extracted field, never assert_contains_ci: substring
+# matching lets a prefix (opus5) match a longer registered name (opus5_1m,
+# opus5_5), which is precisely the confusion this suite must not have.
+assert_eq "resolve pick matches the seeded default" \
+    "$seeded_pick" "$(codeagent_resolve_field AGENT_STRING "$output")"
+assert_eq "resolve pick reports the agent" \
+    "${seeded_pick%%/*}" "$(codeagent_resolve_field AGENT "$output")"
+assert_eq "resolve pick reports the model" \
+    "${seeded_pick#*/}" "$(codeagent_resolve_field MODEL "$output")"
+# Reused by Tests 11 / 11a below, so the composed command line is cross-checked
+# against the resolver rather than against a literal cli_id.
+seeded_cli_id=$(codeagent_resolve_field CLI_ID "$output")
+assert_exit_zero "resolve pick reports a cli_id" test -n "$seeded_cli_id"
 
 # Test 6: resolve with --agent-string override
 echo "--- Test 6: resolve with --agent-string override ---"
@@ -164,7 +199,7 @@ echo "--- Test 11: --dry-run invoke ---"
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --dry-run invoke pick 42 2>&1)
 assert_contains_ci "dry-run starts with DRY_RUN:" "DRY_RUN:" "$output"
 assert_contains_ci "dry-run contains claude" "claude" "$output"
-assert_contains_ci "dry-run contains model flag" "claude-opus-5" "$output"
+assert_contains "dry-run uses the resolved default model" "$seeded_cli_id" "$output"
 assert_contains_ci "dry-run contains aitask-pick" "aitask-pick" "$output"
 assert_contains_ci "dry-run contains task number" "42" "$output"
 assert_not_contains_ci "plain dry-run carries no agent env" "AITASK_AGENT_STRING" "$output"
@@ -172,7 +207,8 @@ assert_not_contains_ci "plain dry-run carries no agent env" "AITASK_AGENT_STRING
 # Test 11a: --with-agent-env prefixes the export a real invoke performs (t1850)
 echo "--- Test 11a: --with-agent-env dry-run ---"
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --with-agent-env --dry-run invoke pick 42 2>&1)
-assert_contains "agent-env dry-run prefixes env export" "DRY_RUN: env AITASK_AGENT_STRING=claudecode/opus5 claude --model claude-opus-5" "$output"
+assert_contains "agent-env dry-run prefixes env export" \
+    "DRY_RUN: env AITASK_AGENT_STRING=$seeded_pick claude --model $seeded_cli_id" "$output"
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --with-agent-env --agent-string codex/gpt5_4 --dry-run invoke pick 42 2>&1)
 assert_contains "agent-env dry-run honors --agent-string" "DRY_RUN: env AITASK_AGENT_STRING=codex/gpt5_4 codex" "$output"
 
