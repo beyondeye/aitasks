@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: low
+risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: bug
@@ -41,3 +43,5 @@ Observed on 2026-09-21: record `7b9ad914` (t1687_1, window `agent-pick-1687_1`, 
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-09-22T06:57:25Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-09-22T09:32:07Z status=pass attempt=1 type=human
