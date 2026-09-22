@@ -461,5 +461,52 @@ class LeaseReleaseTests(_TransitionTestCase):
         self.assertEqual(sf.by_id(rid).op_nonce, "aabbccdd")
 
 
+
+class FillTaskTests(_TransitionTestCase):
+    """`fill-task` (t1848): blank fields only, any state, nothing else touched."""
+
+    ALL_STATES = (A.STATE_LIVE, A.STATE_FREEZING, A.STATE_FROZEN,
+                  A.STATE_RESTORING, A.STATE_ABORTING)
+
+    def test_fills_blanks_in_every_state_and_touches_nothing_else(self):
+        for state in self.ALL_STATES:
+            with self.subTest(state=state):
+                sf, rid = self.store_in(state)
+                before = dict(vars(sf.by_id(rid)))
+                sf, line = A.fill_task(sf, rid, operation="pick", task_id="1")
+                self.assertEqual(line, f"FILLED:{rid}|operation,task_id")
+                after = dict(vars(sf.by_id(rid)))
+                self.assertEqual((after.pop("operation"), after.pop("task_id")),
+                                 ("pick", "1"))
+                before.pop("operation"), before.pop("task_id")
+                self.assertEqual(after, before,
+                                 "state, lease and location must be untouched")
+
+    def test_a_stored_value_is_never_overwritten(self):
+        sf, rid = self.store_in(A.STATE_FROZEN, leased=False)
+        rec = sf.by_id(rid)
+        rec.operation, rec.task_id = "qa", "999"
+        sf, line = A.fill_task(sf, rid, operation="pick", task_id="1")
+        self.assertEqual(line, f"FILL_NOOP:{rid}|unchanged")
+        self.assertEqual((rec.operation, rec.task_id), ("qa", "999"))
+
+    def test_each_field_is_filled_independently(self):
+        sf, rid = self.store_in(A.STATE_LIVE)
+        sf.by_id(rid).operation = "qa"
+        sf, line = A.fill_task(sf, rid, operation="pick", task_id="1")
+        self.assertEqual(line, f"FILLED:{rid}|task_id")
+        self.assertEqual((sf.by_id(rid).operation, sf.by_id(rid).task_id),
+                         ("qa", "1"))
+
+    def test_a_blank_supplied_value_writes_nothing(self):
+        sf, rid = self.store_in(A.STATE_LIVE)
+        sf, line = A.fill_task(sf, rid)
+        self.assertEqual(line, f"FILL_NOOP:{rid}|unchanged")
+
+    def test_an_unknown_record_is_an_error(self):
+        with self.assertRaises(A.MalformedSessionsError):
+            A.fill_task(A.SessionsFile(), "0badc0de", task_id="1")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

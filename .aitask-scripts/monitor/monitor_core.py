@@ -3978,7 +3978,8 @@ async def refresh_shadow_phase_stamp_async(monitor, shadow_pane: str, signal) ->
 
 # -- Task context --------------------------------------------------------------
 
-_TASK_ID_RE = re.compile(r'^agent-(?:pick|qa|resume)-(\d+(?:_\d+)?)$')
+_TASK_ID_RE = re.compile(
+    r'^agent-(?P<operation>pick|qa|resume)-(?P<task_id>\d+(?:_\d+)?)$')
 
 
 def task_id_from_window_name(window_name: str) -> str | None:
@@ -3996,7 +3997,20 @@ def task_id_from_window_name(window_name: str) -> str | None:
     """
 
     m = _TASK_ID_RE.match(window_name)
-    return m.group(1) if m else None
+    return m.group("task_id") if m else None
+
+
+def task_ref_from_window_name(window_name: str) -> tuple[str, str] | None:
+    """``(operation, task_id)`` from an agent window name, or ``None``.
+
+    The Python twin of `aitask_session_hook.sh` step 6, which records the same
+    pair at launch. The freeze engine uses it when that hook never ran, so a
+    record it creates stays re-pickable (t1848). Same pattern as
+    :func:`task_id_from_window_name` — one definition, never a copy.
+    """
+
+    m = _TASK_ID_RE.match(window_name)
+    return (m.group("operation"), m.group("task_id")) if m else None
 
 
 @dataclass

@@ -73,6 +73,7 @@ for _p in (str(_SCRIPTS_DIR), str(_LIB_DIR)):
 
 import agent_frozen_ops as frozen_ops  # noqa: E402
 import agent_sessions  # noqa: E402
+from monitor.monitor_core import task_ref_from_window_name  # noqa: E402
 # Re-exported names only — never swapped, so an import alias is safe. Every
 # shared FUNCTION is called as `frozen_ops.<name>(...)` instead (seam rule).
 from agent_frozen_ops import (  # noqa: E402,F401
@@ -391,6 +392,51 @@ def _backfill_agent_string(
               file=sys.stderr)
 
 
+def _backfill_task_ref(record_id: str, facts: dict[str, str]) -> None:
+    """Fill a record's blank operation / task id from its window, or refuse.
+
+    The SessionStart hook derives the pair from the window name at launch
+    (`aitask_session_hook.sh` step 6). When the hook never ran, the fallback
+    upsert creates a record with neither, and a frozen record with no task id
+    and no session id can be neither resumed nor re-picked (t1848). This runs
+    the same derivation, through the same pattern.
+
+    Like :func:`_backfill_agent_string` it reads the record AS STORED and fills
+    blanks only — through the store's `fill-task` verb, never `upsert`, because
+    the fallback upsert may have selected an existing record by pane identity
+    and `upsert` would overwrite whatever the hook recorded. The record's own
+    window is preferred over the pane's, since that is the name it is keyed by.
+
+    FAILS CLOSED, unlike the agent-string backfill: when the window names a
+    task, the record must end up holding a task id, verified by a re-read, or
+    this raises ``OSError`` and the freeze fails at ``resolve`` — before the
+    capture and ``freeze-begin``, with the agent still running. Warning and
+    carrying on would freeze exactly the record this exists to prevent: a store
+    lock timeout on the fill leaves it blank, and the freeze is the last moment
+    its task is still readable from a live window. A window naming no task has
+    nothing to recover and is left alone.
+    """
+    stored = frozen_ops.store_show(record_id)
+    ref = task_ref_from_window_name(
+        stored.get("window") or facts.get("window", ""))
+    if ref is None:
+        return
+    if stored.get("operation", "") and stored.get("task_id", ""):
+        return
+    operation, task_id = ref
+    rc, out = frozen_ops.store("fill-task", record_id,
+                               "--operation", operation,
+                               "--task-id", task_id)
+    lines = out.splitlines()
+    last = lines[-1] if lines else ""
+    if rc != 0 or not last.startswith(("FILLED:", "FILL_NOOP:")):
+        raise OSError(f"task id recovery failed: {last or rc}")
+    # The line says what the verb did; the RECORD says whether the freeze can
+    # proceed. `FILL_NOOP` on a record that is still blank is not success.
+    if not frozen_ops.store_show(record_id).get("task_id", ""):
+        raise OSError(f"task id recovery failed: t{task_id} not recorded")
+
+
 def _observe_codex_session(
     pane_pid: str, root: str, stored: dict[str, str]
 ) -> tuple[str, str, str, str, bool]:
@@ -558,7 +604,10 @@ def _resolve_record(facts: dict[str, str]) -> tuple[str, str]:
     BOTH paths also capture the agent's codex session while it is still running
     (t1804) — see :func:`_capture_codex_session` — and then fill a still-blank
     agent string from the live process (t1850), see
-    :func:`_backfill_agent_string`. Interactive codex fires no
+    :func:`_backfill_agent_string`, and a still-blank task id from the window
+    name (t1848), see :func:`_backfill_task_ref` — the one step here that can
+    fail the freeze, so an unrecorded agent is never frozen un-re-pickable.
+    Interactive codex fires no
     SessionStart hook, so this is the only moment a codex record can learn which
     conversation it holds; by restore time the process is gone.
     """
@@ -569,6 +618,7 @@ def _resolve_record(facts: dict[str, str]) -> tuple[str, str]:
         if stored:
             _capture_codex_session(stamped, stored, facts, root)
             _backfill_agent_string(stamped, facts, root)
+            _backfill_task_ref(stamped, facts)
             return stamped, f"RECORD:{stamped}|stamped"
 
     # `@aitask_agent_session` is unset until the hook's stamp, which interactive
@@ -626,6 +676,7 @@ def _resolve_record(facts: dict[str, str]) -> tuple[str, str]:
     # Against the record the upsert actually SELECTED, not what it was sent:
     # see `_backfill_agent_string` for why the guard has to read the store.
     _backfill_agent_string(record_id, facts, root)
+    _backfill_task_ref(record_id, facts)
     return record_id, f"RECORD:{record_id}|created"
 
 

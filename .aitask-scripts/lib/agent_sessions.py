@@ -1247,6 +1247,36 @@ def drop(
     return sf, f"DROPPED:{rec.id}"
 
 
+def fill_task(
+    sf: SessionsFile, record_id: str, *, operation: str = "", task_id: str = ""
+) -> tuple[SessionsFile, str]:
+    """Fill a record's BLANK ``operation`` / ``task_id``; never overwrite (t1848).
+
+    The freeze engine's fallback path creates a record the SessionStart hook
+    never saw, so nothing recorded which task the agent was on and the frozen
+    record could not be re-picked. `upsert` cannot fill that gap safely: it
+    takes a blank as a value, and it may select an EXISTING record by pane
+    identity, so sending the window-derived pair would overwrite whatever the
+    hook stored. This verb writes a field only when the stored value is blank
+    and the supplied one is not.
+
+    Not state-gated and takes no lease: it touches only these two descriptive
+    fields -- never state, lease, location or captures -- and the wrapper runs
+    it under the store mutex like every other writer.
+    """
+    rec = _require_record(sf, record_id)
+    filled = []
+    if operation and not rec.operation:
+        rec.operation = operation
+        filled.append("operation")
+    if task_id and not rec.task_id:
+        rec.task_id = task_id
+        filled.append("task_id")
+    if not filled:
+        return sf, f"FILL_NOOP:{rec.id}|unchanged"
+    return sf, f"FILLED:{rec.id}|{','.join(filled)}"
+
+
 # --- observation + purge ----------------------------------------------------
 
 
@@ -2275,6 +2305,13 @@ def main(argv: list[str] | None = None) -> int:
                 sf,
                 _id_arg(rest[0], "id"),
                 nonce=_id_arg(raw_nonce, "--nonce") if raw_nonce else None,
+            )
+        elif verb == "fill-task":
+            sf, line = fill_task(
+                sf,
+                _id_arg(rest[0], "id"),
+                operation=_arg(rest, "operation", ""),
+                task_id=_arg(rest, "task-id", ""),
             )
         elif verb == "purge":
             obs = read_observation(_require_arg(rest, "observed"))

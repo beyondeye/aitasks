@@ -40,7 +40,7 @@ from rich.text import Text  # noqa: E402
 
 from monitor.monitor_core import (  # noqa: E402
     PaneCategory, PaneSnapshot, TaskInfo, TmuxPaneInfo,
-    task_id_from_window_name,
+    task_id_from_window_name, task_ref_from_window_name,
 )
 from monitor.monitor_shared import (  # noqa: E402
     SHADOW_GLYPH, STATE_STYLE_ACTIVE, STATE_STYLE_DONE, STATE_STYLE_IDLE,
@@ -167,6 +167,19 @@ class WindowNameTaskIdTests(unittest.TestCase):
         for name, expected in cases.items():
             with self.subTest(window_name=name):
                 self.assertEqual(task_id_from_window_name(name), expected)
+
+    def test_the_ref_pairs_the_operation_with_the_same_task_id(self):
+        """t1848: the freeze engine records both halves, like the hook."""
+        cases = {
+            "agent-pick-42": ("pick", "42"),
+            "agent-qa-100_1": ("qa", "100_1"),
+            "agent-resume-1322_4": ("resume", "1322_4"),
+            "agent-explore-5": None,
+            "agent-pick-42-2": None,
+        }
+        for name, expected in cases.items():
+            with self.subTest(window_name=name):
+                self.assertEqual(task_ref_from_window_name(name), expected)
 
     def test_taskless_agent_windows_stay_none(self):
         """Prefixes that carry no task id must not start resolving."""

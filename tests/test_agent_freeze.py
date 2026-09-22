@@ -292,8 +292,16 @@ class _FakeStore:
                 session_id=self._arg(argv, "--session-id", None),
                 transcript=self._arg(argv, "--transcript", None),
                 agent_string=self._arg(argv, "--agent-string", None),
+                operation=self._arg(argv, "--operation", None),
+                task_id=self._arg(argv, "--task-id", None),
                 clear_session_id="--clear-session-id" in argv,
             )
+            return 0, line
+        if verb == "fill-task":
+            self.sf, line = agent_sessions.fill_task(
+                self.sf, argv[0],
+                operation=self._arg(argv, "--operation"),
+                task_id=self._arg(argv, "--task-id"))
             return 0, line
         if verb == "freeze-begin":
             self.sf, line = agent_sessions.freeze_begin(
@@ -407,9 +415,12 @@ class _FreezeTestCase(unittest.TestCase):
             self.addCleanup(os.environ.pop, var, None)
 
         self.sf = agent_sessions.SessionsFile()
+        # As the SessionStart hook records it: the task pair comes from the
+        # window name (hook step 6). `TaskRefBackfillTests` blanks it.
         self.sf, line = agent_sessions.upsert(
             self.sf, root=str(self.root), window="agent-pick-1705",
             pane=AGENT_PANE, pane_pid=AGENT_PID, pane_alive=lambda pid: True,
+            operation="pick", task_id="1705",
         )
         self.rid = line.split(":")[1].split("|")[0]
 
@@ -934,6 +945,159 @@ class CodexSessionCaptureTests(_FreezeTestCase):
         agent_freeze.freeze_pane(AGENT_PANE)
         call = self.upserts()[0]
         self.assertEqual(call[call.index("--session-id") + 1], "sess-abc")
+
+
+class TaskRefBackfillTests(_FreezeTestCase):
+    """t1848: a freeze fills a blank task id from the window name.
+
+    The fixture's record lives in `agent-pick-1705`; ``setUp`` blanks its
+    operation and task id — exactly what the fallback upsert produces for an
+    agent the SessionStart hook never recorded.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        rec = self.rec()
+        rec.operation = rec.task_id = ""
+
+    def _unstamped(self) -> None:
+        self.panes[AGENT_PANE][agent_freeze.RECORD_OPTION] = ""
+        self.panes[AGENT_PANE][agent_freeze.AGENT_SESSION_OPTION] = ""
+
+    def _repick_probe(self, record_id: str):
+        """Run the restore coordinator's repick preflight against the store.
+
+        `build_repick_argv` is stubbed so nothing launches: reaching it at all
+        means the preflight accepted the record's task id, and the record it
+        is handed is what the re-pick would launch `/aitask-pick` with.
+        """
+        import agent_restore
+        seen: list[dict] = []
+
+        def _probe(rec):
+            seen.append(rec)
+            return None
+
+        self._patch(agent_restore, "build_repick_argv", _probe)
+        result = agent_restore.restore(record_id, repick=True)
+        return result, seen
+
+    def test_an_unrecorded_pick_pane_is_frozen_re_pickable(self):
+        self._unstamped()
+        self.assertEqual(self.rec().task_id, "")
+        result = agent_freeze.freeze_pane(AGENT_PANE)
+        self.assertTrue(result.ok, result.line)
+        self.assertEqual(result.record_id, self.rid)
+        rec = self.rec()
+        self.assertEqual(rec.state, agent_sessions.STATE_FROZEN)
+        self.assertEqual(rec.codeagent_session_id, "",
+                         "no session id: re-pick is the only way back")
+        self.assertEqual((rec.operation, rec.task_id), ("pick", "1705"))
+        outcome, seen = self._repick_probe(self.rid)
+        self.assertNotEqual(outcome.outcome, "no_task_id", outcome.line)
+        self.assertEqual([r.get("task_id") for r in seen], ["1705"])
+
+    def test_negative_control_without_the_backfill_it_is_not_re_pickable(self):
+        """The probe above must be able to see the defect it guards."""
+        self._patch(agent_freeze, "_backfill_task_ref", lambda *a, **k: None)
+        self._unstamped()
+        result = agent_freeze.freeze_pane(AGENT_PANE)
+        self.assertTrue(result.ok, result.line)
+        outcome, seen = self._repick_probe(self.rid)
+        self.assertEqual(outcome.outcome, "no_task_id")
+        self.assertEqual(seen, [])
+
+    def test_a_newly_created_record_gets_the_task_too(self):
+        """No record at all for the pane: the fallback creates one."""
+        self.store.sf.sessions = []
+        self._unstamped()
+        result = agent_freeze.freeze_pane(AGENT_PANE)
+        self.assertTrue(result.ok, result.line)
+        rec = self.store.sf.by_id(result.record_id)
+        self.assertNotEqual(result.record_id, self.rid)
+        self.assertEqual((rec.operation, rec.task_id), ("pick", "1705"))
+
+    def test_a_stamped_record_with_a_blank_task_is_filled(self):
+        result = agent_freeze.freeze_pane(AGENT_PANE)
+        self.assertTrue(result.ok, result.line)
+        self.assertEqual((self.rec().operation, self.rec().task_id),
+                         ("pick", "1705"))
+
+    def test_stored_values_are_never_overwritten(self):
+        self.seed_record(operation="qa", task_id="999")
+        self._unstamped()
+        result = agent_freeze.freeze_pane(AGENT_PANE)
+        self.assertTrue(result.ok, result.line)
+        self.assertEqual((self.rec().operation, self.rec().task_id),
+                         ("qa", "999"))
+        self.assertNotIn("fill-task", self.store.verbs(),
+                         "a record that already knows its task is not written")
+
+    def test_a_window_naming_no_task_stays_blank(self):
+        self.store.sf.sessions = []
+        self.panes[AGENT_PANE]["window_name"] = "agent-explore-x"
+        self._unstamped()
+        result = agent_freeze.freeze_pane(AGENT_PANE)
+        self.assertTrue(result.ok, result.line)
+        rec = self.store.sf.by_id(result.record_id)
+        self.assertEqual((rec.operation, rec.task_id), ("", ""))
+        self.assertNotIn("fill-task", self.store.verbs())
+
+    def _assert_failed_at_resolve_with_the_agent_live(self, result):
+        self.assertFalse(result.ok, result.line)
+        self.assertEqual(result.stage, "resolve")
+        self.assertTrue(result.line.startswith("FREEZE_FAILED:resolve|"),
+                        result.line)
+        self.assertIn("task id recovery failed", result.line)
+        verbs = self.store.verbs()
+        self.assertNotIn("freeze-begin", verbs,
+                         "nothing irreversible may run after a failed fill")
+        self.assertNotIn("capture-pane", [c[0] for c in self.tmux.calls])
+        self.assertNotIn("respawn-pane", [c[0] for c in self.tmux.calls])
+        self.assertEqual(self.rec().state, agent_sessions.STATE_LIVE)
+        self.assertEqual(self.panes[AGENT_PANE][agent_freeze.FROZEN_OPTION], "")
+
+    def test_a_failed_fill_fails_the_freeze_while_the_agent_is_live(self):
+        """A store lock timeout on the fill must not freeze a blank record."""
+        self.store.fail_verbs["fill-task"] = agent_freeze.EXIT_LOCK_BUSY
+        self._unstamped()
+        result = agent_freeze.freeze_pane(AGENT_PANE)
+        self._assert_failed_at_resolve_with_the_agent_live(result)
+        self.assertEqual(self.rec().task_id, "")
+
+    def test_a_success_line_on_a_still_blank_record_is_not_success(self):
+        """The re-read decides, not the verb's line."""
+        real = self.store._dispatch
+
+        def _lying(verb, argv):
+            if verb == "fill-task":
+                return 0, f"FILL_NOOP:{argv[0]}|unchanged"
+            return real(verb, argv)
+
+        self._patch(self.store, "_dispatch", _lying)
+        self._unstamped()
+        result = agent_freeze.freeze_pane(AGENT_PANE)
+        self._assert_failed_at_resolve_with_the_agent_live(result)
+
+    def test_a_failed_freeze_can_simply_be_retried(self):
+        self.store.fail_verbs["fill-task"] = agent_freeze.EXIT_LOCK_BUSY
+        self._unstamped()
+        self.assertFalse(agent_freeze.freeze_pane(AGENT_PANE).ok)
+        del self.store.fail_verbs["fill-task"]
+        result = agent_freeze.freeze_pane(AGENT_PANE)
+        self.assertTrue(result.ok, result.line)
+        self.assertEqual(result.record_id, self.rid)
+        self.assertEqual((self.rec().operation, self.rec().task_id),
+                         ("pick", "1705"))
+
+    def test_a_window_naming_no_task_is_never_blocked_by_the_store(self):
+        """Nothing to recover means nothing to fail on."""
+        self.store.fail_verbs["fill-task"] = agent_freeze.EXIT_LOCK_BUSY
+        self.store.sf.sessions = []
+        self.panes[AGENT_PANE]["window_name"] = "agent-explore-x"
+        self._unstamped()
+        result = agent_freeze.freeze_pane(AGENT_PANE)
+        self.assertTrue(result.ok, result.line)
 
 
 class AgentStringRecoveryTests(_FreezeTestCase):

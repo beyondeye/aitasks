@@ -184,6 +184,21 @@ assert_contains "neither refusal changed the record's state" "|freezing|" \
 "$SESSIONS_SH" freeze-commit "$pair_id" --nonce "$pair_nonce" --pane '' --pane-pid 0 >/dev/null 2>&1
 assert_eq "the gone-pane pair is accepted" "0" "$?"
 
+echo "=== Test 10: fill-task fills a frozen record's blank task, never overwrites ==="
+# t1848: the freeze engine's fallback records the window-derived task through
+# this verb. The pair record above is now `frozen`, which `upsert` refuses.
+out="$("$SESSIONS_SH" fill-task "$pair_id" --operation pick --task-id 42 2>&1)"
+assert_eq "fill-task exits 0 on a frozen record" "0" "$?"
+assert_eq "fill-task reports both fields" "FILLED:$pair_id|operation,task_id" "$out"
+out="$("$SESSIONS_SH" fill-task "$pair_id" --operation qa --task-id 7 2>&1)"
+assert_eq "a second fill is a no-op" "FILL_NOOP:$pair_id|unchanged" "$out"
+shown="$("$SESSIONS_SH" show "$pair_id" 2>/dev/null)"
+assert_contains "the first value survived (task)" "task_id:42" "$shown"
+assert_contains "the first value survived (operation)" "operation:pick" "$shown"
+assert_contains "the state was untouched" "state:frozen" "$shown"
+"$SESSIONS_SH" fill-task ../../etc --task-id 1 >/dev/null 2>&1
+assert_eq "a non-hex id is a usage error" "2" "$?"
+
 echo ""
 echo "=== Summary ==="
 echo "Passed: $PASS / $TOTAL"

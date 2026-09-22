@@ -55,6 +55,13 @@
 #   lease-take        <id> --owner-pid <pid>
 #   lease-release     <id> --nonce <n>
 #   drop              <id> [--nonce <n>]
+#   fill-task         <id> [--operation <op>] [--task-id <t>]
+#
+#   `fill-task` writes each field only when the record's stored value is blank
+#   (t1848): the freeze engine's fallback uses it to record the window-derived
+#   task of an agent the SessionStart hook never saw, without overwriting what
+#   the hook stored. It touches no state, lease or location, so it needs no
+#   nonce.
 #   list  [--state <s>] [--root <r>]
 #   show  <id>
 #   purge --observed <file>
@@ -118,6 +125,7 @@ Usage: aitask_agent_sessions.sh upsert --root <r> --window <w> --pane <id> --pan
        aitask_agent_sessions.sh lease-take <id> --owner-pid <pid>
        aitask_agent_sessions.sh lease-release <id> --nonce <n>
        aitask_agent_sessions.sh drop <id> [--nonce <n>]
+       aitask_agent_sessions.sh fill-task <id> [--operation <op>] [--task-id <t>]
        aitask_agent_sessions.sh list [--state <s>] [--root <r>]
        aitask_agent_sessions.sh show <id>
        aitask_agent_sessions.sh purge --observed <file>
@@ -285,6 +293,14 @@ cmd_lease_release() {
     run_sessions_py lease-release "$id" "$@"
 }
 
+# `fill-task` is paneless and unleased: it fills blank descriptive fields only.
+cmd_fill_task() {
+    local id="${1:-}"; shift || true
+    require_hex_id "$id" "id"
+    sessions_lock_or_busy "$WRITE_LOCK_TIMEOUT"
+    run_sessions_py fill-task "$id" "$@"
+}
+
 cmd_purge() {
     has_arg --observed "$@" || die_usage "missing --observed"
     sessions_lock_or_busy "$PURGE_LOCK_TIMEOUT"
@@ -321,6 +337,7 @@ main() {
         standin-respawned) cmd_leased standin-respawned "$@" ;;
         lease-release)     cmd_lease_release "$@" ;;
         drop)              cmd_drop "$@" ;;
+        fill-task)         cmd_fill_task "$@" ;;
         purge)             cmd_purge "$@" ;;
         list)              cmd_list "$@" ;;
         show)              cmd_show "$@" ;;
