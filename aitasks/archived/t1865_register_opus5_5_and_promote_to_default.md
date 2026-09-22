@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [codeagent, models, ait_settings, backend]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ folded_tasks: [1316]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5
 created_at: 2026-09-22 22:59
-updated_at: 2026-09-22 23:44
+updated_at: 2026-09-23 00:30
+completed_at: 2026-09-23 00:30
 ---
 
 ## Goal
@@ -130,3 +131,14 @@ The following existing tasks have been folded into this task. Their requirements
 > **✅ gate:plan_approved** run=2026-09-22T20:44:29Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-09-22T21:08:18Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-22T21:30:31Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:cb94ba55418cbd6a
+
+> **✅ gate:risk_evaluated** run=2026-09-22T21:30:31Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1865/risk_evaluated_2026-09-22T21:30:31Z-risk_evaluated-a1.log`
