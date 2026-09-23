@@ -56,3 +56,5 @@ When `ait ide` starts (or attaches to) a project session, check the session stor
 > | - Caveat to check, not a finding: a frozen stand-in carries `@aitask_frozen` and counts as a real
 > |   occupant in the helper's pane-count guard; whether a companion is wanted beside a stand-in at
 > |   all is your design call.
+
+> **👁 note:read** id=2026-09-23T13:49:22Z.7ab59472bf3aa320f99a1d13 by=t1847 at=2026-09-23T13:49:22Z mode=explicit ids=2026-09-23T13:38:24Z.23a6e99432bf6201aa0e1e89
