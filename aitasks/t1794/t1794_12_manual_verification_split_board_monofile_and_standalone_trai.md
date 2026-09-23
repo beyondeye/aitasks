@@ -5,12 +5,16 @@ depends: [t1794_11]
 issue_type: manual_verification
 status: Implementing
 labels: [verification, manual]
+active_gates: []
+active_gates_filtered: []
+active_gates_profile: fast
+active_gates_digest: 4a36c12bb96d.681bafac2cb9.08c6f06389cd
 verifies: [t1794_1, t1794_2, t1794_3, t1794_4, t1794_5, t1794_6, t1794_7, t1794_8, t1794_9, t1794_10, t1794_11]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1794
 followup_kind: manual_verification
 created_at: 2026-09-11 15:12
-updated_at: 2026-09-23 16:19
+updated_at: 2026-09-23 16:20
 ---
 
 ## Manual Verification Task
