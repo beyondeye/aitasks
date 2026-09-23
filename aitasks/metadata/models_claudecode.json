@@ -1464,8 +1464,32 @@
       "name": "opus5_5",
       "cli_id": "claude-opus-5-5",
       "notes": "Most capable model for long-running agentic coding, 1M context, 128K output, adaptive thinking always on",
-      "verified": {},
-      "verifiedstats": {},
+      "verified": {
+        "pick": 100
+      },
+      "verifiedstats": {
+        "pick": {
+          "all_time": {
+            "runs": 1,
+            "score_sum": 100
+          },
+          "prev_month": {
+            "period": "",
+            "runs": 0,
+            "score_sum": 0
+          },
+          "month": {
+            "period": "2026-09",
+            "runs": 1,
+            "score_sum": 100
+          },
+          "week": {
+            "period": "2026-W39",
+            "runs": 1,
+            "score_sum": 100
+          }
+        }
+      },
       "usagestats": {
         "pick": {
           "all_time": {
