@@ -1,7 +1,7 @@
 # TUI (Textual) Conventions
 
 Specialist guidance for authoring or modifying Textual-based TUIs under
-`.aitask-scripts/` (board, monitor, minimonitor, codebrowser, brainstorm,
+`.aitask-scripts/` (board, trails, monitor, minimonitor, codebrowser, brainstorm,
 settings, syncer, stats-tui, diffviewer, the TUI switcher, etc.).
 
 ## Long-running Textual TUI launchers may call `require_ait_python_fast` (current scope: `ait board` only)
@@ -28,6 +28,9 @@ by analogy is no longer acceptable.
 **Permanent exceptions** (empirically verified — keep on CPython regardless of
 benchmark interest):
 - `codebrowser` (PyPy ~17% slower steady-state, ~2× slower cold-start)
+- `trails` (PyPy 10.3% faster steady-state, but +138 ms cold start and +131 MiB
+  RSS — more than the whole CPython board — which removes the light footprint
+  the stand-alone exists for; t1794_11)
 - `monitor` / `minimonitor` (PyPy 76–90% slower at typical pane counts)
 - `stats-tui` (depends on `plotext`, installed only in the CPython venv)
 - `diffviewer` (until its brainstorm integration lands)
@@ -638,6 +641,71 @@ Without 2–4 the TUI appears in the modal but can't be teleported to with a
 keystroke, while every other switcher-visible TUI can. Treat the four as one
 atomic change. (`applink` is the worked example: registry row + shortcut `a` +
 `Binding("a", "shortcut_applink")` + `action_shortcut_applink`.)
+
+## The board package (`board/`): two Apps, one flat-import contract
+
+`.aitask-scripts/board/` holds two Textual Apps that share their trail code:
+`ait board` (`aitask_board.py`, `KanbanApp`) and the stand-alone `ait trails`
+(`trails_app.py`, `TrailsApp`, launched by `aitask_trails.sh`). The package
+docstring (`board/__init__.py`) states the contract; the tests below enforce it.
+
+| Module | Holds |
+|---|---|
+| `aitask_board.py` | `KanbanApp` and `BoardScreen`, the Kanban columns and render paths, the board key map and `check_action`, the task-select / confirm modals, the `TASKS_DIR`-derived module constants, and the three injected helpers (`_load_task_types`, `_get_user_email`, `_current_tmux_session`) |
+| `trails_app.py` | `TrailsApp` + `TrailsScreen` — the read-only trail reader |
+| `board_trail_screen.py` | `TrailScreenMixin` (the trail App half both Apps inherit), the `TrailHost` protocol, and `TRAIL_BINDINGS` |
+| `board_trail_view.py` | the pure trail view: wave lanes, trail cards, the selector / detail / summary modals, `TRAIL_CSS` |
+| `board_widgets.py` | board-generic widgets (`TaskCard`, `ColumnHeader`, `PickerItem`, `LoadingOverlay`, …) and `WIDGET_CSS` |
+| `board_task_model.py` | `Task`, `MoveResult`, `MergeResult` |
+| `board_task_manager.py` | `TaskManager` (paths passed by keyword) |
+| `board_workflow_phase.py` | workflow-phase derivation (pure) |
+| `board_detail_screen.py` | `TaskDetailScreen`, its field widgets and detail-only pickers / modals |
+| `board_column_dialogs.py` | the column-management dialogs |
+| `aitask_merge.py` | an unrelated CLI; not a board module |
+
+**Flat imports, no import-back (C1).** Every module imports its siblings by
+bare name (`import board_trail_view`), never `board.`-qualified or relative:
+the board runs under several loaders (the launcher, the fixture harness's
+synthetic-name load, the shortcut sweep's probe load, subprocess loaders) and
+each puts `board/` itself on `sys.path`. New modules are `board_`-prefixed,
+because the sweep puts every manifest directory on one flat path and a
+duplicate basename resolves nondeterministically. **No module except
+`aitask_board.py` imports `aitask_board`** — under the fixture that would run
+the canonical board against the wrong tree and mint a second `KanbanApp` /
+`Task` identity. A sibling that needs a board helper receives it as a
+callable (`make_task_detail_screen()` binds the three helpers in lambdas, so a
+test's `patch.object(ab, "_get_user_email", …)` still reaches the editor). A
+module owning a name that tests patch is also bare-imported by
+`aitask_board.py` (`import board_task_manager` beside the `from … import`), so
+`ab.board_task_manager` is a real patch target.
+
+**Only `aitask_board.py` resolves the task directory (C2).** No other module
+calls `task_dir()` / `metadata_dir()`, reads `TASK_DIR`, or binds a
+`TASKS_DIR`-derived constant — not at import and not lazily in a function.
+Paths arrive as parameters: `TaskManager(*, tasks_dir, metadata_file, …)`,
+`TrailsApp(tasks_dir=…)`, and `trails_app.main()` takes `--tasks-dir`, which
+`aitask_trails.sh` appends after exporting the same value as `TASK_DIR`.
+
+**The trails App shares the board's shortcut scope (C10).** `TrailsApp` sets
+`_shortcuts_scope = "board"` and splices the **same** `TRAIL_BINDINGS` objects
+the board splices, so a trail-key rebind made in either TUI or in Settings →
+Shortcuts applies to both, and the second registration cannot rewrite the
+first one's defaults. Trail actions the stand-alone does not support (`M`,
+`S`) stay declared but hidden: `check_action` returns `False` and the mixin's
+capability guard refuses them even from a remapped key. Both board modules
+are listed in `KNOWN_BINDING_SOURCES` under `board`; `TrailsApp`'s
+`_shortcuts_exclude_sources` keeps its `?` editor from executing
+`aitask_board` or `board_detail_screen`.
+
+**Adding a board module** is a four-site change in the tests, besides the
+module itself: `BOARD_MODULE_NAMES` in `tests/lib/board_fixture.py`, a
+`HeadlessImportTests` probe in `tests/test_board_package_contract.py`, and the
+fresh-sibling anti-vacuity tuple plus `MIGRATED_MODULES` in
+`tests/test_board_fixture_harness.py` (the latter for the new module's own pin
+test). Enforcement: `tests/test_board_package_contract.py`
+(C1, basename uniqueness), `tests/test_board_fixture_harness.py` (C2),
+`tests/test_trails_app.py` and `tests/test_trail_screen_host_protocol.py`
+(the shared binding objects and the host surface).
 
 ## Single tmux session per project
 

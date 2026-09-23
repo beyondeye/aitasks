@@ -50,14 +50,14 @@ point at files that do not exist:
 
     DATA_WORKTREE / ".aitask-data"  aitask_board.py, board_task_manager._task_git_cmd
                                   -> refresh_git_status
-    ./.aitask-scripts/aitask_lock.sh --list       :1084  refresh_lock_map
-    ARTIFACT_SCRIPT                               :490   load_trail_blob
+    ./.aitask-scripts/aitask_lock.sh --list  board_task_manager.py  refresh_lock_map
+    ARTIFACT_SCRIPT          lib/trail_discovery.py  -> load_trail_blob
     TRAIL_GATHER_SCRIPT      board_trail_view.py  -> run_trail_drift
     CODEAGENT_SCRIPT         board_trail_screen.py (re-exported by the board)
-    CREATE_SCRIPT                                 :75
-    BRAINSTORM_TUI_SCRIPT                         :76
-    agent_command_screen.py:999   ./.aitask-scripts/aitask_skill_rerender.sh
-    sync_action_runner.py:76      ./.aitask-scripts/aitask_sync.sh
+    CREATE_SCRIPT            aitask_board.py
+    BRAINSTORM_TUI_SCRIPT    aitask_board.py
+    agent_command_screen.py  ./.aitask-scripts/aitask_skill_rerender.sh
+    sync_action_runner.py    _SYNC_SCRIPT (run_sync_batch() with no repo_root)
 
 Every one is wrapped in `except (..., FileNotFoundError, OSError)`, so they
 degrade silently rather than raise. **That silence is a hazard**: a test can
@@ -95,7 +95,7 @@ trail doc referencing `aitasks#9000` and `aitasks#9000_1`: without the file
 0 `TrailTaskCard` / 2 ghosts; with it 2 / 0.
 
 `metadata/gates.yaml` is staged from the shipped reference for the same reason
-(t1354_2). `GATES_REGISTRY_FILE` (aitask_board.py:77) derives from `TASKS_DIR`,
+(t1354_2). `GATES_REGISTRY_FILE` (aitask_board.py) derives from `TASKS_DIR`,
 and a tree without it does not merely lose gate cosmetics — it **reclassifies**.
 Measured: a task declaring `gates: [review_approved]` with a pending human run
 lands in the ``agent`` group instead of ``human``, its In-Flight card loses the
@@ -180,7 +180,7 @@ def active_tuple_fm(gates: list[str], active: list[str],
     )
 
 #: Canonical shipped gate registry (t1147). Staged into every fixture tree as
-#: `metadata/gates.yaml`, because `GATES_REGISTRY_FILE` (aitask_board.py:77) is
+#: `metadata/gates.yaml`, because `GATES_REGISTRY_FILE` (aitask_board.py) is
 #: derived from `TASKS_DIR` and a tree without it does NOT merely lose gate
 #: cosmetics — it silently reclassifies. Measured on a tree without it: a task
 #: declaring `gates: [review_approved]` with a pending human run lands in the
@@ -324,7 +324,7 @@ class FixtureTask:
     `filename` overrides the derived name; it is how a deliberately *numberless*
     file is placed. Such a file MUST still be given a `col`/`idx`, otherwise it
     lands in the ``unordered`` column instead of the one under test and the
-    production filename filter (`action_work_report`, aitask_board.py:7271)
+    production filename filter (`action_work_report`, aitask_board.py)
     never runs against it.
     """
 
@@ -379,9 +379,9 @@ DEFAULT_TOPOLOGY = (
 #: would break both silently. Additive names only.
 #:
 #: Two lanes, because `_build_topic_lanes` only forms a lane at **>=2 members**
-#: sharing a `topic_key` (aitask_board.py:441):
+#: sharing a `topic_key` (board_task_manager.py):
 #:   * ``"9000"`` — the parent plus its two children. Children need no `anchor:`;
-#:     `topic_key` falls back to the parent id for them (topic_semantics.py:69).
+#:     `topic_key` falls back to the parent id for them (lib/topic_semantics.py).
 #:   * ``"9002"`` — an explicit `anchor:` group: two followups pointing at 9002.
 #: t9001 / t9004 / the numberless file stay singletons (ungrouped) on purpose,
 #: so "grouped" and "ungrouped" are both represented.

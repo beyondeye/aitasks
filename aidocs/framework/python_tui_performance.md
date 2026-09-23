@@ -27,7 +27,8 @@ Investigation of options to speed up the aitasks Python TUIs (board, codebrowser
 - **Frameworks:** `textual==8.1.1` + `rich==14.3.2` — both pure-Python, no native extensions.
 - **Other deps:** `pyyaml==6.0.3`, `linkify-it-py==2.1.0`, `tomli>=2.4.0,<3`, `plotext==5.3.2` (CPython venv only).
 - **Codebase:** ~87 `.py` files, **~40K LOC** total.
-  - Board (`aitask_board.py`): **5200 LOC**.
+  - Board package (`board/`): **~16.4K LOC**, of which `aitask_board.py` is
+    **6843 LOC** and the stand-alone `trails_app.py` is 421 (t1794).
   - Codebrowser app + helpers: ~3500 LOC.
   - Monitor (`monitor_app.py`): 1778 LOC.
   - Minimonitor (`minimonitor_app.py`): 733 LOC.
@@ -504,6 +505,210 @@ summary aitask_board pypy-3.11.15 n=5 rss_mib=317.5 [232.6–340.7] coldstart_ms
 
 </details>
 
+### t1794_11 — final footprint and the `ait trails` interpreter verdict (2026-09-22)
+
+The closing measurement of t1794: the board **after** the split measured
+against the board **before** it, the stand-alone `trails_app` against both, and
+a t718_6-protocol Pilot benchmark deciding the launcher's interpreter.
+
+**Protocol.** `tests/perf/board_footprint.sh --runs 1`, run **serially** in a
+**round-robin**: 5 rounds, each running every configuration once in the fixed
+order board@old → `trails_app` → board@new → `footprint_ceiling`, CPython
+before PyPy. That is 8 configurations × 5 runs = 40 independent samples with
+host drift spread across configurations instead of landing on one, and it is
+the reason `--runs 1` appears in the raw lines — n ≥ 5 per configuration holds
+after aggregation. Nothing else heavy ran alongside; host load (1-min) was
+1.09–1.81 across all 40 runs, the quietest of the three t1794 measurement
+sessions. Task tree: this repo, 424 parent task files (423 for the last two
+runs — a task was archived mid-session).
+
+Two isolated detached worktrees linked to the same `.aitask-data`, so the task
+tree is identical and only the code differs. Both were clean, so both
+provenance lines read `changed=none`:
+
+```
+provenance head=c52534f142accc950314fba49d53fe32bb6ecd59 tree=c52534f14 changed=none   (board@old)
+provenance head=85abc421765ad61c70875a1caf72b00d55ab2902 tree=85abc4217 changed=none   (board@new, trails_app, ceiling)
+```
+
+`c52534f14` is t1794_1's commit — the mono-file board before any extraction,
+carrying only the own-directory `sys.path` insert and the docstring-only
+`__init__.py`. `85abc4217` is the tree after children 2–8. Interpreters:
+`~/.aitask/venv/bin/python` (CPython 3.14.7) and `~/.aitask/pypy_venv/bin/python`
+(PyPy 3.11.15).
+
+#### Results (n = 5 each; median [min–max])
+
+| Module | Interpreter | RSS (MiB) | Cold start (ms) |
+|---|---|---:|---:|
+| `aitask_board` @ `c52534f14` (before) | CPython 3.14.7 | 188.3 [187.9–188.4] | 231 [208–267] |
+| `aitask_board` @ `85abc4217` (after) | CPython 3.14.7 | 176.2 [176.1–176.4] | 219 [203–279] |
+| `trails_app` | CPython 3.14.7 | 60.8 [60.1–60.9] | 184 [164–201] |
+| `footprint_ceiling` | CPython 3.14.7 | 40.1 [40.1–40.1] | 154 [151–171] |
+| `aitask_board` @ `c52534f14` (before) | PyPy 3.11.15 | 325.7 [321.2–326.3] | 404 [365–416] |
+| `aitask_board` @ `85abc4217` (after) | PyPy 3.11.15 | 346.4 [344.4–354.0] | 403 [379–428] |
+| `trails_app` | PyPy 3.11.15 | 191.6 [189.3–191.8] | 322 [317–405] |
+| `footprint_ceiling` | PyPy 3.11.15 | 113.7 [113.7–113.8] | 256 [246–291] |
+
+#### Signed margins (same session, same task tree, difference of medians)
+
+**The split's own effect on the board** (after − before):
+
+- **RSS, CPython: −12.1 MiB** — no overlap (176.4 < 187.9): a **saving**. The
+  board sheds what the extracted modules no longer make it import eagerly.
+- **RSS, PyPy: +20.7 MiB** — no overlap (344.4 > 326.3): a **regression**.
+  Under PyPy the package shape costs more than it saves. It is the smaller
+  effect of the two in relative terms (+6.4% against −6.4%), it does not
+  affect the CPython path users are on, and `ait board`'s PyPy routing is
+  unchanged — but it is a real, measured regression and not noise.
+- **Cold start, CPython: −12 ms**, **PyPy: −1 ms** — both overlap
+  ([203–279] vs [208–267]; [379–428] vs [365–416]): **within observed
+  variation**, no claim.
+
+**The stand-alone against the full board** (`trails_app` − board@new):
+
+- **RSS, CPython: −115.4 MiB** — no overlap (60.9 < 176.1): a **saving**.
+- **RSS, PyPy: −154.8 MiB** — no overlap (191.8 < 344.4): a **saving**.
+- **Cold start, CPython: −35 ms** — no overlap (201 < 203): a **saving**.
+- **Cold start, PyPy: −81 ms** — the ranges overlap ([317–405] vs
+  [379–428]): **within observed variation**, no claim.
+
+**Against the ceiling** (`trails_app` − `footprint_ceiling`): **+20.7 MiB**
+under CPython and **+77.9 MiB** under PyPy, both separated. The stand-alone
+sits 20.7 MiB above the floor a trail reader could occupy, so it realises
+115.4 of the 136.1 MiB that separates the CPython board from that floor.
+
+**Historical trend (not a C8 comparison).** The t1794_1 baseline above
+(2026-09-14: board 182.8 MiB / 233 ms CPython, 319.6 MiB / 459 ms PyPy;
+ceiling 40.1 / 218 and 113.8 / 298) and the t1794_6 figures were taken in
+**different sessions, on different task trees, under load 4.8–8.8**. They are
+kept as a record of what was seen then, **not** as evidence of any saving or
+regression: cross-session absolutes on this host drift by roughly 10%, which
+is the size of the effects measured here. The board@old row in this session
+supersedes them for every claim about what the split changed.
+
+#### Pilot benchmark — `trails_app` under CPython vs PyPy
+
+`tests/perf/trails_pilot_bench.py` (manual, never collected), the t718_6
+protocol applied to the stand-alone: one `App.run_test(size=(160,48))` session
+per repetition against this repo's real task tree, 5 warmup + 8 measured
+repetitions in one process, timed with `perf_counter` around the whole block.
+Trail: `art:trail-parallel-git-and-sync` (41 members). Workload: boot →
+selector → focus that handle → `enter` → `enter` (detail) → `escape` → `v`
+(summary) → `escape` → `d` (drift) → 10× `down`. Every step settles (workers
+complete, then the card set / focus / screen stable across two pauses) and
+asserts the state it must reach, so a repetition that misses a state aborts
+instead of timing a half-finished flow. `load_trail_blob` and
+`run_trail_drift` are patched to fixed values — their subprocess latency is
+interpreter-independent — while boot-time `discover_trails` stays real, as the
+t718_6 board workload kept its real refresh.
+
+| Metric | CPython median | PyPy median | Delta |
+|---|---:|---:|---:|
+| Pilot workload (steady state) | 8305 ms [8006–8584] | 7451 ms [7352–7731] | **10.3% faster on PyPy** (no overlap) |
+| Cold start (`import trails_app`) | 184 ms [164–201] | 322 ms [317–405] | **138 ms regression** (no overlap) |
+| RSS at 10 s idle | 60.8 MiB | 191.6 MiB | **+130.8 MiB on PyPy** (no overlap) |
+
+**Verdict: KEEP CPython.** `aitask_trails.sh` stays on `require_ait_python`.
+The steady-state win clears the 10% bar by 0.3 points, and everything else
+argues the other way: PyPy adds 138 ms to every launch and 130.8 MiB of RSS —
+more than the CPython **full board** uses (176.2 MiB) — which removes the
+lightweight footprint this stand-alone exists to provide. The trails TUI is a
+read-only reader used in short glances, the usage shape t718_6 already found
+favours CPython. As everywhere else, `AIT_PYTHON=~/.aitask/pypy_venv/bin/python
+ait trails` remains the manual A/B hook.
+
+**What would change this verdict:** a trails workload that becomes heavy
+interpreted Python at steady state (e.g. live drift recomputation across many
+trails), or a PyPy release that closes the RSS and cold-start gaps. Re-measure
+with the two scripts above before re-attempting the swap.
+
+<details>
+<summary>Raw runs — footprint (verbatim, in command order)</summary>
+
+```
+[round 1 · board@old · CPython] c52534f14 aitask_board cpython-3.14.7 run=1/1 rss_mib=188.3 coldstart_ms=267 load1=1.81 parent_tasks=424
+[round 1 · trails_app · CPython] 85abc4217 trails_app cpython-3.14.7 run=1/1 rss_mib=60.8 coldstart_ms=181 load1=1.54 parent_tasks=424
+[round 1 · aitask_board · CPython] 85abc4217 aitask_board cpython-3.14.7 run=1/1 rss_mib=176.4 coldstart_ms=212 load1=1.45 parent_tasks=424
+[round 1 · footprint_ceiling · CPython] 85abc4217 footprint_ceiling cpython-3.14.7 run=1/1 rss_mib=40.1 coldstart_ms=153 load1=1.61 parent_tasks=424
+[round 1 · board@old · PyPy] c52534f14 aitask_board pypy-3.11.15 run=1/1 rss_mib=326.2 coldstart_ms=404 load1=1.63 parent_tasks=424
+[round 1 · trails_app · PyPy] 85abc4217 trails_app pypy-3.11.15 run=1/1 rss_mib=191.8 coldstart_ms=371 load1=1.53 parent_tasks=424
+[round 1 · aitask_board · PyPy] 85abc4217 aitask_board pypy-3.11.15 run=1/1 rss_mib=354.0 coldstart_ms=403 load1=1.69 parent_tasks=424
+[round 1 · footprint_ceiling · PyPy] 85abc4217 footprint_ceiling pypy-3.11.15 run=1/1 rss_mib=113.8 coldstart_ms=256 load1=1.43 parent_tasks=424
+[round 2 · board@old · CPython] c52534f14 aitask_board cpython-3.14.7 run=1/1 rss_mib=188.4 coldstart_ms=231 load1=1.48 parent_tasks=424
+[round 2 · trails_app · CPython] 85abc4217 trails_app cpython-3.14.7 run=1/1 rss_mib=60.8 coldstart_ms=196 load1=1.48 parent_tasks=424
+[round 2 · aitask_board · CPython] 85abc4217 aitask_board cpython-3.14.7 run=1/1 rss_mib=176.3 coldstart_ms=279 load1=1.33 parent_tasks=424
+[round 2 · footprint_ceiling · CPython] 85abc4217 footprint_ceiling cpython-3.14.7 run=1/1 rss_mib=40.1 coldstart_ms=151 load1=1.27 parent_tasks=424
+[round 2 · board@old · PyPy] c52534f14 aitask_board pypy-3.11.15 run=1/1 rss_mib=326.3 coldstart_ms=383 load1=1.28 parent_tasks=424
+[round 2 · trails_app · PyPy] 85abc4217 trails_app pypy-3.11.15 run=1/1 rss_mib=191.6 coldstart_ms=317 load1=1.24 parent_tasks=424
+[round 2 · aitask_board · PyPy] 85abc4217 aitask_board pypy-3.11.15 run=1/1 rss_mib=344.4 coldstart_ms=404 load1=1.54 parent_tasks=424
+[round 2 · footprint_ceiling · PyPy] 85abc4217 footprint_ceiling pypy-3.11.15 run=1/1 rss_mib=113.7 coldstart_ms=263 load1=1.38 parent_tasks=424
+[round 3 · board@old · CPython] c52534f14 aitask_board cpython-3.14.7 run=1/1 rss_mib=188.3 coldstart_ms=249 load1=1.32 parent_tasks=424
+[round 3 · trails_app · CPython] 85abc4217 trails_app cpython-3.14.7 run=1/1 rss_mib=60.8 coldstart_ms=164 load1=1.39 parent_tasks=424
+[round 3 · aitask_board · CPython] 85abc4217 aitask_board cpython-3.14.7 run=1/1 rss_mib=176.2 coldstart_ms=203 load1=1.25 parent_tasks=424
+[round 3 · footprint_ceiling · CPython] 85abc4217 footprint_ceiling cpython-3.14.7 run=1/1 rss_mib=40.1 coldstart_ms=171 load1=1.36 parent_tasks=424
+[round 3 · board@old · PyPy] c52534f14 aitask_board pypy-3.11.15 run=1/1 rss_mib=321.2 coldstart_ms=416 load1=1.61 parent_tasks=424
+[round 3 · trails_app · PyPy] 85abc4217 trails_app pypy-3.11.15 run=1/1 rss_mib=189.3 coldstart_ms=405 load1=1.60 parent_tasks=423
+[round 3 · aitask_board · PyPy] 85abc4217 aitask_board pypy-3.11.15 run=1/1 rss_mib=345.1 coldstart_ms=402 load1=1.45 parent_tasks=423
+[round 3 · footprint_ceiling · PyPy] 85abc4217 footprint_ceiling pypy-3.11.15 run=1/1 rss_mib=113.7 coldstart_ms=291 load1=1.23 parent_tasks=423
+[round 4 · board@old · CPython] c52534f14 aitask_board cpython-3.14.7 run=1/1 rss_mib=188.0 coldstart_ms=227 load1=1.28 parent_tasks=423
+[round 4 · trails_app · CPython] 85abc4217 trails_app cpython-3.14.7 run=1/1 rss_mib=60.1 coldstart_ms=201 load1=1.13 parent_tasks=423
+[round 4 · aitask_board · CPython] 85abc4217 aitask_board cpython-3.14.7 run=1/1 rss_mib=176.1 coldstart_ms=219 load1=1.11 parent_tasks=423
+[round 4 · footprint_ceiling · CPython] 85abc4217 footprint_ceiling cpython-3.14.7 run=1/1 rss_mib=40.1 coldstart_ms=154 load1=1.09 parent_tasks=423
+[round 4 · board@old · PyPy] c52534f14 aitask_board pypy-3.11.15 run=1/1 rss_mib=324.4 coldstart_ms=405 load1=1.12 parent_tasks=423
+[round 4 · trails_app · PyPy] 85abc4217 trails_app pypy-3.11.15 run=1/1 rss_mib=191.2 coldstart_ms=319 load1=1.10 parent_tasks=423
+[round 4 · aitask_board · PyPy] 85abc4217 aitask_board pypy-3.11.15 run=1/1 rss_mib=348.6 coldstart_ms=379 load1=1.32 parent_tasks=423
+[round 4 · footprint_ceiling · PyPy] 85abc4217 footprint_ceiling pypy-3.11.15 run=1/1 rss_mib=113.8 coldstart_ms=247 load1=1.17 parent_tasks=423
+[round 5 · board@old · CPython] c52534f14 aitask_board cpython-3.14.7 run=1/1 rss_mib=187.9 coldstart_ms=208 load1=1.31 parent_tasks=423
+[round 5 · trails_app · CPython] 85abc4217 trails_app cpython-3.14.7 run=1/1 rss_mib=60.9 coldstart_ms=184 load1=1.33 parent_tasks=423
+[round 5 · aitask_board · CPython] 85abc4217 aitask_board cpython-3.14.7 run=1/1 rss_mib=176.1 coldstart_ms=254 load1=1.40 parent_tasks=423
+[round 5 · footprint_ceiling · CPython] 85abc4217 footprint_ceiling cpython-3.14.7 run=1/1 rss_mib=40.1 coldstart_ms=154 load1=1.49 parent_tasks=423
+[round 5 · board@old · PyPy] c52534f14 aitask_board pypy-3.11.15 run=1/1 rss_mib=325.7 coldstart_ms=365 load1=1.50 parent_tasks=423
+[round 5 · trails_app · PyPy] 85abc4217 trails_app pypy-3.11.15 run=1/1 rss_mib=191.7 coldstart_ms=322 load1=1.45 parent_tasks=423
+[round 5 · aitask_board · PyPy] 85abc4217 aitask_board pypy-3.11.15 run=1/1 rss_mib=346.4 coldstart_ms=428 load1=1.68 parent_tasks=423
+[round 5 · footprint_ceiling · PyPy] 85abc4217 footprint_ceiling pypy-3.11.15 run=1/1 rss_mib=113.7 coldstart_ms=246 load1=1.65 parent_tasks=423
+```
+
+</details>
+
+<details>
+<summary>Raw runs — Pilot benchmark (verbatim)</summary>
+
+```
+cpython-3.14.7 trail=art:trail-parallel-git-and-sync warmup rep=1 ms=7356
+cpython-3.14.7 trail=art:trail-parallel-git-and-sync warmup rep=2 ms=8819
+cpython-3.14.7 trail=art:trail-parallel-git-and-sync warmup rep=3 ms=9241
+cpython-3.14.7 trail=art:trail-parallel-git-and-sync warmup rep=4 ms=8970
+cpython-3.14.7 trail=art:trail-parallel-git-and-sync warmup rep=5 ms=8434
+cpython-3.14.7 trail=art:trail-parallel-git-and-sync measured rep=6 ms=8274
+cpython-3.14.7 trail=art:trail-parallel-git-and-sync measured rep=7 ms=8194
+cpython-3.14.7 trail=art:trail-parallel-git-and-sync measured rep=8 ms=8006
+cpython-3.14.7 trail=art:trail-parallel-git-and-sync measured rep=9 ms=8191
+cpython-3.14.7 trail=art:trail-parallel-git-and-sync measured rep=10 ms=8337
+cpython-3.14.7 trail=art:trail-parallel-git-and-sync measured rep=11 ms=8411
+cpython-3.14.7 trail=art:trail-parallel-git-and-sync measured rep=12 ms=8485
+cpython-3.14.7 trail=art:trail-parallel-git-and-sync measured rep=13 ms=8584
+summary cpython-3.14.7 trail=art:trail-parallel-git-and-sync n=8 median_ms=8305 [8006–8584]
+(_common_types_metatype, 9088, 128, 128)
+(cython_function_or_method, 157568, 128, 128)
+pypy-3.11.15 trail=art:trail-parallel-git-and-sync warmup rep=1 ms=10226
+pypy-3.11.15 trail=art:trail-parallel-git-and-sync warmup rep=2 ms=8747
+pypy-3.11.15 trail=art:trail-parallel-git-and-sync warmup rep=3 ms=7715
+pypy-3.11.15 trail=art:trail-parallel-git-and-sync warmup rep=4 ms=7767
+pypy-3.11.15 trail=art:trail-parallel-git-and-sync warmup rep=5 ms=7471
+pypy-3.11.15 trail=art:trail-parallel-git-and-sync measured rep=6 ms=7568
+pypy-3.11.15 trail=art:trail-parallel-git-and-sync measured rep=7 ms=7492
+pypy-3.11.15 trail=art:trail-parallel-git-and-sync measured rep=8 ms=7403
+pypy-3.11.15 trail=art:trail-parallel-git-and-sync measured rep=9 ms=7352
+pypy-3.11.15 trail=art:trail-parallel-git-and-sync measured rep=10 ms=7410
+pypy-3.11.15 trail=art:trail-parallel-git-and-sync measured rep=11 ms=7404
+pypy-3.11.15 trail=art:trail-parallel-git-and-sync measured rep=12 ms=7731
+pypy-3.11.15 trail=art:trail-parallel-git-and-sync measured rep=13 ms=7523
+summary pypy-3.11.15 trail=art:trail-parallel-git-and-sync n=8 median_ms=7451 [7352–7731]
+```
+
+</details>
+
 ### Margin rule (how later t1794 children report against this)
 
 The numbers above are a **sample, not a threshold** — never derive a
@@ -528,4 +733,7 @@ The numbers above are a **sample, not a threshold** — never derive a
 - **t718_5** (above) — empirical verification of monitor/minimonitor under PyPy. REVERT verdict; CLAUDE.md note added.
 - **t718_6** (this section) — empirical verification of board / codebrowser under PyPy. MIXED verdict: board KEEPs, codebrowser REVERTs.
 - **t719_2** (archived) — hot-path integration of `tmux -C` control mode; reshaped the hot path that t718_5 benchmarks.
+- **t1794_11** (this section) — the closing t1794 measurement: the split's own
+  effect on the board, the stand-alone against the board and the ceiling, and
+  the Pilot benchmark that kept `ait trails` on CPython.
 - **t719_4** (pending) — pipe-pane push. If/when archived, re-run the t718_5 benchmark before drawing fresh conclusions about PyPy on monitor/minimonitor.

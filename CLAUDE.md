@@ -140,7 +140,10 @@ default to: `TASK_DIR=aitasks`, `PLAN_DIR=aiplans`,
 
 ### Key Directories
 - `.aitask-scripts/` — Shell scripts implementing all CLI commands
-- `.aitask-scripts/board/aitask_board.py` — Python TUI board (Textual)
+- `.aitask-scripts/board/` — board package (Textual): `aitask_board.py`
+  (`ait board`, `KanbanApp`), `trails_app.py` (stand-alone `ait trails`), and
+  the flat-imported `board_*` modules they share (module map and import
+  contract: `aidocs/framework/tui_conventions.md`, "The board package")
 - `aitasks/` — Active task files (`t<N>.md`, child tasks in `t<N>/t<N>_M_*.md`)
 - `aitasks/archived/` — Completed tasks (may include `old.tar.zst` bundles)
 - `aitasks/metadata/` — Config: `task_types.txt`, `labels.txt`,
