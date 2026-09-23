@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [documentation]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 1687
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5
 created_at: 2026-09-22 17:45
-updated_at: 2026-09-22 23:16
+updated_at: 2026-09-23 14:37
+completed_at: 2026-09-23 14:37
 ---
 
 ## Origin
@@ -53,3 +54,14 @@ wrong lifecycle (the website page now states the shipped behaviour).
 > **✅ gate:plan_approved** run=2026-09-22T20:16:09Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-09-23T11:36:29Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-23T11:37:02Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:b897f8a87c1649bc
+
+> **✅ gate:risk_evaluated** run=2026-09-23T11:37:02Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1864/risk_evaluated_2026-09-23T11:37:02Z-risk_evaluated-a1.log`
