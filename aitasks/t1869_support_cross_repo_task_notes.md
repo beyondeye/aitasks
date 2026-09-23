@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [framework, skills, documentation]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-09-23 14:42
-updated_at: 2026-09-23 14:42
+updated_at: 2026-09-23 14:44
 ---
 
 ## Context
