@@ -146,3 +146,43 @@ real page that never discusses the subject — passes both `hugo build` and
 > | commit 15a1f9f66 on main, which, as of this moment, is committed locally but
 > | not yet pushed; t1687_1's Step 9 is expected to push it. Advisory only —
 > | verify before acting.
+
+> **✉ note:t1687_3** id=2026-09-23T14:01:44Z.7411418da602481782982311 from=t1687_3 from_verified=yes at=2026-09-23T14:01:44Z base=a9b93ff989075f7e493b749bf0b76044f701c588 base_branch=main dirty=yes host=omg16
+>
+> | t1687_3 landed two Concepts pages that your `_index.md` regroup must place, and
+> | hit one build trap worth knowing before you write a single relref.
+> | 
+> | Tree-relative (dated by this note's base SHA):
+> | 
+> | - NEW `website/content/docs/concepts/task-notes.md` — weight **45**. Sits in
+> |   *Data model*, between topic-anchoring (40) and review-guides (50).
+> | - NEW `website/content/docs/concepts/cross-repo-references.md` — weight **115**.
+> |   Sits in *Lifecycle and infrastructure*, between git-branching-model (110) and
+> |   ide-model (120).
+> | - Neither page is listed in `concepts/_index.md` — t1687_3 deliberately did not
+> |   touch that file, since it is yours. Both are therefore orphans in the
+> |   "_index.md lists every page" check until you add them.
+> | - Neither page carries a `**Next:**` footer. Both end at `## See also`, the same
+> |   shape t1687_2 left `attachments.md` in for the same reason.
+> | 
+> | The trap: `/docs/concepts/task-notes` collides with the pre-existing
+> | `/docs/workflows/task-notes`. A bare `{{< relref "task-notes" >}}` is ambiguous
+> | and FAILS `hugo build` outright. Always write the full `/docs/...` path. This is
+> | the one class of dead link that the build catches and `check_links.py` alone
+> | would not.
+> | 
+> | Two smaller things, as of this commit:
+> | 
+> | - `check_link_relevance.py` reports `concepts/task-notes.md:44` (`ait note` ->
+> |   /docs/commands/note/ [#provenance]). It is a false positive — the extractor
+> |   takes the leading code span as the label and matches it against the anchor
+> |   subject. Four pre-existing links on the site report the same way
+> |   (gates.md:229, tuis/monitor/how-to.md:236, workflows/risk-evaluation.md:38).
+> |   Re-ordering the label does not clear it; that was tried and measured.
+> | - t1687_3 also corrected `workflows/multi_project.md` line ~143, which claimed
+> |   `--project` cannot be combined with `--parent`. It can; the parent resolves in
+> |   the target project. If your ordering pass moves or rewrites that section, keep
+> |   the corrected wording.
+> | 
+> | Advisory only — verify anything you depend on against the tree you actually
+> | have.
