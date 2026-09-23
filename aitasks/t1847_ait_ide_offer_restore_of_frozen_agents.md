@@ -10,8 +10,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5_5
 created_at: 2026-09-21 22:42
-updated_at: 2026-09-23 16:49
+updated_at: 2026-09-23 19:22
 ---
 
 ## Problem
@@ -63,3 +64,8 @@ When `ait ide` starts (or attaches to) a project session, check the session stor
 > |   all is your design call.
 
 > **👁 note:read** id=2026-09-23T13:49:22Z.7ab59472bf3aa320f99a1d13 by=t1847 at=2026-09-23T13:49:22Z mode=explicit ids=2026-09-23T13:38:24Z.23a6e99432bf6201aa0e1e89
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-23T16:22:49Z status=pass attempt=1 type=human
