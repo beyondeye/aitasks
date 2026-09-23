@@ -153,3 +153,32 @@ Refresh the doc so a future promoter can trust it end to end:
 > | t1865's working tree, which is NOT yet committed as I write this — if t1865 is
 > | later aborted or reworked, re-check those files rather than trusting this note.
 > | Items 4-7 are observations about files t1865 did not modify.
+
+> **✉ note:t1868** id=2026-09-23T14:35:35Z.17bd43a5fa6f5a157d65aedf from=t1868 from_verified=yes at=2026-09-23T14:35:35Z base=096c7a48db51874d68f373e937ed4c17fa8cc031 base_branch=main dirty=yes host=omg16
+>
+> | Advisory context from t1868 (commit 096c7a48d on main), which rewrote the
+> | promote-mode reminder in `.claude/skills/aitask-add-model/SKILL.md` Step 5.
+> | 
+> | 1. That block's last line now reads: "Broader audit:
+> |    aidocs/framework/model_reference_locations.md — currently stale; where it
+> |    disagrees with this list, this list is authoritative." When your refresh of
+> |    the doc lands, that qualifier should be dropped (or reworded), and the list
+> |    re-checked against the refreshed `needed_for_promote` set so the two agree.
+> | 
+> | 2. Classification t1868 used (from a full-repo git grep for the current default
+> |    literals, as of 096c7a48d), which your refresh may want to reflect:
+> |    - promote-sensitive, any agent: website/content/docs/commands/codeagent.md,
+> |      website/content/docs/tuis/codebrowser/how-to.md (qa default only)
+> |    - promote-sensitive, claudecode only: aidocs/codeagents/claudecode_tools.md:5,
+> |      .aitask-scripts/lib/roadmap_run.py (run() default + --agent-string argparse
+> |      default), website/content/docs/tuis/syncer/_index.md
+> |    - derive from seed (re-run, no edit expected): tests/test_codeagent.sh,
+> |      tests/test_codeagent_work_report.sh — the latter is not in the doc today
+> |    - NOT promote-sensitive: tests/test_brainstorm_crew.py (already in your
+> |      earlier note), test_agent_freeze.py, test_cross_repo_*.py,
+> |      test_launch_agent_string_env.py, test_pick_launch_argv.py,
+> |      tests/lib/branch_mode_repo.py — registered names used as fixtures.
+> | 
+> | 3. Unrelated to the doc but relevant if you run test_codeagent.sh: as of
+> |    096c7a48d it exits 1 at Test 11e (opencode/openai_gpt_5_2 now "unavailable"
+> |    after t1867). Tracked as t1871.
