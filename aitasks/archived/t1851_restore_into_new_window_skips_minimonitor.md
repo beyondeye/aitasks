@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [frozen, minimonitor]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -14,7 +14,8 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/claude-opus-5-5[1m]
 created_at: 2026-09-21 22:42
-updated_at: 2026-09-23 16:13
+updated_at: 2026-09-23 16:38
+completed_at: 2026-09-23 16:38
 ---
 
 ## Problem
@@ -40,3 +41,14 @@ Observed on 2026-09-21: restoring t1687_1 after a reboot (tmux session killed) p
 > **✅ gate:plan_approved** run=2026-09-23T13:13:15Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-09-23T13:36:50Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-23T13:38:33Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:5a1328229547a251
+
+> **✅ gate:risk_evaluated** run=2026-09-23T13:38:33Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1851/risk_evaluated_2026-09-23T13:38:33Z-risk_evaluated-a1.log`
