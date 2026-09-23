@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1687
+implemented_with: claudecode/opus5_5
 created_at: 2026-09-20 12:02
-updated_at: 2026-09-23 17:23
+updated_at: 2026-09-23 19:22
 ---
 
 ## Context
@@ -116,3 +117,8 @@ cd website && python3 check_links.py --build
 ```
 
 Use `set -o pipefail` or check `${PIPESTATUS[0]}`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-23T16:22:26Z status=pass attempt=1 type=human
