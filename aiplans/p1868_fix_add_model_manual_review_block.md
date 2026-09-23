@@ -132,3 +132,18 @@ None identified. Single prose block in one skill file; no code, template, golden
 ### Goal-achievement risk: low
 - The block remains a hand-maintained copy of the audit doc's promote set and can drift again · severity: low · → mitigation: none spawned — t1341 owns the doc refresh; the ait note sent after commit tells it to remove the stale qualifier and re-check the list.
 - The "stale" qualifier outlives t1341 if the note is ignored · severity: low · → mitigation: the note itself (durable, surfaced on t1341's pick).
+
+## Post-Review Changes
+
+### Change Request 1 (2026-09-23 17:10)
+- **Requested by user:** the "should pass unedited" wording is false today — `tests/test_codeagent.sh` exits 1 at Test 11e for an unrelated reason. Say promotion-specific default assertions should need no edits, but ask users to re-run and inspect failures.
+- **Changes made:** reworded the re-run group header in the Step 5 block accordingly.
+- **Files affected:** `.claude/skills/aitask-add-model/SKILL.md`
+
+## Final Implementation Notes
+- **Actual work done:** Rewrote Step 5 of `.claude/skills/aitask-add-model/SKILL.md`: one printing rule (drop the claudecode-only group unless `--agent claudecode`; drop the `codebrowser/how-to.md` line unless `qa` is promoted); agent-split list (any-agent: `codeagent.md`, `codebrowser/how-to.md`; claudecode-only: `claudecode_tools.md:5`, `roadmap_run.py`, `syncer/_index.md`); `test_brainstorm_crew.py` removed; re-run group for `test_codeagent.sh` + `test_codeagent_work_report.sh`; audit pointer qualified as stale with this list authoritative.
+- **Deviations from plan:** Dropped the inline "(only when qa is promoted)" label from the `how-to.md` line — the single printing rule already governs it, so the label would be a second copy of the rule. Re-run wording softened after review (Change Request 1).
+- **Issues encountered:** `tests/test_codeagent.sh` exits 1 at Test 11e (unrelated to this prose change; see upstream defects). `test_codeagent_work_report.sh` 28/28; `aitask_skill_verify.sh` OK.
+- **Key decisions:** Kept a short hand-maintained list plus a qualified pointer rather than a pointer-only block, because the audit doc (owned by t1341) is itself stale. t1341 to be noted to drop the "currently stale" qualifier when its refresh lands. Codex/OpenCode `aitask-add-model` skills are pointer wrappers — no port tasks.
+- **Upstream defects identified:**
+  - `tests/test_codeagent.sh:353` — Test 11e loops over `opencode/openai_gpt_5_2`, which commit 2d9db16ab (t1867) flipped to `"status": "unavailable"` in `seed/models_opencode.json`; `aitask_codeagent.sh` now refuses it and the file aborts under `set -e` before its remaining tests run.
