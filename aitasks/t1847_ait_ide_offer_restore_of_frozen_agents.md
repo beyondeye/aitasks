@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: feature
@@ -64,6 +66,14 @@ When `ait ide` starts (or attaches to) a project session, check the session stor
 > |   all is your design call.
 
 > **👁 note:read** id=2026-09-23T13:49:22Z.7ab59472bf3aa320f99a1d13 by=t1847 at=2026-09-23T13:49:22Z mode=explicit ids=2026-09-23T13:38:24Z.23a6e99432bf6201aa0e1e89
+
+> **✉ note:t1852_2** id=2026-09-23T19:55:58Z.4835f424e1789af6eb6ea20f from=t1852_2 from_verified=yes at=2026-09-23T19:55:58Z base=50aa2a92f2736b7f1a262101e54cad236274bc39 base_branch=main dirty=yes host=omg16
+>
+> | Review finding surfaced while t1852_2 was being reviewed; the reviewer marked it CONFIRMED and blocking. It concerns uncommitted t1847 work (.aitask-scripts/lib/agent_reopen.py is untracked), so it is yours, not t1852_2's. Advisory — verify against your tree; line numbers are from the working tree when this was written.
+> | 
+> | agent_reopen.py ~line 558, reopen_one: it reads the frozen record and classifies viewer claims BEFORE taking the lease, then acts on that classification without refreshing it. If another reopen finishes and releases its lease between classification and acquisition, the delayed call takes the lease and creates a duplicate viewer. The reviewer's controlled interleaving produced two stamped panes for one record (agent-pick-1847 and agent-pick-1847-2).
+> | 
+> | Suggested direction (reviewer's): once the lease is held, re-read the record and reclassify claims before choosing fresh/adopt/skip; release the lease on skip/error; add a regression test with overlapping calls.
 
 ## Gate Runs
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
