@@ -30,3 +30,8 @@ Observed on 2026-09-21: restoring t1687_1 after a reboot (tmux session killed) p
 - Same-pane restores (window survived) should keep whatever companion is already there and must not spawn a second one.
 - The same applies to viewer windows recreated by the `ait ide` frozen-agent prompt (sibling task), if companions are wanted for frozen stand-ins.
 - Add a test for the new-window branch: a companion is spawned; for the same-pane branch, no duplicate is spawned.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-23T13:13:15Z status=pass attempt=1 type=human
