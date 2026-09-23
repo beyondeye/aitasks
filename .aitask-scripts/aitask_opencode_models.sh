@@ -157,7 +157,7 @@ process_model() {
            "cli_id": $cli_id,
            "notes": $notes,
            "status": "active",
-           "verified": {"pick": 0, "explain": 0, "batch-review": 0},
+           "verified": {"pick": 0, "explain": 0, "batch-review": 0, "work-report": 0, "trail": 0},
            "verifiedstats": {}
         }]' <<< "$models_array"
 }
