@@ -121,5 +121,6 @@ The in-repo half of this — assessing complexity, splitting into children, and 
 
 ## See also
 
+- [Cross-repo references]({{< relref "/docs/concepts/cross-repo-references" >}}) — the concept: why a logical name resolved at call time is the identity, and why an unresolvable link stays blocked.
 - [Multi-Project]({{< relref "/docs/workflows/multi_project" >}}) — the registry, `ait projects`, cross-repo task creation, and the reference notation this page builds on.
 - [Parallel Planning]({{< relref "/docs/workflows/parallel-planning" >}}) — front-loading complex task decomposition, the in-repo foundation for paired cross-repo planning.

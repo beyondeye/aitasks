@@ -10,7 +10,7 @@ When you run more than one aitasks project — say a `frontend` app and the `bac
 
 ## Why logical project names
 
-Cross-repo coordination used to hardcode sibling paths like `../backend/`. That breaks the moment the on-disk layout differs — a teammate's machine, a cloud agent, or a fresh re-clone into a different directory. A per-user registry maps a logical name (`backend`) to a path, and every cross-repo command resolves the name at call time instead of trusting a hardcoded path.
+Cross-repo coordination used to hardcode sibling paths like `../backend/`. That breaks the moment the on-disk layout differs — a teammate's machine, a cloud agent, or a fresh re-clone into a different directory. A per-user registry maps a logical name (`backend`) to a path, and every cross-repo command resolves the name at call time instead of trusting a hardcoded path. For why the name — not the path — is the identity, see [Cross-repo references]({{< relref "/docs/concepts/cross-repo-references" >}}).
 
 ## Per-project identity
 
@@ -140,7 +140,7 @@ ait create --batch --project backend \
 Two constraints:
 
 - `--project` requires `--batch` (non-interactive creation).
-- `--project` cannot be combined with `--parent` — a task in a sibling project cannot be made a child of a task in this one.
+- `--project` **can** be combined with `--parent`, but the parent is resolved in the **target** project: `ait create --batch --project backend --parent 42` creates a child of `backend`'s task 42. A task can never be made a child of a parent in a *different* project — [hierarchies never cross a repo boundary]({{< relref "/docs/concepts/cross-repo-references" >}}#hierarchies-never-cross-a-repo-boundary).
 
 ## Referring to cross-project tasks and files
 

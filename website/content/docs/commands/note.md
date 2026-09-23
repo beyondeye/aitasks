@@ -128,7 +128,7 @@ When [`/aitask-note`]({{< relref "/docs/skills/aitask-note" >}}) gets `LIVE_PANE
 
 ### Provenance
 
-Every note's header line records where it was written, so a reader can check its claims against the exact tree they were made about:
+Every note's header line records where it was written, so a reader can check its claims against the exact tree they were made about. For why the fields are shaped this way — why verification is recorded only when proven, and what a commit can and cannot date — see [Task notes]({{< relref "/docs/concepts/task-notes" >}}).
 
 | Field | Meaning |
 |-------|---------|
