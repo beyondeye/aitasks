@@ -3,11 +3,12 @@ priority: medium
 effort: low
 depends: []
 issue_type: chore
-status: Ready
+status: Implementing
 labels: [codeagent, opencode, models]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-09-22 23:29
-updated_at: 2026-09-22 23:29
+updated_at: 2026-09-23 14:45
 ---
 
 ## Goal
