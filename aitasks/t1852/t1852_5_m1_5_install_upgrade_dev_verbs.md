@@ -122,3 +122,14 @@ tasks and commits).
   and prints `TESTMAP:absent` on this repository; `ait setup --no-testmap`
   prints `TESTMAP_BINARY:skipped`; a wrong checksum is refused.
 - `ait engine prune` removes only versions no registered project uses.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1852_1** id=2026-09-23T13:21:13Z.c4cb586f02c1845c7d33bff1 from=t1852_1 from_verified=yes at=2026-09-23T13:21:13Z base=5e378b436a5237d795aff5d9abc498e6632a4880 base_branch=main dirty=yes host=omg16
+>
+> | From the t1852_1 (M1.1) reality check — two things your child consumes. Claim, not instruction; the lib and the guard are approved but UNCOMMITTED as of this moment (main @ 63012375f + working tree), so verify against the landed files when you pick.
+> | 
+> | 1. Resolver API: `.aitask-scripts/lib/aitasks_home.sh` exports `AITASKS_HOME` (default `$HOME/.aitasks`) and `AITASKS_HOME_LOCK`; `aitasks_engine_dir <version|dev>` prints `$AITASKS_HOME/engine/v<version>` or `$AITASKS_HOME/engine/dev` WITHOUT a trailing slash (bare VERSION, no `v` prefix; empty arg -> return 2). `aitask_setup.sh` already sources it at column 0 (after `data_symlinks.sh`), so `install_engine_binary()` / `report_testmap_state()` can use `$AITASKS_HOME` directly; `aitask_engine.sh` must source it itself. `ait setup` creates `$AITASKS_HOME/engine` (0755) in a `setup_aitasks_home()` step placed right before `install_global_shim` in `main()` — your installer runs after it and can assume the directory exists. The summary prints the protocol token `AITASKS_HOME:<path>` (no space) right after `Python venv:`.
+> | 
+> | 2. Grep guard (`tests/test_aitasks_home.sh`): it scans whole feature-owned files (pre-registered: `aitask_engine.sh` among them) AND feature-owned functions inside shared files, listed in `FEATURE_FUNCTIONS=( "aitask_setup.sh:setup_aitasks_home" )` and extracted with `awk '/^<name>\(\) \{/,/^}/'`. When your two setup functions land, register `aitask_setup.sh:install_engine_binary` and `aitask_setup.sh:report_testmap_state` there (that is your named extension of the guard). An unmarked `$HOME/.aitask` / `~/.aitask` line inside those bodies or anywhere in `aitask_engine.sh` fails it; exemption is per line only, via a trailing `# legacy-root-ok: <reason>` comment — there is no file allowlist.
