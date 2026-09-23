@@ -75,3 +75,5 @@ archived; Defer is allowed but creates a carry-over task.
 > | NOT exercised by hand: `R` (agent refresh) and `T` end-to-end launches into a real agent; the artifact-version watch after a refresh; `d` against a genuinely stale artifact; Settings -> Shortcuts listing the trail actions once under `board`; `?` inside `ait trails` on a real terminal (covered by a Pilot probe only); no minimonitor auto-spawn beside the window (inferred from the registry row, not observed); PyPy is not used (launcher is CPython).
 > | 
 > | Known shared-text oddity: with no trail selected the hint says "create a trail with T on a task card" although the stand-alone shows no cards in that state.
+
+> **👁 note:read** id=2026-09-23T13:19:43Z.39c4b684b6e41f4cecc993d4 by=t1794_12 at=2026-09-23T13:19:43Z mode=explicit ids=2026-09-18T09:48:55Z.8684e49f579e7a0d7a6c5b58
