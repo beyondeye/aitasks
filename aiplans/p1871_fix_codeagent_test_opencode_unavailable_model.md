@@ -144,3 +144,23 @@ Post-implementation: commit code (`bug: ... (t1871)`), then archive via Step 9.
 
 ### Goal-achievement risk: low
 - None identified. The derive predicate is identical to the launcher's, so a derived model is by construction one the launcher accepts.
+
+## Final Implementation Notes
+- **Actual work done:** Added `codeagent_active_model <models_file>` to
+  `tests/lib/codeagent_defaults.sh` (first model whose `status // "active"` is
+  not `unavailable` — the launcher's own predicate; non-zero + empty stdout when
+  none). Test 11e in `tests/test_codeagent.sh` and Test 3 in
+  `tests/test_codeagent_work_report.sh` now derive their opencode model from the
+  fixture registry, record a FAIL when none is usable, and capture the dry-run
+  with `|| true` so a launcher refusal is a recorded FAIL, not a `set -e` abort.
+- **Deviations from plan:** None.
+- **Issues encountered:** None. Verified: both files green (199/199, 29/29);
+  helper probed against all-unavailable / skip-first / no-status / missing
+  registries; scratch-mirror positive control green, and the all-unavailable
+  mutant makes both scripts exit 1 with the "active model" FAIL while still
+  reaching the results footer (test_codeagent.sh reaches Test 25c).
+- **Key decisions:** Coauthor tests (incl. the already-unavailable
+  `opencode/openai_gpt_5_1_codex` in Test 25) stay literal — `coauthor` never
+  consults status and asserts model-specific display names. claudecode/codex
+  literals left alone: those registries carry no `status` field.
+- **Upstream defects identified:** None
