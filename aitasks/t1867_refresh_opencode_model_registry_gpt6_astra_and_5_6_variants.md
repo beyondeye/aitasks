@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: medium
 effort: low
 depends: []
 issue_type: chore
@@ -11,8 +13,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5_5
 created_at: 2026-09-22 23:29
-updated_at: 2026-09-23 14:45
+updated_at: 2026-09-23 16:21
 ---
 
 ## Goal
@@ -24,49 +27,55 @@ Companion to **t1866** (Codex GPT-6 registration + shadow/discuss default
 promotion). Deliberately a **separate** task: the mechanism, the files, and the
 blast radius are all different.
 
-## Premise correction — GPT-6 on OpenCode is ASTRA ONLY
+## Premise — re-measured at implementation (2026-09-23)
 
-The request named a GPT-6 family of *astra, sol, luna*. Measured against the
-installed CLI (`opencode models`), that is not what OpenCode offers:
+Measured with opencode 1.18.32 (auth: OpenCode Zen api + OpenAI oauth). The
+catalog moved since this task was written (2026-09-22), so the numbers below
+replace the ones originally recorded here.
 
-- **`opencode/gpt-6-astra` is the only GPT-6 model available**, at either
-  provider.
-- There is **no** `gpt-6-sol`, **no** `gpt-6-luna`, and **no** `openai/gpt-6-*`
-  entry of any kind.
+### GPT-6 is ASTRA ONLY — at both providers
 
+The request named a GPT-6 family of *astra, sol, luna*. OpenCode offers no
+`gpt-6-sol` or `gpt-6-luna`. It now offers **three** GPT-6 ids, all astra:
+
+- `opencode/gpt-6-astra`
+- `openai/gpt-6-astra`
+- `openai/gpt-6-astra-fast`
+
+(Originally recorded: `opencode/gpt-6-astra` only, no `openai/gpt-6-*`.)
 This does not contradict t1866 — Codex CLI and OpenCode expose different model
-sets from different providers — but it does mean this task registers exactly
-**one** new GPT-6 model, not three. Re-measure before implementing; the provider
-catalog moves.
+sets from different providers.
 
-## GPT-5.6 is NOT complete
+### GPT-5.6
 
-An initial `grep terra` undercounted and suggested 5.6 was fully registered. It
-is not:
-
-| provider | offered | registered | missing |
+| provider | offered | registered before | added |
 |---|---|---|---|
 | `opencode/` | 3 (sol, terra, luna) | 3 | 0 |
-| `openai/` | 12 | 3 | **9** |
+| `openai/` | 6 (sol, terra, luna, each + `-fast`) | 3 | **3** |
 
-The nine missing `openai/` 5.6 entries: `gpt-5.6`, `gpt-5.6-fast`,
-`gpt-5.6-pro`, `gpt-5.6-luna-fast`, `gpt-5.6-luna-pro`, `gpt-5.6-sol-fast`,
-`gpt-5.6-sol-pro`, `gpt-5.6-terra-fast`, `gpt-5.6-terra-pro`.
+The three added `openai/` ids: `gpt-5.6-luna-fast`, `gpt-5.6-sol-fast`,
+`gpt-5.6-terra-fast`. The bare `gpt-5.6`, `gpt-5.6-fast`, `gpt-5.6-pro` and the
+`*-pro` variants originally listed here as missing are **no longer offered**.
 
 ## The registry is broadly stale
 
-The refresh is not a surgical two-model addition. A dry-run on the exploring
-machine reported:
+The refresh is not a surgical addition. This run's dry-run reported:
 
-> Total: 108 models (92 active, 16 unavailable)
+> Total: 104 models (85 active, 19 unavailable)
 
-against a registry that currently holds **67**. So the refresh adds roughly
-**41** models and flips **16** existing ones to `status: "unavailable"` —
-including `openai/gpt-5-codex`, `openai/gpt-5.1-codex{,-max,-mini}`,
-`openai/gpt-5.2-codex`, `openai/codex-mini-latest`,
-`opencode/claude-opus-4-1`, `opencode/claude-3-5-haiku`,
-`opencode/gemini-3-pro`, `opencode/glm-4.6`, `opencode/glm-4.7`,
-`opencode/minimax-m2.1`, and several `-free` tiers.
+against a registry of **67**. The refresh adds **37** models. Of the 19
+unavailable entries, 11 were already `unavailable`; **8 newly flip** to
+`status: "unavailable"`:
+
+- `openai/gpt-5.2`, `openai/gpt-5.3-codex`, `openai/gpt-5.5-pro` — still offered
+  under `opencode/`; the `openai/` flips reflect what the OpenAI-OAuth provider
+  lists on this box (see "Machine dependence")
+- `opencode/claude-opus-4-1`, `opencode/deepseek-v4-flash-free`,
+  `opencode/minimax-m2.5-free`, `opencode/nemotron-3-super-free`,
+  `opencode/ring-2.6-1t-free`
+
+No entry flips back from `unavailable` to active. (Originally recorded:
+108 total, 92 active, 16 unavailable.)
 
 `unavailable` is a soft-delete marker — entries are retained, not dropped. The
 decided scope is to **accept the full refresh**.
@@ -107,8 +116,11 @@ the registry away from discovery and the next refresh would overwrite it.
 
 - `jq -r '.models[] | select(.cli_id | test("gpt-6")) | .cli_id'` on both
   `aitasks/metadata/models_opencode.json` and `seed/models_opencode.json`
-  prints `opencode/gpt-6-astra`.
-- All 12 `openai/gpt-5.6*` ids are present in both files.
+  prints the 3 GPT-6 ids: `opencode/gpt-6-astra`, `openai/gpt-6-astra`,
+  `openai/gpt-6-astra-fast`.
+- All 6 `openai/gpt-5.6*` ids are present and `active` in both files.
+- The applied active→unavailable flips are exactly the 8 reviewed ids above,
+  with no reverse flips and no unreviewed additions.
 - `jq '.models | length'` matches between metadata and seed.
 - `jq -e '.models[] | select(.status == null)'` finds nothing — every opencode
   entry carries `status` (unlike codex entries, which have no such field).

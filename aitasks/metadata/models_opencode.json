@@ -60,7 +60,7 @@
       "name": "openai_gpt_5_2",
       "cli_id": "openai/gpt-5.2",
       "notes": "GPT-5.2 (400k context, openai provider)",
-      "status": "active",
+      "status": "unavailable",
       "verified": {
         "batch-review": 0,
         "pick": 0,
@@ -88,7 +88,7 @@
       "name": "openai_gpt_5_3_codex",
       "cli_id": "openai/gpt-5.3-codex",
       "notes": "GPT-5.3 Codex (400k context, openai provider)",
-      "status": "active",
+      "status": "unavailable",
       "verified": {
         "batch-review": 0,
         "pick": 0,
@@ -205,7 +205,7 @@
       "name": "openai_gpt_5_5_pro",
       "cli_id": "openai/gpt-5.5-pro",
       "notes": "GPT-5.5 Pro (400k context, openai provider)",
-      "status": "active",
+      "status": "unavailable",
       "verified": {
         "pick": 0,
         "explain": 0,
@@ -218,12 +218,26 @@
     {
       "name": "openai_gpt_5_6_luna",
       "cli_id": "openai/gpt-5.6-luna",
-      "notes": "GPT-5.6 Luna (1050k context, openai provider)",
+      "notes": "GPT-5.6 Luna (400k context, openai provider)",
       "status": "active",
       "verified": {
         "batch-review": 0,
         "pick": 0,
         "explain": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "openai_gpt_5_6_luna_fast",
+      "cli_id": "openai/gpt-5.6-luna-fast",
+      "notes": "GPT-5.6 Luna Fast (400k context, openai provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
         "work-report": 0,
         "trail": 0
       },
@@ -232,7 +246,7 @@
     {
       "name": "openai_gpt_5_6_sol",
       "cli_id": "openai/gpt-5.6-sol",
-      "notes": "GPT-5.6 Sol (1050k context, openai provider)",
+      "notes": "GPT-5.6 Sol (400k context, openai provider)",
       "status": "active",
       "verified": {
         "batch-review": 0,
@@ -244,14 +258,42 @@
       "verifiedstats": {}
     },
     {
+      "name": "openai_gpt_5_6_sol_fast",
+      "cli_id": "openai/gpt-5.6-sol-fast",
+      "notes": "GPT-5.6 Sol Fast (400k context, openai provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
       "name": "openai_gpt_5_6_terra",
       "cli_id": "openai/gpt-5.6-terra",
-      "notes": "GPT-5.6 Terra (1050k context, openai provider)",
+      "notes": "GPT-5.6 Terra (400k context, openai provider)",
       "status": "active",
       "verified": {
         "batch-review": 0,
         "pick": 0,
         "explain": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "openai_gpt_5_6_terra_fast",
+      "cli_id": "openai/gpt-5.6-terra-fast",
+      "notes": "GPT-5.6 Terra Fast (400k context, openai provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
         "work-report": 0,
         "trail": 0
       },
@@ -266,6 +308,34 @@
         "batch-review": 0,
         "pick": 0,
         "explain": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "openai_gpt_6_astra",
+      "cli_id": "openai/gpt-6-astra",
+      "notes": "GPT-6 Astra (1050k context, openai provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "openai_gpt_6_astra_fast",
+      "cli_id": "openai/gpt-6-astra-fast",
+      "notes": "GPT-6 Astra Fast (1050k context, openai provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
         "work-report": 0,
         "trail": 0
       },
@@ -300,6 +370,34 @@
       "verifiedstats": {}
     },
     {
+      "name": "opencode_claude_fable_5",
+      "cli_id": "opencode/claude-fable-5",
+      "notes": "Claude Fable 5 (1000k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "opencode_claude_fable_5_1",
+      "cli_id": "opencode/claude-fable-5-1",
+      "notes": "Claude Fable 5.1 (1000k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
       "name": "opencode_claude_haiku_4_5",
       "cli_id": "opencode/claude-haiku-4-5",
       "notes": "Claude Haiku 4.5 (200k context, opencode provider)",
@@ -317,7 +415,7 @@
       "name": "opencode_claude_opus_4_1",
       "cli_id": "opencode/claude-opus-4-1",
       "notes": "Claude Opus 4.1 (200k context, opencode provider)",
-      "status": "active",
+      "status": "unavailable",
       "verified": {
         "batch-review": 0,
         "pick": 0,
@@ -359,6 +457,34 @@
       "name": "opencode_claude_opus_4_7",
       "cli_id": "opencode/claude-opus-4-7",
       "notes": "Claude Opus 4.7 (1000k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "opencode_claude_opus_4_8",
+      "cli_id": "opencode/claude-opus-4-8",
+      "notes": "Claude Opus 4.8 (1000k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "opencode_claude_opus_5",
+      "cli_id": "opencode/claude-opus-5",
+      "notes": "Claude Opus 5 (1000k context, opencode provider)",
       "status": "active",
       "verified": {
         "pick": 0,
@@ -412,9 +538,65 @@
       "verifiedstats": {}
     },
     {
+      "name": "opencode_claude_sonnet_5",
+      "cli_id": "opencode/claude-sonnet-5",
+      "notes": "Claude Sonnet 5 (1000k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "opencode_deepseek_v4_flash",
+      "cli_id": "opencode/deepseek-v4-flash",
+      "notes": "DeepSeek V4 Flash (1000k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
       "name": "opencode_deepseek_v4_flash_free",
       "cli_id": "opencode/deepseek-v4-flash-free",
       "notes": "DeepSeek V4 Flash Free (1000k context, opencode provider)",
+      "status": "unavailable",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "opencode_deepseek_v4_flash_vision_exp",
+      "cli_id": "opencode/deepseek-v4-flash-vision-exp",
+      "notes": "DeepSeek V4 Flash Vision Exp (1000k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "opencode_deepseek_v4_pro",
+      "cli_id": "opencode/deepseek-v4-pro",
+      "notes": "DeepSeek V4 Pro (1000k context, opencode provider)",
       "status": "active",
       "verified": {
         "pick": 0,
@@ -434,6 +616,76 @@
         "batch-review": 0,
         "pick": 0,
         "explain": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "opencode_gemini_3_5_flash",
+      "cli_id": "opencode/gemini-3.5-flash",
+      "notes": "Gemini 3.5 Flash (1048k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "opencode_gemini_3_5_flash_lite",
+      "cli_id": "opencode/gemini-3.5-flash-lite",
+      "notes": "Gemini 3.5 Flash Lite (1048k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "opencode_gemini_3_6_flash",
+      "cli_id": "opencode/gemini-3.6-flash",
+      "notes": "Gemini 3.6 Flash (1048k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "opencode_gemini_3_7_flash",
+      "cli_id": "opencode/gemini-3.7-flash",
+      "notes": "Gemini 3.7 Flash (1048k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "opencode_gemini_3_8_flash",
+      "cli_id": "opencode/gemini-3.8-flash",
+      "notes": "Gemini 3.8 Flash (1048k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
         "work-report": 0,
         "trail": 0
       },
@@ -513,6 +765,48 @@
       "name": "opencode_glm_5_1",
       "cli_id": "opencode/glm-5.1",
       "notes": "GLM-5.1 (204k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "opencode_glm_5_2",
+      "cli_id": "opencode/glm-5.2",
+      "notes": "GLM-5.2 (1000k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "opencode_glm_5_3",
+      "cli_id": "opencode/glm-5.3",
+      "notes": "GLM-5.3 (1000k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "opencode_glm_5_3_flash",
+      "cli_id": "opencode/glm-5.3-flash",
+      "notes": "GLM-5.3-Flash (1000k context, opencode provider)",
       "status": "active",
       "verified": {
         "pick": 0,
@@ -750,7 +1044,7 @@
     {
       "name": "opencode_gpt_5_6_sol",
       "cli_id": "opencode/gpt-5.6-sol",
-      "notes": "GPT-5.6 Sol (1050k context, opencode provider)",
+      "notes": "GPT-5.6 Sol (50% Off) (1050k context, opencode provider)",
       "status": "active",
       "verified": {
         "batch-review": 0,
@@ -804,6 +1098,62 @@
       "verifiedstats": {}
     },
     {
+      "name": "opencode_gpt_6_astra",
+      "cli_id": "opencode/gpt-6-astra",
+      "notes": "GPT-6 Astra (1050k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "opencode_grok_4_5",
+      "cli_id": "opencode/grok-4.5",
+      "notes": "Grok 4.5 (500k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "opencode_grok_4_6",
+      "cli_id": "opencode/grok-4.6",
+      "notes": "Grok 4.6 (500k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "opencode_grok_build_0_1",
+      "cli_id": "opencode/grok-build-0.1",
+      "notes": "Grok Build 0.1 (256k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
       "name": "opencode_kimi_k2_5",
       "cli_id": "opencode/kimi-k2.5",
       "notes": "Kimi K2.5 (262k context, opencode provider)",
@@ -832,6 +1182,62 @@
       "verifiedstats": {}
     },
     {
+      "name": "opencode_kimi_k2_7_code",
+      "cli_id": "opencode/kimi-k2.7-code",
+      "notes": "Kimi K2.7 Code (262k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "opencode_kimi_k3",
+      "cli_id": "opencode/kimi-k3",
+      "notes": "Kimi K3 (1048k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "opencode_ling_3_0_flash_fin_free",
+      "cli_id": "opencode/ling-3.0-flash-fin-free",
+      "notes": "Ling 3.0 Flash Fin Free (262k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "opencode_mimo_v2_5_free",
+      "cli_id": "opencode/mimo-v2.5-free",
+      "notes": "MiMo V2.5 Free (200k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
       "name": "opencode_minimax_m2_1",
       "cli_id": "opencode/minimax-m2.1",
       "notes": "MiniMax M2.1 (204k context, opencode provider)",
@@ -848,7 +1254,7 @@
     {
       "name": "opencode_minimax_m2_5",
       "cli_id": "opencode/minimax-m2.5",
-      "notes": "MiniMax M2.5 (204k context, opencode provider)",
+      "notes": "MiniMax-M2.5 (204k context, opencode provider)",
       "status": "active",
       "verified": {
         "batch-review": 0,
@@ -863,7 +1269,7 @@
       "name": "opencode_minimax_m2_5_free",
       "cli_id": "opencode/minimax-m2.5-free",
       "notes": "MiniMax M2.5 Free (204k context, opencode provider)",
-      "status": "active",
+      "status": "unavailable",
       "verified": {
         "batch-review": 0,
         "pick": 0,
@@ -876,7 +1282,91 @@
     {
       "name": "opencode_minimax_m2_7",
       "cli_id": "opencode/minimax-m2.7",
-      "notes": "MiniMax M2.7 (204k context, opencode provider)",
+      "notes": "MiniMax-M2.7 (204k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "opencode_minimax_m3",
+      "cli_id": "opencode/minimax-m3",
+      "notes": "MiniMax-M3 (512k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "opencode_muse_spark_1_2",
+      "cli_id": "opencode/muse-spark-1.2",
+      "notes": "Muse Spark 1.2 (1048k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "opencode_muse_spark_1_2_contributor_free",
+      "cli_id": "opencode/muse-spark-1.2-contributor-free",
+      "notes": "Muse Spark 1.2 Free (1048k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "opencode_muse_spark_1_3",
+      "cli_id": "opencode/muse-spark-1.3",
+      "notes": "Muse Spark 1.3 (1048k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "opencode_muse_spark_1_3_contributor_free",
+      "cli_id": "opencode/muse-spark-1.3-contributor-free",
+      "notes": "Muse Spark 1.3 Free (1048k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "opencode_nemotron_3_5_lightning_free",
+      "cli_id": "opencode/nemotron-3.5-lightning-free",
+      "notes": "Nemotron 3.5 Lightning Free (262k context, opencode provider)",
       "status": "active",
       "verified": {
         "pick": 0,
@@ -891,6 +1381,20 @@
       "name": "opencode_nemotron_3_super_free",
       "cli_id": "opencode/nemotron-3-super-free",
       "notes": "Nemotron 3 Super Free (204k context, opencode provider)",
+      "status": "unavailable",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "opencode_nemotron_3_ultra_free",
+      "cli_id": "opencode/nemotron-3-ultra-free",
+      "notes": "Nemotron 3 Ultra Free (1000k context, opencode provider)",
       "status": "active",
       "verified": {
         "pick": 0,
@@ -933,6 +1437,20 @@
       "name": "opencode_ring_2_6_1t_free",
       "cli_id": "opencode/ring-2.6-1t-free",
       "notes": "Ring 2.6 1T Free (262k context, opencode provider)",
+      "status": "unavailable",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "opencode_union_alpha",
+      "cli_id": "opencode/union-alpha",
+      "notes": "Union Alpha Free (262k context, opencode provider)",
       "status": "active",
       "verified": {
         "pick": 0,
