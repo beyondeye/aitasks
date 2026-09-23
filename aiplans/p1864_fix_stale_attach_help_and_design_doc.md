@@ -65,3 +65,22 @@ None identified.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+
+- **Actual work done:** Exactly the two planned edits. `ait:51` now reads
+  `Manage task file attachments (ls/add/get/rm/gc; move pending)`.
+  `aidocs/task_attachments_design.md` §11 item 3 now reads "`ait attach gc` over
+  fully-orphaned blobs (`orphaned_at` grace clock, `attachments_gc_grace` knob);
+  archiving keeps an archived task's refs (see §8 — resolved in t1030_3,
+  archiving never decrefs)."
+- **Deviations from plan:** None.
+- **Issues encountered:** None. `bash -n ait` passes; `./ait help` renders the
+  new parenthetical in the existing column alignment; `grep 'decref on archive'`
+  on the design doc now returns nothing.
+- **Key decisions:** Kept §11 as a decomposition list and corrected the item in
+  place (rather than marking the whole list historical) — §11 is still the
+  reference for the remaining unshipped children (adapter seam, S3/GCS/GH
+  backends), so demoting it would have cost more than it fixed. The corrected
+  item points at §8 so the resolved lifecycle has one owner.
+- **Upstream defects identified:** None.
