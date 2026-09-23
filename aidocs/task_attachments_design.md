@@ -393,8 +393,10 @@ implementation order:
 2. **Local backend + cache + per-blob ledger** — `attach add/get/rm` over the
    `aitask-data` worktree; single-transaction commit flow; per-blob meta-file
    refcount.
-3. **Archive integration** — decref on archive, `ait attach gc`, grace
-   knob.
+3. **Archive integration** — `ait attach gc` over fully-orphaned blobs
+   (`orphaned_at` grace clock, `attachments_gc_grace` knob); archiving keeps
+   an archived task's refs (see §8 — resolved in t1030_3, archiving never
+   decrefs).
 4. **Adapter seam refactor** — extract `attachment_backend.sh`, prove the
    contract holds against the local backend.
 5. **S3-compatible backend** — first remote backend; bucket setup docs;
