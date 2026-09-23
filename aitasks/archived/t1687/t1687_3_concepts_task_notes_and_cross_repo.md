@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: medium
 depends: [t1687_2]
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [documentation, website, concepts]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1687
 implemented_with: claudecode/opus5
 created_at: 2026-09-20 12:01
-updated_at: 2026-09-23 16:17
+updated_at: 2026-09-23 17:02
+completed_at: 2026-09-23 17:02
 ---
 
 ## Context
@@ -121,3 +122,14 @@ catches an ambiguous relref, so run it before committing.
 > **✅ gate:plan_approved** run=2026-09-23T13:17:24Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-09-23T13:53:26Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-23T14:02:03Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:413ebf93e49f44ea
+
+> **✅ gate:risk_evaluated** run=2026-09-23T14:02:03Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1687_3/risk_evaluated_2026-09-23T14:02:03Z-risk_evaluated-a1.log`
