@@ -104,7 +104,7 @@ codeagent_resolve_field() {
 #
 # Scanning <metadata_dir> instead of assuming an agent family keeps this
 # agent-agnostic — a codex/ or opencode/ default (defaults.shadow is
-# codex/gpt5_6_terra today) still gets a valid sentinel — and guarantees the
+# codex/gpt6_sol today) still gets a valid sentinel — and guarantees the
 # model is registered in the very directory the `resolve` under test will read,
 # so the sentinel always resolves cleanly instead of erroring on a missing
 # model entry. Returns non-zero (fail-closed) if no candidate survives.

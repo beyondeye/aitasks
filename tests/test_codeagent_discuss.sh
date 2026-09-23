@@ -84,18 +84,24 @@ echo ""
 TMPDIR_TEST="$(setup_test_env true)"
 CODEAGENT="$TMPDIR_TEST/.aitask-scripts/aitask_codeagent.sh"
 
-# Test 1: claudecode dry-run carries the skill prompt with all args in order
-echo "--- Test 1: claudecode discuss dry-run (multi-node) ---"
+# Test 1a: an unpinned invoke uses the seeded default, whatever agent it names
+echo "--- Test 1a: default discuss dry-run uses the resolved default ---"
 output=$(cd "$TMPDIR_TEST" || exit 1 && bash "$CODEAGENT" --dry-run invoke discuss 42 n001 n002 2>&1)
-assert_contains "claudecode dry-run starts with DRY_RUN:" "DRY_RUN:" "$output"
-assert_contains "claudecode dry-run contains claude binary" "claude" "$output"
+assert_contains "default dry-run starts with DRY_RUN:" "DRY_RUN:" "$output"
 # Cross-check `invoke` against `resolve` rather than pinning a cli_id literal:
 # the contract is that the composed command line carries the SAME model the
 # resolver picks for this operation, whatever the seeded config says.
 seeded_cli_id=$(codeagent_resolve_field CLI_ID \
     "$(cd "$TMPDIR_TEST" || exit 1 && bash "$CODEAGENT" resolve discuss 2>&1)")
 assert_exit_zero "resolve discuss reports a cli_id" test -n "$seeded_cli_id"
-assert_contains "claudecode dry-run uses the resolved default model" "$seeded_cli_id" "$output"
+assert_contains "default dry-run uses the resolved default model" "$seeded_cli_id" "$output"
+
+# Test 1: claudecode dry-run carries the skill prompt with all args in order.
+# Pinned like Tests 2/3 — the seeded discuss default is not a claudecode model.
+echo "--- Test 1: claudecode discuss dry-run (multi-node) ---"
+output=$(cd "$TMPDIR_TEST" || exit 1 && bash "$CODEAGENT" --agent-string claudecode/opus5 --dry-run invoke discuss 42 n001 n002 2>&1)
+assert_contains "claudecode dry-run starts with DRY_RUN:" "DRY_RUN:" "$output"
+assert_contains "claudecode dry-run contains claude binary" "claude" "$output"
 # %q-escaped: the whole slash command is ONE argument with args in order.
 assert_contains "claudecode dry-run contains slash command + node ids in order" \
     '/aitask-brainstorm-discuss\ 42\ n001\ n002' "$output"
@@ -124,7 +130,7 @@ assert_contains "opencode dry-run contains --prompt slash command + node ids" \
 
 # Test 4: the single-node form composes for every agent (cardinality is >= 1)
 echo "--- Test 4: single-node form per agent ---"
-output=$(cd "$TMPDIR_TEST" || exit 1 && bash "$CODEAGENT" --dry-run invoke discuss 42 n001 2>&1)
+output=$(cd "$TMPDIR_TEST" || exit 1 && bash "$CODEAGENT" --agent-string claudecode/opus5 --dry-run invoke discuss 42 n001 2>&1)
 assert_contains "claudecode single-node slash command" '/aitask-brainstorm-discuss\ 42\ n001' "$output"
 output=$(cd "$TMPDIR_TEST" || exit 1 && bash "$CODEAGENT" --agent-string codex/gpt5_4 --dry-run invoke discuss 42 n001 2>&1)
 assert_contains "codex single-node composer prompt" 'aitask-brainstorm-discuss\ 42\ n001' "$output"

@@ -7,9 +7,9 @@
     "qa": "claudecode/sonnet5",
     "raw": "claudecode/sonnet5",
     "explore": "claudecode/opus5_5",
-    "shadow": "claudecode/opus5",
+    "shadow": "codex/gpt6_sol",
     "learn": "claudecode/opus5_5",
-    "discuss": "claudecode/opus5",
+    "discuss": "codex/gpt6_sol",
     "trail": "claudecode/opus5_5"
   }
 }

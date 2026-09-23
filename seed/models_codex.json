@@ -110,6 +110,20 @@
         "trail": 0
       },
       "verifiedstats": {}
+    },
+    {
+      "name": "gpt6_sol",
+      "cli_id": "gpt-6-sol",
+      "notes": "Flagship GPT-6 model for the most demanding coding, agentic, and research work",
+      "verified": {},
+      "verifiedstats": {}
+    },
+    {
+      "name": "gpt6_luna",
+      "cli_id": "gpt-6-luna",
+      "notes": "Fast and affordable GPT-6 model for clear, repeatable coding tasks and high-volume workflows",
+      "verified": {},
+      "verifiedstats": {}
     }
   ]
 }
