@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1852
+implemented_with: claudecode/fable5_1
 created_at: 2026-09-22 17:27
-updated_at: 2026-09-22 18:58
+updated_at: 2026-09-23 16:20
 ---
 
 ## Context
@@ -106,3 +107,8 @@ recorded in the plan file) re-verifies every anchor against the merge target.
 - `AITASKS_HOME=/tmp/x ./ait setup` (or the sourced function) prints
   `AITASKS_HOME:/tmp/x` and creates `/tmp/x/engine/` with mode 0755.
 - `grep -rn '\.aitask/' .aitask-scripts/lib/aitasks_home.sh` → nothing.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-23T13:20:26Z status=pass attempt=1 type=human
