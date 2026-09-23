@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: medium
 depends: [t1687_2]
 issue_type: documentation
@@ -12,8 +14,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1687
+implemented_with: claudecode/opus5
 created_at: 2026-09-20 12:01
-updated_at: 2026-09-22 18:06
+updated_at: 2026-09-23 16:17
 ---
 
 ## Context
@@ -111,3 +114,8 @@ cd website && python3 check_links.py --build
 
 Use `set -o pipefail` or check `${PIPESTATUS[0]}`. The build is the guard that
 catches an ambiguous relref, so run it before committing.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-23T13:17:24Z status=pass attempt=1 type=human
