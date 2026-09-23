@@ -134,3 +134,8 @@ dry-run before applying.
 - **Task-data branch:** `aitasks/metadata/models_opencode.json` via
   `./.aitask-scripts/aitask_task_commit.sh -m "ait: Refresh opencode model registry" aitasks/metadata/models_opencode.json`
 - **main:** `git commit -m "chore: Sync opencode model registry to seed" -- seed/models_opencode.json`
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-23T13:21:23Z status=pass attempt=1 type=human
