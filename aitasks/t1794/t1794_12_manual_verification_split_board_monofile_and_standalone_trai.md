@@ -3,13 +3,14 @@ priority: medium
 effort: medium
 depends: [t1794_11]
 issue_type: manual_verification
-status: Ready
+status: Implementing
 labels: [verification, manual]
-verifies: [1794_1, 1794_2, 1794_3, 1794_4, 1794_5, 1794_6, 1794_7, 1794_8, 1794_9, 1794_10, 1794_11]
+verifies: [t1794_1, t1794_2, t1794_3, t1794_4, t1794_5, t1794_6, t1794_7, t1794_8, t1794_9, t1794_10, t1794_11]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1794
 followup_kind: manual_verification
 created_at: 2026-09-11 15:12
-updated_at: 2026-09-11 15:12
+updated_at: 2026-09-23 16:19
 ---
 
 ## Manual Verification Task
