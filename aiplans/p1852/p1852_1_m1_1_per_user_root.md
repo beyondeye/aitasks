@@ -292,3 +292,56 @@ Archival and cleanup follow the shared `task-workflow` Step 9
 
 ### Planned mitigations
 - timing: post-phase | name: run_setup_fixture_tests | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — a fixture that copies aitask_setup.sh without the new startup lib | desc: run the three setup-copying fixtures and the startup-closure contract test after the source line lands; red means a copy path is missing
+
+## Final Implementation Notes
+
+- **Actual work done:** Exactly the five files the plan owns. `lib/aitasks_home.sh`
+  (39 lines: guard, `AITASKS_HOME`, `AITASKS_HOME_LOCK`, `aitasks_engine_dir`);
+  `aitask_setup.sh` +25 (column-0 `source`, `setup_aitasks_home()`, the call
+  before `install_global_shim`, the `AITASKS_HOME:<path>` summary line);
+  `tests/lib/test_scaffold.sh` copy entry; `shell_conventions.md` baseline
+  list; `tests/test_aitasks_home.sh` (265 lines, 31 assertions — T1–T10 as
+  planned, including the stubbed-`main()` wiring test with its negative
+  control and the per-line-marker grep guard with seven negative controls,
+  one of them `MISSING_FUNCTION:` for a registered function that vanished).
+  Steps 1–5 and the post-phase all executed. Notes sent to t1852_4
+  (`…e3adb1202e1da3bb3a5b4516`), t1852_5 (`…c4cb586f02c1845c7d33bff1`) and
+  t1852_6 (`…5bef83493af94e27eee47fd6`); all three `LIVE_NONE:unlocked`.
+- **Deviations from plan:** None of substance. Two shellcheck accommodations:
+  `# shellcheck disable=SC2174` on the `mkdir -p -m 0755` (the warning
+  describes exactly the intended semantics — mode applies to `engine/` only)
+  and a file-level `disable=SC2016` in the test (deliberate single-quoted
+  `bash -c` snippets). The guard reports a registered-but-absent function as
+  `MISSING_FUNCTION:` rather than silently scanning nothing (fail-closed
+  addition during implementation).
+- **Issues encountered:** `bash tests/run_all_python_tests.sh <path>` runs the
+  whole suite plus the path (the positional form disables the lane and appends
+  to every phase), so the closure contract was confirmed directly with
+  `pytest tests/test_shell_startup_closure.py` (9 passed) while the full run
+  continued in the background.
+- **Key decisions:** `AITASKS_HOME:<path>` is emitted in protocol form (no
+  space) so downstream tests grep one token; `aitasks_engine_dir` prints no
+  trailing slash; an existing `engine/` is never `chmod`ed; the grep guard has
+  no file allowlist — per-line `# legacy-root-ok: <reason>` markers plus a
+  function scope for shared files are the whole exemption model (rows 6–9 of
+  the reality check).
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:**
+  - Source the lib exactly like setup does — unconditional, column 0,
+    `source "$SCRIPT_DIR/lib/aitasks_home.sh"`; the scaffold already provides
+    it to every fixture built by `setup_fake_aitask_repo`.
+  - The grep guard (`tests/test_aitasks_home.sh`, T9) pre-registers
+    `aitask_testmap.sh`, `lib/platform_detect.sh`, `aitask_engine.sh`,
+    `aitask_test.sh`, `aitask_gate_testmap_check.sh` as feature files: the
+    moment one lands, an unmarked `$HOME/.aitask` / `~/.aitask` line in it fails
+    the guard. M1.5 registers `aitask_setup.sh:install_engine_binary` and
+    `aitask_setup.sh:report_testmap_state` in `FEATURE_FUNCTIONS`; M1.6 marks
+    each migration line (the `engine` entry included) with
+    `# legacy-root-ok: <reason>` and appends its cases to the same file.
+  - The bounded-`main()` pattern in T8 (source `--source-only`, stub every
+    `compgen -A function` name except the step under test and the loggers,
+    run `main`) is reusable for M1.5's `install_engine_binary` /
+    `report_testmap_state` wiring checks — nothing in `main()` consumes a
+    stub's output, so the run stays offline and prompt-free.
+  - The legacy-root reference count is 9 files / 36 refs on main @ 63012375f
+    (`ait:127` is the one the proposal's "8 / 35" misses).
