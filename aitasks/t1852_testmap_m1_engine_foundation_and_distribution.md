@@ -9,13 +9,13 @@ active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
-children_to_implement: [t1852_1, t1852_2, t1852_3, t1852_4, t1852_5, t1852_6]
+children_to_implement: [t1852_2, t1852_3, t1852_4, t1852_5, t1852_6]
 artifacts:
   - handle: art:trail-testmap-feature
     kind: implementation_trail
     name: "Test map feature: module landing order"
 created_at: 2026-09-22 09:19
-updated_at: 2026-09-22 17:27
+updated_at: 2026-09-23 16:44
 ---
 
 ## Goal
