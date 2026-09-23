@@ -17,6 +17,11 @@ Three defects are pinned here, all in the one function:
 3. **No `pane-died` cleanup hook was armed here at all**, so every board- /
    codebrowser- / crew-launched window carried a companion with no hook.
 
+And one identity rule (t1851): a caller that already knows its agent's pane —
+the frozen-agent restore resolves it from the launched pid — passes it as
+``agent_pane``, and that pane, never whichever one happens to be active, is the
+one the companion is split beside, hooked to and refocused on.
+
 The tmux gateway is faked wholesale, so no tmux call leaves the test.
 
 Run: python3 tests/test_minimonitor_instance_guard.py
@@ -35,7 +40,9 @@ sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts"))
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "lib"))
 
 import agent_launch_utils  # noqa: E402
-from agent_launch_utils import MONITOR_KIND_OPTION, maybe_spawn_minimonitor  # noqa: E402
+from agent_launch_utils import (  # noqa: E402
+    MONITOR_KIND_OPTION, maybe_spawn_minimonitor, tmux_window_target,
+)
 
 LIVE = f"minimonitor:{os.getpid()}"
 
@@ -53,10 +60,11 @@ STALE = f"minimonitor:{_dead_pid()}"
 class _FakeTmux:
     """Scripted gateway. `panes` is a list of `(pane_id, marker, shadow_target)`."""
 
-    def __init__(self, panes, *, active_pane="%1", split_rc=0):
+    def __init__(self, panes, *, active_pane="%1", split_rc=0, list_rc=0):
         self._panes = panes
         self._active_pane = active_pane
         self._split_rc = split_rc
+        self._list_rc = list_rc
         self.ran: list[list[str]] = []
         self.spawned: list[list[str]] = []
 
@@ -66,6 +74,8 @@ class _FakeTmux:
         if verb == "list-windows":
             return (0, "3:agent-demo")
         if verb == "list-panes":
+            if self._list_rc:
+                return (self._list_rc, "")
             return (0, "\n".join("|".join(p) for p in self._panes))
         if verb == "display-message":
             return (0, self._active_pane) if self._active_pane else (1, "")
@@ -120,13 +130,14 @@ class MaybeSpawnMinimonitorGuardTests(unittest.TestCase):
         self.hooks = hooks
         return tmux
 
-    def _spawn(self, panes, **kwargs):
+    def _spawn(self, panes, *, agent_pane=None, **kwargs):
         tmux = self._install(_FakeTmux(panes, **kwargs))
         # project_root points at a dir with no project_config.yaml, so the
         # defaults apply (auto_spawn on, width 40).
+        extra = {} if agent_pane is None else {"agent_pane": agent_pane}
         result = maybe_spawn_minimonitor(
             "demo", "agent-demo", window_index="3",
-            project_root=Path("/nonexistent-for-config"),
+            project_root=Path("/nonexistent-for-config"), **extra,
         )
         return tmux, result
 
@@ -227,6 +238,48 @@ class MaybeSpawnMinimonitorGuardTests(unittest.TestCase):
         _tmux, result = self._spawn([("%1", "", "")], split_rc=1)
         self.assertIsNone(result)
         self.assertEqual(self.hooks, [])
+
+    # -- explicit agent pane (t1851) -----------------------------------------
+
+    def test_explicit_agent_pane_wins_over_the_active_pane(self):
+        """Something else became active between the launch and the spawn.
+
+        The active-pane read would hand the companion to `%1`. With the agent's
+        own pane passed in, every identity-bearing call names `%2` instead.
+        """
+        tmux, result = self._spawn(
+            [("%1", "", ""), ("%2", "", "")], active_pane="%1", agent_pane="%2")
+        self.assertEqual(result, "%77")
+        self.assertEqual(self.hooks, [("%2", "%77")],
+                         "the cleanup hook must be armed on the agent, not the active pane")
+        splits = tmux.verbs("split-window")
+        self.assertEqual(1, len(splits))
+        target = splits[0][splits[0].index("-t") + 1]
+        self.assertEqual("%2", target, "the companion must be split beside the agent")
+        self.assertEqual([["select-pane", "-t", "%2"]], tmux.verbs("select-pane"),
+                         "focus must return to the agent")
+        self.assertEqual([], tmux.verbs("display-message"),
+                         "a known agent pane must not be re-derived from focus")
+
+    def test_agent_pane_outside_the_window_spawns_nothing(self):
+        tmux, result = self._spawn([("%1", "", "")], agent_pane="%9")
+        self.assertIsNone(result, "a pane not in this window must not get a companion here")
+        self.assertEqual([], tmux.verbs("split-window"))
+        self.assertEqual([], self.hooks)
+
+    def test_agent_pane_with_unreadable_panes_spawns_nothing(self):
+        """Without the pane list there is no proof the agent is in this window."""
+        tmux, result = self._spawn([("%1", "", "")], agent_pane="%1", list_rc=1)
+        self.assertIsNone(result)
+        self.assertEqual([], tmux.verbs("split-window"))
+        self.assertEqual([], self.hooks)
+
+    def test_without_an_agent_pane_the_split_still_targets_the_window(self):
+        """The default path every existing caller takes is unchanged."""
+        tmux, result = self._spawn([("%1", "", "")])
+        self.assertEqual(result, "%77")
+        split = tmux.verbs("split-window")[0]
+        self.assertEqual(tmux_window_target("demo", "3"), split[split.index("-t") + 1])
 
 
 if __name__ == "__main__":

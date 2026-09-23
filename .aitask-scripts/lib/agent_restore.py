@@ -102,6 +102,7 @@ from agent_launch_utils import (  # noqa: E402
     TmuxLaunchConfig,
     discover_aitasks_sessions,
     launch_in_tmux,
+    maybe_spawn_minimonitor,
     pick_launch_argv,
     resolve_dry_run_command,
     resolve_pane_id_by_pid,
@@ -393,6 +394,27 @@ def _bootstrap_project_session(root: str) -> tuple[str, str]:
     return "", lines[-1] if lines else f"rc={done.returncode}"
 
 
+def _spawn_companion(session: str, window: str, pane_id: str, root: str) -> None:
+    """Give a new-window restore the companion a normal launch gets (t1851).
+
+    ``agent_pane`` is the replacement's own pane, so the companion follows the
+    restored agent by identity rather than whichever pane is active by the time
+    the helper looks. ``project_root`` because this process runs detached under
+    `run-shell -b`, where the cwd is not guaranteed to be the project.
+
+    Best-effort: the replacement is already running, so no companion failure may
+    turn into a failed restore — `restore()` rolls back only on OSError /
+    ValueError, and anything else escaping here would abandon a live agent
+    mid-transaction.
+    """
+    try:
+        maybe_spawn_minimonitor(session, window, agent_pane=pane_id,
+                                project_root=Path(root) if root else None)
+    except Exception as exc:
+        print(f"WARNING:companion not spawned in {session}:{window} ({exc})",
+              file=sys.stderr)
+
+
 def _launch_into_new_window(rec: dict, command: str, env: dict) -> tuple[str, int, str]:
     """Gone-pane branch: start the replacement in a NEW window.
 
@@ -404,6 +426,10 @@ def _launch_into_new_window(rec: dict, command: str, env: dict) -> tuple[str, in
     the root — the ordinary state after a tmux server restart — that session is
     created first (t1784), under an OWNERSHIP rule: use only a session discovery
     attributed to the root before anything changed, or one this call created.
+
+    A successful launch also gets its minimonitor companion (t1851), as every
+    other launch path does; the same-pane branch in `restore()` never comes
+    here, so the companion its surviving window already has is never doubled.
     """
     root = os.path.realpath(rec.get("root", ""))
     target = _session_for_root(root)
@@ -448,6 +474,7 @@ def _launch_into_new_window(rec: dict, command: str, env: dict) -> tuple[str, in
     pane_id = resolve_pane_id_by_pid(target.session, pane_pid) if pane_pid else None
     if not pane_id:
         return "", 0, "launched_pane_unresolvable"
+    _spawn_companion(target.session, window, pane_id, rec.get("root", ""))
     return pane_id, pane_pid, ""
 
 

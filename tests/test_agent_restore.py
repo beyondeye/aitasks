@@ -754,14 +754,21 @@ class TestNoProjectSessionBootstrapsOne(_SwapMixin, unittest.TestCase):
         discover = unittest.mock.Mock(side_effect=[list(x) for x in lookups])
         bootstrap = unittest.mock.Mock(return_value=boot)
         launch = unittest.mock.Mock(return_value=(51000, None))
+        # The companion spawn (t1851) reaches the real tmux gateway in
+        # `agent_launch_utils`, which `swap_tmux` does not cover — so it is
+        # always stubbed here. `TestNewWindowRestoreSpawnsCompanion` asserts it.
+        spawn = unittest.mock.Mock(return_value="%901")
         with unittest.mock.patch.object(agent_restore, "discover_aitasks_sessions", discover), \
              unittest.mock.patch.object(agent_restore, "_bootstrap_project_session",
                                         bootstrap, create=True), \
              unittest.mock.patch.object(agent_restore, "launch_in_tmux", launch), \
              unittest.mock.patch.object(agent_restore, "resolve_pane_id_by_pid",
-                                        return_value="%900"):
+                                        return_value="%900"), \
+             unittest.mock.patch.object(agent_restore, "maybe_spawn_minimonitor",
+                                        spawn, create=True):
             result = agent_restore._launch_into_new_window(
                 _rec(), "claude --resume sess-abc", self.ENV)
+        self.spawn = spawn
         return result, discover, bootstrap, launch
 
     def test_an_attributed_session_is_used_without_bootstrapping(self):
@@ -830,6 +837,93 @@ class TestNoProjectSessionBootstrapsOne(_SwapMixin, unittest.TestCase):
                     "|bootstrap:default_session_unreadable:block_scalar"),
             result)
         self.assertEqual(1, discover.call_count)
+
+
+class TestNewWindowRestoreSpawnsCompanion(_SwapMixin, unittest.TestCase):
+    """A new-window restore gets the minimonitor companion a normal launch gets (t1851).
+
+    Every launch path follows `launch_in_tmux` with `maybe_spawn_minimonitor`;
+    the gone-pane restore did not, so a restored agent came back alone. The
+    companion must follow the RESTORED agent by identity — the pane resolved from
+    the launched pid — not whichever pane is active when the helper looks. A
+    same-pane restore keeps its window, and its companion, and spawns nothing.
+
+    `maybe_spawn_minimonitor` is patched with ``create=True`` so that, against
+    code that never imported it, these tests fail on behaviour.
+    """
+
+    ENV = {"AITASK_RESTORE_RECORD": "7f3a2c1d"}
+
+    def _launch(self, *, launch_answer=(51000, None), sessions=None,
+                spawn_effect=None):
+        self.swap_tmux(_FakeTmux(out="agent-pick-1705\n"))    # answers list-windows
+        sessions = [_session()] if sessions is None else sessions
+        launch = unittest.mock.Mock(return_value=launch_answer)
+        spawn = unittest.mock.Mock(return_value="%901", side_effect=spawn_effect)
+        with unittest.mock.patch.object(agent_restore, "discover_aitasks_sessions",
+                                        return_value=sessions), \
+             unittest.mock.patch.object(agent_restore, "_bootstrap_project_session",
+                                        return_value=("", "stale_path"), create=True), \
+             unittest.mock.patch.object(agent_restore, "launch_in_tmux", launch), \
+             unittest.mock.patch.object(agent_restore, "resolve_pane_id_by_pid",
+                                        return_value="%900"), \
+             unittest.mock.patch.object(agent_restore, "maybe_spawn_minimonitor",
+                                        spawn, create=True):
+            result = agent_restore._launch_into_new_window(
+                _rec(), "claude --resume sess-abc", self.ENV)
+        return result, launch, spawn
+
+    def test_a_new_window_launch_spawns_the_companion_once(self):
+        result, launch, spawn = self._launch()
+        self.assertEqual(("%900", 51000, ""), result)
+        self.assertEqual(1, spawn.call_count,
+                         "a restored agent must not come back alone (t1851)")
+        cfg = launch.call_args.args[1]
+        self.assertEqual((cfg.session, cfg.window), spawn.call_args.args,
+                         "the companion goes into the window the agent was launched in")
+        self.assertEqual("%900", spawn.call_args.kwargs.get("agent_pane"),
+                         "the companion must follow the restored pane, not the active one")
+        self.assertEqual(Path(_ROOT), spawn.call_args.kwargs.get("project_root"),
+                         "the detached restore's cwd is not the project")
+
+    def test_no_companion_when_the_launch_fails(self):
+        result, _, spawn = self._launch(launch_answer=(None, "tmux said no"))
+        self.assertEqual(("", 0, "tmux said no"), result)
+        self.assertFalse(spawn.called)
+
+    def test_no_companion_when_no_session_is_usable(self):
+        result, launch, spawn = self._launch(sessions=[])
+        self.assertTrue(result[2].startswith("no_session_for_root:"))
+        self.assertFalse(launch.called)
+        self.assertFalse(spawn.called)
+
+    def test_a_companion_failure_does_not_fail_the_restore(self):
+        """The agent is already running: a companion error must not roll it back."""
+        result, _, spawn = self._launch(spawn_effect=RuntimeError("boom"))
+        self.assertTrue(spawn.called)
+        self.assertEqual(("%900", 51000, ""), result)
+
+    def test_a_same_pane_restore_spawns_no_companion(self):
+        self.swap_store(_RecordingStore(answers={
+            "restore-begin": (0, "RESTORING:7f3a2c1d|deadbeef"),
+            "restore-launched": (0, "LAUNCHED:7f3a2c1d"),
+            "restore-confirm": (0, "LIVE:7f3a2c1d|liveness"),
+        }))
+        self.swap_tmux(_ScriptedTmux(dict(_TMUX_OURS_AND_FIRES)))
+        new_window = unittest.mock.Mock(wraps=agent_restore._launch_into_new_window)
+        spawn = unittest.mock.Mock(return_value="%901")
+        with unittest.mock.patch.object(agent_restore, "_reread", return_value=_rec()), \
+             unittest.mock.patch.object(agent_restore, "build_resume_argv",
+                                        return_value="claude --resume sess-abc"), \
+             unittest.mock.patch.object(agent_restore, "_launch_into_new_window",
+                                        new_window), \
+             unittest.mock.patch.object(agent_restore, "maybe_spawn_minimonitor",
+                                        spawn, create=True), \
+             unittest.mock.patch.object(ops, "restore_ack_grace", return_value=0):
+            agent_restore.restore("7f3a2c1d")
+        self.assertFalse(new_window.called, "the stand-in's own pane was reused")
+        self.assertFalse(spawn.called,
+                         "a same-pane restore keeps its companion; a second one is a duplicate")
 
 
 class TestBootstrapHelper(unittest.TestCase):

@@ -1981,6 +1981,7 @@ def maybe_spawn_minimonitor(
     window_index: str | None = None,
     force_companion: bool = False,
     project_root: Path | None = None,
+    agent_pane: str | None = None,
 ) -> str | None:
     """Spawn a minimonitor split pane if conditions are met.
 
@@ -2004,6 +2005,14 @@ def maybe_spawn_minimonitor(
             pane starts in that project's directory. Required for cross-
             session spawns from the TUI switcher; defaults to ``Path.cwd()``
             for legacy callers operating on the current project.
+        agent_pane: the pane the companion serves, when the caller knows it
+            (the frozen-agent restore resolves it from the launched pid,
+            t1851). It replaces the window's ACTIVE pane as the companion's
+            identity — the split lands beside it, the cleanup hook is armed on
+            it and focus returns to it — so a focus change or a split between
+            the launch and this call cannot hand the companion to the wrong
+            pane. It must be one of the window's panes: when it is not, or the
+            pane list cannot be read, nothing is spawned.
 
     Returns the new companion pane id (e.g. `%42`) on success, or None if
     no spawn happened (disabled, rejected by a gate, tmux error, etc.).
@@ -2089,10 +2098,15 @@ def maybe_spawn_minimonitor(
          "-F", f"#{{pane_id}}|#{{{MONITOR_KIND_OPTION}}}|#{{@aitask_shadow_target}}"
                "|#{@aitask_frozen}"]
     )
+    if agent_pane and rc != 0:
+        # Without the pane list there is no proof the agent is in this window.
+        return None
     if rc == 0:
         real_panes = 0
+        window_panes: set[str] = set()
         for line in out.strip().splitlines():
             pane_id, _, rest = line.partition("|")
+            window_panes.add(pane_id)
             marker, _, rest2 = rest.partition("|")
             shadow_target, _, frozen = rest2.partition("|")
             if frozen.strip():
@@ -2115,23 +2129,28 @@ def maybe_spawn_minimonitor(
         # Avoid overcrowding: skip if 3+ non-helper panes already exist
         if real_panes >= 3:
             return None
+        if agent_pane and agent_pane not in window_panes:
+            # Fail closed: never place a companion for a pane in another window.
+            return None
 
-    # Capture the currently-active pane (the just-launched agent) so we can
-    # refocus it after the split. Hardcoding `.0` is wrong once the window holds
-    # more than one pane (e.g. a shadow), where the agent need not be pane 0.
-    rc_active, active_pane = _TMUX.run(
-        ["display-message", "-p", "-t",
-         tmux_window_target(session, win_index), "#{pane_id}"]
-    )
-    agent_pane = active_pane.strip() if rc_active == 0 else ""
+    # Without a caller-supplied pane, capture the currently-active pane (the
+    # just-launched agent) so we can refocus it after the split. Hardcoding `.0`
+    # is wrong once the window holds more than one pane (e.g. a shadow), where
+    # the agent need not be pane 0.
+    split_target = agent_pane or tmux_window_target(session, win_index)
+    if not agent_pane:
+        rc_active, active_pane = _TMUX.run(
+            ["display-message", "-p", "-t",
+             tmux_window_target(session, win_index), "#{pane_id}"]
+        )
+        agent_pane = active_pane.strip() if rc_active == 0 else ""
 
     # Spawn minimonitor as a right split, capturing the new pane id
     split_argv = ["split-window", "-h", "-P", "-F", "#{pane_id}",
                   "-l", str(width)]
     if project_root is not None:
         split_argv += ["-c", str(project_root)]
-    split_argv += ["-t", tmux_window_target(session, win_index),
-                   "ait", "minimonitor"]
+    split_argv += ["-t", split_target, "ait", "minimonitor"]
     rc, out = _TMUX.run(split_argv)
     if rc != 0:
         return None
