@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1852
+implemented_with: claudecode/opus5_5
 created_at: 2026-09-22 17:27
-updated_at: 2026-09-23 16:57
+updated_at: 2026-09-23 17:26
 ---
 
 ## Context
@@ -125,3 +126,8 @@ the dev host (go1.27.0 via mise on 2026-09-22).
   prints version/commit/contract; `version --json` contains `ENGINE:`.
 - Every stub verb exits 64; an unknown verb exits per the exit contract.
 - A bench with an artificially slowed fixture fails the 2× rule.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-23T14:26:17Z status=pass attempt=1 type=human
