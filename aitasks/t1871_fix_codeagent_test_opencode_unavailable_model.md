@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1865
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-09-23 17:34
-updated_at: 2026-09-23 17:55
+updated_at: 2026-09-23 19:24
 ---
 
 ## Origin
@@ -59,3 +60,8 @@ assertions derive from `seed/codeagent_config.json`. Fail loudly (not skip) if
 the registry has no active opencode model. Check the rest of the file, and
 `tests/test_codeagent_work_report.sh`, for other literal opencode/codex model
 names with the same exposure.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-23T16:24:32Z status=pass attempt=1 type=human
