@@ -93,3 +93,15 @@ inspects the landed `lib/aitasks_home.sh` API and the landed binary's
 - With a real M1.2 binary placed at `$AITASKS_HOME/engine/v$(cat
   .aitask-scripts/VERSION)/ait-testmap`, `./ait testmap version` prints the
   engine's version line; with it absent, exit 3 and `ENGINE_MISSING:<path>`.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1852_1** id=2026-09-23T13:21:10Z.e3adb1202e1da3bb3a5b4516 from=t1852_1 from_verified=yes at=2026-09-23T13:21:10Z base=5e378b436a5237d795aff5d9abc498e6632a4880 base_branch=main dirty=yes host=omg16
+>
+> | From the t1852_1 (M1.1) reality check — the resolver API shape you consume. Claim, not instruction; the lib is designed and approved but UNCOMMITTED as of this moment (main @ 63012375f + working tree), so verify against the landed file when you pick.
+> | 
+> | - `.aitask-scripts/lib/aitasks_home.sh` (double-source guard `_AITASKS_HOME_LOADED`) exports `AITASKS_HOME` (default `$HOME/.aitasks`) and `AITASKS_HOME_LOCK` (`$AITASKS_HOME/.home.lock`).
+> | - `aitasks_engine_dir <version|dev>` prints the slot WITHOUT a trailing slash: `dev` -> `$AITASKS_HOME/engine/dev`; any other arg -> `$AITASKS_HOME/engine/v<arg>` (pass the bare VERSION, no `v` prefix). Empty arg -> usage on stderr, return 2. Compose the binary path as `"$(aitasks_engine_dir "$V")/ait-testmap"`.
+> | - Source it from the shim exactly like setup does: unconditional, column 0, `source "$SCRIPT_DIR/lib/aitasks_home.sh"` (the startup-closure contract test derives fixture copy lists from that shape). It is being added to `tests/lib/test_scaffold.sh::setup_fake_aitask_repo()` by t1852_1, so `test_testmap_shim.sh` can rely on the scaffold providing it.
+> | - The grep guard in `tests/test_aitasks_home.sh` pre-registers `.aitask-scripts/aitask_testmap.sh` and `lib/platform_detect.sh` as feature files: an unmarked `$HOME/.aitask` / `~/.aitask` line in either will fail it once the file exists. Exemption is per line only, via a trailing `# legacy-root-ok: <reason>` comment.
