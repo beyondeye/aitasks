@@ -133,3 +133,26 @@ package. TUIs were driven on a **private tmux socket** (`tmux -L aitv1794`,
 - Private tmux server `aitv1794` — exited (board `q`); sessions `tr`, `st`
   killed/quit. No scratch fixtures created under `aitasks/`.
 - Scratch logs in the session scratchpad only (pysuite.log, hugo output).
+
+## Final Implementation Notes
+- **Actual work done:** Autonomous verification of the 40-item aggregate
+  checklist for t1794_1…t1794_11. 31 items passed on evidence (full Python
+  suite, bash guards, greps, doc build/link check, plan-record inspection, and
+  read-only TUI driving on a private tmux socket). The 9 remaining items were
+  deferred by the user and go to a carry-over manual-verification task.
+- **Deviations from plan:** Two checklist literals had drifted but their intent
+  holds: `i` is at `tuis/_index.md:34` (not `:38`); CLAUDE.md no longer contains
+  the literal `board/aitask_board.py` because line 143 now describes the
+  `board/` package.
+- **Issues encountered:** The TUI switcher opened from a private-socket board
+  resolves the user's real `aitasks` session, so `j`→`i` cannot be tested in
+  isolation (closed with Esc, nothing created). Typing into the Settings →
+  Shortcuts filter by send-keys was taken as tab shortcuts and opened the
+  Import dialog (cancelled; nothing written). Both parts stay in the carry-over.
+- **Key decisions:** Nothing that mutates real task files, board columns or git
+  state (`R`, `S`, `M`, `m`, column manage/merge, detail-field edits) was
+  automated. Those are the carry-over items.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:** None. The carry-over task holds items 16, 19, 21,
+  24, 28–31 and 36. The t1794_6 inbox note's "not exercised" list (R/T agent
+  launches, artifact-version watch, stale `d`) overlaps items 19 and 21.

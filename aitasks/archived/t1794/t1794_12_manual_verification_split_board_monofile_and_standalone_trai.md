@@ -3,7 +3,7 @@ priority: medium
 effort: medium
 depends: [t1794_11]
 issue_type: manual_verification
-status: Implementing
+status: Done
 labels: [verification, manual]
 active_gates: []
 active_gates_filtered: []
@@ -14,7 +14,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1794
 followup_kind: manual_verification
 created_at: 2026-09-11 15:12
-updated_at: 2026-09-23 16:34
+updated_at: 2026-09-23 16:35
+completed_at: 2026-09-23 16:35
 ---
 
 ## Manual Verification Task
