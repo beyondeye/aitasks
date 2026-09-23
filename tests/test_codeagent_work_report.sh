@@ -111,7 +111,12 @@ assert_not_contains "codex dry-run has no sandbox flag" "--sandbox" "$output"
 
 # Test 3: opencode dry-run passes --columns/--tasks through verbatim
 echo "--- Test 3: opencode work-report dry-run ---"
-output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --agent-string opencode/openai_gpt_5_4 --dry-run invoke work-report --columns now,next --tasks 12,34 2>&1)
+# Derived, never pinned: a registry refresh can mark any literal entry
+# unavailable, and the launcher then refuses it (t1871). `|| true` keeps that a
+# recorded FAIL on the DRY_RUN: assertion instead of an abort under `set -e`.
+opencode_active="$(codeagent_active_model "$TMPDIR_TEST/aitasks/metadata/models_opencode.json" || true)"
+assert_exit_zero "fixture opencode registry has an active model" test -n "$opencode_active"
+output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --agent-string "opencode/$opencode_active" --dry-run invoke work-report --columns now,next --tasks 12,34 2>&1) || true
 assert_contains "opencode dry-run starts with DRY_RUN:" "DRY_RUN:" "$output"
 assert_contains "opencode dry-run contains opencode binary" "opencode" "$output"
 assert_contains "opencode dry-run contains --prompt slash command + args verbatim" '/aitask-work-report\ --columns\ now\,next\ --tasks\ 12\,34' "$output"

@@ -133,3 +133,23 @@ codeagent_sentinel_excluding() {
 
     return 1
 }
+
+# codeagent_active_model <models_file>
+#
+# Print the name of the first model in <models_file> that the launcher will
+# accept — status not "unavailable", with an absent status counting as active
+# (the default lib/agent_string.sh applies). Registry refreshes legitimately
+# flip entries to unavailable: t1867 did it to openai_gpt_5_2, and the literal
+# pin in test_codeagent.sh aborted the rest of that file (t1871). A dry-run test
+# that needs "some model of this agent" derives one here instead of pinning it.
+# Returns non-zero with nothing on stdout when no model qualifies, so callers
+# can fail loudly rather than skip.
+codeagent_active_model() {
+    local models_file="$1" name
+
+    [[ -f "$models_file" ]] || return 1
+    name="$(jq -r '[.models[] | select((.status // "active") != "unavailable") | .name][0] // empty' \
+        "$models_file" 2>/dev/null)" || return 1
+    [[ -n "$name" ]] || return 1
+    printf '%s\n' "$name"
+}

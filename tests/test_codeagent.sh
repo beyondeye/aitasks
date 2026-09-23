@@ -350,8 +350,16 @@ for operation in pick explain qa shadow learn work-report trail discuss explore 
             assert_contains "codex $operation keeps the composer prompt last" "\$aitask-" "$last_arg" ;;
     esac
 done
-for agent_string in claudecode/opus5 opencode/openai_gpt_5_2; do
-    output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --agent-string "$agent_string" --dry-run invoke pick 42 2>&1)
+# The opencode model is derived from the fixture registry, never pinned: a
+# refresh that marks a pinned entry unavailable made the launcher refuse it and
+# aborted this whole file here (t1871). `|| true` keeps a refusal a recorded
+# FAIL on the DRY_RUN: assertion instead of an abort under `set -e`.
+opencode_active="$(codeagent_active_model "$TMPDIR_TEST/aitasks/metadata/models_opencode.json" || true)"
+assert_exit_zero "fixture opencode registry has an active model" test -n "$opencode_active"
+negative_agents=(claudecode/opus5)
+[[ -n "$opencode_active" ]] && negative_agents+=("opencode/$opencode_active")
+for agent_string in "${negative_agents[@]}"; do
+    output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --agent-string "$agent_string" --dry-run invoke pick 42 2>&1) || true
     assert_contains "$agent_string pick still dry-runs" "DRY_RUN:" "$output"
     assert_not_contains "$agent_string pick carries no Codex TUI override" "tui.animations" "$output"
 done
