@@ -3,10 +3,11 @@ priority: high
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [frozen, session_persistence, ait_dispatcher]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-09-21 22:42
-updated_at: 2026-09-21 22:42
+updated_at: 2026-09-23 16:49
 ---
 
 ## Problem
