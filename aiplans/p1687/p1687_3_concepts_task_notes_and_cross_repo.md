@@ -220,3 +220,71 @@ Standard cleanup, archival and merge. `risk_evaluated` gate must pass.
 
 ### Planned mitigations
 - timing: post-phase | name: restatement_triage | type: documentation | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: concept pages restating workflow/command pages | desc: Side-by-side re-read against counterparts, cut repeats, run check_link_relevance.py and triage
+
+## Final Implementation Notes
+
+- **Actual work done:** Two new concept pages, both ending at `## See also`
+  with no `**Next:**` footer (t1687_5 owns ordering).
+  `website/content/docs/concepts/task-notes.md` (weight 45, `depth:
+  [intermediate]`) — angle: untrusted by construction; covers the
+  verification asymmetry (`yes` or absent, never `no`), the `> | ` body prefix
+  as the anti-forgery defence, the derived-unread failure directions
+  (invalid receipt skipped, `--by` is the target, note kept vs receipt rolled
+  back) **and** the `rollback-failed` exception, and why display ≠
+  acknowledge. `website/content/docs/concepts/cross-repo-references.md`
+  (weight 115) — angle: identity is the (project, local id) pair and the path
+  is a late per-machine binding; write-time strictness vs read-time
+  fail-closed `UNREACHABLE`; hierarchies never cross a repo; no auto-clone.
+  Six back-links added (all full-path relref), plus the step-4 correction in
+  `workflows/multi_project.md`.
+- **Deviations from plan:** None in scope. Two plan steps were added during
+  verification/review: step 4 (the `--parent` correction, see below) and the
+  `rollback-failed` paragraph (see Issues).
+- **Issues encountered:**
+  - Plan review (before approval) caught that the planned `See also` link to
+    `concepts/locks.md` contradicted the task's Do-NOT-link list; dropped in
+    both directions (the bullet already exists at `workflows/task-notes.md:94`).
+  - Plan review also caught that asserting the code-true `--parent` rule on the
+    new page while `workflows/multi_project.md:143` said the opposite would
+    leave the site self-contradictory, and that neither `hugo build` nor
+    `check_links.py` can detect a contradiction — they check link targets, not
+    claims. Resolved by correcting the workflow page (step 4) and stating the
+    rule once, on the command-reference side.
+  - Step-8 review caught two real defects in the drafted prose: (1) "every
+    failure shows the note again" is false — `aitask_note.sh:696-712` leaves an
+    uncommitted receipt hiding the note when the rollback itself fails; the page
+    now qualifies the guarantee, documents that recovery case and links the
+    `rollback-failed` output row, and the section heading was renamed to match.
+    (2) "used to be written" was version history in a user-facing body;
+    rephrased in present-state terms.
+- **Key decisions:** Documented against code (`aitask_note.sh`,
+  `aitask_create.sh`, `lib/task_utils.sh`, `lib/dep_resolution.py`), not
+  `aidocs/` — the same lesson t1687_2 recorded, and it paid off immediately
+  (the `--parent` conflict below is an aidocs/website divergence). Each page
+  states the *model*; every field table, notation table and resolution order
+  stays on its existing page and is linked, never re-tabulated.
+- **Upstream defects identified:**
+  - `aidocs/framework/cross_repo_references.md:130` — says `--project` "may be
+    combined with `--parent <id>` to create a child under an existing parent
+    inside the sibling project", which matches the code; the website said the
+    opposite until this task corrected it. The design doc is right here, but the
+    pair had silently diverged and nothing checks them against each other.
+- **Notes for sibling tasks:**
+  - `hugo build --gc --minify` = 0 and `check_links.py --build` = 0 (35,034
+    links, 0 broken) after every round.
+  - `check_link_relevance.py` reports one link on the new task-notes page
+    (`ait note` → `/docs/commands/note/ [#provenance]`). It is a false positive
+    of a class already present four times on the site (gates.md:229,
+    monitor/how-to.md:236, risk-evaluation.md:38): the extractor takes the
+    leading code span as the label and matches it against the anchor's subject.
+    Re-ordering the label does not clear it — verified.
+  - **t1687_5 (`_index.md` + ordering):** the two new pages are
+    `concepts/task-notes.md` weight **45** (Data model, between topic-anchoring
+    40 and review-guides 50) and `concepts/cross-repo-references.md` weight
+    **115** (Lifecycle and infrastructure, between git-branching-model 110 and
+    ide-model 120). Neither carries a `**Next:**` footer, and neither is listed
+    in `_index.md` yet — both are yours.
+  - **Slug collision is real and the build is the only guard:**
+    `/docs/concepts/task-notes` vs `/docs/workflows/task-notes`. Every relref to
+    either must use the full `/docs/...` path; a bare `{{< relref "task-notes"
+    >}}` fails the build with an ambiguous-page error.
