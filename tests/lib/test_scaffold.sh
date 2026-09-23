@@ -83,6 +83,10 @@ if [[ -z "${_AIT_TEST_SCAFFOLD_LOADED:-}" ]]; then
         # (task_git), and the scaffolded tests that drive those scripts copy
         # task_utils.sh themselves.
         cp "$PROJECT_DIR/.aitask-scripts/lib/txn_snapshot.sh"      "$repo_dir/.aitask-scripts/lib/"
+        # aitasks_home.sh is sourced at startup by aitask_setup.sh (t1852_1 — the
+        # per-user $AITASKS_HOME root) and, from M1.4 on, by the ait-testmap shim.
+        # A stdlib-only leaf with no deps.
+        cp "$PROJECT_DIR/.aitask-scripts/lib/aitasks_home.sh"      "$repo_dir/.aitask-scripts/lib/"
     }
 
     # --- Python module closure ---------------------------------------------

@@ -22,6 +22,10 @@ source "$SCRIPT_DIR/lib/github_release.sh"
 # shellcheck source=lib/data_symlinks.sh
 source "$SCRIPT_DIR/lib/data_symlinks.sh"
 
+# Per-user framework root ($AITASKS_HOME) — the engine install dir (t1852_1).
+# shellcheck source=lib/aitasks_home.sh
+source "$SCRIPT_DIR/lib/aitasks_home.sh"
+
 # Preferred is the version we install when no modern python is found.
 AIT_VENV_PYTHON_PREFERRED="${AIT_VENV_PYTHON_PREFERRED:-3.13}"
 
@@ -2371,6 +2375,23 @@ setup_gate_logs_gitignore() {
     success "Gate sidecar-log rule added to .gitignore"
 }
 
+# --- Per-user framework root (t1852_1) ---
+# $AITASKS_HOME/engine/ is where install_engine_binary() (M1.5) lands the
+# ait-testmap binary. Only the engine root is created here; an existing
+# directory is left with whatever mode it has.
+setup_aitasks_home() {
+    if [[ -d "$AITASKS_HOME/engine" ]]; then
+        success "AITASKS_HOME:$AITASKS_HOME (engine root present)"
+        return
+    fi
+    info "Creating per-user framework root $AITASKS_HOME/engine ..."
+    # The mode is meant for engine/ alone; a parent $AITASKS_HOME created on the
+    # way gets the umask default, like any other user directory.
+    # shellcheck disable=SC2174
+    mkdir -p -m 0755 "$AITASKS_HOME/engine"
+    success "AITASKS_HOME:$AITASKS_HOME"
+}
+
 # --- Worktree-directory gitignore rules (t1616) ---
 # The framework creates two worktree trees inside the project: task worktrees at
 # aiwork/<task_name> (task-workflow Step 7) and AgentCrew worktrees at
@@ -4483,6 +4504,9 @@ main() {
         echo ""
     fi
 
+    setup_aitasks_home
+    echo ""
+
     install_global_shim
     echo ""
 
@@ -4509,6 +4533,7 @@ main() {
     info "Summary:"
     info "  Bash: $BASH_VERSION ($(command -v bash))"
     info "  Python venv: $VENV_DIR"
+    info "  AITASKS_HOME:$AITASKS_HOME"
     if [[ -x "$VENV_DIR/bin/python" ]]; then
         info "  Python: $("$VENV_DIR/bin/python" -c 'import sys; print("{}.{}.{}".format(*sys.version_info[:3]))' 2>/dev/null || echo unknown)"
     fi
