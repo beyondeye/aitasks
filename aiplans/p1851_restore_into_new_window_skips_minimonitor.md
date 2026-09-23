@@ -149,3 +149,56 @@ Post-implementation: commit code (`bug: … (t1851)`), then archival per task-wo
 
 ### Goal-achievement risk: low
 None identified.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-09-23)
+- **Requested by user:** the plan names `tests/test_restore_flows_live.sh` and
+  `tests/test_frozen_agents_acceptance.sh` as the regression checks for the extra companion pane,
+  but neither ran — record their deferral explicitly (or run them when the server can be stopped).
+- **Changes made:** no code change. Both suites were invoked (`env -u TMUX -u TMUX_PANE bash
+  tests/<suite>.sh`) and exited 2 from their own `require_clean_ait_server` guard: the dedicated
+  `-L ait` tmux server was alive and holding the user's active agent sessions. Stopping it would
+  kill those sessions, and the guard exists to prevent exactly that, so it was neither stopped nor
+  bypassed. The deferral is recorded below and carried into Final Implementation Notes.
+- **Files affected:** this plan file only.
+
+## Verification status (explicit deferral)
+
+| Check | Result |
+|---|---|
+| `tests/test_agent_restore.py` (50 tests, 5 new) | PASS — new positive tests red before the fix |
+| `tests/test_minimonitor_instance_guard.py` (15 tests, 4 new) | PASS — new tests red before the fix |
+| `test_agent_frozen_ops`, `test_agent_freeze`, `test_frozen_restore_verdict`, `test_tui_switcher_agent_launch`, `test_brainstorm_discuss_launch`, `test_no_raw_tmux.sh` | PASS |
+| `tests/test_restore_session_bootstrap_live.sh` | PASS 44/44 (exercises the real `_launch_into_new_window`) |
+| `tests/test_restore_flows_live.sh` | **NOT RUN — deferred.** Refused (rc=2): `-L ait` server alive |
+| `tests/test_frozen_agents_acceptance.sh` | **NOT RUN — deferred.** Refused (rc=2): `-L ait` server alive |
+
+**Still outstanding:** run both deferred suites from a shell outside tmux with the `-L ait` server
+stopped. What they would catch: an assertion that assumes the restored `agent-*` window holds a
+single pane (case 7 / cases 6a-6b). Reading them found no such pane count, but that is inspection,
+not a run.
+
+## Final Implementation Notes
+- **Actual work done:** `maybe_spawn_minimonitor` gained a keyword-only `agent_pane` that replaces
+  the active-pane read as the companion's identity (split target, `pane-died` hook, refocus) and
+  fails closed when that pane is not in the window or the pane list is unreadable.
+  `agent_restore._spawn_companion` calls it, best-effort, at the end of a fully successful
+  `_launch_into_new_window`, passing the pane resolved from the launched pid and the record's root.
+  The same-pane branch of `restore()` never reaches it. 4 helper tests + 5 restore tests added.
+- **Deviations from plan:** added `test_no_companion_when_no_session_is_usable` as its own test
+  (the plan folded it into the launch-failure test), plus a default-path split-target test for the
+  helper. The first plan revision passed no pane and relied on the active-pane read; a pre-approval
+  review showed that read can hand the companion to the wrong pane, hence `agent_pane`.
+- **Issues encountered:** two of the three planned live suites could not run — see the
+  "Verification status (explicit deferral)" table above. `tests/test_restore_flows_live.sh` and
+  `tests/test_frozen_agents_acceptance.sh` both refused (rc=2) via `require_clean_ait_server`
+  because the `-L ait` server held active agents; neither the server nor the guard
+  (`AIT_LIVE_TMUX_TEST_FORCE`) was touched. **They remain outstanding** and should be run from a
+  shell outside tmux with that server stopped. `test_restore_session_bootstrap_live.sh` passed 44/44.
+- **Key decisions:** the companion spawn swallows every exception with a stderr WARNING, because
+  `restore()` only rolls back on OSError/ValueError and the replacement agent is already running.
+  `project_root` is passed explicitly since the restore runs detached under `run-shell -b`.
+  The `ait ide` viewer-window part was left to t1847 (that code does not exist yet; its task
+  already carries the companion question).
+- **Upstream defects identified:** None
