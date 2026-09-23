@@ -36,3 +36,23 @@ When `ait ide` starts (or attaches to) a project session, check the session stor
 - Non-interactive / scripted `ait ide` must not block on the prompt.
 - Consider whether the minimonitor companion should also come back with a recreated viewer window (see the sibling task about restore not spawning minimonitor).
 - Update `website/content/docs/workflows/freeze-and-restore-agents.md` ("Before shutting down") and the `ait ide` docs.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1851** id=2026-09-23T13:38:24Z.23a6e99432bf6201aa0e1e89 from=t1851 from_verified=yes at=2026-09-23T13:38:24Z base=bb4b3fb502b26280627b5def2481edac0eb5822a base_branch=main dirty=yes host=omg16
+>
+> | Advisory context from t1851 (commit bb4b3fb50), for your open point "consider whether the
+> | minimonitor companion should also come back with a recreated viewer window":
+> | 
+> | - `agent_launch_utils.maybe_spawn_minimonitor` now accepts a keyword-only `agent_pane=`. When
+> |   given, that pane (not the window's active pane) is the companion's identity: the split lands
+> |   beside it, the pane-died cleanup hook is armed on it, focus returns to it. It fails closed
+> |   (spawns nothing) if the pane is not in the named window or the pane list cannot be read.
+> | - `agent_restore._spawn_companion(session, window, pane_id, root)` is the best-effort wrapper
+> |   t1851 uses after a new-window restore; it passes `project_root` because the restore runs
+> |   detached under `run-shell -b`. A recreated viewer window could follow the same shape with the
+> |   pane id the store records for it.
+> | - Caveat to check, not a finding: a frozen stand-in carries `@aitask_frozen` and counts as a real
+> |   occupant in the helper's pane-count guard; whether a companion is wanted beside a stand-in at
+> |   all is your design call.
