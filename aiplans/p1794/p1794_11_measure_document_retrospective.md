@@ -212,3 +212,147 @@ t1794_12, the manual-verification sibling.
 - A Pilot repetition could time a half-finished flow (async drift or re-mount still pending) and bias the verdict · severity: low · → mitigation: none (settle + per-state assertions from `test_trails_app.py`; a repetition that misses a state aborts instead of recording)
 - The pre-extraction board at `c52534f14` might not boot against today's task data · severity: low · → mitigation: none (the footprint script fails closed; if so, the extraction delta is reported as unmeasured, never inferred)
 - The Pilot workload depends on at least one real trail existing in this repo · severity: low · → mitigation: none (checked at run time; child 6's smoke used real trails)
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - **Footprint (C8), 40 samples in one quiet session** (host load 1.09–1.81,
+    the quietest of the three t1794 sessions): two isolated detached worktrees
+    (`c52534f14` = the pre-extraction board, `85abc4217` = after children 2–8)
+    linked to the **same** `.aitask-data`, both clean (`changed=none`), driven
+    by a serial round-robin of `board_footprint.sh --runs 1` — 5 rounds ×
+    {board@old, trails_app, board@new, ceiling} × {CPython, PyPy}. Results,
+    signed margins and all 40 raw lines (in command order) are in
+    `aidocs/framework/python_tui_performance.md`, section "t1794_11 — final
+    footprint and the `ait trails` interpreter verdict".
+  - **`tests/perf/trails_pilot_bench.py`** (new, manual, not `test_*`-named so
+    no runner collects it — confirmed against the suite log): the t718_6 Pilot
+    protocol for `trails_app`, 5 warmup + 8 measured reps in one process
+    against the real task tree, with `_settle` + per-state assertions ported
+    from `tests/test_trails_app.py` so a repetition that misses a state aborts
+    instead of timing a half-finished flow.
+  - **Docs:** the new perf section (incl. the corrected board LOC figures and a
+    Related Tasks row); a new `tui_conventions.md` section "The board package
+    (`board/`): two Apps, one flat-import contract" (file map, C1, C2, C10, the
+    four-site guard checklist, the enforcing tests), `trails` added to that
+    doc's intro list and to the empirically-verified CPython exceptions;
+    `CLAUDE.md`'s board line rewritten as the package; `tests/lib/board_fixture.py`'s
+    stale docstring anchors repointed.
+- **The numbers (medians; a claim is made only where the 5-samples separate):**
+  - **The split's own effect on the board** — RSS **−12.1 MiB under CPython**
+    (176.4 < 187.9: a saving) but **+20.7 MiB under PyPy** (344.4 > 326.3: a
+    **regression**, +6.4%). Cold start overlaps under both: no claim.
+  - **`trails_app` − board@new** — RSS **−115.4 MiB** (CPython) and
+    **−154.8 MiB** (PyPy); cold start **−35 ms** (CPython, separated) and
+    within variation under PyPy.
+  - **`trails_app` − ceiling** — +20.7 MiB (CPython), +77.9 MiB (PyPy).
+  - **Pilot:** PyPy 7451 ms [7352–7731] vs CPython 8305 ms [8006–8584] —
+    10.3% faster, no overlap; cold start +138 ms and RSS +130.8 MiB on PyPy.
+- **Interpreter verdict: KEEP CPython** (user-confirmed at the threshold call).
+  The 10.3% steady-state win clears the t718_6 bar by 0.3 points, while PyPy
+  adds 138 ms per launch and 130.8 MiB RSS — more than the CPython **full
+  board** (176.2 MiB) — which removes the light footprint the stand-alone
+  exists for. `aitask_trails.sh` is unchanged (`require_ait_python`), so the
+  `AIT_USE_PYPY` table and the fast-path scope line needed no edit.
+- **Deviations from plan:** (1) the plan's "six footprint rows" became **eight**
+  — the in-session board@old rows were added after review found the child-1
+  figures cannot support a C8 claim; the t1794_1 numbers are now a
+  "Historical trend (not a C8 comparison)" paragraph that makes no claim.
+  (2) The round-robin uses `--runs 1` × 5 rounds instead of `--runs 5` per
+  configuration, so host drift spreads across configurations. (3) Two extra
+  doc fixes were made where the new text would otherwise contradict the file:
+  the stale `aitask_board.py: 5200 LOC` line, and a `trails` row in the
+  permanent-CPython exceptions list. (4) `aitasks_extension_points.md` was
+  **not** edited (see Key decisions).
+- **Issues encountered:** a task was archived mid-run, so the last two raw
+  lines read `parent_tasks=423` instead of 424 — noted in the doc; RSS is
+  insensitive to one task file. The first planning pass proposed reporting the
+  cross-session child-1 comparison as a signed margin, running the
+  configurations concurrently, and pressing `d` without settling; all three
+  were corrected before implementation (see Deviations and the Pilot design).
+- **Key decisions:**
+  - Docstring anchors in `board_fixture.py` were repointed to **file-level**
+    references rather than new line numbers: they had already drifted twice,
+    and no test pins them.
+  - No `aitasks_extension_points.md` line: that doc covers framework surfaces
+    (frontmatter, helper-script allowlists, hooks, install). Adding an App to
+    a TUI package is covered by `tui_conventions.md`'s switcher four-part rule,
+    the shortcut manifest section and the new package section; a line here
+    would duplicate them.
+  - The Pilot patches `load_trail_blob` / `run_trail_drift` (interpreter-
+    independent subprocess latency) but keeps boot-time `discover_trails`
+    real, matching what t718_6 did for the board's refresh.
+- **Retrospective (the parent's child-11 obligation):**
+  - **(a) Further extraction — no follow-up.** The 26 residual classes of
+    `aitask_board.py` (6,843 lines) are exactly the end state the parent's
+    file map describes: `KanbanApp`, the Kanban render paths, the key map /
+    `check_action`, the task-select and confirm modals, the module constants
+    and the three injected helpers. The numbers say the remaining win is small
+    and not where the code is: the CPython board sits at 176.2 MiB against a
+    40.1 MiB ceiling that imports only Textual, Rich and yaml, and a further
+    2,000 lines of Python would move a fraction of that 136 MiB, which is
+    framework and widget-set cost. The one measured effect of extraction on
+    RSS was −12.1 MiB (CPython) and **+20.7 MiB (PyPy)**, so more of the same
+    is not a memory argument.
+  - **(b) `lib/` promotion — no follow-up.** Only `board_widgets` (no board
+    imports at all) and `board_task_model` (imports only `lib/board_columns`)
+    qualify structurally. A grep for any consumer of `board_widgets`,
+    `board_task_model` or `board_workflow_phase` **outside** `.aitask-scripts/board/`
+    returns nothing, and C6 fixed `lib/` promotion as evidence-driven, not a
+    default. Promoting a module only the board imports would add a layer
+    boundary (`tests/test_no_lib_to_tui_import.sh`) for no consumer.
+  - **(c) The C10 `?`-editor limitation — already resolved, no follow-up.**
+    t1794_6 replaced the parent plan's "documented limitation" with
+    `register_scope_bindings(exclude_modules=…)` and
+    `ShortcutsMixin._shortcuts_exclude_sources`, and t1794_7 extended the
+    exclusion to `board_detail_screen`; `?` inside `ait trails` therefore
+    never executes the board. `tests/test_shortcut_scopes.py` and the trails
+    probe pin it.
+  - Also checked and closed: t1794_8's note that `test_board_detail_screen.py`
+    was missing from `MIGRATED_MODULES` — it is present
+    (`tests/test_board_fixture_harness.py:385`), so no follow-up is needed.
+- **Acceptance-criteria walk (parent t1794), with the evidence for each:**
+  1. *`ait board` behaves exactly as before* — `bash tests/run_all_python_tests.sh`
+     → `PYTHON SUITE: PASSED (runner=pytest, exit=0)` at this SHA, including
+     `test_board_keymap_characterization.py` (child 1's golden key map /
+     `check_action` matrix) and the 4.5k-line `test_board_bytrail_view.py`.
+     Live keys/views/modals are t1794_12's checklist.
+  2. *Stand-alone trail TUI, switcher-reachable* — `trails_app.py` +
+     `aitask_trails.sh`; `tests/test_trails_app.py` (20 tests) and the registry
+     / switcher tests; child 6's tmux smoke (`j`→`i` and back, `TUI_NAMES`
+     contains `trails`).
+  3. *`aitask_board.py` materially smaller; `board/` a package with the flat-import
+     contract* — 14,102 → **6,843 lines**, 92 → **26 classes**; no trail,
+     TaskManager, detail-screen or column-dialog class remains
+     (`tests/test_board_package_contract.py`, `tests/lib/board_single_home.py`
+     pins).
+  4. *Memory and cold start measured before/after in the same interpreter and
+     task tree, reported as signed margins; the stand-alone's RSS reported
+     against the board's* — this task: the 8-row table and the margins above,
+     both worktrees on one `.aitask-data`, one session.
+  5. *No moved module binds `TASKS_DIR`-derived constants at import* —
+     the C2 guard in `tests/test_board_fixture_harness.py` (static AST scan
+     over every board module plus the fresh-load runtime check), green in the
+     suite run above.
+  6. *Every task in the notes list has received a note* — child 9, plus the
+     two notes child 8 sent to t1441 / t1442 when its move invalidated their
+     line references.
+  7. *Website documents the stand-alone TUI* — child 10:
+     `website/content/docs/tuis/trails/{_index,how-to,reference}.md`, the TUI
+     index and board pages updated, `skills/aitask-trail.md:87` rewritten;
+     `check_links.py --build` clean there. No website page is touched by this
+     child.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks:**
+  - **t1794_12 (manual verification):** nothing in this child changes runtime
+    behaviour — the only non-doc file added is a manual benchmark script — so
+    no checklist item needs adding. If a trails item needs a repeatable
+    keyboard flow, `tests/perf/trails_pilot_bench.py --trail <handle>` drives
+    boot → select → detail → summary → drift → 10× down with assertions, and
+    `--list` prints the discovered handles.
+  - **Any future board extraction:** re-measure with the two-worktree
+    round-robin recorded in the perf doc, not against the figures in it —
+    cross-session absolutes on this host drift ~10%, the size of the effects
+    being measured. Note that the PyPy board regressed +20.7 MiB across this
+    split; if `ait board`'s PyPy routing is ever revisited, that is the
+    starting number.
