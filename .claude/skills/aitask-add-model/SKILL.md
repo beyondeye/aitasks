@@ -109,20 +109,42 @@ order when promoting:
 
 ### Step 5: Manual-Review Reminder (promote mode only)
 
-After a successful promote-mode apply, print the following block
-verbatim so the user knows which files are out of scope for this skill
-and require manual review:
+After a successful promote-mode apply, print the block below so the user
+knows which files are out of scope for this skill and require manual
+review, dropping the lines that do not apply to this promotion:
+
+- drop the whole `claudecode promotions only` group unless `--agent` is
+  `claudecode` — those files track the claudecode default and built-in
+  fallback, which a `codex` promotion does not change;
+- drop the `codebrowser/how-to.md` line unless `qa` is among the
+  promote-ops.
+
+Print everything else verbatim.
 
 ```
 Manual review needed — the following files reference the default model
 string but are NOT patched by this skill:
 
-  - aidocs/codeagents/claudecode_tools.md:5         (display name + cli_id)
-  - tests/test_codeagent.sh              (model-resolution assertions)
-  - tests/test_brainstorm_crew.py        (default agent_string fixtures)
-  - website/content/docs/commands/codeagent.md  (user-facing docs)
+  Any promoted agent:
+  - website/content/docs/commands/codeagent.md  (operational-defaults table)
+  - website/content/docs/tuis/codebrowser/how-to.md  (states the qa default)
 
-Full audit: aidocs/framework/model_reference_locations.md
+  claudecode promotions only:
+  - aidocs/codeagents/claudecode_tools.md:5     (display name + cli_id)
+  - .aitask-scripts/lib/roadmap_run.py          (run() agent_string default
+                                                 + --agent-string argparse default)
+  - website/content/docs/tuis/syncer/_index.md  (matrix-cell examples of the
+                                                 built-in fallback)
+
+Re-run both and inspect any failure. Their default-resolution assertions
+derive from seed/codeagent_config.json, so the promotion itself should need
+no test edits — but other assertions in these files can fail for unrelated
+reasons, so do not assume a green run:
+  - tests/test_codeagent.sh
+  - tests/test_codeagent_work_report.sh
+
+Broader audit: aidocs/framework/model_reference_locations.md — currently
+stale; where it disagrees with this list, this list is authoritative.
 ```
 
 Skip this block for add-only mode (nothing beyond the registry changed).
