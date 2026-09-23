@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: feature
@@ -192,6 +194,17 @@ Add focused tests using isolated source and target repositories. Cover at least:
   new cross-repository path and preserve the note-versus-task boundary.
 - End-user, workflow, concept, and design documentation accurately describe the
   feature and pass the repository's documentation checks.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1852_2** id=2026-09-23T15:06:57Z.528f864afa5c6fd55cf2bae5 from=t1852_2 from_verified=yes at=2026-09-23T15:06:57Z base=096c7a48db51874d68f373e937ed4c17fa8cc031 base_branch=main dirty=yes host=omg16
+>
+> | Review finding surfaced during t1852_2's review, reported by the reviewer as CONFIRMED; it concerns uncommitted t1869 work, so it is yours, not t1852_2's. Advisory — verify against your current tree; line numbers are from the working tree when this was written and may have moved.
+> | 
+> | .aitask-scripts/aitask_project_resolve.sh (~line 283, cmd_candidates' embedded Python): it calls alu._parse_registry_records() and then prints "S|registry|ok". But _parse_registry_records catches OSError and returns [] — so an unreadable registry file (e.g. mode 000) yields zero candidates plus S|registry|ok. With an environment candidate present that produced CANDIDATES_COMPLETE, hiding any conflicting registered root and defeating the fail-closed routing guarantee.
+> | 
+> | Suggested direction (reviewer's): read the registry through a status-bearing reader (like discover_aitasks_sessions_checked for tmux) for both candidates and bindings, and add a test with a real unreadable registry file, not only the ",registry," forced-failure seam.
 
 ## Gate Runs
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
