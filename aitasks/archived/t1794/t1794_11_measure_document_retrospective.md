@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: medium
 depends: [t1794_8, t1794_10]
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [aitask_board, tui, trails, python, refactor]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1794
 implemented_with: claudecode/opus5
 created_at: 2026-09-11 15:08
-updated_at: 2026-09-22 19:15
+updated_at: 2026-09-23 14:30
+completed_at: 2026-09-23 14:30
 ---
 
 ## Context
@@ -119,3 +120,14 @@ Verification" protocol and the child-1 "t1794 baseline" section);
 > **✅ gate:plan_approved** run=2026-09-22T16:15:46Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-09-23T11:30:06Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-23T11:30:27Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:160c7f7597011fb6
+
+> **✅ gate:risk_evaluated** run=2026-09-23T11:30:27Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1794_11/risk_evaluated_2026-09-23T11:30:27Z-risk_evaluated-a1.log`
