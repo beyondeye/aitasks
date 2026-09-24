@@ -294,3 +294,48 @@ and archival.
 ### Planned mitigations
 - timing: post-phase | name: live_replay_t1852_2 | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — evidence sufficiency on the real shared-checkout case | desc: Run the evidence helper read-only for 1852_2 and 1847 in this checkout and record the evidence and the judgement it supports
 - timing: after | name: adopt_referenced_paths_consumers | type: enhancement | priority: low | effort: medium | inline_risk: low | added_complexity: medium | addresses: goal-achievement — the same language gap in drift check / parallel admission / trail gather | desc: Evaluate moving the other plan_paths consumers from extension-grammar extraction to find_references() against their changed-path sets, measuring prompt-rate impact
+
+## Post-Review Changes
+
+### Change Request 1 (2026-09-24 11:40)
+- **Requested by user:** Mixed ownership within one file. The helper reports staged and unstaged edits as one dirty part, but the prose required one outcome per part, so a followed-agent staged edit plus a foreign unstaged edit could not be separated.
+- **Changes made:** `impl-challenge.md` now tells the shadow to split a dirty part by hunk when owners may differ. Staged (`git diff --cached`) and unstaged (`git diff`) hunks are judged separately, with hunk-level selection within either, and only attributable hunks are reviewed and snapshotted. The split is named in the disclosure, and worked example 3 is extended. The helper is unchanged (evidence only). Render-test assertions added; goldens regenerated.
+- **Files affected:** `.claude/skills/aitask-shadow/impl-challenge.md`, `tests/golden/procs/aitask-shadow/impl-challenge-{default,fast,remote}.md`, `tests/test_skill_render_aitask_shadow.sh`
+
+## Final Implementation Notes
+- **Actual work done:**
+  - `lib/plan_paths.py`: added the inverted, language-agnostic reference search specified in findings doc §3–§5:
+    - `find_references` reports the section heading of each mention.
+    - `find_suffix_references` is a weaker module-relative form.
+    - `find_dir_references` matches explicit `<dir>/` mentions only.
+    - `extract()` and its extension list are untouched, so the drift check, trail gather and admission outputs do not shift.
+  - New `aitask_shadow_scope.sh` + `lib/shadow_scope.py` report ownership **evidence** per committed or dirty part:
+    - evidence tokens: `f_commits`, `f_commit_earlier`, `f_plan:<section>`, `f_task:<section>`, the `*_suffix` forms, `f_plan_dir`, `baseline_dirty`, `other_plan`/`other_task`/`other_commit` (+ suffix forms);
+    - `SIGNAL:` lines, including `dedicated_worktree`;
+    - checkout resolution: explicit > worktree record > bound followed pane (via the capture helper's `shadow_self_target` + `ait_tmux`) > `shadow_cwd`.
+  - `aitask_change_surface.sh`: new read-only `baseline` subcommand, the raw N1 signal.
+  - Shadow prose:
+    - `impl-challenge.md`: the ownership judgement (guidance-weighted, four worked examples, hunk-level split); tentative findings capped at informational and never blocking; one-question ambiguity rule; fresh-judgement rechecks with "not carried" prior concerns; a block scope rule.
+    - `impl-review-angles.md`: scoped-composite definition, Angle C context clause, ownership cap.
+    - `round-preamble.md`: scoped snapshot, with scope moves noted under heading 1.
+    - `SKILL.md.j2`: the `>i`/`>r` sentences.
+  - Whitelist entries in all 5 touchpoints. Goldens regenerated (they mirror the source diffs exactly).
+- **Deviations from plan:**
+  - (1) The claim baseline comes from a new `change_surface baseline` subcommand, not from `list` `OTHER:` lines. `list` folds "plan-named AND dirty at claim" into `UNKNOWN`, which loses the baseline evidence in exactly the listed-foreign-file case.
+  - (2) Added `find_suffix_references` and the `*_suffix` tokens after the live replay: t1872's plan names goengines files module-relative (`internal/tools/benchgate/main.go`), so exact matching produced no counter-evidence.
+  - (3) `find_dir_references` matches explicit `<dir>/` mentions only; a file path no longer counts as a mention of its directories, which had made `f_plan_dir:lib` noise.
+  - (4) `.aitask-gates/` is excluded alongside the data paths.
+  - (5) `tests/test_plan_paths_seam.sh` now locates change_surface's grammar line by content, since it was pinned to line 226.
+  - (6) Post-review: hunk-level split of dirty parts (Change Request 1).
+- **Issues encountered:**
+  - Render assertions failed where the prose wrapped a pinned phrase across lines; the prose was reflowed.
+  - Two multi-line `assert_contains` needles were replaced with single-line ones, because `grep -F` treats newline-separated needles as OR'ed patterns.
+- **Key decisions:** following the user's direction, the helper reports evidence and makes no IN/OUT verdict or blocking eligibility. There is no transcript parsing, no required "Files to modify" heading, and no fingerprints or decision persistence. Rechecks judge afresh.
+- **Live replay (post-phase live_replay_t1852_2), 2026-09-24:**
+  - `aitask_shadow_scope.sh 1852_2 --checkout .`: 28 committed goengines parts with `f_commits:1`.
+  - The newer benchgate dirty parts carry `f_commit_earlier:1,f_plan_dir:goengines,other_plan_suffix:t1872`, and `README.md` / `bench/baseline.txt` carry `other_plan:t1872`. That is enough for the shadow to judge those newer edits t1872's (excluded or tentative) rather than raise them as blocking.
+  - t1873's own files carry `other_plan:t1873` / `other_task:t1873`.
+  - `1847`: it has since been archived and committed; its remaining dirty paths carry other tasks' claims or no F evidence.
+  - Run time is about 2.6 s on this checkout.
+- **Upstream defects identified:**
+  - `tests/test_change_surface.sh:95-110 (and most assert_contains/assert_not_contains calls in the file)` — arguments passed as (desc, haystack, needle) against the helper's (desc, needle, haystack), so the multi-line output becomes the grep pattern set and the negative assertions are weaker than they read.
