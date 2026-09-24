@@ -1470,8 +1470,8 @@
       "verifiedstats": {
         "pick": {
           "all_time": {
-            "runs": 9,
-            "score_sum": 900
+            "runs": 11,
+            "score_sum": 1100
           },
           "prev_month": {
             "period": "",
@@ -1480,20 +1480,20 @@
           },
           "month": {
             "period": "2026-09",
-            "runs": 9,
-            "score_sum": 900
+            "runs": 11,
+            "score_sum": 1100
           },
           "week": {
             "period": "2026-W39",
-            "runs": 9,
-            "score_sum": 900
+            "runs": 11,
+            "score_sum": 1100
           }
         }
       },
       "usagestats": {
         "pick": {
           "all_time": {
-            "runs": 9
+            "runs": 11
           },
           "prev_month": {
             "period": "",
@@ -1501,11 +1501,11 @@
           },
           "month": {
             "period": "2026-09",
-            "runs": 9
+            "runs": 11
           },
           "week": {
             "period": "2026-W39",
-            "runs": 9
+            "runs": 11
           }
         }
       }
