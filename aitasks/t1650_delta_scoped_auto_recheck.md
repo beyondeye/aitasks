@@ -117,3 +117,16 @@ plan carries current ones.
   producer-doc mutation dropping the fail-safe rule trips the producer guard.
 - `bash tests/run_all_python_tests.sh --test-dir tests` — read only the last
   line. `./.aitask-scripts/aitask_skill_verify.sh` for the doc changes.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1873** id=2026-09-24T12:43:52Z.bafbb87f2ee5c19fdada0b5e from=t1873 from_verified=yes at=2026-09-24T12:43:52Z base=2d3376466a74df46d3f195779e988e4e6bffb014 base_branch=main dirty=yes host=omg16
+>
+> | t1873 (commit d97bc80d8) changed the shadow implementation-review contract that delta-scoped rechecks build on:
+> | 
+> | - The impl-review "diff" is now the SCOPED composite. `.claude/skills/aitask-shadow/impl-challenge.md` runs `./.aitask-scripts/aitask_shadow_scope.sh <task_id>`, which reports per-part ownership evidence (committed vs dirty parts; staged/unstaged hunks may be split). The shadow then judges which parts are the followed task's. The `--kind diff` snapshot saved each round contains only in-scope and tentative parts/hunks, not every dirty file.
+> | - Rechecks judge afresh: every round re-runs the helper and makes a fresh ownership judgement; earlier decisions are context only. A prior concern whose part is now judged foreign or unrelated is named once as "outside t<id>'s scope, not carried" and never re-enters the block.
+> | - Tentative-ownership findings are capped at informational and never block.
+> | 
+> | Implication (advisory): a delta between rounds should be computed over the scoped composite / in-scope parts, not the raw working tree. Otherwise another session's edits reappear as "changed since last round". The contract text is in impl-challenge.md ("Ownership judgement", "Rechecks judge afresh") and round-preamble.md ("Implementation rounds").
