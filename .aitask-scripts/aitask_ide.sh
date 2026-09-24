@@ -8,8 +8,11 @@ source "$SCRIPT_DIR/lib/terminal_compat.sh"
 source "$SCRIPT_DIR/lib/tmux_exec.sh"
 # shellcheck source=lib/tmux_bootstrap.sh
 source "$SCRIPT_DIR/lib/tmux_bootstrap.sh"
+# shellcheck source=lib/ide_frozen_offer.sh
+source "$SCRIPT_DIR/lib/ide_frozen_offer.sh"
 
 SESSION_OVERRIDE=""
+FROZEN_CHECK=1
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --session)
@@ -19,9 +22,13 @@ while [[ $# -gt 0 ]]; do
                 || die "Session name contains invalid chars (. or :): $SESSION_OVERRIDE"
             shift 2
             ;;
+        --no-frozen-check)
+            FROZEN_CHECK=0
+            shift
+            ;;
         -h|--help)
             cat <<'EOF'
-Usage: ait ide [--session NAME]
+Usage: ait ide [--session NAME] [--no-frozen-check]
 
 Starts (or attaches to) the configured tmux session and launches ait monitor.
 
@@ -30,9 +37,16 @@ and always passes an explicit session name so ait monitor never has to fall
 back to the SessionRenameDialog.
 
 Options:
-  --session NAME   Use NAME instead of the configured default_session.
-                   NAME may not contain '.' or ':' (tmux target separators).
-  -h, --help       Show this help.
+  --session NAME     Use NAME instead of the configured default_session.
+                     NAME may not contain '.' or ':' (tmux target separators).
+  --no-frozen-check  Do not offer to bring back frozen agents (see below).
+  -h, --help         Show this help.
+
+Frozen agents: when this project has frozen agents whose viewer is gone —
+typically after a shutdown killed the tmux server — ait ide lists them before
+attaching and offers to recreate their viewers (the default; the agents stay
+frozen), restore them, re-pick their tasks, or skip. Everything lands in the
+session being opened. Without a terminal it prints a one-line hint instead.
 
 Note: The tmux session is shared, not per-terminal. If you run 'ait ide' in a
 second terminal, you don't get a separate IDE — you get another view of the
@@ -77,6 +91,15 @@ ensure_syncer_window() {
     _tmux_bootstrap_ensure_syncer_window "$(pwd)" "$SESSION"
 }
 
+# Offer to bring back this project's frozen agents whose viewer is gone (t1847).
+# Runs once the session exists and its registry entry is set — so the frozen
+# agent commands can attribute it to this project — and before the `exec tmux`,
+# while the terminal is still ours. Never fails startup.
+offer_frozen_agents() {
+    [[ "$FROZEN_CHECK" == 1 ]] || return 0
+    ide_offer_frozen_agents "$(pwd)" "$SESSION" "$SCRIPT_DIR/aitask_frozen.sh" || true
+}
+
 if [[ -n "${TMUX:-}" ]]; then
     # Socket-identity check (t953): the gateway targets the dedicated socket,
     # so a gateway-routed self-probe from inside a FOREIGN server (the user's
@@ -107,6 +130,7 @@ if [[ -n "${TMUX:-}" ]]; then
         ait_tmux new-window -n monitor 'ait monitor'
     fi
     ensure_syncer_window
+    offer_frozen_agents
     exec tmux ${_IDE_SOCK_ARGS[@]+"${_IDE_SOCK_ARGS[@]}"} select-window -t "${SESSION_T}:monitor"
 fi
 
@@ -116,6 +140,7 @@ if ait_tmux has-session -t "$SESSION_T" 2>/dev/null; then
         ait_tmux new-window -t "${SESSION_T}:" -n monitor 'ait monitor'
     fi
     ensure_syncer_window
+    offer_frozen_agents
     exec tmux ${_IDE_SOCK_ARGS[@]+"${_IDE_SOCK_ARGS[@]}"} attach -t "$SESSION_T" \; select-window -t "${SESSION_T}:monitor"
 fi
 
@@ -147,4 +172,5 @@ fi
 # registry + syncer in one call (shared with the TUI switcher's
 # inactive-project bootstrap path, t826_2). Then attach.
 spawn_session_detached "$(pwd)"
+offer_frozen_agents
 exec tmux ${_IDE_SOCK_ARGS[@]+"${_IDE_SOCK_ARGS[@]}"} attach -t "$SESSION_T"

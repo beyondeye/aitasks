@@ -66,7 +66,8 @@ PROMISED_VALUES = (
 
 #: Engine modules that import the shared surface. `agent_restore` joins this
 #: list in t1705_5 — it is looked up dynamically so this file needs no edit then.
-ENGINE_MODULES = ("agent_freeze", "agent_restore")
+#: `agent_reopen` (t1847) is the reopen coordinator `ait ide` drives.
+ENGINE_MODULES = ("agent_freeze", "agent_restore", "agent_reopen")
 
 
 class _RecordingStore:

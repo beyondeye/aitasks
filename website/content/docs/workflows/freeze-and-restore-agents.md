@@ -86,7 +86,39 @@ included, not just the ones in the list you are looking at. The confirmation
 names the real count, which is why that number is usually larger than what is on
 screen. It is the key for shutting the machine down with your work recoverable.
 
-Afterwards, bring agents back one at a time from `ait frozenagent` list mode —
+When the machine is back up, run `ait ide` in the project as usual. If any of
+the project's frozen agents lost their viewer — the tmux server died with the
+machine, so every one of them did — `ait ide` lists them before it attaches:
+window name, task, when it was frozen, and whether it can be restored or
+re-picked. Then it asks what to do:
+
+| Answer | What happens |
+|---|---|
+| **V** (default) | Each viewer comes back in a new window under its recorded name. The agents stay frozen; restore or drop them from the viewer as usual. |
+| **R** | The viewers come back, then every agent that can resume is restored inside its viewer. The rest stay as viewers. |
+| **P** | The same, but each agent that has a task is re-picked instead of resumed. |
+| **S** | Nothing changes. The records stay listed in `ait frozenagent`. |
+
+Everything lands in the session `ait ide` is opening, including one you chose
+with `--session`. Only this project's records are offered; other projects'
+frozen agents are offered by their own `ait ide`, and all of them stay listed in
+`ait frozenagent`. A record marked `viewer open, untracked` has a viewer window
+the framework lost track of (an earlier attempt that did not finish): it is
+picked up rather than duplicated. **R** and **P** skip such a record, and say
+so, if picking it up fails.
+
+Without a terminal — a script, or `ait ide` piped into something — nothing is
+asked: a one-line note says how many frozen agents are waiting. Pass
+`--no-frozen-check` to skip the check entirely.
+
+To do the same without `ait ide`:
+
+```bash
+./.aitask-scripts/aitask_frozen.sh gone --root "$PWD"     # list them
+./.aitask-scripts/aitask_frozen.sh reopen --root "$PWD"   # bring the viewers back
+```
+
+You can also bring agents back one at a time from `ait frozenagent` list mode —
 it lists every frozen record across all projects, and **R** / **p** act on the
 highlighted row — or all at once:
 

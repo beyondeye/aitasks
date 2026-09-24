@@ -14,10 +14,16 @@
 #   freeze <pane_id>          freeze one agent pane into a stand-in viewer
 #   freeze --all              freeze every agent-facing pane on every session
 #   freeze --all --dry-run    list what `freeze --all` would act on and stop
-#   restore <id> [--repick]   relaunch one frozen agent in its stand-in's pane
+#   restore <id> [--repick] [--session NAME]
+#                             relaunch one frozen agent in its stand-in's pane
+#                             (a gone pane: a new window, in NAME when given)
 #   restore --all [--repick]  relaunch every frozen agent, sequentially
 #   drop <id>                 remove a frozen record, its capture, and its stand-in
 #   reconcile                 settle every non-`live` record from observable facts
+#   gone --root <path>        list <path>'s frozen records whose viewer is not
+#                             tracked (read-only; `ait ide` offers them, t1847)
+#   reopen <id> | --root <path> [--session NAME]
+#                             bring those viewers back (the agents stay frozen)
 #
 # TUIs MUST invoke `restore` and `drop` through `run-shell -b`, never inline:
 # each replaces or kills the very pane a TUI keybinding would be running in, so a
@@ -25,8 +31,10 @@
 # record for reconcile to clean up and, to the user, a dead pane. `run-shell -b`
 # is a detached tmux server job and outlives the respawn (measured, t1705_1).
 #
-# Two engines, dispatched HERE rather than inside one module: `restore` execs
-# `lib/agent_restore.py`, everything else execs `lib/agent_freeze.py`. That keeps
+# Three engines, dispatched HERE rather than inside one module: `restore` execs
+# `lib/agent_restore.py`, `gone` / `reopen` exec `lib/agent_reopen.py` (t1847,
+# a coordinator that reuses the restore module's session targeting), everything
+# else execs `lib/agent_freeze.py`. That keeps
 # each module's `main()` owning exactly its own verbs, and — the load-bearing
 # half — avoids `agent_freeze` importing `agent_restore`. Reconcile is the repair
 # side: it must settle an abandoned restore with NO coordinator present, so it
@@ -45,7 +53,8 @@
 # Exit codes:
 #   0  every result succeeded (an empty batch counts as success)
 #   1  at least one pane failed; its `FREEZE_FAILED:<stage>|…` /
-#      `DROP_FAILED:` / `DROP_REFUSED:` / `DROP_ABORTED:` line says which
+#      `DROP_FAILED:` / `DROP_REFUSED:` / `DROP_ABORTED:` / `REOPEN_FAILED:`
+#      line says which (`gone` exits 1 only when the store is unreadable)
 #   2  usage error
 #
 # Wire lines are printed verbatim on stdout, one per pane / per record, so a
@@ -61,15 +70,19 @@ source "$SCRIPT_DIR/lib/python_resolve.sh"
 
 FREEZE_PY="$SCRIPT_DIR/lib/agent_freeze.py"
 RESTORE_PY="$SCRIPT_DIR/lib/agent_restore.py"
+REOPEN_PY="$SCRIPT_DIR/lib/agent_reopen.py"
 
 usage() {
     cat >&2 <<'EOF'
 Usage: aitask_frozen.sh freeze <pane_id>
        aitask_frozen.sh freeze --all [--dry-run]
-       aitask_frozen.sh restore <id> [--repick]
-       aitask_frozen.sh restore --all [--repick]
+       aitask_frozen.sh restore <id> [--repick] [--session NAME]
+       aitask_frozen.sh restore --all [--repick] [--session NAME]
        aitask_frozen.sh drop <id>
        aitask_frozen.sh reconcile
+       aitask_frozen.sh gone --root <path>
+       aitask_frozen.sh reopen <id> [--session NAME]
+       aitask_frozen.sh reopen --root <path> [--session NAME]
 EOF
     exit 2
 }
@@ -109,6 +122,12 @@ case "$1" in
         ;;
     reconcile)
         [ $# -eq 1 ] || usage
+        ;;
+    gone|reopen)
+        # The module owns the grammar (including a verbatim `--session` value
+        # that may start with `-`); this gate only rejects the bare verb.
+        [ $# -ge 2 ] || usage
+        ENGINE="$REOPEN_PY"
         ;;
     -h|--help)
         usage

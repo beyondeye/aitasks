@@ -1888,11 +1888,17 @@ def resolve_pane_id_by_pid(session: str, pid: int) -> str | None:
     session's panes and return the owning ``pane_id``, or ``None`` if no pane
     has that pid (e.g. the launch failed to capture a pid, or the pane already
     exited). Read-only; routed through the gateway.
+
+    The target is ``=<session>:``, not ``=<session>``: a bare ``=<session>`` is
+    resolved as a WINDOW first, so from a client whose current session holds a
+    window named ``<session>`` it lists the CURRENT session's panes, and a pane
+    just launched into ``<session>`` is not found (measured on tmux 3.7c,
+    t1847; the remaining bare call sites are t1874's).
     """
     if not pid:
         return None
     rc, out = _TMUX.run(
-        ["list-panes", "-s", "-t", tmux_session_target(session),
+        ["list-panes", "-s", "-t", tmux_window_target(session, ""),
          "-F", "#{pane_id} #{pane_pid}"]
     )
     if rc != 0:

@@ -101,6 +101,7 @@ from agent_frozen_ops import (  # noqa: E402,F401
 from agent_launch_utils import (  # noqa: E402
     TmuxLaunchConfig,
     discover_aitasks_sessions,
+    discover_aitasks_sessions_checked,
     launch_in_tmux,
     maybe_spawn_minimonitor,
     pick_launch_argv,
@@ -193,6 +194,69 @@ def build_repick_argv(rec: dict) -> str | None:
     cmd, _window = pick_launch_argv(
         Path(rec["root"]), task_id, agent_string=rec.get("agent_string") or None)
     return cmd
+
+
+def resume_blocker(rec: dict) -> str:
+    """Why `restore` (resume mode) would refuse ``rec`` before touching anything.
+
+    ``""`` when a resume can be attempted. Shared with the `ait ide` offer
+    (`agent_reopen gone`), which must advertise exactly what this module
+    accepts — so the rules live here, once.
+
+    ``no_session``: no captured session. Since t1804 a codex agent's id is
+    captured at freeze time from the rollout its process held open, so this now
+    means that correlation was unavailable: no `/proc` (macOS), the pane was not
+    running codex directly, the agent had taken no turn yet (codex opens its
+    rollout at the FIRST turn), its model is not in `models_codex.json`, or the
+    freeze could not prove which of several rollouts was its own. The reason
+    `--repick` exists; nothing changes and the record stays frozen.
+    """
+    if not rec.get("codeagent_session_id", ""):
+        return "no_session"
+    if rec.get("agent_kind", "") == "opencode":
+        return "resume_unsupported:opencode"
+    return ""
+
+
+def repick_blocker(rec: dict) -> str:
+    """Why `restore --repick` would refuse ``rec``; ``""`` when it can run."""
+    return "" if rec.get("task_id", "") else "no_task_id"
+
+
+def session_name_ok(name: str) -> bool:
+    """`ait ide`'s own session-name rule (`_tmux_bootstrap_session_name_ok`).
+
+    Non-empty, no `.` and no `:` (tmux target separators). A leading `-` is
+    ALLOWED: `ait ide --session -n` opens a session literally named `-n`, and the
+    frozen-agent commands it drives must be able to target that same session.
+    """
+    return bool(name) and "." not in name and ":" not in name
+
+
+def take_session_arg(args: list[str]) -> tuple[list[str], str | None, str]:
+    """Remove ``--session <value>`` from ``args``. Returns ``(rest, value, err)``.
+
+    The token after ``--session`` is its value VERBATIM, even when it starts
+    with ``-`` (see :func:`session_name_ok`). ``err`` is non-empty for a missing
+    or invalid value, or a repeated flag.
+    """
+    rest: list[str] = []
+    value: str | None = None
+    i = 0
+    while i < len(args):
+        if args[i] == "--session":
+            if value is not None:
+                return args, None, "--session given twice"
+            if i + 1 >= len(args):
+                return args, None, "--session requires a name"
+            value = args[i + 1]
+            if not session_name_ok(value):
+                return args, None, f"invalid session name: {value!r}"
+            i += 2
+            continue
+        rest.append(args[i])
+        i += 1
+    return rest, value, ""
 
 
 def _restore_env(record_id: str, nonce: str, mode: str, expect_session: str,
@@ -415,7 +479,66 @@ def _spawn_companion(session: str, window: str, pane_id: str, root: str) -> None
               file=sys.stderr)
 
 
-def _launch_into_new_window(rec: dict, command: str, env: dict) -> tuple[str, int, str]:
+def _named_session_for_root(root_real: str, name: str):
+    """``(target, error)``: the session ``name``, only if it belongs to the root.
+
+    AUTHORIZATION, so it uses the checked discovery. The default discovery
+    lists a session's panes with a bare ``=<name>`` target, which tmux resolves
+    as a WINDOW first — from a client whose current session has a window called
+    ``name``, it reads THAT session's panes and would attribute a foreign
+    project's session to this root (t1874 owns that default). The checked
+    variant targets ``=<name>:`` and says whether it saw everything; a scan that
+    could not look is never read as "not ours" or as "ours".
+    """
+    sessions, complete = discover_aitasks_sessions_checked()
+    for candidate in sessions:
+        if candidate.session != name:
+            continue
+        if os.path.realpath(str(candidate.project_root)) == root_real:
+            return candidate, ""
+        return None, f"session_not_for_root:{name}"
+    if not complete:
+        return None, f"session_unverified:{name}"
+    return None, f"session_not_for_root:{name}"
+
+
+def _resolve_target_session(root: str, session: str | None = None):
+    """The session a gone-pane launch for ``root`` goes into: ``(target, error)``.
+
+    With ``session`` (how `ait ide` passes the session it is opening), ONLY that
+    session, and only when the CHECKED discovery attributes it to ``root``
+    (:func:`_named_session_for_root`). Anything else fails closed with
+    ``session_not_for_root:<session>`` (or ``session_unverified:<session>`` when
+    the scan could not look) — no bootstrap, and no
+    fallback to another session of the same root: two sessions can share a
+    project (`ait ide --session NAME`), and landing the agent in the one the user
+    is not looking at is the failure this parameter exists to prevent.
+
+    Without it, the first session attributed to the root, else one created for it
+    (t1784) under the ownership rule `_launch_into_new_window` documents.
+    """
+    root_real = os.path.realpath(root)
+    if session is not None:
+        return _named_session_for_root(root_real, session)
+    target = _session_for_root(root_real)
+    if target is None:
+        created, why = _bootstrap_project_session(root)
+        # Only the session THIS call created. `--create-only` left any existing
+        # one untouched, so nothing here can have re-pointed a foreign session's
+        # registry entry at this root — and a refusal gets no second lookup: a
+        # same-root session created concurrently by another restore of this
+        # project is a lost race, fail-safe, and the retry finds it above.
+        target = _session_for_root(root_real, name=created) if created else None
+        if target is None:
+            # Name the project AND the cause: `_rollback` persists this on the
+            # record, the only channel by which the user learns why.
+            detail = why or f"created {created} but no pane of it sits under the root"
+            return None, f"no_session_for_root:{root}|bootstrap:{detail}"
+    return target, ""
+
+
+def _launch_into_new_window(rec: dict, command: str, env: dict,
+                            session: str | None = None) -> tuple[str, int, str]:
     """Gone-pane branch: start the replacement in a NEW window.
 
     Returns ``(pane_id, pane_pid, error)``. The record keeps its identity, so the
@@ -431,21 +554,9 @@ def _launch_into_new_window(rec: dict, command: str, env: dict) -> tuple[str, in
     other launch path does; the same-pane branch in `restore()` never comes
     here, so the companion its surviving window already has is never doubled.
     """
-    root = os.path.realpath(rec.get("root", ""))
-    target = _session_for_root(root)
+    target, error = _resolve_target_session(rec.get("root", ""), session)
     if target is None:
-        created, why = _bootstrap_project_session(rec.get("root", ""))
-        # Only the session THIS call created. `--create-only` left any existing
-        # one untouched, so nothing here can have re-pointed a foreign session's
-        # registry entry at this root — and a refusal gets no second lookup: a
-        # same-root session created concurrently by another restore of this
-        # project is a lost race, fail-safe, and the retry finds it above.
-        target = _session_for_root(root, name=created) if created else None
-        if target is None:
-            # Name the project AND the cause: `_rollback` persists this on the
-            # record, the only channel by which the user learns why.
-            detail = why or f"created {created} but no pane of it sits under the root"
-            return "", 0, f"no_session_for_root:{rec.get('root', '')}|bootstrap:{detail}"
+        return "", 0, error
 
     rc, out = frozen_ops.run(
         ["list-windows", "-t", target.session, "-F", "#{window_name}"])
@@ -478,8 +589,14 @@ def _launch_into_new_window(rec: dict, command: str, env: dict) -> tuple[str, in
     return pane_id, pane_pid, ""
 
 
-def restore(record_id: str, *, repick: bool = False) -> RestoreResult:
-    """Restore one frozen record. Implements §D 1-5 in order."""
+def restore(record_id: str, *, repick: bool = False,
+            session: str | None = None) -> RestoreResult:
+    """Restore one frozen record. Implements §D 1-5 in order.
+
+    ``session`` pins a gone-pane restore to that tmux session (see
+    `_resolve_target_session`); a same-pane restore never consults it, because
+    its pane already sits where the user left it.
+    """
     mode = "repick" if repick else "resume"
 
     rec = _reread(record_id)
@@ -492,25 +609,13 @@ def restore(record_id: str, *, repick: bool = False) -> RestoreResult:
     session_id = rec.get("codeagent_session_id", "")
 
     # --- preflight: everything that can fail WITHOUT touching the store -----
-    if mode == "resume":
-        if not session_id:
-            # No captured session. Since t1804 a codex agent's id is captured at
-            # freeze time from the rollout its process held open, so this now
-            # means that correlation was unavailable: no `/proc` (macOS), the
-            # pane was not running codex directly, the agent had taken no turn
-            # yet (codex opens its rollout at the FIRST turn), its model is not
-            # in `models_codex.json`, or the freeze could not prove which of
-            # several rollouts was its own. The reason `--repick` exists;
-            # nothing changes and the record stays frozen.
-            return RestoreResult(record_id, False, "no_session",
-                                 f"RESTORE_FAILED:{record_id}|no_session")
-        if agent_kind == "opencode":
-            return RestoreResult(
-                record_id, False, "resume_unsupported",
-                f"RESTORE_FAILED:{record_id}|resume_unsupported:opencode")
-    elif not rec.get("task_id"):
-        return RestoreResult(record_id, False, "no_task_id",
-                             f"RESTORE_FAILED:{record_id}|no_task_id")
+    # The rules live in `resume_blocker` / `repick_blocker` so the `ait ide`
+    # offer (`agent_reopen gone`) reports exactly what this function accepts.
+    blocker = resume_blocker(rec) if mode == "resume" else repick_blocker(rec)
+    if blocker:
+        outcome = blocker.split(":", 1)[0]
+        return RestoreResult(record_id, False, outcome,
+                             f"RESTORE_FAILED:{record_id}|{blocker}")
 
     command = build_repick_argv(rec) if repick else build_resume_argv(rec)
     if not command:
@@ -592,7 +697,8 @@ def restore(record_id: str, *, repick: bool = False) -> RestoreResult:
                       f" ({why}); restoring into a new window", file=sys.stderr)
                 pane_id = ""
         if not pane_id:
-            new_pane, new_pid, error = _launch_into_new_window(rec, command, env)
+            new_pane, new_pid, error = _launch_into_new_window(
+                rec, command, env, session=session)
             if error:
                 raise OSError(error)
     except (_StageFailure, OSError, ValueError) as exc:
@@ -752,7 +858,8 @@ def _decide_from_record(record_id: str, rec: dict, nonce: str,
     return None
 
 
-def restore_all(*, repick: bool = False) -> list[RestoreResult]:
+def restore_all(*, repick: bool = False,
+                session: str | None = None) -> list[RestoreResult]:
     """Restore every `frozen` record, sequentially.
 
     One record's failure never stops the batch — a user with three frozen agents
@@ -769,7 +876,7 @@ def restore_all(*, repick: bool = False) -> list[RestoreResult]:
         if not record_id:
             continue
         try:
-            results.append(restore(record_id, repick=repick))
+            results.append(restore(record_id, repick=repick, session=session))
         except Exception as exc:            # never abandon the rest of the batch
             results.append(RestoreResult(
                 record_id, False, "error",
@@ -781,7 +888,7 @@ def restore_all(*, repick: bool = False) -> list[RestoreResult]:
 
 
 def main(argv: list[str]) -> int:
-    """`restore <id> [--repick]` / `restore --all [--repick]`.
+    """`restore <id> [--repick] [--session S]` / `restore --all [--repick] [--session S]`.
 
     Exit codes match `aitask_frozen.sh`'s documented contract: 0 all-ok,
     1 some-failed, 2 usage.
@@ -789,14 +896,22 @@ def main(argv: list[str]) -> int:
     args = list(argv)
     if args and args[0] == "restore":
         args = args[1:]
+    # `--session` first: its value is taken verbatim and may itself start with
+    # `-` (a session literally named `-n`), so it must leave `args` before any
+    # other flag scan could mistake it for an option.
+    args, session, err = take_session_arg(args)
+    if err:
+        print(f"ERROR:{err}", file=sys.stderr)
+        return 2
     repick = "--repick" in args
     args = [a for a in args if a != "--repick"]
 
     if args and args[0] == "--all":
         if len(args) != 1:
-            print("Usage: aitask_frozen.sh restore --all [--repick]", file=sys.stderr)
+            print("Usage: aitask_frozen.sh restore --all [--repick] [--session NAME]",
+                  file=sys.stderr)
             return 2
-        results = restore_all(repick=repick)
+        results = restore_all(repick=repick, session=session)
         for result in results:
             print(result.line)
         ok = sum(1 for r in results if r.ok)
@@ -804,11 +919,11 @@ def main(argv: list[str]) -> int:
         return 0 if ok == len(results) else 1
 
     if len(args) != 1 or not args[0] or args[0].startswith("-"):
-        print("Usage: aitask_frozen.sh restore <id> [--repick] | restore --all",
-              file=sys.stderr)
+        print("Usage: aitask_frozen.sh restore <id> [--repick] [--session NAME]"
+              " | restore --all", file=sys.stderr)
         return 2
 
-    result = restore(args[0], repick=repick)
+    result = restore(args[0], repick=repick, session=session)
     print(result.line)
     return 0 if result.ok else 1
 

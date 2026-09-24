@@ -25,6 +25,7 @@ from __future__ import annotations
 import os
 import sys
 import tempfile
+import types
 import unittest
 import unittest.mock
 from pathlib import Path
@@ -1054,6 +1055,97 @@ class TestSeamsAreBoundToThisEngine(unittest.TestCase):
         with _EnvGuard(AITASKS_TEST_MODE="1", AITASKS_FREEZE_FAIL_AT="begin"):
             agent_restore._fail_at("begin")   # must NOT raise
 
+
+
+class TestSessionTargeting(unittest.TestCase):
+    """`_resolve_target_session` (t1847): an explicit session is the ONLY target.
+
+    `ait ide --session B` can open a second session of the same project. A
+    gone-pane restore driven from it must land in B — never in the first
+    session discovery happens to list, and never in a freshly bootstrapped one.
+    """
+
+    ROOT = str(REPO_ROOT)
+
+    def _sessions(self, *names):
+        return [types.SimpleNamespace(session=n, project_root=Path(self.ROOT))
+                for n in names]
+
+    def _checked(self, sessions, complete=True):
+        return unittest.mock.patch.object(
+            agent_restore, "discover_aitasks_sessions_checked",
+            return_value=(sessions, complete))
+
+    def test_explicit_session_wins_over_an_earlier_same_root_session(self):
+        with self._checked(self._sessions("A", "B")):
+            target, error = agent_restore._resolve_target_session(self.ROOT, "B")
+        self.assertEqual(("B", ""), (target.session, error))
+
+    def test_unattributed_session_fails_closed_without_bootstrap(self):
+        with self._checked(self._sessions("A")), \
+             unittest.mock.patch.object(agent_restore, "_bootstrap_project_session") as boot:
+            target, error = agent_restore._resolve_target_session(self.ROOT, "C")
+        self.assertIsNone(target)
+        self.assertEqual("session_not_for_root:C", error)
+        boot.assert_not_called()
+
+    def test_a_session_of_another_root_fails_closed(self):
+        other = [types.SimpleNamespace(session="C", project_root=Path("/elsewhere"))]
+        with self._checked(self._sessions("A") + other):
+            target, error = agent_restore._resolve_target_session(self.ROOT, "C")
+        self.assertEqual((None, "session_not_for_root:C"), (target, error))
+
+    def test_an_incomplete_scan_is_unverified_not_absent(self):
+        with self._checked(self._sessions("A"), complete=False):
+            target, error = agent_restore._resolve_target_session(self.ROOT, "C")
+        self.assertEqual((None, "session_unverified:C"), (target, error))
+
+    def test_explicit_session_never_uses_the_unchecked_discovery(self):
+        """The unchecked discovery reads panes through a bare `=<s>` target,
+        which tmux can resolve as a window of the CURRENT session (t1874)."""
+        with self._checked(self._sessions("B")), \
+             unittest.mock.patch.object(agent_restore, "discover_aitasks_sessions") as plain:
+            agent_restore._resolve_target_session(self.ROOT, "B")
+        plain.assert_not_called()
+
+    def test_no_session_keeps_the_first_match(self):
+        with unittest.mock.patch.object(agent_restore, "discover_aitasks_sessions",
+                                        return_value=self._sessions("A", "B")):
+            target, _ = agent_restore._resolve_target_session(self.ROOT)
+        self.assertEqual("A", target.session)
+
+    def test_restore_threads_the_session_into_the_gone_pane_launch(self):
+        seen = {}
+
+        def fake_launch(rec, command, env, session=None):
+            seen["session"] = session
+            return "", 0, f"session_not_for_root:{session}"
+
+        rec = _rec(pane_id="")
+        with unittest.mock.patch.object(agent_restore, "_reread", return_value=rec), \
+             unittest.mock.patch.object(agent_restore, "build_resume_argv",
+                                        return_value="claude --resume x"), \
+             unittest.mock.patch.object(agent_restore, "_launch_into_new_window",
+                                        side_effect=fake_launch), \
+             unittest.mock.patch.object(agent_restore, "_rollback", return_value=""), \
+             unittest.mock.patch.object(ops, "store",
+                                        return_value=(0, "RESTORING:7f3a2c1d|abcd1234")):
+            result = agent_restore.restore("7f3a2c1d", session="B")
+        self.assertEqual("B", seen["session"])
+        self.assertIn("session_not_for_root:B", result.line)
+
+    def test_main_accepts_an_option_like_session_value(self):
+        with unittest.mock.patch.object(agent_restore, "restore") as restore, \
+             unittest.mock.patch("sys.stdout"):
+            restore.return_value = agent_restore.RestoreResult("7f3a2c1d", True, "hook", "RESTORED:7f3a2c1d")
+            rc = agent_restore.main(["restore", "7f3a2c1d", "--session", "-n"])
+        self.assertEqual(0, rc)
+        restore.assert_called_once_with("7f3a2c1d", repick=False, session="-n")
+
+    def test_main_rejects_a_dotted_session(self):
+        with unittest.mock.patch("sys.stderr"):
+            self.assertEqual(2, agent_restore.main(
+                ["restore", "7f3a2c1d", "--session", "a.b"]))
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
