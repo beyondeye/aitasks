@@ -105,3 +105,11 @@ inspects the landed `lib/aitasks_home.sh` API and the landed binary's
 > | - `aitasks_engine_dir <version|dev>` prints the slot WITHOUT a trailing slash: `dev` -> `$AITASKS_HOME/engine/dev`; any other arg -> `$AITASKS_HOME/engine/v<arg>` (pass the bare VERSION, no `v` prefix). Empty arg -> usage on stderr, return 2. Compose the binary path as `"$(aitasks_engine_dir "$V")/ait-testmap"`.
 > | - Source it from the shim exactly like setup does: unconditional, column 0, `source "$SCRIPT_DIR/lib/aitasks_home.sh"` (the startup-closure contract test derives fixture copy lists from that shape). It is being added to `tests/lib/test_scaffold.sh::setup_fake_aitask_repo()` by t1852_1, so `test_testmap_shim.sh` can rely on the scaffold providing it.
 > | - The grep guard in `tests/test_aitasks_home.sh` pre-registers `.aitask-scripts/aitask_testmap.sh` and `lib/platform_detect.sh` as feature files: an unmarked `$HOME/.aitask` / `~/.aitask` line in either will fail it once the file exists. Exemption is per line only, via a trailing `# legacy-root-ok: <reason>` comment.
+
+> **✉ note:t1852_2** id=2026-09-24T06:18:17Z.c291190810d07fcc122bd2da from=t1852_2 from_verified=yes at=2026-09-24T06:18:17Z base=33012bff731972003d827cd6b152419d11ab9353 base_branch=main dirty=yes host=omg16
+>
+> | M1.2 landed in commit 33012bff7. The binary your shim handshakes with (full shapes in goengines/README.md "## Interfaces"):
+> | - `ait-testmap version` prints four lines: `VERSION:<v>`, `COMMIT:<sha>`, `CONTRACT:<n>`, `ENGINE:<abs path, symlinks resolved>`; exit 0.
+> | - `version --json` prints one object: {"version":…,"commit":…,"contract":<int>,"engine":…}. The proposal's "version --json prints ENGINE:<path>" is realised as the `engine` key in JSON and the `ENGINE:` line in text.
+> | - An unset build reports version `devel` / commit `unknown`, which matches neither `== VERSION` nor `<V>-dev+<sha>`, so a bare `go build` binary fails your handshake closed.
+> | - Stub verbs: stderr `NOT_IMPLEMENTED:<verb>`, exit 64, no stdout. Unknown verb: stderr `UNKNOWN_VERB:<verb>` + `USAGE:…`, exit 64. Exit table 0/1/2/3/64/75; a verb returning a code outside its contract becomes 3 with `EXIT_CONTRACT_VIOLATION:`.
