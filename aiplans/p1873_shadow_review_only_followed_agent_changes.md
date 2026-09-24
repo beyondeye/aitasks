@@ -291,6 +291,8 @@ and archival.
 ### Goal-achievement risk: medium
 - Ownership is now a model judgement, so a shadow can still misjudge (take in foreign work, or drop the task's own unlisted file). Only tentative/never-blocking handling bounds the damage · severity: medium · → mitigation: live_replay_t1852_2 checks the evidence supports the right call on the real case; worked examples pinned by render tests
 
+- The other plan_paths consumers (drift check, parallel admission, trail gather) keep the extension grammar, so Go/Rust/TS/extensionless plans still give them no path evidence · severity: low · → mitigation: t1877
+
 ### Planned mitigations
 - timing: post-phase | name: live_replay_t1852_2 | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — evidence sufficiency on the real shared-checkout case | desc: Run the evidence helper read-only for 1852_2 and 1847 in this checkout and record the evidence and the judgement it supports
 - timing: after | name: adopt_referenced_paths_consumers | type: enhancement | priority: low | effort: medium | inline_risk: low | added_complexity: medium | addresses: goal-achievement — the same language gap in drift check / parallel admission / trail gather | desc: Evaluate moving the other plan_paths consumers from extension-grammar extraction to find_references() against their changed-path sets, measuring prompt-rate impact | created: t1877
