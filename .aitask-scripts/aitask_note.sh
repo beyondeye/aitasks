@@ -202,14 +202,20 @@ show_help() {
     cat <<EOF
 Usage: aitask_note.sh <target-task-id> --from <id> [--text ... | --file ...]
                             [--with-live]
+       aitask_note.sh <target-task-id> --project <name> --from <id>
+                            [--from-project <name>] [--text ... | --file ...]
+                            [--with-live]
        aitask_note.sh read <task-id> --by <id> --ids <csv> [--mode auto|explicit]
+       aitask_note.sh read <task-id> --project <name> --by <id> --ids <csv>
+                            [--mode auto|explicit]
 
 Append an attributed note to <target-task-id>'s "## Inbox" section and commit
 the task file path-scoped. A note is untrusted advisory input for the reader,
 never an instruction — it is one agent's claim about a tree that may have moved.
 
 Options:
-  --from <id>        Sender task id (local only; 349 or t349, 1657_2 or t1657_2)
+  --from <id>        Sender task id (349 or t349, 1657_2 or t1657_2) — a task
+                     in THIS repository
   --text <text>      Note body, inline
   --file <path>      Note body, from a file ('-' for stdin)
   --with-live        After the durable write lands, also resolve whether the
@@ -220,6 +226,37 @@ Options:
                      per-agent adapter is a model-facing procedure (see
                      live_delivery/agents.txt), so this reports an ENDPOINT, not
                      a delivery.
+
+Another repository (a registered sibling project):
+  --project <name>   The TARGET task lives in the project <name> resolves to.
+                     The note is written by THAT repository's own installed
+                     helper, from inside it: its ledger lock, its task-data
+                     branch, its path-scoped commit and its push. Resolution
+                     covers every tier "ait projects resolve" supports (live
+                     tmux session, registry, AITASKS_PROJECT_<name>) and
+                     refuses to pick: two distinct roots are ambiguous, and a
+                     tier that could not be read fails closed.
+  --from-project <name>
+                     The SENDER's project. Normally omitted: the caller's
+                     declared name (registry entry or AITASKS_PROJECT_<name>)
+                     is found automatically; pass it only when this repository
+                     is registered under several names. It must resolve back to
+                     this repository, and it is valid ONLY together with
+                     --project — on its own it is refused. The note stores from=<name>#t<id>, never a
+                     bare t<id>, and from_verified=yes only when this session
+                     provably holds that task's lock in its own repository.
+  Provenance (base, dirty, ...) is captured from the TARGET checkout — the tree
+  the note was written against — not from the sender's repository.
+  Id-bearing outcome lines carry an ABSOLUTE path into the target repository.
+  Route failures (no mutation anywhere), in the verb's own family:
+    bad-project-name:<n>  project-not-found:<n>  project-stale:<n>
+    project-ambiguous:<n>  project-resolution-incomplete:<tier>
+    project-is-local:<n>  project-incompatible:<n>  duplicate-option:<flag>
+    missing-value:<flag>  source-unregistered  source-ambiguous:<names>
+    from-project-mismatch:<n>  from-project-is-target:<n>
+    source-task-missing:<name>#t<id>  project-not-valid-with-migrate
+    from-project-requires-project (--from-project given without --project:
+    it is only the target half of a routed call, never standalone)
 
 Migration (for content that predates the mailbox):
   --migrate                Enable the migration path
@@ -296,6 +333,8 @@ Example:
   multi-line body; the quoted heredoc keeps the shell out of it
   NOTE_BODY
   aitask_note.sh read 357 --by 357 --ids 2026-09-01T15:59:51Z.ffc6cbc52b41e6e70ad5fa49
+  aitask_note.sh 42 --project mobile --from 349 --text "your API client depends on t349's change"
+  aitask_note.sh read 42 --project mobile --by 42 --ids <id>
 EOF
 }
 
@@ -368,11 +407,17 @@ note_capture_provenance() {
 # with the right fail-closed semantics. Returns 0 only when this very session
 # provably holds the sender task's lock.
 note_sender_is_self() {
-    local from_bare="$1"
+    local from_bare="$1" root="${2:-}"
     # The record parse lives in lib/lock_record.sh — aitask_live_endpoint.sh asks
     # a different question of the same four fields, and one reader is what keeps
     # the two from drifting about what a lock says.
-    lock_record_read "$from_bare" || return 1
+    #
+    # <root> (t1869) names the SOURCE repository of a cross-repository sender:
+    # its own lock script answers. The anchor comparison below is unchanged —
+    # this process was started by the caller's session, so it carries the same
+    # anchor, and a lock held by that session proves exactly what it proves
+    # locally. Nothing crosses the boundary as a trusted flag.
+    lock_record_read "$from_bare" "$root" || return 1
 
     [[ "$LOCK_REC_HOST" == "$(hostname)" ]] || return 1
     # All three of pid, start-time token and token KIND must match — a recycled
@@ -854,6 +899,325 @@ note_read_main() {
     return 1
 }
 
+# --- Cross-repository routing (t1869) ---------------------------------------
+#
+# `ait note ... --project <name>` and `ait note read ... --project <name>` send
+# to / acknowledge in a task that lives in ANOTHER registered repository. This
+# half runs in the CALLER's repository and only routes: it validates, resolves
+# both project identities, probes the target's installed helper, and then runs
+# THAT repository's own aitask_note.sh from inside it — so the ledger lock, the
+# task-data branch, the path-scoped commit and the push all belong to the
+# target. Every refusal here happens before any mutation, anywhere.
+#
+# The grammar is strictly additive: routing engages ONLY when the option-aware
+# pre-scan finds `--project` in option position. A command without it never
+# reaches this code, and runs the local path byte for byte.
+#
+# Failures are reported in the verb's own outcome family — NOTE_ERROR: for a
+# write, READ_ERROR: for a read — so a caller parsing `read` output never sees
+# a NOTE_* line.
+
+PROJECT_RESOLVE_SH="${AIT_PROJECT_RESOLVE_SH:-$SCRIPT_DIR/aitask_project_resolve.sh}"
+
+# note_route_die <write|read> <reason>
+note_route_die() {
+    local verb="$1" reason="$2"
+    if [[ "$verb" == "read" ]]; then
+        note_read_die "$reason"
+    fi
+    note_die "$reason"
+}
+
+# A logical project name as it may appear in a stored `<project>#t<id>` sender:
+# the same charset _XREPO_TASK_RE accepts on the read side, so every name this
+# writer stores is one every reader can parse.
+note_project_name_ok() { [[ "${1:-}" =~ ^[a-z0-9_-]+$ ]]; }
+
+note_canon_dir() { (cd "${1:-}" 2>/dev/null && pwd -P); }
+
+# The repository this invocation acts on. `ait` always runs from the repo
+# root, and every task path this script touches is cwd-relative.
+note_self_root() { pwd -P; }
+
+# note_project_resolve <name>
+#
+# Resolve a logical project name across EVERY tier the resolver supports (live
+# tmux session, registry, AITASKS_PROJECT_<name>) and refuse to pick silently:
+# more than one distinct root is an ambiguity, and a tier that could not be
+# enumerated fails closed, because the conflict it might hide cannot be ruled
+# out. Sets NOTE_RESOLVED_ROOT on success; NOTE_RESOLVE_REASON on failure.
+note_project_resolve() {
+    local name="$1" out="" rc=0
+    NOTE_RESOLVED_ROOT=""; NOTE_RESOLVE_REASON=""
+    out="$("$PROJECT_RESOLVE_SH" candidates "$name" 2>/dev/null)" || rc=$?
+    local last="${out##*$'\n'}"
+    case "$last" in
+        CANDIDATES_COMPLETE) ;;
+        CANDIDATES_INCOMPLETE:*)
+            NOTE_RESOLVE_REASON="project-resolution-incomplete:${last#CANDIDATES_INCOMPLETE:}"
+            return 1 ;;
+        *)  # Missing resolver, a pre-t1869 one without the mode, or garbage.
+            NOTE_RESOLVE_REASON="project-resolution-incomplete:resolver"
+            return 1 ;;
+    esac
+    (( rc == 0 )) || { NOTE_RESOLVE_REASON="project-resolution-incomplete:resolver"; return 1; }
+
+    local line rest status path canon distinct="" n=0 first_status="" first_root=""
+    while IFS= read -r line; do
+        [[ "$line" == CANDIDATE:* ]] || continue
+        rest="${line#CANDIDATE:}"; rest="${rest#*:}"
+        status="${rest%%:*}"; path="${rest#*:}"
+        canon="$(note_canon_dir "$path")" || canon="$path"
+        [[ -n "$canon" ]] || canon="$path"
+        if ! printf '%s' "$distinct" | grep -qxF -- "$canon"; then
+            distinct+="$canon"$'\n'; n=$(( n + 1 ))
+            if (( n == 1 )); then first_status="$status"; first_root="$canon"; fi
+        fi
+    done <<<"$out"
+
+    if (( n == 0 )); then
+        NOTE_RESOLVE_REASON="project-not-found:$name"; return 1
+    fi
+    if (( n > 1 )); then
+        warn "project '$name' resolves to more than one root — fix the registration:
+$(printf '%s' "$distinct" | sed 's/^/  /')"
+        NOTE_RESOLVE_REASON="project-ambiguous:$name"; return 1
+    fi
+    if [[ "$first_status" != "RESOLVED" ]]; then
+        NOTE_RESOLVE_REASON="project-stale:$name"; return 1
+    fi
+    NOTE_RESOLVED_ROOT="$first_root"
+    return 0
+}
+
+# note_source_project <self-root>
+#
+# The calling repository's own logical name, from its DECLARED bindings only
+# (registry entries and AITASKS_PROJECT_<name> env vars — a tmux session name is
+# incidental, never auto-selected). A name qualifies only if it also resolves
+# forward, unambiguously, back to this root — which is what the TARGET will do
+# with it. Never invents a name. Sets NOTE_SOURCE_NAME or NOTE_RESOLVE_REASON.
+#
+# When NO declared name survives, the reason is the first one a declared name
+# failed with (project-ambiguous:<n>, project-resolution-incomplete:<tier>,
+# bad-project-name:<n>, ...) — never `source-unregistered`, which is reserved
+# for "no declared name at all". The two need different fixes: register the
+# repository, versus repair a registration that conflicts.
+note_source_project() {
+    local self="$1" out="" last line name names="" kept="" n=0 first_fail=""
+    NOTE_SOURCE_NAME=""; NOTE_RESOLVE_REASON=""
+    out="$("$PROJECT_RESOLVE_SH" bindings "$self" 2>/dev/null)" || true
+    last="${out##*$'\n'}"
+    case "$last" in
+        BINDINGS_COMPLETE) ;;
+        BINDINGS_INCOMPLETE:*)
+            NOTE_RESOLVE_REASON="project-resolution-incomplete:${last#BINDINGS_INCOMPLETE:}"
+            return 1 ;;
+        *)  NOTE_RESOLVE_REASON="project-resolution-incomplete:resolver"; return 1 ;;
+    esac
+    while IFS= read -r line; do
+        [[ "$line" == BINDING:* ]] || continue
+        name="${line#BINDING:}"; name="${name#*:}"
+        printf '%s' "$names" | grep -qxF -- "$name" && continue
+        names+="$name"$'\n'
+    done <<<"$out"
+    while IFS= read -r name; do
+        [[ -n "$name" ]] || continue
+        if ! note_project_name_ok "$name"; then
+            [[ -n "$first_fail" ]] || first_fail="bad-project-name:$name"
+            continue
+        fi
+        if ! note_project_resolve "$name"; then
+            [[ -n "$first_fail" ]] || first_fail="$NOTE_RESOLVE_REASON"
+            continue
+        fi
+        if [[ "$NOTE_RESOLVED_ROOT" != "$self" ]]; then
+            # Declared here, resolved elsewhere: the name does not identify
+            # this checkout, which is an ambiguity by any other name.
+            [[ -n "$first_fail" ]] || first_fail="project-ambiguous:$name"
+            continue
+        fi
+        kept+="${kept:+,}$name"; n=$(( n + 1 ))
+    done <<<"$names"
+    NOTE_RESOLVE_REASON=""
+    if (( n == 0 )); then
+        NOTE_RESOLVE_REASON="${first_fail:-source-unregistered}"
+        return 1
+    fi
+    if (( n > 1 )); then
+        warn "this repository is registered under several names ($kept) — pass --from-project <name>"
+        NOTE_RESOLVE_REASON="source-ambiguous:$kept"; return 1
+    fi
+    NOTE_SOURCE_NAME="$kept"
+    return 0
+}
+
+# note_prescan <write|read> <args...>
+#
+# The OPTION-AWARE scan that decides whether to route. It walks argv exactly as
+# the real parsers do, consuming each value-taking option's value WITHOUT
+# inspecting it — so `--text --project` is a body, `--file --project` a path and
+# `--ids --project` an id list, exactly as today. An unrecognized token stops the
+# scan: what follows cannot be parsed reliably, and the local parser (when not
+# routing) reports it exactly as it always has.
+#
+# Sets PS_ROUTE PS_PROJECT PS_N_PROJECT PS_MISSING PS_FROM_PROJECT
+#      PS_N_FROM_PROJECT PS_N_FROM PS_MIGRATE PS_UNKNOWN
+note_prescan() {
+    local verb="$1"; shift
+    PS_ROUTE=0; PS_PROJECT=""; PS_N_PROJECT=0; PS_MISSING=""
+    PS_FROM_PROJECT=""; PS_N_FROM_PROJECT=0; PS_N_FROM=0; PS_MIGRATE=0
+    PS_UNKNOWN=""
+    [[ $# -gt 0 ]] && shift    # the target id (positional)
+    while [[ $# -gt 0 ]]; do
+        case "$verb:$1" in
+            write:--project|read:--project)
+                [[ $# -ge 2 ]] || { PS_MISSING="--project"; PS_N_PROJECT=$(( PS_N_PROJECT + 1 )); break; }
+                PS_PROJECT="$2"; PS_N_PROJECT=$(( PS_N_PROJECT + 1 )); shift 2 ;;
+            write:--from-project)
+                [[ $# -ge 2 ]] || { PS_MISSING="--from-project"; break; }
+                PS_FROM_PROJECT="$2"; PS_N_FROM_PROJECT=$(( PS_N_FROM_PROJECT + 1 )); shift 2 ;;
+            write:--from)
+                [[ $# -ge 2 ]] || { PS_MISSING="--from"; break; }
+                PS_N_FROM=$(( PS_N_FROM + 1 )); shift 2 ;;
+            write:--text|write:--file|write:--claimed-from|write:--claimed-at|\
+            write:--base|write:--base-branch|read:--by|read:--ids|read:--mode)
+                [[ $# -ge 2 ]] || { PS_MISSING="$1"; break; }
+                shift 2 ;;
+            write:--with-live) shift ;;
+            write:--migrate) PS_MIGRATE=1; shift ;;
+            *) PS_UNKNOWN="$1"; break ;;
+        esac
+    done
+    (( PS_N_PROJECT > 0 )) && PS_ROUTE=1
+    return 0
+}
+
+# note_rewrite_path_line <root> <line>
+#
+# Id-bearing outcomes carry a path RELATIVE TO THE TARGET's root. Printed
+# verbatim in the caller's repository it would name a local file that is not the
+# one written, so it is made absolute — the same prefixing `create --project`
+# does. Every other line (errors, LIVE_*) passes through untouched.
+note_rewrite_path_line() {
+    local root="$1" line="$2" code rest id path tail
+    case "$line" in
+        NOTE_APPENDED:*|NOTE_APPENDED_UNCOMMITTED:*|READ_RECORDED:*|READ_RECORDED_UNPUSHED:*)
+            code="${line%%:*}"; rest="${line#*:}"
+            id="${rest%%|*}"; rest="${rest#*|}"
+            path="${rest%%|*}"
+            if [[ "$rest" == *"|"* ]]; then tail="|${rest#*|}"; else tail=""; fi
+            [[ "$path" == /* ]] || path="$root/$path"
+            printf '%s:%s|%s%s\n' "$code" "$id" "$path" "$tail" ;;
+        *) printf '%s\n' "$line" ;;
+    esac
+}
+
+# note_xrepo_route <write|read> <args...>   (args exclude the `read` verb)
+note_xrepo_route() {
+    local verb="$1"; shift
+
+    # Counted before anything is resolved: a repeated flag must never be able
+    # to mutate an unintended repository through a last-one-wins parse.
+    (( PS_N_PROJECT <= 1 )) || note_route_die "$verb" "duplicate-option:--project"
+    (( PS_N_FROM_PROJECT <= 1 )) || note_route_die "$verb" "duplicate-option:--from-project"
+    [[ -z "$PS_MISSING" ]] || note_route_die "$verb" "missing-value:$PS_MISSING"
+    [[ -z "$PS_UNKNOWN" ]] || note_route_die "$verb" "unknown-option:$PS_UNKNOWN"
+    if [[ "$verb" == "write" ]]; then
+        (( ! PS_MIGRATE )) || note_die "project-not-valid-with-migrate"
+        (( PS_N_FROM == 1 )) || note_die "missing-from"
+    fi
+
+    local name="$PS_PROJECT"
+    note_project_name_ok "$name" || note_route_die "$verb" "bad-project-name:$name"
+    if [[ -n "$PS_FROM_PROJECT" ]]; then
+        note_project_name_ok "$PS_FROM_PROJECT" \
+            || note_route_die "$verb" "bad-project-name:$PS_FROM_PROJECT"
+    fi
+
+    local self root
+    self="$(note_self_root)"
+    note_project_resolve "$name" || note_route_die "$verb" "$NOTE_RESOLVE_REASON"
+    root="$NOTE_RESOLVED_ROOT"
+    [[ "$root" != "$self" ]] || note_route_die "$verb" "project-is-local:$name"
+
+    # Probe the TARGET's installed helper for exactly the grammar we are about
+    # to hand it, so an older installation never receives an argument it would
+    # misparse. A read delegates only the existing receipt grammar, so any
+    # target with the receipt verb qualifies — even one that predates t1869.
+    local helper="$root/.aitask-scripts/aitask_note.sh" help_out=""
+    [[ -x "$helper" ]] || note_route_die "$verb" "project-incompatible:$name"
+    help_out="$(cd "$root" && env -u AIT_DIR "$helper" --help 2>/dev/null)" || true
+    if [[ "$verb" == "write" ]]; then
+        grep -qF -- '--from-project' <<<"$help_out" \
+            || note_die "project-incompatible:$name"
+    else
+        grep -qF -- 'read <task-id> --by' <<<"$help_out" \
+            || note_read_die "project-incompatible:$name"
+    fi
+
+    # Rebuild argv for the target: drop the routing pair(s), and absolutize a
+    # --file path, which the target would otherwise resolve against ITS root.
+    local -a fwd=()
+    local src=""
+    if [[ "$verb" == "write" ]]; then
+        if [[ -n "$PS_FROM_PROJECT" ]]; then
+            note_project_resolve "$PS_FROM_PROJECT" || note_die "$NOTE_RESOLVE_REASON"
+            [[ "$NOTE_RESOLVED_ROOT" == "$self" ]] \
+                || note_die "from-project-mismatch:$PS_FROM_PROJECT"
+            src="$PS_FROM_PROJECT"
+        else
+            note_source_project "$self" || note_die "$NOTE_RESOLVE_REASON"
+            src="$NOTE_SOURCE_NAME"
+        fi
+        fwd+=("$1"); shift
+        while [[ $# -gt 0 ]]; do
+            case "$1" in
+                --project|--from-project) shift 2 ;;
+                --file)
+                    if [[ "$2" == "-" || "$2" == /* ]]; then
+                        fwd+=("$1" "$2")
+                    else
+                        fwd+=("$1" "$PWD/$2")
+                    fi
+                    shift 2 ;;
+                --from|--text|--claimed-from|--claimed-at|--base|--base-branch)
+                    fwd+=("$1" "$2"); shift 2 ;;
+                *) fwd+=("$1"); shift ;;
+            esac
+        done
+        fwd+=(--from-project "$src")
+    else
+        fwd+=(read "$1"); shift
+        while [[ $# -gt 0 ]]; do
+            case "$1" in
+                --project) shift 2 ;;
+                *) fwd+=("$1" "$2"); shift 2 ;;
+            esac
+        done
+    fi
+
+    # Delegate. AIT_DIR and the task-dir variables are scrubbed: inherited from
+    # the caller they would point the target's provenance capture, or its task
+    # lookup, back at THIS repository. Stdin passes through (--file -), stderr
+    # passes through, stdout is buffered for the path rewrite.
+    #
+    # AIT_NOTE_XREPO_CALLER is the caller handoff: THIS repository's canonical
+    # root. The target's --from-project refuses to run without it and requires
+    # the resolved sender project to BE that root — so the qualified sender is
+    # always the repository the call actually came from, never merely a project
+    # that exists.
+    local out="" rc=0 line
+    out="$(cd "$root" && env -u AIT_DIR -u TASK_DIR -u PLAN_DIR \
+            -u ARCHIVED_DIR -u ARCHIVED_PLAN_DIR \
+            AIT_NOTE_XREPO_CALLER="$self" "$helper" "${fwd[@]}")" || rc=$?
+    while IFS= read -r line; do
+        [[ -n "$line" ]] || continue
+        note_rewrite_path_line "$root" "$line"
+    done <<<"$out"
+    return "$rc"
+}
+
 main() {
     case "${1:-}" in
         --help | -h | help | "") show_help; return 0 ;;
@@ -861,20 +1225,31 @@ main() {
         # otherwise fail with bad-task-id:read. The name is reserved by
         # construction — a note's marker name must equal its sender (t<id>),
         # which can never be the bare word "read".
-        read) shift; note_read_main "$@"; return $? ;;
+        read)
+            shift
+            # Cross-repository receipt (t1869): routed ONLY when --project sits
+            # in option position; otherwise the local path, unchanged.
+            note_prescan read "$@"
+            if (( PS_ROUTE )); then note_xrepo_route read "$@"; return $?; fi
+            note_read_main "$@"; return $? ;;
     esac
+
+    # Cross-repository send (t1869). Decided by the option-aware pre-scan
+    # BEFORE the local parser runs; without --project nothing below changes.
+    note_prescan write "$@"
+    if (( PS_ROUTE )); then note_xrepo_route write "$@"; return $?; fi
 
     local target_raw="$1"; shift
     local from_raw="" body_text="" body_file="" migrate=0
     local claimed_from="" claimed_at="" cli_base="" cli_base_branch=""
-    local with_live=0
+    local with_live=0 from_project=""
 
     # Every flag is counted, not just captured. A last-one-wins parser turns a
     # contradictory command line into a silently different note: `--text a
     # --file b` would drop the inline text, and `--text a --text b` would keep
     # only b — both without a word to the caller (F19).
     local n_from=0 n_text=0 n_file=0 n_claimed_from=0 n_claimed_at=0
-    local n_base=0 n_base_branch=0 n_with_live=0
+    local n_base=0 n_base_branch=0 n_with_live=0 n_from_project=0
     while [[ $# -gt 0 ]]; do
         # A value-taking flag must HAVE its value before we shift past it.
         # `shift 2` with one argument left fails, and under `set -e` that exits
@@ -882,7 +1257,7 @@ main() {
         # line, always" contract and leaves the caller unable to tell malformed
         # input from a died process (F21).
         case "$1" in
-            --from|--text|--file|--claimed-from|--claimed-at|--base|--base-branch)
+            --from|--text|--file|--claimed-from|--claimed-at|--base|--base-branch|--from-project)
                 [[ $# -ge 2 ]] || note_die "missing-value:$1" ;;
         esac
         case "$1" in
@@ -895,6 +1270,7 @@ main() {
             --claimed-at)    claimed_at="$2";      n_claimed_at=$((n_claimed_at+1));     shift 2 ;;
             --base)          cli_base="$2";        n_base=$((n_base+1));       shift 2 ;;
             --base-branch)   cli_base_branch="$2"; n_base_branch=$((n_base_branch+1));   shift 2 ;;
+            --from-project)  from_project="$2";    n_from_project=$((n_from_project+1)); shift 2 ;;
             *) note_die "unknown-option:$1" ;;
         esac
     done
@@ -917,11 +1293,15 @@ main() {
     (( n_base <= 1 ))         || note_die "duplicate-option:--base"
     (( n_base_branch <= 1 ))  || note_die "duplicate-option:--base-branch"
     (( n_with_live <= 1 ))    || note_die "duplicate-option:--with-live"
+    (( n_from_project <= 1 )) || note_die "duplicate-option:--from-project"
 
     if (( migrate )); then
         # --from is IGNORED on this path (the proof is never run), so accepting
         # it would let a caller believe they had attributed a verified sender.
         (( n_from == 0 )) || note_die "from-not-valid-with-migrate"
+        # Migration preserves a HISTORICAL claim; the normal cross-repository
+        # send (--from-project) must never become a way into it, or out of it.
+        (( n_from_project == 0 )) || note_die "from-project-not-valid-with-migrate"
     else
         local n_mig=$(( n_claimed_from + n_claimed_at + n_base + n_base_branch ))
         # Provenance is CAPTURED in normal mode, so a supplied value would be
@@ -985,16 +1365,53 @@ main() {
         local from_bare
         from_bare="$(note_id_normalize "$from_raw")" \
             || note_die "bad-task-id:$from_raw"
-        if [[ "$from_bare" == "$target_bare" ]]; then
-            printf 'NOTE_SELF:%s\n' "$(note_sanitize_field "$target_bare")"
-            return 1
+        if (( n_from_project )); then
+            # --- Cross-repository sender (t1869) ---------------------------
+            #
+            # This is the TARGET half: the caller's repository resolved its own
+            # name and ran this script from inside the target. Nothing is taken
+            # on trust — the name is re-resolved HERE, the source task must
+            # exist THERE, and the proof below reads the source repository's
+            # own lock. A direct caller passing --from-project gets exactly the
+            # same checks.
+            note_project_name_ok "$from_project" \
+                || note_die "bad-project-name:$from_project"
+            # Standalone use is refused: --from-project is only meaningful as
+            # the target half of a routed call, which hands over the caller's
+            # canonical root. Without it, the "calling repository" is this one,
+            # and no foreign project can be the sender.
+            local caller_root="${AIT_NOTE_XREPO_CALLER:-}"
+            [[ -n "$caller_root" ]] || note_die "from-project-requires-project"
+            caller_root="$(note_canon_dir "$caller_root")" \
+                || note_die "from-project-requires-project"
+            note_project_resolve "$from_project" || note_die "$NOTE_RESOLVE_REASON"
+            local src_root="$NOTE_RESOLVED_ROOT"
+            [[ "$src_root" != "$(note_self_root)" ]] \
+                || note_die "from-project-is-target:$from_project"
+            [[ "$src_root" == "$caller_root" ]] \
+                || note_die "from-project-mismatch:$from_project"
+            ( cd "$src_root" && TASK_DIR=aitasks ARCHIVED_DIR=aitasks/archived \
+                resolve_task_file "$from_bare" ) >/dev/null 2>&1 \
+                || note_die "source-task-missing:${from_project}#$(note_id_render "$from_bare")"
+            # No NOTE_SELF check: equal numbers in two projects are two tasks.
+            # The marker NAME is the local t<id> part ('#' is not a legal name
+            # character); from= carries the qualified identity, so a reader can
+            # never mistake it for this repository's own t<id>.
+            sender_name="$(note_id_render "$from_bare")"
+            sender_field="${from_project}#${sender_name}"
+            note_sender_is_self "$from_bare" "$src_root" && verified=1
+        else
+            if [[ "$from_bare" == "$target_bare" ]]; then
+                printf 'NOTE_SELF:%s\n' "$(note_sanitize_field "$target_bare")"
+                return 1
+            fi
+            sender_name="$(note_id_render "$from_bare")"
+            sender_field="$sender_name"
+            # from_verified=yes ONLY when this session provably holds the
+            # sender's lock; otherwise the field is OMITTED — never 'no', so
+            # absence and disproof stay distinct.
+            note_sender_is_self "$from_bare" && verified=1
         fi
-        sender_name="$(note_id_render "$from_bare")"
-        sender_field="$sender_name"
-        # from_verified=yes ONLY when this session provably holds the sender's
-        # lock; otherwise the field is OMITTED — never 'no', so absence and
-        # disproof stay distinct.
-        note_sender_is_self "$from_bare" && verified=1
     fi
 
     # --- Body ---

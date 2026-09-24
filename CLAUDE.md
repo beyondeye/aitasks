@@ -277,6 +277,10 @@ multi-line body, quoted heredoc so the shell does not expand it
 EOF
 ```
 
+A task in another registered repository takes `--project <name>` (the
+target id then names a task there; that repository's own helper writes and
+commits the note, recording the sender as `<project>#t<id>`).
+
 `NOTE_APPENDED:<note-id>|<path>` is the durable, committed, **authoritative**
 result. `--with-live` adds a second line — `LIVE_PANE:` / `LIVE_NONE:<reason>`
 / `LIVE_ERROR:<reason>` — reporting whether the target is held by a live agent

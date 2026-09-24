@@ -70,6 +70,18 @@ The command-level consequence of that rule — what `--parent` means when creati
 a task in another project — is stated with the command, in
 [creating a task in a sibling project]({{< relref "/docs/workflows/multi_project" >}}#creating-a-task-in-a-sibling-project).
 
+### A command that writes elsewhere never picks between bindings
+
+A name can be bound in more than one place at once — a live tmux session, the
+registry, an environment variable. For reading a reference, taking the first
+binding that answers is fine. A command that **writes into** the other
+repository — [sending a note to one of its
+tasks]({{< relref "/docs/commands/note" >}}#sending-to-another-repository) —
+holds itself to more: it checks every binding, and refuses if two of them point
+at different checkouts or if one of them could not be read. Writing into the
+wrong repository cannot be undone by resolving the name correctly later, so
+"could not rule out a conflict" is treated as a conflict.
+
 ### Why an unresolvable name is never auto-cloned
 
 When a name does not resolve, the framework prints how to register the project
@@ -104,4 +116,4 @@ consume blocking edges with
 - [Cross-Project Dependencies]({{< relref "/docs/workflows/cross_project_dependencies" >}}) — blocking on another project's work, and paired planning
 - [Task format]({{< relref "/docs/development/task-format" >}}) — the frontmatter fields that carry cross-repo edges
 - [Parent and child tasks]({{< relref "/docs/concepts/parent-child" >}}) — the hierarchy that stays inside one project
-- [Task notes]({{< relref "/docs/concepts/task-notes" >}}) — why a sender in another project is only ever a recorded claim
+- [Task notes]({{< relref "/docs/concepts/task-notes" >}}) — why a note from another project records a qualified sender, and what it can prove

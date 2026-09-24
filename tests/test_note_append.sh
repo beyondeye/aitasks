@@ -23,6 +23,7 @@
 #   degraded provenance                             F16 (dirty=unknown IFF base=none)
 #   migration path                                  F14 (exact emitted record)
 #   concurrency                                     parallel appends all survive
+#   cross-repo options vs. migration                t1869 (both refused)
 #
 # Run: bash tests/test_note_append.sh
 
@@ -323,7 +324,7 @@ if ( cd "$DATA" && "$LOCK" 701 --email t@example.com ) >/dev/null 2>&1; then
     run_note 702 --from 701 --text "verified send" >/dev/null 2>&1
     assert_contains "6b. sender locked by THIS session IS verified" \
         "from_verified=yes" "$(task_body 702)"
-    ( cd "$DATA" && "$LOCK" 701 --unlock ) >/dev/null 2>&1 || true
+    ( cd "$DATA" && "$LOCK" --unlock 701 ) >/dev/null 2>&1 || true
 else
     echo "SKIP 6b: could not acquire a sender lock in the fixture"
 fi
@@ -608,6 +609,23 @@ assert_eq "11a. all five concurrent appends survive" "5" \
     "$(grep -c '^> \*\*' "$DATA/aitasks/t800_x.md")"
 assert_eq "11b. and every id is unique" "5" \
     "$(grep -o 'id=[^ ]*' "$DATA/aitasks/t800_x.md" | sort -u | wc -l | tr -d ' ')"
+
+# --- 15. Cross-repository options stay out of migration (t1869) ------------
+#
+# The normal cross-repository send and the migration path record different
+# kinds of provenance (proven vs. historically claimed); neither may be a way
+# into the other. Both refusals are pre-append, so nothing is written.
+
+before="$(task_body 700)"
+out="$(run_note 700 --migrate --claimed-from 701 --claimed-at 2026-01-01 \
+        --base none --from-project someproj --text x 2>/dev/null)"
+assert_eq "15a. --from-project is refused on the migration path" \
+    "NOTE_ERROR:from-project-not-valid-with-migrate" "$out"
+out="$(run_note 700 --project someproj --migrate --claimed-from 701 \
+        --claimed-at 2026-01-01 --base none --text x 2>/dev/null)"
+assert_eq "15b. --project is refused with --migrate, before any resolution" \
+    "NOTE_ERROR:project-not-valid-with-migrate" "$out"
+assert_eq "15c. neither refusal wrote anything" "$before" "$(task_body 700)"
 
 # --- summary ---------------------------------------------------------------
 echo

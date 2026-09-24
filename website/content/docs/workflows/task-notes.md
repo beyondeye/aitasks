@@ -35,6 +35,18 @@ The workflow also **offers** to send a note at the moments you are most likely t
 
 From a script, use [`ait note`]({{< relref "/docs/commands/note" >}}) directly. It performs the durable write, without choosing a recipient for you and without the live delivery step.
 
+### A task in another repository
+
+When the task that needs to know lives in a [sibling project]({{< relref "/docs/workflows/multi_project" >}}), add `--project` with that project's registered name:
+
+```
+/aitask-note 42 --project mobile --text "t349 renames /v1/sessions; your API client still calls it"
+```
+
+This is usually better than opening the other repository and editing the task yourself: the note is a structured addition to that task's `## Inbox`, committed by that repository's own tooling, and it changes nothing about the task's description, status or ownership. The same rule applies as everywhere else — if what you want to send is work, [create a task there]({{< relref "/docs/workflows/multi_project" >}}#creating-a-task-in-a-sibling-project) instead.
+
+Name both the project and the task: the recipient search covers this repository only. The note records its sender as `<your-project>#t<id>`, so the reader can never mistake it for their own task with the same number. If the project name is unknown, points at a stale checkout, or reaches more than one checkout, nothing is written and the reason is reported — see [the full list]({{< relref "/docs/commands/note" >}}#sending-to-another-repository).
+
 ## Two lanes: durable always, live when possible
 
 Every note goes through two lanes, in this order:
@@ -58,7 +70,7 @@ When live delivery does happen, the note is reported as **queued**, not read. Th
 
 When you pick a task with unread notes, each one is shown before planning starts, together with where it came from:
 
-- **The sender, as a claim.** It is marked *verified* only when the sending session provably held the sender task's lock when it wrote the note. An unverified sender is *not proven*, which is not the same as *disproved*.
+- **The sender, as a claim.** It is marked *verified* only when the sending session provably held the sender task's lock when it wrote the note. An unverified sender is *not proven*, which is not the same as *disproved*. A sender shown as `<project>#t<id>` is a task in another repository, not the task with that number in yours.
 - **When and where it was written** — the commit it was written against, and whether that session's working tree had uncommitted changes. A note written against uncommitted changes may describe something that has since moved in a way the commit cannot show.
 
 Then you are asked whether to acknowledge them. **Displaying a note and acknowledging it are separate steps**: seeing a note changes nothing, and only an acknowledgement stops it from being shown again. Choose *Keep unread* and the notes surface on the next pick too.

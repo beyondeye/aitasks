@@ -237,3 +237,6 @@ which `tests/test_no_raw_tmux.sh` enforces.
   changes it, the adapter's join breaks — and the required `no_session_match`
   diagnostic is what makes that visible rather than silent.
 - Only the gateway tmux socket is searched.
+- A cross-repository note (`ait note --project`, t1869) resolves its endpoint in
+  the **target** repository, after that repository's commit, and only on this
+  host — cross-host delivery is out of scope.

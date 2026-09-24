@@ -142,6 +142,24 @@ Two constraints:
 - `--project` requires `--batch` (non-interactive creation).
 - `--project` **can** be combined with `--parent`, but the parent is resolved in the **target** project: `ait create --batch --project backend --parent 42` creates a child of `backend`'s task 42. A task can never be made a child of a parent in a *different* project — [hierarchies never cross a repo boundary]({{< relref "/docs/concepts/cross-repo-references" >}}#hierarchies-never-cross-a-repo-boundary).
 
+## Sending a note to a sibling project's task
+
+When a task in another project needs context rather than new work, send it a
+[task note]({{< relref "/docs/workflows/task-notes" >}}#a-task-in-another-repository)
+with `--project`:
+
+```bash
+ait note 42 --project mobile --from 349 --text "..."
+```
+
+The name resolves as described in
+[how a name resolves to a path](#how-a-name-resolves-to-a-path), except that
+every source is checked and a conflict between them refuses the note instead of
+picking one. The other
+project's own tooling writes and commits it. The resolution rules, the recorded
+sender and every refusal are documented once, in
+[`ait note`]({{< relref "/docs/commands/note" >}}#sending-to-another-repository).
+
 ## Referring to cross-project tasks and files
 
 When a plan, commit message, or task description needs to point at another project's task or file, write the reference with the project's logical name:

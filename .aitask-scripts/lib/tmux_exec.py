@@ -49,8 +49,10 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import os
+import re
 import shutil
 import subprocess
+from typing import NamedTuple
 
 # Env var naming the tmux socket (``tmux -L <name>``). Unset → the dedicated
 # ``ait`` socket (t953); ``default`` → the user's default server (opt-out);
@@ -136,6 +138,61 @@ def _systemd_user_available() -> bool:
     return result.returncode == 0 or result.stdout.strip() == "degraded"
 
 
+class TmuxResult(NamedTuple):
+    """Outcome of :meth:`TmuxClient.run_checked` — a status-bearing tmux call.
+
+    ``outcome`` is one of:
+
+    * ``ok``        — rc 0.
+    * ``no_tmux``   — the ``tmux`` binary is not installed. No server can exist.
+    * ``no_server`` — tmux answered that no server listens on the socket. A
+      definite "nothing is running", NOT a failure.
+    * ``failed``    — anything else: a timeout, an ``OSError``, or a non-zero
+      exit this table does not recognize. Callers that must rule something out
+      treat this as "could not look" and fail closed.
+
+    A command-specific non-zero answer that is nonetheless definite ("unknown
+    variable", "can't find session") comes back as ``failed`` with its
+    ``stderr``: the gateway does not know which command's miss is benign, so the
+    caller classifies it with :func:`tmux_stderr_is` against the pinned table.
+    """
+
+    outcome: str
+    rc: int
+    stdout: str
+    stderr: str
+
+
+#: tmux's own error messages, measured against tmux 3.7c (t1869) — never
+#: guessed. A missing socket file prints ``error connecting to <path> (No such
+#: file or directory)``; a socket file with no listener (a server that died)
+#: prints ``no server running on <path>``. Both mean "no server". A vanished
+#: session prints ``can't find session: <s>`` for an ``=<s>:`` target and
+#: ``can't find window: <s>`` for a bare ``=<s>`` one; an unset global
+#: environment variable prints ``unknown variable: <v>``. Anything else — e.g.
+#: ``(Connection refused)`` or ``(Permission denied)`` — is not in this table
+#: and therefore stays a failure.
+_TMUX_STDERR_PATTERNS = {
+    "no_server": (
+        re.compile(r"^no server running on "),
+        re.compile(r"^error connecting to .* \(No such file or directory\)$"),
+    ),
+    "no_such_session": (
+        re.compile(r"^can't find session: "),
+        re.compile(r"^can't find window: "),
+    ),
+    "unknown_variable": (re.compile(r"^unknown variable: "),),
+}
+
+
+def tmux_stderr_is(kind: str, stderr: str) -> bool:
+    """True if ``stderr``'s first line matches the pinned ``kind`` pattern."""
+    first = (stderr or "").strip().splitlines()[:1]
+    if not first:
+        return False
+    return any(p.search(first[0]) for p in _TMUX_STDERR_PATTERNS[kind])
+
+
 class TmuxClient:
     """Sole owner of raw ``tmux`` process spawning on the Python side.
 
@@ -177,6 +234,35 @@ class TmuxClient:
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             return (-1, "")
         return (result.returncode, result.stdout or "")
+
+    def run_checked(
+        self, args: list[str], timeout: float = _DEFAULT_TIMEOUT
+    ) -> TmuxResult:
+        """Run ``tmux <args>`` and say *why* it failed, not just that it did.
+
+        :meth:`run` folds every failure into ``(-1, "")`` or a bare non-zero rc
+        and drops stderr, so "no server is running" and "the query failed" are
+        indistinguishable there. That is fine for display loops; it is wrong for
+        a caller that must *rule out* a live session before acting (the
+        cross-repo note resolver, t1869). This additive sibling keeps stderr
+        and classifies the outcome — see :class:`TmuxResult`.
+        """
+        try:
+            result = subprocess.run(
+                self._argv(args),
+                capture_output=True, text=True, timeout=timeout,
+            )
+        except FileNotFoundError:
+            return TmuxResult("no_tmux", -1, "", "")
+        except (subprocess.TimeoutExpired, OSError):
+            return TmuxResult("failed", -1, "", "")
+        stdout = result.stdout or ""
+        stderr = result.stderr or ""
+        if result.returncode == 0:
+            return TmuxResult("ok", 0, stdout, stderr)
+        if tmux_stderr_is("no_server", stderr):
+            return TmuxResult("no_server", result.returncode, stdout, stderr)
+        return TmuxResult("failed", result.returncode, stdout, stderr)
 
     def set_clipboard(self, text: str, timeout: float = _DEFAULT_TIMEOUT) -> bool:
         """Push ``text`` to the system clipboard through the tmux server.

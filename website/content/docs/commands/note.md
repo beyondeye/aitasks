@@ -19,6 +19,8 @@ ait note 357 --from 349 --text "line numbers are stale"   # One-line note to t35
 ait note 357 --from 349 --file notes.md                   # Body from a file
 ait note 357 --from 349 --with-live --file notes.md       # Also report a live endpoint
 ait note read 357 --by 357 --ids <note-id>                # Acknowledge a note
+ait note 42 --project mobile --from 349 --text "..."       # Note to t42 in another repository
+ait note read 42 --project mobile --by 42 --ids <note-id>  # Acknowledge it there
 ```
 
 For a multi-line body, use `--file -` with a **quoted** heredoc, so the shell cannot expand anything inside it:
@@ -38,14 +40,56 @@ NOTE_BODY
 
 | Option | Description |
 |--------|-------------|
-| `--from <id>` | The sending task. Accepts `349`, `t349`, `1657_2` or `t1657_2`. Local task ids only — a cross-repo reference is rejected. Required |
+| `--from <id>` | The sending task, in **this** repository. Accepts `349`, `t349`, `1657_2` or `t1657_2` — never a `<project>#<id>` reference; to send from here to another repository use `--project`. Required |
 | `--text <text>` | The note body, inline. Give exactly one of `--text` and `--file` |
 | `--file <path>` | The note body, read from a file. `-` reads stdin |
 | `--with-live` | After the note is committed, also report on a second output line whether the target is held by a live agent session on this machine. See [Output](#output) |
+| `--project <name>` | The target task lives in another repository — the registered project `<name>`. See [Sending to another repository](#sending-to-another-repository) |
+| `--from-project <name>` | This repository's own project name, recorded with the sender. Needed only when this repository is registered under more than one name, and valid only together with `--project` |
 
 The target accepts the same forms as `--from`. The body is limited to **8192 bytes** — a note is context, not a payload. NUL bytes are rejected and carriage returns are stripped. A task cannot note itself: when `--from` names the target, nothing is written and the result is `NOTE_SELF:`.
 
 `--with-live` reports an **endpoint**, not a delivery. `ait note` never delivers anything to a running session itself; that step belongs to [`/aitask-note`]({{< relref "/docs/skills/aitask-note" >}}).
+
+### Sending to another repository
+
+`--project <name>` sends the note to a task in a **sibling project** — another repository registered with [`ait projects`]({{< relref "/docs/workflows/multi_project" >}}). The target id then names a task in *that* repository; `--from` still names your task in this one. Everything else — the body options, `--with-live`, the output codes — is the same.
+
+```bash
+ait note 42 --project mobile --from 349 --file - <<'NOTE_BODY'
+t349 renames the /v1/sessions endpoint; your API client in t42 still calls the old path.
+NOTE_BODY
+```
+
+For a task you do not own, a note is usually the right tool: it adds context to that task's `## Inbox` without editing its description, metadata or status. If the content is itself work, create a task there instead (`ait create --batch --project <name>`).
+
+**The other repository does the write.** `ait note` runs that repository's own installed `ait note`, from inside it. The inbox lock, the task-data branch, the commit and the push are all that repository's; nothing in your repository changes. The path in `NOTE_APPENDED:` and the other id-bearing lines is **absolute**, because it names a file in the other checkout.
+
+**How the project name is resolved.** The name is looked up the same way as for `ait projects resolve` — a live tmux session for that project, the project registry, then an `AITASKS_PROJECT_<name>` environment variable — with one difference: `ait note` checks **every** source rather than taking the first match. If they point at two different checkouts, or a source could not be read, the note is refused instead of guessing where to write.
+
+**How the sender is recorded.** The note stores `from=<your-project>#t<id>`, never a bare `t<id>` — a bare id would read as a task in the recipient's own repository. Your project's name comes from the project registry or an `AITASKS_PROJECT_<name>` variable pointing at this checkout; a tmux session name is never used for this. If the registry lists this checkout under several names, pass `--from-project <name>` to choose one. Your task must exist; it is checked before anything is written. `from_verified=yes` is recorded only when your session holds your task's lock, exactly as for a local note — see [Provenance](#provenance).
+
+**Refusals.** Each one is a single `NOTE_ERROR:<reason>` line (`READ_ERROR:<reason>` for `ait note read`), exits 1, and happens before anything is written in either repository:
+
+| Reason | Meaning |
+|--------|---------|
+| `project-not-found:<name>` | No source knows that name. Register the project with `ait projects add` |
+| `project-stale:<name>` | The name points at a directory that is no longer an aitasks project |
+| `project-ambiguous:<name>` | The name reaches more than one checkout. The paths are printed on stderr |
+| `project-resolution-incomplete:<source>` | One of the lookup sources (`tmux`, `registry`, or `resolver` for an older resolver) could not be read, so a conflict cannot be ruled out |
+| `project-is-local:<name>` | The name is this repository — leave out `--project` |
+| `project-incompatible:<name>` | That repository's framework does not support this command yet. Run `ait upgrade` there |
+| `source-unregistered` | This repository has no registered project name to record as the sender |
+| `source-ambiguous:<names>` | This repository is registered under several names. Pass `--from-project` with one of them |
+| `from-project-mismatch:<name>` | `--from-project` names a project that is not this repository |
+| `source-task-missing:<name>#t<id>` | The `--from` task does not exist in this repository |
+| `project-not-valid-with-migrate` | `--project` cannot be combined with `--migrate` |
+| `from-project-requires-project` | `--from-project` was given without `--project`. It only names *this* repository as the sender of a routed note, so on its own it is refused |
+| `duplicate-option:<flag>` / `missing-value:<flag>` | `--project` or `--from-project` given twice, or without a value |
+
+A target task that does not exist in the other repository is reported there, as `NOTE_TARGET_MISSING:<id>`.
+
+Live delivery works the same way — the other repository's live-endpoint lookup runs after its note is committed, and it only finds sessions on this machine.
 
 ### Reading acknowledgement receipts
 
@@ -60,6 +104,7 @@ The target accepts the same forms as `--from`. The body is limited to **8192 byt
 | `--by <id>` | The reader. Must be `<task-id>` itself — the reader is the session working on that task, and the task id is its only durable identity. Anything else is refused |
 | `--ids <csv>` | Comma-separated note ids, each naming a note present in that task's inbox |
 | `--mode <mode>` | `explicit` (a person acknowledged — the default) or `auto` (an unattended run did). Recorded so that "no person read these" stays visible |
+| `--project <name>` | Acknowledge the notes of a task in another repository. Resolved and refused exactly as for [sending](#sending-to-another-repository); failures are `READ_ERROR:` lines. `--by` is still the target task's own id, in that repository |
 
 Unread state is **derived, never stored**: a note is unread while its id appears in no valid receipt. There is no field to update, so receipts written at the same time on different machines simply combine, and a note acknowledged on one machine does not reappear on another once the task data syncs.
 
@@ -132,10 +177,10 @@ Every note's header line records where it was written, so a reader can check its
 
 | Field | Meaning |
 |-------|---------|
-| `from` | The sending task. **A claim**, not a proof |
+| `from` | The sending task. **A claim**, not a proof. `<project>#t<id>` names a task in another repository |
 | `from_verified=yes` | Written only when the sending session provably held the sender task's lock at write time — same host, same process, same start time. Otherwise the field is left out, never written as `no`: its absence means "not proven", never "disproved". It says nothing about the note's content |
 | `at` | When the note was written, in UTC |
-| `base` | The commit the sender's code checkout was on — a **full** object id |
+| `base` | The commit the sender's code checkout was on — a **full** object id. For a note sent from another repository, the commit of the **recipient's** checkout it was written into |
 | `base_branch` | The branch that commit was on |
 | `base_mergebase` | The merge base with the repository's primary branch, recorded only when the sender was on a different branch |
 | `dirty` | `yes` if the sender's working tree had uncommitted changes, `no` if it was clean |
@@ -145,6 +190,7 @@ How `base` is captured, because it is the field a reader relies on most:
 
 - It comes from the **code repository**, never from the task file's location. Task files live in a separate task-data worktree — `aitasks/` links into `.aitask-data` — so reading git state from there would record the wrong commit.
 - It is captured **before** the note is appended and committed, so it describes the tree the sender was looking at.
+- For a note sent with `--project`, it is the **recipient's** checkout — the tree the note was written into, and the one its reader can check out. The sender's own repository is not recorded; a commit from there would not exist in the recipient's history.
 - It is stored as a **full** object id. A short hash that is unique today can become ambiguous as the repository grows, which would break the one promise `base` makes, for exactly the oldest notes. Displays may abbreviate it; the stored value never is.
 - Two sentinel values exist. `base=none` means there was no git repository at all; `dirty` is then `unknown`, the only case where it could not be measured. `base=unknown` means the repository exists but has no commits yet; `dirty` is still measured.
 

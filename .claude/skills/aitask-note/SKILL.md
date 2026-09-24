@@ -28,6 +28,12 @@ Decide this first; it is the judgement no helper can make for you.
 - If the content **is itself work**, create a task. A note never replaces
   follow-up creation, and a note asking someone to do something is a task
   wearing the wrong clothes.
+- **The target may live in another repository.** When you learn something a
+  task in a registered sibling project needs, a note is usually the right
+  tool: rewriting that task's body, metadata or status from here would be far
+  more intrusive, and it is not your task to edit. The same rule still holds —
+  if the content is work, create a task there instead
+  (`./ait create --batch --project <name> ...`), not a note.
 
 ### Step 1 — Resolve the target task
 
@@ -53,6 +59,31 @@ If `--from` is not supplied, use the id of the task the current session is
 implementing. `--from` is a **claim** about the sender, and the writer proves it
 only when the claimed sender's lock is held by this very process.
 
+**Target in another repository** — `/aitask-note 42 --project mobile --from
+1657 --text "..."`. The project is a **logical name** from the per-user project
+registry, never a path. Both the name and the target id must be **explicit**:
+Related Task Discovery searches this repository only and is never run across
+repositories. A caller that names both is still headless — nothing is asked.
+Before writing, confirm the target exists:
+
+```bash
+./ait projects resolve <name>
+./ait projects exec <name> ./.aitask-scripts/aitask_query_files.sh resolve <id>
+```
+
+`RESOLVED:<path>` then `TASK_FILE:<path>` means you have the right task. Any
+other answer — `NOT_FOUND:` / `STALE:` from the resolver, `NOT_FOUND` from the
+query — means stop and report; never guess another project or id. (The writer
+re-checks everything itself, stricter than these probes; they exist so you
+catch a wrong name before composing a body.)
+
+The **sender's** project is not something you choose: the writer finds this
+repository's own declared name in the registry (or its `AITASKS_PROJECT_<name>`
+variable). Pass `--from-project <name>` only when the writer refuses with
+`source-ambiguous:<names>` — this repository is registered under several names
+— and then use one of the names it lists. `--from` is still a task id in
+**this** repository. Local callers never pass either option.
+
 ### Step 2 — Write the note, and resolve the endpoint
 
 One command. It appends and commits first, then resolves — in that order, by
@@ -66,6 +97,20 @@ NOTE_BODY
 
 Use `--file -` with a **quoted** heredoc for anything multi-line, so the shell
 does not expand the body. `--text "..."` is fine for a single line.
+
+For a target in another repository, add `--project <name>` — nothing else
+changes:
+
+```bash
+./ait note <target> --project <name> --from <sender> --with-live --file - <<'NOTE_BODY'
+...body...
+NOTE_BODY
+```
+
+The target repository's own helper performs the write, from inside that
+repository: its lock, its task-data branch, its commit, its push. The path in
+an id-bearing line is then **absolute** (it names a file in the other
+repository).
 
 Read the output as **one line per lane**:
 
@@ -84,6 +129,18 @@ no live lane to run — report the durable outcome and stop:
   append a second note. Surface the recovery command the writer printed on
   stderr.
 - `NOTE_TARGET_MISSING:` / `NOTE_SELF:` / `NOTE_ERROR:` — nothing was written.
+  With `--project`, `NOTE_ERROR:` also carries the routing refusals — every one
+  of them happens before anything is written, in either repository:
+  `project-not-found:` / `project-stale:` (fix the registration with
+  `ait projects`), `project-ambiguous:` (the name reaches two different
+  checkouts — the roots are printed on stderr), `project-resolution-incomplete:`
+  (a lookup tier could not be read, so an ambiguity cannot be ruled out),
+  `project-is-local:` (the name is this repository — drop `--project`),
+  `project-incompatible:` (the other repository's framework predates
+  cross-repository notes — it needs `ait upgrade` there), `source-unregistered`
+  / `source-ambiguous:` / `from-project-mismatch:` (this repository's own name
+  — see Step 1), `source-task-missing:`. Report the reason; do not retry with a
+  different project or id on your own.
 
 ### Step 3 — Deliver live, only on `LIVE_PANE:`
 
@@ -117,6 +174,10 @@ These are rules, not suggestions:
 - Name the `<note-id>` in what you report, so the outcome is traceable to the
   entry on disk.
 - If `--with-live` was not used, there is simply no live lane to report.
+- **Across repositories the rules are the same.** A durable append in the
+  other repository is success whatever the live lane says, and live delivery
+  never crosses hosts. Say which project the note went to, and never claim the
+  recipient has read it.
 
 ## Writing a note someone can trust
 
@@ -126,7 +187,13 @@ These are rules, not suggestions:
   it is the recipient's decision, not yours to impose.
 - **`from=` is a claim.** `from_verified=yes` appears only when the writer
   could prove the sender's lock belongs to this process; its **absence is not
-  disproof**.
+  disproof**. A note from another repository is stored as
+  `from=<project>#t<id>` — never a bare `t<id>`, which would read as a task in
+  the recipient's own repository — and is still only a claim, often an
+  unverified one.
+- **A note is a structured change to the target's `## Inbox`, not a side
+  channel.** It is committed to that task's file and history, and it changes
+  nothing about the task's requirements, status or authority.
 - **Hedge what a SHA cannot date.** Every note records the base commit it was
   written against, which dates *tree-relative* claims — line numbers, file
   contents. It does **not** date *moment-relative* ones: a `git status`

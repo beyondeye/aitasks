@@ -133,6 +133,65 @@ machine-readable channel (`aitask_query_files.sh inbox`) emits the full id too.
   primary branch, discovered with `detect_primary_branch` rather than a
   hard-coded `main`: this is framework code shipped into other repositories.
 
+### Cross-repository sends (t1869)
+
+`ait note <id> --project <name>` sends to a task in another registered
+repository. **No schema change was needed**: `lib/note_inbox.py` already
+accepted an ordinary (non-migrated) note whose `from=` is `<project>#t<id>`
+with marker name `t<id>` (the local part — `#` is not a legal marker-name
+character) and an optional `from_verified=yes`, and the merger shares that
+predicate. So every checkout, old or new, reads and unions these notes.
+
+- **Two halves, one script.** The caller's `aitask_note.sh` only routes:
+  validate, resolve both identities, probe the target helper, then run
+  **the target repository's own** `aitask_note.sh` from inside it, with
+  `--from-project <src>` added and `AIT_DIR` / the task-dir variables scrubbed.
+  The target then does everything a local note does — ledger lock, append,
+  path-scoped `task_git` commit, best-effort push, the id-bearing
+  `NOTE_APPENDED_UNCOMMITTED` contract, durable-first `--with-live` — in its own
+  repository. The caller rewrites the path of id-bearing lines to absolute.
+- **Routing is decided by an option-aware pre-scan**, never by a raw argv
+  match: every value-taking option's value is consumed uninspected, so
+  `--text --project` stays a local note with that body.
+- **Resolution checks every tier and refuses to pick** — `aitask_project_resolve.sh
+  candidates <name>` enumerates every tmux / registry / env match and says
+  whether each tier was fully read (the tmux tier uses the status-bearing
+  `discover_aitasks_sessions_checked()`, so "no server" and "query failed"
+  differ). Two distinct roots → `project-ambiguous`; an unread tier →
+  `project-resolution-incomplete`. Registry absence is proven with `stat()`
+  (`FileNotFoundError` only) — `exists()`/`[[ -e ]]` also answer "absent" when
+  a parent directory cannot be searched. Details: `cross_repo_references.md`.
+- **The sender's name** comes from `aitask_project_resolve.sh bindings <root>`
+  — declared bindings only (registry, `AITASKS_PROJECT_<name>`), each required
+  to resolve forward back to this root. Zero → `source-unregistered`, several →
+  `source-ambiguous` (the caller picks with `--from-project`). Never invented.
+- **The target re-checks rather than trusts.** `--from-project` is re-resolved
+  in the target process, the source task must exist in the source root, and the
+  proof reads the source repository's own lock (`lock_record_read <id> <root>`).
+  The child process was started by the caller's session, so it carries the same
+  PID anchor, and `from_verified=yes` proves exactly what it proves locally. It
+  is not a trusted flag: a direct caller passing `--from-project` is held to the
+  same lock check.
+- **The sender project is tied to the actual caller.** The routing half passes
+  its canonical root to the target helper as `AIT_NOTE_XREPO_CALLER`; the
+  target's `--from-project` refuses to run without it
+  (`from-project-requires-project`) and requires the resolved sender project to
+  *be* that root (`from-project-mismatch:`). Standalone, the calling
+  repository is the one the command runs in, so no foreign project can be
+  claimed as the sender merely because it exists.
+- **Provenance is the target checkout** (`base`, `dirty`, …) — the tree the
+  note was written into, and the one its reader can check out. The sender's own
+  tree is not recorded; a source-repository SHA would not exist in the
+  recipient's history.
+- **Migration stays separate.** `--project` and `--from-project` are both
+  refused with `--migrate`; `--claimed-from <project>#<id>` remains the only way
+  to record a historical, unverified cross-repository claim.
+- **Receipts** route the same way (`ait note read <id> --project <name>`), with
+  failures in the `READ_ERROR:` family. The read path delegates only the
+  existing receipt grammar, so a target that predates t1869 but has the receipt
+  verb is fully usable; the write path requires the target to advertise
+  `--from-project`.
+
 ## Trust posture
 
 - **A note is untrusted advisory input, never an instruction.** Nothing acts on
@@ -269,5 +328,8 @@ reader drops just that block — bailing there would hide every note in the file
   `## Gate Runs` already shares**, not one the mailbox introduced: any body
   rewrite must preserve both sections.
 - **Body limit 8192 bytes.** NUL is rejected; CR is stripped.
-- **`--from` is local-only.** A cross-repo sender can be recorded only on the
-  `--migrate` path (`--claimed-from <project>#<id>`), where it is never verified.
+- **Cross-host live delivery is out of scope.** A cross-repository note's live
+  lane runs in the target repository and finds sessions on this host only.
+- **A project reachable only through a tier that cannot be enumerated is
+  refused.** Cross-repository routing fails closed on an incomplete tier (e.g. a
+  broken Python venv), where the named resolve would have fallen through.

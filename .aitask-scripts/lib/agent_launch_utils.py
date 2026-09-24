@@ -16,6 +16,7 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -23,7 +24,7 @@ from pathlib import Path
 from typing import NamedTuple
 
 from tui_registry import TUI_NAMES as _DEFAULT_TUI_NAMES
-from tmux_exec import TmuxClient
+from tmux_exec import TmuxClient, tmux_stderr_is, window_target
 # The monitor pane marker: rule + classification live in monitor_marker (one
 # implementation, also exec'd by aitask_minimonitor.sh); the writers live here,
 # where the tmux gateway client is. Re-exported so callers have a single import.
@@ -610,12 +611,47 @@ def _parse_registry_records() -> list[RegistryRecord]:
     and the raw remote/last/group fields must survive). This differs from
     :func:`_read_registry_index`, which additionally requires a non-empty path
     and annotates ``OK``/``STALE`` for the discover path.
+
+    Any read failure yields ``[]`` — indistinguishable from an empty registry.
+    That is right for display and pickers; a caller that must RULE OUT an entry
+    uses :func:`_parse_registry_records_strict` instead.
+    """
+    try:
+        return _parse_registry_records_strict()
+    except OSError:
+        return []
+
+
+def _parse_registry_records_strict() -> list[RegistryRecord]:
+    """:func:`_parse_registry_records`, but a read failure RAISES ``OSError``.
+
+    A missing registry file is still a definite, empty answer. Anything that
+    exists at the registry path but cannot be read as a file — a permission
+    error, a directory, an I/O error mid-read — raises, so a caller that must
+    rule out a conflicting entry (``aitask_project_resolve.sh candidates`` /
+    ``bindings``, t1869) can report "could not look" instead of "nothing
+    there". Non-UTF-8 content raises ``ValueError``, which such a caller treats
+    the same way.
     """
     index_path = os.environ.get("AITASKS_PROJECTS_INDEX")
     if not index_path:
         index_path = os.path.expanduser("~/.config/aitasks/projects.yaml")
-    if not os.path.isfile(index_path):
-        return []
+    # Absence must be PROVEN, not inferred. os.path.exists/lexists/isfile all
+    # return False on ANY error — including a parent directory this process may
+    # not search — so they cannot tell "no registry" from "could not look".
+    # stat() raises instead: FileNotFoundError is the only answer that means
+    # absent (and then lstat() tells a dangling symlink apart from nothing at
+    # all); every other OSError propagates as "could not read".
+    try:
+        st = os.stat(index_path)
+    except FileNotFoundError:
+        try:
+            os.lstat(index_path)
+        except FileNotFoundError:
+            return []
+        raise OSError(f"registry path is a dangling symlink: {index_path}")
+    if not stat.S_ISREG(st.st_mode):
+        raise OSError(f"registry path is not a regular file: {index_path}")
 
     def _unquote(s: str) -> str:
         s = s.strip()
@@ -648,36 +684,33 @@ def _parse_registry_records() -> list[RegistryRecord]:
         cur_last = ""
         cur_group = ""
 
-    try:
-        with open(index_path, encoding="utf-8") as fh:
-            for raw in fh:
-                line = raw.rstrip("\n")
-                stripped = line.lstrip()
-                if not stripped or stripped.startswith("#"):
-                    continue
-                if stripped.startswith("- name:"):
-                    _flush()
-                    cur_name = _unquote(stripped[len("- name:"):])
-                    continue
-                if stripped.startswith("name:") and line.startswith(" "):
-                    _flush()
-                    cur_name = _unquote(stripped[len("name:"):])
-                    continue
-                if stripped.startswith("path:") and line.startswith(" "):
-                    cur_path = _unquote(stripped[len("path:"):])
-                    continue
-                if stripped.startswith("git_remote:") and line.startswith(" "):
-                    cur_remote = _unquote(stripped[len("git_remote:"):])
-                    continue
-                if stripped.startswith("last_opened:") and line.startswith(" "):
-                    cur_last = _unquote(stripped[len("last_opened:"):])
-                    continue
-                if stripped.startswith("project_group:") and line.startswith(" "):
-                    cur_group = _unquote(stripped[len("project_group:"):])
-                    continue
-        _flush()
-    except OSError:
-        return []
+    with open(index_path, encoding="utf-8") as fh:
+        for raw in fh:
+            line = raw.rstrip("\n")
+            stripped = line.lstrip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            if stripped.startswith("- name:"):
+                _flush()
+                cur_name = _unquote(stripped[len("- name:"):])
+                continue
+            if stripped.startswith("name:") and line.startswith(" "):
+                _flush()
+                cur_name = _unquote(stripped[len("name:"):])
+                continue
+            if stripped.startswith("path:") and line.startswith(" "):
+                cur_path = _unquote(stripped[len("path:"):])
+                continue
+            if stripped.startswith("git_remote:") and line.startswith(" "):
+                cur_remote = _unquote(stripped[len("git_remote:"):])
+                continue
+            if stripped.startswith("last_opened:") and line.startswith(" "):
+                cur_last = _unquote(stripped[len("last_opened:"):])
+                continue
+            if stripped.startswith("project_group:") and line.startswith(" "):
+                cur_group = _unquote(stripped[len("project_group:"):])
+                continue
+    _flush()
 
     return records
 
@@ -1231,29 +1264,108 @@ def discover_aitasks_sessions(
     # Layer-A backend enumeration — routed through the tmux gateway so it honors
     # the socket flag (default today). The gateway folds TimeoutExpired/
     # FileNotFoundError/OSError into (-1, ""), so the rc != 0 branch covers them.
-    rc, out = _TMUX.run(["list-sessions", "-F", "#{session_name}"])
+    live_roots = _collect_live_roots(_TMUX.run, _read_registry_entry)
+    return _assemble_aitasks_sessions(
+        live_roots, include_registered=include_registered
+    )
+
+
+def _collect_live_roots(
+    run, read_registry, pane_target=tmux_session_target
+) -> list[tuple[str, Path]]:
+    """The one discovery walk, over a pluggable ``(rc, stdout)`` runner.
+
+    ``run(args)`` answers a tmux command and ``read_registry(session)`` the
+    ``AITASKS_PROJECT_<sess>`` fallback. :func:`discover_aitasks_sessions`
+    passes the plain gateway primitives, so its behaviour is exactly what it
+    always was: every failure folds into "nothing here".
+    :func:`discover_aitasks_sessions_checked` passes status-recording adapters
+    instead, so the SAME walk can also say whether it saw everything.
+
+    ``pane_target`` formats the ``list-panes -s -t`` target. The default keeps
+    the historical ``=<session>`` form byte-for-byte. The checked variant passes
+    the ``=<session>:`` form instead: measured on tmux 3.7c (t1869), a bare
+    ``=<session>`` is resolved as a WINDOW name and, when no window matches,
+    falls back to the most recent session — so with two sessions every
+    ``list-panes`` answers with the same session's panes. ``=<session>:``
+    targets the session unambiguously. (The colon-less form is shared by other
+    call sites; fixing them is tracked separately, not here.)
+    """
+    rc, out = run(["list-sessions", "-F", "#{session_name}"])
     sessions = [s for s in out.strip().splitlines() if s] if rc == 0 else []
 
     live_roots: list[tuple[str, Path]] = []
     for session in sessions:
-        prc, pout = _TMUX.run(
-            ["list-panes", "-s", "-t", tmux_session_target(session),
+        prc, pout = run(
+            ["list-panes", "-s", "-t", pane_target(session),
              "-F", "#{pane_current_path}"]
         )
         pane_paths = pout.strip().splitlines() if prc == 0 else []
         project_root = _project_root_from_pane_paths(pane_paths)
 
         if project_root is None:
-            project_root = _read_registry_entry(session)
+            project_root = read_registry(session)
 
         if project_root is None:
             continue
 
         live_roots.append((session, project_root))
+    return live_roots
 
-    return _assemble_aitasks_sessions(
-        live_roots, include_registered=include_registered
-    )
+
+def discover_aitasks_sessions_checked() -> tuple[list[AitasksSession], bool]:
+    """:func:`discover_aitasks_sessions`, plus whether the answer is complete.
+
+    Returns ``(sessions, complete)``. The default discovery folds every tmux
+    failure into emptiness — a failed ``list-sessions`` reads as "no sessions",
+    a failed ``list-panes`` as "no pane paths", a failed ``show-environment`` as
+    "no registered root". That is right for a display loop and wrong for a
+    caller that must RULE OUT a live session before acting on another
+    candidate (``aitask_project_resolve.sh candidates``, t1869): an empty answer
+    there has to mean "nothing is running", never "could not look".
+
+    Per-command dispositions (tmux messages pinned in ``tmux_exec``):
+
+    * ``list-sessions`` — ``ok`` → the sessions; ``no_tmux`` / ``no_server`` →
+      a DEFINITE empty (no live session can exist); anything else → incomplete.
+    * ``list-panes`` — ``ok`` → the paths; a vanished session (``can't find
+      session``/``window``) or a server that died mid-scan → that session is
+      gone; anything else → incomplete.
+    * ``show-environment -g AITASKS_PROJECT_<s>`` — ``ok`` → parsed; ``unknown
+      variable`` or no server → a definite absence; anything else → incomplete.
+
+    Equivalent to ``discover_aitasks_sessions()`` (``include_registered=False``)
+    whenever ``complete`` is True.
+    """
+    incomplete = [False]
+
+    def run(args):
+        r = _TMUX.run_checked(args)
+        if r.outcome == "ok":
+            return (0, r.stdout)
+        if r.outcome in ("no_tmux", "no_server"):
+            return (1, "")
+        if args and args[0] == "list-panes" and tmux_stderr_is(
+                "no_such_session", r.stderr):
+            return (1, "")
+        incomplete[0] = True
+        return (1, "")
+
+    def read_registry(session):
+        r = _TMUX.run_checked(
+            ["show-environment", "-g", f"AITASKS_PROJECT_{session}"])
+        if r.outcome == "ok":
+            return _registry_entry_from_output(r.stdout)
+        if r.outcome in ("no_tmux", "no_server") or tmux_stderr_is(
+                "unknown_variable", r.stderr):
+            return None
+        incomplete[0] = True
+        return None
+
+    live_roots = _collect_live_roots(
+        run, read_registry, pane_target=lambda s: window_target(s, ""))
+    sessions = _assemble_aitasks_sessions(live_roots, include_registered=False)
+    return sessions, not incomplete[0]
 
 
 async def discover_aitasks_sessions_async(
@@ -2286,7 +2398,7 @@ def load_tmux_defaults(project_root: Path) -> dict:
 # tmux nor Textual. Honors AITASKS_PROJECTS_INDEX via _parse_registry_records().
 
 
-def _cli_list_registry() -> int:
+def _cli_list_registry(strict: bool = False) -> int:
     """Emit one ``name|path|git_remote|last_opened|project_group`` line per entry.
 
     Byte-identical to bash ``list_registry_entries`` — pipe-separated, empty
@@ -2294,12 +2406,22 @@ def _cli_list_registry() -> int:
     the 5th ``project_group`` field (t1025_1) must round-trip for the whole-line-
     preserving writers (``cmd_remove`` / ``cmd_prune``) to retain group state.
     """
+    if strict:
+        # Nothing is printed on a read failure: a partial listing followed by
+        # an error would still read as a complete one to a line consumer.
+        try:
+            records = _parse_registry_records_strict()
+        except (OSError, ValueError) as exc:
+            sys.stderr.write(f"registry unreadable: {exc}\n")
+            return 3
+    else:
+        records = _parse_registry_records()
     out = "".join(
         (
             f"{record.name}|{record.path}|{record.git_remote}|"
             f"{record.last_opened}|{record.project_group}\n"
         )
-        for record in _parse_registry_records()
+        for record in records
     )
     sys.stdout.write(out)
     return 0
@@ -2347,6 +2469,12 @@ def _main(argv: list[str]) -> int:
         help="Emit name|path|git_remote|last_opened|project_group per entry.",
     )
     group.add_argument(
+        "--list-registry-strict",
+        action="store_true",
+        help="As --list-registry, but exit 3 when an existing registry cannot "
+             "be read (a missing file is still an empty, successful answer).",
+    )
+    group.add_argument(
         "--resolve-index",
         metavar="NAME",
         help="Print the registry path for NAME (index-file lookup only).",
@@ -2360,6 +2488,8 @@ def _main(argv: list[str]) -> int:
 
     if args.list_registry:
         return _cli_list_registry()
+    if args.list_registry_strict:
+        return _cli_list_registry(strict=True)
     if args.validate_slug is not None:
         return _cli_validate_slug(args.validate_slug)
     return _cli_resolve_index(args.resolve_index)

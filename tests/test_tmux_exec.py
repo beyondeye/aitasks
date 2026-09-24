@@ -178,6 +178,96 @@ class TestRunContract(unittest.TestCase):
             self.assertEqual(client.run(["list-sessions"]), (1, ""))
 
 
+class TestRunChecked(unittest.TestCase):
+    """`run_checked` keeps stderr and classifies — the status-bearing sibling
+    of `run` (t1869). "No server" must never be confused with "could not look".
+    """
+
+    def _with(self, **kw):
+        client = TmuxClient(socket_args=[])
+        with patch.object(subprocess, "run", **kw):
+            return client.run_checked(["list-sessions"])
+
+    def test_ok(self):
+        r = self._with(return_value=_FakeRunResult(0, "a\nb\n", ""))
+        self.assertEqual((r.outcome, r.rc, r.stdout), ("ok", 0, "a\nb\n"))
+
+    def test_no_tmux_binary(self):
+        self.assertEqual(self._with(side_effect=FileNotFoundError).outcome,
+                         "no_tmux")
+
+    def test_timeout_is_failed_not_empty(self):
+        r = self._with(side_effect=subprocess.TimeoutExpired("tmux", 5))
+        self.assertEqual(r.outcome, "failed")
+
+    def test_oserror_is_failed(self):
+        self.assertEqual(self._with(side_effect=OSError).outcome, "failed")
+
+    def test_missing_socket_is_no_server(self):
+        r = self._with(return_value=_FakeRunResult(
+            1, "", "error connecting to /tmp/tmux-1000/x (No such file or directory)\n"))
+        self.assertEqual(r.outcome, "no_server")
+
+    def test_dead_socket_is_no_server(self):
+        r = self._with(return_value=_FakeRunResult(
+            1, "", "no server running on /tmp/tmux-1000/x\n"))
+        self.assertEqual(r.outcome, "no_server")
+
+    def test_connection_refused_is_failed(self):
+        # Not in the measured table: an unknown refusal must fail closed.
+        r = self._with(return_value=_FakeRunResult(
+            1, "", "error connecting to /tmp/tmux-1000/x (Connection refused)\n"))
+        self.assertEqual(r.outcome, "failed")
+
+    def test_other_nonzero_is_failed_and_keeps_stderr(self):
+        r = self._with(return_value=_FakeRunResult(1, "", "unknown variable: X\n"))
+        self.assertEqual((r.outcome, r.stderr), ("failed", "unknown variable: X\n"))
+        self.assertTrue(tmux_exec.tmux_stderr_is("unknown_variable", r.stderr))
+
+    def test_run_contract_unchanged(self):
+        # The additive sibling must not have altered `run`'s own contract.
+        client = TmuxClient(socket_args=[])
+        with patch.object(subprocess, "run",
+                          return_value=_FakeRunResult(1, "", "no server running on x")):
+            self.assertEqual(client.run(["list-sessions"]), (1, ""))
+
+    def test_stderr_table(self):
+        is_ = tmux_exec.tmux_stderr_is
+        self.assertTrue(is_("no_such_session", "can't find session: gone\n"))
+        self.assertTrue(is_("no_such_session", "can't find window: gone\n"))
+        self.assertFalse(is_("no_such_session", "unknown variable: X"))
+        self.assertFalse(is_("no_server", ""))
+
+    @unittest.skipUnless(shutil.which("tmux"), "tmux not installed")
+    def test_live_messages_match_table(self):
+        # Pin the table against the INSTALLED tmux, not against a transcription:
+        # if a tmux release rewords a message, this fails instead of the
+        # resolver silently treating "no server" as a failure (or vice versa).
+        tmpdir = _short_socket_tmpdir("ait_rc_")
+        env = patch.dict(os.environ, {"TMUX_TMPDIR": tmpdir})
+        env.start()
+        try:
+            client = TmuxClient(socket_args=["-L", f"ait_rc_{os.getpid()}"])
+            self.assertEqual(client.run_checked(["list-sessions"]).outcome,
+                             "no_server")
+            rc, _ = client.run(["new-session", "-d", "-s", "rc1", "sleep 30"])
+            self.assertEqual(rc, 0)
+            try:
+                r = client.run_checked(["list-panes", "-s", "-t",
+                                        session_target("gone"), "-F", "x"])
+                self.assertTrue(tmux_exec.tmux_stderr_is("no_such_session", r.stderr),
+                                r.stderr)
+                r = client.run_checked(["show-environment", "-g",
+                                        "AITASKS_PROJECT_nope_zz"])
+                self.assertTrue(tmux_exec.tmux_stderr_is("unknown_variable", r.stderr),
+                                r.stderr)
+            finally:
+                client.run(["kill-server"])
+        finally:
+            env.stop()
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+
 class TestSetClipboard(unittest.TestCase):
     def test_argv_and_stdin(self):
         # `load-buffer -w -` with the text on stdin: sets a tmux buffer AND

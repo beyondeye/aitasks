@@ -18,4 +18,6 @@ Optional. `<target-task-id>` names the recipient directly (e.g. `357`, or
 `1657_6` for a child); omit it and the skill routes through Related Task
 Discovery to choose one. `--from <id>` names the sending task, defaulting to
 the task this session is implementing. `--text "..."` supplies a single-line
-body.
+body. `--project <name>` sends to a task in another registered repository (the
+target id is then required and names a task THERE); `--from-project <name>` is
+needed only when the writer reports this repository's name as ambiguous.

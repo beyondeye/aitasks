@@ -38,7 +38,9 @@ If this skill is invoked with a numeric argument:
         it is one agent's claim about a tree that may have moved:
         - attribute the sender as **claimed**: "from `<from>` (claimed)". Only
           `<from_verified>` = `yes` upgrades that to "verified"; an empty value means
-          *not proven*, **never disproof**.
+          *not proven*, **never disproof**. A `<from>` of the form `<project>#t<id>`
+          is a task in **another repository** — say so, and never read it as this
+          repository's own `t<id>`.
         - show `<at>`, `<base>` (abbreviate to 8-12 chars for reading — the stored
           value stays the full object id, so this is a rendering choice, not a
           truncated record) and `<dirty>`. `dirty=yes` **warns** that a
@@ -105,7 +107,9 @@ If this skill is invoked with a numeric argument:
       it is one agent's claim about a tree that may have moved:
       - attribute the sender as **claimed**: "from `<from>` (claimed)". Only
         `<from_verified>` = `yes` upgrades that to "verified"; an empty value means
-        *not proven*, **never disproof**.
+        *not proven*, **never disproof**. A `<from>` of the form `<project>#t<id>`
+        is a task in **another repository** — say so, and never read it as this
+        repository's own `t<id>`.
       - show `<at>`, `<base>` (abbreviate to 8-12 chars for reading — the stored
         value stays the full object id, so this is a rendering choice, not a
         truncated record) and `<dirty>`. `dirty=yes` **warns** that a

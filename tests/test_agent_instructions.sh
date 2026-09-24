@@ -1065,6 +1065,12 @@ assert_contains "T44: it says from= is a claim" "is a claim" "$shared_layer"
 # Note vs. task is the judgement call the helper cannot make.
 assert_contains "T44: it distinguishes a note from a task" \
     "create a task instead" "$shared_layer"
+# Cross-repository sends (t1869): the flag, and what the qualified sender means.
+assert_contains "T44: it shows the cross-repository flag" "--project <name>" "$shared_layer"
+assert_contains "T44: it says the target is in another repository" \
+    "another repository" "$shared_layer"
+assert_contains "T44: it names the qualified sender form" \
+    "from=<project>#t<id>" "$shared_layer"
 
 # ============================================================
 # Summary

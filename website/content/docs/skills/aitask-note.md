@@ -14,6 +14,7 @@ Sends a durable note to a task that already exists — context that task needs w
 /aitask-note                                   # Choose the recipient from matching tasks
 /aitask-note 357 --text "one-line note"        # Name the recipient
 /aitask-note 357 --from 349 --text "..."       # Name the sender too
+/aitask-note 42 --project mobile --text "..."  # A task in another repository
 ```
 
 > **Note:** Must be run from the project root directory. See [Skills overview](..) for details.
@@ -21,7 +22,7 @@ Sends a durable note to a task that already exists — context that task needs w
 ## Step-by-Step
 
 1. **Note, or task?** — The first judgement: a note carries context about work that already exists. Content that is itself work belongs in a new task
-2. **Resolve the recipient** — Uses the task you named. With no target, it searches the existing tasks for the ones this note is relevant to and lets you pick one. The sender defaults to the task your session is working on
+2. **Resolve the recipient** — Uses the task you named. With no target, it searches the existing tasks for the ones this note is relevant to and lets you pick one. The sender defaults to the task your session is working on. For a task in another repository, you name both the project and the task — the search covers this repository only — and the skill checks that the task exists there before writing
 3. **Write the note** — Appends it to the target's `## Inbox` and commits it. From this point the note exists, whatever happens next
 4. **Look up a live endpoint** — Checks whether an agent session on this machine is holding the target task right now
 5. **Deliver live, if possible** — Only when a live session was found and its agent runtime supports live delivery. The message carries the note's id, so the receiving session can match it to the inbox entry
@@ -34,6 +35,7 @@ Sends a durable note to a task that already exists — context that task needs w
 - **Queued, not read** — A live-delivered note is reported as queued. The receiving session picks it up at its next step, which may be minutes away
 - **Recipient discovery** — Leave out the target and the skill finds candidate tasks for you, with the same matching [`/aitask-explore`]({{< relref "/docs/skills/aitask-explore" >}}) and [`/aitask-fold`]({{< relref "/docs/skills/aitask-fold" >}}) use
 - **Attributed** — Every note records its sender as a claim — marked verified only when the sending session provably holds the sender task's lock — plus the commit it was written against
+- **Across repositories** — `--project <name>` sends to a task in a registered sibling project. The other repository's own tooling writes and commits the note, the sender is recorded as `<your-project>#t<id>`, and every refusal (an unknown, stale or ambiguous project name) happens before anything is written. See [sending to another repository]({{< relref "/docs/commands/note" >}}#sending-to-another-repository)
 - **Offered at the right moments** — The task workflow after review, [`/aitask-qa`]({{< relref "/docs/skills/aitask-qa" >}}) and [`/aitask-review`]({{< relref "/docs/skills/aitask-review" >}}) each offer to send a note when a finding belongs to a task that already exists. Each is a one-line offer; nothing is sent automatically
 
 ## Writing a note someone can trust
@@ -47,6 +49,7 @@ Sends a durable note to a task that already exists — context that task needs w
 | Scenario | Skill |
 |----------|-------|
 | An existing task needs to know something you learned | `/aitask-note` |
+| A task in another repository needs to know something — and editing it there yourself would be intrusive | `/aitask-note --project <name>` |
 | You found new work nobody has captured | [`/aitask-create`]({{< relref "/docs/skills/aitask-create" >}}) |
 | You want to explore first, then create a task from what you find | [`/aitask-explore`]({{< relref "/docs/skills/aitask-explore" >}}) |
 | Two existing tasks overlap | [`/aitask-fold`]({{< relref "/docs/skills/aitask-fold" >}}) |

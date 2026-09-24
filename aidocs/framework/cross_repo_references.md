@@ -119,6 +119,42 @@ which re-emits the resolver's output verbatim.
 
 Consumers parse on the prefix and treat unknown prefixes as failure.
 
+**`candidates <name>` — every match, for a mutating consumer.** The named
+resolve stops at the first hit, so it cannot report a conflict, and `list`
+folds an unavailable interpreter into empty output. A consumer that **writes
+into** the resolved repository must not pick silently, so this additive mode
+enumerates every match in every tier plus a completeness verdict:
+
+| Line | Meaning |
+|------|---------|
+| `CANDIDATE:<tier>:<RESOLVED\|STALE>:<path>` | One match; `<tier>` is `tmux`, `registry` or `env`. Zero or more lines. |
+| `CANDIDATES_COMPLETE` | Last line: every tier was read. |
+| `CANDIDATES_INCOMPLETE:<tier>[,<tier>]` | Last line: a tier could not be enumerated, so a conflict there cannot be ruled out. |
+
+A missing registry **file** is a definite answer, not an incomplete one; a
+registry that exists but cannot be read (permissions, a directory at the path,
+a dangling symlink, an I/O or decode error) is **incomplete** — and so is one
+whose parent directory cannot be searched. Absence is proven with `stat()`
+(only `FileNotFoundError` counts); `exists()` / `lexists()` / `[[ -e ]]` answer
+"absent" on a permission error too, so neither mode uses them. Both modes read it through
+`_parse_registry_records_strict()` (CLI: `--list-registry-strict`, exit 3 on a
+read failure) — the permissive `_parse_registry_records()` behind `list` and
+`--list-registry` folds such a failure into "no entries", which is exactly the
+false completeness these modes exist to refuse. The
+tmux tier uses `discover_aitasks_sessions_checked()`, which runs the same walk
+as the default discovery over `TmuxClient.run_checked` and reports
+`complete=False` for any tmux failure that is not a definite "nothing there"
+(no server, a vanished session, an unset variable). It targets each session as
+`=<session>:` — on tmux 3.7c a bare `=<session>` is resolved as a window and
+falls back to the most recent session. `AIT_PROJECT_RESOLVE_ENUM_FAIL=<tier>`
+is the test seam for the incomplete branch.
+
+**`bindings <path>` — the reverse question.** Which *declared* names point at
+this root: `BINDING:<registry|env>:<name>` lines, then `BINDINGS_COMPLETE` or
+`BINDINGS_INCOMPLETE:registry`. A tmux session name is incidental rather than
+declared, so it is never offered. The registry enumeration's exit status is the
+completeness witness.
+
 ## Consumers
 
 **`ait projects exec <name> -- <cmd>`** — resolves `<name>`, `cd`s into
@@ -138,6 +174,14 @@ ait create --batch --project aitasks \
     --name fix_shared_protocol --type bug --priority high \
     --desc "Bump applink wire version after mobile change X" --commit
 ```
+
+**`ait note <id> --project <name>` / `ait note read <id> --project <name>`**
+(`aitask_note.sh`, t1869) — sends a note to, or acknowledges notes of, a task in
+the sibling project by running that project's own `aitask_note.sh` from inside
+it. It resolves with `candidates` (two distinct roots → `project-ambiguous`, an
+unread tier → `project-resolution-incomplete`), finds its own name with
+`bindings`, and records the sender as `<project>#t<id>`. See
+`aidocs/framework/task_note_mailbox.md` ("Cross-repository sends").
 
 ## Cross-repo task ID notation
 

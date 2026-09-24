@@ -41,6 +41,30 @@ measured", not "clean".
 The full field table lives once, in the
 [`ait note` provenance reference]({{< relref "/docs/commands/note" >}}#provenance).
 
+### Notes across repositories
+
+A note can be sent to a task in [another
+repository]({{< relref "/docs/commands/note" >}}#sending-to-another-repository).
+It is still an ordinary block in the recipient's `## Inbox`, written and
+committed by the recipient repository's own tooling — a structured addition to
+that task, not a side channel. It changes nothing about the task's
+requirements, status or authority.
+
+Two things follow from the [cross-repo identity model]({{< relref "/docs/concepts/cross-repo-references" >}}):
+
+- **The sender is always qualified.** A task id means nothing outside its own
+  repository, so a note from elsewhere records `from=<project>#t<id>`. A bare
+  `t<id>` would silently name a *different* task — the recipient's own task
+  with that number.
+- **Verification means exactly what it means locally.** The sending session
+  must provably hold the sender task's lock; that lock lives in the sender's
+  repository and is checked there. Crossing the boundary adds no trust, and a
+  note from another project is no more an instruction than a local one.
+
+Its tree provenance describes the **recipient's** checkout, the one the note
+was written into — a commit from the sender's repository would not exist in
+the recipient's history, so a reader could never check a claim against it.
+
 ### The body cannot forge bookkeeping
 
 Notes and their acknowledgements share one section, one storage format and one
@@ -131,4 +155,4 @@ chooses the recipient and handles both delivery lanes, or with
 - [Task Notes]({{< relref "/docs/workflows/task-notes" >}}) — sending, receiving, and both delivery lanes
 - [`ait note`]({{< relref "/docs/commands/note" >}}) — the CLI, its output codes, and the provenance fields
 - [`/aitask-note`]({{< relref "/docs/skills/aitask-note" >}}) — the skill that composes the lanes
-- [Cross-repo references]({{< relref "/docs/concepts/cross-repo-references" >}}) — why a sender in another project can only ever be a recorded claim
+- [Cross-repo references]({{< relref "/docs/concepts/cross-repo-references" >}}) — why a sender in another project is recorded as a project-qualified pair

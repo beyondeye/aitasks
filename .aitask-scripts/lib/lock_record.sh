@@ -31,11 +31,16 @@ LOCK_REC_PID=""
 LOCK_REC_TOKEN=""
 LOCK_REC_KIND=""
 
-# lock_record_read <bare-task-id>
+# lock_record_read <bare-task-id> [<project-root>]
 #
 # Run `aitask_lock.sh --check` once and split the record into the four fields
 # above. Returns 0 when a record was read, 1 when the task is not locked (or the
 # check could not produce a record).
+#
+# With <project-root>, the record is read from THAT repository — its own
+# `.aitask-scripts/aitask_lock.sh`, run from inside it — for the cross-repo
+# sender proof in `ait note --project` (t1869). Without it the call is exactly
+# what it always was.
 #
 # THE ID MUST BE BARE. Measured: `aitask_lock.sh --check t1669` prints NOTHING
 # while `--check 1669` works, so a 't'-prefixed id here reads as "not locked" —
@@ -48,11 +53,19 @@ LOCK_REC_KIND=""
 # empty value straight to lock_holder_liveness, which answers `unknown` — the
 # fail-safe direction.
 lock_record_read() {
-    local bare="${1:-}" out
+    local bare="${1:-}" root="${2:-}" out
     LOCK_REC_HOST=""; LOCK_REC_PID=""; LOCK_REC_TOKEN=""; LOCK_REC_KIND=""
     [[ -n "$bare" ]] || return 1
 
-    out="$("$_LOCK_RECORD_LIB_DIR/../aitask_lock.sh" --check "$bare" 2>/dev/null || true)"
+    if [[ -z "$root" ]]; then
+        out="$("$_LOCK_RECORD_LIB_DIR/../aitask_lock.sh" --check "$bare" 2>/dev/null || true)"
+    else
+        # Another repository's lock (t1869): ask THAT repo's own lock script,
+        # from inside it, so its lock branch and its script version answer —
+        # never ours pointed at a foreign checkout.
+        [[ -x "$root/.aitask-scripts/aitask_lock.sh" ]] || return 1
+        out="$(cd "$root" && "$root/.aitask-scripts/aitask_lock.sh" --check "$bare" 2>/dev/null || true)"
+    fi
     [[ -n "$out" ]] || return 1
 
     # The four LOCK_REC_* are this function's return value — read by
