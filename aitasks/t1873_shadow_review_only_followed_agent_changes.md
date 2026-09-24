@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: bug
@@ -58,3 +60,5 @@ Related t1650 concerns delta-scoped automatic rechecks. This task fixes WHOSE ch
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-09-24T08:41:16Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-09-24T12:27:59Z status=pass attempt=1 type=human
