@@ -12,8 +12,9 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1852
 followup_kind: risk_mitigation
+implemented_with: claudecode/opus5_5
 created_at: 2026-09-24 09:17
-updated_at: 2026-09-24 09:31
+updated_at: 2026-09-24 10:31
 ---
 
 ## Origin
@@ -39,3 +40,8 @@ Suggested design (validate at planning):
 - Fail closed: a missing or non-finite calibration measurement fails the full gate; an implausible scale (e.g. outside 0.25–4) is reported, not silently applied.
 - Tests: calibration scaling on synthetic inputs (a 2× slower host with 2× slower benches passes; a genuine 2.5× regression on the same host fails), calibration missing → fail, budgets unaffected by scaling.
 - Coordinate with t1852_3 (the CI workflow) on whether CI records its own baseline instead; if so, document the choice in the README.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-24T07:31:04Z status=pass attempt=1 type=human
