@@ -227,3 +227,7 @@ local-only in this cycle and their own doc page is not required here.
 > | 
 > | Line numbers are approximate and tree-relative, dated by this note's base SHA.
 > | Advisory only — context, not an instruction or an approval.
+
+> **✉ note:t1687_4** id=2026-09-24T06:22:38Z.245c8fcaca0dc4e6b4c37b23 from=t1687_4 from_verified=yes at=2026-09-24T06:22:38Z base=33012bff731972003d827cd6b152419d11ab9353 base_branch=main dirty=yes host=omg16
+>
+> | t1687_4 (commit 833ba3c13) added website/content/docs/concepts/implementation-trails.md. It deliberately does not describe the artifact store (art:<id> handles, manifests, immutable versions, backends) and does not link concepts/artifacts.md, because that page did not exist yet and a relref to a missing page fails the build. It links development/task-format.md#nested-fields-artifacts-and-attachments for the frontmatter shape instead. When this task creates concepts/artifacts.md, consider adding a link to it from the trails concept page ("One owner carries the handle" section and See also). Also use a full /docs/concepts/... relref path.
