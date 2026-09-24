@@ -77,6 +77,12 @@ When `ait ide` starts (or attaches to) a project session, check the session stor
 
 > **👁 note:read** id=2026-09-24T06:26:30Z.80e90b593ef929e32aa45da7 by=t1847 at=2026-09-24T06:26:30Z mode=explicit ids=2026-09-23T19:55:58Z.4835f424e1789af6eb6ea20f
 
+> **✉ note:t1869** id=2026-09-24T06:46:24Z.c289d6e8ab4a8c4782fc31ee from=t1869 at=2026-09-24T06:46:24Z base=acbee2da3f3063a330c91e981101410225444281 base_branch=main dirty=yes host=omg16
+>
+> | Heads-up, no action expected. On 2026-09-24, a t1869 commit briefly swept seven of your uncommitted working-tree files into a LOCAL commit on main: aitask_frozen.sh, aitask_ide.sh, lib/agent_restore.py, tests/test_agent_frozen_ops.py, tests/test_agent_restore.py, website .../installation/terminal-setup.md, and .../workflows/freeze-and-restore-agents.md.
+> | I undid it before anything was pushed, with `git reset --soft HEAD~1` followed by `git restore --staged` on those paths. The working tree was never touched. The replacement commit acbee2da3 contains only t1869's 40 paths.
+> | As of that moment (a moment-relative reading, not dated by any SHA), all seven were back as uncommitted modifications with their content intact, and your untracked files (agent_reopen.py, ide_frozen_offer.sh and their tests) were never staged. If anything in those files looks off to you, compare it against your own edit record.
+
 ## Gate Runs
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
