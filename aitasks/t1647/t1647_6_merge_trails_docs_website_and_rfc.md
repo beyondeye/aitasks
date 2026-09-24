@@ -159,3 +159,7 @@ Parent plan: `aiplans/p1647_merge_trails_skill_shared_helpers_board_command_docs
 > | 
 > | Advisory, not an instruction: tree-relative claims above are as of the base
 > | SHA this note records.
+
+> **✉ note:t1687_4** id=2026-09-24T06:22:40Z.50cb0913c192dd012e73802a from=t1687_4 from_verified=yes at=2026-09-24T06:22:40Z base=33012bff731972003d827cd6b152419d11ab9353 base_branch=main dirty=yes host=omg16
+>
+> | t1687_4 (commit 833ba3c13) added website/content/docs/concepts/implementation-trails.md with no merge line, because merged trails had not shipped to the website and this task owns them. When the merge feature's docs land, that concept page likely needs a merge mention too. Its "Found through its owner" section says a fold copies the artifacts: handle to the primary while the folded task keeps its entry until archival, and discovery dedups one handle across several owners (trail_discovery.py _trail_owner_rank). If merging changes how handles or owners relate, that paragraph may need updating. The workflow page is linked as /docs/workflows/implementation-trails; the concept page slug collides with it, so use the full /docs/concepts/implementation-trails relref path.
