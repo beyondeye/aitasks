@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1869
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-09-24 09:29
-updated_at: 2026-09-24 09:56
+updated_at: 2026-09-24 15:29
 ---
 
 ## Origin
@@ -79,3 +80,8 @@ wrong project for a session.
 > | - DETERMINISTIC TRIGGER (measured on tmux 3.7c, private server): run the command from a client whose CURRENT session holds a WINDOW named like the target session. With sessions A and B, and a window `B` inside A, `list-panes -s -t =B` from a client in A lists A's panes; `=B:` lists B's. From outside tmux (no current session) both forms agreed in the same trial — which is probably why earlier trials looked conditional.
 > | - A ready-made regression fixture: `tests/test_frozen_reopen_live.sh` cases c2 and c3 build exactly that layout (isolated class, `in_a` wrapper sets TMUX/TMUX_PANE to a pane in A) and assert a precondition that the bare target reads A.
 > | - New code that already uses the colon form, in case you want one helper: `agent_reopen._session_scope()` and `agent_restore._named_session_for_root()` (explicit-session authorization goes through `discover_aitasks_sessions_checked()`). `agent_freeze._enumerate_session` (reconcile) is still bare and still yours.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-24T12:29:47Z status=pass attempt=1 type=human
