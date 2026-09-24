@@ -86,7 +86,7 @@ from agent_frozen_ops import (  # noqa: E402,F401
 )
 from agent_launch_utils import (  # noqa: E402
     discover_aitasks_sessions,
-    tmux_session_target,
+    tmux_session_scope_target,
 )
 from config_utils import load_yaml_config  # noqa: E402
 from monitor.ansi_utils import strip_ansi  # noqa: E402
@@ -842,7 +842,7 @@ def _agent_panes_for(session: str) -> list:
     of its way to preserve. Companion exclusion is a separate identity check
     (`_is_companion_pane`) applied inside `_parse_list_panes`, and
     `discover_panes()` is the contract that applies both it and the shadow
-    filter — plus the correct `-t tmux_session_target()` targeting.
+    filter — plus the correct `-t tmux_session_scope_target()` targeting.
     """
     monitor = TmuxMonitor(session=session, multi_session=False, exclude_pane="")
     return monitor.discover_panes()
@@ -951,7 +951,7 @@ def _enumerate_session(session: str) -> tuple[bool, list[_Observed]]:
     to decide whether the root may be asserted as covered.
     """
     rc, out = frozen_ops.run([
-        "list-panes", "-s", "-t", tmux_session_target(session),
+        "list-panes", "-s", "-t", tmux_session_scope_target(session),
         "-F", _RECONCILE_FORMAT,
     ])
     if rc != 0:

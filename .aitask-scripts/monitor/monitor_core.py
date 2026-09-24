@@ -48,7 +48,7 @@ from agent_launch_utils import (  # noqa: E402
     launch_in_tmux,
     resolve_pane_id_by_pid,
     switch_to_pane_anywhere,
-    tmux_session_target,
+    tmux_session_scope_target,
     tmux_window_target,
 )
 from followup_kinds import normalize_followup_kind  # noqa: E402
@@ -2561,7 +2561,7 @@ class TmuxMonitor:
         ok_sessions: set[str] = set()   # see the async sibling (t1326)
         for sess in self._target_sessions():
             rc, stdout = self.tmux_run([
-                "list-panes", "-s", "-t", tmux_session_target(sess),
+                "list-panes", "-s", "-t", tmux_session_scope_target(sess),
                 "-F", self._LIST_PANES_FORMAT,
             ])
             if rc != 0:
@@ -2583,7 +2583,7 @@ class TmuxMonitor:
             return [], [], frozenset()
         results = await asyncio.gather(*[
             self._tmux_async([
-                "list-panes", "-s", "-t", tmux_session_target(sess),
+                "list-panes", "-s", "-t", tmux_session_scope_target(sess),
                 "-F", self._LIST_PANES_FORMAT,
             ])
             for sess in sessions
@@ -2613,7 +2613,7 @@ class TmuxMonitor:
         if self.multi_session:
             return self._discover_panes_multi()[0]
         rc, stdout = self.tmux_run([
-            "list-panes", "-s", "-t", tmux_session_target(self.session),
+            "list-panes", "-s", "-t", tmux_session_scope_target(self.session),
             "-F", self._LIST_PANES_FORMAT,
         ])
         if rc != 0:
@@ -2634,7 +2634,7 @@ class TmuxMonitor:
             panes, shadows, ok_sessions = await self._discover_panes_multi_async()
         else:
             rc, stdout = await self._tmux_async(
-                ["list-panes", "-s", "-t", tmux_session_target(self.session),
+                ["list-panes", "-s", "-t", tmux_session_scope_target(self.session),
                  "-F", self._LIST_PANES_FORMAT],
             )
             if rc != 0:

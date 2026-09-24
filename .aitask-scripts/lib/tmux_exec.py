@@ -101,8 +101,28 @@ def session_target(session: str) -> str:
     forces exact match and is mandatory whenever aitasks projects with
     prefix-sharing session names run side by side. (Promoted here from the
     "available" helper in ``agent_launch_utils.tmux_session_target``.)
+
+    Only for SESSION-typed ``-t`` (``has-session``, ``list-windows``,
+    ``set-environment``, …). A window- or pane-typed ``-t`` that must address a
+    whole session — notably ``list-panes -s`` — takes
+    :func:`session_scope_target`.
     """
     return f"={session}"
+
+
+def session_scope_target(session: str) -> str:
+    """Return ``=<session>:`` — a whole-session target for a WINDOW-typed ``-t``.
+
+    ``list-panes`` resolves ``-t`` as a window and ``-s`` then widens to that
+    window's session. A bare ``=<session>`` is looked up as a window NAME
+    first, in the current session (or, with no client, the most recently used
+    one): when that session has a window called ``<session>`` — which
+    ``automatic-rename-format '#{b:pane_current_path}'`` produces from any pane
+    whose cwd basename matches — tmux lists that OTHER session's panes
+    (measured on tmux 3.7c, t1874). The trailing colon makes the session part
+    explicit, so it cannot match a window.
+    """
+    return f"={session}:"
 
 
 def window_target(session: str, window: str | int) -> str:
@@ -390,6 +410,10 @@ class TmuxClient:
     @staticmethod
     def session_target(session: str) -> str:
         return session_target(session)
+
+    @staticmethod
+    def session_scope_target(session: str) -> str:
+        return session_scope_target(session)
 
     @staticmethod
     def window_target(session: str, window: str | int) -> str:

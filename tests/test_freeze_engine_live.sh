@@ -502,7 +502,7 @@ mon = TmuxMonitor(session=session, multi_session=False, exclude_pane="")
 
 # What a category-only selection would have picked: every pane of the window,
 # classified by WINDOW NAME alone.
-rc, out = mon.tmux_run(["list-panes", "-s", "-t", f"={session}",
+rc, out = mon.tmux_run(["list-panes", "-s", "-t", f"={session}:",
                         "-F", "#{window_name}\t#{pane_id}"])
 naive = [ln.split("\t")[1] for ln in out.splitlines()
          if ln.split("\t")[0] == window

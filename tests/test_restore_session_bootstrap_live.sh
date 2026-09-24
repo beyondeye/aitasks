@@ -131,7 +131,7 @@ index_written() { [ -f "$AITASKS_PROJECTS_INDEX" ] && echo yes || echo no; }
 
 # Everything a clobber could change, as one comparable string.
 snapshot() {
-    tm list-panes -s -t "=$1" -F '#{window_name}|#{pane_id}|#{pane_current_path}' 2>/dev/null
+    tm list-panes -s -t "=$1:" -F '#{window_name}|#{pane_id}|#{pane_current_path}' 2>/dev/null
     echo "registry=$(registry "$1")"
 }
 

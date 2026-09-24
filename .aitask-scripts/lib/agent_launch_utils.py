@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import NamedTuple
 
 from tui_registry import TUI_NAMES as _DEFAULT_TUI_NAMES
-from tmux_exec import TmuxClient, tmux_stderr_is, window_target
+from tmux_exec import TmuxClient, session_scope_target, tmux_stderr_is
 # The monitor pane marker: rule + classification live in monitor_marker (one
 # implementation, also exec'd by aitask_minimonitor.sh); the writers live here,
 # where the tmux gateway client is. Re-exported so callers have a single import.
@@ -51,8 +51,21 @@ def tmux_session_target(session: str) -> str:
     will match ``aitasks_mob`` when only the latter is running. Prefixing the
     name with ``=`` forces exact match and is required whenever multiple
     aitasks projects run side-by-side with session names sharing a prefix.
+
+    Session-typed ``-t`` only; ``list-panes -s`` takes
+    :func:`tmux_session_scope_target`.
     """
     return f"={session}"
+
+
+def tmux_session_scope_target(session: str) -> str:
+    """Return ``=<session>:`` — the whole-session target for ``list-panes -s``.
+
+    A bare ``=<session>`` on a window-typed ``-t`` is looked up as a window
+    name first and can list a different session's panes. See
+    ``tmux_exec.session_scope_target``.
+    """
+    return session_scope_target(session)
 
 
 def tmux_window_target(session: str, window: str | int) -> str:
@@ -1270,9 +1283,7 @@ def discover_aitasks_sessions(
     )
 
 
-def _collect_live_roots(
-    run, read_registry, pane_target=tmux_session_target
-) -> list[tuple[str, Path]]:
+def _collect_live_roots(run, read_registry) -> list[tuple[str, Path]]:
     """The one discovery walk, over a pluggable ``(rc, stdout)`` runner.
 
     ``run(args)`` answers a tmux command and ``read_registry(session)`` the
@@ -1282,14 +1293,9 @@ def _collect_live_roots(
     :func:`discover_aitasks_sessions_checked` passes status-recording adapters
     instead, so the SAME walk can also say whether it saw everything.
 
-    ``pane_target`` formats the ``list-panes -s -t`` target. The default keeps
-    the historical ``=<session>`` form byte-for-byte. The checked variant passes
-    the ``=<session>:`` form instead: measured on tmux 3.7c (t1869), a bare
-    ``=<session>`` is resolved as a WINDOW name and, when no window matches,
-    falls back to the most recent session — so with two sessions every
-    ``list-panes`` answers with the same session's panes. ``=<session>:``
-    targets the session unambiguously. (The colon-less form is shared by other
-    call sites; fixing them is tracked separately, not here.)
+    Each session's panes are listed with :func:`tmux_session_scope_target`
+    (``=<session>:``), never a bare ``=<session>``, which tmux may resolve as a
+    window of another session and so map this session to that one's root.
     """
     rc, out = run(["list-sessions", "-F", "#{session_name}"])
     sessions = [s for s in out.strip().splitlines() if s] if rc == 0 else []
@@ -1297,7 +1303,7 @@ def _collect_live_roots(
     live_roots: list[tuple[str, Path]] = []
     for session in sessions:
         prc, pout = run(
-            ["list-panes", "-s", "-t", pane_target(session),
+            ["list-panes", "-s", "-t", tmux_session_scope_target(session),
              "-F", "#{pane_current_path}"]
         )
         pane_paths = pout.strip().splitlines() if prc == 0 else []
@@ -1362,8 +1368,7 @@ def discover_aitasks_sessions_checked() -> tuple[list[AitasksSession], bool]:
         incomplete[0] = True
         return None
 
-    live_roots = _collect_live_roots(
-        run, read_registry, pane_target=lambda s: window_target(s, ""))
+    live_roots = _collect_live_roots(run, read_registry)
     sessions = _assemble_aitasks_sessions(live_roots, include_registered=False)
     return sessions, not incomplete[0]
 
@@ -1382,7 +1387,7 @@ async def discover_aitasks_sessions_async(
     live_roots: list[tuple[str, Path]] = []
     for session in sessions:
         prc, pout = await _TMUX.run_async(
-            ["list-panes", "-s", "-t", tmux_session_target(session),
+            ["list-panes", "-s", "-t", tmux_session_scope_target(session),
              "-F", "#{pane_current_path}"]
         )
         pane_paths = pout.strip().splitlines() if prc == 0 else []
@@ -1898,7 +1903,7 @@ def resolve_pane_id_by_pid(session: str, pid: int) -> str | None:
     if not pid:
         return None
     rc, out = _TMUX.run(
-        ["list-panes", "-s", "-t", tmux_window_target(session, ""),
+        ["list-panes", "-s", "-t", tmux_session_scope_target(session),
          "-F", "#{pane_id} #{pane_pid}"]
     )
     if rc != 0:

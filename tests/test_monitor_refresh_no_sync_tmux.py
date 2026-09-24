@@ -222,7 +222,7 @@ class MonitorRefreshNoSyncTmuxTests(unittest.TestCase):
 
             async def fake_tmux_async(args, timeout=5.0):
                 async_calls.append(tuple(args))
-                if args[:4] == ["list-panes", "-s", "-t", "=sessA"]:
+                if args[:4] == ["list-panes", "-s", "-t", "=sessA:"]:
                     return (
                         0,
                         # `_LIST_PANES_FORMAT` order, 15 fields (t1705_4):
@@ -251,7 +251,7 @@ class MonitorRefreshNoSyncTmuxTests(unittest.TestCase):
             self.assertEqual(mapping, {"sessA": REPO_ROOT})
             self.assertIn(
                 (
-                    "list-panes", "-s", "-t", "=sessA", "-F",
+                    "list-panes", "-s", "-t", "=sessA:", "-F",
                     mon._LIST_PANES_FORMAT,
                 ),
                 async_calls,

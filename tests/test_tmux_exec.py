@@ -30,6 +30,7 @@ import tmux_exec  # noqa: E402
 from tmux_exec import (  # noqa: E402
     TMUX_SOCKET_ENV,
     TmuxClient,
+    session_scope_target,
     session_target,
     tmux_socket_args,
     window_target,
@@ -115,6 +116,11 @@ class TestTargetFormatting(unittest.TestCase):
     def test_session_target_exact_match(self):
         self.assertEqual(session_target("aitasks"), "=aitasks")
 
+    def test_session_scope_target_trailing_colon(self):
+        # A window-typed ``-t`` (``list-panes -s``) needs the colon, or a
+        # window named after the session can capture the lookup (t1874).
+        self.assertEqual(session_scope_target("aitasks"), "=aitasks:")
+
     def test_window_target(self):
         self.assertEqual(window_target("aitasks", "monitor"), "=aitasks:monitor")
 
@@ -127,6 +133,7 @@ class TestTargetFormatting(unittest.TestCase):
 
     def test_client_static_reexports(self):
         self.assertEqual(TmuxClient.session_target("s"), "=s")
+        self.assertEqual(TmuxClient.session_scope_target("s"), "=s:")
         self.assertEqual(TmuxClient.window_target("s", "w"), "=s:w")
 
 

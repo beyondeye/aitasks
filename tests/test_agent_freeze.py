@@ -1910,8 +1910,8 @@ class ReconcileEnumerationTests(_FreezeTestCase):
         agent_freeze._enumerate_session("aitasks")
         call = self.tmux.calls_of("list-panes")[-1]
         self.assertIn("-t", call)
-        self.assertEqual(call[call.index("-t") + 1], "=aitasks",
-                         "the target must be the EXACT-match form")
+        self.assertEqual(call[call.index("-t") + 1], "=aitasks:",
+                         "the target must be the exact whole-session form")
 
     def test_a_failed_enumeration_reports_not_ok_and_no_panes(self):
         class _Failing(_FakeTmux):

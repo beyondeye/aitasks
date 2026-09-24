@@ -26,7 +26,8 @@ raw `tmux` process; everything else goes through them.
   - `resize_pane` — sole owner of the `resize-pane` verb.
   - `new_session_argv` — builds the socket-aware, persistence-wrapped
     `new-session` argv (mirrors `terminal_compat.sh`'s persistence ladder).
-  - Module functions `tmux_socket_args`, `session_target`, `window_target`.
+  - Module functions `tmux_socket_args`, `session_target`,
+    `session_scope_target`, `window_target`.
 - **Shell** — `.aitask-scripts/lib/tmux_exec.sh`. Source it, then use:
   - `ait_tmux <args…>` — function form, socket flag auto-prepended, for captured
     / plain call sites.
@@ -76,6 +77,38 @@ project boundaries. The gateway's `session_target()` / `window_target()`
 (`ait_tmux_session_target` / `ait_tmux_window_target` in shell) emit `=<session>`
 exact-match targets and are **mandatory** — never hand-format a `-t` argument.
 
+**Pick the helper by the `-t` TYPE the command takes, not by what you mean to
+address.** The tmux man page names most commands' type (`target-session`,
+`target-window`, `target-pane`). `list-panes` is the exception: its
+synopsis says only `-t target`, and its prose says that with `-s` "target is a
+session", yet tmux 3.7c still resolves that target as a window first. Treat it
+as window-typed.
+
+| `-t` type | Addressing | Helper | Emits |
+|---|---|---|---|
+| session (`has-session`, `list-windows`, `set-environment`, `attach`, `switch-client`, …) | a session | `session_target` | `=<s>` |
+| window / pane (`list-panes`, `display-message`, `new-window`, …) | a whole session — e.g. `list-panes -s` | `session_scope_target` (shell: `ait_tmux_window_target "$s" ""`) | `=<s>:` |
+| window / pane | one window | `window_target` | `=<s>:<w>` |
+
+A bare `=<s>` on a window- or pane-typed `-t` is looked up as a **window name
+first**, in the current session (with no client, the most recently used one).
+If that session has a window called `<s>`, tmux answers about **that** session.
+A window named after another session is common:
+`automatic-rename-format '#{b:pane_current_path}'` produces one from any pane
+whose cwd basename matches a session name. `list-panes -s -t =<s>` then lists
+the wrong session's panes, with exit 0 and no error. Discovery maps the session
+to the wrong project, the monitor attributes panes to the wrong session, and
+freeze reconcile treats the wrong windows as observed. The trailing colon makes
+the session part explicit, so it cannot match a window.
+`tests/test_list_panes_session_scope_live.sh` reproduces the collision on a
+private server. It runs discovery (sync, async, checked), freeze reconcile's
+enumeration, and the monitor's single- and multi-session pane discovery against
+it. Its source guard is narrow: it greps Python under `.aitask-scripts/` for a
+same-line `"list-panes", "-s", "-t", session_target(` /
+`tmux_session_target(` call. A multi-line call, a shell call site, or a
+hand-formatted `=<s>` target gets past it, so a new `list-panes -s` site needs
+this rule applied at review, not left to the guard.
+
 This doc owns the *mechanism* (use the helper). The *why* — one isolated tmux
 session per project, multiple prefix-sharing projects side by side — lives in
 `tui_conventions.md` ("Single tmux session per project").
@@ -107,8 +140,11 @@ backends that already reach the gateway socket — not as an escape hatch.
 
 1. Spawn nothing raw. Python → `TmuxClient`; shell → `source lib/tmux_exec.sh`
    and use `ait_tmux` / `ait_tmux_socket_args`.
-2. Never hand-format `-t`. Use `session_target` / `window_target`
-   (`ait_tmux_session_target` / `ait_tmux_window_target`).
+2. Never hand-format `-t`. Use `session_target` / `session_scope_target` /
+   `window_target` (`ait_tmux_session_target` / `ait_tmux_window_target`), chosen
+   by the command's `-t` type — a whole-session query on a window-typed `-t`
+   (`list-panes -s`) takes `session_scope_target`, never `session_target` (see
+   *Target formatting*).
 3. Don't thread `-L` / `-S` yourself — the gateway owns the socket flag.
 4. Don't add yourself to the `test_no_raw_tmux.sh` allowlist.
 5. Run `bash tests/test_no_raw_tmux.sh` before committing.

@@ -104,11 +104,11 @@ class DiscoverAitasksSessionsAsyncParityTests(unittest.TestCase):
                 "pane_sess\nenv_sess\n",
             ),
             (
-                "list-panes", "-s", "-t", "=pane_sess",
+                "list-panes", "-s", "-t", "=pane_sess:",
                 "-F", "#{pane_current_path}",
             ): (0, f"{pane_root / 'subdir'}\n"),
             (
-                "list-panes", "-s", "-t", "=env_sess",
+                "list-panes", "-s", "-t", "=env_sess:",
                 "-F", "#{pane_current_path}",
             ): (0, f"{self.tmp / 'not_a_project'}\n"),
             ("show-environment", "-g", "AITASKS_PROJECT_env_sess"): (

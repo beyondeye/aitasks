@@ -83,8 +83,9 @@ class CheckedDiscoveryTests(unittest.TestCase):
         self.assertEqual([s.session for s in sessions], ["alpha"])
 
     def test_pane_query_uses_exact_session_target(self):
-        # A bare "=<s>" is resolved as a WINDOW by tmux 3.7c and falls back to
-        # the most recent session; the checked walk must use "=<s>:".
+        # A bare "=<s>" is looked up as a WINDOW name first (tmux 3.7c): a window
+        # called <s> in the current session makes it list THAT session's panes
+        # (t1874). The walk must use "=<s>:".
         fake = _FakeTmux(sessions=["alpha"], panes={"alpha": [str(self.proj)]})
         self._run(fake)
         self.assertEqual(fake.pane_targets, ["=alpha:"])
