@@ -252,3 +252,78 @@ must pass before archival.
 ### Planned mitigations
 - timing: post-phase | name: link_relevance_triage | type: documentation | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: duplication with workflow pages | desc: Re-read both new pages against their workflow counterparts and delete restatements
 - timing: post-phase | name: claim_check_against_code | type: documentation | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: partially-true concept claims | desc: Verify every factual sentence against the confirmed code sites; remove or qualify subset-only claims
+
+## Implementation progress
+
+- [x] 1. `concepts/implementation-trails.md` (weight 105) written.
+- [x] 2. `concepts/shadow-agent.md` (weight 125) written.
+- [x] 3. Eight back-links added (7 full-path relref, 1 relative in `workflows/shadow-agent.md`).
+- [x] Post-phase link_relevance_triage — cut one clause on the trails page that
+      repeated `workflows/implementation-trails.md:133` ("converting ordering …
+      by hand"); reworded the topic-anchoring See-also bullet, which promised
+      topic content the page does not carry.
+- [x] Post-phase claim_check_against_code — qualified four trails-page claims:
+      "handle appears in exactly one place" → among task files (the manifest and
+      the document's `trail_id` also carry it); owner default is "the task or
+      topic root" for single-scope trails (`trail_gather.py:1118`); "markdown
+      summary" → "the summary the skill prints"; dropped "deletion guards" from
+      the lifecycle list (not verified against code).
+- Verification: `hugo build --gc --minify` = 0; `check_links.py --build` = 0;
+  `check_link_relevance.py` reports none of the new links; no
+  `concepts/artifacts`, no merge line, no `**Next:**` footer.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-09-23 19:40)
+- **Requested by user:** (1) the "handle in exactly one task file" claim is false between a fold and archival — the fold copies the handle to the primary and the folded task keeps its entry (discovery dedups, `trail_discovery.py:104-106`); (2) the "not auto-owned" rationale read as applying to every trail, though single-task/topic trails default their owner.
+- **Changes made:** Scoped the one-entry claim to trail creation; renamed "Folding the owner moves the handle" to "copies", stating the temporary two-reference window and the dedup precedence; rewrote the Why-it-exists bullet as "Not ownerless" — single-scope trails take their task/topic root, only multi-topic/ad-hoc trails need a chosen owner.
+- **Files affected:** `website/content/docs/concepts/implementation-trails.md`
+
+## Final Implementation Notes
+
+- **Actual work done:** Two new concept pages, both ending at `## See also` with
+  no `**Next:**` footer (t1687_5 owns ordering).
+  `concepts/implementation-trails.md` (weight 105, `depth: [advanced]`) — thesis
+  "kept, not re-derived" (a decision stored with the evidence it was made on),
+  then the storage model: one owner entry written at creation, discovery through
+  active + archived owner frontmatter, fold copy + dedup, one structured document
+  with derived views, and the read side ("read by nothing that enforces").
+  `concepts/shadow-agent.md` (weight 125, `depth: [intermediate]`) — the
+  `@aitask_shadow_target` pane-option binding (its first website presence), the
+  capture reading the binding rather than a typed id, capture → context-fetch →
+  skill, and the advisory contract split into two facts. Eight back-links (seven
+  full-path relrefs, one relative link in `workflows/shadow-agent.md`).
+- **Deviations from plan:** The trails page was re-scoped three times at plan
+  review: narrowed to the storage model to avoid repeating the workflow page, then
+  given back a one-paragraph thesis (the task's mandatory angle), then corrected
+  on archived-owner freshness. `scope.topics` is not mentioned at all (see Issues).
+- **Issues encountered:**
+  - The original plan's "`scope.topics` lists members rather than anchor roots"
+    is true only for backlog-roadmap trails (`lib/roadmap_run.py:403`); the
+    schema and `/aitask-trail` use topic root ids. Dropped from the page.
+  - Plan review: the planned "advisory by construction" wording implied technical
+    isolation. The `aitask-shadow` skill declares no tool restriction, so the
+    page now states the read-only framework path and the skill instruction as
+    separate facts and says plainly it is not a sandbox.
+  - Plan review: a single-task trail's owner can also be a member, so "a member's
+    file is never written" was narrowed to the *other* members.
+  - Plan review: archiving an owner does not make a trail stale. Freshness comes
+    from recorded inputs, and a chosen multi-topic owner may not be one.
+  - Step-8 review: the fold *copies* the handle (the folded task keeps its entry
+    until archival; `trail_discovery.py:104-106` dedups), and the no-auto-owner
+    rationale applies only to multi-topic / ad-hoc trails. Both fixed.
+- **Key decisions:** Wrote every claim against code (`trail_gather.py:1118`
+  owner default, `trail_discovery.py`, `aitask_fold_mark.sh:557-561`,
+  `monitor_core.py:421/3801/3884`, `aitask_shadow_capture.sh`,
+  `aitask_companion_cleanup.sh`), not the aidocs RFCs, which carry subset-only
+  claims. Unverified items were dropped instead of hedged ("deletion guards").
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:**
+  - t1687_5: both new pages exist at the planned weights; add their
+    `_index.md` bullets (trails → *Lifecycle and infrastructure*, shadow →
+    *Workflow primitives*). `hugo build` = 0, `check_links.py --build` = 0,
+    `check_link_relevance.py` reports none of the new links.
+  - Four review passes each found a claim that was true only for a subset of
+    cases. Neither `hugo build` nor `check_links.py` can detect that, so check
+    concept-page prose against code, including the edge states (fold windows,
+    archived owners, default vs explicit choices).
