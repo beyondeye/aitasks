@@ -26,4 +26,4 @@ Use [`/aitask-fold`]({{< relref "/docs/skills/aitask-fold" >}}) to interactively
 
 ---
 
-**Next:** [Review guides]({{< relref "/docs/concepts/review-guides" >}})
+**Next:** [Task notes]({{< relref "/docs/concepts/task-notes" >}})

@@ -156,3 +156,7 @@ chooses the recipient and handles both delivery lanes, or with
 - [`ait note`]({{< relref "/docs/commands/note" >}}) — the CLI, its output codes, and the provenance fields
 - [`/aitask-note`]({{< relref "/docs/skills/aitask-note" >}}) — the skill that composes the lanes
 - [Cross-repo references]({{< relref "/docs/concepts/cross-repo-references" >}}) — why a sender in another project is recorded as a project-qualified pair
+
+---
+
+**Next:** [Review guides]({{< relref "/docs/concepts/review-guides" >}})

@@ -231,3 +231,7 @@ against its enforced set.
 - [Board reference]({{< relref "/docs/tuis/board/reference" >}}#gate-progress) — how the board counts satisfied gates against the enforced set.
 - [Risk evaluation]({{< relref "/docs/workflows/risk-evaluation" >}}) — the planning step the `risk_evaluated` gate verifies.
 - [Execution profiles]({{< relref "/docs/concepts/execution-profiles" >}}) — what a profile is; each one also sets its workflow's gate ceiling, described above.
+
+---
+
+**Next:** [Locks]({{< relref "/docs/concepts/locks" >}})

@@ -35,4 +35,4 @@ The architecture, symlink rules, and detection logic are documented in the [task
 
 ---
 
-**Next:** [The IDE model]({{< relref "/docs/concepts/ide-model" >}})
+**Next:** [Cross-repo references]({{< relref "/docs/concepts/cross-repo-references" >}})

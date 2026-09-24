@@ -31,4 +31,4 @@ The command-line entry point — `ait ide`, its flags, and the session-sharing g
 
 ---
 
-**Next:** [Agent memory]({{< relref "/docs/concepts/agent-memory" >}})
+**Next:** [Framework session]({{< relref "/docs/concepts/framework-session" >}})

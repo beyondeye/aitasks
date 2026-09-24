@@ -95,3 +95,7 @@ code agent and model. The per-TUI steps are in
 - [Minimonitor]({{< relref "/docs/tuis/minimonitor" >}}) — the companion sidebar that launches and reads shadows
 - [Monitor]({{< relref "/docs/tuis/monitor" >}}) — launching from the agent list, and the shadow preview column
 - [Framework session]({{< relref "/docs/concepts/framework-session" >}}) — the pane-option join between a pane and its agent record
+
+---
+
+**Next:** [Task lifecycle]({{< relref "/docs/concepts/task-lifecycle" >}})

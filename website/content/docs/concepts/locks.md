@@ -124,4 +124,4 @@ The merge mutex is likewise invisible in normal use: the task workflow takes it 
 
 ---
 
-**Next:** [Task lifecycle]({{< relref "/docs/concepts/task-lifecycle" >}})
+**Next:** [Shadow agent]({{< relref "/docs/concepts/shadow-agent" >}})

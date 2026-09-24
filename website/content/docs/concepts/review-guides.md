@@ -25,4 +25,4 @@ The schema and authoring rules are documented in the [Review guide format refere
 
 ---
 
-**Next:** [Execution profiles]({{< relref "/docs/concepts/execution-profiles" >}})
+**Next:** [Attachments]({{< relref "/docs/concepts/attachments" >}})

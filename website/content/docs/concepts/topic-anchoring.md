@@ -135,3 +135,7 @@ when a task starts as standalone and later becomes part of a broader topic.
 - [Board reference]({{< relref "/docs/tuis/board/reference" >}}) - By-Topic view details
 - [Implementation Trails]({{< relref "/docs/workflows/implementation-trails" >}}) - recommended landing order across tasks, projected separately from topics
 - [Implementation trails (concept)]({{< relref "/docs/concepts/implementation-trails" >}}) - why a trail is kept as a versioned, task-owned artifact
+
+---
+
+**Next:** [Folded tasks]({{< relref "/docs/concepts/folded-tasks" >}})

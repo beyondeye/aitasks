@@ -27,4 +27,4 @@ The [Task decomposition workflow]({{< relref "/docs/workflows/task-decomposition
 
 ---
 
-**Next:** [Folded tasks]({{< relref "/docs/concepts/folded-tasks" >}})
+**Next:** [Topic anchoring]({{< relref "/docs/concepts/topic-anchoring" >}})

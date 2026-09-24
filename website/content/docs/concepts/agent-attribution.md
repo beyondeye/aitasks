@@ -31,4 +31,4 @@ Attribution is automatic — the workflow runs the model self-detection sub-proc
 
 ---
 
-**Next:** [Locks]({{< relref "/docs/concepts/locks" >}})
+**Next:** [Agentcrews]({{< relref "/docs/concepts/agentcrews" >}})

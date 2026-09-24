@@ -117,3 +117,7 @@ consume blocking edges with
 - [Task format]({{< relref "/docs/development/task-format" >}}) — the frontmatter fields that carry cross-repo edges
 - [Parent and child tasks]({{< relref "/docs/concepts/parent-child" >}}) — the hierarchy that stays inside one project
 - [Task notes]({{< relref "/docs/concepts/task-notes" >}}) — why a note from another project records a qualified sender, and what it can prove
+
+---
+
+**Next:** [The IDE model]({{< relref "/docs/concepts/ide-model" >}})

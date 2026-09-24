@@ -155,4 +155,8 @@ The full verb reference — flags, refusals and the gc rules — is on the
 - [`ait attach`]({{< relref "/docs/commands/attach" >}}) — the command reference.
 - [Task file format]({{< relref "/docs/development/task-format" >}}#nested-fields-artifacts-and-attachments) — the `attachments:` field alongside the rest of the frontmatter.
 - [Tasks]({{< relref "/docs/concepts/tasks" >}}) — the files attachments belong to.
-- [Folded tasks]({{< relref "/docs/concepts/folded-tasks" >}}) — how folding moves attachment references to the primary task.
+- [Folded tasks]({{< relref "/docs/concepts/folded-tasks" >}}) — what folding merges into the primary task; the attachment references move with it, as described above.
+
+---
+
+**Next:** [Execution profiles]({{< relref "/docs/concepts/execution-profiles" >}})

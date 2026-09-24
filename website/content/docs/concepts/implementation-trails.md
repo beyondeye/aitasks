@@ -106,3 +106,7 @@ or in the stand-alone [`ait trails`]({{< relref "/docs/tuis/trails" >}}) reader.
 - [Trails TUI]({{< relref "/docs/tuis/trails" >}}) — the stand-alone reader
 - [Board reference]({{< relref "/docs/tuis/board/reference" >}}#by-trail) — the By-Trail view and its keys
 - [Topic anchoring]({{< relref "/docs/concepts/topic-anchoring" >}}) — the one-topic-per-task model a trail sits beside
+
+---
+
+**Next:** [Git branching model]({{< relref "/docs/concepts/git-branching-model" >}})

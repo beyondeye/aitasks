@@ -76,4 +76,4 @@ monitoring TUIs — is documented in the
 
 ---
 
-**Next:** [Agent attribution]({{< relref "/docs/concepts/agent-attribution" >}})
+**Next:** [Gates]({{< relref "/docs/concepts/gates" >}})

@@ -151,3 +151,7 @@ in `ait monitor` and `ait minimonitor` are reading.
 - [Frozen Agent]({{< relref "/docs/tuis/frozenagent" >}}) — the viewer that stands in for a frozen agent's pane.
 - [The IDE model]({{< relref "/docs/concepts/ide-model" >}}) — the tmux layout these records describe.
 - [Locks]({{< relref "/docs/concepts/locks" >}}) — the other claim an agent holds, on its task rather than its pane.
+
+---
+
+**Next:** [Agent memory]({{< relref "/docs/concepts/agent-memory" >}})

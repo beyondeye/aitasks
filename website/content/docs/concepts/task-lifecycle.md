@@ -37,4 +37,4 @@ You rarely set `status` by hand. The workflow scripts do it as side effects of p
 
 ---
 
-**Next:** [Git branching model]({{< relref "/docs/concepts/git-branching-model" >}})
+**Next:** [Implementation trails]({{< relref "/docs/concepts/implementation-trails" >}})
