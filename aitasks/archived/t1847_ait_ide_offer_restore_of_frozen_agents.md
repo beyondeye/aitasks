@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [frozen, session_persistence, ait_dispatcher]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -14,7 +14,8 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5_5
 created_at: 2026-09-21 22:42
-updated_at: 2026-09-23 19:22
+updated_at: 2026-09-24 11:41
+completed_at: 2026-09-24 11:41
 ---
 
 ## Problem
@@ -89,3 +90,14 @@ When `ait ide` starts (or attaches to) a project session, check the session stor
 > **✅ gate:plan_approved** run=2026-09-23T16:22:49Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-09-24T08:31:21Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-24T08:41:24Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:bf43b97d5cda2a9f
+
+> **✅ gate:risk_evaluated** run=2026-09-24T08:41:24Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1847/risk_evaluated_2026-09-24T08:41:24Z-risk_evaluated-a1.log`
