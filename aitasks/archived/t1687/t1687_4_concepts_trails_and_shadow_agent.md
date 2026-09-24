@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: medium
 depends: [t1687_3]
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [documentation, website, concepts]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1687
 implemented_with: claudecode/opus5_5
 created_at: 2026-09-20 12:02
-updated_at: 2026-09-23 19:22
+updated_at: 2026-09-24 09:22
+completed_at: 2026-09-24 09:22
 ---
 
 ## Context
@@ -126,3 +127,14 @@ Use `set -o pipefail` or check `${PIPESTATUS[0]}`.
 > **✅ gate:plan_approved** run=2026-09-23T16:22:26Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-09-24T06:14:36Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-24T06:22:49Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:71ecb310099d1343
+
+> **✅ gate:risk_evaluated** run=2026-09-24T06:22:49Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1687_4/risk_evaluated_2026-09-24T06:22:49Z-risk_evaluated-a1.log`
