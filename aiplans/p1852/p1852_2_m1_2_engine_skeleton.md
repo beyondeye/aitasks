@@ -287,11 +287,11 @@ profile: no worktree, no merge. Commit: `feature: Add the goengines Go module an
 
 ### Goal-achievement risk: medium
 - The interface decisions made here (version text/JSON shape, contract as a source constant, `-X main.*` names, stub/unknown stderr lines, verb-table row shape, fixture and baseline formats) are consumed by t1852_3/4/5 and the M2–M8 children; a shape they cannot use forces rework across siblings · severity: low (residual — addressed by inline post-phase interface_contract_readme and the downstream notes) · → mitigation: inline post-phase interface_contract_readme
-- Bench baselines are recorded on this dev host; M1.3 wires the 2× rule into CI, where a different machine can fail (or mask) the ratio · severity: medium · → mitigation: bench_host_normalization
+- Bench baselines are recorded on this dev host; M1.3 wires the 2× rule into CI, where a different machine can fail (or mask) the ratio · severity: medium · → mitigation: t1872
 
 ### Planned mitigations
 - timing: post-phase | name: interface_contract_readme | type: documentation | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: interface decisions consumed by t1852_3/4/5 and M2–M8 | desc: README Interfaces section listing every consumed shape with the test that pins it
-- timing: after | name: bench_host_normalization | type: enhancement | priority: medium | effort: medium | inline_risk: low | added_complexity: medium | addresses: bench baselines recorded on the dev host vs CI | desc: benchgate calibration benchmark normalizing baseline ratios across hosts before the 2x rule
+- timing: after | name: bench_host_normalization | type: enhancement | priority: medium | effort: medium | inline_risk: low | added_complexity: medium | addresses: bench baselines recorded on the dev host vs CI | desc: benchgate calibration benchmark normalizing baseline ratios across hosts before the 2x rule | created: t1872
 
 ## Final Implementation Notes
 
