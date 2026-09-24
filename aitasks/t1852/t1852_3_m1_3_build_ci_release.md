@@ -117,3 +117,5 @@ the current `release.yml` job graph and `hugo.yml`'s `setup-go` step.
 > | 4. Protocol lines added: BENCH_SCALE:<class>|<scale>|<cur>|<base>, BENCH_SCALE_IMPLAUSIBLE:<class>|..., BENCH_CALIBRATION_MISSING:<class>|<side>, BENCH_UNSCALED:<class>|<side>. Scaled ratios fail above benchgate.Threshold = 1.6 (the 2x rule judged with margin).
 > | 
 > | Decision your task body asked to make together with t1872: CI uses the committed, calibrated baseline; it does NOT record its own (hosted runners change machine per job). Rationale and single-host measurements are in the README.
+
+> **👁 note:read** id=2026-09-24T18:58:47Z.cfdaa262d518358a9cd48ad8 by=t1852_3 at=2026-09-24T18:58:47Z mode=explicit ids=2026-09-24T06:18:15Z.ad6b23be383bb3acc9808247,2026-09-24T12:44:47Z.5615671a3aabcb305a03570a
