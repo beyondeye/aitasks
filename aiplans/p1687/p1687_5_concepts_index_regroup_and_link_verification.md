@@ -283,3 +283,45 @@ confirm the parent t1687 is complete before it is archived.
 
 ### Planned mitigations
 - timing: post-phase | name: link_relevance_triage | type: documentation | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: resolve-but-off-topic links added by the t1687 sweep | desc: Run check_link_relevance.py and walk every link added by t1687_1..5 (inventory derived from the sibling diffs, including outgoing links inside the six new pages) for on-topic targets; fix off-topic ones; record the triage.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-09-24 15:10)
+- **Requested by user:** The link triage had narrowed manual review to non-obvious links and inferred the rest from labels; finish checking every distinct target against its source context.
+- **Changes made:** Opened all 41 remaining target groups (63 distinct targets total, 124 links) and compared each link's label and surrounding sentence / See-also description against the target's title, description and content; grep-verified the nine descriptions that make specific claims about the target. Two See-also descriptions over-claimed their target and were reworded: `concepts/attachments.md` (`Folded tasks` never discusses attachments) and `workflows/risk-evaluation.md` (`commands/gates` documents the command that runs gates, not the `risk_evaluated` gate itself). Re-ran hugo build, check_links.py --build (PASSED) and check_link_relevance.py (6 reported, unchanged).
+- **Files affected:** website/content/docs/concepts/attachments.md, website/content/docs/workflows/risk-evaluation.md
+
+## Final Implementation Notes
+- **Actual work done:**
+  - **`_index.md`:** six bullets added in weight order within their groups. Data model is now 8 (task-notes, attachments), Workflow primitives 8 (gates, shadow-agent) and Lifecycle 7 (implementation-trails, cross-repo-references). No frontmatter weight changed anywhere.
+  - **Next chain:** defined as the `_index.md` order top to bottom. It was applied by a script that reads that order and each target's `linkTitle`: 9 footers retargeted and 8 appended (the six new pages plus topic-anchoring and framework-session). A walk from `tasks` now visits all 23 pages once and ends at agent-memory.
+  - **Post-review:** two See-also descriptions reworded (see Post-Review Changes).
+- **Verification:**
+  - `hugo build` passes, and so does `check_links.py --build` (SWEEP: PASSED).
+  - `check_link_relevance.py` exits 0 with 6 reported rows. The two t1687 rows are false positives: `concepts/gates.md:229` and `concepts/task-notes.md:42`. The first targets the procedure-backed section; the second is the known leading-code-span extractor artifact. The other four predate the sweep: `tuis/monitor/how-to.md:236`, `workflows/risk-evaluation.md:38`, `workflows/crash-recovery.md:30` and `workflows/parallel-development.md:46`.
+  - Orphan check is 23 ↔ 23 in both directions.
+  - `concepts/` has 0 relative links, and the site has 0 mermaid fences.
+  - `ait artifact` is still unlinked in `development/task-format.md` and `skills/aitask-trail.md`.
+  - Every link-map anchor resolves. `#launching-a-shadow-agent` is an insertion point, not a link target, and it still exists (`tuis/minimonitor/_index.md:77`).
+- **link_relevance_triage outcome:**
+  - **Inventory:** built from the four sibling commits (15a1f9f66, 63012375f, a9b93ff98, 833ba3c13) plus this task's diff, using a multiline-aware parser. For an added file every link is taken; for a modified file, links whose span overlaps an added line. That gives 121 links, plus 3 added later by t1869 (acbee2da3) inside the new pages, which are included so the six pages are covered in full. Total: **124 links, 63 distinct targets.**
+  - **Cross-checks:** each of the six pages' per-page count equals its full-file multiline count, and the split links are present.
+  - **Review:** every target was opened and checked against the link's label and sentence / See-also description, with grep checks for the nine descriptions making specific claims.
+  - **Result:** no link points to an off-topic page. Two descriptions over-claimed their target and were reworded:
+    - `concepts/attachments.md` → Folded tasks: that page never mentions attachments.
+    - `workflows/risk-evaluation.md` → `commands/gates`: it documents the command, not the `risk_evaluated` gate.
+- **Deviations from plan:**
+  - The line-by-line inventory in the first plan draft was replaced (at planning review) by the multiline parser.
+  - The reviewer's example split link (`cross-repo-references.md:78`) turned out to come from t1869, not t1687; it is covered by the supplement described above.
+  - `agentcrews.md` already had a footer (→ agent-attribution). It was retargeted to Gates as part of the chain.
+- **Issues encountered:** Concurrent sessions had unrelated uncommitted changes (`.aitask-scripts/`, `goengines/`, `tests/`). They were excluded by committing named paths only; none of them affected the site build.
+- **Key decisions:**
+  - The chain follows index order rather than raw weight, which keeps the chain and the index from ever disagreeing.
+  - `shadow-agent` (125) stays in Workflow primitives despite its weight band.
+  - No fourth group was added.
+  - Deferred gaps were re-verified against the current site. Only the `ait brainstorm` `delete` / `apply-*` subcommands remain undocumented, which becomes a follow-up task. The trails, chatlink and concept-candidate gaps are covered or were excluded on purpose.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:**
+  - Last child, so there are no siblings left.
+  - For future concepts pages: add the bullet in `_index.md`, then splice the Next chain by index order (the source page's footer plus the new page's own).
+  - Always use full `/docs/concepts/<slug>` relrefs. The gates, task-notes, implementation-trails and shadow-agent slugs all collide with other pages.
