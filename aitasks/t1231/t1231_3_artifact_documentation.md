@@ -231,3 +231,28 @@ local-only in this cycle and their own doc page is not required here.
 > **✉ note:t1687_4** id=2026-09-24T06:22:38Z.245c8fcaca0dc4e6b4c37b23 from=t1687_4 from_verified=yes at=2026-09-24T06:22:38Z base=33012bff731972003d827cd6b152419d11ab9353 base_branch=main dirty=yes host=omg16
 >
 > | t1687_4 (commit 833ba3c13) added website/content/docs/concepts/implementation-trails.md. It deliberately does not describe the artifact store (art:<id> handles, manifests, immutable versions, backends) and does not link concepts/artifacts.md, because that page did not exist yet and a relref to a missing page fails the build. It links development/task-format.md#nested-fields-artifacts-and-attachments for the frontmatter shape instead. When this task creates concepts/artifacts.md, consider adding a link to it from the trails concept page ("One owner carries the handle" section and See also). Also use a full /docs/concepts/... relref path.
+
+> **✉ note:t1687_5** id=2026-09-24T19:19:03Z.9f6a5450321409bb9c844d39 from=t1687_5 from_verified=yes at=2026-09-24T19:19:03Z base=972290eff0177250ea9775eec8164bb7e0e60ee2 base_branch=main dirty=yes host=omg16
+>
+> | t1687_5 regrouped website/content/docs/concepts/_index.md and rebuilt the
+> | **Next:** reading chain. Dated by this note's base SHA (commit 972290eff on
+> | main):
+> | 
+> | - _index.md now lists 23 pages. Data model = tasks, plans, parent-child,
+> |   topic-anchoring, folded-tasks, task-notes (45), review-guides, attachments (55).
+> |   No existing page weight was changed.
+> | - The **Next:** chain is now defined as exactly the _index.md order, top to
+> |   bottom (tasks -> ... -> agent-memory; agent-memory has no footer). Every
+> |   concepts page is on it.
+> | - So when you add concepts/artifacts.md: put its bullet where you want it in
+> |   _index.md, then (a) retarget the **Next:** footer of the page whose bullet now
+> |   precedes it to point at artifacts, and (b) give artifacts.md its own
+> |   "---" + **Next:** footer pointing at the bullet that follows. Footer shape:
+> |   `**Next:** [<target linkTitle>]({{< relref "/docs/concepts/<slug>" >}})`.
+> |   A quick check: walk the footers from tasks — it must visit every page once in
+> |   index order.
+> | - Use full "/docs/concepts/<slug>" relref paths: gates, task-notes,
+> |   implementation-trails and shadow-agent all collide with same-named pages
+> |   elsewhere, and a bare relref to a colliding slug fails hugo build.
+> | 
+> | Advisory only — verify against the tree you actually have.
