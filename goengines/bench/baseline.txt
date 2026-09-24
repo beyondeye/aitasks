@@ -1,8 +1,17 @@
 # ait-testmap benchmark baselines — ns/op, recorded on a developer host.
 # Checked by: go run ./internal/tools/benchgate -baseline bench/baseline.txt
-# A benchmark slower than 2x its line, or over its budget=, fails the gate;
-# every line here must still be measured (rename/delete = edit this file too).
+# A benchmark 2x slower than its line (judged as a host-scaled ratio > 1.6), or
+# over its budget=, fails the gate; every line here must still be measured
+# (rename/delete = edit this file too).
 # Re-record: go run ./internal/tools/benchgate -baseline bench/baseline.txt -update
-cmd/ait-testmap.BenchmarkDispatchVersion 3443
-internal/gitx.BenchmarkBlobDigest 25991
-internal/gitx.BenchmarkLsTree 876278
+# Host normalization: every line is scaled by current/recorded calibration of
+# its class before the ratio test (budgets are not): cpu (default), cal=spawn
+# (starting git), cal=sha1 (SHA-1 hashing). Record and check with the default
+# producer (-p 1 -cpu 1 -count 3); on a hybrid P/E-core host pin both to one
+# core type. Recorded pinned to one P-core (taskset -c 0).
+internal/benchgate.BenchmarkCalibrate 1916202
+internal/benchgate.BenchmarkCalibrateSpawn 484506
+internal/benchgate.BenchmarkCalibrateHash 29347
+cmd/ait-testmap.BenchmarkDispatchVersion 2909
+internal/gitx.BenchmarkBlobDigest 29001 cal=sha1
+internal/gitx.BenchmarkLsTree 862142 cal=spawn

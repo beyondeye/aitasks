@@ -4,11 +4,18 @@
 //
 //	go run ./internal/tools/benchgate -baseline bench/baseline.txt [-partial] [-update] [-- <producer argv>]
 //
-// It runs the producer itself (default: go test -run ^$ -bench . -count 1
-// ./...) rather than reading a pipe, so a failing producer can never be
-// masked by a passing checker. Exit 0 pass; 1 regression, over budget,
-// missing baseline benchmark (full mode), empty measurement set or producer
-// failure; 64 usage.
+// It runs the producer itself (default: go test -p 1 -cpu 1 -run ^$ -bench .
+// -count 3 ./...) rather than reading a pipe, so a failing producer can never
+// be masked by a passing checker. The flags keep recording and checking
+// comparable across hosts: -p 1 runs one package's benchmarks at a time (the
+// calibrations and the benchmarks they scale must not overlap), -cpu 1 fixes
+// GOMAXPROCS whatever the host's core count, and -count 3 lets ParseBench
+// keep each benchmark's fastest of three runs — a single sample on a loaded
+// host skews a baseline or a scale enough to hide a 2× regression. A custom
+// producer for the gate or -update must keep all three. Exit 0 pass; 1
+// regression, over budget, missing baseline benchmark or calibration (full
+// mode), implausible host scale, empty measurement set or producer failure;
+// 64 usage.
 package main
 
 import (
@@ -26,7 +33,7 @@ import (
 // modulePrefix is trimmed from package paths to form benchmark names.
 const modulePrefix = "github.com/beyondeye/aitasks/goengines/"
 
-var defaultProducer = []string{"go", "test", "-run", "^$", "-bench", ".", "-count", "1", "./..."}
+var defaultProducer = []string{"go", "test", "-p", "1", "-cpu", "1", "-run", "^$", "-bench", ".", "-count", "3", "./..."}
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
@@ -99,7 +106,17 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 
 	if *update {
-		if len(cur) == 0 {
+		// Rewrite drops every unmeasured baseline, so a run that could not
+		// be judged later must not be written: one missing a calibration its
+		// lines need fails every full gate, one with only calibrations has no
+		// benchmarks left.
+		for _, class := range baseline.RequiredClasses(cur) {
+			if _, ok := cur[benchgate.Calibrations[class]]; !ok {
+				fmt.Fprintf(stdout, "BENCH_CALIBRATION_MISSING:%s|current\n", class)
+				return 1
+			}
+		}
+		if benchgate.Measured(cur) == 0 {
 			fmt.Fprintln(stdout, "BENCH_EMPTY:")
 			return 1
 		}

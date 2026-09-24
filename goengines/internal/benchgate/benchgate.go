@@ -1,15 +1,29 @@
 // Package benchgate enforces the engine's latency budgets: `go test -bench`
-// results are compared against committed baselines, and a benchmark more than
-// Factor times slower than its baseline — or over its absolute budget —
-// fails. The tool that runs it is internal/tools/benchgate.
+// results are compared against committed baselines, and a benchmark Factor
+// times slower than its baseline (judged at the host-normalized Threshold) —
+// or over its absolute budget — fails. The tool that runs it is internal/tools/benchgate.
 //
 // Baseline file format (bench/baseline.txt), one benchmark per line:
 //
 //	# comment
 //	internal/gitx.BenchmarkBlobDigest 14250 budget=1ms
+//	internal/gitx.BenchmarkLsTree 1328804 cal=spawn
 //
 // The name is the package path relative to the module plus the benchmark name
-// without its -<GOMAXPROCS> suffix; the number is ns/op; budget= is optional.
+// without its -<GOMAXPROCS> suffix; the number is ns/op; budget= and cal= are
+// optional, in either order.
+//
+// Host normalization: each calibration class (Calibrations) names a
+// fixed-work benchmark recorded with the others — cpu (the default) for
+// in-process work, spawn for benchmarks dominated by starting a git process,
+// sha1 for benchmarks dominated by SHA-1 hashing (whose speed relative to
+// general CPU work varies with hardware acceleration and microarchitecture).
+// Compare scales every baseline by current/recorded calibration of its line's
+// class before applying Factor, so a slower or faster host (a CI runner) is
+// judged against its own speed for that kind of work; the scaled ratio is
+// judged against Threshold. Absolute budgets are
+// never scaled. The full gate fails when a class in use lacks its calibration
+// on either side or its scale is outside [MinScale, MaxScale].
 package benchgate
 
 import (
@@ -24,8 +38,67 @@ import (
 	"time"
 )
 
-// Factor is the regression rule: slower than Factor × baseline fails.
+// Factor is the regression rule the gate enforces: a benchmark Factor times
+// slower than its baseline must fail.
 const Factor = 2.0
+
+// Threshold is the scaled ratio above which a benchmark fails. It sits below
+// Factor because host normalization is approximate: across P-cores, E-cores,
+// core counts and CPU quotas on the recording host, healthy scaled ratios
+// reached 1.17 while seeded 2.1× regressions scaled as low as 1.72, so a
+// threshold of Factor itself missed 6 of 18 of them. 1.6 separated every
+// sample, 0.12 under the lowest regression — measured on one host, not a
+// portability guarantee (see goengines/README.md, Host normalization).
+const Threshold = 1.6
+
+// Calibration and CalibrationSpawn are the reserved names of the host-speed
+// benchmarks (internal/benchgate/calibrate_test.go). They are judged by the
+// scale they yield, never by the 2× rule.
+const (
+	Calibration      = "internal/benchgate.BenchmarkCalibrate"
+	CalibrationSpawn = "internal/benchgate.BenchmarkCalibrateSpawn"
+	CalibrationHash  = "internal/benchgate.BenchmarkCalibrateHash"
+)
+
+// DefaultClass is the calibration class of a line without cal=.
+const DefaultClass = "cpu"
+
+// Calibrations maps each calibration class a baseline line may name with
+// cal=<class> to its calibration benchmark.
+var Calibrations = map[string]string{
+	DefaultClass: Calibration,
+	"spawn":      CalibrationSpawn,
+	"sha1":       CalibrationHash,
+}
+
+// isCalibration reports whether name is one of the calibration benchmarks.
+func isCalibration(name string) bool {
+	for _, c := range Calibrations {
+		if name == c {
+			return true
+		}
+	}
+	return false
+}
+
+// Measured counts the benchmarks in cur other than the calibrations.
+func Measured(cur map[string]float64) int {
+	n := 0
+	for name := range cur {
+		if !isCalibration(name) {
+			n++
+		}
+	}
+	return n
+}
+
+// MinScale and MaxScale bound a plausible host-speed scale. Outside them the
+// calibration itself is suspect, so the scale is reported and the run fails
+// instead of silently applying it.
+const (
+	MinScale = 0.25
+	MaxScale = 4.0
+)
 
 // Mode selects how a baseline benchmark with no measurement is judged.
 type Mode int
@@ -104,6 +177,27 @@ type Entry struct {
 	Name   string
 	NsOp   float64
 	Budget time.Duration // 0 = no absolute budget
+	Class  string        // calibration class; "" = DefaultClass
+}
+
+// class returns the entry's calibration class.
+func (e Entry) class() string {
+	if e.Class == "" {
+		return DefaultClass
+	}
+	return e.Class
+}
+
+// Classes returns the calibration classes the baseline's benchmark lines use,
+// sorted, always including DefaultClass — the ones a full gate must resolve.
+func (b *Baseline) Classes() []string {
+	set := map[string]bool{DefaultClass: true}
+	for _, e := range b.Entries {
+		if !isCalibration(e.Name) {
+			set[e.class()] = true
+		}
+	}
+	return slices.Sorted(maps.Keys(set))
 }
 
 // Baseline is a parsed baseline file; Lines keeps comments and blank lines so
@@ -127,21 +221,36 @@ func ParseBaseline(r io.Reader) (*Baseline, error) {
 			continue
 		}
 		f := strings.Fields(t)
-		if len(f) < 2 || len(f) > 3 {
-			return nil, fmt.Errorf("benchgate: baseline line %d: want `<name> <ns/op> [budget=<d>]`", n)
+		if len(f) < 2 || len(f) > 4 {
+			return nil, fmt.Errorf("benchgate: baseline line %d: want `<name> <ns/op> [budget=<d>] [cal=<class>]`", n)
 		}
 		e := Entry{Name: f[0]}
 		var err error
 		if e.NsOp, err = strconv.ParseFloat(f[1], 64); err != nil || !validNs(e.NsOp) {
 			return nil, fmt.Errorf("benchgate: baseline line %d: bad ns/op %q", n, f[1])
 		}
-		if len(f) == 3 {
-			d, ok := strings.CutPrefix(f[2], "budget=")
-			if !ok {
-				return nil, fmt.Errorf("benchgate: baseline line %d: unknown field %q", n, f[2])
+		seen := map[string]bool{}
+		for _, field := range f[2:] {
+			key, val, _ := strings.Cut(field, "=")
+			if seen[key] {
+				return nil, fmt.Errorf("benchgate: baseline line %d: repeated field %q", n, field)
 			}
-			if e.Budget, err = time.ParseDuration(d); err != nil || e.Budget <= 0 {
-				return nil, fmt.Errorf("benchgate: baseline line %d: bad budget %q", n, d)
+			seen[key] = true
+			switch key {
+			case "budget":
+				if e.Budget, err = time.ParseDuration(val); err != nil || e.Budget <= 0 {
+					return nil, fmt.Errorf("benchgate: baseline line %d: bad budget %q", n, val)
+				}
+			case "cal":
+				if _, ok := Calibrations[val]; !ok {
+					return nil, fmt.Errorf("benchgate: baseline line %d: unknown calibration class %q", n, val)
+				}
+				if isCalibration(e.Name) {
+					return nil, fmt.Errorf("benchgate: baseline line %d: a calibration takes no cal=", n)
+				}
+				e.Class = val
+			default:
+				return nil, fmt.Errorf("benchgate: baseline line %d: unknown field %q", n, field)
 			}
 		}
 		if _, dup := b.Entries[e.Name]; dup {
@@ -158,11 +267,15 @@ type Result struct {
 	Fail  bool
 }
 
-// Compare judges cur against base under mode. An empty cur always fails
-// (BENCH_EMPTY): a run that measured nothing proves nothing.
+// Compare judges cur against base under mode. An empty cur — nothing
+// measured besides the calibrations — always fails (BENCH_EMPTY): a run that
+// measured nothing proves nothing. The first lines report one host scale per
+// class in use (BENCH_SCALE, BENCH_SCALE_IMPLAUSIBLE,
+// BENCH_CALIBRATION_MISSING or BENCH_UNSCALED); every per-benchmark ratio is
+// ns / (baseline × its class's scale).
 func Compare(cur map[string]float64, base *Baseline, mode Mode) Result {
 	var r Result
-	if len(cur) == 0 {
+	if Measured(cur) == 0 {
 		return Result{Lines: []string{"BENCH_EMPTY:"}, Fail: true}
 	}
 	// ParseBench and ParseBaseline never yield a non-finite or non-positive
@@ -178,6 +291,13 @@ func Compare(cur map[string]float64, base *Baseline, mode Mode) Result {
 			return Result{Lines: []string{"BENCH_INVALID:" + n + "|" + fmtNs(e.NsOp)}, Fail: true}
 		}
 	}
+	scales := map[string]float64{}
+	for _, class := range base.Classes() {
+		s, line, fail := hostScale(class, cur, base, mode)
+		scales[class] = s
+		r.Lines = append(r.Lines, line)
+		r.Fail = r.Fail || fail
+	}
 	names := slices.Sorted(maps.Keys(cur))
 	for _, n := range slices.Sorted(maps.Keys(base.Entries)) {
 		if _, ok := cur[n]; !ok {
@@ -186,6 +306,9 @@ func Compare(cur map[string]float64, base *Baseline, mode Mode) Result {
 	}
 	slices.Sort(names)
 	for _, n := range names {
+		if isCalibration(n) {
+			continue
+		}
 		ns, measured := cur[n]
 		e, known := base.Entries[n]
 		switch {
@@ -198,10 +321,11 @@ func Compare(cur map[string]float64, base *Baseline, mode Mode) Result {
 			r.Lines = append(r.Lines, fmt.Sprintf("BENCH_NEW:%s|%s", n, fmtNs(ns)))
 		default:
 			bad := false
-			if ratio := ns / e.NsOp; ratio > Factor {
+			if ratio := ns / (e.NsOp * scales[e.class()]); ratio > Threshold {
 				r.Lines = append(r.Lines, fmt.Sprintf("BENCH_REGRESSION:%s|%s|%s|%.2f", n, fmtNs(ns), fmtNs(e.NsOp), ratio))
 				bad = true
 			}
+			// Budgets are the proposal's absolute latency targets: never scaled.
 			if e.Budget > 0 && time.Duration(ns) > e.Budget {
 				r.Lines = append(r.Lines, fmt.Sprintf("BENCH_OVER_BUDGET:%s|%s|%s", n, fmtNs(ns), e.Budget))
 				bad = true
@@ -216,11 +340,38 @@ func Compare(cur map[string]float64, base *Baseline, mode Mode) Result {
 	return r
 }
 
+// hostScale resolves one class's calibration into the factor its baselines
+// are scaled by, its protocol line and whether it alone fails the run. Any
+// case that cannot produce a trustworthy scale falls back to 1 (the
+// per-benchmark lines stay informational) and, except a partial run's missing
+// calibration, fails.
+func hostScale(class string, cur map[string]float64, base *Baseline, mode Mode) (float64, string, bool) {
+	name := Calibrations[class]
+	c, measured := cur[name]
+	b, recorded := base.Entries[name]
+	if !recorded || !measured {
+		side := "baseline"
+		if recorded {
+			side = "current"
+		}
+		if mode == Full {
+			return 1, "BENCH_CALIBRATION_MISSING:" + class + "|" + side, true
+		}
+		return 1, "BENCH_UNSCALED:" + class + "|" + side, false
+	}
+	s := c / b.NsOp
+	if s < MinScale || s > MaxScale {
+		return 1, fmt.Sprintf("BENCH_SCALE_IMPLAUSIBLE:%s|%.3f|%s|%s", class, s, fmtNs(c), fmtNs(b.NsOp)), true
+	}
+	return s, fmt.Sprintf("BENCH_SCALE:%s|%.3f|%s|%s", class, s, fmtNs(c), fmtNs(b.NsOp)), false
+}
+
 func fmtNs(ns float64) string { return strconv.FormatFloat(ns, 'f', -1, 64) }
 
 // Rewrite returns the baseline file re-recorded from cur: measured
-// benchmarks get their new ns/op (budgets kept), unmeasured ones are
-// dropped, new ones are appended, comments and blank lines stay.
+// benchmarks get their new ns/op (budgets and calibration classes kept),
+// unmeasured ones are dropped, new ones are appended with the default class,
+// comments and blank lines stay.
 func (b *Baseline) Rewrite(cur map[string]float64) string {
 	var sb strings.Builder
 	seen := map[string]bool{}
@@ -236,20 +387,36 @@ func (b *Baseline) Rewrite(cur map[string]float64) string {
 			continue
 		}
 		seen[name] = true
-		sb.WriteString(entryLine(name, ns, b.Entries[name].Budget))
+		sb.WriteString(entryLine(b.Entries[name], ns))
 	}
 	for _, n := range slices.Sorted(maps.Keys(cur)) {
 		if !seen[n] {
-			sb.WriteString(entryLine(n, cur[n], 0))
+			sb.WriteString(entryLine(Entry{Name: n}, cur[n]))
 		}
 	}
 	return sb.String()
 }
 
-func entryLine(name string, ns float64, budget time.Duration) string {
-	s := name + " " + fmtNs(ns) // full precision: 0.4 must not round to 0
-	if budget > 0 {
-		s += " budget=" + budget.String()
+// RequiredClasses returns the calibration classes a file rewritten from cur
+// needs for a full gate: DefaultClass plus the classes of the surviving
+// (measured) lines, sorted.
+func (b *Baseline) RequiredClasses(cur map[string]float64) []string {
+	set := map[string]bool{DefaultClass: true}
+	for name, e := range b.Entries {
+		if _, ok := cur[name]; ok && !isCalibration(name) {
+			set[e.class()] = true
+		}
+	}
+	return slices.Sorted(maps.Keys(set))
+}
+
+func entryLine(e Entry, ns float64) string {
+	s := e.Name + " " + fmtNs(ns) // full precision: 0.4 must not round to 0
+	if e.Budget > 0 {
+		s += " budget=" + e.Budget.String()
+	}
+	if e.Class != "" {
+		s += " cal=" + e.Class
 	}
 	return s + "\n"
 }
