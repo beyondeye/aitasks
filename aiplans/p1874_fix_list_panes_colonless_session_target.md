@@ -176,3 +176,71 @@ safe as it is.
 - A monitor site left on the colon-less form would misattribute panes silently.
   Phase A exercises all four `monitor_core` sites (sync/async × single/multi)
   against ground truth. · severity: low · → mitigation: covered by plan Step 4
+
+## Final Implementation Notes
+
+- **Actual work done:** Added `tmux_exec.session_scope_target()` (`=<s>:`) with
+  a `TmuxClient` re-export and an `agent_launch_utils.tmux_session_scope_target`
+  wrapper, and switched every `list-panes -s` call site to it: discovery
+  (`_collect_live_roots`, which lost its `pane_target` parameter so the default
+  and checked walks share one form; `discover_aitasks_sessions_async`; the
+  pid→pane lookup), freeze reconcile's `_enumerate_session`, and the four
+  `monitor_core` discovery sites. Orphaned `tmux_session_target` imports were
+  dropped from `agent_freeze.py` and `monitor_core.py`. Added
+  `tests/test_list_panes_session_scope_live.sh` (25 checks).
+- **Deviations from plan:** The pid→pane lookup (~1914) already used
+  `tmux_window_target(session, "")` (t1071_5). It was switched to the named
+  helper for consistency, with no behaviour change. One more exact pin turned
+  up: `tests/test_agent_freeze.py::test_the_enumeration_pass_is_explicitly_targeted`
+  (`=aitasks` → `=aitasks:`), plus a second one in
+  `test_monitor_refresh_no_sync_tmux.py:254`. The shell twin
+  `ait_tmux_session_target` feeds only session-typed commands (`has-session`,
+  `list-windows`, `attach`) or `${session_t}:` forms, so no shell change was
+  needed.
+- **Issues encountered:** `tests/test_multi_session_monitor.sh` fails
+  independently of this change: it reproduces on HEAD code in an isolated copy.
+  Its `SimpleNamespace` snapshot lacks the `frozen` attribute that
+  `monitor_app._format_agent_card_text` reads since t1705_7.
+  `tests/test_freeze_engine_live.sh` refuses to run inside tmux by design, so it
+  was not run here. The only change to it is a test-side target string, and its
+  substring asserts still match the colon form.
+- **Upstream defects identified:**
+  - `tests/test_multi_session_monitor.sh:46 — the SimpleNamespace snapshot fixture lacks the `frozen` attribute that monitor_app._format_agent_card_text (monitor_app.py:1756) reads since t1705_7 (fcf144025), so the test crashes with AttributeError on HEAD independent of t1874`
+- **Key decisions:** The red proof was taken on an isolated copy of the tree
+  with the helper mutated back to `=<s>`, not by stashing or restoring in the
+  shared worktree. It produced 14 failures covering every consumer: discovery
+  mapped both sessions to `pb`, freeze saw only `other`'s pane, and the monitor
+  lost alpha's panes and listed `%2` twice. Controls and ground truth still
+  passed.
+- **Verification:** new live test 25/25; targeted pytest (7 modules) green;
+  `test_project_resolve.sh` 25/25; `test_restore_session_bootstrap_live.sh`
+  44/44; `test_no_raw_tmux.sh` 5/5; full `run_all_python_tests.sh` PASSED;
+  `shellcheck -x -P SCRIPTDIR` clean.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-09-24 15:51)
+- **Requested by user:** `aidocs/framework/tmux_gateway.md` listed only
+  `session_target` / `window_target` and told authors to use them for every
+  `-t`, which would lead a future author back to the bare form. Update the
+  target-formatting section and the checklist.
+- **Changes made:** Added `session_scope_target` to the Python surface list.
+  Added a "pick the helper by the `-t` type" rule with a three-row table (session
+  / whole session on a window-typed `-t` / one window, with the shell idiom
+  `ait_tmux_window_target "$s" ""`). Explained the window-first lookup and its
+  consequences, noting that `list-panes`'s man page calls the `-s` target a
+  session while tmux resolves it as a window. Pointed at the new live test, and
+  rewrote checklist item 2 to choose by `-t` type. The table's `-t` types
+  were checked against the tmux 3.7c man page, and the shell idiom against
+  `tmux_exec.sh` (`=alpha:`).
+- **Files affected:** aidocs/framework/tmux_gateway.md
+
+### Change Request 2 (2026-09-24 22:25)
+- **Requested by user:** The guide claimed the live test fails for any bare
+  `list-panes -s` site, but its source guard only matches same-line Python calls
+  using the `session_target` helper names. Narrow the claim.
+- **Changes made:** The guide now lists exactly what the live test exercises
+  (discovery sync/async/checked, freeze enumeration, monitor single/multi) and
+  states the guard's scope. It names what gets past it (multi-line calls, shell
+  sites, hand-formatted `=<s>`) and assigns new sites to review.
+- **Files affected:** aidocs/framework/tmux_gateway.md
