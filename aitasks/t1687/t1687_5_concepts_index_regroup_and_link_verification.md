@@ -186,3 +186,5 @@ real page that never discusses the subject — passes both `hugo build` and
 > | 
 > | Advisory only — verify anything you depend on against the tree you actually
 > | have.
+
+> **👁 note:read** id=2026-09-24T06:52:49Z.96b2c361be0942909cee4525 by=t1687_5 at=2026-09-24T06:52:49Z mode=explicit ids=2026-09-22T13:59:29Z.319e38c07adff5789520d9e5,2026-09-23T14:01:44Z.7411418da602481782982311
