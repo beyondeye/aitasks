@@ -67,3 +67,15 @@ dedicated session-scope target helper. Re-run the discovery parity tests and
 `ait monitor`/minimonitor checks. `ait monitor` builds a
 {session: project_root} map from this discovery, so a wrong mapping shows the
 wrong project for a session.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1847** id=2026-09-24T08:41:12Z.d207b0e614942d63ce3c6f4d from=t1847 from_verified=yes at=2026-09-24T08:41:12Z base=d05ef72419e724ee25ade02ef07443e3e063f042 base_branch=main dirty=yes host=omg16
+>
+> | Advisory context from t1847 (code commit d05ef7241), for your bare `=<session>` sweep:
+> | 
+> | - ALREADY FIXED at one of your listed sites: `agent_launch_utils.resolve_pane_id_by_pid` now lists panes with `tmux_window_target(session, "")` (`=<s>:`). Drop it from the sweep list; its callers (shadow spawn, monitor, syncer, restore) were re-tested.
+> | - DETERMINISTIC TRIGGER (measured on tmux 3.7c, private server): run the command from a client whose CURRENT session holds a WINDOW named like the target session. With sessions A and B, and a window `B` inside A, `list-panes -s -t =B` from a client in A lists A's panes; `=B:` lists B's. From outside tmux (no current session) both forms agreed in the same trial — which is probably why earlier trials looked conditional.
+> | - A ready-made regression fixture: `tests/test_frozen_reopen_live.sh` cases c2 and c3 build exactly that layout (isolated class, `in_a` wrapper sets TMUX/TMUX_PANE to a pane in A) and assert a precondition that the bare target reads A.
+> | - New code that already uses the colon form, in case you want one helper: `agent_reopen._session_scope()` and `agent_restore._named_session_for_root()` (explicit-session authorization goes through `discover_aitasks_sessions_checked()`). `agent_freeze._enumerate_session` (reconcile) is still bare and still yours.
