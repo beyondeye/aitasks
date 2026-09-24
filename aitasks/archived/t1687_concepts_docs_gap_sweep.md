@@ -3,20 +3,20 @@ priority: medium
 effort: high
 depends: []
 issue_type: documentation
-status: Ready
+status: Done
 labels: [documentation, website, concepts]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
-children_to_implement: [t1687_5]
 artifacts:
   - handle: art:trail-website-docs-backlog
     kind: implementation_trail
     name: Website docs backlog landing order
 created_at: 2026-09-02 14:18
-updated_at: 2026-09-24 09:22
+updated_at: 2026-09-24 22:19
+completed_at: 2026-09-24 22:19
 ---
 
 ## Problem

@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: medium
 depends: [t1687_4]
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [documentation, website, concepts]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1687
 implemented_with: claudecode/opus5_5
 created_at: 2026-09-20 12:02
-updated_at: 2026-09-24 15:29
+updated_at: 2026-09-24 22:19
+completed_at: 2026-09-24 22:19
 ---
 
 ## Context
@@ -203,3 +204,14 @@ real page that never discusses the subject — passes both `hugo build` and
 > **✅ gate:plan_approved** run=2026-09-24T12:29:16Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-09-24T18:59:09Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-24T19:19:33Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:a9598418eafe0f6b
+
+> **✅ gate:risk_evaluated** run=2026-09-24T19:19:33Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1687_5/risk_evaluated_2026-09-24T19:19:33Z-risk_evaluated-a1.log`
