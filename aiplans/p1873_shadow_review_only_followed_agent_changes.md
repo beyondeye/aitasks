@@ -293,7 +293,7 @@ and archival.
 
 ### Planned mitigations
 - timing: post-phase | name: live_replay_t1852_2 | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — evidence sufficiency on the real shared-checkout case | desc: Run the evidence helper read-only for 1852_2 and 1847 in this checkout and record the evidence and the judgement it supports
-- timing: after | name: adopt_referenced_paths_consumers | type: enhancement | priority: low | effort: medium | inline_risk: low | added_complexity: medium | addresses: goal-achievement — the same language gap in drift check / parallel admission / trail gather | desc: Evaluate moving the other plan_paths consumers from extension-grammar extraction to find_references() against their changed-path sets, measuring prompt-rate impact
+- timing: after | name: adopt_referenced_paths_consumers | type: enhancement | priority: low | effort: medium | inline_risk: low | added_complexity: medium | addresses: goal-achievement — the same language gap in drift check / parallel admission / trail gather | desc: Evaluate moving the other plan_paths consumers from extension-grammar extraction to find_references() against their changed-path sets, measuring prompt-rate impact | created: t1877
 
 ## Post-Review Changes
 
