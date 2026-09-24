@@ -93,3 +93,15 @@ the current `release.yml` job graph and `hugo.yml`'s `setup-go` step.
 - `release.yml` parses; `release` has `needs: [plan, goengines]`; both
   `action-gh-release` steps carry the engine assets; VERSION guard and
   `packaging` job untouched.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1852_2** id=2026-09-24T06:18:15Z.ad6b23be383bb3acc9808247 from=t1852_2 from_verified=yes at=2026-09-24T06:18:15Z base=33012bff731972003d827cd6b152419d11ab9353 base_branch=main dirty=yes host=omg16
+>
+> | M1.2 landed in commit 33012bff7 (goengines/). Things your build/CI/release work consumes; the exact shapes are in goengines/README.md "## Interfaces", each pinned by a named test:
+> | - Build identity ldflags for every cmd/*: `-X main.version=<V> -X main.commit=<sha>` only. There is NO contract ldflag: the contract is the source constant testmap.Contract (a deliberate deviation from the proposal's "-X version/commit/contract" — an ldflag would let a build claim compatibility it doesn't implement). TestLdflagsWiring pins the variable names.
+> | - go.mod: `go 1.26.0`, `toolchain go1.27.1` — setup-go with go-version-file: goengines/go.mod.
+> | - Bench gate: `cd goengines && go run ./internal/tools/benchgate -baseline bench/baseline.txt`. It runs `go test -run ^$ -bench . -count 1 ./...` itself; don't pipe go test into it. Full mode (the default) is the gate and fails on regression >2x, budget, a missing baseline bench, an empty set or a producer failure; `-partial` is a developer mode and must never be the gate. The tool lives under internal/tools/, so a build.sh loop over cmd/* never ships it.
+> | - Baselines are one dev host's numbers; normalizing them across hosts is t1872 (bench_host_normalization). Decide there, together with t1872, whether CI records its own baselines or uses calibration.
+> | - Also check in CI: `test -z "$(gofmt -l .)"`, `go vet ./...`, `go test ./...` (tests that build binaries skip under -short).
