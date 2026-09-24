@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: medium
 effort: high
 depends: []
 issue_type: feature
@@ -131,3 +133,5 @@ the dev host (go1.27.0 via mise on 2026-09-22).
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-09-23T14:26:17Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-09-24T06:17:07Z status=pass attempt=1 type=human
