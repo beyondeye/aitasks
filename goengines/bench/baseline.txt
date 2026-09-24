@@ -1,0 +1,8 @@
+# ait-testmap benchmark baselines — ns/op, recorded on a developer host.
+# Checked by: go run ./internal/tools/benchgate -baseline bench/baseline.txt
+# A benchmark slower than 2x its line, or over its budget=, fails the gate;
+# every line here must still be measured (rename/delete = edit this file too).
+# Re-record: go run ./internal/tools/benchgate -baseline bench/baseline.txt -update
+cmd/ait-testmap.BenchmarkDispatchVersion 3443
+internal/gitx.BenchmarkBlobDigest 25991
+internal/gitx.BenchmarkLsTree 876278
