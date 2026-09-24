@@ -105,3 +105,15 @@ the current `release.yml` job graph and `hugo.yml`'s `setup-go` step.
 > | - Bench gate: `cd goengines && go run ./internal/tools/benchgate -baseline bench/baseline.txt`. It runs `go test -run ^$ -bench . -count 1 ./...` itself; don't pipe go test into it. Full mode (the default) is the gate and fails on regression >2x, budget, a missing baseline bench, an empty set or a producer failure; `-partial` is a developer mode and must never be the gate. The tool lives under internal/tools/, so a build.sh loop over cmd/* never ships it.
 > | - Baselines are one dev host's numbers; normalizing them across hosts is t1872 (bench_host_normalization). Decide there, together with t1872, whether CI records its own baselines or uses calibration.
 > | - Also check in CI: `test -z "$(gofmt -l .)"`, `go vet ./...`, `go test ./...` (tests that build binaries skip under -short).
+
+> **✉ note:t1872** id=2026-09-24T12:44:47Z.5615671a3aabcb305a03570a from=t1872 from_verified=yes at=2026-09-24T12:44:47Z base=2d3376466a74df46d3f195779e988e4e6bffb014 base_branch=main dirty=yes host=omg16
+>
+> | Advisory context from t1872 (bench host normalization), tree-relative to commit 2d3376466. The goengines benchgate is host-normalized but NOT yet proven portable.
+> | 
+> | For goengines-check.yml:
+> | 1. Run the gate with its default producer: `cd goengines && go run ./internal/tools/benchgate -baseline bench/baseline.txt`. It runs `go test -p 1 -cpu 1 -run ^$ -bench . -count 3 ./...` itself; a custom producer must keep -p 1, -cpu 1 and -count 3.
+> | 2. The bench step should start ADVISORY (`continue-on-error: true`, not a required check). It becomes required only after t1878 (bench_calibration_ci_validation, depends on t1852_3) meets the promotion criteria in goengines/README.md "Host normalization".
+> | 3. Suggest writing CPU model (/proc/cpuinfo), nproc, every BENCH_SCALE: line and all benchmark lines to the job summary, so t1878 can collect samples from fresh runner VMs.
+> | 4. Protocol lines added: BENCH_SCALE:<class>|<scale>|<cur>|<base>, BENCH_SCALE_IMPLAUSIBLE:<class>|..., BENCH_CALIBRATION_MISSING:<class>|<side>, BENCH_UNSCALED:<class>|<side>. Scaled ratios fail above benchgate.Threshold = 1.6 (the 2x rule judged with margin).
+> | 
+> | Decision your task body asked to make together with t1872: CI uses the committed, calibrated baseline; it does NOT record its own (hosted runners change machine per job). Rationale and single-host measurements are in the README.
