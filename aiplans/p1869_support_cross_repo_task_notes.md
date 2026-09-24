@@ -309,6 +309,17 @@ The display procedure itself does not change.
    the plan. Treat every pre-existing failure as baseline, so the post-change
    run can separate regressions from noise.
 
+   **Baseline recorded (2026-09-23, before any edit) — all green:**
+   test_note_append 121/121 · test_note_read_receipts 74/74 ·
+   test_note_section_order 20/20 · test_note_doc_contract 7/7 ·
+   test_inbox_surfacing_render 48/48 · test_note_with_live_composition ALL
+   PASSED · test_live_endpoint_degradation ALL PASSED ·
+   test_inbox_union_roundtrip rc=0 · test_project_resolve 6/6 ·
+   test_project_resolve_list 6/6 · test_agent_instructions all passed ·
+   pytest test_tmux_exec 46 · test_discover_default_unchanged 4 ·
+   test_discover_async_parity 1 · test_discover_include_registered 13 ·
+   test_discover_session_dedupe 1.
+
 ### Main steps
 0a. **`lib/tmux_exec.py` + `lib/agent_launch_utils.py`:** add
    `TmuxClient.run_checked` and `discover_aitasks_sessions_checked()` as
@@ -577,3 +588,125 @@ in Step 8, then run the `risk_evaluated` gate and archive with
 
 ### Planned mitigations
 - timing: pre-phase | name: baseline_note_suites | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: aitask_note.sh local-path regression | desc: Record PASS counts of every note/inbox suite before editing, for a regression-vs-noise comparison
+
+## Implementation progress (2026-09-23)
+
+All steps implemented (pre-phase baseline, 0a, 0, 1-10). Deviations from the
+plan as approved:
+
+- **Added a second resolver mode, `bindings <path>`.** The source-identity
+  reverse lookup needed a *completeness-bearing* enumeration of declared names
+  (registry + `AITASKS_PROJECT_*`); the plan said "from the complete
+  enumeration" but only `list` existed, which folds a missing interpreter into
+  empty output. `bindings` uses the `--list-registry` exit status as its
+  completeness witness (`BINDINGS_INCOMPLETE:registry`).
+- **tmux target form in the checked walk.** Measured on tmux 3.7c: `list-panes
+  -s -t =<session>` resolves `=<session>` as a WINDOW and falls back to the most
+  recent session, so with two sessions every session reports the same panes.
+  The checked discovery passes `=<session>:` via a new `pane_target` parameter
+  on the shared `_collect_live_roots`; the default discovery keeps the historical
+  form byte-for-byte. The colon-less form is used at 8 call sites across
+  `agent_launch_utils.py`, `agent_freeze.py` and `monitor/monitor_core.py` —
+  a pre-existing defect outside this task (recorded under Upstream defects).
+- **Help-text command substitution caught by shellcheck.** `show_help` is an
+  unquoted heredoc; a backticked `ait projects resolve` in the new help would
+  have executed on every `--help` (including the capability probe). Replaced
+  with plain quotes and pinned by test 0c.
+- **`tests/test_note_append.sh:326` unlock order** — `aitask_lock.sh 701
+  --unlock` is parsed as the bare-id LOCK shortcut, so the old cleanup never
+  unlocked. Fixed to `--unlock 701` while adding the §15 pins.
+- **Committed pre-renders** (`task-workflow-remote-` under `.claude`,
+  `.agents` (codex) and `.opencode`) were refreshed by the render tests with
+  exactly the one added sentence; included.
+
+Verification: every suite from the baseline green post-change, plus
+test_note_cross_repo 121/121, test_note_append 124/124, test_project_resolve
+16/16, test_discover_checked 10, test_tmux_exec 57, test_agent_instructions
+156/156, render suites (task_workflow 337, pick 209, pickrem 67, pickweb 86),
+test_no_raw_tmux, test_create_project_flag 34, test_projects_cmd 42,
+test_registry_reader_parity 30, full Python suite PASSED, `aitask_skill_verify.sh`
+OK, shellcheck clean at warning level, `hugo build` + `check_links.py --build`
+SWEEP PASSED. Two isolated mutants (raw-argv routing; proof against the wrong
+repository) each turned the corresponding pins red.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-09-23 17:10)
+- **Requested by user:** (1) registry enumeration reported complete after an
+  unreadable registry, because `_parse_registry_records()` folds `OSError`
+  into `[]` — both `candidates` and `bindings`; test with a REAL unreadable
+  file. (2) Automatic sender selection swallowed forward-resolution failures
+  and reported `source-unregistered`. (Finding 1 was also delivered by a peer
+  session and as a note on t1869.)
+- **Changes made:** `_parse_registry_records_strict()` (raises on any read
+  failure; a missing file stays a definite empty) with the permissive reader
+  now a thin `except OSError: return []` wrapper — byte-identical for existing
+  callers; new `--list-registry-strict` CLI (exit 3, no partial output);
+  `candidates` and `bindings` read strictly. `note_source_project` keeps the
+  first failure reason of a declared name (`project-ambiguous:` /
+  `project-resolution-incomplete:` / `bad-project-name:`), reserving
+  `source-unregistered` for "no declared name at all". Tests: chmod-000 and
+  directory-at-path registries in `test_project_resolve.sh` (22/22) and
+  end-to-end in `test_note_cross_repo.sh` (125/125, incl. the sender-conflict
+  outcome); a permissive-reader mutant turns the new pins red.
+- **Files affected:** `.aitask-scripts/lib/agent_launch_utils.py`,
+  `.aitask-scripts/aitask_project_resolve.sh`, `.aitask-scripts/aitask_note.sh`,
+  `tests/test_project_resolve.sh`, `tests/test_note_cross_repo.sh`,
+  `aidocs/framework/cross_repo_references.md`.
+
+### Change Request 2 (2026-09-24)
+- **Requested by user:** (1) the strict reader's `os.path.lexists()` gate (and
+  the `bindings` shell `-e`/`-L` shortcut) read a registry inside an
+  unsearchable directory as absent → `CANDIDATES_COMPLETE` / `BINDINGS_COMPLETE`;
+  (2) target-side `--from-project` usable standalone, recording any existing
+  foreign project as the sender without checking it is the actual caller.
+  (Finding 1 was also delivered by the peer session.)
+- **Changes made:** absence is proven with `os.stat()` — only
+  `FileNotFoundError` (then `lstat()` to reject a dangling symlink) means
+  absent; every other `OSError` propagates as unreadable. The shell shortcut in
+  `bindings` is removed; the strict CLI decides. Caller handoff: the routing
+  half passes `AIT_NOTE_XREPO_CALLER=<canonical caller root>`; the target's
+  `--from-project` refuses without it (`from-project-requires-project`) and
+  requires the resolved sender root to equal it (`from-project-mismatch:`).
+  Tests: unsearchable-parent and dangling-symlink registries
+  (`test_project_resolve` 25/25), end-to-end unsearchable registry, standalone
+  and forged-handoff `--from-project` (`test_note_cross_repo` 131/131). Mutants
+  (lexists gate restored; handoff check removed) turn 2 + 5 pins red.
+- **Files affected:** `.aitask-scripts/lib/agent_launch_utils.py`,
+  `.aitask-scripts/aitask_project_resolve.sh`, `.aitask-scripts/aitask_note.sh`,
+  `tests/test_project_resolve.sh`, `tests/test_note_cross_repo.sh`,
+  `website/content/docs/commands/note.md`,
+  `aidocs/framework/task_note_mailbox.md`, `aidocs/framework/cross_repo_references.md`.
+
+## Final Implementation Notes
+- **Actual work done:** Additive `--project <name>` routing for `ait note` and
+  `ait note read`. The caller half (option-aware pre-scan, typed per-verb
+  refusals, target/source resolution, per-verb capability probe, `--file`
+  absolutization, env scrub + `AIT_NOTE_XREPO_CALLER` handoff, absolute-path
+  rewrite) runs the TARGET repository's own `aitask_note.sh`; the target half
+  (`--from-project`) re-resolves, requires the handoff to match, checks the
+  source task exists, stores `from=<src>#t<id>` (marker `t<id>`) and proves
+  `from_verified=yes` against the SOURCE repository's own lock. Resolver gained
+  `candidates <name>` and `bindings <path>`; the tmux gateway gained
+  `TmuxClient.run_checked` + a pinned stderr table; discovery gained
+  `discover_aitasks_sessions_checked()` over a shared `_collect_live_roots`;
+  the registry gained `_parse_registry_records_strict()` /
+  `--list-registry-strict`; `lock_record_read` an optional project root. Skill,
+  wrappers, seed + regenerated AGENTS.md mirrors, pick/task-workflow display
+  sentence + goldens, website (command, skill, workflow, two concept pages,
+  multi-project) and aidocs (mailbox, cross-repo, live-endpoint) updated.
+- **Deviations from plan:** added `bindings` mode; checked tmux walk targets
+  `=<session>:`; strict registry reader (two review rounds); caller handoff for
+  `--from-project`; test_note_append unlock-order fix. See "Implementation
+  progress" and "Post-Review Changes" above.
+- **Issues encountered:** shellcheck caught a backtick command substitution in
+  the unquoted `show_help` heredoc (would have executed on every `--help`,
+  including the capability probe) — fixed and pinned (test 0c). `aitask_lock.sh
+  <id> --unlock` is the bare-id LOCK shortcut, not an unlock.
+- **Key decisions:** provenance (`base`/`dirty`) describes the TARGET checkout;
+  every resolution tier is kept (CI env override works) but any conflict or
+  unreadable tier fails closed; sender name comes only from declared bindings
+  (registry / env), never a tmux session name; the read path probes only the
+  existing receipt grammar so pre-t1869 targets still acknowledge.
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/agent_launch_utils.py:1300 — list-panes -s -t =<session> (colon-less, the default pane_target of _collect_live_roots) resolves as a WINDOW on tmux 3.7c and falls back to the most recent session, so discover_aitasks_sessions() maps every live session to the same project root when several sessions run; same colon-less target at agent_launch_utils.py:1385,1895, agent_freeze.py:954, monitor/monitor_core.py:2564,2586,2616,2637`
