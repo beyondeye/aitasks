@@ -75,6 +75,8 @@ When `ait ide` starts (or attaches to) a project session, check the session stor
 > | 
 > | Suggested direction (reviewer's): once the lease is held, re-read the record and reclassify claims before choosing fresh/adopt/skip; release the lease on skip/error; add a regression test with overlapping calls.
 
+> **👁 note:read** id=2026-09-24T06:26:30Z.80e90b593ef929e32aa45da7 by=t1847 at=2026-09-24T06:26:30Z mode=explicit ids=2026-09-23T19:55:58Z.4835f424e1789af6eb6ea20f
+
 ## Gate Runs
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
