@@ -47,6 +47,7 @@
 # Usage:
 #   ./.aitask-scripts/aitask_change_surface.sh capture <task-id>
 #   ./.aitask-scripts/aitask_change_surface.sh list <task-id>
+#   ./.aitask-scripts/aitask_change_surface.sh baseline <task-id>
 
 set -euo pipefail
 
@@ -85,6 +86,7 @@ Subcommands:
   capture <task-id>   Snapshot the working tree's dirty set as this task's
                       claim-time baseline (signal N1). Call once, at claim.
   list <task-id>      Print the task's classified change surface.
+  baseline <task-id>  Print the raw claim-time baseline (signal N1 only).
 
 `capture` output:
   CAPTURED:<n>              baseline written, <n> paths recorded
@@ -100,6 +102,14 @@ Subcommands:
 
 Both headers are always printed: a missing signal is its own state, not a
 silent negative. Do NOT read PLANSCOPE:missing as "nothing is this task's".
+
+`baseline` output -- one header line, then one line per recorded path:
+  BASELINE:ok|missing|foreign
+  DIRTY_AT_CLAIM:<path>     already dirty when the task was claimed
+
+Unlike `list`, `baseline` combines N1 with nothing: a path the plan names is
+still reported. The shadow's evidence helper needs the raw signal, because
+`list` folds "plan names it AND it was dirty at claim" into UNKNOWN.
 EOF
 }
 
@@ -321,6 +331,21 @@ cmd_list() {
     done <<< "$dirty"
 }
 
+# --- baseline ----------------------------------------------------------------
+# The raw N1 signal, uncombined. Consumers that weigh evidence themselves
+# (aitask_shadow_scope.sh) must see a pre-claim-dirty path even when the plan
+# names it -- `list` reports that combination as UNKNOWN, losing the N1 half.
+cmd_baseline() {
+    local task_id="${1:-}" p
+    [[ -n "$task_id" ]] || die "Usage: aitask_change_surface.sh baseline <task-id>"
+    read_baseline "$task_id"
+    echo "BASELINE:${BASELINE_STATE}"
+    [[ "$BASELINE_STATE" == "ok" && -n "$BASELINE_PATHS" ]] || return 0
+    while IFS= read -r p; do
+        [[ -n "$p" ]] && echo "DIRTY_AT_CLAIM:${p}"
+    done <<< "$BASELINE_PATHS"
+}
+
 # --- Main ---
 main() {
     local cmd="${1:-}"
@@ -328,6 +353,7 @@ main() {
     case "$cmd" in
         capture) cmd_capture "$@" ;;
         list)    cmd_list "$@" ;;
+        baseline) cmd_baseline "$@" ;;
         -h|--help|help|"") show_help ;;
         *) die "Unknown subcommand: $cmd (try --help)" ;;
     esac

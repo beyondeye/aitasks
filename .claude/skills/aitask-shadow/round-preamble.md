@@ -184,13 +184,16 @@ At the start of every round, after reading the plan, save the plan text.
 
 ### Implementation rounds (`impl-challenge.md`)
 
-After assembling the composite diff (its Inputs step 2 — commits, index,
-working tree, untracked, exactly as resolved there), save that same text:
+After assembling the scoped composite (its assessment — the committed,
+index, working-tree and untracked parts you judged in scope or tentative for the
+followed task, exactly as resolved there), save that same text:
 
-    <the composite diff text> | ./.aitask-scripts/aitask_shadow_rejected.sh snapshot <task_id> <N> --kind diff
+    <the scoped composite diff text> | ./.aitask-scripts/aitask_shadow_rejected.sh snapshot <task_id> <N> --kind diff
 
 One pipe; it is the only thing that makes heading 1 answerable in an
-uncommitted working tree.
+uncommitted working tree. When this round's ownership judgement moved a part
+into or out of scope, say so under heading 1 — a part leaving scope is not a
+fix, and a part entering it is not new work by the followed agent.
 
 ### Reading back (round ≥ 2)
 

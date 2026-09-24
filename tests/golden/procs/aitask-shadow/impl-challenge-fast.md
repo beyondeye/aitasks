@@ -43,8 +43,11 @@ governs the *followed pane*, not your own repo reads.)
    Use the archived plan if found. Only when *neither* an active nor an archived
    plan exists is the plan genuinely unavailable.
 2. **The actual code changes (real diff)** — a **composite** of four channels:
-   committed, staged, unstaged, and untracked. The **Review-state assessment**
-   below owns the resolution (the commands, the NUL-safe enumeration rule, and
+   committed, staged, unstaged, and untracked — **scoped to the followed task's
+   own changes**. The followed agent often shares its checkout with other
+   sessions, so "everything dirty" is not the task's change. The **Review-state
+   assessment** below owns the resolution (the ownership-evidence helper, your
+   ownership judgement, the channel commands, the NUL-safe enumeration rule, and
    the disclosure obligation) — do not resolve a diff source separately here.
 
    Why a composite and not a first-match chain: the task workflow commits the
@@ -56,15 +59,16 @@ governs the *followed pane*, not your own repo reads.)
    that stops at the first non-empty channel silently reviews the older half.
 
    Throughout this procedure and the angle catalog, "the diff" means this
-   **resolved composite diff source** — there is no separate diff-gathering phase.
+   **scoped composite** — the file parts you judged *in scope* or *tentative*
+   (see the assessment) — and there is no separate diff-gathering phase.
 
-   **Snapshot the diff you reviewed.** Once the composite is resolved, save
+   **Snapshot the diff you reviewed.** Once the scoped composite is resolved, save
    that same text under this round's number N (the same N the block header
    will carry), so a later round's preamble can say what changed since this
    one — the working tree is overwritten between rounds and git only ever
    shows the current diff:
    ```bash
-   <the composite diff text> | ./.aitask-scripts/aitask_shadow_rejected.sh snapshot <task_id> <N> --kind diff
+   <the scoped composite diff text> | ./.aitask-scripts/aitask_shadow_rejected.sh snapshot <task_id> <N> --kind diff
    ```
    A skipped snapshot (`LOCK_BUSY`, exit 2, exit 4, no task id) is reported
    in one sentence and never blocks the review. Protocol and read-back in
@@ -89,35 +93,75 @@ pane id: the helper resolves your bound followed pane itself (add
 ## Review-state assessment (required — run first, every tier)
 
 Resolve what there is to review, then **state** it. This assessment *informs*;
-it does not prompt. Absent Final Implementation Notes are the **normal**
-pre-commit state, not an anomaly — reviewing before they exist is the expected
-flow, so it never costs the user a confirmation round-trip.
+it does not prompt — the single exception is one targeted question about
+ownership you genuinely cannot resolve (step 3). Absent Final Implementation
+Notes are the **normal** pre-commit state, not an anomaly — reviewing before
+they exist is the expected flow, so it never costs the user a confirmation
+round-trip.
 
 **1. Resolve the plan.** Take the active plan from input 1, then the
 archived-plan fallback. Only when neither exists is the plan unavailable.
 
-**2. Resolve the diff source as a COMPOSITE, not a precedence chain.** Build the
-union of all four channels — never stop at the first non-empty one:
+**2. Gather the ownership evidence, then the diff as a
+COMPOSITE, not a precedence chain.** The followed agent's checkout may be shared with other
+sessions, so the four channels are *candidates*, not the task's change. Start
+with the evidence helper:
+
+```bash
+./.aitask-scripts/aitask_shadow_scope.sh <task_id>
+```
+
+It resolves the **followed agent's** checkout (the task's registered worktree,
+else the bound followed pane's directory, else your own — reported as
+`CHECKOUT:<path>|<source>`; `shadow_cwd` is a coverage limit to state) and
+prints one `PART|<committed|dirty>|<hashes or channels>|<evidence>|<path>` line
+per changed file part. A path with both a task commit and newer uncommitted
+edits yields **two parts** — the task's committed change, and a dirty change
+that may be someone else's — and you judge them separately. It reports evidence
+only; the judgement is yours (step 3). The evidence tokens:
+
+| token | means |
+|---|---|
+| `f_commits:<n>` | committed part: the followed task's own tagged commits touch it |
+| `f_commit_earlier:<n>` | dirty part: the task committed this path earlier; this change is **newer** |
+| `f_plan:<section>` | the plan references the path, in that section (`critical_files`, `context`, `verification`, …; `top` = no heading) |
+| `f_task:<section>` | the task description references it |
+| `f_plan_suffix:<section>` / `f_task_suffix:<section>` | referenced only by a trailing sub-path (the module-relative form a sub-project plan uses) — weaker, short suffixes are ambiguous |
+| `f_plan_dir:<dir>` | the plan names an ancestor directory `<dir>/` |
+| `baseline_dirty` | the path was already dirty when the task was claimed |
+| `other_plan:t<X>` / `other_task:t<X>` / `other_commit:t<X>` | another active task's plan, description or commits claim it |
+| `other_plan_suffix:t<X>` / `other_task_suffix:t<X>` | another active task claims it by a trailing sub-path only |
+| `-` | no evidence at all |
+
+Its `SIGNAL:` lines state what was available — `dedicated_worktree`, `plan`,
+`task`, `commits`, `baseline`, `other_tasks` — and a missing signal is a limit
+to state, never a negative.
+
+Read each part's content through its own channel, inside the resolved checkout
+(`git -C "$checkout" …`): `git show <hash> -- "$path"` for a committed part,
+`git diff --cached -- "$path"` and `git diff -- "$path"` for staged and
+unstaged hunks, and the whole file for an untracked one. The channels, should
+you need to enumerate them yourself, are:
 
 ```bash
 # committed — TWO steps: the helper yields commit METADATA, not paths
 #   (COMMIT|<hash>|<date>|<subject>|<ins>|<del>|<matched-id>)
 ./.aitask-scripts/aitask_revert_analyze.sh --task-commits <task_id>
-# …then, per <hash>, extract its paths NUL-separated:
+# …then, per <hash> whose matched-id is exactly <task_id>, its paths NUL-separated:
 git diff-tree -r --no-commit-id --name-only -z <hash>
 git diff --cached --name-only -z                                     # staged
 git diff --name-only -z                                              # unstaged
 git ls-files --others --exclude-standard -z                          # UNTRACKED
 ```
 
-Read each channel's content the usual way — `git show <hash>` (or
-`git diff <first>^..<last>`) for commits, `git diff --cached` and `git diff` for
-the index and worktree. The committed channel is the one that needs the explicit
-second call: without the `git diff-tree` step it contributes commit subjects but
-no paths, so a committed file whose name contains a space would fall outside the
-path-safety guarantee the other three channels get. (`git diff-tree -r
---no-commit-id --name-only -z` is the plumbing form — no header to strip, no
-quoting, NUL-terminated.)
+Never stop at the first non-empty channel. The committed channel is the one
+that needs the explicit second call: without the `git diff-tree` step it
+contributes commit subjects but no paths, so a committed file whose name
+contains a space would fall outside the path-safety guarantee the other three
+channels get. (`git diff-tree -r --no-commit-id --name-only -z` is the plumbing
+form — no header to strip, no quoting, NUL-terminated.) A parent id's commit
+list also carries its children's commits; only an exact matched-id is the
+task's own.
 
 **Enumerate paths NUL-separated, never from `git status --short`.** That
 porcelain format is `XY PATH`, so a field-splitting read (`awk '{print $2}'`)
@@ -128,7 +172,8 @@ emits raw, unquoted, NUL-terminated paths and already honors `.gitignore`.
 Consume every channel with a null-safe loop
 (`while IFS= read -r -d '' path; do … done < <(…)`) and quote `"$path"`
 everywhere downstream. The `-z` on the two `git diff` calls is for the same
-reason — a tracked path can contain a space just as easily.
+reason — a tracked path can contain a space just as easily. (The helper's
+`PART` lines already carry the path last and unquoted; take it whole.)
 
 **Untracked paths are load-bearing.** Neither `git diff` nor `git diff --cached`
 sees a brand-new file, so a task whose whole deliverable is a new helper or a new
@@ -136,20 +181,96 @@ test would look like "nothing to review" while the implementation sits right
 there. Untracked files must be **read in full** (there is no diff to read) and
 reviewed as all-new code.
 
-**3. List the included paths, and state the attribution limit.** Print the
-composite path list before reviewing, grouped by channel. Uncommitted and
-untracked changes carry **no task id** — they cannot be attributed to t\<id\>, so
-a dirty worktree may hold another task's work. State this in one line rather than
-prompting about it: cross-check the uncommitted paths against the files the plan
-names, review everything, but explicitly flag any path the plan does not mention
-as *possibly unrelated to this task*, and invite the user to narrow in free text
-("only the monitor files"). A named narrowing is honored exactly like angle
-scoping.
+**3. Ownership judgement (default — no scope prompt).** Decide, part by part,
+whose change it is by reading it in the light of the task and the plan and
+weighing the helper's evidence. The followed task's own changes are the default
+review boundary; the user never has to ask for it. The weights below are
+**guidance, not rules** — plan file lists are neither complete nor reliable:
+
+- `SIGNAL:dedicated_worktree|yes` — the checkout is the task's own worktree;
+  every part in it is the task's.
+- `f_commits` — the committed part is the task's.
+- `f_plan` under a file-list section (`critical_files`, `files_to_modify`, …) is
+  strong; `f_plan` elsewhere (a context or verification citation), `f_task`,
+  the `*_suffix` forms and `f_plan_dir` are supporting. A broad shared directory (`.aitask-scripts`,
+  `tests`) in `f_plan_dir` is nearly worthless.
+- **Content connection** can make an *unlisted* part credible: it implements
+  what the plan describes, tests or wires an in-scope change, or lives in a new
+  tree the task creates.
+- `other_*` (suffix forms included) and `baseline_dirty` are counter-evidence
+  and can make a *listed* part foreign — especially when its content matches the
+  other task.
+- A dirty part with `f_commit_earlier` is judged on its **own** content. The
+  task's earlier commit does not make a later edit the task's.
+- **Split a dirty part by hunk when its hunks may have different owners.** The
+  helper reports staged and unstaged changes of one file as a single dirty part
+  (the channels list says which it has), but they can come from different
+  sessions — the followed agent stages its edit, another session then edits the
+  same file unstaged. Read them separately (`git diff --cached -- "$path"` and
+  `git diff -- "$path"`) and judge each group on its own. Within either group you
+  may likewise take only the hunks attributable to the task. Review and snapshot
+  **only the attributable hunks**, and name the split in the disclosure (for
+  example, "`a.sh`: staged hunks in scope, unstaged hunks excluded").
+
+Each part — or, once split, each group of hunks — lands in one of four outcomes:
+
+- **In scope** — reviewed normally; its findings take any disposition.
+- **Tentative** — plausibly related but uncertain. Reviewed, but its findings
+  go in a separate **"Tentative — possibly another task's"** list and
+  are **never `blocking`**: in the concern block they carry
+  `Disposition: informational.` and the body opens with
+  `Possibly another task's (<one-line reason>):`, so the picker files them as
+  Informational and they cannot hold approval. Promote a tentative part only
+  when ownership becomes sufficiently clear — new evidence, or the user says so.
+- **Excluded** — clearly foreign. No findings; never in the block.
+- **Unrelated** — no credible connection to the task. Not reviewed.
+
+**Explain uncertain decisions briefly** — one line for each part you judged
+*against* its evidence (an unlisted part taken in, a listed part excluded) and
+for each tentative part. The rest are counts in the disclosure.
+
+**Ask only about material ambiguity you cannot resolve** — at most one targeted
+question per round, naming the parts and what would change. Otherwise decide,
+and state the limit. Never fall back to reviewing the whole workspace, and never
+treat ambiguity as ownership.
+
+Reading other code as **context** (callers, dependencies, the files a change
+calls into) is fine and often necessary; a finding must still be **caused by**
+an in-scope change, even when the breakage it causes sits elsewhere.
+Another task's change is never reviewed on its own merits.
+
+**Whole-workspace or another task's review** happens only on an explicit user
+request, applies to that run only, and is labelled as such in the disclosure.
+
+**Worked examples** (the four judgement cases):
+
+1. *Unlisted related file taken in.* `goengines/go.mod` is untracked with only
+   `f_plan_dir:goengines`; the plan creates the `goengines/` module and this is
+   its module file → in scope ("unlisted, but it is the module file of the tree
+   the plan creates").
+2. *Listed file excluded.* `lib/x.sh` carries
+   `f_plan:context,baseline_dirty,other_plan:t9`; the plan cites it only for a
+   pattern, it was dirty before the claim, and its hunks implement t9's feature
+   → excluded ("cited as context; the edit is t9's").
+3. *Shared file split.* `a.sh` has a committed part (`f_commits:1`) and a dirty
+   part (`f_commit_earlier:1,other_plan:t9`). The committed part is in scope;
+   the newer hunks touch nothing the task describes → tentative ("newer than
+   the task's commit and claimed by t9"). Likewise a dirty part on channels
+   `staged,unstaged` whose staged hunks continue the task's change while the
+   unstaged hunks implement t9's feature is split: staged hunks in scope,
+   unstaged hunks excluded, and only the staged hunks are reviewed and
+   snapshotted.
+4. *Missing plan.* `SIGNAL:plan|missing`; `web/app.ts` has `f_task:scope` and
+   its hunks implement the flow the task describes → in scope, and the
+   disclosure states that there was no plan to check file lists against.
 
 **4. Act on what you resolved:**
 
-- **All four channels empty** — the *only* stop. Report "nothing to review for
-  t\<id\>" and end. This is not a prompt: there is nothing to proceed with.
+- **No part in scope or tentative** — the *only* stop. Report "nothing of
+  t\<id\>'s to review" with the disclosure (what was excluded or unrelated, and
+  why) and end. When the plan is missing or parts stayed unresolved, say so —
+  never call that a clean result. This is not a prompt: there is nothing to
+  proceed with.
 - **No plan at all** — continue, code-only, announcing that angles S1 and S2
   (plan risks, plan deviations) are unavailable for this run.
 - **Notes absent (the normal pre-commit case)** — **no warning, no prompt.** One
@@ -157,6 +278,11 @@ scoping.
   written yet because task-workflow writes them *after* its Step 8 review prompt,
   so deviations are audited against the plan directly.
 - **Notes present** — state the channels; full S1/S2 semantics apply.
+
+**Disclose the scope in one short line** before reviewing: the checkout and its
+source, how many parts are in scope / tentative / excluded / unrelated, and every
+limit that applies (plan missing, `shadow_cwd`, baseline missing or foreign,
+unresolved parts). Never claim complete coverage while any limit applies.
 
 This section carries the "tell the user what you reviewed" obligation for the
 whole procedure — stated once here, not repeated per tier.
@@ -356,6 +482,25 @@ give:
   angle, never by verdict);
 - in Advanced/Deep: its **verdict** (CONFIRMED or PLAUSIBLE).
 
+**Tentative-ownership findings form their own list**, after the partitions
+above, headed **"Tentative — possibly another task's"**. Each item opens with
+the one-line ownership reason from the assessment. They are capped at
+`informational` whatever their impact — ownership is what is uncertain, not the
+severity — so they never count against approval. Findings on *excluded* or
+*unrelated* parts do not exist: you did not review those parts.
+
+**Rechecks judge afresh.** Every round re-runs the evidence helper, reads the
+current changes, and makes a **fresh** ownership judgement. Earlier rounds'
+decisions and reasons are **context, not rules to preserve**: a part excluded
+last round is judged on its current content like any other, and new unrelated
+work lands excluded or unrelated rather than expanding the review. Clearly
+foreign work stays out of actionable findings every round. A previous round's
+concern whose part you now judge foreign or unrelated — including concerns that
+only an earlier, overbroad scope produced — is named once in prose as
+*"outside t\<id\>'s scope, not carried"*; it never re-enters the block and needs
+no rejection. A previous concern on a part now judged tentative is re-emitted
+only as `informational`. Genuine unresolved or regressed in-scope concerns stay.
+
 **Open every round after the first with the "Where this is heading" preamble.**
 From round 2 on, before this list: the six fixed headings (since last round /
 since the original plan / is it still doing what was asked / how much bigger
@@ -519,6 +664,10 @@ Rules — all load-bearing for minimonitor's parser; match them exactly:
   dimension for. Sentence order within the run is free.
 - Order items to match the prose list: blocking partition first, then
   follow-up, then informational, severity-ordered within each partition.
+- **Scope.** Only concerns caused by parts you judged in scope or tentative
+  enter the block. A tentative part's concern is `Disposition: informational.`
+  and its body opens with `Possibly another task's (<reason>):`; it sits with
+  the informational items, after them.
 - **Suppress previously-rejected concerns.** Before emitting, run
   `./.aitask-scripts/aitask_shadow_rejected.sh list <task_id>`. Exactly three
   outcomes are defined: the single line `NO_REJECTIONS` means nothing is

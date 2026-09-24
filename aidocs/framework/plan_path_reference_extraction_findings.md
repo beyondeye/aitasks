@@ -27,6 +27,15 @@ lazy `lib/plan_paths_sh.sh` bridge), `lib/parallel_admission.py`,
 `lib/parallel_admission_collect.py` and `lib/trail_gather.py` — which is why the
 grammar is centralized rather than forked per call site.
 
+The same module also carries the **inverted** search that §3 below specifies:
+`find_references(text, candidates)` (and `find_dir_references` for explicit
+`<dir>/` mentions) tests each path git reported for a reference, with the §3
+delimiter set, the §4 NFC mapping back to the original path and the §5
+`surrogateescape` handling, and reports the section heading each mention sits
+under. It has no extension list, so findings 1 and 2 do not apply to it. Its
+consumer is the shadow's ownership-evidence helper (`lib/shadow_scope.py`); the
+four consumers above still use `extract()`.
+
 The findings below were originally measured against the equivalent shell
 pipeline this module replaced (`grep -oE … | sed 's|^\./||' | sort -u`); the
 regex is byte-identical in meaning, so every one of them still reproduces. The

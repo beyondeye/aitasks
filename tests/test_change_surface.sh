@@ -382,6 +382,24 @@ assert_eq "capture on a clean tree records an empty baseline" \
 assert_file_exists "clean-tree capture writes the baseline file" \
     "$fx10/.aitask-gates/11/change_baseline"
 
+# `baseline` reports the raw N1 signal, uncombined (t1873): a pre-claim-dirty
+# path the plan ALSO names is still DIRTY_AT_CLAIM here, where `list` folds the
+# combination into UNKNOWN and loses the N1 half. (Argument order below is the
+# helper's own: desc, needle, haystack.)
+fx11="$(new_repo)"
+write_plan "$fx11" 12 'Edit sub/mine.md.'
+echo pre >> "$fx11/sub/mine.md"
+echo pre2 >> "$fx11/sub/foreign.md"
+cs "$fx11" capture 12 >/dev/null
+b12="$(cs "$fx11" baseline 12)"
+assert_contains "baseline: header" "BASELINE:ok" "$b12"
+assert_contains "baseline: plan-named pre-claim path kept" "DIRTY_AT_CLAIM:sub/mine.md" "$b12"
+assert_contains "baseline: unnamed pre-claim path kept" "DIRTY_AT_CLAIM:sub/foreign.md" "$b12"
+assert_contains "list still folds the plan-named one into UNKNOWN" \
+    "UNKNOWN:sub/mine.md" "$(cs "$fx11" list 12)"
+assert_eq "baseline: missing is its own state" \
+    "BASELINE:missing" "$(cs "$fx11" baseline 99)"
+
 # --- summary ---------------------------------------------------------------
 echo ""
 echo "Tests: $TOTAL, Passed: $PASS, Failed: $FAIL"

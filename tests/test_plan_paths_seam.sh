@@ -80,7 +80,9 @@ assert_eq "guard: no second copy of the extension-allowlist grammar" "" "$forks"
 # change?") with different correctness requirements, and consolidating the two
 # would change its behaviour. Pinned here so a reader sees a recorded decision
 # rather than an oversight — and so it cannot quietly drift INTO a copy of ours.
-other="$(sed -n '226p' .aitask-scripts/aitask_change_surface.sh)"
+# Located by content, not line number: the file's help text and subcommands
+# grow independently of this grammar line.
+other="$(grep -F 'tokens="$(grep -oE' .aitask-scripts/aitask_change_surface.sh)"
 assert_contains "guard: change_surface keeps its own broader grammar" \
     "[A-Za-z0-9_.][A-Za-z0-9_./-]*" "$other"
 assert_not_contains "guard: change_surface has NOT adopted our extension list" \

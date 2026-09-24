@@ -10,9 +10,10 @@ reference them by name and never restate them.
 Adapted from Claude Code's built-in `/code-review` prompts — the verbatim
 extraction and per-level assembly live in
 `aidocs/codeagents/claudecode_builtin_prompts.md`. Shadow adaptations: "the
-diff" below always means **the task's resolved diff source** (committed /
-staged / working-tree, as resolved by impl-challenge's Inputs — there is no
-separate diff-gathering phase), and angles run **inline, sequentially, in this
+diff" below always means **the task's scoped composite** — the committed /
+staged / unstaged / untracked file parts impl-challenge's assessment judged in
+scope or tentative for the followed task, never every dirty file in a shared
+checkout (there is no separate diff-gathering phase) — and angles run **inline, sequentially, in this
 context** — no finder subagents are required. Reading the shadow's own repo
 checkout (Read, Grep, `git show`) is always allowed: advisory-only governs the
 *followed pane*, not your own repo reads.
@@ -39,6 +40,9 @@ For each function the diff changes, find its callers (Grep for the symbol) and
 check whether the change breaks any call site: a new precondition, a changed
 return shape, a new exception, a timing/ordering dependency. Also check
 callees: does a parallel change in the same task make a call unsafe?
+The callers and callees you read are **context**: a finding here must be caused
+by the in-scope change (a call site it breaks), never a review of code another
+task changed on its own merits.
 
 ### Angle D — language-pitfall specialist
 Scan for the classic pitfalls of the diff's language/framework — for example:
@@ -204,6 +208,12 @@ measured against the change's obligations** — the task's acceptance criteria,
 the plan's stated goal and contracts, existing behavior, and mandatory project
 rules. The discovering angle is **discovery context only** and never
 determines disposition; verdict confidence never does either.
+
+**Ownership cap.** A finding on a part the assessment judged *tentative*
+(plausibly the followed task's, but possibly another task's) is
+`informational` whatever the rubric below would say. Its ownership is uncertain,
+and an uncertain owner must not hold the followed task's approval. It is promoted only when
+ownership becomes clear.
 
 - **`blocking`** — if real, the change as landed fails an obligation. ANY of:
   - it breaks or regresses existing behavior on a reachable path;

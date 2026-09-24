@@ -302,9 +302,62 @@ for profile in "${PROFILES[@]}"; do
     # AC 1: the disclosure obligation lives here, once, and covers the whole run.
     assert_contains "$profile: disclosure obligation is stated once, here" \
         "carries the \"tell the user what you reviewed\" obligation" "$ic"
-    assert_contains "$profile: attribution limit is stated, not prompted" \
+    # t1873: the review boundary is the followed task's own changes, judged
+    # from reported evidence — never "every dirty file" in a shared checkout.
+    assert_not_contains "$profile: no review-everything instruction" \
+        "review everything" "$ic"
+    assert_not_contains "$profile: old attribution-limit wording gone" \
         "possibly unrelated to this task" "$ic"
+    assert_contains "$profile: evidence helper invoked" \
+        "./.aitask-scripts/aitask_shadow_scope.sh <task_id>" "$ic"
+    assert_contains "$profile: ownership judgement step" \
+        "**3. Ownership judgement (default — no scope prompt).**" "$ic"
+    assert_contains "$profile: weights are guidance" "**guidance, not rules**" "$ic"
+    assert_contains "$profile: plan lists are not authoritative" \
+        "plan file lists are neither complete nor reliable" "$ic"
+    assert_contains "$profile: committed and newer dirty parts judged separately" \
+        "yields **two parts**" "$ic"
+    assert_contains "$profile: worked example — unlisted related file" \
+        "*Unlisted related file taken in.*" "$ic"
+    assert_contains "$profile: worked example — listed file excluded" \
+        "*Listed file excluded.*" "$ic"
+    assert_contains "$profile: worked example — shared file split" \
+        "*Shared file split.*" "$ic"
+    assert_contains "$profile: worked example — missing plan" \
+        "*Missing plan.*" "$ic"
+    assert_contains "$profile: dirty parts split by hunk when owners differ" \
+        "**Split a dirty part by hunk when its hunks may have different owners.**" "$ic"
+    assert_contains "$profile: only attributable hunks reviewed and snapshotted" \
+        "**only the attributable hunks**, and name the split in the disclosure" "$ic"
+    assert_contains "$profile: tentative findings never block" \
+        "are **never \`blocking\`**" "$ic"
+    assert_contains "$profile: tentative block-body marker" \
+        "Possibly another task's (<one-line reason>):" "$ic"
+    assert_contains "$profile: ask only about material ambiguity" \
+        "**Ask only about material ambiguity you cannot resolve**" "$ic"
+    assert_contains "$profile: never whole-workspace fallback" \
+        "Never fall back to reviewing the whole workspace" "$ic"
+    assert_contains "$profile: whole-workspace needs an explicit request" \
+        "happens only on an explicit user" "$ic"
+    assert_contains "$profile: context reads are not reviews" \
+        "Another task's change is never reviewed on its own merits." "$ic"
+    assert_contains "$profile: rechecks judge afresh" \
+        "**Rechecks judge afresh.**" "$ic"
+    assert_contains "$profile: earlier decisions are context only" \
+        "**context, not rules to preserve**" "$ic"
+    assert_contains "$profile: out-of-scope prior concerns are not carried" \
+        "outside t\\<id\\>'s scope, not carried" "$ic"
+    assert_contains "$profile: block scope rule" \
+        "Only concerns caused by parts you judged in scope or tentative" "$ic"
+    assert_not_contains "$profile: no required file-list heading" \
+        "must contain a \"Files to modify\"" "$ic"
 done
+
+sk_fast="$($RENDER "$TEMPLATE" "$PROFILES_DIR/fast.yaml" claude 2>&1)"
+assert_contains "SKILL: >i defaults to the followed task's own changes" \
+    "followed task's own changes** by default" "$sk_fast"
+assert_contains "SKILL: >r rechecks judge ownership afresh" \
+    "An implementation recheck makes a **fresh** ownership judgement" "$sk_fast"
 
 # The angle catalog carries the notes-absent semantics for S1/S2 (it is
 # Jinja-free, so one render is representative — Test 1i proves that).
@@ -313,6 +366,10 @@ assert_contains "angles: S1 notes-absent mode" "judge each plan risk's status fr
 assert_contains "angles: S2 pending-narration classification" "pending narration" "$angles"
 assert_contains "angles: S2 keeps merit-based deviations blocking-eligible" \
     "wrong on its own merits" "$angles"
+assert_contains "angles: the diff is the scoped composite" \
+    "the task's scoped composite" "$angles"
+assert_contains "angles: tentative ownership caps at informational" \
+    "**Ownership cap.**" "$angles"
 
 # === Test 3: no Jinja markers leak ===
 

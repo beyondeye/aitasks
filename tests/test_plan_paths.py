@@ -269,5 +269,92 @@ class TaskBodyTests(unittest.TestCase):
                          "c/d.py\n")
 
 
+class ReferenceTests(unittest.TestCase):
+    """`find_references` — the inverted search (t1873): which CHANGED paths a
+    text references. No filename grammar, so no extension blind spot."""
+
+    def refs(self, text, candidates):
+        return plan_paths.find_references(text, candidates)
+
+    def test_every_language_and_extensionless_files_are_found(self):
+        text = ("Edit internal/pkg/server.go, src/main.rs and app/index.ts; "
+                "also Makefile and bin/run.")
+        cands = ["internal/pkg/server.go", "src/main.rs", "app/index.ts",
+                 "Makefile", "bin/run", "absent.kt"]
+        self.assertEqual(sorted(self.refs(text, cands)),
+                         ["Makefile", "app/index.ts", "bin/run",
+                          "internal/pkg/server.go", "src/main.rs"])
+
+    def test_extract_grammar_is_unchanged(self):
+        """The second entry point must not widen the first one's consumers."""
+        self.assertEqual(plan_paths.extract("internal/pkg/server.go"), [])
+
+    def test_line_and_anchor_forms_match(self):
+        text = "see src/app.py:42 and src/app.py#L20"
+        self.assertEqual(len(self.refs(text, ["src/app.py"])["src/app.py"]), 1)
+        self.assertIn("src/app.py", self.refs("x src/app.py#L20", ["src/app.py"]))
+
+    def test_path_continuation_chars_are_not_delimiters(self):
+        self.assertEqual(self.refs("pinned src/app.py@v2", ["src/app.py"]), {})
+        self.assertEqual(self.refs("see src/a+b.py", ["src/a"]), {})
+        self.assertEqual(self.refs("see xsrc/a.py", ["src/a.py"]), {})
+        self.assertEqual(self.refs("see src/a.py.bak", ["src/a.py"]), {})
+
+    def test_dot_slash_prefix_and_sentence_period(self):
+        self.assertIn("a/b.go", self.refs("run ./a/b.go.", ["a/b.go"]))
+
+    def test_quoted_spaced_path_and_longest_candidate_wins(self):
+        got = self.refs("edit `src/my file.py` now", ["src/my file.py", "src/my"])
+        self.assertEqual(sorted(got), ["src/my file.py"])
+
+    def test_nfc_text_matches_nfd_path_and_returns_the_original(self):
+        nfd = "src/café.py"
+        got = self.refs("edit `src/café.py`", [nfd])
+        self.assertEqual(list(got), [nfd])
+
+    def test_undecodable_bytes_round_trip(self):
+        bad = b"src/caf\xe9.py".decode("utf-8", "surrogateescape")
+        self.assertEqual(self.refs(f"x {bad} y", [bad]), {bad: [(1, "")]})
+
+    def test_heading_context_is_reported(self):
+        text = ("# Plan\n"
+                "## Critical files\n"
+                "- a/x.go\n"
+                "**Context:**\n"
+                "a/x.go is also cited here\n"
+                "## Verification\n"
+                "run a/y.go\n")
+        got = self.refs(text, ["a/x.go", "a/y.go"])
+        self.assertEqual(got["a/x.go"], [(3, "Critical files"), (5, "Context")])
+        self.assertEqual(got["a/y.go"], [(7, "Verification")])
+
+    def test_directory_references_are_explicit_mentions_only(self):
+        text = "new tree goengines/ here; not mygoengines/\nonly lib/x.sh cited"
+        got = plan_paths.find_dir_references(text, ["goengines", "lib", "src"])
+        self.assertEqual(got, {"goengines": [(1, "")]})
+        # A file path never lends its directory a mention.
+        self.assertEqual(
+            plan_paths.find_dir_references("see goengines/cmd/x.go", ["goengines"]), {})
+
+    def test_suffix_references_catch_module_relative_paths(self):
+        cands = ["goengines/internal/tools/x/main.go", "goengines/cmd/run.go"]
+        text = "edit internal/tools/x/main.go and x/main.go; full goengines/cmd/run.go"
+        got = plan_paths.find_suffix_references(text, cands)
+        # One line, one heading: two suffix occurrences collapse to one ref.
+        self.assertEqual(got, {"goengines/internal/tools/x/main.go": [(1, "")]})
+
+    def test_suffix_needs_two_components_and_a_left_boundary(self):
+        cands = ["goengines/cmd/main.go"]
+        self.assertEqual(plan_paths.find_suffix_references("see main.go", cands), {})
+        self.assertEqual(plan_paths.find_suffix_references("see xcmd/main.go", cands), {})
+        self.assertEqual(
+            plan_paths.find_suffix_references("see cmd/main.go", cands),
+            {"goengines/cmd/main.go": [(1, "")]})
+
+    def test_empty_inputs(self):
+        self.assertEqual(self.refs("", ["a.go"]), {})
+        self.assertEqual(self.refs("a.go", []), {})
+
+
 if __name__ == "__main__":
     unittest.main()

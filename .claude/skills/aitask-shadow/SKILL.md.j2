@@ -307,7 +307,10 @@ costs one short sentence, never a refusal.
   default, `>i3` advanced, `>i4` deep — no prompt and no "inferred tier" line,
   whatever the profile configures. A digitless `>i` is the generic ask: it
   resolves through the profile's `shadow_impl_review_tier` when set; otherwise
-  it asks, recommending advanced.
+  it asks, recommending advanced. Whatever the tier, the review covers **the
+  followed task's own changes** by default: in a checkout shared with other
+  sessions, `impl-challenge.md` gathers ownership evidence and you judge which
+  changes are the task's, never reviewing every dirty file.
 - `>r`, `>r<code>` — **Re-review after the agent moved on — a recheck round**
   ("refetch and recheck", "refetch and recheck round N", "recheck",
   "re-review", "look again", "check it again", "is it fixed now", "review it
@@ -330,6 +333,10 @@ costs one short sentence, never a refusal.
   clean-round record). Summarizing "nothing new since last time" without a
   block leaves the previous round's concerns as the newest thing on the pane,
   and minimonitor keeps re-offering them.
+
+  An implementation recheck makes a **fresh** ownership judgement over the
+  current changes, with earlier rounds' scope decisions as context, not rules;
+  clearly foreign work never re-enters the actionable concerns.
 
   If the ask names a round ("recheck round 3"), use that N in the header;
   otherwise increment your own count. Say in one line which sub-procedure you

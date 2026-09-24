@@ -56,6 +56,22 @@ and ``:(literal)``, under which a leading hyphen is in fact safe. It is open to
 grow, but only within what the grammar can produce: a colon or newline can never
 appear in a token (``:(glob)a.md`` extracts as ``a.md``), so widening it beyond
 absolute paths and parent traversal requires widening ``_TOKEN`` first.
+
+THE SECOND ENTRY POINT: REFERENCE DETECTION (t1873). ``find_references()`` asks
+the inverted question: given paths git already reported as CHANGED, which of
+them does this text reference? The candidate set is whatever git names, byte for
+byte, so there is no filename grammar and no extension list: a Go, Rust or
+TypeScript source, an extensionless ``Makefile`` and a backtick-quoted spaced
+path are all found. It implements the delimitation rule, the Unicode
+normalization and the undecodable-byte handling specified in
+``aidocs/framework/plan_path_reference_extraction_findings.md`` sections 3-5.
+``find_suffix_references()`` is its weaker companion for module-relative
+mentions (a sub-project plan naming ``internal/x/main.go`` for
+``goengines/internal/x/main.go``), and ``find_dir_references()`` matches
+explicit ``<dir>/`` mentions. None of them replaces ``extract()``: consumers
+that need candidates FROM the plan (the drift check, the gatherer, parallel
+admission) keep the extension grammar above, unchanged. The first consumer is the shadow's scope-evidence
+helper (``shadow_scope.py``), which has the changed-path set in hand.
 """
 from __future__ import annotations
 
@@ -193,6 +209,133 @@ def classify_all(tokens, tracked: "set[str]",
                  tracked_dirs: "set[str]") -> "list[tuple[str, str]]":
     """`[(class, token), ...]` in the input's order."""
     return [(classify(t, tracked, tracked_dirs), t) for t in tokens]
+
+
+# --- Reference detection (the inverted search) -------------------------------
+#
+# Delimiters, per findings doc section 3: whitespace plus prose punctuation,
+# `#` included. Everything else -- `@ + ~ %`, alphanumerics, `/ . - _`,
+# non-ASCII -- continues a path, so `src/app.py@v2` does NOT reference
+# `src/app.py` and `src/a` is not referenced by `src/a+b.py`.
+_REF_DELIMS = "\t\n\v\f\r []\"'`(){}<>,;:!?|=*#"
+_D = re.escape(_REF_DELIMS)
+# "Preceded by a delimiter or the start of the text" / "followed by one or the
+# end", written as negated classes so no alternation with ^/$ is needed.
+_BEFORE = r"(?<![^" + _D + r"])"
+_AFTER = r"(?![^" + _D + r"])"
+
+_HEADING = re.compile(r"^\s{0,3}(#{1,6})\s+(.*?)\s*#*\s*$")
+# A line that is nothing but a bold label, optionally a list item:
+# `**Critical files:**`, `- **Files to modify**:`.
+_BOLD_LABEL = re.compile(r"^\s*(?:[-*+]\s+)?\*\*([^*]+?)\*\*\s*:?\s*$")
+
+
+def _nfc(text: str) -> str:
+    import unicodedata
+    return unicodedata.normalize("NFC", text)
+
+
+def _heading_contexts(text: str) -> "list[tuple[int, str, str]]":
+    """`[(line_no, heading, line), ...]` for every line of `text`, 1-based.
+
+    `heading` is the nearest enclosing markdown heading or bold-label line
+    (without its markup), or "" before the first one. A markdown heading
+    replaces any bold label; a bold label replaces the previous bold label.
+    """
+    rows = []
+    heading = ""
+    for no, line in enumerate(text.split("\n"), start=1):
+        m = _HEADING.match(line)
+        if m:
+            heading = m.group(2).strip()
+        else:
+            b = _BOLD_LABEL.match(line)
+            if b:
+                heading = b.group(1).strip().rstrip(":").strip()
+        rows.append((no, heading, line))
+    return rows
+
+
+def _reference_scan(text: str, stems: "dict[str, list[str]]",
+                    tail: str) -> "dict[str, list[tuple[int, str]]]":
+    """Shared matcher. `stems` maps an NFC stem to the originals it stands for."""
+    found: "dict[str, list[tuple[int, str]]]" = {}
+    if not stems:
+        return found
+    # Longest first: at one position the longer path wins, which is what keeps
+    # `src/my` from being reported for `` `src/my file.py` `` when both changed.
+    alternation = "|".join(re.escape(s) for s in sorted(stems, key=len, reverse=True))
+    pattern = re.compile(_BEFORE + r"(?:\./)?(" + alternation + r")" + tail)
+    for no, heading, line in _heading_contexts(_nfc(text)):
+        for m in pattern.finditer(line):
+            for original in stems[m.group(1)]:
+                refs = found.setdefault(original, [])
+                if (no, heading) not in refs:
+                    refs.append((no, heading))
+    return found
+
+
+def find_references(text: str, candidates) -> "dict[str, list[tuple[int, str]]]":
+    """Which `candidates` (paths git reported) does `text` reference, and where.
+
+    Returns `{original_candidate: [(line_no, heading), ...]}` for the referenced
+    ones only. `heading` is the enclosing section (see `_heading_contexts`), so a
+    caller can tell a file-list mention from a context citation without
+    requiring any particular heading to exist.
+
+    A reference is `<path>` bounded by delimiters, optionally `./`-prefixed, and
+    optionally followed by one sentence-final `.` (findings doc section 3). Both
+    sides are NFC-normalized, and the result is keyed by the ORIGINAL candidate
+    string, so an NFD path git reports is returned as git named it; candidates
+    that collide under NFC are all reported (section 4). Strings decoded with
+    `surrogateescape` pass through unchanged (section 5). Never raises on
+    content.
+    """
+    stems: "dict[str, list[str]]" = {}
+    for c in candidates:
+        if c:
+            stems.setdefault(_nfc(c), []).append(c)
+    return _reference_scan(text, stems, r"(?:" + _AFTER + r"|\." + _AFTER + r")")
+
+
+def find_suffix_references(text: str, candidates,
+                           min_components: int = 2) -> "dict[str, list[tuple[int, str]]]":
+    """Candidates referenced only by a TRAILING SUB-PATH of at least
+    `min_components` components -- the module-relative form a plan for a
+    sub-project uses (`internal/tools/x/main.go` for the repo path
+    `goengines/internal/tools/x/main.go`).
+
+    Weaker than `find_references`: a short suffix (`cmd/main.go`) can match
+    several modules, so a caller must keep the two kinds apart. A candidate the
+    text references IN FULL is not reported here, and the left boundary still
+    applies, so the full path's own occurrence never doubles as a suffix hit.
+    """
+    full = find_references(text, candidates)
+    stems: "dict[str, list[str]]" = {}
+    for c in candidates:
+        if not c or c in full:
+            continue
+        parts = c.split("/")
+        for start in range(1, len(parts) - min_components + 1):
+            stems.setdefault(_nfc("/".join(parts[start:])), []).append(c)
+    return _reference_scan(text, stems, r"(?:" + _AFTER + r"|\." + _AFTER + r")")
+
+
+def find_dir_references(text: str, dirs) -> "dict[str, list[tuple[int, str]]]":
+    """`find_references` for EXPLICIT directory mentions: `<dir>/` bounded on
+    both sides exactly like a file reference ("the new goengines/ tree").
+
+    A file path does not count as a mention of its directories: were
+    `lib/x.sh` to reference `lib`, one cited file would lend every sibling in
+    `lib/` the same evidence, and the signal would be noise. Keys are the
+    directories as given, without the slash.
+    """
+    stems: "dict[str, list[str]]" = {}
+    for d in dirs:
+        d = d.rstrip("/")
+        if d:
+            stems.setdefault(_nfc(d) + "/", []).append(d)
+    return _reference_scan(text, stems, r"(?:" + _AFTER + r"|\." + _AFTER + r")")
 
 
 def main(argv) -> int:
