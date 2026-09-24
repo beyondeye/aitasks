@@ -3,12 +3,13 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [shadow, skills, review_loop, concurrency]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1852
 followup_kind: upstream_defect
 created_at: 2026-09-24 09:20
-updated_at: 2026-09-24 09:20
+updated_at: 2026-09-24 09:24
 ---
 
 ## Problem
