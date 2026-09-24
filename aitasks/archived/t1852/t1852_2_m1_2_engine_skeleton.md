@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: high
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [testmap, go_engine, testing, test_infrastructure]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1852
 implemented_with: claudecode/opus5_5
 created_at: 2026-09-22 17:27
-updated_at: 2026-09-24 09:17
+updated_at: 2026-09-24 09:18
+completed_at: 2026-09-24 09:18
 ---
 
 ## Context
@@ -136,3 +137,14 @@ the dev host (go1.27.0 via mise on 2026-09-22).
 > **✅ gate:plan_approved** run=2026-09-23T14:26:17Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-09-24T06:17:07Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-24T06:18:48Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:71ecb310099d1343
+
+> **✅ gate:risk_evaluated** run=2026-09-24T06:18:48Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1852_2/risk_evaluated_2026-09-24T06:18:48Z-risk_evaluated-a1.log`
