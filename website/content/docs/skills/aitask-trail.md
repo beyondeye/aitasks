@@ -89,6 +89,7 @@ Trails are authored and refreshed through this skill, and read in [`ait trails`]
 ## Related
 
 - [Implementation Trails]({{< relref "/docs/workflows/implementation-trails" >}}) — the end-to-end workflow
+- [Implementation trails (concept)]({{< relref "/docs/concepts/implementation-trails" >}}) — why a trail is a versioned, task-owned artifact
 - [Trails TUI]({{< relref "/docs/tuis/trails" >}}) — the stand-alone trail reader, `ait trails`
 - [Board reference]({{< relref "/docs/tuis/board/reference" >}}#by-trail) — the By-Trail view and its keys
 - [`/aitask-work-report`]({{< relref "/docs/skills/aitask-work-report" >}}) — reporting on a column a trail wave was moved into

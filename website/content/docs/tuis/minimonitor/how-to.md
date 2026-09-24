@@ -184,7 +184,7 @@ The shadow is read-only and advisory: it can explain what the agent is doing, he
 
 Like minimonitor itself, the shadow pane is a companion: it never appears in the agent list, and it closes automatically when the agent it shadows exits. Only one shadow runs per followed agent — if a shadow is already running for the agent you are following, a second **e** is refused with a notification.
 
-For what the shadow can do and how to drive it once it is running, see the [Shadow Agent]({{< relref "/docs/workflows/shadow-agent" >}}) workflow guide.
+For what the shadow can do and how to drive it once it is running, see the [Shadow Agent]({{< relref "/docs/workflows/shadow-agent" >}}) workflow guide; for how it is bound to the followed agent, see the [Shadow agent]({{< relref "/docs/concepts/shadow-agent" >}}) concept page.
 
 ### How to Pick Shadow Concerns
 

@@ -249,7 +249,8 @@ affecting teammates.
 #### By-Trail
 
 An **implementation trail** is a durable, wave-structured record of how a group
-of tasks should be sequenced, with the evidence behind that ordering. Trails are
+of tasks should be sequenced, with the evidence behind that ordering (why it is
+stored that way: [Implementation trails]({{< relref "/docs/concepts/implementation-trails" >}})). Trails are
 created and re-authored by the [`/aitask-trail`]({{< relref "/docs/skills/aitask-trail" >}})
 skill — on the board, focus a task
 in a kanban or By-Topic view and press `T` to start one (`T` is hidden in In-Flight

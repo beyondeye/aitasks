@@ -8,7 +8,7 @@ depth: [intermediate]
 
 When you have a coding agent working a task, it is not always easy to follow what it is doing — its output can be dense, a plan it produced may assume background you don't have, or it may pause on a question whose context has scrolled away. The **shadow agent** is an advisory companion you launch beside the agent you are watching (the *followed agent*). It reads that agent's terminal output and helps you reason about it, in plain terms, on demand.
 
-The shadow is **read-only and advisory by design**. It explains and suggests; it never types into the followed agent's pane. You remain the one who answers prompts and approves plans — the shadow just makes you a better-informed driver.
+The shadow is **read-only and advisory by design**. It explains and suggests; it never types into the followed agent's pane. You remain the one who answers prompts and approves plans — the shadow just makes you a better-informed driver. For how a shadow is bound to the agent it follows, and what that contract does and does not guarantee, see the [Shadow agent](../../concepts/shadow-agent/) concept page.
 
 ## Launching a shadow
 

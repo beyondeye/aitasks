@@ -135,7 +135,7 @@ A trail is **advisory by construction**. It records a recommendation; it does no
 - It never fabricates estimates, progress, or commitments.
 - Analysis is read-only and every stored change is a single write you confirmed.
 
-Topic membership and trail membership are separate on purpose: a task belongs to exactly one topic, but it may appear in several trails, and one trail may span several topics. See [Topic anchoring]({{< relref "/docs/concepts/topic-anchoring" >}}).
+Topic membership and trail membership are separate on purpose: a task belongs to exactly one topic, but it may appear in several trails, and one trail may span several topics. See [Topic anchoring]({{< relref "/docs/concepts/topic-anchoring" >}}), and [Implementation trails]({{< relref "/docs/concepts/implementation-trails" >}}) (concept) for why a trail is stored the way it is.
 
 ## Tips
 

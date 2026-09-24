@@ -181,7 +181,7 @@ Press **E** instead to choose the code agent and model before the shadow starts;
 
 The shadow pane is a companion: it never appears in the agent list, and it closes automatically when the agent it shadows exits. Only one shadow runs per selected agent — if one is already running, a second **e** is refused with a notification. **e** and **E** apply to agent panes only; on any other kind of pane monitor says so and does nothing.
 
-For what the shadow can do and how to drive it once it is running, see the [Shadow Agent]({{< relref "/docs/workflows/shadow-agent" >}}) workflow guide.
+For what the shadow can do and how to drive it once it is running, see the [Shadow Agent]({{< relref "/docs/workflows/shadow-agent" >}}) workflow guide; for how it is bound to the followed agent, see the [Shadow agent]({{< relref "/docs/concepts/shadow-agent" >}}) concept page.
 
 ### How to Pick Shadow Concerns
 
