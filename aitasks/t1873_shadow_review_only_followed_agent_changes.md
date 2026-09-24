@@ -12,8 +12,9 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1852
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-09-24 09:20
-updated_at: 2026-09-24 09:24
+updated_at: 2026-09-24 11:41
 ---
 
 ## Problem
@@ -52,3 +53,8 @@ Observed while shadowing pane %138 for t1852_2: the task's 28 new files were und
 ## Relationship to existing work
 
 Related t1650 concerns delta-scoped automatic rechecks. This task fixes WHOSE changes any review covers, including a first/full review; it must not depend on t1650 or absorb its round-record/protocol redesign. t1852_2 is the discovery context, not an implementation dependency. Fixes to t1869/t1847 themselves are outside this task.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-24T08:41:16Z status=pass attempt=1 type=human
