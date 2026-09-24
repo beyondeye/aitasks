@@ -292,3 +292,39 @@ profile: no worktree, no merge. Commit: `feature: Add the goengines Go module an
 ### Planned mitigations
 - timing: post-phase | name: interface_contract_readme | type: documentation | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: interface decisions consumed by t1852_3/4/5 and M2–M8 | desc: README Interfaces section listing every consumed shape with the test that pins it
 - timing: after | name: bench_host_normalization | type: enhancement | priority: medium | effort: medium | inline_risk: low | added_complexity: medium | addresses: bench baselines recorded on the dev host vs CI | desc: benchgate calibration benchmark normalizing baseline ratios across hosts before the 2x rule
+
+## Final Implementation Notes
+
+- **Actual work done:** every step 1–10 and the `interface_contract_readme` post-phase, all under `goengines/` (no existing file touched). `go.mod` resolved to `go 1.26.0` / `toolchain go1.27.1` with `golang.org/x/sync v0.23.0` + `gopkg.in/yaml.v3 v3.0.1`; `bench/baseline.txt` recorded on omg16 (DispatchVersion ≈3.4 µs, BlobDigest 64 KiB ≈26 µs, LsTree 200 files ≈0.88 ms). `gofmt -l` empty, `go vet ./...` and `go test -count=1 ./...` green, full bench gate exit 0.
+- **Deviations from plan:**
+  - `gitx` gained `RunEnv(ctx, env, args…)` (Run delegates to it) so the fixture can pin `GIT_*_DATE`; still no write verb in gitx — the fixture issues `add`/`commit` itself.
+  - The fixture's escape hatch is `r.Run(t, args…)` and `r.Git` is the `gitx.Repo` (the plan sketched `r.Git(t, …)`); plus `Remove`, `CommitMessage` (verbatim message) and `ObjectFormat()`.
+  - Invariant-5 guard: a per-line exemption `// invariant5-ok: <reason>` was needed for `platform.CacheRoot`'s `"aitasks"` path segment (the cache namespace). No file allowlist; the negative control proves an unmarked or reasonless marker does not exempt. The fixture package is skipped as test infrastructure.
+  - `version` with an engine path containing `|` or a line break exits 3 (`OUTPUT_ERROR:`) rather than emitting a mis-splittable `ENGINE:` line.
+- **Issues encountered:** a `git update-index --chmod=+x` in a gitx test was undone by the fixture's `git add -A` (index follows the work tree); the test now `chmod`s the file. Mutation checks (scratch copy): disabling full-mode `BENCH_MISSING` failure, ignoring the producer exit, and accepting a relative `XDG_CACHE_HOME` are each caught by the tests.
+- **Key decisions:** see Step 0 rows 2–9c; the README `## Interfaces` table is the single place downstream tasks read shapes from.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:** t1852_3 — ldflags `-X main.version`/`-X main.commit` only; gate command `go run ./internal/tools/benchgate -baseline bench/baseline.txt` (no pipe, full mode); baselines are dev-host numbers (spawned `bench_host_normalization` follow-up). t1852_4 — `version` text/JSON shapes and `devel` default per README Interfaces. t1852_5 — self-check on `"version":"<V>"`; `ait engine build` sets `-X main.version=<V>-dev+<sha>`.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-09-23 17:07)
+- **Requested by user:** seven review findings (all CONFIRMED): contract reader truncated floats / treated null as absent / ignored later documents; fixture inherited author/committer env and global git config (identity and excludesFile changed ids / dropped files); baseline accepted NaN/+Inf (vacuous BENCH_OK); baseline rewrite rounded to 0 decimals (0.4 → 0, then rejected); `CONTRACT_MISMATCH` line interpolated the path unchecked; cache root accepted a relative HOME; plus one finding in concurrent t1869 code.
+- **Changes made:**
+  - `testmap.ReadContract` decodes to `yaml.Node`: one mapping document only, `contract:` must be an `!!int` scalar ≥ 0, duplicate key rejected, `ErrInvalidContract`; `ContractMismatchError.Line()` now returns `(string, error)` via the new `lineproto.Format` (which `Writer.Line` also uses).
+  - `fixture`: every git call gets `GIT_CONFIG_GLOBAL=/dev/null`, `GIT_CONFIG_NOSYSTEM=1`, a private `XDG_CONFIG_HOME`, empty template, pinned `GIT_AUTHOR_*`/`GIT_COMMITTER_*`; repo config sets `core.excludesFile`/`core.attributesFile` to `/dev/null`; `init --template=`.
+  - `benchgate`: `validNs` (finite, > 0) in `ParseBench`, `ParseBaseline` and both sides of `Compare` (`BENCH_INVALID:`); `entryLine` writes full precision.
+  - `platform.cacheRoot`: HOME must be absolute.
+  - t1869 finding handed to its owner: `./ait note 1869` (NOTE_APPENDED 2026-09-23T15:06:57Z, delivered live).
+  - Regression tests for each; every fix mutation-checked in a scratch copy (each mutant fails ≥1 test). README Interfaces rows updated.
+- **Files affected:** goengines/internal/testmap/contract.go, contract_test.go, internal/lineproto/lineproto.go, lineproto_test.go, internal/testmap/fixture/fixture.go, fixture_test.go, internal/benchgate/benchgate.go, benchgate_test.go, internal/platform/platform.go, platform_test.go, README.md
+
+### Change Request 2 (2026-09-23 17:15)
+- **Requested by user:** (1) `ReadContract` scanned literal root keys and missed YAML merge keys — `defaults: &d {contract: 2}` + `<<: *d` read as absent; (2) the t1869 registry-read finding is blocking and needs a code fix, not only a note.
+- **Changes made:** (1) after the single-document / mapping checks, the top mapping is decoded to `map[string]any` (yaml.v3 resolves `<<` merges, merge lists and aliases, explicit keys override merged ones, repeated keys error) and the effective `contract` must be an `int` ≥ 0; tests for merge key, merge list, alias, explicit override, and invalid merged values. (2) Per the user's choice, sent a direct cross-session message to the live t1869 session (`cross-repo-task-notes`) asking it to fix it (status-bearing registry reader → CANDIDATES_INCOMPLETE, real unreadable-registry test). t1852_2 does not touch t1869's files.
+- **Files affected:** goengines/internal/testmap/contract.go, contract_test.go
+
+### Change Request 3 (2026-09-23 17:25)
+- **Requested by user:** a further t1869 finding: `_parse_registry_records_strict` (agent_launch_utils.py:638) and `cmd_bindings` (aitask_project_resolve.sh:355) treat an inaccessible parent dir as "no registry" (`os.path.lexists` / `! -e && ! -L`).
+- **Changes made:** verified (chmod 000 parent: `lexists` False, `lstat` PermissionError); routed to the live t1869 session by direct message, per the user's earlier choice for t1869 findings. No change to goengines/.
+- **Files affected:** none in t1852_2
