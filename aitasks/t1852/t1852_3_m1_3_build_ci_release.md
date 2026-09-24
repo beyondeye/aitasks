@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: [t1852_2]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [testmap, go_engine, release_scripts]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1852
 created_at: 2026-09-22 17:27
-updated_at: 2026-09-22 17:27
+updated_at: 2026-09-24 21:59
 ---
 
 ## Context
