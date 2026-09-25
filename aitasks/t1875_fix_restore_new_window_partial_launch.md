@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -13,8 +15,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1847
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-09-24 11:37
-updated_at: 2026-09-24 15:52
+updated_at: 2026-09-25 11:48
 ---
 
 ## Origin
@@ -62,3 +65,5 @@ launched agent is still running untracked. Add live coverage alongside
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-09-25T08:47:54Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-09-25T09:21:54Z status=pass attempt=1 type=human
