@@ -8,6 +8,8 @@ set -euo pipefail
 REPO="beyondeye/aitasks"
 INSTALL_DIR="."
 FORCE=false
+# true when this run overwrites an existing install (the `ait upgrade` path).
+EXISTING_INSTALL=false
 LOCAL_TARBALL=""
 # Explicit release version to install (no leading 'v'). Set by --version or the
 # AIT_TARGET_VERSION env var (the latter is how `ait upgrade` threads the
@@ -111,6 +113,7 @@ check_existing_install() {
     if [[ -f "$INSTALL_DIR/ait" || -d "$INSTALL_DIR/.aitask-scripts" ]]; then
         if $FORCE; then
             warn "Existing installation found. --force specified, overwriting framework files..."
+            EXISTING_INSTALL=true
             return
         fi
 
@@ -127,6 +130,7 @@ check_existing_install() {
             case "${answer:-N}" in
                 [Yy]*)
                     FORCE=true
+                    EXISTING_INSTALL=true
                     warn "Proceeding with overwrite (FORCE=true)..."
                     ;;
                 *)
@@ -824,6 +828,32 @@ install_seed_claude_hooks() {
     info "  Stored Claude Code session hook seed at aitasks/metadata/claude_settings.hooks.json"
 }
 
+# --- Report a missing Claude Code session hook (upgrade path only) ---
+# install_seed_claude_hooks above only STAGES the hook seed; merging it into
+# .claude/settings.json is `ait setup`'s job, behind its own consent prompt. A
+# project that was only ever upgraded therefore never got the hook, and its
+# Claude Code agents freeze into records that cannot be restored. Say so --
+# never install it from here. Fresh installs are skipped: their closing banner
+# already sends the user to `ait setup`. Non-fatal in every branch.
+report_claude_session_hook() {
+    [[ "$EXISTING_INSTALL" == true ]] || return 0
+    local lib="$INSTALL_DIR/.aitask-scripts/lib/claude_hook_status.sh"
+    [[ -f "$lib" ]] || return 0
+    # shellcheck source=.aitask-scripts/lib/claude_hook_status.sh
+    source "$lib" || return 0
+    case "$(claude_session_hook_status "$INSTALL_DIR")" in
+        MISSING)
+            echo ""
+            warn "$(claude_session_hook_hint)"
+            ;;
+        INVALID)
+            echo ""
+            warn "$(claude_session_hook_invalid_hint)"
+            ;;
+    esac
+    return 0
+}
+
 # --- Store Codex CLI staging files ---
 install_codex_staging() {
     if [[ ! -d "$INSTALL_DIR/codex_skills" ]]; then
@@ -1492,6 +1522,8 @@ main() {
 
     commit_installed_files
     commit_installed_data_files
+
+    report_claude_session_hook
 
     echo ""
     echo "=== aitasks installed successfully ==="

@@ -357,6 +357,43 @@ assert_eq "E4: and installing it works" "1" "$(count_hook "$E4/.claude/settings.
 assert_eq "E4: settings.local.json was NOT written (permissions declined)" "no" \
     "$([ -f "$E4/.claude/settings.local.json" ] && echo yes || echo no)"
 
+# ---------------------------------------------------------------------------
+echo ""
+echo "--- Group F: an already-installed hook is not re-offered (t1849) ---"
+F1="$(make_fixture f1_installed)"
+mkdir -p "$F1/.claude"
+cp "$SEED_HOOKS" "$F1/.claude/settings.json"
+before_f1="$(cksum <"$F1/.claude/settings.json")"
+out_f1="$(pty_run 'Y' "$F1")"
+assert_eq "F: 'already installed' is reported" "yes" \
+    "$(printf '%s' "$out_f1" | grep -q 'session hook already installed' && echo yes || echo no)"
+assert_eq "F: and the consent prompt is NOT shown" "no" \
+    "$(printf '%s' "$out_f1" | grep -q 'Install the session hook?' && echo yes || echo no)"
+assert_eq "F: settings.json untouched" "$before_f1" "$(cksum <"$F1/.claude/settings.json")"
+
+# ---------------------------------------------------------------------------
+echo ""
+echo "--- Group G: a hook failure never aborts the full setup (t1849) ---"
+# setup_claude_hooks now returns non-zero on failure (for --hooks-only). The
+# full setup must stay non-fatal under errexit: its call site swallows it.
+assert_eq "G: setup_code_agents calls it as 'setup_claude_hooks || true'" "1" \
+    "$(grep -cE '^[[:space:]]+setup_claude_hooks \|\| true$' "$PROJECT_DIR/.aitask-scripts/aitask_setup.sh")"
+G1="$(make_fixture g1_invalid)"
+mkdir -p "$G1/.claude"
+printf '{"hooks": {\n' >"$G1/.claude/settings.json"
+out_g1="$(bash -c '
+set -euo pipefail
+source "$1" --source-only
+SCRIPT_DIR="$2/.aitask-scripts"
+rc=0; setup_claude_hooks </dev/null >/dev/null 2>&1 || rc=$?
+echo "rc=$rc"
+setup_claude_hooks </dev/null >/dev/null 2>&1 || true
+echo CONTINUED' _ "$PROJECT_DIR/.aitask-scripts/aitask_setup.sh" "$G1" 2>&1)"
+assert_eq "G: invalid settings.json -> setup_claude_hooks returns 1" "yes" \
+    "$(printf '%s' "$out_g1" | grep -qx 'rc=1' && echo yes || echo no)"
+assert_eq "G: and an errexit caller using '|| true' continues" "yes" \
+    "$(printf '%s' "$out_g1" | grep -qx 'CONTINUED' && echo yes || echo no)"
+
 assert_counters_load
 echo ""
 echo "========================================="

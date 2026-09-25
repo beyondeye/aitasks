@@ -41,6 +41,23 @@ _ide_frozen_interactive() {
     [[ -t 0 && -t 1 ]]
 }
 
+# _ide_frozen_hook_note <root> — a missing Claude Code session hook (t1849).
+#
+# Printed only alongside the frozen-agent list, where it is actually seen (text
+# written just before `exec tmux attach` is wiped from view). It is a SEPARATE,
+# forward-looking note, never "why these records cannot resume": a `GONE:` line
+# carries no agent kind, and a no_session record may equally be a Codex agent
+# whose id was not captured at freeze. Never fails.
+_ide_frozen_hook_note() {
+    # shellcheck source=claude_hook_status.sh
+    source "$(dirname "${BASH_SOURCE[0]}")/claude_hook_status.sh" 2>/dev/null || return 0
+    case "$(claude_session_hook_status "$1")" in
+        MISSING) echo "Separately, about future Claude Code sessions: $(claude_session_hook_hint)" ;;
+        INVALID) echo "Separately: $(claude_session_hook_invalid_hint)" ;;
+    esac
+    return 0
+}
+
 # _ide_frozen_gone <root> <frozen_sh> — run `gone`; its stdout on success.
 _ide_frozen_gone() {
     "$2" gone --root "$1" 2>/dev/null
@@ -77,6 +94,7 @@ ide_offer_frozen_agents() {
 
     if ! _ide_frozen_interactive; then
         echo "Note: $n frozen agent(s) of this project have no open viewer — run 'ait frozenagent' to see them." >&2
+        _ide_frozen_hook_note "$root" >&2
         return 0
     fi
 
@@ -99,6 +117,12 @@ ide_offer_frozen_agents() {
             "$([[ "${resumes[i]}" == ok ]] && echo yes || echo no)" \
             "$([[ "${repicks[i]}" == ok ]] && echo yes || echo no)" "$marker"
     done
+    local hook_note
+    hook_note="$(_ide_frozen_hook_note "$root")"
+    if [[ -n "$hook_note" ]]; then
+        echo ""
+        echo "$hook_note"
+    fi
     echo ""
     echo "  [V] Recreate viewers for all $n (default) — the agents stay frozen"
     echo "  [R] Restore $k of $n — records that cannot resume stay as viewers"

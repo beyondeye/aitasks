@@ -9,6 +9,10 @@ VENV_DIR="$HOME/.aitask/venv"
 SHIM_DIR="${SHIM_DIR:-$HOME/.local/bin}"
 VERSION_FILE="$SCRIPT_DIR/VERSION"
 REPO="beyondeye/aitasks"
+# The framework's own lib/ as resolved at source time. Tests re-point
+# SCRIPT_DIR at a fixture project after sourcing (it doubles as the project
+# locator), and a fixture carries no lib/ -- so helpers are found through this.
+SETUP_LIB_DIR="$SCRIPT_DIR/lib"
 
 # Source python_resolve.sh for AIT_VENV_PYTHON_MIN (single source of truth).
 # shellcheck source=lib/python_resolve.sh
@@ -2551,9 +2555,14 @@ print(json.dumps(existing, indent=2))
 # --- Merge the aitasks SessionStart hook into an existing .claude/settings.json ---
 # Merges ONLY hooks.SessionStart, deduping by (matcher, command). Every other
 # key -- other hook events, permissions, env, anything the user added -- is
-# preserved verbatim. Mirrors merge_claude_settings' availability ladder, but
-# python3-only: the merge is a nested structural edit that jq would express far
-# less readably, and python3 is already a hard framework dependency.
+# preserved verbatim. The merge itself lives in lib/claude_hooks_merge.py, which
+# is also what lib/claude_hook_status.sh asks "is it installed?" -- one identity
+# rule for both. python3-only: the merge is a nested structural edit that jq
+# would express far less readably, and python3 is a hard framework dependency.
+#
+# Returns non-zero on every failure branch (no python, unparseable settings,
+# empty output), leaving the file unchanged: `ait setup --hooks-only` must not
+# report a repair that did not happen.
 merge_claude_hooks() {
     local seed_file="$1"
     local dest_file="$2"
@@ -2566,68 +2575,35 @@ merge_claude_hooks() {
     else
         warn "python3 not found. Cannot merge Claude Code session hook automatically."
         warn "Please manually merge $seed_file into $dest_file"
-        return
+        return 1
     fi
 
     local merged=""
-    merged="$("$python_cmd" - "$dest_file" "$seed_file" <<'PYEOF'
-import json, sys
-
-dest_path, seed_path = sys.argv[1], sys.argv[2]
-with open(dest_path) as f:
-    existing = json.load(f)
-with open(seed_path) as f:
-    seed = json.load(f)
-
-def norm(cmd):
-    # Identity of a hook command = which script it runs, not how it spells the
-    # path. $CLAUDE_PROJECT_DIR is expanded by the agent, and a user may have
-    # hardcoded an absolute path to the SAME script -- installing a second copy
-    # would run the hook twice per session. Collapse every spelling that ends in
-    # the same repo-relative .aitask-scripts/ path.
-    cmd = (cmd or "").replace("$CLAUDE_PROJECT_DIR", "").replace("${CLAUDE_PROJECT_DIR}", "").strip()
-    marker = ".aitask-scripts/"
-    idx = cmd.rfind(marker)
-    if idx != -1:
-        return cmd[idx:]
-    return cmd.lstrip("/")
-
-hooks = existing.setdefault("hooks", {})
-if not isinstance(hooks, dict):
-    raise SystemExit("hooks is not an object")
-groups = hooks.setdefault("SessionStart", [])
-if not isinstance(groups, list):
-    raise SystemExit("hooks.SessionStart is not an array")
-
-for seed_group in seed.get("hooks", {}).get("SessionStart", []):
-    matcher = seed_group.get("matcher")
-    target = None
-    for g in groups:
-        if isinstance(g, dict) and g.get("matcher") == matcher:
-            target = g
-            break
-    if target is None:
-        groups.append(json.loads(json.dumps(seed_group)))
-        continue
-    entries = target.setdefault("hooks", [])
-    have = {norm(h.get("command")) for h in entries if isinstance(h, dict)}
-    for h in seed_group.get("hooks", []):
-        if norm(h.get("command")) not in have:
-            entries.append(json.loads(json.dumps(h)))
-            have.add(norm(h.get("command")))
-
-print(json.dumps(existing, indent=2))
-PYEOF
-)" || {
+    merged="$("$python_cmd" "$SETUP_LIB_DIR/claude_hooks_merge.py" merge "$dest_file" "$seed_file")" || {
         warn "  Session hook merge failed — existing .claude/settings.json unchanged"
-        return
+        return 1
     }
 
     if [[ -n "$merged" ]]; then
-        echo "$merged" > "$dest_file"
+        # A read-only settings.json is the user saying "do not touch": the
+        # atomic rename below would replace it anyway, so refuse explicitly.
+        if [[ ! -w "$dest_file" ]]; then
+            warn "  .claude/settings.json is not writable — session hook not installed"
+            return 1
+        fi
+        # Stage a complete replacement beside the file and rename it in: a plain
+        # `> "$dest_file"` truncates first, so a failed write (disk full, file
+        # size limit) would leave the user's settings cut short.
+        # shellcheck source=lib/atomic_write.sh
+        source "$SETUP_LIB_DIR/atomic_write.sh"
+        if ! ait_atomic_write_text "$dest_file" "$merged"; then
+            warn "  Could not write .claude/settings.json — left unchanged, session hook not installed"
+            return 1
+        fi
         info "  Merged aitasks session hook into .claude/settings.json"
     else
         warn "  Merge produced empty output — existing settings unchanged"
+        return 1
     fi
 }
 
@@ -2640,15 +2616,37 @@ PYEOF
 #
 # The answer is not persisted: a decline is re-asked on the next `ait setup`,
 # matching every other setup prompt (no new config field, no new drift surface).
+#
+# Returns 0 installed (created, merged, or already present), 1 failed, 2
+# declined -- `ait setup --hooks-only` reports on it; the full setup ignores it.
+# `--yes` (only passed by --hooks-only, from its own flag) is an explicit
+# acceptance: no prompt, terminal or not.
+# An already-installed hook is not re-offered (there is nothing to consent to),
+# and a malformed settings.json is reported rather than prompted about.
 setup_claude_hooks() {
+    local assume_yes=0
+    [[ "${1:-}" == "--yes" ]] && assume_yes=1
     local project_dir="$SCRIPT_DIR/.."
     local seed_file="$project_dir/aitasks/metadata/claude_settings.hooks.json"
     local dest_dir="$project_dir/.claude"
     local dest_file="$dest_dir/settings.json"
 
     if [[ ! -f "$seed_file" ]]; then
-        return
+        return 0
     fi
+
+    # shellcheck source=lib/claude_hook_status.sh
+    source "$SETUP_LIB_DIR/claude_hook_status.sh"
+    case "$(claude_session_hook_status "$project_dir")" in
+        INSTALLED)
+            info "Claude Code session hook already installed"
+            return 0
+            ;;
+        INVALID)
+            warn "$(claude_session_hook_invalid_hint)"
+            return 1
+            ;;
+    esac
 
     echo ""
     info "aitasks can install a Claude Code SessionStart hook:"
@@ -2659,7 +2657,10 @@ setup_claude_hooks() {
     echo ""
 
     local answer
-    if [[ -t 0 ]]; then
+    if [[ "$assume_yes" == "1" ]]; then
+        info "(accepted via --yes)"
+        answer="Y"
+    elif [[ -t 0 ]]; then
         printf "  Install the session hook? [Y/n] "
         read -r answer
     else
@@ -2670,19 +2671,105 @@ setup_claude_hooks() {
         [Yy]*|"") ;;
         *)
             info "Skipped Claude Code session hook."
-            return
+            return 2
             ;;
     esac
 
-    mkdir -p "$dest_dir"
+    mkdir -p "$dest_dir" || return 1
 
     if [[ ! -f "$dest_file" ]]; then
-        cp "$seed_file" "$dest_file"
+        if ! cp "$seed_file" "$dest_file"; then
+            warn "  Could not create .claude/settings.json — session hook not installed"
+            return 1
+        fi
         info "  Created .claude/settings.json with the aitasks session hook"
     else
         info "  Existing .claude/settings.json found — merging session hook..."
-        merge_claude_hooks "$seed_file" "$dest_file"
+        merge_claude_hooks "$seed_file" "$dest_file" || return 1
     fi
+    return 0
+}
+
+# --- `ait setup --hooks-only`: repair just the Claude Code session hook ---
+# A project that was only ever upgraded never got the hook (install.sh stages
+# the seed; only setup merges it). This path installs it without re-running the
+# whole setup. Order matters: nothing that needs consent runs before we know
+# there is work to do, and nothing is written before consent and runtime are
+# established.
+#   exit 0 installed / already installed / declined
+#   exit 1 cannot or did not install (no seed, invalid settings, no runtime,
+#          merge failure, or the re-check disagrees)
+#   exit 2 consent unavailable (no terminal and no --yes)
+setup_hooks_only() {
+    local assume_yes="$1"
+    local project_dir="$SCRIPT_DIR/.."
+
+    # shellcheck source=lib/claude_hook_status.sh
+    source "$SETUP_LIB_DIR/claude_hook_status.sh"
+
+    local status
+    status="$(claude_session_hook_status "$project_dir")"
+    case "$status" in
+        INSTALLED)
+            success "Claude Code session hook already installed — nothing to do."
+            return 0
+            ;;
+        NO_SEED)
+            warn "No hook seed at aitasks/metadata/claude_settings.hooks.json — $(claude_session_hook_seed_repair "$project_dir")."
+            return 1
+            ;;
+        INVALID)
+            warn "$(claude_session_hook_invalid_hint)"
+            return 1
+            ;;
+    esac
+
+    # MISSING / UNKNOWN from here on. A hook copied onto a machine that cannot
+    # run it records nothing, so the runtime is established before any write.
+    if ! claude_session_hook_runtime_ok; then
+        warn "The session hook cannot record sessions on this machine yet: $(claude_session_hook_repair)."
+        return 1
+    fi
+
+    # Consent is never implied on this path: setup_claude_hooks auto-accepts
+    # without a terminal (the full-setup behaviour), so reach it
+    # non-interactively only with an explicit --yes -- which it then honours
+    # with a terminal too.
+    if [[ ! -t 0 && "$assume_yes" != "1" ]]; then
+        warn "ait setup --hooks-only needs an interactive answer to install an executable hook; re-run in a terminal or pass --yes to accept explicitly."
+        return 2
+    fi
+
+    snapshot_pre_setup_dirty
+
+    local rc=0
+    if [[ "$assume_yes" == "1" ]]; then
+        setup_claude_hooks --yes || rc=$?
+    else
+        setup_claude_hooks || rc=$?
+    fi
+    case "$rc" in
+        0) ;;
+        2)
+            info "Session hook not installed."
+            return 0
+            ;;
+        *)
+            warn "Session hook installation failed — see above."
+            return 1
+            ;;
+    esac
+
+    # Verify by re-reading the file, not by the success line above.
+    status="$(claude_session_hook_status "$project_dir")"
+    if [[ "$status" != "INSTALLED" ]]; then
+        warn "Session hook installation could not be verified (status: $status)."
+        return 1
+    fi
+
+    commit_framework_files
+    success "Claude Code session hook installed. Claude Code agents started from now on can be restored after a freeze."
+    return 0
 }
 
 # --- Claude Code setup (settings, permissions) ---
@@ -3126,8 +3213,9 @@ setup_code_agents() {
     # code that runs at every session start, not a permission grant), so it is
     # called unconditionally here rather than folded into setup_claude_code --
     # which early-returns without the permissions seed and is gated behind the
-    # permissions prompt.
-    setup_claude_hooks
+    # permissions prompt. Non-fatal here: its failures are already reported,
+    # and a hook problem must never abort the rest of the setup.
+    setup_claude_hooks || true
 
     # AGENTS.md is a cross-agent convention (codex reads it at repo root;
     # other agents may too). Install unconditionally so it is in place
@@ -4369,6 +4457,10 @@ Options:
                 slack-sdk) used by 'ait chatlink'
   --with-dev    Also install the opt-in dev/test tier (pytest, pytest-xdist),
                 which gives the Python test suite a parallel lane
+  --hooks-only  Only install / repair the Claude Code session hook, needed to
+                restore Claude Code agents frozen later; skips every other step
+  --yes         With --hooks-only: accept the hook without a prompt, for
+                non-interactive use
   -h, --help    Show this help message
 
 Each opt-in tier is remembered after the first opt-in: later plain 'ait setup'
@@ -4378,6 +4470,7 @@ Examples:
   ait setup                            # Install / repair dependencies and config
   ait setup --with-dev                 # ... plus the pytest test tier
   ait setup --with-pypy --with-chat    # ... plus the PyPy and chat tiers
+  ait setup --hooks-only               # Only install the Claude Code session hook
 EOF
 }
 
@@ -4386,12 +4479,15 @@ main() {
     INSTALL_PYPY=0
     INSTALL_CHAT=0
     INSTALL_DEV=0
+    local hooks_only=0 assume_yes=0
     local args=()
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --with-pypy) INSTALL_PYPY=1; shift ;;
             --with-chat) INSTALL_CHAT=1; shift ;;
             --with-dev)  INSTALL_DEV=1; shift ;;
+            --hooks-only) hooks_only=1; shift ;;
+            --yes)       assume_yes=1; shift ;;
             # Must exit before any setup step runs: falling through to the
             # catch-all below made 'ait setup --help' run the full guided
             # install — the very side effects the user was asking about.
@@ -4401,6 +4497,15 @@ main() {
         esac
     done
     set -- "${args[@]}"
+
+    if [[ "$assume_yes" == "1" && "$hooks_only" != "1" ]]; then
+        die "--yes is only meaningful with --hooks-only"
+    fi
+    if [[ "$hooks_only" == "1" ]]; then
+        local rc=0
+        setup_hooks_only "$assume_yes" || rc=$?
+        exit "$rc"
+    fi
 
     echo ""
     info "aitask framework setup"

@@ -36,7 +36,7 @@ Run `ait setup --help` for the full option list, including the opt-in dependency
    - `ait setup --with-dev` — `pytest` and `pytest-xdist`, which give the Python test suite a parallel lane. Contributors only; the suite runs on the standard library's `unittest` without them — see [Testing Changes]({{< relref "/docs/development" >}}#testing-changes) for the lane's environment knobs and how to opt out
 8. **Global shim** — Installs `ait` shim at `~/.local/bin/ait` that finds the nearest project-local `ait` dispatcher by walking up the directory tree. Warns if `~/.local/bin` is not in PATH
 9. **Claude Code permissions** — Shows the recommended permission entries, then prompts Y/n to install them into `.claude/settings.local.json`. If settings already exist, merges permissions (union of allow-lists)
-10. **Session hook** — Its own Y/n prompt, separate from the permissions one: installs a SessionStart hook that records each agent's session id so a frozen agent can be restored. See [Session Hooks](#session-hooks)
+10. **Session hook** — Its own Y/n prompt, separate from the permissions one: installs a SessionStart hook that records each agent's session id so a frozen agent can be restored. `ait setup --hooks-only` runs this step alone. See [Session Hooks](#session-hooks)
 11. **Version check** — Compares local version against latest GitHub release and suggests update if newer
 
 Setup also ensures the shared project config file exists at `aitasks/metadata/project_config.yaml`. That file is seeded from `seed/project_config.yaml`, tracked in git, and includes project-wide workflow settings such as:
@@ -58,13 +58,28 @@ Re-run `ait setup` at any time to add the default permissions if you skipped the
 
 Setup also offers a **SessionStart hook**, `.aitask-scripts/aitask_session_hook.sh`. It runs when a code agent's session starts in the project and records that session's id, which is what lets an agent you [freeze]({{< relref "/docs/workflows/freeze-and-restore-agents" >}}) later be restored rather than only re-picked. The hook writes nothing into the agent's session and always exits successfully, so a broken hook can never block a session.
 
-It has its **own Y/n prompt**, separate from the permissions one — a permission allow-list and a script that runs at every session start are different decisions. A non-interactive run auto-accepts. Your answer is not remembered: declining means the offer comes back on the next `ait setup`.
+It has its **own Y/n prompt**, separate from the permissions one — a permission allow-list and a script that runs at every session start are different decisions. A non-interactive run auto-accepts. Your answer is not remembered: declining means the offer comes back on the next `ait setup`. Once the hook is installed it is not offered again, and a `.claude/settings.json` that is not valid JSON is reported instead of being merged into.
 
 **Claude Code.** The hook goes into `.claude/settings.json` (not `settings.local.json`) as a `hooks.SessionStart` entry matching `startup|resume`. If the file does not exist it is created from the seed. If it does, only `hooks.SessionStart` is merged in — every other key, including your own hooks for other events, is preserved verbatim. Entries are deduplicated by the script they run, however the path is spelled, so re-running setup never installs a second copy.
 
 **Codex CLI.** The Codex hook is part of the "Install Codex CLI skills and config?" prompt, which appears only when Codex CLI is installed. It is merged into `.codex/config.toml` by parsing that file and writing it back out, so **any comments in `.codex/config.toml` are lost** in the merge. Codex also requires the project to be trusted — `trust_level = "trusted"` under `[projects."<path>"]` in `$CODEX_HOME/config.toml` — which setup never writes, since it does not touch your Codex home. Note that Codex fires the hook under `codex exec` only, not in its interactive TUI; an interactive Codex agent's session is captured when it is frozen instead, and its restores report as [unverified]({{< relref "/docs/workflows/freeze-and-restore-agents" >}}#what-unverified-means).
 
 **Opting out** means answering `n` at the prompt. Deleting the installed entry by hand is not an opt-out: the next accepted `ait setup` sees it missing and adds it back.
+
+#### Installing only the hook
+
+`ait upgrade` stages the hook but never installs it — that stays behind the setup prompt. A project that was set up before the hook existed and has only been upgraded since therefore has no hook, and `ait upgrade` says so when it finishes. `ait ide` repeats the note when it lists frozen agents whose viewer is gone.
+
+To install just the hook, without re-running the rest of setup:
+
+```bash
+ait setup --hooks-only          # asks the same Y/n question
+ait setup --hooks-only --yes    # accept without a prompt, e.g. from a script
+```
+
+Without a terminal, `--hooks-only` refuses unless you pass `--yes`: the shortcut never installs an executable hook without an explicit answer. It does nothing when the hook is already installed, and it stops before writing anything when the hook could not work on this machine — the hook runs `python3` from your `PATH` directly, so that command has to work, and the session store needs a Python that meets the framework minimum. When Python is missing, or the framework's own `~/.aitask/bin/python3` wrapper is broken, it tells you to run the full `ait setup`, which installs or repairs it; a different `python3` that does not run is yours to fix. If `AIT_PYTHON` points at a Python older than the minimum, it says so instead: that override wins over every other interpreter, so a full setup would not fix it — unset `AIT_PYTHON` or point it at a newer Python.
+
+The hook only helps Claude Code agents **started after** it is installed. An agent that was already frozen without a recorded session stays view-only — you can still re-pick it if it has a task — and an agent that is running now needs a restart before its session is recorded.
 
 ---
 
