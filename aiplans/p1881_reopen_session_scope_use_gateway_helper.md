@@ -71,3 +71,10 @@ None identified. The change swaps one helper for another that emits the same val
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+- **Actual work done:** Removed `_session_scope()` from `.aitask-scripts/lib/agent_reopen.py`. Both session-scoped reads (`list-panes -s` in `_find_by_window_name`, `list-windows` in `_final_name`) now call `agent_launch_utils.tmux_session_scope_target()`, with a one-line pointer comment to `tmux_gateway.md` "Target formatting" at the `list-panes -s` call. In `tests/test_frozen_reopen_live.sh`, the bare-form preconditions in c2/c3 were kept, and a new assertion follows each one proving that `=C:` / `=B:` from the same client in A selects C / B.
+- **Deviations from plan:** None. The line numbers had shifted by about 25 because t1875 (18f2e98b1) landed on `main` mid-session; the call sites themselves were unchanged.
+- **Issues encountered:** None. `test_agent_reopen.py` passed 52/52 and `test_frozen_reopen_live.sh` passed 148/148.
+- **Key decisions:** `list-windows` uses the scope helper instead of `tmux_session_target`. That gives one helper for every session-scoped read in the module, and the unit test's fake tmux already pins `=S:` for both verbs. The task's request to "switch the live test's `=C` to `=C:`" was met by adding the safe form next to the bare form, because the bare-form query is a deliberate precondition that shows the hazard is real.
+- **Upstream defects identified:** None
