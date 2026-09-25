@@ -10,8 +10,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5_5
 created_at: 2026-09-21 22:42
-updated_at: 2026-09-24 15:49
+updated_at: 2026-09-25 11:23
 ---
 
 ## Problem
@@ -27,3 +28,8 @@ Make a missing hook visible and easy to fix, without silently installing executa
 - After `ait upgrade`, if the hook seed exists but `.claude/settings.json` lacks the aitasks SessionStart entry, print a specific hint: "run `ait setup` to install the session hook (needed to restore frozen agents)". Verb per CLAUDE.md: repair/populate → `ait setup`.
 - Consider the same check in `ait ide` startup and/or when freezing (the freeze confirmation could note "this agent can only be viewed, not restored").
 - Consider a cheap `ait setup --hooks-only` style path so users don't have to re-run the whole setup.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-25T08:23:40Z status=pass attempt=1 type=human
