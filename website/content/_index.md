@@ -146,9 +146,9 @@ Supported via WSL.
 <div class="row justify-content-center">
 <div class="col-lg-8">
 
+- **[v0.36.0: Discuss your brainstorm proposals, Frozen agents come back when you start `ait ide`, and Notes that cross repositories](blog/v0360-discuss-your-brainstorm-proposals-frozen-agents-come-back-when-you-start-a/)** -- Sep 25, 2026
 - **[v0.35.1: Frozen agents show up in your monitors, Sync deferrals that tell you what to do, and Git safety: fewer silent surprises](blog/v0351-frozen-agents-show-up-in-your-monitors-sync-deferrals-that-tell-you-what-t/)** -- Sep 17, 2026
 - **[v0.35.0: Freeze an agent and come back to it, Send a note to a task, and Let the backlog rank itself](blog/v0350-freeze-an-agent-and-come-back-to-it-send-a-note-to-a-task-let-the-backlog/)** -- Sep 9, 2026
-- **[v0.34.1: Park the agents you're not watching, A heads-up before two tasks collide, Sync stages every conflict you resolve, and  not just the first](blog/v0341-park-the-agents-you-re-not-watching-a-heads-up-before-two-tasks-collide-sy/)** -- Sep 3, 2026
 
 [All releases &rarr;](blog/)
 
