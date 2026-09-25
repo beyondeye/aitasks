@@ -71,3 +71,8 @@ the fallback string, not only `ait codeagent coauthor`.
 
 Net effect for an unregistered model: the run's usage count and the user's 5/5 satisfaction score
 were both lost, and the code commit had no code-agent trailer.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-25T10:25:18Z status=pass attempt=1 type=human
