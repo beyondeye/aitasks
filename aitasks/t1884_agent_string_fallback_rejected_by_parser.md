@@ -3,11 +3,12 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [codeagent, models, task_workflow]
+assigned_to: dario-e@beyond-eye.com
 followup_kind: upstream_defect
 created_at: 2026-09-25 12:33
-updated_at: 2026-09-25 12:46
+updated_at: 2026-09-25 12:47
 ---
 
 ## Origin
