@@ -21,11 +21,57 @@ jobs:
           VERSION="${TAG#v}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-  release:
+  goengines:
     needs: plan
+    runs-on: ubuntu-latest
+    env:
+      # go.mod names `toolchain go1.27.1`; auto makes the go command switch to it.
+      GOTOOLCHAIN: auto
+    defaults:
+      run:
+        working-directory: goengines
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: goengines/go.mod
+          cache-dependency-path: goengines/go.sum
+
+      - name: Go version
+        run: go version
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test
+        run: go test ./...
+
+      - name: Build engine release assets
+        run: |
+          ./build.sh all
+          cd dist
+          sha256sum -c ait-testmap_*_SHA256SUMS.txt
+
+      - name: Upload engine release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: goengines-dist
+          path: goengines/dist/
+          if-no-files-found: error
+
+  release:
+    needs: [plan, goengines]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+
+      - name: Download engine release assets
+        uses: actions/download-artifact@v4
+        with:
+          name: goengines-dist
+          path: goengines/dist
 
       - name: Verify VERSION file matches tag
         run: |
@@ -123,6 +169,8 @@ jobs:
           files: |
             aitasks-${{ github.ref_name }}.tar.gz
             packaging/shim/ait
+            goengines/dist/*
+          fail_on_unmatched_files: true
           body_path: /tmp/release_notes.md
 
       - name: Create GitHub Release (auto-generated notes)
@@ -132,6 +180,8 @@ jobs:
           files: |
             aitasks-${{ github.ref_name }}.tar.gz
             packaging/shim/ait
+            goengines/dist/*
+          fail_on_unmatched_files: true
           generate_release_notes: true
 
   packaging:

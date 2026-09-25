@@ -1,0 +1,154 @@
+name: Go engines check
+
+# gofmt, vet, test, the release cross-build and the benchmark gate for the
+# goengines/ module, plus the committed guards over the release wiring. The
+# paths list names release.yml and the guard tests too, so an edit to what the
+# guards protect (or to the guards themselves) still runs them.
+on:
+  push:
+    paths:
+      - 'goengines/**'
+      - '.github/workflows/goengines-check.yml'
+      - '.github/workflows/release.yml'
+      - 'tests/test_goengines_build.sh'
+      - 'tests/test_goengines_benchci.sh'
+      - 'tests/test_release_workflow_goengines.py'
+  pull_request:
+    paths:
+      - 'goengines/**'
+      - '.github/workflows/goengines-check.yml'
+      - '.github/workflows/release.yml'
+      - 'tests/test_goengines_build.sh'
+      - 'tests/test_goengines_benchci.sh'
+      - 'tests/test_release_workflow_goengines.py'
+  workflow_dispatch:
+    inputs:
+      seed_regression:
+        description: 'Bench against a baseline with every non-calibration line divided by 2.1 (a seeded regression sample)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  # go.mod names `toolchain go1.27.1`; auto makes the go command switch to it
+  # whatever version setup-go installed.
+  GOTOOLCHAIN: auto
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: goengines
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: goengines/go.mod
+          cache-dependency-path: goengines/go.sum
+
+      - name: Go version
+        run: go version
+
+      - name: gofmt
+        run: |
+          unformatted="$("$(go env GOROOT)/bin/gofmt" -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "gofmt needed on:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test
+        run: go test ./...
+
+      - name: Release cross-build
+        run: |
+          ./build.sh all --out "$RUNNER_TEMP/dist"
+          cd "$RUNNER_TEMP/dist"
+          sha256sum -c ait-testmap_*_SHA256SUMS.txt
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Release workflow structure guard
+        working-directory: .
+        run: |
+          python -m pip install pyyaml
+          python -m unittest tests/test_release_workflow_goengines.py
+
+      - name: build.sh tests
+        working-directory: .
+        run: bash tests/test_goengines_build.sh
+
+      - name: benchci.sh tests
+        working-directory: .
+        run: bash tests/test_goengines_benchci.sh
+
+  bench:
+    runs-on: ubuntu-latest
+    # ADVISORY: the host-normalized gate is not yet proven portable across
+    # hosted runners. It becomes a required check only once t1878 meets the
+    # promotion criteria in goengines/README.md "Host normalization".
+    continue-on-error: true
+    defaults:
+      run:
+        working-directory: goengines
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: goengines/go.mod
+          cache-dependency-path: goengines/go.sum
+
+      - name: Go version
+        run: go version
+
+      - name: Prepare baseline
+        env:
+          SEED: ${{ inputs.seed_regression && 'true' || 'false' }}
+        run: |
+          if [ "$SEED" = true ]; then
+            ./ci/benchci.sh seed bench/baseline.txt "$RUNNER_TEMP/baseline.txt"
+          else
+            cp bench/baseline.txt "$RUNNER_TEMP/baseline.txt"
+          fi
+
+      - name: Benchmark gate
+        run: |
+          set -o pipefail
+          go run ./internal/tools/benchgate -baseline "$RUNNER_TEMP/baseline.txt" 2>&1 | tee "$RUNNER_TEMP/bench.out"
+
+      - name: Job summary
+        if: always()
+        env:
+          SEED: ${{ inputs.seed_regression && 'true' || 'false' }}
+        run: |
+          {
+            echo "## Benchmark gate"
+            echo
+            if [ "$SEED" = true ]; then echo "Mode: **seeded regression** (every non-calibration baseline / 2.1)"; else echo "Mode: healthy"; fi
+            echo
+            echo "- CPU: $(grep -m1 '^model name' /proc/cpuinfo | cut -d: -f2- | sed 's/^ *//')"
+            echo "- nproc: $(nproc)"
+            echo
+            ./ci/benchci.sh summary "$RUNNER_TEMP/baseline.txt" "$RUNNER_TEMP/bench.out"
+            echo
+            echo '<details><summary>Raw gate output</summary>'
+            echo
+            echo '```'
+            cat "$RUNNER_TEMP/bench.out" 2>/dev/null || echo "(no gate output)"
+            echo '```'
+            echo '</details>'
+          } >> "$GITHUB_STEP_SUMMARY"
