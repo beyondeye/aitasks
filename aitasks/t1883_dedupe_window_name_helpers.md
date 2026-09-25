@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1847
 followup_kind: risk_mitigation
+implemented_with: claudecode/opus5_5
 created_at: 2026-09-25 12:24
-updated_at: 2026-09-25 12:27
+updated_at: 2026-09-25 13:01
 ---
 
 ## Origin
@@ -39,3 +40,8 @@ Constraints:
 - Keep the seam rule: call the shared helpers through the module, never import-aliased.
 - Behaviour must not change. `tests/test_agent_reopen.py`, `tests/test_agent_restore.py` and `bash tests/test_frozen_reopen_live.sh` must pass unchanged.
 - The display-message facts the helpers read differ slightly between the two coordinators (reopen's `_facts` versus restore's `_attempt_facts`). Unify them on one shared read, and do not change `PANE_FACT_FORMAT` / `PROBE_PANE_FORMAT` (existing test fixtures script those by arity).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-25T10:01:29Z status=pass attempt=1 type=human
