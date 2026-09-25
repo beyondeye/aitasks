@@ -271,7 +271,7 @@ Cases:
 - The static structure of the workflows (needs, asset globs, advisory bench) is only checked once by a throwaway script. A later `release.yml` edit could silently drop the engine assets or the `needs:` edge · severity: low (residual — addressed by inline post-phase release_workflow_structure_test) · → mitigation: inline post-phase release_workflow_structure_test
 
 ### Goal-achievement risk: medium
-- The release wiring cannot be exercised end to end before a real `v*` tag: the artifact hand-off between jobs, the `goengines/dist/*` glob in both release steps, `fail_on_unmatched_files`, and setup-go's toolchain behaviour on the runner. If any of these is wrong, the assets M1.5 fetches are missing from the next release · severity: medium · → mitigation: first_release_engine_assets_check
+- The release wiring cannot be exercised end to end before a real `v*` tag: the artifact hand-off between jobs, the `goengines/dist/*` glob in both release steps, `fail_on_unmatched_files`, and setup-go's toolchain behaviour on the runner. If any of these is wrong, the assets M1.5 fetches are missing from the next release · severity: medium · → mitigation: t1882
 - The bench job's portability on hosted runners is unproven. This is covered by design: the job is advisory, and t1878 owns the validation. The per-benchmark scaled ratios t1878 judges are produced here by `benchci.sh summary`, which recomputes the gate's formula outside the gate. A drift between the two formulas would mislead promotion; the summary test's regression-row cross-check and the live seeded replay pin the agreement · severity: low · → mitigation: none (t1878 exists; agreement pinned by test)
 
 ### Planned mitigations
