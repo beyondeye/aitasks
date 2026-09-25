@@ -57,3 +57,8 @@ record it or remove it with a guarded kill — never report a rollback while a
 launched agent is still running untracked. Add live coverage alongside
 `tests/test_frozen_reopen_live.sh` (it already has the synthetic-root + fake
 `claude` fixture for real restores).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-25T08:47:54Z status=pass attempt=1 type=human
