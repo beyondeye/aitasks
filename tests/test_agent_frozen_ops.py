@@ -659,5 +659,139 @@ class IntOrZeroTests(unittest.TestCase):
         self.assertEqual(ops.int_or_zero(7), 7)
 
 
+class RestoreSurvivorRuleTests(unittest.TestCase):
+    """`is_restore_survivor` — the ONE rule restore, reopen and drop share (t1875).
+
+    A live pane claiming the record through a restore attempt is an agent the
+    record does not track, unless the pane proves a stand-in of that record is
+    mounted in it. Nothing about the record's `pane_id` enters the rule.
+    """
+
+    R, OTHER = "7f3a2c1d", "0badf00d"
+    MARK = "7f3a2c1d:deadbeef"
+    NAME = "aitask-restore-7f3a2c1d-deadbeef"
+
+    def test_truth_table(self):
+        cases = [
+            # window, mark, ready, dead -> survivor?
+            ("agent-x", self.MARK, "", False, True),        # marked, renamed
+            (self.NAME, "", "", False, True),               # name only
+            (self.NAME, self.MARK, "", False, True),
+            ("agent-x", self.MARK, self.R, False, False),   # a mounted stand-in
+            ("agent-x", self.MARK, self.OTHER, False, True),  # someone else's ready
+            ("agent-x", self.MARK, "", True, False),        # dead: not LIVE
+            ("agent-x", "0badf00d:deadbeef", "", False, False),   # another record
+            ("aitask-restore-0badf00d-deadbeef", "", "", False, False),
+            ("aitask-reopen-7f3a2c1d-deadbeef", "", "", False, False),  # a VIEWER attempt
+            ("agent-x", "", "", False, False),              # no claim at all
+            ("agent-x", "garbage", "", False, False),
+        ]
+        for window, mark, ready, dead, expect in cases:
+            with self.subTest(window=window, mark=mark, ready=ready, dead=dead):
+                self.assertEqual(expect, ops.is_restore_survivor(
+                    self.R, window, mark, ready, dead))
+
+    def test_the_mark_wins_over_the_name(self):
+        self.assertEqual(self.OTHER, ops.restore_attempt_record(
+            self.NAME, "0badf00d:deadbeef"))
+
+    def test_name_and_value_shapes(self):
+        self.assertEqual(self.NAME, ops.restore_attempt_name(self.R, "deadbeefcafe"))
+        self.assertEqual(self.MARK, ops.restore_attempt_value(self.R, "deadbeefcafe"))
+
+
+class _Checked:
+    def __init__(self, outcome, stdout=""):
+        self.outcome, self.rc, self.stdout, self.stderr = outcome, 0, stdout, ""
+
+
+class FindRestoreSurvivorsTests(unittest.TestCase):
+    R = "7f3a2c1d"
+
+    def _with(self, answer):
+        class _T:
+            calls = []
+
+            def run_checked(self, args):
+                self.calls.append(list(args))
+                return answer
+
+            def run(self, args, timeout=None):
+                raise AssertionError("the scan must say WHY it failed: run_checked")
+        prev = ops._TMUX
+        ops._TMUX = _T()
+        self.addCleanup(setattr, ops, "_TMUX", prev)
+        return ops._TMUX
+
+    def row(self, pane, window="agent-x", mark="", ready="", dead="0"):
+        return "\t".join([pane, "5000", dead, "aitasks", window, mark, ready])
+
+    def test_no_server_is_a_definite_empty_answer(self):
+        """A restore after a machine restart must still be able to bootstrap."""
+        self._with(_Checked("no_server"))
+        self.assertEqual([], ops.find_restore_survivors(self.R))
+
+    def test_a_failed_scan_is_None_so_callers_fail_closed(self):
+        self._with(_Checked("failed"))
+        self.assertIsNone(ops.find_restore_survivors(self.R))
+
+    def test_it_scans_the_whole_server(self):
+        tmux = self._with(_Checked("ok", ""))
+        ops.find_restore_survivors(self.R)
+        self.assertIn("-a", tmux.calls[0])
+
+    def test_live_and_dead_survivors_are_reported_viewers_are_not(self):
+        out = "\n".join([
+            self.row("%1", mark=f"{self.R}:deadbeef"),                    # live survivor
+            self.row("%2", mark=f"{self.R}:deadbeef", dead="1"),          # dead survivor
+            self.row("%3", mark=f"{self.R}:deadbeef", ready=self.R),      # settled viewer
+            self.row("%4", mark=f"{self.R}:deadbeef", ready=self.R, dead="1"),
+            self.row("%5", mark="0badf00d:deadbeef"),                     # another record
+            self.row("%6"),
+        ])
+        self._with(_Checked("ok", out))
+        hits = ops.find_restore_survivors(self.R)
+        self.assertEqual([("%1", "0"), ("%2", "1")],
+                         [(h["pane_id"], h["dead"]) for h in hits])
+
+    def test_the_last_rows_empty_trailing_options_survive(self):
+        """A whole-buffer strip would eat the last row's empty option fields."""
+        self._with(_Checked("ok", self.row("%9", window=f"aitask-restore-{self.R}-deadbeef")
+                            + "\n"))
+        self.assertEqual(["%9"], [h["pane_id"] for h in ops.find_restore_survivors(self.R)])
+
+
+class GuardedClearTests(unittest.TestCase):
+    """The mark / stamp clears are ONE value-guarded dispatch each (t1875)."""
+
+    def setUp(self):
+        self.calls = []
+        prev = ops._TMUX
+        test = self
+
+        class _T:
+            def run(self, args, timeout=None):
+                test.calls.append(list(args))
+                return 0, ""
+        ops._TMUX = _T()
+        self.addCleanup(setattr, ops, "_TMUX", prev)
+
+    def test_clear_restore_attempt_is_guarded_on_the_exact_value(self):
+        ops.clear_restore_attempt("%5", "7f3a2c1d:deadbeef")
+        self.assertEqual([["if-shell", "-F", "-t", "%5",
+                           "#{==:#{@aitask_restore_attempt},7f3a2c1d:deadbeef}",
+                           "set-option -pu -t %5 @aitask_restore_attempt"]], self.calls)
+
+    def test_clear_stamp_if_is_guarded_on_the_record(self):
+        ops.clear_stamp_if("%5", "7f3a2c1d")
+        self.assertEqual("#{==:#{@aitask_frozen},7f3a2c1d}", self.calls[0][4])
+
+    def test_malformed_values_dispatch_nothing(self):
+        ops.clear_restore_attempt("%5", "x,}")
+        ops.clear_stamp_if("%5", "")
+        ops.clear_restore_attempt("", "7f3a2c1d:deadbeef")
+        self.assertEqual([], self.calls)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

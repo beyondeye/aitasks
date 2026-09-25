@@ -40,6 +40,16 @@
 #   k   a gone-pane RESTORE with `--session B` lands in B, not in A
 #   h2  `ait ide`'s R over gone, stranded, view-only and failed-adoption records:
 #       the agents come back inside their viewers; the untracked one is skipped
+#   m1  a gone-pane restore's session mismatch rolls the stand-in back INTO the
+#       new window, and the record tracks it (t1875)
+#   m2  lost `-P` output, and m3 an uncertain rc: identified by the attempt name
+#   m4  a stamp that does not take: the window is removed
+#   m5  an unanswerable launch names its attempt; a retry, reopen and `gone`
+#       refuse to duplicate or adopt the survivor; closing it unblocks the retry
+#   m6  the crash end state (stamped, marked, renamed, record on a gone pane):
+#       reopen does not adopt it; restore, `ait ide` R and drop refuse it
+#   m7  the same survivor at the record's OWN pane id: never respawned as the
+#       stand-in, never `pane_present`, never killed by drop
 #
 # REAL RESTORES (k, h2). The synthetic project symlinks the shipped
 # `.aitask-scripts` and copies the model metadata, so the restore coordinator
@@ -405,6 +415,143 @@ assert_eq "h2: no agent window appeared for r4 in A" "" \
     "$(tm list-windows -t "=A:" -F '#{window_name}' | grep -x agent-r4 || true)"
 assert_contains "h2: the summary" "Restored 2, viewers 1, failed 0, skipped 1." "$out"
 for r in "$r1" "$r2" "$r3" "$r4"; do forget "$r"; done
+
+# --- m ------------------------------------------------------------------------
+# A gone-pane restore never leaves its agent untracked (t1875). The fake agent
+# reads its knobs from the SERVER's global environment, which is what a new
+# window inherits: `set-environment -g` scopes each case, and `-gu` undoes it.
+restore_() { "$FROZEN_SH" restore "$@" 2>&1; }
+rseam() { AITASKS_RESTORE_FAIL_AT="$1" "${@:2}"; }
+restore_attempts() {
+    tm list-windows -a -F '#{window_name}' | grep -c "^aitask-restore-$1-" || true
+}
+all_windows() { tm list-windows -a | wc -l; }
+agent_env_g() { tm set-environment -g "$1" "$2"; }
+agent_env_gu() { tm set-environment -gu "$1" 2>/dev/null || true; }
+kill_pane_window() { tm kill-window -t "$1" 2>/dev/null || true; }
+
+section "m1: a session mismatch rolls the stand-in back INTO the new window"
+id="$(seed agent-m1)"
+agent_env_g FAKE_AGENT_SESSION sess-wrong
+out="$(restore_ "$id" --session A)"
+agent_env_gu FAKE_AGENT_SESSION
+assert_contains "m1: reported as a mismatch" "RESTORE_FAILED:$id|" "$out"
+assert_eq "m1: the record is frozen" "frozen" "$(record_field "$id" state)"
+pane="$(record_field "$id" pane_id)"
+assert_contains_re "m1: the record tracks a pane (not the gone-pane pair)" '^%[0-9]+$' "$pane"
+assert_eq "m1: ...the new window's" "A:agent-m1" "$(windows_named agent-m1)"
+assert_eq "m1: that pane is the record's stand-in" "$id" "$(pane_fmt "$pane" '#{@aitask_frozen}')"
+wait_for_ready "$pane" "$id" || true
+assert_eq "m1: the stand-in mounted in it" "$id" "$(pane_fmt "$pane" '#{@aitask_standin_ready}')"
+assert_eq "m1: the attempt mark is retired" "" "$(pane_fmt "$pane" '#{@aitask_restore_attempt}')"
+assert_eq "m1: no agent window is left behind" "0" "$(restore_attempts "$id")"
+forget "$id"; kill_pane_window "$pane"
+
+section "m2: lost -P output — identified by the attempt name and recorded"
+id="$(seed agent-m2)"
+out="$(rseam identify restore_ "$id" --session A)"
+assert_contains "m2: restored" "RESTORED:$id|" "$out"
+assert_eq "m2: live" "live" "$(record_field "$id" state)"
+pane="$(record_field "$id" pane_id)"
+assert_eq "m2: one window, under its final name" "A:agent-m2" "$(windows_named agent-m2)"
+assert_eq "m2: the mark is retired on success" "" "$(pane_fmt "$pane" '#{@aitask_restore_attempt}')"
+assert_eq "m2: and the stamp" "" "$(pane_fmt "$pane" '#{@aitask_frozen}')"
+forget "$id"; kill_pane_window "$pane"
+
+section "m3: an uncertain rc after the server acted — recorded, not duplicated"
+id="$(seed agent-m3)"
+out="$(rseam launch_uncertain restore_ "$id" --session A)"
+assert_contains "m3: restored" "RESTORED:$id|" "$out"
+assert_eq "m3: exactly one window" "A:agent-m3" "$(windows_named agent-m3)"
+pane="$(record_field "$id" pane_id)"
+forget "$id"; kill_pane_window "$pane"
+
+# From here the agent never acks: a hook that won the race would settle the
+# record `live` and hide exactly the untracked-survivor states under test.
+agent_env_g FAKE_AGENT_NO_HOOK 1
+
+section "m4: a stamp that does not take — the window is removed"
+id="$(seed agent-m4)"
+before="$(all_windows)"
+out="$(rseam identify,stamp restore_ "$id" --session A)"
+assert_contains "m4: reported" "RESTORE_FAILED:$id|respawn:stamp" "$out"
+assert_eq "m4: no window survives" "$before" "$(all_windows)"
+assert_eq "m4: the record is frozen" "frozen" "$(record_field "$id" state)"
+forget "$id"
+
+section "m5: an unanswerable launch names its attempt; a retry refuses to duplicate"
+id="$(seed agent-m5)"
+out="$(rseam identify,lookup restore_ "$id" --session A)"
+assert_contains "m5: the failure names the attempt window" \
+    "launch_uncertain:aitask-restore-$id-" "$out"
+assert_eq "m5: the record is frozen" "frozen" "$(record_field "$id" state)"
+assert_eq "m5: the survivor is identifiable by its name" "1" "$(restore_attempts "$id")"
+surv="$(tm list-panes -a -F '#{window_name} #{pane_id}' | awk -v n="aitask-restore-$id-" 'index($1, n) == 1 {print $2}')"
+spid="$(pane_fmt "$surv" '#{pane_pid}')"
+before="$(all_windows)"
+out="$(restore_ "$id" --session A)"
+assert_contains "m5: the retry is refused" "RESTORE_FAILED:$id|restore_survivor:A:aitask-restore-$id-" "$out"
+assert_contains "m5: naming the pane" "|pane:$surv" "$out"
+assert_eq "m5: no second agent" "$before" "$(all_windows)"
+assert_contains "m5: gone lists it as a survivor" "GONE:$id|survivor|" \
+    "$("$FROZEN_SH" gone --root "$PROJ")"
+out="$(reopen "$id" --session A)"
+assert_contains "m5: reopen refuses it" "REOPEN_FAILED:$id|restore_survivor:" "$out"
+assert_eq "m5: and creates no viewer beside it" "$before" "$(all_windows)"
+assert_eq "m5: the survivor is untouched" "$spid" "$(pane_fmt "$surv" '#{pane_pid}')"
+kill_pane_window "$surv"
+agent_env_gu FAKE_AGENT_NO_HOOK
+out="$(restore_ "$id" --session A)"
+assert_contains "m5: once it is closed, the retry restores" "RESTORED:$id|" "$out"
+pane="$(record_field "$id" pane_id)"
+forget "$id"; kill_pane_window "$pane"
+agent_env_g FAKE_AGENT_NO_HOOK 1
+
+section "m6: the crash end state — a stamped, marked, renamed survivor"
+id="$(seed agent-m6)"
+out="$(rseam abandon restore_ "$id" --session A)"
+assert_contains "m6: the attempt was abandoned" "RESTORE_FAILED:$id|respawn:abandon" "$out"
+assert_eq "m6: the record is frozen on a gone pane" "" "$(record_field "$id" pane_id)"
+surv="$(tm list-panes -t "=A:agent-m6" -F '#{pane_id}' | head -1)"
+spid="$(pane_fmt "$surv" '#{pane_pid}')"
+assert_eq "m6: the survivor carries the stamp" "$id" "$(pane_fmt "$surv" '#{@aitask_frozen}')"
+assert_contains "m6: ...and the attempt mark" "$id:" "$(pane_fmt "$surv" '#{@aitask_restore_attempt}')"
+out="$(reopen "$id" --session A)"
+assert_contains "m6: reopen does NOT adopt it as a viewer" "REOPEN_FAILED:$id|restore_survivor:A:agent-m6|pane:$surv" "$out"
+assert_eq "m6: the record still names no pane" "" "$(record_field "$id" pane_id)"
+assert_eq "m6: the agent still runs" "$spid" "$(pane_fmt "$surv" '#{pane_pid}')"
+out="$(restore_ "$id" --session A)"
+assert_contains "m6: restore refuses it" "restore_survivor:A:agent-m6" "$out"
+out="$(printf 'R\n' | AIT_IDE_FROZEN_ASSUME_TTY=1 ide_offer_frozen_agents "$PROJ" A "$FROZEN_SH" 2>&1)"
+assert_contains "m6: ait ide marks it" "an earlier restore's agent is still running, untracked" "$out"
+assert_contains "m6: and R skips it" "agent-m6: an earlier restore's agent is still running" "$out"
+assert_eq "m6: still frozen" "frozen" "$(record_field "$id" state)"
+out="$("$FROZEN_SH" drop "$id" 2>&1)"
+assert_contains "m6: drop refuses it" "DROP_REFUSED:$id|restore_survivor:A:agent-m6|pane:$surv" "$out"
+assert_eq "m6: the record survives" "frozen" "$(record_field "$id" state)"
+assert_eq "m6: and its capture" "yes" "$([ -d "$AITASKS_FROZEN_DIR/$id" ] && echo yes || echo no)"
+assert_eq "m6: the agent was not killed" "$spid" "$(pane_fmt "$surv" '#{pane_pid}')"
+
+section "m7: a survivor holding the record's own pane id"
+# The state a pane-id reuse after a server restart produces: the record names
+# exactly the survivor's `%N`, which is stamped like the stand-in.
+lease="$(store lease-take "$id" --owner-pid $$)"
+store standin-respawned "$id" --nonce "${lease##*|}" --pane "$surv" --pane-pid "$spid" >/dev/null
+assert_eq "m7: precondition — the record names the survivor" "$surv" "$(record_field "$id" pane_id)"
+out="$(restore_ "$id" --session A)"
+assert_contains "m7: restore refuses it" "RESTORE_FAILED:$id|restore_survivor:A:agent-m6|pane:$surv" "$out"
+assert_eq "m7: it was NOT respawned as a stand-in" "$spid" "$(pane_fmt "$surv" '#{pane_pid}')"
+out="$(reopen "$id" --session A)"
+assert_contains "m7: reopen refuses it" "REOPEN_FAILED:$id|restore_survivor:" "$out"
+assert_not_contains "m7: never read as the tracked viewer" "pane_present" "$out"
+out="$("$FROZEN_SH" drop "$id" 2>&1)"
+assert_contains "m7: drop refuses it" "DROP_REFUSED:$id|restore_survivor:" "$out"
+assert_eq "m7: the agent was not killed" "$spid" "$(pane_fmt "$surv" '#{pane_pid}')"
+assert_eq "m7: the record survives" "frozen" "$(record_field "$id" state)"
+kill_pane_window "$surv"
+out="$("$FROZEN_SH" drop "$id" 2>&1)"
+assert_contains "m7: once it is closed, drop works" "DROPPED:$id" "$out"
+agent_env_gu FAKE_AGENT_NO_HOOK
 
 assert_counters_load
 echo ""

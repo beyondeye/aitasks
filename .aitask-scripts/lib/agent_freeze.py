@@ -1336,6 +1336,10 @@ def drop_record(record_id: str) -> str:
          lock, and it already encapsulates the staleness rule — held by a live
          coordinator => `LEASE_HELD`, held by a dead one => taken over, so a
          crash can never make a record permanently undroppable.
+      0b. **refuse a restore survivor** (t1875) — a whole-server scan for an
+         agent a gone-pane restore left running that no record tracks. Deleting
+         the record past one leaves that agent with no record at all, and at a
+         recycled `%N` the kill below would close it. Refused, not repaired.
       1. **preflight** the live pane inventory to resolve the target. The
          record's `pane_id` is durable but NOT authoritative: `_reconcile_frozen`
          returns `KEEP:<id>|pane_gone` and writes nothing, so after a tmux
@@ -1384,6 +1388,26 @@ def drop_record(record_id: str) -> str:
             _release()
             return f"DROP_FAILED:{record_id}|no_record"
         pane_id = rec.get("pane_id", "")
+
+        # 0b. A RESTORE SURVIVOR blocks the drop (t1875): an agent an earlier
+        # gone-pane restore left running, that no record tracks but this one's
+        # session. A whole-server scan, not a probe of `pane_id`: the ordinary
+        # survivor sits in ANOTHER pane — drop would kill nothing and then
+        # delete the record and its capture while that agent keeps running —
+        # and after a server restart one can sit at the very `%N` recorded here,
+        # stamped like the stand-in, where the kill below would close it.
+        # No race between this scan and the store write: only a restore of THIS
+        # record can create its survivor, which needs the lease held here, and a
+        # server restart destroys every pane that predates it.
+        survivors = frozen_ops.find_restore_survivors(record_id)
+        if survivors is None:
+            _release()
+            return f"DROP_FAILED:{record_id}|preflight:tmux unreachable"
+        live = [hit for hit in survivors if hit["dead"] != "1"]
+        if live:
+            _release()
+            return (f"DROP_REFUSED:{record_id}|"
+                    + frozen_ops.survivor_detail(live[0]))
 
         # Resolve the target against what the SERVER says, never the record
         # alone: `pane_id` is durable but not authoritative (see the

@@ -57,11 +57,31 @@ session name already held by another project is refused and left untouched,
 never adopted: discovery's registry fallback would otherwise let a clobbered
 `AITASKS_PROJECT_<session>` entry hand this restore a stranger's session.
 
+PARTIAL LAUNCHES AND SURVIVORS (t1875). A new-window launch can half-succeed:
+tmux creates the window but its `-P` answer is lost, or the gateway times out
+(rc -1) after the server already acted. So the window is created under a
+per-attempt NAME, identified by that name when the answer is unusable, then
+stamped and given a per-attempt MARK before it is renamed — see the protocol
+comment above `_launch_into_new_window`. Once identified, the new pane IS the
+attempt's pane: a rollback puts the stand-in back into it, as on the same-pane
+branch. Anything a failure still leaves behind is a *restore survivor* — an
+agent no record tracks — and `restore` refuses to launch past one (a
+whole-server scan, before the recorded-pane probe and again under the lease),
+as do `agent_reopen` and `agent_freeze.drop_record`: acting past a survivor
+would either start a second agent on its session or mistake it for a viewer.
+
 Test seams, honoured **only** under ``AITASKS_TEST_MODE=1``:
 
 * ``AITASKS_RESTORE_FAIL_AT=begin|respawn|ack`` — raise at that stage. Bound from
   the shared factory to THIS engine's variable so a freeze-engine injection
   cannot fire here and vice versa;
+* ``AITASKS_RESTORE_FAIL_AT=<stage>[,<stage>…]`` for the gone-pane launch —
+  ``launch_uncertain`` (dispatch ``new-window``, then report rc -1 with no
+  output), ``identify`` (discard the ``-P`` answer), ``lookup`` (the name lookup
+  reports tmux unreachable), ``stamp`` (the stamp+mark dispatch does not run),
+  ``cleanup`` (the guarded kill is skipped and reported ``present``) and
+  ``abandon`` (return an error after the rename with NO cleanup — the end state
+  of a coordinator that died there);
 * ``AITASKS_FROZEN_PAUSE_AT=respawn|ack|aborting`` — ``SIGSTOP`` this process
   there, so a test can run a concurrent ``reconcile`` against a held lease. The
   ``ack`` stage is the strongest of the three: `launch_pid` is already recorded
@@ -74,6 +94,7 @@ Test seams, honoured **only** under ``AITASKS_TEST_MODE=1``:
 from __future__ import annotations
 
 import os
+import secrets
 import shlex
 import subprocess
 import sys
@@ -99,14 +120,12 @@ from agent_frozen_ops import (  # noqa: E402,F401
     StageFailure as _StageFailure,
 )
 from agent_launch_utils import (  # noqa: E402
-    TmuxLaunchConfig,
     discover_aitasks_sessions,
     discover_aitasks_sessions_checked,
-    launch_in_tmux,
     maybe_spawn_minimonitor,
     pick_launch_argv,
     resolve_dry_run_command,
-    resolve_pane_id_by_pid,
+    tmux_window_target,
     unique_window_name,
 )
 from monitor.monitor_core import (  # noqa: E402
@@ -117,6 +136,21 @@ from monitor.monitor_core import (  # noqa: E402
 #: This engine's failure-injection seam, bound to its own environment variable
 #: so the freeze engine's `AITASKS_FREEZE_FAIL_AT` cannot fire here.
 _fail_at = frozen_ops.make_fail_at("AITASKS_RESTORE_FAIL_AT")
+
+_FAIL_ENV = "AITASKS_RESTORE_FAIL_AT"
+
+
+def _seam(stage: str) -> bool:
+    """The gone-pane launch's seams (t1875): a COMMA-SEPARATED stage set.
+
+    A live test needs pairs (``identify,lookup``), which `_fail_at`'s equality
+    cannot express. The stage names are disjoint from `_fail_at`'s
+    (begin/respawn/ack), so the two readings of the one variable never collide.
+    """
+    if not frozen_ops.test_mode():
+        return False
+    return stage in {s.strip() for s in os.environ.get(_FAIL_ENV, "").split(",")}
+
 
 #: How often the ack poll re-reads the record. Small enough that a hook ack is
 #: noticed promptly, large enough not to spin on the store's lock.
@@ -298,9 +332,20 @@ def _reread(record_id: str) -> dict:
     return frozen_ops.store_show(record_id)
 
 
-def _clear_frozen_stamp(pane_id: str) -> None:
+def _clear_frozen_stamp(pane_id: str, record_id: str, nonce: str) -> None:
+    """Retire a restored pane's marks: the stamp, and this attempt's mark.
+
+    Both are GUARDED single dispatches (t1875). A bare unset is a separate call
+    a server restart can land on a recycled `%N` — another record's pane — and
+    strip its stamp, or its attempt mark, which after the rename is the only
+    claim a gone-pane attempt has. The mark's value is derived from THIS
+    attempt's nonce, so it matches nothing else; on a same-pane restore no pane
+    carries it and the dispatch is a no-op.
+    """
     if pane_id:
-        frozen_ops.unset_option(pane_id, FROZEN_OPTION)
+        frozen_ops.clear_stamp_if(pane_id, record_id)
+        frozen_ops.clear_restore_attempt(
+            pane_id, frozen_ops.restore_attempt_value(record_id, nonce))
 
 
 def _rollback(record_id: str, nonce: str, pane_id: str, reason: str = "") -> str:
@@ -350,7 +395,14 @@ def _rollback(record_id: str, nonce: str, pane_id: str, reason: str = "") -> str
                 pane_id, agent_sessions.standin_command(record_id),
                 option=FROZEN_OPTION, expect=record_id,
                 unset=STANDIN_READY_OPTION)
-            if not fired:
+            if fired:
+                # A gone-pane attempt's mark (t1875) goes only NOW, after the
+                # branch token proved the stand-in replaced the agent — never in
+                # the pre-respawn `unset`, which runs even when the respawn then
+                # fails and would strip the only claim of a still-running agent.
+                frozen_ops.clear_restore_attempt(
+                    new_pane, frozen_ops.restore_attempt_value(record_id, nonce))
+            else:
                 new_pane, new_pid = "", 0
         except ValueError:
             new_pane, new_pid = "", 0
@@ -537,6 +589,162 @@ def _resolve_target_session(root: str, session: str | None = None):
     return target, ""
 
 
+# --- the gone-pane launch: attempt identity (t1875) --------------------------
+#
+# The protocol of `agent_reopen._fresh`, applied to a window that runs an AGENT:
+# the window is claimed at every instant from creation to settlement, so no
+# partial launch can leave an agent nobody can identify.
+#
+#   1. created under the ATTEMPT NAME (`new-window -n`, atomic with the window);
+#   2. identified from `-P` output, else by that name — an rc of -1 (the
+#      gateway's timeout) or unparsed output is never read as "nothing exists";
+#   3. marked, name-guarded, with the frozen STAMP (so `_rollback` can put the
+#      stand-in back into THIS window) and the ATTEMPT MARK (so the window stays
+#      identifiable as a restore-launched agent after step 4);
+#   4. renamed, stamp-guarded, to the recorded `agent-…` name (monitor and the
+#      companion key on the prefix). A failed rename is cosmetic.
+#
+# Any failure after the window exists either records it (the caller carries the
+# pane into `restore-launched`) or removes it with a name-guarded kill, and a
+# kill that cannot be verified is NAMED in the error, never hidden. Whatever
+# survives is a restore survivor (`agent_frozen_ops.find_restore_survivors`),
+# which restore, reopen and drop all refuse to act past.
+#
+# The three tmux primitives below are twins of `agent_reopen`'s
+# `_find_by_window_name` / `_kill_if_named` / `_rename`. They cannot be imported
+# from there: `agent_reopen` imports this module.
+
+#: `display-message` read of an attempt pane: what the mark step verifies.
+_ATTEMPT_FACTS_FORMAT = "\t".join([
+    "#{pane_id}", "#{window_name}", f"#{{{FROZEN_OPTION}}}",
+    f"#{{{frozen_ops.RESTORE_ATTEMPT_OPTION}}}",
+])
+_ATTEMPT_FACTS_KEYS = ("pane_id", "window", "frozen", "mark")
+
+
+def _attempt_facts(pane_id: str) -> dict[str, str] | None:
+    """The pane's attempt facts; ``{}`` when gone; None when tmux is unreachable."""
+    rc, out = frozen_ops.run(["display-message", "-p", "-t", pane_id,
+                              _ATTEMPT_FACTS_FORMAT])
+    if rc == frozen_ops.TMUX_UNREACHABLE:
+        return None
+    if rc != 0:
+        return {}
+    parts = (out.splitlines() or [""])[0].split("\t")
+    if len(parts) != len(_ATTEMPT_FACTS_KEYS) or not parts[0].strip():
+        return {}
+    return {k: v.strip() for k, v in zip(_ATTEMPT_FACTS_KEYS, parts)}
+
+
+def _find_attempt_pane(session: str, name: str) -> tuple[str, str, int]:
+    """``(verdict, pane_id, pane_pid)`` of the window named ``name`` in ``session``.
+
+    ``found`` / ``none`` / ``unknown``. Filtered in Python, because a window
+    target cannot address every name; the session is targeted as ``=<s>:``,
+    which cannot resolve as a window of another session (t1874). More than one
+    pane under a per-attempt name is not a state this code produces, so it is
+    ``unknown`` rather than guessed.
+    """
+    if _seam("lookup"):
+        return "unknown", "", 0
+    rc, out = frozen_ops.run([
+        "list-panes", "-s", "-t", tmux_window_target(session, ""),
+        "-F", "#{window_name}\t#{pane_id}\t#{pane_pid}"])
+    if rc == frozen_ops.TMUX_UNREACHABLE:
+        return "unknown", "", 0
+    if rc != 0:
+        return "none", "", 0
+    hits = [p for p in (ln.split("\t") for ln in out.splitlines())
+            if len(p) == 3 and p[0] == name]
+    if not hits:
+        return "none", "", 0
+    if len(hits) > 1:
+        return "unknown", "", 0
+    try:
+        return "found", hits[0][1].strip(), int(hits[0][2].strip())
+    except ValueError:
+        return "unknown", "", 0
+
+
+def _kill_window_if(pane_id: str, condition: str, *,
+                    seam: bool = True) -> tuple[str, str]:
+    """`kill-window` on ``pane_id``'s window only if ``condition`` holds there.
+
+    Check and kill are ONE `if-shell -F` dispatch, then an after-read — the
+    verdict contract of `frozen_ops.kill_if_stamped`: ``gone`` / ``present`` /
+    ``unknown``. ``condition`` always names a per-attempt value, so a recycled
+    `%N` in a restarted server cannot match it.
+    """
+    if seam and _seam("cleanup"):
+        return "present", "seam"
+    before = _attempt_facts(pane_id)
+    if before is None:
+        return "unknown", "tmux unreachable"
+    if not before:
+        return "gone", "pane-gone"
+    frozen_ops.run(["if-shell", "-F", "-t", pane_id, condition,
+                    f"kill-window -t {pane_id}"])
+    after = _attempt_facts(pane_id)
+    if after is None:
+        return "unknown", "tmux unreachable"
+    if not after:
+        return "gone", ""
+    return "present", "kill-failed"
+
+
+def _kill_if_named(pane_id: str, name: str) -> tuple[str, str]:
+    return _kill_window_if(pane_id, f"#{{==:#{{window_name}},{name}}}")
+
+
+def _cleanup_suffix(verdict: str, reason: str, pane_id: str) -> str:
+    if verdict == "gone":
+        return ""
+    return f"|cleanup:{verdict}:{reason}|pane:{pane_id}"
+
+
+def _rename_if_stamped(pane_id: str, record_id: str, final: str) -> bool:
+    """Stamp-guarded rename of ``pane_id``'s window, verified by a re-read."""
+    frozen_ops.run(["if-shell", "-F", "-t", pane_id,
+                    f"#{{==:#{{{FROZEN_OPTION}}},{record_id}}}",
+                    f"rename-window -t {pane_id} {frozen_ops.tmux_quote(final)}"])
+    after = _attempt_facts(pane_id)
+    return bool(after) and after.get("window") == final
+
+
+def _survivor_refusal(record_id: str) -> str:
+    """``""`` when no restore survivor of ``record_id`` is alive, else the reason.
+
+    The retry guard (t1875). A survivor — an agent an earlier gone-pane attempt
+    launched and no record tracks — is invisible to the recorded-pane probe: it
+    usually sits in another pane, and after a server restart it can sit at the
+    very `%N` the record remembers, stamped as though it were the stand-in. So
+    this is a whole-server scan (`frozen_ops.find_restore_survivors`) that ends
+    in one of three answers, never a guess:
+
+    * tmux cannot be read → ``preflight:tmux unreachable`` (fail closed);
+    * a live survivor → ``restore_survivor:<session>:<window>|pane:<id>`` —
+      launching now would put a second agent on the same session;
+    * a DEAD one (the agent exited, the pane stayed) is removed with a kill
+      guarded on its own attempt value AND on still being dead, and blocks
+      unless that kill is verified.
+    """
+    hits = frozen_ops.find_restore_survivors(record_id)
+    if hits is None:
+        return "preflight:tmux unreachable"
+    for hit in hits:
+        if hit["dead"] == "1":
+            if hit.get("mark"):
+                claim = f"#{{==:#{{{frozen_ops.RESTORE_ATTEMPT_OPTION}}},{hit['mark']}}}"
+            else:
+                claim = f"#{{==:#{{window_name}},{hit['window']}}}"
+            verdict, _why = _kill_window_if(
+                hit["pane_id"], f"#{{&&:#{{pane_dead}},{claim}}}", seam=False)
+            if verdict == "gone":
+                continue
+        return frozen_ops.survivor_detail(hit)
+    return ""
+
+
 def _launch_into_new_window(rec: dict, command: str, env: dict,
                             session: str | None = None) -> tuple[str, int, str]:
     """Gone-pane branch: start the replacement in a NEW window.
@@ -550,6 +758,11 @@ def _launch_into_new_window(rec: dict, command: str, env: dict,
     created first (t1784), under an OWNERSHIP rule: use only a session discovery
     attributed to the root before anything changed, or one this call created.
 
+    The window is created and settled under the attempt-identity protocol above
+    (t1875): a returned pane is stamped and marked, and an error means either
+    that no window exists, or that the one which does is named in the error or
+    identifiable by its attempt name.
+
     A successful launch also gets its minimonitor companion (t1851), as every
     other launch path does; the same-pane branch in `restore()` never comes
     here, so the companion its surviving window already has is never doubled.
@@ -558,34 +771,74 @@ def _launch_into_new_window(rec: dict, command: str, env: dict,
     if target is None:
         return "", 0, error
 
-    rc, out = frozen_ops.run(
-        ["list-windows", "-t", target.session, "-F", "#{window_name}"])
+    record_id = env.get(ENV_RECORD) or rec.get("id", "")
+    # Always set on a real restore (`restore-begin` minted it); a direct caller
+    # without one still gets a name unique to this attempt.
+    nonce = env.get(ENV_NONCE) or secrets.token_hex(4)
+    attempt = frozen_ops.restore_attempt_name(record_id, nonce)
+    mark = frozen_ops.restore_attempt_value(record_id, nonce)
+    root = rec.get("root", "")
+
+    rc, out = frozen_ops.run(["list-windows", "-t", tmux_window_target(target.session, ""),
+                              "-F", "#{window_name}"])
     existing = set(out.split()) if rc == 0 else set()
-    window = unique_window_name(existing, rec.get("window") or "agent-restore")
+    final = unique_window_name(existing, rec.get("window") or "agent-restore")
 
-    # `launch_in_tmux` takes a command STRING and has no `-e`, so the identity
-    # variables ride the proven `env` prefix here (spike Case 3) rather than
-    # tmux's native flag. Both preserve `#{pane_pid} == agent pid`.
-    pane_pid, error = launch_in_tmux(
-        _env_prefixed(command, env),
-        TmuxLaunchConfig(session=target.session, window=window,
-                         new_session=False, new_window=True,
-                         cwd=rec.get("root") or None),
-    )
-    if error:
-        return "", 0, error
+    # --- 1. create, under the attempt name ---------------------------------
+    # The command is handed over UNWRAPPED except for the proven `env` prefix
+    # (spike Case 3), which execs into the agent: `#{pane_pid}` is the agent's
+    # pid, the task-lock anchor (t1465). No `-d`: the window is selected, as
+    # every restore has always done.
+    argv = ["new-window", "-P", "-F", "#{pane_id}\t#{pane_pid}",
+            "-t", tmux_window_target(target.session, ""), "-n", attempt]
+    if root:
+        argv += ["-c", root]
+    rc, out = frozen_ops.run(argv + [_env_prefixed(command, env)])
+    if _seam("launch_uncertain"):
+        rc, out = frozen_ops.TMUX_UNREACHABLE, ""
 
-    # `launch_in_tmux` returns only the pid, but `restore-launched` needs the
-    # pane id too — and the store REFUSES the pair `--pane "" --pane-pid <n>`,
-    # because ("", 0) is reserved to mean "the pane is gone". Returning the pid
-    # without its pane would therefore fail the very verb that records the
-    # launch, leaving a `restoring` record with `launch_pid = 0` that reconcile
-    # can only abort. Resolve the id back from the pid.
-    pane_pid = int(pane_pid or 0)
-    pane_id = resolve_pane_id_by_pid(target.session, pane_pid) if pane_pid else None
-    if not pane_id:
-        return "", 0, "launched_pane_unresolvable"
-    _spawn_companion(target.session, window, pane_id, rec.get("root", ""))
+    pane_id, pane_pid = "", 0
+    if rc == 0 and not _seam("identify"):
+        parts = (out.splitlines() or [""])[0].split("\t")
+        if len(parts) == 2 and parts[0].strip().startswith("%"):
+            pane_id = parts[0].strip()
+            pane_pid = frozen_ops.int_or_zero(parts[1].strip())
+
+    # --- 2. identify: an unparsed or uncertain answer is looked up by name --
+    if not pane_id or not pane_pid:
+        verdict, pane_id, pane_pid = _find_attempt_pane(target.session, attempt)
+        if verdict == "none":
+            # tmux answered and holds no window of this attempt.
+            return "", 0, f"launch:rc={rc}"
+        if verdict != "found":
+            # Whether a window exists cannot be known. If one does, it carries
+            # the attempt name, and the survivor guard finds it on the next run.
+            return "", 0, f"launch_uncertain:{attempt}"
+
+    # --- 3. stamp + mark, name-guarded, verified ---------------------------
+    if not _seam("stamp"):
+        frozen_ops.run([
+            "if-shell", "-F", "-t", pane_id, f"#{{==:#{{window_name}},{attempt}}}",
+            f"set-option -p -t {pane_id} {FROZEN_OPTION} {record_id} ; "
+            f"set-option -p -t {pane_id} {frozen_ops.RESTORE_ATTEMPT_OPTION} {mark}"])
+    facts = _attempt_facts(pane_id)
+    if not facts or facts.get("frozen") != record_id or facts.get("mark") != mark:
+        verdict, reason = _kill_if_named(pane_id, attempt)
+        return "", 0, "stamp" + _cleanup_suffix(verdict, reason, pane_id)
+
+    # --- 4. rename to the recorded name (cosmetic on failure) --------------
+    window = final
+    if not _rename_if_stamped(pane_id, record_id, final):
+        window = attempt
+        print(f"WARNING:{record_id}|window not renamed from {attempt} to {final}",
+              file=sys.stderr)
+
+    if _seam("abandon"):
+        # The end state of a coordinator that died right here: a stamped,
+        # marked, renamed agent that no record tracks. No cleanup, by design.
+        return "", 0, "abandon"
+
+    _spawn_companion(target.session, window, pane_id, root)
     return pane_id, pane_pid, ""
 
 
@@ -624,6 +877,16 @@ def restore(record_id: str, *, repick: bool = False,
         # keep in sync with it.
         return RestoreResult(record_id, False, "binary",
                              f"RESTORE_FAILED:{record_id}|binary")
+
+    # A restore survivor (t1875) is refused BEFORE the recorded-pane probe: a
+    # survivor at the recorded `%N` carries this record's stamp and would pass
+    # that probe as the stand-in — and the same-pane branch would then
+    # `respawn-pane -k` a running agent. Nothing is written here.
+    refusal = _survivor_refusal(record_id)
+    if refusal:
+        outcome = "preflight" if refusal.startswith("preflight:") else "restore_survivor"
+        return RestoreResult(record_id, False, outcome,
+                             f"RESTORE_FAILED:{record_id}|{refusal}")
 
     # The recorded `pane_id` is a HINT, not a target. A retained `frozen` record
     # keeps its old `%N` after the window is closed or the tmux server restarts
@@ -682,6 +945,20 @@ def restore(record_id: str, *, repick: bool = False,
     env = _restore_env(record_id, nonce, mode, session_id,
                        agent_string=rec.get("agent_string", ""))
 
+    # The same scan again, now UNDER THE LEASE. Only a restore of this record
+    # can create its survivor, and that needs this lease — so between here and
+    # the launch none can appear. The pre-lease scan above cannot promise that:
+    # a concurrent restore may have launched and abandoned an attempt in
+    # between. The rollback restores the stand-in into the probed pane (if it
+    # was ours) and persists the reason, exactly as any refused launch does.
+    refusal = _survivor_refusal(record_id)
+    if refusal:
+        outcome = "preflight" if refusal.startswith("preflight:") else "restore_survivor"
+        detail = _rollback(record_id, nonce, pane_id, refusal.split("|", 1)[0])
+        suffix = f"|{detail}" if detail else ""
+        return RestoreResult(record_id, False, outcome,
+                             f"RESTORE_FAILED:{record_id}|{refusal}{suffix}")
+
     # --- 2. clear the ready mark, then respawn ------------------------------
     try:
         _fail_at("respawn")
@@ -701,6 +978,13 @@ def restore(record_id: str, *, repick: bool = False,
                 rec, command, env, session=session)
             if error:
                 raise OSError(error)
+            # From here the NEW window is this attempt's pane (t1875): every
+            # rollback, settle, liveness read and stamp clear below must address
+            # it. Left empty, a rollback would put the record back to `frozen`
+            # while the resumed agent kept running in a window nobody tracks.
+            # It is stamped, so `_rollback`'s guarded respawn puts the stand-in
+            # back into it exactly as it would on the same-pane branch.
+            pane_id = new_pane
     except (_StageFailure, OSError, ValueError) as exc:
         # The reason is PERSISTED as `last_error` — the only channel back to the
         # user — so it carries the failure itself, not just the stage (t1784).
@@ -789,7 +1073,7 @@ def restore(record_id: str, *, repick: bool = False,
             return decided
         return RestoreResult(record_id, False, "confirm_refused",
                              f"RESTORE_FAILED:{record_id}|restore-confirm:{out.strip()}")
-    _clear_frozen_stamp(pane_id)
+    _clear_frozen_stamp(pane_id, record_id, nonce)
     return RestoreResult(record_id, True, "liveness",
                          f"RESTORED:{record_id}|liveness{_liveness_note(agent_kind)}")
 
@@ -821,7 +1105,7 @@ def _decide_from_record(record_id: str, rec: dict, nonce: str,
     # The hook acknowledged: state `live` with `ack=hook`. The store already
     # verified the session id and deleted the captures.
     if rec.get("state") == "live" and rec.get("ack") == "hook":
-        _clear_frozen_stamp(rec.get("pane_id", ""))
+        _clear_frozen_stamp(rec.get("pane_id", ""), record_id, nonce)
         return RestoreResult(record_id, True, "hook",
                              f"RESTORED:{record_id}|hook")
 
@@ -836,7 +1120,7 @@ def _decide_from_record(record_id: str, rec: dict, nonce: str,
 
     # Someone else finished the transaction (reconcile, or a liveness confirm).
     if rec.get("state") == "live" and rec.get("ack") == "liveness":
-        _clear_frozen_stamp(rec.get("pane_id", ""))
+        _clear_frozen_stamp(rec.get("pane_id", ""), record_id, nonce)
         return RestoreResult(record_id, True, "liveness",
                              f"RESTORED:{record_id}|liveness{_liveness_note(agent_kind)}")
 

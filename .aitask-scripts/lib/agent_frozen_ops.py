@@ -63,6 +63,7 @@ Test seams, honoured **only** under ``AITASKS_TEST_MODE=1``:
 from __future__ import annotations
 
 import os
+import re
 import secrets
 import signal
 import subprocess
@@ -414,6 +415,183 @@ def tmux_quote(s: str) -> str:
     agent command strings routinely do.
     """
     return '"' + s.replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$") + '"'
+
+
+# --- restore-attempt identity (t1875) ---------------------------------------
+#
+# A gone-pane restore starts its agent in a NEW window. Until the record tracks
+# that pane, the pane is identified by marks ON THE PANE, never by the record's
+# `pane_id` — that field is a hint, and a restarted server renumbers from `%0`,
+# so a surviving attempt can sit at exactly the `%N` a record remembers.
+#
+#   * the ATTEMPT NAME, set atomically by `new-window -n`, claims the window
+#     from its first instant;
+#   * the ATTEMPT MARK (`@aitask_restore_attempt=<id>:<nonce8>`), set once the
+#     pane is identified, keeps the claim after the window is renamed to its
+#     `agent-…` name (monitor and companion key on that prefix).
+#
+# A live pane claiming record R through either is a SURVIVOR — a restore-launched
+# agent R does not track — unless it proves it is R's viewer with
+# `@aitask_standin_ready == R`. Only a mounted stand-in writes that mark, and
+# every respawn INTO an agent clears it in the same dispatch, so it is evidence
+# the pane itself produced. Restore, reopen and drop all apply this one rule.
+
+#: The attempt mark's pane option.
+RESTORE_ATTEMPT_OPTION = "@aitask_restore_attempt"
+
+#: The attempt window name: record id, then the first 8 of the lease nonce.
+#: Deliberately NOT `agent_reopen.ATTEMPT_RE` (`aitask-reopen-…`): a restore
+#: attempt runs an AGENT, and reopen must never read it as a viewer attempt.
+RESTORE_ATTEMPT_RE = re.compile(r"^aitask-restore-([0-9a-f]{8})-([0-9a-f]{8})$")
+
+#: The attempt mark's value shape, `<record id>:<nonce8>`.
+_RESTORE_MARK_RE = re.compile(r"^([0-9a-f]{8}):([0-9a-f]{8})$")
+
+
+def restore_attempt_name(record_id: str, nonce: str) -> str:
+    return f"aitask-restore-{record_id}-{nonce[:8]}"
+
+
+def restore_attempt_value(record_id: str, nonce: str) -> str:
+    """The attempt mark's value. Hex and `:` only, so safe in a `#{==:…}`."""
+    return f"{record_id}:{nonce[:8]}"
+
+
+def restore_attempt_record(window_name: str, mark: str) -> str:
+    """The record id a pane claims through a restore attempt, or ``""``.
+
+    The mark wins over the name: after the rename the name no longer says
+    anything, and before the mark is set the name is all there is.
+    """
+    m = _RESTORE_MARK_RE.match((mark or "").strip())
+    if m:
+        return m.group(1)
+    m = RESTORE_ATTEMPT_RE.match((window_name or "").strip())
+    return m.group(1) if m else ""
+
+
+def is_restore_survivor(record_id: str, window_name: str, mark: str,
+                        ready: str, dead: bool) -> bool:
+    """Is this pane a LIVE restore-launched agent that ``record_id`` does not track?
+
+    There is no "unless it is the record's own pane" clause, by design: the
+    recorded `pane_id` is a hint a recycled `%N` can match. The only exemption
+    is the pane's own proof that a stand-in of this record is mounted there.
+    """
+    if dead or not record_id:
+        return False
+    if restore_attempt_record(window_name, mark) != record_id:
+        return False
+    return (ready or "").strip() != record_id
+
+
+#: One row of :func:`find_restore_survivors`' scan.
+_SURVIVOR_FORMAT = "\t".join([
+    "#{pane_id}", "#{pane_pid}", "#{pane_dead}", "#{session_name}",
+    "#{window_name}", f"#{{{RESTORE_ATTEMPT_OPTION}}}",
+    f"#{{{STANDIN_READY_OPTION}}}",
+])
+_SURVIVOR_ARITY = 7
+
+
+def run_checked(args: list[str]):
+    """`TmuxClient.run_checked` through the swappable client.
+
+    A test fake that only implements ``run`` is adapted: rc 0 is ``ok`` and
+    anything else is ``failed`` — the fail-closed reading, since a fake cannot
+    say "no server".
+    """
+    checked = getattr(_TMUX, "run_checked", None)
+    if checked is not None:
+        return checked(args)
+    rc, out = _TMUX.run(args)
+    return _CheckedAnswer("ok" if rc == 0 else "failed", rc, out, "")
+
+
+class _CheckedAnswer:
+    """The `TmuxResult` shape, for adapted fakes (no import of tmux_exec's)."""
+
+    def __init__(self, outcome: str, rc: int, stdout: str, stderr: str) -> None:
+        self.outcome, self.rc, self.stdout, self.stderr = outcome, rc, stdout, stderr
+
+
+def find_restore_survivors(record_id: str) -> list[dict[str, str]] | None:
+    """Every pane that is a restore survivor of ``record_id``, dead ones included.
+
+    ONE `list-panes -a` pass over the whole server — never a probe of the
+    record's `pane_id`, which misses the ordinary shape (the survivor in another
+    pane, the record naming a gone one). Each hit is a dict with ``pane_id``,
+    ``pane_pid``, ``dead`` (``"1"``/``"0"``), ``session`` and ``window``.
+
+    Returns ``None`` when tmux could not be read: callers fail CLOSED on it,
+    because "could not look" must never pass for "no survivor". "No server
+    running" is a definite answer — no panes at all — and returns ``[]``: a
+    restore after a machine restart must still be able to bootstrap one.
+
+    Dead panes are reported (with ``dead="1"``) so the caller can remove them;
+    :func:`is_restore_survivor` decides only the LIVE question.
+    """
+    result = run_checked(["list-panes", "-a", "-F", _SURVIVOR_FORMAT])
+    if result.outcome in ("no_server", "no_tmux"):
+        return []
+    if result.outcome != "ok":
+        return None
+    hits: list[dict[str, str]] = []
+    # NOT `stdout.strip().splitlines()`: the trailing fields are options that
+    # are empty on most panes, and a whole-buffer strip eats the last row's tabs.
+    for line in result.stdout.splitlines():
+        parts = line.split("\t")
+        if len(parts) != _SURVIVOR_ARITY:
+            continue
+        pane_id, pid, dead, session, window, mark, ready = (p.strip() for p in parts)
+        is_dead = dead == "1"
+        if restore_attempt_record(window, mark) != record_id:
+            continue
+        if not is_dead and not is_restore_survivor(record_id, window, mark,
+                                                   ready, False):
+            continue            # a mounted stand-in of this record: a viewer
+        if is_dead and ready == record_id:
+            continue            # a dead viewer is reconcile's, not ours
+        hits.append({"pane_id": pane_id, "pane_pid": pid,
+                     "dead": "1" if is_dead else "0",
+                     "session": session, "window": window, "mark": mark})
+    return hits
+
+
+def survivor_detail(hit: dict[str, str]) -> str:
+    """``restore_survivor:<session>:<window>|pane:<id>`` — the shared wire tail."""
+    session = hit.get("session", "").replace("|", "/")
+    window = hit.get("window", "").replace("|", "/")
+    return f"restore_survivor:{session}:{window}|pane:{hit.get('pane_id', '')}"
+
+
+def clear_restore_attempt(pane_id: str, value: str) -> None:
+    """Unset the attempt mark on ``pane_id`` ONLY if it still carries ``value``.
+
+    One `if-shell -F` dispatch. A bare `set-option -pu` would be a separate call
+    that a server restart can land on a recycled `%N` — another record's attempt,
+    whose mark is its ONLY claim once its window was renamed. ``value`` names the
+    record and the attempt nonce, so it matches nothing but the pane that attempt
+    created.
+    """
+    if not pane_id or not _RESTORE_MARK_RE.match(value or ""):
+        return
+    run(["if-shell", "-F", "-t", pane_id,
+         f"#{{==:#{{{RESTORE_ATTEMPT_OPTION}}},{value}}}",
+         f"set-option -pu -t {pane_id} {RESTORE_ATTEMPT_OPTION}"])
+
+
+def clear_stamp_if(pane_id: str, record_id: str) -> None:
+    """Unset ``@aitask_frozen`` on ``pane_id`` ONLY if it is ``record_id``'s.
+
+    Same single-dispatch shape as :func:`clear_restore_attempt`, for the same
+    recycled-`%N` reason: an unguarded unset could strip another record's stamp.
+    """
+    if not pane_id or not re.fullmatch(r"[0-9a-f]{8}", record_id or ""):
+        return
+    run(["if-shell", "-F", "-t", pane_id,
+         f"#{{==:#{{{FROZEN_OPTION}}},{record_id}}}",
+         f"set-option -pu -t {pane_id} {FROZEN_OPTION}"])
 
 
 #: Sentinel :func:`_pre_read` returns as the server pid when tmux could not be

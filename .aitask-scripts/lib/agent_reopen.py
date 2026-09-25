@@ -18,8 +18,13 @@ Two verbs, reached through `aitask_frozen.sh`:
 CLASSIFICATION. One ``list-panes -a`` pass collects every live pane that
 *claims* a record: ``@aitask_frozen == id``, OR ``@aitask_standin_ready == id``
 (the viewer self-stamps it from ``$TMUX_PANE`` on mount), OR a window name of the
-attempt form :data:`ATTEMPT_RE`. Then per `frozen` record:
+attempt form :data:`ATTEMPT_RE`, OR a gone-pane RESTORE attempt's name or mark
+(`agent_frozen_ops.restore_attempt_record`). Then per `frozen` record:
 
+* a live restore-attempt claim without ``@aitask_standin_ready == id`` →
+  **survivor** (t1875), decided FIRST, the record's own ``pane_id`` included:
+  it is an agent an earlier restore left running, not a viewer, so it is never
+  adopted and never duplicated — `reopen` refuses it and names the pane;
 * a claim on the record's own ``pane_id`` carrying the stamp → **tracked**
   (nothing to do; a dead one is reconcile's to respawn);
 * any other claim → **stranded**: an untracked survivor of an earlier failed or
@@ -122,8 +127,9 @@ DEFAULT_WINDOW = "agent-frozen"
 _CLAIM_FORMAT = "\t".join([
     "#{pane_id}", "#{pane_pid}", "#{pane_dead}", "#{session_name}",
     "#{window_name}", f"#{{{FROZEN_OPTION}}}", f"#{{{STANDIN_READY_OPTION}}}",
+    f"#{{{frozen_ops.RESTORE_ATTEMPT_OPTION}}}",
 ])
-_CLAIM_ARITY = 7
+_CLAIM_ARITY = 8
 
 _FACTS_FORMAT = "\t".join([
     "#{pane_id}", "#{pane_pid}", "#{session_name}", "#{window_name}",
@@ -157,7 +163,8 @@ class Claim:
     window: str
     frozen: str
     ready: str
-    via: str          # "stamp" | "ready" | "name"
+    via: str          # "stamp" | "ready" | "name" | "restore"
+    mark: str = ""
 
 
 def _claimed_panes() -> dict[str, list[Claim]] | None:
@@ -177,7 +184,7 @@ def _claimed_panes() -> dict[str, list[Claim]] | None:
         parts = line.split("\t")
         if len(parts) != _CLAIM_ARITY:
             continue
-        pane_id, pid, dead, session, window, frozen, ready = (
+        pane_id, pid, dead, session, window, frozen, ready, mark = (
             p.strip() for p in parts)
         try:
             pane_pid = int(pid)
@@ -191,24 +198,42 @@ def _claimed_panes() -> dict[str, list[Claim]] | None:
             keyed.append((ready, "ready"))
         if match and match.group(1) not in (frozen, ready):
             keyed.append((match.group(1), "name"))
+        # A restore attempt (t1875) claims its record IN ADDITION to any stamp
+        # claim: the stamp alone would read the agent as a viewer to adopt.
+        restore_of = frozen_ops.restore_attempt_record(window, mark)
+        if restore_of:
+            keyed.append((restore_of, "restore"))
         for record_id, via in keyed:
             claims.setdefault(record_id, []).append(Claim(
                 pane_id, pane_pid, dead == "1", session, window, frozen, ready,
-                via))
+                via, mark))
     return claims
 
 
-_VIA_RANK = {"stamp": 0, "ready": 1, "name": 2}
+_VIA_RANK = {"stamp": 0, "ready": 1, "name": 2, "restore": 3}
 
 
 def classify_record(rec: dict, claims: list[Claim]) -> tuple[str, Claim | None]:
-    """``("tracked"|"stranded"|"gone", claim)`` for one `frozen` record."""
+    """``("survivor"|"tracked"|"stranded"|"gone", claim)`` for one `frozen` record.
+
+    ``survivor`` is decided FIRST, ahead of ``tracked`` (t1875): a live pane
+    claiming the record through a restore attempt is an AGENT no record
+    tracks, unless its own ready mark proves a stand-in of this record is
+    mounted there. The record's `pane_id` exempts nothing — after a server
+    restart a survivor can hold exactly that `%N`, stamped like the viewer.
+    """
     record_id = rec.get("id", "")
     own_pane = rec.get("pane_id", "")
     for claim in claims:
+        if claim.via == "restore" and frozen_ops.is_restore_survivor(
+                record_id, claim.window, claim.mark, claim.ready, claim.dead):
+            return "survivor", claim
+    for claim in claims:
         if own_pane and claim.pane_id == own_pane and claim.frozen == record_id:
             return "tracked", claim
-    live = [c for c in claims if not c.dead]
+    # A restore claim that is not a survivor is a settled viewer's stale mark;
+    # its stamp / ready claim speaks for it.
+    live = [c for c in claims if not c.dead and c.via != "restore"]
     if live:
         live.sort(key=lambda c: _VIA_RANK[c.via])
         return "stranded", live[0]
@@ -559,6 +584,18 @@ def _adopt(rec: dict, nonce: str, claim: Claim, session: str | None) -> str:
     return f"REOPENED:{record_id}|adopted|{current}:{final}|{pane_id}"
 
 
+def _survivor_line(record_id: str, claim: Claim) -> str:
+    """A restore survivor (t1875) is neither adopted nor duplicated.
+
+    Adopting it would commit a running AGENT as the record's viewer — the record
+    says `frozen` while the agent is live, and the next restore `respawn-pane
+    -k`s it as a stand-in. Creating a fresh viewer beside it would leave that
+    agent untracked. The pane is named so the user can close it.
+    """
+    return f"REOPEN_FAILED:{record_id}|" + frozen_ops.survivor_detail({
+        "session": claim.session, "window": claim.window, "pane_id": claim.pane_id})
+
+
 def reopen_one(record_id: str, *, session: str | None = None) -> str:
     """Bring back one record's viewer. Returns the wire line."""
     rec = frozen_ops.store_show(record_id)
@@ -573,6 +610,8 @@ def reopen_one(record_id: str, *, session: str | None = None) -> str:
     if claims is None:
         return f"REOPEN_FAILED:{record_id}|preflight:tmux unreachable"
     kind, claim = classify_record(rec, claims.get(record_id, []))
+    if kind == "survivor" and claim is not None:
+        return _survivor_line(record_id, claim)
     if kind == "tracked":
         return f"REOPEN_SKIPPED:{record_id}|pane_present"
 
@@ -606,6 +645,9 @@ def reopen_one(record_id: str, *, session: str | None = None) -> str:
         _release(record_id, nonce)
         return f"REOPEN_FAILED:{record_id}|preflight:tmux unreachable"
     kind, claim = classify_record(rec, claims.get(record_id, []))
+    if kind == "survivor" and claim is not None:
+        _release(record_id, nonce)
+        return _survivor_line(record_id, claim)
     if kind == "tracked":
         _release(record_id, nonce)
         return f"REOPEN_SKIPPED:{record_id}|pane_present"
@@ -629,6 +671,8 @@ def reopen_one(record_id: str, *, session: str | None = None) -> str:
 def reopen_all(root: str, *, session: str | None = None) -> list[str]:
     """Every gone / stranded record of ``root``, sequentially.
 
+    A ``survivor`` record is listed too, and `reopen_one` refuses it with a
+    ``REOPEN_FAILED:`` line naming the pane — it is reported, never acted on.
     One record's failure never stops the batch. The trailing
     ``REOPEN_ALL:<ok>/<n>`` counts ``REOPENED`` lines.
     """

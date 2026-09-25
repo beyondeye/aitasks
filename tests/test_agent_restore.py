@@ -23,6 +23,7 @@ Run: python3 tests/test_agent_restore.py
 from __future__ import annotations
 
 import os
+import re
 import sys
 import tempfile
 import types
@@ -336,8 +337,16 @@ class _ScriptedTmux:
         return [c[0] for c in self.calls if c]
 
     def destructive(self) -> list[list[str]]:
-        """Every call that could replace what is running in a pane."""
-        return [c for c in self.calls if c and c[0] in ("respawn-pane", "if-shell")]
+        """Every call that could replace or end what is running in a pane.
+
+        An `if-shell` counts by its BRANCH: the guarded stamp / attempt-mark
+        clears a successful restore issues (t1875) are `if-shell` dispatches too,
+        but a `set-option -pu` cannot touch a pane's process.
+        """
+        return [c for c in self.calls if c and (
+            c[0] in ("respawn-pane", "kill-pane", "kill-window")
+            or (c[0] == "if-shell" and any(
+                verb in c[-1] for verb in ("respawn-pane", "kill-pane", "kill-window"))))]
 
 
 #: A `probe_pane` answer: present, and stamped with `_rec()`'s own record id.
@@ -363,9 +372,16 @@ _TMUX_OURS_AND_FIRES = {
 
 
 def _dispatch_argv(tmux) -> list[str]:
-    """The single `if-shell` this restore issued; fails loudly if there is not one."""
-    dispatches = [c for c in tmux.calls if c and c[0] == "if-shell"]
-    assert len(dispatches) == 1, f"expected exactly one if-shell, got {len(dispatches)}"
+    """The single RESPAWN `if-shell` this restore issued; fails loudly otherwise.
+
+    A successful restore also issues guarded stamp/attempt-mark clears (t1875) —
+    `if-shell` dispatches too, but ones that can never replace a pane's process —
+    so the respawn is picked by its branch, not by being the only `if-shell`.
+    """
+    dispatches = [c for c in tmux.calls
+                  if c and c[0] == "if-shell" and "respawn-pane" in c[-1]]
+    assert len(dispatches) == 1, (
+        f"expected exactly one respawn if-shell, got {len(dispatches)}")
     return dispatches[0]
 
 class TestPreflightsWriteNothing(_SwapMixin, unittest.TestCase):
@@ -565,7 +581,7 @@ class TestHookWinsTheLaunchRace(_SwapMixin, unittest.TestCase):
         self.assertEqual("RESTORED:7f3a2c1d|hook", result.line)
         self.assertNotIn("restore-abort", store.verbs(),
                          "rolling back here would kill a successfully restored agent")
-        self.assertEqual(1, len([c for c in tmux.calls if c and c[0] == "if-shell"]),
+        self.assertEqual(1, len(tmux.destructive()),
                          "no rollback respawn — the agent in that pane is the user's")
 
 
@@ -647,7 +663,7 @@ class TestRecordedPaneIsOnlyAHint(_SwapMixin, unittest.TestCase):
         })
         self.assertFalse(launched.called,
                          "our own live stand-in must be reused, not abandoned")
-        dispatches = [c for c in tmux.calls if c and c[0] == "if-shell"]
+        dispatches = tmux.destructive()
         self.assertEqual(1, len(dispatches),
                          "the stamp check and the respawn must travel as ONE dispatch")
         self.assertIn("%104", dispatches[0],
@@ -729,7 +745,221 @@ def _session(name: str = "aitasks", root: str | None = None) -> AitasksSession:
     return AitasksSession(session=name, project_root=path, project_name=path.name)
 
 
-class TestNoProjectSessionBootstrapsOne(_SwapMixin, unittest.TestCase):
+class _Server:
+    """A window-aware fake tmux server for the gone-pane launch (t1875).
+
+    `_ScriptedTmux` answers by format arity, which cannot follow a window that is
+    created, stamped, renamed and killed across a dozen calls. This one keeps
+    real pane state and interprets the handful of commands the launch, the
+    survivor guard and the rollback issue — including `if-shell -F` conditions,
+    so a guard that does not match really declines. A branch is a `;`-joined
+    sequence that ABORTS after a failing command, as tmux's does.
+
+    Knobs: ``unreachable`` (every call is rc -1), ``new_window_answer`` (replace
+    `new-window`'s answer AFTER it created the window — the lost-`-P` and
+    rc -1 shapes), ``new_window_creates`` (False: tmux created nothing),
+    ``respawn_fails`` (a `respawn-pane` inside a branch fails), ``after`` (a
+    callback run after each call, for races).
+    """
+
+    SERVER_PID = "9999"
+
+    def __init__(self, sessions=("aitasks",)) -> None:
+        self.calls: list[list[str]] = []
+        self.panes: dict[str, dict] = {}
+        self.sessions = list(sessions)
+        self._next, self._next_win, self._next_pid = 900, 50, 51000
+        self.unreachable = False
+        self.new_window_answer = None
+        self.new_window_creates = True
+        self.respawn_fails = False
+        self.after = None
+
+    # -- construction --------------------------------------------------------
+    def add(self, session: str, window: str, *, pane_id: str | None = None,
+            dead: bool = False, **options: str) -> str:
+        if pane_id is None:
+            pane_id = f"%{self._next}"
+            self._next += 1
+        self._next_win += 1
+        self._next_pid += 1
+        pane = {"pane_id": pane_id, "pane_pid": str(self._next_pid),
+                "session_name": session, "window_name": window,
+                "window_id": f"@{self._next_win}", "pane_dead": "1" if dead else "0",
+                "pane_current_path": "/tmp", "start": ""}
+        pane.update(options)
+        self.panes[pane_id] = pane
+        return pane_id
+
+    def windows_named(self, name: str) -> list[str]:
+        return [p["pane_id"] for p in self.panes.values() if p["window_name"] == name]
+
+    # -- formats and conditions ----------------------------------------------
+    def _render(self, fmt: str, pane: dict | None) -> str:
+        def sub(m):
+            key = m.group(1)
+            if key == "pid":
+                return self.SERVER_PID
+            return (pane or {}).get(key, "")
+        return re.sub(r"#\{([@a-z_]+)\}", sub, fmt)
+
+    def _cond(self, cond: str, pane: dict) -> bool:
+        m = re.fullmatch(r"#\{&&:#\{pane_dead\},(.*)\}", cond)
+        if m:
+            return pane.get("pane_dead") == "1" and self._cond(m.group(1), pane)
+        m = re.fullmatch(r"#\{==:#\{([@a-z_]+)\},(.*)\}", cond)
+        assert m, f"unsupported condition {cond!r}"
+        return pane.get(m.group(1), "") == m.group(2)
+
+    @staticmethod
+    def _unquote(s: str) -> str:
+        if s.startswith('"') and s.endswith('"'):
+            return s[1:-1].replace('\\"', '"').replace("\\$", "$").replace("\\\\", "\\")
+        return s
+
+    def _kill_window(self, pane: dict) -> None:
+        wid = pane["window_id"]
+        for pid in [k for k, p in self.panes.items() if p["window_id"] == wid]:
+            del self.panes[pid]
+
+    def _exec(self, cmd: str) -> bool:
+        verb, _, rest = cmd.partition(" ")
+        parts = rest.split()
+        if verb == "set-option":
+            pane = self.panes.get(parts[2])
+            if pane is None:
+                return False
+            if parts[0] == "-pu":
+                pane.pop(parts[3], None)
+            else:
+                pane[parts[3]] = parts[4]
+            return True
+        if verb == "rename-window":
+            _, target, name = rest.split(" ", 2)
+            pane = self.panes.get(target)
+            if pane is None:
+                return False
+            for p in self.panes.values():
+                if p["window_id"] == pane["window_id"]:
+                    p["window_name"] = self._unquote(name)
+            return True
+        if verb in ("kill-window", "kill-pane"):
+            pane = self.panes.get(parts[1])
+            if pane is None:
+                return False
+            self._kill_window(pane)
+            return True
+        if verb == "respawn-pane":
+            if self.respawn_fails:
+                return False
+            pane = self.panes.get(parts[parts.index("-t") + 1])
+            if pane is None:
+                return False
+            self._next_pid += 1
+            pane["pane_pid"] = str(self._next_pid)
+            pane["pane_dead"] = "0"
+            pane["start"] = rest.split(" ", parts.index("-t") + 2)[-1]
+            return True
+        raise AssertionError(f"unsupported branch command {cmd!r}")
+
+    # -- the gateway ---------------------------------------------------------
+    def run(self, args, timeout=None):
+        args = list(args)
+        self.calls.append(args)
+        try:
+            return self._run(args)
+        finally:
+            if self.after is not None:
+                self.after(self, args)
+
+    def _run(self, args):
+        if self.unreachable:
+            return -1, ""
+        verb = args[0]
+        if verb == "display-message":
+            pane = self.panes.get(args[3])
+            if pane is None:
+                return 1, ""
+            return 0, self._render(args[4], pane)
+        if verb == "list-panes":
+            fmt = args[-1]
+            if "-a" in args:
+                rows = list(self.panes.values())
+            else:
+                target = args[args.index("-t") + 1]
+                assert target.startswith("=") and target.endswith(":"), target
+                rows = [p for p in self.panes.values()
+                        if p["session_name"] == target[1:-1]]
+            return 0, "\n".join(self._render(fmt, p) for p in rows)
+        if verb == "list-windows":
+            target = args[args.index("-t") + 1]
+            assert target.startswith("=") and target.endswith(":"), target
+            seen, rows = set(), []
+            for p in self.panes.values():
+                if p["session_name"] == target[1:-1] and p["window_id"] not in seen:
+                    seen.add(p["window_id"])
+                    rows.append(self._render(args[-1], p))
+            return 0, "\n".join(rows)
+        if verb == "new-window":
+            target = args[args.index("-t") + 1]
+            session = target.lstrip("=").rstrip(":")
+            if not self.new_window_creates or session not in self.sessions:
+                return 1, ""
+            pane_id = self.add(session, args[args.index("-n") + 1])
+            self.panes[pane_id]["start"] = args[-1]
+            fmt = args[args.index("-F") + 1]
+            if self.new_window_answer is not None:
+                return self.new_window_answer
+            return 0, self._render(fmt, self.panes[pane_id])
+        if verb == "set-option":
+            return (0, "") if self._exec(" ".join(args)) else (1, "")
+        if verb == "if-shell":
+            pane = self.panes.get(args[3])
+            if pane is None or not self._cond(args[4], pane):
+                return 0, ""
+            for cmd in args[5].split(" ; "):
+                if not self._exec(cmd):
+                    break
+            return 0, ""
+        raise AssertionError(f"unsupported tmux call {args!r}")
+
+
+#: `_rec()`'s id, and the nonce every `restore-begin` below mints.
+_RID, _NONCE = "7f3a2c1d", "deadbeef"
+_ATTEMPT = f"aitask-restore-{_RID}-{_NONCE}"
+_MARK = f"{_RID}:{_NONCE}"
+_ENV = {"AITASK_RESTORE_RECORD": _RID, "AITASK_RESTORE_NONCE": _NONCE}
+
+
+class _LaunchHarness(_SwapMixin):
+    """Drives `_launch_into_new_window` against a `_Server`."""
+
+    def _launch(self, server=None, *, sessions=None, boot=("", "stale_path"),
+                env=None, spawn_effect=None, discover=None):
+        server = server or _Server()
+        self.swap_tmux(server)
+        self.spawn = unittest.mock.Mock(return_value="%999", side_effect=spawn_effect)
+        found = [_session()] if sessions is None else sessions
+        disc = discover or unittest.mock.Mock(return_value=found)
+        self.bootstrap = unittest.mock.Mock(return_value=boot)
+        with unittest.mock.patch.object(agent_restore, "discover_aitasks_sessions", disc), \
+             unittest.mock.patch.object(agent_restore, "_bootstrap_project_session",
+                                        self.bootstrap), \
+             unittest.mock.patch.object(agent_restore, "maybe_spawn_minimonitor",
+                                        self.spawn), \
+             _EnvGuard(AITASKS_TEST_MODE="1", AITASKS_RESTORE_FAIL_AT=None):
+            result = agent_restore._launch_into_new_window(
+                _rec(), "claude --resume sess-abc", dict(env or _ENV))
+        self.server = server
+        return result
+
+    def new_window_argv(self) -> list[str]:
+        calls = [c for c in self.server.calls if c[0] == "new-window"]
+        self.assertEqual(1, len(calls), "exactly one window is created per attempt")
+        return calls[0]
+
+
+class TestNoProjectSessionBootstrapsOne(_LaunchHarness, unittest.TestCase):
     """`_launch_into_new_window` when no tmux session exists for the root (t1784).
 
     After a tmux server restart nothing may be attributed to the record's
@@ -742,97 +972,60 @@ class TestNoProjectSessionBootstrapsOne(_SwapMixin, unittest.TestCase):
     after a create was refused. `discover_aitasks_sessions` falls back to the
     `AITASKS_PROJECT_<session>` registry, so a foreign session CAN be attributed
     to this root through it.
-
-    `_bootstrap_project_session` is patched with ``create=True`` so that, run
-    against code that predates it, these tests exercise the real unfixed routing
-    and fail on BEHAVIOUR rather than erroring on a missing attribute.
     """
 
-    ENV = {"AITASK_RESTORE_RECORD": "7f3a2c1d"}
-
-    def _launch(self, lookups, boot=("", "")):
-        self.swap_tmux(_FakeTmux(out="agent-pick-1705\n"))    # answers list-windows
+    def _boot(self, lookups, boot=("", "")):
         discover = unittest.mock.Mock(side_effect=[list(x) for x in lookups])
-        bootstrap = unittest.mock.Mock(return_value=boot)
-        launch = unittest.mock.Mock(return_value=(51000, None))
-        # The companion spawn (t1851) reaches the real tmux gateway in
-        # `agent_launch_utils`, which `swap_tmux` does not cover — so it is
-        # always stubbed here. `TestNewWindowRestoreSpawnsCompanion` asserts it.
-        spawn = unittest.mock.Mock(return_value="%901")
-        with unittest.mock.patch.object(agent_restore, "discover_aitasks_sessions", discover), \
-             unittest.mock.patch.object(agent_restore, "_bootstrap_project_session",
-                                        bootstrap, create=True), \
-             unittest.mock.patch.object(agent_restore, "launch_in_tmux", launch), \
-             unittest.mock.patch.object(agent_restore, "resolve_pane_id_by_pid",
-                                        return_value="%900"), \
-             unittest.mock.patch.object(agent_restore, "maybe_spawn_minimonitor",
-                                        spawn, create=True):
-            result = agent_restore._launch_into_new_window(
-                _rec(), "claude --resume sess-abc", self.ENV)
-        self.spawn = spawn
-        return result, discover, bootstrap, launch
+        result = self._launch(discover=discover, boot=boot)
+        return result, discover
 
     def test_an_attributed_session_is_used_without_bootstrapping(self):
-        result, _, bootstrap, launch = self._launch([[_session()]])
-        self.assertEqual(("%900", 51000, ""), result)
-        self.assertFalse(bootstrap.called,
+        result, _ = self._boot([[_session()]])
+        self.assertEqual("", result[2])
+        self.assertFalse(self.bootstrap.called,
                          "a session already attributed to the root needs no bootstrap")
-        self.assertEqual("aitasks", launch.call_args.args[1].session)
+        argv = self.new_window_argv()
+        self.assertEqual("=aitasks:", argv[argv.index("-t") + 1])
 
     def test_no_session_bootstraps_the_projects_own_and_launches_into_it(self):
-        result, _, bootstrap, launch = self._launch(
-            [[], [_session()]], boot=("aitasks", ""))
-        self.assertEqual(("%900", 51000, ""), result,
-                         "a project with no tmux session must still restore (t1784)")
-        bootstrap.assert_called_once_with(_ROOT)
-        cfg = launch.call_args.args[1]
-        self.assertEqual("aitasks", cfg.session)
-        self.assertTrue(cfg.new_window)
-        self.assertFalse(cfg.new_session,
-                         "the bootstrap created the session; the launch only adds a window")
-        self.assertEqual(_ROOT, cfg.cwd)
+        result, _ = self._boot([[], [_session()]], boot=("aitasks", ""))
+        self.assertEqual("", result[2], "a project with no tmux session must still restore (t1784)")
+        self.bootstrap.assert_called_once_with(_ROOT)
+        argv = self.new_window_argv()
+        self.assertEqual("=aitasks:", argv[argv.index("-t") + 1])
+        self.assertEqual(_ROOT, argv[argv.index("-c") + 1])
 
     def test_a_taken_session_name_is_refused_and_named(self):
-        result, discover, _, launch = self._launch(
-            [[], [], []], boot=("", "session_name_taken:aitasks"))
+        result, discover = self._boot([[], [], []], boot=("", "session_name_taken:aitasks"))
         self.assertEqual(
             ("", 0, f"no_session_for_root:{_ROOT}|bootstrap:session_name_taken:aitasks"),
             result)
-        self.assertFalse(launch.called)
+        self.assertEqual([], [c for c in self.server.calls if c[0] == "new-window"])
         self.assertEqual(1, discover.call_count,
                          "a refused create must not be followed by a second lookup")
 
     def test_ownership_not_attribution_after_a_refused_create(self):
-        """The clobbered-registry shape.
-
-        Had anything re-pointed `AITASKS_PROJECT_aitasks` at this root, a
-        re-discovery WOULD attribute the foreign `aitasks` session to it. The
-        restore must still refuse: it did not create that session.
-        """
-        result, _, _, launch = self._launch(
-            [[], [_session()]], boot=("", "session_name_taken:aitasks"))
-        self.assertFalse(launch.called,
-                         "a session this call did not create is never launched into")
+        """The clobbered-registry shape: a foreign `aitasks` session re-attributed
+        to this root must still be refused — this call did not create it."""
+        result, _ = self._boot([[], [_session()]], boot=("", "session_name_taken:aitasks"))
+        self.assertEqual([], [c for c in self.server.calls if c[0] == "new-window"])
         self.assertTrue(result[2].startswith(f"no_session_for_root:{_ROOT}|"))
 
     def test_a_created_session_attributed_elsewhere_is_not_used(self):
-        result, _, _, launch = self._launch(
-            [[], [_session(root="/somewhere/else")]], boot=("aitasks", ""))
-        self.assertFalse(launch.called)
+        result, _ = self._boot([[], [_session(root="/somewhere/else")]], boot=("aitasks", ""))
+        self.assertEqual([], [c for c in self.server.calls if c[0] == "new-window"])
         self.assertEqual("", result[0])
         self.assertIn("|bootstrap:created aitasks", result[2])
 
     def test_a_stale_project_root_names_the_cause(self):
-        result, _, _, launch = self._launch([[], []], boot=("", "stale_path"))
-        self.assertFalse(launch.called)
+        result, _ = self._boot([[], []], boot=("", "stale_path"))
         self.assertEqual(
             ("", 0, f"no_session_for_root:{_ROOT}|bootstrap:stale_path"), result)
 
     def test_an_unreadable_default_session_is_refused_and_named(self):
         """t1811: no session under a guessed name; the shape reaches `last_error`."""
-        result, discover, _, launch = self._launch(
-            [[], []], boot=("", "default_session_unreadable:block_scalar"))
-        self.assertFalse(launch.called)
+        result, discover = self._boot([[], []],
+                                      boot=("", "default_session_unreadable:block_scalar"))
         self.assertEqual(
             ("", 0, f"no_session_for_root:{_ROOT}"
                     "|bootstrap:default_session_unreadable:block_scalar"),
@@ -840,69 +1033,44 @@ class TestNoProjectSessionBootstrapsOne(_SwapMixin, unittest.TestCase):
         self.assertEqual(1, discover.call_count)
 
 
-class TestNewWindowRestoreSpawnsCompanion(_SwapMixin, unittest.TestCase):
+class TestNewWindowRestoreSpawnsCompanion(_LaunchHarness, unittest.TestCase):
     """A new-window restore gets the minimonitor companion a normal launch gets (t1851).
 
-    Every launch path follows `launch_in_tmux` with `maybe_spawn_minimonitor`;
-    the gone-pane restore did not, so a restored agent came back alone. The
-    companion must follow the RESTORED agent by identity — the pane resolved from
-    the launched pid — not whichever pane is active when the helper looks. A
-    same-pane restore keeps its window, and its companion, and spawns nothing.
-
-    `maybe_spawn_minimonitor` is patched with ``create=True`` so that, against
-    code that never imported it, these tests fail on behaviour.
+    The companion must follow the RESTORED agent by identity — the launched pane
+    — not whichever pane is active when the helper looks. A same-pane restore
+    keeps its window, and its companion, and spawns nothing.
     """
 
-    ENV = {"AITASK_RESTORE_RECORD": "7f3a2c1d"}
-
-    def _launch(self, *, launch_answer=(51000, None), sessions=None,
-                spawn_effect=None):
-        self.swap_tmux(_FakeTmux(out="agent-pick-1705\n"))    # answers list-windows
-        sessions = [_session()] if sessions is None else sessions
-        launch = unittest.mock.Mock(return_value=launch_answer)
-        spawn = unittest.mock.Mock(return_value="%901", side_effect=spawn_effect)
-        with unittest.mock.patch.object(agent_restore, "discover_aitasks_sessions",
-                                        return_value=sessions), \
-             unittest.mock.patch.object(agent_restore, "_bootstrap_project_session",
-                                        return_value=("", "stale_path"), create=True), \
-             unittest.mock.patch.object(agent_restore, "launch_in_tmux", launch), \
-             unittest.mock.patch.object(agent_restore, "resolve_pane_id_by_pid",
-                                        return_value="%900"), \
-             unittest.mock.patch.object(agent_restore, "maybe_spawn_minimonitor",
-                                        spawn, create=True):
-            result = agent_restore._launch_into_new_window(
-                _rec(), "claude --resume sess-abc", self.ENV)
-        return result, launch, spawn
-
     def test_a_new_window_launch_spawns_the_companion_once(self):
-        result, launch, spawn = self._launch()
-        self.assertEqual(("%900", 51000, ""), result)
-        self.assertEqual(1, spawn.call_count,
+        pane, pid, err = self._launch()
+        self.assertEqual("", err)
+        self.assertEqual(1, self.spawn.call_count,
                          "a restored agent must not come back alone (t1851)")
-        cfg = launch.call_args.args[1]
-        self.assertEqual((cfg.session, cfg.window), spawn.call_args.args,
-                         "the companion goes into the window the agent was launched in")
-        self.assertEqual("%900", spawn.call_args.kwargs.get("agent_pane"),
+        self.assertEqual(("aitasks", "agent-pick-1705"), self.spawn.call_args.args,
+                         "the companion goes into the agent's window, by its final name")
+        self.assertEqual(pane, self.spawn.call_args.kwargs.get("agent_pane"),
                          "the companion must follow the restored pane, not the active one")
-        self.assertEqual(Path(_ROOT), spawn.call_args.kwargs.get("project_root"),
+        self.assertEqual(Path(_ROOT), self.spawn.call_args.kwargs.get("project_root"),
                          "the detached restore's cwd is not the project")
 
     def test_no_companion_when_the_launch_fails(self):
-        result, _, spawn = self._launch(launch_answer=(None, "tmux said no"))
-        self.assertEqual(("", 0, "tmux said no"), result)
-        self.assertFalse(spawn.called)
+        server = _Server()
+        server.new_window_creates = False
+        _, _, err = self._launch(server)
+        self.assertEqual("launch:rc=1", err)
+        self.assertFalse(self.spawn.called)
 
     def test_no_companion_when_no_session_is_usable(self):
-        result, launch, spawn = self._launch(sessions=[])
-        self.assertTrue(result[2].startswith("no_session_for_root:"))
-        self.assertFalse(launch.called)
-        self.assertFalse(spawn.called)
+        _, _, err = self._launch(sessions=[])
+        self.assertTrue(err.startswith("no_session_for_root:"))
+        self.assertFalse(self.spawn.called)
 
     def test_a_companion_failure_does_not_fail_the_restore(self):
         """The agent is already running: a companion error must not roll it back."""
-        result, _, spawn = self._launch(spawn_effect=RuntimeError("boom"))
-        self.assertTrue(spawn.called)
-        self.assertEqual(("%900", 51000, ""), result)
+        pane, pid, err = self._launch(spawn_effect=RuntimeError("boom"))
+        self.assertTrue(self.spawn.called)
+        self.assertEqual("", err)
+        self.assertTrue(pane.startswith("%"))
 
     def test_a_same_pane_restore_spawns_no_companion(self):
         self.swap_store(_RecordingStore(answers={
@@ -918,13 +1086,352 @@ class TestNewWindowRestoreSpawnsCompanion(_SwapMixin, unittest.TestCase):
                                         return_value="claude --resume sess-abc"), \
              unittest.mock.patch.object(agent_restore, "_launch_into_new_window",
                                         new_window), \
-             unittest.mock.patch.object(agent_restore, "maybe_spawn_minimonitor",
-                                        spawn, create=True), \
+             unittest.mock.patch.object(agent_restore, "maybe_spawn_minimonitor", spawn), \
              unittest.mock.patch.object(ops, "restore_ack_grace", return_value=0):
             agent_restore.restore("7f3a2c1d")
         self.assertFalse(new_window.called, "the stand-in's own pane was reused")
         self.assertFalse(spawn.called,
                          "a same-pane restore keeps its companion; a second one is a duplicate")
+
+
+class TestNewWindowAttemptIdentity(_LaunchHarness, unittest.TestCase):
+    """The gone-pane launch never leaves an agent window nobody can identify (t1875).
+
+    Each partial-success shape — `-P` lost, rc -1 after the server acted, the
+    stamp not taking — either RECORDS the window (returns its pane) or REMOVES
+    it with a name-guarded kill, and a kill that is not verified is named.
+    """
+
+    def _seamed(self, stages: str, server=None):
+        server = server or _Server()
+        with _EnvGuard(AITASKS_TEST_MODE="1", AITASKS_RESTORE_FAIL_AT=stages):
+            self.swap_tmux(server)
+            self.spawn = unittest.mock.Mock(return_value="%999")
+            with unittest.mock.patch.object(agent_restore, "discover_aitasks_sessions",
+                                            return_value=[_session()]), \
+                 unittest.mock.patch.object(agent_restore, "maybe_spawn_minimonitor",
+                                            self.spawn):
+                result = agent_restore._launch_into_new_window(
+                    _rec(), "claude --resume sess-abc", dict(_ENV))
+        self.server = server
+        return result
+
+    def test_a_clean_launch_is_created_under_the_attempt_name_then_marked_and_renamed(self):
+        pane, pid, err = self._launch()
+        self.assertEqual("", err)
+        argv = self.new_window_argv()
+        self.assertEqual(_ATTEMPT, argv[argv.index("-n") + 1],
+                         "tmux must name the window atomically with its creation")
+        self.assertNotIn("-d", argv, "the restored window is selected, as always")
+        p = self.server.panes[pane]
+        self.assertEqual(_RID, p.get("@aitask_frozen"), "stamped for the rollback")
+        self.assertEqual(_MARK, p.get("@aitask_restore_attempt"),
+                         "marked: the claim that survives the rename")
+        self.assertEqual("agent-pick-1705", p["window_name"],
+                         "renamed to the `agent-` name monitor and companion key on")
+        self.assertEqual(int(p["pane_pid"]), pid)
+
+    def test_lost_P_output_is_identified_by_name_and_recorded(self):
+        server = _Server()
+        server.new_window_answer = (0, "")
+        pane, _, err = self._launch(server)
+        self.assertEqual("", err, "the window exists: it is recorded, not rolled back")
+        self.assertEqual([pane], server.windows_named("agent-pick-1705"))
+
+    def test_an_uncertain_rc_after_the_server_acted_is_identified_by_name(self):
+        server = _Server()
+        server.new_window_answer = (-1, "")
+        pane, _, err = self._launch(server)
+        self.assertEqual("", err)
+        self.assertEqual(1, len(server.panes), "one window, no duplicate")
+
+    def test_an_uncertain_rc_with_nothing_created_is_a_plain_failure(self):
+        server = _Server()
+        server.new_window_creates = False
+        self.assertEqual(("", 0, "launch:rc=1"), self._launch(server))
+
+    def test_an_unanswerable_lookup_names_the_attempt(self):
+        pane, pid, err = self._seamed("identify,lookup")
+        self.assertEqual(("", 0), (pane, pid))
+        self.assertEqual(f"launch_uncertain:{_ATTEMPT}", err,
+                         "the window may exist: the error must name it, not pass as clean")
+        self.assertEqual([next(iter(self.server.panes))],
+                         self.server.windows_named(_ATTEMPT),
+                         "and the survivor stays identifiable by its attempt name")
+
+    def test_a_stamp_that_does_not_take_is_removed_by_name(self):
+        pane, _, err = self._seamed("stamp")
+        self.assertEqual(("", "stamp"), (pane, err))
+        self.assertEqual({}, self.server.panes, "the unstamped window was killed")
+        kills = [c for c in self.server.calls if c[0] == "if-shell" and "kill-window" in c[-1]]
+        self.assertEqual([f"#{{==:#{{window_name}},{_ATTEMPT}}}"], [k[4] for k in kills],
+                         "the kill is guarded on this attempt's own name")
+
+    def test_a_kill_that_does_not_take_is_named(self):
+        pane, _, err = self._seamed("stamp,cleanup")
+        self.assertEqual("", pane)
+        self.assertTrue(err.startswith("stamp|cleanup:present:seam|pane:%"), err)
+
+    def test_a_failed_rename_is_cosmetic(self):
+        server = _Server()
+        orig = server._exec
+
+        def no_rename(cmd):
+            return False if cmd.startswith("rename-window") else orig(cmd)
+        server._exec = no_rename
+        pane, _, err = self._launch(server)
+        self.assertEqual("", err, "the agent is tracked by pane and marks, not by name")
+        self.assertEqual(_ATTEMPT, server.panes[pane]["window_name"])
+
+    def test_abandon_leaves_the_crash_end_state(self):
+        pane, _, err = self._seamed("abandon")
+        self.assertEqual(("", "abandon"), (pane, err))
+        (p,) = self.server.panes.values()
+        self.assertEqual((_RID, _MARK, "agent-pick-1705"),
+                         (p.get("@aitask_frozen"), p.get("@aitask_restore_attempt"),
+                          p["window_name"]))
+
+
+def _survivor(server, *, pane_id=None, ready="", dead=False, mark=_MARK,
+              window="agent-pick-1705", stamp=_RID):
+    opts = {"@aitask_frozen": stamp} if stamp else {}
+    if mark:
+        opts["@aitask_restore_attempt"] = mark
+    if ready:
+        opts["@aitask_standin_ready"] = ready
+    return server.add("aitasks", window, pane_id=pane_id, dead=dead, **opts)
+
+
+class TestRestoreSurvivorGuard(_SwapMixin, unittest.TestCase):
+    """`restore()` refuses to launch past a restore survivor (t1875).
+
+    A survivor is an agent an earlier gone-pane attempt left running with no
+    record tracking it. It usually sits in ANOTHER pane — invisible to the
+    recorded-pane probe — and after a server restart it can sit at the very `%N`
+    the record remembers, stamped like the stand-in.
+    """
+
+    STORE = {
+        "restore-begin": (0, f"RESTORING:{_RID}|{_NONCE}"),
+        "restore-launched": (0, f"LAUNCHED:{_RID}"),
+        "restore-confirm": (0, f"LIVE:{_RID}|liveness"),
+        "restore-abort": (0, f"ABORTING:{_RID}"),
+        "standin-respawned": (0, f"FROZEN:{_RID}"),
+    }
+
+    def _restore(self, server, rec=None, *, reread=None, store=None):
+        self.store = self.swap_store(_RecordingStore(answers=dict(store or self.STORE)))
+        self.swap_tmux(server)
+        rec = rec or _rec(pane_id="%104")
+        with unittest.mock.patch.object(agent_restore, "_reread",
+                                        side_effect=reread or (lambda _id: rec)), \
+             unittest.mock.patch.object(agent_restore, "build_resume_argv",
+                                        return_value="claude --resume sess-abc"), \
+             unittest.mock.patch.object(agent_restore, "discover_aitasks_sessions",
+                                        return_value=[_session()]), \
+             unittest.mock.patch.object(agent_restore, "maybe_spawn_minimonitor",
+                                        return_value="%999"), \
+             unittest.mock.patch.object(ops, "restore_ack_grace", return_value=0), \
+             _EnvGuard(AITASKS_TEST_MODE="1", AITASKS_RESTORE_FAIL_AT=None):
+            return agent_restore.restore(_RID)
+
+    def _destructive(self, server):
+        return [c for c in server.calls
+                if c[0] in ("new-window", "respawn-pane")
+                or (c[0] == "if-shell" and ("respawn-pane" in c[-1] or "kill" in c[-1]))]
+
+    def test_a_live_survivor_in_another_pane_blocks_before_any_write(self):
+        server = _Server()
+        s = _survivor(server)
+        result = self._restore(server, _rec(pane_id=""))
+        self.assertEqual("restore_survivor", result.outcome)
+        self.assertEqual(
+            f"RESTORE_FAILED:{_RID}|restore_survivor:aitasks:agent-pick-1705|pane:{s}",
+            result.line)
+        self.assertEqual([], self.store.calls, "no lease, no state change")
+        self.assertEqual([], self._destructive(server), "no second agent, no kill")
+
+    def test_a_name_only_survivor_blocks(self):
+        server = _Server()
+        _survivor(server, mark="", stamp="", window=_ATTEMPT)
+        self.assertEqual("restore_survivor", self._restore(server, _rec(pane_id="")).outcome)
+
+    def test_an_equal_id_survivor_is_never_respawned_as_the_stand_in(self):
+        """The recorded `%104` came back as a survivor: stamped R, marked, no ready."""
+        server = _Server()
+        _survivor(server, pane_id="%104")
+        result = self._restore(server, _rec(pane_id="%104"))
+        self.assertEqual("restore_survivor", result.outcome)
+        self.assertEqual([], self._destructive(server),
+                         "respawn-pane -k over a running agent is the bug")
+        self.assertEqual([], self.store.calls)
+
+    def test_a_settled_viewer_with_a_stale_mark_is_not_a_survivor(self):
+        """`@aitask_standin_ready == R` is the pane's own proof it is the viewer."""
+        server = _Server()
+        _survivor(server, pane_id="%104", ready=_RID)
+        result = self._restore(server, _rec(pane_id="%104"))
+        self.assertNotEqual("restore_survivor", result.outcome)
+        self.assertEqual(1, len([c for c in server.calls
+                                 if c[0] == "if-shell" and "respawn-pane" in c[-1]]),
+                         "the same-pane branch runs")
+
+    def test_another_records_survivor_does_not_block(self):
+        server = _Server()
+        _survivor(server, mark="0badf00d:12345678", stamp="0badf00d")
+        self.assertNotEqual("restore_survivor",
+                            self._restore(server, _rec(pane_id="")).outcome)
+
+    def test_a_dead_survivor_is_removed_and_does_not_block(self):
+        server = _Server()
+        s = _survivor(server, dead=True)
+        result = self._restore(server, _rec(pane_id=""))
+        self.assertNotEqual("restore_survivor", result.outcome)
+        self.assertNotIn(s, server.panes, "the dead attempt window was removed")
+
+    def test_an_unreadable_server_fails_closed(self):
+        server = _Server()
+        server.unreachable = True
+        result = self._restore(server, _rec(pane_id=""))
+        self.assertEqual(f"RESTORE_FAILED:{_RID}|preflight:tmux unreachable", result.line)
+        self.assertEqual([], self.store.calls)
+
+    def test_a_survivor_appearing_before_the_lease_is_caught_under_it(self):
+        """A concurrent restore abandoned an attempt between the two scans."""
+        server = _Server()
+        state = {"scans": 0}
+
+        def after(srv, args):
+            if args[0] == "list-panes" and "-a" in args:
+                state["scans"] += 1
+                if state["scans"] == 1:
+                    _survivor(srv)
+        server.after = after
+        result = self._restore(server, _rec(pane_id=""))
+        self.assertEqual("restore_survivor", result.outcome)
+        self.assertEqual([], [c for c in server.calls if c[0] == "new-window"])
+        self.assertIn("restore-abort", self.store.verbs(), "the lease is given back")
+
+
+class TestNewWindowRollback(_SwapMixin, unittest.TestCase):
+    """A rolled-back new-window restore puts the stand-in into THAT window (t1875)."""
+
+    STORE = TestRestoreSurvivorGuard.STORE
+
+    def _restore(self, server, store_answers, reread):
+        self.store = self.swap_store(_RecordingStore(answers=store_answers))
+        self.swap_tmux(server)
+        with unittest.mock.patch.object(agent_restore, "_reread", side_effect=reread), \
+             unittest.mock.patch.object(agent_restore, "build_resume_argv",
+                                        return_value="claude --resume sess-abc"), \
+             unittest.mock.patch.object(agent_restore, "discover_aitasks_sessions",
+                                        return_value=[_session()]), \
+             unittest.mock.patch.object(agent_restore, "maybe_spawn_minimonitor",
+                                        return_value="%999"), \
+             unittest.mock.patch.object(ops, "restore_ack_grace", return_value=0), \
+             unittest.mock.patch.object(agent_sessions_mod(), "standin_command",
+                                        return_value="standin 7f3a2c1d"), \
+             _EnvGuard(AITASKS_TEST_MODE="1", AITASKS_RESTORE_FAIL_AT=None):
+            return agent_restore.restore(_RID)
+
+    def _mismatch(self, server):
+        """The hook reports a DIFFERENT session: a nonce-scoped `last_error`."""
+        frozen = _rec(pane_id="")
+        reads = iter([frozen])
+
+        def reread(_id):
+            try:
+                return next(reads)
+            except StopIteration:
+                return _rec(pane_id="", state="restoring",
+                            last_error=f"{_NONCE}:session_mismatch")
+        store = dict(TestRestoreSurvivorGuard.STORE)
+        return self._restore(server, store, reread)
+
+    def _respawn_rows(self):
+        return [c for c in self.store.calls if c and c[0] == "standin-respawned"]
+
+    def test_a_mismatch_rolls_back_INTO_the_new_window(self):
+        server = _Server()
+        result = self._mismatch(server)
+        self.assertEqual("session_mismatch", result.outcome)
+        (pane_id,) = server.panes
+        (row,) = self._respawn_rows()
+        self.assertEqual(pane_id, row[row.index("--pane") + 1],
+                         "the record must track the new window, not the gone pane")
+        p = server.panes[pane_id]
+        self.assertEqual("standin 7f3a2c1d", self._unquoted(p["start"]),
+                         "the stand-in replaced the agent in that window")
+        self.assertIsNone(p.get("@aitask_restore_attempt"),
+                          "the verified stand-in no longer carries the attempt mark")
+
+    def _unquoted(self, s):
+        return s.strip('"')
+
+    def test_a_respawn_that_fails_after_the_unsets_keeps_the_attempt_mark(self):
+        """`respawn_if_stamped` runs its `unset` BEFORE `respawn-pane`. If the mark
+        were one of them, a failed respawn would strip the only claim of a
+        still-running agent; the rollback would then commit a gone-pane record."""
+        server = _Server()
+        server.respawn_fails = True
+        self._mismatch(server)
+        (pane_id,) = server.panes
+        p = server.panes[pane_id]
+        self.assertEqual(_MARK, p.get("@aitask_restore_attempt"),
+                         "the survivor keeps its claim")
+        (row,) = self._respawn_rows()
+        self.assertEqual("", row[row.index("--pane") + 1])
+        for c in server.calls:
+            if c[0] == "if-shell" and "respawn-pane" in c[-1]:
+                self.assertNotIn("@aitask_restore_attempt", c[-1],
+                                 "the mark is never in the pre-respawn unset")
+        # ...and a retry is refused rather than launching a second agent.
+        before = len([c for c in server.calls if c[0] == "new-window"])
+        server.respawn_fails = False
+        result = TestRestoreSurvivorGuard._restore(self, server, _rec(pane_id=""))
+        self.assertEqual("restore_survivor", result.outcome)
+        self.assertEqual(before, len([c for c in server.calls if c[0] == "new-window"]))
+
+    def test_a_recycled_id_during_the_clear_keeps_the_strangers_mark(self):
+        """A server restart between the verified respawn and the clear hands the
+        `%N` to another record's attempt: the value guard must decline."""
+        server = _Server()
+
+        def after(srv, args):
+            if args[0] == "if-shell" and "respawn-pane" in args[-1]:
+                pane = srv.panes.get(args[3])
+                if pane is not None and "@aitask_respawn_token" in pane:
+                    pane["@aitask_restore_attempt"] = "0badf00d:12345678"
+                    pane["@aitask_frozen"] = "0badf00d"
+        server.after = after
+        self._mismatch(server)
+        (p,) = server.panes.values()
+        self.assertEqual("0badf00d:12345678", p.get("@aitask_restore_attempt"))
+        self.assertEqual("0badf00d", p.get("@aitask_frozen"))
+
+    def test_the_success_clear_spares_a_recycled_strangers_marks(self):
+        server = _Server()
+        pane = server.add("aitasks", "agent-x", **{
+            "@aitask_frozen": "0badf00d", "@aitask_restore_attempt": "0badf00d:12345678"})
+        self.swap_tmux(server)
+        agent_restore._clear_frozen_stamp(pane, _RID, _NONCE)
+        p = server.panes[pane]
+        self.assertEqual(("0badf00d", "0badf00d:12345678"),
+                         (p.get("@aitask_frozen"), p.get("@aitask_restore_attempt")))
+
+    def test_the_success_clear_retires_our_own_marks(self):
+        server = _Server()
+        pane = server.add("aitasks", "agent-x", **{
+            "@aitask_frozen": _RID, "@aitask_restore_attempt": _MARK})
+        self.swap_tmux(server)
+        agent_restore._clear_frozen_stamp(pane, _RID, _NONCE)
+        p = server.panes[pane]
+        self.assertEqual((None, None),
+                         (p.get("@aitask_frozen"), p.get("@aitask_restore_attempt")))
+
+
+def agent_sessions_mod():
+    return agent_restore.agent_sessions
 
 
 class TestBootstrapHelper(unittest.TestCase):

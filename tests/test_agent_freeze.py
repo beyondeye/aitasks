@@ -82,7 +82,12 @@ class _FakeTmux:
         self.respawn_ok = True
         self.set_option_ok = True
         self.capture_rc = 0
+        # `list_panes_ok` fails the TARGETED listings (the sibling count, a
+        # session enumeration); `list_panes_all_ok` fails the whole-server
+        # `list-panes -a` scan (the restore-survivor guard, t1875) — two
+        # different questions a test may want to break separately.
         self.list_panes_ok = True
+        self.list_panes_all_ok = True
         self.kill_ok = True
         # `#{pid}` is SERVER-scoped: it expands for every pane, and — measured
         # on tmux 3.6a — even for a gone one. A test models a server restart by
@@ -193,7 +198,10 @@ class _FakeTmux:
         the one its record names — the case where counting siblings by the
         stored window name and killing by pane id disagree.
         """
-        if not self.list_panes_ok:
+        if "-a" in args:
+            if not self.list_panes_all_ok:
+                return 1, ""
+        elif not self.list_panes_ok:
             return 1, ""
         target = self._target(args)
         if target.startswith("%"):
@@ -2239,6 +2247,86 @@ class DropVerbTests(_FreezeTestCase):
         line = agent_freeze.drop_record(self.rid)
         self.assertEqual(line, f"DROP_FAILED:{self.rid}|verify")
         self.assertIsNotNone(self.store.sf.by_id(self.rid))
+        self.assertTrue(self._capture_dir().exists())
+
+    # -- restore survivors (t1875) ------------------------------------------
+
+    MARK_OPTION = "@aitask_restore_attempt"
+
+    def _survivor(self, pane_id="%7", *, mark=None, window="agent-pick-1705",
+                  stamp=None, ready=""):
+        self.panes[pane_id] = {
+            "session_name": "aitasks", "window_name": window,
+            "pane_id": pane_id, "pane_pid": "7777", "pane_dead": "0",
+            "pane_current_path": str(self.root),
+            agent_freeze.FROZEN_OPTION: self.rid if stamp is None else stamp,
+            agent_freeze.STANDIN_READY_OPTION: ready,
+            self.MARK_OPTION: f"{self.rid}:deadbeef" if mark is None else mark,
+        }
+        return pane_id
+
+    def _assert_refused_and_kept(self, line, pane_id):
+        self.assertEqual(
+            f"DROP_REFUSED:{self.rid}|restore_survivor:aitasks:"
+            f"{self.panes[pane_id]['window_name']}|pane:{pane_id}", line)
+        self.assertNotIn("drop", self.store.verbs(), "the record must survive")
+        self.assertIsNotNone(self.store.sf.by_id(self.rid))
+        self.assertTrue(self._capture_dir().exists(), "and its capture")
+        self.assertEqual([], self.tmux.calls_of("kill-pane")
+                         + self.tmux.calls_of("kill-window"))
+        self.assertEqual([], [c for c in self.tmux.calls_of("if-shell")
+                              if "kill" in c[-1]], "no kill of any kind")
+        self.assertIn(pane_id, self.panes, "the running agent is untouched")
+        self.assertIn("lease-release", self.store.verbs(), "the claim is given back")
+
+    def test_a_survivor_in_another_pane_blocks_the_delete(self):
+        """The ordinary crash shape: the viewer is gone, the agent runs elsewhere.
+        Without the scan drop kills nothing and then deletes the record — leaving
+        a running agent with no record at all."""
+        self._freeze()
+        self.panes.pop(AGENT_PANE)                  # the viewer died with its window
+        s = self._survivor()
+        self.store.calls.clear()
+        self.tmux.calls.clear()
+        self._assert_refused_and_kept(agent_freeze.drop_record(self.rid), s)
+
+    def test_a_name_only_survivor_blocks_the_delete(self):
+        self._freeze()
+        self.panes.pop(AGENT_PANE)
+        s = self._survivor(mark="", stamp="",
+                           window=f"aitask-restore-{self.rid}-deadbeef")
+        self.store.calls.clear()
+        self.tmux.calls.clear()
+        self._assert_refused_and_kept(agent_freeze.drop_record(self.rid), s)
+
+    def test_an_equal_id_survivor_is_never_killed(self):
+        """The recorded `%N` is a survivor: stamped like the stand-in, marked,
+        no ready mark. The stamp-guarded kill would close a running agent."""
+        self._freeze()
+        self.panes[AGENT_PANE][self.MARK_OPTION] = f"{self.rid}:deadbeef"
+        self.panes[AGENT_PANE][agent_freeze.STANDIN_READY_OPTION] = ""
+        self.store.calls.clear()
+        self.tmux.calls.clear()
+        self._assert_refused_and_kept(agent_freeze.drop_record(self.rid), AGENT_PANE)
+
+    def test_a_settled_viewer_with_a_stale_mark_is_still_dropped(self):
+        self._freeze()
+        self.panes[AGENT_PANE][self.MARK_OPTION] = f"{self.rid}:deadbeef"
+        self.panes[AGENT_PANE][agent_freeze.STANDIN_READY_OPTION] = self.rid
+        self.assertEqual(f"DROPPED:{self.rid}", agent_freeze.drop_record(self.rid))
+
+    def test_another_records_survivor_does_not_block(self):
+        self._freeze()
+        self._survivor(mark="0badf00d:deadbeef", stamp="0badf00d")
+        self.assertEqual(f"DROPPED:{self.rid}", agent_freeze.drop_record(self.rid))
+
+    def test_an_unreadable_survivor_scan_fails_closed(self):
+        self._freeze()
+        self.tmux.list_panes_all_ok = False
+        self.store.calls.clear()
+        line = agent_freeze.drop_record(self.rid)
+        self.assertEqual(f"DROP_FAILED:{self.rid}|preflight:tmux unreachable", line)
+        self.assertNotIn("drop", self.store.verbs())
         self.assertTrue(self._capture_dir().exists())
 
     # -- concurrency --------------------------------------------------------

@@ -357,6 +357,97 @@ class TestClassification(_Base):
             agent_reopen.gone_line(rec(), "stranded"))
 
 
+class TestRestoreSurvivors(_Base):
+    """A gone-pane RESTORE's leftover agent is never taken for a viewer (t1875).
+
+    The stamp alone reads such a pane as `stranded`, and `_adopt` then commits it
+    as the record's viewer WITHOUT respawning — the record says `frozen` while
+    the agent runs, and the next restore `respawn-pane -k`s it as a stand-in.
+    """
+
+    MARK = f"{RID}:deadbeef"
+
+    def survivor(self, *, pane_id=None, ready="", mark=MARK,
+                 window="agent-pick-1847", frozen=RID, dead=False) -> str:
+        p = self.world.add("aitasks", window, frozen=frozen, ready=ready,
+                           pane_id=pane_id, dead=dead)
+        if mark:
+            self.world.panes[p]["@aitask_restore_attempt"] = mark
+        return p
+
+    def kind(self):
+        claims = agent_reopen._claimed_panes()
+        return agent_reopen.classify_record(self.record(), claims.get(RID, []))[0]
+
+    def test_a_stamped_marked_agent_elsewhere_is_a_survivor_not_stranded(self):
+        self.record()["pane_id"] = ""
+        self.survivor()
+        self.assertEqual("survivor", self.kind())
+
+    def test_a_name_only_restore_attempt_is_a_survivor(self):
+        self.record()["pane_id"] = ""
+        self.survivor(mark="", frozen="", window=f"aitask-restore-{RID}-deadbeef")
+        self.assertEqual("survivor", self.kind())
+
+    def test_an_equal_id_survivor_is_not_tracked(self):
+        """After a server restart a survivor can hold exactly the recorded `%N`."""
+        self.survivor(pane_id="%1")
+        self.assertEqual("survivor", self.kind())
+
+    def test_a_settled_viewer_with_a_stale_mark_is_tracked(self):
+        """`@aitask_standin_ready == R` is the pane's own proof it is the viewer."""
+        self.survivor(pane_id="%1", ready=RID)
+        self.assertEqual("tracked", self.kind())
+
+    def test_a_dead_restore_pane_is_not_a_survivor(self):
+        self.record()["pane_id"] = ""
+        self.survivor(dead=True)
+        self.assertEqual("gone", self.kind())
+
+    def test_another_records_attempt_does_not_claim_this_one(self):
+        self.record()["pane_id"] = ""
+        self.survivor(mark=f"{OTHER}:deadbeef", frozen=OTHER)
+        self.assertEqual("gone", self.kind())
+
+    def test_reopen_refuses_a_survivor_and_touches_nothing(self):
+        self.record()["pane_id"] = ""
+        s = self.survivor()
+        before = dict(self.world.panes[s])
+        out = agent_reopen.reopen_one(RID, session="aitasks")
+        self.assertEqual(
+            f"REOPEN_FAILED:{RID}|restore_survivor:aitasks:agent-pick-1847|pane:{s}", out)
+        self.assertNotIn("standin-respawned", self.store.verbs(),
+                         "the running agent must never be committed as the viewer")
+        self.assertNotIn("lease-take", self.store.verbs(), "refused before the lease")
+        self.assertNotIn("new-window", self.world.verbs(), "and never duplicated")
+        self.assertEqual(before, self.world.panes[s])
+        self.assertEqual("", self.record()["pane_id"])
+
+    def test_reopen_refuses_an_equal_id_survivor_instead_of_pane_present(self):
+        s = self.survivor(pane_id="%1")
+        out = agent_reopen.reopen_one(RID)
+        self.assertTrue(out.startswith(f"REOPEN_FAILED:{RID}|restore_survivor:"), out)
+        self.assertTrue(out.endswith(f"|pane:{s}"))
+
+    def test_a_survivor_appearing_before_our_lease_is_refused_under_it(self):
+        self.record()["pane_id"] = ""
+        self.store.on_lease = lambda: self.survivor()
+        out = agent_reopen.reopen_one(RID, session="aitasks")
+        self.assertIn("|restore_survivor:", out)
+        self.assertEqual(["lease-take", "lease-release"],
+                         [v for v in self.store.verbs() if v.startswith("lease")])
+        self.assertNotIn("new-window", self.world.verbs())
+
+    def test_gone_lists_it_and_reopen_all_reports_it(self):
+        self.record()["pane_id"] = ""
+        self.survivor()
+        items, _ = agent_reopen.classify(ROOT)
+        self.assertEqual(["survivor"], [k for _r, k, _c in items])
+        lines = agent_reopen.reopen_all(ROOT, session="aitasks")
+        self.assertTrue(lines[0].startswith(f"REOPEN_FAILED:{RID}|restore_survivor:"))
+        self.assertEqual("REOPEN_ALL:0/1", lines[-1])
+
+
 # --- the fresh transaction ---------------------------------------------------
 
 

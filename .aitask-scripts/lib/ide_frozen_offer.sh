@@ -89,6 +89,8 @@ ide_offer_frozen_agents() {
         marker=""
         if [[ "${kinds[i]}" == stranded ]]; then
             marker="  (viewer open, untracked)"
+        elif [[ "${kinds[i]}" == survivor ]]; then
+            marker="  (an earlier restore's agent is still running, untracked)"
         elif [[ "${resumes[i]}" != ok && "${repicks[i]}" != ok ]]; then
             marker="  (view only)"
         fi
@@ -183,6 +185,13 @@ _ide_frozen_restore() {
             stranded)
                 skipped=$((skipped + 1))
                 echo "  ${windows[i]:-$id}: viewer open but not tracked — not restored; re-run 'ait ide'"
+                continue
+                ;;
+            survivor)
+                # t1875: an agent an earlier restore left running, that no record
+                # tracks. Restoring would start a second one on its session.
+                skipped=$((skipped + 1))
+                echo "  ${windows[i]:-$id}: an earlier restore's agent is still running, untracked — not restored; close that window, then re-run 'ait ide'"
                 continue
                 ;;
             error)

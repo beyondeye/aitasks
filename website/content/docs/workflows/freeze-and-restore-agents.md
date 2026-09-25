@@ -105,7 +105,13 @@ frozen agents are offered by their own `ait ide`, and all of them stay listed in
 `ait frozenagent`. A record marked `viewer open, untracked` has a viewer window
 the framework lost track of (an earlier attempt that did not finish): it is
 picked up rather than duplicated. **R** and **P** skip such a record, and say
-so, if picking it up fails.
+so, if picking it up fails. A record marked `an earlier restore's agent is
+still running, untracked` is different. A restore into a new window did not
+finish, and the agent it started is still running in a window the framework
+does not track. It is never mistaken for a viewer. Restore, re-pick and drop all
+refuse that record and name the window, because going ahead would start a second
+agent on the same session or delete the record while that agent runs. Close
+that window, then try again.
 
 Without a terminal — a script, or `ait ide` piped into something — nothing is
 asked: a one-line note says how many frozen agents are waiting. Pass
