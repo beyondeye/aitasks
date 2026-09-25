@@ -21,7 +21,7 @@ windows):
 | | old (`extract ∩ changed`) | `find_references` | `find_references`, bare root names demoted |
 |---|---|---|---|
 | references found | 3460 | 3792 | — |
-| drift windows with ≥1 overlap | 269 (28.0%) | 377 (39.3%) | exact strong / weak-only / lost counts recorded from the implemented path (see Verification) |
+| drift windows with ≥1 overlap | 269 (28.0%) | 377 (39.3%) | final (331 plans / 993 windows, implemented path): old 277 (27.9%) → strong 279 (28.1%); weak-only 155 (15.6%) = bare 112 + suffix 32 + both 11; downgraded 0; lost 2 (both `.md.j2` extract false positives) |
 
 - **Zero windows lost an overlap.** Every reference `extract()` found that
   `find_references` did not (32 references in 21 plans) was an `extract()` FALSE POSITIVE: `` `…/SKILL.md.j2` ``
@@ -244,3 +244,40 @@ windows):
 ### Planned mitigations
 - timing: post-phase | name: drift_protocol_consumer_sweep | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — WEAK_OVERLAP protocol line missed by a consumer | desc: Sweep every drift-output parser/render/golden for WEAK_OVERLAP handling and pin the weak-only backward-compat line order in a test
 - timing: after | name: fix_extract_multi_extension_truncation | type: bug | priority: medium | effort: medium | inline_risk: medium | added_complexity: medium | addresses: goal-achievement — extract() false positive (SKILL.md.j2 → SKILL.md) kept by admission/trail | desc: Make plan_paths.extract() reject a match followed by a path character, then re-measure parallel-admission replay and trail corpus rates before/after
+
+## Final Implementation Notes
+
+- **Actual work done:** all six plan steps plus the post-phase sweep, as planned.
+  `plan_paths.reference_kinds()` and the `--references` CLI; the bridge now exposes
+  `plan_paths_references` (the unused `plan_paths_extract` was removed); the drift
+  check scans the NUL-delimited `git diff -z` list with an explicit, errexit-safe
+  diff-failure branch (NO_OVERLAP / exit 0) and emits `OVERLAP` / `WEAK_OVERLAP`
+  / `NO_OVERLAP`. Procedures `remote-drift-check.md` and `merge-target-sync.md`
+  handle the weak tier; the tracked `-remote-` renders (claude/opencode/codex) and
+  the `remote-drift-check-default.md` golden were regenerated. Findings doc §7
+  records the measurement (a reproducible command that re-produced the exact
+  figures) and the admission/trail keep-`extract()` decision.
+- **Deviations from plan:** `task-workflow` is not an entry skill, so the renders
+  were refreshed via `aitask_skill_render.sh aitask-pick --profile remote --agent
+  <a>` (closure render) rather than rendering task-workflow directly.
+  `aidocs/framework/failopen_git_probes.md`'s drift-check row (stale line numbers,
+  "noted, not fixed") was also updated. Test 14 was reworked in place (the old
+  golden set is still asserted, plus Go/Rust/TS) instead of only flipping 14b–d.
+- **Issues encountered:** the measured "lost" windows (2) were investigated:
+  both plans cite only `…/SKILL.md.j2`, so the old OVERLAP on `…/SKILL.md` was the
+  extract truncation false positive, not a lost reference. Suffix-only weak
+  windows are 3.2% (< 5% threshold). The corpus grew from 320 to 331 plans between
+  planning and final measurement (concurrent archivals), so the recorded final
+  figures use 993 windows.
+- **Key decisions:** the bare tier is "single-component, no `.`" (so `.gitignore`
+  and `CLAUDE.md` stay strong); a candidate containing a newline is skipped (it
+  can never match a per-line scan and would break the line protocol); the plan
+  file is read with `surrogateescape` in `--references` so non-UTF-8 plan bytes
+  never fail the scan.
+- **Upstream defects identified:** `.aitask-scripts/lib/plan_paths.py:93 — extract() _TOKEN has no right boundary, so `x/SKILL.md.j2` yields the tracked `x/SKILL.md` (32 refs in 21 archived plans); parallel admission and trail gather still consume it` (already planned as the `fix_extract_multi_extension_truncation` after-mitigation).
+- **Verification:** red proof for Test 17 — a mutant copy without `|| diff_rc=$?`
+  fails exactly 17b/17c (62/64). Suites green: test_remote_drift_check.sh 64/64,
+  test_plan_paths_seam.sh 20/20, test_plan_approved_marker_drift.sh,
+  test_shadow_scope.sh 48/48, test_skill_render_task_workflow.sh 337/337, all
+  test_skill_render_*.sh, `aitask_skill_verify.sh` OK, shellcheck clean at
+  warning level, `PYTHON SUITE: PASSED (runner=pytest, exit=0)`.
