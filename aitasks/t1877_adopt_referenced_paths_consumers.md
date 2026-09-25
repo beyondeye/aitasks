@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1852
 followup_kind: risk_mitigation
+implemented_with: claudecode/opus5_5
 created_at: 2026-09-24 15:42
-updated_at: 2026-09-24 21:27
+updated_at: 2026-09-25 16:53
 ---
 
 ## Origin
@@ -37,3 +38,8 @@ Evaluate moving the other plan_paths consumers from extension-grammar extraction
 - `lib/parallel_admission.py` / `lib/parallel_admission_collect.py` and `lib/trail_gather.py`: these need candidates FROM the plan (in-flight surfaces with no changed set), so assess whether a hybrid is appropriate. Use `extract()` for candidates, plus `find_references()` against each in-flight task's dirty/committed set where one exists.
 
 For each consumer, measure the prompt-rate and verdict impact on the live corpus before switching (the parallel-admission comments in `aitasks/metadata/profiles/fast.yaml` record why prompt rate matters). Keep `tests/test_plan_paths_seam.sh`'s single-grammar guard intact.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-25T13:53:43Z status=pass attempt=1 type=human
