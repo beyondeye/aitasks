@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -33,3 +35,5 @@ Make a missing hook visible and easy to fix, without silently installing executa
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-09-25T08:23:40Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-09-25T09:29:15Z status=pass attempt=1 type=human
