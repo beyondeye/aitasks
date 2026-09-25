@@ -276,7 +276,7 @@ Cases:
 
 ### Planned mitigations
 - timing: post-phase | name: release_workflow_structure_test | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: later workflow edits silently dropping engine assets / the needs edge | desc: committed PyYAML structure test for release.yml and goengines-check.yml
-- timing: after | name: first_release_engine_assets_check | type: manual_verification | priority: medium | effort: low | inline_risk: high | added_complexity: low | addresses: release wiring unverifiable before a real tag | desc: on the next v* release confirm the 4 ait-testmap binaries + SHA256SUMS are attached, sha256sum -c passes, a linux binary's version --json echoes <V>, and packaging still ran
+- timing: after | name: first_release_engine_assets_check | type: manual_verification | priority: medium | effort: low | inline_risk: high | added_complexity: low | addresses: release wiring unverifiable before a real tag | desc: on the next v* release confirm the 4 ait-testmap binaries + SHA256SUMS are attached, sha256sum -c passes, a linux binary's version --json echoes <V>, and packaging still ran | created: t1882
 
 ## Step 9 reference
 
