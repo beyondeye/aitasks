@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: medium
 depends: [t1852_2]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [testmap, go_engine, release_scripts]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1852
 implemented_with: claudecode/opus5_5
 created_at: 2026-09-22 17:27
-updated_at: 2026-09-25 11:45
+updated_at: 2026-09-25 11:48
+completed_at: 2026-09-25 11:48
 ---
 
 ## Context
@@ -135,3 +136,14 @@ the current `release.yml` job graph and `hugo.yml`'s `setup-go` step.
 > **✅ gate:plan_approved** run=2026-09-25T08:02:27Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-09-25T08:44:26Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-25T08:48:16Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:5b281a24a25568c0
+
+> **✅ gate:risk_evaluated** run=2026-09-25T08:48:16Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1852_3/risk_evaluated_2026-09-25T08:48:16Z-risk_evaluated-a1.log`
