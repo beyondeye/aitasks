@@ -128,3 +128,59 @@ None identified.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-09-25 10:40)
+- **Requested by user:** the swapped positive checks still use fixed-string
+  *substring* matching, so `assert_contains … "TASK:a.md" "$out1"` passes on an
+  output holding `UNKNOWN:a.md` + `TASK:a.md.orig` — a silent false pass. The
+  plan's "residual limitation" note (substring only causes loud false failures)
+  was wrong for positive checks.
+- **Changes made:** added two file-local helpers to `tests/test_change_surface.sh`,
+  `assert_line` / `assert_no_line` (desc, line, output), matching with
+  `grep -qxF` (whole line, fixed string; POSIX/BSD-safe). Local, not in
+  `tests/lib/asserts.sh`, per that file's "single-use helpers stay inline" rule.
+  Converted every check whose needle is a complete record
+  (`TASK|UNKNOWN|OTHER|COMMITTED|DIRTY_AT_CLAIM|BASELINE|PLANSCOPE|OWNED:<x>`) —
+  42 calls, incl. the 4 t1873 calls that were already correctly ordered. Three
+  checks stay substring on purpose, because their intent is prefix / any
+  occurrence: `NEG: no plan must never yield TASK` ("TASK:"), and the
+  `aitasks/` / `aiplans/` never-appears checks.
+- **Files affected:** `tests/test_change_surface.sh`
+- **Mutation matrix re-run** (instrumented helper copy, three test versions:
+  line-exact = final, substr = the swap-only intermediate, pre = HEAD):
+
+  | mutant | line (final) | substr | pre |
+  |---|---|---|---|
+  | M0 none | 55/55 | 55/55 | 55/55 |
+  | M1 +`TASK:b.md` on list 1 | NEG fails ✔ | NEG fails | NEG fails (pattern-list accident) |
+  | M2 +`TASK:f.md` on list 5 | no-plan NEG fails ✔ | fails | **passes** (vacuous) |
+  | M3 leading empty line on list 1 | 55/55 ✔ | 55/55 | 2 NEGs fail for the wrong reason |
+  | M4 `TASK:a.md`→`UNKNOWN:a.md` + `TASK:a.md.orig` | `own planned file is TASK` fails ✔ | **passes** (the reported false pass) | fails |
+  | M5 +`TASK:b.md.orig` on list 1 (different file) | 55/55 ✔ | NEG false-fails | 55/55 |
+
+  M4 additionally trips `committed+dirty path emitted exactly once` in all
+  three versions — expected: the injected `a.md.orig` line is appended to the
+  section-3 `list 1` calls too and that check counts lines matching `a\.md`.
+
+## Final Implementation Notes
+- **Actual work done:** swapped 41 haystack-first calls in
+  `tests/test_change_surface.sh` to (desc, needle, haystack), then (post-review)
+  moved every full-record check onto new whole-line helpers `assert_line` /
+  `assert_no_line`; removed the now-misleading "argument order below is the
+  helper's own" note. Fixed the one other haystack-first call found repo-wide,
+  `tests/test_shadow_capture.sh:244`, whose empty-needle form could never fail.
+- **Deviations from plan:** the line-exact helpers (Change Request 1). The
+  plan's "substring = loud false failures only" residual-limitation claim was
+  wrong and is superseded by that change. M2 of the original plan was also
+  replaced before approval (it injected a different file, `TASK:b.md.orig`,
+  which is not a forbidden classification).
+- **Issues encountered:** none in the helper under test — no assertion that had
+  been hidden by the reversed order turned out to be failing.
+- **Key decisions:** line-exact helpers stay file-local (asserts.sh header
+  rule); the three prefix/any-occurrence checks deliberately keep substring
+  matching. The mutation check uses an instrumented COPY of the helper (so the
+  drift guard's `^EXCLUDES=` grep of `$CS` still sees the real line), not a
+  wrapper.
+- **Upstream defects identified:** None
