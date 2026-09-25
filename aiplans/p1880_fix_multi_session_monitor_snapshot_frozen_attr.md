@@ -69,3 +69,10 @@ None identified.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+- **Actual work done:** Replaced every hand-built `SimpleNamespace` snapshot double in `tests/test_multi_session_monitor.sh` (1) and `tests/test_multi_session_minimonitor.sh` (5) with the real `PaneSnapshot` dataclass (`ma.PaneSnapshot` / `mm.PaneSnapshot`), so `frozen` (t1705_7) and any future defaulted field default instead of raising AttributeError. Pane doubles are unchanged. Both tests now exit 0 (47/47, 43/43).
+- **Deviations from plan:** None. The minimonitor file was found broken the same way during planning and was covered in the approved plan.
+- **Issues encountered:** None beyond the reported crash; the concurrent-session dirty files in the worktree were left untouched and excluded from the commit.
+- **Key decisions:** Build from the real type rather than adding `frozen=False` to each double — it closes the whole class of drift, not just this field.
+- **Upstream defects identified:** None
