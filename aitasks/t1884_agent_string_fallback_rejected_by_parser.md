@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -11,8 +13,9 @@ active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-09-25 12:33
-updated_at: 2026-09-25 12:47
+updated_at: 2026-09-25 13:25
 ---
 
 ## Origin
@@ -76,3 +79,5 @@ were both lost, and the code commit had no code-agent trailer.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-09-25T10:25:18Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-09-25T12:26:15Z status=pass attempt=1 type=human
