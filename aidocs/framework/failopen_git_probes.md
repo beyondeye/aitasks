@@ -139,7 +139,7 @@ risk, and this table is what stops the next author "finishing the job".
 |---|---|
 | `aitask_sync.sh::do_pull_rebase:1004,:1009,:1015` — `rebase --abort … \|\| true` | best-effort *recovery* on an already-failing path, not a probe gating anything |
 | `aitask_setup.sh::commit_framework_files:3804` — post-commit `still_untracked` | feeds a `warn` only |
-| `aitask_remote_drift_check.sh` | pure reporter, exits 0; `:182` / `:191` already fail **closed** to `FETCH_FAILED`. `:219` is a soft spot (a failed diff reads as `NO_OVERLAP`) but advisory only — noted, not fixed |
+| `aitask_remote_drift_check.sh` | pure reporter, exits 0; `:199` / `:211` already fail **closed** to `FETCH_FAILED`. `:247` is a soft spot (a failed diff reads as `NO_OVERLAP`) but advisory only — kept deliberately as an explicit errexit-safe branch, pinned by `tests/test_remote_drift_check.sh` Test 17; only the plan reference scan fails closed (`EXTRACT_FAILED`) |
 | `aitask_change_surface.sh` | display-only; written best-effort by `aitask_pick_own.sh::main:681`, read by the docs-updated gate skill |
 | `aitask_revert_analyze.sh::_collect_hashes_for_id:172` | read-only analyzer; its failure direction is *under*-destructive ("no commits found" ⇒ nothing reverted) |
 | `lib/task_utils.sh::_task_sync_head:854`, `::_task_sync_unpulled_count:860`, `::_task_push_unpushed_count:1378`, `::_task_push_upstream:1383`, `::_task_push_has_remote:1388` | documented always-return-0 reporting probes; empty is a *declared* "undeterminable" value the warning text handles (`TASK_SYNC_UNPUSHED=""` / `TASK_PUSH_UNPUSHED=""`) |

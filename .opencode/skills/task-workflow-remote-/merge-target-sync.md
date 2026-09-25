@@ -54,10 +54,13 @@ and swaps in recovery actions that fit the post-implementation state.
      present locally — the Step 9 merge will fail." Then return. Step 9's own
      pre-flight stops on this too; surfacing it here saves the user a pointless
      merge-approval prompt.
-   - `AHEAD:<n>` (with or without following `OVERLAP:<file>` lines) → display
-     "Remote `<output_branch>` is ahead by `<n>` commit(s)" plus, when present,
-     "and changes the following file(s) your plan also targets:" and each
-     overlapping file on its own line. Then ask.
+   - `AHEAD:<n>` (with or without following `OVERLAP:<file>` /
+     `WEAK_OVERLAP:<file>` lines) → display "Remote `<output_branch>` is ahead
+     by `<n>` commit(s)" plus, when present, "and changes the following file(s)
+     your plan also targets:" and each `OVERLAP` file on its own line, then, when
+     present, "Possibly referenced:" and each `WEAK_OVERLAP` file on its own line
+     (a bare root-level name or a module-relative sub-path the plan mentions —
+     evidence, not a verdict). Then ask.
 
 3. **AskUserQuestion:**
 

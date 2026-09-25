@@ -72,7 +72,7 @@ PY
 assert_eq "guard: no second copy of the extension-allowlist grammar" "" "$forks"
 
 # WHAT THIS GUARD DOES NOT BUY. It pins one copy of THIS grammar — the
-# extension-allowlisted one the drift check and the gatherer share. It does not
+# extension-allowlisted one the gatherer and the admission checker share. It does not
 # claim the repository has exactly one plan-path extractor, because it does not:
 # aitask_change_surface.sh carries a deliberately DIFFERENT one (t1263) with a
 # broader token class, no extension allowlist, and filesystem validation instead
@@ -88,10 +88,14 @@ assert_contains "guard: change_surface keeps its own broader grammar" \
 assert_not_contains "guard: change_surface has NOT adopted our extension list" \
     "yaml|yml|json|toml" "$other"
 
-# (c) The drift check reaches the grammar through the bridge, not a local copy.
+# (c) The drift check reaches plan_paths through the bridge, not a local copy.
+#     Since t1877 it calls the reference search (plan_paths_references), not the
+#     extension grammar; the bridge no longer exposes the extractor at all.
 assert_contains "guard: drift check sources the bridge" \
     "lib/plan_paths_sh.sh" "$(cat .aitask-scripts/aitask_remote_drift_check.sh)"
-assert_contains "guard: drift check calls the shared extractor" \
+assert_contains "guard: drift check calls the shared reference search" \
+    "plan_paths_references" "$(cat .aitask-scripts/aitask_remote_drift_check.sh)"
+assert_not_contains "guard: drift check no longer calls the extension extractor" \
     "plan_paths_extract" "$(cat .aitask-scripts/aitask_remote_drift_check.sh)"
 
 # ============================================================

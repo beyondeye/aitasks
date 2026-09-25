@@ -49,12 +49,14 @@ Detects whether `origin/<branch>` has commits the local `<branch>` is missing, w
    - `LOCAL_BRANCH_MISSING`:
      - **Base pass** → return; no display (as before).
      - **Output pass** → display: "Output branch `<output_branch>` is not present locally — the Step 9 merge will fail." Then proceed to the AskUserQuestion below. This converts a mid-workflow Step 9 hard failure into a planning-time notice, and is the highest-value output of this procedure.
-   - `AHEAD:<n>` followed by `NO_OVERLAP`:
-     - If profile is `strong-only`: return; no display.
-     - Else (default `warn`): display "Remote `<branch>` is ahead by `<n>` commit(s); none touch files in your plan." Then proceed to AskUserQuestion below.
+   - `AHEAD:<n>` followed by `NO_OVERLAP` (possibly with `WEAK_OVERLAP:<file>` lines before it):
+     - If profile is `strong-only`: return; no display. `WEAK_OVERLAP` lines never escalate — they are evidence, not a verdict.
+     - Else (default `warn`): display "Remote `<branch>` is ahead by `<n>` commit(s); none touch files in your plan." When there are `WEAK_OVERLAP:<file>` lines, display instead "Remote `<branch>` is ahead by `<n>` commit(s); none directly touch files in your plan, but these may be referenced:" and list each weak file on its own line. Then proceed to AskUserQuestion below.
    - `AHEAD:<n>` followed by one or more `OVERLAP:<file>` lines (always treated as strong, regardless of `warn` or `strong-only`):
-     - Display: "Remote `<branch>` is ahead by `<n>` commit(s) and changes the following file(s) your plan also targets:" then list each overlapping file on its own line.
+     - Display: "Remote `<branch>` is ahead by `<n>` commit(s) and changes the following file(s) your plan also targets:" then list each overlapping file on its own line. If `WEAK_OVERLAP:<file>` lines follow, list them after, under "Possibly referenced:".
      - Proceed to AskUserQuestion below.
+
+   `OVERLAP` means the plan names that remote-changed path in full. `WEAK_OVERLAP` means the plan mentions it only as a bare root-level name with no extension (`ait`, `Makefile` — the same word is ordinary prose, e.g. "run `ait setup`") or by a module-relative trailing sub-path (`internal/x/main.go` for `goengines/internal/x/main.go`). The helper tests every remote-changed path, whatever its language or extension.
 
    **Collect both passes before prompting.** If both produce a display, show both, then ask the step-4 question **exactly once**. Never issue one prompt per pass — two prompts for one plan can collect conflicting answers ("Continue anyway" then "Stop and re-verify plan").
 

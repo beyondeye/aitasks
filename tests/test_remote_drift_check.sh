@@ -603,13 +603,14 @@ Leading hyphen, as the live corpus produces it: SKILL-${p}-claude.md
 Dot-slash prefix: ./.aitask-scripts/aitask_archive.sh
 Duplicate token: ./.aitask-scripts/aitask_archive.sh again
 Collation quartet: ab.md aB.md a_b.md a-b.md
-Not extractable (extension allowlist): internal/pkg/server.go src/main.rs app/index.ts
+Outside the old extension allowlist: internal/pkg/server.go src/main.rs app/index.ts
 PLAN
 }
 
-# Every token the current implementation extracts from that fixture, as a set.
-# Captured from the pre-move pipeline on 2026-08-27 and asserted here so the
-# post-move implementation must reproduce it exactly.
+# Every path the extension grammar extracted from that fixture, as a set --
+# captured from the pre-move pipeline on 2026-08-27. The reference scan (t1877)
+# must still report every one of them when the remote touches them (no lost
+# overlap), and additionally the Go/Rust/TS sources the grammar never saw.
 EXTRACTION_GOLDEN='-claude.md
 .aitask-scripts/aitask_archive.sh
 a-b.md
@@ -618,6 +619,9 @@ a_b.md
 ab.md
 aiscripts/batch_review.sh
 aiscripts/helper.py'
+BEYOND_GRAMMAR='app/index.ts
+internal/pkg/server.go
+src/main.rs'
 
 pair=$(make_branch_mode_pair)
 root="${pair%|*}"
@@ -636,7 +640,7 @@ git clone --quiet "$root/origin.git" "$root/other" 2>/dev/null
         mkdir -p "$(dirname -- "$f")" 2>/dev/null || true
         printf 'touched\n' > "$f"
         git add -- "$f"
-    done <<< "$EXTRACTION_GOLDEN"
+    done <<< "$EXTRACTION_GOLDEN"$'\n'"$BEYOND_GRAMMAR"
     git commit --quiet -m "touch every extraction-golden path"
     git push --quiet origin "$default_branch"
 )
@@ -647,16 +651,16 @@ write_extraction_fixture_plan "$plan_path"
 
 result=$(cd "$root/local" && "$HELPER" "$default_branch" "$plan_path" 2>&1)
 extracted=$(printf '%s\n' "$result" | sed -n 's/^OVERLAP://p' | LC_ALL=C sort)
-expected=$(printf '%s\n' "$EXTRACTION_GOLDEN" | LC_ALL=C sort)
+expected=$(printf '%s\n%s\n' "$EXTRACTION_GOLDEN" "$BEYOND_GRAMMAR" | LC_ALL=C sort)
 
-assert_eq "14a: extracted token set is byte-identical to the golden" \
+assert_eq "14a: OVERLAP set = the old golden plus the sources beyond its grammar" \
     "$expected" "$extracted"
-assert_not_contains "14b: unlisted extensions contribute no token" \
-    "server.go" "$result"
-assert_not_contains "14c: unlisted extensions contribute no token (rs)" \
-    "main.rs" "$result"
-assert_not_contains "14d: unlisted extensions contribute no token (ts)" \
-    "index.ts" "$result"
+assert_contains "14b: a Go source is now referenced" \
+    "OVERLAP:internal/pkg/server.go" "$result"
+assert_contains "14c: a Rust source is now referenced" \
+    "OVERLAP:src/main.rs" "$result"
+assert_contains "14d: a TypeScript source is now referenced" \
+    "OVERLAP:app/index.ts" "$result"
 # Dedupe: the ./-prefixed path appears twice in the fixture and once in the set.
 archive_hits=$(printf '%s\n' "$result" | grep -c '^OVERLAP:\.aitask-scripts/aitask_archive\.sh$' || true)
 assert_eq "14e: a duplicated token is deduped to one record" "1" "$archive_hits"
@@ -725,6 +729,127 @@ assert_contains "15b: positive control -- remote-changed planned file still over
 assert_not_contains "15c: locally-changed planned file is NOT reported as remote drift" \
     "OVERLAP:tests/test_archive.sh" "$result"
 assert_not_contains "15d: no NO_OVERLAP when there is overlap" "NO_OVERLAP" "$result"
+
+# ============================================================
+# Test 16: reference scan tiers and edge cases (t1877)
+#
+# The drift check tests each remote-changed path for a reference in the plan
+# (plan_paths.reference_kinds). One remote commit touches every path below; each
+# sub-case is a different plan against that same drift.
+# ============================================================
+
+echo "--- Test 16: reference scan (t1877) ---"
+
+pair=$(make_branch_mode_pair)
+root="${pair%|*}"
+default_branch="${pair##*|}"
+register_cleanup "$root"
+
+NFD_NAME=$(printf 'src/cafe\314\201.py')     # decomposed, as APFS stores it
+NFC_NAME=$(printf 'src/caf\303\251.py')      # composed, as an editor writes it
+BAD_NAME=$(printf 'src/bad\351.py')          # not valid UTF-8
+NL_NAME=$(printf 'src/new\nline.py')         # a newline inside the name
+
+git clone --quiet "$root/origin.git" "$root/other" 2>/dev/null
+(
+    cd "$root/other" || exit 1
+    git config user.email "other@example.com"
+    git config user.name  "Other"
+    for f in src/Makefile ait goengines/internal/tools/x/main.go x/SKILL.md \
+             src/app.py "$NFD_NAME" "$BAD_NAME" "$NL_NAME"; do
+        mkdir -p "$(dirname -- "$f")"
+        printf 'touched\n' > "$f"
+        git add -- "$f"
+    done
+    git commit --quiet -m "remote-only: every Test 16 path"
+    git push --quiet origin "$default_branch"
+)
+mark_branch_mode "$root/local"
+
+run16() {  # run16 <plan-body>  -> helper output; exit status in rc16
+    local plan="$root/local/plan16.md"
+    printf -- '---\nTask: t999_refs.md\n---\n\n%s\n' "$1" > "$plan"
+    rc16=0
+    out16=$(cd "$root/local" && "$HELPER" "$default_branch" "$plan" 2>/dev/null) || rc16=$?
+}
+
+run16 'We rewrite `src/Makefile` targets.'
+assert_contains "16a: an extensionless file under a directory is a strong OVERLAP" \
+    "OVERLAP:src/Makefile" "$out16"
+
+# 16b is the backward-compat contract for a parser that ignores WEAK_OVERLAP:
+# the verdict lines are exactly the pre-t1877 shape, with the weak line between.
+run16 'First run `ait setup`, then check the board.'
+assert_eq "16b: a bare root name is WEAK only; NO_OVERLAP still emitted, in order" \
+    "AHEAD:1"$'\n'"WEAK_OVERLAP:ait"$'\n'"NO_OVERLAP" "$out16"
+assert_eq "16b: weak-only run exits 0" "0" "$rc16"
+
+run16 'Edit internal/tools/x/main.go in the Go module.'
+assert_contains "16c: a module-relative suffix is a WEAK_OVERLAP" \
+    "WEAK_OVERLAP:goengines/internal/tools/x/main.go" "$out16"
+assert_contains "16c: ...and does not make a strong verdict" "NO_OVERLAP" "$out16"
+
+run16 'Edit the template `x/SKILL.md.j2` and regenerate.'
+assert_not_contains "16d: x/SKILL.md.j2 does not reference x/SKILL.md (old false positive)" \
+    "OVERLAP:x/SKILL.md" "$out16"
+assert_contains "16d: ...so the verdict is NO_OVERLAP" "NO_OVERLAP" "$out16"
+
+run16 'Pin src/app.py@v2 as the baseline.'
+assert_not_contains "16e: src/app.py@v2 does not reference src/app.py" \
+    "OVERLAP:src/app.py" "$out16"
+
+run16 "Rename \`$NFC_NAME\` (composed form)."
+assert_contains "16f: an NFD path cited in NFC overlaps, reported as git named it" \
+    "OVERLAP:$NFD_NAME" "$out16"
+
+run16 "Also touches $BAD_NAME and src/Makefile."
+assert_eq "16g: a non-UTF-8 remote path does not break the helper (exit 0)" "0" "$rc16"
+assert_contains "16g: ...and the verdict is still reached" "OVERLAP:src/Makefile" "$out16"
+assert_contains "16g: ...and the undecodable path round-trips byte for byte" \
+    "OVERLAP:$BAD_NAME" "$out16"
+
+run16 'Only src/Makefile here; a newline-named remote file exists too.'
+assert_eq "16h: a newline in a remote path does not crash the helper" "0" "$rc16"
+assert_not_contains "16h: ...and cannot inject a protocol line" "OVERLAP:line.py" "$out16"
+
+# ============================================================
+# Test 17: a failed `git diff` keeps its best-effort meaning (t1877)
+#
+# The remote file list moved from `$(git diff) || x=""` to a redirect into a
+# temp file. Under errexit a failure there must still yield NO_OVERLAP / exit 0,
+# never a script that dies right after AHEAD, and never EXTRACT_FAILED (which is
+# reserved for the plan scan).
+# ============================================================
+
+echo "--- Test 17: git diff failure is best-effort ---"
+
+plan17="$root/local/plan17.md"
+printf -- '---\nTask: t999_diff.md\n---\n\nWe rewrite `src/Makefile`.\n' > "$plan17"
+
+# Positive control: without the fault the same fixture reaches OVERLAP, so the
+# wrapper below provably stands between the helper and the diff call.
+ctl=$(cd "$root/local" && "$HELPER" "$default_branch" "$plan17" 2>/dev/null)
+assert_contains "17a: positive control reaches the diff and the scan" \
+    "OVERLAP:src/Makefile" "$ctl"
+
+REAL_GIT=$(command -v git)
+wrap_dir="$root/gitwrap"
+mkdir -p "$wrap_dir"
+cat > "$wrap_dir/git" <<WRAP
+#!/usr/bin/env bash
+if [[ "\${1:-}" == "diff" && "\${2:-}" == "--name-only" ]]; then
+    exit 128
+fi
+exec "$REAL_GIT" "\$@"
+WRAP
+chmod +x "$wrap_dir/git"
+
+rc17=0
+out17=$(cd "$root/local" && PATH="$wrap_dir:$PATH" "$HELPER" "$default_branch" "$plan17" 2>/dev/null) || rc17=$?
+assert_eq "17b: diff failure yields exactly AHEAD then NO_OVERLAP" \
+    "AHEAD:1"$'\n'"NO_OVERLAP" "$out17"
+assert_eq "17c: diff failure exits 0" "0" "$rc17"
+assert_not_contains "17d: diff failure is not EXTRACT_FAILED" "EXTRACT_FAILED" "$out17"
 
 # ============================================================
 # Summary

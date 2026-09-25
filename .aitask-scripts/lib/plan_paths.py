@@ -4,13 +4,12 @@ Given an implementation plan, pull out every token that looks like a repo-relati
 source path, and classify each against `git ls-files`. Two independent consumers
 need this and must not drift apart:
 
-  * ``aitask_remote_drift_check.sh`` (shell) -- intersects plan paths with
-    remote-changed files to decide OVERLAP. Consumes this module through the
-    lazy bridge ``plan_paths_sh.sh``.
   * ``lib/trail_gather.py`` (Python) -- emits ``INFLIGHT_PATH:`` records under
     ``--with-inflight``. Imports this module directly.
+  * t1569_3's parallel-admission checker, also by import.
 
-t1569_3's parallel-admission checker is a third consumer, also by import. Since
+``aitask_remote_drift_check.sh`` was the first consumer of this grammar; since
+t1877 it uses the reference search below instead (see THE SECOND ENTRY POINT). Since
 t1688 both importers also read task DESCRIPTIONS, for a task that has no plan
 yet (``task_body_text`` / ``cut_task_framework_sections``) -- the same grammar
 and classifier over a different document, never a second extractor. The
@@ -24,8 +23,8 @@ carries its own, broader one (t1263): no extension allowlist, a token class that
 admits a leading dot, and validation against the FILESYSTEM rather than
 ``git ls-files``. It answers a different question -- "which files did this task
 change?" -- with different correctness requirements, so the two are not merged.
-This module owns the extension-allowlisted grammar shared by the drift check and
-the gatherer; ``tests/test_plan_paths_seam.sh`` guards that scope and pins the
+This module owns the extension-allowlisted grammar shared by the gatherer and
+the admission checker; ``tests/test_plan_paths_seam.sh`` guards that scope and pins the
 other one so it cannot quietly drift into a copy.
 
 GRAMMAR -- deliberately unchanged from the pipeline this replaces, so the move is
@@ -40,10 +39,9 @@ COLLATION -- ``sorted()``, i.e. codepoint order. The replaced pipeline used
 ``sort -u``, which is locale-collated: under ``en_US.UTF-8`` it yields
 ``a-b.md a_b.md ab.md aB.md`` where codepoint order yields
 ``a-b.md aB.md a_b.md ab.md``, and it sorts a leading-dot path among the letters
-instead of before them. Codepoint order is the canonical one here and the shell
-bridge sorts under ``LC_ALL=C`` to match. This changes the drift check's emitted
-path ORDER but no verdict: its intersect is ``grep -Fxf``, which is
-order-independent.
+instead of before them. Codepoint order is the canonical one here, and the
+``--references`` CLI emits its hits in the same order. No consumer verdict
+depends on the order.
 
 MALFORMED TOKENS -- the charset admits a leading ``-``, and the live corpus
 produces three (``-claude.md``, ``-agy-/SKILL.md``, ``-codex-/SKILL.md``), split
@@ -68,10 +66,17 @@ normalization and the undecodable-byte handling specified in
 ``find_suffix_references()`` is its weaker companion for module-relative
 mentions (a sub-project plan naming ``internal/x/main.go`` for
 ``goengines/internal/x/main.go``), and ``find_dir_references()`` matches
-explicit ``<dir>/`` mentions. None of them replaces ``extract()``: consumers
-that need candidates FROM the plan (the drift check, the gatherer, parallel
-admission) keep the extension grammar above, unchanged. The first consumer is the shadow's scope-evidence
-helper (``shadow_scope.py``), which has the changed-path set in hand.
+explicit ``<dir>/`` mentions. ``reference_kinds()`` tiers their hits
+(full / bare / suffix) for a consumer that must grade its verdict.
+
+Consumers that have a changed-path set in hand use this search: the shadow's
+scope-evidence helper (``shadow_scope.py``) and, since t1877, the remote drift
+check, which tests ``git diff <base>...origin/<base>`` against the plan through
+``plan_paths.py --references`` (bridge: ``plan_paths_references``). Consumers
+that need candidates FROM the plan -- the gatherer and parallel admission, which
+have no changed-path set for an in-flight task -- keep the extension grammar
+above, unchanged. That decision and its measurements are recorded in the
+findings doc, section 7.
 """
 from __future__ import annotations
 
@@ -338,19 +343,67 @@ def find_dir_references(text: str, dirs) -> "dict[str, list[tuple[int, str]]]":
     return _reference_scan(text, stems, r"(?:" + _AFTER + r"|\." + _AFTER + r")")
 
 
+def reference_kinds(text: str, candidates) -> "dict[str, str]":
+    """Referenced `candidates` -> the strength of the reference, for a consumer
+    that must tier its verdict (the remote drift check's OVERLAP / WEAK_OVERLAP).
+
+      full    `find_references` hit on a path with a `/`, or a `.` in its name
+      bare    `find_references` hit on a single-component name with no `.`
+              (`ait`, `Makefile`, `LICENSE`) -- the same word is ordinary prose
+              ("run `ait setup`"), so it is evidence, never a strong claim
+      suffix  `find_suffix_references` hit -- a module-relative mention, which
+              a short suffix makes ambiguous across modules
+
+    Composes the matchers above and adds no grammar of its own. Measured on the
+    live corpus in findings doc section 7.
+    """
+    full = find_references(text, candidates)
+    kinds = {c: ("bare" if "/" not in c and "." not in c else "full")
+             for c in full}
+    for c in find_suffix_references(text, candidates):
+        kinds.setdefault(c, "suffix")
+    return kinds
+
+
+def _references_main(plan_file: str) -> int:
+    """`--references`: candidates NUL-delimited on stdin -> `<kind>\\t<path>`."""
+    try:
+        with open(plan_file, "r", encoding="utf-8",
+                  errors="surrogateescape") as handle:
+            text = handle.read()
+    except OSError as exc:
+        sys.stderr.write(f"plan_paths: cannot read {plan_file}: {exc}\n")
+        return 3
+    raw = sys.stdin.buffer.read()
+    # A path containing a newline can never match the per-line scan, and would
+    # break the line protocol on the way out, so it is not a candidate.
+    candidates = [p for p in (b.decode("utf-8", "surrogateescape")
+                              for b in raw.split(b"\0")) if p and "\n" not in p]
+    kinds = reference_kinds(text, candidates)
+    out = "".join(f"{kinds[p]}\t{p}\n" for p in sorted(kinds))
+    sys.stdout.buffer.write(out.encode("utf-8", "surrogateescape"))
+    return 0
+
+
 def main(argv) -> int:
     args = list(argv[1:])
     validate = False
+    references = False
     if args and args[0] == "--validate-tracked":
         validate = True
+        args = args[1:]
+    elif args and args[0] == "--references":
+        references = True
         args = args[1:]
     # `--` ends option parsing: the plan path itself may begin with a hyphen.
     if args and args[0] == "--":
         args = args[1:]
     if len(args) != 1:
         sys.stderr.write(
-            "usage: plan_paths.py [--validate-tracked] <plan-file>\n")
+            "usage: plan_paths.py [--validate-tracked | --references] <plan-file>\n")
         return 2
+    if references:
+        return _references_main(args[0])
     try:
         tokens = extract_file(args[0])
     except (OSError, UnicodeDecodeError) as exc:

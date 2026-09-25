@@ -20,19 +20,30 @@
 #                               Means only "could not reach the remote" — it is
 #                               NOT evidence about the local branch.
 #   UP_TO_DATE                  Remote has zero commits ahead of local.
-#   AHEAD:<n>                   Remote is <n> commits ahead. Followed by either:
-#     OVERLAP:<file>            (zero or more) one per remote-changed file
-#                               that is also referenced in the plan.
-#     NO_OVERLAP                emitted exactly once when no OVERLAP lines.
-#   EXTRACT_FAILED              Plan-path extraction could not run (lib/plan_paths.py
-#                               unreachable, or the plan file unreadable). Emitted
-#                               INSTEAD of any OVERLAP/NO_OVERLAP verdict, with a
-#                               non-zero exit, because "extracted nothing" and
-#                               "could not extract" are the same shape -- an empty
-#                               set -- and reporting the latter as NO_OVERLAP is a
-#                               false all-clear on the pick hot path.
+#   AHEAD:<n>                   Remote is <n> commits ahead. Followed by, in order:
+#     OVERLAP:<file>            (zero or more) a remote-changed file the plan
+#                               references by its full path (strong).
+#     WEAK_OVERLAP:<file>       (zero or more) a remote-changed file the plan
+#                               references only weakly: an extensionless
+#                               root-level name (`ait`, `Makefile` -- the same
+#                               word is ordinary prose), or a module-relative
+#                               trailing sub-path. Evidence, never a verdict.
+#     NO_OVERLAP                emitted exactly once when there is no OVERLAP
+#                               line (WEAK_OVERLAP lines do not suppress it, so a
+#                               parser that ignores them sees the same verdict).
+#   EXTRACT_FAILED              The plan reference scan could not run
+#                               (lib/plan_paths.py unreachable, or the plan file
+#                               unreadable). Emitted INSTEAD of any
+#                               OVERLAP/NO_OVERLAP verdict, with a non-zero exit,
+#                               because "references nothing" and "could not scan"
+#                               are the same shape -- an empty set -- and
+#                               reporting the latter as NO_OVERLAP is a false
+#                               all-clear on the pick hot path. A failure to LIST
+#                               the remote-changed files (the `git diff`) is
+#                               different: it keeps its best-effort meaning and
+#                               reports NO_OVERLAP with exit 0.
 #
-# Exit code: 0 unless invalid CLI args (2) or extraction failure (3).
+# Exit code: 0 unless invalid CLI args (2) or scan failure (3).
 #
 # Used by:
 #   .claude/skills/task-workflow/remote-drift-check.md (post-plan checkpoint)
@@ -87,8 +98,11 @@ Output (always exit 0; structured stdout):
                          local branch
   UP_TO_DATE
   AHEAD:<n>
-  OVERLAP:<file>     (zero or more, after AHEAD)
-  NO_OVERLAP         (after AHEAD, when no OVERLAP lines)
+  OVERLAP:<file>       (zero or more, after AHEAD) full-path plan reference
+  WEAK_OVERLAP:<file>  (zero or more, after OVERLAP) bare-name or
+                       module-relative plan reference; evidence only
+  NO_OVERLAP           (after AHEAD, when no OVERLAP lines)
+  EXTRACT_FAILED       (exit 3) the plan reference scan could not run
 EOF
 }
 
@@ -215,49 +229,57 @@ echo "AHEAD:$ahead"
 # cry-wolf failure that trains the user to click past a real hit (t1724).
 # (The AHEAD count above uses `git rev-list`, where two dots ARE a commit range
 # and are correct.)
-remote_files=""
-remote_files=$(git diff --name-only "${BASE_BRANCH}...origin/${BASE_BRANCH}" 2>/dev/null) || remote_files=""
-
-if [[ -z "$remote_files" ]]; then
+#
+# `-z` into a file: the list reaches the reference scan NUL-delimited, so a path
+# containing a newline cannot split a record (bash cannot hold NUL in a
+# variable). A failed diff keeps its best-effort meaning -- no remote file list,
+# so NO_OVERLAP with exit 0 -- and is deliberately NOT the fail-closed
+# EXTRACT_FAILED below, which is about the PLAN scan. `|| diff_rc=$?` keeps the
+# failure away from errexit, which would otherwise end the script right after
+# AHEAD with no verdict at all.
+remote_tmp=$(mktemp "${TMPDIR:-/tmp}/aitask_drift_remote_XXXXXX") || {
+    debug "mktemp failed: cannot list remote file changes"
+    echo "NO_OVERLAP"
+    exit 0
+}
+trap 'rm -f "$remote_tmp"' EXIT
+diff_rc=0
+git diff --name-only -z "${BASE_BRANCH}...origin/${BASE_BRANCH}" > "$remote_tmp" 2>/dev/null || diff_rc=$?
+if [[ $diff_rc -ne 0 ]]; then
+    debug "git diff failed ($diff_rc): treating as no remote file changes"
+    echo "NO_OVERLAP"
+    exit 0
+fi
+if [[ ! -s "$remote_tmp" ]]; then
     debug "no remote-only file changes found"
     echo "NO_OVERLAP"
     exit 0
 fi
 
-# --- Plan-referenced paths ---
-# Step 1: pull every token shaped like a relative path with a known extension.
-# Step 2: strip leading './' and dedupe.
+# --- Plan references to the remote-changed files ---
+# The inverted search (t1877): each remote-changed path, byte for byte as git
+# named it, is tested for a reference in the plan -- plan_paths.reference_kinds()
+# through the lazy bridge sourced above. There is no filename grammar and no
+# extension list, so a Go/Rust/TS source or an extensionless `src/Makefile` is
+# found, and `x/SKILL.md.j2` no longer yields a false `x/SKILL.md`. Delimiters,
+# NFC normalization and undecodable bytes follow
+# aidocs/framework/plan_path_reference_extraction_findings.md sections 3-5; the
+# measured impact of switching is its section 7.
 #
-# There is deliberately NO allowlist of directory roots. OVERLAP is produced by
-# an exact full-line intersection with the remote-changed file list below, so a
-# token that is not a real remote-changed path is discarded there anyway: a root
-# filter can only remove TRUE positives, never false ones. The list removed here
-# was this repository's own top-level directories, which made the overlap signal
-# -- the strong half of the drift check -- unreachable in every consumer project,
-# and missed aidocs/ even here (t1275).
-#
-# The extension list is a KNOWN remaining narrowing, deliberately left in place:
-# a plan referencing internal/pkg/server.go still yields zero tokens. See
-# aidocs/framework/plan_path_reference_extraction_findings.md.
-#
-# The grammar itself lives in lib/plan_paths.py and is reached through the
-# lazy bridge sourced above -- it has three other consumers (lib/trail_gather.py
-# and t1569_3's admission checker among them) and forking it would guarantee
-# divergence on exactly the edges that document records. The extractor sorts in
-# codepoint order where this pipeline used locale-collated `sort -u`; the
-# intersect below is `grep -Fxf`, which is order-independent, so the emitted
-# OVERLAP order can differ while no verdict does (t1569_1).
-plan_paths=""
+# Tiers: `full` -> OVERLAP (strong). `bare` (an extensionless root-level name)
+# and `suffix` (a module-relative sub-path) -> WEAK_OVERLAP, evidence only: the
+# measurement showed the bare word `ait` in prose alone would otherwise raise the
+# strong-overlap rate by ~11 points in this repository.
+refs=""
 # `-e || -L` rather than `-r`: a plan that EXISTS but cannot be read (mode 000,
-# a broken symlink, another user's file) must reach the extractor and fail
-# closed. The former `-r` test intercepted precisely the case the header names,
-# skipping the block and printing NO_OVERLAP with exit 0 -- the false all-clear
-# this path exists to prevent. A plan file that is genuinely ABSENT keeps the
-# pre-existing behaviour: no paths, no overlap claim of its own.
+# a broken symlink, another user's file) must reach the scan and fail closed.
+# A `-r` test would skip the block and print NO_OVERLAP with exit 0 -- the false
+# all-clear this path exists to prevent. A plan file that is genuinely ABSENT
+# keeps the pre-existing behaviour: no references, no overlap claim of its own.
 if [[ -e "$PLAN_FILE" || -L "$PLAN_FILE" ]]; then
-    extract_rc=0
-    plan_paths=$(plan_paths_extract "$PLAN_FILE") || extract_rc=$?
-    if [[ $extract_rc -ne 0 ]]; then
+    scan_rc=0
+    refs=$(plan_paths_references "$PLAN_FILE" < "$remote_tmp") || scan_rc=$?
+    if [[ $scan_rc -ne 0 ]]; then
         # FAIL CLOSED. Falling through with an empty set would print NO_OVERLAP,
         # which is indistinguishable from a genuine all-clear.
         echo "EXTRACT_FAILED"
@@ -265,28 +287,27 @@ if [[ -e "$PLAN_FILE" || -L "$PLAN_FILE" ]]; then
     fi
 fi
 
-debug "plan-referenced paths:"
-debug "$plan_paths"
+debug "plan references (kind<TAB>path):"
+debug "$refs"
 
-# --- Intersect ---
-overlap_count=0
-if [[ -n "$plan_paths" ]]; then
-    plan_tmp=$(mktemp "${TMPDIR:-/tmp}/aitask_drift_plan_XXXXXX")
-    remote_tmp=$(mktemp "${TMPDIR:-/tmp}/aitask_drift_remote_XXXXXX")
-    trap 'rm -f "$plan_tmp" "$remote_tmp"' EXIT
-    printf '%s\n' "$plan_paths" > "$plan_tmp"
-    printf '%s\n' "$remote_files" | sed 's|^\./||' | sort -u > "$remote_tmp"
+# --- Verdict ---
+strong=()
+weak=()
+while IFS=$'\t' read -r kind path; do
+    [[ -z "$path" ]] && continue
+    case "$kind" in
+        full) strong+=("$path") ;;
+        *)    weak+=("$path") ;;
+    esac
+done <<< "$refs"
 
-    # grep -F -x -f: fixed-string, full-line, patterns from file. Empty lines
-    # in either input are filtered out via the `-v ^$` filter on the result.
-    while IFS= read -r overlap; do
-        [[ -z "$overlap" ]] && continue
-        echo "OVERLAP:$overlap"
-        overlap_count=$((overlap_count + 1))
-    done < <(grep -Fxf "$plan_tmp" "$remote_tmp" 2>/dev/null || true)
-fi
-
-if [[ $overlap_count -eq 0 ]]; then
+for path in ${strong[@]+"${strong[@]}"}; do
+    echo "OVERLAP:$path"
+done
+for path in ${weak[@]+"${weak[@]}"}; do
+    echo "WEAK_OVERLAP:$path"
+done
+if [[ ${#strong[@]} -eq 0 ]]; then
     echo "NO_OVERLAP"
 fi
 

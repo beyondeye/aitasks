@@ -1,9 +1,10 @@
-"""Tests for lib/plan_paths.py — the shared plan-path extractor (t1569_1).
+"""Tests for lib/plan_paths.py — the shared plan-path extractor (t1569_1) and
+reference search (t1873, t1877).
 
-These pin what the drift check's own suite CANNOT observe. That suite exercises
-the extractor through `OVERLAP:` lines, and the intersect there is `grep -Fxf`,
-which emits in the remote list's order — so the plan-side collation is invisible
-at that boundary. It is pinned here instead, against the module directly.
+These pin, against the module directly, what the consumer suites cannot observe
+at their boundaries: the extractor's collation and classification (consumed by
+the gatherer and parallel admission), and the reference search's tiering and CLI
+byte handling (consumed by the drift check through `plan_paths_references`).
 """
 from __future__ import annotations
 
@@ -355,6 +356,89 @@ class ReferenceTests(unittest.TestCase):
         self.assertEqual(self.refs("", ["a.go"]), {})
         self.assertEqual(self.refs("a.go", []), {})
 
+
+
+class ReferenceKindsTests(unittest.TestCase):
+    """`reference_kinds` — the tiering the drift check maps to OVERLAP /
+    WEAK_OVERLAP (t1877)."""
+
+    def kinds(self, text, candidates):
+        return plan_paths.reference_kinds(text, candidates)
+
+    def test_full_path_and_dotted_root_file_are_full(self):
+        got = self.kinds("edit src/Makefile and .gitignore and CLAUDE.md",
+                         ["src/Makefile", ".gitignore", "CLAUDE.md"])
+        self.assertEqual(got, {"src/Makefile": "full", ".gitignore": "full",
+                               "CLAUDE.md": "full"})
+
+    def test_extensionless_root_name_is_bare(self):
+        # The measured noise: the command name in prose matches the file `ait`.
+        self.assertEqual(self.kinds("run `ait setup` first", ["ait"]),
+                         {"ait": "bare"})
+
+    def test_module_relative_mention_is_suffix(self):
+        got = self.kinds("edit internal/x/main.go", ["goengines/internal/x/main.go"])
+        self.assertEqual(got, {"goengines/internal/x/main.go": "suffix"})
+
+    def test_full_reference_wins_over_suffix(self):
+        got = self.kinds("edit goengines/internal/x/main.go",
+                         ["goengines/internal/x/main.go"])
+        self.assertEqual(got, {"goengines/internal/x/main.go": "full"})
+
+    def test_longer_extension_is_not_a_reference(self):
+        # extract() yields `x/SKILL.md` from `x/SKILL.md.j2`; the search must not.
+        self.assertEqual(self.kinds("edit `x/SKILL.md.j2`", ["x/SKILL.md"]), {})
+
+    def test_unreferenced_candidates_are_absent(self):
+        self.assertEqual(self.kinds("nothing here", ["a/b.go", "ait"]), {})
+
+
+class ReferencesCliTests(unittest.TestCase):
+    """`plan_paths.py --references`: NUL-delimited candidates on stdin (t1877)."""
+
+    def run_cli(self, stdin: bytes, *args):
+        return subprocess.run(
+            [sys.executable, str(SCRIPTS_DIR / "lib" / "plan_paths.py"),
+             "--references", *args],
+            input=stdin, capture_output=True)
+
+    def plan(self, text: bytes) -> str:
+        with tempfile.NamedTemporaryFile("wb", suffix=".md", delete=False) as fh:
+            fh.write(text)
+            name = fh.name
+        self.addCleanup(os.unlink, name)
+        return name
+
+    def test_emits_kind_tab_path_sorted(self):
+        name = self.plan(b"run `ait setup`; edit src/Makefile and b/x.go\n")
+        got = self.run_cli(b"b/x.go\0ait\0src/Makefile\0unrelated.py\0", "--", name)
+        self.assertEqual(got.returncode, 0, got.stderr)
+        self.assertEqual(got.stdout.decode().splitlines(),
+                         ["bare\tait", "full\tb/x.go", "full\tsrc/Makefile"])
+
+    def test_undecodable_path_round_trips_byte_for_byte(self):
+        bad = b"src/caf\xe9.py"
+        name = self.plan(b"touch " + bad + b" now\n")
+        got = self.run_cli(bad + b"\0", "--", name)
+        self.assertEqual(got.returncode, 0, got.stderr)
+        self.assertEqual(got.stdout, b"full\t" + bad + b"\n")
+
+    def test_newline_in_candidate_is_skipped(self):
+        name = self.plan(b"see src/new\nline.py and line.py\n")
+        got = self.run_cli(b"src/new\nline.py\0", "--", name)
+        self.assertEqual(got.returncode, 0, got.stderr)
+        self.assertEqual(got.stdout, b"")
+
+    def test_empty_stdin_is_no_references(self):
+        got = self.run_cli(b"", "--", self.plan(b"edit a/b.go\n"))
+        self.assertEqual((got.returncode, got.stdout), (0, b""))
+
+    def test_unreadable_plan_exits_3_with_empty_stdout(self):
+        got = self.run_cli(b"a/b.go\0", "--", "/nonexistent/plan.md")
+        self.assertEqual((got.returncode, got.stdout), (3, b""))
+
+    def test_usage_error_exits_2(self):
+        self.assertEqual(self.run_cli(b"").returncode, 2)
 
 if __name__ == "__main__":
     unittest.main()
