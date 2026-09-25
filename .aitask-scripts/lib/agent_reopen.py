@@ -111,6 +111,7 @@ import agent_sessions  # noqa: E402
 # Re-exported names only — never swapped, so an import alias is safe.
 from agent_frozen_ops import EXIT_LEASE_HELD, TMUX_UNREACHABLE  # noqa: E402
 from agent_launch_utils import (  # noqa: E402
+    tmux_session_scope_target,
     tmux_window_target,
     unique_window_name,
 )
@@ -298,19 +299,6 @@ def gone_line(rec: dict, kind: str) -> str:
 # --- tmux primitives ---------------------------------------------------------
 
 
-def _session_scope(session: str) -> str:
-    """``=<session>:`` — a session target that cannot resolve as a window.
-
-    A bare ``=<session>`` is looked up as a WINDOW first: from a client whose
-    current session has a window of that name (`ait ide` runs from inside the
-    session it opens), ``list-panes -s -t =B`` lists the CURRENT session's
-    panes instead of B's (measured on tmux 3.7c). The trailing colon makes the
-    session part explicit.
-    """
-    return tmux_window_target(session, "")
-
-
-
 def _facts(pane_id: str) -> dict[str, str] | None:
     """The pane's facts; ``{}`` when it is gone; None when tmux is unreachable."""
     rc, out = frozen_ops.run(["display-message", "-p", "-t", pane_id, _FACTS_FORMAT])
@@ -335,7 +323,9 @@ def _find_by_window_name(session: str, name: str) -> tuple[str, str, int]:
     if _seam("lookup"):
         return "unknown", "", 0
     rc, out = frozen_ops.run([
-        "list-panes", "-s", "-t", _session_scope(session),
+        # `=<s>:`, never a bare `=<s>`: see "Target formatting" in
+        # aidocs/framework/tmux_gateway.md.
+        "list-panes", "-s", "-t", tmux_session_scope_target(session),
         "-F", "#{window_name}\t#{pane_id}\t#{pane_pid}"])
     if rc == TMUX_UNREACHABLE:
         return "unknown", "", 0
@@ -398,7 +388,7 @@ def _final_name(session: str, pane_id: str, base: str) -> str:
     """
     facts = _facts(pane_id) or {}
     own = facts.get("window_id", "")
-    rc, out = frozen_ops.run(["list-windows", "-t", _session_scope(session),
+    rc, out = frozen_ops.run(["list-windows", "-t", tmux_session_scope_target(session),
                               "-F", "#{window_id}\t#{window_name}"])
     if rc != 0:
         return base
