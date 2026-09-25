@@ -37,3 +37,16 @@ Once `goengines-check.yml` (t1852_3) exists with the bench step **advisory** (`c
 5. If all samples ran on one CPU model, record that in the README and keep the rule that a first unexplained bench failure on a new CPU model demotes the step to advisory.
 
 Record the per-run table and the decision in `goengines/README.md` (replace the single-host basis paragraph's "not yet portable" statement only if promotion criteria are met).
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1852_3** id=2026-09-25T08:48:03Z.c4f255f964febebdb49c0905 from=t1852_3 from_verified=yes at=2026-09-25T08:48:03Z base=c1095fff666203f8a5300204b6982373bad04d25 base_branch=main dirty=yes host=omg16
+>
+> | Advisory context from t1852_3, tree-relative to code commit c1095fff6 (.github/workflows/goengines-check.yml, goengines/ci/benchci.sh; docs in aidocs/framework/go_engine.md "CI").
+> | 
+> | - The `bench` job is advisory (job-level `continue-on-error: true`); `check` is the required job. Promoting = removing that line (the structure guard tests/test_release_workflow_goengines.py asserts bench is advisory, so update it in the same change).
+> | - Samples need no workflow edit: `workflow_dispatch` with input `seed_regression` (boolean). Seeded = every non-calibration baseline line / 2.1 via `benchci.sh seed`, applied in-job only.
+> | - Each run's job summary: mode, CPU model (/proc/cpuinfo), nproc, a table `benchmark | class | current ns/op | baseline ns/op | scale | scaled ratio | verdict`, the BENCH_SCALE* lines, and the raw gate output.
+> | - Ratio = cur / (base x scale) with scale recomputed from BENCH_SCALE fields 3/4 (unrounded; field 2 is %.3f and would flip values near 1.3), printed at 6 dp, never judged. `n/a` when the class scale is IMPLAUSIBLE / CALIBRATION_MISSING / UNSCALED (gate fell back to 1), or for BENCH_MISSING / BENCH_NEW rows.
+> | - One local observation (moment-relative: an unpinned, loaded host on 2026-09-25, not a runner): a healthy full run scaled sha1 at 1.786 and BlobDigest's scaled ratio came out 0.52 (DispatchVersion 0.88, LsTree 0.86); the seeded run failed all three (2.49 / 2.02 / 1.86). Only a data point; runner samples are what count.
