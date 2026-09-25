@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1852
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-09-24 15:29
-updated_at: 2026-09-24 21:27
+updated_at: 2026-09-25 11:23
 ---
 
 ## Origin
@@ -37,3 +38,8 @@ The t1873 additions at the end of the file use the correct order and say so in a
 ## Suggested fix
 
 Swap the argument order on every affected call (needle second, haystack third), then run `bash tests/test_change_surface.sh` and add a mutation check: temporarily make `cmd_list` print `TASK:b.md` and confirm the negative control now fails. Grep the other `tests/*.sh` for the same haystack-first pattern while there.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-25T08:23:56Z status=pass attempt=1 type=human
