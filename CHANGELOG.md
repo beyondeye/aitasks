@@ -1,5 +1,64 @@
 # Changelog
 
+## v0.36.0
+
+### Features
+
+- **Brainstorm Discuss operation** (t1823_1, t1823_2, t1823_3, t1823_4): A new "Discuss" operation in the brainstorm TUI launches an advisory-only agent that compares proposals, explains one in plain words, answers questions and checks a design for structural flaws. It works on any node, including the root, and on a marked set of nodes.
+- **Bring back frozen agents when `ait ide` starts** (t1847): `ait ide` now spots frozen agents whose viewer window is gone and offers to recreate their viewers, restore them, re-pick them, or skip. Agents that survived without a window are adopted, not duplicated. `--no-frozen-check` turns the offer off.
+- **Cross-repository task notes** (t1869): `ait note --project <name>` sends a note to a task in another registered repository, and `ait note read --project` reads it back. The target repository writes and commits the note itself.
+- **Test map engine foundation** (t1852, t1852_1, t1852_2, t1852_3): Added the test map engine proposal, a per-user `AITASKS_HOME` root that `ait setup` creates, and a skeleton of the Go-based `ait-testmap` engine. CI now builds, checks and releases prebuilt binaries for it.
+- **Opus 5.5 is the default Claude Code model** (t1865): Registered Claude Opus 5.5 and made it the default code agent model.
+
+### Bug Fixes
+
+- **Missing Claude Code session hook after upgrade** (t1849): `ait upgrade` and `ait ide` now warn you when the Claude Code session hook is missing. The new `ait setup --hooks-only` installs just the hook.
+- **Restored agents keep their model** (t1850): A restored frozen agent now comes back on the model it was running before, not the current default.
+- **Restore into a new window starts the minimonitor** (t1851): Restoring a frozen agent into a new window now also opens its minimonitor companion.
+- **Restore never loses track of an agent** (t1875): When a restore's original pane is gone and the launch only partly succeeds, the agent is still tracked.
+- **Freezing an unrecorded agent keeps its task** (t1848): Freezing an agent that had no session record now saves its task id, so restore reopens the right task.
+- **Ambiguous Claude sessions are refused** (t1820): Freeze refuses to guess when several Claude conversations match the same project, and it reports a refused record update instead of going on silently.
+- **`ait ide` session name checks** (t1811, t1825, t1828): `ait ide` rejects session names that tmux cannot address, both on the command line and in the configured default. It reads `tmux.default_session` only when the YAML parser would read it the same way, and it reports whole-file YAML errors clearly.
+- **Session-wide tmux lookups** (t1874): Session-wide pane listings now always target the whole session, so a session whose name looks like a window name no longer resolves to the wrong place.
+- **Board fixes** (t1816, t1839): Closing a dialog quickly no longer crashes when the screen has already changed. The By-Trail view no longer leaves focus on a card that disappeared after a refresh.
+- **Fast preview keeps parked snapshots** (t1769): The fast-preview capture no longer overwrites snapshots of parked agents.
+- **Shadow reviews only the followed agent's changes** (t1873): The shadow agent's implementation review now covers only the followed task's own changes, not unrelated edits in the same tree.
+- **Model registration fixes** (t1868, t1884): The add-model manual-review checklist lists the right files again. A fallback agent string in a reserved namespace now parses, and the Opus 5.5 1M-context variant is registered.
+- **OpenCode commands for templated skills** (t1831): OpenCode command wrappers for profile-aware skills now render the correct profile variant.
+- **Documentation corrections** (t1862, t1864): The gate design docs now describe the enforced gate set, and the `ait attach` help line no longer describes outdated behaviour.
+- **Test isolation and correctness** (t1735, t1815, t1826, t1837, t1871, t1876): Tests no longer leak fixture task files into the live tree or run from an unguarded directory. The cd-guard lint now works on macOS, and several assertions that could never fail were fixed.
+
+### Improvements
+
+- **Parallel-safety check before claiming a task** (t1688_2): `/aitask-pick` can optionally check whether a task is safe to run next to work already in flight before claiming it. It is off in all shipped profiles.
+- **Codex GPT-6 models** (t1866): Registered Codex GPT-6 Sol and Luna. Sol is now the default for shadow and discuss agents.
+- **Remote drift check finds more overlaps** (t1877): The drift check now scans every path mentioned in a plan when it looks for overlap with remote changes, and it reports weaker matches separately.
+- **Phase-neutral concern clipboard text** (t1840): Concerns copied from monitor and minimonitor now end with a phase-neutral request, so they also work outside planning.
+- **Parallel-admission precision measurement** (t1814): The admission sweep now measures how precise the file lists declared in tasks are.
+- **Go engine benchmark gate** (t1872): The Go engine's benchmark gate now adjusts for host speed, so a slower machine does not report false regressions.
+- **Board split and stand-alone `ait trails`** (t1794_4, t1794_5, t1794_6, t1794_7, t1794_8): Finished splitting the board into modules and added `ait trails`, a stand-alone TUI for implementation trails.
+- **Frozen-agent internals** (t1767, t1881, t1883): Freeze-All listing and freezing now share one eligibility rule, and restore and reopen share their tmux helpers.
+
+### Documentation
+
+- **New Concepts pages** (t1687_1, t1687_2, t1687_3, t1687_4, t1687_5): Added Concepts pages for gates, attachments (plus an `ait attach` reference), task notes, cross-repo references, implementation trails and the shadow agent, and reorganized the Concepts index.
+- **Freeze and restore docs** (t1705_10, t1778): Documented the freeze/restore workflow, the framework session, the shared restore watch deadline, and restore when tmux is unreachable.
+- **`ait trails` and board package docs** (t1794_10, t1794_11): Documented the stand-alone `ait trails` TUI and the board package layout.
+- **Brainstorm Discuss docs** (t1823_5): Documented the Discuss operation and its skill.
+
+### Performance
+
+- **Minimonitor reads sessions once** (t1765): The minimonitor's own panel now caches the sessions store instead of re-reading it on every tick.
+
+### Tests
+
+- **Multi-session monitor test snapshots** (t1880): The multi-session monitor tests now build their snapshots from the real snapshot type.
+
+### Maintenance
+
+- **Test registration** (t1846): Registered the board detail-screen tests with the migrated-module list.
+- **OpenCode model refresh** (t1867): Added GPT-6 Astra and the GPT-5.6 fast variants to the OpenCode model list.
+
 ## v0.35.1
 
 ### Features
