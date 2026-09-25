@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1869
+implemented_with: claudecode/opus5_5
 created_at: 2026-09-25 07:48
-updated_at: 2026-09-25 10:41
+updated_at: 2026-09-25 12:43
 ---
 
 ## Context
@@ -41,3 +42,8 @@ but it is a second definition of a gateway rule.
 - Run `tests/test_agent_reopen.py` and `tests/test_frozen_reopen_live.sh`.
   The live test's raw `list-panes -s -t "=C"` (~line 202) is a test-side call
   with the same bare-form flaw; switch it to `=C:`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-25T09:43:47Z status=pass attempt=1 type=human
