@@ -7,7 +7,7 @@ status: Ready
 labels: [codeagent, models, task_workflow]
 followup_kind: upstream_defect
 created_at: 2026-09-25 12:33
-updated_at: 2026-09-25 12:33
+updated_at: 2026-09-25 12:46
 ---
 
 ## Origin
@@ -52,3 +52,17 @@ Make the two sides agree: either normalise the fallback to the parser's grammar 
 `parse_agent_string` to accept a documented fallback form; add the `claude-opus-5-5[1m]` model
 entry (models + seed); add a test that every `AGENT_STRING_FALLBACK` output round-trips
 through `parse_agent_string`.
+
+## Confirmed consumers (2026-09-25)
+
+Observed in the same thinking_app session after this task was filed: all three consumers reject
+the fallback string, not only `ait codeagent coauthor`.
+
+- `aitask_usage_update.sh --agent-string "claudecode/claude-opus-5-5[1m]"` → "Invalid agent
+  string format … Expected <agent>/<model>." (rc=1)
+- `aitask_verified_update.sh --agent-string …` → same error (rc=1)
+- `aitask_verified_update.sh --agent claudecode --cli-id 'claude-opus-5-5[1m]'` → same error
+  (rc=1): the self-detection form resolves to the same fallback and hits the same check.
+
+Net effect for an unregistered model: the run's usage count and the user's 5/5 satisfaction score
+were both lost, and the code commit had no code-agent trailer.
