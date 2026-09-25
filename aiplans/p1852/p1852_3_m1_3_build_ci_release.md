@@ -281,3 +281,56 @@ Cases:
 ## Step 9 reference
 
 Archival and cleanup follow the shared task-workflow Step 9. Current-branch profile: no worktree, no merge.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-09-25 11:40)
+- **Requested by user:** `build.sh` treated an explicitly empty `--version` / `--commit` / `--out` as omitted (the defaults were chosen by empty-string checks), so `--version '' --commit ''` exited 0 with a repo-stamped build. The VERSION reader's `tr -d '[:space:]'` turned a malformed `1 2` into `12`.
+- **Changes made:**
+  - `build.sh` records whether each option was given (`*_set`). An explicit empty value, or an option with no value, is a usage error (exit 2).
+  - VERSION is read with `$(<file)`, stripping only the trailing newline and one CR. Empty or malformed content dies with exit 1, naming the content.
+  - `--help` range extended to the new header.
+  - Tests: four refusals (empty `--version`, `--commit`, `--out`, and `--version` with no value), plus a fake-tree VERSION probe covering `1 2` (refused as malformed), CRLF (accepted) and empty (refused). The suite is now 52 checks.
+  - `go_engine.md` exit-status list updated.
+- **Files affected:** `goengines/build.sh`, `tests/test_goengines_build.sh`, `aidocs/framework/go_engine.md`
+
+## Final Implementation Notes
+- **Actual work done:** Implemented every plan step as written:
+  - `goengines/build.sh` (host / `<os>_<arch>` / `all`, `BUILT:`/`SUMS:` lines);
+  - the `/dist/` gitignore line;
+  - `goengines/ci/benchci.sh` (`seed`, `summary`);
+  - `.github/workflows/goengines-check.yml` (a required `check` and an advisory `bench`);
+  - the `goengines` job plus the `release` edits in `release.yml`;
+  - the build half of `aidocs/framework/go_engine.md`;
+  - three tests: `tests/test_goengines_build.sh` (52 checks), `tests/test_goengines_benchci.sh` (28) and `tests/test_release_workflow_goengines.py` (9, the inline post-phase mitigation `release_workflow_structure_test`).
+- **Deviations from plan:**
+  - The sums file is written through a dot-prefixed temp in `$out` and then renamed, as planned.
+  - The planned PyYAML throwaway assertion script was not written separately: the committed structure test covers it.
+  - Otherwise none beyond Change Request 1 (strict empty-option and VERSION handling).
+- **Issues encountered:**
+  - `awk -v` processes escapes, so `\.` in the calibration regex warned. It became `[.]`.
+  - The structure test first split `files:` on whitespace, which broke `${{ github.ref_name }}` apart. It now splits on lines.
+  - The live healthy gate on this unpinned, loaded host scaled `BlobDigest` (sha1 class) at 0.52. The gate still passed, but this is the kind of evidence t1878 collects on runners.
+- **Key decisions:**
+  - Workflow-level `GOTOOLCHAIN: auto`, and `gofmt` taken from `$(go env GOROOT)`, so both follow the pinned 1.27.1 toolchain. Locally that resolved to `toolchain@v0.0.1-go1.27.1`.
+  - `fail_on_unmatched_files: true` on both release steps.
+  - The benchci summary rebuilds each class scale from the scale line's unrounded fields 3 and 4 (field 2 is `%.3f`). It prints ratios at 6 decimal places and never judges them.
+  - `workflow_dispatch` with `seed_regression`, so t1878 can collect samples without editing the workflow.
+- **Verification:**
+  - Local `build.sh all`: four binaries plus the sums file, and `sha256sum -c` passes.
+  - Live gate: seeded (exit 1, three `BENCH_REGRESSION`) and healthy (exit 0). The summary's ratios agree with the gate's printed ones at 2 decimal places, and the recomputed scales round to the printed ones.
+  - The structure test's negative controls (drop `needs: goengines`, drop the `release.yml` trigger path, drop one asset glob) each fail exactly the targeted test.
+  - The benchci boundary control (field-2 scale) yields 1.301078 instead of 1.299000.
+  - gofmt step replay: clean gives rc 0, an injected violation gives rc 1.
+  - actionlint 1.7.12 is clean on `goengines-check.yml`.
+  - `shellcheck -x` and the cd-guard lint are clean.
+- **Upstream defects identified:** None. The three actionlint `SC2086` info findings in `release.yml`'s existing "Extract changelog" step (unquoted `$GITHUB_OUTPUT`) are pre-existing style/lint items, not defects.
+- **Notes for sibling tasks:**
+  - **t1852_5, `build.sh` CLI:**
+    - `goengines/build.sh [--version V] [--commit SHA] [--out DIR] [all|host|<os>_<arch>...]`. The default target is `host` and the default out is `goengines/dist/`.
+    - stdout carries `BUILT:<abs>` per binary and `SUMS:<abs>` per sums file (only with `all`).
+    - Exit codes: 1 for a build failure or a bad VERSION file, 2 for usage, including explicit empty values.
+    - For the dev slot, `ait engine build` passes `--version "<V>-dev+<sha>"` and `--out`.
+  - **t1852_5, assets:** release assets are `ait-testmap_<V>_<os>_<arch>` plus `ait-testmap_<V>_SHA256SUMS.txt` in `<hex>  <basename>` format.
+  - **t1852_5, other:** there is no `.sha256` sidecar asset; the sidecar is installer-side. `go_engine.md` exists for the `CLAUDE.md` Engine block to point at.
+  - **t1878:** the `bench` job in `goengines-check.yml`, dispatch input `seed_regression`, and a summary table with columns `benchmark|class|current|baseline|scale|scaled ratio|verdict`.
