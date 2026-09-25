@@ -47,8 +47,8 @@ and must NEVER import-alias the swapped names::
 `tests/test_agent_frozen_ops.py` enforces that rule directly: it fails if any
 engine module holds a global bound to the original `store` / `_TMUX` object.
 Constants (:data:`SESSIONS_SH`, the `EXIT_*` codes, :data:`PANE_FACT_FORMAT`,
-:data:`PANE_FACT_KEYS`) and the :class:`StageFailure` class are never swapped and
-may be imported by name.
+:data:`PANE_FACT_KEYS`, :data:`WINDOW_FACT_FORMAT`, :data:`WINDOW_FACT_KEYS`) and
+the :class:`StageFailure` class are never swapped and may be imported by name.
 
 Test seams, honoured **only** under ``AITASKS_TEST_MODE=1``:
 
@@ -83,7 +83,7 @@ from monitor.monitor_core import (  # noqa: E402
     STANDIN_READY_OPTION,
     AGENT_SESSION_OPTION,
 )
-from tmux_exec import TmuxClient  # noqa: E402
+from tmux_exec import TmuxClient, session_scope_target  # noqa: E402
 from config_utils import load_yaml_config  # noqa: E402
 
 #: The gateway client. SWAPPED BY TESTS — read it through :func:`run` (or as a
@@ -592,6 +592,121 @@ def clear_stamp_if(pane_id: str, record_id: str) -> None:
     run(["if-shell", "-F", "-t", pane_id,
          f"#{{==:#{{{FROZEN_OPTION}}},{record_id}}}",
          f"set-option -pu -t {pane_id} {FROZEN_OPTION}"])
+
+
+# --- window-name primitives (t1883) ------------------------------------------
+#
+# The tmux half of the attempt-identity protocol that `agent_restore` (a gone-pane
+# launch) and `agent_reopen` (a fresh viewer) both run: find a window by its
+# per-attempt name, kill it only while a claim still holds, rename it only while
+# it is stamped. They live here because `agent_reopen` imports `agent_restore`,
+# so neither coordinator can hold them for the other. What stays in each
+# coordinator is its own seam and its own labelling of a kill that did not take.
+
+#: `display-message` read of an attempt/viewer pane — the union of the facts
+#: either coordinator reads, so both parse one shape.
+WINDOW_FACT_FORMAT = "\t".join([
+    "#{pane_id}", "#{pane_pid}", "#{session_name}", "#{window_name}",
+    "#{window_id}", f"#{{{FROZEN_OPTION}}}", f"#{{{RESTORE_ATTEMPT_OPTION}}}",
+])
+WINDOW_FACT_KEYS = ("pane_id", "pane_pid", "session", "window", "window_id",
+                    "frozen", "mark")
+
+
+def window_facts(pane_id: str) -> dict[str, str] | None:
+    """The pane's window facts; ``{}`` when it is gone; None when tmux is unreachable."""
+    rc, out = run(["display-message", "-p", "-t", pane_id, WINDOW_FACT_FORMAT])
+    if rc == TMUX_UNREACHABLE:
+        return None
+    if rc != 0:
+        return {}
+    parts = (out.splitlines() or [""])[0].split("\t")
+    if len(parts) != len(WINDOW_FACT_KEYS) or not parts[0].strip():
+        return {}
+    return {k: v.strip() for k, v in zip(WINDOW_FACT_KEYS, parts)}
+
+
+def find_pane_by_window_name(session: str, name: str) -> tuple[str, str, int]:
+    """``(verdict, pane_id, pane_pid)`` of the window named ``name`` in ``session``.
+
+    ``found`` / ``none`` / ``unknown``. Filtered in Python rather than by a
+    ``session:window`` target, because a window target cannot address a name
+    containing `.` or `:`; the session is targeted as ``=<s>:``, which cannot
+    resolve as a window of another session (t1874). More than one pane under a
+    per-attempt name is not a state either coordinator produces, so it is
+    ``unknown`` rather than guessed.
+    """
+    rc, out = run([
+        # `=<s>:`, never a bare `=<s>`: see "Target formatting" in
+        # aidocs/framework/tmux_gateway.md.
+        "list-panes", "-s", "-t", session_scope_target(session),
+        "-F", "#{window_name}\t#{pane_id}\t#{pane_pid}"])
+    if rc == TMUX_UNREACHABLE:
+        return "unknown", "", 0
+    if rc != 0:
+        return "none", "", 0
+    hits = [p for p in (ln.split("\t") for ln in out.splitlines())
+            if len(p) == 3 and p[0] == name]
+    if not hits:
+        return "none", "", 0
+    if len(hits) > 1:
+        return "unknown", "", 0
+    try:
+        return "found", hits[0][1].strip(), int(hits[0][2].strip())
+    except ValueError:
+        return "unknown", "", 0
+
+
+def window_name_condition(name: str) -> str:
+    """The ``if-shell -F`` condition "this pane's window is still named ``name``"."""
+    return f"#{{==:#{{window_name}},{name}}}"
+
+
+def kill_window_read(pane_id: str, condition: str
+                     ) -> tuple[str, str, dict[str, str] | None]:
+    """`kill-window` on ``pane_id``'s window only if ``condition`` holds there.
+
+    Check and kill are ONE `if-shell -F` dispatch, then an after-read — the
+    verdict contract of :func:`kill_if_stamped`: ``gone`` / ``present`` /
+    ``unknown``. ``condition`` always names a per-attempt value, so a recycled
+    `%N` in a restarted server cannot match it.
+
+    Returns ``(verdict, reason, after)``. A surviving window is always
+    ``present`` / ``kill-failed`` here, with ``after`` holding its facts, so a
+    caller can say WHY without another tmux call; ``after`` is None otherwise.
+    """
+    before = window_facts(pane_id)
+    if before is None:
+        return "unknown", "tmux unreachable", None
+    if not before:
+        return "gone", "pane-gone", None
+    run(["if-shell", "-F", "-t", pane_id, condition, f"kill-window -t {pane_id}"])
+    after = window_facts(pane_id)
+    if after is None:
+        return "unknown", "tmux unreachable", None
+    if not after:
+        return "gone", "", None
+    return "present", "kill-failed", after
+
+
+def kill_window_if(pane_id: str, condition: str) -> tuple[str, str]:
+    """:func:`kill_window_read` without the after-read facts."""
+    verdict, reason, _after = kill_window_read(pane_id, condition)
+    return verdict, reason
+
+
+def rename_window_if_stamped(pane_id: str, record_id: str, final: str, *,
+                             dispatch: bool = True) -> bool:
+    """Stamp-guarded rename of ``pane_id``'s window, verified by a re-read.
+
+    ``dispatch=False`` skips the rename and only verifies — a caller's seam.
+    """
+    if dispatch:
+        run(["if-shell", "-F", "-t", pane_id,
+             f"#{{==:#{{{FROZEN_OPTION}}},{record_id}}}",
+             f"rename-window -t {pane_id} {tmux_quote(final)}"])
+    after = window_facts(pane_id)
+    return bool(after) and after.get("window") == final
 
 
 #: Sentinel :func:`_pre_read` returns as the server pid when tmux could not be

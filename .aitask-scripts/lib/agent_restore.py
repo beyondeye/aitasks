@@ -610,105 +610,34 @@ def _resolve_target_session(root: str, session: str | None = None):
 # survives is a restore survivor (`agent_frozen_ops.find_restore_survivors`),
 # which restore, reopen and drop all refuse to act past.
 #
-# The three tmux primitives below are twins of `agent_reopen`'s
-# `_find_by_window_name` / `_kill_if_named` / `_rename`. They cannot be imported
-# from there: `agent_reopen` imports this module.
-
-#: `display-message` read of an attempt pane: what the mark step verifies.
-_ATTEMPT_FACTS_FORMAT = "\t".join([
-    "#{pane_id}", "#{window_name}", f"#{{{FROZEN_OPTION}}}",
-    f"#{{{frozen_ops.RESTORE_ATTEMPT_OPTION}}}",
-])
-_ATTEMPT_FACTS_KEYS = ("pane_id", "window", "frozen", "mark")
-
-
-def _attempt_facts(pane_id: str) -> dict[str, str] | None:
-    """The pane's attempt facts; ``{}`` when gone; None when tmux is unreachable."""
-    rc, out = frozen_ops.run(["display-message", "-p", "-t", pane_id,
-                              _ATTEMPT_FACTS_FORMAT])
-    if rc == frozen_ops.TMUX_UNREACHABLE:
-        return None
-    if rc != 0:
-        return {}
-    parts = (out.splitlines() or [""])[0].split("\t")
-    if len(parts) != len(_ATTEMPT_FACTS_KEYS) or not parts[0].strip():
-        return {}
-    return {k: v.strip() for k, v in zip(_ATTEMPT_FACTS_KEYS, parts)}
+# The tmux primitives — lookup by name, guarded kill, stamp-guarded rename, the
+# window-facts read — are shared with `agent_reopen` in `agent_frozen_ops`
+# (t1883); only this coordinator's seams stay here, as thin wrappers.
 
 
 def _find_attempt_pane(session: str, name: str) -> tuple[str, str, int]:
-    """``(verdict, pane_id, pane_pid)`` of the window named ``name`` in ``session``.
-
-    ``found`` / ``none`` / ``unknown``. Filtered in Python, because a window
-    target cannot address every name; the session is targeted as ``=<s>:``,
-    which cannot resolve as a window of another session (t1874). More than one
-    pane under a per-attempt name is not a state this code produces, so it is
-    ``unknown`` rather than guessed.
-    """
+    """`frozen_ops.find_pane_by_window_name`, behind the ``lookup`` seam."""
     if _seam("lookup"):
         return "unknown", "", 0
-    rc, out = frozen_ops.run([
-        "list-panes", "-s", "-t", tmux_window_target(session, ""),
-        "-F", "#{window_name}\t#{pane_id}\t#{pane_pid}"])
-    if rc == frozen_ops.TMUX_UNREACHABLE:
-        return "unknown", "", 0
-    if rc != 0:
-        return "none", "", 0
-    hits = [p for p in (ln.split("\t") for ln in out.splitlines())
-            if len(p) == 3 and p[0] == name]
-    if not hits:
-        return "none", "", 0
-    if len(hits) > 1:
-        return "unknown", "", 0
-    try:
-        return "found", hits[0][1].strip(), int(hits[0][2].strip())
-    except ValueError:
-        return "unknown", "", 0
-
-
-def _kill_window_if(pane_id: str, condition: str, *,
-                    seam: bool = True) -> tuple[str, str]:
-    """`kill-window` on ``pane_id``'s window only if ``condition`` holds there.
-
-    Check and kill are ONE `if-shell -F` dispatch, then an after-read — the
-    verdict contract of `frozen_ops.kill_if_stamped`: ``gone`` / ``present`` /
-    ``unknown``. ``condition`` always names a per-attempt value, so a recycled
-    `%N` in a restarted server cannot match it.
-    """
-    if seam and _seam("cleanup"):
-        return "present", "seam"
-    before = _attempt_facts(pane_id)
-    if before is None:
-        return "unknown", "tmux unreachable"
-    if not before:
-        return "gone", "pane-gone"
-    frozen_ops.run(["if-shell", "-F", "-t", pane_id, condition,
-                    f"kill-window -t {pane_id}"])
-    after = _attempt_facts(pane_id)
-    if after is None:
-        return "unknown", "tmux unreachable"
-    if not after:
-        return "gone", ""
-    return "present", "kill-failed"
+    return frozen_ops.find_pane_by_window_name(session, name)
 
 
 def _kill_if_named(pane_id: str, name: str) -> tuple[str, str]:
-    return _kill_window_if(pane_id, f"#{{==:#{{window_name}},{name}}}")
+    """The name-guarded cleanup kill, behind the ``cleanup`` seam.
+
+    A window that survives is ``present`` / ``kill-failed`` whatever it is named
+    by then — this label reaches `RESTORE_FAILED` (reopen labels the renamed case
+    ``name-mismatch``; each coordinator keeps its own).
+    """
+    if _seam("cleanup"):
+        return "present", "seam"
+    return frozen_ops.kill_window_if(pane_id, frozen_ops.window_name_condition(name))
 
 
 def _cleanup_suffix(verdict: str, reason: str, pane_id: str) -> str:
     if verdict == "gone":
         return ""
     return f"|cleanup:{verdict}:{reason}|pane:{pane_id}"
-
-
-def _rename_if_stamped(pane_id: str, record_id: str, final: str) -> bool:
-    """Stamp-guarded rename of ``pane_id``'s window, verified by a re-read."""
-    frozen_ops.run(["if-shell", "-F", "-t", pane_id,
-                    f"#{{==:#{{{FROZEN_OPTION}}},{record_id}}}",
-                    f"rename-window -t {pane_id} {frozen_ops.tmux_quote(final)}"])
-    after = _attempt_facts(pane_id)
-    return bool(after) and after.get("window") == final
 
 
 def _survivor_refusal(record_id: str) -> str:
@@ -736,9 +665,9 @@ def _survivor_refusal(record_id: str) -> str:
             if hit.get("mark"):
                 claim = f"#{{==:#{{{frozen_ops.RESTORE_ATTEMPT_OPTION}}},{hit['mark']}}}"
             else:
-                claim = f"#{{==:#{{window_name}},{hit['window']}}}"
-            verdict, _why = _kill_window_if(
-                hit["pane_id"], f"#{{&&:#{{pane_dead}},{claim}}}", seam=False)
+                claim = frozen_ops.window_name_condition(hit["window"])
+            verdict, _why = frozen_ops.kill_window_if(
+                hit["pane_id"], f"#{{&&:#{{pane_dead}},{claim}}}")
             if verdict == "gone":
                 continue
         return frozen_ops.survivor_detail(hit)
@@ -821,14 +750,14 @@ def _launch_into_new_window(rec: dict, command: str, env: dict,
             "if-shell", "-F", "-t", pane_id, f"#{{==:#{{window_name}},{attempt}}}",
             f"set-option -p -t {pane_id} {FROZEN_OPTION} {record_id} ; "
             f"set-option -p -t {pane_id} {frozen_ops.RESTORE_ATTEMPT_OPTION} {mark}"])
-    facts = _attempt_facts(pane_id)
+    facts = frozen_ops.window_facts(pane_id)
     if not facts or facts.get("frozen") != record_id or facts.get("mark") != mark:
         verdict, reason = _kill_if_named(pane_id, attempt)
         return "", 0, "stamp" + _cleanup_suffix(verdict, reason, pane_id)
 
     # --- 4. rename to the recorded name (cosmetic on failure) --------------
     window = final
-    if not _rename_if_stamped(pane_id, record_id, final):
+    if not frozen_ops.rename_window_if_stamped(pane_id, record_id, final):
         window = attempt
         print(f"WARNING:{record_id}|window not renamed from {attempt} to {final}",
               file=sys.stderr)

@@ -1172,6 +1172,28 @@ class TestNewWindowAttemptIdentity(_LaunchHarness, unittest.TestCase):
         self.assertEqual("", pane)
         self.assertTrue(err.startswith("stamp|cleanup:present:seam|pane:%"), err)
 
+    def test_a_kill_raced_by_a_rename_is_labelled_kill_failed(self):
+        """Restore labels ANY surviving window `kill-failed`, including one renamed
+        between the kill's before-read and its name-guarded dispatch. The label
+        reaches `RESTORE_FAILED`, so sharing the kill with reopen — which says
+        `name-mismatch` here — must not relabel it (t1883)."""
+        server = _Server()
+        reads = []
+
+        def rename_after_the_kills_before_read(srv, args):
+            if args[0] != "display-message":
+                return
+            reads.append(args)
+            if len(reads) == 2:     # 1: the stamp verification, 2: the kill's before-read
+                for p in srv.panes.values():
+                    if p["window_name"] == _ATTEMPT:
+                        p["window_name"] = "renamed-meanwhile"
+        server.after = rename_after_the_kills_before_read
+        pane, _, err = self._seamed("stamp", server)
+        self.assertEqual("", pane)
+        (survivor,) = server.panes
+        self.assertEqual(f"stamp|cleanup:present:kill-failed|pane:{survivor}", err)
+
     def test_a_failed_rename_is_cosmetic(self):
         server = _Server()
         orig = server._exec

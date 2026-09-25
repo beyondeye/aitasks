@@ -53,6 +53,9 @@ PROMISED_CALLABLES = (
     "probe_pane", "tmux_quote", "respawn_if_stamped",
     # t1783: the kill-side twin of the atomic respawn, for `drop`.
     "kill_if_stamped",
+    # t1883: the window-name primitives restore and reopen share.
+    "window_facts", "find_pane_by_window_name", "window_name_condition",
+    "kill_window_read", "kill_window_if", "rename_window_if_stamped",
 )
 PROMISED_VALUES = (
     "StageFailure", "SESSIONS_SH", "PANE_FACT_FORMAT", "PANE_FACT_KEYS",
@@ -62,6 +65,8 @@ PROMISED_VALUES = (
     "RESPAWN_PROBE_FORMAT",
     # t1783: the shared pre-read of both stamp-conditional dispatches.
     "PRE_READ_FORMAT", "TMUX_UNREACHABLE_MARK",
+    # t1883: the one window-facts read both coordinators parse.
+    "WINDOW_FACT_FORMAT", "WINDOW_FACT_KEYS",
 )
 
 #: Engine modules that import the shared surface. `agent_restore` joins this
@@ -791,6 +796,178 @@ class GuardedClearTests(unittest.TestCase):
         ops.clear_stamp_if("%5", "")
         ops.clear_restore_attempt("", "7f3a2c1d:deadbeef")
         self.assertEqual([], self.calls)
+
+
+class _PaneWorld:
+    """A pane-state fake for the window-name primitives (t1883).
+
+    Renders any ``#{key}`` from the pane dict (a missing key renders empty, as a
+    user option does on real tmux) and interprets the `if-shell -F` equality
+    guard, so a guard that does not match really declines. ``before_dispatch``
+    runs just before an `if-shell` is evaluated — the slot a concurrent rename
+    races into.
+    """
+
+    def __init__(self) -> None:
+        self.calls: list[list[str]] = []
+        self.panes: dict[str, dict] = {}
+        self.unreachable = False
+        self.kill_takes = True
+        self.before_dispatch = None
+
+    def add(self, pane_id: str, session: str, window: str, **opts: str) -> None:
+        pane = {"pane_id": pane_id, "pane_pid": str(10000 + int(pane_id[1:])),
+                "session_name": session, "window_name": window,
+                "window_id": f"@{pane_id[1:]}"}
+        pane.update(opts)
+        self.panes[pane_id] = pane
+
+    def _render(self, fmt: str, pane: dict) -> str:
+        import re
+        return re.sub(r"#\{([@a-z_]+)\}", lambda m: pane.get(m.group(1), ""), fmt)
+
+    def run(self, args, timeout=None):
+        import re
+        self.calls.append(list(args))
+        if self.unreachable:
+            return ops.TMUX_UNREACHABLE, ""
+        verb = args[0]
+        if verb == "display-message":
+            pane = self.panes.get(args[3])
+            return (1, "") if pane is None else (0, self._render(args[4], pane))
+        if verb == "list-panes":
+            session = args[args.index("-t") + 1][1:-1]
+            return 0, "\n".join(self._render(args[-1], p) for p in self.panes.values()
+                                if p["session_name"] == session)
+        if verb == "if-shell":
+            if self.before_dispatch is not None:
+                self.before_dispatch(self)
+            pane = self.panes.get(args[3])
+            m = re.fullmatch(r"#\{==:#\{([@a-z_]+)\},(.*)\}", args[4])
+            assert m, f"unsupported condition {args[4]!r}"
+            if pane is None or pane.get(m.group(1), "") != m.group(2):
+                return 0, ""
+            cmd = args[5]
+            if cmd.startswith("kill-window") and self.kill_takes:
+                del self.panes[args[3]]
+            elif cmd.startswith("rename-window"):
+                pane["window_name"] = cmd.split(" ", 3)[3].strip('"')
+            return 0, ""
+        raise AssertionError(f"unsupported tmux call {args!r}")
+
+
+class WindowNamePrimitiveTests(_SwapMixin, unittest.TestCase):
+    """The window-name primitives restore and reopen share (t1883)."""
+
+    def setUp(self):
+        self.world = self.swap_tmux(_PaneWorld())
+
+    # -- window_facts ----------------------------------------------------------
+    def test_window_facts_reads_every_key_of_a_present_pane(self):
+        self.world.add("%5", "aitasks", "agent-x", **{"@aitask_frozen": "7f3a2c1d",
+                                                     "@aitask_restore_attempt": "7f3a2c1d:deadbeef"})
+        self.assertEqual(
+            {"pane_id": "%5", "pane_pid": "10005", "session": "aitasks",
+             "window": "agent-x", "window_id": "@5", "frozen": "7f3a2c1d",
+             "mark": "7f3a2c1d:deadbeef"},
+            ops.window_facts("%5"))
+
+    def test_window_facts_of_a_gone_pane_is_empty(self):
+        self.assertEqual({}, ops.window_facts("%5"))
+
+    def test_window_facts_of_an_empty_row_is_empty(self):
+        """`display-message -p -t <gone pane>` can exit 0 with nothing to say."""
+        self.swap_tmux(_FakeTmux(0, ""))
+        self.assertEqual({}, ops.window_facts("%5"))
+
+    def test_window_facts_when_tmux_is_unreachable_is_none(self):
+        self.world.unreachable = True
+        self.assertIsNone(ops.window_facts("%5"))
+
+    # -- find_pane_by_window_name ------------------------------------------------
+    def test_lookup_finds_the_one_pane_under_the_name(self):
+        self.world.add("%5", "aitasks", "aitask-restore-7f3a2c1d-deadbeef")
+        self.world.add("%6", "other", "aitask-restore-7f3a2c1d-deadbeef")
+        self.assertEqual(("found", "%5", 10005),
+                         ops.find_pane_by_window_name("aitasks",
+                                                      "aitask-restore-7f3a2c1d-deadbeef"))
+        target = self.world.calls[-1][self.world.calls[-1].index("-t") + 1]
+        self.assertEqual("=aitasks:", target, "a bare =<s> can resolve as a window (t1874)")
+
+    def test_lookup_with_no_such_window_is_none(self):
+        self.world.add("%5", "aitasks", "agent-x")
+        self.assertEqual(("none", "", 0), ops.find_pane_by_window_name("aitasks", "w"))
+
+    def test_lookup_with_two_hits_is_unknown(self):
+        self.world.add("%5", "aitasks", "w")
+        self.world.add("%6", "aitasks", "w")
+        self.assertEqual(("unknown", "", 0), ops.find_pane_by_window_name("aitasks", "w"))
+
+    def test_lookup_with_an_unparseable_pid_is_unknown(self):
+        self.world.add("%5", "aitasks", "w", pane_pid="x")
+        self.assertEqual(("unknown", "", 0), ops.find_pane_by_window_name("aitasks", "w"))
+
+    def test_lookup_when_tmux_is_unreachable_is_unknown(self):
+        self.world.unreachable = True
+        self.assertEqual(("unknown", "", 0), ops.find_pane_by_window_name("aitasks", "w"))
+
+    # -- kill_window_read / kill_window_if ----------------------------------------
+    def test_a_pane_gone_before_the_kill_dispatches_nothing(self):
+        self.assertEqual(("gone", "pane-gone"),
+                         ops.kill_window_if("%5", ops.window_name_condition("w")))
+        self.assertEqual([], [c for c in self.world.calls if c[0] == "if-shell"])
+
+    def test_a_matching_condition_kills_in_one_dispatch(self):
+        self.world.add("%5", "aitasks", "w")
+        self.assertEqual(("gone", ""),
+                         ops.kill_window_if("%5", ops.window_name_condition("w")))
+        (dispatch,) = [c for c in self.world.calls if c[0] == "if-shell"]
+        self.assertEqual(["if-shell", "-F", "-t", "%5", "#{==:#{window_name},w}",
+                          "kill-window -t %5"], dispatch)
+
+    def test_a_kill_that_does_not_take_is_kill_failed_with_the_after_read(self):
+        self.world.add("%5", "aitasks", "w")
+        self.world.kill_takes = False
+        verdict, reason, after = ops.kill_window_read("%5", ops.window_name_condition("w"))
+        self.assertEqual(("present", "kill-failed", "w"), (verdict, reason, after["window"]))
+
+    def test_a_rename_race_is_still_kill_failed_here(self):
+        """The shared kill does not label WHY — each coordinator does (t1883)."""
+        self.world.add("%5", "aitasks", "w")
+
+        def rename(world):
+            world.panes["%5"]["window_name"] = "renamed-meanwhile"
+        self.world.before_dispatch = rename
+        verdict, reason, after = ops.kill_window_read("%5", ops.window_name_condition("w"))
+        self.assertEqual(("present", "kill-failed"), (verdict, reason))
+        self.assertEqual("renamed-meanwhile", after["window"],
+                         "the after-read lets a caller label the race without another read")
+        self.assertEqual(("present", "kill-failed"),
+                         ops.kill_window_if("%5", ops.window_name_condition("w")))
+
+    def test_an_unreachable_server_is_unknown(self):
+        self.world.unreachable = True
+        self.assertEqual(("unknown", "tmux unreachable", None),
+                         ops.kill_window_read("%5", ops.window_name_condition("w")))
+
+    # -- rename_window_if_stamped ---------------------------------------------------
+    def test_a_stamped_window_is_renamed_and_verified(self):
+        self.world.add("%5", "aitasks", "attempt", **{"@aitask_frozen": "7f3a2c1d"})
+        self.assertTrue(ops.rename_window_if_stamped("%5", "7f3a2c1d", "agent-x"))
+        self.assertEqual("agent-x", self.world.panes["%5"]["window_name"])
+        (dispatch,) = [c for c in self.world.calls if c[0] == "if-shell"]
+        self.assertEqual("#{==:#{@aitask_frozen},7f3a2c1d}", dispatch[4])
+
+    def test_an_unstamped_window_is_not_renamed(self):
+        self.world.add("%5", "aitasks", "attempt", **{"@aitask_frozen": "0badf00d"})
+        self.assertFalse(ops.rename_window_if_stamped("%5", "7f3a2c1d", "agent-x"))
+        self.assertEqual("attempt", self.world.panes["%5"]["window_name"])
+
+    def test_no_dispatch_only_verifies(self):
+        self.world.add("%5", "aitasks", "attempt", **{"@aitask_frozen": "7f3a2c1d"})
+        self.assertFalse(ops.rename_window_if_stamped("%5", "7f3a2c1d", "agent-x",
+                                                      dispatch=False))
+        self.assertEqual([], [c for c in self.world.calls if c[0] == "if-shell"])
 
 
 if __name__ == "__main__":

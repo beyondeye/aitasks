@@ -516,6 +516,31 @@ class TestFresh(_Base):
         self.assertNotIn("standin-respawned", self.store.verbs())
         self.assertIn("kill-window", self.world.branches()[-1])
 
+    def test_a_kill_raced_by_a_rename_is_labelled_name_mismatch(self):
+        """Reopen names WHY its name-guarded kill did not take: the window it
+        guarded on was renamed between the before-read and the dispatch. Restore
+        says `kill-failed` for the same race; each keeps its own label (t1883)."""
+        self.seam("stamp")
+        world, real_run = self.world, self.world.run
+        reads = []
+
+        def run(args, timeout=None):
+            out = real_run(args, timeout)
+            if args[0] == "new-window":
+                reads.clear()
+            elif args[0] == "display-message":
+                reads.append(args)
+                if len(reads) == 2:  # 1: the stamp verification, 2: the kill's before-read
+                    for p in world.panes.values():
+                        if p["window_name"] == agent_reopen.attempt_name(RID, NONCE):
+                            p["window_name"] = "renamed-meanwhile"
+            return out
+        world.run = run
+        line = agent_reopen.reopen_one(RID, session="aitasks")
+        (survivor,) = world.panes
+        self.assertEqual(
+            f"REOPEN_FAILED:{RID}|stamp|cleanup:present:name-mismatch|pane:{survivor}", line)
+
     def test_rename_failure_kills_by_stamp(self):
         self.seam("rename")
         line = agent_reopen.reopen_one(RID, session="aitasks")

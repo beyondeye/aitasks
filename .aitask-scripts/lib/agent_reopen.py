@@ -132,13 +132,6 @@ _CLAIM_FORMAT = "\t".join([
 ])
 _CLAIM_ARITY = 8
 
-_FACTS_FORMAT = "\t".join([
-    "#{pane_id}", "#{pane_pid}", "#{session_name}", "#{window_name}",
-    "#{window_id}", f"#{{{FROZEN_OPTION}}}",
-])
-_FACTS_KEYS = ("pane_id", "pane_pid", "session", "window", "window_id", "frozen")
-
-
 def attempt_name(record_id: str, nonce: str) -> str:
     return f"aitask-reopen-{record_id}-{nonce[:8]}"
 
@@ -299,76 +292,27 @@ def gone_line(rec: dict, kind: str) -> str:
 # --- tmux primitives ---------------------------------------------------------
 
 
-def _facts(pane_id: str) -> dict[str, str] | None:
-    """The pane's facts; ``{}`` when it is gone; None when tmux is unreachable."""
-    rc, out = frozen_ops.run(["display-message", "-p", "-t", pane_id, _FACTS_FORMAT])
-    if rc == TMUX_UNREACHABLE:
-        return None
-    if rc != 0:
-        return {}
-    parts = (out.splitlines() or [""])[0].split("\t")
-    if len(parts) != len(_FACTS_KEYS) or not parts[0].strip():
-        return {}
-    return {k: v.strip() for k, v in zip(_FACTS_KEYS, parts)}
-
-
 def _find_by_window_name(session: str, name: str) -> tuple[str, str, int]:
-    """``(verdict, pane_id, pane_pid)``: ``found`` / ``none`` / ``unknown``.
-
-    Filtered in Python rather than by a ``session:window`` target, because a
-    window target cannot address a name containing `.` or `:`. More than one
-    pane under a per-attempt name is not a state this module produces; it is
-    reported ``unknown`` rather than guessed.
-    """
+    """`frozen_ops.find_pane_by_window_name`, behind the ``lookup`` seam."""
     if _seam("lookup"):
         return "unknown", "", 0
-    rc, out = frozen_ops.run([
-        # `=<s>:`, never a bare `=<s>`: see "Target formatting" in
-        # aidocs/framework/tmux_gateway.md.
-        "list-panes", "-s", "-t", tmux_session_scope_target(session),
-        "-F", "#{window_name}\t#{pane_id}\t#{pane_pid}"])
-    if rc == TMUX_UNREACHABLE:
-        return "unknown", "", 0
-    if rc != 0:
-        return "none", "", 0
-    hits = []
-    for line in out.splitlines():
-        parts = line.split("\t")
-        if len(parts) == 3 and parts[0] == name:
-            hits.append(parts)
-    if not hits:
-        return "none", "", 0
-    if len(hits) > 1:
-        return "unknown", "", 0
-    try:
-        return "found", hits[0][1].strip(), int(hits[0][2].strip())
-    except ValueError:
-        return "unknown", "", 0
+    return frozen_ops.find_pane_by_window_name(session, name)
 
 
 def _kill_if_named(pane_id: str, name: str) -> tuple[str, str]:
     """`kill-window` on ``pane_id``'s window only if it is still named ``name``.
 
-    The same check-and-kill-in-one-dispatch shape and verdict contract as
-    `frozen_ops.kill_if_stamped`, for the window of an attempt whose stamp was
-    never verified. ``name`` is a per-attempt name, so a recycled ``%N`` in a
-    restarted server cannot match it.
+    The shared `frozen_ops.kill_window_read`, behind the ``cleanup`` seam. A
+    window that survives is labelled by what the after-read saw: still ``name``
+    → ``kill-failed``, renamed meanwhile → ``name-mismatch``. ``name`` is a
+    per-attempt name, so a recycled ``%N`` in a restarted server cannot match it.
     """
     if _seam("cleanup"):
         return "present", "seam"
-    before = _facts(pane_id)
-    if before is None:
-        return "unknown", "tmux unreachable"
-    if not before:
-        return "gone", "pane-gone"
-    frozen_ops.run(["if-shell", "-F", "-t", pane_id,
-                    f"#{{==:#{{window_name}},{name}}}",
-                    f"kill-window -t {pane_id}"])
-    after = _facts(pane_id)
-    if after is None:
-        return "unknown", "tmux unreachable"
-    if not after:
-        return "gone", ""
+    verdict, reason, after = frozen_ops.kill_window_read(
+        pane_id, frozen_ops.window_name_condition(name))
+    if verdict != "present":
+        return verdict, reason
     return "present", "kill-failed" if after["window"] == name else "name-mismatch"
 
 
@@ -386,7 +330,7 @@ def _final_name(session: str, pane_id: str, base: str) -> str:
     already carries its final name keeps it rather than being pushed to `-2` by
     its own name, and the result is stable across reruns.
     """
-    facts = _facts(pane_id) or {}
+    facts = frozen_ops.window_facts(pane_id) or {}
     own = facts.get("window_id", "")
     rc, out = frozen_ops.run(["list-windows", "-t", tmux_session_scope_target(session),
                               "-F", "#{window_id}\t#{window_name}"])
@@ -402,17 +346,13 @@ def _final_name(session: str, pane_id: str, base: str) -> str:
 
 def _rename(pane_id: str, record_id: str, final: str) -> bool:
     """Stamp-guarded rename of ``pane_id``'s window, verified by a re-read."""
-    facts = _facts(pane_id)
+    facts = frozen_ops.window_facts(pane_id)
     if not facts or facts.get("frozen") != record_id:
         return False
     if facts.get("window") == final:
         return True                 # already right: no rename issued
-    if not _seam("rename"):
-        frozen_ops.run(["if-shell", "-F", "-t", pane_id,
-                        f"#{{==:#{{{FROZEN_OPTION}}},{record_id}}}",
-                        f"rename-window -t {pane_id} {frozen_ops.tmux_quote(final)}"])
-    after = _facts(pane_id)
-    return bool(after) and after.get("window") == final
+    return frozen_ops.rename_window_if_stamped(pane_id, record_id, final,
+                                               dispatch=not _seam("rename"))
 
 
 # --- the transaction ---------------------------------------------------------
@@ -431,7 +371,7 @@ def _cleanup_suffix(verdict: str, reason: str, pane_id: str) -> str:
 def _commit(record_id: str, nonce: str, pane_id: str) -> tuple[int, str]:
     if _seam("store"):
         return 1, "seam"
-    facts = _facts(pane_id) or {}
+    facts = frozen_ops.window_facts(pane_id) or {}
     try:
         pane_pid = int(facts.get("pane_pid", "0"))
     except ValueError:
@@ -488,7 +428,7 @@ def _fresh(rec: dict, nonce: str, session: str) -> str:
         frozen_ops.run(["if-shell", "-F", "-t", pane_id,
                         f"#{{==:#{{window_name}},{name}}}",
                         f"set-option -p -t {pane_id} {FROZEN_OPTION} {record_id}"])
-    facts = _facts(pane_id)
+    facts = frozen_ops.window_facts(pane_id)
     if not facts or facts.get("frozen") != record_id:
         verdict, reason = _kill_if_named(pane_id, name)
         return fail("stamp" + _cleanup_suffix(verdict, reason, pane_id))
@@ -541,12 +481,12 @@ def _adopt(rec: dict, nonce: str, claim: Claim, session: str | None) -> str:
             frozen_ops.run(["if-shell", "-F", "-t", pane_id,
                             _claim_condition(claim, record_id),
                             f"set-option -p -t {pane_id} {FROZEN_OPTION} {record_id}"])
-        facts = _facts(pane_id)
+        facts = frozen_ops.window_facts(pane_id)
         if not facts or facts.get("frozen") != record_id:
             return fail("stamp")
 
     # --- 2. into the selected session --------------------------------------
-    facts = _facts(pane_id)
+    facts = frozen_ops.window_facts(pane_id)
     if not facts:
         return fail("gone")
     current = facts.get("session", "")
@@ -557,7 +497,7 @@ def _adopt(rec: dict, nonce: str, claim: Claim, session: str | None) -> str:
                 f"#{{==:#{{{FROZEN_OPTION}}},{record_id}}}",
                 f"move-window -s {pane_id} -t "
                 f"{frozen_ops.tmux_quote(tmux_window_target(session, ''))}"])
-        facts = _facts(pane_id)
+        facts = frozen_ops.window_facts(pane_id)
         if not facts or facts.get("session") != session:
             return fail("move")
         current = session
