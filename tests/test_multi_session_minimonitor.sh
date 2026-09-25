@@ -227,10 +227,11 @@ def mk_snap(sess, wi, pi, pid, name):
         pane_id=pid,
         window_name=name,
     )
-    # `parked` is a real PaneSnapshot field (t1685); a double that omits it
-    # is incomplete, not exercising a defensive path in the renderer.
-    return SimpleNamespace(pane=pane, is_idle=False, idle_seconds=0.0,
-                           parked=False)
+    # The real PaneSnapshot, not a SimpleNamespace double: fields the renderer
+    # grows later (`parked` t1685, `frozen` t1705_7) default instead of
+    # crashing a stale hand-built snapshot (t1880).
+    return mm.PaneSnapshot(pane=pane, content="", timestamp=0.0,
+                           idle_seconds=0.0, is_idle=False)
 
 # Two agents in two sessions → expect 4 widgets: [divA, cardA, divB, cardB]
 app._snapshots = {
@@ -295,7 +296,9 @@ def mk_snap(sess, idle=False):
         session_name=sess, window_index="1", pane_index="0",
         pane_id="%x", window_name="agent-x",
     )
-    return SimpleNamespace(pane=pane, is_idle=idle, idle_seconds=0.0, parked=False)
+    # Real PaneSnapshot so later defaulted fields cannot break it (t1880).
+    return mm.PaneSnapshot(pane=pane, content="", timestamp=0.0,
+                           idle_seconds=0.0, is_idle=idle)
 
 app._snapshots = {"%1": mk_snap("sA"), "%2": mk_snap("sB", idle=True)}
 app._rebuild_session_bar()
@@ -337,10 +340,11 @@ def mk_snap(sess, wi, pi, pid, name):
         session_name=sess, window_index=wi, pane_index=pi,
         pane_id=pid, window_name=name,
     )
-    # `parked` is a real PaneSnapshot field (t1685); a double that omits it
-    # is incomplete, not exercising a defensive path in the renderer.
-    return SimpleNamespace(pane=pane, is_idle=False, idle_seconds=0.0,
-                           parked=False)
+    # The real PaneSnapshot, not a SimpleNamespace double: fields the renderer
+    # grows later (`parked` t1685, `frozen` t1705_7) default instead of
+    # crashing a stale hand-built snapshot (t1880).
+    return mm.PaneSnapshot(pane=pane, content="", timestamp=0.0,
+                           idle_seconds=0.0, is_idle=False)
 
 def make_app(containers):
     app = mm.MiniMonitorApp.__new__(mm.MiniMonitorApp)
@@ -454,10 +458,11 @@ def mk_snap(sess, wi, pid):
         session_name=sess, window_index=wi, pane_index=0,
         pane_id=pid, window_name="agent-" + pid,
     )
-    # `parked` is a real PaneSnapshot field (t1685); a double that omits it
-    # is incomplete, not exercising a defensive path in the renderer.
-    return SimpleNamespace(pane=pane, is_idle=False, idle_seconds=0.0,
-                           parked=False)
+    # The real PaneSnapshot, not a SimpleNamespace double: fields the renderer
+    # grows later (`parked` t1685, `frozen` t1705_7) default instead of
+    # crashing a stale hand-built snapshot (t1880).
+    return mm.PaneSnapshot(pane=pane, content="", timestamp=0.0,
+                           idle_seconds=0.0, is_idle=False)
 
 app = mm.MiniMonitorApp.__new__(mm.MiniMonitorApp)
 app._session = "sA"
@@ -515,10 +520,11 @@ def mk_snap(sess, name):
         window_index="1", pane_index="0", pane_id="%" + sess,
         window_name=name,
     )
-    # `parked` is a real PaneSnapshot field (t1685); a double that omits it
-    # is incomplete, not exercising a defensive path in the renderer.
-    return SimpleNamespace(pane=pane, is_idle=False, idle_seconds=0.0,
-                           parked=False)
+    # The real PaneSnapshot, not a SimpleNamespace double: fields the renderer
+    # grows later (`parked` t1685, `frozen` t1705_7) default instead of
+    # crashing a stale hand-built snapshot (t1880).
+    return mm.PaneSnapshot(pane=pane, content="", timestamp=0.0,
+                           idle_seconds=0.0, is_idle=False)
 
 app = mm.MiniMonitorApp.__new__(mm.MiniMonitorApp)
 app._task_cache = SimpleNamespace(

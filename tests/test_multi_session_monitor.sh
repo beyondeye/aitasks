@@ -720,10 +720,11 @@ def mk_snap(sess, name):
         window_index="1", pane_index="0", pane_id="%" + sess,
         window_name=name,
     )
-    # `parked` is a real PaneSnapshot field (t1685); a double that omits it
-    # is incomplete, not exercising a defensive path in the renderer.
-    return SimpleNamespace(pane=pane, is_idle=False, idle_seconds=0.0,
-                           parked=False)
+    # The real PaneSnapshot, not a SimpleNamespace double: fields the renderer
+    # grows later (`parked` t1685, `frozen` t1705_7) default instead of
+    # crashing a stale hand-built snapshot (t1880).
+    return ma.PaneSnapshot(pane=pane, content="", timestamp=0.0,
+                           idle_seconds=0.0, is_idle=False)
 
 app = ma.MonitorApp.__new__(ma.MonitorApp)
 app._task_cache = SimpleNamespace(
