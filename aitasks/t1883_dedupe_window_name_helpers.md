@@ -3,13 +3,14 @@ priority: low
 effort: low
 depends: []
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [frozen, session_persistence]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1847
 followup_kind: risk_mitigation
 created_at: 2026-09-25 12:24
-updated_at: 2026-09-25 12:24
+updated_at: 2026-09-25 12:27
 ---
 
 ## Origin
