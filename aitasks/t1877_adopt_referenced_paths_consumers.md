@@ -1,5 +1,7 @@
 ---
 priority: low
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: enhancement
@@ -43,3 +45,5 @@ For each consumer, measure the prompt-rate and verdict impact on the live corpus
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-09-25T13:53:43Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-09-25T14:40:25Z status=pass attempt=1 type=human
