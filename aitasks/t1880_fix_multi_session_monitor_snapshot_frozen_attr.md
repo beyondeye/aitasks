@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1869
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-09-25 07:29
-updated_at: 2026-09-25 10:41
+updated_at: 2026-09-25 11:26
 ---
 
 ## Origin
@@ -46,3 +47,8 @@ Give the fixture snapshot `frozen=False` (and audit it for any other
 TmuxPaneInfo / snapshot fields `_format_agent_card_text` now reads), or build
 it from the real snapshot type so new fields default instead of crashing.
 Then check that the test's other blocks still pass.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-25T08:26:57Z status=pass attempt=1 type=human
