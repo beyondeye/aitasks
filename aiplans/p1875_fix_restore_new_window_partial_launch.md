@@ -415,3 +415,32 @@ the record's continued existence (`agent_sessions.drop_verdict`), so it reports
 ### Planned mitigations
 - timing: post-phase | name: run_frozen_live_regressions | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — rollback/settle/liveness re-routing | desc: run the other real-restore live suites after the change
 - timing: after | name: dedupe_window_name_helpers | type: refactor | priority: low | effort: low | inline_risk: medium | added_complexity: low | addresses: code-health — duplicated window-name helpers | desc: move name lookup, name-guarded kill and stamp-guarded rename into agent_frozen_ops, shared by agent_reopen and agent_restore
+
+## Final Implementation Notes
+- **Actual work done:** Implemented the approved design end to end.
+  - `agent_frozen_ops.py`: attempt identity (`restore_attempt_name/value/record`), the single survivor rule `is_restore_survivor`, the whole-server `find_restore_survivors` scan (through `run_checked`: no server → `[]`, failure → `None`), `survivor_detail`, and value-guarded `clear_restore_attempt` / `clear_stamp_if`.
+  - `agent_restore.py`: `_launch_into_new_window` rewritten around the attempt-name → identify → stamp+mark → rename protocol, with the seams `launch_uncertain`, `identify`, `lookup`, `stamp`, `cleanup` and `abandon`. `restore()` now sets `pane_id = new_pane` after a new-window launch. Its survivor guard `_survivor_refusal` runs before the recorded-pane probe **and again under the lease**. `_rollback` clears the mark only after a verified respawn. `_clear_frozen_stamp` is guarded.
+  - `agent_reopen.py`: an 8-field claim scan, the `restore` claim, and the `survivor` kind (decided before `tracked`), refused both before and under the lease.
+  - `agent_freeze.drop_record`: survivor scan step 0b.
+  - `ide_frozen_offer.sh`: survivor marker and R/P skip.
+  - Website: a paragraph in `freeze-and-restore-agents.md`.
+- **Deviations from plan:**
+  - The stamp and the attempt mark are set in ONE name-guarded `if-shell` dispatch (a `;` sequence), not two. That is atomic and simpler.
+  - Added a **second survivor scan under the lease** in `restore()`: a concurrent restore could abandon an attempt between the pre-lease scan and `restore-begin`. On a hit it rolls back with the reason. Covered by the unit test `test_a_survivor_appearing_before_the_lease_is_caught_under_it`.
+  - The dead-survivor kill is guarded on `#{&&:#{pane_dead},<claim>}`, so a pane that came back to life is never killed.
+  - In `test_agent_restore.py`, the helpers `_dispatch_argv` / `destructive()` now count an `if-shell` by its BRANCH (respawn/kill), because the success path's guarded clears are `if-shell` dispatches that cannot touch a process.
+  - The fake's `list_panes_ok` in `test_agent_freeze.py` now covers only the targeted listings; the new `list_panes_all_ok` covers the whole-server scan.
+- **Issues encountered:**
+  - Three live suites (`test_restore_flows_live.sh`, `test_frozen_agents_acceptance.sh`, `test_freeze_engine_live.sh`) refuse to run inside tmux: they arm unsandboxed `pane-died` hooks. They were NOT run and not forced; the user is to run them from a terminal outside tmux.
+  - `ide_frozen_offer.sh` carries a concurrent session's uncommitted hook-note hunks (t1849). Only this task's hunks were committed, through a temporary index.
+- **Key decisions:**
+  - Survivor identity comes only from the pane's own evidence. There is no own-pane exclusion, because the recorded `pane_id` is a hint that a recycled `%N` can match.
+  - Survivors are refused and named, never adopted automatically. No "drop to keep it" advice is given.
+  - `respawn_if_stamped` is unchanged: the mark is never part of its pre-respawn `unset`.
+- **Verification:**
+  - Unit tests: 332 pass across `test_agent_restore`, `test_agent_reopen`, `test_agent_freeze` and `test_agent_frozen_ops`. `run_all_python_tests.sh` → `PYTHON SUITE: PASSED`.
+  - `test_frozen_reopen_live.sh`: 146/146 (new m1–m7).
+  - `test_restore_session_bootstrap_live.sh` 44/44, `test_frozen_respawn_atomic_live.sh` 64/64, `test_ide_frozen_offer.sh` 44/44.
+  - `check_links.py --build` PASSED. `test_no_raw_tmux.sh` passes.
+  - Red proofs were run in an isolated copy against each pre-fix module. Pre-fix reopen adopts (`REOPENED…|adopted`). Pre-fix drop deletes the record, or kills the pane in the equal-id case. Pre-fix restore respawns over an equal-id survivor, and live m1 leaves the record at the gone-pane pair. A bare-unset mutant fails both recycled-id tests. The three pre-fix unit rollback cases trip the fake's bare-target assertion instead; live m1 is the behavioural red proof for those.
+- **Upstream defects identified:** None
