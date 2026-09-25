@@ -30,3 +30,11 @@ Pick this task only **after the first `v*` tag cut after t1852_3 landed** (commi
 - The `packaging` job (release-packaging.yml) still ran and succeeded.
 
 Reference: `aidocs/framework/go_engine.md` ("Release assets", "Release job wiring").
+
+## Verification Checklist
+
+- [ ] Release workflow run: goengines job green (go version shows go1.27.1; vet, test, build.sh all, sha256sum -c passed) and release ran after it
+- [ ] GitHub release carries ait-testmap_<V>_{linux,darwin}_{amd64,arm64} and ait-testmap_<V>_SHA256SUMS.txt beside the tarball and packaging/shim/ait
+- [ ] sha256sum -c ait-testmap_<V>_SHA256SUMS.txt passes on the five downloaded files
+- [ ] Downloaded ait-testmap_<V>_linux_amd64 prints "version":"<V>" and a 40-hex commit from version --json
+- [ ] packaging job (release-packaging.yml) still ran and succeeded
