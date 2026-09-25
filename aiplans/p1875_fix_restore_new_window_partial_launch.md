@@ -399,7 +399,7 @@ the record's continued existence (`agent_sessions.drop_verdict`), so it reports
   a stale mark and blocks until its stand-in's ready mark proves it is a viewer.
   That is the fail-safe direction, and it is accepted. · severity: low · → mitigation: none (accepted)
 - The helpers duplicate reopen's name-lookup, kill and rename logic. This is
-  bounded and cross-referenced, a deliberate trade against a circular import. · severity: low · → mitigation: dedupe_window_name_helpers
+  bounded and cross-referenced, a deliberate trade against a circular import. · severity: low · → mitigation: t1883
 - A new kind of classification (`survivor`) is added to the wire vocabulary.
   Every consumer, which grep shows to be `agent_reopen.py` and
   `ide_frozen_offer.sh`, is updated in this task. · severity: low · → mitigation: none (in scope)
@@ -414,7 +414,7 @@ the record's continued existence (`agent_sessions.drop_verdict`), so it reports
 
 ### Planned mitigations
 - timing: post-phase | name: run_frozen_live_regressions | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — rollback/settle/liveness re-routing | desc: run the other real-restore live suites after the change
-- timing: after | name: dedupe_window_name_helpers | type: refactor | priority: low | effort: low | inline_risk: medium | added_complexity: low | addresses: code-health — duplicated window-name helpers | desc: move name lookup, name-guarded kill and stamp-guarded rename into agent_frozen_ops, shared by agent_reopen and agent_restore
+- timing: after | name: dedupe_window_name_helpers | type: refactor | priority: low | effort: low | inline_risk: medium | added_complexity: low | addresses: code-health — duplicated window-name helpers | desc: move name lookup, name-guarded kill and stamp-guarded rename into agent_frozen_ops, shared by agent_reopen and agent_restore | created: t1883
 
 ## Final Implementation Notes
 - **Actual work done:** Implemented the approved design end to end.
