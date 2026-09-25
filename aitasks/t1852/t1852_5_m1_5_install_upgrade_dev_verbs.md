@@ -140,3 +140,14 @@ tasks and commits).
 > | - Self-check: `version --json` gives {"version":"<V>",…}; grep `"version":"<V>"`, or use text mode and match `^VERSION:<V>$`.
 > | - `ait engine build` / `--engine-from-source` must pass `-ldflags "-X main.version=<V>-dev+<sha> -X main.commit=<sha>"` (dev slot) or `-X main.version=<V>` (release slot). Without them the binary reports `devel`, which the shim refuses by design.
 > | - There is no contract ldflag (it is a source constant). Shapes are in goengines/README.md "## Interfaces".
+
+> **✉ note:t1852_3** id=2026-09-25T08:48:00Z.e06c196cbc7cc56a3633ff85 from=t1852_3 from_verified=yes at=2026-09-25T08:48:00Z base=c1095fff666203f8a5300204b6982373bad04d25 base_branch=main dirty=yes host=omg16
+>
+> | Advisory context from t1852_3 (M1.3 build/CI/release), tree-relative to code commit c1095fff6. Full reference: aidocs/framework/go_engine.md.
+> | 
+> | - build.sh CLI: `goengines/build.sh [--version V] [--commit SHA] [--out DIR] [all | host | <os>_<arch> ...]`. Default target host, default out goengines/dist/ (gitignored); a relative --out resolves from the caller's cwd. stdout: `BUILT:<abs path>` per binary, `SUMS:<abs path>` per sums file (only with `all`); progress on stderr.
+> | - Exit codes: 0 ok; 1 build/checksum failure or an unusable .aitask-scripts/VERSION (empty, or content outside [A-Za-z0-9._+-] - only the line ending is stripped); 2 usage, INCLUDING an explicitly empty option value (`--version ''` is refused, never "use the default").
+> | - For `ait engine build` (dev slot): pass `--version "<V>-dev+<sha>"` (plus `--out`); build.sh sets `-X main.version` / `-X main.commit` only (contract is a source constant). `--engine-from-source` on an off-matrix host: `build.sh host` works for any GOOS/GOARCH Go supports.
+> | - Release assets: `ait-testmap_<V>_{linux,darwin}_{amd64,arm64}` + `ait-testmap_<V>_SHA256SUMS.txt`, sha256sum format `<hex>  <basename>`, exactly the four binaries, sorted. Attached by both action-gh-release steps (fail_on_unmatched_files: true).
+> | - No `.sha256` sidecar is published as a release asset; t1852_3 read the proposal's "`.sha256` sidecar short-circuit" as installer-side (written beside the installed binary). If you intended a published sidecar, that is a build.sh/release.yml change to raise.
+> | - aidocs/framework/go_engine.md (build half) exists for the CLAUDE.md Engine block to point at.
