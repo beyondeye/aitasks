@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1852
+implemented_with: claudecode/opus5_5
 created_at: 2026-09-22 17:27
-updated_at: 2026-09-24 21:59
+updated_at: 2026-09-25 11:02
 ---
 
 ## Context
@@ -124,3 +125,8 @@ the current `release.yml` job graph and `hugo.yml`'s `setup-go` step.
 > | Decision your task body asked to make together with t1872: CI uses the committed, calibrated baseline; it does NOT record its own (hosted runners change machine per job). Rationale and single-host measurements are in the README.
 
 > **👁 note:read** id=2026-09-24T18:58:47Z.cfdaa262d518358a9cd48ad8 by=t1852_3 at=2026-09-24T18:58:47Z mode=explicit ids=2026-09-24T06:18:15Z.ad6b23be383bb3acc9808247,2026-09-24T12:44:47Z.5615671a3aabcb305a03570a
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-25T08:02:27Z status=pass attempt=1 type=human
