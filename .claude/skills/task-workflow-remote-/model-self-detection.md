@@ -29,4 +29,4 @@ Attribution Procedure (see `agent-attribution.md`) and the Satisfaction Feedback
      ```
    - Parse the single-line output — the value after the colon is the agent string:
      - `AGENT_STRING:<value>` — exact match found, use `<value>` as agent string
-     - `AGENT_STRING_FALLBACK:<value>` — no match found, `<value>` uses raw cli_id as fallback
+     - `AGENT_STRING_FALLBACK:<value>` — no match found. `<value>` is `<agent>/unregistered_<normalised cli_id>` (e.g. `claudecode/unregistered_claude_opus_9_9_1m`): it parses as an agent string but is reserved and never matches a registered model, so usage/verified scores cannot be recorded against it. Use it as the agent string, and tell the user how to register the model — `/aitask-add-model` for `claudecode` / `codex`, `/aitask-refresh-code-models` for `opencode`

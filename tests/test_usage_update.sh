@@ -367,6 +367,32 @@ for launch_17 in subdir unrelated; do
 done
 
 
+echo "--- Test t1884: resolver fallbacks reach the registry check, not a format error ---"
+# A resolver fallback (claudecode/unregistered_*) parses, has no registry row,
+# and must be refused with an agent-specific registration hint -- never with
+# "Invalid agent string format", and never recorded against another row.
+TMPDIR_FB="$(setup_repo)"
+before_fb="$(cat "$TMPDIR_FB/aitasks/metadata/models_claudecode.json")"
+rc=0
+out_fb=$(cd "$TMPDIR_FB" && ./.aitask-scripts/aitask_usage_update.sh --agent-string claudecode/unregistered_opus4_6 --skill pick --date 2026-03-11 2>&1) || rc=$?
+assert_exit_nonzero_rc "usage: fallback string exits non-zero" "$rc"
+assert_not_contains "usage: fallback passes the format check" "Invalid agent string format" "$out_fb"
+assert_contains "usage: fallback is refused as unregistered" "Model 'unregistered_opus4_6' not found" "$out_fb"
+assert_contains "usage: claudecode hint names /aitask-add-model" "/aitask-add-model" "$out_fb"
+assert_eq "usage: registry unchanged after refusal" "$before_fb" \
+    "$(cat "$TMPDIR_FB/aitasks/metadata/models_claudecode.json")"
+
+cat > "$TMPDIR_FB/aitasks/metadata/models_opencode.json" <<'EOF_OC'
+{ "models": [ { "name": "opencode_foo", "cli_id": "opencode/foo", "notes": "t", "verified": {}, "verifiedstats": {} } ] }
+EOF_OC
+rc=0
+out_oc=$(cd "$TMPDIR_FB" && ./.aitask-scripts/aitask_usage_update.sh --agent-string opencode/unregistered_x --skill pick --date 2026-03-11 2>&1) || rc=$?
+assert_exit_nonzero_rc "usage: opencode fallback exits non-zero" "$rc"
+assert_contains "usage: opencode hint names /aitask-refresh-code-models" "/aitask-refresh-code-models" "$out_oc"
+assert_not_contains "usage: opencode hint does not offer add-model as the route" "register it with /aitask-add-model" "$out_oc"
+rm -rf "$TMPDIR_FB"
+
+
 echo ""
 echo "==============================="
 echo "Results: $PASS passed, $FAIL failed, $TOTAL total"

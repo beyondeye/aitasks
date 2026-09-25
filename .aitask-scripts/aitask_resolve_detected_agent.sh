@@ -7,7 +7,15 @@
 # Output (single line, always exit 0):
 #   AGENT_STRING:<agent>/<name>            — exact match found
 #   AGENT_STRING:<agent>/<name>            — suffix match found (opencode only)
-#   AGENT_STRING_FALLBACK:<agent>/<cli_id> — no match, raw cli_id used
+#   AGENT_STRING_FALLBACK:<agent>/unregistered_<normalised cli_id>
+#                                          — no match; see fallback_model_name()
+#
+# The fallback model name is RESERVED: every `unregistered_*` name is outside
+# the set of registered model names. Registry writers refuse the prefix
+# (aitask_add_model.sh validate_name, aitask_opencode_models.sh's pre-write
+# guard, the aitask-refresh-code-models skill), so a fallback parses through
+# every parse_agent_string copy (^([a-z]+)/([a-z0-9_]+)$) yet can never be
+# credited to a registered model — `opus5-5` must not become `opus5_5`.
 #
 # AITASK_AGENT_STRING env var acts as a default only when neither --agent nor
 # --cli-id is passed; explicit args always win for deterministic resolution.
@@ -70,10 +78,26 @@ if [[ "$valid" != "true" ]]; then
     die "Invalid agent: $agent. Must be one of: ${SUPPORTED_AGENTS[*]}"
 fi
 
+# Normalise an unregistered cli_id into the reserved fallback namespace:
+# lowercase, each run of non-[a-z0-9] -> "_", trim "_", empty -> "unknown",
+# then prefix "unregistered_". claude-opus-5-5[1m] -> unregistered_claude_opus_5_5_1m
+fallback_model_name() {
+    local id
+    # tr, not sed: sed works per line, so an embedded newline would split the
+    # name and break the single-line output contract. tr -c maps every byte
+    # outside [a-z0-9] (newlines included) to "_", -s squeezes the runs. LC_ALL=C
+    # keeps it bytewise, so multibyte input behaves the same with GNU and BSD tr.
+    id=$(printf '%s' "$1" | LC_ALL=C tr 'A-Z' 'a-z' | LC_ALL=C tr -c 'a-z0-9' '_' | LC_ALL=C tr -s '_')
+    id="${id#_}"
+    id="${id%_}"
+    [[ -n "$id" ]] || id="unknown"
+    echo "unregistered_${id}"
+}
+
 # --- Locate models file ---
 models_file="$METADATA_DIR/models_${agent}.json"
 if [[ ! -f "$models_file" ]]; then
-    echo "AGENT_STRING_FALLBACK:${agent}/${cli_id}"
+    echo "AGENT_STRING_FALLBACK:${agent}/$(fallback_model_name "$cli_id")"
     exit 0
 fi
 
@@ -94,5 +118,5 @@ if [[ "$agent" == "opencode" ]]; then
 fi
 
 # --- Fallback ---
-echo "AGENT_STRING_FALLBACK:${agent}/${cli_id}"
+echo "AGENT_STRING_FALLBACK:${agent}/$(fallback_model_name "$cli_id")"
 exit 0

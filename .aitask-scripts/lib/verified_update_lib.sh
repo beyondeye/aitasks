@@ -45,6 +45,16 @@ log_info() {
     fi
 }
 
+# How to register a model that is missing from models_<agent>.json. The route
+# is agent-specific: aitask_add_model.sh rejects opencode, whose models are
+# CLI-discovered. A resolver fallback (unregistered_*) always lands here.
+model_registration_hint() {
+    case "$1" in
+        opencode) echo "run /aitask-refresh-code-models (OpenCode models are CLI-discovered; /aitask-add-model does not accept opencode)" ;;
+        *)        echo "register it with /aitask-add-model" ;;
+    esac
+}
+
 previous_calendar_month() {
     local current_month="$1"  # YYYY-MM
     if date --version >/dev/null 2>&1; then

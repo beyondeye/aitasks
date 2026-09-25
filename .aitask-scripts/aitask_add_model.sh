@@ -50,6 +50,9 @@ validate_name() {
     local n="$1"
     [[ -z "$n" ]] && die "--name is required"
     [[ "$n" =~ ^[a-z][a-z0-9_]*$ ]] || die "Invalid model name: '$n'. Must match ^[a-z][a-z0-9_]*\$ (lowercase alphanumerics and underscores, starting with a letter)."
+    # Reserved for aitask_resolve_detected_agent.sh fallbacks: a registered
+    # unregistered_* name would let an unknown cli_id be credited to it.
+    [[ "$n" != unregistered_* ]] || die "Invalid model name: '$n'. The 'unregistered_' prefix is reserved for agent-string fallbacks of unregistered models (see aitask_resolve_detected_agent.sh)."
 }
 
 validate_cli_id() {

@@ -110,7 +110,7 @@ For each agent with approved changes:
 
 1. Read the current `aitasks/metadata/models_<agent>.json`
 2. Apply the approved changes:
-   - **Add new models**: Append to the `models` array
+   - **Add new models**: Append to the `models` array. **Never give a model a `name` starting with `unregistered_`** — that prefix is reserved for agent-string fallbacks of unregistered models (`aitask_resolve_detected_agent.sh`); a registered `unregistered_*` row would let an unknown model's runs be credited to it. Pick another name (e.g. drop or change the prefix)
    - **Update notes**: Modify the `notes` field for updated models
    - **Remove deprecated** (only if explicitly approved): Remove from the array
 3. **Preserve all existing `verified` scores and `verifiedstats` data** for unchanged and updated models

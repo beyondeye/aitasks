@@ -280,8 +280,9 @@ def _codex_agent_string(cli_id: str, root: str) -> str:
     fails.
 
     Only an exact ``AGENT_STRING:`` match counts. ``AGENT_STRING_FALLBACK:``
-    means the cli id is absent from `models_codex.json`, and the raw id it
-    echoes would not satisfy the store's own well-formedness check.
+    means the cli id is absent from `models_codex.json`; the reserved
+    ``unregistered_*`` name it echoes names no registered model, so a restore
+    could not resolve a real model id from it.
     """
     return _resolve_cli_model("codex", cli_id, root)
 

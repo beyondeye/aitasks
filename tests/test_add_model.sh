@@ -153,6 +153,18 @@ result=$(bash "$HELPER" add-json --agent claudecode --name opus4_7 --cli-id clau
 assert_contains "second run errors with 'already exists'" "already exists" "$result"
 teardown_fixture
 
+echo "=== Test 2b: add-json refuses the reserved unregistered_ prefix (t1884) ==="
+setup_fixture
+before_meta=$(cat "$FIXTURE_DIR/aitasks/metadata/models_claudecode.json")
+before_seed=$(cat "$FIXTURE_DIR/seed/models_claudecode.json")
+rc=0
+result=$(bash "$HELPER" add-json --agent claudecode --name unregistered_foo --cli-id claude-foo --notes "n" 2>&1) || rc=$?
+assert_eq "reserved name exits non-zero" "1" "$rc"
+assert_contains "reserved name refusal names the prefix" "'unregistered_' prefix is reserved" "$result"
+assert_eq "metadata untouched after refusal" "$before_meta" "$(cat "$FIXTURE_DIR/aitasks/metadata/models_claudecode.json")"
+assert_eq "seed untouched after refusal" "$before_seed" "$(cat "$FIXTURE_DIR/seed/models_claudecode.json")"
+teardown_fixture
+
 echo "=== Test 3: promote-config updates only listed ops, including brainstorm-* ==="
 setup_fixture
 bash "$HELPER" promote-config --agent claudecode --name opus4_7 \

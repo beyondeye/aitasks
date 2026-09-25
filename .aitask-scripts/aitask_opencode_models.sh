@@ -233,6 +233,40 @@ if [[ "$LIST_ONLY" == "true" ]]; then
     exit 0
 fi
 
+# --- Reserved-name guard (fails closed BEFORE any write) ---
+# Names starting with this prefix are reserved for agent-string fallbacks of
+# unregistered models (aitask_resolve_detected_agent.sh). convert_to_model_name
+# copies the provider verbatim, so a provider literally named "unregistered"
+# would derive one. Renaming cannot escape it (any in-grammar rename is some
+# other provider's derived name) and skipping/deleting would lose models and
+# their verified stats, so refuse the whole run and leave the registry intact.
+RESERVED_FALLBACK_PREFIX="unregistered_"
+reserved_discovered=$(jq -r --arg p "$RESERVED_FALLBACK_PREFIX" \
+    '.[] | select(.name | startswith($p)) | "  \(.name) (\(.cli_id))"' <<< "$discovered")
+reserved_existing=""
+if [[ -f "$METADATA_FILE" ]]; then
+    reserved_existing=$(jq -r --arg p "$RESERVED_FALLBACK_PREFIX" \
+        '.models[] | select(.name | startswith($p)) | "  \(.name) (\(.cli_id))"' "$METADATA_FILE")
+fi
+if [[ -n "$reserved_discovered" || -n "$reserved_existing" ]]; then
+    msg="Refusing to update $METADATA_FILE: model names starting with '${RESERVED_FALLBACK_PREFIX}' are reserved for agent-string fallbacks of unregistered models (see aitask_resolve_detected_agent.sh). Nothing was written."
+    if [[ -n "$reserved_discovered" ]]; then
+        # Editing the registry cannot fix these: the name is re-derived from
+        # the provider id on every discovery run.
+        msg+="
+Discovered models whose provider id derives a reserved name:
+$reserved_discovered
+  Fix: the name comes from the OpenCode provider id, so editing $METADATA_FILE does not help. Rename that provider in your OpenCode configuration (a custom provider's id in opencode.json) or disconnect it, so no model id starts with 'unregistered/', then re-run."
+    fi
+    if [[ -n "$reserved_existing" ]]; then
+        msg+="
+Existing rows in $METADATA_FILE with a reserved name:
+$reserved_existing
+  Fix: rename or remove each listed row by hand, carrying its verified and verifiedstats over to the new name. If its cli_id is still discovered, fix the provider id first (see above), or the next run derives the reserved name again."
+    fi
+    die "$msg"
+fi
+
 # --- Merge with existing ---
 merged=$(merge_with_existing "$discovered" "$METADATA_FILE")
 

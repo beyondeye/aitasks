@@ -129,6 +129,13 @@
       "notes": "Most capable model for long-running agentic coding, 1M context, 128K output, adaptive thinking always on",
       "verified": {},
       "verifiedstats": {}
+    },
+    {
+      "name": "opus5_5_1m",
+      "cli_id": "claude-opus-5-5[1m]",
+      "notes": "Most capable model for long-running agentic coding, 1M context (explicit [1m] variant), 128K output, adaptive thinking always on",
+      "verified": {},
+      "verifiedstats": {}
     }
   ]
 }

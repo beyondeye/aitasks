@@ -198,7 +198,7 @@ ensure_model_exists() {
     local model_name="$2"
 
     if ! jq -e --arg model "$model_name" 'any(.models[]; .name == $model)' "$models_file" >/dev/null; then
-        die "Model '$model_name' not found in $models_file"
+        die "Model '$model_name' not found in $models_file — $(model_registration_hint "$PARSED_AGENT"), then re-run. Nothing was recorded."
     fi
 }
 

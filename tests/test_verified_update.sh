@@ -944,6 +944,41 @@ assert_contains "33E: nothing-to-commit preserves the caller's value" "value=SEN
 rm -rf "$TMPDIR_33E"
 
 
+echo "--- Test t1884: resolver fallbacks reach the registry check, not a format error ---"
+# A resolver fallback (claudecode/unregistered_*) parses, has no registry row,
+# and must be refused with an agent-specific registration hint -- never with
+# "Invalid agent string format", and never recorded against another row.
+TMPDIR_FB="$(setup_repo)"
+before_fb="$(cat "$TMPDIR_FB/aitasks/metadata/models_claudecode.json")"
+rc=0
+out_fb=$(cd "$TMPDIR_FB" && ./.aitask-scripts/aitask_verified_update.sh --agent-string claudecode/unregistered_opus4_6 --skill pick --score 4 --date 2026-03-11 2>&1) || rc=$?
+assert_exit_nonzero_rc "verified: fallback string exits non-zero" "$rc"
+assert_not_contains "verified: fallback passes the format check" "Invalid agent string format" "$out_fb"
+assert_contains "verified: fallback is refused as unregistered" "Model 'unregistered_opus4_6' not found" "$out_fb"
+assert_contains "verified: claudecode hint names /aitask-add-model" "/aitask-add-model" "$out_fb"
+assert_eq "verified: registry unchanged after refusal" "$before_fb" \
+    "$(cat "$TMPDIR_FB/aitasks/metadata/models_claudecode.json")"
+
+cat > "$TMPDIR_FB/aitasks/metadata/models_opencode.json" <<'EOF_OC'
+{ "models": [ { "name": "opencode_foo", "cli_id": "opencode/foo", "notes": "t", "verified": {}, "verifiedstats": {} } ] }
+EOF_OC
+rc=0
+out_oc=$(cd "$TMPDIR_FB" && ./.aitask-scripts/aitask_verified_update.sh --agent-string opencode/unregistered_x --skill pick --score 4 --date 2026-03-11 2>&1) || rc=$?
+assert_exit_nonzero_rc "verified: opencode fallback exits non-zero" "$rc"
+assert_contains "verified: opencode hint names /aitask-refresh-code-models" "/aitask-refresh-code-models" "$out_oc"
+assert_not_contains "verified: opencode hint does not offer add-model as the route" "register it with /aitask-add-model" "$out_oc"
+
+cp "$PROJECT_DIR/.aitask-scripts/aitask_resolve_detected_agent.sh" "$TMPDIR_FB/.aitask-scripts/"
+rc=0
+out_cli=$(cd "$TMPDIR_FB" && ./.aitask-scripts/aitask_verified_update.sh --agent claudecode --cli-id 'claude-opus-9-9[1m]' --skill pick --score 4 --date 2026-03-11 2>&1) || rc=$?
+assert_exit_nonzero_rc "verified: --agent/--cli-id fallback exits non-zero" "$rc"
+assert_not_contains "verified: --cli-id fallback passes the format check" "Invalid agent string format" "$out_cli"
+assert_contains "verified: --cli-id fallback is refused as unregistered" "Model 'unregistered_claude_opus_9_9_1m' not found" "$out_cli"
+assert_eq "verified: registry unchanged after --cli-id refusal" "$before_fb" \
+    "$(cat "$TMPDIR_FB/aitasks/metadata/models_claudecode.json")"
+rm -rf "$TMPDIR_FB"
+
+
 echo ""
 echo "==============================="
 echo "Results: $PASS passed, $FAIL failed, $TOTAL total"
