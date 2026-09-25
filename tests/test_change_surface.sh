@@ -76,6 +76,35 @@ write_plan() {
 # cs <dir> <args...> — run the helper from the fixture root.
 cs() { local d="$1"; shift; ( cd "$d" && "$CS" "$@" ); }
 
+# assert_line / assert_no_line <desc> <line> <output> — WHOLE-LINE match.
+#
+# Every record the helper prints is a complete `CLASS:path` line, so a check on
+# one file's classification must match the whole line. The shared substring
+# helpers (assert_contains / assert_not_contains) are wrong for that: the needle
+# `TASK:a.md` also matches a `TASK:a.md.orig` line, so a positive check passes
+# while a.md itself is UNKNOWN, and a negative check fires on a different file.
+# Keep the substring helpers only for checks that really are about a prefix or
+# any occurrence (`TASK:` anywhere, `aitasks/` anywhere).
+assert_line() {
+    local desc="$1" line="$2" output="$3"
+    if printf '%s\n' "$output" | grep -qxF -- "$line"; then
+        assert_record_pass
+    else
+        assert_record_fail
+        echo "FAIL: $desc (expected a line exactly '$line', got '$output')"
+    fi
+}
+
+assert_no_line() {
+    local desc="$1" line="$2" output="$3"
+    if printf '%s\n' "$output" | grep -qxF -- "$line"; then
+        assert_record_fail
+        echo "FAIL: $desc (expected NO line exactly '$line', got '$output')"
+    else
+        assert_record_pass
+    fi
+}
+
 # ---------------------------------------------------------------------------
 # 1. Two tasks dirty in one tree, interleaved in time.
 #
@@ -102,15 +131,15 @@ echo more >> "$fx/sub/mine.md"
 out1="$(cs "$fx" list 1)"
 out2="$(cs "$fx" list 2)"
 
-assert_contains "list 1: own planned file is TASK" "$out1" "TASK:a.md"
-assert_contains "list 1: concurrent post-claim edit is UNKNOWN" "$out1" "UNKNOWN:b.md"
+assert_line "list 1: own planned file is TASK" "TASK:a.md" "$out1"
+assert_line "list 1: concurrent post-claim edit is UNKNOWN" "UNKNOWN:b.md" "$out1"
 # NEGATIVE CONTROL — the whole point of the task. If this ever passes as TASK:,
 # the gate is back to inferring doc obligations from another task's work.
-assert_not_contains "list 1 NEG: concurrent edit must NOT be attributed" "$out1" "TASK:b.md"
+assert_no_line "list 1 NEG: concurrent edit must NOT be attributed" "TASK:b.md" "$out1"
 
-assert_contains "list 2: own planned file is TASK" "$out2" "TASK:b.md"
-assert_contains "list 2: work in flight at claim time is OTHER" "$out2" "OTHER:a.md"
-assert_not_contains "list 2 NEG: other task's file must NOT be attributed" "$out2" "TASK:a.md"
+assert_line "list 2: own planned file is TASK" "TASK:b.md" "$out2"
+assert_line "list 2: work in flight at claim time is OTHER" "OTHER:a.md" "$out2"
+assert_no_line "list 2 NEG: other task's file must NOT be attributed" "TASK:a.md" "$out2"
 
 # ---------------------------------------------------------------------------
 # 2. Plan scope is EXACT FILE MATCHES ONLY.
@@ -119,14 +148,14 @@ assert_not_contains "list 2 NEG: other task's file must NOT be attributed" "$out
 # directories; treating them as recursive scope would attribute every dirty file
 # beneath them and reopen the shared-checkout failure.
 # ---------------------------------------------------------------------------
-assert_contains "directory token does not attribute a file beneath it" \
-    "$out1" "UNKNOWN:sub/foreign.md"
-assert_not_contains "NEG: directory token must NOT make a child TASK" \
-    "$out1" "TASK:sub/foreign.md"
+assert_line "directory token does not attribute a file beneath it" \
+    "UNKNOWN:sub/foreign.md" "$out1"
+assert_no_line "NEG: directory token must NOT make a child TASK" \
+    "TASK:sub/foreign.md" "$out1"
 # ...while an exactly-named sibling in the same directory IS attributed, in the
 # same run — proving the exclusion is about the token's shape, not the directory.
-assert_contains "exact file token in the same directory is attributed" \
-    "$out1" "TASK:sub/mine.md"
+assert_line "exact file token in the same directory is attributed" \
+    "TASK:sub/mine.md" "$out1"
 
 # ---------------------------------------------------------------------------
 # 2b. Dot-prefixed paths are attributable.
@@ -145,10 +174,10 @@ echo '{}' > "$fx_dot/.hidden/deep/cfg.json"
 echo dot > "$fx_dot/.dotfile.md"
 echo other > "$fx_dot/.hidden/deep/unrelated.json"
 out_dot="$(cs "$fx_dot" list 12)"
-assert_contains "dot-directory path is attributable" "$out_dot" "TASK:.hidden/deep/cfg.json"
-assert_contains "dot-file path is attributable" "$out_dot" "TASK:.dotfile.md"
-assert_contains "unnamed sibling under a dot-directory stays UNKNOWN" \
-    "$out_dot" "UNKNOWN:.hidden/deep/unrelated.json"
+assert_line "dot-directory path is attributable" "TASK:.hidden/deep/cfg.json" "$out_dot"
+assert_line "dot-file path is attributable" "TASK:.dotfile.md" "$out_dot"
+assert_line "unnamed sibling under a dot-directory stays UNKNOWN" \
+    "UNKNOWN:.hidden/deep/unrelated.json" "$out_dot"
 
 # ---------------------------------------------------------------------------
 # 3. Pass A (tagged commits) is independent of the dirty scan.
@@ -156,19 +185,19 @@ assert_contains "unnamed sibling under a dot-directory stays UNKNOWN" \
 ( cd "$fx" && git add a.md && git commit -qm "feature: add a (t1)" ) >/dev/null 2>&1
 
 out_dirty_committed="$(cs "$fx" list 1)"
-assert_contains "tagged commit is COMMITTED" "$out_dirty_committed" "COMMITTED:a.md"
+assert_line "tagged commit is COMMITTED" "COMMITTED:a.md" "$out_dirty_committed"
 # De-duplication: a path that is both tagged-committed and dirty is reported once.
 echo again >> "$fx/a.md"
 n_lines="$(cs "$fx" list 1 | grep -c 'a\.md' || true)"
 assert_eq "committed+dirty path emitted exactly once" "1" "$n_lines"
-assert_contains "committed+dirty path is reported as COMMITTED" \
-    "$(cs "$fx" list 1)" "COMMITTED:a.md"
+assert_line "committed+dirty path is reported as COMMITTED" \
+    "COMMITTED:a.md" "$(cs "$fx" list 1)"
 
 # The regression the two-pass split exists to prevent: a task that committed
 # code and left the file CLEAN must still contribute it to the surface.
 ( cd "$fx" && git checkout -- a.md ) >/dev/null 2>&1
 out_clean="$(cs "$fx" list 1)"
-assert_contains "clean tagged commit is STILL reported" "$out_clean" "COMMITTED:a.md"
+assert_line "clean tagged commit is STILL reported" "COMMITTED:a.md" "$out_clean"
 
 # NEGATIVE CONTROL: a task whose ONLY contribution is a clean tagged commit must
 # not return an empty surface.
@@ -176,12 +205,12 @@ fx_clean="$(new_repo)"
 echo z > "$fx_clean/z.md"
 ( cd "$fx_clean" && git add z.md && git commit -qm "bug: fix z (t9)" ) >/dev/null 2>&1
 out_only="$(cs "$fx_clean" list 9)"
-assert_contains "clean-commit-only task has a non-empty surface" "$out_only" "COMMITTED:z.md"
+assert_line "clean-commit-only task has a non-empty surface" "COMMITTED:z.md" "$out_only"
 
 # The tag is a FIXED string: (t9) must not match (t99).
 ( cd "$fx_clean" && echo q > q.md && git add q.md && git commit -qm "bug: fix q (t99)" ) >/dev/null 2>&1
-assert_not_contains "NEG: (t9) does not match the (t99) commit" \
-    "$(cs "$fx_clean" list 9)" "COMMITTED:q.md"
+assert_no_line "NEG: (t9) does not match the (t99) commit" \
+    "COMMITTED:q.md" "$(cs "$fx_clean" list 9)"
 
 # ---------------------------------------------------------------------------
 # 4. Signal conflict: named by the plan AND already dirty at claim.
@@ -191,9 +220,9 @@ echo d > "$fx3/d.md"                      # dirty BEFORE the claim
 write_plan "$fx3" 3 'Edit d.md.'          # ...and the plan names it
 cs "$fx3" capture 3 >/dev/null
 out3="$(cs "$fx3" list 3)"
-assert_contains "conflicting signals resolve to UNKNOWN" "$out3" "UNKNOWN:d.md"
-assert_not_contains "NEG: conflict must not silently become TASK" "$out3" "TASK:d.md"
-assert_not_contains "NEG: conflict must not silently become OTHER" "$out3" "OTHER:d.md"
+assert_line "conflicting signals resolve to UNKNOWN" "UNKNOWN:d.md" "$out3"
+assert_no_line "NEG: conflict must not silently become TASK" "TASK:d.md" "$out3"
+assert_no_line "NEG: conflict must not silently become OTHER" "OTHER:d.md" "$out3"
 
 # ---------------------------------------------------------------------------
 # 5. Degraded signals fail SAFE (toward UNKNOWN), never toward TASK.
@@ -204,28 +233,28 @@ write_plan "$fx4" 4 'Edit e.md.'
 echo e > "$fx4/e.md"
 echo u > "$fx4/unplanned.md"
 out4="$(cs "$fx4" list 4)"
-assert_contains "no baseline: header says missing" "$out4" "BASELINE:missing"
-assert_contains "no baseline: plan scope still attributes" "$out4" "TASK:e.md"
-assert_contains "no baseline: unplanned path is UNKNOWN" "$out4" "UNKNOWN:unplanned.md"
-assert_not_contains "NEG: no baseline must not attribute an unplanned path" \
-    "$out4" "TASK:unplanned.md"
+assert_line "no baseline: header says missing" "BASELINE:missing" "$out4"
+assert_line "no baseline: plan scope still attributes" "TASK:e.md" "$out4"
+assert_line "no baseline: unplanned path is UNKNOWN" "UNKNOWN:unplanned.md" "$out4"
+assert_no_line "NEG: no baseline must not attribute an unplanned path" \
+    "TASK:unplanned.md" "$out4"
 
 # 5b. Baseline captured in a DIFFERENT tree (copied checkout).
 cs "$fx4" capture 4 >/dev/null
 sed_out="$(sed 's|^toplevel=.*|toplevel=/nonexistent/other/tree|' "$fx4/.aitask-gates/4/change_baseline")"
 printf '%s\n' "$sed_out" > "$fx4/.aitask-gates/4/change_baseline"
 out4b="$(cs "$fx4" list 4)"
-assert_contains "foreign baseline is reported as foreign" "$out4b" "BASELINE:foreign"
-assert_contains "foreign baseline: unplanned path stays UNKNOWN" "$out4b" "UNKNOWN:unplanned.md"
+assert_line "foreign baseline is reported as foreign" "BASELINE:foreign" "$out4b"
+assert_line "foreign baseline: unplanned path stays UNKNOWN" "UNKNOWN:unplanned.md" "$out4b"
 
 # 5c. No plan file at all.
 fx5="$(new_repo)"
 printf -- '---\nstatus: Ready\n---\nbody\n' > "$fx5/aitasks/t5_x.md"
 echo f > "$fx5/f.md"
 out5="$(cs "$fx5" list 5)"
-assert_contains "no plan: header says missing" "$out5" "PLANSCOPE:missing"
-assert_contains "no plan: dirty path is UNKNOWN" "$out5" "UNKNOWN:f.md"
-assert_not_contains "NEG: no plan must never yield TASK" "$out5" "TASK:"
+assert_line "no plan: header says missing" "PLANSCOPE:missing" "$out5"
+assert_line "no plan: dirty path is UNKNOWN" "UNKNOWN:f.md" "$out5"
+assert_not_contains "NEG: no plan must never yield TASK" "TASK:" "$out5"
 
 # 5d. A linked worktree with no baseline must NOT blanket-attribute.
 # Worktree freshness is an inference, not a proof — a reused worktree can hold
@@ -240,11 +269,11 @@ if [[ -d "$fx6/wt" ]]; then
     echo g > "$fx6/wt/g.md"
     echo h > "$fx6/wt/stray.md"
     out6="$(cs "$fx6/wt" list 6)"
-    assert_contains "worktree: no baseline reported as missing" "$out6" "BASELINE:missing"
-    assert_contains "worktree: planned file attributed" "$out6" "TASK:g.md"
-    assert_contains "worktree: unplanned dirt is UNKNOWN" "$out6" "UNKNOWN:stray.md"
-    assert_not_contains "NEG: worktree must not blanket-attribute unplanned dirt" \
-        "$out6" "TASK:stray.md"
+    assert_line "worktree: no baseline reported as missing" "BASELINE:missing" "$out6"
+    assert_line "worktree: planned file attributed" "TASK:g.md" "$out6"
+    assert_line "worktree: unplanned dirt is UNKNOWN" "UNKNOWN:stray.md" "$out6"
+    assert_no_line "NEG: worktree must not blanket-attribute unplanned dirt" \
+        "TASK:stray.md" "$out6"
 else
     echo "SKIP: git worktree unavailable — skipping worktree isolation case"
 fi
@@ -256,8 +285,8 @@ fx7="$(new_repo)"
 write_plan "$fx7" 7 'Touch .* and dir/.* and $(touch /tmp/pwned_t1263) and `id`.'
 echo v > "$fx7/victim.md"
 out7="$(cs "$fx7" list 7)"
-assert_contains "metacharacter plan: unrelated file stays UNKNOWN" "$out7" "UNKNOWN:victim.md"
-assert_not_contains "NEG: '.*' in a plan must not attribute everything" "$out7" "TASK:victim.md"
+assert_line "metacharacter plan: unrelated file stays UNKNOWN" "UNKNOWN:victim.md" "$out7"
+assert_no_line "NEG: '.*' in a plan must not attribute everything" "TASK:victim.md" "$out7"
 assert_file_not_exists "NEG: plan text must not be executed" "/tmp/pwned_t1263"
 
 # ---------------------------------------------------------------------------
@@ -269,9 +298,9 @@ cs "$fx8" capture 8 >/dev/null
 echo w > "$fx8/w.md"
 echo "extra" >> "$fx8/aitasks/t8_x.md"
 out8="$(cs "$fx8" list 8)"
-assert_not_contains "aitasks/ never appears in the surface" "$out8" "aitasks/"
-assert_not_contains "aiplans/ never appears in the surface" "$out8" "aiplans/"
-assert_contains "...but real code changes still do" "$out8" "TASK:w.md"
+assert_not_contains "aitasks/ never appears in the surface" "aitasks/" "$out8"
+assert_not_contains "aiplans/ never appears in the surface" "aiplans/" "$out8"
+assert_line "...but real code changes still do" "TASK:w.md" "$out8"
 
 # ---------------------------------------------------------------------------
 # 8. DRIFT GUARD: the helper's exclude set must match gate_ledger's canonical one.
@@ -344,7 +373,7 @@ out_without="$( cd "$own_without" && ./.aitask-scripts/aitask_pick_own.sh 1 --em
 
 # Positive control first: if the claim did not actually run, comparing two empty
 # strings would "pass" while proving nothing.
-assert_contains "pick_own actually claimed the task (positive control)" "$out_with" "OWNED:1"
+assert_line "pick_own actually claimed the task (positive control)" "OWNED:1" "$out_with"
 assert_eq "pick_own stdout is byte-identical with and without the helper" \
     "$out_without" "$out_with"
 
@@ -369,10 +398,10 @@ fx9="$(new_repo)"
 write_plan "$fx9" 10 'Edit k.md.'
 cs "$fx9" capture 10 >/dev/null
 echo k > "$fx9/k.md"
-assert_contains "before re-capture: own work is TASK" "$(cs "$fx9" list 10)" "TASK:k.md"
+assert_line "before re-capture: own work is TASK" "TASK:k.md" "$(cs "$fx9" list 10)"
 cs "$fx9" capture 10 >/dev/null          # simulates an unguarded re-claim
-assert_contains "after re-capture: own work would be misread as OTHER" \
-    "$(cs "$fx9" list 10)" "UNKNOWN:k.md"
+assert_line "after re-capture: own work would be misread as OTHER" \
+    "UNKNOWN:k.md" "$(cs "$fx9" list 10)"
 
 # capture on a clean tree must still write a baseline (empty dirty set is not a
 # failure — an early `grep -v` exiting 1 under pipefail used to kill it silently).
@@ -384,18 +413,17 @@ assert_file_exists "clean-tree capture writes the baseline file" \
 
 # `baseline` reports the raw N1 signal, uncombined (t1873): a pre-claim-dirty
 # path the plan ALSO names is still DIRTY_AT_CLAIM here, where `list` folds the
-# combination into UNKNOWN and loses the N1 half. (Argument order below is the
-# helper's own: desc, needle, haystack.)
+# combination into UNKNOWN and loses the N1 half.
 fx11="$(new_repo)"
 write_plan "$fx11" 12 'Edit sub/mine.md.'
 echo pre >> "$fx11/sub/mine.md"
 echo pre2 >> "$fx11/sub/foreign.md"
 cs "$fx11" capture 12 >/dev/null
 b12="$(cs "$fx11" baseline 12)"
-assert_contains "baseline: header" "BASELINE:ok" "$b12"
-assert_contains "baseline: plan-named pre-claim path kept" "DIRTY_AT_CLAIM:sub/mine.md" "$b12"
-assert_contains "baseline: unnamed pre-claim path kept" "DIRTY_AT_CLAIM:sub/foreign.md" "$b12"
-assert_contains "list still folds the plan-named one into UNKNOWN" \
+assert_line "baseline: header" "BASELINE:ok" "$b12"
+assert_line "baseline: plan-named pre-claim path kept" "DIRTY_AT_CLAIM:sub/mine.md" "$b12"
+assert_line "baseline: unnamed pre-claim path kept" "DIRTY_AT_CLAIM:sub/foreign.md" "$b12"
+assert_line "list still folds the plan-named one into UNKNOWN" \
     "UNKNOWN:sub/mine.md" "$(cs "$fx11" list 12)"
 assert_eq "baseline: missing is its own state" \
     "BASELINE:missing" "$(cs "$fx11" baseline 99)"

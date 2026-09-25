@@ -241,7 +241,7 @@ else
         unstamped=$(tmux -L "$STSOCK" show-options -pqv -t "$followed" @aitask_shadow_analyzed_at 2>/dev/null || true)
         tmux -L "$STSOCK" kill-server 2>/dev/null || true
         assert_contains "shadow-pane capture stamps a numeric analyzed-at" \
-            "$(printf '%s' "$stamped" | grep -qE '^[0-9]+$' && echo NUMERIC)" "NUMERIC"
+            "NUMERIC" "$(printf '%s' "$stamped" | grep -qE '^[0-9]+$' && echo NUMERIC)"
         assert_eq "non-shadow-pane capture leaves analyzed-at unset" "" "$unstamped"
     fi
 fi
