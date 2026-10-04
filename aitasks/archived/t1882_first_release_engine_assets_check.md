@@ -3,7 +3,7 @@ priority: medium
 effort: low
 depends: []
 issue_type: manual_verification
-status: Implementing
+status: Done
 labels: [testmap, go_engine, release_scripts]
 active_gates: []
 active_gates_filtered: []
@@ -14,6 +14,7 @@ anchor: 1852
 followup_kind: risk_mitigation
 created_at: 2026-09-25 11:45
 updated_at: 2026-10-04 16:41
+completed_at: 2026-10-04 16:41
 ---
 
 ## Origin
