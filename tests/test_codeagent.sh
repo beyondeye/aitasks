@@ -536,10 +536,17 @@ assert_contains_ci "help shows coauthor" "coauthor <agent-string>" "$output"
 assert_contains_ci "help shows coauthor-domain" "coauthor-domain" "$output"
 assert_contains_ci "help shows resolution chain" "Resolution chain" "$output"
 
-# Test 28: resolve explain uses sonnet
-echo "--- Test 28: resolve explain uses sonnet ---"
-output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" resolve explain 2>&1)
-assert_contains_ci "resolve explain returns sonnet5" "AGENT_STRING:claudecode/sonnet5" "$output"
+# Test 28: resolve explain returns the SEEDED explain default — derived, never
+# pinned, with the same sentinel idiom as Test 5 (a literal here went red on
+# every promotion of the explain default).
+echo "--- Test 28: resolve explain ---"
+seeded_explain=$(codeagent_config_default explain "$seed_cfg")
+assert_exit_zero "seed config declares an explain default" test -n "$seeded_explain"
+sentinel=$(codeagent_sentinel_excluding "$TMPDIR_TEST/aitasks/metadata" "$seeded_explain")
+assert_exit_zero "a sentinel agent string is available for explain" test -n "$sentinel"
+output=$(cd "$TMPDIR_TEST" && DEFAULT_AGENT_STRING="$sentinel" bash "$CODEAGENT" resolve explain 2>&1)
+assert_eq "resolve explain matches the seeded default" \
+    "$seeded_explain" "$(codeagent_resolve_field AGENT_STRING "$output")"
 
 # Test 29: resolve with unknown operation
 echo "--- Test 29: resolve unknown operation ---"

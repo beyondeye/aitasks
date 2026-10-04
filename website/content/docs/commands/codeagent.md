@@ -51,17 +51,17 @@ Each operation maps to a different use case with its own default model:
 | Operation | Description | Default |
 |-----------|-------------|---------|
 | `pick` | Picking and implementing tasks | `claudecode/opus5_5` |
-| `explain` | Explaining or documenting code | `claudecode/sonnet5` |
+| `explain` | Explaining or documenting code | `claudecode/sonnet5_5` |
 | `explore` | Exploring the codebase | `claudecode/opus5_5` |
 | `explore-relay` | Chat-relayed exploration for bug-report intake (Claude Code only) | `claudecode/opus5_5` |
-| `work-report` | Drafting a manager-facing work report from board columns | `claudecode/sonnet5` |
+| `work-report` | Drafting a manager-facing work report from board columns | `claudecode/sonnet5_5` |
 | `trail` | Creating, refreshing, and showing implementation trails | `claudecode/opus5_5` |
-| `batch-review` | Batch code review | `claudecode/sonnet5` |
-| `qa` | Test coverage analysis | `claudecode/sonnet5` |
-| `shadow` | Advisory companion agent for a followed session | `codex/gpt6_sol` |
-| `discuss` | Advisory discussion of brainstorm proposals (compare, explain, question, risk-check) | `codex/gpt6_sol` |
+| `batch-review` | Batch code review | `claudecode/sonnet5_5` |
+| `qa` | Test coverage analysis | `claudecode/sonnet5_5` |
+| `shadow` | Advisory companion agent for a followed session | `codex/gpt6_1_sol` |
+| `discuss` | Advisory discussion of brainstorm proposals (compare, explain, question, risk-check) | `codex/gpt6_1_sol` |
 | `learn` | Learning a new skill from source material | `claudecode/opus5_5` |
-| `raw` | Direct/ad-hoc invocations (passthrough) | `claudecode/sonnet5` |
+| `raw` | Direct/ad-hoc invocations (passthrough) | `claudecode/sonnet5_5` |
 
 ### Subcommands
 
@@ -183,9 +183,9 @@ Shared across the team, checked into git. Sets the default agent/model for each 
 {
   "defaults": {
     "pick": "claudecode/opus5_5",
-    "explain": "claudecode/sonnet5",
-    "batch-review": "claudecode/sonnet5",
-    "raw": "claudecode/sonnet5"
+    "explain": "claudecode/sonnet5_5",
+    "batch-review": "claudecode/sonnet5_5",
+    "raw": "claudecode/sonnet5_5"
   }
 }
 ```

@@ -136,6 +136,20 @@
       "notes": "Most capable model for long-running agentic coding, 1M context (explicit [1m] variant), 128K output, adaptive thinking always on",
       "verified": {},
       "verifiedstats": {}
+    },
+    {
+      "name": "sonnet5_5",
+      "cli_id": "claude-sonnet-5-5",
+      "notes": "Best speed/intelligence balance, 1M context, 128K output, adaptive thinking always on",
+      "verified": {},
+      "verifiedstats": {}
+    },
+    {
+      "name": "sonnet5_5_1m",
+      "cli_id": "claude-sonnet-5-5[1m]",
+      "notes": "Best speed/intelligence balance, 1M context (explicit [1m] variant), 128K output, adaptive thinking always on",
+      "verified": {},
+      "verifiedstats": {}
     }
   ]
 }
