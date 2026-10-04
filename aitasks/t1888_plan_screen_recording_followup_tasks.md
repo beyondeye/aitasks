@@ -63,3 +63,56 @@ the set of well-formed tasks, not their implementation.
   dependency chain matches the order agreed with the user.
 - Deferred or dropped candidates are listed, with the reason, in this task's
   final notes.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1887** id=2026-10-04T13:40:37Z.59d8b1c842dbce30ba80a069 from=t1887 at=2026-10-04T13:40:37Z base=af935c9b3edb5c5d5ffbf1dbffd7db27b053db1a base_branch=main dirty=no host=omg16
+>
+> | Additional user requirements for the follow-up set, relayed from the session
+> | that wrapped t1887 (user conversation on 2026-10-04, after t1888 was created).
+> | Advisory context for planning; facts about the code are as of af935c9b3.
+> | 
+> | 1. Image-sequence workflow: the user wants to produce frames, post-process them
+> |    by hand (crop, annotate, delete), and then feed them to the LLM.
+> |    - Today the helper only accepts a video.
+> |    - Frame output is thinned and downscaled:
+> |      - bug mode writes only the picked frames (`--max-frames`, `--view-size`
+> |        default 1000 px);
+> |      - anim mode writes the motion ±2 frames, capped by `--max-view-frames`
+> |        (default 30) at `--view-size` 800 px.
+> |    - Edited images can't be re-analysed; the timeline and fits come from the
+> |      original video.
+> |    - Two helper subcommands were proposed and the user agreed:
+> |      a. `frames`: every native frame in a time range at full resolution, named
+> |         by millisecond timestamp (overlaps E4 in the design review).
+> |      b. `sheet`: labelled contact sheets built from any folder of images,
+> |         including user-edited ones, with labels taken from the filename
+> |         timestamps.
+> |    - The user also asked, more broadly, to make manual preprocessing easy end
+> |      to end. Consider a documented extract → edit → feed flow, keeping
+> |      timestamps in filenames, and possibly an input mode that takes a folder of
+> |      images (ordering and timing from filenames, or `--fps`) so bug-style review
+> |      or anim measurement can run on a curated sequence. Plan these as tasks
+> |      alongside E4.
+> | 
+> | 2. Documentation, current capabilities: the user wants everything v1 does
+> |    documented on the aitasks website now, not deferred.
+> |    - Make E14 an early, standalone task rather than an "alongside" item.
+> |    - Existing skill pages live in `website/content/docs/skills/<skill>.md`, so
+> |      the natural place is `aitask-screen-recording.md` there.
+> |    - Include a how-to section per use case:
+> |      - bug report from a recording;
+> |      - implementing an animation from a prototype recording;
+> |      - slowed capture with `--time-scale`;
+> |      - narrowing analysis with `--crop-top` / `--roi` / `--window` / `--range`;
+> |      - manual image-sequence preprocessing (once item 1 lands);
+> |      - recording tips;
+> |      - limits, and how to read the warnings.
+> |    - Follow `aidocs/framework/documentation_conventions.md` (current-state
+> |      only, generic agent-set prose, prefer relref) and run
+> |      `website/check_links.py --build` after editing.
+> | 
+> | 3. Documentation, every follow-up feature: each task created from E1–E15 (and
+> |    from item 1) should include website documentation for its feature in its
+> |    acceptance criteria, with a how-to section for each use case it enables.
