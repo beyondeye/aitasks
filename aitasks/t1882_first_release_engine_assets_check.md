@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: manual_verification
-status: Ready
+status: Implementing
 labels: [testmap, go_engine, release_scripts]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1852
 followup_kind: risk_mitigation
 created_at: 2026-09-25 11:45
-updated_at: 2026-09-25 11:45
+updated_at: 2026-10-04 15:51
 ---
 
 ## Origin
