@@ -344,6 +344,13 @@
       "notes": "Fast and affordable GPT-6 model for clear, repeatable coding tasks and high-volume workflows",
       "verified": {},
       "verifiedstats": {}
+    },
+    {
+      "name": "gpt6_1_sol",
+      "cli_id": "gpt-6.1-sol",
+      "notes": "Latest GPT-6.1 workhorse model for coding and everyday agentic work",
+      "verified": {},
+      "verifiedstats": {}
     }
   ]
 }
