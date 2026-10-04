@@ -3,10 +3,12 @@ priority: medium
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Done
 labels: [claudeskills, skills, python, tests, whitelists]
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-04 15:46
-updated_at: 2026-10-04 15:46
+updated_at: 2026-10-04 15:47
+completed_at: 2026-10-04 15:47
 ---
 
 Add the `aitask-screen-recording` skill. Coding agents can read images but not
