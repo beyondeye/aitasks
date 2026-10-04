@@ -239,7 +239,7 @@ windows):
 - Parallel admission and the trail gatherer keep `extract()`, including its
   measured false positive (`…/SKILL.md.j2` → `…/SKILL.md`, 32 references in 21
   plans), which can manufacture an admission `CONFLICT`/trail overlap on the
-  wrong file. · severity: medium · → mitigation: fix_extract_multi_extension_truncation
+  wrong file. · severity: medium · → mitigation: t1889
 
 ### Planned mitigations
 - timing: post-phase | name: drift_protocol_consumer_sweep | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — WEAK_OVERLAP protocol line missed by a consumer | desc: Sweep every drift-output parser/render/golden for WEAK_OVERLAP handling and pin the weak-only backward-compat line order in a test
