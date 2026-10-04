@@ -113,3 +113,5 @@ inspects the landed `lib/aitasks_home.sh` API and the landed binary's
 > | - `version --json` prints one object: {"version":…,"commit":…,"contract":<int>,"engine":…}. The proposal's "version --json prints ENGINE:<path>" is realised as the `engine` key in JSON and the `ENGINE:` line in text.
 > | - An unset build reports version `devel` / commit `unknown`, which matches neither `== VERSION` nor `<V>-dev+<sha>`, so a bare `go build` binary fails your handshake closed.
 > | - Stub verbs: stderr `NOT_IMPLEMENTED:<verb>`, exit 64, no stdout. Unknown verb: stderr `UNKNOWN_VERB:<verb>` + `USAGE:…`, exit 64. Exit table 0/1/2/3/64/75; a verb returning a code outside its contract becomes 3 with `EXIT_CONTRACT_VIOLATION:`.
+
+> **👁 note:read** id=2026-10-04T16:35:53Z.c4a5bfc1ace1708021a59b1f by=t1852_4 at=2026-10-04T16:35:53Z mode=explicit ids=2026-09-23T13:21:10Z.e3adb1202e1da3bb3a5b4516,2026-09-24T06:18:17Z.c291190810d07fcc122bd2da
