@@ -243,7 +243,7 @@ windows):
 
 ### Planned mitigations
 - timing: post-phase | name: drift_protocol_consumer_sweep | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — WEAK_OVERLAP protocol line missed by a consumer | desc: Sweep every drift-output parser/render/golden for WEAK_OVERLAP handling and pin the weak-only backward-compat line order in a test
-- timing: after | name: fix_extract_multi_extension_truncation | type: bug | priority: medium | effort: medium | inline_risk: medium | added_complexity: medium | addresses: goal-achievement — extract() false positive (SKILL.md.j2 → SKILL.md) kept by admission/trail | desc: Make plan_paths.extract() reject a match followed by a path character, then re-measure parallel-admission replay and trail corpus rates before/after
+- timing: after | name: fix_extract_multi_extension_truncation | type: bug | priority: medium | effort: medium | inline_risk: medium | added_complexity: medium | addresses: goal-achievement — extract() false positive (SKILL.md.j2 → SKILL.md) kept by admission/trail | desc: Make plan_paths.extract() reject a match followed by a path character, then re-measure parallel-admission replay and trail corpus rates before/after | created: t1889
 
 ## Final Implementation Notes
 
