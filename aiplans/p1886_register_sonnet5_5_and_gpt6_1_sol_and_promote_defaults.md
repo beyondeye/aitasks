@@ -161,3 +161,37 @@ None identified. Both CLI IDs were verified against the live CLIs during
 planning, and are re-checked before writing. The op lists re-derived from
 `.defaults` match the task. Self-detection of the `[1m]` variant is covered by
 the explicit `sonnet5_5_1m` registration.
+
+## Final Implementation Notes
+- **Actual work done:** Registered `claudecode/sonnet5_5` (`claude-sonnet-5-5`),
+  `claudecode/sonnet5_5_1m` (`claude-sonnet-5-5[1m]`) and `codex/gpt6_1_sol`
+  (`gpt-6.1-sol`) in both the metadata and seed registries via
+  `aitask_add_model.sh add-json`. Promoted `sonnet5_5` for 7 metadata ops / 5
+  seed ops and `gpt6_1_sol` for `shadow`/`discuss` in both configs via
+  `promote-config`. Hand-edited the `codeagent.md` table + example JSON and the
+  codebrowser how-to `qa` default, converted `test_codeagent.sh` Test 28 to the
+  t1318 derive idiom (seed default + injected sentinel `DEFAULT_AGENT_STRING`,
+  exact-field `assert_eq`), and refreshed the `codeagent_defaults.sh` comment.
+- **Deviations from plan:** None. The dry-runs showed exactly one appended entry
+  per registry file, and 12 sonnet + 4 sol value changes all from the
+  predecessors.
+- **Issues encountered:** None. Test 28 needed no fixture re-derivation: the
+  fixture's project config stays the seed copy, and the earlier tests only
+  write and remove `codeagent_config.local.json`.
+- **Key decisions:** Test 28 reuses Test 5's `seed_cfg`, and its sentinel
+  pattern makes "read the config" distinguishable from "fell through to the
+  hardcoded default". `test_codeagent.sh` went from 199 to 201 assertions: one
+  literal assertion became three.
+- **Verification:**
+  - Bash tests: `test_codeagent` 201/201, `test_codeagent_work_report` 29/29,
+    and `test_codeagent_discuss`, `test_add_model` (58),
+    `test_shadow_spawn_learner` (22) and `test_resolve_detected_agent` (55) all
+    passed.
+  - Python suite: `PYTHON SUITE: PASSED (runner=pytest, exit=0)`.
+    `check_links.py --build` passed with `SWEEP: PASSED`.
+  - Negative control: `AIT_CODEAGENT_FIXTURE_OMIT_OPS=explain` turns Test 28
+    red.
+  - Resolution: `resolve explain` gives `sonnet5_5`, and `shadow`/`discuss`
+    give `gpt6_1_sol`. Self-detection of `[1m]` gives `sonnet5_5_1m`.
+  - The `.defaults` diff versus HEAD contains only the promoted keys.
+- **Upstream defects identified:** None
