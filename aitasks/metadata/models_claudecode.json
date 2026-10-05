@@ -1467,7 +1467,8 @@
       "verified": {
         "pick": 100,
         "changelog": 100,
-        "wrap": 100
+        "wrap": 100,
+        "explore": 100
       },
       "verifiedstats": {
         "pick": {
@@ -1529,6 +1530,27 @@
           },
           "week": {
             "period": "2026-W40",
+            "runs": 1,
+            "score_sum": 100
+          }
+        },
+        "explore": {
+          "all_time": {
+            "runs": 1,
+            "score_sum": 100
+          },
+          "prev_month": {
+            "period": "",
+            "runs": 0,
+            "score_sum": 0
+          },
+          "month": {
+            "period": "2026-10",
+            "runs": 1,
+            "score_sum": 100
+          },
+          "week": {
+            "period": "2026-W41",
             "runs": 1,
             "score_sum": 100
           }
