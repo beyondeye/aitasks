@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: chore
-status: Ready
+status: Implementing
 labels: [claudeskills, skills, task-planning]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1887
 created_at: 2026-10-04 15:48
-updated_at: 2026-10-04 15:48
+updated_at: 2026-10-05 09:53
 ---
 
 Create the follow-up tasks that grow the `aitask-screen-recording` skill (added
