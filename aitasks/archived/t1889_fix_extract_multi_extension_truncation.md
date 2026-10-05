@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [shadow, concurrency]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 1852
 followup_kind: risk_mitigation
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-04 16:28
-updated_at: 2026-10-05 15:05
+updated_at: 2026-10-05 16:49
+completed_at: 2026-10-05 16:49
 ---
 
 ## Origin
@@ -44,3 +45,14 @@ goal-achievement — extract() false positive (SKILL.md.j2 → SKILL.md) kept by
 > **✅ gate:plan_approved** run=2026-10-05T12:05:22Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-05T13:24:19Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-05T13:49:28Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:5343eaba610e0db9
+
+> **✅ gate:risk_evaluated** run=2026-10-05T13:49:28Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1889/risk_evaluated_2026-10-05T13:49:28Z-risk_evaluated-a1.log`
