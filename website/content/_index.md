@@ -146,9 +146,9 @@ Supported via WSL.
 <div class="row justify-content-center">
 <div class="col-lg-8">
 
+- **[v0.36.1: Hand your agent a screen recording, and Sonnet 5.5 and GPT-6.1 Sol take over as defaults](blog/v0361-hand-your-agent-a-screen-recording-sonnet-5-5-and-gpt-6-1-sol-take-over-as/)** -- Oct 5, 2026
 - **[v0.36.0: Discuss your brainstorm proposals, Frozen agents come back when you start `ait ide`, and Notes that cross repositories](blog/v0360-discuss-your-brainstorm-proposals-frozen-agents-come-back-when-you-start-a/)** -- Sep 25, 2026
 - **[v0.35.1: Frozen agents show up in your monitors, Sync deferrals that tell you what to do, and Git safety: fewer silent surprises](blog/v0351-frozen-agents-show-up-in-your-monitors-sync-deferrals-that-tell-you-what-t/)** -- Sep 17, 2026
-- **[v0.35.0: Freeze an agent and come back to it, Send a note to a task, and Let the backlog rank itself](blog/v0350-freeze-an-agent-and-come-back-to-it-send-a-note-to-a-task-let-the-backlog/)** -- Sep 9, 2026
 
 [All releases &rarr;](blog/)
 
