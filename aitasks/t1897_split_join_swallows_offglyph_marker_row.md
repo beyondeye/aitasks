@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1892
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-05 23:40
-updated_at: 2026-10-05 23:48
+updated_at: 2026-10-06 00:38
 ---
 
 ## Origin
@@ -60,3 +61,8 @@ whose bracket closes and has the full `[word | region]` shape). Either stop
 the join at it, or report it even when it is consumed. Pin the
 punctuation-led fragment, the probe guards and the long-block tests while
 doing so.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-05T21:38:50Z status=pass attempt=1 type=human
