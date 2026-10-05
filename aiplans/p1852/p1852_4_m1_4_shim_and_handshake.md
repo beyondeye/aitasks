@@ -254,3 +254,65 @@ Commit: `feature: Add the ait testmap shim with its strict engine handshake (t18
 
 ### Planned mitigations
 - timing: post-phase | name: shim_interface_table | type: documentation | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — downstream consumers of the shim's lines and resolver API | desc: header-comment Interfaces table in aitask_testmap.sh, each row naming the test case that pins it
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-05 17:30)
+- **Requested by user:** `VERSION_INVALID:$version_file` printed an unchecked framework path. A framework directory containing LF split the diagnostic across two lines, and a pipe added a protocol field. This broke the "every printed field passes `_tm_safe`" and "one diagnostic line" promises (CONFIRMED, blocking).
+- **Changes made:**
+  - When `VERSION` is invalid and its path is unsafe, the error is now `ENGINE_PATH_UNSAFE:SCRIPT_DIR`. This follows the established convention: name the variable and withhold the value.
+  - A valid `VERSION` in such a directory still works, because no other line carries `SCRIPT_DIR`.
+  - New case U2 covers LF and pipe directories through both the CLI and the resolver, plus the valid-VERSION case.
+  - U1 also covers an unsafe `AIT_TESTMAP_BIN`, which was previously untested.
+  - The Interfaces row was updated.
+  - The pre-fix code fails exactly the four "one line" U2 checks (scratch mutant).
+- **Files affected:** `.aitask-scripts/aitask_testmap.sh`, `tests/test_testmap_shim.sh`
+
+### Change Request 2 (2026-10-05 17:45)
+- **Requested by user:** an unreadable `VERSION` made `$(<file)` emit Bash's raw permission error before the structured handling ran. With `chmod 000` the CLI printed two stderr lines in a safe directory and four in a directory containing LF, and the resolver also leaked raw stderr (CONFIRMED, blocking).
+- **Changes made:**
+  - The read is now `{ v="$(<file)"; } 2>/dev/null || v=""`, so a missing or unreadable file reads as empty and produces only the structured line.
+  - New case V2 covers a missing `VERSION`, and an unreadable one through the CLI and through the resolver (resolver stderr must be empty).
+  - U2 gained the same unreadable checks for LF and pipe directories.
+  - Both cases `SKIP` when file modes are not enforced (root).
+  - The pre-fix read fails exactly the six new checks (scratch mutant).
+  - Also probed: a corrupt ELF and a bad-interpreter engine yield only `ENGINE_REJECTED …|version-unreadable` + `ENGINE_MISSING`, with no raw shell error.
+- **Files affected:** `.aitask-scripts/aitask_testmap.sh`, `tests/test_testmap_shim.sh`
+
+## Final Implementation Notes
+- **Actual work done:** Steps 1–6 and the `shim_interface_table` post-phase, as planned:
+  - `lib/platform_detect.sh`: 60 lines, `platform_os` / `platform_arch` / `platform_asset_suffix`, with `PLATFORM_UNSUPPORTED:<s>|<m>` naming the pair actually examined;
+  - `aitask_testmap.sh`: the strict three-tier handshake, the `--source-only` resolver API, and the header Interfaces table with every row naming its pinning case;
+  - `ait`: the `testmap)` arm, the usage line, and the `testmap` token in the update-check skip list;
+  - `tests/test_platform_detect.sh`: 29 checks;
+  - `tests/test_testmap_shim.sh`: 92 checks — R1–R7, D1–D4, O1–O2, V1–V2, U1–U2, A1, W1–W4 and E1 against the real `build.sh`-built engine.
+- **Notes sent:** after approval, to t1852_5 (`…8b5ce5e42187c7856b48f7aa`) and t1856 (`…128efd2074b7997a565f900e`). Both returned `LIVE_NONE:unlocked`.
+- **Plan-review revisions (before approval):**
+  - A1 guards the resolver call, because sourcing enables `set -e`.
+  - The Go cross-check and the E1 build use `GOHOSTOS` / `GOHOSTARCH` with `GOOS` / `GOARCH` unset, and a control proves the override would otherwise have moved `go env GOOS`.
+  - W4 covers the missing-cache network branch with a fake `curl`. Completion is bound to each invocation's own `$( )` pipe; the control proves the drain waits for the background fetch.
+- **Mutation evidence (scratch copies only):** each of these is caught by its targeted cases:
+  - the handshake keeping stdin (R2);
+  - `testmap` not skip-listed (W1, W4);
+  - dev falling through to release (D2);
+  - an unchecked dev suffix (D2);
+  - a newest-wins glob (R4, R5).
+- **Deviations from plan:**
+  - `ENGINE_PATH_UNSAFE` gained the `SCRIPT_DIR` variable name (Change Request 1).
+  - The `VERSION` read tolerates unreadable files (Change Request 2).
+  - In `platform_detect.sh`, `platform_os` / `platform_arch` alone report the live other field in `PLATFORM_UNSUPPORTED:`, while `platform_asset_suffix` reports the examined pair exactly once.
+- **Issues encountered:**
+  - `.aitask-scripts/VERSION` moved from 0.36.0 to 0.36.1 on main mid-task. The shim reads it at run time, so nothing changed.
+  - shellcheck reports only SC1091 (info: source not followed), the same as every sibling script.
+- **Key decisions:**
+  - The handshake reads the TEXT `version` line protocol, not `--json`.
+  - All shim diagnostics go to stderr, and stdout is exclusively the engine's.
+  - A set tier that fails is final (no fall-through).
+  - The override has no version check, but must be an absolute path to an executable file.
+  - The dev suffix must match `^[0-9a-f]{7,64}$`.
+  - `platform_detect.sh` is on no startup chain, so there is no scaffold entry.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:**
+  - M1.5: install at `"$(aitasks_engine_dir <V>)/ait-testmap"` with mode +x. Name dev builds `<V>-dev+<hex 7..64>`. Self-check with `source aitask_testmap.sh --source-only; rc=0; testmap_resolve_engine || rc=$?`, unsetting `AIT_TESTMAP_BIN` / `AIT_ENGINE` to probe only the release slot. `platform_detect.sh` must be sourced explicitly.
+  - Any later `ait` arm whose stdout is line protocol (M5.1 `test)`) must join the update-check skip list. W1, W2 and W4 in `tests/test_testmap_shim.sh` are the reusable test pattern: a seeded fresh cache for the notice, and a fake `curl` on PATH captured by `$( )` for the network branch.
+  - The fake-engine helper `mkfake` in `tests/test_testmap_shim.sh` (four-line text `version`, ARG/STDIN echo, `$FAKE_EXIT`) is a reusable model for M5.1's fake engine.
