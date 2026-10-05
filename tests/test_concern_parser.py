@@ -476,6 +476,31 @@ class TestSplitMarkerJoin(unittest.TestCase):
             [Concern("low", "real region", "The real concern.")],
         )
 
+    def test_punctuation_led_region_fragment_is_still_rejoined(self):
+        """Regression guard: the join stops only at an ACCEPTED item start (t1892).
+
+        The wider report-only `_MARKER_LIKE` shape must never become the stop
+        condition — a region fragment that happens to begin with punctuation is
+        a continuation of the bracket, not a new item, and must keep rejoining.
+        """
+        text = block("- [medium | long context", "— [reference] body")
+        self.assertEqual(
+            parse_concerns(text),
+            [Concern("medium", "long context — [reference", "body")],
+        )
+        self.assertEqual(unrecovered_markers(text), [])
+
+    def test_failed_bullet_join_consumes_nothing(self):
+        """The `•` twin of :meth:`test_failed_join_consumes_nothing` (t1892)."""
+        text = block(
+            "• [high | unclosed bracket row",
+            "• [low | real region] The real concern.",
+        )
+        self.assertEqual(
+            parse_concerns(text),
+            [Concern("low", "real region", "The real concern.")],
+        )
+
     def test_body_wrap_still_round_trips(self):
         """Regression guard on the rewritten loop: body continuation is unchanged."""
         text = block(
@@ -744,6 +769,355 @@ class TestUnrecoveredMarkers(unittest.TestCase):
 
     def test_no_block_reports_nothing(self):
         self.assertEqual(unrecovered_markers("just some pane output"), [])
+
+
+CODEX_BULLET_FIXTURE = os.path.join(
+    os.path.dirname(__file__), "fixtures", "codex_shadow_bullet_capture.txt"
+)
+
+
+class TestCodexBulletMarkers(unittest.TestCase):
+    """Codex CLI's renderer rewrites the `- ` item marker to `• ` (t1892).
+
+    The fixture is the verbatim head of a live Codex shadow block (captured via
+    `aitask_shadow_capture.sh --deep`, codex-cli 0.160.0): fences and the
+    `Round:` header survive the renderer, only the item marker is replaced.
+    Every synthesized row reuses the glyph read from those captured bytes, so
+    nothing here is a hand-typed stand-in.
+    """
+
+    @staticmethod
+    def _head_bytes():
+        with open(CODEX_BULLET_FIXTURE, "rb") as fh:
+            return fh.read()
+
+    def _head(self):
+        raw = self._head_bytes()
+        self.assertIn(b"\xe2\x80\xa2 [", raw)
+        self.assertNotIn(b"- [", raw)
+        return raw.decode("utf-8")
+
+    def _glyph(self):
+        row = next(l for l in self._head().splitlines() if "[" in l)
+        return row.lstrip()[0]
+
+    def _codex_block(self):
+        g = self._glyph()
+        return (
+            self._head()
+            + "    to be retried after the activity is recreated.\n"
+            + f"  {g} [medium | parser] Multi-block accumulation is\n"
+            + "    undefined when the shadow re-issues concerns.\n"
+            + f"  {g} [low] A region-less concern.\n"
+            + CLOSE + "\n"
+        )
+
+    def _dash_twin(self, text):
+        g = re.escape(self._glyph())
+        return re.sub(rf"(?m)^(\s*){g}(\s+\[)", r"\1-\2", text)
+
+    @staticmethod
+    def _fields(concerns):
+        return [(c.priority, c.region, c.body) for c in concerns]
+
+    def test_live_head_row_parses(self):
+        self.assertEqual(
+            self._fields(parse_concerns(self._head())),
+            [("high", "lifecycle and retry", "Implementation step 2 sets")],
+        )
+
+    def test_complete_block_matches_its_dash_twin(self):
+        codex = self._codex_block()
+        twin = self._dash_twin(codex)
+        self.assertNotEqual(codex, twin)  # the twin really swapped the glyph
+        marker_rows = sum(
+            1 for l in codex.splitlines() if l.lstrip().startswith(self._glyph())
+        )
+        self.assertEqual(len(parse_concerns(codex)), marker_rows)
+        self.assertEqual(
+            self._fields(parse_concerns(codex)), self._fields(parse_concerns(twin))
+        )
+
+    def test_has_concern_block_fires(self):
+        codex = self._codex_block()
+        self.assertTrue(has_concern_block(self._dash_twin(codex)))  # control
+        self.assertTrue(has_concern_block(codex))
+
+    def test_malformed_bullet_rows_are_reported(self):
+        g = self._glyph()
+        for bad in (f"{g} [ | region] no priority", f"{g} [medium | never closes"):
+            with self.subTest(bad=bad):
+                text = block(f"{g} [high | ok] a good one", bad)
+                self.assertEqual(unrecovered_markers(text), [bad])
+
+    def test_unmeasured_glyph_is_reported_not_parsed(self):
+        """The next renderer that rewrites the glyph is reported, not silent."""
+        for bad in ("◦ [high | x] body", "* [high | x] body"):
+            with self.subTest(bad=bad):
+                text = block(bad)
+                self.assertEqual(parse_concerns(text), [])
+                self.assertFalse(has_concern_block(text))
+                self.assertEqual(unrecovered_markers(text), [bad])
+
+    def test_clipboard_payload_is_byte_identical(self):
+        codex = self._codex_block()
+        payload = build_clipboard_payload(parse_concerns(codex))
+        self.assertEqual(
+            payload,
+            build_clipboard_payload(parse_concerns(self._dash_twin(codex))),
+        )
+        item_lines = payload.splitlines()[2:]
+        self.assertTrue(item_lines)
+        self.assertTrue(all(l.startswith("- [") for l in item_lines))
+
+    def test_split_bullet_marker_is_rejoined(self):
+        """Codex's own hard-wrap inside the bracket, with the bullet glyph."""
+        g = self._glyph()
+        text = block(
+            f"{g} [medium | .claude/skills/aitask-shadow/impl-review-",
+            "angles.md] The rubric omits the shared-fixture angle.",
+            f"{g} [low | ok] The next item survives.",
+        )
+        self.assertEqual(
+            self._fields(parse_concerns(text)),
+            [
+                ("medium", ".claude/skills/aitask-shadow/impl-review-angles.md",
+                 "The rubric omits the shared-fixture angle."),
+                ("low", "ok", "The next item survives."),
+            ],
+        )
+        self.assertEqual(unrecovered_markers(text), [])
+
+    def test_bullet_mid_body_is_not_a_marker(self):
+        """Collision control: a bullet that is not at the row start is prose."""
+        g = self._glyph()
+        text = block(
+            f"{g} [high | ok] first item",
+            f"  which quotes {g} [high | x] inline",
+        )
+        self.assertEqual(
+            self._fields(parse_concerns(text)),
+            [("high", "ok", f"first item which quotes {g} [high | x] inline")],
+        )
+        self.assertEqual(unrecovered_markers(text), [])
+
+    def test_quoted_bullet_at_wrap_boundary_in_a_dash_block_stays_body(self):
+        """One glyph per block: a quoted `• [` row in a dash block is body text.
+
+        The review's regression: accepting the bullet must not let a wrapped
+        quotation of a bullet-marked example start a concern in an ordinary
+        dash-marked block — the dash-only parser produced ONE concern here, and
+        so must this one. The row is reported (marker-looking, unused) but its
+        text stays in the concern and is forwarded with it.
+        """
+        g = self._glyph()
+        quoted = f"{g} [high | example] illustrative text, not a new finding."
+        text = block("- [medium | actual] The quoted example is", f"  {quoted}")
+        self.assertEqual(
+            self._fields(parse_concerns(text)),
+            [("medium", "actual", f"The quoted example is {quoted}")],
+        )
+        self.assertTrue(has_concern_block(text))
+        self.assertEqual(unrecovered_markers(text), [quoted])
+
+    def test_quoted_dash_at_wrap_boundary_in_a_bullet_block_stays_body(self):
+        """The mirror: in a Codex (`•`) block a `- [` row is body text."""
+        g = self._glyph()
+        quoted = "- [high | example] illustrative text, not a new finding."
+        text = block(f"{g} [medium | actual] The quoted example is", f"    {quoted}")
+        self.assertEqual(
+            self._fields(parse_concerns(text)),
+            [("medium", "actual", f"The quoted example is {quoted}")],
+        )
+        self.assertEqual(unrecovered_markers(text), [quoted])
+
+    def test_unclosed_leading_row_does_not_swallow_the_next_item(self):
+        """Review regression: a malformed leading row must not fix the glyph.
+
+        Picking `•` from the unclosed first row made the split rejoin cross the
+        valid dash item and manufacture a fake medium concern. The pre-t1892
+        parser returned the real concern; so must this one — now with the
+        malformed row reported instead of silently dropped.
+        """
+        g = self._glyph()
+        bad = f"{g} [medium | malformed"
+        text = block(bad, "- [high | real] real body")
+        self.assertEqual(
+            self._fields(parse_concerns(text)), [("high", "real", "real body")]
+        )
+        self.assertEqual(unrecovered_markers(text), [bad])
+
+    def test_closed_malformed_leading_row_does_not_demote_the_next_item(self):
+        """Review regression: `• [ | bad]` must not make the valid dash item body."""
+        g = self._glyph()
+        bad = f"{g} [ | bad] malformed"
+        text = block(bad, "- [high | real] real body")
+        self.assertEqual(
+            self._fields(parse_concerns(text)), [("high", "real", "real body")]
+        )
+        self.assertTrue(has_concern_block(text))
+        self.assertEqual(unrecovered_markers(text), [bad])
+
+    def test_split_leading_marker_still_selects_its_glyph(self):
+        """A leading marker that only parses via a split rejoin still counts —
+        so a later cross-glyph quotation cannot claim the block instead."""
+        g = self._glyph()
+        quoted = f"{g} [high | example] quoted text."
+        text = block("- [medium | long region", "context] body", f"  {quoted}")
+        self.assertEqual(
+            self._fields(parse_concerns(text)),
+            [("medium", "long region context", f"body {quoted}")],
+        )
+
+    def test_nonparseable_opposite_glyph_fragment_does_not_end_the_probe(self):
+        """Review regression (combined): a split dash marker whose region
+        continues on a `• [reference] body` row, followed by a quoted bullet.
+
+        `• [reference]` is an accepted-glyph PREFIX but not an item (no `|`,
+        not a priority word), so it must not stop the glyph probe. The pre-t1892
+        parser and the previous revision recovered the one medium concern with
+        the quotation kept in its body; stopping the probe there instead let the
+        quoted `[high | example]` claim the block and be FORWARDED while the
+        real concern was lost.
+        """
+        g = self._glyph()
+        fragment = f"{g} [reference] body"
+        quoted = f"{g} [high | example] illustrative text."
+        text = block("- [medium | long context", fragment, f"  {quoted}")
+        concerns = parse_concerns(text)
+        self.assertEqual(
+            self._fields(concerns),
+            [("medium", f"long context {g} [reference", f"body {quoted}")],
+        )
+        payload = build_clipboard_payload(concerns)
+        self.assertIn("- [medium | long context", payload)
+        self.assertNotIn("- [high | example]", payload)
+
+    def test_unclosed_leading_row_does_not_swallow_a_split_next_item(self):
+        """Review regression: the next item may itself need split recovery.
+
+        The probe boundary is "the row yields an item", not "the row parses on
+        one line" — otherwise the unclosed leading row rejoins across a valid
+        split concern and forwards a corrupted one. Both glyph directions: the
+        pre-t1892 parser got the bullet-first one right; the dash-first mirror
+        it corrupted (it never parsed bullets), and that is fixed too.
+        """
+        g = self._glyph()
+        for lead, nxt in ((g, "-"), ("-", g)):
+            with self.subTest(lead=lead, nxt=nxt):
+                bad = f"{lead} [medium | malformed"
+                text = block(bad, f"{nxt} [high | real", "region] real body")
+                concerns = parse_concerns(text)
+                self.assertEqual(
+                    self._fields(concerns), [("high", "real region", "real body")]
+                )
+                self.assertEqual(unrecovered_markers(text), [bad])
+                self.assertNotIn("malformed", build_clipboard_payload(concerns))
+
+    # The monitor's deepest supported capture (monitor_core._SHADOW_DEEP_RETRY_LINES).
+    _DEEP_CAPTURE_ROWS = 1500
+
+    def _alternating_unclosed(self):
+        """A long run of unclosed markers alternating glyphs — the shape that
+        chains glyph probes across the whole block."""
+        g = self._glyph()
+        return [
+            f"{g if k % 2 == 0 else '-'} [medium | unclosed"
+            for k in range(self._DEEP_CAPTURE_ROWS)
+        ]
+
+    def test_long_alternating_malformed_block_with_a_final_concern(self):
+        """Review regression: no RecursionError at supported capture depth.
+
+        The glyph probes chained row-to-row through the alternating run; a
+        recursive implementation overflowed the stack. All three public entry
+        points must work, recover the real final concern, and report the run.
+        """
+        bad = self._alternating_unclosed()
+        text = block(*bad, "- [high | real] real body")
+        self.assertEqual(
+            self._fields(parse_concerns(text)), [("high", "real", "real body")]
+        )
+        self.assertTrue(has_concern_block(text))
+        self.assertEqual(unrecovered_markers(text), bad)
+
+    def test_long_alternating_malformed_block_without_a_final_concern(self):
+        bad = self._alternating_unclosed()
+        text = block(*bad)
+        self.assertEqual(parse_concerns(text), [])
+        self.assertFalse(has_concern_block(text))
+        self.assertEqual(unrecovered_markers(text), bad)
+
+    def test_split_only_bullet_block_still_parses(self):
+        """A block whose only item is a split `•` marker still selects `•`."""
+        g = self._glyph()
+        text = block(
+            f"{g} [medium | .claude/skills/aitask-shadow/impl-review-",
+            "angles.md] The rubric omits the shared-fixture angle.",
+        )
+        self.assertEqual(
+            self._fields(parse_concerns(text)),
+            [("medium", ".claude/skills/aitask-shadow/impl-review-angles.md",
+              "The rubric omits the shared-fixture angle.")],
+        )
+        self.assertTrue(has_concern_block(text))
+
+    def test_same_glyph_quote_at_wrap_boundary_is_an_inherited_limit(self):
+        """Pinned limit: a quotation in the block's OWN glyph still starts an item.
+
+        No capture structure tells this row from a real item — it is the
+        collision hazard the dash-only parser always had (the producer owns it:
+        a body row must never begin with the marker). Pinned so the boundary of
+        the one-glyph rule is explicit, not to endorse it.
+        """
+        for g in ("-", self._glyph()):
+            with self.subTest(glyph=g):
+                text = block(
+                    f"{g} [medium | actual] The quoted example is",
+                    f"  {g} [high | example] illustrative text.",
+                )
+                self.assertEqual(len(parse_concerns(text)), 2)
+
+    def test_split_join_consumes_a_marker_looking_row_known_gap(self):
+        """Known gap (inherited, report-only scope): an unclosed bracket followed
+        by a marker-looking row in ANOTHER glyph rejoins it into the region, and
+        that row is not reported — it was consumed as part of the bracket.
+
+        Identical with a dash first marker on the pre-t1892 parser. Pinned so the
+        "reported" guarantee is read with this boundary; changing the recovery
+        is separate work that must keep the punctuation-led-region guard
+        (`TestSplitMarkerJoin.test_punctuation_led_region_fragment_is_still_rejoined`).
+        """
+        for g in ("-", self._glyph()):
+            with self.subTest(glyph=g):
+                text = block(
+                    f"{g} [medium | missing closing bracket",
+                    "◦ [high | next] next concern body",
+                )
+                self.assertEqual(
+                    self._fields(parse_concerns(text)),
+                    [("medium", "missing closing bracket ◦ [high | next",
+                      "next concern body")],
+                )
+                self.assertEqual(unrecovered_markers(text), [])
+
+    def test_punctuation_led_continuation_is_reported_accepted_residual(self):
+        """Accepted residual of the wider loss report — pinned, not a bug.
+
+        A wrapped body row that happens to begin `<punctuation> [` looks like a
+        marker, so `unrecovered_markers` reports it. The report is advisory: it
+        warns (a count and the raw view) but removes nothing from a forwardable
+        body — the row stays in its concern and is forwarded with it, which is
+        correct because it really is body text. The cost of the false positive
+        is one spurious warning.
+        """
+        g = self._glyph()
+        row = "— [see t1167] for the wrap envelope."
+        text = block(f"{g} [high | ok] first item, continued", row)
+        (c,) = parse_concerns(text)
+        self.assertEqual(c.body, f"first item, continued {row}")
+        self.assertIn(row, build_clipboard_payload([c]))
+        self.assertEqual(unrecovered_markers(text), [row])
 
 
 class TestBlockRegion(unittest.TestCase):

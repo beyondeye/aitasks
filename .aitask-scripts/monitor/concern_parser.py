@@ -29,6 +29,13 @@ Format (single source of truth: ``.claude/skills/aitask-shadow/concern-format.md
   (dash + space) is **mandatory**: tmux soft-wrapping never prefixes a
   continuation line with it, so a wrapped body line — even one containing
   bracket- or ``key=value``-looking text — can never be misread as a new item.
+  The parser also accepts ``• `` (U+2022) in the dash's place: Codex CLI's
+  markdown renderer rewrites the producer's ``- `` to it (t1892). The accepted
+  glyphs are the closed, measured set in ``_MARKER_GLYPHS``, and a block uses
+  **one** of them — that of its first row that yields an item — so a row led
+  by the other glyph
+  (a wrapped quotation) stays body text. Any other marker-looking row is
+  reported by :func:`unrecovered_markers`, never parsed.
 - A marker whose ``[priority | region]`` bracket was split across rows by an
   agent TUI's own hard-wrap is rejoined, bounded to
   ``_MAX_MARKER_JOIN_ROWS`` following rows (t1167). Within that envelope
@@ -142,10 +149,30 @@ _REVIEWED_AT_FMT = "%Y-%m-%dT%H:%M:%SZ"
 # "no concerns" (t1216_1; the same class of silent false negative as t1187).
 _SENTINEL_SAFE_COLS = 24
 
-# Leading "- " (dash + space) is MANDATORY — collision hardening: a wrapped
-# continuation line never carries it, so it can never start a spurious concern.
+# Item-marker glyphs the parser ACCEPTS: a closed set of MEASURED values only.
+# The producer always emits "- "; an agent TUI's markdown renderer may rewrite
+# it before tmux ever sees the row.
+#   "-"  canonical — what every producer emits
+#   "•"  U+2022 BULLET — Codex CLI's renderer rewrites "- " to "• " (t1892,
+#        measured on codex-cli 0.160.0)
+# A leading marker glyph is MANDATORY — collision hardening: a wrapped
+# continuation line never carries one, so it can never start a spurious concern.
+#
+# ONE GLYPH PER BLOCK. A renderer rewrites every list item of a block the same
+# way, so the glyph of the block's first row that YIELDS an item is the block's
+# marker glyph (`_block_glyph` — a malformed leading row does not count) and
+# only rows carrying THAT glyph start items. A row led by
+# the other accepted glyph is body text — e.g. a wrapped quotation of
+# `• [high | example] …` inside a dash-marked block, or of `- [ … ]` inside a
+# Codex block — and stays a continuation (reported by `_MARKER_LIKE`, never
+# removed). Without this rule, accepting the bullet would let a quoted bullet in
+# an ordinary dash block start a spurious concern that the dash-only parser
+# never produced. Add a glyph here only after observing it live.
+_MARKER_GLYPHS = "-•"
+_GLYPH = f"(?P<glyph>[{re.escape(_MARKER_GLYPHS)}])"
+
 _ITEM = re.compile(
-    r"^\s*-\s+\[\s*(?P<priority>\w+)\s*\|\s*(?P<region>[^\]]*)\]\s*(?P<body>.*)$"
+    rf"^\s*{_GLYPH}\s+\[\s*(?P<priority>\w+)\s*\|\s*(?P<region>[^\]]*)\]\s*(?P<body>.*)$"
 )
 
 # A marker that omits the `| region` half entirely: `- [medium] body`. Tried only
@@ -160,13 +187,93 @@ _ITEM = re.compile(
 # wrapped body line (`- [see below] …`) start a spurious concern, breaking the
 # collision-hardening guarantee the whole format rests on.
 _ITEM_NO_REGION = re.compile(
-    r"^\s*-\s+\[\s*(?P<priority>high|medium|low)\s*\]\s*(?P<body>.+)$",
+    rf"^\s*{_GLYPH}\s+\[\s*(?P<priority>high|medium|low)\s*\]\s*(?P<body>.+)$",
     re.IGNORECASE,
 )
 
-# A row that *starts* like an item marker. Used only to detect a marker whose
-# bracket was split across rows by an agent TUI's own hard-wrap (t1167).
-_MARKER_START = re.compile(r"^\s*-\s+\[")
+# A row that *starts* an accepted item marker, any accepted glyph. Read through
+# :func:`_starts_item`, which also applies the one-glyph-per-block rule. Used to
+# detect a marker whose bracket was split across rows by an agent TUI's own
+# hard-wrap, and to stop that rejoin at the next item (t1167).
+_MARKER_START = re.compile(rf"^\s*{_GLYPH}\s+\[")
+
+# Any row that LOOKS like a list-marker item: one non-word, non-space,
+# non-bracket glyph, whitespace, "[". Deliberately wider than `_GLYPH` and
+# REPORT-ONLY: it never yields a concern and never steers parsing — it only
+# names a marker-looking row the parser could not use, so a renderer rewriting
+# the marker to an unmeasured glyph is REPORTED rather than silently swallowed
+# (t1892; the report used to require the dash and went blind exactly there).
+# Known gap: a row consumed by a split-marker rejoin is part of that bracket and
+# is never reported (pinned by a test). Never use it as the split-join stop: a
+# region fragment may itself start with punctuation (`— [reference] …`) and
+# must stay joinable.
+_MARKER_LIKE = re.compile(r"^\s*[^\w\s\[\]]\s+\[")
+
+
+def _yield_table(lines: list[str]) -> list[bool]:
+    """For every row: does it, read in its OWN glyph, yield an item?
+
+    A row does when it is a complete one-row item (:data:`_ITEM` /
+    :data:`_ITEM_NO_REGION`), or when its split rejoin succeeds in **probe**
+    mode (see :func:`_join_split_marker`). This is the one definition of "a
+    genuine item starts here, whatever the block's glyph turns out to be". It
+    is shared by the glyph choice (:func:`_block_glyph`) and by the probe's own
+    boundary test, so a valid next concern that itself needs split recovery
+    counts as a boundary exactly like a one-row one. A non-parseable fragment
+    (``• [reference] body`` — it contains ``]``, so it is no split candidate
+    either) never counts.
+
+    **Iterative, back to front — never recursive.** A row's probe consults only
+    the rows *after* it (at most :data:`_MAX_MARKER_JOIN_ROWS` of them), so
+    filling the table from the last row backwards means every answer a probe
+    needs is already computed. The cost is O(rows × _MAX_MARKER_JOIN_ROWS) with
+    constant stack depth. A recursive "does the next row yield an item?" is
+    bounded per join but chains across a whole run of alternating-glyph unclosed
+    markers, and overflowed the stack on a capture the monitor's deep retry
+    supports (t1892 review).
+    """
+    yields = [False] * len(lines)
+    for i in range(len(lines) - 1, -1, -1):
+        line = lines[i]
+        m = _MARKER_START.match(line)
+        if m is None:
+            continue
+        if _ITEM.match(line) or _ITEM_NO_REGION.match(line):
+            yields[i] = True
+        elif "]" not in line:
+            yields[i] = _join_split_marker(
+                lines, i, m.group("glyph"), boundary=yields
+            )[0] is not None
+    return yields
+
+
+def _block_glyph(lines: list[str], yields: list[bool]) -> str | None:
+    """The block's marker glyph: the glyph of its first row that YIELDS an item.
+
+    Merely *looking* like a marker is not enough to fix the glyph: a malformed
+    leading row (``• [ | bad] …``, an unclosed ``• [medium | …``) must not pick
+    a glyph that then demotes every later, valid item to body text, or lets a
+    split rejoin swallow it. So a candidate row counts only when its
+    :func:`_yield_table` entry holds. Its probe stops at every *genuine* next
+    item — a row in the candidate's own glyph, or an opposite-glyph row that
+    itself yields an item, one-row or split — so it never crosses a later item
+    to manufacture one. A non-parseable opposite-glyph fragment such as
+    ``• [reference] body`` is not a next item, so it is rejoined into the
+    region exactly as before t1892.
+
+    ``None`` when no row yields an item: nothing starts a concern, and every
+    marker-looking row is reported by :data:`_MARKER_LIKE`.
+    """
+    for line, ok in zip(lines, yields):
+        if ok:
+            return _MARKER_START.match(line).group("glyph")
+    return None
+
+
+def _starts_item(line: str, glyph: str | None) -> bool:
+    """True when ``line`` starts an item marker in the block's own ``glyph``."""
+    m = _MARKER_START.match(line)
+    return m is not None and m.group("glyph") == glyph
 
 # Max continuation rows joined to close a split bracket, so a marker spans at
 # most _MAX_MARKER_JOIN_ROWS + 1 = 3 rows. At the ~55-column width where the
@@ -476,7 +583,13 @@ def _join_sep(joined: str) -> str:
     return "" if joined.endswith(("-", "/")) else " "
 
 
-def _join_split_marker(lines: list[str], start: int):
+def _join_split_marker(
+    lines: list[str],
+    start: int,
+    glyph: str | None,
+    *,
+    boundary: "list[bool] | None" = None,
+):
     """Rejoin a marker bracket split across rows by an agent TUI's hard-wrap.
 
     Agent TUIs that render markdown themselves (observed: Codex CLI at ~55
@@ -495,6 +608,20 @@ def _join_split_marker(lines: list[str], start: int):
     item is no longer dropped. The known imperfect case is a prose region
     containing a spaced slash broken right after the slash (``foo / bar`` ->
     ``foo /bar``): accepted, cosmetic, and pinned by a test.
+
+    ``glyph`` is the block's marker glyph (:func:`_block_glyph`): the join stops
+    at the next row that starts an item in that glyph.
+
+    **Probe mode** (``boundary`` given) is how :func:`_yield_table` tests a
+    candidate row before the block's glyph is known; ``glyph`` is then the
+    candidate's own. The join additionally stops at an opposite-glyph row whose
+    ``boundary`` entry is True, meaning it yields an item itself, one-row or
+    recoverable by its own split rejoin. That row could be the block's real
+    first item and must not be swallowed to manufacture one. A non-parseable
+    opposite-glyph fragment (``• [reference] body``) is not an item boundary
+    and is still rejoined. ``boundary`` is read only at indices after
+    ``start``, which the back-to-front table has already filled; nothing here
+    recurses.
     """
     joined = lines[start]
     for k in range(1, _MAX_MARKER_JOIN_ROWS + 1):
@@ -502,9 +629,15 @@ def _join_split_marker(lines: list[str], start: int):
         if nxt_idx >= len(lines):
             break
         nxt = lines[nxt_idx]
-        # A real continuation never carries "- [" — that is a new item, so stop
-        # rather than swallow it (preserves the collision-hardening guarantee).
-        if _MARKER_START.match(nxt):
+        # A real continuation never starts an item in the block's glyph — that
+        # is a new item, so stop rather than swallow it (preserves the
+        # collision-hardening guarantee). Deliberately NOT `_MARKER_LIKE`: a
+        # punctuation-led region fragment must keep rejoining. In probe mode an
+        # opposite-glyph row that yields an item (one-row or split) is a
+        # boundary too; a non-parseable opposite-glyph fragment is not.
+        stop = _MARKER_START.match(nxt)
+        if stop and (stop.group("glyph") == glyph
+                     or (boundary is not None and boundary[nxt_idx])):
             break
         joined += _join_sep(joined) + nxt.lstrip()
         if "]" in nxt:
@@ -527,35 +660,45 @@ def _scan_items(region: str) -> tuple[list[Concern], list[str]]:
     hard-wrapped mid-marker, rejoined by :func:`_join_split_marker` within its
     bounded envelope; and the region-less ``- [priority] body``
     (:data:`_ITEM_NO_REGION`), which yields an empty region rather than being
-    swallowed as a continuation.
+    swallowed as a continuation. All three require the block's own marker glyph
+    (:func:`_block_glyph` — one glyph per block, see :data:`_MARKER_GLYPHS`); a
+    row led by the *other* accepted glyph is body text.
 
     ``unrecovered`` collects every remaining line that *looks* like a marker
-    (:data:`_MARKER_START`) but produced no concern — an over-bound split, a
-    malformed bracket, an unclosed one. A genuine continuation line can never
-    begin ``- [`` (that is the collision-hardening invariant the format rests
-    on), so such a line is by definition a marker the parser could not recover.
-    Those lines still fall through to continuation handling as before — nothing
-    is lost — but the caller can now *report* them instead of degrading
-    silently (t1274).
+    (:data:`_MARKER_LIKE`) but produced no concern — an over-bound split, a
+    malformed bracket, an unclosed one, a marker glyph outside the accepted set,
+    or an accepted glyph that is not the block's own (t1892). A genuine
+    continuation line can never begin ``- [`` (that is the collision-hardening
+    invariant the format rests on), so such a line is by definition a marker the
+    parser could not recover. Those lines still fall through to continuation
+    handling as before — nothing is removed from a forwardable body — but the
+    caller can now *report* them instead of degrading silently (t1274). The
+    wider report shape has one accepted false positive: a wrapped body row that
+    happens to begin ``<punctuation> [`` is reported too, while staying in (and
+    being forwarded with) its concern. And one known gap: a marker-looking row
+    consumed by a successful split-marker rejoin is part of that bracket and is
+    never reported.
     """
     # Each entry: [priority, region, [body_parts]].
     items: list[list] = []
     unrecovered: list[str] = []
     lines = region.splitlines()
+    glyph = _block_glyph(lines, _yield_table(lines))
     i = 0
     while i < len(lines):
         line = lines[i]
-        m = _ITEM.match(line)
+        starts = _starts_item(line, glyph)
+        m = _ITEM.match(line) if starts else None
         consumed = 1
-        if m is None and _MARKER_START.match(line) and "]" not in line:
-            m, consumed = _join_split_marker(lines, i)
+        if m is None and starts and "]" not in line:
+            m, consumed = _join_split_marker(lines, i, glyph)
         region_label = m.group("region") if m else ""
-        if m is None:
+        if m is None and starts:
             m = _ITEM_NO_REGION.match(line)
         if m:
             items.append([m.group("priority"), region_label, [m.group("body")]])
         else:
-            if _MARKER_START.match(line):
+            if _MARKER_LIKE.match(line):
                 unrecovered.append(line.strip())
             if line.strip() and items:
                 items[-1][2].append(line)

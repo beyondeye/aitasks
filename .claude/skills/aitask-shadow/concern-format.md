@@ -107,6 +107,42 @@ protocol behind the preamble's comparisons).
   even one whose text contains bracket-looking (`[high | x] …`) or
   key-value-looking (`priority=high …`) substrings, can never be misread as a
   new concern. The producer MUST emit the dash on every concern line.
+- **Accepted marker glyphs (consumer tolerance).** The parser accepts a closed
+  set of item-marker glyphs: `-` (canonical) and `•` (U+2022 BULLET). The
+  bullet is there because Codex CLI's markdown renderer **replaces** the
+  list-marker glyph before tmux ever sees the row: the producer's `- ` arrives
+  as `• ` (observed on codex-cli 0.160.0, t1892), while the two ASCII fences and
+  the `Round:` header survive intact. Without that tolerance no Codex shadow
+  block can parse. The set is **measured, not guessed**: a glyph is added
+  (`_MARKER_GLYPHS` in `concern_parser.py`) only after a renderer is observed
+  emitting it. None of this relaxes the producer rule: producers still emit
+  `- `.
+
+  **One glyph per block.** A renderer rewrites every list item of a block the
+  same way, so the block's marker glyph is the glyph of its **first marker row
+  that actually yields an item**, and only rows carrying *that* glyph start
+  items. A malformed leading row does not count: it cannot pick a glyph that
+  would demote, or let a split rejoin swallow, the valid items after it. Its
+  split-rejoin probe stops at every genuine next item, meaning a row in the
+  candidate's own glyph, or an opposite-glyph row that itself yields an item
+  (whether on one row or via its own bounded split rejoin), so it can never
+  cross a later item to manufacture one. A non-parseable
+  opposite-glyph fragment (`• [reference] body`) is not an item boundary and
+  keeps rejoining into the region. That is what keeps the
+  collision guard above intact once the bullet is accepted. A body may quote a
+  marker, and when an agent's hard-wrap lands just before the quotation the row
+  begins with it: `• [high | example] …` inside a dash-marked block, or
+  `- [ … ]` inside a Codex block. Such a row is in the *other* glyph, so it
+  stays body text, exactly as a dash-only parser treated a quoted bullet. A
+  quotation in the block's **own** glyph at a wrap boundary is still
+  indistinguishable from a real item. That is the collision hazard the format
+  always had, and it is the producer's to avoid (a body row must never begin
+  with the marker).
+
+  A row carrying an unaccepted glyph, or the other accepted glyph, is not
+  parsed but is reported (see the `unrecovered_markers` row under "Trigger vs.
+  action contract"), so an unmeasured rewrite normally shows up as a warning
+  instead of vanishing.
 - `priority` ∈ {`high`, `medium`, `low`}, matched case-insensitively. An unknown
   value degrades to `low`; the item is **never dropped**.
 - `region` is a free-text plan-region / axis label (which part of the plan the
@@ -127,8 +163,11 @@ protocol behind the preamble's comparisons).
   that even the `-J` wrap-join cannot rejoin. A wrap landing *inside* the
   `[priority | region]` bracket leaves no parseable marker line, and the whole
   item used to be **silently dropped** (observed live with a 53-char full-path
-  region at ~55 columns). The parser now rejoins such a split, within a
-  **bounded envelope** (t1167):
+  region at ~55 columns). The same renderer also **replaces the list-marker
+  glyph** (`- ` → `• `, see "Accepted marker glyphs" above), which is the more
+  fundamental breakage: it defeats every marker, not only a wrapped one. The
+  recovery below therefore works with any accepted glyph. The parser now
+  rejoins such a split, within a **bounded envelope** (t1167):
 
   - The marker may span at most **3 rows** (the opening row plus
     `_MAX_MARKER_JOIN_ROWS = 2`). At ~55 columns that covers ~165 chars of
@@ -144,7 +183,15 @@ protocol behind the preamble's comparisons).
     space. That is accepted: `region` is a display label rendered in the
     picker, never a key.
   - The recovery cannot swallow a following concern: the lookahead commits only
-    on success and stops at any row that itself begins a marker.
+    on success and stops at any row that itself begins an item in the block's
+    marker glyph. It does not stop at merely marker-*looking* rows: a region
+    fragment that happens to begin with punctuation (`— [reference] …`) is
+    still a continuation of the bracket and keeps rejoining. The flip side is a
+    known gap. If an unclosed bracket is followed, within the envelope, by a
+    marker-looking row in another glyph (`◦ [high | next] …`), that row is
+    rejoined into the region and is **not** reported, because it was consumed
+    as part of the bracket. This behaviour predates t1892 (it is identical with
+    a dash first marker) and is pinned by a test.
 - `body` is free text. A wrapped continuation line (any non-blank line between
   the fences that is **not** a marker) is appended, space-joined, to the current
   concern's body.
@@ -353,6 +400,25 @@ malformed bracket, an unclosed one. The picker shows the count so the user knows
 the list is short of what the shadow emitted, instead of the block degrading
 silently. It is a **report, not a recovery**: widening
 `_MAX_MARKER_JOIN_ROWS` remains the accepted t1167 limit.
+
+What it counts as marker-*looking* is deliberately wider than what the parser
+accepts. Any row that begins with one punctuation glyph, whitespace and `[`
+counts, including glyphs outside the accepted set (`* [`, `◦ [`, …) and the
+accepted glyph that is not the block's own. So a renderer that rewrites the
+marker to a glyph nobody has measured yet is **reported rather than silent**
+(t1892; the report used to require the dash and was blind to exactly the Codex
+rewrite). The one exception is a row consumed by a split-marker rejoin (see the
+known gap under "Split-marker hazard"): it became part of that bracket's region
+and is not reported. The wider shape is report-only in two senses:
+
+- **It removes nothing.** A reported row that follows an item still stays in
+  that item's body and is forwarded with it. That costs one accepted false
+  positive: a genuine wrapped body row that happens to begin `<punctuation> [`
+  draws a spurious warning, while its text is still correctly forwarded as body
+  text.
+- **It never steers parsing.** The split-marker recovery still stops only at an
+  accepted item start, so a region fragment beginning with punctuation keeps
+  rejoining.
 
 The degenerate case — a **complete block whose markers are *all* malformed** —
 needs its own handling, because it reaches neither surface above: nothing parses,

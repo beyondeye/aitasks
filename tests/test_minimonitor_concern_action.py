@@ -77,6 +77,22 @@ _VECTOR_BLOCK = (
     "Disposition: follow-up.\n"
     "===END-CONCERNS===\n"
 )
+
+
+def _codex_bullet_block() -> str:
+    """A complete Codex-rendered block built on the REAL captured head (t1892).
+
+    Codex CLI's renderer rewrites the `- ` item marker to `• `; the fixture
+    holds the verbatim captured bytes, and the second item reuses its glyph.
+    """
+    head = (REPO_ROOT / "tests" / "fixtures"
+            / "codex_shadow_bullet_capture.txt").read_text(encoding="utf-8")
+    glyph = next(l for l in head.splitlines() if "[" in l).lstrip()[0]
+    assert glyph == "•", glyph
+    return (head + f"  {glyph} [medium | parser] Accumulation is undefined.\n"
+            + "===END-CONCERNS===\n")
+
+
 # Opening fence but no closing fence — a still-streaming block.
 _UNCLOSED_BLOCK = (
     "===AITASK-CONCERNS===\n"
@@ -385,6 +401,21 @@ class ActionPickConcernsTests(unittest.TestCase):
         self.assertEqual(app.spy_pushed, [])
         self.assertEqual(app.spy_clipboard, [])
         self.assertTrue(any(sev == "warning" for _, sev in app.spy_notify))
+
+    def test_codex_bullet_block_opens_the_picker(self):
+        """A Codex shadow's `• ` markers reach the picker, not the raw view (t1892)."""
+        app = _mk_app(_FakeMon(async_list="%5\t%1"))
+        app._find_own_agent_snapshot = lambda: _snap("%1")
+        _stub_capture(self, _async_return(_codex_bullet_block()))
+        asyncio.run(app.action_pick_concerns())
+        self.assertEqual(len(app.spy_pushed), 1)
+        modal, _ = app.spy_pushed[0]
+        self.assertIsInstance(modal, mm.ConcernPickerModal)
+        self.assertEqual(
+            [(c.priority, c.region) for c in modal._concerns],
+            [("high", "lifecycle and retry"), ("medium", "parser")],
+        )
+        self.assertFalse(any(sev == "warning" for _, sev in app.spy_notify))
 
     def test_empty_parse_no_modal(self):
         app = _mk_app(_FakeMon(async_list="%5\t%1"))
@@ -852,6 +883,14 @@ class AutoOfferTests(unittest.TestCase):
         asyncio.run(app._maybe_offer_concerns())
         asyncio.run(app._maybe_offer_concerns())  # same block, second tick
         self.assertEqual(len(app.spy_notify), 1)
+
+    def test_codex_bullet_block_fires_once(self):
+        """The auto-offer badges a Codex shadow's `• ` block (t1892)."""
+        app = self._app(_codex_bullet_block())
+        asyncio.run(app._maybe_offer_concerns())
+        asyncio.run(app._maybe_offer_concerns())  # same block, second tick
+        self.assertEqual(len(app.spy_notify), 1)
+        self.assertNotEqual(app.spy_notify[0][1], "warning")
 
     def test_surrounding_churn_does_not_refire(self):
         app = self._app(_CLOSED_BLOCK)

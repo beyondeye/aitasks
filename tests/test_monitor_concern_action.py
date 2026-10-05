@@ -80,6 +80,22 @@ _CLOSED_BLOCK = (
     "- [medium | parser] Multi-block accumulation is undefined.\n"
     "===END-CONCERNS===\n"
 )
+
+
+def _codex_bullet_block() -> str:
+    """A complete Codex-rendered block built on the REAL captured head (t1892).
+
+    Codex CLI's renderer rewrites the `- ` item marker to `• `; the fixture
+    holds the verbatim captured bytes, and the second item reuses its glyph.
+    """
+    head = (REPO_ROOT / "tests" / "fixtures"
+            / "codex_shadow_bullet_capture.txt").read_text(encoding="utf-8")
+    glyph = next(l for l in head.splitlines() if "[" in l).lstrip()[0]
+    assert glyph == "•", glyph
+    return (head + f"  {glyph} [medium | parser] Accumulation is undefined.\n"
+            + "===END-CONCERNS===\n")
+
+
 # A DIFFERENT complete block -- used for "the shadow re-issues another block".
 _SECOND_BLOCK = (
     "===AITASK-CONCERNS===\n"
@@ -355,6 +371,20 @@ class ActionPickConcernsTests(unittest.TestCase):
         self.assertEqual(app.spy_clipboard, [build_clipboard_payload(selected)])
         # Forwarding alone must not touch the rejection store.
         self.assertEqual(_writes(app), [])
+
+    def test_codex_bullet_block_opens_the_picker(self):
+        """A Codex shadow's `• ` markers reach the picker, not the raw view (t1892)."""
+        app = self._app_with_shadow()
+        _install_capture(self, _CaptureScript(_codex_bullet_block()))
+        _install_staleness(self)
+        _run(app.action_pick_concerns())
+        self.assertEqual(len(app.spy_pushed), 1)
+        screen, _ = app.spy_pushed[0]
+        self.assertIsInstance(screen, ma.ConcernPickerModal)
+        self.assertEqual(
+            [(c.priority, c.region) for c in screen._concerns],
+            [("high", "lifecycle and retry"), ("medium", "parser")],
+        )
 
     def test_cancel_writes_nothing(self):
         app = self._app_with_shadow()
