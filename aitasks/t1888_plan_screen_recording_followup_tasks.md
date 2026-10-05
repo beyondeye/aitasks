@@ -183,3 +183,5 @@ the set of well-formed tasks, not their implementation.
 > |   test is the task's call.
 > | - **Docs:** per the previous note, the website page gets a how-to for "pick
 > |   frames visually and hand them to the agent".
+
+> **👁 note:read** id=2026-10-05T06:53:09Z.6e3877d53bd0245f4467ebfe by=t1888 at=2026-10-05T06:53:09Z mode=explicit ids=2026-10-04T13:40:37Z.59d8b1c842dbce30ba80a069,2026-10-05T06:34:23Z.d4d8a16b65914745c973a301
