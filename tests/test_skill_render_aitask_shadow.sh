@@ -61,7 +61,7 @@ PROFILES_DIR="aitasks/metadata/profiles"
 PROFILES=(default fast remote)
 AGENTS=(claude codex opencode)
 
-# impl-challenge is the only procedure carrying Jinja; the other ten are
+# impl-challenge is the only procedure carrying Jinja; the other eleven are
 # identity transforms and are covered by the invariance sweep in Test 1i.
 # Test 0 derives the inventory from disk, so a procedure added to the skill dir
 # and forgotten here fails loudly instead of going uncovered.
@@ -72,6 +72,7 @@ PROC_FILES_INVARIANT=(
     plan-assumptions
     plan-challenge
     plan-diagnose-errors
+    plan-decisions
     plan-explain
     plan-socratic
     round-preamble
@@ -221,7 +222,7 @@ done
 
 echo "=== Test 2s: shortcodes present, rule text intact, bare form absent ==="
 SHORTCODES=(
-    '`>e`' '`>q`' '`>t`' '`>px`' '`>pc`' '`>i`' '`>i1`' '`>i4`' '`>r`'
+    '`>e`' '`>q`' '`>t`' '`>pd`' '`>px`' '`>pc`' '`>i`' '`>i1`' '`>i4`' '`>r`'
     '`>rpc`' '`>ri`' '`>ri3`' '`>rpa`' '`>rd`' '`>ps`' '`>pa`' '`>d`' '`>l`'
     '`>f`' '`>?`'
 )
@@ -232,6 +233,7 @@ SHORTCODE_RULES=(
     'Only these four compose with `>r`'
     'read and follow'
     '`task-summarize.md`'
+    '`plan-decisions.md`'
     '`>?` reprints this list'
 )
 for profile in "${PROFILES[@]}"; do
@@ -370,6 +372,20 @@ assert_contains "angles: the diff is the scoped composite" \
     "the task's scoped composite" "$angles"
 assert_contains "angles: tentative ownership caps at informational" \
     "**Ownership cap.**" "$angles"
+
+# >pd keeps what the plan rejected apart from comparisons the shadow adds, and
+# never invents a reason (t1894). Jinja-free like the angles, so one render.
+decisions="$($RENDER "$SKILL_DIR/plan-decisions.md" "$PROFILES_DIR/fast.yaml" claude 2>&1)"
+assert_contains "decisions: explicit rejections are a kind of their own" \
+    "**Rejected in the plan**" "$decisions"
+assert_contains "decisions: added alternatives are labelled as such" \
+    "**Possible comparison (not discussed in the plan)**" "$decisions"
+assert_contains "decisions: a missing reason is said, not invented" \
+    '"not stated in the plan"' "$decisions"
+assert_contains "decisions: one stated approach rejected nothing" \
+    "has rejected nothing" "$decisions"
+assert_contains "decisions: not a concern producer" \
+    "**Not a concern producer.**" "$decisions"
 
 # === Test 3: no Jinja markers leak ===
 

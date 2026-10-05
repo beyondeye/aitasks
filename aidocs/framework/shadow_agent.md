@@ -69,7 +69,7 @@ below.
 ## The skill (`/aitask-shadow`)
 
 Source: `.claude/skills/aitask-shadow/` — the `SKILL.md.j2` authoring template
-plus eleven sub-procedure `.md` files (five `plan-*.md`, `impl-challenge.md`,
+plus twelve sub-procedure `.md` files (six `plan-*.md`, `impl-challenge.md`,
 `impl-review-angles.md`, `concern-format.md`, `round-preamble.md`,
 `spawn-learn-skill.md`, `task-summarize.md`). The inventory is pinned by Test 0
 of `tests/test_skill_render_aitask_shadow.sh`, which derives it from disk — the
@@ -83,7 +83,7 @@ follows from the spawn path (a spawned agent CLI can only be triggered
 non-headlessly by a slash command on argv, and a freshly spawned shadow has no
 parent skill to read-and-follow a non-invocable one), but that argues **only**
 for `user-invocable: true` — it never implied staticness. `aitask-explore` is
-likewise both user-invocable and templated. The conversion also means the eleven
+likewise both user-invocable and templated. The conversion also means the twelve
 sub-procedures are rendered into the Codex and OpenCode trees, which the former
 "Source of Truth" redirects never reached.
 
@@ -123,7 +123,7 @@ free-form ask once it is running decides which capability applies:
   `AskUserQuestion` by laying out the options and *suggesting* an answer the user
   types themselves). Several **structured analyses** each live in a
   read-and-follow sub-procedure with a defined methodology (one summarises the
-  task; four review a plan; one reviews the implementation; one diagnoses the
+  task; one explains the plan's design decisions; four review a plan; one reviews the implementation; one diagnoses the
   followed agent's errors):
   - `task-summarize.md` — **the task in plain words** (`>t`): a non-interactive,
     task-first summary for someone who has not read the task or the plan — what
@@ -138,6 +138,16 @@ free-form ask once it is running decides which capability applies:
     proactive offer. Not a concern producer; of `round-preamble.md` it obeys
     §1 (the audience rule) and §6's source selection only — never its snapshot
     writes, round headers or review preambles.
+  - `plan-decisions.md` — **the plan's design decisions, in plain words**
+    (`>pd`): the task in two or three sentences, then the decisions that shape
+    the outcome, each with its probable pros and cons. Alternatives come in two
+    kinds that are never merged: **rejected in the plan** (the plan text names
+    and turns them down — only these may be called rejected) and **possible
+    comparison (not discussed in the plan)** (the shadow's own, labelled as
+    such). A missing rationale is reported as "not stated in the plan", never
+    invented. Same inputs, plan-source ladder, audience rule and on-request-only
+    rule as `task-summarize.md`; not a concern producer, so it does not compose
+    with `>r`.
   - `plan-explain.md` — explain a plan to a non-expert: surface the technical
     subjects the plan rests on and offer per-subject introduction + motivation
     (multiSelect), then a plain-language walkthrough.
@@ -167,7 +177,8 @@ free-form ask once it is running decides which capability applies:
 
   **Shortcodes (t1771).** Every Step 3 capability opens with a `>`-prefixed
   code — `>e` explain the screen, `>q` help with the prompt, `>t` the task in
-  plain words, `>px` / `>pc` / `>ps` / `>pa` explain / challenge / socratic /
+  plain words, `>pd` the plan's design decisions with their pros and cons,
+  `>px` / `>pc` / `>ps` / `>pa` explain / challenge / socratic /
   assumptions on the plan, `>i` review the implementation, `>r` recheck, `>d`
   diagnose, `>l` learn a skill — plus `>f` (refetch, Step 1) and `>?` (reprint
   the list). The rules, stated once in Step 3's "Shortcodes" subsection: the

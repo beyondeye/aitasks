@@ -81,4 +81,5 @@ agent's pane.
    summarised; a minute to read, not five.
 
 5. **Offer follow-ups**, in one line: `>px` for a deeper walkthrough of the
-   plan, `>pc` to challenge it, `>pa` for what it silently assumes.
+   plan, `>pd` for its design decisions and their pros and cons, `>pc` to
+   challenge it, `>pa` for what it silently assumes.

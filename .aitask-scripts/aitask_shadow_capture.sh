@@ -75,14 +75,14 @@ source "$SCRIPT_DIR/lib/tmux_exec.sh"
 SHADOW_CAPTURE_LINES="${SHADOW_CAPTURE_LINES:-200}"
 
 # Deeper scrollback for plan-review flows. The shadow's plan-* sub-procedures
-# (plan-explain / plan-challenge / plan-socratic / plan-assumptions) analyze a
-# whole plan; when the plan is only on screen (e.g. awaiting approval, not yet
-# externalized) the 200-line default can truncate earlier constraints,
-# decisions, or risk notes. Those procedures opt in with --deep, which selects
-# this depth. Minimonitor's capture of the SHADOW pane for the concern picker
-# opts in too: the shadow's concern block is plan-review-sized output, and at
-# the narrow width a shadow pane runs at, the 200-line window can start inside
-# the block and clip its opening fence (t1187). Ordinary shadow reads
+# (plan-explain / plan-challenge / plan-socratic / plan-assumptions /
+# plan-decisions) analyze a whole plan; when the plan is only on screen
+# (e.g. awaiting approval, not yet externalized) the 200-line default can
+# truncate earlier constraints, decisions, or risk notes. Those procedures
+# opt in with --deep, which selects this depth. Minimonitor's capture of the
+# SHADOW pane for the concern picker opts in too: the shadow's concern block is
+# plan-review-sized output, and at the narrow width a shadow pane runs at, the
+# 200-line window can start inside the block and clip its opening fence (t1187). Ordinary shadow reads
 # (explain-output, help-answer-prompt, diagnose-errors) stay at
 # SHADOW_CAPTURE_LINES to stay cheap. Env-overridable, mirroring
 # SHADOW_CAPTURE_LINES.

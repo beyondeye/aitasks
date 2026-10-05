@@ -124,6 +124,7 @@ CAPABILITIES=(
     "plan-diagnose-errors.md"
     "spawn-learn-skill.md"
     "task-summarize.md"
+    "plan-decisions.md"
 )
 
 # Refusal wording within a few lines of a phase mention. Deliberately narrow:

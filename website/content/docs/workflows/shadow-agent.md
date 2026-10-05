@@ -29,12 +29,41 @@ See [How to Launch a Shadow Agent](../../tuis/minimonitor/how-to/#how-to-launch-
 
 When the shadow starts, it greets you with a short summary of what it can do, then waits for you to tell it — in your own words — what you'd like. There is no mode to pick up front: you just describe what you want, and it routes to the right capability.
 
-Two things are worth knowing:
+A few things are worth knowing:
 
 - **It reads a copy of the followed agent's screen, and can re-read it any time.** It never joins that agent's session, so what it knows is only as current as its last read. The agent keeps working after you launch the shadow, so its state changes. Ask the shadow to refetch whenever you want it to look at the latest output — or, in minimonitor, arm the [auto-recheck loop](../../tuis/minimonitor/how-to/#how-to-run-the-auto-recheck-loop) with **L** and let it ask for the next review round each time the agent settles.
 - **It offers help proactively.** Each time it reads the screen, the shadow glances at what is visibly there and, if something obviously useful applies, it offers it without being asked — for example, if the agent is paused on a question, it offers to help you decide; if a plan is on screen awaiting approval, it offers to explain or pressure-test it. These are suggestions you can take or ignore; they never restrict what you can ask for.
-- **Some actions are on request only.** The shadow does not proactively diagnose errors, spawn learner agents, or summarise the task. Ask for those actions explicitly when you want them.
-- **Every capability has a shortcode.** The greeting lists them: `>e` explain the screen, `>q` help with the prompt on screen, `>t` the task in plain words, `>px` explain the plan, `>pc` challenge the plan, `>ps` socratic questions, `>pa` the plan's assumptions, `>i` review the implementation (`>i1`–`>i4` pick the tier), `>r` a new review round (`>rpc`, `>ri`, `>rpa`, `>rd` name which review), `>d` diagnose errors, `>l` learn a skill, `>f` refetch the screen, and `>?` to see the list again. The `>` is always required — a bare `t` is just a message. A code works anywhere in a sentence when you are asking for it (`>i3 but only the callers`), while merely talking about one ("what does `>l` do?") gets an answer, not an action.
+- **Some actions are on request only.** The shadow does not proactively diagnose errors, spawn learner agents, summarise the task, or explain the plan's design decisions. Ask for those actions explicitly when you want them.
+- **Every capability has a shortcode** — see [Shortcodes](#shortcodes) below.
+
+### Shortcodes
+
+Instead of describing what you want, you can type its shortcode. The greeting lists them, and `>?` prints the list again at any time.
+
+| Code | What it does |
+|---|---|
+| `>e` | Explain what the agent is doing, or what a message on screen means |
+| `>q` | Help you answer the question the agent is waiting on |
+| `>t` | The task in plain words |
+| `>pd` | The plan's design decisions, with their probable pros and cons |
+| `>px` | Explain the plan to a non-expert, subject by subject |
+| `>pc` | Challenge the plan |
+| `>ps` | Question the plan Socratically |
+| `>pa` | Surface the plan's assumptions |
+| `>i` | Review the implementation; `>i1` Quick, `>i2` Default, `>i3` Advanced, `>i4` Deep pick the tier |
+| `>r` | A new round of the last review; `>rpc`, `>ri` (`>ri3` for the tier), `>rpa`, `>rd` name which review |
+| `>d` | Diagnose skill or helper errors |
+| `>l` | Learn a skill from what the agent just did |
+| `>f` | Refetch the agent's screen |
+| `>?` | Show this list again |
+
+How codes are recognised:
+
+- **The `>` is always required.** A bare `t` is just a message.
+- **A code works anywhere in a sentence** when you are asking for it: `>i3 but only the callers` runs an Advanced review scoped to the callers.
+- **Mentioning a code is not invoking it.** Asking about one ("what does `>l` do?"), quoting it, or saying not to use it gets an answer in words, and nothing runs.
+- **Only the four reviews compose with `>r`** — `pc`, `i`, `pa` and `d`, the ones that report concerns in numbered rounds. Every other code is used on its own.
+- **An unrecognised code is reported**, with the list reprinted; the shadow never guesses which code you meant.
 
 ## What the shadow can do
 
@@ -42,11 +71,11 @@ All of the following are served in a single flow — you reach them just by aski
 
 ### Explain what the agent is doing
 
-Ask "what is this agent doing right now?" (or about a specific error or message) and the shadow reads the current screen and explains, in plain terms, what is happening, what the agent is waiting on, or what a message means.
+Ask `>e` — or "what is this agent doing right now?", or about a specific error or message — and the shadow reads the current screen and explains, in plain terms, what is happening, what the agent is waiting on, or what a message means.
 
 ### Help you answer a prompt
 
-When the followed agent is paused on a question — including one shown without the underlying task or plan visible — the shadow can fetch the relevant task and plan in the background, lay out what each option means and its trade-offs, and **suggest** an answer with its reasoning. You type the answer into the agent yourself; the shadow never does.
+When the followed agent is paused on a question — including one shown without the underlying task or plan visible — ask `>q` and the shadow can fetch the relevant task and plan in the background, lay out what each option means and its trade-offs, and **suggest** an answer with its reasoning. You type the answer into the agent yourself; the shadow never does.
 
 ### The task in plain words
 
@@ -54,12 +83,13 @@ Ask `>t` (or "what is this task about?") and the shadow explains, in a few short
 
 ### Interrogate a plan
 
-Before you approve a plan an agent has produced, the shadow can examine it for you in four distinct ways:
+Before you approve a plan an agent has produced, the shadow can examine it for you in five distinct ways:
 
-- **Explain it to a non-expert** — beyond a plain-terms summary, it identifies the technical subjects the plan rests on and offers, for each one you choose, a short introduction and why the plan relies on it, then walks through the plan in plain language.
-- **Challenge it** — acting as a constructive adversary, it actively looks for where the plan could fail (regressions, missed edge cases, a wrong-shaped approach, blast radius, verification gaps, unstated dependencies) and gives you a prioritized list, separating problems that should block approval from improvements you could accept as follow-ups.
-- **Question it (Socratic)** — instead of telling you what's wrong, it asks open-ended questions that lead you to examine the plan's own reasoning and trade-offs, a few at a time.
-- **Surface its assumptions** — it enumerates what the plan quietly takes for granted (about the environment, the data, other code's behavior, sequencing, and scope) and highlights the assumptions that are both load-bearing and unverified — the ones most likely to make a plan silently go wrong.
+- **Explain its design decisions** (`>pd`) — it restates the task in a few sentences, then goes through the choices that shape the outcome. For each choice it gives the alternatives the plan itself turns down and the reason the plan gives, or says the reason is "not stated in the plan". If the shadow brings up another option for contrast, it labels it as not discussed in the plan, so you can always tell what the plan says from what the shadow adds. It ends with each decision's probable pros and cons. This is plain prose on request only — it raises no concerns to forward.
+- **Explain it to a non-expert** (`>px`) — beyond a plain-terms summary, it identifies the technical subjects the plan rests on and offers, for each one you choose, a short introduction and why the plan relies on it, then walks through the plan in plain language.
+- **Challenge it** (`>pc`) — acting as a constructive adversary, it actively looks for where the plan could fail (regressions, missed edge cases, a wrong-shaped approach, blast radius, verification gaps, unstated dependencies) and gives you a prioritized list, separating problems that should block approval from improvements you could accept as follow-ups.
+- **Question it (Socratic)** (`>ps`) — instead of telling you what's wrong, it asks open-ended questions that lead you to examine the plan's own reasoning and trade-offs, a few at a time.
+- **Surface its assumptions** (`>pa`) — it enumerates what the plan quietly takes for granted (about the environment, the data, other code's behavior, sequencing, and scope) and highlights the assumptions that are both load-bearing and unverified — the ones most likely to make a plan silently go wrong.
 
 Ask for one of these specifically, or ask broadly ("review this plan") and the shadow runs several and presents a combined result.
 
@@ -86,13 +116,13 @@ Reviewing *before* the agent has committed is the normal case, not a mistake: th
 
 ### Diagnose skill or helper errors
 
-When the followed agent appears stuck on tool-call errors, tracebacks, shell errors, or repeated retries, ask the shadow to diagnose what is going wrong. It reads the captured screen, decides whether the visible signals are genuine failures rather than benign error-shaped text, and attributes each error cluster to the likely workflow skill or `aitask_*.sh` helper.
+When the followed agent appears stuck on tool-call errors, tracebacks, shell errors, or repeated retries, ask the shadow to diagnose what is going wrong (`>d`). It reads the captured screen, decides whether the visible signals are genuine failures rather than benign error-shaped text, and attributes each error cluster to the likely workflow skill or `aitask_*.sh` helper.
 
 For real issues, the shadow presents candidate concerns and emits the same structured concern block used by plan review. You choose which concerns are worth acting on. For selected concerns, the shadow can offer to launch [`/aitask-explore`](../../skills/aitask-explore/) with a seed prompt that names the likely file and includes the captured error excerpt, so the bug becomes its own scoped fix-task. It never auto-launches that follow-up and never types into the followed pane.
 
 ### Learn a skill from the followed workflow
 
-When the followed agent has just performed a workflow you want to reuse, ask the shadow to learn a skill from it. The shadow does not run the learning flow itself, because that would occupy the companion you are using for advice. Instead, it confirms the action and opens a dedicated learner agent in a new tmux window running [`/aitask-learn-skill`](../../skills/aitask-learn-skill/):
+When the followed agent has just performed a workflow you want to reuse, ask the shadow to learn a skill from it (`>l`). The shadow does not run the learning flow itself, because that would occupy the companion you are using for advice. Instead, it confirms the action and opens a dedicated learner agent in a new tmux window running [`/aitask-learn-skill`](../../skills/aitask-learn-skill/):
 
 ```text
 /aitask-learn-skill <followed_pane_id>
