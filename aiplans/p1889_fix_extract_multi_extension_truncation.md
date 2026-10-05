@@ -198,3 +198,67 @@ Then Step 9 (Post-Implementation): commit code+docs as
 ### Goal-achievement risk: low
 - Replay/trail read a moving in-flight population, so a naive before/after could differ for reasons unrelated to the grammar · severity: low (residual — step 4 scores both grammars in one process against one frozen snapshot, with a fingerprint/cohort-digest validity check) · → mitigation: none (in-plan paired measurement)
 - The paired driver freezes collector seams. A missed seam would let run B re-read live state (e.g. `_LIVENESS` dropping a claim whose holder exited, with no change to git or the files) · severity: low (residual: the bound references are rebound, not the original names; run B raises on any memo miss; the projection of the non-path `AdmissionInput` must be equal) · → mitigation: none (in-plan guards)
+
+## Final Implementation Notes
+
+- **Actual work done:** Steps 1–5 as planned. `_TOKEN` gained the lookahead
+  `(?![A-Za-z0-9_/-]|\.[A-Za-z0-9_./-])`, and the comment and module docstring
+  were updated. Two `ExtractionTests` cases were added and
+  `test_longer_extension_is_not_a_reference` now also asserts `extract()`.
+  Drift Test 14 gained `14f`. Findings §2, §7 (a new "Right boundary on
+  `extract()` (t1889)" block with the paired measurement and the reproduction
+  script) and Related were updated.
+- **Deviations from plan:** `14f` compares the fixture's body with its frontmatter
+  stripped (`plan_paths.task_body_text`). The header line
+  `Task: t999_extraction.md` is also a token, under the old grammar too, but the
+  remote never touches it, so the golden never recorded it. Comparing the whole
+  file failed on that token alone. For the sweep, an equal `SWEEP_COHORT` was
+  asserted directly (`set(popA) == set(popB)`) on top of the frozen inputs. It
+  matched (`e1f66b44d822930c|320`).
+- **Measured (2026-10-05, one process, one frozen snapshot):** fingerprint,
+  non-path `AdmissionInput` projection and trail population all equal, and run B
+  had no seam miss. Replay: unchanged (`RATES:119|0|100|5|14`, no verdict moved).
+  Sweep: 15 pairs moved (10 CONFLICT→CAVEATED, 5 CAVEATED→CLEAR). Each lost
+  exactly one `…/SKILL.md` stub overlap whose plan text continued `.j2`.
+  Precision 0.3954→0.3950, recall 0.8217→0.8215 (one pair, t1595×t369_3, now
+  missed; it had landed on a different file). Trail: `INFLIGHT_SCAN` unchanged;
+  only t1889's own plan lost three phantom tokens. Fixed corpus: 455 plans,
+  52 changed, 73 tokens removed, 0 added, 0 emptied.
+- **Issues encountered:** the reviewer caught that the first measurement design
+  patched the original function names, while `parallel_admission_collect` calls
+  the copies bound at import time. Fixed before implementing: the driver rebinds
+  the bound seams.
+- **Key decisions:** `/` is in the lookahead (a `.py/` continuation names a
+  directory). The sentence-final period follows `find_references`' rule, so an
+  ellipsis yields nothing. The `module.py._attr` recall loss (2 occurrences in
+  the corpus) is accepted.
+- **Upstream defects identified:** None
+- **Negative control:** under the pre-edit `_TOKEN` (loaded via `git show`), all
+  three new or extended `test_plan_paths.py` assertions fail.
+- **Verification:** the 4 shell suites, run individually, all exit 0. The 6 named
+  Python modules: 494 passed. Full suite: `PYTHON SUITE: PASSED (runner=pytest, exit=0)`.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-05 14:30)
+- **Requested by user:** (1) the reproduction script printed its three validity
+  checks but went on reporting replay/sweep results even when one failed; it
+  should reject a failed check first. (2) The claim that `extract()` and
+  `find_references` "agree on where a path ends" overstated it: `a.md@v2`
+  extracts `a.md`, while the search treats `@`, `+` and non-ASCII as path
+  characters.
+- **Changes made:** (1) the driver now exits 3 with
+  `INVALID: inputs moved between the two runs` before any result section when
+  the fingerprint, the non-path admission projection or the trail population
+  differs. Checked with a mutant (forced fingerprint mismatch → exit 3, no
+  results). The real rerun was itself rejected once, because a concurrent
+  session moved the task-data HEAD mid-run. The next valid snapshot
+  (`RATES:120|0|92|14|14`, 11 in flight) again showed no replay verdict moving,
+  and sweep, trail and corpus numbers identical to the recorded run. The
+  embedded script in §7 was refreshed and that snapshot noted. (2) The wording
+  in the `_TOKEN` comment, findings §7 and the test docstring is narrowed to
+  agreement on ASCII token-character continuations and the sentence period,
+  naming `a.md@v2` as the remaining charset gap.
+- **Files affected:** `.aitask-scripts/lib/plan_paths.py` (comment only),
+  `aidocs/framework/plan_path_reference_extraction_findings.md`,
+  `tests/test_plan_paths.py` (docstring only).
