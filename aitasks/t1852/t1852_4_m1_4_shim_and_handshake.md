@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1852
+implemented_with: claudecode/opus5_5
 created_at: 2026-09-22 17:27
-updated_at: 2026-10-04 19:36
+updated_at: 2026-10-05 17:11
 ---
 
 ## Context
@@ -120,3 +121,8 @@ inspects the landed `lib/aitasks_home.sh` API and the landed binary's
 > | - Stub verbs: stderr `NOT_IMPLEMENTED:<verb>`, exit 64, no stdout. Unknown verb: stderr `UNKNOWN_VERB:<verb>` + `USAGE:…`, exit 64. Exit table 0/1/2/3/64/75; a verb returning a code outside its contract becomes 3 with `EXIT_CONTRACT_VIOLATION:`.
 
 > **👁 note:read** id=2026-10-04T16:35:53Z.c4a5bfc1ace1708021a59b1f by=t1852_4 at=2026-10-04T16:35:53Z mode=explicit ids=2026-09-23T13:21:10Z.e3adb1202e1da3bb3a5b4516,2026-09-24T06:18:17Z.c291190810d07fcc122bd2da
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-05T14:11:54Z status=pass attempt=1 type=human
