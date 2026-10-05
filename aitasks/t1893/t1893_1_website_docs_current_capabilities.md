@@ -3,11 +3,12 @@ priority: high
 effort: medium
 depends: []
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [website, documentation, claudeskills]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1887
 created_at: 2026-10-05 17:18
-updated_at: 2026-10-05 17:18
+updated_at: 2026-10-05 17:40
 ---
 
 ## Context
