@@ -485,3 +485,56 @@ None identified. Two hazards are covered by the Verification steps:
   time-basis table and the scripted slowed-capture run.
 
 Log alignment is documented as approximate, with its provenance stated.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-05 19:40)
+- **Requested by user:** (1) `--max-view-frames` is not a hard cap — the evenly sampled indices are unioned with always-kept boundary frames, so a segment can save more (34 observed at the default 30). (2) "curve.tsv always holds both signals" is wrong — `p_edge` is blank when no edge track exists (fades), and still/returns segments have no progress values.
+- **Changes made:** Reworded the `--max-view-frames` row as a sampling target plus always-kept boundary frames; qualified the `--signal` row, the anim output-tree comment, the animation walkthrough's §3 sentence, and `references/animation.md` §3 ("`curve.tsv` has a column for each signal; `p_edge` blank without an edge track; still/returns have no progress values"). Re-ran the flag check, check_links, hugo build and skill verify — all pass.
+- **Files affected:** website/content/docs/skills/aitask-screen-recording.md, website/content/docs/workflows/screen-recordings/animation.md, .claude/skills/aitask-screen-recording/references/animation.md
+
+## Final Implementation Notes
+- **Actual work done:**
+  - **New skill reference page** `website/content/docs/skills/aitask-screen-recording.md`. It covers modes, usage (with a separate `info` line), per-mode options tables with defaults taken from `build_parser()`, the output layout, a `--time-scale` time-basis table, a warnings table with exact strings, requirements, and privacy.
+  - **New workflow section** `website/content/docs/workflows/screen-recordings/`:
+    - `_index.md` (overview, plus a "More use cases" slot);
+    - `bug-report.md`;
+    - `animation.md`, whose slowed-capture example uses measured values;
+    - `recording-tips.md`.
+  - **Index edits:** a row and a wider blurb in the Design group of `skills/_index.md`, and a new "Screen Recordings" group in `workflows/_index.md`.
+  - **Skill text corrections:**
+    - `references/animation.md` §6 (time scale) and §3 (curve.tsv signals);
+    - one line in SKILL.md about time-scale conversion.
+- **Deviations from plan:**
+  - The skill reference gained a `## Privacy` section and a `## Workflows` section.
+  - The worked example uses the measured numbers from a scratch run of the `test_time_scale_converts_slowed_recording` fixture:
+    - best tween 302.4 ms;
+    - visible duration 293.3 ms;
+    - `window_s` [0.267, 2.217];
+    - `frame_interval_ms` 16.67;
+    - settled `t_rel_ms` 1466.7;
+    - full `t_rel_ms` extent −233…+1717.
+  - Post-review: `references/animation.md` §3 was also corrected.
+- **Issues encountered:**
+  - Plan review found three gaps, all fixed before implementation:
+    - the time basis of each output under `--time-scale` was undocumented;
+    - log alignment had been described as exact;
+    - `info` was implied to accept the shared options.
+  - Code review found two more, both fixed:
+    - `--max-view-frames` is a sampling target, not a cap;
+    - `p_edge` is blank without an edge track.
+- **Key decisions:**
+  - Reference material lives on the skill page; use-case walkthroughs live in workflow subpages (the user's choice during planning).
+  - Every claim was checked against the writer code, not only `--help`:
+    - a per-mode flag check, with a negative control;
+    - a scripted slowed-capture probe for the time basis.
+  - Android facts were re-checked against AOSP `screenrecord.cpp`.
+- **Upstream defects identified:**
+  - `.aitask-scripts/screen_recording/video_prep.py:710` — the anim summary always prints "fitted signal: <signal> (both signals are in curve.tsv)", even when no edge track exists and the `p_edge` column is blank. This is minor misleading output text.
+- **Notes for sibling tasks:**
+  - The docs layout is now split:
+    - reference tables (options, output layout, time basis, warnings) live in `skills/aitask-screen-recording.md`;
+    - use-case walkthroughs live under `workflows/screen-recordings/`.
+  - A new use case means a new or extended subpage, listed both in the section `_index.md` "Walkthroughs" list and in the `workflows/_index.md` "Screen Recordings" group. Replace the "More use cases" placeholder text only when the list grows.
+  - New flags, outputs and warnings go in the reference tables. Verify each against the per-mode `--help` and the writer code; the scratch flag-check approach (per command line, per mode) catches cross-mode flag misuse.
+  - Anything time-related under `--time-scale` must say which time basis it uses.
