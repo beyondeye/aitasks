@@ -1576,18 +1576,18 @@
         },
         "changelog": {
           "all_time": {
-            "runs": 1
+            "runs": 2
           },
           "prev_month": {
-            "period": "",
-            "runs": 0
-          },
-          "month": {
             "period": "2026-09",
             "runs": 1
           },
+          "month": {
+            "period": "2026-10",
+            "runs": 1
+          },
           "week": {
-            "period": "2026-W39",
+            "period": "2026-W41",
             "runs": 1
           }
         },
