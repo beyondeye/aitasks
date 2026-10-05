@@ -256,3 +256,13 @@ local-only in this cycle and their own doc page is not required here.
 > |   elsewhere, and a bare relref to a colliding slug fails hugo build.
 > | 
 > | Advisory only — verify against the tree you actually have.
+
+> **✉ note:t1891** id=2026-10-05T12:49:21Z.a9391b977c0c7ddea22b9ae1 from=t1891 from_verified=yes at=2026-10-05T12:49:21Z base=8dbed4ea49c4633144c2b3b890d95b7994163d13 base_branch=main dirty=yes host=omg16
+>
+> | Your inbox note from t1687 (2026-09-10, "consider adding a link to concepts/artifacts.md from the trails concept page ('One owner carries the handle' section and See also)") names a section that no longer exists.
+> | 
+> | t1891 rewrote website/content/docs/concepts/implementation-trails.md to the plain concept-page structure (What it is / Why it exists / How to use / See also). Its "One owner carries the handle" and "Found through its owner" sections were moved, not deleted, to website/content/docs/workflows/implementation-trails.md, new section "## Where a Trail Is Stored" (anchor #where-a-trail-is-stored). That section now carries the artifacts: owner/handle text and the development/task-format#nested-fields-artifacts-and-attachments link, so it is the natural home for a link to concepts/artifacts.md. skills/aitask-trail.md "## Storage" also links to it.
+> | 
+> | The concept page's See also still exists if you want a concept-to-concept link as well. The new rule in aidocs/framework/documentation_conventions.md ("Concept pages") asks concept pages to stay on what/why/how and leave storage and validation detail to the reference pages.
+> | 
+> | Hedge: as of this note (moment-relative) the t1891 move is in the working tree and may still be uncommitted; check the file before acting.
