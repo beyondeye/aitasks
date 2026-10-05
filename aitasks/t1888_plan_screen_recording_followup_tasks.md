@@ -116,3 +116,70 @@ the set of well-formed tasks, not their implementation.
 > | 3. Documentation, every follow-up feature: each task created from E1–E15 (and
 > |    from item 1) should include website documentation for its feature in its
 > |    acceptance criteria, with a how-to section for each use case it enables.
+
+> **✉ note:t1887** id=2026-10-05T06:34:23Z.d4d8a16b65914745c973a301 from=t1887 at=2026-10-05T06:34:23Z base=95f0394cb4e9467ef389a5fbe7d5c7eaeded2ce6 base_branch=main dirty=no host=omg16
+>
+> | Another user request for the follow-up set (2026-10-05): a visual frame picker,
+> | HTML+JS, for choosing which animation frames go to the code agent. Advisory
+> | context for planning; please turn it into a task (or a child) alongside the
+> | `frames` / `sheet` items from the previous note.
+> | 
+> | ## Requested flow
+> | 
+> | 1. The skill activates and runs frame extraction into a temporary directory.
+> | 2. The agent asks whether the user wants to pick frames.
+> | 3. If yes, it runs a helper that builds an HTML+JS page and opens it.
+> | 4. The user selects a subset visually, copies the selection, and pastes it into
+> |    the code-agent window.
+> | 
+> | ## Reference implementation (another repository)
+> | 
+> | The user pointed at `tools/verification/screenshot-review-gallery.sh` in
+> | project `thinking_app`. Resolve it with `./ait projects resolve thinking_app`
+> | and introduce it as `thinking_app#443`; I read it at commit 215e9e4. What it
+> | does:
+> | 
+> | - A bash front end and a Python builder (`screenshot-review-gallery.py`, about
+> |   1300 lines) write one self-contained static `<out>/index.html`. There is no
+> |   server; `--open` opens it via `xdg-open`.
+> | - Input images are copied and hashed into `<out>/src/` before anything is
+> |   derived, so a concurrent rewrite can't mix versions. The output directory is
+> |   owned and cleaned through a ledger.
+> | - Per-card reviewed ticks and notes live in `localStorage`, keyed by a
+> |   fingerprint of the compared bytes, so a rebuild with new pixels starts clean.
+> |   All storage access is wrapped in try/catch.
+> | - Filters, and a "Copy all notes" button that uses
+> |   `navigator.clipboard.writeText`. When the clipboard is unavailable it shows
+> |   the text instead, so the user can copy it by hand.
+> | 
+> | ## Design points for the task (suggestions, not decided)
+> | 
+> | - **Run it as a subcommand of the existing helper.** Something like
+> |   `aitask_screen_recording.sh pick <frames-dir|run-dir> [--open]`; a
+> |   subcommand needs no new whitelist touchpoints (a new `.sh` would need all 5).
+> |   Encapsulate the opener per platform (`xdg-open` / macOS `open`) per
+> |   `aidocs/framework/shell_conventions.md`.
+> | - **What gets copied: a text block, not images.** A paste-ready list of the
+> |   absolute paths of the selected frames, with timestamps, Δms and an optional
+> |   per-frame note. The agent then reads those paths. This works for every agent
+> |   (Codex `view_image` takes paths).
+> | - **What the agent does with it:** read those frames, and optionally build a
+> |   sheet of just the selection with the `sheet` subcommand from the previous
+> |   note.
+> | - **Picker features worth considering:**
+> |   - a thumbnail grid with time and Δms labels; click and shift-click range
+> |     selection; keyboard navigation; a large preview;
+> |   - optionally, drag a rectangle on a frame to emit `--roi X,Y,W,H` in source
+> |     pixels (the summary already prints the frame→source scale);
+> |   - first and last selected frame → `--window A-B`, for a precise anim re-run.
+> | - **No display** (SSH, remote or web sessions): the opener fails. Print the
+> |   page path and fall back to the agent's own selection rather than failing the
+> |   skill.
+> | - **The SKILL.md question** ("pick frames?") is an AskUserQuestion. Check the
+> |   AskUserQuestion rules in `aidocs/framework/skill_authoring_conventions.md`,
+> |   and the mapping in the other agents' wrappers (E9).
+> | - **Tests:** test the builder's output contract (embedded frame manifest, paths,
+> |   labels) from Python. Whether the selection/clipboard JS needs a node-based
+> |   test is the task's call.
+> | - **Docs:** per the previous note, the website page gets a how-to for "pick
+> |   frames visually and hand them to the agent".
