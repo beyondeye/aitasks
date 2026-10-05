@@ -479,3 +479,49 @@ is a success.
 
 ### Planned mitigations
 - timing: post-phase | name: verify_created_task_graph | type: chore | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: dependency/anchor mistakes during creation | desc: verify the child count, deps and anchor of the created set against the plan table, and fix mismatches before Step 8
+
+## Final Implementation Notes
+- **Actual work done:**
+  - Created parent **t1893** `screen_recording_skill_expansion` with `--followup-of 1887` (anchor 1887).
+  - Created 14 children with `--no-sibling-dep` and explicit deps:
+    t1893_1 docs (E14), t1893_2 triage (E2), t1893_3 frames (E4 + note 1a),
+    t1893_4 sheet, t1893_5 pick, t1893_6 folder input, t1893_7 push/slide (E5),
+    t1893_8 transcript (E1), t1893_9 spring v0, t1893_10 wall-clock/logcat (E3),
+    t1893_11 repo work dir + clean (E7, redefined), t1893_12 other agents (E9),
+    t1893_13 dependency hints (E15), t1893_14 retrospective.
+  - Each body carries scope, acceptance cases, a test idea, dated facts with sources, and a docs how-to, plus the shared cross-cutting rules block (docs, tests, the 5-touchpoint rule, privacy, provenance).
+  - Sent an advisory note to t1165 (id `2026-10-05T14:18:44Z.d896cff142712d8d6b56f507`).
+- **Deviations from plan:** none in the task set or deps.
+  - The plan was revised twice before approval, after review findings on four children:
+    - t1893_2: black-interval budget overflow;
+    - t1893_5: viewing range vs user-marked window, and ROI geometry bound to the SHA-256 recorded at extraction;
+    - t1893_10: creation_time treated as heuristic with no error bound.
+- **Issues encountered:**
+  - `aitask_create.sh` uses `--deps`, not `--depends`.
+  - Child deps are written `t<P>_<n>`.
+- **Key decisions (with the user, 2026-10-05):**
+  - Narration occurs occasionally, so E1 comes after E5.
+  - Springs vs tweens is mixed or unsure, so the spring-v0 child is low priority after E5 and independent of E6.
+  - E7 means a repo-root gitignored `.aitask-screen-recording/`, checked with `git check-ignore`, with a `clean` subcommand.
+  - Structure: one parent with children.
+  - E14 comes first; the image-sequence cluster takes E4's slot.
+- **Deferred or dropped candidates (not created):**
+  - **E6** (opacity/position channels): deferred by the user. M–L effort; needs an element template.
+  - **E10** (OCR): deferred. The engine choice (RapidOCR vs tesseract) is open.
+  - **E11** (sub-agent describers): deferred. Skill text only; revisit when recordings over about 2 minutes occur.
+  - **E12** (Perfetto FrameTimeline): deferred. Low–medium value, L effort, Android 12+ only.
+  - **E13** (Gemini describe): deferred. Low value and a privacy risk (free-tier human review; 1 fps sampling). If revived, strictly opt-in per file, never triggered by an API key in the environment.
+  - **E8** (Chatlink attachments): not created. It is owned by t1165 Phase 3, which is gated on t1157_4; t1165 was sent the note.
+  - t1893_14 re-evaluates all of these with usage evidence.
+- **Facts re-checked 2026-10-05:**
+  - Claude image tiers: standard 1568 px and 1568 tokens; Claude 4.7+ 2576 px and 4784 tokens. With more than 20 images, oversized ones are rejected.
+  - screenrecord's 180 s cap is gone from Android 14.
+  - Android `creation_time` is written at finalisation (from AOSP source only).
+  - The Silero VAD model is now v6.2.0.
+  - `-vsync` was removed in ffmpeg 9.0.
+  - Codex `view_image` takes one path per call.
+  - OpenCode `read` does not read SVG.
+  - agy may accept video (unverified).
+- **Upstream defects identified:**
+  - `.agents/skills/codex_tool_mapping.md:9` — maps `Read` to `cat`, so Codex cannot view the screen-recording contact sheets. Tracked in t1893_12.
+  - `.aitask-scripts/screen_recording/video_prep.py:30` — `SHEET_MAX_EDGE = 1600` exceeds Claude's standard-tier 1568 px / 1568-token limit, so sheets are downscaled there. Tracked in t1893_12.
