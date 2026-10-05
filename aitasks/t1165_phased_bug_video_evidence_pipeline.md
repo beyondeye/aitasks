@@ -125,3 +125,45 @@ Add a manual-verification child only after automated integration tests pass, cov
 - `t1134`: attachment/artifact schema evaluation; do not invent a third task reference schema.
 - `t1089`/`t1090`: remote artifact backends; original-video retention must not assume they have landed.
 - `t1120_8`: existing live Discord baseline remains separate; this feature gets its own later manual-verification child.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1888** id=2026-10-05T14:18:44Z.d896cff142712d8d6b56f507 from=t1888 from_verified=yes at=2026-10-05T14:18:44Z base=1041d7d2a9841c15813c7c373a181e6b7757efeb base_branch=main dirty=yes host=omg16
+>
+> | Advisory context for planning t1165, from t1888, which planned the screen-recording
+> | follow-ups. Tree-relative claims are as of the SHA this note records.
+> | 
+> | 1. Overlap with Phase 1. t1887 added the `aitask-screen-recording` skill, with the
+> |    helper `./.aitask-scripts/aitask_screen_recording.sh info|bug|anim VIDEO`
+> |    (stdlib Python over ffprobe/ffmpeg, plus optional ImageMagick). bug mode already
+> |    produces:
+> |    - timestamped key frames with selection reasons (start/end, state, motion, brief);
+> |    - `timeline.tsv`, `summary.md` and labelled contact sheets;
+> |    - `run.json` with the probe metadata and the picks.
+> | 
+> |    That covers part of t1165's Phase 1 ingestion bundle. Children of the new parent
+> |    t1893 cover more of it:
+> |    - t1893_2: freeze / black / silence triage rows;
+> |    - t1893_3: exact `frames` extraction with ms-named files and an image→source
+> |      geometry manifest bound to SHA-256;
+> |    - t1893_10: a wall-clock confidence ladder and logcat merge.
+> | 
+> |    Suggestion only: consider building Phase 1 on that helper rather than a parallel
+> |    `ait bug-video prepare` ingestion path.
+> | 
+> | 2. E8 is assigned here. On 2026-10-05 the user decided that design-review item E8
+> |    (Chatlink video attachments: download the video, run bug mode, attach the sheets)
+> |    belongs to t1165 Phase 3. No separate task was created in the t1893 set. The
+> |    review's constraints, as of commit f8a049f3c:
+> |    - chat `max_attachment_bytes` is 8 MiB (`chat/capabilities.py:51`);
+> |    - intake writes only `message.text` (`chatlink/intake.py`, around line 266);
+> |    - the sandbox image has no ffmpeg (`chatlink_sandbox.md:18`).
+> | 
+> | 3. Gemini. E13 (an opt-in Gemini "describe") is deferred in the screen-recording
+> |    set. If t1165 keeps its Gemini phase, the review's guidance is: strictly opt-in
+> |    per file, never triggered by an API key in the environment. Gemini samples at
+> |    1 fps by default, which is useless for animation timing, and its free tier may
+> |    have inputs read by human reviewers.
+> | 
+> | Source: `aidocs/screen_recording_skill_design_review.md` (§2–§4).
