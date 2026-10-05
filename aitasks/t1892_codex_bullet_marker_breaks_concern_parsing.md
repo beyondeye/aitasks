@@ -12,10 +12,11 @@ active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
+risk_mitigation_tasks: [1898, 1899]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-05 15:12
-updated_at: 2026-10-05 16:57
+updated_at: 2026-10-05 23:42
 ---
 
 A Codex shadow agent's concern block is **never parseable**: Codex's markdown
