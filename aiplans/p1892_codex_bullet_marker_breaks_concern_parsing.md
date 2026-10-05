@@ -258,7 +258,7 @@ Two cases in the existing `TestSplitMarkerJoin`, placed directly after
 
 ### Planned mitigations
 - timing: post-phase | name: pin_marker_like_residual | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: wider _MARKER_LIKE diagnostic false-positive (code-health) | desc: Pin the report-only false positive of a punctuation-led continuation row with a test and one spec sentence
-- timing: after | name: codex_alternate_screen_block_capture | type: bug | priority: medium | effort: medium | inline_risk: high | added_complexity: high | addresses: viewport-truncated Codex block parsed to EOF with chrome in the last concern (goal-achievement) | desc: Codex shadow panes run on the alternate screen (no tmux scrollback): define the capture strategy and how an unclosed block is presented on `c` so pane chrome is never forwarded as concern body
+- timing: after | name: codex_alternate_screen_block_capture | type: bug | priority: medium | effort: medium | inline_risk: high | added_complexity: high | addresses: viewport-truncated Codex block parsed to EOF with chrome in the last concern (goal-achievement) | desc: Codex shadow panes run on the alternate screen (no tmux scrollback): define the capture strategy and how an unclosed block is presented on `c` so pane chrome is never forwarded as concern body. USER REQUIREMENT (acceptance criterion, 2026-10-05): scrolling the Codex shadow window must not change the latest review's concern list or its freshness verdict — both must refer to the same latest completed review, independently of the visible screen
 - timing: after | name: measure_agent_tui_marker_rendering | type: chore | priority: low | effort: low | inline_risk: medium | added_complexity: medium | addresses: only the Codex glyph is measured (goal-achievement) | desc: Measure live whether opencode and agy shadow panes rewrite the `- ` concern marker; add any measured glyph to concern_parser._MARKER_GLYPHS and concern-format.md
 
 Reassessment (post-inline, single pass): the inline post-phase only adds a test
@@ -271,3 +271,256 @@ identified", because that would offer it a second time at Step 8b.
 Step 9 of task-workflow: current-branch mode, so there is no merge. The steps
 are build verification / gates (`risk_evaluated`), then archival with
 `aitask_archive.sh 1892`, then push with `./ait git push`.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-05 17:24)
+- **Requested by user:** (a, blocking) Accepting U+2022 in `_ITEM` made a
+  wrapped body row that begins with a quoted `• [high | example] …` inside an
+  ordinary dash block parse as a second concern. The pre-change parser gave one
+  concern there. Distinguish continuation text using reliable capture structure.
+  (b, follow-up) A split-marker rejoin consumes a following marker-looking row
+  (`◦ [high | next] …`) into the region without reporting it. This is inherited
+  from the dash baseline. Pin the boundary and qualify the doc's universal
+  "reported, never silent" claim.
+- **Changes made:**
+  - (a) A **one-glyph-per-block** rule. `_GLYPH` now captures the glyph;
+    `_block_glyph(lines)` takes the block's glyph from its first accepted marker
+    row; `_starts_item(line, glyph)` gates `_ITEM`, the split-join gate and stop,
+    and `_ITEM_NO_REGION`. A row led by the other accepted glyph is body text,
+    still reported by `_MARKER_LIKE`, and never removed. The reliable structure
+    is that a renderer rewrites every list item of a block the same way.
+  - Tests:
+    - `test_quoted_bullet_at_wrap_boundary_in_a_dash_block_stays_body`, the
+      reviewer's exact case. It gives one concern, field-identical to the
+      baseline, plus a report.
+    - Its mirror, `test_quoted_dash_at_wrap_boundary_in_a_bullet_block_stays_body`.
+    - `test_same_glyph_quote_at_wrap_boundary_is_an_inherited_limit`, which pins
+      the limit that predates this change, for both glyphs.
+  - `test_malformed_bullet_rows_are_reported` now uses a `•` good item, so it
+    tests a malformed row *within* a bullet block (AC3).
+  - (b) `test_split_join_consumes_a_marker_looking_row_known_gap` pins the
+    inherited gap for both first-marker glyphs. The comments, docstrings and
+    `concern-format.md` now say "reported rather than silent", with the
+    split-join exception stated.
+- **Red proof:** against the first implementation (`v1` snapshot), exactly the
+  two new wrap-boundary tests fail and the other 21 Codex/split tests pass.
+  Baseline checks on the pre-change parser: the reviewer's case gives 1 concern
+  and no report, and the dash-first split gap is identical (1 concern, no
+  report).
+- **Files affected:** `.aitask-scripts/monitor/concern_parser.py`,
+  `tests/test_concern_parser.py`, `.claude/skills/aitask-shadow/concern-format.md`
+
+### Change Request 2 (2026-10-05 17:44)
+- **Requested by user:** (blocking) `_block_glyph` chose the first
+  marker-*looking* row before it parsed. In `• [medium | malformed` followed by
+  `- [high | real] real body`, the split rejoin crossed the valid item and
+  manufactured a fake medium concern; `• [ | bad] malformed` before the same
+  item gave zero concerns. Both returned the real concern before t1892. Keep the
+  cross-glyph quotation fix, stop malformed leading rows from selecting the
+  glyph, and add regression tests for both cases.
+- **Changes made:**
+  - `_block_glyph` now returns the glyph of the first marker row that
+    **yields an item**: it parses on its own (`_ITEM` / `_ITEM_NO_REGION`),
+    or its split rejoin succeeds under a **conservative** stop at any accepted
+    marker, whatever its glyph. It returns `None` when nothing yields an item.
+  - `_join_split_marker(..., glyph=None)` is that probe mode.
+  - Docs (`concern_parser.py` comment and docstring, `concern-format.md`)
+    now say "first row that yields an item".
+  - Tests:
+    - `test_unclosed_leading_row_does_not_swallow_the_next_item` and
+      `test_closed_malformed_leading_row_does_not_demote_the_next_item` (the
+      review's two cases).
+    - Two edge guards for the new rule:
+      `test_split_leading_marker_still_selects_its_glyph` and
+      `test_split_only_bullet_block_still_parses`.
+- **Red proof:**
+  - Against v2 (the previous iteration), exactly the two review tests fail.
+  - Against the pre-change parser, the concerns are field-identical
+    (`[('high','real','real body')]` for both), and only the new report
+    assertion differs.
+  - Mutant with the probe stopping only at the same glyph: exactly
+    `test_unclosed_leading_row_does_not_swallow_the_next_item` fails, so the
+    conservative probe is pinned.
+- **Files affected:** `.aitask-scripts/monitor/concern_parser.py`,
+  `tests/test_concern_parser.py`, `.claude/skills/aitask-shadow/concern-format.md`
+
+### Change Request 3 (2026-10-05 18:04)
+- **Requested by user:** (blocking) The glyph probe (`glyph=None`) stopped at
+  every accepted marker prefix, including a non-parseable opposite-glyph region
+  fragment. For `- [medium | long context` / `• [reference] body` /
+  `  • [high | example] illustrative text.`, the baseline and v2 recovered one
+  medium concern with the quotation in its body. v3 returned only the quoted
+  high example, and the clipboard forwarded it while the real concern was lost.
+  Distinguish genuine next-item boundaries from non-parseable opposite-glyph
+  fragments, keep the malformed-leading-row fixes, and add the combined
+  regression test.
+- **Changes made:**
+  - `_join_split_marker(lines, start, glyph, *, probe=False)`. The stop is a
+    row in `glyph`; in probe mode it is **also** an opposite-glyph row that
+    `_parses_alone` (a complete one-row item in any accepted glyph).
+    `_block_glyph` probes with the candidate's own glyph and `probe=True`, so
+    a non-parseable `• [reference]` fragment is rejoined into the region as
+    before t1892, while a genuine next item (either glyph) still ends the probe.
+  - Docs updated (`_block_glyph` / `_join_split_marker` docstrings, the stop
+    comment, `concern-format.md`).
+  - Test `test_nonparseable_opposite_glyph_fragment_does_not_end_the_probe`
+    asserts the fields **and** that the clipboard payload carries the medium
+    concern and not the quoted example.
+- **Red proof:**
+  - v3: exactly the new combined test fails.
+  - v2: exactly the two malformed-leading-row tests fail.
+  - Pre-change parser: the combined test passes.
+  - Mutant "probe stops at any accepted prefix": exactly the combined test
+    fails.
+  - Mutant "probe never stops at an opposite-glyph complete item": exactly
+    `test_unclosed_leading_row_does_not_swallow_the_next_item` fails.
+  - So each half of the stop rule is pinned by its own guard.
+- **Files affected:** `.aitask-scripts/monitor/concern_parser.py`,
+  `tests/test_concern_parser.py`, `.claude/skills/aitask-shadow/concern-format.md`
+
+### Change Request 4 (2026-10-05 22:05)
+- **Requested by user:** (blocking) The probe stopped at an opposite-glyph row
+  only when it parsed on one row, so a valid next concern that itself needed
+  split recovery was swallowed. For `• [medium | malformed` / `- [high | real`
+  / `region] real body`, the baseline and v3 return the genuine high concern;
+  v4 returned a corrupted medium concern, reported nothing and forwarded it. The
+  mirror direction failed too. Recognise recoverable split concerns as
+  boundaries without restoring the broad prefix stop, add tests for both
+  directions, and keep the earlier guards.
+- **Changes made:**
+  - New `_yields_item(lines, i)`, the single definition of "a genuine item
+    starts here, read in its own glyph": a one-row item, or a successful
+    probe-mode split rejoin. It replaces `_parses_alone`.
+  - It is shared by `_block_glyph` (the glyph choice) and by the probe's
+    boundary test in `_join_split_marker`. **Correction (Change Request 5):**
+    this note originally said "The recursion walks forward only and is bounded
+    by `_MAX_MARKER_JOIN_ROWS`", which was wrong. That constant bounds each
+    local join, not the chain, and alternating-glyph unclosed markers recursed
+    once per row (a RecursionError at the 1500-row deep capture). The recursion
+    was replaced by an iterative table in CR5.
+  - A non-parseable `• [reference]` fragment contains `]`, so it is neither a
+    one-row item nor a split candidate, and it keeps rejoining.
+  - Docs updated (docstrings, stop comment, `concern-format.md`).
+  - Test `test_unclosed_leading_row_does_not_swallow_a_split_next_item` covers
+    both directions and asserts the fields, the report, and that the payload
+    carries no "malformed".
+- **Red proof:**
+  - v4: exactly the new test fails.
+  - v3: the new test passes, and only its own combined case fails.
+  - Pre-change parser: the bullet-first direction is correct and the
+    dash-first mirror is corrupted (it never parsed bullets).
+  - All earlier guards pass on the current tree.
+- **Files affected:** `.aitask-scripts/monitor/concern_parser.py`,
+  `tests/test_concern_parser.py`, `.claude/skills/aitask-shadow/concern-format.md`
+
+### Change Request 5 (2026-10-05 22:51)
+- **Requested by user:** (blocking) `_yields_item` called probe-mode
+  `_join_split_marker`, which called `_yields_item` again on an
+  opposite-glyph candidate with a fresh join allowance.
+  `_MAX_MARKER_JOIN_ROWS` bounds each local loop, not the recursion depth.
+  600 rows alternating `• [medium | unclosed` / `- [medium | unclosed` plus a
+  final valid concern made `parse_concerns`, `has_concern_block` and
+  `unrecovered_markers` raise RecursionError. The baseline returns the real
+  concern, and the monitor supports 1500-line retry captures. Make it
+  iterative or genuinely bounded, correct the explanation (docstring and CR4),
+  and add long-block regressions for the three public entry points, with and
+  without a final concern.
+- **Changes made:**
+  - `_yield_table(lines)` fills the per-row "yields an item in its own
+    glyph" answers **back to front**, iteratively. A row's probe reads only
+    already-filled later entries.
+  - `_join_split_marker(..., boundary=yields)` replaces `probe=True` and
+    reads the table instead of recursing.
+  - `_block_glyph(lines, yields)` picks the first True row. The semantics are
+    identical to CR4 (the same recurrence), and it is O(rows ×
+    `_MAX_MARKER_JOIN_ROWS`) with constant stack depth.
+  - Docstrings say this explicitly; CR4's claim is corrected in place.
+  - Tests:
+    - `test_long_alternating_malformed_block_with_a_final_concern` and
+      `..._without_a_final_concern`, at `_DEEP_CAPTURE_ROWS = 1500`
+      (`monitor_core._SHADOW_DEEP_RETRY_LINES`).
+    - Both assert all three entry points. With a final concern: the real
+      concern, a True trigger, and every malformed row reported. Without:
+      `[]`, a False trigger, and every row reported.
+- **Red proof:**
+  - v5: exactly the two long-block tests fail, with RecursionError.
+  - v4: only its own case fails.
+  - All earlier guards and the full concern-parser suite pass.
+  - Pre-change parser on the 1500-row block: `[('high','real')]`, reporting
+    the 750 dash rows; the new parser reports all 1500 malformed rows.
+  - Timing: 3.6 ms for the 1500-row block.
+- **Files affected:** `.aitask-scripts/monitor/concern_parser.py`,
+  `tests/test_concern_parser.py`
+
+### Change Request 6 (2026-10-05 23:14)
+- **Requested by user:** A requirement for the planned follow-up
+  `codex_alternate_screen_block_capture`, not for this task's code:
+  "Scrolling the Codex shadow window must not change the latest review's
+  concern list or freshness verdict. Both must refer to the same latest
+  completed review, independently of the visible screen."
+- **Changes made:** The requirement is added verbatim, as an acceptance
+  criterion, to that mitigation's `desc` in `### Planned mitigations`. Step 8d
+  builds the follow-up's `## Goal` from `desc`, so it reaches the created task.
+  No code change.
+- **Files affected:** this plan file only.
+
+## Final Implementation Notes
+- **Actual work done:**
+  - The parser (`.aitask-scripts/monitor/concern_parser.py`) accepts a closed,
+    measured marker-glyph set `_MARKER_GLYPHS = "-•"`.
+  - It applies a **one-glyph-per-block** rule. The block's glyph is that of
+    its first row that *yields an item*, from `_yield_table`: a back-to-front
+    iterative table, where "yields" means one-row or a probe-mode split
+    rejoin. Only rows in that glyph start items.
+  - A wider, **report-only** `_MARKER_LIKE` drives `unrecovered_markers`, so a
+    marker in an unmeasured glyph, or in the off-block glyph, is reported
+    rather than silently swallowed.
+  - The split-marker rejoin stops at block-glyph item starts. In probe mode it
+    also stops at opposite-glyph rows that yield an item.
+  - There are no consumer code changes: minimonitor, monitor and
+    monitor_shared all go through the parser's public functions. Forwarding
+    stays canonical (`- [p | r] body`).
+  - Spec: `.claude/skills/aitask-shadow/concern-format.md` records the Codex
+    glyph rewrite, the accepted set, the one-glyph rule and its inherited
+    same-glyph limit, the report-only diagnostic, and the split-join known gap.
+  - Fixture `tests/fixtures/codex_shadow_bullet_capture.txt` holds the 4
+    verbatim rows of the live block head (`E2 80 A2` bytes); none of the other
+    project's prose is in it.
+  - Tests: 25 new parser cases (`TestCodexBulletMarkers`, and two in
+    `TestSplitMarkerJoin`), plus consumer wiring tests in
+    `test_minimonitor_concern_action.py` (picker and auto-offer) and
+    `test_monitor_concern_action.py` (picker).
+- **Deviations from plan:**
+  - The plan's single closed-set widening proved insufficient. Five review
+    rounds (CR1–CR5 above) added the one-glyph-per-block rule, glyph selection
+    from the first row that *yields* an item, the probe boundary on
+    opposite-glyph items (one-row or split), and an iterative table replacing
+    a recursion that overflowed at deep-capture size.
+  - CR6 added a user requirement to the `codex_alternate_screen_block_capture`
+    follow-up spec.
+- **Issues encountered:**
+  - Every review finding was confirmed against snapshots of each prior
+    revision (old, v1–v5 in the scratchpad). Each new guard fails on exactly
+    the revision it targets.
+  - Probe mutants pin both halves of the stop rule.
+  - The live re-check of pane `%263`: the pane had moved to a newer round
+    whose opening fence was off the alternate screen (head-truncated). With
+    the fence re-attached, its 3 real `•` items parsed with trailers.
+- **Key decisions:**
+  - Consumer-side fix, with only measured glyphs accepted.
+  - The diagnostic is wider than the grammar but never steers parsing or
+    removes body text.
+  - A quotation in the block's *own* glyph at a wrap boundary stays the
+    inherited producer-owned hazard; it is pinned by a test, not "fixed".
+  - The alternate-screen viewport problem is spawned as an "after" follow-up
+    (Step 8d), so it is deliberately not listed below.
+- **Upstream defects identified:**
+  - `.aitask-scripts/monitor/concern_parser.py:_join_split_marker` — a split
+    rejoin whose unclosed bracket is followed, within the envelope, by a
+    marker-looking row in a non-accepted glyph (`◦ [high | next] …`) swallows
+    that row into the region and never reports it. This predates t1892 and is
+    identical with a dash first marker. It is pinned by
+    `test_split_join_consumes_a_marker_looking_row_known_gap`. Changing the
+    recovery must keep `test_punctuation_led_region_fragment_is_still_rejoined`
+    passing.
