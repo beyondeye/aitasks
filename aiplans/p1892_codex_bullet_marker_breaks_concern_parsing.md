@@ -251,10 +251,10 @@ Two cases in the existing `TestSplitMarkerJoin`, placed directly after
   (`New activity · ↓ Back to bottom`, composer, footer) via the forgiving
   parse-to-EOF, where today it shows the raw view. The ACs are met, but that
   live scenario is only clean when the whole block is on screen.
-  · severity: medium · → mitigation: codex_alternate_screen_block_capture
+  · severity: medium · → mitigation: t1898
 - Only `•` is measured. opencode and agy were not measured. A different rewrite
   would still not parse, though it would now be *reported*.
-  · severity: low · → mitigation: measure_agent_tui_marker_rendering
+  · severity: low · → mitigation: t1899
 
 ### Planned mitigations
 - timing: post-phase | name: pin_marker_like_residual | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: wider _MARKER_LIKE diagnostic false-positive (code-health) | desc: Pin the report-only false positive of a punctuation-led continuation row with a test and one spec sentence
