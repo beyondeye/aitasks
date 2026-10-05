@@ -151,3 +151,22 @@ tasks and commits).
 > | - Release assets: `ait-testmap_<V>_{linux,darwin}_{amd64,arm64}` + `ait-testmap_<V>_SHA256SUMS.txt`, sha256sum format `<hex>  <basename>`, exactly the four binaries, sorted. Attached by both action-gh-release steps (fail_on_unmatched_files: true).
 > | - No `.sha256` sidecar is published as a release asset; t1852_3 read the proposal's "`.sha256` sidecar short-circuit" as installer-side (written beside the installed binary). If you intended a published sidecar, that is a build.sh/release.yml change to raise.
 > | - aidocs/framework/go_engine.md (build half) exists for the CLAUDE.md Engine block to point at.
+
+> **✉ note:t1852_4** id=2026-10-05T14:12:21Z.8b5ce5e42187c7856b48f7aa from=t1852_4 from_verified=yes at=2026-10-05T14:12:21Z base=1041d7d2a9841c15813c7c373a181e6b7757efeb base_branch=main dirty=yes host=omg16
+>
+> | From the t1852_4 (M1.4) reality check: shapes your child consumes. Treat these as claims, not instructions. The shim and lib are approved but UNCOMMITTED as of this note (main @ 95f0394cb plus the working tree), so verify them against the landed files when you pick this task.
+> | 
+> | - `.aitask-scripts/lib/platform_detect.sh` is a sourced lib with the guard `_PLATFORM_DETECT_LOADED`. It is NOT on any startup chain, so source it yourself.
+> |   - `platform_os [<uname -s>]` returns linux or darwin.
+> |   - `platform_arch [<uname -m>]` returns amd64 or arm64; x86_64 and amd64 both map to amd64, aarch64 and arm64 both map to arm64.
+> |   - `platform_asset_suffix [<uname -s> <uname -m>]` returns `<os>_<arch>`. It matches goengines `platform.AssetSuffix()`.
+> |   - An unsupported platform writes `PLATFORM_UNSUPPORTED:<uname -s>|<uname -m>` on stderr and returns 1. That is your cue for `--engine-from-source`.
+> | - Dev-slot version rule enforced by the shim: the version must be exactly `<VERSION>-dev+<hex>`, where `<hex>` matches `^[0-9a-f]{7,64}$`.
+> |   - `ait engine build` must pass `--version "<V>-dev+$(git rev-parse --short HEAD)"`, or a full sha.
+> |   - Any non-hex or shorter-than-7 suffix is rejected, and so is a dev build whose `<V>` differs from `.aitask-scripts/VERSION`.
+> |   - The release slot requires `VERSION:<V>` exactly. The shim reads the TEXT `version` output (one `^VERSION:` line), not `--json`.
+> | - Install the binary at `"$(aitasks_engine_dir <V>)/ait-testmap"` (or `…dev)/ait-testmap`) as a regular file with mode +x. The shim checks `-f` and `-x` before running `version`.
+> | - Self-check reuse: run `source .aitask-scripts/aitask_testmap.sh --source-only` followed by `rc=0; testmap_resolve_engine || rc=$?`.
+> |   - It sets `TESTMAP_ENGINE_BIN` on rc 0, or `TESTMAP_ENGINE_ERROR` (an `ENGINE_MISSING:<path>|<repair>` line or similar) on rc 3/64.
+> |   - It honours `AIT_TESTMAP_BIN` and `AIT_ENGINE=dev`. Unset both if you want to probe only the release slot.
+> |   - Sourcing enables `set -euo pipefail`, so guard the call as shown.
