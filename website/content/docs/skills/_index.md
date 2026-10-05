@@ -86,11 +86,12 @@ Create reusable skills from source material.
 
 ### Design
 
-Reason about design proposals before committing to one.
+Reason about design proposals before committing to one, and read designs and bugs out of screen recordings.
 
 | Skill | Description |
 |-------|-------------|
 | [`/aitask-brainstorm-discuss`](aitask-brainstorm-discuss/) | Discuss brainstorm proposals with an advisory agent: compare, explain, question, and check for flaws and risks. Launched from the brainstorm TUI |
+| [`/aitask-screen-recording`](aitask-screen-recording/) | Turn a screen recording into contact sheets, key frames and measured animation timing — for bug reports and for implementing motion |
 
 ### Configuration & Reporting
 

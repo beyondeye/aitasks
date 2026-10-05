@@ -48,6 +48,15 @@ Keeping the codebase correct and understandable — structured code review, test
 - [Shadow Agent](shadow-agent/) — Launch an advisory companion agent that reads a running agent's output, helps with prompts and plans, reviews the implementation, diagnoses failures, and spawns skill-learning sessions.
 - [Explain](explain/) — Use code evolution history to rebuild understanding of why code exists.
 
+## Screen Recordings
+
+Hand your agent a screen recording instead of describing it: reproduce a bug from a clip, or implement an animation from a prototype.
+
+- [Screen Recordings](screen-recordings/) — Overview: choosing a mode, reading order, privacy.
+- [Bug Report from a Recording](screen-recordings/bug-report/) — Key screens, brief glitch frames and a cited step-by-step report.
+- [Animation from a Prototype Recording](screen-recordings/animation/) — Measured duration, easing and spring fits, translated to code.
+- [Recording Tips](screen-recordings/recording-tips/) — Capture a recording that analyses well on Android, iOS and desktop.
+
 ## Git
 
 Round-tripping with issue trackers, pull requests, upstream contributions, releases, and reverts — the flows that cross aitasks' boundary with the wider git ecosystem.

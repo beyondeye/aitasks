@@ -86,8 +86,9 @@ estimate from D, relative to D.
   differs from it only by an anti-aliased sliver, which makes that frame's own
   estimate meaningless. Its progress still comes from the leading edge.
 
-`curve.tsv` holds both signals for every frame. Force one with `--signal edge` or
-`--signal blend`.
+`curve.tsv` has a column for each signal. `p_edge` is blank when no edge can be
+tracked (a fade), and a `still` or `returns` segment has no progress values.
+Force one with `--signal edge` or `--signal blend`.
 
 ## 4. Visible vs fitted duration
 
@@ -148,9 +149,20 @@ Compose `spring()`:
 ## 6. Time scale
 
 Recording with Android's animator duration scale set to N stretches every
-animation N×. `--time-scale N` divides every reported time by N, and multiplies
-fitted spring stiffness by N² (ω scales with 1/time). Labels on sheets and plots
-are in real time as well.
+animation N×. `--time-scale N` converts the numbers to implement into real time.
+It divides visible and fitted durations by N (in `summary.md`, `fit.json`
+`visible_duration_ms` and `fits[]`), multiplies fitted spring stiffness by N²
+(ω scales with 1/time), and converts the ± ms offsets on sheet labels and the
+plot's time axis.
+
+Everything that locates a moment in the recording stays in recording time:
+
+- segment start times and windows;
+- the timestamps and frame interval on the "visible change" line;
+- `curve.tsv` (`time_s` and `t_rel_ms`);
+- `fit.json` `window_s` and `frame_interval_ms`;
+- the `<t>s` timestamps on sheet labels and in frame file names;
+- the `--window` / `--range` arguments.
 
 ## 7. Known limits
 

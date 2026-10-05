@@ -157,7 +157,9 @@ Phone screen recorders often drop frames under load, so a large frame interval
 in the summary means coarser timing. When precision matters and the user can
 re-record, read
 `.claude/skills/aitask-screen-recording/references/recording.md`. Recording at animator duration scale
-5× and passing `--time-scale 5` gives five times the samples per curve.
+5× and passing `--time-scale 5` gives five times the samples per curve. Only
+durations and fits are converted to real time. Timestamps, `curve.tsv` and the
+`--window`/`--range` arguments stay in recording time.
 
 Ask the user to confirm suspicious numbers. If every duration looks two to ten
 times too long, the device may have had a non-default animator duration scale
