@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1852
+implemented_with: claudecode/opus5_5
 created_at: 2026-09-22 17:27
-updated_at: 2026-10-05 17:58
+updated_at: 2026-10-05 23:45
 ---
 
 ## Context
@@ -177,3 +178,8 @@ tasks and commits).
 > |   - Sourcing enables `set -euo pipefail`, so guard the call as shown.
 
 > **👁 note:read** id=2026-10-05T14:58:38Z.2dea57f475a56b5000e88262 by=t1852_5 at=2026-10-05T14:58:38Z mode=explicit ids=2026-09-23T13:21:13Z.c4cb586f02c1845c7d33bff1,2026-09-24T06:18:19Z.0a80606bb4e8b36b37edcadd,2026-09-25T08:48:00Z.e06c196cbc7cc56a3633ff85,2026-10-05T14:12:21Z.8b5ce5e42187c7856b48f7aa
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-05T20:45:52Z status=pass attempt=1 type=human
