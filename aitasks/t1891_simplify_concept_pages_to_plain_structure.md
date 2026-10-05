@@ -11,8 +11,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-05 14:50
-updated_at: 2026-10-05 15:05
+updated_at: 2026-10-05 15:46
 ---
 
 ## Goal
@@ -163,3 +164,8 @@ moving the definition off the concept page.
   (name it in the plan) or deliberately dropped with a stated reason.
 - Follow the current-state-only rule in `documentation_conventions.md` (no
   "this used to…" prose).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-05T12:46:24Z status=pass attempt=1 type=human
