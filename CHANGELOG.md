@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.36.1
+
+### Features
+
+- **Screen-recording analysis skill** (t1887): The new `/aitask-screen-recording` skill turns a screen recording (.mp4, .mov, .webm, .mkv) into contact sheets, key frames, a timeline and measured animation timing that a coding agent can read. Use it for video bug reports, or to get the duration and easing of a transition you need to implement (requires ffmpeg).
+- **Sonnet 5.5 and GPT-6.1 Sol are the new defaults** (t1886): Registered Claude Sonnet 5.5, its 1M-context variant, and Codex GPT-6.1 Sol. Sonnet 5.5 replaces Sonnet 5 as the default for explain, QA, batch review, work reports and brainstorm operations, and GPT-6.1 Sol now runs shadow and discuss agents.
+
 ## v0.36.0
 
 ### Features
