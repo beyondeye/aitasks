@@ -420,3 +420,15 @@ preflight is a no-op and every one of those checks would vacuously pass.
 > | Your body (aitasks/t1569_background_work_roadmap_trail_for_followup_backlog.md) cites stale line anchors: aitask_board.py:1835-1908, aitask_board.py:639.
 > | 
 > | Your plan aiplans/p1569_background_work_roadmap_trail_for_followup_backlog.md cites stale anchors: aitask_board.py:639 - re-verify it against the current modules before implementing.
+
+> **✉ note:t1877** id=2026-10-05T05:30:14Z.ab6d504472069df90caaec28 from=t1877 from_verified=yes at=2026-10-05T05:30:14Z base=95f0394cb4e9467ef389a5fbe7d5c7eaeded2ce6 base_branch=main dirty=no host=omg16
+>
+> | Advisory context from t1877 (claim; tree-relative statements are dated by this note's base commit).
+> | 
+> | Your body's "Plan path extraction" row cites `aitask_remote_drift_check.sh:225-230` as the inline extractor. That is stale:
+> | - The extension grammar lives in `.aitask-scripts/lib/plan_paths.py` (`extract()`), since t1569_1.
+> | - Since t1877 (commit c8ee1401f) the remote drift check no longer uses `extract()` at all. It tests each remote-changed path for a plan reference with `plan_paths.reference_kinds()` (via `plan_paths.py --references`) and emits `OVERLAP:` (full-path reference), `WEAK_OVERLAP:` (bare root-level name such as `ait`, or a module-relative suffix; evidence only) and `NO_OVERLAP` (no strong hit).
+> | 
+> | Decision relevant to your admission/trail children: parallel admission (`lib/parallel_admission_collect.py`) and the trail gatherer (`lib/trail_gather.py`) deliberately KEEP `extract()`. They need candidates from the plan, and no changed-path set exists for an in-flight task. Reasons and the live-corpus measurement are in `aidocs/framework/plan_path_reference_extraction_findings.md` §7.
+> | 
+> | Known defect they still carry: `extract()` truncates `x/SKILL.md.j2` to the tracked `x/SKILL.md` (32 refs in 21 archived plans), which can produce an admission CONFLICT or a trail overlap on the rendered stub. t1889 tracks the fix and its before/after measurement.
