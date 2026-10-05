@@ -59,6 +59,26 @@ class ExtractionTests(unittest.TestCase):
         # precedes '..md'.
         self.assertEqual(got, ["../../up.sh", "..md", "/etc/passwd.sh"])
 
+    def test_a_longer_extension_is_not_truncated_to_another_file(self):
+        """t1889: without a right boundary `x/SKILL.md.j2` extracted as
+        `x/SKILL.md` -- the rendered stub, a different tracked file -- and a
+        template-only plan collided with whatever touched the stub."""
+        self.assertEqual(plan_paths.extract("edit x/SKILL.md.j2"), [])
+        self.assertEqual(
+            plan_paths.extract("edit x/SKILL.md.j2, then re-render x/SKILL.md"),
+            ["x/SKILL.md"])
+        for text in ("foo.json.tmp", "a.mdx", "out.jsonl", "x/a.py/b"):
+            with self.subTest(text=text):
+                self.assertEqual(plan_paths.extract(text), [])
+
+    def test_sentence_final_period_is_a_boundary_but_an_ellipsis_is_not(self):
+        """As in `find_references`: one `.` not followed by a token character
+        ends the path; `..` continues it, so it yields nothing."""
+        for text in ("a.md.", "see a.md.\nnext", "`a.md`.", "a.md, b"):
+            with self.subTest(text=text):
+                self.assertEqual(plan_paths.extract(text), ["a.md"])
+        self.assertEqual(plan_paths.extract("a.md.."), [])
+
 
 class CollationTests(unittest.TestCase):
     """The canonical order is codepoint order, and it differs from the locale
@@ -386,8 +406,10 @@ class ReferenceKindsTests(unittest.TestCase):
         self.assertEqual(got, {"goengines/internal/x/main.go": "full"})
 
     def test_longer_extension_is_not_a_reference(self):
-        # extract() yields `x/SKILL.md` from `x/SKILL.md.j2`; the search must not.
+        # The search must not report the stub for its template -- and since
+        # t1889's right boundary, extract() agrees with it.
         self.assertEqual(self.kinds("edit `x/SKILL.md.j2`", ["x/SKILL.md"]), {})
+        self.assertEqual(plan_paths.extract("edit `x/SKILL.md.j2`"), [])
 
     def test_unreferenced_candidates_are_absent(self):
         self.assertEqual(self.kinds("nothing here", ["a/b.go", "ait"]), {})

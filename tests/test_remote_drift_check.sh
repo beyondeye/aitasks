@@ -664,6 +664,22 @@ assert_contains "14d: a TypeScript source is now referenced" \
 # Dedupe: the ./-prefixed path appears twice in the fixture and once in the set.
 archive_hits=$(printf '%s\n' "$result" | grep -c '^OVERLAP:\.aitask-scripts/aitask_archive\.sh$' || true)
 assert_eq "14e: a duplicated token is deduped to one record" "1" "$archive_hits"
+# The golden documents the extension grammar, which the drift check no longer
+# runs -- so pin it against the live extractor, or it drifts unseen. t1889's
+# right boundary leaves it unchanged: no fixture token is followed by a path
+# character. The body is read without its frontmatter: `Task: t999_extraction.md`
+# is a token too, but the remote above never touches it, so the golden never
+# recorded it.
+grammar_now=$(python3 - "$PROJECT_DIR/.aitask-scripts/lib" "$plan_path" <<'PY' | LC_ALL=C sort
+import sys
+sys.path.insert(0, sys.argv[1])
+import plan_paths
+with open(sys.argv[2], encoding="utf-8") as fh:
+    print("\n".join(plan_paths.extract(plan_paths.task_body_text(fh.read()))))
+PY
+)
+assert_eq "14f: the extraction golden is still what plan_paths.extract() yields" \
+    "$(printf '%s\n' "$EXTRACTION_GOLDEN" | LC_ALL=C sort)" "$grammar_now"
 
 # ============================================================
 # Test 15: local-only commits must not inflate OVERLAP (t1724)

@@ -86,6 +86,10 @@ printf 'node_modules/@scope/pkg.js app/x.storyboardc\n' \
 Dropped entirely: paths containing spaces, non-ASCII, `+`, `@`; and every
 extensionless file (`bin/run`, `src/Makefile`), which is structurally invisible.
 
+A *longer* extension was a third failure of the same kind, and it hit tracked
+files: `x/SKILL.md.j2` extracted as `x/SKILL.md`. `extract()`'s right boundary
+fixes that one (§7). The charset gaps above remain.
+
 ## 3. Inverting the search removes the grammar but needs a delimitation rule
 
 Scanning the plan for each **remote-changed** path (rather than extracting
@@ -264,20 +268,372 @@ switches, and no hybrid was built:
 - Admission already ships `off` in every committed profile because it prompts on
   34% of picks (`aitasks/metadata/profiles/fast.yaml`, measured 2026-09-17). More
   path evidence would raise that rate, not lower it.
-- They keep the `.md.j2` truncation false positive above, which can produce an
-  admission `CONFLICT` or a trail overlap on the rendered stub instead of the
-  template. Fixing that is a change to the shared grammar (a match must not be
-  followed by a path character), so it needs its own before/after replay and
-  corpus measurement, and is a separate task.
+- The `.md.j2` truncation false positive above no longer reaches them: the
+  shared grammar now has a right boundary (next block).
+
+**Right boundary on `extract()` (t1889).** `_TOKEN` gained a negative lookahead,
+`(?![A-Za-z0-9_/-]|\.[A-Za-z0-9_./-])`. A match must not be followed by a token
+character, except one sentence-final `.` that is not itself followed by one. On
+those cases (an ASCII token character after the extension, and the sentence
+period) `extract()` now agrees with `find_references`' right edge (§3).
+They agree only there. `find_references` also treats `@`, `+` and non-ASCII
+characters as part of the path, while `extract()`'s charset (§2) does not:
+`a.md@v2` still extracts `a.md`, where the search reports no reference. This fix
+does not change that.
+
+| text | before | after |
+|---|---|---|
+| `x/SKILL.md.j2` | `x/SKILL.md` | — |
+| `a.mdx`, `out.jsonl`, `foo.json.tmp` | `a.md`, `out.json`, `foo.json` | — |
+| `x/a.py/b` (a directory named `a.py`) | `x/a.py` | — |
+| `a.md.` / `` `a.md`. `` / `a.md,` | `a.md` | `a.md` |
+| `a.md..` (ellipsis) | `a.md` | — |
+
+Measured 2026-10-05. Both grammars were scored **in one process against one frozen
+snapshot**. The "before" grammar is `git show <pre-edit sha>:…/plan_paths.py`,
+loaded as a throwaway module. Every volatile input goes through the reference the
+code actually calls: admission's import-time bound seams (`_GATE_PROBE`,
+`_LOCK_PROBE`, `_STATUS_PROBE`, `_LIVENESS`, `_TRACKED_SETS`, `_DATA_TREE`,
+`_FETCH`, `_BATCH_MAP`), its call-time globals (`locks_cache_age`,
+`resolve_corpora`, `_active_plan_ids`, `_archived_plan_paths`), the trail
+gatherer's `_GATE_PROBE` / `_LOCK_PROBE` and `plan_paths.tracked_sets`. Each is
+recorded on the first run and replayed on the second, and the second run raises
+on any miss. `now` and the local host are pinned. The run counts only if three
+things match across it: a fingerprint (code HEAD, task-data HEAD,
+`origin/aitask-locks`, a sha256 over all 1353 task and plan files); the
+`AdmissionInput` projected to every non-path field (claims, sources, liveness,
+same-host, claim times, lock and corpus evidence, touch counts); and the trail's
+`INFLIGHT:` / `INFLIGHT_SOURCE:` lines. All three matched. An earlier draft that
+patched `probe_*_source` / `lock_holder_liveness` by name would have left the
+live calls in place, because `collect` calls the bound copies.
+
+- **Fixed corpus** (455 loose archived + active plans): 52 plans change and 73
+  distinct tokens are removed. No token is added and no plan's surface becomes
+  empty. Cut-off occurrences by what followed: `.ext` 102 (almost all `.j2`,
+  plus `.orig`, `.tmp`, `.lockd`, `._attr`), a word 33 (`.jsonl`,
+  `.sh` + `adow…` from `.shadow_*`, `.sha256`), `/…` 5 (`brew.sh/Taps`,
+  `…md/seed`), `-…` 1.
+- **Replay** (`--candidates auto`, 119 active plans, `--from plan`,
+  `allow-cached`): unchanged. `RATES:119|0|100|5|14` (CLEAR / CLEAR_CAVEATED /
+  CONFLICT / UNCHECKABLE) and every `CAUSE_RATE:` line are identical, and no
+  candidate's verdict moved. A second valid snapshot, taken after another session
+  had claimed a task (`RATES:120|0|92|14|14`, 11 in flight), also showed no
+  verdict moving. The run before it had been rejected because the task-data HEAD
+  moved mid-run: the script exits 3 and reports nothing when any validity check
+  fails.
+- **Sweep** (`--source plan`, threshold 10, cohort `e1f66b44d822930c|320`, the
+  same under both grammars). Columns: CLEAR | CLEAR_CAVEATED | CONFLICT |
+  UNCHECKABLE | pred_conflict | tp_conflict | tp_caveated | missed.
+
+  | | row | precision | recall |
+  |---|---|---|---|
+  | before | `36602\|11633\|2805\|0\|2805\|1109\|2274\|734` | 0.3954 | 0.8217 |
+  | after  | `36607\|11638\|2795\|0\|2795\|1104\|2278\|735` | 0.3950 | 0.8215 |
+
+  20 archived plans' surfaces changed, and 15 pairs moved: 10 CONFLICT →
+  CLEAR_CAVEATED and 5 CLEAR_CAVEATED → CLEAR. **Every moved pair lost exactly
+  one plan overlap, a template's rendered stub**: `aitask-trail/SKILL.md` (10),
+  `aitask-pick/SKILL.md` (4), `aitask-explore/SKILL.md` (1), each followed by
+  `.j2` in the plan. Six of the 15 pairs really did land on a common file, and
+  in all six it was a *different* file (`tests/test_trail_gather.py` ×5,
+  `task-workflow/planning.md` ×1). So those old CONFLICT verdicts were right only
+  by coincidence. Five of them are still flagged as CLEAR_CAVEATED. One
+  (`t1595 × t369_3`) is now missed: that is the whole recall change.
+- **Trail gatherer** (`snapshot --with-inflight`, 10 in-flight tasks):
+  `INFLIGHT_SCAN:10|extractable|both_enumeration_ok` before and after. The only
+  `INFLIGHT_PATH:` change is three `phantom` tokens (`brew.sh`, `file.py`,
+  `x.py`) dropped from t1889's own plan, which quotes the truncation examples.
+  No task's surface became `no_extractable_paths`.
+- **Accepted cost.** A real file named right before more token characters is
+  lost: `module.py._attr` (two occurrences in the corpus) and a path followed by
+  an ellipsis. `find_references` already drops both, for the same reason.
+
+Reproduction (run from the repo root; `python3 <script> <pre-edit sha>
+[trail task id]`):
+
+```python
+"""t1889: score the pre- and post-boundary extraction grammars against ONE
+frozen snapshot, in one process. Run from the repo root:
+
+    python3 t1889_paired.py <pre-edit-sha> [trail-task-id]
+
+Run A (old grammar) RECORDS every volatile seam; run B (new grammar) only
+REPLAYS them and raises on any miss, so run B cannot read live state.
+"""
+import collections, contextlib, copy, glob, hashlib, io, json, os, re
+import subprocess, sys, time, types
+
+sys.path.insert(0, ".aitask-scripts/lib")
+import plan_paths as pp                       # noqa: E402
+import parallel_admission_collect as pac      # noqa: E402
+import trail_gather as tg                     # noqa: E402
+
+PRE = sys.argv[1]
+TRAIL_ID = sys.argv[2] if len(sys.argv) > 2 else "1889"
+
+# --- the two grammars: "before" is the real prior module, not a copied literal
+src = subprocess.run(["git", "show", f"{PRE}:.aitask-scripts/lib/plan_paths.py"],
+                     capture_output=True, text=True, check=True).stdout
+old_mod = types.ModuleType("plan_paths_before")
+exec(compile(src, "plan_paths_before", "exec"), old_mod.__dict__)
+GRAMMARS = {"before": old_mod._TOKEN, "after": pp._TOKEN}
+assert GRAMMARS["before"].pattern != GRAMMARS["after"].pattern
+
+
+def fingerprint():
+    h = hashlib.sha256()
+    files = sorted(set(glob.glob("aiplans/**/*.md", recursive=True))
+                   | set(glob.glob("aitasks/**/*.md", recursive=True)))
+    for f in files:
+        h.update(f.encode()); h.update(b"\0")
+        with open(f, "rb") as fh:
+            h.update(fh.read())
+
+    def rp(*a):
+        return subprocess.run(a, capture_output=True, text=True).stdout.strip()
+    return {"code_head": rp("git", "rev-parse", "HEAD"),
+            "data_head": rp("./ait", "git", "rev-parse", "HEAD"),
+            "locks_ref": rp("git", "rev-parse", "origin/aitask-locks"),
+            "n_files": len(files), "files_sha256": h.hexdigest()}
+
+
+class Frozen:
+    """Record in run A, replay-only in run B."""
+    replay = False
+    seams = []
+
+    def __init__(self, name, fn):
+        self.name, self.fn, self.cache = name, fn, {}
+        Frozen.seams.append(self)
+
+    def __call__(self, *a, **k):
+        key = repr((a, sorted(k.items())))
+        if key in self.cache:
+            kind, val = self.cache[key]
+        elif Frozen.replay:
+            raise RuntimeError(f"seam {self.name} missed in replay: {key}")
+        else:
+            try:
+                kind, val = "ok", self.fn(*a, **k)
+            except Exception as exc:          # replay the failure too
+                kind, val = "raise", exc
+            self.cache[key] = (kind, val)
+        if kind == "raise":
+            raise val
+        return copy.deepcopy(val)
+
+
+def freeze(mod, *names):
+    for n in names:
+        setattr(mod, n, Frozen(f"{mod.__name__}.{n}", getattr(mod, n)))
+
+
+# Admission: the BOUND references collect()/classify_liveness() call, plus the
+# globals looked up by name at call time.
+freeze(pac, "_GATE_PROBE", "_LOCK_PROBE", "_STATUS_PROBE", "_LIVENESS",
+       "_TRACKED_SETS", "_DATA_TREE", "_FETCH", "_BATCH_MAP",
+       "locks_cache_age", "resolve_corpora", "_active_plan_ids",
+       "_archived_plan_paths")
+import platform                               # noqa: E402
+pac._LOCAL_HOST = platform.node()
+# Trail gatherer: its own bound probes, and tracked_sets by module attribute.
+freeze(tg, "_GATE_PROBE", "_LOCK_PROBE")
+freeze(pp, "tracked_sets")
+
+NOW = int(time.time())
+_collect_population = pac.collect_population
+captured = {}
+
+
+def pinned_collect_population(*a, **k):
+    k["now"] = NOW
+    pop = _collect_population(*a, **k)
+    captured["population"] = pop
+    return pop
+
+
+pac.collect_population = pinned_collect_population
+_sweep_population = pac.sweep_population
+
+
+def captured_sweep_population(*a, **k):
+    got = _sweep_population(*a, **k)
+    captured["sweep"] = got
+    return got
+
+
+pac.sweep_population = captured_sweep_population
+
+
+def nonpath(base):
+    """Everything in the AdmissionInput except path surfaces/tokens."""
+    return repr((base.enumeration, base.locks, base.corpora, base.now,
+                 sorted(base.touch_counts.items()), base.hub_threshold,
+                 base.max_lock_age_s, base.max_claim_age_s,
+                 [(c.ref, c.sources, c.task_status, c.liveness, c.same_host,
+                   c.claim_at_s, c.claim_age_reason) for c in base.inflight]))
+
+
+def run(fn, *a):
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        rc = fn(*a)
+    return rc, buf.getvalue().splitlines()
+
+
+results = {}
+fp_a = fingerprint()
+for label in ("before", "after"):
+    pp._TOKEN = GRAMMARS[label]
+    r = {}
+    rc, r["replay"] = run(pac._run_replay,
+                          pac._parse_args(["replay", "--candidates", "auto"])[1])
+    assert rc == 0
+    r["nonpath"] = nonpath(captured["population"].base)
+    r["surfaces"] = {k: v.paths for k, v in captured["population"].surfaces.items()}
+    r["claims"] = {c.ref: (c.surface.paths if c.surface else ())
+                   for c in captured["population"].base.inflight}
+    rc, r["sweep"] = run(pac._run_sweep,
+                         pac._parse_args(["sweep", "--source", "plan"])[1])
+    assert rc == 0
+    r["sweep_pop"], r["sweep_touch"], _drift = captured["sweep"]
+    rc, r["trail"] = run(tg.main, ["snapshot", "--scope", "task", "--with-inflight", TRAIL_ID])
+    results[label] = r
+    Frozen.replay = True                       # run B: replay only
+fp_b = fingerprint()
+
+A, B = results["before"], results["after"]
+print("FINGERPRINT_EQUAL:", fp_a == fp_b)
+print("FINGERPRINT:", json.dumps(fp_a))
+if fp_a != fp_b:
+    print("FINGERPRINT_AFTER:", json.dumps(fp_b))
+print("NONPATH_EQUAL:", A["nonpath"] == B["nonpath"])
+trail_pop = lambda r: [l for l in r["trail"] if l.startswith(("INFLIGHT:", "INFLIGHT_SOURCE:"))]
+print("TRAIL_POPULATION_EQUAL:", trail_pop(A) == trail_pop(B))
+print("SEAMS:", ", ".join(f"{s.name}={len(s.cache)}" for s in Frozen.seams))
+# Fail closed: a difference in anything but the grammar means the comparison
+# below would attribute a world change to extraction. Report nothing.
+if not (fp_a == fp_b and A["nonpath"] == B["nonpath"]
+        and trail_pop(A) == trail_pop(B)):
+    print("INVALID: inputs moved between the two runs -- rerun; no results reported")
+    sys.exit(3)
+
+for name in ("replay", "sweep"):
+    print(f"\n== {name} ==")
+    for la, lb in zip(A[name], B[name]):
+        if la.startswith("VERDICT_FOR:"):
+            continue
+        print(("  " if la == lb else "* ") + la + ("" if la == lb else "   ->   " + lb))
+
+va = dict(l.split(":", 1)[1].split("|") for l in A["replay"] if l.startswith("VERDICT_FOR:"))
+vb = dict(l.split(":", 1)[1].split("|") for l in B["replay"] if l.startswith("VERDICT_FOR:"))
+print("\n== replay verdict changes ==")
+TAIL = re.compile(r"[A-Za-z0-9_./-]*")
+
+
+def tails(tok):
+    """What followed `tok` wherever the old grammar cut it short."""
+    out = set()
+    for f in glob.glob("aiplans/**/*.md", recursive=True):
+        text = open(f, encoding="utf-8", errors="surrogateescape").read()
+        for m in re.finditer(re.escape(tok), text):
+            t = TAIL.match(text, m.end()).group(0)
+            if t and t != ".":
+                out.add(t[:12])
+    return sorted(out)
+
+
+for cand in sorted(va):
+    if va[cand] == vb.get(cand):
+        continue
+    ca, cb = set(A["surfaces"][cand]), set(B["surfaces"][cand])
+    print(f"t{cand}: {va[cand]} -> {vb.get(cand)}")
+    print(f"   candidate tokens removed: {sorted(ca - cb)}")
+    for ref, pa_paths in A["claims"].items():
+        if ref == cand:
+            continue
+        lost = (ca & set(pa_paths)) - (cb & set(B["claims"].get(ref, ())))
+        if lost:
+            print(f"   lost overlap with t{ref}: "
+                  + ", ".join(f"{t} (tail {tails(t)})" for t in sorted(lost)))
+
+print("\n== sweep pair verdict changes (threshold = default) ==")
+import parallel_admission as pa_mod            # noqa: E402
+import parallel_admission_sweep as pas         # noqa: E402
+popA = {ref: (s, l) for ref, s, l in A["sweep_pop"]}
+popB = {ref: (s, l) for ref, s, l in B["sweep_pop"]}
+assert set(popA) == set(popB), "sweep cohort differs between grammars"
+moved = [r for r in popA if popA[r][0].paths != popB[r][0].paths]
+print(f"tasks whose sweep surface changed: {len(moved)}")
+seen = set()
+for a in sorted(moved):
+    for b in sorted(popA):
+        if a == b or frozenset((a, b)) in seen:
+            continue
+        seen.add(frozenset((a, b)))
+        va_ = pas.pair_verdict(popA[a][0], b, popA[b][0], A["sweep_touch"], pa_mod.HUB_THRESHOLD)
+        vb_ = pas.pair_verdict(popB[a][0], b, popB[b][0], B["sweep_touch"], pa_mod.HUB_THRESHOLD)
+        if va_ == vb_:
+            continue
+        truth = sorted(popA[a][1] & popA[b][1])
+        lost = (set(popA[a][0].paths) & set(popA[b][0].paths)) - \
+               (set(popB[a][0].paths) & set(popB[b][0].paths))
+        print(f"t{a} x t{b}: {va_} -> {vb_}; landed overlap={truth[:3]}{'...' if len(truth) > 3 else ''}")
+        print("   lost plan overlap: " + ", ".join(f"{t} (tail {tails(t)})" for t in sorted(lost)))
+
+print("\n== trail INFLIGHT_PATH / INFLIGHT_SCAN diff ==")
+ta = {l for l in A["trail"] if l.startswith(("INFLIGHT_PATH:", "INFLIGHT_SCAN:"))}
+tb = {l for l in B["trail"] if l.startswith(("INFLIGHT_PATH:", "INFLIGHT_SCAN:"))}
+for l in sorted(ta - tb):
+    print("  - " + l)
+for l in sorted(tb - ta):
+    print("  + " + l)
+print("  scan before:", [l for l in A["trail"] if l.startswith("INFLIGHT_SCAN:")])
+print("  scan after: ", [l for l in B["trail"] if l.startswith("INFLIGHT_SCAN:")])
+
+# --- fixed-corpus extraction diff (population-independent) -------------------
+print("\n== fixed corpus: archived (loose) + active plans ==")
+plans = sorted(set(glob.glob("aiplans/archived/**/*.md", recursive=True))
+               | set(glob.glob("aiplans/p*.md")) | set(glob.glob("aiplans/p*/*.md")))
+
+
+def ex(rx, text):
+    return {pp._strip_dot_slash(m) for m in rx.findall(text)}
+
+
+changed = removals = added = 0
+by_tail = collections.Counter()
+emptied = []
+for f in plans:
+    text = open(f, encoding="utf-8", errors="surrogateescape").read()
+    a, b = ex(GRAMMARS["before"], text), ex(GRAMMARS["after"], text)
+    added += len(b - a)
+    if a != b:
+        changed += 1
+        removals += len(a - b)
+        if a and not b:
+            emptied.append(f)
+        for tok in a - b:
+            for m in re.finditer(re.escape(tok), text):
+                t = TAIL.match(text, m.end()).group(0)
+                if t and t != ".":
+                    by_tail[re.sub(r"[A-Za-z0-9_]+", "w", t[:4])] += 1
+print(f"plans={len(plans)} changed={changed} distinct_token_removals={removals} "
+      f"tokens_added={added} emptied={emptied}")
+print("cut-off occurrences by tail shape:", by_tail.most_common())
+```
 
 ## Related
 
+- `tests/test_plan_paths.py` — `ExtractionTests` pins the right boundary of §7
+  (the `.md.j2`, `.mdx`, `/` and sentence-final-period cases).
 - `.aitask-scripts/lib/plan_paths.py` — `extract()` (the grammar of §1–§2) and
   `find_references()` / `reference_kinds()` (the inverted search of §3–§5, §7).
 - `.aitask-scripts/aitask_remote_drift_check.sh` — the drift check, a
   `find_references` consumer since §7.
 - `tests/test_remote_drift_check.sh` — Test 13 covers the consumer-project
-  layout; Test 14 the old grammar's golden set plus Go/Rust/TS; Test 16 the
+  layout; Test 14 the old grammar's golden set plus Go/Rust/TS (14f pins the
+  golden against the live `extract()`); Test 16 the
   reference tiers and the §3–§5 edges (the `@`, `.md.j2`, NFD and undecodable
   cases); Test 17 the best-effort `git diff` failure.
 - `.claude/skills/task-workflow/remote-drift-check.md` — the consuming procedure

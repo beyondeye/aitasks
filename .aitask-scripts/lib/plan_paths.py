@@ -28,9 +28,13 @@ the admission checker; ``tests/test_plan_paths_seam.sh`` guards that scope and p
 other one so it cannot quietly drift into a copy.
 
 GRAMMAR -- deliberately unchanged from the pipeline this replaces, so the move is
-behaviour-preserving. There is NO allowlist of directory roots (t1275 removed it:
-OVERLAP is an exact full-line intersection, so a root filter can only remove TRUE
-positives). The *extension* list is a KNOWN remaining narrowing, deliberately kept:
+behaviour-preserving, with ONE later exception: the right boundary (t1889), which
+stops a longer extension being truncated to a different file
+(``x/SKILL.md.j2`` -> ``x/SKILL.md``). Its rule and its before/after corpus
+measurement are in the findings doc, section 7.
+
+There is NO allowlist of directory roots (t1275 removed it: OVERLAP is an exact
+full-line intersection, so a root filter can only remove TRUE positives). The *extension* list is a KNOWN remaining narrowing, deliberately kept:
 a plan referencing ``internal/pkg/server.go`` yields zero tokens, so in a
 Go/Rust/JS project the path evidence is empty BY CONSTRUCTION. Consumers must
 surface that as its own state and never as "scanned, nothing to worry about".
@@ -75,8 +79,8 @@ check, which tests ``git diff <base>...origin/<base>`` against the plan through
 ``plan_paths.py --references`` (bridge: ``plan_paths_references``). Consumers
 that need candidates FROM the plan -- the gatherer and parallel admission, which
 have no changed-path set for an in-flight task -- keep the extension grammar
-above, unchanged. That decision and its measurements are recorded in the
-findings doc, section 7.
+above. That decision and its measurements are recorded in the findings doc,
+section 7.
 """
 from __future__ import annotations
 
@@ -85,11 +89,23 @@ import re
 import subprocess
 import sys
 
-# Extraction grammar. Kept byte-identical in meaning to the pipeline it replaces:
+# Extraction grammar. The pipeline it replaces,
 #   grep -oE '[A-Za-z0-9_./-]+\.(sh|py|md|yaml|yml|json|toml)'
+# plus ONE deliberate change (t1889): a right boundary. Without it a longer
+# extension was truncated to a DIFFERENT file -- `x/SKILL.md.j2` extracted as
+# `x/SKILL.md`, the rendered stub -- so a plan editing only a template collided
+# with whatever task touched the stub. A match must not be followed by a token
+# character, except one sentence-final `.` that is itself not followed by one,
+# so `a.md.` keeps `a.md` while `a.md.j2`, `a.mdx` and `a.py/b` yield nothing.
+# On those cases -- an ASCII token character after the extension, and the
+# sentence period -- it agrees with `find_references`' right edge (`_AFTER`
+# below). Only there: that search also treats `@`, `+` and non-ASCII as path
+# characters, so `a.md@v2` still extracts `a.md` here (the charset gap of the
+# findings doc, section 2).
 _EXTENSIONS = ("sh", "py", "md", "yaml", "yml", "json", "toml")
 _TOKEN = re.compile(
-    r"[A-Za-z0-9_./-]+\.(?:" + "|".join(_EXTENSIONS) + r")")
+    r"[A-Za-z0-9_./-]+\.(?:" + "|".join(_EXTENSIONS) + r")"
+    r"(?![A-Za-z0-9_/-]|\.[A-Za-z0-9_./-])")
 
 # Classification vocabulary, in evaluation order. `malformed` is FIRST by
 # contract -- see the module docstring.
