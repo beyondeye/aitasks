@@ -170,3 +170,5 @@ tasks and commits).
 > |   - It sets `TESTMAP_ENGINE_BIN` on rc 0, or `TESTMAP_ENGINE_ERROR` (an `ENGINE_MISSING:<path>|<repair>` line or similar) on rc 3/64.
 > |   - It honours `AIT_TESTMAP_BIN` and `AIT_ENGINE=dev`. Unset both if you want to probe only the release slot.
 > |   - Sourcing enables `set -euo pipefail`, so guard the call as shown.
+
+> **👁 note:read** id=2026-10-05T14:58:38Z.2dea57f475a56b5000e88262 by=t1852_5 at=2026-10-05T14:58:38Z mode=explicit ids=2026-09-23T13:21:13Z.c4cb586f02c1845c7d33bff1,2026-09-24T06:18:19Z.0a80606bb4e8b36b37edcadd,2026-09-25T08:48:00Z.e06c196cbc7cc56a3633ff85,2026-10-05T14:12:21Z.8b5ce5e42187c7856b48f7aa
