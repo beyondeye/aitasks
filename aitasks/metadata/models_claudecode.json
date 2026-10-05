@@ -1494,21 +1494,21 @@
         },
         "changelog": {
           "all_time": {
-            "runs": 1,
-            "score_sum": 100
+            "runs": 2,
+            "score_sum": 200
           },
           "prev_month": {
-            "period": "",
-            "runs": 0,
-            "score_sum": 0
-          },
-          "month": {
             "period": "2026-09",
             "runs": 1,
             "score_sum": 100
           },
+          "month": {
+            "period": "2026-10",
+            "runs": 1,
+            "score_sum": 100
+          },
           "week": {
-            "period": "2026-W39",
+            "period": "2026-W41",
             "runs": 1,
             "score_sum": 100
           }
