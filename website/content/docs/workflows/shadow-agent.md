@@ -8,7 +8,7 @@ depth: [intermediate]
 
 When you have a coding agent working a task, it is not always easy to follow what it is doing — its output can be dense, a plan it produced may assume background you don't have, or it may pause on a question whose context has scrolled away. The **shadow agent** is an advisory companion you launch beside the agent you are watching (the *followed agent*). It reads that agent's terminal output and helps you reason about it, in plain terms, on demand.
 
-The shadow is **read-only and advisory by design**. It explains and suggests; it never types into the followed agent's pane. You remain the one who answers prompts and approves plans — the shadow just makes you a better-informed driver. For how a shadow is bound to the agent it follows, and what that contract does and does not guarantee, see the [Shadow agent](../../concepts/shadow-agent/) concept page.
+The shadow is **read-only and advisory by design**. It explains and suggests; it never types into the followed agent's pane. You remain the one who answers prompts and approves plans — the shadow just makes you a better-informed driver. What keeps it that way, and what that does and does not guarantee, is under [Advisory only](#advisory-only); for the idea in brief, see the [Shadow agent]({{< relref "/docs/concepts/shadow-agent" >}}) concept page.
 
 ## Launching a shadow
 
@@ -31,7 +31,7 @@ When the shadow starts, it greets you with a short summary of what it can do, th
 
 Two things are worth knowing:
 
-- **It reads the followed agent's current screen, and can re-read it any time.** The agent keeps working after you launch the shadow, so its state changes. Ask the shadow to refetch whenever you want it to look at the latest output — or, in minimonitor, arm the [auto-recheck loop](../../tuis/minimonitor/how-to/#how-to-run-the-auto-recheck-loop) with **L** and let it ask for the next review round each time the agent settles.
+- **It reads a copy of the followed agent's screen, and can re-read it any time.** It never joins that agent's session, so what it knows is only as current as its last read. The agent keeps working after you launch the shadow, so its state changes. Ask the shadow to refetch whenever you want it to look at the latest output — or, in minimonitor, arm the [auto-recheck loop](../../tuis/minimonitor/how-to/#how-to-run-the-auto-recheck-loop) with **L** and let it ask for the next review round each time the agent settles.
 - **It offers help proactively.** Each time it reads the screen, the shadow glances at what is visibly there and, if something obviously useful applies, it offers it without being asked — for example, if the agent is paused on a question, it offers to help you decide; if a plan is on screen awaiting approval, it offers to explain or pressure-test it. These are suggestions you can take or ignore; they never restrict what you can ask for.
 - **Some actions are on request only.** The shadow does not proactively diagnose errors, spawn learner agents, or summarise the task. Ask for those actions explicitly when you want them.
 - **Every capability has a shortcode.** The greeting lists them: `>e` explain the screen, `>q` help with the prompt on screen, `>t` the task in plain words, `>px` explain the plan, `>pc` challenge the plan, `>ps` socratic questions, `>pa` the plan's assumptions, `>i` review the implementation (`>i1`–`>i4` pick the tier), `>r` a new review round (`>rpc`, `>ri`, `>rpa`, `>rd` name which review), `>d` diagnose errors, `>l` learn a skill, `>f` refetch the screen, and `>?` to see the list again. The `>` is always required — a bare `t` is just a message. A code works anywhere in a sentence when you are asking for it (`>i3 but only the callers`), while merely talking about one ("what does `>l` do?") gets an answer, not an action.
@@ -186,6 +186,11 @@ Confirmed rejections are kept per task in a local, git-ignored store that is rem
 ## Advisory only
 
 The shadow is read-only with respect to the followed agent. It never sends keystrokes or answers into the agent's pane — not even an answer it just suggested. Everything it produces goes to you, and you decide what to do with it. This is the core contract of the shadow: it informs your decisions without ever making them for you.
+
+Two separate facts keep it advisory, and neither should be read as the other:
+
+- **What the framework runs for the shadow only reads.** It reads the followed agent's screen, and that agent's task and plan files. Forwarding concerns goes through minimonitor or monitor, which copy the concerns you pick to your clipboard; you do the pasting. Nothing the framework runs on the shadow's behalf types into the followed pane.
+- **The shadow is instructed, not sandboxed.** It is an ordinary coding agent with its usual tools, and no sandbox makes typing into the followed pane impossible. Never doing so is a rule in the shadow's own skill — the contract it is built to honour, not an isolation boundary.
 
 ## Configuration
 

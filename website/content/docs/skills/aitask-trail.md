@@ -82,14 +82,14 @@ Create and refresh end by printing a compact account of the trail that was just 
 
 ## Storage
 
-Trails are stored through the artifact substrate, owned by a task and versioned immutably — every earlier version stays retrievable. Manage them with `ait artifact` (`ls`, `get`, `versions`, `rm`). Creating a trail writes the owner task's file, so `ait artifact create` refuses while that file has uncommitted changes — commit or revert them first. Refreshing one only rewrites the manifest, so it is unaffected.
+Trails are stored through the artifact substrate, owned by a task (see [Where a trail is stored]({{< relref "/docs/workflows/implementation-trails" >}}#where-a-trail-is-stored)) and versioned immutably — every earlier version stays retrievable. Manage them with `ait artifact` (`ls`, `get`, `versions`, `rm`). Creating a trail writes the owner task's file, so `ait artifact create` refuses while that file has uncommitted changes — commit or revert them first. Refreshing one only rewrites the manifest, so it is unaffected.
 
 Trails are authored and refreshed through this skill, and read in [`ait trails`]({{< relref "/docs/tuis/trails" >}}) or in the board's By-Trail view (`z`).
 
 ## Related
 
 - [Implementation Trails]({{< relref "/docs/workflows/implementation-trails" >}}) — the end-to-end workflow
-- [Implementation trails (concept)]({{< relref "/docs/concepts/implementation-trails" >}}) — why a trail is a versioned, task-owned artifact
+- [Implementation trails (concept)]({{< relref "/docs/concepts/implementation-trails" >}}) — the concept: what a trail is and why it is kept
 - [Trails TUI]({{< relref "/docs/tuis/trails" >}}) — the stand-alone trail reader, `ait trails`
 - [Board reference]({{< relref "/docs/tuis/board/reference" >}}#by-trail) — the By-Trail view and its keys
 - [`/aitask-work-report`]({{< relref "/docs/skills/aitask-work-report" >}}) — reporting on a column a trail wave was moved into

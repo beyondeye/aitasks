@@ -100,7 +100,7 @@ Acknowledgements are shared state: a note acknowledged on one machine does not r
 
 ## See also
 
-- [Task notes (concept)]({{< relref "/docs/concepts/task-notes" >}}) — why a note is untrusted by construction, and what its provenance can and cannot prove
+- [Task notes (concept)]({{< relref "/docs/concepts/task-notes" >}}) — what a note is and why it exists, in brief
 - [`/aitask-note`]({{< relref "/docs/skills/aitask-note" >}}) — the skill
 - [`ait note`]({{< relref "/docs/commands/note" >}}) — the CLI, its output codes, and what each note records
 - [Follow-Up Tasks]({{< relref "/docs/workflows/follow-up-tasks" >}}) — when what you learned is new work

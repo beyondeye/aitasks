@@ -19,7 +19,7 @@ xdeprepo: backend        # the linked project (a logical name from the registry)
 xdeps: [42, 16_2]        # task IDs in that project, written in its own local format
 ```
 
-- `xdeprepo` is a single project name — one linked project per task. It must resolve through the registry.
+- `xdeprepo` is a single project name — one linked project per task. It must resolve through the registry when the task is created or updated: an unregistered name, or one whose registered path is stale, is refused rather than recorded.
 - `xdeps` is a list of task IDs written the way `backend` numbers them locally: a parent (`42`) or a parent-child pair (`16_2`).
 
 ### How blocking works
@@ -34,7 +34,7 @@ You can set `xdeprepo` **without** `xdeps`. That declares an intent to coordinat
 
 ### When the linked project can't be found
 
-If `xdeprepo` names a project that is not registered, or whose registered path has gone stale, the dependency cannot be checked — so it stays **blocked** and is marked `UNREACHABLE`:
+If `xdeprepo` names a project that is not registered, or whose registered path has gone stale, the dependency cannot be checked — so it stays **blocked** and is marked `UNREACHABLE`. Not knowing whether the other project's work is done is treated as not done, so you never start on a prerequisite that may still be open:
 
 ```text
 Blocked (by backend#42 (UNREACHABLE))
@@ -121,6 +121,6 @@ The in-repo half of this — assessing complexity, splitting into children, and 
 
 ## See also
 
-- [Cross-repo references]({{< relref "/docs/concepts/cross-repo-references" >}}) — the concept: why a logical name resolved at call time is the identity, and why an unresolvable link stays blocked.
+- [Cross-repo references]({{< relref "/docs/concepts/cross-repo-references" >}}) — the concept: what a cross-repo reference is, and why it names a project instead of a path.
 - [Multi-Project]({{< relref "/docs/workflows/multi_project" >}}) — the registry, `ait projects`, cross-repo task creation, and the reference notation this page builds on.
 - [Parallel Planning]({{< relref "/docs/workflows/parallel-planning" >}}) — front-loading complex task decomposition, the in-repo foundation for paired cross-repo planning.

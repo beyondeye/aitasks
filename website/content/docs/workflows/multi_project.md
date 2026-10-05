@@ -10,7 +10,7 @@ When you run more than one aitasks project — say a `frontend` app and the `bac
 
 ## Why logical project names
 
-Cross-repo coordination used to hardcode sibling paths like `../backend/`. That breaks the moment the on-disk layout differs — a teammate's machine, a cloud agent, or a fresh re-clone into a different directory. A per-user registry maps a logical name (`backend`) to a path, and every cross-repo command resolves the name at call time instead of trusting a hardcoded path. For why the name — not the path — is the identity, see [Cross-repo references]({{< relref "/docs/concepts/cross-repo-references" >}}).
+Hardcoding a sibling path like `../backend/` breaks the moment the on-disk layout differs — a teammate's machine, a cloud agent, or a fresh re-clone into a different directory. A per-user registry maps a logical name (`backend`) to a path instead, and every cross-repo command resolves the name at call time rather than trusting a recorded path. For the idea in brief, see [Cross-repo references]({{< relref "/docs/concepts/cross-repo-references" >}}).
 
 ## Per-project identity
 
@@ -26,7 +26,7 @@ project:
 | Field | Required | Notes |
 |---|---|---|
 | `name` | No — defaults to the directory basename | Logical key. Lowercase `[a-z0-9_-]`, unique across your registered projects. |
-| `git_remote` | No | Canonical clone URL. Shown in listings; reserved for future auto-clone. |
+| `git_remote` | No | Canonical clone URL. Shown in listings, and used by `ait projects doctor --clone` to re-clone a stale project. |
 | `project_group` | No | Optional fallback group slug used when the per-user registry has no group for this project. Slugs match `^[a-z0-9][a-z0-9_-]*$`. |
 
 `ait projects add` reads this block; if `name` is omitted it falls back to the project directory's basename.
@@ -85,6 +85,8 @@ Resolution reports one of three states, which surface throughout the tooling:
 | `NOT_FOUND` | No registered project matched the name. |
 | `STALE` | The name is registered, but its path no longer holds an aitasks project (moved or deleted). |
 
+A name that does not resolve is reported, never repaired for you. A command that needs it stops and prints how to register the project (`cd /path/to/backend && ait projects add`). Nothing clones a repository to make a reference resolve: you named the project, and only you know which checkout it means. Cloning happens only when you ask for it, with `ait projects doctor --clone`.
+
 ## The `ait projects` command
 
 `ait projects` manages the registry and resolves names:
@@ -140,7 +142,7 @@ ait create --batch --project backend \
 Two constraints:
 
 - `--project` requires `--batch` (non-interactive creation).
-- `--project` **can** be combined with `--parent`, but the parent is resolved in the **target** project: `ait create --batch --project backend --parent 42` creates a child of `backend`'s task 42. A task can never be made a child of a parent in a *different* project — [hierarchies never cross a repo boundary]({{< relref "/docs/concepts/cross-repo-references" >}}#hierarchies-never-cross-a-repo-boundary).
+- `--project` **can** be combined with `--parent`, but the parent is resolved in the **target** project: `ait create --batch --project backend --parent 42` creates a child of `backend`'s task 42. A task can never be made a child of a parent in a *different* project: a parent and its children always live in one project, and a change that spans two repos is [two parents, one per repo]({{< relref "/docs/workflows/cross_project_dependencies" >}}#planning-paired-work-across-two-repos).
 
 ## Sending a note to a sibling project's task
 

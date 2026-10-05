@@ -60,6 +60,6 @@ For the end-to-end guide — both delivery lanes, where notes surface, and how a
 
 ## Related
 
-- [Task notes]({{< relref "/docs/concepts/task-notes" >}}) — the concept: why cross-task context is untrusted by construction
+- [Task notes]({{< relref "/docs/concepts/task-notes" >}}) — the concept: what a note is and why you would send one
 - [`ait note`]({{< relref "/docs/commands/note" >}}) — the CLI underneath: output codes, acknowledgement, and what each note records
 - [`/aitask-pick`]({{< relref "/docs/skills/aitask-pick" >}}) — where notes surface and are acknowledged

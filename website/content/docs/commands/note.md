@@ -116,7 +116,17 @@ To see a task's unread notes **without** acknowledging them, use the read-only q
 
 It prints one `INBOX_UNREAD:` line per unread note, or `NO_INBOX:` / `NO_UNREAD:` when there is nothing to show.
 
-**A failed commit rolls a receipt back, but keeps a note.** A note's body is irreplaceable, and retrying would append it twice, so a note whose commit failed stays on disk and is reported as `NOTE_APPENDED_UNCOMMITTED:`. A receipt is bookkeeping that is cheap to recreate, and a receipt left on disk but uncommitted would hide a note on this machine with nothing durable behind it — so it is removed, and the note stays unread.
+**A failed commit rolls a receipt back, but keeps a note.** A note's body is irreplaceable, and retrying would append it twice, so a note whose commit failed stays on disk and is reported as `NOTE_APPENDED_UNCOMMITTED:`. A receipt is bookkeeping that is cheap to recreate, and a receipt left on disk but uncommitted would hide a note on this machine with nothing durable behind it — so it is removed, and the note stays unread. If removing the receipt fails too, the receipt stays on disk, uncommitted, hiding the note on this machine. No automatic step can settle that, so it is reported on its own as `READ_ERROR:rollback-failed:`, and stderr names the block: remove it from the task file, or commit it.
+
+### How the inbox is stored
+
+Notes and read receipts share one `## Inbox` section in the task file. Everything in that section is written by the framework except a note's body, which is free text from another session — the one part an untrusted writer controls. It is stored so that it cannot pass for anything else:
+
+- **Every body line is stored behind a `> | ` prefix.** A block header is recognised only at the start of a line, so no line of a note body can parse as one. A note therefore cannot forge a read receipt — for itself or for any other note in the file — and cannot open a new section heading that would swallow what follows it. The prefix is added when the note is written, so every reader is protected without doing anything.
+- **Receipts use the reserved name `read`.** A note's header always names its sender's task, so no note can take that name.
+- **A receipt that does not validate is skipped**, so a malformed receipt can never hide a real note. The read-only `inbox` query reports any block that failed validation as `INBOX_MALFORMED:`, so it is not silently ignored either.
+
+Change the section only through `ait note`.
 
 ### Output
 
@@ -169,16 +179,16 @@ When [`/aitask-note`]({{< relref "/docs/skills/aitask-note" >}}) gets `LIVE_PANE
 | `READ_NOOP:<task-id>` | writer | Every listed note was already acknowledged. Nothing written. Exit 0 |
 | `READ_TARGET_MISSING:<id>` | writer | No task with that id. Exit 1 |
 | `READ_ERROR:<reason>` | writer | No receipt was written. The notes are still unread and will surface again. Exit 1 |
-| `READ_ERROR:rollback-failed:<receipt-id>` | writer | A failed commit could not be rolled back — the one outcome that needs a person to look at the task file. Exit 1 |
+| `READ_ERROR:rollback-failed:<receipt-id>` | writer | A failed commit could not be rolled back — the one outcome that needs a person to look at the task file. stderr names the block: remove it, or commit it. Exit 1 |
 
 ### Provenance
 
-Every note's header line records where it was written, so a reader can check its claims against the exact tree they were made about. For why the fields are shaped this way — why verification is recorded only when proven, and what a commit can and cannot date — see [Task notes]({{< relref "/docs/concepts/task-notes" >}}).
+Every note's header line records where it was written, so a reader can check its claims against the exact tree they were made about.
 
 | Field | Meaning |
 |-------|---------|
 | `from` | The sending task. **A claim**, not a proof. `<project>#t<id>` names a task in another repository |
-| `from_verified=yes` | Written only when the sending session provably held the sender task's lock at write time — same host, same process, same start time. Otherwise the field is left out, never written as `no`: its absence means "not proven", never "disproved". It says nothing about the note's content |
+| `from_verified=yes` | Written only when the sending session provably held the sender task's lock at write time — same host, same process, same start time. Otherwise the field is left out, never written as `no` (the proof also fails for innocent reasons, such as a sending session that holds no task): its absence means "not proven", never "disproved". It says nothing about the note's content |
 | `at` | When the note was written, in UTC |
 | `base` | The commit the sender's code checkout was on — a **full** object id. For a note sent from another repository, the commit of the **recipient's** checkout it was written into |
 | `base_branch` | The branch that commit was on |

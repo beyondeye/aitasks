@@ -22,6 +22,41 @@ only**.
   redirects explicitly in Post-Review Changes (they break silently if
   missed).
 
+## Concept pages (`website/content/docs/concepts/`)
+
+A concept page answers three questions for a newcomer, in plain words: what the
+thing is, why they would want it, and how to use it. The details live on the
+pages it links to. Model: `tasks.md`, `plans.md`, `folded-tasks.md`,
+`execution-profiles.md` (28–80 lines each).
+
+Sections, in this order:
+
+1. `## What it is` — a plain definition in the opening sentences. No mechanism,
+   and no field names unless the field is the thing itself.
+2. `## Why it exists` — the problem the **feature** solves for the user, not the
+   rationale for an internal design choice.
+3. `## How to use` — use cases and entry points (skill, command, TUI key), or how
+   the framework uses it automatically. Short; link out for steps.
+4. `## See also` — the workflow, command, skill and TUI pages where the details
+   live.
+5. `**Next:**` footer — keep the reading chain intact.
+
+No `###` deep-dive subsections under "What it is".
+
+Keep the page on what the feature is, why it is useful and how to use it. Leave
+exact validation, resolution and failure rules to the reference pages: a
+concept page states the idea, not the rules that enforce it.
+
+**Internals belong on the page that owns the behaviour** — the workflow, command
+or skill page, or `aidocs/` for contributor-only mechanism. Before cutting a
+fact from a concept page, check whether the owning page already states it; link
+to it if so, move the fact there if not.
+
+**"Complementary to the workflow page" never means moving the definition off the
+concept page.** A concept page may restate the plain definition the workflow
+page opens with — that overlap is intended. What it must not repeat is the
+workflow's steps and reference detail.
+
 ## "Autonomous", not "auto-execution", for manual-verification prose
 
 In user-facing prose for the manual-verification auto mode (the

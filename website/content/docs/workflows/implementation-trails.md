@@ -126,6 +126,17 @@ A few details worth knowing about `M`:
 
 Ghost members cannot be moved at all: there is no local task file behind them, and the board says so instead of failing quietly.
 
+## Where a Trail Is Stored
+
+A trail is one structured document, stored as a versioned artifact under a handle that **one task owns**: the handle is an entry in that task's `artifacts:` frontmatter (see the [field shape]({{< relref "/docs/development/task-format" >}}#nested-fields-artifacts-and-attachments)). No other task file is written. Which tasks belong to the trail is recorded inside the document, never as a field on the member tasks, so a task can appear in any number of trails without its own file changing.
+
+- **Who owns it.** A trail scoped to one task or one topic is owned by that task or that topic's root. A trail spanning several topics, or an ad-hoc set of tasks, has no natural owner, so `/aitask-trail` asks you to choose one. No extra task is created just to hold a trail.
+- **How it is found.** Trails are found by scanning task frontmatter, active **and archived**. Archiving the owner therefore does not hide a trail: it stays listed and readable, and the trail view notes that its owner is archived. That note is about the owner, not about freshness — a trail goes stale when the tasks it recorded as inputs change, and a chosen owner need not be one of them.
+- **When the owner is folded.** Folding the owner copies its `artifacts:` entry to the primary task, so the trail keeps an owner. Until the folded task's file is deleted when the primary is archived, two task files point at the same trail; it is still listed once, preferring an active, unfolded owner.
+- **One document, several views.** The By-Trail view, `ait trails` and the summary `/aitask-trail` prints are all read from that one document. None of them is stored as a second copy that could disagree with it.
+
+To list, fetch or delete stored versions, see [Storage]({{< relref "/docs/skills/aitask-trail" >}}#storage) on the `/aitask-trail` page.
+
 ## What a Trail Never Does
 
 A trail is **advisory by construction**. It records a recommendation; it does not enforce one.
@@ -134,8 +145,9 @@ A trail is **advisory by construction**. It records a recommendation; it does no
 - It never changes what a work report contains.
 - It never fabricates estimates, progress, or commitments.
 - Analysis is read-only and every stored change is a single write you confirmed.
+- Nothing that enforces anything reads it: gate checks, dependency checks and archival never consult a trail, so a trail can never block or unblock a task.
 
-Topic membership and trail membership are separate on purpose: a task belongs to exactly one topic, but it may appear in several trails, and one trail may span several topics. See [Topic anchoring]({{< relref "/docs/concepts/topic-anchoring" >}}), and [Implementation trails]({{< relref "/docs/concepts/implementation-trails" >}}) (concept) for why a trail is stored the way it is.
+Topic membership and trail membership are separate on purpose: a task belongs to exactly one topic, but it may appear in several trails, and one trail may span several topics. See [Topic anchoring]({{< relref "/docs/concepts/topic-anchoring" >}}), and [Where a Trail Is Stored](#where-a-trail-is-stored) for why appearing in a trail never changes a task's file.
 
 ## Tips
 
