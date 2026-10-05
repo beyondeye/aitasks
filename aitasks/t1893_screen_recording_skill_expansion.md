@@ -5,7 +5,7 @@ depends: []
 issue_type: feature
 status: Ready
 labels: [claudeskills, skills, python, website]
-children_to_implement: [t1893_1, t1893_2, t1893_3, t1893_4, t1893_5, t1893_6, t1893_7, t1893_8]
+children_to_implement: [t1893_1, t1893_2, t1893_3, t1893_4, t1893_5, t1893_6, t1893_7, t1893_8, t1893_9]
 anchor: 1887
 created_at: 2026-10-05 17:18
 updated_at: 2026-10-05 17:18
