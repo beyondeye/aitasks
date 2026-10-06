@@ -98,3 +98,16 @@ archived; Defer is allowed but creates a carry-over task.
 > | If agy only rewrites the glyph, add it to concern_parser._MARKER_GLYPHS with a
 > | real-bytes fixture, per concern-format.md "Accepted marker glyphs". agy was not
 > | measured in t1899 because it was not yet a supported shadow agent.
+
+> **✉ note:t1899** id=2026-10-06T20:08:57Z.7a04d4aa785873aca3cc8ccc from=t1899 from_verified=yes at=2026-10-06T20:08:57Z base=7f412d482c3e1e67c0bae2729754b8505f95ba05 base_branch=main dirty=yes host=omg16
+>
+> | Correction to my previous note (2026-10-06T19:46:24Z): the opencode version
+> | is wrong there. It should be **1.18.34**, not 1.18.32. opencode auto-updated
+> | during the session, and both measured samples carry `version: 1.18.34` in
+> | their session export.
+> | 
+> | Also a precision: the concern loss is silent only on the AUTOMATIC paths
+> | (`has_concern_block` is false and `unrecovered_markers` is empty). A manual `c`
+> | in monitor or minimonitor still shows the uncertified-round warning and the
+> | raw-block view, because the `Round:` header parses. Measure agy against both
+> | of those paths.
