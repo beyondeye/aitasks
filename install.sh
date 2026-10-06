@@ -15,6 +15,11 @@ LOCAL_TARBALL=""
 # AIT_TARGET_VERSION env var (the latter is how `ait upgrade` threads the
 # resolved version through). Empty => resolve the latest release.
 TARGET_VERSION=""
+# Test map engine flags, passed through to install_engine_binary() from
+# aitask_setup.sh (t1852_5). --local-engine is resolved to an absolute path here.
+ENGINE_ARGS=()
+ENGINE_NO_TESTMAP=false
+ENGINE_OTHER_FLAG=false
 
 # --- Color helpers ---
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
@@ -37,6 +42,13 @@ Options:
                       release-assets CDN — no GitHub REST API call. Defaults to
                       the latest release when omitted.
   --local-tarball PATH  Use a local tarball instead of downloading from GitHub
+                      (an offline install: the test map engine is not fetched)
+  --local-engine PATH Install this ait-testmap binary as the test map engine
+  --engine-from-source
+                      If no release engine can be fetched, build one from the Go
+                      source (aitasks framework checkout only; needs Go)
+  --force-engine      Replace an engine slot marked as a custom build (.dev)
+  --no-testmap        Skip the test map engine install
   --help              Show this help message
 
 Examples:
@@ -78,6 +90,22 @@ while [[ $# -gt 0 ]]; do
             LOCAL_TARBALL="$2"
             shift 2
             ;;
+        --local-engine)
+            [[ $# -ge 2 && -n "$2" ]] || die "--local-engine requires a path argument"
+            [[ -f "$2" ]] || die "--local-engine: no such file: $2"
+            ENGINE_ARGS+=(--local-engine "$(cd "$(dirname "$2")" && pwd)/$(basename "$2")")
+            ENGINE_OTHER_FLAG=true
+            shift 2
+            ;;
+        --engine-from-source)
+            ENGINE_ARGS+=(--engine-from-source); ENGINE_OTHER_FLAG=true; shift
+            ;;
+        --force-engine)
+            ENGINE_ARGS+=(--force-engine); ENGINE_OTHER_FLAG=true; shift
+            ;;
+        --no-testmap)
+            ENGINE_ARGS+=(--no-testmap); ENGINE_NO_TESTMAP=true; shift
+            ;;
         --help|-h)
             usage
             ;;
@@ -86,6 +114,10 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+if [[ "$ENGINE_NO_TESTMAP" == true && "$ENGINE_OTHER_FLAG" == true ]]; then
+    die "--no-testmap cannot be combined with --local-engine, --engine-from-source or --force-engine"
+fi
 
 # Resolve INSTALL_DIR to absolute path
 INSTALL_DIR="$(cd "$INSTALL_DIR" 2>/dev/null && pwd)" || die "Directory does not exist: $INSTALL_DIR"
@@ -1516,6 +1548,16 @@ main() {
     # shellcheck source=.aitask-scripts/aitask_setup.sh
     source "$INSTALL_DIR/.aitask-scripts/aitask_setup.sh" --source-only
     install_global_shim
+
+    # The test map engine for this framework version. Never fatal: the function
+    # reports every outcome as a TESTMAP_BINARY: line. A --local-tarball install
+    # is an offline one, so only the network tier is switched off there.
+    info "Installing test map engine..."
+    if [[ -n "$LOCAL_TARBALL" ]]; then
+        AIT_TESTMAP_FETCH=0 install_engine_binary ${ENGINE_ARGS[@]+"${ENGINE_ARGS[@]}"} || true
+    else
+        install_engine_binary ${ENGINE_ARGS[@]+"${ENGINE_ARGS[@]}"} || true
+    fi
 
     # Drop the framework-release packaging/ tooling now that the shim is copied.
     cleanup_packaging_leftover "$INSTALL_DIR"

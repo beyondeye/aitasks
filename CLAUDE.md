@@ -100,6 +100,25 @@ check `${PIPESTATUS[0]}`. The verdict banner goes to stderr so it survives
 shellcheck .aitask-scripts/aitask_*.sh
 ```
 
+### Engine (ait-testmap)
+The test map engine is a Go binary built from `goengines/`. `ait setup` and
+`ait upgrade` (through `install.sh`) install it for exactly
+`.aitask-scripts/VERSION` into `$AITASKS_HOME/engine/v<V>/` (default
+`~/.aitasks`), verified against the release's SHA256SUMS file. Only `ait setup`
+then prints `TESTMAP:<state>`. The engine flags `--local-engine <path>`,
+`--engine-from-source`, `--force-engine` (replace a `.dev`-marked custom build)
+and `--no-testmap` are accepted by `ait setup` and `install.sh`, not by
+`ait upgrade`; `AIT_TESTMAP_FETCH=0` skips the download on every path.
+Developer verbs:
+```bash
+ait engine build            # this checkout -> $AITASKS_HOME/engine/dev/ (use: AIT_ENGINE=dev ait testmap …)
+ait engine test             # go vet + go test over goengines/
+ait engine cross            # release matrix + sums (goengines/build.sh all)
+ait engine prune [--dry-run]  # drop v*/ slots no registered project uses
+```
+Build and release mechanics: `aidocs/framework/go_engine.md`; engine interfaces:
+`goengines/README.md`.
+
 ### Website (Hugo/Docsy)
 ```bash
 cd website && npm install && ./serve.sh    # Local dev server

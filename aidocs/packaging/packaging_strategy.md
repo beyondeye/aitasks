@@ -208,6 +208,35 @@ maintainers.
 
 This note appears verbatim in t623_6's user-facing docs page.
 
+## Per-user engine binary (`~/.aitasks/engine/`)
+
+The test map engine (`ait-testmap`, a compiled Go binary) is **not** shipped by
+any PM package and not by the framework tarball. The packages stay shim-only,
+and the nfpm package stays `arch: all`. Instead, `ait setup`, and `ait upgrade`
+through `install.sh`, install the engine for **exactly** the framework version in
+`.aitask-scripts/VERSION`. The install has four properties:
+
+- **Location.** The engine goes into the per-user directory
+  `$AITASKS_HOME/engine/v<V>/ait-testmap` (default `~/.aitasks/engine/`). One
+  directory per framework version serves every project on that version; the
+  `ait testmap` shim never falls back to a different version.
+- **Source.** The binary is the release asset `ait-testmap_<V>_<os>_<arch>`
+  (linux/darwin × amd64/arm64), downloaded from the same GitHub release URL
+  family as the framework tarball.
+- **Verification.** The download is checked against
+  `ait-testmap_<V>_SHA256SUMS.txt` and must report version `<V>` before it
+  replaces anything. A `.sha256` sidecar beside the installed binary lets later
+  runs skip the download.
+- **Opting out and offline hosts.** `--no-testmap` or `AIT_TESTMAP_FETCH=0`
+  skip the engine. Air-gapped and off-matrix hosts supply it with
+  `--local-engine <path>`, or `--engine-from-source` in a framework checkout.
+  Such a slot is marked `.dev` and is replaced only with `--force-engine`. A
+  `--local-tarball` install never fetches the engine.
+
+`ait engine prune` removes version directories no project in the `ait projects`
+registry uses. The build, checksum and release-asset mechanics are in
+`aidocs/framework/go_engine.md`.
+
 ## Deferred follow-ups
 
 | Item | Notes |

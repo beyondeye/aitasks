@@ -76,6 +76,7 @@ Tools:
   chatlink       Run the chat bug-intake gateway daemon (--headless)
   codeagent      Manage code agent and model configuration
   testmap        Run the test map engine (ait-testmap) after its version handshake
+  engine         Build, test, cross-build and prune the test map engine binaries
   skillrun       Launch a code agent with a profile-aware aitask skill
   explain-runs     Manage aitask-explain run directories
   explain-cleanup  Remove stale aitask-explain run directories
@@ -190,9 +191,10 @@ check_for_updates() {
 
 # Check for updates (skip for meta-commands, upgrade, and git passthrough).
 # `testmap` is skipped because its stdout is the engine's line protocol (the
-# notice would corrupt it) and a gate run must never perform a network fetch.
+# notice would corrupt it) and a gate run must never perform a network fetch;
+# `engine` because its stdout is line protocol too.
 case "${1:-help}" in
-    help|--help|-h|--version|-v|upgrade|setup|git|sync|lock|codeagent|crew|brainstorm|settings|monitor|minimonitor|ide|syncer|skillrun|projects|frozenagent|testmap) ;;
+    help|--help|-h|--version|-v|upgrade|setup|git|sync|lock|codeagent|crew|brainstorm|settings|monitor|minimonitor|ide|syncer|skillrun|projects|frozenagent|testmap|engine) ;;
     *) check_for_updates ;;
 esac
 
@@ -243,6 +245,7 @@ case "${1:-help}" in
     sync)         shift; exec "$SCRIPTS_DIR/aitask_sync.sh" "$@" ;;
     codeagent)    shift; exec "$SCRIPTS_DIR/aitask_codeagent.sh" "$@" ;;
     testmap)      shift; exec "$SCRIPTS_DIR/aitask_testmap.sh" "$@" ;;
+    engine)       shift; exec "$SCRIPTS_DIR/aitask_engine.sh" "$@" ;;
     crew)
         shift
         subcmd="${1:-}"

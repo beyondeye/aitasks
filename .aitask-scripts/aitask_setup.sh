@@ -2396,6 +2396,276 @@ setup_aitasks_home() {
     success "AITASKS_HOME:$AITASKS_HOME"
 }
 
+# --- Test map engine install (t1852_5) ---
+# install_engine_binary [--local-engine <path>] [--engine-from-source]
+#                       [--no-testmap] [--force-engine]
+# Installs the ait-testmap engine for exactly this framework VERSION into
+# $AITASKS_HOME/engine/v<V>/ait-testmap. Reached by `ait setup` and — through
+# install.sh, which sources this file — by `ait upgrade`. Source order:
+#   --local-engine (final when given) > the exact-version release asset >
+#   --engine-from-source > an ENGINE_MISSING warning.
+# AIT_TESTMAP_FETCH=0 switches the release tier off (install.sh sets it for a
+# --local-tarball install); with no other source that is TESTMAP_BINARY:skipped.
+# AIT_ENGINE_RELEASE_URL overrides the release base URL (mirrors, file:// tests).
+# Never fatal: every outcome is a TESTMAP_BINARY: line and the function returns
+# 0, so nothing else in setup depends on the engine. The staging, checksum,
+# lock and publication mechanics live in lib/engine_install.sh.
+install_engine_binary() {
+    local local_engine="" from_source=0 no_testmap=0 force=0 fetch=1
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --local-engine)
+                if [[ $# -lt 2 || -z "$2" ]]; then
+                    echo "TESTMAP_BINARY:usage|--local-engine needs a path"
+                    return 0
+                fi
+                local_engine="$2"; shift 2 ;;
+            --engine-from-source) from_source=1; shift ;;
+            --no-testmap)         no_testmap=1; shift ;;
+            --force-engine)       force=1; shift ;;
+            *)
+                echo "TESTMAP_BINARY:usage|unknown option $1"
+                return 0 ;;
+        esac
+    done
+
+    if [[ "$no_testmap" == 1 ]]; then
+        if [[ -n "$local_engine" || "$from_source" == 1 || "$force" == 1 ]]; then
+            echo "TESTMAP_BINARY:usage|--no-testmap cannot be combined with another engine flag"
+            return 0
+        fi
+        echo "TESTMAP_BINARY:skipped"
+        info "Test map engine install skipped (--no-testmap)."
+        return 0
+    fi
+    [[ "${AIT_TESTMAP_FETCH:-1}" == 0 ]] && fetch=0
+    if [[ "$fetch" == 0 && -z "$local_engine" && "$from_source" == 0 ]]; then
+        echo "TESTMAP_BINARY:skipped"
+        info "Test map engine fetch skipped (AIT_TESTMAP_FETCH=0); run 'ait setup' online, or pass --local-engine <path>."
+        return 0
+    fi
+
+    # shellcheck source=lib/engine_install.sh
+    if ! source "$SETUP_LIB_DIR/engine_install.sh"; then
+        echo "TESTMAP_BINARY:lib-missing|$SETUP_LIB_DIR/engine_install.sh"
+        return 0
+    fi
+    # shellcheck source=lib/platform_detect.sh
+    if ! source "$SETUP_LIB_DIR/platform_detect.sh"; then
+        echo "TESTMAP_BINARY:lib-missing|$SETUP_LIB_DIR/platform_detect.sh"
+        return 0
+    fi
+
+    local v=""
+    if ! v="$(engine_read_framework_version "$VERSION_FILE")"; then
+        echo "TESTMAP_BINARY:version-invalid|$VERSION_FILE"
+        return 0
+    fi
+    case "$AITASKS_HOME" in
+        *'|'*|*$'\n'*|*$'\r'*)
+            echo "TESTMAP_BINARY:path-unsafe|AITASKS_HOME"
+            return 0 ;;
+    esac
+    local slot bin
+    slot="$(aitasks_engine_dir "$v")"
+    bin="$slot/ait-testmap"
+
+    # Fast path only — the authoritative .dev re-check runs under the slot lock.
+    if [[ "$force" != 1 && -e "$slot/.dev" ]]; then
+        engine_publish_report 4 "$bin" ""
+        return 0
+    fi
+
+    local staging rc=0
+    if ! staging="$(engine_staging_dir)"; then
+        echo "TESTMAP_BINARY:staging-failed|$AITASKS_HOME/engine"
+        rc=1
+    else
+        _install_engine_tiers "$staging" "$v" "$slot" "$local_engine" "$from_source" "$force" "$fetch" || rc=$?
+        engine_slot_unlock
+        rm -rf -- "$staging" 2>/dev/null || warn "Could not remove the staging dir $staging"
+    fi
+
+    # 0 installed/present, 4 kept-dev: nothing more to say.
+    if [[ "$rc" -ne 0 && "$rc" -ne 4 ]]; then
+        if [[ -f "$bin" ]] && engine_self_check "$bin" "$v" >/dev/null; then
+            info "The existing engine at $bin was left in place."
+        else
+            echo "ENGINE_MISSING:$bin|run 'ait setup --local-engine <path>' or 'ait setup --engine-from-source'"
+            warn "No ait-testmap engine is installed for v$v. 'ait testmap' will refuse until one is; nothing else depends on it."
+        fi
+    fi
+    return 0
+}
+
+# _install_engine_tiers <staging> <V> <slot> <local path> <from_source> <force> <fetch>
+# The source tiers of install_engine_binary, in order. Prints the protocol lines.
+# 0 installed or present · 1 nothing installed · 4 kept-dev · 5 publish failed.
+_install_engine_tiers() {
+    local staging="$1" v="$2" slot="$3" local_engine="$4" from_source="$5" force="$6" fetch="$7"
+    local bin="$slot/ait-testmap" found="" hex="" prc=0
+
+    # Tier 1 — an explicit local binary is final: no fallback to another source.
+    if [[ -n "$local_engine" ]]; then
+        if [[ ! -f "$local_engine" ]]; then
+            echo "TESTMAP_BINARY:local-missing"
+            warn "--local-engine: no such file: $local_engine"
+            return 1
+        fi
+        if ! cp "$local_engine" "$staging/ait-testmap" 2>/dev/null ||
+           ! engine_stage_exec "$staging/ait-testmap"; then
+            echo "TESTMAP_BINARY:stage-failed|local"
+            return 1
+        fi
+        if ! found="$(engine_self_check "$staging/ait-testmap" "$v")"; then
+            echo "TESTMAP_BINARY:self-check-failed|local|$found"
+            warn "--local-engine reports version '$found'; this framework needs exactly '$v'."
+            return 1
+        fi
+        engine_publish_locked marked "$staging/ait-testmap" "$slot" "$force" || prc=$?
+        engine_publish_report "$prc" "$bin" local
+        case "$prc" in 0) return 0 ;; 4) return 4 ;; *) return 5 ;; esac
+    fi
+
+    # An intact, verified release install needs no network at all.
+    if [[ "$force" != 1 && -f "$bin" && -f "$slot/ait-testmap.sha256" ]] &&
+       hex="$(engine_sum_lookup "$slot/ait-testmap.sha256" ait-testmap)" &&
+       engine_file_matches "$bin" "$hex" &&
+       engine_self_check "$bin" "$v" >/dev/null; then
+        echo "TESTMAP_BINARY:present|$bin"
+        return 0
+    fi
+
+    # Tier 2 — the exact-version release asset, checksum-verified.
+    if [[ "$fetch" == 1 ]]; then
+        local suffix="" base asset sums
+        if suffix="$(platform_asset_suffix 2>/dev/null)"; then
+            base="${AIT_ENGINE_RELEASE_URL:-https://github.com/$REPO/releases/download/v$v}"
+            asset="ait-testmap_${v}_${suffix}"
+            sums="ait-testmap_${v}_SHA256SUMS.txt"
+            info "Fetching test map engine $asset ..."
+            if ! engine_fetch "$base/$sums" "$staging/$sums"; then
+                echo "TESTMAP_BINARY:fetch-failed|$base/$sums"
+            elif ! engine_fetch "$base/$asset" "$staging/$asset"; then
+                echo "TESTMAP_BINARY:fetch-failed|$base/$asset"
+            elif ! hex="$(engine_sum_lookup "$staging/$sums" "$asset")" ||
+                 ! engine_file_matches "$staging/$asset" "$hex"; then
+                echo "TESTMAP_BINARY:checksum-mismatch|$asset"
+                warn "$asset does not match $sums — refused; nothing was installed."
+            elif ! engine_stage_exec "$staging/$asset"; then
+                echo "TESTMAP_BINARY:stage-failed|release"
+            elif ! found="$(engine_self_check "$staging/$asset" "$v")"; then
+                echo "TESTMAP_BINARY:self-check-failed|release|$found"
+            else
+                local sidecar="$staging/ait-testmap.sha256"
+                { printf '%s  ait-testmap\n' "$hex" > "$sidecar"; } 2>/dev/null || sidecar=""
+                engine_publish_locked release "$staging/$asset" "$slot" "$force" "$sidecar" || prc=$?
+                engine_publish_report "$prc" "$bin" release
+                case "$prc" in 0) return 0 ;; 4) return 4 ;; *) return 5 ;; esac
+            fi
+        else
+            echo "TESTMAP_BINARY:platform-unsupported|$(uname -s)|$(uname -m)"
+            info "No prebuilt engine for this platform; build one with --engine-from-source or supply --local-engine <path>."
+        fi
+    fi
+
+    # Tier 3 — build from the Go source (a framework checkout only).
+    if [[ "$from_source" == 1 ]]; then
+        local root build out built
+        root="$(cd "$SETUP_LIB_DIR/../.." && pwd)"
+        build="$root/goengines/build.sh"
+        if [[ ! -f "$build" ]]; then
+            echo "TESTMAP_BINARY:no-source|$build"
+            info "The Go source ships only in the aitasks framework repository: build there with 'goengines/build.sh host --version $v', then re-run with --local-engine <path>."
+            return 1
+        fi
+        info "Building the test map engine from source ..."
+        if ! out="$(bash "$build" --version "$v" --out "$staging/src" host)"; then
+            echo "TESTMAP_BINARY:build-failed|$build"
+            return 1
+        fi
+        built="$(printf '%s\n' "$out" | sed -n 's/^BUILT://p')"
+        if [[ -z "$built" || "$built" == *$'\n'* || ! -f "$built" ]] ||
+           ! engine_stage_exec "$built"; then
+            echo "TESTMAP_BINARY:build-failed|$build"
+            return 1
+        fi
+        if ! found="$(engine_self_check "$built" "$v")"; then
+            echo "TESTMAP_BINARY:self-check-failed|source|$found"
+            return 1
+        fi
+        engine_publish_locked marked "$built" "$slot" "$force" || prc=$?
+        engine_publish_report "$prc" "$bin" source
+        case "$prc" in 0) return 0 ;; 4) return 4 ;; *) return 5 ;; esac
+    fi
+    return 1
+}
+
+# report_testmap_state — TESTMAP:<state> for this project, after the install.
+# Setup reports; it never onboards. The engine probe is the shim's own handshake
+# (so it honours AIT_TESTMAP_BIN / AIT_ENGINE exactly as `ait testmap` would);
+# "registry present" is aitestmap/config.yaml, the same rule `ait test` uses.
+report_testmap_state() {
+    local project_dir="$SCRIPT_DIR/.." err=""
+    if ! err="$(
+        # shellcheck source=aitask_testmap.sh
+        source "$SETUP_LIB_DIR/../aitask_testmap.sh" --source-only 2>/dev/null || exit 3
+        rc=0
+        testmap_resolve_engine 2>/dev/null || rc=$?
+        if [[ "$rc" -ne 0 ]]; then
+            printf '%s\n' "$TESTMAP_ENGINE_ERROR"
+            exit "$rc"
+        fi
+    )"; then
+        echo "TESTMAP:engine-missing"
+        [[ -n "$err" ]] && info "  $err"
+        return 0
+    fi
+    # M6.1 (t1857) named extension: an unfinished aitestmap/onboard.yaml ledger
+    # reports TESTMAP:bootstrapping|<next phase> — insert its branch between the
+    # absent and onboarded arms below.
+    if [[ ! -f "$project_dir/aitestmap/config.yaml" ]]; then
+        echo "TESTMAP:absent|run /aitask-testmap-onboard"
+        info "No test map in this project yet: run /aitask-testmap-onboard to enable change-aware test selection."
+    else
+        echo "TESTMAP:onboarded"
+    fi
+    return 0
+}
+
+# --- Test map scratch gitignore rule (t1852_5) ---
+# .aitask-testmap/ holds per-checkout runs, the cost ledger and onboarding
+# scratch; it must never be committed. Unlike the older helpers above, the
+# commit names its one path, so nothing another session staged rides along.
+setup_testmap_gitignore() {
+    local project_dir="$SCRIPT_DIR/.."
+    local gitignore="$project_dir/.gitignore"
+
+    if [[ -f "$gitignore" ]] && grep -qxF ".aitask-testmap/" "$gitignore"; then
+        success "Test map scratch rule already in .gitignore"
+        return
+    fi
+
+    info "Adding .aitask-testmap/ to .gitignore (test map runs and ledger)..."
+
+    if [[ -f "$gitignore" ]]; then
+        echo "" >> "$gitignore"
+        echo "# Test map runs, ledger and onboarding scratch (per-checkout)" >> "$gitignore"
+        echo ".aitask-testmap/" >> "$gitignore"
+    else
+        {
+            echo "# Test map runs, ledger and onboarding scratch (per-checkout)"
+            echo ".aitask-testmap/"
+        } > "$gitignore"
+    fi
+
+    if git -C "$project_dir" rev-parse --is-inside-work-tree &>/dev/null; then
+        (cd "$project_dir" && git add .gitignore && git commit -m "ait: Add .aitask-testmap/ to .gitignore (test map scratch)" -- .gitignore 2>/dev/null) || true
+    fi
+
+    success "Test map scratch rule added to .gitignore"
+}
+
 # --- Worktree-directory gitignore rules (t1616) ---
 # The framework creates two worktree trees inside the project: task worktrees at
 # aiwork/<task_name> (task-workflow Step 7) and AgentCrew worktrees at
@@ -4459,6 +4729,15 @@ Options:
                 which gives the Python test suite a parallel lane
   --hooks-only  Only install / repair the Claude Code session hook, needed to
                 restore Claude Code agents frozen later; skips every other step
+  --local-engine <path>
+                Install this ait-testmap binary as the test map engine (it must
+                report exactly this framework's version) instead of downloading
+  --engine-from-source
+                If no release engine can be fetched, build one with
+                goengines/build.sh (aitasks framework checkout only; needs Go)
+  --force-engine
+                Replace an engine slot marked as a custom build (.dev)
+  --no-testmap  Skip the test map engine install entirely
   --yes         With --hooks-only: accept the hook without a prompt, for
                 non-interactive use
   -h, --help    Show this help message
@@ -4466,10 +4745,15 @@ Options:
 Each opt-in tier is remembered after the first opt-in: later plain 'ait setup'
 runs revalidate and repair it without re-passing the flag.
 
+The test map engine is installed to $AITASKS_HOME/engine/v<VERSION>/ (default
+~/.aitasks). AIT_TESTMAP_FETCH=0 skips the download; an explicit
+--local-engine or --engine-from-source still installs.
+
 Examples:
   ait setup                            # Install / repair dependencies and config
   ait setup --with-dev                 # ... plus the pytest test tier
   ait setup --with-pypy --with-chat    # ... plus the PyPy and chat tiers
+  ait setup --local-engine ./ait-testmap   # install a locally built engine
   ait setup --hooks-only               # Only install the Claude Code session hook
 EOF
 }
@@ -4481,6 +4765,8 @@ main() {
     INSTALL_DEV=0
     local hooks_only=0 assume_yes=0
     local args=()
+    # Test map engine flags, passed through to install_engine_binary.
+    local engine_args=() no_testmap=0 other_engine_flag=0 engine_path=""
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --with-pypy) INSTALL_PYPY=1; shift ;;
@@ -4488,6 +4774,19 @@ main() {
             --with-dev)  INSTALL_DEV=1; shift ;;
             --hooks-only) hooks_only=1; shift ;;
             --yes)       assume_yes=1; shift ;;
+            --local-engine)
+                [[ $# -ge 2 && -n "$2" ]] || die "--local-engine requires a path argument"
+                # `ait` has already cd'ed to the project root: a relative path
+                # means the directory the user typed the command in.
+                engine_path="$2"
+                [[ "$engine_path" == /* ]] || engine_path="${AIT_INVOCATION_PWD:-$PWD}/$engine_path"
+                [[ -f "$engine_path" ]] || die "--local-engine: no such file: $2"
+                engine_args+=(--local-engine "$engine_path")
+                other_engine_flag=1
+                shift 2 ;;
+            --engine-from-source) engine_args+=(--engine-from-source); other_engine_flag=1; shift ;;
+            --force-engine)       engine_args+=(--force-engine); other_engine_flag=1; shift ;;
+            --no-testmap)         engine_args+=(--no-testmap); no_testmap=1; shift ;;
             # Must exit before any setup step runs: falling through to the
             # catch-all below made 'ait setup --help' run the full guided
             # install — the very side effects the user was asking about.
@@ -4500,6 +4799,12 @@ main() {
 
     if [[ "$assume_yes" == "1" && "$hooks_only" != "1" ]]; then
         die "--yes is only meaningful with --hooks-only"
+    fi
+    if [[ "$no_testmap" == "1" && "$other_engine_flag" == "1" ]]; then
+        die "--no-testmap cannot be combined with --local-engine, --engine-from-source or --force-engine"
+    fi
+    if [[ "$hooks_only" == "1" && ${#engine_args[@]} -gt 0 ]]; then
+        die "--hooks-only cannot be combined with the test map engine flags"
     fi
     if [[ "$hooks_only" == "1" ]]; then
         local rc=0
@@ -4540,6 +4845,9 @@ main() {
     echo ""
 
     setup_gate_logs_gitignore
+    echo ""
+
+    setup_testmap_gitignore
     echo ""
 
     setup_shadow_store_gitignore
@@ -4613,6 +4921,10 @@ main() {
     echo ""
 
     install_global_shim
+    echo ""
+
+    install_engine_binary ${engine_args[@]+"${engine_args[@]}"}
+    report_testmap_state
     echo ""
 
     setup_code_agents

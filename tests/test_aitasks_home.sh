@@ -158,11 +158,15 @@ FEATURE_FILES=(
     ".aitask-scripts/aitask_testmap.sh"              # M1.4 — the shim
     ".aitask-scripts/lib/platform_detect.sh"         # M1.4
     ".aitask-scripts/aitask_engine.sh"               # M1.5 / M1.6 — mixed: mark migration lines
+    ".aitask-scripts/lib/engine_install.sh"          # M1.5 — staging, verify, slot lock, publish
     ".aitask-scripts/aitask_test.sh"                 # M5.1
     ".aitask-scripts/aitask_gate_testmap_check.sh"   # M8.2
 )
 FEATURE_FUNCTIONS=(
-    "aitask_setup.sh:setup_aitasks_home"             # M1.1 (M1.5 adds its two)
+    "aitask_setup.sh:setup_aitasks_home"             # M1.1
+    "aitask_setup.sh:install_engine_binary"          # M1.5
+    "aitask_setup.sh:_install_engine_tiers"          # M1.5 — install_engine_binary's source tiers
+    "aitask_setup.sh:report_testmap_state"           # M1.5
 )
 LEGACY_RE='(\$HOME|\$\{HOME\}|~)/\.aitask(/|["'"'"'[:space:]]|$)'
 MARKER_RE='#[[:space:]]*legacy-root-ok:'

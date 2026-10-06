@@ -21,6 +21,9 @@ aiwork/
 # committed, not the raw logs)
 .aitask-gates/
 
+# Test map runs, ledger and onboarding scratch (per-checkout)
+.aitask-testmap/
+
 # Shadow concern-rejection store (per-task, local-only; pruned at archive)
 .aitask-shadow/
 
