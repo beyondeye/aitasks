@@ -79,3 +79,16 @@ Things to weigh in planning, none of them prescribed here:
   `.aitask-scripts/monitor/monitor_shared.py` (freshness/staleness),
   `.aitask-scripts/aitask_shadow_capture.sh`, and the "Capture-window contract"
   in `.claude/skills/aitask-shadow/concern-format.md`.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1900** id=2026-10-06T05:55:44Z.c71edcbb2a38c43ced71b6be from=t1900 at=2026-10-06T05:55:44Z base=3b82c14cbcc93f1a6249ef4443ef9ad10afba865 base_branch=main dirty=yes host=omg16
+>
+> | Advisory note from an explore session (2026-10-06). The user postponed this task in favour of a simpler fix tracked by t1900 (codex_shadow_inline_launch_mode).
+> | 
+> | Measured root cause: codex-cli 0.160.0 runs its TUI on the alternate screen by default. 0.154.0 ran inline (tmux list-panes: 0.154 shadows alt=0, hist 104/545; 0.160 shadows alt=1, hist 0). 0.160 adds `--no-alt-screen` (inline mode, preserving scrollback). So the "Codex runs on the alternate screen, no scrollback" premise in this task is a launch-mode regression, not an inherent property.
+> | 
+> | t1900 launches Codex shadows (only) in inline mode, so the existing --deep capture reads scrollback again. That should satisfy this task's acceptance criterion (scrolling must not change the concern list or the freshness verdict), because tmux copy-mode scrolling does not alter capture-pane output. This has not been verified live yet.
+> | 
+> | Residual cases t1900 does NOT address and that may justify reviving this task: a block longer than the 400-line deep window, and chrome folding into an unclosed block while a review is still streaming. Re-scope against those once t1900 lands.
