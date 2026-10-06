@@ -287,3 +287,27 @@ launch-mode change, scoped to `invoke shadow` with a Codex agent only.
 
 ### Planned mitigations
 - timing: post-phase | name: live_inline_probe | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement (inline mode unmeasured through the real launcher) | desc: Boot the real `invoke shadow` codex argv in an isolated tmux socket; assert alternate_on=0 and growing history_size
+
+## Final Implementation Notes
+- **Actual work done:**
+  - `aitask_codeagent.sh`: added `CODEX_SHADOW_OVERRIDES=(-c tui.alternate_screen=never)`. It is appended after the model flag in the Codex skill-composer arm, for `operation == shadow` only.
+  - `review_loop.py`: added `_codex_dialog_is_historical`, wired through `_ordered_state` / `_composer_state` as a keyword argument that defaults to `None`, so Claude and OpenCode are byte-identical.
+  - Two measured 0.160 inline fixtures.
+  - Tests: Test 11f (launcher); `CodexHistoricalDialogTests` (6 tests, including a regression matrix over all 14 codex fixtures and negative controls); an end-to-end settle-latch recovery test with a negative control.
+  - Wording fixes in `capture_raw_tail`, `pane_state_probe._CAPTURE_LINES`, `concern-format.md` and `shadow_agent.md` (spawn-path paragraph, historical-dialog paragraph, `-S -15` recipe).
+- **Deviations from plan:**
+  - The step-3 measurement found that 0.160 rewords the update dialog's hint to `enter continue · esc skip`. On 0.160 the dismissed capture therefore already read `ready`, because no pattern matches the retained rows.
+  - The rule was kept anyway, as planned. Pre-0.160 inline builds still match, and `test_a_pattern_for_the_0160_wording_would_not_wedge_it` pins that a future pattern for the new wording cannot reintroduce the hang.
+  - live_inline_probe dropped only the trailing composer prompt from the real dry-run argv, so no model turn ran. A local `/status` grew the history from 10 to 15 with alternate_on=0.
+- **Issues encountered:**
+  - A mise install never shows the 3-option update dialog. It was forced through an isolated `CODEX_HOME`, with `version.json` claiming 0.161.0 and `CODEX_MANAGED_BY_NPM=1`.
+  - The dismissed rows stayed in the `-S -15` window (history_size 3→13).
+- **Key decisions:**
+  - Use the `-c` config form over `--no-alt-screen`, so no version gate is needed.
+  - The historical-dialog rule is codex-only, with Claude left unmeasured.
+  - The resume arm is unchanged, because shadows are excluded from discovery and so are never frozen.
+- **Upstream defects identified:**
+  - `.aitask-scripts/monitor/prompt_patterns.py:290-293` — `codex_update_prompt` matches only the pre-0.160 wording (`Press enter to continue`). codex-cli 0.160.0 renders `enter continue · esc skip`, so the startup update dialog is no longer pattern-detected on followed panes. The review loop still classifies it as `dialog` structurally, through the option row.
+
+## Post-phase (risk mitigations) — outcome
+- live_inline_probe: done. The real `invoke shadow` codex argv booted inline (alternate_on=0, history 10→15).
