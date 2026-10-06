@@ -3,12 +3,13 @@ priority: high
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [shadow, aitask_monitormini, codex, codeagent]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1892
 created_at: 2026-10-06 08:55
-updated_at: 2026-10-06 08:55
+updated_at: 2026-10-06 08:56
 ---
 
 ## Symptom
