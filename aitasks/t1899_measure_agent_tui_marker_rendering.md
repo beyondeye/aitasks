@@ -3,13 +3,14 @@ priority: low
 effort: low
 depends: []
 issue_type: chore
-status: Ready
+status: Implementing
 labels: [shadow, aitask_monitormini, tui, codex]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1892
 followup_kind: risk_mitigation
 created_at: 2026-10-05 23:42
-updated_at: 2026-10-05 23:42
+updated_at: 2026-10-06 09:21
 ---
 
 ## Origin
