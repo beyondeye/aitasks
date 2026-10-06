@@ -46,3 +46,15 @@ Source: `.claude/skills/aitask-shadow/SKILL.md.j2` (Step 0, Step 3 "Shortcodes")
 - [ ] With the followed agent still in plan mode (`aitask_shadow_context.sh` returns `PLAN_FILE:NOT_FOUND`), `>t` reads the draft plan via the round-preamble source ladder, names its source, and never claims no plan exists
 - [ ] A mention of a code ("what does `>l` do?") is answered in words and opens no window
 - [ ] `>r` starts a new round of the last review and `>rpc` / `>ri3` start a new round of the named one, each emitting a fresh round-headed concern block rather than a prose answer
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1894** id=2026-10-06T04:55:33Z.2805ef51131df20717a51dee from=t1894 from_verified=yes at=2026-10-06T04:55:32Z base=3a405bfc054e970f57e45ef48c9107dde243825a base_branch=main dirty=yes host=omg16
+>
+> | t1894 (commit 3a405bfc0) added a new shadow shortcode `>pd` — the plan's design decisions with their probable pros and cons (`.claude/skills/aitask-shadow/plan-decisions.md`). Your live shortcode checklist predates it and may want a `>pd` item:
+> | - `>pd` against a followed agent that has a plan: output is task-in-brief → decisions → probable pros/cons → one-line follow-up offer; no concern block is emitted.
+> | - Alternatives appear in two separately labelled kinds: "Rejected in the plan" (only alternatives the plan itself names) vs "Possible comparison (not discussed in the plan)"; a missing reason reads "not stated in the plan".
+> | - `>rpd` is NOT a valid composition (only pc/i/pa/d compose with `>r`); it should be reported as unrecognised.
+> | - `>pd` is never offered proactively at startup or after a refetch.
+> | Advisory only — adopt or ignore as you see fit.
