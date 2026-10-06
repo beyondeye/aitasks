@@ -143,6 +143,40 @@ protocol behind the preamble's comparisons).
   parsed but is reported (see the `unrecovered_markers` row under "Trigger vs.
   action contract"), so an unmeasured rewrite normally shows up as a warning
   instead of vanishing.
+
+  **Measured renderers.**
+  - **Codex CLI** rewrites the glyph to `•`, which is accepted (see above).
+  - **OpenCode (1.18.34, t1899): shadows launch and review, but concern items
+    cannot be parsed or forwarded.**
+    - **How it was measured.** Two samples, both rendered by OpenCode 1.18.34
+      (the session export's `version`): a live shadow `>pc` block captured
+      with `--deep`, and a controlled sample. Each capture was compared with
+      the assistant's raw message text from `opencode export`.
+    - **What it changes.** OpenCode keeps the `-` glyph, both fences and the
+      `Round:` header. But its markdown renderer strips the square brackets
+      from **every** `[…]` span, list item or plain paragraph. So
+      `- [medium | parser] body` arrives as `- medium | parser body`, and
+      `- [low] body` arrives as `- low body`. No glyph addition can repair
+      that.
+    - **Workarounds tried.** A backslash-escaped `\[…\]` renders with its
+      backslashes kept, so escaping does not help. No other producer-side
+      encoding was tested.
+    - **What the parser sees.** No row is item-shaped, so `parse_concerns`
+      returns `[]`. `parse_block_meta` still reads the `Round:` header, and
+      `is_metadata_only_block` is false.
+    - **What the user sees.**
+      - The **automatic** paths are **silent**. `has_concern_block` is false,
+        so nothing is auto-offered. `unrecovered_markers` reports nothing,
+        because its marker-like test needs the `[`.
+      - A **manual `c`** in either monitor TUI is not silent. Because the
+        block carries a round but is not a certified clean round, it reaches
+        the uncertified-round warning ("Concern block (round N) has no
+        parseable concerns and is not a clean-round record") and opens the
+        raw-block view. The concerns can be read there but not forwarded.
+    - **Minor.** The close fence picks up two spaces of list-continuation
+      indent, which the parser tolerates.
+  - **Antigravity CLI (`agy`)** is not measured. It is not yet a supported
+    shadow agent.
 - `priority` ∈ {`high`, `medium`, `low`}, matched case-insensitively. An unknown
   value degrades to `low`; the item is **never dropped**.
 - `region` is a free-text plan-region / axis label (which part of the plan the
