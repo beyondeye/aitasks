@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: [1900]
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [codex, codeagent]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1892
 created_at: 2026-10-06 10:29
-updated_at: 2026-10-06 10:29
+updated_at: 2026-10-06 22:36
 ---
 
 ## Origin
