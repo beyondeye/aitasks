@@ -21,3 +21,8 @@ terminal state (Pass / Fail / Skip) before the task can be
 archived; Defer is allowed but creates a carry-over task.
 
 **Related to:** t1852_5
+
+## Verification Checklist
+
+- [ ] On a quiet host (stop the dedicated `-L ait` tmux server: `tmux -L ait kill-server`, after saving work), from a terminal NOT inside tmux, run `bash tests/test_frozen_agents_acceptance.sh` and confirm it exits 0 (it was deferred from t1852_5's install_regression_sweep)
+- [ ] In that run's output, confirm the install.sh --local-tarball step prints `TESTMAP_BINARY:skipped` (offline install: no engine fetch) and no network call is attempted
