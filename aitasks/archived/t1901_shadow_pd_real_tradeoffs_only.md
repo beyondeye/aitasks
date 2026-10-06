@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: enhancement
-status: Ready
+status: Done
 labels: [shadow, skills, website, documentation]
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-06 09:49
 updated_at: 2026-10-06 09:49
+completed_at: 2026-10-06 09:49
 ---
 
 ## Goal
