@@ -5,6 +5,7 @@ depends: []
 issue_type: enhancement
 status: Ready
 labels: [shadow, skills, website, documentation]
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-06 09:49
 updated_at: 2026-10-06 09:49
 ---
