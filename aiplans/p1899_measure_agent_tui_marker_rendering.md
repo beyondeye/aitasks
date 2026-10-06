@@ -291,3 +291,102 @@ push.
   separates evidence from success: renderer damage (C), capture truncation (E)
   and a parser defect (the success gate failing on an intact block) each get
   their own label. · severity: low · → mitigation: none (in-method control)
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-06 23:09)
+- **Requested by user:** Three verified review findings on concern-format.md.
+  1. The version was misattributed. OpenCode auto-updated mid-session; both
+     samples are 1.18.34, not 1.18.32. Correct the doc and the t835_7 note.
+  2. "Silent" was unconditional. A manual `c` reaches the uncertified-round
+     warning and the raw-block view.
+  3. "Not supported" and "no workaround" overreached what was measured.
+- **Changes made:**
+  1. Version: confirmed via the session export's `version: 1.18.34` for both
+     sessions. The `1.18.32` strings in the live export come from this plan's
+     text, which the shadow read. Corrected the doc and appended a correction
+     note to t835_7.
+  2. Silent: confirmed in minimonitor_app.py (no-concern branch, about line
+     4880) and monitor_app.py (about lines 3350–3398). The doc now separates
+     the silent automatic paths from the manual `c` warning and raw view.
+  3. Scope: narrowed the claim to "shadows launch and review, but concern
+     items cannot be parsed or forwarded". Replaced "no workaround" with what
+     was actually tested (backslash escaping fails; nothing else was tried).
+- **Files affected:** .claude/skills/aitask-shadow/concern-format.md;
+  t835_7 note (task data).
+
+## Final Implementation Notes
+- **Actual work done:**
+  - Measured the opencode concern-block rendering live, outcome **branch C
+    (demonstrated renderer damage)**.
+  - Live route: an opencode shadow in a dedicated `t1899m` session on the
+    `ait` tmux server. It was launched with the production
+    `ait codeagent invoke shadow … --dry-run` command, stamped with
+    `@aitask_shadow_target`, and given a `>pc` request. The block was captured
+    with `aitask_shadow_capture.sh --deep --any-pane`.
+  - Both routes were compared with the raw message text from
+    `opencode export`.
+  - Evidence was sufficient on both routes: a canonical non-empty source
+    block (live: 1 item, no code fence; controlled: 3 items), and every
+    anchor located in the capture.
+  - Only the doc changed: `concern-format.md` gained a "Measured renderers"
+    section. The parser grammar is unchanged and no fixture was added
+    (branch C).
+  - Advisory notes went to t835_7 (agy): one, plus a version correction.
+- **Measured facts (OpenCode 1.18.34, both samples):**
+  - The `-` glyph, `===AITASK-CONCERNS===`, the `Round:` header and
+    `===END-CONCERNS===` survive. The close fence is rendered with +2 spaces
+    of list-continuation indent, which the parser tolerates.
+  - The renderer strips `[`/`]` from **every** bracket span, list items and
+    paragraphs alike.
+    - Live raw: `- [medium | Sample formatting] Step 1.6 requires …`.
+      Rendered: `- medium | Sample formatting Step 1.6 requires an`.
+    - Controlled rendered: `- high | region one First body.`,
+      `- low Region-less body.` and `Plain bracket text in a paragraph`.
+      `\[escaped brackets\]` rendered with its backslashes kept.
+  - Parser on the live capture:
+    - `parse_concerns` gives 0 items;
+    - `has_concern_block` is False;
+    - `unrecovered_markers` is `[]`;
+    - `parse_block_meta` gives round 1;
+    - `is_metadata_only_block` is False.
+  - So the automatic paths are silent. A manual `c` in either TUI reaches
+    `uncertified_round_block_msg` and the raw-block view.
+- **Deviations from plan:**
+  - **Model:** `openai/gpt-5.4` is rejected for a ChatGPT-account login
+    ("not supported when using Codex with a ChatGPT account"). The shadow was
+    relaunched with `opencode/openai_gpt_6_astra` through the same production
+    command. The renderer does not depend on the model.
+  - **Controlled sample:** it was also run although the live block had an
+    item, to characterize the bracket rule (paragraph text, the region-less
+    marker, escaping) for the follow-up.
+  - **tmux server:** commands use `tmux -L ait` explicitly. A PreToolUse hook
+    refuses unnamed-server `kill-pane`.
+  - **Version:** OpenCode auto-updated from 1.18.32 (the planning-time
+    `--version`) to 1.18.34 before the first measured session. The doc and
+    notes say 1.18.34; see Change Request 1.
+- **Issues encountered:**
+  - The controlled pane was wide enough for opencode's sidebar (`LSP`) to
+    share rows with the block. That made `parse_block_meta` return None for
+    that capture; cutting the sidebar column gives round 1. Shadow panes
+    (60 columns) are too narrow for the sidebar, so the finding is
+    unaffected.
+  - A concurrent session (Codex inline-launch work) edited another hunk of
+    `concern-format.md` (about line 406). Only this task's hunk was
+    committed, through a temporary index built from HEAD.
+- **Key decisions:**
+  - No grammar change. No glyph addition can repair bracket stripping, and
+    accepting bracketless `- p | r body` rows would break the collision guard
+    unless it is redesigned. That design belongs to a follow-up task.
+  - agy was skipped by user decision (it is not a supported shadow agent;
+    t835 is pending), with notes left on t835_7.
+- **Upstream defects identified:**
+  - `.aitask-scripts/monitor/concern_parser.py:_MARKER_LIKE` — concern items
+    from opencode shadows (1.18.34) are not parsed or forwarded.
+    - Cause: opencode's markdown renderer strips the `[…]` brackets, so items
+      render as `- p | r body`.
+    - Effect: `parse_concerns` and `has_concern_block` find nothing, so the
+      auto-offer never fires.
+    - The report-only `_MARKER_LIKE` needs a `[`, so `unrecovered_markers`
+      is blind to it too.
+    - Only the manual `c` path warns (uncertified round, raw view).
