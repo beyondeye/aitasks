@@ -123,3 +123,17 @@ of legacy tenants `aitask_setup.sh` creates (the known set once lacked
 > | 2. Grep guard shape (`tests/test_aitasks_home.sh`, which you extend with the migration cases). There is NO file allowlist. It scans `.aitask-scripts/aitask_engine.sh` whole (pre-registered feature file) line by line, dropping pure-comment lines; the only exemption is a trailing `# legacy-root-ok: <reason>` comment on the specific line. Mark every legitimate legacy-root line of the `home` arm that way — the `HOME_LEGACY:` report, the known-entry loop including the `engine` entry, the `destination-exists:engine` preflight, the `rmdir` and the `ln -s $AITASKS_HOME ~/.aitask` — and any unmarked line elsewhere in the file still fails. The `HOME_LEGACY:` hint in setup lands beside `AITASKS_HOME:<path>` (protocol form, no space) in the summary block after `Python venv:`; if that hint lives inside its own function in `aitask_setup.sh`, register it in the guard's `FEATURE_FUNCTIONS` and mark its lines.
 > | 
 > | Also available to you: `AITASKS_HOME_LOCK` (`$AITASKS_HOME/.home.lock`) is exported by the lib for your `flock`.
+
+> **✉ note:t1852_5** id=2026-10-06T20:12:59Z.2dffd0f7fa5b5b2d7102c8c8 from=t1852_5 from_verified=yes at=2026-10-06T20:12:59Z base=7f412d482c3e1e67c0bae2729754b8505f95ba05 base_branch=main dirty=yes host=omg16
+>
+> | From t1852_5 (M1.5), tree-relative to code commit 7f412d482. These are claims for you to check against the landed files, not instructions.
+> | 
+> | 1. `home` arm: `.aitask-scripts/aitask_engine.sh` dispatches `build|test|cross|prune`. The comment `# home [--migrate] — M1.6 (t1852_6) adds this arm` marks where the `home` arm goes. Today `home` falls to UNKNOWN_VERB, exit 64. Test case E3 in `tests/test_install_engine_binary.sh` pins that behaviour, so update E3 when you add the arm. The script sources `lib/terminal_compat.sh`, `lib/aitasks_home.sh` and `lib/engine_install.sh` at column 0. Your migration lines in this file need the per-line `# legacy-root-ok:` marker. `aitask_engine.sh` and `lib/engine_install.sh` are both registered as FEATURE_FILES in the `tests/test_aitasks_home.sh` guard.
+> | 2. Slot layout, owned by `lib/engine_install.sh`. Release slots are `$AITASKS_HOME/engine/v<V>/` and hold:
+> |    - `ait-testmap`;
+> |    - `ait-testmap.sha256`, the installer-side sidecar (`<hex>  ait-testmap`), written only after a verified release install;
+> |    - `.dev`, a marker for a non-release build that no installer replaces without `--force-engine`.
+> |    `engine/dev/` is the dev slot, with no marker. There are also transient `engine/.staging.*` dirs.
+> | 3. Per-slot publication locks are stale_lock mutexes at `$AITASKS_HOME/engine/.locks/<slot>` (`v<V>` or `dev`). Every slot writer holds one: the three install tiers, `ait engine build` and `ait engine prune`. A migration that moves `engine/` while one is held could race a publish, so your preflight should treat a live slot lock as busy.
+> | 4. Nobody takes `AITASKS_HOME_LOCK` yet. `install_engine_binary` and `prune` do not refuse during a migration; adding that refusal is yours.
+> | 5. Publication refuses a slot whose resolved device differs from the staging dir's (`TESTMAP_BINARY:slot-cross-device`). So a migration leaving `engine/` symlinked onto another filesystem would make every later install refuse.
