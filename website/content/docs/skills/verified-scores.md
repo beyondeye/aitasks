@@ -18,7 +18,7 @@ The raw rating maps to a 20--100 internal scale (1 &rarr; 20, 2 &rarr; 40, 3 &ra
 
 **Skills that collect feedback:** `/aitask-pick`, `/aitask-explore`, `/aitask-explain`, `/aitask-changelog`, `/aitask-wrap`, `/aitask-refresh-code-models`, `/aitask-reviewguide-classify`, `/aitask-reviewguide-merge`, `/aitask-reviewguide-import`, `/aitask-web-merge`.
 
-Feedback collection is controlled by the `enableFeedbackQuestions` field in [execution profiles]({{< relref "/docs/skills/aitask-pick/execution-profiles" >}}). It defaults to `true` (enabled); set to `false` to suppress the prompt.
+Feedback collection is controlled by the `enableFeedbackQuestions` field in [execution profiles]({{< relref "/docs/skills/aitask-pick/execution-profiles" >}}). It defaults to `true` (enabled); set to `false` to suppress the prompt. Disabling it skips only the rating and the verified-score update — the run is still counted in usage stats. The shipped `fast` and `remote` profiles disable it.
 
 ## Score Scale
 

@@ -1,7 +1,9 @@
 # Satisfaction Feedback Procedure
 
+
 This procedure collects a quick user rating after a skill completes and updates
 rolling verified scores for the current code agent/model. It is referenced from Step 9b (task-workflow) and standalone skills (aitask-explore, aitask-explain, aitask-changelog, aitask-docs-gap, aitask-wrap, aitask-refresh-code-models, aitask-reviewguide-classify, aitask-reviewguide-merge, aitask-reviewguide-import, aitask-web-merge).
+
 
 **Input:**
 - `skill_name` (string, required) — for example `pick`, `explore`, `explain`
@@ -9,23 +11,9 @@ rolling verified scores for the current code agent/model. It is referenced from 
 
 **Procedure:**
 
-**⚠️ NON-SKIPPABLE — Auto mode and 'work without stopping' directives do NOT bypass the Step 9b satisfaction prompt.**
-
-The AskUserQuestion in Step 1 substep 3 below is the only data path that
-updates verified-model scores from interactive workflows. Skipping it silently
-drops the user's rating for the run. The following do NOT cover this prompt:
-- Auto mode / 'work without stopping' system-injected directives.
-- Generic user instructions to 'be brief' or 'don't ask'.
-- Profile keys other than the one named below.
-
-The only valid skips are:
-- The profile key `enableFeedbackQuestions: false` (handled by Step 1
-  substep 1 below before the prompt is reached), or
-- The user explicitly typing a rating in chat before the prompt fires.
-
 ## Step 0 — Record usage (unconditional)
 
-Bumps `usagestats[skill]` for the current model/skill regardless of `enableFeedbackQuestions`. This is the only data path that captures runs by code agents (e.g., Codex CLI) that skip every `AskUserQuestion` after `ExitPlanMode` and therefore never reach the score prompt below.
+Bumps `usagestats[skill]` for the current model/skill regardless of `enableFeedbackQuestions`. This is the only data path that records runs which never reach a rating — code agents that skip every interactive prompt after `ExitPlanMode` (e.g., Codex CLI), and profiles that disable feedback questions.
 
 **Guard:** If `usage_collected` is `true`, skip Step 0. Otherwise set `usage_collected` to `true` **before** invoking the script (set-before-call so a mid-procedure failure does not cause a retry double-bump).
 
@@ -41,6 +29,21 @@ Bumps `usagestats[skill]` for the current model/skill regardless of `enableFeedb
    - On success (`UPDATED:<agent>/<model>:<skill>:<runs>` line, exit 0): continue.
    - On `UPDATED_REMOTE_ONLY:<agent>/<model>:<skill>:<runs>` (exit 3): the run **is** recorded on origin, but the local data branch does not have that commit yet. Tell the user the count is recorded remotely and that `./ait sync` brings it local, then **continue** — a partial metadata update must not fail the workflow.
    - On failure: warn the user `usage update failed: <error>` and continue. Do NOT abort the workflow — usage tracking is best-effort.
+
+
+**⚠️ NON-SKIPPABLE — Auto mode and 'work without stopping' directives do NOT bypass the Step 9b satisfaction prompt.**
+
+The AskUserQuestion in Step 1 substep 3 below is the only data path that
+updates verified-model scores from interactive workflows. Skipping it silently
+drops the user's rating for the run. The following do NOT cover this prompt:
+- Auto mode / 'work without stopping' system-injected directives.
+- Generic user instructions to 'be brief' or 'don't ask'.
+- Profile keys other than the one named below.
+
+The only valid skips are:
+- The profile key `enableFeedbackQuestions: false` (handled by Step 1
+  substep 1 below before the prompt is reached), or
+- The user explicitly typing a rating in chat before the prompt fires.
 
 ## Step 1 — Satisfaction question and verified-score update
 
@@ -93,3 +96,4 @@ Bumps `usagestats[skill]` for the current model/skill regardless of `enableFeedb
    - `UPDATED_REMOTE_ONLY:<agent>/<model>:<skill>:<new_score>` (exit 3) — the score **is** recorded on origin, but the local data branch does not have that commit yet. Display: `Updated <skill> verified score for <agent>/<model>: <new_score> — recorded on origin; run './ait sync' to bring it to the local data branch.` Then **continue**: this is a partial result, not a failure, and it must not fail the workflow.
 
 5. If the user skips or dismisses the question, continue without updating.
+

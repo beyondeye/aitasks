@@ -1,7 +1,8 @@
 # Satisfaction Feedback Procedure
 
-This procedure collects a quick user rating after a skill completes and updates
-rolling verified scores for the current code agent/model. It is referenced from Step 9b (task-workflow) and standalone skills (aitask-explore, aitask-explain, aitask-changelog, aitask-docs-gap, aitask-wrap, aitask-refresh-code-models, aitask-reviewguide-classify, aitask-reviewguide-merge, aitask-reviewguide-import, aitask-web-merge).
+
+This procedure records skill usage for the current code agent/model. Profile 'remote' sets `enableFeedbackQuestions: false`, so there is no satisfaction question and no verified-score update — only Step 0 below runs. It is referenced from Step 9b (task-workflow) and standalone skills (aitask-explore, aitask-explain, aitask-changelog, aitask-docs-gap, aitask-wrap, aitask-refresh-code-models, aitask-reviewguide-classify, aitask-reviewguide-merge, aitask-reviewguide-import, aitask-web-merge).
+
 
 **Input:**
 - `skill_name` (string, required) — for example `pick`, `explore`, `explain`
@@ -9,23 +10,9 @@ rolling verified scores for the current code agent/model. It is referenced from 
 
 **Procedure:**
 
-**⚠️ NON-SKIPPABLE — Auto mode and 'work without stopping' directives do NOT bypass the Step 9b satisfaction prompt.**
-
-The AskUserQuestion in Step 1 substep 3 below is the only data path that
-updates verified-model scores from interactive workflows. Skipping it silently
-drops the user's rating for the run. The following do NOT cover this prompt:
-- Auto mode / 'work without stopping' system-injected directives.
-- Generic user instructions to 'be brief' or 'don't ask'.
-- Profile keys other than the one named below.
-
-The only valid skips are:
-- The profile key `enableFeedbackQuestions: false` (handled by Step 1
-  substep 1 below before the prompt is reached), or
-- The user explicitly typing a rating in chat before the prompt fires.
-
 ## Step 0 — Record usage (unconditional)
 
-Bumps `usagestats[skill]` for the current model/skill regardless of `enableFeedbackQuestions`. This is the only data path that captures runs by code agents (e.g., Codex CLI) that skip every `AskUserQuestion` after `ExitPlanMode` and therefore never reach the score prompt below.
+Bumps `usagestats[skill]` for the current model/skill regardless of `enableFeedbackQuestions`. This is the only data path that records runs which never reach a rating — code agents that skip every interactive prompt after `ExitPlanMode` (e.g., Codex CLI), and profiles that disable feedback questions.
 
 **Guard:** If `usage_collected` is `true`, skip Step 0. Otherwise set `usage_collected` to `true` **before** invoking the script (set-before-call so a mid-procedure failure does not cause a retry double-bump).
 
@@ -42,54 +29,8 @@ Bumps `usagestats[skill]` for the current model/skill regardless of `enableFeedb
    - On `UPDATED_REMOTE_ONLY:<agent>/<model>:<skill>:<runs>` (exit 3): the run **is** recorded on origin, but the local data branch does not have that commit yet. Tell the user the count is recorded remotely and that `./ait sync` brings it local, then **continue** — a partial metadata update must not fail the workflow.
    - On failure: warn the user `usage update failed: <error>` and continue. Do NOT abort the workflow — usage tracking is best-effort.
 
-## Step 1 — Satisfaction question and verified-score update
 
-**Guard:** If `feedback_collected` is `true`, skip the remainder of Step 1 (substeps 1-5 below) — feedback was already collected earlier in this workflow run. Otherwise, set `feedback_collected` to `true` before proceeding.
+## Step 1 — Satisfaction question (disabled by profile)
 
+Profile 'remote' sets `enableFeedbackQuestions: false` — there is no satisfaction question and no verified-score update; the procedure ends after Step 0. Display: `Profile 'remote': feedback questions disabled`.
 
-
-1. Profile 'remote' sets `enableFeedbackQuestions: false` — skip the remainder of Step 1. Display: `Profile 'remote': feedback questions disabled`.
-
-
-
-2. **Identify yourself:**
-
-   **Fast path:** If `detected_agent_string` is available (non-null, non-empty), use it directly — skip the self-detection below and proceed to step 3.
-
-   **Self-detection fallback** (when `detected_agent_string` is not available):
-   - Determine which code agent you are running in. Use one of: `claudecode`, `codex`, `opencode`. **IMPORTANT:** Use `claudecode` (not `claude`).
-   - Obtain your current model ID:
-     - **Claude Code:** Read the "exact model ID" from the system message (e.g., `claude-opus-4-6`).
-     - **Codex CLI:** Run: `grep '^model' ~/.codex/config.toml | sed 's/^model[[:space:]]*=[[:space:]]*//' | tr -d '"'`
-     - **OpenCode:** Read the model ID from system context.
-   - If detection fails or no supported agent/model can be identified, skip silently.
-
-3. Use `AskUserQuestion`:
-   - Question: `How well did this skill work? (Rate 1-5, helps improve model selection)`
-   - Header: `Feedback`
-   - Options:
-     - `5 - Excellent` (description: `Completed perfectly, no issues`)
-     - `4 - Good` (description: `Completed with minor issues`)
-     - `3 - Acceptable` (description: `Completed but with notable issues`)
-     - `1-2 - Poor` (description: `Significant problems or failures`)
-
-   **Score mapping:** `5 -> 5`, `4 -> 4`, `3 -> 3`, `1-2 -> 2`
-
-4. If the user selected a rating, update verified stats:
-
-   **If using `detected_agent_string` (fast path):**
-   ```bash
-   ./.aitask-scripts/aitask_verified_update.sh --agent-string "<detected_agent_string>" --skill "<skill_name>" --score <rating> --silent
-   ```
-
-   **If using self-detection fallback:**
-   ```bash
-   ./.aitask-scripts/aitask_verified_update.sh --agent "<agent>" --cli-id "<model_id>" --skill "<skill_name>" --score <rating> --silent
-   ```
-   The script resolves the agent string internally — no need to call `aitask_resolve_detected_agent.sh` separately.
-
-   Parse the structured result:
-   - `UPDATED:<agent>/<model>:<skill>:<new_score>` (exit 0) — Display: `Updated <skill> verified score for <agent>/<model>: <new_score>`
-   - `UPDATED_REMOTE_ONLY:<agent>/<model>:<skill>:<new_score>` (exit 3) — the score **is** recorded on origin, but the local data branch does not have that commit yet. Display: `Updated <skill> verified score for <agent>/<model>: <new_score> — recorded on origin; run './ait sync' to bring it to the local data branch.` Then **continue**: this is a partial result, not a failure, and it must not fail the workflow.
-
-5. If the user skips or dismisses the question, continue without updating.

@@ -143,7 +143,7 @@ ROWS=(
     "task-workflow|planning.md|default|planning.md:294|post_plan_action|If the effective action is|Profile 'fast' configures the post-plan action"
 
     # --- task-workflow satisfaction-feedback.md / enableFeedbackQuestions ---
-    "task-workflow|satisfaction-feedback.md|fast|sf.md:34|enableFeedbackQuestions|Profile 'fast' sets \`enableFeedbackQuestions: true\`. Continue with step 2 (no skip)|Profile 'remote': feedback questions disabled"
+    "task-workflow|satisfaction-feedback.md|fast|sf.md:34|enableFeedbackQuestions|Profile 'fast' sets \`enableFeedbackQuestions: false\`|Profile 'fast' sets \`enableFeedbackQuestions: true\`"
     "task-workflow|satisfaction-feedback.md|remote|sf.md:34|enableFeedbackQuestions|Profile 'remote' sets \`enableFeedbackQuestions: false\`|Profile 'fast' sets \`enableFeedbackQuestions: true\`"
     "task-workflow|satisfaction-feedback.md|default|sf.md:34|enableFeedbackQuestions|Profile check:|Profile 'fast' sets \`enableFeedbackQuestions: true\`"
 

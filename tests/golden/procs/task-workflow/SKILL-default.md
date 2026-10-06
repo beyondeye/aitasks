@@ -981,7 +981,7 @@ The following procedures are in individual files — read on demand when referen
 - **Plan Externalization Procedure** (`plan-externalization.md`) — **Claude Code only.** Copy the approved internal plan file to `aiplans/` and parse externalize helper output. Referenced from planning.md (Step 6) and Step 8.
 - **Model Self-Detection Sub-Procedure** (`model-self-detection.md`) — Detect the current code agent and model. Referenced from Agent Attribution and Satisfaction Feedback.
 - **Agent Attribution Procedure** (`agent-attribution.md`) — Record implementing code agent and model. Referenced from Step 7.
-- **Satisfaction Feedback Procedure** (`satisfaction-feedback.md`) — Collect user feedback and update verified model scores. Referenced from Step 9b and standalone skills.
+- **Satisfaction Feedback Procedure** (`satisfaction-feedback.md`) — Record skill usage and, when the profile enables it, collect a rating and update verified model scores. Referenced from Step 9b and standalone skills.
 - **Lock Release Procedure** (`lock-release.md`) — Release task locks. Referenced from Task Abort Procedure.
 - **Crash Recovery Procedure** (`crash-recovery.md`) — Surveys in-progress work and prompts the user when a reclaim signal is detected (multi-PC, same-host crash via PID anchor, or lock anomaly). Referenced from Step 4 dispatcher and Step 7 ownership guard.
 - **Manual Verification Procedure** (`manual-verification.md`) — Interactive checklist runner for `issue_type: manual_verification` tasks. Referenced from Step 3 (Check 3).

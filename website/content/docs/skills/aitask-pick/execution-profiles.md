@@ -13,7 +13,7 @@ Profiles are YAML files stored in `aitasks/metadata/profiles/`. They are loaded 
 ## Shipped Profiles
 
 - **default** -- All questions asked normally (empty profile, serves as a template)
-- **fast** -- Skip confirmations, use userconfig email, stay on the current branch, pause for confirmation after plan approval, and keep feedback questions enabled
+- **fast** -- Skip confirmations, use userconfig email, stay on the current branch, pause for confirmation after plan approval, and skip feedback questions
 
 ## Standard Profile Fields
 
@@ -113,7 +113,7 @@ The argument is position-independent and can appear anywhere in the argument str
 ## Notes
 
 - Use `enableFeedbackQuestions: false` for unattended or non-interactive profiles
-- The shipped `fast` profile keeps feedback enabled; the shipped `remote` profile disables it
+- The shipped `fast` and `remote` profiles both disable feedback questions; usage of each skill is still counted
 - Profiles are preserved during `install.sh --force` upgrades
 - Plan approval is always required and cannot be skipped by profiles
 

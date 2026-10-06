@@ -249,7 +249,8 @@ PROFILE_FIELD_INFO: dict[str, tuple[str, str]] = {
     "enableFeedbackQuestions": (
         "Ask satisfaction feedback questions at the end of supported skills",
         "Controls whether supported skills ask for a quick satisfaction rating after completion. "
-        "When false, the Satisfaction Feedback Procedure is skipped. "
+        "When false, only the rating question and the verified-score update are skipped — "
+        "skill usage is still recorded. "
         "When true or unset, feedback questions remain enabled. "
         "Use false for unattended or non-interactive workflows such as remote profiles."
     ),

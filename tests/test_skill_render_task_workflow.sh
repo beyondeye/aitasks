@@ -334,6 +334,53 @@ DEFAULT_SF="$($RENDER "$WORKFLOW_DIR/satisfaction-feedback.md" "$PROFILES_DIR/de
 assert_contains "satisfaction-feedback default: enableFeedbackQuestions prose present" \
     'If `enableFeedbackQuestions` is omitted' "$DEFAULT_SF"
 
+# === Test 3c: enableFeedbackQuestions: false renders the feedback part away (t1907) ===
+#
+# A disabled profile must render no rating prompt, no verified-score update and
+# no NON-SKIPPABLE banner — yet keep the Step 0 usage bump, which is the only
+# usagestats data path. The absence check targets the prompt INSTRUCTION
+# ("Use `AskUserQuestion`"), not every mention of the tool.
+echo "=== Test 3c: satisfaction-feedback renders the feedback part away when disabled ==="
+for profile in fast remote; do
+    sf="$($RENDER "$WORKFLOW_DIR/satisfaction-feedback.md" "$PROFILES_DIR/$profile.yaml" claude 2>&1)"
+    assert_contains "satisfaction-feedback $profile: usage bump kept" \
+        'aitask_usage_update.sh' "$sf"
+    assert_contains "satisfaction-feedback $profile: disabled note present" \
+        "Profile '$profile' sets \`enableFeedbackQuestions: false\`" "$sf"
+    assert_not_contains "satisfaction-feedback $profile: no verified-score update" \
+        'aitask_verified_update.sh' "$sf"
+    assert_not_contains "satisfaction-feedback $profile: no rating question" \
+        'How well did this skill work?' "$sf"
+    assert_not_contains "satisfaction-feedback $profile: no prompt instruction" \
+        'Use `AskUserQuestion`' "$sf"
+    assert_not_contains "satisfaction-feedback $profile: no NON-SKIPPABLE banner" \
+        'NON-SKIPPABLE' "$sf"
+done
+# The key-absent arm is also what the static (non-rendered) skills read from the
+# raw source, so `default` must keep the whole procedure.
+for token in 'aitask_usage_update.sh' 'aitask_verified_update.sh' \
+             'How well did this skill work?' 'Use `AskUserQuestion`' 'NON-SKIPPABLE'; do
+    assert_contains "satisfaction-feedback default: keeps '$token'" "$token" "$DEFAULT_SF"
+done
+# The `true` arm has no committed profile since fast flipped to false, so a
+# synthetic profile is its only coverage.
+TMP_SF_TRUE="$(mktemp_suffixed "${TMPDIR:-/tmp}/test_sf_true_XXXXXX.yaml")"
+cat > "$TMP_SF_TRUE" <<'YAML'
+name: test_sf_true
+description: "Synthetic profile for t1907 test (enableFeedbackQuestions true)"
+enableFeedbackQuestions: true
+YAML
+SF_TRUE="$($RENDER "$WORKFLOW_DIR/satisfaction-feedback.md" "$TMP_SF_TRUE" claude 2>&1)" || true
+rm -f "$TMP_SF_TRUE"
+assert_contains "satisfaction-feedback true: no-skip line" \
+    "Profile 'test_sf_true' sets \`enableFeedbackQuestions: true\`. Continue with step 2 (no skip)" "$SF_TRUE"
+for token in 'aitask_usage_update.sh' 'aitask_verified_update.sh' \
+             'How well did this skill work?' 'Use `AskUserQuestion`' 'NON-SKIPPABLE'; do
+    assert_contains "satisfaction-feedback true: keeps '$token'" "$token" "$SF_TRUE"
+done
+assert_not_contains "satisfaction-feedback true: no disabled note" \
+    'feedback questions disabled' "$SF_TRUE"
+
 # === Test 3b: rendered SKILL.md must NOT include Step 3b refresh (t777_26) ===
 
 echo "=== Test 3b: SKILL.md rendered output has no Step 3b refresh ==="
