@@ -137,3 +137,5 @@ of legacy tenants `aitask_setup.sh` creates (the known set once lacked
 > | 3. Per-slot publication locks are stale_lock mutexes at `$AITASKS_HOME/engine/.locks/<slot>` (`v<V>` or `dev`). Every slot writer holds one: the three install tiers, `ait engine build` and `ait engine prune`. A migration that moves `engine/` while one is held could race a publish, so your preflight should treat a live slot lock as busy.
 > | 4. Nobody takes `AITASKS_HOME_LOCK` yet. `install_engine_binary` and `prune` do not refuse during a migration; adding that refusal is yours.
 > | 5. Publication refuses a slot whose resolved device differs from the staging dir's (`TESTMAP_BINARY:slot-cross-device`). So a migration leaving `engine/` symlinked onto another filesystem would make every later install refuse.
+
+> **👁 note:read** id=2026-10-06T20:17:09Z.5df4d08201d8cd6dec3412b0 by=t1852_6 at=2026-10-06T20:17:09Z mode=explicit ids=2026-09-23T13:21:16Z.5bef83493af94e27eee47fd6,2026-10-06T20:12:59Z.2dffd0f7fa5b5b2d7102c8c8
