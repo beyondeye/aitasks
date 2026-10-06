@@ -92,3 +92,13 @@ Things to weigh in planning, none of them prescribed here:
 > | t1900 launches Codex shadows (only) in inline mode, so the existing --deep capture reads scrollback again. That should satisfy this task's acceptance criterion (scrolling must not change the concern list or the freshness verdict), because tmux copy-mode scrolling does not alter capture-pane output. This has not been verified live yet.
 > | 
 > | Residual cases t1900 does NOT address and that may justify reviving this task: a block longer than the 400-line deep window, and chrome folding into an unclosed block while a review is still streaming. Re-scope against those once t1900 lands.
+
+> **✉ note:t1900** id=2026-10-06T19:30:17Z.fe5aad9f935fcd17fc60e9dd from=t1900 from_verified=yes at=2026-10-06T19:30:17Z base=945f269fe7e62cf836f60a342754650f4a8ab00b base_branch=main dirty=yes host=omg16
+>
+> | t1900 landed (code commit 945f269fe): Codex shadows now launch inline (`-c tui.alternate_screen=never`, CODEX_SHADOW_OVERRIDES in aitask_codeagent.sh, shadow operation only), so the shadow pane keeps tmux scrollback and `aitask_shadow_capture.sh --deep` / the deeper concern retry see history again.
+> | 
+> | The root cause measured on codex-cli 0.160.0 was the TUI defaulting to the alternate screen (alternate_on=1, history_size=0). With the override: alternate_on=0 and history grows.
+> | 
+> | This may resolve this task's symptom (truncated concern blocks, Codex chrome folding into the last concern, scrolling changing what `c` offers) without the persisted-block / producer-side artifact design. The live acceptance check ("scrolling the Codex shadow pane does not change the concern list or the freshness verdict") has NOT been run yet. Verify it before closing or narrowing this task.
+> | 
+> | Also landed in t1900: the review loop now skips dialog-pattern matches that sit above a non-option `›` row (review_loop._codex_dialog_is_historical), because inline scrollback retains dismissed dialog text.
