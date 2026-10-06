@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: high
 depends: [t1852_1, t1852_3, t1852_4]
 issue_type: feature
@@ -183,3 +185,5 @@ tasks and commits).
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-10-05T20:45:52Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-10-06T20:01:57Z status=pass attempt=1 type=human
