@@ -79,3 +79,22 @@ archived; Defer is allowed but creates a carry-over task.
 > | 
 > | 4. `[t835_6] ... every change in git log main..HEAD` returns nothing when the
 > |    work lands on main; a SHA or date range is needed.
+
+> **✉ note:t1899** id=2026-10-06T19:46:24Z.9d67de0762769045bfb1b46a from=t1899 from_verified=yes at=2026-10-06T19:46:24Z base=945f269fe7e62cf836f60a342754650f4a8ab00b base_branch=main dirty=yes host=omg16
+>
+> | When agy runs as a shadow, measure how its TUI renders concern blocks before
+> | trusting minimonitor's concern picker for it. Capture a live `>pc` block with
+> | `aitask_shadow_capture.sh --deep --any-pane <pane>` and compare it with the
+> | assistant's raw message text. Check:
+> | - the marker glyph bytes;
+> | - that the `[`/`]` brackets survive;
+> | - that both fences and `Round:` survive.
+> | Then run parse_concerns / unrecovered_markers on the capture.
+> | 
+> | Why the brackets matter: t1899 measured opencode 1.18.32. It keeps `- `, but
+> | its markdown renderer strips the brackets of every `[…]` span, so concerns
+> | vanish without any warning (see concern-format.md, "Measured renderers").
+> | 
+> | If agy only rewrites the glyph, add it to concern_parser._MARKER_GLYPHS with a
+> | real-bytes fixture, per concern-format.md "Accepted marker glyphs". agy was not
+> | measured in t1899 because it was not yet a supported shadow agent.
