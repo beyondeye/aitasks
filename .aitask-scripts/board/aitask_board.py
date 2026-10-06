@@ -105,7 +105,8 @@ from board_widgets import (
 import board_trail_view
 from board_trail_view import (
     TRAIL_CLASSIFICATION_GLYPHS, TRAIL_CSS, TRAIL_GATHER_SCRIPT,
-    TRAIL_WATCH_INTERVAL, TRAIL_WATCH_MAX_TICKS, _TRAIL_GHOST_LABELS,
+    TRAIL_SELECT_RESCAN, TRAIL_WATCH_INTERVAL, TRAIL_WATCH_MAX_TICKS,
+    _TRAIL_GHOST_LABELS,
     TrailColumn, TrailDetailScreen, TrailEntryView, TrailGhostCard,
     TrailSelectItem, TrailSelectScreen, TrailSummaryScreen, TrailTaskCard,
     TrailWaveLane, _GhostTaskStub, _trail_badge_text, _trail_drift_text,
@@ -3711,11 +3712,11 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
             self.manager.load_tasks()
             refresh_locks = True
 
-        # By-Trail supersession token: entering AND leaving are re-entry
-        # points — in-flight discovery/drift results from the previous
+        # By-Trail supersession: entering AND leaving are re-entry points —
+        # in-flight discovery / reload / drift results from the previous
         # generation must not mutate the new view's state.
         if name == "bytrail" or old == "bytrail":
-            self._trail_gen += 1
+            self._supersede_trail_workers()
         if old == "bytrail" and name != "bytrail":
             # Leaving the view: nothing left to reload into (t1268).
             self._stop_trail_watch()

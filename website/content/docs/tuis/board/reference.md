@@ -259,7 +259,9 @@ trail: it never writes the trail itself.
 
 The same view also runs on its own as [`ait trails`]({{< relref "/docs/tuis/trails" >}}),
 reached from here with `j` then `i`. It uses these same trail keys; `m`, `M` and `S`
-exist only on the board. The two TUIs keep **separate** trail selections — switching
+exist only on the board. There, several trails can be open at once in tabs, and `s`
+lists the trails from the last scan (`r` in its selector re-scans); here `s`
+re-scans every time and one trail is shown. The two TUIs keep **separate** trail selections — switching
 between them carries neither the selected trail nor the focused card across.
 
 Press `z` to enter the view and `s` to choose which trail it shows. Each wave

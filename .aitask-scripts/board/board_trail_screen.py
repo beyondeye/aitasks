@@ -42,9 +42,11 @@ Contracts (see ``board/__init__.py`` and the parent plan):
 
 from __future__ import annotations
 
+import dataclasses
 import re
 import shlex
 import subprocess
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import ClassVar, Protocol
 
@@ -61,7 +63,8 @@ from agent_launch_utils import (
     resolve_agent_string, resolve_dry_run_command, spawn_in_terminal,
 )
 from board_trail_view import (
-    TRAIL_WATCH_INTERVAL, TRAIL_WATCH_MAX_TICKS, TrailColumn,
+    TRAIL_SELECT_RESCAN, TRAIL_WATCH_INTERVAL, TRAIL_WATCH_MAX_TICKS,
+    TrailColumn,
     TrailDetailScreen, TrailSelectScreen, TrailSummaryScreen,
     build_trail_lanes, load_local_project_name, run_trail_drift,
     trail_drift_by_ref, trail_summary_text,
@@ -71,6 +74,7 @@ from keybinding_registry import resolve_key
 from topic_semantics import task_own_id
 from trail_discovery import (
     _trail_versions, compute_trail_overlaps, discover_trails, load_trail_blob,
+    sequenced_trail_read,
 )
 
 
@@ -114,6 +118,54 @@ TRAIL_ACTION_CAPABILITIES: dict[str, tuple[str, ...]] = {
                         "_apply_move_to_column"),
     "trail_sync": ("_run_sync",),
 }
+
+
+@dataclass(eq=False)
+class TrailSession:
+    """One opened trail's in-memory state (session-only, never persisted;
+    t1210_4). ``eq=False``: sessions compare by identity — "is this the active
+    session" is an ``is`` question, never a field-by-field one.
+
+    Two supersession stamps, both drawn from the mixin's ``_trail_gen`` counter:
+    ``reload_gen`` names the latest reload request (a superseded reload result
+    is discarded), ``drift_gen`` the latest drift request — and it is also
+    re-drawn whenever the session's content changes from any source, so a
+    verdict computed for an older document never lands on a newer one."""
+    handle: str
+    doc: dict | None = None
+    error: str = ""                # fail-closed load error
+    versions_fallback: list = field(default_factory=list)
+    drift: tuple | None = None     # (verdict, reasons) | None
+    owner_id: str = ""             # the trail's owner task
+    owner_archived: bool = False   # §9.2 archived-owner banner
+    reload_gen: int = 0
+    drift_gen: int = 0
+    focus_filename: str = ""       # last focused card, restored on tab switch
+    focus_col_id: str = ""
+    updated: bool = False          # background change not yet seen (tab's •)
+    read_seq: int = 0              # fetch-order sequence of `doc` (0 = unknown)
+
+
+def _session_field(name: str, default_factory):
+    """A mixin property that reads / writes ``name`` on the ACTIVE session.
+
+    The scalar By-Trail state used to live on the App; it now lives per
+    session, and these properties keep every existing reader and writer — the
+    board's ``z`` view and the tests — working unchanged. Reading with no
+    active session yields the old default; WRITING with none raises, because
+    the value would have nowhere to live (every writer sets the handle
+    first)."""
+    def fget(self):
+        session = self._trail_active
+        return default_factory() if session is None else getattr(session, name)
+
+    def fset(self, value):
+        session = self._trail_active
+        if session is None:
+            raise RuntimeError(f"no active trail session to store {name!r} in")
+        setattr(session, name, value)
+
+    return property(fget, fset)
 
 
 class TrailHost(Protocol):
@@ -183,22 +235,35 @@ class TrailHost(Protocol):
 class TrailScreenMixin:
     """By-Trail screen behaviour for an App that provides ``TrailHost``."""
 
+    #: Host policy (t1895). False — the board's ``z`` view: one session at a
+    #: time, activating a trail replaces it, and ``s`` always re-scans. True —
+    #: ``ait trails``: every explicitly opened trail keeps its own session (one
+    #: tab each), activating an open trail switches to it, and ``s`` serves the
+    #: discovery cache, re-scanning only when it is missing or empty.
+    _TRAIL_TABBED: ClassVar[bool] = False
+
+    # The active session's state, under the names the single-trail view used.
+    _trail_doc = _session_field("doc", lambda: None)
+    _trail_error = _session_field("error", str)
+    _trail_versions_fallback = _session_field("versions_fallback", list)
+    _trail_drift = _session_field("drift", lambda: None)
+    _trail_owner_id = _session_field("owner_id", str)
+    _trail_owner_archived = _session_field("owner_archived", bool)
+
     def _init_trail_state(self) -> None:
         """Create the By-Trail session state. The host calls this from its
         ``__init__`` (the mixin has no ``__init__`` of its own)."""
         # --- By-Trail view state (session-only, never persisted; t1210_4) ---
-        self.active_trail_handle: str | None = None
+        # Open sessions in tab order (insertion order), and the active one.
+        self._trail_sessions: dict[str, TrailSession] = {}
+        self._trail_active: TrailSession | None = None
         self._trail_infos: list | None = None    # discovery cache
-        self._trail_doc: dict | None = None      # active trail document
-        self._trail_error: str = ""              # fail-closed load error
-        self._trail_versions_fallback: list = []
-        self._trail_drift: tuple | None = None   # (verdict, reasons) | None
-        self._trail_owner_id: str = ""           # active trail's owner task
-        self._trail_owner_archived = False       # §9.2 archived-owner banner
-        # Supersession token: bumped on EVERY re-entry point (enter/leave the
-        # view, trail selection, selection-modal reopen). Worker callbacks
-        # discard results carrying a stale token.
+        # Monotonic counter. Consumers never compare against it directly;
+        # they compare against STAMPS drawn from it: `_trail_discovery_gen`
+        # (the in-flight scan) and each session's `reload_gen` / `drift_gen`.
+        # A callback carrying a stale stamp is discarded.
         self._trail_gen = 0
+        self._trail_discovery_gen = 0
         self._local_project: str | None = None   # lazy project-name cache
         # --- Artifact-version watch (t1268) ---
         # Installed only after a confirmed agent refresh actually launched;
@@ -218,6 +283,205 @@ class TrailScreenMixin:
         # thinks nothing happened can confirm `R` again and spawn a second
         # expensive refresh agent (t1268).
         self._trail_launch_pending = False
+
+    # --- Sessions (t1895) ---------------------------------------------------
+
+    @property
+    def active_trail_handle(self) -> str | None:
+        session = self._trail_active
+        return session.handle if session is not None else None
+
+    @active_trail_handle.setter
+    def active_trail_handle(self, handle: str | None) -> None:
+        """Make ``handle``'s session active, creating a blank one if needed.
+
+        ``None`` deactivates without closing anything. A non-tabbed host keeps
+        at most one session, so a new handle replaces the old session."""
+        if handle is None:
+            self._trail_active = None
+            return
+        session = self._trail_sessions.get(handle)
+        if session is None:
+            if not self._TRAIL_TABBED:
+                self._trail_sessions.clear()
+            session = TrailSession(handle, reload_gen=self._trail_gen,
+                                   drift_gen=self._trail_gen)
+            self._trail_sessions[handle] = session
+        self._trail_active = session
+
+    def _trail_session(self, handle: str):
+        """The open session for ``handle``, or None."""
+        return self._trail_sessions.get(handle)
+
+    def _bump_trail_gen(self) -> int:
+        """Draw a fresh stamp from the supersession counter."""
+        self._trail_gen += 1
+        return self._trail_gen
+
+    def _supersede_trail_workers(self) -> None:
+        """Retire every in-flight trail worker result: the pending scan and each
+        session's reload and drift. The board calls this on entering and
+        leaving the By-Trail view (its re-entry points)."""
+        gen = self._bump_trail_gen()
+        self._trail_discovery_gen = gen
+        for session in self._trail_sessions.values():
+            session.reload_gen = gen
+            session.drift_gen = gen
+
+    def _refresh_trail_tabs(self) -> None:
+        """Repaint the host's tab strip. A tabbed host overrides this; the
+        board's single-trail view has no strip."""
+
+    def _newest_trail_content(self, handle: str, incoming: tuple) -> tuple:
+        """The newest ``(doc, error, versions, read_seq)`` known for ``handle``.
+
+        Candidates: ``incoming``, the discovery-cache entry and the open
+        session. The largest ``read_seq`` wins — ``sequenced_trail_read`` makes
+        that the read which sampled the stored artifact last — and a tie keeps
+        ``incoming``. The ONLY place two reads of a trail are ordered, so a scan
+        and a reload that complete in either order converge on one answer."""
+        best = incoming
+        info = next((i for i in (self._trail_infos or [])
+                     if i.handle == handle), None)
+        if info is not None and info.read_seq > best[3]:
+            best = (info.doc, info.load_error, list(info.versions),
+                    info.read_seq)
+        session = self._trail_session(handle)
+        if session is not None and session.read_seq > best[3]:
+            best = (session.doc, session.error,
+                    list(session.versions_fallback), session.read_seq)
+        return best
+
+    def _store_trail_info_content(self, handle: str, content: tuple) -> None:
+        """Write ``content`` into the cached ``TrailInfo`` for ``handle`` in
+        place (owner fields kept). No-op when the handle is not cached."""
+        infos = self._trail_infos or []
+        for idx, info in enumerate(infos):
+            if info.handle == handle:
+                doc, error, versions, read_seq = content
+                infos[idx] = dataclasses.replace(
+                    info, doc=doc, load_error=error, versions=list(versions),
+                    read_seq=read_seq)
+                return
+
+    def _apply_trail_content(self, session, content: tuple, *,
+                             restart_drift: bool) -> None:
+        """Move ``session`` onto ``content`` and redraw whatever shows it.
+
+        Unchanged content only advances ``read_seq`` — no redraw and no drift
+        subprocess, so a plain rescan does not churn every open tab — unless
+        ``restart_drift`` (the reload path, whose request cleared the
+        verdict). A changed document re-draws ``drift_gen``, so a verdict still
+        in flight for the old document is discarded when it lands."""
+        doc, error, versions, read_seq = content
+        # The recorded versions are content too: they are what the fail-closed
+        # error card lists, so a new failing revision with the same error must
+        # still reach the session.
+        changed = (doc != session.doc or error != session.error
+                   or list(versions) != list(session.versions_fallback))
+        session.read_seq = max(session.read_seq, read_seq)
+        if not changed and not restart_drift:
+            return
+        session.doc = doc
+        session.error = error
+        session.versions_fallback = list(versions)
+        session.drift = None
+        session.drift_gen = self._bump_trail_gen()
+        if session is self._trail_active:
+            self._rerender_trail()
+            if doc is not None and not error:
+                self._start_trail_drift()
+            self._refresh_subtitle()
+            return
+        if changed:
+            session.updated = True
+            # New members: resolve them now, not on the switch to this tab.
+            self._resolve_trail_members(session)
+        if doc is not None and not error:
+            self._start_session_drift(session)
+        self._refresh_trail_tabs()
+
+    def _load_trail_tasks(self) -> None:
+        """Re-read the task files — and, in a tabbed host, resolve every open
+        trail's archived members while I/O is expected.
+
+        ``load_tasks`` clears the manager's archived-task cache, and a trail
+        member that is not a live task is projected through
+        ``find_task_including_archived`` — which reads the archive, possibly a
+        ``zstd``-compressed bundle. Without this, a tab switch after any reload
+        (opening another trail runs one) would do that read on the UI thread,
+        breaking the in-memory switch. Resolving here leaves the switch with
+        cache hits only. The board has one session, which it re-renders
+        right after every reload anyway."""
+        self.manager.load_tasks()
+        if self._TRAIL_TABBED:
+            tasks_by_id = self._live_tasks_by_id()     # once for every tab
+            for session in self._trail_sessions.values():
+                self._resolve_trail_members(session, tasks_by_id)
+
+    def _resolve_trail_members(self, session, tasks_by_id=None) -> None:
+        """Warm the manager's archive cache for ``session``'s members by running
+        the same projection a render runs (and discarding it), so the lookups
+        are exactly the ones a later render — a tab switch — will make."""
+        if session.doc is None or session.error:
+            return
+        if tasks_by_id is None:
+            tasks_by_id = self._live_tasks_by_id()
+        build_trail_lanes(session.doc, tasks_by_id, self._get_local_project(),
+                          self.manager.find_task_including_archived, {})
+
+    def _store_trail_focus(self) -> None:
+        """Remember the focused card in the active session (tab switch)."""
+        session = self._trail_active
+        focused = self._focused_card()
+        if session is not None and focused is not None:
+            session.focus_filename = focused.task_data.filename
+            session.focus_col_id = focused.column_id
+
+    def _show_trail_session(self, session) -> None:
+        """Render ``session`` as the active one from memory: zero subprocesses,
+        no task reload, no drift re-run. Its saved focus is restored."""
+        # Drop the outgoing card's focus first, so the re-render does not carry
+        # the old trail's column over as the refocus target.
+        self.screen.set_focus(None)
+        self._trail_active = session
+        session.updated = False
+        self._rerender_trail()
+        self._queue_refocus(session.focus_filename, session.focus_col_id)
+        self._refresh_trail_tabs()
+        self.refresh_bindings()
+
+    def _switch_trail_session(self, handle: str) -> None:
+        """Tab switch: make the open session for ``handle`` active."""
+        session = self._trail_session(handle)
+        if session is None or session is self._trail_active:
+            return
+        self._store_trail_focus()
+        self._show_trail_session(session)
+
+    def _close_trail_session(self, handle: str) -> None:
+        """Close ``handle``'s tab. The artifact-version watch belongs to its
+        trail, so closing the trail is what stops it. Closing the active tab
+        shows its right-hand neighbour (else the left one), or the empty state
+        when none is left."""
+        session = self._trail_session(handle)
+        if session is None:
+            return
+        order = list(self._trail_sessions)
+        idx = order.index(handle)
+        del self._trail_sessions[handle]
+        if self._trail_watch_handle == handle:
+            self._stop_trail_watch()
+        if session is self._trail_active:
+            remaining = list(self._trail_sessions.values())
+            if remaining:
+                self._show_trail_session(remaining[min(idx, len(remaining) - 1)])
+                return
+            self._trail_active = None
+            self.screen.set_focus(None)
+            self._rerender_trail()
+        self._refresh_trail_tabs()
+        self.refresh_bindings()
 
     def _has_trail_capability(self, action: str) -> bool:
         """Whether this host provides every optional member ``action`` needs.
@@ -452,7 +716,7 @@ class TrailScreenMixin:
             return
         focused = self._focused_card()
         refocus = focused.task_data.filename if focused else ""
-        self.manager.load_tasks()          # pure file I/O
+        self._load_trail_tasks()           # file I/O; archive reads (see there)
         self._rerender_trail(refocus)
 
     def action_trail_refresh_drift(self):
@@ -489,10 +753,16 @@ class TrailScreenMixin:
                                "board", "trail_refresh_agent", "R") or "R")
 
     def action_trail_select(self):
-        """`s` in By-Trail: open the trail selector (rescans discovery)."""
+        """`s` in By-Trail: open the trail selector.
+
+        The board re-scans every time. A tabbed host serves the discovery cache
+        and re-scans only when it is missing or EMPTY: a successful zero-trail
+        scan must not pin a dead end, because an empty list never opens the
+        selector whose `r` key would re-scan (t1895)."""
         if self._modal_is_active():
             return
-        self._open_trail_select(rescan=True)
+        self._open_trail_select(
+            rescan=not self._TRAIL_TABBED or not self._trail_infos)
 
     def action_trail_sync(self):
         """`S` in By-Trail: ait sync, then the local recompute.
@@ -635,8 +905,8 @@ class TrailScreenMixin:
             container.mount(TrailColumn(lane, self.manager))
         self._refresh_subtitle()
 
-    def _build_active_trail_lanes(self):
-        """Project the active trail onto the live By-Topic task universe."""
+    def _live_tasks_by_id(self) -> dict:
+        """The live By-Topic task universe, keyed by own id."""
         all_tasks = (list(self.manager.task_datas.values())
                      + list(self.manager.child_task_datas.values()))
         tasks_by_id = {}
@@ -644,22 +914,28 @@ class TrailScreenMixin:
             own = task_own_id(task)
             if own:
                 tasks_by_id.setdefault(own, task)
+        return tasks_by_id
+
+    def _build_active_trail_lanes(self):
+        """Project the active trail onto the live By-Topic task universe."""
         drift_by_ref = trail_drift_by_ref(
             self._trail_drift[1] if self._trail_drift else [])
         return build_trail_lanes(
-            self._trail_doc, tasks_by_id, self._get_local_project(),
+            self._trail_doc, self._live_tasks_by_id(), self._get_local_project(),
             self.manager.find_task_including_archived, drift_by_ref)
 
     def _open_trail_select(self, rescan: bool = False):
         """Open the trail-selection modal, running discovery when needed."""
         if self._modal_is_active():
             return
-        self._trail_gen += 1
+        # Only the scan is superseded here: open sessions' reloads and drift
+        # checks keep running while the selector is up.
+        self._trail_discovery_gen = self._bump_trail_gen()
         if rescan or self._trail_infos is None:
             # Persistent busy affordance for the archive scan + blob loads.
             overlay = LoadingOverlay("Scanning for trails…")
             self.push_screen(overlay)
-            self._trail_discovery_worker(self._trail_gen, overlay)
+            self._trail_discovery_worker(self._trail_discovery_gen, overlay)
         else:
             self._open_trail_select_from_cache()
 
@@ -678,7 +954,7 @@ class TrailScreenMixin:
         if overlay is not None and self.screen is overlay:
             self.pop_screen()
         # Supersession guard: discard when the view moved on mid-scan.
-        if gen != self._trail_gen or self.base_filter != "bytrail":
+        if gen != self._trail_discovery_gen or self.base_filter != "bytrail":
             return
         if unreadable:
             shown = ", ".join(unreadable[:3])
@@ -703,8 +979,53 @@ class TrailScreenMixin:
                 # hint, so there is no card focus or column scroll to lose.
                 self._rerender_trail()
             return
-        self._trail_infos = infos
+        self._reconcile_discovered_trails(infos)
         self._open_trail_select_from_cache()
+
+    def _reconcile_discovered_trails(self, infos: list) -> None:
+        """Adopt a scan's result without letting it roll anything back.
+
+        A reload of an open trail can land while the scan runs, and its read
+        may have sampled the artifact later than the scan's own read of that
+        trail. Each returned entry therefore takes the newest content known for
+        its handle (owner fields stay the scan's), and an open session moves
+        onto that content too — so neither the cache nor a tab is left on an
+        older revision, whichever result completed first."""
+        resolved = []
+        for info in infos:
+            best = self._newest_trail_content(
+                info.handle, (info.doc, info.load_error, list(info.versions),
+                              info.read_seq))
+            resolved.append(dataclasses.replace(
+                info, doc=best[0], load_error=best[1], versions=list(best[2]),
+                read_seq=best[3]))
+        self._trail_infos = resolved
+        for info in resolved:
+            session = self._trail_session(info.handle)
+            if session is None:
+                continue
+            # Ownership comes from the task frontmatter the scan just read, not
+            # from the artifact, so it is adopted whatever the content did.
+            self._apply_trail_owner(session, info)
+            # Strictly newer only: an equal sequence (both unknown) is no
+            # evidence that the scan's copy should replace the tab's.
+            if info.read_seq > session.read_seq:
+                self._apply_trail_content(
+                    session, (info.doc, info.load_error, list(info.versions),
+                              info.read_seq), restart_drift=False)
+
+    def _apply_trail_owner(self, session, info) -> None:
+        """Move ``session`` onto the scan's owner (id and archived state) — the
+        §9.2 banner note — and redraw what shows it."""
+        owner = (info.owner_id, bool(info.owner_archived))
+        if owner == (session.owner_id, session.owner_archived):
+            return
+        session.owner_id, session.owner_archived = owner
+        if session is self._trail_active:
+            self._refresh_subtitle()
+        else:
+            session.updated = True
+            self._refresh_trail_tabs()
 
     def _open_trail_select_from_cache(self):
         infos = self._trail_infos or []
@@ -718,14 +1039,29 @@ class TrailScreenMixin:
         def on_select(handle):
             if handle is None:
                 return
+            if handle == TRAIL_SELECT_RESCAN:
+                self._open_trail_select(rescan=True)
+                return
             self._activate_trail(handle)
 
+        tabbed = self._TRAIL_TABBED
         self.push_screen(
-            TrailSelectScreen(infos, compute_trail_overlaps(infos)), on_select)
+            TrailSelectScreen(
+                infos, compute_trail_overlaps(infos),
+                open_handles=set(self._trail_sessions) if tabbed else (),
+                allow_rescan=tabbed),
+            on_select)
 
     def _activate_trail(self, handle: str):
-        """Make ``handle`` the session's active trail and render it."""
-        self._trail_gen += 1
+        """Make ``handle`` the active trail and render it.
+
+        A tabbed host switches to an already-open trail from memory; any other
+        activation builds a fresh session from the discovery cache. The board
+        keeps one session, so that replaces (and un-watches) the old trail; a
+        tabbed host keeps the outgoing tab — its focus, and its watch."""
+        if self._TRAIL_TABBED and handle in self._trail_sessions:
+            self._switch_trail_session(handle)
+            return
         # Discovery reads task files from disk, but the LANE PROJECTION still
         # builds tasks_by_id from the manager. A freshly authored trail usually
         # references tasks created after board start, so without this its
@@ -736,31 +1072,49 @@ class TrailScreenMixin:
         # while the modal is open would strand the board's card references with
         # no focused card to restore (_focused_card queries "TaskCard:focus",
         # which is empty behind a modal).
-        self.manager.load_tasks()
-        # A watch belongs to the trail it was installed for (t1268).
-        self._stop_trail_watch()
-        self.active_trail_handle = handle
+        self._load_trail_tasks()
+        if self._TRAIL_TABBED:
+            self._store_trail_focus()
+        else:
+            # A watch belongs to the trail it was installed for (t1268).
+            self._stop_trail_watch()
+            self._trail_sessions.clear()
         info = next((i for i in (self._trail_infos or [])
                      if i.handle == handle), None)
-        self._trail_doc = info.doc if info else None
-        self._trail_error = info.load_error if info else ""
-        self._trail_versions_fallback = list(info.versions) if info else []
-        self._trail_owner_id = info.owner_id if info else ""
-        self._trail_owner_archived = bool(info.owner_archived) if info else False
-        self._trail_drift = None
+        gen = self._bump_trail_gen()
+        session = TrailSession(
+            handle,
+            doc=info.doc if info else None,
+            error=info.load_error if info else "",
+            versions_fallback=list(info.versions) if info else [],
+            owner_id=info.owner_id if info else "",
+            owner_archived=bool(info.owner_archived) if info else False,
+            reload_gen=gen, drift_gen=gen,
+            read_seq=info.read_seq if info else 0)
+        self._trail_sessions[handle] = session
+        self._trail_active = session
         self.refresh_board()
         if self._trail_doc is not None and not self._trail_error:
             self._start_trail_drift()
         self._refresh_subtitle()
+        self._refresh_trail_tabs()
         self.refresh_bindings()
 
     def _start_trail_drift(self):
         """Kick the read-only drift check for the active trail (view entry /
         activation). Updates rendered badges only — never the artifact."""
-        if not self.active_trail_handle or self._trail_doc is None:
+        if self._trail_active is None:
             return
-        self._trail_drift = None
-        self._trail_drift_worker(self._trail_gen, self.active_trail_handle)
+        self._start_session_drift(self._trail_active)
+
+    def _start_session_drift(self, session):
+        """Kick the drift check for ``session`` (active or background). Only
+        the latest drift request of a session is accepted when it lands."""
+        if session.doc is None:
+            return
+        session.drift = None
+        session.drift_gen = self._bump_trail_gen()
+        self._trail_drift_worker(session.drift_gen, session.handle)
 
     @work(thread=True)
     def _trail_drift_worker(self, gen: int, handle: str):
@@ -771,11 +1125,18 @@ class TrailScreenMixin:
     def _on_trail_drift(self, gen: int, handle: str, verdict: str,
                         reasons: list):
         # Supersession guard: a slow drift check must not clobber a newer
-        # selection or a different view (stale token → discard).
-        if (gen != self._trail_gen or self.base_filter != "bytrail"
-                or handle != self.active_trail_handle):
+        # check, newer content or a different view (stale stamp → discard).
+        # Keyed by handle: a closed trail has no session and is discarded too.
+        session = self._trail_session(handle)
+        if (session is None or gen != session.drift_gen
+                or self.base_filter != "bytrail"):
             return
-        self._trail_drift = (verdict, reasons)
+        session.drift = (verdict, reasons)
+        if session is not self._trail_active:
+            # A background tab: nothing on screen shows it but its tab.
+            session.updated = True
+            self._refresh_trail_tabs()
+            return
         # Re-render so the per-card drift markers appear. _rerender_trail, NOT
         # refresh_board: this is an async callback, and refresh_board would put
         # up to 15s of git/lock subprocesses on the UI thread (t1268).
@@ -787,34 +1148,49 @@ class TrailScreenMixin:
         """Re-fetch the active trail's stored blob, then re-run drift.
 
         Read-only (artifact get/versions): the board never writes a trail."""
-        if self.base_filter != "bytrail" or not self.active_trail_handle:
+        if self.base_filter != "bytrail" or self._trail_active is None:
             return
-        self._trail_gen += 1
-        self._trail_drift = None
-        self._refresh_subtitle()          # back to "⟳ checking freshness…"
-        self._trail_reload_worker(self._trail_gen, self.active_trail_handle)
+        self._reload_trail_session(self._trail_active)
+
+    def _reload_trail_session(self, session):
+        """Re-fetch ``session``'s stored blob (active or background tab)."""
+        if (self.base_filter != "bytrail"
+                or self._trail_session(session.handle) is not session):
+            return
+        # As before, a reload also retires an in-flight verdict.
+        gen = self._bump_trail_gen()
+        session.reload_gen = gen
+        session.drift_gen = gen
+        session.drift = None
+        if session is self._trail_active:
+            self._refresh_subtitle()      # back to "⟳ checking freshness…"
+        else:
+            self._refresh_trail_tabs()
+        self._trail_reload_worker(gen, session.handle)
 
     @work(thread=True)
     def _trail_reload_worker(self, gen: int, handle: str):
-        doc, error, versions = load_trail_blob(handle)
+        # Fetch-ordered read: `read_seq` tells this result apart from a scan's
+        # read of the same trail, whichever lands first (t1895).
+        (doc, error, versions), read_seq = sequenced_trail_read(
+            handle, load_trail_blob)
         self.app.call_from_thread(self._on_trail_reload, gen, handle,
-                                  doc, error, versions)
+                                  doc, error, versions, read_seq)
 
     def _on_trail_reload(self, gen: int, handle: str, doc, error: str,
-                         versions: list):
-        if (gen != self._trail_gen or self.base_filter != "bytrail"
-                or handle != self.active_trail_handle):
+                         versions: list, read_seq: int = 0):
+        session = self._trail_session(handle)
+        if (session is None or gen != session.reload_gen
+                or self.base_filter != "bytrail"):
             return
-        self._trail_doc = doc
-        self._trail_error = error
-        self._trail_versions_fallback = list(versions)
-        # The discovery cache still holds the OLD doc for this handle; drop it
-        # so a later `s` re-select cannot resurrect the superseded document.
-        self._trail_infos = None
-        self._rerender_trail()
-        if doc is not None and not error:
-            self._start_trail_drift()
-        self._refresh_subtitle()
+        # The newest content known for the handle — normally this result, but
+        # a scan that sampled the artifact later and landed first wins.
+        best = self._newest_trail_content(
+            handle, (doc, error, list(versions), read_seq))
+        self._apply_trail_content(session, best, restart_drift=True)
+        # The cache follows, in place: a later `s` can neither resurrect the
+        # superseded document nor serve one older than this tab's.
+        self._store_trail_info_content(handle, best)
 
     # --- Artifact-version watch (t1268) -----------------------------------
     # An agent refresh launched into a tmux window finishes long after its
@@ -855,8 +1231,10 @@ class TrailScreenMixin:
 
     def _trail_watch_tick(self):
         handle = self._trail_watch_handle
+        # The watch belongs to its trail, not to the active tab: it survives a
+        # tab switch and stops when the trail's session is gone.
         if (self.base_filter != "bytrail" or not handle
-                or handle != self.active_trail_handle):
+                or self._trail_session(handle) is None):
             self._stop_trail_watch()
             return
         self._trail_watch_ticks += 1
@@ -880,8 +1258,8 @@ class TrailScreenMixin:
         if watch_gen != self._trail_watch_gen:
             return
         self._trail_watch_busy = False
-        if (self.base_filter != "bytrail"
-                or handle != self.active_trail_handle
+        session = self._trail_session(handle)
+        if (self.base_filter != "bytrail" or session is None
                 or handle != self._trail_watch_handle):
             self._stop_trail_watch()
             return
@@ -894,7 +1272,10 @@ class TrailScreenMixin:
             return
         self._stop_trail_watch()
         self.notify("Trail artifact updated — reloading")
-        self._reload_active_trail()
+        if session is self._trail_active:
+            self._reload_active_trail()
+        else:
+            self._reload_trail_session(session)
 
     def action_trail_task(self):
         """`T`: launch /aitask-trail for the host's chosen target.
@@ -1027,13 +1408,23 @@ class TrailScreenMixin:
             return
         if watch_handle:
             self._install_trail_watch(watch_handle, baseline)
-        self._after_trail_launch()
+        self._after_trail_launch(handle=watch_handle)
 
-    def _after_trail_launch(self, reload: bool = True):
+    def _after_trail_launch(self, reload: bool = True, handle: str = ""):
         """Post-dialog refresh. The immediate reload picks up the synchronous
-        in-dialog `run` case; an installed watch covers the async tmux case."""
+        in-dialog `run` case; an installed watch covers the async tmux case.
+
+        ``handle`` names the trail the launch was for: the user may have
+        switched tabs while the baseline read ran, so that trail — not the
+        active one — is reloaded, and nothing when its tab was closed."""
         if self.base_filter == "bytrail" and self.active_trail_handle:
-            if reload:
+            if reload and handle:
+                session = self._trail_session(handle)
+                if session is self._trail_active:
+                    self._reload_active_trail()
+                elif session is not None:
+                    self._reload_trail_session(session)
+            elif reload:
                 self._reload_active_trail()
             else:
                 self._rerender_trail()

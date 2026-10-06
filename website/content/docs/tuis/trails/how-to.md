@@ -9,15 +9,21 @@ depth: [intermediate]
 
 ### How to Open a Trail
 
-Run `ait trails`, or press **j** then **i** from any other TUI. The TUI opens straight into the **trail selector**, which lists every trail in the project; choose one and its waves are drawn as columns.
+Run `ait trails`, or press **j** then **i** from any other TUI. The TUI scans the project and opens straight into the **trail selector**, which lists every trail it found; choose one and it opens in a tab, with its waves drawn as columns.
 
 If you close the selector without choosing, the subtitle reads `no trail selected — press s`. Press **s** to open the selector again.
 
 If the project has no trails yet, the TUI says so. Create one with the [`/aitask-trail`]({{< relref "/docs/skills/aitask-trail" >}}) skill in your coding agent, or with **T** on a task card in the board — see [Creating a Trail]({{< relref "/docs/workflows/implementation-trails" >}}#creating-a-trail).
 
-### How to Switch to Another Trail
+### How to Open Several Trails and Switch Between Them
 
-Press **s**. The selector reopens and **re-scans** the project for trails first, so a trail created since you launched the TUI is listed. Exactly one trail is shown at a time.
+Press **s** to reopen the selector and choose another trail: it opens in a new tab, and the trails you already opened stay in theirs. Rows for trails that are already open are marked `● open`; choosing one switches to its tab instead of opening a second copy.
+
+Switch tabs with **[** and **]** (previous / next, wrapping around), **1**–**9** to go to a tab by its number, or a click on the tab. Switching is instant: it reads nothing from disk or storage, and each tab comes back with the card you last focused in it. Press **Ctrl+W** to close the active tab.
+
+The mark at the end of each tab is that trail's freshness (`✓` current, `⚠` stale, `⟳` checking), and `•` means the trail changed while you were looking at another tab — see [Tabs](../reference/#tabs) for every mark.
+
+**s** lists the trails found by the last scan; it does not scan again. To pick up a trail created since — for example by `/aitask-trail` in another session — press **r** inside the selector to re-scan. When the last scan found no trails at all, **s** scans again by itself.
 
 ### How to Read the Waves and the Summary
 
@@ -35,14 +41,14 @@ Pick the key by **what changed** — they read different things, and none of the
 
 - **A task's status changed on this machine** → press **r**. It re-reads the task files from disk and redraws the trail it already has loaded. It is instant, but it does not look at the stored trail, so it never picks up a new or updated trail.
 - **The shown trail may have a newer stored version, or you want its freshness re-checked** → press **d**. It fetches the active trail again from storage and re-runs the freshness (drift) check. It never writes the trail.
-- **A trail was created since you launched the TUI, or on another machine** → press **s**. The selector re-scans for trails, so the new one is listed.
+- **A trail was created since the last scan, or on another machine** → press **s**, then **r** in the selector. The selector re-scans for trails, so the new one is listed.
 - **The trail's reasoning is out of date** → press **R**. This opens the agent workflow that re-authors the shown trail — the slowest option by far. When the new version lands, the view reloads it on its own.
 
 There is no sync key in this TUI. When the change was made elsewhere, sync task data first — `ait sync` in a shell, or **S** in the board's By-Trail view — and then:
 
 1. press **r** for task statuses,
 2. press **d** for the shown trail's latest stored version,
-3. press **s** if a new trail may have arrived.
+3. press **s**, then **r** in the selector, if a new trail may have arrived.
 
 Pressing only **r** after a sync leaves a new or updated trail unseen.
 
@@ -50,7 +56,7 @@ Pressing only **r** after a sync leaves a new or updated trail unseen.
 
 Focus a live card and press **T**. This opens the [`/aitask-trail`]({{< relref "/docs/skills/aitask-trail" >}}) trail-creation workflow for that task in a code agent, through the usual agent-launch dialog — the TUI itself writes nothing. The agent gathers the task state, shows you the proposed waves and their reasoning, and writes a new trail **only after you confirm** its proposal. To re-author the trail you are already reading, use **R** instead.
 
-The view does not switch to the result by itself. Once the agent has written the trail, press **s** to list and select it.
+The view does not switch to the result by itself. Once the agent has written the trail, press **s**, then **r** in the selector to re-scan, and select the new trail — it opens in a new tab.
 
 **T** needs a live local task under focus. On a ghost card, or with nothing focused, it shows a warning and launches nothing.
 

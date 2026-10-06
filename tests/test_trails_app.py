@@ -539,12 +539,28 @@ class BindingOwnershipTests(TrailsAppTestBase):
 
     def test_every_trails_row_has_an_identical_board_twin(self):
         board = _rows(self.ab.KanbanApp.BINDINGS)
+        tab_actions = {b.action for b in self.ta.TRAIL_TAB_BINDINGS}
         for b in self.ta.TrailsApp.BINDINGS:
-            if b.action in MIXIN_ACTIONS:
+            if b.action in MIXIN_ACTIONS or b.action in tab_actions:
                 continue
             with self.subTest(action=b.action):
                 self.assertIn(b.action, board)
                 self.assertEqual((b.key, b.description), board[b.action])
+
+    def test_the_tab_rows_are_trails_only_and_collide_with_no_board_row(self):
+        """The tab keys (t1895) are this App's own `board`-scope rows: the board
+        declares none of their actions and binds none of their keys, so they
+        can neither shadow nor be shadowed by a Kanban row."""
+        tab_rows = self.ta.TRAIL_TAB_BINDINGS
+        self.assertTrue(tab_rows)
+        board_actions = {b.action for b in self.ab.KanbanApp.BINDINGS}
+        board_keys = {k for b in self.ab.KanbanApp.BINDINGS
+                      for k in b.key.split(",")}
+        for b in tab_rows:
+            with self.subTest(action=b.action):
+                self.assertIn(b, self.ta.TrailsApp.BINDINGS)
+                self.assertNotIn(b.action, board_actions)
+                self.assertNotIn(b.key, board_keys)
 
     def test_the_trail_binding_objects_are_shared_by_identity(self):
         declared = [b for b in self.ta.TrailsApp.BINDINGS
@@ -779,6 +795,625 @@ asyncio.run(go())
         got = dict(line.split(" ", 1) for line in out.stdout.strip().splitlines())
         self.assertEqual(got["after_boot"], "[]")
         self.assertIn("_shortcut_scopes_probe_aitask_board", got["after_editor"])
+
+
+
+# --- tabbed multi-trail sessions (t1895) -----------------------------------------
+
+
+HANDLE_A = "art:trail-alpha"
+HANDLE_B = "art:trail-beta"
+#: A non-live member only trail A has — so nothing B renders resolves it. It is
+#: projected through the archive lookup (`find_task_including_archived`).
+GHOST_A = "99997"
+
+
+def _titled(doc: dict, title: str, mark: str) -> dict:
+    """`doc` retitled, with a distinct summary token for the pane."""
+    doc = dict(doc)
+    doc["title"] = title
+    doc["narrative"] = {"problem_statement": "ps",
+                        "recommendation_summary": mark}
+    return doc
+
+
+class TabbedSessionTests(TrailsAppTestBase):
+    """Several explicitly opened trails, one tab each, switched from memory.
+
+    The subprocess seams (`discover_trails`, `load_trail_blob`,
+    `run_trail_drift`) are patched with COUNTING fakes so "a switch is pure
+    in-memory" is asserted, not assumed."""
+
+    def _doc_a(self):
+        return _titled(_wave_doc([*self.member_ids, GHOST_A]),
+                       "Alpha trail", "ALPHAMARK")
+
+    def _doc_b(self):
+        return _titled(_wave_doc([self.member_ids[1], GHOST_REF]),
+                       "Beta trail", "BETAMARK")
+
+    def _info_for(self, handle, doc):
+        return TrailInfo(handle=handle, owner_id=self.member_ids[0],
+                         owner_archived=False, owner_folded=False,
+                         name=doc["title"], doc=doc)
+
+    def _counting(self, infos=None, drift=("CURRENT", [])):
+        """Patches + a call log. `infos` is a list the test may mutate."""
+        calls = {"discover": 0, "drift": [], "load": []}
+        infos = infos if infos is not None else [
+            self._info_for(HANDLE_A, self._doc_a()),
+            self._info_for(HANDLE_B, self._doc_b())]
+
+        def discover():
+            calls["discover"] += 1
+            return [TrailInfo(**{**vars(i)}) for i in infos], []
+
+        def run_drift(handle):
+            calls["drift"].append(handle)
+            return drift
+
+        def load(handle):
+            calls["load"].append(handle)
+            info = next(i for i in infos if i.handle == handle)
+            return info.doc, "", []
+
+        stack = [patch.object(self.ts, "discover_trails", discover),
+                 patch.object(self.ts, "run_trail_drift", run_drift),
+                 patch.object(self.ts, "load_trail_blob", load)]
+        return calls, stack
+
+    async def _open_second(self, app, pilot):
+        """From one open tab: `s`, move to the second row, `enter`."""
+        await pilot.press("s")
+        await self._wait_screen(app, pilot,
+                                self.ab.board_trail_view.TrailSelectScreen)
+        await pilot.press("down")
+        await pilot.press("enter")
+        await self._settle(app, pilot)
+
+    def _pane(self, app) -> str:
+        return str(app.query_one("#trail_summary_body").render())
+
+    def _strip(self, app) -> str:
+        return str(app.query_one("#trail_tabs").render())
+
+    def _card_ids(self, app):
+        return [id(c) for c in app.query(self.ab.TaskCard)]
+
+    def test_second_trail_opens_a_tab_from_the_cache(self):
+        async def go():
+            calls, stack = self._counting()
+            app = bf.make_trails_app()
+            with stack[0], stack[1], stack[2]:
+                async with app.run_test(size=(200, 48)) as pilot:
+                    await self._boot_and_select(app, pilot)
+                    self.assertEqual(calls["discover"], 1)
+                    await pilot.press("s")
+                    await self._wait_screen(
+                        app, pilot, self.ab.board_trail_view.TrailSelectScreen)
+                    self.assertEqual(calls["discover"], 1, "s re-scanned")
+                    rows = [str(i.render()) for i in app.screen.query(
+                        self.ab.board_trail_view.TrailSelectItem)]
+                    self.assertIn("● open", rows[0])
+                    self.assertNotIn("● open", rows[1])
+                    await pilot.press("down")
+                    await pilot.press("enter")
+                    await self._settle(app, pilot)
+                    self.assertEqual(list(app._trail_sessions),
+                                     [HANDLE_A, HANDLE_B])
+                    self.assertEqual(app.active_trail_handle, HANDLE_B)
+                    strip = self._strip(app)
+                    self.assertIn("1 Alpha trail", strip)
+                    self.assertIn("2 Beta trail", strip)
+                    self.assertIn("BETAMARK", self._pane(app))
+        self._run(go())
+
+    def test_switching_is_in_memory_and_restores_focus(self):
+        async def go():
+            calls, stack = self._counting()
+            app = bf.make_trails_app()
+            with stack[0], stack[1], stack[2]:
+                async with app.run_test(size=(200, 48)) as pilot:
+                    await self._boot_and_select(app, pilot)
+                    await pilot.press("down")       # A: second member
+                    await self._wait_until(
+                        pilot, lambda: self._focused_filename(app)
+                        == self.member_files[1])
+                    await self._open_second(app, pilot)
+                    before = (calls["discover"], len(calls["drift"]),
+                              len(calls["load"]))
+                    # Beyond the three seams: no archive read (A's own ghost
+                    # member is projected through the archive lookup, whose
+                    # cache the B activation's task reload cleared, and B never
+                    # resolves it) and no process at all.
+                    archive_reads, spawned = [], []
+                    real_load = app.manager._load_archived_task
+                    real_popen = subprocess.Popen
+                    app.manager._load_archived_task = (
+                        lambda tid: (archive_reads.append(tid),
+                                     real_load(tid))[1])
+
+                    def popen(*args, **kwargs):
+                        spawned.append(args[0] if args else kwargs.get("args"))
+                        return real_popen(*args, **kwargs)
+
+                    popen_patch = patch.object(subprocess, "Popen", popen)
+                    popen_patch.start()
+                    self.addCleanup(popen_patch.stop)
+
+                    await pilot.press("[")
+                    await self._settle(app, pilot)
+                    self.assertEqual(app.active_trail_handle, HANDLE_A)
+                    self.assertIn("Alpha trail", app.sub_title)
+                    self.assertIn("ALPHAMARK", self._pane(app))
+                    self.assertEqual(self._focused_filename(app),
+                                     self.member_files[1],
+                                     "A's focused card was not restored")
+                    await pilot.press("]")
+                    await self._settle(app, pilot)
+                    self.assertEqual(app.active_trail_handle, HANDLE_B)
+                    self.assertIn("Beta trail", app.sub_title)
+                    self.assertIn("BETAMARK", self._pane(app))
+                    await pilot.press("]")          # wraps
+                    await self._settle(app, pilot)
+                    self.assertEqual(app.active_trail_handle, HANDLE_A)
+                    await pilot.press("2")
+                    await self._settle(app, pilot)
+                    self.assertEqual(app.active_trail_handle, HANDLE_B)
+                    await pilot.press("1")
+                    await self._settle(app, pilot)
+                    self.assertEqual(app.active_trail_handle, HANDLE_A)
+                    self.assertEqual((calls["discover"], len(calls["drift"]),
+                                      len(calls["load"])), before,
+                                     "a tab switch ran a subprocess seam")
+                    popen_patch.stop()
+                    self.assertEqual(archive_reads, [],
+                                     "a tab switch read the task archive")
+                    self.assertEqual(spawned, [],
+                                     "a tab switch spawned a process")
+        self._run(go())
+
+    def test_a_reload_resolves_every_tab_archive_members(self):
+        """The precondition the switch test relies on, pinned directly: opening
+        B (a task reload) re-resolves A's non-live members, so the archive
+        lookup for A's ghost is a cache hit by the time A is shown again."""
+        async def go():
+            calls, stack = self._counting()
+            app = bf.make_trails_app()
+            with stack[0], stack[1], stack[2]:
+                async with app.run_test(size=(200, 48)) as pilot:
+                    await self._boot_and_select(app, pilot)
+                    await self._open_second(app, pilot)
+                    self.assertIn(GHOST_A, app.manager.archived_task_cache)
+        self._run(go())
+
+    def test_a_stale_selector_key_pops_nothing(self):
+        """`TrailSelectScreen` is a guarded modal: an `r` (or `Esc`) dispatched
+        to it after it closed neither raises nor pops the screen above."""
+        async def go():
+            calls, stack = self._counting()
+            app = bf.make_trails_app()
+            with stack[0], stack[1], stack[2]:
+                async with app.run_test(size=(200, 48)) as pilot:
+                    await self._boot_and_select(app, pilot)
+                    await pilot.press("s")
+                    await self._wait_screen(
+                        app, pilot, self.ab.board_trail_view.TrailSelectScreen)
+                    selector = app.screen
+                    await pilot.press("escape")
+                    await self._settle(app, pilot)
+                    selector.action_rescan()          # base screen on top
+                    selector.action_cancel()
+                    await self._settle(app, pilot)
+                    self.assertIsInstance(app.screen, self.ta.TrailsScreen)
+                    await pilot.press("v")            # a replacement modal
+                    await self._wait_screen(
+                        app, pilot, self.ab.board_trail_view.TrailSummaryScreen)
+                    selector.action_rescan()
+                    await self._settle(app, pilot)
+                    self.assertIsInstance(
+                        app.screen, self.ab.board_trail_view.TrailSummaryScreen)
+                    self.assertEqual(calls["discover"], 1)
+                    await pilot.press("escape")
+                    await self._settle(app, pilot)
+        self._run(go())
+
+    def test_choosing_an_open_trail_switches_without_a_duplicate(self):
+        async def go():
+            calls, stack = self._counting()
+            app = bf.make_trails_app()
+            with stack[0], stack[1], stack[2]:
+                async with app.run_test(size=(200, 48)) as pilot:
+                    await self._boot_and_select(app, pilot)
+                    await self._open_second(app, pilot)
+                    drift_before = len(calls["drift"])
+                    await pilot.press("s")
+                    await self._wait_screen(
+                        app, pilot, self.ab.board_trail_view.TrailSelectScreen)
+                    await pilot.press("enter")      # A, already open
+                    await self._settle(app, pilot)
+                    self.assertEqual(app.active_trail_handle, HANDLE_A)
+                    self.assertEqual(list(app._trail_sessions),
+                                     [HANDLE_A, HANDLE_B])
+                    self.assertEqual(len(calls["drift"]), drift_before)
+        self._run(go())
+
+    def test_background_drift_updates_only_its_tab(self):
+        async def go():
+            calls, stack = self._counting()
+            app = bf.make_trails_app()
+            with stack[0], stack[1], stack[2]:
+                async with app.run_test(size=(200, 48)) as pilot:
+                    await self._boot_and_select(app, pilot)
+                    await self._open_second(app, pilot)
+                    await pilot.press("1")
+                    await self._settle(app, pilot)
+                    session_b = app._trail_session(HANDLE_B)
+                    cards = self._card_ids(app)
+                    app._on_trail_drift(session_b.drift_gen, HANDLE_B, "STALE",
+                                        [("status_changed", "-", "d")])
+                    await self._settle(app, pilot)
+                    self.assertEqual(session_b.drift[0], "STALE")
+                    self.assertTrue(session_b.updated)
+                    self.assertEqual(self._card_ids(app), cards,
+                                     "the active tab was re-rendered")
+                    self.assertEqual(app._trail_drift[0], "CURRENT")
+                    self.assertIn("2 Beta trail ⚠ •", self._strip(app))
+                    await pilot.press("2")
+                    await self._settle(app, pilot)
+                    self.assertFalse(session_b.updated)
+                    self.assertNotIn("•", self._strip(app))
+                    self.assertIn("stale", app.sub_title)
+        self._run(go())
+
+    def test_watch_survives_a_switch_reloads_its_own_trail_and_dies_on_close(self):
+        async def go():
+            calls, stack = self._counting()
+            app = bf.make_trails_app()
+            with stack[0], stack[1], stack[2]:
+                async with app.run_test(size=(200, 48)) as pilot:
+                    await self._boot_and_select(app, pilot)
+                    await self._open_second(app, pilot)
+                    await pilot.press("1")
+                    await self._settle(app, pilot)
+                    spawned = []
+                    app._trail_watch_worker = (
+                        lambda gen, handle: spawned.append(handle))
+                    app._install_trail_watch(HANDLE_A, ["v1"])
+                    await pilot.press("2")          # A goes to the background
+                    await self._settle(app, pilot)
+                    self.assertIsNotNone(app._trail_watch_timer)
+                    app._trail_watch_tick()
+                    self.assertEqual(spawned, [HANDLE_A])
+                    # A version change for background A reloads A, not B.
+                    app._on_trail_watch(app._trail_watch_gen, HANDLE_A, ["v2"])
+                    await self._settle(app, pilot)
+                    self.assertEqual(calls["load"], [HANDLE_A])
+                    self.assertEqual(app.active_trail_handle, HANDLE_B)
+                    # Closing A's tab is what stops a watch on A.
+                    app._install_trail_watch(HANDLE_A, ["v2"])
+                    await pilot.press("1")
+                    await self._settle(app, pilot)
+                    self.assertIsNotNone(app._trail_watch_timer)
+                    await pilot.press("ctrl+w")
+                    await self._settle(app, pilot)
+                    self.assertIsNone(app._trail_watch_timer)
+                    self.assertEqual(list(app._trail_sessions), [HANDLE_B])
+                    self.assertEqual(app.active_trail_handle, HANDLE_B)
+        self._run(go())
+
+    def test_closing_the_last_tab_shows_the_empty_state(self):
+        async def go():
+            calls, stack = self._counting()
+            app = bf.make_trails_app()
+            with stack[0], stack[1], stack[2]:
+                async with app.run_test(size=(200, 48)) as pilot:
+                    await self._boot_and_select(app, pilot)
+                    self.assertIs(app.check_action("trail_tab_close", None),
+                                  True)
+                    await pilot.press("ctrl+w")
+                    await self._settle(app, pilot)
+                    self.assertIsNone(app.active_trail_handle)
+                    self.assertEqual(app._trail_sessions, {})
+                    hint = " ".join(str(w.render())
+                                    for w in app.query(".trail-empty"))
+                    self.assertIn("No trail selected", hint)
+                    self.assertIn("no trail selected — press s", app.sub_title)
+                    self.assertFalse(app.query_one("#trail_tabs").display)
+                    for action in ("trail_tab_close", "trail_tab_prev",
+                                   "trail_tab_next", "trail_tab_1"):
+                        self.assertIs(app.check_action(action, None), False,
+                                      action)
+        self._run(go())
+
+    def test_r_in_the_selector_rescans(self):
+        async def go():
+            calls, stack = self._counting()
+            app = bf.make_trails_app()
+            with stack[0], stack[1], stack[2]:
+                async with app.run_test(size=(200, 48)) as pilot:
+                    await self._boot_and_select(app, pilot)
+                    await pilot.press("s")
+                    await self._wait_screen(
+                        app, pilot, self.ab.board_trail_view.TrailSelectScreen)
+                    self.assertEqual(calls["discover"], 1)
+                    await pilot.press("r")
+                    await self._settle(app, pilot)
+                    self.assertEqual(calls["discover"], 2)
+                    self.assertIsInstance(
+                        app.screen, self.ab.board_trail_view.TrailSelectScreen)
+                    await pilot.press("escape")
+                    await self._settle(app, pilot)
+        self._run(go())
+
+    def test_an_empty_scan_is_not_a_dead_end(self):
+        """A successful zero-trail scan caches `[]`; `s` must still re-scan, or
+        a trail created afterwards could never be found without a restart."""
+        async def go():
+            available = []
+            calls, stack = self._counting(infos=available)
+            app = bf.make_trails_app()
+            with stack[0], stack[1], stack[2]:
+                async with app.run_test(size=(200, 48)) as pilot:
+                    await self._settle(app, pilot)
+                    self.assertEqual(calls["discover"], 1)
+                    self.assertEqual(app._trail_infos, [])
+                    self.assertIsInstance(app.screen, self.ta.TrailsScreen)
+                    available.append(self._info_for(HANDLE_A, self._doc_a()))
+                    await pilot.press("s")
+                    await self._wait_screen(
+                        app, pilot, self.ab.board_trail_view.TrailSelectScreen)
+                    self.assertEqual(calls["discover"], 2)
+                    await pilot.press("enter")
+                    await self._settle(app, pilot)
+                    self.assertEqual(list(app._trail_sessions), [HANDLE_A])
+        self._run(go())
+
+    def test_a_click_on_a_tab_switches_to_it(self):
+        async def go():
+            calls, stack = self._counting()
+            app = bf.make_trails_app()
+            with stack[0], stack[1], stack[2]:
+                async with app.run_test(size=(200, 48)) as pilot:
+                    await self._boot_and_select(app, pilot)
+                    await self._open_second(app, pilot)
+                    strip = app.query_one("#trail_tabs")
+                    start, _end, handle = strip._spans[0]
+                    self.assertEqual(handle, HANDLE_A)
+                    await pilot.click("#trail_tabs", offset=(start + 2, 0))
+                    await self._settle(app, pilot)
+                    self.assertEqual(app.active_trail_handle, HANDLE_A)
+        self._run(go())
+
+    # --- discovery vs. reload ---------------------------------------------------
+
+    def _sequenced_pair(self, rev1, rev2):
+        """Two real fetch-ordered reads of HANDLE_A over a store that moves
+        from rev1 to rev2: `((rev1 result, seq), (rev2 result, seq))`."""
+        from trail_discovery import sequenced_trail_read
+        store = {"doc": rev1}
+        older = sequenced_trail_read(HANDLE_A,
+                                     lambda h: (store["doc"], "", []))
+        store["doc"] = rev2
+        newer = sequenced_trail_read(HANDLE_A,
+                                     lambda h: (store["doc"], "", []))
+        return older, newer
+
+    def _reconcile_once(self, reload_fetched_newer: bool,
+                        reload_lands_first: bool):
+        rev1 = _titled(self._doc_a(), "Alpha rev1", "REV1MARK")
+        rev2 = _titled(self._doc_a(), "Alpha rev2", "REV2MARK")
+        (old_res, old_seq), (new_res, new_seq) = self._sequenced_pair(rev1, rev2)
+        if reload_fetched_newer:
+            reload_res, reload_seq, disc_res, disc_seq = (
+                new_res, new_seq, old_res, old_seq)
+        else:
+            reload_res, reload_seq, disc_res, disc_seq = (
+                old_res, old_seq, new_res, new_seq)
+
+        async def go():
+            calls, stack = self._counting()
+            app = bf.make_trails_app()
+            with stack[0], stack[1], stack[2]:
+                async with app.run_test(size=(200, 48)) as pilot:
+                    await self._boot_and_select(app, pilot)
+                    session = app._trail_session(HANDLE_A)
+                    # Both requests in flight: a reload of A and a scan.
+                    app._trail_reload_worker = lambda gen, handle: None
+                    app._reload_active_trail()
+                    reload_gen = session.reload_gen
+                    app._trail_discovery_gen = app._bump_trail_gen()
+                    scan_gen = app._trail_discovery_gen
+                    scanned = self._info_for(HANDLE_A, disc_res[0])
+                    scanned.read_seq = disc_seq
+
+                    def land_reload():
+                        app._on_trail_reload(reload_gen, HANDLE_A,
+                                             *reload_res, reload_seq)
+
+                    def land_scan():
+                        app._on_trail_discovery(scan_gen, [scanned], [], None)
+
+                    for land in ((land_reload, land_scan) if reload_lands_first
+                                 else (land_scan, land_reload)):
+                        land()
+                        await self._settle(app, pilot)
+                    if isinstance(app.screen,
+                                  self.ab.board_trail_view.TrailSelectScreen):
+                        await pilot.press("escape")
+                        await self._settle(app, pilot)
+
+                    self.assertEqual(session.doc["title"], "Alpha rev2")
+                    cached = next(i for i in app._trail_infos
+                                  if i.handle == HANDLE_A)
+                    self.assertEqual(cached.doc["title"], "Alpha rev2")
+                    self.assertIn("REV2MARK", self._pane(app))
+
+                    # Identical content again: no redraw, no drift subprocess.
+                    cards, drifts = self._card_ids(app), len(calls["drift"])
+                    again = self._info_for(HANDLE_A, rev2)
+                    again.read_seq = max(old_seq, new_seq) + 1000
+                    app._trail_discovery_gen = app._bump_trail_gen()
+                    app._on_trail_discovery(app._trail_discovery_gen, [again],
+                                            [], None)
+                    await self._settle(app, pilot)
+                    await pilot.press("escape")
+                    await self._settle(app, pilot)
+                    self.assertEqual(self._card_ids(app), cards)
+                    self.assertEqual(len(calls["drift"]), drifts)
+
+                    # Close A and reopen it from the cache: still rev2.
+                    await pilot.press("ctrl+w")
+                    await self._settle(app, pilot)
+                    discovered = calls["discover"]
+                    await pilot.press("s")
+                    await self._wait_screen(
+                        app, pilot, self.ab.board_trail_view.TrailSelectScreen)
+                    self.assertEqual(calls["discover"], discovered)
+                    await pilot.press("enter")
+                    await self._settle(app, pilot)
+                    self.assertEqual(app._trail_doc["title"], "Alpha rev2")
+                    self.assertIn("REV2MARK", self._pane(app))
+        self._run(go())
+
+    def test_discovery_and_reload_converge_on_the_newer_fetch_in_any_order(self):
+        for reload_fetched_newer in (True, False):
+            for reload_lands_first in (True, False):
+                with self.subTest(reload_fetched_newer=reload_fetched_newer,
+                                  reload_lands_first=reload_lands_first):
+                    self._reconcile_once(reload_fetched_newer,
+                                         reload_lands_first)
+
+    def test_a_new_failing_revision_reaches_the_tab_and_the_cache(self):
+        """Same load error, new recorded versions: the error card lists them.
+        Before the fix only `doc`/`error` were compared, so the session kept the
+        old versions while `read_seq` advanced past them."""
+        from trail_discovery import sequenced_trail_read
+        error = "artifact unresolved: no manifest"
+        broken = TrailInfo(handle=HANDLE_A, owner_id=self.member_ids[0],
+                           owner_archived=False, owner_folded=False,
+                           name="Broken", doc=None, load_error=error,
+                           versions=["* sha256:v1"])
+
+        async def go():
+            calls, stack = self._counting(infos=[broken])
+            app = bf.make_trails_app()
+            with stack[0], stack[1], stack[2]:
+                async with app.run_test(size=(200, 48)) as pilot:
+                    await self._boot_and_select(app, pilot)
+                    session = app._trail_session(HANDLE_A)
+                    # A reload that fetched a newer failing revision.
+                    app._trail_reload_worker = lambda gen, handle: None
+                    app._reload_active_trail()
+                    (_res, seq) = sequenced_trail_read(
+                        HANDLE_A, lambda h: None)
+                    app._on_trail_reload(session.reload_gen, HANDLE_A, None,
+                                         error, ["* sha256:v2", "* sha256:v1"],
+                                         seq)
+                    await self._settle(app, pilot)
+                    self.assertEqual(session.versions_fallback,
+                                     ["* sha256:v2", "* sha256:v1"])
+                    card = " ".join(str(w.render())
+                                    for w in app.query(".trail-error"))
+                    self.assertIn("sha256:v2", card)
+                    self.assertEqual(app._trail_infos[0].versions,
+                                     ["* sha256:v2", "* sha256:v1"])
+                    # A later scan with yet another failing revision.
+                    (_res, newer) = sequenced_trail_read(
+                        HANDLE_A, lambda h: None)
+                    scanned = TrailInfo(**{**vars(broken),
+                                           "versions": ["* sha256:v3"],
+                                           "read_seq": newer})
+                    app._on_trail_discovery(app._trail_discovery_gen,
+                                            [scanned], [], None)
+                    await self._settle(app, pilot)
+                    await pilot.press("escape")
+                    await self._settle(app, pilot)
+                    self.assertEqual(session.versions_fallback, ["* sha256:v3"])
+                    card = " ".join(str(w.render())
+                                    for w in app.query(".trail-error"))
+                    self.assertIn("sha256:v3", card)
+        self._run(go())
+
+    def test_a_scan_moves_an_open_tab_onto_its_new_owner(self):
+        """Ownership comes from task frontmatter, not the artifact: a scan that
+        finds a new (archived) owner updates the open tab's banner even when
+        the trail document is unchanged and the sequence is no newer."""
+        async def go():
+            calls, stack = self._counting()
+            app = bf.make_trails_app()
+            with stack[0], stack[1], stack[2]:
+                async with app.run_test(size=(200, 48)) as pilot:
+                    await self._boot_and_select(app, pilot)
+                    session = app._trail_session(HANDLE_A)
+                    self.assertFalse(session.owner_archived)
+                    moved = TrailInfo(handle=HANDLE_A, owner_id="9001",
+                                      owner_archived=True, owner_folded=False,
+                                      name="Alpha trail", doc=session.doc,
+                                      read_seq=session.read_seq)
+                    app._on_trail_discovery(app._trail_discovery_gen, [moved],
+                                            [], None)
+                    await self._settle(app, pilot)
+                    await pilot.press("escape")
+                    await self._settle(app, pilot)
+                    self.assertEqual((session.owner_id, session.owner_archived),
+                                     ("9001", True))
+                    self.assertIn("owner t9001 archived", app.sub_title)
+        self._run(go())
+
+    # --- deferred focus restore ---------------------------------------------------
+
+    def test_a_stale_restore_from_an_earlier_switch_does_not_land(self):
+        """A→B→A with the restores held back: B's restore (shared member X)
+        lands LATE, after A's own restore, and must not move focus. The
+        negative control runs the same stale restore unguarded and lands on X."""
+        x_file, y_file = self.member_files[1], self.member_files[0]
+
+        async def run(guarded: bool):
+            calls, stack = self._counting()
+            app = bf.make_trails_app()
+            with stack[0], stack[1], stack[2]:
+                async with app.run_test(size=(200, 48)) as pilot:
+                    await self._boot_and_select(app, pilot)  # A, Y focused
+                    self.assertEqual(self._focused_filename(app), y_file)
+                    await self._open_second(app, pilot)      # B, X focused
+                    self.assertEqual(self._focused_filename(app), x_file)
+                    await pilot.press("1")
+                    await self._settle(app, pilot)
+                    self.assertEqual(self._focused_filename(app), y_file)
+
+                    held = []
+                    real = app.call_after_refresh
+
+                    def capture(callback, *args, **kwargs):
+                        if getattr(callback, "__name__", "") == "_refocus":
+                            held.append(args)
+                            return True
+                        return real(callback, *args, **kwargs)
+
+                    app.call_after_refresh = capture
+                    await pilot.press("]")       # → B
+                    await pilot.press("[")       # → A, without settling
+                    app.call_after_refresh = real
+                    await self._settle(app, pilot)
+                    self.assertEqual(app.active_trail_handle, HANDLE_A)
+                    self.assertEqual(len(held), 2, held)
+                    stale, current = held
+                    self.assertEqual(stale[0], x_file)
+                    app._refocus(*current)
+                    await pilot.pause()
+                    if guarded:
+                        app._refocus(*stale)
+                    else:
+                        app._refocus(stale[0], stale[1], stale[2], None)
+                    await pilot.pause()
+                    await pilot.pause()
+                    return self._focused_filename(app)
+
+        self.assertEqual(asyncio.run(run(guarded=True)), y_file)
+        self.assertEqual(asyncio.run(run(guarded=False)), x_file,
+                         "negative control: an unguarded stale restore must "
+                         "land on the shared member, or this test proves nothing")
 
 
 if __name__ == "__main__":

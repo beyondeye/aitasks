@@ -63,8 +63,10 @@ MOVED_NAMES = (
     "_trail_stored_freshness", "TrailSelectItem", "TrailSelectScreen",
     "TrailDetailScreen", "TrailSummaryScreen",
 )
-#: Defined by the view and new with the move, so never in the board.
-VIEW_ONLY_NAMES = ("TRAIL_CSS",)
+#: Defined by the view after the move, so never in the board's old body:
+#: `TRAIL_CSS` (new with the move) and `TRAIL_SELECT_RESCAN` (the selector's
+#: rescan sentinel, t1895).
+VIEW_ONLY_NAMES = ("TRAIL_CSS", "TRAIL_SELECT_RESCAN")
 
 
 # --- single home (source level) ---------------------------------------------

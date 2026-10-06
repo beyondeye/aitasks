@@ -9,6 +9,14 @@ drift, watch the artifact, and launch ``/aitask-trail`` for a live member. The
 board's ``z`` view stays embedded and unchanged; the two hand off through the
 TUI switcher (``j`` → ``i`` from the board, ``j`` → ``b`` back).
 
+Tabs (t1895): this host is ``_TRAIL_TABBED``. Every trail the user explicitly
+opens keeps its own in-memory session (``TrailSession``) and gets a tab in
+``TrailTabStrip``; switching tabs re-renders from memory — no subprocess, no
+task reload, no drift re-run — and restores the tab's last focused card. ``s``
+serves the discovery cache (``r`` inside the selector re-scans), and a drift,
+reload or watch result for a background tab updates only that tab and marks it
+``•``. Tabs are session-only, never persisted (the t1210_4 rule).
+
 Shortcut ownership (parent plan C10): this App registers under scope
 ``"board"`` and declares the SAME ``TRAIL_BINDINGS`` objects the board does, so
 a ``shortcuts.board.<trail action>`` override rebinds both surfaces at once.
@@ -38,11 +46,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 # Own directory too (C1): sibling board modules are imported by bare name.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from rich.cells import cell_len
+from rich.cells import cell_len, set_cell_size
 from textual.app import App
 from textual.binding import Binding
 from textual.containers import HorizontalScroll, VerticalScroll
+from textual.css.query import NoMatches
 from textual.screen import ModalScreen, Screen
+from rich.text import Text
 from textual.widgets import DataTable, Header, Input, SelectionList, Static
 
 from board_task_manager import TaskManager
@@ -74,6 +84,95 @@ class TrailsScreen(Screen):
         self.app.call_after_refresh(self.app.apply_filter)
 
 
+#: Tab keys — trails-only rows under the shared `board` scope (C10): the board
+#: declares none of these actions and binds none of these keys, so a rebind
+#: here changes nothing there. The digits stay out of the footer; the tab
+#: labels carry the index, which is the discoverability surface for them.
+TRAIL_TAB_BINDINGS = [
+    Binding("[", "trail_tab_prev", "Prev Tab"),
+    Binding("]", "trail_tab_next", "Next Tab"),
+    Binding("ctrl+w", "trail_tab_close", "Close Tab"),
+    *(Binding(str(n), f"trail_tab_{n}", f"Tab {n}", show=False)
+      for n in range(1, 10)),
+]
+
+#: Widest a tab title may render before it is elided (cells).
+TAB_TITLE_CELLS = 24
+
+
+def trail_tab_label(index: int, session) -> str:
+    """`<index> <title> <glyph>[ •]` for one open trail.
+
+    The glyph is the tab's freshness: ✗ the trail failed to load, ⟳ the drift
+    check is pending, ✓ current, ⚠ stale, ? drift unavailable. `•` marks a
+    background tab whose state changed since it was last shown."""
+    title = str((session.doc or {}).get("title") or session.handle)
+    if cell_len(title) > TAB_TITLE_CELLS:
+        title = set_cell_size(title, TAB_TITLE_CELLS - 1) + "…"
+    if session.error or session.doc is None:
+        glyph = "✗"
+    elif session.drift is None:
+        glyph = "⟳"
+    elif session.drift[0] == "CURRENT":
+        glyph = "✓"
+    elif session.drift[0] == "STALE":
+        glyph = "⚠"
+    else:
+        glyph = "?"
+    dot = " •" if session.updated else ""
+    return f"{index} {title} {glyph}{dot}"
+
+
+class TrailTabStrip(Static):
+    """One row of tabs, rendered synchronously from the App's sessions.
+
+    Deliberately not Textual's ``Tabs``: its add / remove are asynchronous and
+    it posts its own activation messages (auto-activating a first tab,
+    re-activating a neighbour on removal), which would make the widget a second
+    source of truth racing the session model. This strip only draws; a click is
+    mapped through the cell spans recorded at render time."""
+
+    DEFAULT_CSS = """
+    TrailTabStrip {
+        height: 1;
+        width: 100%;
+        background: $panel;
+        text-wrap: nowrap;
+        text-overflow: ellipsis;
+    }
+    """
+
+    def __init__(self, **kwargs):
+        super().__init__("", markup=False, **kwargs)
+        self.can_focus = False
+        self._spans: list[tuple[int, int, str]] = []
+
+    def set_tabs(self, rows: list[tuple[str, str, bool]]) -> None:
+        """``rows``: ``(handle, label, is_active)`` in tab order."""
+        text = Text()
+        spans = []
+        for handle, label, active in rows:
+            if text.cell_len:
+                text.append("│", style="dim")
+            start = text.cell_len
+            text.append(f" {label} ",
+                        style="bold reverse" if active else "")
+            spans.append((start, text.cell_len, handle))
+        self._spans = spans
+        self.update(text)
+        self.display = bool(rows)
+
+    def handle_at(self, x: int) -> str | None:
+        return next((h for start, end, h in self._spans if start <= x < end),
+                    None)
+
+    def on_click(self, event) -> None:
+        handle = self.handle_at(event.x)
+        if handle is not None:
+            event.stop()
+            self.app._select_trail_tab(handle)
+
+
 class TrailsApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
     """The stand-alone trail reader. A `TrailHost` (see board_trail_screen.py)."""
 
@@ -88,6 +187,8 @@ class TrailsApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
     # excluded for the same reason: this App never pushes it.
     _shortcuts_exclude_sources = ("aitask_board", "board_detail_screen")
     TITLE = "aitasks trails"
+    # Multi-trail sessions, one tab each, and a cache-first selector (t1895).
+    _TRAIL_TABBED = True
 
     CSS = WIDGET_CSS + """
     Screen { align: center middle; }
@@ -108,6 +209,8 @@ class TrailsApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
         Binding("right", "nav_right", "Right", show=False, priority=True),
         # The shared trail keys — the SAME objects the board declares (C10).
         *TRAIL_BINDINGS,
+        # Tab keys — this App's own rows (see TRAIL_TAB_BINDINGS).
+        *TRAIL_TAB_BINDINGS,
     ]
 
     def __init__(self, *, tasks_dir: Path, metadata_file: Path,
@@ -124,6 +227,11 @@ class TrailsApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
             gates_registry_file=Path(gates_registry_file),
             on_warning=self.notify, persist_on_init=False)
         self._init_trail_state()
+        # Lane-render epoch: bumped on every re-mount. A deferred refocus is
+        # owned by the render that queued it and drops itself once a newer
+        # render exists (t1895: A→B→A switches would otherwise let a restore
+        # queued for A's first visit land on A's second).
+        self._render_seq = 0
 
     # --- Composition -------------------------------------------------------
 
@@ -131,6 +239,9 @@ class TrailsApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
         header = Header()
         header.can_focus = False
         yield header
+        tabs = TrailTabStrip(id="trail_tabs")
+        tabs.display = False
+        yield tabs
         container = HorizontalScroll(id="board_container")
         container.can_focus = False
         yield container
@@ -168,6 +279,7 @@ class TrailsApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
     def refresh_board(self, refocus_filename: str = "", *args, **kwargs):
         """Re-mount the lanes from the manager's in-memory state."""
         refocus_col_id = self._get_focused_col_id() or ""
+        self._render_seq += 1
         container = self.query_one("#board_container")
         container.remove_children()
         self._render_bytrail(container)
@@ -214,19 +326,29 @@ class TrailsApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
         focused = self._focused_card()
         return focused.column_id if focused else None
 
+    def _rerender_trail(self, refocus_filename: str = ""):
+        self._render_seq += 1
+        super()._rerender_trail(refocus_filename)
+
     def _queue_refocus(self, refocus_filename: str = "",
                        refocus_col_id: str = "") -> None:
         if refocus_filename or refocus_col_id:
             self.call_after_refresh(self._refocus, refocus_filename,
-                                    refocus_col_id)
+                                    refocus_col_id, self._MOUNT_HOPS,
+                                    self._render_seq)
 
     def _refocus(self, filename: str, col_id: str,
-                 hops: int = _MOUNT_HOPS) -> None:
+                 hops: int = _MOUNT_HOPS, seq: int | None = None) -> None:
+        if seq is not None and seq != self._render_seq:
+            # A newer render owns focus now; this restore names a card of a
+            # render that is gone (possibly another tab sharing the member).
+            return
         cards = list(self.query(TaskCard))
         if not cards and hops > 0:
             # The re-render's mount has not landed yet (it is asynchronous);
             # come back after the next refresh rather than refocus nothing.
-            self.call_after_refresh(self._refocus, filename, col_id, hops - 1)
+            self.call_after_refresh(self._refocus, filename, col_id, hops - 1,
+                                    seq)
             return
         for card in cards:
             if filename and card.task_data.filename == filename:
@@ -248,7 +370,7 @@ class TrailsApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
 
     def _after_dialog_command(self, refocus_filename: str = "") -> None:
         """`run_dialog_command` suspend-path hook: reload tasks and re-render."""
-        self.manager.load_tasks()
+        self._load_trail_tasks()
         self.refresh_board(refocus_filename=refocus_filename)
 
     def _trail_task_target(self) -> str | None:
@@ -268,12 +390,84 @@ class TrailsApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
 
     def _refresh_subtitle(self):
         """No active trail → say so; the mixin's fallback prints the board's
-        `Auto-refresh: …`, which this App has no timer for."""
+        `Auto-refresh: …`, which this App has no timer for. The tab strip is
+        repainted with it, so the active tab's glyph moves with the banner."""
+        self._refresh_trail_tabs()
         if self.active_trail_handle:
             super()._refresh_subtitle()
             return
         self._refresh_trail_summary()
         self.sub_title = "no trail selected — press s"
+
+    # --- Tabs (t1895) -----------------------------------------------------
+
+    def _refresh_trail_tabs(self) -> None:
+        try:
+            strip = self.query_one("#trail_tabs", TrailTabStrip)
+        except NoMatches:
+            return          # before the first compose
+        active = self._trail_active
+        strip.set_tabs([
+            (s.handle, trail_tab_label(i, s), s is active)
+            for i, s in enumerate(self._trail_sessions.values(), start=1)])
+
+    def _select_trail_tab(self, handle: str) -> None:
+        """Click path: switch to ``handle``'s tab."""
+        if self._modal_is_active():
+            return
+        self._switch_trail_session(handle)
+
+    def _step_trail_tab(self, step: int) -> None:
+        handles = list(self._trail_sessions)
+        if self._modal_is_active() or len(handles) < 2:
+            return
+        idx = handles.index(self.active_trail_handle) if (
+            self.active_trail_handle in handles) else 0
+        self._switch_trail_session(handles[(idx + step) % len(handles)])
+
+    def _goto_trail_tab(self, n: int) -> None:
+        handles = list(self._trail_sessions)
+        if self._modal_is_active() or not 1 <= n <= len(handles):
+            return
+        self._switch_trail_session(handles[n - 1])
+
+    def action_trail_tab_prev(self):
+        self._step_trail_tab(-1)
+
+    def action_trail_tab_next(self):
+        self._step_trail_tab(1)
+
+    def action_trail_tab_close(self):
+        if self._modal_is_active() or not self.active_trail_handle:
+            return
+        self._close_trail_session(self.active_trail_handle)
+
+    def action_trail_tab_1(self):
+        self._goto_trail_tab(1)
+
+    def action_trail_tab_2(self):
+        self._goto_trail_tab(2)
+
+    def action_trail_tab_3(self):
+        self._goto_trail_tab(3)
+
+    def action_trail_tab_4(self):
+        self._goto_trail_tab(4)
+
+    def action_trail_tab_5(self):
+        self._goto_trail_tab(5)
+
+    def action_trail_tab_6(self):
+        self._goto_trail_tab(6)
+
+    def action_trail_tab_7(self):
+        self._goto_trail_tab(7)
+
+    def action_trail_tab_8(self):
+        self._goto_trail_tab(8)
+
+    def action_trail_tab_9(self):
+        self._goto_trail_tab(9)
 
     # --- Widget hooks reached through `self.app` ---------------------------
 
@@ -365,6 +559,14 @@ class TrailsApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
                 if isinstance(self.app.focused, SelectOverlay):
                     return False
             return True
+        if action.startswith("trail_tab_"):
+            tabs = len(self._trail_sessions)
+            if action in ("trail_tab_prev", "trail_tab_next"):
+                return tabs >= 2
+            if action == "trail_tab_close":
+                return tabs >= 1
+            suffix = action[len("trail_tab_"):]
+            return suffix.isdigit() and int(suffix) <= tabs
         if action in ("trail_move_wave", "trail_sync"):
             # Declared for shortcut ownership (C10), never live here: the
             # board-only machinery they reach does not exist in this App.

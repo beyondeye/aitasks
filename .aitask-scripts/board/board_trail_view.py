@@ -53,6 +53,7 @@ from board_widgets import (
     _status_badge_text,
 )
 from cross_repo_notation import parse_ref as parse_cross_repo_ref
+from guarded_dismiss import GuardedModalScreen
 from topic_semantics import task_own_id
 from trail_discovery import TrailInfo, trail_entry_refs
 
@@ -62,6 +63,10 @@ from trail_discovery import TrailInfo, trail_entry_refs
 # many polls before giving up (~30 min at 20s).
 TRAIL_WATCH_INTERVAL = 20
 TRAIL_WATCH_MAX_TICKS = 90
+
+#: What `TrailSelectScreen` dismisses with when its `r` key asks for a fresh
+#: scan (a tabbed host only). Not a valid handle: handles never contain NUL.
+TRAIL_SELECT_RESCAN = "\x00rescan"
 TRAIL_GATHER_SCRIPT = Path(".aitask-scripts") / "aitask_trail_gather.sh"
 
 # Classification glyphs (RFC §15 wireframe pins ◆ hard prereq / ● core; the
@@ -525,7 +530,8 @@ class TrailSelectItem(PickerItem):
     """Focusable row for one discovered trail (title · owner · scope ·
     freshness · updated, with "also in" overlap sub-lines per §9.2)."""
 
-    def __init__(self, info: TrailInfo, overlap_notes: list):
+    def __init__(self, info: TrailInfo, overlap_notes: list,
+                 is_open: bool = False):
         doc = info.doc or {}
         title = str(doc.get("title") or info.name or info.handle)
         owner = f"owner t{info.owner_id}" if info.owner_id else "owner ?"
@@ -534,7 +540,11 @@ class TrailSelectItem(PickerItem):
         scope = str((doc.get("scope") or {}).get("kind") or "?")
         updated = str((doc.get("generation") or {}).get("generated_at") or "?")
         text = Text()
-        text.append(f"{title}   ")
+        text.append(title)
+        if is_open:
+            # Already a tab (t1895): choosing it switches, never duplicates.
+            text.append("  ● open", style="bold")
+        text.append("   ")
         text.append(f"{owner} · {scope} · {_trail_stored_freshness(info)} "
                     f"· {updated}", style="dim")
         for ref, other_title in overlap_notes:
@@ -553,8 +563,12 @@ class TrailSelectItem(PickerItem):
         self.screen.dismiss(self.info.handle)
 
 
-class TrailSelectScreen(ModalScreen):
-    """Trail selection modal (RFC §9.1): dismisses the chosen handle or None."""
+class TrailSelectScreen(GuardedModalScreen):
+    """Trail selection modal (RFC §9.1): dismisses the chosen handle or None.
+
+    Guarded (tui_conventions.md "Modal dismissal"): a key still dispatched to
+    this selector after it closed — an `r` re-scan, a repeated `Esc` — must not
+    pop whatever screen replaced it."""
 
     # Mirrors the KanbanApp.CSS rules this modal used to borrow (t1794_3) so it
     # lays out the same when pushed by an App without them (tui_conventions.md
@@ -586,21 +600,31 @@ class TrailSelectScreen(ModalScreen):
 
     BINDINGS = [
         Binding("escape", "cancel", "Cancel", show=False),
+        # Re-scan from inside the selector — the tabbed host serves the list
+        # from its cache, so this is how a trail created since is found. Inert
+        # unless the pusher allows it (the board's `s` always re-scans).
+        Binding("r", "rescan", "Rescan", show=False),
     ]
 
-    def __init__(self, infos: list, overlaps: dict):
+    def __init__(self, infos: list, overlaps: dict, open_handles=(),
+                 allow_rescan: bool = False):
         super().__init__()
         self.infos = infos
         self.overlaps = overlaps
+        self.open_handles = frozenset(open_handles)
+        self.allow_rescan = allow_rescan
 
     def compose(self):
+        rescan = " · r rescan" if self.allow_rescan else ""
         with Container(id="dep_picker_dialog", classes="picker-dialog"):
             yield Label(
-                "Select trail — [dim]↑/↓ move · Enter open · Esc cancel[/]",
+                f"Select trail — [dim]↑/↓ move · Enter open{rescan} · "
+                "Esc cancel[/]",
                 id="dep_picker_title",
             )
             for info in self.infos:
-                yield TrailSelectItem(info, self.overlaps.get(info.handle, []))
+                yield TrailSelectItem(info, self.overlaps.get(info.handle, []),
+                                      is_open=info.handle in self.open_handles)
             yield Button("Cancel", id="btn_dep_cancel")
 
     def on_mount(self):
@@ -614,6 +638,10 @@ class TrailSelectScreen(ModalScreen):
 
     def action_cancel(self):
         self.dismiss(None)
+
+    def action_rescan(self):
+        if self.allow_rescan:
+            self.dismiss(TRAIL_SELECT_RESCAN)
 
 
 class TrailDetailScreen(ModalScreen):

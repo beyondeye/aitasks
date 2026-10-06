@@ -875,6 +875,106 @@ class RefreshSplitAndSupersessionTests(ByTrailTestBase):
         self._run(go())
 
 
+class BoardSingleSessionTests(ByTrailTestBase):
+    """t1895 made `ait trails` tabbed; the board's `z` view must stay a
+    single-trail view. Pinned here: `s` still re-scans, there is no tab strip
+    and no tab key, activating a second trail REPLACES the session (and stops
+    its watch), and the split supersession stamps — opening the selector no
+    longer retires an in-flight drift, and a reload no longer retires an
+    in-flight scan."""
+
+    def test_s_always_rescans_and_there_are_no_tabs(self):
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
+                asked = []
+                app._open_trail_select = lambda rescan=False: asked.append(rescan)
+                app.action_trail_select()
+                app._trail_infos = [self._mk_trail_info("art:trail-b", "B")]
+                app.action_trail_select()
+                self.assertEqual(asked, [True, True])
+                self.assertFalse(app._TRAIL_TABBED)
+                self.assertEqual(len(app.query("#trail_tabs")), 0)
+                self.assertFalse([b for b in ab.KanbanApp.BINDINGS
+                                  if b.action.startswith("trail_tab_")])
+
+        self._run(go())
+
+    def test_activating_another_trail_replaces_the_session(self):
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
+                app._install_trail_watch("art:trail-test", ["v1"])
+                app._trail_infos = [self._mk_trail_info("art:trail-b", "B")]
+                app._activate_trail("art:trail-b")
+                await pilot.pause()
+                self.assertEqual(list(app._trail_sessions), ["art:trail-b"])
+                self.assertEqual(app.active_trail_handle, "art:trail-b")
+                self.assertIsNone(app._trail_watch_timer)
+                # Re-activating the same trail builds a fresh session too.
+                old = app._trail_active
+                app._activate_trail("art:trail-b")
+                await pilot.pause()
+                self.assertIsNot(app._trail_active, old)
+                self.assertEqual(len(app._trail_sessions), 1)
+
+        self._run(go())
+
+    def test_opening_the_selector_keeps_an_in_flight_drift(self):
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
+                stamps = []
+                app._trail_drift_worker = lambda gen, handle: stamps.append(gen)
+                app._start_session_drift(app._trail_active)
+                app._trail_discovery_worker = lambda gen, overlay: None
+                app._open_trail_select(rescan=True)   # pushes the overlay
+                await pilot.pause()
+                app.pop_screen()
+                await pilot.pause()
+                app._on_trail_drift(stamps[0], "art:trail-test", "STALE",
+                                    [("status_changed", "-", "d")])
+                self.assertEqual(app._trail_drift[0], "STALE")
+
+        self._run(go())
+
+    def test_a_reload_keeps_an_in_flight_scan(self):
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
+                app._trail_discovery_worker = lambda gen, overlay: None
+                app._open_trail_select(rescan=True)
+                await pilot.pause()
+                scan = app._trail_discovery_gen
+                app.pop_screen()                      # the overlay
+                await pilot.pause()
+                app._trail_reload_worker = lambda gen, handle: None
+                app._reload_active_trail()
+                info = self._mk_trail_info("art:trail-b", "B")
+                app._on_trail_discovery(scan, [info], [], None)
+                await pilot.pause()
+                self.assertEqual([i.handle for i in app._trail_infos],
+                                 ["art:trail-b"])
+
+        self._run(go())
+
+
 class TrailLaunchConstructionTests(ByTrailTestBase):
     """Construction spies on the agent-launch seam (no real screens/agents)."""
 
@@ -1817,6 +1917,11 @@ class ThreadWorkerTests(ByTrailTestBase):
             async with app.run_test(size=(160, 48)) as pilot:
                 await pilot.pause()
                 await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
+                # A cached copy of the same trail, as a scan would leave it.
+                app._trail_infos = [ab.TrailInfo(
+                    handle="art:trail-test", owner_id="9000",
+                    owner_archived=False, owner_folded=False,
+                    doc=_ghost_doc())]
                 fresh = _ghost_doc()
                 fresh["title"] = "Reloaded trail"
                 with patch.object(ab.board_trail_screen, "load_trail_blob",
@@ -1827,8 +1932,11 @@ class ThreadWorkerTests(ByTrailTestBase):
                         lambda: (app._trail_doc or {}).get("title")
                         == "Reloaded trail")
                 self.assertTrue(ok, "reload worker never applied the document")
-                # The stale discovery cache was invalidated with it.
-                self.assertIsNone(app._trail_infos)
+                # The cached entry was updated in place (t1895), so a later
+                # `s` cannot resurrect the superseded document.
+                self.assertEqual([i.doc.get("title") for i in app._trail_infos],
+                                 ["Reloaded trail"])
+                self.assertEqual(app._trail_infos[0].owner_id, "9000")
 
         self._run(go())
 

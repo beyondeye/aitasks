@@ -7,7 +7,7 @@ maturity: [experimental]
 depth: [intermediate]
 ---
 
-`ait trails` is a stand-alone reader for [implementation trails]({{< relref "/docs/workflows/implementation-trails" >}}): it shows one stored trail as wave columns, with each member's classification, confidence, status and drift, and the trail's summary underneath. It is the [board's]({{< relref "/docs/tuis/board" >}}) By-Trail view (`z`) running on its own — the same lanes, cards and keys, without the Kanban board around them. The By-Trail view stays inside the board as well, and both read the same stored trails.
+`ait trails` is a stand-alone reader for [implementation trails]({{< relref "/docs/workflows/implementation-trails" >}}): it shows a stored trail as wave columns, with each member's classification, confidence, status and drift, and the trail's summary underneath. You can keep several trails open, one tab each, and switch between them instantly. It is the [board's]({{< relref "/docs/tuis/board" >}}) By-Trail view (`z`) running on its own — the same lanes, cards and keys, without the Kanban board around them. The By-Trail view stays inside the board as well, and both read the same stored trails.
 
 <!-- SCREENSHOT: aitasks_trails_main_view.svg — ait trails showing one trail's waves as columns with the summary pane below -->
 
@@ -29,13 +29,15 @@ The TUI is **read-only**. It never writes a trail and never changes a task. The 
 |--------|----------------------------------|--------------|
 | Opening a trail | `z`, then the selector opens when no trail is active yet | The selector opens on launch |
 | Trail keys (`s`, `r`, `d`, `R`, `v`, `Enter`) | Yes | Yes — the same bindings |
+| Several trails open at once | No — one trail; choosing another replaces it | Yes — one tab each (`[` / `]`, `1`–`9`, `Ctrl+W`) |
+| `s` | Re-scans the project every time | Lists the trails from the last scan; `r` in the selector re-scans |
 | `T` | Hidden in By-Trail; used from the kanban and By-Topic views | Opens the trail-creation workflow for the focused live card |
 | Move to a column (`m` / `M`) | Yes | No — there are no board columns here |
 | Sync with remote (`S`) | Yes | No — sync from the board or with `ait sync` |
 | Writes `board_config.json` | Yes (board layout and settings) | Never |
 | TUI switcher (`j`) | Yes | Yes |
 
-The two TUIs keep **separate** trail selections. Switching between them with `j` does not carry the selected trail or the focused card across — see [How to move a wave onto the board](how-to/#how-to-move-a-wave-onto-the-board).
+The two TUIs keep **separate** trail selections. Switching between them with `j` does not carry the open tabs or the focused card across — see [How to move a wave onto the board](how-to/#how-to-move-a-wave-onto-the-board).
 
 ## Launching
 

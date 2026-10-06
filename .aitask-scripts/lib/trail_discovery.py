@@ -27,8 +27,10 @@ here must patch it on `trail_discovery`, not on the board -- the board's names
 are re-export bindings and rebinding them does not affect resolution here.
 """
 
+import itertools
 import os
 import subprocess
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -66,6 +68,10 @@ class TrailInfo:
     doc: dict | None = None
     load_error: str = ""
     versions: list = field(default_factory=list)
+    # Fetch-order sequence of ``doc`` (``sequenced_trail_read``); 0 = unknown.
+    # In-memory only — lets a consumer tell which of two reads of one handle
+    # sampled the stored artifact later.
+    read_seq: int = 0
 
 
 def trail_entry_refs(doc) -> set:
@@ -275,6 +281,48 @@ def load_trail_blob(handle: str):
     return doc, error, versions
 
 
+# --- Fetch-ordered reads ------------------------------------------------------
+#
+# One lock per handle, created under a guard lock, plus a process-wide counter.
+_TRAIL_READ_GUARD = threading.Lock()
+_TRAIL_READ_LOCKS: dict = {}
+_TRAIL_READ_SEQ = itertools.count(1)
+
+
+def _trail_read_lock(handle: str):
+    """The per-handle lock ``sequenced_trail_read`` holds (created on demand)."""
+    with _TRAIL_READ_GUARD:
+        lock = _TRAIL_READ_LOCKS.get(handle)
+        if lock is None:
+            lock = _TRAIL_READ_LOCKS[handle] = threading.Lock()
+        return lock
+
+
+def sequenced_trail_read(handle: str, loader):
+    """Run ``loader(handle)`` and return ``(result, read_seq)``.
+
+    A request-time stamp cannot order two reads of one trail: the stored
+    version is resolved inside the ``artifact get`` subprocess, so a read
+    requested first can stall and sample a LATER revision than one requested
+    after it. Instead, every in-process read of trail content goes through
+    here: the per-handle lock is held around the whole read, and ``read_seq``
+    is drawn **inside that lock, after the loader returns**. Same-handle reads
+    are therefore serialized and each samples within its own critical section,
+    so ``read_seq`` order IS sampling order — and because the artifact store
+    only moves forward, the larger ``read_seq`` holds content at least as new.
+
+    The guarantee covers only readers that come through here (discovery and the
+    trail view's reload); a reader that bypasses it reintroduces the race.
+
+    Cost: a stalled read delays other reads of the SAME handle, bounded by the
+    loader's own subprocess timeouts. Different handles never wait on each
+    other, and the lock is never held while taking another, so nothing nests.
+    """
+    with _trail_read_lock(handle):
+        result = loader(handle)
+        return result, next(_TRAIL_READ_SEQ)
+
+
 def discover_trails():
     """Frontmatter-driven trail discovery, deduped by handle, blobs loaded and
     validated (fail-closed into ``load_error``). Subprocess-heavy — call from
@@ -287,5 +335,6 @@ def discover_trails():
     unreadable = []
     infos = dedupe_trail_records(_iter_trail_frontmatter_records(unreadable))
     for info in infos:
-        info.doc, info.load_error, info.versions = load_trail_blob(info.handle)
+        (info.doc, info.load_error, info.versions), info.read_seq = (
+            sequenced_trail_read(info.handle, load_trail_blob))
     return infos, unreadable
