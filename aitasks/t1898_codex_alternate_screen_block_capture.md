@@ -3,13 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Postponed
 labels: [shadow, aitask_monitormini, tui, codex]
 gates: [risk_evaluated]
 anchor: 1892
 followup_kind: risk_mitigation
 created_at: 2026-10-05 23:42
-updated_at: 2026-10-05 23:42
+updated_at: 2026-10-06 08:55
 ---
 
 ## Origin
