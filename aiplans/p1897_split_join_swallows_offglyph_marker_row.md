@@ -155,3 +155,49 @@ subtests of the known-gap test change; the other 205 tests pass.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Implementation Progress
+
+- [x] Step 1 — `concern_parser.py`: `_ANY_GLYPH`, shared `_ITEM_TAIL` /
+  `_ITEM_NO_REGION_TAIL`, `_ITEM_ANY` / `_ITEM_NO_REGION_ANY`,
+  `_MARKER_START_ANY`; `_yield_table` covers every marker-looking glyph;
+  `_block_glyph` filters to accepted glyphs; `_join_split_marker` takes a
+  required `boundary` and stops on it in both modes; `_scan_items` passes it.
+- [x] Step 2 — tests replaced/added as planned (213 pass). Red proof: the HEAD
+  parser injected in memory fails 8 of the new assertions (all behaviour
+  tests, both established-block subtests); the two guard tests pass on HEAD as
+  intended.
+- [x] Step 3 — `concern-format.md` known-gap passage, `unrecovered_markers`
+  exception and "never steers parsing" bullet rewritten.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-05, plan review — before implementation)
+- **Requested by user:** the first plan's `_ITEM_SHAPED` same-row guard still
+  swallowed a following *split* item (`◦ [high | next` / `region] …`) and, in
+  scan mode, a split opposite-accepted-glyph item after an established concern.
+- **Changes made:** replaced the separate guard with a widened `_yield_table`
+  boundary (every marker-looking glyph, one-row or split) applied in both probe
+  and scan mode; added leading, established-block, split-punctuation and deep
+  three-glyph tests.
+- **Files affected:** plan only (pre-implementation).
+
+## Final Implementation Notes
+- **Actual work done:** as planned. `concern_parser.py` gains `_ANY_GLYPH`,
+  shared item tails, `_ITEM_ANY` / `_ITEM_NO_REGION_ANY` / `_MARKER_START_ANY`;
+  `_yield_table` answers for every marker-looking glyph; `_block_glyph` picks
+  only accepted glyphs; `_join_split_marker` requires `boundary` and stops on it
+  in both modes (rejoined text matched with `_ITEM_ANY`); `_scan_items` passes
+  its table. The known-gap test is replaced by seven tests pinning the new
+  boundary, the residual and stack safety; `concern-format.md` updated.
+- **Deviations from plan:** none.
+- **Issues encountered:** a first red-proof attempt copied the HEAD parser into
+  scratch and failed on missing sibling modules / fixtures (setup crash, not a
+  red result). Replaced by injecting the HEAD module in memory and running the
+  real test file in place: 8 assertions fail on HEAD, all pass now.
+- **Key decisions:** stop rather than "consume but report" — a consumed row
+  forwards a concern fabricated from two findings. Acceptance is unchanged
+  (`_ITEM` / `_ITEM_NO_REGION` / `_MARKER_START` in scan mode); only the
+  boundary widened. Accepted residual: an item-shaped region fragment
+  (`— [a | b]`) stops the join and is reported.
+- **Upstream defects identified:** None
