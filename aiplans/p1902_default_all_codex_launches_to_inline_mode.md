@@ -224,3 +224,40 @@ Settled during planning:
 
 ### Planned mitigations
 - timing: post-phase | name: live_inline_followed_probe | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement (0.160 inline followed-pane signals unmeasured) | desc: Isolated-socket boot of the real non-shadow and resume Codex argv; assert alternate_on=0, history growth, at-rest stability, copy-mode capture invariance
+
+## Post-phase (risk mitigations) — outcome
+- live_inline_followed_probe: done (codex-cli 0.160.0, `tmux -L t1902probe`, 120x40, isolated `CODEX_HOME`).
+  - Non-shadow `invoke raw` argv (`codex -c tui.animations=false -c tui.alternate_screen=never -m gpt-5.6-terra`): alternate_on=0; history_size 0 at boot.
+  - At rest: 5 samples over 10 s, `capture-pane -p -S -15` byte-identical and history_size constant.
+  - After the local `/status`: history_size 0→8. Then 3 samples were again identical.
+  - Copy mode (`page-up`, scroll_position 8): the `-p -e -S -15` capture is byte-identical to the pre-scroll one and history_size is unchanged.
+  - The live capture through production classifiers: `classify_content` reads not awaiting, and `shadow_state` reads `ready`.
+  - Resume: `codex resume <sid> -c … -c tui.alternate_screen=never -m …`, using a rollout copied into the isolated CODEX_HOME.
+    - It booted inline (alternate_on=0, history 3) into Codex's working-directory choice dialog.
+    - After answering "Use current directory", the transcript replayed into history (history 35, alternate_on=0) with no model turn, and the review loop read `ready`.
+
+## Final Implementation Notes
+- **Actual work done:**
+  - `CODEX_TUI_OVERRIDES` moved to `lib/agent_string.sh` and now carries both `-c tui.animations=false` and `-c tui.alternate_screen=never`.
+  - `aitask_codeagent.sh` lost its local array, `CODEX_SHADOW_OVERRIDES` and the shadow-only conditional. Every Codex arm (skill composers, batch-review/raw, `--resume-session`) now carries both overrides.
+  - `aitask_skillrun.sh`'s codex arm now expands the shared array. Before this it carried no override at all.
+  - Launcher tests:
+    - Test 11e covers the full prefix.
+    - Test 11f is rewritten as positive (every op and raw resume carry the inline override; passthrough/prompt stays last; resume stays leading).
+    - The negative-agent loop now checks pick and shadow for both keys.
+    - The resume_session prefixes and the skillrun assertions are updated (plus a claudecode no-override check).
+  - New `CodexInlineFollowedPaneTests` in test_review_loop.py, with a negative control (widening the detection window makes retained history read as awaiting).
+  - Docs and comments reworded from "shadows only" to "every framework Codex launch": capture_raw_tail, `_CAPTURE_LINES`, review_loop docstrings, the fixture provenance, concern-format.md, shadow_agent.md (including the freeze correction), monitor_idle_and_prompt_detection.md, and a new "Scrollback in Codex panes" section in the website known-issues page.
+- **Deviations from plan:**
+  - The negative control showed that 11e/11f, resume_session and skillrun fail once the flag is removed. The flag was then restored with Edit.
+  - The probe's resume check met Codex 0.160's "Working directory · resume" choice dialog. It was answered with "Use current directory" and no model turn ran.
+- **Issues encountered:**
+  - A concurrent session implementing t1904 edits review_loop.py, review_loop_fixtures.py and test_review_loop.py in the same checkout. One docstring hunk overlaps.
+  - The commit is therefore built from a temp index as HEAD plus the t1902 hunks only, and that exact tree was verified in an isolated worktree against a HEAD control. The t1904 session was notified.
+- **Key decisions:**
+  - One shared array in the sourced lib instead of per-launcher copies.
+  - Presence of the array is enforced by the launcher assertions, not by `set -u`, which does not catch an undeclared array expansion.
+  - `ait setup` does not seed `alternate_screen` into the project's `.codex/config.toml`. Only framework launches are covered.
+- **Upstream defects identified:**
+  - `tests/test_codeagent_resume_session.sh:107-112` — pins `opencode/openai_gpt_5_2`, which the registry now marks unavailable. The three opencode assertions fail (exit 1, "Model … is unavailable") whatever the code under test does. This is the same class t1871 fixed in test_codeagent.sh by deriving the model from the registry.
+  - `.aitask-scripts/monitor/prompt_patterns.py:236 — codex-cli 0.160 "Working directory · resume" choice dialog (shown by `codex resume <sid>` when the cwd differs) is not pattern-detected for followed panes`. Measured: `classify_content` reads not-awaiting on the live dialog, though the review loop reads `dialog` structurally. This is the same class as t1798 (unpatterned Codex pre-session screens).
