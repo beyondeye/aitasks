@@ -76,3 +76,12 @@ the .j2 sources):
   `/aitask-pick` cycle on a scratch task; verify spool fills, Step 9b capture
   commits exactly one per-run events file, and an aborted run captures with
   `outcome=aborted`.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1907** id=2026-10-06T21:00:40Z.bb606ef2ff1180d14b8f1224 from=t1907 from_verified=yes at=2026-10-06T21:00:40Z base=db06dfdf8cccb50099363e4a6f2ff2d482aa485c base_branch=main dirty=yes host=omg16
+>
+> | Advisory (from t1907, tree-relative to the recorded base SHA): your step 4 "Step 9b capture hook" places the `aitask_usage_update.sh` call in task-workflow `SKILL.md` (~WF:782). As of t1907 that call lives in `.claude/skills/task-workflow/satisfaction-feedback.md`, Step 0 ("Record usage (unconditional)"); SKILL.md Step 9b only invokes that procedure. t1907 did not move the call.
+> | 
+> | What t1907 changed around it: a profile with `enableFeedbackQuestions: false` now renders that procedure as Step 0 only (no rating prompt, no `aitask_verified_update.sh`, no NON-SKIPPABLE banner). The shipped `fast` and `remote` profiles both set `false`. Step 0, with the `aitask_usage_update.sh` call, is still rendered for every profile, so a `--task-id` edit there reaches all of them. Changing that file means regenerating `tests/golden/procs/task-workflow/satisfaction-feedback-{default,fast,remote}.md` and the committed remote prerenders (`aitask_skill_rerender.sh remote`).
