@@ -45,7 +45,7 @@ Instead of describing what you want, you can type its shortcode. The greeting li
 | `>e` | Explain what the agent is doing, or what a message on screen means |
 | `>q` | Help you answer the question the agent is waiting on |
 | `>t` | The task in plain words |
-| `>pd` | The plan's design decisions, with their probable pros and cons |
+| `>pd` | The plan's real design trade-offs, with their pros and cons |
 | `>px` | Explain the plan to a non-expert, subject by subject |
 | `>pc` | Challenge the plan |
 | `>ps` | Question the plan Socratically |
@@ -85,7 +85,7 @@ Ask `>t` (or "what is this task about?") and the shadow explains, in a few short
 
 Before you approve a plan an agent has produced, the shadow can examine it for you in five distinct ways:
 
-- **Explain its design decisions** (`>pd`) — it restates the task in a few sentences, then goes through the choices that shape the outcome. For each choice it gives the alternatives the plan itself turns down and the reason the plan gives, or says the reason is "not stated in the plan". If the shadow brings up another option for contrast, it labels it as not discussed in the plan, so you can always tell what the plan says from what the shadow adds. It ends with each decision's probable pros and cons. This is plain prose on request only — it raises no concerns to forward.
+- **Explain its design decisions** (`>pd`) — it restates the task in a few sentences, then reports only the choices that were real trade-offs: ones where a reasonable engineer could have gone another way and each way gives up something. For each it names the realistic alternative and the reason the plan gives (or says the plan does not say why), followed by the pros and cons. Routine choices — what the task or a project convention dictates, docs, tests, wiring — are deliberately left out, so one or two decisions is a normal answer. It never claims the plan rejected an option the plan does not mention. This is plain prose on request only — it raises no concerns to forward.
 - **Explain it to a non-expert** (`>px`) — beyond a plain-terms summary, it identifies the technical subjects the plan rests on and offers, for each one you choose, a short introduction and why the plan relies on it, then walks through the plan in plain language.
 - **Challenge it** (`>pc`) — acting as a constructive adversary, it actively looks for where the plan could fail (regressions, missed edge cases, a wrong-shaped approach, blast radius, verification gaps, unstated dependencies) and gives you a prioritized list, separating problems that should block approval from improvements you could accept as follow-ups.
 - **Question it (Socratic)** (`>ps`) — instead of telling you what's wrong, it asks open-ended questions that lead you to examine the plan's own reasoning and trade-offs, a few at a time.

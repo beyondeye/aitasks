@@ -1,14 +1,13 @@
 # The Plan's Design Decisions, in Plain Words
 
 A sub-procedure of the shadow skill (`aitask-shadow`). Shortcode `>pd`. Use it
-when the user wants to understand *the choices the followed agent's plan made*
-and what they buy and cost — "explain the task in simple words, the design
-decisions in the plan, and their probable pros and cons" — without reading the
-plan themselves.
+when the user wants to know *which real trade-offs the followed agent's plan
+made* — "explain the task in simple words, the design decisions in the plan,
+and their pros and cons" — without reading the plan themselves.
 
 It is **decision-first and non-interactive**: a short statement of the task,
-then the plan's design decisions one by one, each with its probable pros and
-cons. That is what sets it apart from its neighbours:
+then the few choices in the plan that were genuine trade-offs, each with its
+pros and cons. That is what sets it apart from its neighbours:
 
 - `task-summarize.md` (`>t`) explains the task and the approach, but never names
   the plan's decisions or weighs them;
@@ -18,6 +17,12 @@ cons. That is what sets it apart from its neighbours:
   plan relies on;
 - `plan-challenge.md` (`>pc`) attacks the plan for what could go wrong.
 
+**Signal, not coverage.** The value of this answer is in what it leaves out. A
+plan is mostly choices that had no real alternative — they follow from the task,
+from a project convention, or from being the only thing that works. Reporting
+those buries the two or three choices that actually traded one good thing for
+another. Do not try to be complete.
+
 **Never emitted unprompted.** Run it only when the user asks for it — by its
 shortcode or in words. Do not produce it at startup, after a capture or
 refetch, or as a proactive offer.
@@ -25,10 +30,9 @@ refetch, or as a proactive offer.
 **Not a concern producer.** It emits no concern block, consults no rejection
 store, writes no plan snapshot, and carries no round header —
 `concern-format.md` does not apply, and it does not compose with `>r`. Of
-`round-preamble.md` exactly two parts do: §1 (the audience rule) and §6's
-**source selection** (which plan text to read, and in what order); its snapshot
-writes, round headers and review preambles do not. It is prose for a human,
-nothing more.
+`round-preamble.md` only §6's **source selection** applies (which plan text to
+read, and in what order); its snapshot writes, round headers and review
+preambles do not. It is prose for a human, nothing more.
 
 **Inputs:** the source task id (shadow Step 2), then
 
@@ -48,10 +52,10 @@ else rung 3 — the plan as rendered on the deep capture, treated as possibly
 partial. Only when every rung comes up empty say that **no plan could be found
 from here** — never that none exists.
 
-**Audience:** the reader `round-preamble.md` §1 defines — someone who will not
-read the plan. Outcomes and behaviours, not mechanisms; no file paths, function
-names or framework terms unless a word has no plain substitute, unpacked in the
-same sentence. That rule is binding here and lives only there.
+**Audience:** someone who has not read the plan but knows the project. Use plain
+words, and name the concrete thing a decision is about — the command, the file,
+the mechanism — when that is the clearest way to say it. Unpack a term only when
+a reader of the project would not know it.
 
 **Advisory-only:** present everything to the user; never drive the followed
 agent's pane.
@@ -69,44 +73,43 @@ agent's pane.
 2. **Read the task file. Then read the plan** from the first source that
    applies: `PLAN_FILE:<path>` → that file; else the `round-preamble.md` §6
    ladder (a single draft-plan path on the deep capture → the deep capture
-   itself). Say in one line where the plan came from. A capture-sourced plan is
-   possibly partial — say that too, and say that decisions in a missing part
-   cannot be reported. Nothing found → say a plan could not be found from here,
-   give part (a) of step 3 alone, and say that the design decisions need a plan.
+   itself). Say in one line where the plan came from, and that it may be
+   partial when it came from a capture. Nothing found → say a plan could not
+   be found from here, give the task in a few sentences, and stop.
 
-3. **Write the explanation**, in this order:
+3. **Select the decisions — this is the whole job.** A choice qualifies only
+   when **all** of these hold:
+   - a competent engineer could reasonably have gone another way;
+   - each way gives up something real — the alternative would have bought
+     something this choice does not;
+   - getting it wrong would matter to the outcome.
 
-   a. **The task in simple words** — what it is trying to achieve and why it is
-      worth doing, in two or three sentences. A short version of `>t`'s opening,
-      not a repeat of the whole `>t`.
+   Leave out everything else: what the task itself dictates, what a project
+   convention dictates, routine housekeeping (tests, docs, renames, wiring), and
+   any choice whose only "cost" is trivial. There is no target number. One or
+   two is normal; none is a valid answer — then say the plan is
+   straightforward and why.
 
-   b. **The design decisions.** Pick the choices that shape the outcome — aim
-      for three to six — not every step of the plan. For each:
-      - **The choice** — what the plan decided, grounded in the plan text.
-      - **Alternatives**, in two kinds that are kept apart and never merged:
-        - **Rejected in the plan** — an alternative the plan text itself names
-          and turns down. Only these may be called "rejected". Give the plan's
-          reason, or write "not stated in the plan" when it names the
-          alternative but gives no reason.
-        - **Possible comparison (not discussed in the plan)** — an alternative
-          you bring in so the reader can see what the choice is weighed
-          against. Always label it that way. Never phrase it as something the
-          plan considered, chose against, or "implicitly rejected": a plan that
-          states one approach and discusses no other has rejected nothing.
-        A decision with neither kind just states the choice.
-      - **Why the plan went this way** — the plan's stated rationale, or "not
-        stated in the plan". Never an invented one, however plausible.
+4. **Write the answer:**
+   - **The task**, in two or three plain sentences: what it achieves and why it
+     is worth doing.
+   - **The decisions**, most consequential first. For each, a short paragraph:
+     what the plan chose, the realistic alternative, and the plan's reason for
+     its choice — or "the plan does not say why" when it gives none. Then:
 
-   c. **Probable pros and cons** — for each decision (or for the approach as a
-      whole when the decisions only make sense together): what it buys, what it
-      costs, and what to watch for. These are *probable* — your judgement, not
-      a finding — so say so once, and do not dress a guess as a fact.
+         Pros: …
+         Cons: …
 
-4. **Writing rules:** lead with outcomes; no jargon unless it is unpacked in the
-   same sentence; no file paths, function names or task ids beyond the one being
-   explained; keep the plan's words and your own visibly apart — a reader must
-   always be able to tell what the plan says from what you add. A couple of
-   minutes to read, not ten.
+     Write only real pros and cons. If you cannot name a real con, the choice
+     was not a trade-off — drop it.
+   - **Anything left out**, in at most one line ("The rest — docs, tests,
+     wiring — follows directly from the task."), so the reader knows the
+     omission was deliberate.
+
+   **Keep the plan's words and yours apart.** Never say the plan considered or
+   rejected an option it does not mention. When the alternative is your own,
+   say so in passing ("the obvious other route would have been …"); never
+   invent a rationale the plan does not give.
 
 5. **Offer follow-ups**, in one line: `>pc` to challenge the plan, `>pa` for
    what it silently assumes, `>px` for a subject-by-subject walkthrough.

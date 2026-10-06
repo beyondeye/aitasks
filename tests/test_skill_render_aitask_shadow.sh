@@ -373,17 +373,23 @@ assert_contains "angles: the diff is the scoped composite" \
 assert_contains "angles: tentative ownership caps at informational" \
     "**Ownership cap.**" "$angles"
 
-# >pd keeps what the plan rejected apart from comparisons the shadow adds, and
-# never invents a reason (t1894). Jinja-free like the angles, so one render.
+# >pd reports only real trade-offs — a selection test, no quota — and never
+# invents a reason or a rejection (t1894). Jinja-free like the angles, so one
+# render.
 decisions="$($RENDER "$SKILL_DIR/plan-decisions.md" "$PROFILES_DIR/fast.yaml" claude 2>&1)"
-assert_contains "decisions: explicit rejections are a kind of their own" \
-    "**Rejected in the plan**" "$decisions"
-assert_contains "decisions: added alternatives are labelled as such" \
-    "**Possible comparison (not discussed in the plan)**" "$decisions"
+assert_contains "decisions: selection test, not coverage" \
+    "**Signal, not coverage.**" "$decisions"
+assert_contains "decisions: no target number of decisions" \
+    "There is no target number." "$decisions"
+assert_contains "decisions: a choice with no real con is dropped" \
+    "If you cannot name a real con, the choice" "$decisions"
 assert_contains "decisions: a missing reason is said, not invented" \
-    '"not stated in the plan"' "$decisions"
-assert_contains "decisions: one stated approach rejected nothing" \
-    "has rejected nothing" "$decisions"
+    '"the plan does not say why"' "$decisions"
+assert_contains "decisions: never claims a rejection the plan does not make" \
+    "Never say the plan considered or" "$decisions"
+assert_not_contains "decisions: no quota wording" "three to six" "$decisions"
+assert_not_contains "decisions: no 'probable' hedge on pros and cons" \
+    "robable pros" "$decisions"
 assert_contains "decisions: not a concern producer" \
     "**Not a concern producer.**" "$decisions"
 

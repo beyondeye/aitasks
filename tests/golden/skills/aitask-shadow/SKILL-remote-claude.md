@@ -292,13 +292,12 @@ costs one short sentence, never a refusal.
   capture, not as a proactive offer.
 - `>pd` — **The plan's design decisions, with their pros and cons** ("explain
   the design decisions", "pros and cons of this plan", "why did it choose this
-  approach?") → read and follow `plan-decisions.md`. Plain prose for a
-  non-expert: the task in brief, then each decision with the alternatives the
-  plan itself turns down and its stated reasons — kept apart from any
-  comparison you add, which is labelled as not discussed in the plan — and the
-  probable pros and cons. Not a concern producer, so it does not compose with
-  `>r`. **Never emit it unprompted** — not at startup, not after a capture, not
-  as a proactive offer.
+  approach?") → read and follow `plan-decisions.md`. Plain prose: the task in
+  brief, then only the choices that were real trade-offs — each with its
+  realistic alternative, the plan's stated reason, and its pros and cons —
+  never a complete tour of the plan. Not a concern producer, so it does not
+  compose with `>r`. **Never emit it unprompted** — not at startup, not after a
+  capture, not as a proactive offer.
 - `>px` — **Explain a plan to a non-expert** → read and follow `plan-explain.md`.
   (Goes beyond a plain-terms summary: it surfaces the technical subjects the plan
   rests on and offers per-subject introductions + motivations.)

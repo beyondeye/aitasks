@@ -123,8 +123,8 @@ free-form ask once it is running decides which capability applies:
   `AskUserQuestion` by laying out the options and *suggesting* an answer the user
   types themselves). Several **structured analyses** each live in a
   read-and-follow sub-procedure with a defined methodology (one summarises the
-  task; one explains the plan's design decisions; four review a plan; one reviews the implementation; one diagnoses the
-  followed agent's errors):
+  task; one explains the plan's design decisions; four review a plan; one
+  reviews the implementation; one diagnoses the followed agent's errors):
   - `task-summarize.md` — **the task in plain words** (`>t`): a non-interactive,
     task-first summary for someone who has not read the task or the plan — what
     it is trying to achieve and why, what changes for a user, and (when a plan
@@ -139,15 +139,20 @@ free-form ask once it is running decides which capability applies:
     §1 (the audience rule) and §6's source selection only — never its snapshot
     writes, round headers or review preambles.
   - `plan-decisions.md` — **the plan's design decisions, in plain words**
-    (`>pd`): the task in two or three sentences, then the decisions that shape
-    the outcome, each with its probable pros and cons. Alternatives come in two
-    kinds that are never merged: **rejected in the plan** (the plan text names
-    and turns them down — only these may be called rejected) and **possible
-    comparison (not discussed in the plan)** (the shadow's own, labelled as
-    such). A missing rationale is reported as "not stated in the plan", never
-    invented. Same inputs, plan-source ladder, audience rule and on-request-only
-    rule as `task-summarize.md`; not a concern producer, so it does not compose
-    with `>r`.
+    (`>pd`): the task in two or three sentences, then **only the choices that
+    were real trade-offs** — a selection test (a reasonable engineer could have
+    gone another way, each way gives something up, and it matters to the
+    outcome), with no target count; zero, one or two decisions is normal. Each
+    gets its realistic alternative, the plan's stated reason (or "the plan does
+    not say why"), and plain Pros / Cons; a choice with no real con is dropped
+    as not a trade-off. It never claims the plan rejected an option the plan
+    does not mention. The selection test is the point: a target count or a
+    fixed per-decision template makes the model pad the answer with routine
+    choices (docs, tests, wiring) that bury the real trade-offs, so neither
+    exists — keep it that way. Same inputs,
+    plan-source ladder and on-request-only rule as `task-summarize.md`, but a
+    looser audience rule (concrete names allowed); not a concern producer, so it
+    does not compose with `>r`.
   - `plan-explain.md` — explain a plan to a non-expert: surface the technical
     subjects the plan rests on and offer per-subject introduction + motivation
     (multiSelect), then a plain-language walkthrough.
