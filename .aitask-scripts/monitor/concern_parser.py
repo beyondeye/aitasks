@@ -171,9 +171,18 @@ _SENTINEL_SAFE_COLS = 24
 _MARKER_GLYPHS = "-•"
 _GLYPH = f"(?P<glyph>[{re.escape(_MARKER_GLYPHS)}])"
 
-_ITEM = re.compile(
-    rf"^\s*{_GLYPH}\s+\[\s*(?P<priority>\w+)\s*\|\s*(?P<region>[^\]]*)\]\s*(?P<body>.*)$"
-)
+# Any single non-word, non-space, non-bracket glyph: the glyph class of
+# `_MARKER_LIKE` (below), and of the `*_ANY` item shapes that decide where a
+# split-marker rejoin must stop. Accepting a glyph is a separate, narrower
+# question (`_GLYPH`).
+_ANY_GLYPH = r"[^\w\s\[\]]"
+
+# The item grammar after the glyph, shared by the accepted-glyph shapes and
+# their any-glyph twins so the two can never disagree about what an item is.
+_ITEM_TAIL = r"\s+\[\s*(?P<priority>\w+)\s*\|\s*(?P<region>[^\]]*)\]\s*(?P<body>.*)$"
+_ITEM_NO_REGION_TAIL = r"\s+\[\s*(?P<priority>high|medium|low)\s*\]\s*(?P<body>.+)$"
+
+_ITEM = re.compile(rf"^\s*{_GLYPH}{_ITEM_TAIL}")
 
 # A marker that omits the `| region` half entirely: `- [medium] body`. Tried only
 # after `_ITEM` fails. Without this the row is neither an item nor (because it
@@ -186,9 +195,17 @@ _ITEM = re.compile(
 # unmistakable; without that separator a permissive class would let an ordinary
 # wrapped body line (`- [see below] …`) start a spurious concern, breaking the
 # collision-hardening guarantee the whole format rests on.
-_ITEM_NO_REGION = re.compile(
-    rf"^\s*{_GLYPH}\s+\[\s*(?P<priority>high|medium|low)\s*\]\s*(?P<body>.+)$",
-    re.IGNORECASE,
+_ITEM_NO_REGION = re.compile(rf"^\s*{_GLYPH}{_ITEM_NO_REGION_TAIL}", re.IGNORECASE)
+
+# The same two shapes in ANY marker-looking glyph. They never accept anything:
+# they only answer "is this row an item in its own glyph?" for the split-join
+# boundary (`_yield_table`), so a following item in a glyph the parser does not
+# accept (`◦ [high | next] …`) ends a rejoin instead of being swallowed into the
+# region (t1897). `— [reference] …` matches neither (no `|`, not a priority
+# word), so a punctuation-led region fragment still rejoins.
+_ITEM_ANY = re.compile(rf"^\s*(?P<glyph>{_ANY_GLYPH}){_ITEM_TAIL}")
+_ITEM_NO_REGION_ANY = re.compile(
+    rf"^\s*(?P<glyph>{_ANY_GLYPH}){_ITEM_NO_REGION_TAIL}", re.IGNORECASE
 )
 
 # A row that *starts* an accepted item marker, any accepted glyph. Read through
@@ -203,25 +220,36 @@ _MARKER_START = re.compile(rf"^\s*{_GLYPH}\s+\[")
 # names a marker-looking row the parser could not use, so a renderer rewriting
 # the marker to an unmeasured glyph is REPORTED rather than silently swallowed
 # (t1892; the report used to require the dash and went blind exactly there).
-# Known gap: a row consumed by a split-marker rejoin is part of that bracket and
-# is never reported (pinned by a test). Never use it as the split-join stop: a
-# region fragment may itself start with punctuation (`— [reference] …`) and
-# must stay joinable.
-_MARKER_LIKE = re.compile(r"^\s*[^\w\s\[\]]\s+\[")
+# Never use it as the split-join stop: a region fragment may itself start with
+# punctuation (`— [reference] …`) and must stay joinable. The stop is the
+# narrower `_yield_table` boundary, which needs a whole item in the row's own
+# glyph (t1897).
+_MARKER_LIKE = re.compile(rf"^\s*{_ANY_GLYPH}\s+\[")
+
+# `_MARKER_LIKE` with the glyph captured: the row starts a marker-looking item
+# in some glyph. Read by the split-join boundary, never by acceptance.
+_MARKER_START_ANY = re.compile(rf"^\s*(?P<glyph>{_ANY_GLYPH})\s+\[")
 
 
 def _yield_table(lines: list[str]) -> list[bool]:
     """For every row: does it, read in its OWN glyph, yield an item?
 
-    A row does when it is a complete one-row item (:data:`_ITEM` /
-    :data:`_ITEM_NO_REGION`), or when its split rejoin succeeds in **probe**
-    mode (see :func:`_join_split_marker`). This is the one definition of "a
-    genuine item starts here, whatever the block's glyph turns out to be". It
-    is shared by the glyph choice (:func:`_block_glyph`) and by the probe's own
-    boundary test, so a valid next concern that itself needs split recovery
-    counts as a boundary exactly like a one-row one. A non-parseable fragment
-    (``• [reference] body`` — it contains ``]``, so it is no split candidate
-    either) never counts.
+    A row does when it is a complete one-row item (:data:`_ITEM_ANY` /
+    :data:`_ITEM_NO_REGION_ANY`), or when its split rejoin succeeds in
+    **probe** mode (see :func:`_join_split_marker`). This is the one definition
+    of "a genuine item starts here, whatever the block's glyph turns out to
+    be". It is shared by the glyph choice (:func:`_block_glyph`) and by every
+    split rejoin's boundary test, probe and scan alike, so a valid next item
+    that itself needs split recovery counts as a boundary exactly like a
+    one-row one. A non-parseable fragment (``• [reference] body`` — it
+    contains ``]``, so it is no split candidate either) never counts.
+
+    It covers **every marker-looking glyph**, not only the accepted ones
+    (t1897): an item in a glyph the parser does not accept (``◦ [high | next]
+    …``, one-row or split) is still an item, never a region fragment, so a
+    rejoin must stop at it rather than fabricate a concern out of two. Whether
+    a yielding row is *accepted* is decided separately, by
+    :func:`_block_glyph`.
 
     **Iterative, back to front — never recursive.** A row's probe consults only
     the rows *after* it (at most :data:`_MAX_MARKER_JOIN_ROWS` of them), so
@@ -235,10 +263,10 @@ def _yield_table(lines: list[str]) -> list[bool]:
     yields = [False] * len(lines)
     for i in range(len(lines) - 1, -1, -1):
         line = lines[i]
-        m = _MARKER_START.match(line)
+        m = _MARKER_START_ANY.match(line)
         if m is None:
             continue
-        if _ITEM.match(line) or _ITEM_NO_REGION.match(line):
+        if _ITEM_ANY.match(line) or _ITEM_NO_REGION_ANY.match(line):
             yields[i] = True
         elif "]" not in line:
             yields[i] = _join_split_marker(
@@ -248,7 +276,12 @@ def _yield_table(lines: list[str]) -> list[bool]:
 
 
 def _block_glyph(lines: list[str], yields: list[bool]) -> str | None:
-    """The block's marker glyph: the glyph of its first row that YIELDS an item.
+    """The block's marker glyph: the glyph of its first ACCEPTED row that YIELDS
+    an item.
+
+    The table answers for every marker-looking glyph; only a row in an accepted
+    glyph (:data:`_MARKER_START`) can fix the block's glyph, so an item in an
+    unaccepted glyph is a boundary but never a concern.
 
     Merely *looking* like a marker is not enough to fix the glyph: a malformed
     leading row (``• [ | bad] …``, an unclosed ``• [medium | …``) must not pick
@@ -265,8 +298,9 @@ def _block_glyph(lines: list[str], yields: list[bool]) -> str | None:
     marker-looking row is reported by :data:`_MARKER_LIKE`.
     """
     for line, ok in zip(lines, yields):
-        if ok:
-            return _MARKER_START.match(line).group("glyph")
+        m = _MARKER_START.match(line) if ok else None
+        if m:
+            return m.group("glyph")
     return None
 
 
@@ -588,7 +622,7 @@ def _join_split_marker(
     start: int,
     glyph: str | None,
     *,
-    boundary: "list[bool] | None" = None,
+    boundary: "list[bool]",
 ):
     """Rejoin a marker bracket split across rows by an agent TUI's hard-wrap.
 
@@ -612,16 +646,24 @@ def _join_split_marker(
     ``glyph`` is the block's marker glyph (:func:`_block_glyph`): the join stops
     at the next row that starts an item in that glyph.
 
-    **Probe mode** (``boundary`` given) is how :func:`_yield_table` tests a
-    candidate row before the block's glyph is known; ``glyph`` is then the
-    candidate's own. The join additionally stops at an opposite-glyph row whose
-    ``boundary`` entry is True, meaning it yields an item itself, one-row or
-    recoverable by its own split rejoin. That row could be the block's real
-    first item and must not be swallowed to manufacture one. A non-parseable
-    opposite-glyph fragment (``• [reference] body``) is not an item boundary
-    and is still rejoined. ``boundary`` is read only at indices after
-    ``start``, which the back-to-front table has already filled; nothing here
-    recurses.
+    **Probe mode** is how :func:`_yield_table` tests a candidate row before
+    the block's glyph is known; ``glyph`` is then the candidate's own, which
+    may be a glyph the parser does not accept. **Scan mode** is
+    :func:`_scan_items`, with the block's glyph.
+
+    In both modes the join also stops at any row whose ``boundary`` entry is
+    True — :func:`_yield_table`'s answer that the row yields an item in its own
+    glyph, one-row or recoverable by its own split rejoin, in any
+    marker-looking glyph. Such a row is an item, never a region fragment: in
+    probe mode it could be the block's real first item, and in either mode
+    swallowing it fabricates one concern out of two and hides the second
+    (t1897). The stop is deliberately NOT :data:`_MARKER_LIKE`: a
+    punctuation-led region fragment (``— [reference] body``, or its split form)
+    yields nothing and is still rejoined. Accepted residual: a region fragment
+    that is itself item-shaped (``— [a | b] …``) cannot be told apart and stops
+    the join too; both rows are then reported, never silently lost.
+    ``boundary`` is read only at indices after ``start``, which the
+    back-to-front table has already filled; nothing here recurses.
     """
     joined = lines[start]
     for k in range(1, _MAX_MARKER_JOIN_ROWS + 1):
@@ -629,19 +671,20 @@ def _join_split_marker(
         if nxt_idx >= len(lines):
             break
         nxt = lines[nxt_idx]
-        # A real continuation never starts an item in the block's glyph — that
-        # is a new item, so stop rather than swallow it (preserves the
-        # collision-hardening guarantee). Deliberately NOT `_MARKER_LIKE`: a
-        # punctuation-led region fragment must keep rejoining. In probe mode an
-        # opposite-glyph row that yields an item (one-row or split) is a
-        # boundary too; a non-parseable opposite-glyph fragment is not.
-        stop = _MARKER_START.match(nxt)
-        if stop and (stop.group("glyph") == glyph
-                     or (boundary is not None and boundary[nxt_idx])):
+        # A real continuation never starts an item in the join's own glyph —
+        # that is a new item, so stop rather than swallow it (preserves the
+        # collision-hardening guarantee). A row in any other glyph that yields
+        # an item (one-row or split) is a boundary too; a non-parseable
+        # fragment is not. Deliberately NOT `_MARKER_LIKE`: a punctuation-led
+        # region fragment must keep rejoining.
+        stop = _MARKER_START_ANY.match(nxt)
+        if stop and (stop.group("glyph") == glyph or boundary[nxt_idx]):
             break
         joined += _join_sep(joined) + nxt.lstrip()
         if "]" in nxt:
-            m = _ITEM.match(joined)
+            # `_ITEM_ANY`, not `_ITEM`: a probe may start in an unaccepted
+            # glyph. For an accepted start row the two are identical.
+            m = _ITEM_ANY.match(joined)
             if m:
                 return m, k + 1
             break
@@ -675,15 +718,16 @@ def _scan_items(region: str) -> tuple[list[Concern], list[str]]:
     caller can now *report* them instead of degrading silently (t1274). The
     wider report shape has one accepted false positive: a wrapped body row that
     happens to begin ``<punctuation> [`` is reported too, while staying in (and
-    being forwarded with) its concern. And one known gap: a marker-looking row
-    consumed by a successful split-marker rejoin is part of that bracket and is
-    never reported.
+    being forwarded with) its concern. A split rejoin stops at any following
+    row that is an item in its own glyph, accepted or not (t1897), so such a
+    row is reported here instead of being consumed into a region.
     """
     # Each entry: [priority, region, [body_parts]].
     items: list[list] = []
     unrecovered: list[str] = []
     lines = region.splitlines()
-    glyph = _block_glyph(lines, _yield_table(lines))
+    yields = _yield_table(lines)
+    glyph = _block_glyph(lines, yields)
     i = 0
     while i < len(lines):
         line = lines[i]
@@ -691,7 +735,7 @@ def _scan_items(region: str) -> tuple[list[Concern], list[str]]:
         m = _ITEM.match(line) if starts else None
         consumed = 1
         if m is None and starts and "]" not in line:
-            m, consumed = _join_split_marker(lines, i, glyph)
+            m, consumed = _join_split_marker(lines, i, glyph, boundary=yields)
         region_label = m.group("region") if m else ""
         if m is None and starts:
             m = _ITEM_NO_REGION.match(line)

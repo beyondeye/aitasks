@@ -490,6 +490,17 @@ class TestSplitMarkerJoin(unittest.TestCase):
         )
         self.assertEqual(unrecovered_markers(text), [])
 
+    def test_split_punctuation_led_region_fragment_is_still_rejoined(self):
+        """The split form of the guard above: a punctuation-led fragment that is
+        itself unclosed yields no item in its own glyph, so it is no boundary
+        and the bracket still rejoins across it (t1897)."""
+        text = block("- [medium | a long", "— [ref and more", "stuff] body")
+        self.assertEqual(
+            parse_concerns(text),
+            [Concern("medium", "a long — [ref and more stuff", "body")],
+        )
+        self.assertEqual(unrecovered_markers(text), [])
+
     def test_failed_bullet_join_consumes_nothing(self):
         """The `•` twin of :meth:`test_failed_join_consumes_nothing` (t1892)."""
         text = block(
@@ -1078,28 +1089,90 @@ class TestCodexBulletMarkers(unittest.TestCase):
                 )
                 self.assertEqual(len(parse_concerns(text)), 2)
 
-    def test_split_join_consumes_a_marker_looking_row_known_gap(self):
-        """Known gap (inherited, report-only scope): an unclosed bracket followed
-        by a marker-looking row in ANOTHER glyph rejoins it into the region, and
-        that row is not reported — it was consumed as part of the bracket.
+    def test_split_join_stops_at_a_one_row_item_in_any_glyph(self):
+        """An unclosed bracket followed by a whole item in an UNACCEPTED glyph.
 
-        Identical with a dash first marker on the pre-t1892 parser. Pinned so the
-        "reported" guarantee is read with this boundary; changing the recovery
-        is separate work that must keep the punctuation-led-region guard
-        (`TestSplitMarkerJoin.test_punctuation_led_region_fragment_is_still_rejoined`).
+        The rejoin used to swallow `◦ [high | next] …` into the region and
+        forward one fabricated concern (region from the first row, body from the
+        second) while reporting nothing (t1897). The row is an item in its own
+        glyph, never a region fragment, so the join stops: neither row can be
+        accepted, and both are reported.
         """
         for g in ("-", self._glyph()):
             with self.subTest(glyph=g):
-                text = block(
-                    f"{g} [medium | missing closing bracket",
-                    "◦ [high | next] next concern body",
-                )
+                bad = f"{g} [medium | missing closing bracket"
+                nxt = "◦ [high | next] next concern body"
+                text = block(bad, nxt)
+                self.assertEqual(parse_concerns(text), [])
+                self.assertFalse(has_concern_block(text))
+                self.assertEqual(unrecovered_markers(text), [bad, nxt])
+
+    def test_split_join_stops_at_a_split_item_in_any_glyph(self):
+        """The following item may itself be split — a same-row closing bracket
+        is not required for it to be a boundary (t1897 review)."""
+        for g in ("-", self._glyph()):
+            with self.subTest(glyph=g):
+                bad = f"{g} [medium | missing closing bracket"
+                nxt = "◦ [high | next"
+                text = block(bad, nxt, "region] next concern body")
+                concerns = parse_concerns(text)
+                self.assertEqual(concerns, [])
+                self.assertEqual(unrecovered_markers(text), [bad, nxt])
+                self.assertNotIn("missing", build_clipboard_payload(concerns))
+
+    def test_established_block_stops_at_a_split_item_in_another_glyph(self):
+        """Scan mode too: after an accepted item, an unclosed row must not
+        swallow a split item in the opposite accepted glyph or an unaccepted
+        one. Both rows stay in the earlier item's body (nothing is removed —
+        one glyph per block keeps them body text) and both are reported."""
+        for g in (self._glyph(), "◦"):
+            with self.subTest(glyph=g):
+                bad = "- [medium | missing"
+                nxt = f"{g} [high | real"
+                text = block("- [low | a] b", bad, nxt, "region] body")
                 self.assertEqual(
                     self._fields(parse_concerns(text)),
-                    [("medium", "missing closing bracket ◦ [high | next",
-                      "next concern body")],
+                    [("low", "a", f"b {bad} {nxt} region] body")],
                 )
-                self.assertEqual(unrecovered_markers(text), [])
+                self.assertEqual(unrecovered_markers(text), [bad, nxt])
+
+    def test_region_less_item_in_any_glyph_stops_the_join(self):
+        bad = "- [medium | missing"
+        nxt = "◦ [high] next body"
+        text = block(bad, nxt)
+        self.assertEqual(parse_concerns(text), [])
+        self.assertEqual(unrecovered_markers(text), [bad, nxt])
+
+    def test_item_shaped_region_fragment_stops_the_join_accepted_residual(self):
+        """Accepted residual — pinned, not a bug.
+
+        A region fragment that is itself item-shaped cannot be told apart from
+        an item in an unaccepted glyph, so it stops the join too. The concern
+        is lost, but REPORTED rather than silently corrupted. A real region
+        containing `[word | word]` is implausible; the unshaped
+        `— [reference]` fragment still rejoins
+        (`TestSplitMarkerJoin.test_punctuation_led_region_fragment_is_still_rejoined`).
+        """
+        bad = "- [medium | long context"
+        nxt = "— [a | b] body"
+        text = block(bad, nxt)
+        self.assertEqual(parse_concerns(text), [])
+        self.assertEqual(unrecovered_markers(text), [bad, nxt])
+
+    def test_long_three_glyph_unclosed_block_is_iterative(self):
+        """The boundary table now covers unaccepted glyphs: a deep run of
+        unclosed markers cycling through an unaccepted one stays stack-safe
+        and the real final concern survives."""
+        glyphs = (self._glyph(), "-", "◦")
+        bad = [
+            f"{glyphs[k % 3]} [medium | unclosed"
+            for k in range(self._DEEP_CAPTURE_ROWS)
+        ]
+        text = block(*bad, "- [high | real] real body")
+        self.assertEqual(
+            self._fields(parse_concerns(text)), [("high", "real", "real body")]
+        )
+        self.assertEqual(unrecovered_markers(text), bad)
 
     def test_punctuation_led_continuation_is_reported_accepted_residual(self):
         """Accepted residual of the wider loss report — pinned, not a bug.

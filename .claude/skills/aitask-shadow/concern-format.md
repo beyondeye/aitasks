@@ -182,16 +182,22 @@ protocol behind the preamble's comparisons).
     *prose* region broken right after a spaced slash therefore loses that
     space. That is accepted: `region` is a display label rendered in the
     picker, never a key.
-  - The recovery cannot swallow a following concern: the lookahead commits only
-    on success and stops at any row that itself begins an item in the block's
-    marker glyph. It does not stop at merely marker-*looking* rows: a region
-    fragment that happens to begin with punctuation (`— [reference] …`) is
-    still a continuation of the bracket and keeps rejoining. The flip side is a
-    known gap. If an unclosed bracket is followed, within the envelope, by a
-    marker-looking row in another glyph (`◦ [high | next] …`), that row is
-    rejoined into the region and is **not** reported, because it was consumed
-    as part of the bracket. This behaviour predates t1892 (it is identical with
-    a dash first marker) and is pinned by a test.
+  - The recovery cannot swallow a following item: the lookahead commits only
+    on success, and it stops at any row that is itself an item **in its own
+    glyph**, in any marker-looking glyph, accepted or not (`◦ [high | next] …`).
+    That includes an item that needs its own split rejoin within the envelope
+    (`◦ [high | next` / `region] …`). Stopping there leaves the unclosed
+    bracket unrecovered, so it is reported, and the stopping row is reported
+    too. If both follow an earlier concern they stay in its body, since nothing
+    is removed (t1897). The lookahead does not stop at merely
+    marker-*looking* rows. A region fragment that happens to begin with
+    punctuation (`— [reference] …`, or an unclosed `— [ref …` that closes on
+    the next row) is still a continuation of the bracket and keeps rejoining.
+    The accepted residual is a region fragment that is itself item-shaped
+    (`— [a | b] …`). It cannot be told apart from an item in another glyph,
+    so it stops the join too and is reported rather than joined. A following
+    item split wider than the envelope is outside the recovery bound described
+    above.
 - `body` is free text. A wrapped continuation line (any non-blank line between
   the fences that is **not** a marker) is appended, space-joined, to the current
   concern's body.
@@ -407,18 +413,19 @@ counts, including glyphs outside the accepted set (`* [`, `◦ [`, …) and the
 accepted glyph that is not the block's own. So a renderer that rewrites the
 marker to a glyph nobody has measured yet is **reported rather than silent**
 (t1892; the report used to require the dash and was blind to exactly the Codex
-rewrite). The one exception is a row consumed by a split-marker rejoin (see the
-known gap under "Split-marker hazard"): it became part of that bracket's region
-and is not reported. The wider shape is report-only in two senses:
+rewrite). A split-marker rejoin never consumes such a row when it is an item in
+its own glyph: the rejoin stops there, so the row is reported (see
+"Split-marker hazard"). The wider shape is report-only in two senses:
 
 - **It removes nothing.** A reported row that follows an item still stays in
   that item's body and is forwarded with it. That costs one accepted false
   positive: a genuine wrapped body row that happens to begin `<punctuation> [`
   draws a spurious warning, while its text is still correctly forwarded as body
   text.
-- **It never steers parsing.** The split-marker recovery still stops only at an
-  accepted item start, so a region fragment beginning with punctuation keeps
-  rejoining.
+- **It never steers parsing.** The split-marker recovery does not stop at a
+  marker-looking row. It stops only at a row that is a whole item in its own
+  glyph, or in the block's glyph. So a region fragment beginning with
+  punctuation keeps rejoining.
 
 The degenerate case — a **complete block whose markers are *all* malformed** —
 needs its own handling, because it reaches neither surface above: nothing parses,
