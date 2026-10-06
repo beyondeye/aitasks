@@ -690,9 +690,9 @@ async def capture_raw_tail(
     lines back to the **bottom of the visible pane**. On an alternate-screen
     pane (``alternate_on=1``, ``history_size=0``) there is no scrollback, so
     this returns the **whole visible pane** for any ``lines`` value — 30 rows
-    at a 120x30 geometry, not 15. On an inline pane (Claude Code, and Codex
-    shadows, launched with ``tui.alternate_screen=never`` since t1900) it
-    returns up to ``lines`` history rows **plus** the whole visible pane, so
+    at a 120x30 geometry, not 15. On an inline pane (Claude Code, and every
+    framework-launched Codex pane, launched with ``tui.alternate_screen=never``)
+    it returns up to ``lines`` history rows **plus** the whole visible pane, so
     dismissed dialog text can sit in it (see
     ``review_loop._codex_dialog_is_historical``).
 

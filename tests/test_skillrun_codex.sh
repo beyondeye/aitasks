@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # test_skillrun_codex.sh - Verify aitask_skillrun.sh launches every Codex skill
 # directly in Codex's default mode, forwarding the '$aitask-*' composer prompt
-# and its arguments. No skill is routed through a plan-mode wrapper.
+# and its arguments. No skill is routed through a plan-mode wrapper. Every Codex
+# launch carries the shared CODEX_TUI_OVERRIDES (no animations, inline mode;
+# t1902); other agents carry none of them.
 #
 # Uses --dry-run, which is side-effect-free, so it runs against the real repo.
 # Run: bash tests/test_skillrun_codex.sh
@@ -20,6 +22,8 @@ TOTAL=0
 . "$PROJECT_DIR/tests/lib/asserts.sh"
 
 
+CODEX_PREFIX="codex -c tui.animations=false -c tui.alternate_screen=never -m gpt-5.4"
+
 run_dry() {
     # $1 = skill, rest = skill args
     local skill="$1"; shift
@@ -30,12 +34,12 @@ run_dry() {
 echo "--- qa launches directly in Codex default mode ---"
 out=$(run_dry qa 42)
 assert_contains_ci "skillrun qa prompts aitask-qa" "aitask-qa" "$out"
-assert_contains_ci "skillrun qa is a codex launch" "codex -m gpt-5.4" "$out"
+assert_contains_ci "skillrun qa is a codex launch" "$CODEX_PREFIX" "$out"
 
 echo "--- explain launches directly in Codex default mode ---"
 out=$(run_dry explain src/main.py)
 assert_contains_ci "skillrun explain prompts aitask-explain" "aitask-explain" "$out"
-assert_contains_ci "skillrun explain is a codex launch" "codex -m gpt-5.4" "$out"
+assert_contains_ci "skillrun explain is a codex launch" "$CODEX_PREFIX" "$out"
 
 echo "--- shadow launches directly in Codex default mode ---"
 out=$(run_dry shadow %7 100_2)
@@ -46,12 +50,17 @@ assert_contains_ci "skillrun shadow forwards task id" "100_2" "$out"
 echo "--- pick launches directly in Codex default mode ---"
 out=$(run_dry pick 42)
 assert_contains_ci "skillrun pick prompts aitask-pick" "aitask-pick" "$out"
-assert_contains_ci "skillrun pick is a codex launch" "codex -m gpt-5.4" "$out"
+assert_contains_ci "skillrun pick is a codex launch" "$CODEX_PREFIX" "$out"
 
 echo "--- explore launches directly in Codex default mode ---"
 out=$(bash "$SKILLRUN" explore --profile fast --agent-string codex/gpt5_4 --dry-run 2>&1)
 assert_contains_ci "skillrun explore prompts aitask-explore" "aitask-explore" "$out"
-assert_contains_ci "skillrun explore is a codex launch" "codex -m gpt-5.4" "$out"
+assert_contains_ci "skillrun explore is a codex launch" "$CODEX_PREFIX" "$out"
+
+echo "--- other agents carry no Codex TUI override ---"
+out=$(bash "$SKILLRUN" pick --profile fast --agent-string claudecode/opus5 --dry-run -- 42 2>&1)
+assert_contains_ci "skillrun claudecode pick still dry-runs" "DRY_RUN:" "$out"
+assert_not_contains "skillrun claudecode pick carries no Codex TUI override" "tui." "$out"
 
 # --- Summary ---
 echo ""

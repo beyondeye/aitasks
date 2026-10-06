@@ -154,10 +154,19 @@ matches `\bastra\b` (e.g. `gpt-6-astra`), the terminal is truecolor, and the
 terminal's default colours are known. So whether a given Codex pane animates
 depends on its model, not on the framework.
 
-**The sanctioned answer is launch-side.** `aitask_codeagent.sh` passes
-`-c tui.animations=false` on every Codex launch (`CODEX_TUI_OVERRIDES`),
-including `codex resume <sid>`. A `-c` override outranks every config file, so
-framework-spawned panes (skills, shadows, restores) never animate. `ait setup`
+**The sanctioned answer is launch-side.** Every framework Codex launch passes
+`-c tui.animations=false` (`CODEX_TUI_OVERRIDES` in `lib/agent_string.sh`,
+expanded by both `aitask_codeagent.sh` and `aitask_skillrun.sh`), including
+`codex resume <sid>`. A `-c` override outranks every config file, so
+framework-spawned panes (skills, shadows, restores) never animate.
+
+The same array also carries `-c tui.alternate_screen=never`, so every
+framework-launched Codex pane runs **inline** (`alternate_on=0`) and keeps tmux
+scrollback, as Claude Code does. The followed-pane signals treat it like any
+inline pane:
+- prompt detection matches only the bottom `_PROMPT_DETECTION_TAIL_LINES` rows,
+  so a dismissed dialog left in history does not read as awaiting input;
+- `history_size` growth reads as WORK in `classify_followed_change`. `ait setup`
 also adds `[tui] animations = false` to the project's `.codex/config.toml`, but
 only as a **default added when absent**: `merge_codex_settings` keeps an
 explicit project value. That covers Codex sessions started by hand in a trusted

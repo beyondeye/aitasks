@@ -240,18 +240,26 @@ failure is retried once and then the just-created pane is **killed**; no cleanup
 hook is installed and the caller reports an error. See `tui_conventions.md`
 (companion-pane section) and `tmux_gateway.md` (multi-agent per window).
 
-**Codex shadows launch inline.** codex-cli 0.160.0 runs its TUI on the
-alternate screen by default, where tmux keeps no scrollback. The deep captures
-of a shadow pane (`--deep`, the picker's deeper retry) then saw only the
-visible rows: a concern block that had scrolled off parsed truncated, and
-scrolling the Codex view changed what `c` offered. The `shadow` operation
-therefore adds `-c tui.alternate_screen=never` to a Codex launch
-(`CODEX_SHADOW_OVERRIDES` in `aitask_codeagent.sh`). It uses the config form,
-not the `--no-alt-screen` flag, because an unknown flag is a hard error on
-older Codex builds. The override applies to shadows only. No other Codex
-operation and no other agent carries it. The `invoke raw --resume-session`
-restore arm does not need it, because shadows are excluded from agent
-discovery and so are never frozen or restored.
+**Codex panes launch inline, shadows included.** codex-cli 0.160.0 runs its
+TUI on the alternate screen by default, where tmux keeps no scrollback. The
+deep captures of a shadow pane (`--deep`, the picker's deeper retry) then saw
+only the visible rows: a concern block that had scrolled off parsed truncated,
+and scrolling the Codex view changed what `c` offered. A followed Codex agent
+lost its history the same way, for the shadow's captures and for copy mode.
+Every framework Codex launch therefore carries `-c tui.alternate_screen=never`
+through `CODEX_TUI_OVERRIDES` in `lib/agent_string.sh`. That one array is
+expanded by both Codex argv builders: `aitask_codeagent.sh` (every `invoke`
+operation, including the `invoke raw --resume-session` restore arm) and
+`aitask_skillrun.sh`. It uses the config form, not the `--no-alt-screen` flag,
+because an unknown flag is a hard error on older Codex builds. No other agent
+carries it.
+
+A shadow can be frozen and restored, even though Freeze-All never selects one.
+Freeze-All acts on the panes `discover_panes()` returns, and discovery excludes
+shadows. But `aitask_frozen.sh freeze <pane_id>` calls `agent_freeze.freeze_pane`
+directly, and nothing on that path checks `@aitask_shadow_target`. Such a
+shadow comes back through `invoke raw --resume-session`, which carries the
+shared overrides, so it stays inline.
 
 ### Rule: the validated pane binding, not the argument, is the source of truth
 
@@ -724,9 +732,9 @@ latch, the bounded-capture residual), not the full list:
 
    **Historical dialog text (Codex, t1900).** The negative half sweeps the
    whole raw tail, and on an **inline** pane that tail includes history above
-   the visible rows. Codex shadows run inline, and a dismissed dialog stays in
-   that history (measured on 0.154 and 0.160). An idle shadow produces no
-   output to push it out, so a match there read `dialog` on every tick. Every
+   the visible rows. Framework-launched Codex panes run inline, shadows
+   included, and a dismissed dialog stays in that history (measured on 0.154
+   and 0.160). An idle pane produces no output to push it out, so a match there read `dialog` on every tick. Every
    `dialog` re-arms the settle latch below, and the latch releases only on
    `ready`, so the armed loop never rechecked. For Codex a match is therefore
    **historical**, and skipped, when a non-option `›` row (the composer or an
@@ -1187,7 +1195,8 @@ so the third agent's task is a re-run instead of a rewrite.
 lines back to the **bottom of the visible pane**. On an alternate-screen pane
 (`alternate_on=1`, `history_size=0`) there is no scrollback, and the capture is
 the **whole visible pane** for any `-S` value. On an inline pane (Claude Code,
-and Codex shadows) it is up to 15 history rows **plus** the whole visible pane.
+and every framework-launched Codex pane) it is up to 15 history rows **plus**
+the whole visible pane.
 Check `#{alternate_on}` for the agent you are measuring. The 15 is a scrollback
 floor. Fixtures should be stored at the extent production
 actually reads; the `CODEX_*` set's trim-to-15 convention is a fixture habit, and

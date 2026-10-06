@@ -633,11 +633,12 @@ class Codex0154ComposerTests(unittest.TestCase):
 
 
 class CodexHistoricalDialogTests(unittest.TestCase):
-    """Dismissed dialog text in an INLINE shadow's scrollback (t1900).
+    """Dismissed dialog text in an INLINE Codex pane's scrollback (t1900).
 
-    Codex shadows launch with ``tui.alternate_screen=never``, so the raw tail
+    Every framework Codex launch carries ``tui.alternate_screen=never``
+    (shadows since t1900, every other launch since t1902), so the raw tail
     carries history above the visible pane, and a dismissed dialog stays in
-    it. An idle shadow produces no output to push it out. A whole-tail dialog
+    it. An idle pane produces no output to push it out. A whole-tail dialog
     sweep therefore read ``dialog`` forever, and the settle latch never
     released (pinned end to end in test_minimonitor_concern_action).
     """
@@ -740,6 +741,75 @@ class CodexHistoricalDialogTests(unittest.TestCase):
             option_row_re=rl._CODEX_OPTION_ROW_RE,
             dialog_is_historical=lambda *_: False)
         self.assertEqual(state, rl.SHADOW_DIALOG)
+
+
+class CodexInlineFollowedPaneTests(unittest.TestCase):
+    """The FOLLOWED-pane signals on an inline Codex pane (t1902).
+
+    Since t1902 every framework Codex launch is inline, not only shadows, so a
+    followed Codex agent's capture now carries history too: startup screens
+    and answered dialogs stay above the current interaction. The followed-pane
+    classifier (`classify_content`) matches only the bottom
+    `_PROMPT_DETECTION_TAIL_LINES` rows, so retained dialog text must not read
+    as awaiting input, while a live dialog below it still must.
+    `classify_followed_change` treats history growth as WORK and an unchanged
+    capture at constant history as NO_CHANGE -- the inline semantics already
+    used for Claude Code, now reachable for Codex.
+    """
+
+    # The pre-0.160 update dialog (its wording matches `codex_update_prompt`)
+    # retained above a later screen: the measured 0.154 inline shape (t1522).
+    HISTORY = fx.CODEX_UPDATE_PROMPT_RAW + "\n"
+
+    def classify(self, raw):
+        res = mc.classify_content(raw, mc.DEFAULT_COMPARE_MODE,
+                                  pp.all_patterns(), mc.PaneCategory.AGENT,
+                                  "codex")
+        return res.awaiting_input, res.awaiting_input_kind
+
+    def test_measured_0160_dismissed_capture_is_not_awaiting(self):
+        self.assertEqual(self.classify(fx.CODEX_0160_INLINE_DISMISSED_UPDATE_RAW),
+                         (False, ""))
+
+    def test_retained_dialog_defers_to_the_current_screen(self):
+        # Alone, the dialog is the current interaction.
+        self.assertEqual(self.classify(fx.CODEX_UPDATE_PROMPT_RAW),
+                         (True, "codex_update_prompt"))
+        # In history above the at-rest composer, it is not.
+        self.assertEqual(self.classify(self.HISTORY + fx.CODEX_AT_REST_RAW),
+                         (False, ""))
+
+    def test_a_live_dialog_below_retained_text_is_still_found(self):
+        for name in ("CODEX_PERMISSION_RAW", "CODEX_QUESTION_RAW"):
+            with self.subTest(fixture=name):
+                live = getattr(fx, name)
+                self.assertEqual(self.classify(self.HISTORY + live),
+                                 self.classify(live))
+                self.assertTrue(self.classify(live)[0])
+
+    def test_negative_control_a_whole_capture_window_reads_the_history(self):
+        """Mutation: widen the detection window to the whole capture and the
+        retained dialog wins -- so the history test above is not vacuous."""
+        saved = mc._PROMPT_DETECTION_TAIL_LINES
+        mc._PROMPT_DETECTION_TAIL_LINES = 10_000
+        try:
+            self.assertEqual(self.classify(self.HISTORY + fx.CODEX_AT_REST_RAW),
+                             (True, "codex_update_prompt"))
+        finally:
+            mc._PROMPT_DETECTION_TAIL_LINES = saved
+
+    def test_inline_history_semantics_for_followed_change(self):
+        rest = fx.CODEX_0160_INLINE_DISMISSED_UPDATE_RAW
+        self.assertEqual(
+            rl.classify_followed_change(rest, "", rest, "", False, "codex",
+                                        prev_history_size=13,
+                                        curr_history_size=13),
+            rl.NO_CHANGE)
+        self.assertEqual(
+            rl.classify_followed_change(rest, "", rest, "", False, "codex",
+                                        prev_history_size=13,
+                                        curr_history_size=14),
+            rl.WORK)
 
 
 class CodexIsolatedPositiveHalfTests(unittest.TestCase):

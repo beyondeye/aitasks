@@ -406,10 +406,11 @@ older than the window rather than by being malformed. Two rules follow:
   inside the block.
 - A capture depth only reaches older rows when the shadow pane keeps
   scrollback. An alternate-screen pane has `history_size=0`, so any depth
-  returns the visible rows only. Codex shadows are therefore launched inline
-  (`-c tui.alternate_screen=never`, since codex-cli 0.160.0 defaults to the
-  alternate screen). Their capture window is the pane's history plus the
-  visible rows, and scrolling the Codex view does not change it.
+  returns the visible rows only. The framework therefore launches every Codex
+  pane inline, shadows included (`-c tui.alternate_screen=never`, since
+  codex-cli 0.160.0 defaults to the alternate screen). Its capture window is
+  the pane's history plus the visible rows, and scrolling the Codex view does
+  not change it.
 - When the window still starts *inside* a block, both parser entry points key
   off the last opening fence and so report nothing. `block_head_truncated(text)`
   detects that shape (a closing fence with **no** opening fence anywhere in the

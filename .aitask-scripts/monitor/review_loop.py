@@ -625,7 +625,7 @@ def _ordered_state(raw_text: str, *, agent: str, positive, working_re,
     ``dialog_is_historical(plain, match) -> bool``, when given, lets a detector
     discard a pattern match that is provably **scrollback**, not the current
     interaction (t1900). It exists because an inline pane keeps dismissed
-    dialog text in history, and an idle shadow never produces the output that
+    dialog text in history, and an idle pane never produces the output that
     would push it out: the stale match read ``dialog`` forever, every
     ``dialog`` re-armed the caller's settle latch, and the latch only releases
     on ``ready`` -- so the armed loop never rechecked. Only a match the
@@ -717,8 +717,9 @@ def _codex_dialog_is_historical(plain: str, match) -> bool:
     fixture has that shape (exec approval, question, startup update prompt).
 
     Measured on codex-cli 0.160.0 run inline (``tui.alternate_screen=never``,
-    the shadow launch mode): after "Skip" the dismissed update dialog stays in
-    the ``capture_raw_tail`` window above the at-rest composer. On 0.160 its
+    the framework launch mode for every Codex pane): after "Skip" the
+    dismissed update dialog stays in the ``capture_raw_tail`` window above the
+    at-rest composer. On 0.160 its
     hint wording no longer matches ``codex_update_prompt``. The pre-0.160 inline
     builds do match it (t1522 measured the same retention on 0.154), and they
     read ``dialog`` there indefinitely.

@@ -16,7 +16,7 @@
 # resolved from agent-string via lib/agent_string.sh):
 #   claudecode -> exec claude --model <cli_id> "/<full_skill> --profile <profile> <args>"
 #   opencode   -> exec opencode --model <cli_id> --prompt "/<full_skill> --profile <profile> <args>"
-#   codex      -> exec codex -m <cli_id> "$<full_skill> --profile <profile> <args>"
+#   codex      -> exec codex <CODEX_TUI_OVERRIDES> -m <cli_id> "$<full_skill> --profile <profile> <args>"
 #
 # Does NOT use `claude -p` (per feedback_avoid_claude_p_for_skill_invocation).
 
@@ -236,7 +236,9 @@ case "$PARSED_AGENT" in
         codex_prompt="\$${full_skill} ${forwarded}"
         # Codex launches in its default mode; interactive prompts work there via
         # the default_mode_request_user_input feature flag `ait setup` enables.
-        CMD=("$binary" "$model_flag" "$cli_id" "$codex_prompt")
+        # CODEX_TUI_OVERRIDES (lib/agent_string.sh) is the same `-c` set every
+        # aitask_codeagent.sh Codex launch carries.
+        CMD=("$binary" "${CODEX_TUI_OVERRIDES[@]}" "$model_flag" "$cli_id" "$codex_prompt")
         ;;
 esac
 

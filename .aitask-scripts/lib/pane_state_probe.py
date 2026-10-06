@@ -79,7 +79,8 @@ _STATE_RE = re.compile(r"waiting_[a-z0-9_]+|active")
 _TIMEOUT = 2.0
 # `capture-pane -S -<n>` with no `-E` reads to the bottom of the visible pane: the
 # whole pane on an alternate-screen agent, up to <n> history rows plus the whole
-# pane on an inline one (Claude Code). The classifier reads a bottom window.
+# pane on an inline one (Claude Code, framework-launched Codex). The classifier
+# reads a bottom window.
 _CAPTURE_LINES = 200
 
 

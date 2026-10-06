@@ -6,6 +6,7 @@
 #
 # Provides:
 #   SUPPORTED_AGENTS           (array of canonical agent names)
+#   CODEX_TUI_OVERRIDES        (array of `-c` pairs every Codex launch carries)
 #   DEFAULT_AGENT_STRING       (claudecode/opus5_5 at time of writing)
 #   METADATA_DIR               (defaults to ${TASK_DIR:-aitasks}/metadata)
 #   PARSED_AGENT / PARSED_MODEL (set by parse_agent_string)
@@ -26,6 +27,35 @@ source "$(dirname "${BASH_SOURCE[0]}")/terminal_compat.sh"
 DEFAULT_AGENT_STRING="${DEFAULT_AGENT_STRING:-claudecode/opus5_5}"
 METADATA_DIR="${METADATA_DIR:-${TASK_DIR:-aitasks}/metadata}"
 SUPPORTED_AGENTS=(claudecode codex opencode)
+
+# Codex TUI overrides carried by EVERY framework Codex launch: both argv
+# builders (aitask_codeagent.sh, every `invoke` operation and the
+# `--resume-session` restore arm; aitask_skillrun.sh) expand this one array, so
+# no launcher repeats a setting. A `-c` override outranks every config file, so
+# these hold whatever the user or project config says.
+#
+#  * tui.animations=false (t1797). codex-cli 0.154.0 animates a Braille
+#    "starfield" (U+2800-U+28FF) around and inside the idle composer; the glyphs
+#    are visible characters that survive strip_ansi, so the monitor idle timer
+#    and the review-loop shadow readiness never settle on an idle Codex pane.
+#    `tui.animations` is preferred over `tui.whimsy` because it is narrower.
+#    Codex ignores unknown `-c tui.*` keys (measured on 0.154.0), so a build
+#    without this key is unaffected.
+#  * tui.alternate_screen=never (t1900, t1902). codex-cli 0.160.0 runs its TUI
+#    on the alternate screen by default, where tmux keeps no scrollback, so pane
+#    captures, shadow review and copy mode saw only the visible rows. `never`
+#    restores inline mode (measured on 0.160.0: alternate_on 1->0 and
+#    history_size grows; the value vocabulary is auto|always|never, and a bad
+#    value is a hard error). The `-c` form rather than 0.160's `--no-alt-screen`
+#    flag, because an unknown flag is a hard clap error on older builds, while
+#    0.153.4 / 0.156.1 were measured to launch normally with this override.
+#    `codex resume` carries it too, so a restored pane stays inline.
+#
+# Nothing enforces that this is defined: under `set -u` an undeclared array
+# still expands to nothing. The launcher tests (test_codeagent.sh 11e/11f,
+# test_codeagent_resume_session.sh, test_skillrun_codex.sh) pin the argv.
+# shellcheck disable=SC2034  # Read by callers after sourcing this lib.
+CODEX_TUI_OVERRIDES=(-c tui.animations=false -c tui.alternate_screen=never)
 
 # --- Parsed agent string (set by parse_agent_string; read by callers in
 # aitask_codeagent.sh and aitask_skillrun.sh after sourcing) ---
