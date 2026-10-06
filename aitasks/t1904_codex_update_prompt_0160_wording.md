@@ -12,8 +12,9 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1892
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-06 22:29
-updated_at: 2026-10-06 22:32
+updated_at: 2026-10-06 23:15
 ---
 
 ## Origin
@@ -32,3 +33,8 @@ t1900 also made the review loop's whole-tail dialog sweep skip historical matche
 
 ## Suggested fix
 Extend `codex_update_prompt` (or add a sibling pattern) to match the 0.160 option-3 row plus the new hint, keeping the `skip_trailing_blank_rows` top-aligned handling. Pin it with the 0.160 live fixture, and check followed-pane detection and the review loop together.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-06T20:15:36Z status=pass attempt=1 type=human
