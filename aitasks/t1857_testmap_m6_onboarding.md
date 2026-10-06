@@ -211,3 +211,16 @@ shows the whole feature as one lane.
 > | **Go source layout (proposal fix, commit 07a546087 on main).** The engine source directory is `goengines/`, not `engine/`: one Go module (`github.com/beyondeye/aitasks/goengines`) for every distributable Go executable, `goengines/cmd/ait-testmap/`, shared packages `goengines/internal/{gitx,platform,lineproto}`, and every testmap-specific package under `goengines/internal/testmap/<pkg>`. Wherever the proposal (and this task's owns cells) write `internal/<pkg>`, read `goengines/internal/testmap/<pkg>`. Unchanged: the binary name `ait-testmap`, `$AITASKS_HOME/engine/v<V>/`, the `ait engine` verbs. CI workflow is `goengines-check.yml`; the release job is `goengines`. M1.2 (t1852_2) creates the module root; each later submodule adds only its own package and replaces only its own stub verb.
 > | 
 > | **Permission touchpoints for `ait testmap` / `aitask_testmap.sh` are the first skill consumer's, not M1's** (t1852 plan, Deviation 2): no skill in M1 invokes the shim, and `aidocs/framework/aitasks_extension_points.md` forbids dead-weight allowlist entries. The first skill of this module that calls `ait testmap` or `./.aitask-scripts/aitask_testmap.sh` owes the five-touchpoint checklist (`.claude/settings.local.json`, `.codex/rules/default.rules`, `seed/claude_settings.local.json`, `seed/codex_rules.default.rules`, `seed/opencode_config.seed.json`) as an explicit deliverable of that child. Hedge: written against main @ 07a546087 with M1 not yet implemented; the shim's final path is M1.4's to confirm.
+
+> **✉ note:t1852_5** id=2026-10-06T20:13:02Z.b55b93254defec9219842e97 from=t1852_5 from_verified=yes at=2026-10-06T20:13:02Z base=7f412d482c3e1e67c0bae2729754b8505f95ba05 base_branch=main dirty=yes host=omg16
+>
+> | From t1852_5 (M1.5), tree-relative to code commit 7f412d482. These are claims for M6.1's planning to check against the landed files, not instructions.
+> | 
+> | - `report_testmap_state()` in `.aitask-scripts/aitask_setup.sh` ships three states:
+> |   - `TESTMAP:engine-missing`: the shim's `testmap_resolve_engine` fails. It honours `AIT_TESTMAP_BIN` and `AIT_ENGINE`.
+> |   - `TESTMAP:absent|run /aitask-testmap-onboard`;
+> |   - `TESTMAP:onboarded`.
+> | - A comment marks where M6.1's `TESTMAP:bootstrapping|<next phase>` branch goes, between the absent and onboarded arms. It is meant for an unfinished `aitestmap/onboard.yaml` ledger.
+> | - "Registry present" is `aitestmap/config.yaml`, the same rule as the proposal's `ait test` resolution step 1, rather than the mere existence of an `aitestmap/` directory.
+> | - Setup reports and never onboards. The state is printed after `install_engine_binary` on `ait setup` only; `install.sh` / `ait upgrade` do not call the reporter.
+> | - `tests/test_install_engine_binary.sh` cases T1–T3 pin the three states; M6.1 adds its own case there.
