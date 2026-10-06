@@ -240,6 +240,19 @@ failure is retried once and then the just-created pane is **killed**; no cleanup
 hook is installed and the caller reports an error. See `tui_conventions.md`
 (companion-pane section) and `tmux_gateway.md` (multi-agent per window).
 
+**Codex shadows launch inline.** codex-cli 0.160.0 runs its TUI on the
+alternate screen by default, where tmux keeps no scrollback. The deep captures
+of a shadow pane (`--deep`, the picker's deeper retry) then saw only the
+visible rows: a concern block that had scrolled off parsed truncated, and
+scrolling the Codex view changed what `c` offered. The `shadow` operation
+therefore adds `-c tui.alternate_screen=never` to a Codex launch
+(`CODEX_SHADOW_OVERRIDES` in `aitask_codeagent.sh`). It uses the config form,
+not the `--no-alt-screen` flag, because an unknown flag is a hard error on
+older Codex builds. The override applies to shadows only. No other Codex
+operation and no other agent carries it. The `invoke raw --resume-session`
+restore arm does not need it, because shadows are excluded from agent
+discovery and so are never frozen or restored.
+
 ### Rule: the validated pane binding, not the argument, is the source of truth
 
 A pane id that travels through a model can be mangled — a Codex shadow was
@@ -708,6 +721,22 @@ latch, the bounded-capture residual), not the full list:
      composer box at compact sizes rather than above it — and overwriting the
      box disrupts the status row too, so the structural half refuses as well.
      Pinned by a fixture captured at the minimum ready-eligible geometry.
+
+   **Historical dialog text (Codex, t1900).** The negative half sweeps the
+   whole raw tail, and on an **inline** pane that tail includes history above
+   the visible rows. Codex shadows run inline, and a dismissed dialog stays in
+   that history (measured on 0.154 and 0.160). An idle shadow produces no
+   output to push it out, so a match there read `dialog` on every tick. Every
+   `dialog` re-arms the settle latch below, and the latch releases only on
+   `ready`, so the armed loop never rechecked. For Codex a match is therefore
+   **historical**, and skipped, when a non-option `›` row (the composer or an
+   echoed user message) sits on a line below it
+   (`review_loop._codex_dialog_is_historical`). A live Codex dialog replaces
+   the composer, so below its text there are only option rows, blank rows and
+   its footer. Any match that is not historical still answers `dialog`, so a
+   live dialog below a dismissed one is still a dialog. This is Codex only:
+   Claude Code is inline too, but no retained-dialog state has been measured
+   for it, and OpenCode's box composer does not fit the glyph-row rule.
 5b. **Post-interaction settle latch.** An empty composer is also what the pane
    shows in the gap between an interaction leaving the screen and work
    resuming, so readiness is additionally held for
@@ -1155,10 +1184,12 @@ so the third agent's task is a re-run instead of a rewrite.
    where a short pane can drop it?
 
 **`-S -15` is not a 15-line window.** It carries no `-E`, so it reads from 15
-lines back to the **bottom of the visible pane**. Every one of these agents runs
-on the alternate screen (`alternate_on=1`, `history_size=0`), so there is no
-scrollback and the capture is the **whole visible pane** for any `-S` value. The
-15 is a scrollback floor. Fixtures should be stored at the extent production
+lines back to the **bottom of the visible pane**. On an alternate-screen pane
+(`alternate_on=1`, `history_size=0`) there is no scrollback, and the capture is
+the **whole visible pane** for any `-S` value. On an inline pane (Claude Code,
+and Codex shadows) it is up to 15 history rows **plus** the whole visible pane.
+Check `#{alternate_on}` for the agent you are measuring. The 15 is a scrollback
+floor. Fixtures should be stored at the extent production
 actually reads; the `CODEX_*` set's trim-to-15 convention is a fixture habit, and
 copying it onto OpenCode was measured to drop a load-bearing row.
 

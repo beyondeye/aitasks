@@ -602,7 +602,8 @@ SHADOW_BUSY = "busy"
 SHADOW_UNKNOWN = "unknown"
 
 
-def _ordered_state(raw_text: str, *, agent: str, positive, working_re) -> str:
+def _ordered_state(raw_text: str, *, agent: str, positive, working_re,
+                   dialog_is_historical=None) -> str:
     """The verdict ORDER, shared by every per-agent detector.
 
     ``positive(raw_text, plain) -> SHADOW_*`` is the per-agent **structural**
@@ -620,6 +621,17 @@ def _ordered_state(raw_text: str, *, agent: str, positive, working_re) -> str:
     Living in ONE function is the point: with two structural halves the order
     would otherwise be duplicated, and a fix to one copy would silently not
     reach the other.
+
+    ``dialog_is_historical(plain, match) -> bool``, when given, lets a detector
+    discard a pattern match that is provably **scrollback**, not the current
+    interaction (t1900). It exists because an inline pane keeps dismissed
+    dialog text in history, and an idle shadow never produces the output that
+    would push it out: the stale match read ``dialog`` forever, every
+    ``dialog`` re-armed the caller's settle latch, and the latch only releases
+    on ``ready`` -- so the armed loop never rechecked. Only a match the
+    predicate rejects is skipped; any remaining match still returns
+    ``dialog``, so a live dialog below a historical one is still a dialog.
+    ``None`` (every agent but Codex) keeps the plain whole-tail sweep.
     """
     if not raw_text or not raw_text.strip():
         return SHADOW_UNKNOWN
@@ -629,8 +641,10 @@ def _ordered_state(raw_text: str, *, agent: str, positive, working_re) -> str:
     # a different interaction is pending (scan the whole tail, deliberately
     # wider than classify_content's bottom window).
     for pattern in PROMPT_PATTERNS_BY_AGENT.get(agent, []):
-        if pattern.regex.search(plain):
-            return SHADOW_DIALOG
+        for match in pattern.regex.finditer(plain):
+            if (dialog_is_historical is None
+                    or not dialog_is_historical(plain, match)):
+                return SHADOW_DIALOG
 
     verdict = positive(raw_text, plain)
     if verdict == SHADOW_READY and working_re.search(plain):
@@ -639,7 +653,8 @@ def _ordered_state(raw_text: str, *, agent: str, positive, working_re) -> str:
 
 
 def _composer_state(raw_text: str, *, agent: str, composer_re,
-                    working_re, pad: str, option_row_re=None) -> str:
+                    working_re, pad: str, option_row_re=None,
+                    dialog_is_historical=None) -> str:
     """Glyph-line composer classification (Claude Code, Codex CLI).
 
     Returns one of the ``SHADOW_*`` verdicts. ``pad`` is the run of characters
@@ -648,7 +663,8 @@ def _composer_state(raw_text: str, *, agent: str, composer_re,
     this function contributes only the positive half.
 
     Signature preserved verbatim: the negative-control tests call it directly
-    with mutated regexes.
+    with mutated regexes. ``dialog_is_historical`` is passed through to
+    :func:`_ordered_state` (keyword, default ``None``).
     """
 
     def positive(raw_text: str, plain: str) -> str:
@@ -679,7 +695,8 @@ def _composer_state(raw_text: str, *, agent: str, composer_re,
         return SHADOW_DIALOG
 
     return _ordered_state(raw_text, agent=agent, positive=positive,
-                          working_re=working_re)
+                          working_re=working_re,
+                          dialog_is_historical=dialog_is_historical)
 
 
 def _claude_state(raw_text: str) -> str:
@@ -689,12 +706,43 @@ def _claude_state(raw_text: str) -> str:
                            pad="  ")
 
 
+def _codex_dialog_is_historical(plain: str, match) -> bool:
+    """True when a non-option ``›`` row sits BELOW a Codex dialog match (t1900).
+
+    That row is the live composer or an echoed user message. Either way the TUI
+    drew transcript or composer after the dialog text, so the match is
+    scrollback and not the current interaction. A live Codex dialog replaces
+    the composer in the bottom pane: below its matched text there are only
+    option rows (``› N.``), blank rows and its footer. Every measured live
+    fixture has that shape (exec approval, question, startup update prompt).
+
+    Measured on codex-cli 0.160.0 run inline (``tui.alternate_screen=never``,
+    the shadow launch mode): after "Skip" the dismissed update dialog stays in
+    the ``capture_raw_tail`` window above the at-rest composer. On 0.160 its
+    hint wording no longer matches ``codex_update_prompt``. The pre-0.160 inline
+    builds do match it (t1522 measured the same retention on 0.154), and they
+    read ``dialog`` there indefinitely.
+
+    Codex only. Claude Code is inline too, but no retained-dialog state has
+    been measured for it. OpenCode's composer is a box, so this glyph-row rule
+    does not transfer.
+    """
+    end_line = plain.count("\n", 0, max(match.start(), match.end() - 1))
+    for line in plain.splitlines()[end_line + 1:]:
+        line = line.rstrip()
+        if (_CODEX_COMPOSER_RE.match(line)
+                and not _CODEX_OPTION_ROW_RE.match(line)):
+            return True
+    return False
+
+
 def _codex_state(raw_text: str) -> str:
     return _composer_state(raw_text, agent="codex",
                            composer_re=_CODEX_COMPOSER_RE,
                            working_re=_CODEX_WORKING_RE,
                            pad=" ",
-                           option_row_re=_CODEX_OPTION_ROW_RE)
+                           option_row_re=_CODEX_OPTION_ROW_RE,
+                           dialog_is_historical=_codex_dialog_is_historical)
 
 
 def _opencode_box_state(raw_text: str, plain: str, *,

@@ -77,8 +77,9 @@ _PANE_ID_RE = re.compile(r"%[0-9]+")
 # parser drop the whole record.
 _STATE_RE = re.compile(r"waiting_[a-z0-9_]+|active")
 _TIMEOUT = 2.0
-# `capture-pane -S -<n>` with no `-E` reads to the bottom of the visible pane, and
-# every supported agent runs on the alternate screen, so this is the whole pane.
+# `capture-pane -S -<n>` with no `-E` reads to the bottom of the visible pane: the
+# whole pane on an alternate-screen agent, up to <n> history rows plus the whole
+# pane on an inline one (Claude Code). The classifier reads a bottom window.
 _CAPTURE_LINES = 200
 
 

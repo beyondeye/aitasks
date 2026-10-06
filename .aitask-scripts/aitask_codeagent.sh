@@ -35,6 +35,20 @@ SUPPORTED_OPERATIONS=(pick explain batch-review qa explore explore-relay raw sha
 # file, so this holds whatever the user or project config says.
 CODEX_TUI_OVERRIDES=(-c tui.animations=false)
 
+# Codex shadow launch mode (t1900). codex-cli 0.160.0 runs its TUI on the
+# alternate screen by default, where tmux keeps no scrollback, so the
+# shadow-pane captures (`aitask_shadow_capture.sh --deep`, minimonitor's deeper
+# concern retry) saw only the visible rows. `never` restores inline mode
+# (measured on 0.160.0: alternate_on 1->0 and history_size grows; the value
+# vocabulary is auto|always|never, and a bad value is a hard error). The `-c`
+# form rather than 0.160's `--no-alt-screen` flag, because an unknown flag is a
+# hard clap error on older builds, while 0.153.4 / 0.156.1 were measured to
+# launch normally with this override. Shadow launches ONLY: every other Codex
+# launch keeps Codex's default. Shadows are never frozen (excluded from
+# `discover_panes`), so the `invoke raw --resume-session` restore arm never
+# relaunches one and does not carry it.
+CODEX_SHADOW_OVERRIDES=(-c tui.alternate_screen=never)
+
 # --- Global flags (set by argument parser) ---
 
 OPT_AGENT_STRING=""
@@ -596,7 +610,12 @@ build_invoke_command() {
                         discuss) prompt=$(build_skill_prompt "\$aitask-brainstorm-discuss" "${args[@]}") ;;
                         *) die "operation not wired into the codex composer: $operation" ;;
                     esac
-                    CMD=("$binary" "${CODEX_TUI_OVERRIDES[@]}" "$model_flag" "$cli_id" "$prompt")
+                    CMD=("$binary" "${CODEX_TUI_OVERRIDES[@]}" "$model_flag" "$cli_id")
+                    # After the model flag, so the composer prompt stays last.
+                    if [[ "$operation" == "shadow" ]]; then
+                        CMD+=("${CODEX_SHADOW_OVERRIDES[@]}")
+                    fi
+                    CMD+=("$prompt")
                     ;;
             esac
             ;;

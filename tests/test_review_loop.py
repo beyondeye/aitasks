@@ -632,6 +632,116 @@ class Codex0154ComposerTests(unittest.TestCase):
         self.assertNotEqual(a, b)
 
 
+class CodexHistoricalDialogTests(unittest.TestCase):
+    """Dismissed dialog text in an INLINE shadow's scrollback (t1900).
+
+    Codex shadows launch with ``tui.alternate_screen=never``, so the raw tail
+    carries history above the visible pane, and a dismissed dialog stays in
+    it. An idle shadow produces no output to push it out. A whole-tail dialog
+    sweep therefore read ``dialog`` forever, and the settle latch never
+    released (pinned end to end in test_minimonitor_concern_action).
+    """
+
+    # The pre-0.160 dialog (its wording matches `codex_update_prompt`) left in
+    # history above a later screen: the measured 0.154 inline shape (t1522).
+    HISTORY = fx.CODEX_UPDATE_PROMPT_RAW + "\n\n"
+
+    def test_measured_0160_inline_capture(self):
+        self.assertEqual(rl._codex_state(fx.CODEX_0160_INLINE_UPDATE_PROMPT_RAW),
+                         rl.SHADOW_DIALOG)
+        dismissed = fx.CODEX_0160_INLINE_DISMISSED_UPDATE_RAW
+        self.assertEqual(rl._codex_state(dismissed), rl.SHADOW_READY)
+        self.assertIs(rl.shadow_prompt_ready(dismissed, "codex", True), True)
+
+    def test_a_pattern_for_the_0160_wording_would_not_wedge_it(self):
+        """0.160 reworded the dialog's hint, so today no pattern matches the
+        retained rows. Add one that does (the obvious future fix to
+        `codex_update_prompt`): the live dialog still reads dialog, and the
+        dismissed capture still reads ready."""
+        hint = pp.PromptPattern("codex_update_prompt_0160",
+                                re.compile(r"enter continue · esc skip"))
+        saved = rl.PROMPT_PATTERNS_BY_AGENT.get("codex", [])
+        rl.PROMPT_PATTERNS_BY_AGENT["codex"] = [*saved, hint]
+        try:
+            self.assertTrue(hint.regex.search(rl.strip_ansi(
+                fx.CODEX_0160_INLINE_DISMISSED_UPDATE_RAW)))
+            self.assertEqual(
+                rl._codex_state(fx.CODEX_0160_INLINE_UPDATE_PROMPT_RAW),
+                rl.SHADOW_DIALOG)
+            self.assertEqual(
+                rl._codex_state(fx.CODEX_0160_INLINE_DISMISSED_UPDATE_RAW),
+                rl.SHADOW_READY)
+        finally:
+            rl.PROMPT_PATTERNS_BY_AGENT["codex"] = saved
+
+    def test_historical_dialog_defers_to_the_current_screen(self):
+        expected = {
+            "CODEX_AT_REST_RAW": rl.SHADOW_READY,
+            "CODEX_TYPED_RAW": rl.SHADOW_BUSY,        # typed text still blocks
+            "CODEX_WORKING_RAW": rl.SHADOW_WORKING,
+            "CODEX_PERMISSION_RAW": rl.SHADOW_DIALOG,  # a live dialog below
+            "CODEX_QUESTION_RAW": rl.SHADOW_DIALOG,
+            "CODEX_PERMISSION_WITH_RUNNING_RAW": rl.SHADOW_DIALOG,
+        }
+        for name, want in expected.items():
+            self.assertEqual(rl._codex_state(self.HISTORY + getattr(fx, name)),
+                             want, name)
+        self.assertIs(rl.shadow_prompt_ready(
+            self.HISTORY + fx.CODEX_AT_REST_RAW, "codex", True), True)
+
+    def test_every_existing_codex_fixture_keeps_its_verdict(self):
+        expected = {
+            "CODEX_AT_REST_RAW": rl.SHADOW_READY,
+            "CODEX_0154_NOANIM_AT_REST_RAW": rl.SHADOW_READY,
+            "CODEX_0154_NOANIM_AT_REST_TICK2_RAW": rl.SHADOW_READY,
+            "CODEX_TYPED_RAW": rl.SHADOW_BUSY,
+            "CODEX_0154_STARFIELD_RAW_1": rl.SHADOW_BUSY,
+            "CODEX_0154_STARFIELD_RAW_2": rl.SHADOW_BUSY,
+            "CODEX_WORKING_RAW": rl.SHADOW_WORKING,
+            "CODEX_PERMISSION_RAW": rl.SHADOW_DIALOG,
+            "CODEX_PERMISSION_WITH_RUNNING_RAW": rl.SHADOW_DIALOG,
+            "CODEX_QUESTION_RAW": rl.SHADOW_DIALOG,
+            "CODEX_UPDATE_PROMPT_RAW": rl.SHADOW_DIALOG,
+            "CODEX_EXEC_APPROVAL_LATER_RAW": rl.SHADOW_DIALOG,
+            "CODEX_EXEC_APPROVAL_SEL1_RAW": rl.SHADOW_DIALOG,
+            "CODEX_EXEC_APPROVAL_SEL2_RAW": rl.SHADOW_DIALOG,
+        }
+        for name, want in expected.items():
+            self.assertEqual(rl._codex_state(getattr(fx, name)), want, name)
+
+    def test_no_live_dialog_fixture_has_a_composer_row_below_its_match(self):
+        """The rule's premise, checked on every measured live dialog: nothing
+        but option rows, blank rows and the footer sits below the match."""
+        for name in ("CODEX_PERMISSION_RAW", "CODEX_PERMISSION_WITH_RUNNING_RAW",
+                     "CODEX_QUESTION_RAW", "CODEX_UPDATE_PROMPT_RAW",
+                     "CODEX_EXEC_APPROVAL_LATER_RAW",
+                     "CODEX_EXEC_APPROVAL_SEL1_RAW",
+                     "CODEX_EXEC_APPROVAL_SEL2_RAW"):
+            plain = rl.strip_ansi(getattr(fx, name))
+            for pattern in rl.PROMPT_PATTERNS_BY_AGENT["codex"]:
+                for match in pattern.regex.finditer(plain):
+                    self.assertFalse(
+                        rl._codex_dialog_is_historical(plain, match),
+                        f"{name}: {pattern.name}")
+
+    def test_negative_control_without_the_predicate_it_reads_dialog(self):
+        """Mutation: drop the predicate and the stale rows win again -- the
+        exact defect, so the tests above are not vacuous."""
+        state = rl._composer_state(
+            self.HISTORY + fx.CODEX_AT_REST_RAW, agent="codex",
+            composer_re=rl._CODEX_COMPOSER_RE,
+            working_re=rl._CODEX_WORKING_RE, pad=" ",
+            option_row_re=rl._CODEX_OPTION_ROW_RE)
+        self.assertEqual(state, rl.SHADOW_DIALOG)
+        state = rl._composer_state(
+            self.HISTORY + fx.CODEX_AT_REST_RAW, agent="codex",
+            composer_re=rl._CODEX_COMPOSER_RE,
+            working_re=rl._CODEX_WORKING_RE, pad=" ",
+            option_row_re=rl._CODEX_OPTION_ROW_RE,
+            dialog_is_historical=lambda *_: False)
+        self.assertEqual(state, rl.SHADOW_DIALOG)
+
+
 class CodexIsolatedPositiveHalfTests(unittest.TestCase):
     """The task's explicit safety question, as an executable assertion.
 

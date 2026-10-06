@@ -687,10 +687,14 @@ async def capture_raw_tail(
     an earlier version of this docstring called it "deliberately tiny … the
     prompt area, not the transcript", and detectors were written against that
     belief). ``capture-pane -S -<n>`` carries no ``-E``, so it reads from *n*
-    lines back to the **bottom of the visible pane**. Every supported agent CLI
-    runs on the alternate screen (``alternate_on=1``, ``history_size=0``), so
-    there is no scrollback at all and this returns the **whole visible pane**
-    for any ``lines`` value — 30 rows at a 120x30 geometry, not 15.
+    lines back to the **bottom of the visible pane**. On an alternate-screen
+    pane (``alternate_on=1``, ``history_size=0``) there is no scrollback, so
+    this returns the **whole visible pane** for any ``lines`` value — 30 rows
+    at a 120x30 geometry, not 15. On an inline pane (Claude Code, and Codex
+    shadows, launched with ``tui.alternate_screen=never`` since t1900) it
+    returns up to ``lines`` history rows **plus** the whole visible pane, so
+    dismissed dialog text can sit in it (see
+    ``review_loop._codex_dialog_is_historical``).
 
     Two consequences worth stating, because both have already bitten:
     a marker is in scope whenever it is *on screen*, so "it renders too far up

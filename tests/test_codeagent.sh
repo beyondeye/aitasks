@@ -364,6 +364,38 @@ for agent_string in "${negative_agents[@]}"; do
     assert_not_contains "$agent_string pick carries no Codex TUI override" "tui.animations" "$output"
 done
 
+# Test 11f: only a Codex SHADOW launch runs inline (t1900) — placed after the
+# model flag, with the composer prompt still last. Every other Codex operation,
+# including the frozen-agent resume form, and every other agent's shadow
+# launch carry no alternate-screen override.
+echo "--- Test 11f: Codex shadow launches carry -c tui.alternate_screen=never ---"
+output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --agent-string codex/gpt5_4 --dry-run invoke shadow probe 2>&1)
+assert_contains "codex shadow carries the inline override after the model" \
+    "codex -c tui.animations=false -m gpt-5.4 -c tui.alternate_screen=never" "$output"
+assert_contains "codex shadow keeps the composer prompt last" \
+    "\$aitask-shadow" "$(dry_run_last_arg "$output")"
+for operation in pick explain qa learn work-report trail discuss explore batch-review raw; do
+    if [[ "$operation" == "explore" ]]; then
+        output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --agent-string codex/gpt5_4 --dry-run invoke "$operation" 2>&1)
+    else
+        output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --agent-string codex/gpt5_4 --dry-run invoke "$operation" probe 2>&1)
+    fi
+    assert_contains "codex $operation still dry-runs" "DRY_RUN:" "$output"
+    assert_not_contains "codex $operation carries no alternate-screen override" \
+        "tui.alternate_screen" "$output"
+done
+output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --agent-string codex/gpt5_4 \
+    --resume-session 0199a213-81c0-7800-8aa1-bbab2a035a53 --dry-run invoke raw 2>&1)
+assert_contains "codex raw resume still dry-runs" "DRY_RUN:" "$output"
+assert_not_contains "codex raw resume carries no alternate-screen override" \
+    "tui.alternate_screen" "$output"
+for agent_string in "${negative_agents[@]}"; do
+    output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --agent-string "$agent_string" --dry-run invoke shadow probe 2>&1) || true
+    assert_contains "$agent_string shadow still dry-runs" "DRY_RUN:" "$output"
+    assert_not_contains "$agent_string shadow carries no alternate-screen override" \
+        "tui.alternate_screen" "$output"
+done
+
 # Test 11d4: a supported operation missing from the nested Codex composer case
 # fails closed. Mutate only a separately copied fixture, validate that the
 # symbol-anchored transform matched exactly once, then remove the probe copy.

@@ -2372,6 +2372,39 @@ class ShadowSettleLatchTests(unittest.TestCase):
             self._advance(0.25)
         self.assertIsNotNone(released, "latch never released without WORKING")
 
+    def _ticks_until_release(self, app, captures):
+        """Feed real captures through the real classifier, 0.25s apart."""
+        for i, raw in enumerate(captures):
+            state = mm.review_loop.shadow_state(raw, "codex")
+            ready = mm.review_loop.shadow_prompt_ready(raw, "codex", True)
+            if self._latch(app, state, ready) is True:
+                return i
+            self._advance(0.25)
+        return None
+
+    def test_a_dismissed_dialog_in_inline_scrollback_does_not_wedge_the_loop(self):
+        """t1900. An inline Codex shadow keeps a dismissed dialog in the raw
+        tail, and an idle shadow never pushes it out. Live dialog first (the
+        latch arms), then the same pane at rest with the dialog in history
+        for 40 identical ticks: the latch must release after the deadline."""
+        dismissed = (_rlfx.CODEX_UPDATE_PROMPT_RAW + "\n\n"
+                     + _rlfx.CODEX_AT_REST_RAW)
+        captures = [_rlfx.CODEX_UPDATE_PROMPT_RAW] + [dismissed] * 40
+        app = self._app()
+        released = self._ticks_until_release(app, captures)
+        self.assertIsNotNone(released, "armed loop never rechecked")
+        self.assertGreaterEqual(
+            (released - 1) * 0.25, mm.review_loop.SHADOW_SETTLE_SECONDS - 0.25)
+
+        # Negative control: without the historical-dialog rule every tick
+        # re-arms the latch, so it never releases -- the defect.
+        saved = mm.review_loop._codex_dialog_is_historical
+        mm.review_loop._codex_dialog_is_historical = lambda *_: False
+        try:
+            self.assertIsNone(self._ticks_until_release(self._app(), captures))
+        finally:
+            mm.review_loop._codex_dialog_is_historical = saved
+
     def test_busy_and_unknown_arm_the_latch_as_well(self):
         """The predicate is "not READY and not WORKING", not "is a dialog":
         typed text in the shadow's composer would be concatenated by an
