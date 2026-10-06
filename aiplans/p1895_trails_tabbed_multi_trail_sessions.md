@@ -437,16 +437,16 @@ trails, switch with `[`/`]`/digits and a mouse click, `ctrl+w` to close.
 ### Code-health risk: medium
 - The shared mixin's scalar state becomes active-session properties and the supersession token is split into stamps, which also changes the board `z` view's semantics (opening the selector no longer retires an in-flight drift/reload; a reload no longer retires an in-flight discovery) · severity: medium · → mitigation: inline pre-phase baseline_trail_suites
 - Property setters raise when no session is active — a writer that sets trail state before the handle would now fail loud instead of storing silently · severity: low · → mitigation: none
-- Tab switching re-renders the lanes asynchronously; focus restore could hit the detached-focus class of bugs (t1839) in `TrailsApp` · severity: medium · → mitigation: manual_verification_trail_tabs
+- Tab switching re-renders the lanes asynchronously; focus restore could hit the detached-focus class of bugs (t1839) in `TrailsApp` · severity: medium · → mitigation: t1903
 - Same-handle reads are now serialized by a per-handle lock: a stalled `artifact get` delays a concurrent reload/scan of the *same* trail (bounded by the 15s subprocess timeouts; other handles unaffected). The ordering guarantee holds only for readers that go through `sequenced_trail_read` — a future in-process reader that bypasses it would reintroduce the race · severity: low · → mitigation: none (docstring states the invariant; discovery and reload are the only readers)
 
 ### Goal-achievement risk: low
-- Custom `TrailTabStrip` instead of the draft's Textual `Tabs` (deliberate, see Context); many tabs on a narrow terminal clip labels · severity: low · → mitigation: manual_verification_trail_tabs
+- Custom `TrailTabStrip` instead of the draft's Textual `Tabs` (deliberate, see Context); many tabs on a narrow terminal clip labels · severity: low · → mitigation: t1903
 - The agent-refresh watch stays single and global: arming `R` on a second tab replaces the first tab's watch (unchanged from today's install-replaces contract) · severity: low · → mitigation: none
 
 ### Planned mitigations
 - timing: pre-phase | name: baseline_trail_suites | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: shared-mixin refactor / token split regressions on the board z view | desc: Run the trail + shortcut suites on the untouched tree first and record per-module results so later failures are attributable
-- timing: after | name: manual_verification_trail_tabs | type: manual_verification | priority: medium | effort: low | inline_risk: low | added_complexity: medium | addresses: focus restore across async re-render; tab-strip clipping/click on real terminals | desc: Real-terminal check of ait trails tabs: open 2+ trails, switch with [ ] digits and mouse click, ctrl+w, focus restore, narrow-width label clipping
+- timing: after | name: manual_verification_trail_tabs | type: manual_verification | priority: medium | effort: low | inline_risk: low | added_complexity: medium | addresses: focus restore across async re-render; tab-strip clipping/click on real terminals | desc: Real-terminal check of ait trails tabs: open 2+ trails, switch with [ ] digits and mouse click, ctrl+w, focus restore, narrow-width label clipping | created: t1903
 
 ## Post-Review Changes
 
