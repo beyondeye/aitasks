@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [trails, tui, board]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,6 +17,7 @@ assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-05 23:14
 updated_at: 2026-10-06 13:55
+completed_at: 2026-10-06 13:55
 ---
 
 ## Goal
@@ -158,3 +159,14 @@ out to matter.
 > **✅ gate:plan_approved** run=2026-10-06T06:24:13Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-06T10:45:11Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-06T10:55:51Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:af13ef62e242f6f3
+
+> **✅ gate:risk_evaluated** run=2026-10-06T10:55:51Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1895/risk_evaluated_2026-10-06T10:55:51Z-risk_evaluated-a1.log`
