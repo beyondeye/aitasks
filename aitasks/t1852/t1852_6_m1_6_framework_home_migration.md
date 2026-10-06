@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: [t1852_1, t1852_5]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [testmap, install, ait_setup, bash_scripts]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1852
 created_at: 2026-09-22 17:27
-updated_at: 2026-09-22 17:27
+updated_at: 2026-10-06 23:17
 ---
 
 ## Context
