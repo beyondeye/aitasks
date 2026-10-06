@@ -394,3 +394,79 @@ HOME, SHIM_DIR and `AITASKS_HOME` are redirected into scratch.
 ### Planned mitigations
 - timing: post-phase | name: install_regression_sweep | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health: install.sh fatal path / existing install tests gaining fetch or output | desc: re-run every existing install/setup test file plus a bash-3.2 array-expansion review of install.sh
 - timing: post-phase | name: live_release_fetch_check | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal: release tier proven only against file:// fakes | desc: install from the real v0.36.1 GitHub release into a scratch AITASKS_HOME and verify sidecar, resolver, and the no-network short-circuit
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-06 00:20)
+- **Requested by user:**
+  1. `engine_publish`'s `mv` onto a destination that is a directory (or a symlink to one) nests the staged file inside it and succeeds. The installer then reports `installed`, the state report says engine-missing, and a forced release also cleared `.dev`.
+  2. Run `tests/test_frozen_agents_acceptance.sh` outside tmux.
+  3. `prune` released the slot lock before verifying the deletion, so a concurrent publisher could turn a successful prune into `PRUNE_FAILED:not-removed`.
+- **Changes made:**
+  1. `engine_publish` refuses a directory at the binary or sidecar destination with a new return code 3, under the lock and before any metadata is touched. `engine_publish_report` prints `TESTMAP_BINARY:slot-invalid|<slot>`, and `ait engine build` prints `ENGINE_SLOT_INVALID:<bin>`. New cases P1–P5 cover every publish mode, a forced release over `.dev`, a symlink to a directory, a sidecar directory, and the dev slot. Mutant m5 (the check removed) fails all P cases.
+  2. Not run: its second guard (`require_clean_ait_server`) refuses while the dedicated `-L ait` tmux server has panes, and that server hosts the user's live sessions, including this agent. Running outside tmux would not get past it. The only bypass, `AIT_LIVE_TMUX_TEST_FORCE=1`, is for a dedicated CI box and was not used. This test exercises install.sh only through `--local-tarball`, where the engine step is `TESTMAP_BINARY:skipped`; I4 pins that path.
+  3. `prune` now verifies the removal before releasing the slot lock. A new test seam, `AIT_ENGINE_TEST_POST_UNLOCK_HOOK`, runs right after any slot unlock. Case E6 recreates the slot from that hook and expects `PRUNED` with exit 0. Its negative control, a copy that checks after the unlock, reports `PRUNE_FAILED`.
+- **Files affected:** `.aitask-scripts/lib/engine_install.sh`, `.aitask-scripts/aitask_engine.sh`, `tests/test_install_engine_binary.sh` (192 checks)
+
+### Change Request 2 (2026-10-06 00:45)
+- **Requested by user:**
+  1. A slot linked onto another filesystem makes the "atomic" `mv` a copy-then-delete.
+  2. The frozen-agents acceptance check is still unverified: complete it, or explicitly agree and track a deferral.
+  3. The `CLAUDE.md` Engine block implied that `ait upgrade` takes the engine flags and prints `TESTMAP:`.
+  4. The test's hashing hardcoded `sha256sum`.
+- **Changes made:**
+  1. New `engine_dev_id` (`stat -L`, GNU then BSD). Under the lock, `engine_publish` compares the staging dir's device with the slot's resolved device. A mismatch, or a device that can't be determined, returns 5 and prints `TESTMAP_BINARY:slot-cross-device|<slot>` (`ENGINE_SLOT_CROSS_DEVICE:` for `ait engine build`). P6 is deterministic, using a `stat()` override for both the mismatch and the unknown case. P7 uses a real slot symlinked onto `/dev/shm` (tmpfs, a different device from the scratch dir). P7 caught that a plain `stat`, without `-L`, reports the symlink's own device; the fix uses `-L`. The live v0.36.1 release install was re-run and still gives installed, `sha256sum -c` OK, present on re-run, and `TESTMAP:absent`.
+  2. Deferral: see the decision recorded after this review round.
+  3. `CLAUDE.md` now says `ait upgrade` installs through `install.sh`, only `ait setup` prints `TESTMAP:<state>`, and the flags are accepted by `ait setup` and `install.sh` but not by `ait upgrade`.
+  4. The test's `sha()` and the sidecar check (`sumcheck`) now use `sha256sum`, else `shasum -a 256`.
+- **Files affected:** `.aitask-scripts/lib/engine_install.sh`, `.aitask-scripts/aitask_engine.sh`, `CLAUDE.md`, `tests/test_install_engine_binary.sh` (199 checks)
+- **Deferral decision (user, 2026-10-06):** `tests/test_frozen_agents_acceptance.sh` is deferred to a manual-verification follow-up task created at Step 8c. It must be run on a quiet host: the `-L ait` server stopped and a terminal outside tmux. Every other test in the `install_regression_sweep` post-phase passed.
+
+## Final Implementation Notes
+- **Actual work done:** All plan steps 1–9 and both inline post-phases.
+  - `lib/engine_install.sh`: the version reader, digest and sums lookup, fetch, stage-exec, self-check, staging dir, per-slot `stale_lock`, and the publish / publish_locked / publish_report functions.
+  - `aitask_setup.sh`: `install_engine_binary`, `_install_engine_tiers`, `report_testmap_state`, `setup_testmap_gitignore`, the four flags in `main()` (with `AIT_INVOCATION_PWD` resolution and the conflict dies), the post-shim calls, and `usage()`.
+  - `install.sh`: the four flags, `--local-tarball` → `AIT_TESTMAP_FETCH=0`, and the call right after `install_global_shim`.
+  - `aitask_engine.sh`: `build|test|cross|prune`, with the `home` arm left for M1.6. In `ait`: the `engine)` arm, the usage line and the skip-list entry.
+  - The grep-guard registrations in `test_aitasks_home.sh`.
+  - `.gitignore` gains `.aitask-testmap/`; plus the `packaging_strategy.md` section and the `CLAUDE.md` Engine block.
+  - `tests/test_install_engine_binary.sh`: 199 checks, with case groups I, R, D, F, P, S, T, W, G and E.
+- **Deviations from plan:**
+  - **Hash comparison.** Checksums compare digests with awk field equality (`engine_sum_lookup` + `engine_file_matches`), not `sha256sum -c`. The plan's `-c` call depends on GNU-vs-BSD flags (`--status`); direct comparison is portable and equivalent. The sidecar is still in `sha256sum` format, so `sha256sum -c ait-testmap.sha256` works by hand (R1 asserts that).
+  - **Extra helper.** `_install_engine_tiers` is a separate setup function, registered in the guard alongside the two planned ones.
+  - **Return codes.** `engine_publish` returns 4 for `kept-dev`, separate from the plan's 1, so callers report the right line. Review rounds added 3 (directory destination) and 5 (cross-device).
+- **Issues encountered:**
+  - The m2 mutant (no `.locks/` preparation) made every acquire wait out its full 60 s budget. It was re-run with that mutant's default retry count lowered.
+  - P7 found that `stat` without `-L` reports a symlinked slot's own device, not its target's; fixed by using `-L`.
+  - `test_frozen_agents_acceptance.sh` refuses while the `-L ait` tmux server hosting the user's live sessions has panes. With the user's agreement it is deferred to a manual-verification follow-up.
+- **Key decisions:** These are the Step 0 rows 1–20.
+  - The sidecar is written by the installer.
+  - A `.dev` marker is set for any non-release source.
+  - `--local-tarball` means offline, so no fetch.
+  - "Registry present" means `aitestmap/config.yaml`.
+  - A per-slot `stale_lock`, not `registry_lock`, whose `EXIT` trap would clobber install.sh's cleanup.
+  - Every failable step is checked explicitly (errexit-independent).
+  - Prune verifies the deletion under the lock.
+  - Directory and cross-device destinations are refused.
+  - Two test-only seams: `AIT_ENGINE_TEST_PRE_PUBLISH_HOOK` and `AIT_ENGINE_TEST_POST_UNLOCK_HOOK`.
+- **Verification:**
+  - `test_install_engine_binary.sh` 199/199. Mutants m1–m5 were each caught by their targeted cases: no chmod before the self-check, no `.locks/` preparation, no `.dev` rollback, prune reading the root `VERSION`, and no directory check. Built-in controls: D4 (no under-lock re-check) and E6 (check after the unlock).
+  - **Sweep (post-phase install_regression_sweep):** passed — install changelog preservation, upgrade changelog, create data dirs, tarball download, crew runner config, t167, t644, seed manifest drift, packaging cleanup, install merge, aitasks_home, testmap shim, platform detect, setup hooks-only, release tarball, and `pytest test_shell_startup_closure.py` (9). Not run: frozen agents (deferred, see above). Both install.sh array expansions use the bash-3.2-safe form, and `bash -n` passes.
+  - **Live release (post-phase live_release_fetch_check):**
+    - `install_engine_binary` against the real v0.36.1 GitHub release printed `TESTMAP_BINARY:installed|…/engine/v0.36.1/ait-testmap|release` in about 2 s;
+    - `sha256sum -c ait-testmap.sha256` passes;
+    - the binary prints `VERSION:0.36.1` and `COMMIT:8dbed4ea49c4…`, and `testmap_resolve_engine` returns rc 0;
+    - re-running with `AIT_ENGINE_RELEASE_URL=file:///nonexistent` prints `present`, and `TESTMAP:absent|run /aitask-testmap-onboard`;
+    - all of this was repeated after review round 2.
+  - **Smoke:** `ait engine build` into a scratch home, which `AIT_ENGINE=dev ait testmap version` resolves.
+- **Upstream defects identified:** `.aitask-scripts/aitask_setup.sh:2353-2381 — setup_gate_logs_gitignore() (and the sibling setup_*_gitignore helpers) commit with a bare git commit -m and no pathspec, sweeping whatever else is staged in the index into the "ait: Add … to .gitignore" commit`.
+- **Notes for sibling tasks:**
+  - **M1.6 (t1852_6):**
+    - Add the `home` arm at the marked comment in `aitask_engine.sh`.
+    - `lib/engine_install.sh` owns the slot layout: `ait-testmap`, `ait-testmap.sha256` and `.dev`.
+    - The per-slot locks live in `$AITASKS_HOME/engine/.locks/<slot>`, so a migration must treat a live slot lock as busy.
+    - Nobody takes `AITASKS_HOME_LOCK` yet.
+    - Staging dirs are `$AITASKS_HOME/engine/.staging.*`.
+    - Publication refuses cross-device slots.
+  - **M6.1 (t1857):** `report_testmap_state` has the comment marking where `bootstrapping|<next>` goes, between `absent` and `onboarded`; "registry present" is `aitestmap/config.yaml`.
+  - **Later bash callers:** use `engine_read_framework_version` for any `.aitask-scripts/VERSION` read; `ait engine` is in the update-check skip list.
