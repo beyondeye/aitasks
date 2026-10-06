@@ -76,3 +76,8 @@ Use prompt-free isolated startup probes where possible; distinguish startup
 measurements from checks that need a real session or human interaction. Record
 any unperformed live checks explicitly and carry them in a manual-verification
 follow-up when needed.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-06T20:08:53Z status=pass attempt=1 type=human
