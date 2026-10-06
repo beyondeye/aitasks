@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1892
 followup_kind: risk_mitigation
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-05 23:42
-updated_at: 2026-10-06 09:21
+updated_at: 2026-10-06 22:38
 ---
 
 ## Origin
@@ -57,3 +58,8 @@ question is closed.
 
 Keep the one-glyph-per-block rule and its guards intact (the `_yield_table` /
 `_block_glyph` tests in `tests/test_concern_parser.py`).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-06T19:38:37Z status=pass attempt=1 type=human
