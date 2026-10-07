@@ -125,3 +125,15 @@ controls and the new 0.160 ones pin the scope.
 None identified. The pattern is pinned against the committed live 0.160
 capture, in both bottom-anchored and top-aligned geometry. Both consumers
 (followed-pane window and review loop) are tested on the same fixtures.
+
+## Final Implementation Notes
+- **Actual work done:** The hint slot of `codex_update_prompt` now takes `(?:Press enter to continue|enter continue · esc skip)`, and the comment block records both measured wordings. Tests:
+  - followed-pane detection matrix on the live 0.160 capture (as captured; top-aligned 14/20/40; options 1/2/3 selected; `node` launcher), with the dismissed 0.160 capture asserted not awaiting;
+  - six 0.160 negative controls;
+  - the known false positive covers both wordings;
+  - the review-loop test now uses the shipped pattern, plus a predicate-off negative control;
+  - an end-to-end minimonitor settle-latch test on the real 0.160 captures, plus its negative control.
+- **Deviations from plan:** The `HISTORY` comment in `CodexHistoricalDialogTests` was left unchanged. It is accurate as it stands: it describes the pre-0.160 fixture, whose wording does match. The review-loop negative control became its own test method rather than an assertion inside the positive test.
+- **Issues encountered:** t1902 was running in a concurrent session and held uncommitted hunks in `review_loop.py`, `review_loop_fixtures.py` and `test_review_loop.py`. My `review_loop.py` docstring rewrite sat in the same hunk as theirs. We coordinated over a cross-session message: t1902 committed only its own hunks through a temp index (c0da4acfe), and before committing I checked that the remaining diff in all six files was only t1904's.
+- **Key decisions:** I extended the existing pattern instead of adding a sibling. One kind name for one dialog keeps every consumer unchanged: `DELIBERATELY_UNANCHORED_KINDS`, the characterization matrix, and the followed-pane kind. The mutation check was run in a scratch copy, so the shared working tree was never touched. With the regex reverted to the pre-0.160 hint, all 5 new or changed tests fail.
+- **Upstream defects identified:** None
