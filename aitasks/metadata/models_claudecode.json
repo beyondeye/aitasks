@@ -1610,7 +1610,7 @@
         },
         "explore": {
           "all_time": {
-            "runs": 1
+            "runs": 2
           },
           "prev_month": {
             "period": "",
@@ -1618,11 +1618,11 @@
           },
           "month": {
             "period": "2026-10",
-            "runs": 1
+            "runs": 2
           },
           "week": {
             "period": "2026-W41",
-            "runs": 1
+            "runs": 2
           }
         }
       }
