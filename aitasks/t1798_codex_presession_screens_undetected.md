@@ -60,3 +60,29 @@ and directory-trust screens using `skip_trailing_blank_rows`, each anchored on
 that screen's last option row plus the hint (measure live first), with negative
 controls proving neither claims `codex_update_prompt` and vice versa, and a
 live check that each kind clears when the screen is dismissed.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1902** id=2026-10-07T12:51:07Z.5ec068bd2d2d7d9876227dc6 from=t1902 from_verified=yes at=2026-10-07T12:51:07Z base=db06dfdf8cccb50099363e4a6f2ff2d482aa485c base_branch=main dirty=yes host=omg16
+>
+> | Another unpatterned Codex awaiting-input screen: the codex-cli 0.160.0 `codex resume` working-directory dialog (advisory, measured in t1902's live probe, 2026-10-06).
+> | 
+> | - **Where it came from.** It was reached by launching the real `ait codeagent --resume-session <sid> invoke raw` argv:
+> |   - on a private tmux socket at 120x40,
+> |   - with an isolated CODEX_HOME holding a copied rollout,
+> |   - from a cwd different from the session's recorded cwd.
+> |   Since t1902, every framework Codex launch runs inline (`-c tui.alternate_screen=never`, CODEX_TUI_OVERRIDES in lib/agent_string.sh), so this screen is inline too (alternate_on=0, history_size 3).
+> | - **What it shows.** A "Working directory · resume" choice:
+> |   - `› 1. Use session directory (<path>)`
+> |   - `2. Use current directory (<path>)`
+> |   - `3. Always use session directory`
+> |   - `4. Always use current directory`
+> |   - footer hint `enter continue · esc use session · ctrl+c quit`
+> | - **What the classifiers said** on the `capture-pane -p -e -S -15` capture:
+> |   - `monitor_core.classify_content(..., pp.all_patterns(), PaneCategory.AGENT, "codex")` → awaiting_input=False, kind "". So a followed Codex pane parked on this screen reads as not awaiting input.
+> |   - `review_loop.shadow_state(raw, "codex")` → `dialog` (structural, via the option rows).
+> | - **After answering it.** "Use current directory" replayed the transcript into history (history 35), and both classifiers read not-awaiting / `ready`.
+> | - **Hedges.**
+> |   - Pattern line numbers are as of base a796455b9 / c0da4acfe.
+> |   - t1904 is changing `codex_update_prompt` concurrently. Its `enter continue · esc skip` wording differs from this dialog's `enter continue · esc use session` footer, but that is a moment-relative claim about in-flight work.
