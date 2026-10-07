@@ -170,8 +170,15 @@ machine is still on an old version.
 
 - t1725 trail (`art:trail-parallel-git-and-sync`): membership is an explicit list,
   so this task joins it only on a trail refresh.
-- t1714 (shared metadata write mutex): its scope shrinks if counters leave
-  `models_*.json`. Re-check it after this lands.
+- t1696 (in flight): fixes the recovery hint for the `UPDATED_REMOTE_ONLY`
+  partial outcome of exactly these writers (`verified_update_lib.sh`,
+  `aitask_usage_update.sh`, `aitask_verified_update.sh`, their tests). Plan this
+  task against t1696's landed code. Once counters stop being pushed into
+  `aitask-data` from a clone, that partial-outcome class should disappear for
+  stats. Say so in the plan instead of carrying it forward.
+- t1910 (in flight): edits `aitask_add_model.sh`, `aitask_codeagent.sh`,
+  `lib/agent_model_picker.py`, `settings_app.py` and `aitask_setup.sh`, all
+  touchpoints here.
 - t1678 (data-index lock adoption): once this lands, the stats writers' local
   commit path and their pre/post converge no longer touch the shared index or
   worktree. If t1678 is planned first, it should not spend effort locking them.
