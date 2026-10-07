@@ -832,9 +832,18 @@ def _blank_rows(n: int) -> str:
     return "\n" * (n + 1)
 
 
-def _update_prompt_with_selection(option: int) -> str:
+def _update_prompt_0160_tail() -> str:
+    """The codex-cli 0.160.0 dialog as captured live (t1900), ANSI-stripped.
+
+    0.160 reworded the hint to `enter continue · esc skip`; the option rows
+    and the blank row above the hint are unchanged.
+    """
+    return strip_ansi(fx.CODEX_0160_INLINE_UPDATE_PROMPT_RAW)
+
+
+def _update_prompt_with_selection(option: int, tail: str | None = None) -> str:
     """The same dialog with the `›` marker moved to ``option`` (1-3)."""
-    lines = _update_prompt_tail().splitlines()
+    lines = (_update_prompt_tail() if tail is None else tail).splitlines()
     rows = [i for i, line in enumerate(lines)
             if line.lstrip("› ").startswith(("1. ", "2. ", "3. "))]
     assert len(rows) == 3, f"fixture shape changed: option rows at {rows}"
@@ -885,6 +894,38 @@ def _check_codex_update_prompt_detected() -> None:
             f"got {snap.awaiting_input_kind!r}")
 
 
+def _check_codex_update_prompt_0160_detected() -> None:
+    """The 0.160 wording reports `codex_update_prompt` in every shape (t1904).
+
+    The same matrix as the pre-0.160 check, built on the live 0.160 capture.
+    The dismissed capture is the counterpart: its rows stay in scrollback
+    above the composer, outside the bottom window, so it must not flag.
+    """
+    tail = _update_prompt_0160_tail()
+    cases = {"as captured (bottom-anchored)": (tail, "codex")}
+    for run in _UPDATE_PROMPT_MEASURED_BLANK_RUNS:
+        cases[f"top-aligned, {run} blank rows below"] = (
+            tail + _blank_rows(run), "codex")
+    for option in (1, 2, 3):
+        cases[f"option {option} selected, top-aligned"] = (
+            _update_prompt_with_selection(option, tail) + _blank_rows(20),
+            "codex")
+    cases["unresolved node launcher, top-aligned"] = (
+        tail + _blank_rows(20), "node")
+    for label, (content, command) in cases.items():
+        snap = _codex_snap(content, command)
+        assert snap.awaiting_input, f"0.160 {label}: must mark awaiting_input"
+        assert snap.awaiting_input_kind == "codex_update_prompt", (
+            f"0.160 {label}: expected codex_update_prompt, "
+            f"got {snap.awaiting_input_kind!r}")
+
+    dismissed = strip_ansi(fx.CODEX_0160_INLINE_DISMISSED_UPDATE_RAW)
+    snap = _codex_snap(dismissed)
+    assert not snap.awaiting_input, (
+        "the dismissed 0.160 dialog in scrollback must not flag the pane, got "
+        f"{snap.awaiting_input_kind!r}")
+
+
 def _check_update_prompt_trim_is_load_bearing_and_per_pattern() -> None:
     """Both halves of the opt-in, each able to fail.
 
@@ -929,6 +970,7 @@ def _check_codex_update_prompt_negative_controls() -> None:
     real pattern sees — an un-padded case would test the wrong window.
     """
     hint = "  Press enter to continue"
+    hint_0160 = "  enter continue · esc skip"
     last_option = "  3. Skip until next version"
     cases = {
         "hint alone on its own line": hint,
@@ -957,6 +999,21 @@ def _check_codex_update_prompt_negative_controls() -> None:
         "update prompt followed by later output":
             _update_prompt_tail() + "\n"
             + "\n".join(f"  output line {n}" for n in range(1, 8)),
+        # The 0.160 hint wording (t1904), reproduced the same ways.
+        "0.160 hint alone on its own line": hint_0160,
+        "0.160 hint quoted inline in prose":
+            "the dialog says enter continue · esc skip under the options",
+        "0.160 hint as a bullet": "- enter continue · esc skip",
+        "option and 0.160 hint in a blockquote":
+            "> 3. Skip until next version\n>\n> enter continue · esc skip",
+        "option row and 0.160 hint with no blank row between":
+            f"{last_option}\n{hint_0160}",
+        "sign-in onboarding tail with the 0.160 hint":
+            "  2. Sign in with a device code\n"
+            "     Sign in from another device\n\n"
+            "  3. Provide your own API key\n"
+            "     Pay for what you use\n\n"
+            f"{hint_0160}",
     }
     for label, body in cases.items():
         snap = _codex_snap(body + _blank_rows(20))
@@ -981,11 +1038,13 @@ def _check_codex_update_prompt_known_false_positive() -> None:
     the signal is advisory and clears once the text scrolls. The mitigation is
     the documentation rule — describe the dialog in prose, never paste its rows.
     """
-    snap = _codex_snap(
-        "    3. Skip until next version\n\n    Press enter to continue\n")
-    assert snap.awaiting_input_kind == "codex_update_prompt", (
-        "the known-limit case changed behaviour; if it is now rejected the "
-        "matcher was tightened — update the documented limit to match")
+    for hint in ("Press enter to continue", "enter continue · esc skip"):
+        snap = _codex_snap(
+            f"    3. Skip until next version\n\n    {hint}\n")
+        assert snap.awaiting_input_kind == "codex_update_prompt", (
+            f"the known-limit case ({hint!r}) changed behaviour; if it is now "
+            "rejected the matcher was tightened — update the documented limit "
+            "to match")
 
 
 def main() -> int:
@@ -1037,6 +1096,8 @@ def main() -> int:
          _check_osc_url_churn_does_not_defeat_idle),
         ("_check_codex_update_prompt_detected",
          _check_codex_update_prompt_detected),
+        ("_check_codex_update_prompt_0160_detected",
+         _check_codex_update_prompt_0160_detected),
         ("_check_update_prompt_trim_is_load_bearing_and_per_pattern",
          _check_update_prompt_trim_is_load_bearing_and_per_pattern),
         ("_check_codex_update_prompt_negative_controls",

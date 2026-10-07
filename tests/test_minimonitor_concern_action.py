@@ -2405,6 +2405,27 @@ class ShadowSettleLatchTests(unittest.TestCase):
         finally:
             mm.review_loop._codex_dialog_is_historical = saved
 
+    def test_the_measured_0160_dismissed_dialog_does_not_wedge_the_loop(self):
+        """t1904. `codex_update_prompt` matches the 0.160 wording, so the
+        dismissed rows in the live 0.160 capture are now a pattern match in
+        history, the same shape as the pre-0.160 case above. Real captures:
+        the dialog on screen, then the same pane after "Skip" for 40 ticks."""
+        captures = ([_rlfx.CODEX_0160_INLINE_UPDATE_PROMPT_RAW]
+                    + [_rlfx.CODEX_0160_INLINE_DISMISSED_UPDATE_RAW] * 40)
+        released = self._ticks_until_release(self._app(), captures)
+        self.assertIsNotNone(released, "armed loop never rechecked")
+        self.assertGreaterEqual(
+            (released - 1) * 0.25, mm.review_loop.SHADOW_SETTLE_SECONDS - 0.25)
+
+        # Negative control: without the historical-dialog rule the matched
+        # 0.160 rows re-arm the latch on every tick.
+        saved = mm.review_loop._codex_dialog_is_historical
+        mm.review_loop._codex_dialog_is_historical = lambda *_: False
+        try:
+            self.assertIsNone(self._ticks_until_release(self._app(), captures))
+        finally:
+            mm.review_loop._codex_dialog_is_historical = saved
+
     def test_busy_and_unknown_arm_the_latch_as_well(self):
         """The predicate is "not READY and not WORKING", not "is a dialog":
         typed text in the shadow's composer would be concatenated by an

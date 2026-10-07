@@ -719,10 +719,10 @@ def _codex_dialog_is_historical(plain: str, match) -> bool:
     Measured on codex-cli 0.160.0 run inline (``tui.alternate_screen=never``,
     the framework launch mode for every Codex pane): after "Skip" the
     dismissed update dialog stays in the ``capture_raw_tail`` window above the
-    at-rest composer. On 0.160 its
-    hint wording no longer matches ``codex_update_prompt``. The pre-0.160 inline
-    builds do match it (t1522 measured the same retention on 0.154), and they
-    read ``dialog`` there indefinitely.
+    at-rest composer, and t1522 measured the same retention on 0.154.
+    ``codex_update_prompt`` matches the retained rows of both versions, so
+    without this predicate an idle pane would read ``dialog`` there
+    indefinitely.
 
     Codex only. Claude Code is inline too, but no retained-dialog state has
     been measured for it. OpenCode's composer is a box, so this glyph-row rule

@@ -244,6 +244,13 @@ PROMPT_PATTERNS_BY_AGENT: dict[str, list[PromptPattern]] = {
         # to press enter to continue. It renders on EVERY launch while a newer
         # version exists, and is the first screen a freshly spawned agent shows.
         #
+        # The hint has two measured wordings, and the slot accepts either:
+        # `Press enter to continue` (0.146-0.154) and `enter continue · esc
+        # skip` (0.160.0, captured live as an inline shadow in t1900 —
+        # tests/review_loop_fixtures.py's CODEX_0160_INLINE_UPDATE_PROMPT_RAW).
+        # The option rows, their labels and the one blank row above the hint
+        # are the same in both, so every other anchor below holds for both.
+        #
         # The only pattern with `skip_trailing_blank_rows`, and it cannot work
         # without it. Measured live against 0.154.0 (npm-managed): the dialog is
         # an inline pre-TUI screen (alternate_on=0) rendered TOP-aligned — the
@@ -264,9 +271,9 @@ PROMPT_PATTERNS_BY_AGENT: dict[str, list[PromptPattern]] = {
         # Anchored on the LAST option row plus the hint — adjacent, with exactly
         # the measured one blank row between them, each holding nothing but its
         # label:
-        #  * the hint alone is generic prose, and Codex's sign-in onboarding
-        #    screen ends with the very same hint over different options — this
-        #    name must not claim that screen;
+        #  * the hint alone (either wording) is generic prose, and Codex's
+        #    sign-in onboarding screen ends with the very same hint over
+        #    different options — this name must not claim that screen;
         #  * option 3 rather than option 1, because option 1's label embeds the
         #    install command, which varies with the install method;
         #  * `›` is the only selection marker recognised WHEN PRESENT, and the
@@ -291,7 +298,8 @@ PROMPT_PATTERNS_BY_AGENT: dict[str, list[PromptPattern]] = {
         PromptPattern("codex_update_prompt",
                       re.compile(r"(?m)^[ \t]*(?:›[ \t]*)?3\. Skip until next version[ \t]*\n"
                                  r"[ \t]*\n"
-                                 r"[ \t]*Press enter to continue[ \t]*$"),
+                                 r"[ \t]*(?:Press enter to continue"
+                                 r"|enter continue · esc skip)[ \t]*$"),
                       skip_trailing_blank_rows=True),
     ],
     "opencode": [

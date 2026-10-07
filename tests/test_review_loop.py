@@ -654,26 +654,34 @@ class CodexHistoricalDialogTests(unittest.TestCase):
         self.assertEqual(rl._codex_state(dismissed), rl.SHADOW_READY)
         self.assertIs(rl.shadow_prompt_ready(dismissed, "codex", True), True)
 
-    def test_a_pattern_for_the_0160_wording_would_not_wedge_it(self):
-        """0.160 reworded the dialog's hint, so today no pattern matches the
-        retained rows. Add one that does (the obvious future fix to
-        `codex_update_prompt`): the live dialog still reads dialog, and the
-        dismissed capture still reads ready."""
-        hint = pp.PromptPattern("codex_update_prompt_0160",
-                                re.compile(r"enter continue · esc skip"))
-        saved = rl.PROMPT_PATTERNS_BY_AGENT.get("codex", [])
-        rl.PROMPT_PATTERNS_BY_AGENT["codex"] = [*saved, hint]
-        try:
-            self.assertTrue(hint.regex.search(rl.strip_ansi(
-                fx.CODEX_0160_INLINE_DISMISSED_UPDATE_RAW)))
-            self.assertEqual(
-                rl._codex_state(fx.CODEX_0160_INLINE_UPDATE_PROMPT_RAW),
-                rl.SHADOW_DIALOG)
-            self.assertEqual(
-                rl._codex_state(fx.CODEX_0160_INLINE_DISMISSED_UPDATE_RAW),
-                rl.SHADOW_READY)
-        finally:
-            rl.PROMPT_PATTERNS_BY_AGENT["codex"] = saved
+    def test_the_shipped_pattern_matches_0160_without_wedging(self):
+        """`codex_update_prompt` matches the 0.160 rows (t1904): the live
+        dialog reads dialog, and the dismissed rows, still matched in history,
+        are discarded as historical, so the pane reads ready."""
+        update = next(p for p in rl.PROMPT_PATTERNS_BY_AGENT["codex"]
+                      if p.name == "codex_update_prompt")
+        for name in ("CODEX_0160_INLINE_UPDATE_PROMPT_RAW",
+                     "CODEX_0160_INLINE_DISMISSED_UPDATE_RAW"):
+            self.assertTrue(update.regex.search(
+                rl.strip_ansi(getattr(fx, name))), name)
+        self.assertEqual(
+            rl._codex_state(fx.CODEX_0160_INLINE_UPDATE_PROMPT_RAW),
+            rl.SHADOW_DIALOG)
+        dismissed = fx.CODEX_0160_INLINE_DISMISSED_UPDATE_RAW
+        self.assertEqual(rl._codex_state(dismissed), rl.SHADOW_READY)
+        self.assertIs(rl.shadow_prompt_ready(dismissed, "codex", True), True)
+
+    def test_negative_control_0160_without_the_predicate_it_reads_dialog(self):
+        """Mutation: drop the predicate and the matched 0.160 history wins,
+        so the pattern really reaches those rows and the predicate is what
+        keeps the pane ready."""
+        state = rl._composer_state(
+            fx.CODEX_0160_INLINE_DISMISSED_UPDATE_RAW, agent="codex",
+            composer_re=rl._CODEX_COMPOSER_RE,
+            working_re=rl._CODEX_WORKING_RE, pad=" ",
+            option_row_re=rl._CODEX_OPTION_ROW_RE,
+            dialog_is_historical=lambda *_: False)
+        self.assertEqual(state, rl.SHADOW_DIALOG)
 
     def test_historical_dialog_defers_to_the_current_screen(self):
         expected = {
