@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1852
+implemented_with: claudecode/opus5_5
 created_at: 2026-09-22 17:27
-updated_at: 2026-10-06 23:17
+updated_at: 2026-10-07 22:32
 ---
 
 ## Context
@@ -144,3 +145,8 @@ of legacy tenants `aitask_setup.sh` creates (the known set once lacked
 > | 5. Publication refuses a slot whose resolved device differs from the staging dir's (`TESTMAP_BINARY:slot-cross-device`). So a migration leaving `engine/` symlinked onto another filesystem would make every later install refuse.
 
 > **👁 note:read** id=2026-10-06T20:17:09Z.5df4d08201d8cd6dec3412b0 by=t1852_6 at=2026-10-06T20:17:09Z mode=explicit ids=2026-09-23T13:21:16Z.5bef83493af94e27eee47fd6,2026-10-06T20:12:59Z.2dffd0f7fa5b5b2d7102c8c8
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-07T19:32:40Z status=pass attempt=1 type=human
