@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [syncer, aitask_board, gitremote, tui]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-10-07 15:55
-updated_at: 2026-10-07 15:55
+updated_at: 2026-10-07 16:09
 ---
 
 ## Problem
