@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1892
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-08 12:27
-updated_at: 2026-10-08 15:51
+updated_at: 2026-10-08 16:49
 ---
 
 ## Origin
@@ -64,3 +65,8 @@ Two candidate directions:
 The `history.` / `csv` break is genuinely ambiguous with a sentence end. Leave
 it cosmetic unless a measured rule disambiguates it. Measure the change
 against a real OpenCode and a real Codex capture before shipping.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-08T13:49:08Z status=pass attempt=1 type=human
