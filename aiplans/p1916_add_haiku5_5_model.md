@@ -112,3 +112,11 @@ shared workflow.
 - None identified. The cli_id was verified from the shipped catalog and by a
   live round-trip in which the model reported its own id verbatim, so
   self-detection resolves to the new entries.
+
+## Final Implementation Notes
+- **Actual work done:** Registered `claudecode/haiku5_5` (`claude-haiku-5-5`) and `claudecode/haiku5_5_1m` (`claude-haiku-5-5[1m]`) via `aitask_add_model.sh add-json` (dry-run first). Each appended to `aitasks/metadata/models_claudecode.json` and synced to `seed/models_claudecode.json` with empty `verified`/`verifiedstats`. `haiku4_5` kept. No default, `DEFAULT_AGENT_STRING`, or test change.
+- **Deviations from plan:** The seed commit uses the Step-8 code-commit format `feature: … (t1916)`, not the plan's draft `ait: Sync …` subject.
+- **Issues encountered:** Installed Claude Code 2.1.288 lacks the id in its catalog (prints `[claude-code:unrecognized_model]`), but the API serves both ids and each self-reports verbatim. 2.1.293 (npm latest) has the full catalog entry. `test_add_model.sh` in the shared worktree includes t1910's uncommitted tests; all 114 pass, and `test_codeagent.sh` passes 236/236.
+- **Key decisions:** `[1m]` sibling registered because the 2.1.293 catalog gives Haiku 5.5 the same `native_1m`/`supports_1m_beta` profile as Sonnet 5.5, which has `sonnet5_5_1m`. OpenCode is left to a follow-up full discovery refresh (user decision): a run adds about 27 other models and marks 3 unavailable. No t1910 file was touched; the supersession candidate goes to t1910 as a note.
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_codeagent.sh:167 — format_claude_model_label only matches claude-<family>-<maj>-<min>[-date], so [1m] ids (claude-opus-5-5[1m], claude-sonnet-5-5[1m], now claude-haiku-5-5[1m]) and major-only ids (claude-opus-5) yield the raw cli_id as the Co-Authored-By name, e.g. "Claude Code/claude-opus-5-5[1m]"`
