@@ -297,12 +297,12 @@ Then Step 9 archives t1913, and this run ends with the new Step 10 banner.
   ends silently again · severity: medium · → mitigation: inline post-phase
   exit_site_contract_test
 - Agents may paraphrase or reflow the banner · severity: low · → mitigation:
-  live_banner_render_check
+  t1924
 
 ### Planned mitigations
 - timing: post-phase | name: exit_site_contract_test | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: missed or later-dropped exit-branch banner | desc: per-branch scanner pinning a workflow-end.md reference in every exit block, with self-checking allowlist and negative controls
 - timing: post-phase | name: render_drift_sweep | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: missed golden or untracked rendered prerender | desc: run every skill-render test, aitask_skill_verify.sh and an untracked-file check over the 3 remote prerender trees
-- timing: after | name: live_banner_render_check | type: manual_verification | priority: medium | effort: low | inline_risk: low | added_complexity: medium | addresses: banner paraphrased or reflowed in a live pane | desc: run a fast-profile pick in Claude Code (and one of Codex/OpenCode if available) and confirm the complete and one stopped banner render verbatim as the last output
+- timing: after | name: live_banner_render_check | type: manual_verification | priority: medium | effort: low | inline_risk: low | added_complexity: medium | addresses: banner paraphrased or reflowed in a live pane | desc: run a fast-profile pick in Claude Code (and one of Codex/OpenCode if available) and confirm the complete and one stopped banner render verbatim as the last output | created: t1924
 
 ## Post-Review Changes
 
