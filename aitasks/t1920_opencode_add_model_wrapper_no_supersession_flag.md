@@ -3,12 +3,13 @@ priority: low
 effort: low
 depends: []
 issue_type: chore
-status: Ready
+status: Implementing
 labels: [opencode, skills]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1910
 created_at: 2026-10-08 17:06
-updated_at: 2026-10-08 17:06
+updated_at: 2026-10-08 23:46
 ---
 
 ## Context
