@@ -685,7 +685,7 @@ For details on the underlying lock mechanism, see the [`ait lock` command refere
 | **Folded Task Picker** | `Enter` on Folded Tasks field (multiple) | Select which folded task to view (read-only) |
 | **Lock Email** | "🔒 Lock" button in task detail | Enter email for lock ownership; confirms to acquire lock via `aitask_lock.sh` |
 | **Unlock Confirm** | "🔓 Unlock" button (when lock belongs to different user) | Shows lock details (who, where, when); offers "Force Unlock" or "Cancel" |
-| **Sync Conflict** | Sync detects merge conflicts | Shows conflicted files; offers "Resolve Interactively" (opens terminal) or "Dismiss" |
+| **Sync Conflict** | Sync detects merge conflicts | Shows conflicted files; offers "Launch agent to resolve" (code agent dialog), "Resolve Interactively" (opens terminal) or "Dismiss" |
 | **Settings** | `O` key / command palette "Options" | Configure board settings (auto-refresh interval, sync on refresh) |
 
 ### Git Integration Details

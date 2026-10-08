@@ -22,7 +22,11 @@ from config_utils import task_dir
 from agent_command_screen import AgentCommandScreen, resolve_skill_profile
 from agent_launch_utils import find_terminal, spawn_in_terminal, find_window_by_name, resolve_dry_run_command, resolve_agent_string, TmuxLaunchConfig, launch_in_tmux, load_tmux_defaults, maybe_spawn_minimonitor, _lookup_window_name, tmux_window_target
 from sync_action_runner import (
+    CONFLICT_CHOICE_AGENT,
+    CONFLICT_CHOICE_INTERACTIVE,
+    DATA_CONFLICT_WINDOW_NAME,
     SyncConflictScreen,
+    build_data_conflict_prompt,
     run_sync_batch,
     run_interactive_sync,
     STATUS_AUTOMERGED,
@@ -5119,13 +5123,54 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
 
     def _show_conflict_dialog(self, files: list[str]):
         """Show the conflict resolution dialog (must be called on main thread)."""
-        def on_result(resolve):
-            if resolve:
+        def on_result(choice):
+            # Equality, never truthiness: the dismiss value is a closed set.
+            if choice == CONFLICT_CHOICE_INTERACTIVE:
                 self._run_interactive_sync_shared()
+            elif choice == CONFLICT_CHOICE_AGENT:
+                self._launch_data_conflict_agent(files)
             else:
                 self.manager.load_tasks()
                 self.refresh_board()
         self.push_screen(SyncConflictScreen(files), on_result)
+
+    def _launch_data_conflict_agent(self, files: list[str]):
+        """Launch a code agent on the remaining aitask-data conflicts (t1911).
+
+        Reachable only from the conflict dialog's explicit button. With
+        sync_on_refresh that dialog can pop up unattended, so nothing here may
+        run without the press.
+        """
+        prompt = build_data_conflict_prompt(files, Path(".").resolve())
+        full_cmd = resolve_dry_run_command(Path("."), "raw", prompt)
+        if not full_cmd:
+            self.notify(
+                "Could not resolve agent command — check model configuration.",
+                severity="error",
+            )
+            return
+        agent_string = resolve_agent_string(Path("."), "raw")
+        screen = AgentCommandScreen(
+            "Resolve aitask-data sync conflict", full_cmd, prompt,
+            default_window_name=DATA_CONFLICT_WINDOW_NAME,
+            project_root=Path("."),
+            operation="raw",
+            operation_args=[prompt],
+            default_agent_string=agent_string,
+        )
+
+        def on_agent_result(result):
+            if result == "run":
+                self.run_dialog_command(screen.full_command)
+            elif isinstance(result, TmuxLaunchConfig):
+                _, err = launch_in_tmux(screen.full_command, result)
+                if err:
+                    self.notify(err, severity="error")
+                elif result.new_window:
+                    maybe_spawn_minimonitor(result.session, result.window)
+            self.manager.load_tasks()
+            self.refresh_board()
+        self.push_screen(screen, on_agent_result)
 
     @work(exclusive=True)
     async def _run_interactive_sync_shared(self):

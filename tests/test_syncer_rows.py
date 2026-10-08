@@ -35,12 +35,23 @@ from textual.widgets import (  # noqa: E402
     Tabs,
 )
 
+from textual.screen import ModalScreen  # noqa: E402
+
 import agent_launch_utils  # noqa: E402
-from agent_launch_utils import AitasksSession  # noqa: E402
+from agent_launch_utils import AitasksSession, TmuxLaunchConfig  # noqa: E402
 import syncer_app  # noqa: E402
+from sync_action_runner import (  # noqa: E402
+    DATA_CONFLICT_WINDOW_NAME,
+    STATUS_CONFLICT,
+    STATUS_DEFERRED,
+    SyncConflictScreen,
+    SyncResult,
+)
+from sync_failure_screen import SyncFailureContext, SyncFailureScreen  # noqa: E402
 from syncer_app import (  # noqa: E402
     PENDING_UNSET,
     ActionTarget,
+    DataConflictContext,
     PushTarget,
     RowSpec,
     SettingsRow,
@@ -2806,6 +2817,205 @@ class SettingsTabTests(_TabbedShellBase):
                 await pilot.pause()
                 self.assertEqual(tabbed.active, "tab_settings")
                 self.assertIsInstance(app.screen, SettingsDestinationsScreen)
+        self._run(runner())
+
+
+class _SpyAgentScreen(ModalScreen):
+    """Stands in for AgentCommandScreen: records its arguments and probes
+    nothing (the real dialog queries live tmux sessions on mount)."""
+
+    instances: list["_SpyAgentScreen"] = []
+
+    def __init__(self, title, full_command, prompt_str, **kwargs):
+        super().__init__()
+        self.title_text = title
+        self.full_command = full_command
+        self.prompt_str = prompt_str
+        self.kwargs = kwargs
+        _SpyAgentScreen.instances.append(self)
+
+    def compose(self):
+        yield Static("spy")
+
+
+class DataConflictAgentTests(_TabbedShellBase):
+    """An aitask-data CONFLICT offers a code agent (t1911): the three-option
+    modal, `a` re-offering the CONFLICT (not the failure modal), and a launch
+    rooted in the repo that conflicted."""
+
+    FILES = ("aitasks/t5_x.md", "aiplans/p5_x.md")
+
+    @contextlib.contextmanager
+    def agent_seams(self):
+        _SpyAgentScreen.instances = []
+        calls = argparse.Namespace(dry_run=[], interactive=[], minimonitor=[])
+
+        def dry_run(root, op, *args, **kwargs):
+            calls.dry_run.append((Path(root), op, args))
+            return "claude 'resolve'"
+
+        def interactive(app, on_done=None, repo_root=None):
+            calls.interactive.append(repo_root)
+
+        with mock.patch.object(
+            syncer_app, "resolve_dry_run_command", dry_run
+        ), mock.patch.object(
+            syncer_app, "resolve_agent_string", lambda *a, **kw: "claudecode/x"
+        ), mock.patch.object(
+            syncer_app, "AgentCommandScreen", _SpyAgentScreen
+        ), mock.patch.object(
+            syncer_app, "run_interactive_sync", interactive
+        ), mock.patch.object(
+            syncer_app, "maybe_spawn_minimonitor",
+            lambda session, window: calls.minimonitor.append((session, window)),
+        ):
+            yield calls
+
+    def _two_repos(self):
+        sessions = [sess("/tmp/repo0", "repo0"), sess("/tmp/repo1", "repo1")]
+        row = RowSpec("r1", sessions[1].key, "aitask-data", "repo1")
+        target = ActionTarget(Path("/tmp/repo1"), None, "repo1")
+        return sessions, row, target
+
+    def _conflict(self, app, row, target, files=FILES):
+        app._on_data_sync_done(
+            row, target,
+            SyncResult(status=STATUS_CONFLICT, conflicted_files=list(files)),
+        )
+
+    def test_conflict_offers_the_modal_and_a_reopens_it(self):
+        async def runner():
+            row = RowSpec("aitask-data", "", "aitask-data", "")
+            target = ActionTarget(None, None, "")
+            with self.agent_seams() as calls:
+                async with self.booted(repos=1) as (app, pilot):
+                    self._conflict(app, row, target)
+                    await pilot.pause()
+                    self.assertIsInstance(app.screen, SyncConflictScreen)
+                    self.assertEqual(app.screen.conflicted_files, list(self.FILES))
+
+                    await pilot.press("escape")
+                    await pilot.pause()
+                    self.assertNotIsInstance(app.screen, SyncConflictScreen)
+                    self.assertIsInstance(app._last_failure, DataConflictContext)
+
+                    app.action_agent_resolve()
+                    await pilot.pause()
+                    self.assertIsInstance(app.screen, SyncConflictScreen)
+                    self.assertNotIsInstance(app.screen, SyncFailureScreen)
+                    self.assertEqual(app.screen.conflicted_files, list(self.FILES))
+                    await pilot.press("escape")
+                    await self.settle(app, pilot)
+            self.assertEqual(calls.dry_run, [])
+            self.assertEqual(calls.interactive, [])
+
+        self._run(runner())
+
+    def test_agent_choice_launches_in_the_conflicting_repo(self):
+        async def runner():
+            sessions, row, target = self._two_repos()
+            root = Path("/tmp/repo1").resolve()
+            seams = Seams()
+            with self.agent_seams() as calls:
+                async with self.booted(sessions=sessions, seams=seams) as (app, pilot):
+                    self._conflict(app, row, target)
+                    await pilot.pause()
+                    await pilot.click("#btn_sync_agent")
+                    await pilot.pause()
+
+                    self.assertEqual(len(_SpyAgentScreen.instances), 1)
+                    spy = _SpyAgentScreen.instances[0]
+                    self.assertIs(app.screen, spy)
+                    self.assertEqual(
+                        spy.kwargs["default_window_name"], DATA_CONFLICT_WINDOW_NAME
+                    )
+                    self.assertEqual(spy.kwargs["operation"], "raw")
+                    self.assertEqual(spy.kwargs["operation_args"], [spy.prompt_str])
+                    self.assertEqual(spy.kwargs["project_root"], root)
+                    self.assertIn("repo1", spy.title_text)
+                    self.assertEqual(calls.dry_run, [(root, "raw", (spy.prompt_str,))])
+                    self.assertIn(str(root), spy.prompt_str)
+                    for f in self.FILES:
+                        self.assertIn(f, spy.prompt_str)
+
+                    cfg = TmuxLaunchConfig(
+                        session="s", window="agent-syncfix-data-conflict",
+                        new_session=False, new_window=True,
+                    )
+                    spy.dismiss(cfg)
+                    await self.settle(app, pilot)
+            self.assertEqual(seams.launches, [("claude 'resolve'", cfg)])
+            self.assertEqual(
+                calls.minimonitor, [("s", "agent-syncfix-data-conflict")]
+            )
+            self.assertEqual(calls.interactive, [])
+
+        self._run(runner())
+
+    def test_interactive_choice_syncs_the_target_repo(self):
+        async def runner():
+            sessions, row, target = self._two_repos()
+            with self.agent_seams() as calls:
+                async with self.booted(sessions=sessions) as (app, pilot):
+                    self._conflict(app, row, target)
+                    await pilot.pause()
+                    await pilot.click("#btn_sync_resolve")
+                    await self.settle(app, pilot)
+            self.assertEqual(calls.interactive, [Path("/tmp/repo1")])
+            self.assertEqual(calls.dry_run, [])
+            self.assertEqual(_SpyAgentScreen.instances, [])
+
+        self._run(runner())
+
+    def test_dismiss_launches_nothing_but_keeps_the_offer(self):
+        async def runner():
+            sessions, row, target = self._two_repos()
+            with self.agent_seams() as calls:
+                async with self.booted(sessions=sessions) as (app, pilot):
+                    self._conflict(app, row, target)
+                    await pilot.pause()
+                    await pilot.click("#btn_sync_dismiss")
+                    await self.settle(app, pilot)
+                    self.assertIsInstance(app._last_failure, DataConflictContext)
+            self.assertEqual(calls.dry_run, [])
+            self.assertEqual(calls.interactive, [])
+
+        self._run(runner())
+
+    def test_deferral_does_not_arm_the_agent_offer(self):
+        async def runner():
+            row = RowSpec("aitask-data", "", "aitask-data", "")
+            target = ActionTarget(None, None, "")
+            with self.agent_seams():
+                async with self.booted(repos=1) as (app, pilot):
+                    app._on_data_sync_done(
+                        row, target,
+                        SyncResult(status=STATUS_DEFERRED,
+                                   deferred_reason="protected_dirty"),
+                    )
+                    await self.settle(app, pilot)
+                    self.assertIsNone(app._last_failure)
+                    app.action_agent_resolve()
+                    await pilot.pause()
+                    self.assertNotIsInstance(app.screen, SyncConflictScreen)
+
+        self._run(runner())
+
+    def test_a_captured_failure_still_opens_the_failure_modal(self):
+        async def runner():
+            with self.agent_seams():
+                async with self.booted(repos=1) as (app, pilot):
+                    app._last_failure = SyncFailureContext(
+                        ref_name="main", action="push",
+                        command="git push origin main:main", status="ERROR",
+                        stderr_tail="rejected",
+                    )
+                    app.action_agent_resolve()
+                    await pilot.pause()
+                    self.assertIsInstance(app.screen, SyncFailureScreen)
+                    await pilot.press("escape")
+                    await pilot.pause()
+
         self._run(runner())
 
 

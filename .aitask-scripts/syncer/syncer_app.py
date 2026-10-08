@@ -78,6 +78,9 @@ from cross_repo_settings import (  # noqa: E402
 )
 from agent_command_screen import AgentCommandScreen  # noqa: E402
 from sync_action_runner import (  # noqa: E402
+    CONFLICT_CHOICE_AGENT,
+    CONFLICT_CHOICE_INTERACTIVE,
+    DATA_CONFLICT_WINDOW_NAME,
     STATUS_AUTOMERGED,
     STATUS_MERGED,
     STATUS_CONFLICT,
@@ -93,6 +96,7 @@ from sync_action_runner import (  # noqa: E402
     STATUS_TIMEOUT,
     SyncConflictScreen,
     SyncResult,
+    build_data_conflict_prompt,
     run_interactive_sync,
     run_sync_batch,
 )
@@ -323,6 +327,24 @@ class ActionTarget:
     root: Path | None
     branch: str | None
     label: str
+
+
+@dataclass(frozen=True)
+class DataConflictContext:
+    """The last aitask-data CONFLICT, kept so `a` re-offers ITS resolution (t1911).
+
+    A sibling of SyncFailureContext rather than one of its instances: a conflict
+    has no failed command to show, and the generic failure modal would render a
+    misleading "Command" line for it anyway.
+    """
+
+    target: ActionTarget
+    conflicted_files: tuple[str, ...]
+
+    @property
+    def repo_root(self) -> Path:
+        # A None root is the legacy CWD-relative target, i.e. the launch repo.
+        return (self.target.root or Path(".")).resolve()
 
 
 def discover_syncer_sessions() -> list[AitasksSession]:
@@ -873,7 +895,7 @@ class SyncerApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._refresh_gen = 0
         self._refresh_active = False
         self._pending_fetch: object = PENDING_UNSET
-        self._last_failure: SyncFailureContext | None = None
+        self._last_failure: SyncFailureContext | DataConflictContext | None = None
 
     def compose(self) -> ComposeResult:
         # Widget ids (#branches, #detail_scroll, #detail) are unchanged by the
@@ -2192,10 +2214,16 @@ class SyncerApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._main_push_worker(row, target)
 
     def action_agent_resolve(self) -> None:
-        if self._last_failure is None:
-            self.notify("No recent failure to resolve.", severity="information")
+        ctx = self._last_failure
+        if ctx is None:
+            self.notify(
+                "No recent failure or conflict to resolve.", severity="information"
+            )
             return
-        self._open_failure_screen(self._last_failure)
+        if isinstance(ctx, DataConflictContext):
+            self._open_conflict_screen(ctx)
+            return
+        self._open_failure_screen(ctx)
 
     def _post_action_refresh(self, row: RowSpec) -> None:
         """Fetch the acted-on repo so the action's result shows immediately."""
@@ -2224,10 +2252,11 @@ class SyncerApp(TuiSwitcherMixin, ShortcutsMixin, App):
             sync_cmd = f"{target.root}/.aitask-scripts/aitask_sync.sh --batch"
 
         if status == STATUS_CONFLICT:
-            self.push_screen(
-                SyncConflictScreen(result.conflicted_files),
-                lambda resolve: self._on_conflict_resolved(resolve, target),
-            )
+            # Captured like a failure so `a` re-offers it, but as its own
+            # context: re-opening shows the conflict modal, not a failure one.
+            ctx = DataConflictContext(target, tuple(result.conflicted_files))
+            self._last_failure = ctx
+            self._open_conflict_screen(ctx)
             return
 
         if status == STATUS_TIMEOUT:
@@ -2281,9 +2310,22 @@ class SyncerApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
         self._post_action_refresh(row)
 
-    def _on_conflict_resolved(self, resolve: bool, target: ActionTarget) -> None:
-        if resolve:
-            self._run_interactive_sync_shared(target)
+    def _open_conflict_screen(self, ctx: DataConflictContext) -> None:
+        self.push_screen(
+            SyncConflictScreen(
+                list(ctx.conflicted_files), repo_label=ctx.target.label
+            ),
+            lambda choice: self._on_conflict_resolved(choice, ctx),
+        )
+
+    def _on_conflict_resolved(
+        self, choice: str | None, ctx: DataConflictContext
+    ) -> None:
+        # Equality, never truthiness: the modal's dismiss value is a closed set.
+        if choice == CONFLICT_CHOICE_AGENT:
+            self._launch_data_conflict_agent(ctx)
+        elif choice == CONFLICT_CHOICE_INTERACTIVE:
+            self._run_interactive_sync_shared(ctx.target)
         self._tick_refresh()
 
     @work(exclusive=True, group="syncer-action")
@@ -2431,7 +2473,29 @@ class SyncerApp(TuiSwitcherMixin, ShortcutsMixin, App):
             f"Status: {ctx.status}\n\n"
             f"Output (tail):\n{ctx.stderr_tail or '(empty)'}\n"
         )
-        project_root = Path(ctx.repo_root) if ctx.repo_root else Path(".")
+        self._launch_agent(
+            title=f"Resolve {ctx.action} failure on {ctx.ref_name}",
+            window_name=f"agent-syncfix-{ctx.action}",
+            prompt=prompt,
+            project_root=Path(ctx.repo_root) if ctx.repo_root else Path("."),
+        )
+
+    def _launch_data_conflict_agent(self, ctx: DataConflictContext) -> None:
+        title = "Resolve aitask-data sync conflict"
+        if ctx.target.label:
+            title = f"{title} on {ctx.target.label}"
+        root = ctx.repo_root
+        self._launch_agent(
+            title=title,
+            window_name=DATA_CONFLICT_WINDOW_NAME,
+            prompt=build_data_conflict_prompt(ctx.conflicted_files, root),
+            # The conflicting repo, so a multi-repo row's agent runs in ITS repo.
+            project_root=root,
+        )
+
+    def _launch_agent(
+        self, *, title: str, window_name: str, prompt: str, project_root: Path
+    ) -> None:
         full_cmd = resolve_dry_run_command(project_root, "raw", prompt)
         if not full_cmd:
             self.notify(
@@ -2441,10 +2505,10 @@ class SyncerApp(TuiSwitcherMixin, ShortcutsMixin, App):
             return
         agent_string = resolve_agent_string(project_root, "raw")
         screen = AgentCommandScreen(
-            f"Resolve {ctx.action} failure on {ctx.ref_name}",
+            title,
             full_cmd,
             prompt,
-            default_window_name=f"agent-syncfix-{ctx.action}",
+            default_window_name=window_name,
             project_root=project_root,
             operation="raw",
             operation_args=[prompt],

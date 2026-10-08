@@ -4,19 +4,23 @@ Encapsulates the parsing/dispatch glue around `.aitask-scripts/aitask_sync.sh --
 so multiple TUIs (board, syncer) can trigger a sync, classify the result, and offer
 the same conflict-resolution UX without re-implementing it.
 
-Three layers exposed:
+Layers exposed:
 
 - `parse_sync_output(stdout)` — pure string-to-`SyncResult` parser. No subprocess,
   no Textual import. Easy to unit-test.
 - `run_sync_batch(timeout)` — blocking subprocess invocation that returns a
   `SyncResult`. Designed to be called from inside a `@work(thread=True)` worker.
 - `SyncConflictScreen` (Textual `ModalScreen`) — modal listing conflicted files
-  with "Resolve Interactively" / "Dismiss" buttons. Self-contained CSS.
+  with "Launch agent to resolve" / "Resolve Interactively" / "Dismiss" buttons.
+  Dismisses with a CONFLICT_CHOICE_* value or None. Self-contained CSS.
+- `build_data_conflict_prompt(files, repo_root)` — pure builder for the prompt
+  the "Launch agent to resolve" choice hands a code agent.
 - `run_interactive_sync(app, on_done)` — terminal-spawn-or-suspend fallback that
   runs `./ait sync` interactively.
 
-Status-to-notification wording is left to each caller; this module only owns
-parsing, dispatch, the modal, and the interactive fallback.
+Status-to-notification wording and the agent launch itself are left to each
+caller; this module only owns parsing, dispatch, the modal, the agent prompt,
+and the interactive fallback.
 
 Usage (from a host App's worker):
 
@@ -39,7 +43,7 @@ import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Sequence
 
 from textual import on
 from textual.binding import Binding
@@ -406,16 +410,108 @@ def run_sync_batch(
     return parse_sync_output(result.stdout)
 
 
+#: SyncConflictScreen dismiss values — a CLOSED set (t1911); None means
+#: Dismiss / escape. Callers dispatch by equality, never by truthiness: the
+#: modal used to dismiss with a bool, and `if choice:` would read "agent" as
+#: the old True (interactive).
+CONFLICT_CHOICE_AGENT = "agent"
+CONFLICT_CHOICE_INTERACTIVE = "interactive"
+
+#: tmux window for the data-conflict resolution agent (syncer and board alike).
+DATA_CONFLICT_WINDOW_NAME = "agent-syncfix-data-conflict"
+
+
+def build_data_conflict_prompt(
+    conflicted_files: Sequence[str], repo_root: Path | str
+) -> str:
+    """The prompt for a code agent resolving an aitask-data sync CONFLICT.
+
+    Context, the outcome wanted, one constraint and the known pitfalls — not
+    a recipe (t1911). The agent investigates the live state itself and picks
+    its own tools, strategy and recovery; the constraint is the one thing it
+    may not trade away, because a mid-rebase `.aitask-data` makes every other
+    session's task writes die in `assert_data_worktree_clean`.
+
+    Both pitfalls are facts about this framework, not advice: `git rebase`
+    drops merge commits (and `ait sync` / `_task_pull_rebase` both rebase on
+    pull), and `board/aitask_merge.py` unions `labels`/`depends` without the
+    merge base and lets `Implementing` beat `Done`.
+    """
+    files = [f for f in conflicted_files if f]
+    if files:
+        listing = (
+            "its auto-merge engine could not resolve:\n"
+            + "\n".join(f"  - {f}" for f in files)
+        )
+    else:
+        listing = (
+            "its auto-merge engine could not resolve. The sync did not name the "
+            "conflicted files; inspect the branch state to find them."
+        )
+    return (
+        f"An `ait sync` of the aitask-data branch in {repo_root} stopped on "
+        f"merge conflicts {listing}\n"
+        "\n"
+        "Context: in batch mode `ait sync` aborts its rebase before reporting a "
+        "conflict, so at that moment the shared `.aitask-data` checkout was clean "
+        "on the local aitask-data branch — local commits intact, remote commits "
+        "not applied. The state may have moved since; check it yourself. "
+        "(`ait sync` without `--batch` opens $EDITOR on conflicts.)\n"
+        "\n"
+        "Goal: resolve the conflicts and leave the aitask-data branch integrated "
+        "with the remote and published, with the live `.aitask-data` checkout up "
+        "to date. Task and plan files are merged, not superseded: keep both "
+        "sides' intent, in frontmatter and body. Choose your own approach, tools "
+        "and recovery, following this repository's instructions. Ask the user "
+        "when the intended merge is ambiguous or a decision needs their input.\n"
+        "\n"
+        "When you are done, other sessions' ongoing work must be preserved — "
+        "their uncommitted edits in `.aitask-data` and any commits they made "
+        "there while you worked — and the shared checkout must be usable, with "
+        "no unresolved merge or rebase in progress.\n"
+        "\n"
+        "Constraint: do the resolution in a separate git worktree, never in "
+        "`.aitask-data`. That checkout is shared by every session on this "
+        "machine, and while it is mid-rebase or mid-merge their task writes "
+        "fail. Keep it available to them throughout.\n"
+        "\n"
+        "Pitfalls:\n"
+        "- An ordinary rebase drops merge commits, so edits that exist only in a "
+        "merge commit's conflict resolution can disappear without any conflict "
+        "— and `ait sync` and the framework's push retry both rebase when they "
+        "pull.\n"
+        "- The auto-merge driver (`.aitask-scripts/board/aitask_merge.py`, which "
+        "`ait sync` runs) can undo deliberate changes: it unions list fields "
+        "such as `labels` and `depends` without consulting the merge base "
+        "(re-adding an entry one side removed), and it lets `Implementing` win "
+        "over `Done` for `status`.\n"
+        "\n"
+        "Before you finish, verify — by whatever method you choose — that the "
+        "final integrated result preserves the intended resolution, both as "
+        "published on the remote and in the live `.aitask-data` checkout, and "
+        "that the end state above holds. Remove any worktree you created.\n"
+    )
+
+
 class SyncConflictScreen(ModalScreen):
     """Modal dialog shown when `ait sync` detects merge conflicts.
 
     Self-contained: ships its own CSS via `DEFAULT_CSS` so it renders correctly
     in any host App (board, syncer) without depending on app-level styling.
+
+    Dismisses with CONFLICT_CHOICE_AGENT, CONFLICT_CHOICE_INTERACTIVE, or None
+    (Dismiss / escape). It only offers: launching anything is the host's job,
+    and only on that explicit choice — with the board's sync_on_refresh this
+    modal can appear unattended.
     """
 
     DEFAULT_CSS = """
     #sync_conflict_dialog {
-        width: 60%;
+        width: 72%;
+        /* The three buttons need 64 columns of content (+6 for border and
+           padding); the floor keeps them all visible on an 80-column screen,
+           where 72% alone leaves 51. */
+        min-width: 72;
         height: auto;
         max-height: 50%;
         background: $surface;
@@ -440,33 +536,44 @@ class SyncConflictScreen(ModalScreen):
 
     BINDINGS = [Binding("escape", "cancel", "Cancel", show=False)]
 
-    def __init__(self, conflicted_files: list[str]):
+    def __init__(self, conflicted_files: list[str], repo_label: str = ""):
         super().__init__()
         self.conflicted_files = conflicted_files
+        # Names the repo in the multi-repo syncer; empty keeps the plain title.
+        self.repo_label = repo_label
 
     def compose(self):
         file_list = "\n".join(f"  - {f}" for f in self.conflicted_files)
+        title = "Sync Conflict Detected"
+        if self.repo_label:
+            title = f"{title} — {self.repo_label}"
         with Container(id="sync_conflict_dialog"):
-            yield Label("Sync Conflict Detected", id="sync_conflict_title")
+            yield Label(title, id="sync_conflict_title")
             yield Label(
                 f"Conflicts between local and remote task data:\n\n{file_list}\n\n"
-                "Open interactive terminal to resolve?",
+                "Launch a code agent to resolve them, or resolve them yourself "
+                "in an interactive terminal?",
                 id="sync_conflict_files",
             )
             with Horizontal(id="sync_conflict_buttons"):
-                yield Button("Resolve Interactively", variant="warning", id="btn_sync_resolve")
+                yield Button("Launch agent to resolve", variant="warning", id="btn_sync_agent")
+                yield Button("Resolve Interactively", variant="primary", id="btn_sync_resolve")
                 yield Button("Dismiss", variant="default", id="btn_sync_dismiss")
+
+    @on(Button.Pressed, "#btn_sync_agent")
+    def launch_agent(self):
+        self.dismiss(CONFLICT_CHOICE_AGENT)
 
     @on(Button.Pressed, "#btn_sync_resolve")
     def resolve(self):
-        self.dismiss(True)
+        self.dismiss(CONFLICT_CHOICE_INTERACTIVE)
 
     @on(Button.Pressed, "#btn_sync_dismiss")
     def dismiss_dialog(self):
-        self.dismiss(False)
+        self.dismiss(None)
 
     def action_cancel(self):
-        self.dismiss(False)
+        self.dismiss(None)
 
 
 def run_interactive_sync(

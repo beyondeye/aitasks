@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""Tests for .aitask-scripts/lib/sync_action_runner.py — parser and the
-repo-targeting command seam (no live git)."""
+"""Tests for .aitask-scripts/lib/sync_action_runner.py — parser, the
+repo-targeting command seam (no live git), the conflict modal and the
+data-conflict agent prompt."""
 from __future__ import annotations
 
+import asyncio
 import sys
 import unittest
 from pathlib import Path
@@ -14,8 +16,15 @@ PROJECT_DIR = Path(__file__).resolve().parents[1]
 LIB_SRC = PROJECT_DIR / ".aitask-scripts" / "lib"
 sys.path.insert(0, str(LIB_SRC))
 
+from textual.app import App, ComposeResult  # noqa: E402
+from textual.widgets import Button, Label  # noqa: E402
+
 import sync_action_runner  # noqa: E402
 from sync_action_runner import (  # noqa: E402
+    CONFLICT_CHOICE_AGENT,
+    CONFLICT_CHOICE_INTERACTIVE,
+    SyncConflictScreen,
+    build_data_conflict_prompt,
     sync_batch_command,
     STATUS_AUTOMERGED,
     STATUS_CONFLICT,
@@ -524,6 +533,179 @@ class NonUtf8PathTests(unittest.TestCase):
             sync_action_runner.run_sync_batch()
         self.assertEqual(calls[0]["encoding"], "utf-8")
         self.assertEqual(calls[0]["errors"], "surrogateescape")
+
+
+class _ConflictHost(App):
+    """Minimal host that pushes a SyncConflictScreen and records its result."""
+
+    def __init__(self, files: list[str], repo_label: str = "") -> None:
+        super().__init__()
+        self._files = files
+        self._repo_label = repo_label
+        self.result: object = "UNSET"
+
+    def compose(self) -> ComposeResult:
+        yield Label("host")
+
+    def on_mount(self) -> None:
+        self.push_screen(
+            SyncConflictScreen(self._files, repo_label=self._repo_label),
+            self._record,
+        )
+
+    def _record(self, result) -> None:
+        self.result = result
+
+
+class SyncConflictScreenTests(unittest.TestCase):
+    """The modal's dismiss value is a CLOSED set (t1911): the two callers
+    dispatch on it by equality, so each button must yield exactly its value."""
+
+    FILES = ["aitasks/t1_a.md", "aiplans/p1_a.md"]
+
+    def _dismiss_via(self, action) -> object:
+        async def runner():
+            app = _ConflictHost(self.FILES)
+            async with app.run_test(size=(120, 30)) as pilot:
+                await pilot.pause()
+                await action(pilot)
+                await pilot.pause()
+            return app.result
+
+        return asyncio.run(runner())
+
+    def test_agent_button_dismisses_with_agent(self):
+        result = self._dismiss_via(lambda p: p.click("#btn_sync_agent"))
+        self.assertEqual(result, CONFLICT_CHOICE_AGENT)
+
+    def test_interactive_button_dismisses_with_interactive(self):
+        result = self._dismiss_via(lambda p: p.click("#btn_sync_resolve"))
+        self.assertEqual(result, CONFLICT_CHOICE_INTERACTIVE)
+
+    def test_dismiss_button_dismisses_with_none(self):
+        result = self._dismiss_via(lambda p: p.click("#btn_sync_dismiss"))
+        self.assertIsNone(result)
+
+    def test_escape_dismisses_with_none(self):
+        result = self._dismiss_via(lambda p: p.press("escape"))
+        self.assertIsNone(result)
+
+    def test_files_and_repo_label_render(self):
+        async def runner():
+            app = _ConflictHost(self.FILES, repo_label="proj2")
+            async with app.run_test(size=(120, 30)) as pilot:
+                await pilot.pause()
+                title = str(app.screen.query_one("#sync_conflict_title", Label).render())
+                body = str(app.screen.query_one("#sync_conflict_files", Label).render())
+            return title, body
+
+        title, body = asyncio.run(runner())
+        self.assertIn("proj2", title)
+        for f in self.FILES:
+            self.assertIn(f, body)
+
+    def test_three_buttons_fit_inside_the_dialog(self):
+        # Checked against the dialog's CONTENT region, not its outer box. 80
+        # columns is the regression case: a percentage width alone leaves 51
+        # content columns there and clips "Dismiss" entirely (measured).
+        async def runner(width):
+            app = _ConflictHost(self.FILES)
+            async with app.run_test(size=(width, 30)) as pilot:
+                await pilot.pause()
+                content = app.screen.query_one("#sync_conflict_dialog").content_region
+                buttons = [
+                    app.screen.query_one(f"#{bid}", Button).region
+                    for bid in ("btn_sync_agent", "btn_sync_resolve", "btn_sync_dismiss")
+                ]
+            return content, buttons
+
+        for width in (80, 100, 120):
+            with self.subTest(width=width):
+                content, buttons = asyncio.run(runner(width))
+                for region in buttons:
+                    self.assertGreater(region.width, 0)
+                    self.assertTrue(
+                        content.contains_region(region),
+                        f"button {region} is clipped by the dialog content {content}",
+                    )
+                ordered = sorted(buttons, key=lambda r: r.x)
+                for left, right in zip(ordered, ordered[1:]):
+                    self.assertLessEqual(left.right, right.x, "buttons overlap")
+
+
+class BuildDataConflictPromptTests(unittest.TestCase):
+    """The prompt gives context, the outcome and one constraint — not a recipe
+    (t1911). These tests check that each of those is present by intent; they
+    deliberately do not pin any Git command sequence."""
+
+    ROOT = Path("/work/projA")
+    FILES = ["aitasks/t12_alpha.md", "aiplans/p12_alpha.md", "notes.txt"]
+
+    def setUp(self):
+        self.prompt = build_data_conflict_prompt(self.FILES, self.ROOT)
+        self.lower = self.prompt.lower()
+
+    def assertMentions(self, *phrases: str) -> None:
+        for phrase in phrases:
+            self.assertIn(phrase.lower(), self.lower, f"prompt lacks {phrase!r}")
+
+    # -- launch context ---------------------------------------------------
+    def test_names_every_conflicted_file_and_the_repo_root(self):
+        for f in self.FILES:
+            self.assertIn(f"  - {f}", self.prompt)
+        self.assertIn(str(self.ROOT), self.prompt)
+
+    def test_bare_conflict_names_no_empty_file(self):
+        prompt = build_data_conflict_prompt([""], self.ROOT)
+        self.assertNotIn("  - \n", prompt)
+        self.assertIn("did not name the conflicted files", prompt)
+
+    def test_describes_the_state_sync_left_and_that_it_may_have_moved(self):
+        self.assertMentions("aborts its rebase", "may have moved since")
+
+    # -- isolation requirement ------------------------------------------
+    def test_requires_a_separate_worktree_and_says_why(self):
+        self.assertMentions(
+            "separate git worktree",
+            "never in `.aitask-data`",
+            "shared by every session",
+            "task writes fail",
+        )
+
+    # -- intended outcomes ----------------------------------------------
+    def test_states_the_integrated_published_outcome(self):
+        self.assertMentions(
+            "integrated with the remote and published",
+            "checkout up to date",
+            "merged, not superseded",
+            "keep both sides' intent",
+            "remove any worktree you created",
+        )
+
+    def test_states_the_end_state_for_other_sessions(self):
+        self.assertMentions(
+            "other sessions' ongoing work must be preserved",
+            "uncommitted edits",
+            "commits they made there",
+            "no unresolved merge or rebase in progress",
+        )
+
+    def test_requires_verifying_the_final_result_with_the_method_left_open(self):
+        self.assertMentions(
+            "verify",
+            "by whatever method you choose",
+            "published on the remote",
+            "live `.aitask-data` checkout",
+        )
+
+    # -- pitfalls and autonomy ------------------------------------------
+    def test_names_both_pitfalls(self):
+        self.assertMentions("rebase drops merge commits", "aitask_merge.py")
+        self.assertRegex(self.prompt, r"`labels`.*`depends`")
+        self.assertRegex(self.prompt, r"`Implementing` win\s+over `Done`")
+
+    def test_leaves_the_approach_to_the_agent_and_asks_on_ambiguity(self):
+        self.assertMentions("choose your own approach", "ask the user when")
 
 
 if __name__ == "__main__":

@@ -122,11 +122,11 @@ Actions on the Branches tab always target the **highlighted row's repo** — hig
 | **s** | `aitask-data` | Sync via that repo's `ait sync --batch` (auto-merges frontmatter conflicts) |
 | **u** | `main` | Pull with `git pull --ff-only` in that repo |
 | **p** | `main` | Push to `origin main:main` from that repo |
-| **a** | (last failure) | Re-open the most recent failure modal |
+| **a** | (last failure or conflict) | Re-open the most recent failure or data-sync conflict modal |
 
 The syncer scopes each action to the appropriate ref: `s` only operates on `aitask-data` rows, `u` and `p` only on `main` rows — the footer hints follow the highlighted row. Before running anything, the syncer verifies the target repo still resolves (and, for pull/push, that a status snapshot exists so the branch is derived from the right repo); failures surface as a notification naming the project. There is no batch fan-out: each action affects exactly one repo.
 
-The `u` action refuses to pull on a dirty working tree or when HEAD is not on `main`. The `s` action runs the same code path as the [`ait sync`]({{< relref "/docs/commands/sync" >}}) CLI in batch mode; if `aitask_merge.py` cannot resolve a conflict automatically, the syncer pushes a conflict-resolution screen that can hand off to interactive sync.
+The `u` action refuses to pull on a dirty working tree or when HEAD is not on `main`. The `s` action runs the same code path as the [`ait sync`]({{< relref "/docs/commands/sync" >}}) CLI in batch mode; if `aitask_merge.py` cannot resolve a conflict automatically, the syncer shows a conflict dialog that can launch a code agent to resolve it or hand off to interactive sync (see [Failure handling](#failure-handling)).
 
 ## Framework versions
 
@@ -309,7 +309,7 @@ There is no list of synced settings to edit. The operation rows are the union of
 | **u** | Branches (`main` rows) | Pull |
 | **p** | Branches (`main` rows) | Push |
 | **f** | Branches | Toggle fetch on/off |
-| **a** | Branches | Re-open the most recent failure modal |
+| **a** | Branches | Re-open the most recent failure or data-sync conflict modal |
 | **U** | Versions | Upgrade the highlighted repo's framework |
 | **c** | Versions | Re-check installed and latest versions |
 | **p** | Settings | Push the highlighted setting to other repos |
@@ -327,6 +327,14 @@ When sync, pull, or push exits with an error, the syncer captures the command, s
 
 - **Launch agent to resolve** — opens an `AgentCommandScreen` that dispatches a code agent in a sibling tmux pane (`agent-syncfix-<action>`) with a prompt summarizing the failure. The agent is rooted in the repo the failed action targeted and launched using the configured default model from [Settings]({{< relref "/docs/tuis/settings" >}}). Minimonitor auto-spawns alongside the agent pane.
 - **Dismiss** — closes the modal. The most recent failure stays available via `a` so you can re-open it later.
+
+When `s` stops on a conflict that the auto-merge could not resolve, the syncer shows a conflict dialog listing the conflicted files instead:
+
+- **Launch agent to resolve** — opens an `AgentCommandScreen` for a code agent in the `agent-syncfix-data-conflict` window, rooted in the repository whose sync conflicted (also when you re-open the dialog with `a` from another row). The agent gets the conflicted files and the goal — the conflicts merged with both sides' intent kept, the data branch integrated with the remote and published — and chooses its own approach. It must do the resolution in a separate worktree, so the shared `.aitask-data` checkout stays usable by other sessions while it works, and finish with their work preserved and no merge or rebase left in progress. Before it finishes it verifies that the published and live result still holds the resolution.
+- **Resolve Interactively** — opens `ait sync` in a terminal, where each conflicted file is edited in `$EDITOR`.
+- **Dismiss** — closes the dialog; `a` re-opens it later.
+
+A deferred sync (`Sync deferred: …`) is not a conflict: it means sync declined to touch another session's in-flight work, and it does not arm `a`.
 
 ## TUI switcher integration
 
@@ -346,7 +354,7 @@ Default is `false` (key omitted, blank, or explicitly `false`). When enabled, `a
 
 ## Relationship to `ait sync`
 
-[`ait sync`]({{< relref "/docs/commands/sync" >}}) is the underlying CLI that the syncer's `s` action invokes in batch mode. The CLI is the single source of truth for the bidirectional task-data sync — auto-merge rules, network timeout, batch protocol, and exit codes are documented there. The syncer adds an interactive surface, the `main` pull/push actions, the agent escape hatch on failure, and the version and settings tabs, none of which have a CLI equivalent.
+[`ait sync`]({{< relref "/docs/commands/sync" >}}) is the underlying CLI that the syncer's `s` action invokes in batch mode. The CLI is the single source of truth for the bidirectional task-data sync — auto-merge rules, network timeout, batch protocol, and exit codes are documented there. The syncer adds an interactive surface, the `main` pull/push actions, the agent escape hatch on failure or conflict, and the version and settings tabs, none of which have a CLI equivalent.
 
 ## Configuration
 

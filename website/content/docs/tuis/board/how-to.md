@@ -479,8 +479,9 @@ When enabled, the board runs `ait sync` silently on each auto-refresh interval i
 
 **Handling conflicts:**
 
-If the sync detects merge conflicts (e.g., the same task was edited on two machines), a conflict dialog appears listing the affected files. You have two options:
+If the sync detects merge conflicts (e.g., the same task was edited on two machines), a conflict dialog appears listing the affected files. You have three options:
 
+- **Launch agent to resolve** — Opens the agent command dialog for a code agent that resolves the conflicts in a separate worktree, keeping the shared task data usable by other sessions, and publishes the result. The agent only launches when you press this button, including when the dialog was raised by sync on refresh
 - **Resolve Interactively** — Opens `ait sync` in a terminal where you can edit each conflicted file in `$EDITOR` and complete the rebase
 - **Dismiss** — Closes the dialog without resolving; the conflicts remain for the next sync attempt
 
