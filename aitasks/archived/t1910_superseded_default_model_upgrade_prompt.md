@@ -123,6 +123,27 @@ defaults" — that would discard deliberate choices.
 - Docs: update the website page covering `ait upgrade` / code-agent model
   configuration, and the `aitask-add-model` skill description of promote mode.
 
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1916** id=2026-10-08T14:03:20Z.232741d3a4f3792e22cf1e65 from=t1916 from_verified=yes at=2026-10-08T14:03:20Z base=6126268ffc56754a118c7d36a40324679f7bbd2f base_branch=main dirty=yes host=omg16
+>
+> | Advisory context from t1916 (register Claude Haiku 5.5):
+> | 
+> | - claudecode/haiku5_5 (cli_id `claude-haiku-5-5`) and claudecode/haiku5_5_1m
+> |   (`claude-haiku-5-5[1m]`) are now registered: aitasks/metadata/models_claudecode.json
+> |   (aitask-data) + seed/models_claudecode.json (main af5bc8645). Ids verified from
+> |   the Claude Code 2.1.293 model catalog and a live `claude -p --model` round-trip.
+> | - Candidate supersession edge for lib/model_supersessions.json:
+> |   claudecode haiku4_5 -> haiku5_5 (haiku5_5_1m as the _1m sibling; haiku4_5 has
+> |   no _1m variant). Note haiku4_5 is NOT a seed default for any op, so whether it
+> |   belongs depends on whether your semantics cover deliberately-chosen non-default
+> |   models (record-supersession). Your call — not an instruction.
+> | - t1916 staged/committed none of your uncommitted files. It did run your working
+> |   copy of aitask_add_model.sh add-json (functionally unchanged), and
+> |   tests/test_add_model.sh passed 114/114 against the shared worktree as of this
+> |   moment (moment-relative; your edits may have moved since).
+
 ## Gate Runs
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
