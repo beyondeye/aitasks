@@ -241,3 +241,66 @@ standard workflow.
   shadow. The renderer's wrap behaviour is the variable under test, and that
   does not depend on how the text was produced. · severity: low
   · → mitigation: none
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-08 16:40)
+- **Requested by user:** two advisory concerns:
+  - (medium) `_join_sep` searched the whole accumulated body at every
+    continuation join, making a body quadratic in its row count. A
+    1,000-row concern took ~511 ms in synchronous UI handlers.
+  - (low) the module docstring still said "space-joins".
+- **Changes made:**
+  - `_join_sep` now searches `joined[-2:]`, and its docstring explains why
+    that is exact. Every clause is at most 2 characters wide, and the `^`
+    alternative can fire only on a 1-character `joined`.
+  - The module docstring now describes the intra-token heuristic and keeps
+    the `-J` requirement.
+  - Two new tests:
+    - an exhaustive slice-vs-full equivalence check over every 1–4 character
+      string drawn from `a .-/(:`;
+    - a search-length spy on a 301-row body, with every search at most 2
+      characters (no wall-clock timing).
+  - The unbounded-search mutant fails the spy test. A 1,000-row parse now
+    takes 2.6 ms.
+- **Files affected:** `.aitask-scripts/monitor/concern_parser.py`,
+  `tests/test_concern_parser.py`
+
+## Final Implementation Notes
+- **Actual work done:**
+  - Rule D (`_INTRA_TOKEN_BREAK`) lives in one shared `_join_sep`, used by
+    split-marker rejoin and by body continuations (`_scan_items` folds rows
+    through it).
+  - Added 3 verbatim real-capture fixtures (OpenCode 60/90, Codex 60), plus
+    the `TestBodyContinuationJoin` and `TestMeasuredHardWrapCaptures` tests.
+    The pinned spaced-slash region test now expects `foo / bar`, and a new
+    pinned test covers the absolute-path flip side.
+  - `concern-format.md` changes:
+    - the `body` grammar bullet states the exact rule and its residuals;
+    - the region best-effort paragraph;
+    - Codex is noted as measured to break only at spaces;
+    - the OpenCode hard-wrapped-bodies entry is rewritten with the
+      measurement;
+    - the capture-join contract.
+- **Deviations from plan:**
+  - Review round 1 bounded the search to `joined[-2:]` (performance) and
+    fixed the stale module docstring; see Post-Review Changes.
+  - The plan-review concern added the lone-`/` absolute-path residual before
+    approval.
+  - Fixtures keep the capture rows verbatim, but trailing pane padding is
+    stripped, matching the existing fixtures.
+- **Issues encountered:**
+  - The echoed user prompt in each TUI contains a second copy of the block.
+    The measurement waited for 2 close fences, and the parser's last-block
+    rule picks the reply.
+  - Codex prefixes the reply with `• ` (`• ===AITASK-CONCERNS===`), which the
+    parser already tolerates.
+- **Key decisions:**
+  - No trailer-grammar change, because every measured trailer parses under
+    rule D.
+  - Intra-token `.` and `:` breaks and `--` splits stay cosmetic, as the
+    task directed.
+  - Measurement without a production shadow: the renderer's wrap behaviour
+    is the variable under test, and it does not depend on how the text was
+    produced.
+- **Upstream defects identified:** None
