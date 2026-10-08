@@ -10,6 +10,9 @@
 # Subcommands:
 #   add-json                       Append model entry to models_<agent>.json + seed
 #   promote-config                 Update codeagent_config.json defaults for ops
+#                                  and record the model(s) the promotion
+#                                  supersedes (lib/model_supersessions.json)
+#   record-supersession            Record "<old> is superseded by <new>" alone
 #   promote-default-agent-string   Update DEFAULT_AGENT_STRING in
 #                                  lib/agent_string.sh + the resolution-chain
 #                                  note in aitask_codeagent.sh (claudecode only)
@@ -22,10 +25,17 @@ source "$SCRIPT_DIR/lib/terminal_compat.sh"
 # shellcheck source=lib/atomic_write.sh
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/lib/atomic_write.sh"
+# shellcheck source=lib/python_resolve.sh
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/python_resolve.sh"
 
 REPO_ROOT="${AITASK_REPO_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 
 SUPPORTED_AGENTS=(claudecode codex)
+
+# Framework-owned supersession table (t1910): "<old> is superseded by <new>",
+# per agent. `ait upgrade` offers <new> to every op still configured with <old>.
+SUPERSESSION_TABLE_REL=".aitask-scripts/lib/model_supersessions.json"
 
 # --- Common helpers ---
 
@@ -60,16 +70,20 @@ validate_cli_id() {
     [[ -n "$id" ]] || die "--cli-id is required"
 }
 
-# Print a unified diff between `file` (pre-change) and the proposed content
-# in `proposed`. Headers use the original path so users can spot it in
-# dry-run output even though the proposed bytes sit in a tempfile.
+# Print a unified diff between `current` (pre-change) and the proposed content
+# in `proposed`, labelled with the repo-relative `label` so users can spot it in
+# dry-run output even though the proposed bytes sit in a tempfile. `current` is
+# the resolved path: a label is relative to REPO_ROOT, not to the cwd, so
+# testing the label itself would diff the wrong file whenever AITASK_REPO_ROOT
+# points elsewhere.
 print_diff() {
-    local file="$1"
-    local proposed="$2"
-    if [[ -f "$file" ]]; then
-        diff -u --label "a/$file" --label "b/$file" "$file" "$proposed" || true
+    local label="$1"
+    local current="$2"
+    local proposed="$3"
+    if [[ -f "$current" ]]; then
+        diff -u --label "a/$label" --label "b/$label" "$current" "$proposed" || true
     else
-        diff -u --label "a/$file" --label "b/$file" /dev/null "$proposed" || true
+        diff -u --label "a/$label" --label "b/$label" /dev/null "$proposed" || true
     fi
 }
 
@@ -164,8 +178,8 @@ cmd_add_json() {
     fi
 
     if $dry_run; then
-        print_diff "$metadata_rel" "$tmp_metadata"
-        [[ -n "$tmp_seed" ]] && print_diff "$seed_rel" "$tmp_seed"
+        print_diff "$metadata_rel" "$metadata_file" "$tmp_metadata"
+        [[ -n "$tmp_seed" ]] && print_diff "$seed_rel" "$seed_file" "$tmp_seed"
         rm -f "$tmp_metadata" "$tmp_seed"
         return 0
     fi
@@ -180,16 +194,49 @@ cmd_add_json() {
     info "Added model $agent/$name to $metadata_rel${tmp_seed:+ (+ $seed_rel)}"
 }
 
+# --- Supersession recording (t1910) ---
+
+# Compute the supersession-table change for one promotion or declaration into
+# <output>, via `aitask_model_supersession.py record` (one guarded edge-adder for
+# both callers). Prints the helper's RECORDED:/RECORDED_SIBLING:/SKIPPED:/WARN:/
+# BLOCKED:/NOTE: lines. Returns the helper's status: 0 ok, 3 blocked, else error.
+supersession_record() {
+    local agent="$1" output="$2" source="$3"
+    shift 3
+    local python
+    python="$(require_ait_python)" || return 1
+    "$python" "$SCRIPT_DIR/aitask_model_supersession.py" record \
+        --table "$REPO_ROOT/$SUPERSESSION_TABLE_REL" \
+        --output "$output" \
+        --models "$REPO_ROOT/aitasks/metadata/models_${agent}.json" \
+        --agent "$agent" \
+        --source "$source" \
+        "$@"
+}
+
+SUPERSESSION_BLOCKED_HELP="Resolve the BLOCKED line(s) above, then re-run:
+  - partial:       the old model is still another seed op's default — add those ops to --ops,
+                   or promote with --no-supersession (declare the lineage later with
+                   'record-supersession' once no seed default uses the old model);
+  - unregistered:  register the new model first (add-json);
+  - conflict/cycle/seed_invariant: the table already says otherwise — promote with
+                   --no-supersession, and fix .aitask-scripts/lib/model_supersessions.json by hand
+                   only if the existing edge is wrong.
+Nothing was written."
+
 # --- Subcommand: promote-config ---
 
 cmd_promote_config() {
     local agent="" name="" ops_csv="" dry_run=false
+    local no_supersession=false assume_registered=false
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --agent)   agent="$2"; shift 2 ;;
             --name)    name="$2"; shift 2 ;;
             --ops)     ops_csv="$2"; shift 2 ;;
             --dry-run) dry_run=true; shift ;;
+            --no-supersession)   no_supersession=true; shift ;;
+            --assume-registered) assume_registered=true; shift ;;
             *) die "Unknown argument to promote-config: '$1'" ;;
         esac
     done
@@ -197,11 +244,17 @@ cmd_promote_config() {
     validate_agent "$agent"
     validate_name "$name"
     [[ -z "$ops_csv" ]] && die "--ops is required (comma-separated)"
+    # A preview of a model `add-json --dry-run` has not written yet. An apply
+    # always validates against the real registry: add-json runs first.
+    if $assume_registered && ! $dry_run; then
+        die "--assume-registered is only valid with --dry-run"
+    fi
 
     local metadata_rel="aitasks/metadata/codeagent_config.json"
     local seed_rel="seed/codeagent_config.json"
     local metadata_file="$REPO_ROOT/$metadata_rel"
     local seed_file="$REPO_ROOT/$seed_rel"
+    local table_file="$REPO_ROOT/$SUPERSESSION_TABLE_REL"
 
     [[ -f "$metadata_file" ]] || die "Config not found: $metadata_rel"
 
@@ -238,21 +291,116 @@ cmd_promote_config() {
         jq . "$tmp_seed" >/dev/null || { rm -f "$tmp_metadata" "$tmp_seed"; die "Produced JSON is invalid for $seed_rel"; }
     fi
 
+    # Supersession (t1910): the seed's old values of the promoted ops are the
+    # framework defaults downstream projects still carry; recording them lets
+    # `ait upgrade` offer the new model. Computed BEFORE any write, so a refusal
+    # or a Python failure leaves every file untouched.
+    local tmp_table="" record_out="" record_rc=0 recorded=false
+    if ! $no_supersession; then
+        if [[ -z "$tmp_seed" ]]; then
+            echo "SKIPPED:no_seed"
+        else
+            tmp_table=$(mktemp_suffixed "${TMPDIR:-/tmp}/aitask_add_model_supersession_XXXXXX.json")
+            local record_args=(--new "$name" --seed-before "$seed_file" --seed-after "$tmp_seed")
+            $assume_registered && record_args+=(--assume-registered)
+            record_out=$(supersession_record "$agent" "$tmp_table" \
+                "promote-config $(date +%Y-%m-%d)" "${record_args[@]}") || record_rc=$?
+            [[ -n "$record_out" ]] && printf '%s\n' "$record_out"
+            if [[ "$record_rc" -ne 0 && "$record_rc" -ne 3 ]]; then
+                rm -f "$tmp_metadata" "$tmp_seed" "$tmp_table"
+                die "Supersession recording failed (exit $record_rc) — nothing was written"
+            fi
+            if [[ "$record_rc" -eq 3 ]] && ! $dry_run; then
+                rm -f "$tmp_metadata" "$tmp_seed" "$tmp_table"
+                die "Promotion refused: the supersession it implies cannot be recorded.
+$SUPERSESSION_BLOCKED_HELP"
+            fi
+            grep -q '^RECORDED' <<< "$record_out" && recorded=true
+        fi
+    fi
+
     if $dry_run; then
-        print_diff "$metadata_rel" "$tmp_metadata"
-        [[ -n "$tmp_seed" ]] && print_diff "$seed_rel" "$tmp_seed"
-        rm -f "$tmp_metadata" "$tmp_seed"
+        print_diff "$metadata_rel" "$metadata_file" "$tmp_metadata"
+        [[ -n "$tmp_seed" ]] && print_diff "$seed_rel" "$seed_file" "$tmp_seed"
+        $recorded && print_diff "$SUPERSESSION_TABLE_REL" "$table_file" "$tmp_table"
+        rm -f "$tmp_metadata" "$tmp_seed" "$tmp_table"
         return 0
     fi
 
     commit_staged "$tmp_metadata" "$metadata_file" \
-        || { rm -f "$tmp_metadata" "$tmp_seed"; die "Failed to write $metadata_rel"; }
+        || { rm -f "$tmp_metadata" "$tmp_seed" "$tmp_table"; die "Failed to write $metadata_rel"; }
     if [[ -n "$tmp_seed" ]]; then
         commit_staged "$tmp_seed" "$seed_file" \
-            || { rm -f "$tmp_metadata" "$tmp_seed"; die "Failed to write $seed_rel"; }
+            || { rm -f "$tmp_metadata" "$tmp_seed" "$tmp_table"; die "Failed to write $seed_rel"; }
     fi
-    rm -f "$tmp_metadata" "$tmp_seed"
+    if $recorded; then
+        commit_staged "$tmp_table" "$table_file" \
+            || { rm -f "$tmp_metadata" "$tmp_seed" "$tmp_table"; die "Failed to write $SUPERSESSION_TABLE_REL"; }
+    fi
+    rm -f "$tmp_metadata" "$tmp_seed" "$tmp_table"
     info "Promoted $new_value for ops: $ops_csv"
+    if $recorded; then
+        echo "NOTE: commit $SUPERSESSION_TABLE_REL (supersession recorded)"
+    fi
+}
+
+# --- Subcommand: record-supersession ---
+
+# Declare "<agent>/<old> is superseded by <agent>/<new>" on its own — for a
+# lineage a partial promotion could not record (promote-config
+# --no-supersession), once no seed default uses <old> any more. Same guards as
+# promote-config, always against the real registry.
+cmd_record_supersession() {
+    local agent="" old="" new="" dry_run=false
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --agent)   agent="$2"; shift 2 ;;
+            --old)     old="$2"; shift 2 ;;
+            --new)     new="$2"; shift 2 ;;
+            --dry-run) dry_run=true; shift ;;
+            *) die "Unknown argument to record-supersession: '$1'" ;;
+        esac
+    done
+
+    validate_agent "$agent"
+    validate_name "$old"
+    validate_name "$new"
+
+    local seed_rel="seed/codeagent_config.json"
+    local seed_file="$REPO_ROOT/$seed_rel"
+    local table_file="$REPO_ROOT/$SUPERSESSION_TABLE_REL"
+    [[ -f "$seed_file" ]] || die "record-supersession needs $seed_rel: supersession is recorded in the framework source repository"
+
+    local tmp_table record_out="" record_rc=0
+    tmp_table=$(mktemp_suffixed "${TMPDIR:-/tmp}/aitask_add_model_supersession_XXXXXX.json")
+    record_out=$(supersession_record "$agent" "$tmp_table" \
+        "record-supersession $(date +%Y-%m-%d)" \
+        --new "$new" --old "$old" --seed "$seed_file") || record_rc=$?
+    [[ -n "$record_out" ]] && printf '%s\n' "$record_out"
+    if [[ "$record_rc" -eq 3 ]]; then
+        rm -f "$tmp_table"
+        die "Refused: the supersession cannot be recorded (see the BLOCKED line(s) above). Nothing was written."
+    fi
+    if [[ "$record_rc" -ne 0 ]]; then
+        rm -f "$tmp_table"
+        die "Supersession recording failed (exit $record_rc) — nothing was written"
+    fi
+    if ! grep -q '^RECORDED' <<< "$record_out"; then
+        rm -f "$tmp_table"
+        info "Nothing to record for $agent/$old -> $agent/$new"
+        return 0
+    fi
+
+    if $dry_run; then
+        print_diff "$SUPERSESSION_TABLE_REL" "$table_file" "$tmp_table"
+        rm -f "$tmp_table"
+        return 0
+    fi
+    commit_staged "$tmp_table" "$table_file" \
+        || { rm -f "$tmp_table"; die "Failed to write $SUPERSESSION_TABLE_REL"; }
+    rm -f "$tmp_table"
+    info "Recorded $agent/$old -> $agent/$new in $SUPERSESSION_TABLE_REL"
+    echo "NOTE: commit $SUPERSESSION_TABLE_REL (supersession recorded)"
 }
 
 # --- Subcommand: promote-default-agent-string ---
@@ -311,8 +459,8 @@ cmd_promote_default_agent_string() {
     fi
 
     if $dry_run; then
-        print_diff "$lib_rel" "$tmp_lib"
-        print_diff "$note_rel" "$tmp_note"
+        print_diff "$lib_rel" "$lib_file" "$tmp_lib"
+        print_diff "$note_rel" "$note_file" "$tmp_note"
         rm -f "$tmp_lib" "$tmp_note"
         return 0
     fi
@@ -339,12 +487,22 @@ Usage: aitask_add_model.sh <subcommand> [options]
 Subcommands:
   add-json                     --agent <a> --name <n> --cli-id <id> --notes <s> [--dry-run]
   promote-config               --agent <a> --name <n> --ops <csv>             [--dry-run]
+                               [--no-supersession] [--assume-registered]
+  record-supersession          --agent <a> --old <n> --new <n>                [--dry-run]
   promote-default-agent-string --agent <a> --name <n>                         [--dry-run]
 
 Supported agents: claudecode, codex.
 Use aitask-refresh-code-models for opencode (provider-gated, CLI-discovered).
 
 --dry-run prints a unified diff and exits without writing any file.
+
+promote-config also records the seed model(s) the promotion replaces as
+superseded by the new one (.aitask-scripts/lib/model_supersessions.json), so
+`ait upgrade` offers the new model to projects still using the old one. A
+supersession is global, so a promotion that leaves the old model as another
+seed op's default is refused (BLOCKED:partial) unless --no-supersession is
+given; record-supersession declares it later. --assume-registered (dry-run
+only) previews a model that add-json has not written yet.
 
 The AITASK_REPO_ROOT env var overrides the repo root used for file
 resolution (defaults to the parent dir of .aitask-scripts). This is used
@@ -359,6 +517,7 @@ main() {
     case "$cmd" in
         add-json)                     cmd_add_json "$@" ;;
         promote-config)               cmd_promote_config "$@" ;;
+        record-supersession)          cmd_record_supersession "$@" ;;
         promote-default-agent-string) cmd_promote_default_agent_string "$@" ;;
         ""|help|-h|--help)            usage ;;
         *)                            die "Unknown subcommand: '$cmd' (see --help)" ;;

@@ -1379,6 +1379,58 @@ commit_installed_data_files() {
     fi
 }
 
+# --- Offer newer models for superseded code-agent defaults (t1910) ---
+# merge_seed keeps every existing codeagent_config.json default, so a model the
+# framework has since replaced would otherwise stay the default forever. The
+# helper offers, per superseded model and config layer, to switch the ops that
+# use it (.aitask-scripts/lib/model_supersessions.json records what replaced
+# what); custom, non-superseded choices are never touched.
+#
+# - Runs AFTER commit_installed_files/commit_installed_data_files: the framework
+#   update is already committed, so an interrupted prompt cannot strand it, and
+#   an accepted switch gets its own path-scoped commit.
+# - Interactive only on a tty. Otherwise it only reports, with stdin closed:
+#   under `curl | bash` stdin IS this script, and nothing may read from it.
+# - resolve_python comes from aitask_setup.sh, which main() sources before this
+#   runs (the venv interpreter first, system python3 last). Never fatal.
+# - A fresh install's config is the seed, which is never superseded: skip it.
+check_superseded_model_defaults() {
+    [[ "$EXISTING_INSTALL" == true ]] || return 0
+    local helper="$INSTALL_DIR/.aitask-scripts/aitask_model_supersession.py"
+    [[ -f "$helper" ]] || return 0
+    local rerun="run 'ait codeagent check-superseded' after 'ait setup' to review superseded model defaults"
+    if ! declare -F resolve_python >/dev/null; then
+        warn "  Skipped the superseded-model check (Python resolver not loaded) — $rerun."
+        return 0
+    fi
+    local py
+    py="$(resolve_python)"
+    if [[ -z "$py" ]]; then
+        warn "  Skipped the superseded-model check (no Python found) — $rerun."
+        return 0
+    fi
+
+    # Ctrl-C at a prompt must stop the prompt, not the installer.
+    local prev_int_trap
+    prev_int_trap="$(trap -p INT)"
+    trap ':' INT
+    local rc=0
+    if [[ -t 0 ]]; then
+        "$py" "$helper" check --root "$INSTALL_DIR" --interactive || rc=$?
+    else
+        "$py" "$helper" check --root "$INSTALL_DIR" </dev/null || rc=$?
+    fi
+    if [[ -n "$prev_int_trap" ]]; then
+        eval "$prev_int_trap"
+    else
+        trap - INT
+    fi
+    if [[ "$rc" -ne 0 ]]; then
+        warn "  The superseded-model check did not complete (exit $rc) — $rerun."
+    fi
+    return 0
+}
+
 # Remove the framework-release packaging/ tooling left behind after the shim is
 # consumed. The release tarball bundles packaging/ only so install_global_shim
 # can copy packaging/shim/ait; nothing under it has a runtime role in a consumer
@@ -1564,6 +1616,11 @@ main() {
 
     commit_installed_files
     commit_installed_data_files
+
+    if [[ "$EXISTING_INSTALL" == true ]]; then
+        info "Checking for superseded code-agent model defaults..."
+        check_superseded_model_defaults
+    fi
 
     report_claude_session_hook
 

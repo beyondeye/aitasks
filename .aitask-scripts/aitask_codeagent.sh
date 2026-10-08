@@ -392,6 +392,27 @@ cmd_coauthor_domain() {
     echo "COAUTHOR_DOMAIN:$(get_coauthor_domain)"
 }
 
+# Offer newer models for defaults the framework has superseded (t1910). The
+# same check `ait upgrade` runs at the end of install.sh; interactive on a tty
+# unless --report.
+cmd_check_superseded() {
+    local report_only=false
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --report) report_only=true; shift ;;
+            *) die "Unknown argument to check-superseded: '$1'" ;;
+        esac
+    done
+
+    local python
+    python="$(require_ait_python)"
+    local args=(check --root "$SCRIPT_DIR/..")
+    if ! $report_only && [[ -t 0 ]]; then
+        args+=(--interactive)
+    fi
+    "$python" "$SCRIPT_DIR/aitask_model_supersession.py" "${args[@]}"
+}
+
 cmd_coauthor() {
     local agent_string="${1:-}"
     [[ -z "$agent_string" ]] && die "Usage: ait codeagent coauthor <agent-string>"
@@ -699,6 +720,10 @@ Commands:
                          Return commit coauthor metadata for an agent string
   coauthor-domain        Return the configured code-agent coauthor email domain
   check <agent-string>   Validate agent string and check CLI availability
+  check-superseded [--report]
+                         Offer newer models for configured defaults the framework
+                         has superseded (asks per model on a terminal; --report
+                         only lists them)
   invoke <operation> [args...]  Invoke the code agent for an operation
 
 Options:
@@ -743,6 +768,7 @@ Examples:
   ait codeagent coauthor codex/gpt5_4
   ait codeagent coauthor-domain
   ait codeagent check "claudecode/opus4_6"
+  ait codeagent check-superseded
   ait codeagent invoke pick 42
   ait codeagent --agent-string codex/gpt5_4 invoke explain src/
   ait codeagent --dry-run invoke pick 42
@@ -810,6 +836,7 @@ main() {
         coauthor)     cmd_coauthor "$@" ;;
         coauthor-domain) cmd_coauthor_domain "$@" ;;
         check)        cmd_check "$@" ;;
+        check-superseded) cmd_check_superseded "$@" ;;
         invoke)       cmd_invoke "$@" ;;
         *)            die "Unknown command: '$command'. Run 'ait codeagent --help' for usage." ;;
     esac

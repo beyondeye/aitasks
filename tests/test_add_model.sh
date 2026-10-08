@@ -129,6 +129,52 @@ assert_no_staged_temp() {
     TOTAL=$((TOTAL + 1))
 }
 
+# Content checksum of the whole fixture (paths + bytes), for "wrote nothing".
+fixture_checksum() {
+    (cd "$FIXTURE_DIR" && find . -type f -print0 | sort -z | xargs -0 md5sum) | md5sum | awk '{print $1}'
+}
+
+FIXTURE_TABLE_REL=".aitask-scripts/lib/model_supersessions.json"
+
+# Register model names in the fixture's metadata registry (what add-json does).
+register_models() {
+    local reg="$FIXTURE_DIR/aitasks/metadata/models_claudecode.json" n tmp
+    for n in "$@"; do
+        tmp=$(mktemp)
+        jq --arg n "$n" '.models += [{"name": $n, "cli_id": $n, "notes": "", "verified": {}, "verifiedstats": {}}]' \
+            "$reg" > "$tmp" && mv "$tmp" "$reg"
+    done
+}
+
+# Replace .defaults in both the fixture's metadata and seed config.
+set_both_defaults() {
+    local json="$1" f tmp
+    for f in "$FIXTURE_DIR/aitasks/metadata/codeagent_config.json" "$FIXTURE_DIR/seed/codeagent_config.json"; do
+        tmp=$(mktemp)
+        jq --argjson d "$json" '.defaults = $d' "$f" > "$tmp" && mv "$tmp" "$f"
+    done
+}
+
+# The successor the fixture table records for claudecode/<name> ("" if none).
+table_successor() {
+    jq -r --arg n "$1" '.agents.claudecode[$n].by // ""' \
+        "$FIXTURE_DIR/$FIXTURE_TABLE_REL" 2>/dev/null || true
+}
+
+# "OK" when no seed default names a superseded model, else the violations.
+seed_invariant() {
+    python3 - "$FIXTURE_DIR" "$PROJECT_DIR/.aitask-scripts/lib" <<'EOF'
+import json, sys
+root, lib = sys.argv[1], sys.argv[2]
+sys.path.insert(0, lib)
+import model_supersession as ms
+table = ms.load_table(f"{root}/.aitask-scripts/lib/model_supersessions.json")
+seed = json.load(open(f"{root}/seed/codeagent_config.json"))["defaults"]
+v = ms.seed_violations(table, seed)
+print("OK" if not v else v)
+EOF
+}
+
 # --- Tests ---
 
 echo "=== Test 1: add-json appends entry and preserves existing verified/verifiedstats ==="
@@ -167,8 +213,18 @@ teardown_fixture
 
 echo "=== Test 3: promote-config updates only listed ops, including brainstorm-* ==="
 setup_fixture
+# The seed keeps opus4_6 on `explore`, so this is a PARTIAL promotion: it
+# cannot declare a global supersession (t1910). Without --no-supersession it is
+# refused before any write; this test is about op patching, so it opts out.
+checksum_before=$(fixture_checksum)
+rc=0
+out=$(bash "$HELPER" promote-config --agent claudecode --name opus4_7 \
+    --ops pick,brainstorm-explorer 2>&1) || rc=$?
+assert_eq "partial promotion refused without --no-supersession" "1" "$rc"
+assert_contains "refusal names the remaining seed op" "BLOCKED:partial:claudecode/opus4_6|explore" "$out"
+assert_eq "refused partial promotion wrote nothing" "$checksum_before" "$(fixture_checksum)"
 bash "$HELPER" promote-config --agent claudecode --name opus4_7 \
-    --ops pick,brainstorm-explorer >/dev/null
+    --ops pick,brainstorm-explorer --no-supersession >/dev/null
 pick_val=$(jq -r '.defaults.pick' "$FIXTURE_DIR/aitasks/metadata/codeagent_config.json")
 explain_val=$(jq -r '.defaults.explain' "$FIXTURE_DIR/aitasks/metadata/codeagent_config.json")
 explore_val=$(jq -r '.defaults.explore' "$FIXTURE_DIR/aitasks/metadata/codeagent_config.json")
@@ -299,7 +355,7 @@ for rel in "${mode_paths[@]}"; do
 done
 
 bash "$HELPER" add-json --agent claudecode --name opus4_7 --cli-id claude-opus-4-7 --notes "new flagship" >/dev/null
-bash "$HELPER" promote-config --agent claudecode --name opus4_7 --ops pick >/dev/null
+bash "$HELPER" promote-config --agent claudecode --name opus4_7 --ops pick --no-supersession >/dev/null
 bash "$HELPER" promote-default-agent-string --agent claudecode --name opus4_7 >/dev/null
 
 # The mode assertions below only mean something if the writes actually landed —
@@ -403,6 +459,161 @@ else
     FAIL=$((FAIL + 1))
 fi
 TOTAL=$((TOTAL + 1))
+teardown_fixture
+
+echo "=== Test 10: add-and-promote preview of a not-yet-registered model (t1910) ==="
+setup_fixture
+checksum_before=$(fixture_checksum)
+dry_add=$(bash "$HELPER" add-json --dry-run --agent claudecode --name opus4_7 \
+    --cli-id claude-opus-4-7 --notes "n" 2>&1)
+assert_contains "add-json preview shows the registry diff" "+++ b/aitasks/metadata/models_claudecode.json" "$dry_add"
+dry_promote=$(bash "$HELPER" promote-config --dry-run --assume-registered \
+    --agent claudecode --name opus4_7 --ops pick,explore 2>&1)
+assert_contains "preview notes the assumed registration" "NOTE:assumes_registration:claudecode/opus4_7" "$dry_promote"
+assert_contains "preview records the retired seed model" "RECORDED:claudecode/opus4_6->claudecode/opus4_7" "$dry_promote"
+assert_contains "preview shows the table diff" "+++ b/$FIXTURE_TABLE_REL" "$dry_promote"
+assert_contains "preview shows the config diff" "+++ b/aitasks/metadata/codeagent_config.json" "$dry_promote"
+assert_eq "both previews wrote nothing" "$checksum_before" "$(fixture_checksum)"
+
+dry_plain=$(bash "$HELPER" promote-config --dry-run --agent claudecode --name opus4_7 --ops pick,explore 2>&1)
+assert_contains "preview without the flag reports the unregistered target" \
+    "BLOCKED:unregistered:claudecode/opus4_7" "$dry_plain"
+
+rc=0
+out=$(bash "$HELPER" promote-config --agent claudecode --name opus4_7 --ops pick,explore 2>&1) || rc=$?
+assert_eq "apply with an unregistered target refused" "1" "$rc"
+assert_contains "apply refusal says nothing was written" "Nothing was written" "$out"
+rc=0
+out=$(bash "$HELPER" promote-config --assume-registered --agent claudecode --name opus4_7 --ops pick,explore 2>&1) || rc=$?
+assert_eq "--assume-registered without --dry-run is an error" "1" "$rc"
+assert_contains "--assume-registered usage error" "only valid with --dry-run" "$out"
+rc=0
+out=$(bash "$HELPER" record-supersession --dry-run --agent claudecode --old opus4_5 --new opus4_7 2>&1) || rc=$?
+assert_eq "record-supersession refuses an unregistered target" "1" "$rc"
+assert_contains "record-supersession names it" "BLOCKED:unregistered:claudecode/opus4_7" "$out"
+rc=0
+out=$(bash "$HELPER" record-supersession --dry-run --assume-registered --agent claudecode --old opus4_5 --new opus4_7 2>&1) || rc=$?
+assert_eq "record-supersession accepts no --assume-registered" "1" "$rc"
+assert_eq "refusals wrote nothing" "$checksum_before" "$(fixture_checksum)"
+
+bash "$HELPER" add-json --agent claudecode --name opus4_7 --cli-id claude-opus-4-7 --notes n >/dev/null
+out=$(bash "$HELPER" promote-config --agent claudecode --name opus4_7 --ops pick,explore 2>&1)
+assert_contains "apply records after a real add-json" "RECORDED:claudecode/opus4_6->claudecode/opus4_7" "$out"
+assert_contains "apply reminds to commit the table" "NOTE: commit $FIXTURE_TABLE_REL" "$out"
+assert_eq "table records opus4_6 -> opus4_7" "opus4_7" "$(table_successor opus4_6)"
+assert_eq "seed invariant holds" "OK" "$(seed_invariant)"
+teardown_fixture
+
+echo "=== Test 11: two successive partial promotions from one predecessor (t1910) ==="
+setup_fixture
+register_models opus4_7 opus4_8
+set_both_defaults '{"pick": "claudecode/opus4_6", "explore": "claudecode/opus4_6", "trail": "claudecode/opus4_6"}'
+checksum_before=$(fixture_checksum)
+rc=0
+out=$(bash "$HELPER" promote-config --agent claudecode --name opus4_7 --ops pick 2>&1) || rc=$?
+assert_eq "first partial refused" "1" "$rc"
+assert_contains "first refusal names remaining ops" "BLOCKED:partial:claudecode/opus4_6|explore,trail" "$out"
+assert_eq "first refusal wrote nothing" "$checksum_before" "$(fixture_checksum)"
+bash "$HELPER" promote-config --agent claudecode --name opus4_7 --ops pick --no-supersession >/dev/null
+assert_eq "first partial applied with --no-supersession" "claudecode/opus4_7" \
+    "$(jq -r '.defaults.pick' "$FIXTURE_DIR/seed/codeagent_config.json")"
+assert_eq "no table after the first partial" "absent" \
+    "$([[ -f "$FIXTURE_DIR/$FIXTURE_TABLE_REL" ]] && echo present || echo absent)"
+assert_eq "seed invariant after step 1" "OK" "$(seed_invariant)"
+
+checksum_before=$(fixture_checksum)
+rc=0
+out=$(bash "$HELPER" promote-config --agent claudecode --name opus4_8 --ops explore 2>&1) || rc=$?
+assert_eq "second partial refused" "1" "$rc"
+assert_contains "second refusal names the remaining op" "BLOCKED:partial:claudecode/opus4_6|trail" "$out"
+assert_eq "second refusal wrote nothing" "$checksum_before" "$(fixture_checksum)"
+bash "$HELPER" promote-config --agent claudecode --name opus4_8 --ops explore --no-supersession >/dev/null
+assert_eq "still no table after the second partial" "absent" \
+    "$([[ -f "$FIXTURE_DIR/$FIXTURE_TABLE_REL" ]] && echo present || echo absent)"
+assert_eq "seed invariant after step 2" "OK" "$(seed_invariant)"
+
+dry=$(bash "$HELPER" promote-config --dry-run --agent claudecode --name opus4_8 --ops trail 2>&1)
+assert_contains "retiring promotion previews its edge" "RECORDED:claudecode/opus4_6->claudecode/opus4_8" "$dry"
+bash "$HELPER" promote-config --agent claudecode --name opus4_8 --ops trail >/dev/null
+assert_eq "retiring promotion records opus4_6 -> opus4_8" "opus4_8" "$(table_successor opus4_6)"
+assert_eq "seed invariant after the retirement" "OK" "$(seed_invariant)"
+teardown_fixture
+
+echo "=== Test 12: an existing edge is never overwritten (t1910) ==="
+setup_fixture
+register_models opus4_7 opus4_8
+cat > "$FIXTURE_DIR/$FIXTURE_TABLE_REL" <<'EOF'
+{
+  "version": 1,
+  "agents": {
+    "claudecode": {
+      "opus4_6": {
+        "by": "opus4_7",
+        "source": "test"
+      }
+    }
+  }
+}
+EOF
+table_before=$(cat "$FIXTURE_DIR/$FIXTURE_TABLE_REL")
+checksum_before=$(fixture_checksum)
+rc=0
+out=$(bash "$HELPER" promote-config --agent claudecode --name opus4_8 --ops pick,explore 2>&1) || rc=$?
+assert_eq "conflicting promotion refused" "1" "$rc"
+assert_contains "refusal names the existing successor" "BLOCKED:conflict:claudecode/opus4_6->claudecode/opus4_7" "$out"
+assert_eq "conflict refusal wrote nothing" "$checksum_before" "$(fixture_checksum)"
+bash "$HELPER" promote-config --agent claudecode --name opus4_8 --ops pick,explore --no-supersession >/dev/null
+assert_eq "config applied with --no-supersession" "claudecode/opus4_8" \
+    "$(jq -r '.defaults.pick' "$FIXTURE_DIR/seed/codeagent_config.json")"
+assert_eq "existing edge unchanged" "$table_before" "$(cat "$FIXTURE_DIR/$FIXTURE_TABLE_REL")"
+teardown_fixture
+
+echo "=== Test 13: _1m siblings, no seed, cross-agent, record-supersession (t1910) ==="
+setup_fixture
+register_models opus4_6_1m opus4_7 opus4_7_1m
+out=$(bash "$HELPER" promote-config --agent claudecode --name opus4_7 --ops pick,explore 2>&1)
+assert_contains "eligible sibling recorded" "RECORDED_SIBLING:claudecode/opus4_6_1m->claudecode/opus4_7_1m" "$out"
+assert_eq "sibling edge in the table" "opus4_7_1m" "$(table_successor opus4_6_1m)"
+teardown_fixture
+
+setup_fixture
+register_models opus4_6_1m opus4_7
+out=$(bash "$HELPER" promote-config --agent claudecode --name opus4_7 --ops pick,explore 2>&1)
+assert_contains "half-registered sibling skipped, not blocking" \
+    "SKIPPED:sibling_unregistered:claudecode/opus4_6_1m->claudecode/opus4_7_1m" "$out"
+assert_eq "base edge still recorded" "opus4_7" "$(table_successor opus4_6)"
+assert_eq "no sibling edge" "" "$(table_successor opus4_6_1m)"
+teardown_fixture
+
+setup_fixture
+register_models opus4_7
+rm "$FIXTURE_DIR/seed/codeagent_config.json"
+out=$(bash "$HELPER" promote-config --agent claudecode --name opus4_7 --ops pick 2>&1)
+assert_contains "no seed -> nothing recorded" "SKIPPED:no_seed" "$out"
+assert_eq "no table without a seed" "absent" \
+    "$([[ -f "$FIXTURE_DIR/$FIXTURE_TABLE_REL" ]] && echo present || echo absent)"
+teardown_fixture
+
+setup_fixture
+register_models opus4_7
+set_both_defaults '{"pick": "claudecode/opus4_6", "shadow": "codex/gpt6_sol"}'
+out=$(bash "$HELPER" promote-config --agent claudecode --name opus4_7 --ops pick,shadow 2>&1)
+assert_contains "cross-agent old value skipped" "SKIPPED:cross_agent:codex/gpt6_sol" "$out"
+assert_eq "same-agent edge recorded" "opus4_7" "$(table_successor opus4_6)"
+teardown_fixture
+
+setup_fixture
+register_models opus4_7
+rc=0
+out=$(bash "$HELPER" record-supersession --agent claudecode --old opus4_6 --new opus4_7 2>&1) || rc=$?
+assert_eq "record-supersession refused while the seed still uses opus4_6" "1" "$rc"
+assert_contains "in-seed refusal names the ops" "BLOCKED:in_seed:claudecode/opus4_6|pick,explore" "$out"
+bash "$HELPER" promote-config --agent claudecode --name opus4_7 --ops pick,explore --no-supersession >/dev/null
+assert_eq "no edge after --no-supersession" "" "$(table_successor opus4_6)"
+out=$(bash "$HELPER" record-supersession --agent claudecode --old opus4_6 --new opus4_7 2>&1)
+assert_contains "record-supersession records once retired" "RECORDED:claudecode/opus4_6->claudecode/opus4_7" "$out"
+assert_eq "explicit edge in the table" "opus4_7" "$(table_successor opus4_6)"
+assert_eq "seed invariant holds" "OK" "$(seed_invariant)"
 teardown_fixture
 
 # --- Summary ---

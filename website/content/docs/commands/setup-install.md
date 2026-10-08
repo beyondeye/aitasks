@@ -100,7 +100,12 @@ ait upgrade 0.2.1              # Upgrade to specific version
 3. Downloads `install.sh` from the target version's git tag
 4. Runs the installer with `--force`, which shows the changelog between current and target versions and asks for confirmation
 5. Performs the full installation (tarball download, skill installation, setup)
-6. Clears the update check cache
+6. Offers newer models for code-agent defaults the framework has superseded (see below)
+7. Clears the update check cache
+
+**Superseded model defaults:**
+
+An upgrade never changes a configured model on its own. After the framework files are committed, it looks for operations in `codeagent_config.json` (and your `codeagent_config.local.json`) whose model a newer framework model supersedes, and asks once per superseded model whether to switch those operations. Custom choices are never offered a switch, and a declined offer is not repeated until a newer successor exists. Without a terminal it only lists the offers. Run `ait codeagent check-superseded` at any time to review them; see [Superseded model defaults]({{< relref "/docs/commands/codeagent#superseded-model-defaults" >}}).
 
 **Bounded version lookup:**
 

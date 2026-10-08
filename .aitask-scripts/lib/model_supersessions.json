@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "agents": {
+    "claudecode": {
+      "opus4_6": {
+        "by": "opus4_7_1m",
+        "source": "t579_3 dd9a2efe6"
+      },
+      "opus4_7_1m": {
+        "by": "opus4_8",
+        "source": "t853 80ba0e137"
+      },
+      "opus4_8": {
+        "by": "opus5",
+        "source": "t1241 1dd5b32ae"
+      },
+      "opus4_8_1m": {
+        "by": "opus5_1m",
+        "source": "t1241 1dd5b32ae (_1m sibling)"
+      },
+      "sonnet4_6": {
+        "by": "sonnet5",
+        "source": "t1242 c76b0bb94"
+      },
+      "opus5": {
+        "by": "opus5_5",
+        "source": "t1865 ff667f89e (net of t1866 131707d06)"
+      },
+      "opus5_1m": {
+        "by": "opus5_5_1m",
+        "source": "t1865 ff667f89e (_1m sibling)"
+      },
+      "sonnet5": {
+        "by": "sonnet5_5",
+        "source": "t1886 95f0394cb"
+      }
+    },
+    "codex": {
+      "gpt6_sol": {
+        "by": "gpt6_1_sol",
+        "source": "t1886 95f0394cb"
+      }
+    }
+  }
+}

@@ -95,6 +95,10 @@ WIRED: dict[str, str] = {
     # (commit_metadata(root=...)), and refuses outright when that repo is
     # mid-work rather than leaving an ownerless dirty file there.
     ".aitask-scripts/lib/cross_repo_settings.py::apply_push": "commit_metadata(",
+    # Superseded-model switch (t1910): an accepted project-layer switch is
+    # committed by _commit_project_layer, path-scoped with an expect= guard, and
+    # only when the file was clean before the run.
+    ".aitask-scripts/aitask_model_supersession.py::_write_project_layer": "commit_metadata(",
     # ait setup's populate-missing / backfill passes
     ".aitask-scripts/aitask_setup.sh::ensure_project_config_defaults": "_note_metadata_write",
     ".aitask-scripts/aitask_setup.sh::ensure_chatlink_config": "_note_metadata_write",
@@ -131,6 +135,12 @@ KNOWN_UNCOMMITTED: dict[str, str] = {
     ".aitask-scripts/stats/stats_config.py::save": "user layer, gitignored",
     ".aitask-scripts/diffviewer/plan_browser.py::_save_history": "user layer, gitignored (t1677)",
     ".aitask-scripts/board/board_task_manager.py::_write_user_layer": "user layer, gitignored",
+    ".aitask-scripts/aitask_model_supersession.py::_write_local_layer": "user layer, gitignored",
+    ".aitask-scripts/aitask_model_supersession.py::_write_kept":
+        "per-clone state in the git common dir, not under aitasks/metadata (t1910)",
+    ".aitask-scripts/aitask_model_supersession.py::cmd_record":
+        "writes a caller-supplied temp file; aitask_add_model.sh installs it as "
+        ".aitask-scripts/lib/model_supersessions.json, which is framework code",
     # Existence-only: `touch` creates an empty file and writes no content, so
     # there is nothing to attribute.
     ".aitask-scripts/aitask_update.sh::ensure_task_types_file": "touch only, no content",
