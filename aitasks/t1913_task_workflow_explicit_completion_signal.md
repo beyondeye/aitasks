@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [task_workflow, monitor, minimonitor, skills]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-10-08 10:19
-updated_at: 2026-10-08 10:19
+updated_at: 2026-10-08 12:29
 ---
 
 ## Problem
