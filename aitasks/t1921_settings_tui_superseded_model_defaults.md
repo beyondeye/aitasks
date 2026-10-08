@@ -1,0 +1,61 @@
+---
+priority: low
+effort: medium
+depends: []
+issue_type: feature
+status: Ready
+labels: [ait_settings, models, model_selection]
+gates: [risk_evaluated]
+anchor: 1910
+created_at: 2026-10-08 17:06
+updated_at: 2026-10-08 17:06
+---
+
+## Context
+
+t1910 made the framework record which code-agent model supersedes which
+(`.aitask-scripts/lib/model_supersessions.json`, framework-owned) and offer the
+newer model for superseded defaults at the end of `ait upgrade` and on demand via
+`ait codeagent check-superseded`. The Settings TUI — the main place users look at
+and edit per-operation defaults — does not show this yet: an op still on
+`claudecode/opus5` looks exactly like a deliberate choice. This was listed as an
+out-of-scope follow-up in t1910.
+
+## Goal
+
+In the Settings TUI **Agent Defaults** tab, mark operations whose configured
+model (project layer `codeagent_config.json` or per-user layer
+`codeagent_config.local.json`) is superseded, show the model it would be
+switched to, and let the user switch it from there.
+
+## Pointers
+
+- Reuse `.aitask-scripts/lib/model_supersession.py` — `load_table`,
+  `load_registry`, `find_offers` (groups ops per superseded model and layer,
+  returns warnings instead of raising), `offer_target`. Do not re-implement
+  chain resolution or the "furthest registered successor" rule.
+- Agent Defaults tab: `.aitask-scripts/settings/settings_app.py`
+  (`_populate_agent_tab`, ~line 2223; layers loaded in `ConfigManager` as
+  `codeagent_project` / `codeagent_local`, ~line 560). Writes must go through
+  `ConfigManager.save_codeagent`, which commits the project layer via
+  `_commit` → `lib/metadata_commit.py` (the local layer is never committed).
+- Model picker: `.aitask-scripts/lib/agent_model_picker.py`
+  (`AgentModelPickerScreen`) — consider also marking superseded models there.
+- The CLI's "keep" memory lives in
+  `<git-common-dir>/ait-codeagent-supersession-kept.json` (see
+  `aitask_model_supersession.py::_load_kept`). Decide in planning whether the
+  TUI shows kept offers differently (e.g. dimmed) or ignores the memory; a TUI
+  marker is informational, so it must not silently write that file.
+- Read `aidocs/framework/tui_conventions.md` (key bindings go through the
+  shortcut registry; commit-on-save rules) and
+  `aidocs/framework/testing_conventions.md` (`App.run_test` + `@work` workers).
+
+## Verification
+
+- `App.run_test` test: a project layer with `pick: claudecode/opus5` and a
+  registry containing `opus5_5` shows the superseded marker and target on the
+  `pick` row; a custom non-superseded value shows none; switching updates the
+  file and goes through the existing commit seam.
+- A malformed table / registry does not break the tab (warnings only).
+- Website: update `website/content/docs/tuis/settings/` for the new marker and
+  action; run `python3 check_links.py --build` in `website/`.
