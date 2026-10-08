@@ -3,11 +3,12 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [install, install_scripts, framework]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-10-08 23:35
-updated_at: 2026-10-08 23:50
+updated_at: 2026-10-08 23:52
 ---
 
 ## Problem
