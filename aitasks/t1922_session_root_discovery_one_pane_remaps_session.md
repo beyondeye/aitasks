@@ -7,7 +7,7 @@ status: Ready
 labels: [monitor, minimonitor, tmux]
 gates: [risk_evaluated]
 created_at: 2026-10-08 17:14
-updated_at: 2026-10-08 17:45
+updated_at: 2026-10-08 17:55
 ---
 
 ## Problem
@@ -116,6 +116,33 @@ corrected.
 under the wrong root (e.g. `agent-pick-1914` under `thinking_app`). Planning
 should check whether such a stray mark can later be purged or misapplied when
 the thinking_app session is swept, and add a regression test.
+
+**Also broken: minimonitor pick-by-number (`p`), and it can launch the WRONG
+task (user report, 2026-10-08).** Picking t1922 from the minimonitor reported
+"Task t1922 not found". The cause:
+- `action_pick_by_number` binds `target_root = self._root_for_snap(snap)`
+  (`minimonitor_app.py:3249`);
+- `_on_pick_number_entered` resolves `get_task_info(target_id, sess)`
+  (`:3274`).
+
+Both go through the same session → root map, which points at thinking_app.
+t1922 exists only in aitasks, so the lookup fails. **When the id also exists in
+the mis-mapped repo** (thinking_app has ids up to t493, so any colliding number),
+the dialog shows the *other repo's* task and `_launch_pick` starts
+`/aitask-pick <id>` in that repo. That is a silent wrong-task launch, not just a
+display gap. The task info dialog (`i` / `I`, `_show_task_info_for`, `:5167`)
+fails the same way.
+
+This raises the severity. Planning should list every consumer of
+`_session_root_map` / `TaskInfoCache` session roots that **acts**: pick
+launches, next-sibling `n`, re-pick of a frozen agent, restore, kill dialogs.
+Each must refuse rather than act when the session's root is ambiguous (panes
+disagree with each other, or with `AITASKS_PROJECT_<session>`). Display-only
+consumers may degrade.
+
+**Test:** a pick-by-number regression where the followed pane's session is
+registered to repo A, one pane sits in repo B, and the typed id exists in both
+repos. It must resolve and launch in A, or refuse; never B.
 
 **Tests to add (in addition to the ones above):**
 - order dependence: the same pane set, with the wandering pane listed first and
