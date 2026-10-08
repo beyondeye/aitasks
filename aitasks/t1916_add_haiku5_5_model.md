@@ -3,11 +3,12 @@ priority: medium
 effort: low
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [codeagent, models, model_selection]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-10-08 16:44
-updated_at: 2026-10-08 16:44
+updated_at: 2026-10-08 16:47
 ---
 
 ## Goal
