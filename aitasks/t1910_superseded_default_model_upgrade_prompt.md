@@ -11,8 +11,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-07 08:46
-updated_at: 2026-10-07 08:47
+updated_at: 2026-10-08 15:51
 ---
 
 ## Goal
@@ -118,3 +119,8 @@ defaults" — that would discard deliberate choices.
   not re-asked, and that the non-tty path does not block.
 - Docs: update the website page covering `ait upgrade` / code-agent model
   configuration, and the `aitask-add-model` skill description of promote mode.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-08T12:51:35Z status=pass attempt=1 type=human
