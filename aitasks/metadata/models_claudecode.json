@@ -1647,6 +1647,20 @@
       "notes": "Best speed/intelligence balance, 1M context (explicit [1m] variant), 128K output, adaptive thinking always on",
       "verified": {},
       "verifiedstats": {}
+    },
+    {
+      "name": "haiku5_5",
+      "cli_id": "claude-haiku-5-5",
+      "notes": "Fastest model with near-frontier intelligence, 1M context, 128K output, adaptive thinking always on",
+      "verified": {},
+      "verifiedstats": {}
+    },
+    {
+      "name": "haiku5_5_1m",
+      "cli_id": "claude-haiku-5-5[1m]",
+      "notes": "Fastest model with near-frontier intelligence, 1M context (explicit [1m] variant), 128K output, adaptive thinking always on",
+      "verified": {},
+      "verifiedstats": {}
     }
   ]
 }
