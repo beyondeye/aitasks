@@ -139,7 +139,10 @@ immediately before the fork.
      continues into the Step 3 hand-off.
    - **"Pick a different task"** → go back to task selection: Step 2a of
      `aitask-pick`, or Step 1 when the task arrived as a Step 0b argument.
-   - **"Stop"** → end the workflow.
+   - **"Stop"** → show the **Stopped** banner (see `workflow-end.md`) with
+     `outcome=unchanged`, reason "stopped at the parallel-safety assessment —
+     nothing claimed", next "`/aitask-pick <task_id>` once the overlapping work
+     lands", and end the workflow.
 
 ## Notes
 

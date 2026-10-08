@@ -285,7 +285,7 @@ While in plan mode:
         - "Start first child" (description: "Continue to pick and implement the first child task")
         - "Stop here" (description: "All child tasks and plans are written — end this session and pick children later in fresh contexts")
       - **If "Start first child":** Restart the pick process with `/aitask-pick <parent>_1`
-      - **If "Stop here":** Display: "Child tasks and plans written to `aiplans/p<parent>/`. Pick individual children later with `/aitask-pick <parent>_<N>`." Execute the **Satisfaction Feedback Procedure** (see `satisfaction-feedback.md`) with `skill_name` from the context variables. Then end the workflow.
+      - **If "Stop here":** Display: "Child tasks and plans written to `aiplans/p<parent>/`. Pick individual children later with `/aitask-pick <parent>_<N>`." Execute the **Satisfaction Feedback Procedure** (see `satisfaction-feedback.md`) with `skill_name` from the context variables. Then show the **Stopped** banner (see `workflow-end.md`) with `outcome=split`, reason "decomposed into \<N\> child task(s); plans written to `aiplans/p<parent>/`", next "`/aitask-pick <parent>_1`", and end the workflow.
 - Create a detailed, step-by-step implementation plan. "Detailed" means:
   specific file paths, detailed implementation steps with exact changes
   needed in each file, code snippets for non-trivial modifications, and

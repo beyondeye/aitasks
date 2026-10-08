@@ -105,7 +105,10 @@ and swaps in recovery actions that fit the post-implementation state.
      `review_approved` is recorded, so the task legitimately stays
      `Implementing` at `POSTIMPL` and re-picking it resumes here. Display: "Not
      merged. Pull `<output_branch>`, then re-pick t\<task_id\> to finish the
-     merge."
+     merge." Then show the **Stopped** banner (see `workflow-end.md`) with
+     `outcome=in-flight`, reason "merge target `<output_branch>` behind its
+     remote — not merged", next "pull `<output_branch>`, then
+     `/aitask-pick <task_id>`", and end the workflow.
 
 ## Notes
 

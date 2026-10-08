@@ -140,3 +140,11 @@ When abort is selected at any checkpoint after Step 4, execute these steps:
 
 - **Inform user:**
   "Task t<N> has been reverted to '<status>' and is available for others."
+
+- **Show the Stopped banner — last.** Execute the **Workflow End Banner
+  Procedure** (see `workflow-end.md`) section `## Stopped` with
+  `outcome=aborted`, reason "aborted — reverted to '\<status\>'" (append "commits
+  kept on `aitask/<task_name>`" for `PRESERVED`, or "cleanup incomplete: \<kept
+  items\>" for `RESIDUE` / a failed cleanup), and next "`/aitask-pick <N>` to
+  start it again" (for `RESIDUE`, the remedy named above first). Then end the
+  workflow.

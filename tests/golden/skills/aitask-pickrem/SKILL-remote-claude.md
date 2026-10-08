@@ -40,7 +40,7 @@ Parse stdout:
 - `INITIALIZED` — Display: "Data branch initialized." Proceed.
 - `ALREADY_INIT` / `LEGACY_MODE` / `NO_DATA_BRANCH` — Proceed silently.
 
-If the command fails (non-zero exit), display the error and abort.
+If the command fails (non-zero exit), display the error and abort — show the **Stopped** banner (see `task-workflow/workflow-end.md`) with `outcome=unchanged`, reason "task data initialization failed", next "fix the error, then re-run `/aitask-pickrem <task-id>`".
 
 ### Step 2: Resolve Task File
 
@@ -51,7 +51,7 @@ Parse the task ID argument:
   ```bash
   ./.aitask-scripts/aitask_query_files.sh resolve <number>
   ```
-  Parse the output: if first line is `NOT_FOUND`, display error "Task t\<N\> not found" and abort. If first line is `TASK_FILE:<path>`, use that path. If second line is `HAS_CHILDREN:<count>`, display error "Task t\<N\> has child subtasks. Specify a child task ID (e.g., `\<N\>_1`) instead." Abort. If `NO_CHILDREN`, proceed with this task.
+  Parse the output: if first line is `NOT_FOUND`, display error "Task t\<N\> not found" and abort — show the **Stopped** banner (see `task-workflow/workflow-end.md`) with `outcome=unchanged`, reason "task not found", next "check the task id". If first line is `TASK_FILE:<path>`, use that path. If second line is `HAS_CHILDREN:<count>`, display error "Task t\<N\> has child subtasks. Specify a child task ID (e.g., `\<N\>_1`) instead." Abort. If `NO_CHILDREN`, proceed with this task.
 
 **Format 2: Child task (e.g., `42_2`):**
 - Parse as child task ID (parent=42, child=2)
@@ -60,7 +60,7 @@ Parse the task ID argument:
   ./.aitask-scripts/aitask_query_files.sh child-file <parent> <child>
   ```
   Parse the output: `CHILD_FILE:<path>` means found (use that path), `NOT_FOUND` means not found.
-- If not found: display error "Child task t\<parent\>_\<child\> not found" and abort.
+- If not found: display error "Child task t\<parent\>_\<child\> not found" and abort — show the **Stopped** banner (see `task-workflow/workflow-end.md`) with `outcome=unchanged`, reason "child task not found", next "check the task id".
 - Set this as the selected task
 - Read the task file and parent task file for context
 - **Gather sibling context** in a single call:
@@ -184,14 +184,14 @@ If neither check triggers, proceed to Step 5.
     ```bash
     ./.aitask-scripts/aitask_pick_own.sh <task_num> --force --email "<email>"
     ```
-    Parse output again. If `FORCE_UNLOCKED` + `OWNED`: proceed. Otherwise: abort.
+    Parse output again. If `FORCE_UNLOCKED` + `OWNED`: proceed. Otherwise: abort — show the **Stopped** banner (see `task-workflow/workflow-end.md`) with `outcome=unchanged` (nothing was claimed; add "the stale lock was released" to the reason when the output carried `FORCE_UNLOCKED:`), reason "force-claim failed", next "`./.aitask-scripts/aitask_lock_diag.sh`". Do **not** run the Abort Procedure: it applies only after a claim.
 
-  - `LOCK_LIVE_HOLDER:<owner>|<locked_at>|<hostname>|<pid>` — another session of yours on this machine holds the task and is **still running**. Nothing was claimed. Display: "Task t\<N\> is held by a live session on this machine (pid \<pid\>, since \<locked_at\>). Abandoning — two agents on one task duplicate each other's work." **Abort.** Remote mode never force-claims past this: `force_unlock_stale` covers a *stale lock belonging to someone else*, and reusing it here would re-create exactly the concurrent double-claim the gate exists to stop. A human decides this one, interactively.
-  - `LOCK_UNVERIFIABLE_HOLDER:<owner>|<locked_at>|<hostname>|<pid>` — same, except the holder could not be verified as either running or gone. Nothing was claimed. Display: "Task t\<N\> is held by a session on this machine (pid \<pid\>, since \<locked_at\>) whose liveness could not be established. Abandoning." **Abort** — unattended, "cannot tell" must never resolve to "take it".
-  - `LOCK_ERROR:<message>` — Display error: "Lock system error: \<message\>. Run `./.aitask-scripts/aitask_lock_diag.sh` for troubleshooting." Abort.
-  - `LOCK_INFRA_MISSING` — Display error: "Lock infrastructure not initialized. Run `ait setup`." Abort.
+  - `LOCK_LIVE_HOLDER:<owner>|<locked_at>|<hostname>|<pid>` — another session of yours on this machine holds the task and is **still running**. Nothing was claimed. Display: "Task t\<N\> is held by a live session on this machine (pid \<pid\>, since \<locked_at\>). Abandoning — two agents on one task duplicate each other's work." **Abort.** Remote mode never force-claims past this: `force_unlock_stale` covers a *stale lock belonging to someone else*, and reusing it here would re-create exactly the concurrent double-claim the gate exists to stop. A human decides this one, interactively. Then show the **Stopped** banner (see `task-workflow/workflow-end.md`) with `outcome=unchanged`, reason "held by a live session on this machine (pid \<pid\>)", next "a human decides, interactively". Never the Abort Procedure here — it would touch another session's task.
+  - `LOCK_UNVERIFIABLE_HOLDER:<owner>|<locked_at>|<hostname>|<pid>` — same, except the holder could not be verified as either running or gone. Nothing was claimed. Display: "Task t\<N\> is held by a session on this machine (pid \<pid\>, since \<locked_at\>) whose liveness could not be established. Abandoning." **Abort** — unattended, "cannot tell" must never resolve to "take it". Then show the **Stopped** banner (see `task-workflow/workflow-end.md`) with `outcome=unchanged`, reason "held by a session whose liveness is unknown", next "a human decides, interactively". Never the Abort Procedure here — it would touch another session's task.
+  - `LOCK_ERROR:<message>` — Display error: "Lock system error: \<message\>. Run `./.aitask-scripts/aitask_lock_diag.sh` for troubleshooting." Abort — show the **Stopped** banner (see `task-workflow/workflow-end.md`) with `outcome=unchanged`, reason "lock system error", next "`./.aitask-scripts/aitask_lock_diag.sh`".
+  - `LOCK_INFRA_MISSING` — Display error: "Lock infrastructure not initialized. Run `ait setup`." Abort — show the **Stopped** banner (see `task-workflow/workflow-end.md`) with `outcome=unchanged`, reason "lock infrastructure not initialized", next "`ait setup`".
 
-  If the script fails entirely (non-zero exit without structured output), display the error and abort.
+  If the script fails entirely (non-zero exit without structured output), display the error and abort. It may have failed part-way, so re-read the task's `status` (read-only) for the banner: still unchanged → show the **Stopped** banner (see `task-workflow/workflow-end.md`) with `outcome=unchanged`; now `Implementing` → `outcome=in-flight`. Reason "ownership claim failed", next "fix the error, then re-run `/aitask-pickrem <task-id>`". None of the Step 5 refusals run the Abort Procedure — it applies only after a successful claim.
 
 - **Materialize the active-gates tuple (ALWAYS runs — never profile-omitted):** With ownership held, execute the **Active-Gates Materialization** step (see `materialize-active.md`). It persists the task's enforced gate set under this profile and defines the status handling; on a nonzero exit it triggers the **Abort Procedure** (do NOT proceed to Step 6).
 
@@ -432,8 +432,11 @@ fi
     or push. Display: "Awaiting human sign-off on gate(s) `<csv>` — a reviewer
     inspects the committed branch, runs `ait gate pass <task-id> <gate>`, then
     `ait gates run <task-id>` (or re-runs `/aitask-pickrem <task-id>`) to record
-    the pass and complete archival." **Never self-signal** a human gate. End the
-    workflow here.
+    the pass and complete archival." **Never self-signal** a human gate. Then show
+    the **Stopped** banner (see `task-workflow/workflow-end.md`) with
+    `outcome=in-flight`, reason "awaiting human sign-off on gate(s) \<csv\>",
+    next "`ait gate pass <task-id> <gate>`, then re-run `/aitask-pickrem <task-id>`".
+    End the workflow here.
   - `blocked: …` → an unlocked gate could not run / none remain runnable. Surface
     and diagnose (`blocked: pending human signal` → route to the sign-off action
     above; never self-signal). Do not treat as satisfied.
@@ -467,8 +470,11 @@ script exits non-zero and prints `GATE_PENDING:<csv>` (a declared gate is not ye
 `pass`), the archival did **not** happen — do NOT treat it as success. This is a
 backstop for the pending-human stop in Step 9.5; leave the task in-flight and
 display: "Archival blocked — pending gate(s) `<csv>`. A reviewer runs `ait gate
-pass <task-id> <gate>`, then re-run `/aitask-pickrem <task-id>` to complete." End
-the workflow (skip the push below). **Never self-signal** a human gate.
+pass <task-id> <gate>`, then re-run `/aitask-pickrem <task-id>` to complete." Show
+the **Stopped** banner (see `task-workflow/workflow-end.md`) with `outcome=in-flight`,
+reason "archival blocked — pending gate(s) \<csv\>", next "`ait gate pass <task-id>
+<gate>`, then re-run `/aitask-pickrem <task-id>`". End the workflow (skip the push
+below). **Never self-signal** a human gate.
 
 **Parse structured output and handle without prompts:**
 
@@ -499,7 +505,12 @@ the workflow (skip the push below). **Never self-signal** a human gate.
 ./ait git push
 ```
 
-Display: "Task t\<task_id\> completed and archived."
+**Workflow end.** Execute the **Workflow End Banner Procedure** (see
+`task-workflow/workflow-end.md`) section `## Complete` with `task_id`,
+`task_name`, `commit` (the `COMMITTED:` hash), `pushed` (`yes` if the push
+succeeded, else `no`) and `follow_ups` (`none` — remote mode creates no
+follow-ups). It replaces the former "completed and archived" line and is the
+last output of the run.
 
 ### Abort Procedure
 
@@ -531,6 +542,9 @@ Triggered by errors after Step 5 (task was claimed). Not triggered by user inter
    concurrent session would land with nobody watching.
 
 5. Display: "Task t\<N\> aborted and reverted to 'Ready'."
+
+6. Show the **Stopped** banner (see `task-workflow/workflow-end.md`) with
+   `outcome=aborted`, reason "aborted: \<error\> — reverted to 'Ready'", next "fix the cause, then re-run `/aitask-pickrem <task-id>`". Then end the workflow.
 
 ---
 

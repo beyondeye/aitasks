@@ -43,7 +43,7 @@ Parse stdout:
 - `INITIALIZED` — Display: "Data branch initialized." Proceed.
 - `ALREADY_INIT` / `LEGACY_MODE` / `NO_DATA_BRANCH` — Proceed silently.
 
-If the command fails (non-zero exit), display the error and abort.
+If the command fails (non-zero exit), display the error and abort — show the **Stopped** banner (see `.agents/skills/task-workflow-remote-codex-/workflow-end.md`) with `outcome=unchanged`, reason "task data initialization failed", next "fix the error, then re-run `/aitask-pickweb <task-id>`".
 
 ### Step 2: Resolve Task File
 
@@ -54,7 +54,7 @@ Parse the task ID argument:
   ```bash
   ./.aitask-scripts/aitask_query_files.sh resolve <number>
   ```
-  Parse the output: if first line is `NOT_FOUND`, display error "Task t\<N\> not found" and abort. If first line is `TASK_FILE:<path>`, use that path. If second line is `HAS_CHILDREN:<count>`, display error "Task t\<N\> has child subtasks. Specify a child task ID (e.g., `\<N\>_1`) instead." Abort. If `NO_CHILDREN`, proceed with this task.
+  Parse the output: if first line is `NOT_FOUND`, display error "Task t\<N\> not found" and abort — show the **Stopped** banner (see `.agents/skills/task-workflow-remote-codex-/workflow-end.md`) with `outcome=unchanged`, reason "task not found", next "check the task id". If first line is `TASK_FILE:<path>`, use that path. If second line is `HAS_CHILDREN:<count>`, display error "Task t\<N\> has child subtasks. Specify a child task ID (e.g., `\<N\>_1`) instead." Abort. If `NO_CHILDREN`, proceed with this task.
 
 **Format 2: Child task (e.g., `42_2`):**
 - Parse as child task ID (parent=42, child=2)
@@ -63,7 +63,7 @@ Parse the task ID argument:
   ./.aitask-scripts/aitask_query_files.sh child-file <parent> <child>
   ```
   Parse the output: `CHILD_FILE:<path>` means found (use that path), `NOT_FOUND` means not found.
-- If not found: display error "Child task t\<parent\>_\<child\> not found" and abort.
+- If not found: display error "Child task t\<parent\>_\<child\> not found" and abort — show the **Stopped** banner (see `.agents/skills/task-workflow-remote-codex-/workflow-end.md`) with `outcome=unchanged`, reason "child task not found", next "check the task id".
 - Set this as the selected task
 - Read the task file and parent task file for context
 - **Gather sibling context** in a single call:
@@ -134,7 +134,7 @@ Run a read-only lock check to inform the user if someone else is working on this
 **Check 1 — Done but unarchived task:**
 - Read the task file's frontmatter `status` field
 - If status is `Done`:
-  - Display: "Task t\<N\> has status 'Done'. Cannot implement on Claude Web — use `aitask-web-merge` locally to archive." Abort.
+  - Display: "Task t\<N\> has status 'Done'. Cannot implement on Claude Web — use `aitask-web-merge` locally to archive." Abort — show the **Stopped** banner (see `.agents/skills/task-workflow-remote-codex-/workflow-end.md`) with `outcome=unchanged`, reason "task is Done; cannot implement on Claude Web", next "archive it locally with `aitask-web-merge`".
 
 **Check 2 — Orphaned parent task:**
 - Check if the task file's frontmatter contains `children_to_implement: []` (empty list)
@@ -144,7 +144,7 @@ Run a read-only lock check to inform the user if someone else is working on this
   ```
   Parse the output: `ARCHIVED_CHILD:<path>` lines mean archived children exist, `NO_ARCHIVED_CHILDREN` means none.
 - If archived children exist:
-  - Display: "Orphaned parent t\<N\> (all children done). Use `aitask-web-merge` locally to archive." Abort.
+  - Display: "Orphaned parent t\<N\> (all children done). Use `aitask-web-merge` locally to archive." Abort — show the **Stopped** banner (see `.agents/skills/task-workflow-remote-codex-/workflow-end.md`) with `outcome=unchanged`, reason "orphaned parent (all children done)", next "archive it locally with `aitask-web-merge`".
 
 If neither check triggers, proceed to Step 5.
 
@@ -344,6 +344,12 @@ git show --stat <sha>    # <sha> from the commit's "[<branch> <sha>]" line — n
 
 Display: "Task t\<task_id\> implementation complete on branch \<branch\>. Run `aitask-web-merge` locally to merge and archive."
 
+**Workflow end.** Execute the **Workflow End Banner Procedure** (see
+`.agents/skills/task-workflow-remote-codex-/workflow-end.md`) section `## Complete` with `task_id`,
+`task_name` and `follow_ups` (`none`), using the procedure's documented pickweb
+alternate outcome line (`implemented on branch <branch> · archive pending (run
+aitask-web-merge)`). It is the last output of the run.
+
 ### Abort Procedure
 
 Triggered by errors during implementation. Since no cross-branch operations were performed, abort is simple:
@@ -354,6 +360,10 @@ Triggered by errors during implementation. Since no cross-branch operations were
    rm -rf .aitask-data-updated/ 2>/dev/null || true
    ```
 3. Display: "Task t\<N\> aborted. No cross-branch state was modified."
+4. Show the **Stopped** banner (see `.agents/skills/task-workflow-remote-codex-/workflow-end.md`) with
+   `outcome=aborted`, reason "aborted: \<error\> — no cross-branch state was
+   modified", next "fix the cause, then re-run `/aitask-pickweb <task-id>`". Then
+   end the workflow.
 
 No status revert, no lock release, no `./ait git` operations needed.
 

@@ -161,8 +161,10 @@ checkpoint) via `AskUserQuestion`:
   - "Stop here" (description: "All paired tasks + plans are written — pick children later in fresh contexts")
 - **"Start first child":** restart with `/aitask-pick <current_task_id>_1`.
 - **"Stop here":** collect the **Satisfaction Feedback Procedure** (see
-  `satisfaction-feedback.md`) with `skill_name` from context, then END the
-  workflow.
+  `satisfaction-feedback.md`) with `skill_name` from context, then show the
+  **Stopped** banner (see `workflow-end.md`) with `outcome=split`, reason
+  "decomposed into paired children across `<name>` and this repo", next
+  "`/aitask-pick <current_task_id>_1`", and END the workflow.
 
 In both cases the workflow does **not** continue to the normal Step 8 code
 review — the "work" was paired task creation, already committed in Steps 1-5.

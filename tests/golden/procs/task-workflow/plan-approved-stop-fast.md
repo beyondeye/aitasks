@@ -139,7 +139,13 @@ here — see the Notes. For a rejected plan see `task-abort.md`.
   concurrent session was mid-editing. The helper never pushes, so the
   `./ait git push` stays.
 
-- **Display `<closing_message>`** and **end the workflow** — do NOT proceed to
+- **Display `<closing_message>`**, then the **Stopped** banner (see
+  `workflow-end.md`) with `outcome=ready`. The reason follows `stop_reason`:
+  `deferred` → "plan approved, implementation deferred — approved plan kept";
+  `resource_admission` → "parked by the resource-admission hook — approved plan
+  kept"; `drift` → "remote drift — re-plan required"; `parallel_admission` →
+  "overlap with in-flight work — re-plan required". `next` is the re-pick command
+  the closing message names. Then **end the workflow** — do NOT proceed to
   Step 7.
 
 ## Notes

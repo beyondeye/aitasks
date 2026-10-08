@@ -84,6 +84,21 @@ is held and this branch makes **no further broker release call**; it hands the
 user the `## Recovery ladder`. `caller-path` means resume whatever path called
 the verb.
 
+**Ending the session — the banner.** Every path that ends the run from this
+procedure finishes with the **Stopped** banner (see `workflow-end.md`), shown
+**after** the row's own required wording and never instead of it. The task is
+still `Implementing` in each case, so the outcome is always `outcome=in-flight`:
+
+- `continues-to` `stop-in-flight` — always ends the run. The reason names the
+  verdict, plus whether the merge landed ("merged; archival pending") and whether
+  `aitask/<task_name>` was retained. `next` is `/aitask-pick <task_id>`, which
+  resumes at `POSTIMPL`.
+- `continues-to` `stop` / `recovery` — these stop to ask or to hand over the
+  `## Recovery ladder`. Show the banner only when the session actually ends there:
+  the user declines to continue, or the ladder is left for the user to run. For
+  `recovery`, the reason opens with "merge mutex still held". `next` is the ladder
+  step or the re-pick command.
+
 **Alternation.** A cell may carry `;`-separated alternatives. All alternating
 cells in a row have the same arity, and alternative *i* of each column pairs
 positionally with alternative *i* of the others.
@@ -187,7 +202,8 @@ resolves. Show the paths and ask "Resolve conflicts now" / "Abort the merge".
   with `lock-through` `verification+cleanup`; `continues-to` `verification`.
 - **Abort** → `terminal-release` `abort` with `lock-through` `immediate`;
   `continues-to` `stop-in-flight`. Go to `## Exit — cleanup and release` and run
-  `abort`, then end the workflow with the task in-flight and its branch retained.
+  `abort`, then end the workflow with the task in-flight and its branch retained
+  (**Stopped** banner, `workflow-end.md`, `outcome=in-flight`).
 
 #### begin / MERGE_FAILED
 
@@ -228,7 +244,8 @@ Another task holds the mutex; nothing was acquired, so `terminal-release` is
 - **Wait and retry** → re-run `begin` with `--wait-secs 300`. Bounded: after
   **3** declines, stop.
 - **Stop here** → `continues-to` `stop-in-flight`: end the workflow, task and
-  branch retained, re-enterable at `POSTIMPL`.
+  branch retained, re-enterable at `POSTIMPL` (**Stopped** banner,
+  `workflow-end.md`, `outcome=in-flight`).
 
 #### begin / STALE_MERGE_RESIDUE
 
@@ -520,7 +537,8 @@ still held, and go to `## Recovery ladder`.
 
 The merge was aborted, the tree verified clean, and the reservation released.
 `terminal-release` `none`, `continues-to` `stop-in-flight`: end the workflow with
-the task in-flight and `aitask/<task_name>` retained.
+the task in-flight and `aitask/<task_name>` retained (**Stopped** banner,
+`workflow-end.md`, `outcome=in-flight`).
 
 #### abort / RELEASED_NO_MERGE
 

@@ -257,7 +257,7 @@ reflects the current state and the "current item" is always the first remaining
    - Skip the remaining items in the loop.
    - Skip step 3 (post-loop checkpoint) and step 4 (commit verification state) entirely — no state has changed, so no commit is warranted.
    - Inform the user: "Task t<task_id> paused at item <idx>. Re-pick with `/aitask-pick <task_id>`."
-   - End the workflow. The task stays `Implementing` and the lock remains held (same end state as the "Stop without archiving" branch in step 3 — only the message differs).
+   - Show the **Stopped** banner (see `workflow-end.md`) with `outcome=in-flight`, reason "checklist paused at item \<idx\>", next "`/aitask-pick <task_id>` to continue", then end the workflow. The task stays `Implementing` and the lock remains held (same end state as the "Stop without archiving" branch in step 3 — only the message differs).
 
 ### 3. Post-loop checkpoint
 
@@ -278,7 +278,7 @@ Parse the `DEFER:<K>` count.
 
   **If "Archive with carry-over":** set the internal flag `use_deferred_carryover = true` so Step 9 calls the archive script with `--with-deferred-carryover`. Proceed to step 4.
 
-  **If "Stop without archiving":** end the workflow. The task stays `Implementing` and the lock remains held so only this user can resume it. Inform the user: "Task t<task_id> left Implementing with <K> deferred items. Re-pick later with `/aitask-pick <task_id>`."
+  **If "Stop without archiving":** end the workflow. The task stays `Implementing` and the lock remains held so only this user can resume it. Inform the user: "Task t<task_id> left Implementing with <K> deferred items. Re-pick later with `/aitask-pick <task_id>`." Then show the **Stopped** banner (see `workflow-end.md`) with `outcome=in-flight`, reason "\<K\> checklist item(s) deferred — not archived", next "`/aitask-pick <task_id>` to continue the remaining items".
 
 - **If `DEFER = 0`:** proceed to step 4 (standard archival).
 

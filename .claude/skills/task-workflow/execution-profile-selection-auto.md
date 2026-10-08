@@ -55,8 +55,8 @@ Auto-select an execution profile:
 ./.aitask-scripts/aitask_scan_profiles.sh --auto
 ```
 
-**If output is `NO_PROFILES`:** Display error: "\<mode_label\> workflow requires an execution profile. Create one at `aitasks/metadata/profiles/remote.yaml`." Abort.
+**If output is `NO_PROFILES`:** Display error: "\<mode_label\> workflow requires an execution profile. Create one at `aitasks/metadata/profiles/remote.yaml`." Abort — show the **Stopped** banner (see `workflow-end.md`) for the requested task with `outcome=unchanged`, reason "no execution profile", next "create `aitasks/metadata/profiles/remote.yaml`, then re-run".
 
 **If output starts with `AUTO_SELECTED|`:** Parse the line as `AUTO_SELECTED|<filename>|<name>|<description>`. Display: "\<mode_label\> mode: Using profile '\<name\>' (\<description\>)". Read the full profile: `cat aitasks/metadata/profiles/<filename>`. Store all profile fields in memory for use throughout remaining steps.
 
-**Error handling:** If `INVALID|<filename>` lines appear on stderr, display error "Profile '\<filename\>' has invalid format" and abort if no valid profiles remain.
+**Error handling:** If `INVALID|<filename>` lines appear on stderr, display error "Profile '\<filename\>' has invalid format" and abort if no valid profiles remain — show the **Stopped** banner (see `workflow-end.md`) for the requested task with `outcome=unchanged`, reason "no valid execution profile", next "fix `aitasks/metadata/profiles/<filename>`, then re-run".

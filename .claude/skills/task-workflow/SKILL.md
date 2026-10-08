@@ -47,7 +47,7 @@ After a task is selected and confirmed, perform these checks before proceeding t
       - "Yes, archive it" (description: "Proceed to archive the task and plan file if found")
       - "No, skip" (description: "Leave the task as-is and end the workflow")
   - If "Yes, archive it" → skip Steps 4-8, proceed directly to **Step 9** (Post-Implementation) for parent task archival
-  - If "No, skip" → end the workflow
+  - If "No, skip" → show the **Stopped** banner (see `workflow-end.md`) with `outcome=unchanged`, reason "task is Done but not archived — left as-is", next "`/aitask-pick <taskid>` to archive it later", and end the workflow
 
 **Check 2 - Orphaned parent task (empty children_to_implement):**
 - Check if the task file's frontmatter contains `children_to_implement: []` (empty list)
@@ -64,7 +64,7 @@ After a task is selected and confirmed, perform these checks before proceeding t
       - "Yes, archive it" (description: "Proceed to archive the parent task and plan file if found")
       - "No, skip" (description: "Leave the task as-is and end the workflow")
   - If "Yes, archive it" → skip Steps 4-8, proceed directly to **Step 9** (Post-Implementation) for parent task archival
-  - If "No, skip" → end the workflow
+  - If "No, skip" → show the **Stopped** banner (see `workflow-end.md`) with `outcome=unchanged`, reason "all children archived, parent not archived — left as-is", next "`/aitask-pick <number>` to archive it later", and end the workflow
 
 **Check 3 - Manual-verification task:**
 - Read the task file's frontmatter `issue_type` field
@@ -83,7 +83,7 @@ After a task is selected and confirmed, perform these checks before proceeding t
       - "Yes, archive it" (description: "Skip implementation and archive the now-complete task")
       - "No, keep it active" (description: "Leave the task as-is and end the workflow")
   - If "Yes, archive it" → skip Steps 4-8, proceed directly to **Step 9** (Post-Implementation) for archival
-  - If "No, keep it active" → end the workflow
+  - If "No, keep it active" → show the **Stopped** banner (see `workflow-end.md`) with `outcome=unchanged`, reason "all gates pass; archival declined — task kept active", next "`/aitask-pick <taskid>` to archive it later", and end the workflow
 
 **Check 5 - In-flight task, resume from first unmet checkpoint:**
 
@@ -228,7 +228,7 @@ If none of the checks trigger, proceed to Step 4 as normal.
       ```bash
       ./.aitask-scripts/aitask_pick_own.sh <task_num> --force --email "<email>"
       ```
-      Parse the output again. If `FORCE_UNLOCKED` + `OWNED`: proceed. Otherwise: abort.
+      Parse the output again. If `FORCE_UNLOCKED` + `OWNED`: proceed. Otherwise: abort — show the **Stopped** banner (see `workflow-end.md`) with `outcome=unchanged`, reason "force-claim failed" (add "the stale lock held by \<previous_owner\> was released" when the output carried `FORCE_UNLOCKED:`), next "`./.aitask-scripts/aitask_lock_diag.sh`, then `/aitask-pick <task_num>`", and end the workflow.
     - If "Pick a different task": Return to the calling skill's task selection. Do NOT proceed.
   - `LOCK_LIVE_HOLDER:<owner>|<locked_at>|<hostname>|<pid>` — **another session of yours on this machine is holding this task and is still running.** Nothing was claimed: the refusal happens before the lock, the status write and the commit, so the task is untouched and there is nothing to undo. This is not a crash — do **not** describe it as one, and do not run the Crash Recovery Procedure. Parse the `|`-separated fields and use `AskUserQuestion`:
     - Question: "Task t\<N\> is already held by another session of yours on this machine (pid \<pid\>, since \<locked_at\>), and that session is still running. Nothing has been claimed."
@@ -241,7 +241,7 @@ If none of the checks trigger, proceed to Step 4 as normal.
       ```bash
       ./.aitask-scripts/aitask_pick_own.sh <task_num> --force --email "<email>"
       ```
-      Parse the output again. If `FORCE_UNLOCKED` + `OWNED`: proceed to Step 5. Otherwise: abort.
+      Parse the output again. If `FORCE_UNLOCKED` + `OWNED`: proceed to Step 5. Otherwise: abort — show the **Stopped** banner (see `workflow-end.md`) with `outcome=unchanged`, reason "force-claim past another session of yours failed" (add "its lock was released" when the output carried `FORCE_UNLOCKED:`), next "check the other session, then `/aitask-pick <task_num>`", and end the workflow.
   - `LOCK_UNVERIFIABLE_HOLDER:<owner>|<locked_at>|<hostname>|<pid>` — a session of yours on this machine holds the task and **its liveness could not be established** — it is neither provably running nor provably gone (an uninspectable process, or an identity token too coarse to rule out a recycled PID). As above, nothing was claimed and this is not a crash. Same prompt shape, same option order:
     - Question: "Task t\<N\> is held by a session on this machine (pid \<pid\>, since \<locked_at\>) that could not be verified as either running or gone. Nothing has been claimed."
     - Header: "Unverified"
@@ -258,10 +258,10 @@ If none of the checks trigger, proceed to Step 4 as normal.
       - "Abort" (description: "Stop the workflow")
     - If "Retry": Re-run `aitask_pick_own.sh` (same command). Parse output again.
     - If "Continue without lock": Skip lock acquisition, proceed to Step 5 (task status will be updated but no lock held).
-    - If "Abort": End the workflow.
-  - `LOCK_INFRA_MISSING` — Lock infrastructure not initialized. Inform user to run `ait setup` and abort.
+    - If "Abort": show the **Stopped** banner (see `workflow-end.md`) with `outcome=unchanged`, reason "lock system error: \<message\>", next "`./.aitask-scripts/aitask_lock_diag.sh`, then `/aitask-pick <task_num>`", and end the workflow.
+  - `LOCK_INFRA_MISSING` — Lock infrastructure not initialized. Inform user to run `ait setup` and abort — show the **Stopped** banner (see `workflow-end.md`) with `outcome=unchanged`, reason "lock infrastructure not initialized", next "`ait setup`, then `/aitask-pick <task_num>`", and end the workflow.
 
-  **Note:** The script handles email storage, lock acquisition, task metadata update (`status` → Implementing, `assigned_to`), and git add/commit/push internally. If the script fails entirely (non-zero exit without structured output), display the error and abort.
+  **Note:** The script handles email storage, lock acquisition, task metadata update (`status` → Implementing, `assigned_to`), and git add/commit/push internally. If the script fails entirely (non-zero exit without structured output), display the error and abort. The script may have failed part-way, so re-read the task's `status` / `assigned_to` before choosing the banner's outcome (read-only): if they are still what they were before the claim, show the **Stopped** banner (see `workflow-end.md`) with `outcome=unchanged`; if the status now reads `Implementing`, use `outcome=in-flight` and say so in the reason. Reason "ownership claim failed: \<error\>", next "fix the error, then `/aitask-pick <task_num>`"; then end the workflow.
 
 - **Materialize the active-gates tuple (ALWAYS runs — never profile-omitted):** With ownership held, derive and persist the task's enforced gate set under the current profile. If `active_profile_filename` is set, run:
 
@@ -307,7 +307,7 @@ Runs only when `resume_point` (from Step 3 Check 5) is `IMPLEMENT` or `POSTIMPL`
   done
   ```
 
-  `UNSAFE_BRANCH:<b>` → **stop**: report the offending value and resume nothing (fail closed). Do **not** fall back to a default — an unsafe header value means the plan is untrustworthy about where work lands.
+  `UNSAFE_BRANCH:<b>` → **stop**: report the offending value and resume nothing (fail closed). Do **not** fall back to a default — an unsafe header value means the plan is untrustworthy about where work lands. Then show the **Stopped** banner (see `workflow-end.md`) with `outcome=in-flight` (the task stays `Implementing` with its lock reclaimed), reason "plan header names an unsafe branch: \<b\>", next "correct the plan header, then `/aitask-pick <taskid>`", and end the workflow.
 
   Never fall back to `Base branch:` for the output branch: a plan written before that field existed merged to `main`, and reading its base would retroactively change where in-flight work lands. Carry both provenance strings and name them in any prompt, exactly as Step 9 does.
 
@@ -326,7 +326,7 @@ Runs only when `resume_point` (from Step 3 Check 5) is `IMPLEMENT` or `POSTIMPL`
   fi
   ```
 
-  `UNSAFE_WORKTREE:<p>` → **stop**, exactly as for `UNSAFE_BRANCH` — a header value that is not repo-relative and shell-safe means the plan is untrustworthy about where the work lives, and treating it as usable would place a worktree outside the repository.
+  `UNSAFE_WORKTREE:<p>` → **stop**, exactly as for `UNSAFE_BRANCH` — a header value that is not repo-relative and shell-safe means the plan is untrustworthy about where the work lives, and treating it as usable would place a worktree outside the repository. Show the **Stopped** banner (see `workflow-end.md`) with `outcome=in-flight`, reason "plan header names an unsafe worktree path: \<p\>", next "correct the plan header, then `/aitask-pick <taskid>`", and end the workflow.
 
   Then bind the mode and the path together — every branch below sets **both**, because Step 7's fork block reads `worktree_path` and cannot run without it:
 
@@ -433,7 +433,7 @@ Runs only when `resume_point` (from Step 3 Check 5) is `IMPLEMENT` or `POSTIMPL`
 > - Checkpoint (post-plan action)
 >
 > After the checkpoint in `planning.md`:
-> - If child tasks were created and the child checkpoint returned "Stop here" → collect **Satisfaction Feedback Procedure** (see `satisfaction-feedback.md`) with `skill_name` from context variables, then **END the workflow** (do NOT proceed to Step 7/8/9)
+> - If child tasks were created and the child checkpoint returned "Stop here" → collect **Satisfaction Feedback Procedure** (see `satisfaction-feedback.md`) with `skill_name` from context variables, then show the **Stopped** banner (see `workflow-end.md`) with `outcome=split` — `planning.md` owns that display — and **END the workflow** (do NOT proceed to Step 7/8/9)
 > - If child tasks were created and the child checkpoint returned "Start first child" → restart with `/aitask-pick <parent>_1` (do NOT proceed to Step 7)
 > - Otherwise (normal single-task plan) → proceed to Step 7
 
@@ -455,11 +455,19 @@ Before starting implementation, verify that ownership/lock was acquired (Step 4 
     ```
   - Parse output as in Step 4:
     - `OWNED:<task_id>` — Success. Proceed.
-    - `LOCK_FAILED:<owner>|<locked_at>|<hostname>` — Parse the `|`-separated fields. Use `AskUserQuestion` with options: "Force unlock and claim" / "Abort task". If force unlock, re-run with `--force`. If abort, execute the **Task Abort Procedure** (see `task-abort.md`).
+    - `LOCK_FAILED:<owner>|<locked_at>|<hostname>` — Parse the `|`-separated fields. Use `AskUserQuestion` with options: "Force unlock and claim" / "Abort task". If force unlock, re-run with `--force`; if that does not return `FORCE_UNLOCKED` + `OWNED`, abort with the state-derived **Stopped** banner below (`workflow-end.md`). If abort, execute the **Task Abort Procedure** (see `task-abort.md`).
     - `LOCK_LIVE_HOLDER:` / `LOCK_UNVERIFIABLE_HOLDER:` — another session of yours on this machine holds the task and is running (or could not be verified as gone). Handle exactly as in Step 4, including the option order (safe option first). Reaching this from *this* guard is unusual — it means ownership was lost between Step 4 and here — so state that in the display before prompting.
     - `LOCK_ERROR:<message>` — Display error. Use `AskUserQuestion`: "Retry" / "Continue without lock" / "Abort". Handle as in Step 4.
-    - `LOCK_INFRA_MISSING` — Inform user to run `ait setup` and abort.
-    - Script fails entirely — display error and abort.
+    - `LOCK_INFRA_MISSING` — Inform user to run `ait setup` and abort, with the state-derived **Stopped** banner below (`workflow-end.md`).
+    - Script fails entirely — display error and abort, with the state-derived **Stopped** banner below (`workflow-end.md`).
+
+  **Ending the run from this guard — banner outcome from the resulting state.** Every branch above that ends the run *without* the Task Abort Procedure shows the **Stopped** banner (see `workflow-end.md`) — the bare aborts (`LOCK_INFRA_MISSING`, script failure, a failed `--force` re-run) **and** the branches handled "as in Step 4" (`LOCK_ERROR` → "Abort", a failed live/unverifiable-holder force-claim). **Never** reuse Step 4's `outcome=unchanged` here: this guard runs after Step 4 claimed the task and Step 6 saved and committed the plan, so the run is not untouched. Instead read the state, **read-only** — never release, take or rewrite another session's lock or assignment to describe it:
+  - the task file's `status` and `assigned_to`, and the lock holder from `./.aitask-scripts/aitask_lock.sh --check <task_id>`;
+  - `status: Implementing` → `outcome=in-flight`; when the lock or assignment belongs to someone else, the reason says "ownership not confirmed — held by \<owner\>@\<hostname\>";
+  - `status: Ready` → `outcome=ready`;
+  - `next` names the retained, committed plan (`aiplans/<plan_file>`), the lock remedy (`./.aitask-scripts/aitask_lock_diag.sh`, or `ait setup` for `LOCK_INFRA_MISSING`), and `/aitask-pick <task_id>`.
+
+  Then end the workflow. (The "Abort task" route runs the Task Abort Procedure, which shows its own `outcome=aborted` banner — see `workflow-end.md`.)
 
 **Resource admission (ask the host before starting):**
 
@@ -605,7 +613,7 @@ If it returns `risk_before_blocking: true`, the original is blocked by ≥1 unfi
    `<task_file>` is **required**; parse the output per the **outcome contract**
    in `.claude/skills/ait-git/SKILL.md`. Name the task's own file, not the
    `aitasks/` directory.
-4. Display: "Unfinished risk-mitigation 'before' task(s) the original depends on: t\<ids\>. Task t\<task_id\> reverted to Ready — implement the mitigation(s) first, then re-pick t\<task_id\> (its plan will be force re-verified)." Then **END the workflow** — do NOT proceed to the implementation below or to Step 8.
+4. Display: "Unfinished risk-mitigation 'before' task(s) the original depends on: t\<ids\>. Task t\<task_id\> reverted to Ready — implement the mitigation(s) first, then re-pick t\<task_id\> (its plan will be force re-verified)." Then show the **Stopped** banner (see `workflow-end.md`) with `outcome=ready`, reason "blocked by unfinished risk-mitigation task(s) t\<ids\>; approved plan kept", next "implement t\<ids\>, then `/aitask-pick <task_id>`", and **END the workflow** — do NOT proceed to the implementation below or to Step 8.
 
 If it returns `risk_before_blocking: false` (no "before" mitigations, or all of them already landed), continue to implementation normally.
 {%- endif %}
@@ -845,7 +853,7 @@ Execute the post-implementation cleanup steps.
     echo "UNSAFE_OUTPUT_BRANCH"
   ```
 
-  `UNSAFE_OUTPUT_BRANCH` → **stop**: the plan header records a branch name that is not shell-safe. Report it and do not merge.
+  `UNSAFE_OUTPUT_BRANCH` → **stop**: the plan header records a branch name that is not shell-safe. Report it and do not merge. Show the **Stopped** banner (see `workflow-end.md`) with `outcome=in-flight` (committed, reviewed, not merged), reason "plan header names an unsafe output branch", next "correct `Output branch:` in the plan header, then `/aitask-pick <task_id>` to resume at the merge", and end the workflow.
 
   Binding to a variable — rather than substituting the literal — is what makes an injected ref name inert: `git checkout "dev$(id)" --` executes `id`, whereas `git checkout "$output_branch" --` never does. Use the quoted variable in every command below.
 
@@ -1000,7 +1008,8 @@ today.) Instead use `AskUserQuestion`:
   user: "Archival deferred — t<task_id> stays in-flight. Re-pick it with
   `/aitask-pick <task_id>` once the pending gate(s) pass." Skip the
   push-after-archival step and proceed directly to **Step 9b** (Satisfaction
-  Feedback) — the implementation work was completed.
+  Feedback) — the implementation work was completed — and then to **Step 10**,
+  which ends the run with the `in-flight` banner.
 
 **Parse the script output and handle interactive follow-ups:**
 
@@ -1071,7 +1080,30 @@ The script outputs structured lines. Parse each line and handle accordingly:
 
 ### Step 9b: Satisfaction Feedback
 
-Execute the **Satisfaction Feedback Procedure** (see `satisfaction-feedback.md`) with `skill_name` and `detected_agent_string` from the context variables.
+Execute the **Satisfaction Feedback Procedure** (see `satisfaction-feedback.md`) with `skill_name` and `detected_agent_string` from the context variables. Then proceed to **Step 10**.
+
+### Step 10: Workflow End
+
+**⚠️ NON-SKIPPABLE — Auto mode and execution profiles do NOT bypass this step.**
+
+This is the run's closing message: the one line that tells the user the workflow
+is over and how it ended. It always runs last, under every profile — including
+those that render Step 9b down to a single usage bump — and nothing is output
+after it. No profile key covers it (currently: none), and a "be brief" or "work
+without stopping" instruction does not either: it is one display, not a question.
+
+Execute the **Workflow End Banner Procedure** (see `workflow-end.md`):
+
+- **The task was archived in Step 9** → section `## Complete`, with `task_id`,
+  `task_name`, `commit` (from the archive script's `COMMITTED:<hash>` line),
+  `pushed` (`yes` if the push after archival succeeded, else `no`) and
+  `follow_ups` (the task ids created in Steps 8b, 8c and 8d, or `none`).
+- **Step 9's gate guard took "Defer — keep in-flight"** → section `## Stopped`,
+  with `outcome=in-flight`, reason "archival deferred — pending gate(s)
+  \<csv\>", next "`/aitask-pick <task_id>` once the pending gate(s) pass".
+
+The banner is a message for the user only. The monitor's COMPLETED badge is
+derived from the task file and is unaffected by it.
 
 ### Procedures
 
@@ -1101,6 +1133,7 @@ The following procedures are in individual files — read on demand when referen
 - **Execution Profile Selection Procedure** (`execution-profile-selection.md`) — Interactive profile scan and selection. Referenced from Step 0a in calling skills.
 - **Execution Profile Selection Procedure — Auto-Select** (`execution-profile-selection-auto.md`) — Non-interactive auto-select for remote/web skills. Referenced from Step 1 in aitask-pickrem/aitask-pickweb.
 - **Batch Task Creation Procedure** (`task-creation-batch.md`) — Canonical command templates for creating tasks via `aitask_create.sh --batch`. Referenced from planning.md and multiple skills (explore, review, qa, wrap, pr-import, revert).
+- **Workflow End Banner Procedure** (`workflow-end.md`) — The run's fixed-format closing message: `## Complete` at Step 10, `## Stopped` (closed `outcome` vocabulary) at every early or alternate exit. User-facing only; nothing reads it. Referenced from Step 3, Step 4, Re-entry Routing, Steps 6, 7, 9 and 10, and from every shared exit procedure (`plan-approved-stop.md`, `task-abort.md`, `merge-broker.md`, `merge-target-sync.md`, `manual-verification.md`, `planning.md`, `cross-repo-child-assignment.md`, `parallel-assessment.md`) and `aitask-pickrem` / `aitask-pickweb`.
 {%- if profile.record_gates is defined and profile.record_gates %}
 - **Gate Recording Procedure** (`gate-recording.md`) — Record a workflow checkpoint into the task's gate ledger and persist it (path-scoped commit + best-effort push) via `aitask_gate_record.sh`. Gated behind the `record_gates` profile key; referenced from Step 7 (plan_approved, risk_evaluated), Step 8 (review_approved), Step 9 (build_verified, merge_approved), and `planning.md` Checkpoint (plan_approved).
 {%- endif %}
