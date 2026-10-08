@@ -149,6 +149,19 @@ consumers may degrade.
 registered to repo A, one pane sits in repo B, and the typed id exists in both
 repos. It must resolve and launch in A, or refuse; never B.
 
+**Also affected: the TUI switcher (`j`).** `tui_switcher.py` builds its list
+from `discover_aitasks_sessions(include_registered=True)`. While mis-mapped,
+that list (observed 2026-10-08) holds **two `aitasks` entries**: a live one
+rooted at `thinking_app` and a registered one rooted at `aitasks`. The live
+`thinkingapp` session is **missing**, collapsed into the first entry by the
+key-dedupe on project root.
+
+`j` → board from the minimonitor therefore ran
+`new-window -t aitasks: -c /home/ddt/Work/thinking_app -n board …`, opening
+thinking_app's board inside the `aitasks` session. That board then crashed on
+an unrelated stale-module bug, filed as t1926. Add the switcher to the
+consumer audit: its selected entry, the dedupe, and the window spawn cwd.
+
 **Tests to add (in addition to the ones above):**
 - order dependence: the same pane set, with the wandering pane listed first and
   then last, must resolve to the same root;
