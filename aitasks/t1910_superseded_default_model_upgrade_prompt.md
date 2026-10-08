@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: high
 depends: []
 issue_type: feature
@@ -124,3 +126,5 @@ defaults" — that would discard deliberate choices.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-10-08T12:51:35Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-10-08T13:58:23Z status=pass attempt=1 type=human
