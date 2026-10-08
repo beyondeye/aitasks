@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1916
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-08 17:01
-updated_at: 2026-10-08 23:55
+updated_at: 2026-10-09 00:12
 ---
 
 ## Origin
@@ -54,3 +55,8 @@ as `<Family> <ver> (1M)` (or decide on a label that matches Claude Code's own
 "(1M context)" wording), and keep `haiku4_5`'s date-suffix stripping
 (tests/test_codeagent.sh Test 21). Add assertions for the `_1m` and major-only
 cases in tests/test_codeagent.sh.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-08T21:12:04Z status=pass attempt=1 type=human
