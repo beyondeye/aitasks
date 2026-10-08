@@ -11,8 +11,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-07 15:55
-updated_at: 2026-10-07 16:09
+updated_at: 2026-10-08 12:25
 ---
 
 ## Problem
@@ -166,3 +167,8 @@ tmux window, and minimonitor. `a` can re-open it later.
   `website/content/docs/tuis/board/how-to.md` (~L480 "Handling conflicts"),
   `website/content/docs/tuis/board/reference.md` (~L688 Sync Conflict row).
   Run `python3 check_links.py --build` after editing.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-08T09:25:10Z status=pass attempt=1 type=human
