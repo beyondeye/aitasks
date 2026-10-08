@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1910
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-08 17:06
-updated_at: 2026-10-08 23:46
+updated_at: 2026-10-08 23:56
 ---
 
 ## Context
@@ -48,3 +49,8 @@ SKILL.md stays the single source of truth.
   finds the new entry.
 - `./.aitask-scripts/aitask_audit_wrappers.sh parity` reports no new gap for
   `aitask-add-model`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-08T20:56:09Z status=pass attempt=1 type=human
