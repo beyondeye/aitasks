@@ -51,7 +51,7 @@ A recorded supersession is global — every operation still using the old model 
 
 - **Recorded** when the promotion moves every seed operation off the old model. A matching `_1m` variant pair is recorded alongside when both variants are registered.
 - **Refused** when the old model stays the seed default of another operation (a partial promotion), when the old model already has a different successor, when the new edge would close a cycle, or when the new model is not registered. The skill then offers to add the remaining operations, to promote without recording a supersession (`--no-supersession`), or to abort. Nothing is written by a refused apply.
-- A lineage a partial promotion could not record can be declared later, once no seed default uses the old model: `./.aitask-scripts/aitask_add_model.sh record-supersession --agent <agent> --old <old> --new <new>`.
+- `record-supersession` declares a lineage without a promotion: one a partial promotion could not record (once no seed default uses the old model), or the successor of a model that was never a default (for example `haiku4_5` → `haiku5_5`): `./.aitask-scripts/aitask_add_model.sh record-supersession --agent <agent> --old <old> --new <new>`.
 - Existing entries are never overwritten, and a cross-agent replacement (for example a `claudecode` model replaced by a `codex` one) is not recorded.
 
 ## Supported Agents

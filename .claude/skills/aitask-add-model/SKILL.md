@@ -264,11 +264,14 @@ Execute the **Satisfaction Feedback Procedure** (see
   `.defaults`. Seed's `codeagent_config.json` has only the canonical 6
   ops, so brainstorm keys are silently skipped in seed — this is
   intended so that the seed stays minimal.
-- Supersession is recorded only from the **seed** defaults (what downstream
-  projects carry), and only when the promotion retires the old model from the
-  seed entirely — the framework must never ship a default it declares
-  obsolete. A lineage a partial promotion could not record is declared later,
-  once the old model is no longer a seed default:
+- A promotion records supersession from the **seed** defaults (what downstream
+  projects carry), and only when it retires the old model from the seed
+  entirely — the framework must never ship a default it declares obsolete.
+  Supersession is not limited to defaults: when you register the successor of a
+  model that was never a default (e.g. `haiku4_5` → `haiku5_5`), declare the
+  lineage so users who chose the old model are offered the new one. The same
+  verb declares a lineage a partial promotion could not record, once the old
+  model is no longer a seed default:
   `./.aitask-scripts/aitask_add_model.sh record-supersession --agent <a> --old <old> --new <new> [--dry-run]`
   (same guards; commit the table as in Step 6). Existing edges are never
   overwritten.

@@ -105,7 +105,7 @@ ait upgrade 0.2.1              # Upgrade to specific version
 
 **Superseded model defaults:**
 
-An upgrade never changes a configured model on its own. After the framework files are committed, it looks for operations in `codeagent_config.json` (and your `codeagent_config.local.json`) whose model a newer framework model supersedes, and asks once per superseded model whether to switch those operations. Custom choices are never offered a switch, and a declined offer is not repeated until a newer successor exists. Without a terminal it only lists the offers. Run `ait codeagent check-superseded` at any time to review them; see [Superseded model defaults]({{< relref "/docs/commands/codeagent#superseded-model-defaults" >}}).
+An upgrade never changes a configured model on its own. After the framework files are committed, it looks for operations in `codeagent_config.json` (and your `codeagent_config.local.json`) whose model a newer framework model supersedes, and asks once per superseded model whether to switch those operations. A model nothing supersedes is never offered a switch, whether it is a framework default or a custom choice, and a declined offer is not repeated until a newer successor exists. Without a terminal it only lists the offers. Run `ait codeagent check-superseded` at any time to review them; see [Superseded model defaults]({{< relref "/docs/commands/codeagent#superseded-model-defaults" >}}).
 
 **Bounded version lookup:**
 

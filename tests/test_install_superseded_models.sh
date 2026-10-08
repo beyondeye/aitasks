@@ -125,9 +125,12 @@ HOME="$FAKE_HOME" PATH="$CLEAN_PATH" bash "$INSTALL_SH" --dir "$PROJECT" --local
     </dev/null >/dev/null 2>&1
 config="$PROJECT/aitasks/metadata/codeagent_config.json"
 assert_eq "precondition: first install wrote the config" "yes" "$([[ -f "$config" ]] && echo yes || echo no)"
+# explore: a custom (never-default) model that has a declared successor.
+# qa: a model nothing supersedes — the never-offered control.
 jq '.defaults.pick = "claudecode/opus5"
     | .defaults.explain = "claudecode/sonnet5"
-    | .defaults.qa = "claudecode/haiku4_5"' "$config" > "$config.tmp" && mv "$config.tmp" "$config"
+    | .defaults.explore = "claudecode/haiku4_5"
+    | .defaults.qa = "claudecode/haiku5_5"' "$config" > "$config.tmp" && mv "$config.tmp" "$config"
 (
     cd "$PROJECT" || exit 1
     git add -A
@@ -146,7 +149,9 @@ assert_contains "report lists sonnet5 -> sonnet5_5" \
     "claudecode/sonnet5 (explain) — superseded by claudecode/sonnet5_5" "$upgrade_output"
 assert_contains "report gives the re-run hint" \
     "Run 'ait codeagent check-superseded' in a terminal" "$upgrade_output"
-assert_not_contains "custom haiku4_5 default never offered" "claudecode/haiku4_5 (" "$upgrade_output"
+assert_contains "custom haiku4_5 offered its declared successor" \
+    "claudecode/haiku4_5 (explore) — superseded by claudecode/haiku5_5" "$upgrade_output"
+assert_not_contains "non-superseded haiku5_5 never offered" "claudecode/haiku5_5 (" "$upgrade_output"
 assert_eq "non-tty upgrade leaves the defaults unchanged" "$config_before" "$(jq -S '.defaults' "$config")"
 assert_eq "supersession table delivered with the framework" \
     "$(cat "$PROJECT_DIR/.aitask-scripts/lib/model_supersessions.json")" \

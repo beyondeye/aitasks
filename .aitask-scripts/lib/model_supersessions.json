@@ -33,6 +33,10 @@
       "sonnet5": {
         "by": "sonnet5_5",
         "source": "t1886 95f0394cb"
+      },
+      "haiku4_5": {
+        "by": "haiku5_5",
+        "source": "record-supersession 2026-10-08"
       }
     },
     "codex": {

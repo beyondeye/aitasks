@@ -217,12 +217,12 @@ Both config files can be edited directly or through the [Settings TUI](../../tui
 
 #### Superseded model defaults
 
-`ait upgrade` adds new operation keys to `codeagent_config.json` but never changes a value you already have, so a project keeps the model it was installed with. When the framework promotes a newer model, it records which model the new one supersedes in `.aitask-scripts/lib/model_supersessions.json` (framework-owned, replaced on every upgrade). Supersessions chain: a project still on `claudecode/opus4_8` is offered the newest model in the chain that is registered in its `models_claudecode.json`.
+`ait upgrade` adds new operation keys to `codeagent_config.json` but never changes a value you already have, so a project keeps the model it was installed with. The framework records which model a newer one supersedes in `.aitask-scripts/lib/model_supersessions.json` (framework-owned, replaced on every upgrade): when it promotes a new default, and when it registers the successor of a model that was never a default (for example `claudecode/haiku4_5` → `claudecode/haiku5_5`). Supersessions chain: a project still on `claudecode/opus4_8` is offered the newest model in the chain that is registered in its `models_claudecode.json`.
 
 At the end of an upgrade, `ait upgrade` checks every key under `defaults` in both config layers:
 
 - An operation whose model is superseded is grouped with the other operations of the same layer that use that model, and you get one question per group: `Your project defaults for pick, explore use claudecode/opus5, which is superseded by claudecode/opus5_5. Switch? [Y/n]`.
-- Operations set to any model that has not been superseded — including deliberate custom choices — are never offered a switch.
+- Operations set to a model nothing supersedes are never offered a switch. This holds for framework defaults and custom choices alike; a custom choice whose model has a recorded successor is offered it like any other.
 - The project layer and the per-user layer are asked separately. An accepted project-layer switch is committed (`ait: Update codeagent_config.json`) when the file had no other uncommitted changes; otherwise it is written and left for you to review and commit. The per-user layer is never committed.
 - Answering `n` is remembered for this clone, in the repository's git directory, and that model is not offered again until a different successor is available.
 - Without a terminal (for example a `curl | bash` upgrade), nothing is changed: the offers are listed together with the command to review them.
