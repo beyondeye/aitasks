@@ -347,3 +347,36 @@ judged by the verified outcome. Recorded in the Final Implementation Notes.
 - The quality of the resolution rests on the agent's judgement. The prompt states the outcome, the isolation constraint, the two verified pitfalls, and a mandatory verification of the published and live result, but no step is enforced. The earlier procedure-helper follow-up (`helperize_data_conflict_procedure`) was dropped on the user's direction: enforcing a fixed workflow is no longer the intended design · severity: medium · → mitigation: none
 - The agent could still choose a strategy that loses a merge-only resolution, or accept a driver result that undoes a deliberate change. Both are named as pitfalls, and the outcome-verification requirement is the backstop; a live manual check is offered at Step 8c · severity: low · → mitigation: none
 - With `sync_on_refresh`, the board re-pops the conflict dialog every interval while an agent is already resolving (pre-existing re-pop behaviour); noisy, not harmful — the agent works in its own worktree · severity: low · → mitigation: none
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-08 12:40)
+- **Requested by user:** (1) at 80 columns the three-button row needs 64 content columns but the dialog gives 51, clipping "Dismiss" — keep all three visible and add an 80-column regression case; (2) the syncer doc said the agent targets the highlighted row's repo, but `a` re-targets the repo whose sync conflicted; (3) the conflict modal still derives from bare `ModalScreen` (follow-up, not this task).
+- **Changes made:** (1) `#sync_conflict_dialog` gets `min-width: 72` (64 content + 6 border/padding, plus slack); the render test now checks 80/100/120 columns against the dialog's CONTENT region. A valid negative control (`min-width: 0` override) measured 57 wide and clipped at 80. (2) Doc now says "rooted in the repository whose sync conflicted (also when you re-open the dialog with `a` from another row)". (3) Recorded under Upstream defects for a Step 8b follow-up.
+- **Files affected:** `.aitask-scripts/lib/sync_action_runner.py`, `tests/test_sync_action_runner.py`, `website/content/docs/tuis/syncer/_index.md`
+
+## Final Implementation Notes
+- **Actual work done:**
+  - `lib/sync_action_runner.py`: `SyncConflictScreen` has three buttons and dismisses with the closed set `CONFLICT_CHOICE_AGENT` / `CONFLICT_CHOICE_INTERACTIVE` / `None`. It takes an optional `repo_label` and is `72%` wide with a `min-width: 72`. New pure `build_data_conflict_prompt()` and `DATA_CONFLICT_WINDOW_NAME`.
+  - `syncer/syncer_app.py`: new `DataConflictContext`. CONFLICT is stored in `_last_failure` so `a` re-opens the conflict modal. `_launch_resolution_agent` is split into a shared `_launch_agent(...)` plus `_launch_data_conflict_agent(ctx)`, rooted in the conflicting repo.
+  - `board/aitask_board.py`: equality routing in `_show_conflict_dialog`, plus a new `_launch_data_conflict_agent(files)`.
+  - Tests: the modal (dismiss values, title, button fit at 80/100/120 columns), the prompt (context, isolation, outcome, end state, verification, pitfalls — no Git recipe), syncer `DataConflictAgentTests` (6), and new `tests/test_board_sync_conflict_agent.py` (8).
+  - Docs: syncer, board how-to and reference, and `commands/sync.md`.
+- **Deviations from plan:**
+  - The plan went through three rounds before approval:
+    1. The 10-step recipe.
+    2. A publish-from-scratch design plus a `merge_audit.py` tool, after the shadow review.
+    3. By user direction, an autonomy-oriented prompt: context + outcome + one constraint (a separate worktree) + two factual pitfalls + outcome verification + the end state (other sessions' work preserved, no merge or rebase left in progress).
+  - Dropped: the recipe, the audit tool, the Git fixture test and the `helperize_data_conflict_procedure` mitigation.
+  - This supersedes the task file's constraints 2–4 and 6 and acceptance criterion 4 (a prescribed procedure that pinned rerere and published via `ait sync`/`ait git`).
+  - The modal floor `min-width: 72` was added in review.
+- **Issues encountered:**
+  - An 80-column clip was found in review. At 80 columns `72%` alone leaves 51 content columns against the 64 the buttons need.
+  - A first negative control was invalid because Textual merges a base class's `DEFAULT_CSS` into a subclass. An explicit `min-width: 0` override was used instead.
+- **Key decisions:**
+  - Dispatch is by equality on the closed dismiss set, so a stray truthy value launches nothing (a stray `True` is pinned by a test).
+  - The conflict context targets the repo whose sync conflicted, also when `a` re-opens it from another row.
+  - `DEFERRED:*` is still never captured. `DEFERRED:worktree_wedged` gets no agent offer: it may be a live session's resolution.
+- **Upstream defects identified:**
+  - `.aitask-scripts/syncer/syncer_app.py:2518-2525` — the syncer agent-launch callback (`_launch_agent.on_launch`, inherited from the old `_launch_resolution_agent`) ignores `AgentCommandScreen`'s `"run"` result, so "Run in terminal" silently does nothing for both the failure and the data-conflict agent. The fix needs a cwd-aware terminal spawn for multi-repo rows.
+  - `.aitask-scripts/lib/sync_action_runner.py:496` and `.aitask-scripts/syncer/sync_failure_screen.py:26` — `SyncConflictScreen` and `SyncFailureScreen` derive from bare `ModalScreen` against the `GuardedModalScreen` dismissal rule in `aidocs/framework/tui_conventions.md`. A stale `action_cancel` after the next modal opened popped that next modal (review: PLAUSIBLE; natural key timing unverified).
