@@ -3,13 +3,14 @@ priority: medium
 effort: low
 depends: []
 issue_type: chore
-status: Ready
+status: Implementing
 labels: [codeagent, models]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1916
 followup_kind: carry_over
 created_at: 2026-10-08 17:01
-updated_at: 2026-10-08 17:01
+updated_at: 2026-10-08 23:55
 ---
 
 ## Origin
