@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1911
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-08 16:16
-updated_at: 2026-10-08 16:56
+updated_at: 2026-10-09 00:14
 ---
 
 ## Origin
@@ -38,3 +39,8 @@ During t1911's review, the conflict modal was flagged for still deriving from ba
 
 - Handle `"run"` in the syncer's `_launch_agent` callback with a cwd-aware spawn (e.g. `sh -c 'cd <root> && <cmd>'`, or extend the shared helper with a cwd), plus a test in `tests/test_syncer_rows.py`.
 - Re-base `SyncConflictScreen` and `SyncFailureScreen` on `GuardedModalScreen`, keeping their dismiss values (`CONFLICT_CHOICE_*` / `None`; `True` / `False`), and add a stale-cancel test.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-08T21:14:30Z status=pass attempt=1 type=human
