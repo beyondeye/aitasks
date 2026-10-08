@@ -423,3 +423,90 @@ hunks.
 - timing: pre-phase | name: codespan_render_probe | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: OpenCode mangles code spans (O4) | desc: Controlled OpenCode render measurement of the code-span marker before any producer/grammar edit
 - timing: post-phase | name: live_shadow_followthrough | type: test | priority: high | effort: medium | inline_risk: low | added_complexity: low | addresses: model ignores gated rule | desc: Production-path live OpenCode shadow >pc run against the final wording, with a success gate that blocks the commit
 - timing: post-phase | name: collision_guard_regression_tests | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: grammar collision guard / render perturbation | desc: Unpaired-backtick, opposite-glyph, split code-span tests plus a claude/codex render byte-identity check and a diagnostic mutant
+
+## Final Implementation Notes
+- **Actual work done:**
+  - **Step 1, outcome O1 (already accepted).** OpenCode 1.18.34 conceals the
+    backticks of a code span and keeps the brackets inside. So
+    ``- `[high | region one]` First body.`` renders as
+    `- [high | region one] First body.` and parses with no grammar change.
+    - The plain-bracket control row rendered as
+      `- medium | canonical Canonical control row.`, which re-confirms t1899.
+    - Both controlled samples are verbatim fixtures:
+      `tests/fixtures/opencode_shadow_codespan_capture.txt` and
+      `tests/fixtures/opencode_shadow_bracketless_capture.txt`.
+    - Usable-sample predicate (a) and (b) held. Each source was checked with
+      `opencode export`, `version` 1.18.34.
+  - **Step 2, diagnostic.** `_BRACKETLESS_LIKE` (report-only) reports
+    stripped rows on the fallback path, plus every stripped row a successful
+    split rejoin consumed. Acceptance is unchanged, and so is the join
+    boundary.
+  - **Step 3, producer gate.** All four producers carry
+    `{% if agent == "opencode" -%} … {% endif -%}`, placed after the "One
+    concern per line" rule.
+    - The claude and codex renders were checked with `cmp` against pre-edit
+      renders, across 3 profiles × 4 files: byte-identical.
+    - Step 3b (grammar tolerance) was not needed, since the outcome was O1.
+  - **Step 4, live production shadow** (opencode/openai_gpt_6_astra via
+    `ait codeagent invoke shadow … --dry-run`, 60 columns,
+    `@aitask_shadow_target`, `>pc` on the flawed sample plan). The shadow asked
+    for a task id; "Unknown" was chosen.
+    - Gate PASS on the encoding:
+      - 4/4 source rows were code-spanned;
+      - raw source count, decoded source and capture were 4/4/4;
+      - every priority and region was equal;
+      - the round metadata was equal:
+        `round=1@2026-10-08T05:39:36Z`;
+      - `has_concern_block` True and `unrecovered_markers` [].
+    - Gate FAIL on bodies and trailers, caused by OpenCode hard-wraps inside a
+      token:
+      - items 1–2: `history.` / `csv` was joined as `history. csv`;
+      - item 4: `Disposition: follow-` / `up.` was joined as `follow- up`, so
+        the terminal trailer failed to match. Disposition, improves, worsens
+        and effort were all lost (it shows as unspecified, the safe
+        direction).
+    - `norm()` collapsed whitespace and deleted only `` ` `` (the measured
+      concealed delimiter). The failures are beyond it.
+  - **Tests.**
+    - `TestBracketlessMarkersReported` and `TestOpencodeCodeSpanMarkers`.
+    - The rendered-docs contract became a `_RenderedShadowDocsContract`
+      mixin, run for the claude and opencode renders.
+    - In the shadow render test: a new `PROC_FILES_AGENT_GATED` array and
+      Test 1a; Test 1p uses OpenCode goldens; 6 new goldens.
+  - **Docs.** In `concern-format.md`, the "Measured renderers → OpenCode"
+    entry is rewritten (damage, encoding, measurement, hard-wrap residual,
+    what the user sees), and the `unrecovered_markers` paragraph covers
+    stripped rows.
+- **Deviations from plan:**
+  - The live gate failed on the pre-existing body hard-wrap class. **The user
+    decided** to ship the producer gate and spawn an upstream_defect
+    follow-up.
+  - A second controlled sample (plain brackets only) was run to get real
+    bytes for the bracketless fixture.
+  - The OpenCode re-check of the rendered-docs contract was first written as
+    a subclass of a test-defining class. That tripped
+    `NoInheritedTestDuplicationTests`, so it was restructured to the
+    sanctioned contract-mixin shape and allowlisted in
+    `tests/test_collection_structure.py`, with a justification. The precedent
+    is the t1598 parameterization.
+- **Issues encountered:**
+  - The first controlled-capture wait matched the echoed user prompt's
+    fences. It now waits for 2 close fences plus idle.
+  - The first full-suite run was piped through `tail`, which hid the failing
+    test, so it was re-run with the full log.
+- **Key decisions:**
+  - The code-span rule is gated per agent (OpenCode only), rather than
+    changing the canonical producer form for every agent. Claude and Codex
+    work today and were not re-measured.
+  - The diagnostic reports a consumed stripped row instead of moving the
+    join boundary, so acceptance stays exactly as it was.
+- **Upstream defects identified:**
+  - `.aitask-scripts/monitor/concern_parser.py:_scan_items` — body
+    continuation rows are always space-joined (`" ".join(parts)`). A renderer
+    that hard-wraps with literal newlines inside a token (measured: OpenCode
+    1.18.34 breaks after `history.` and after `follow-`) therefore corrupts
+    the body (`history. csv`). When the break lands in the terminal trailer
+    (`Disposition: follow- up.`), `_TRAILER_SPAN` fails, and disposition,
+    impact vector and effort are all lost. Codex hard-wraps too.
+    `_join_sep`'s `-`/`/` rule is applied only inside split markers, never to
+    bodies.
