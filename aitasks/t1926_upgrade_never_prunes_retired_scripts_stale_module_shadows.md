@@ -7,7 +7,7 @@ status: Ready
 labels: [install, install_scripts, framework]
 gates: [risk_evaluated]
 created_at: 2026-10-08 23:35
-updated_at: 2026-10-08 23:35
+updated_at: 2026-10-08 23:50
 ---
 
 ## Problem
@@ -83,6 +83,61 @@ ImportError: cannot import name 'normalize_board_idx' from 'task_yaml'
 - **Regression for the shadowing:** with a `board/task_yaml.py` lacking
   `normalize_board_idx` present, the board's import of `task_yaml` must resolve
   to `lib/` or fail with a clear diagnostic, never an opaque ImportError.
+
+## Acceptance check: real upgrade of an old project
+
+Unit tests on the helper are not enough. Acceptance means the cleanup works
+through the actual `ait upgrade` path:
+1. `aitask_upgrade.sh` downloads the **target** tag's `install.sh`
+   (`aitask_upgrade.sh:99`).
+2. It runs that script with `--force --dir` (`:152`).
+3. The prune therefore executes from the new release's code, even inside a
+   project whose installed scripts predate it.
+
+**Fixtures.** Build two throwaway git projects, each a framework install at a
+fixed old version, committed:
+- **v0.31.0** (aitasks_go shape): ships `board/task_yaml.py`,
+  `stats/stats_data.py` and the attachment/codex-plan scripts as that release
+  had them.
+- **v0.36.1** (thinking_app shape): carries the 8 leftovers from the registry
+  scan above, with byte content exactly as shipped by the releases they came
+  from.
+
+To each fixture add:
+- one leftover whose content was **modified locally**, e.g. an extra line in
+  `lib/codex_plan_policy.sh`;
+- one **user-authored** file under `.aitask-scripts/` that never existed in the
+  framework.
+
+**Run.** Upgrade each fixture to the release under test. Run `install.sh --force
+--dir <fixture>` from this checkout, or via a local tag/tarball, so the test
+needs no network; this is the same code path `ait upgrade` invokes.
+
+**Must hold, per fixture:**
+- Every pristine leftover the target release no longer ships is **gone** from
+  the working tree. This includes `board/task_yaml.py`, a *rename* source.
+- The removal is **committed** in the fixture's git: `git ls-files` no longer
+  lists the file, and `git status --porcelain -- .aitask-scripts/` is clean for
+  those paths. Check the commit `install.sh` creates, not just the working tree.
+- The locally **modified** leftover is **kept**, and the run's output names it
+  with a cleanup hint.
+- The **user-authored** file is untouched.
+- `./ait board` in the upgraded fixture starts without the `normalize_board_idx`
+  ImportError. Boot it the way the existing board live tests do, or at minimum
+  import `aitask_board` with `board/` first on `sys.path`.
+- **Re-running** the upgrade or `ait setup` on the upgraded fixture is a no-op:
+  nothing pruned, no new commit.
+
+**Negative control.** Run the same fixture against a release built **without**
+the prune step. `board/task_yaml.py` must survive and the board import must
+fail. This proves the fixture really reproduces the defect, so the passing
+result is not vacuous.
+
+**Already-current projects.** `ait upgrade` stops with "Already up to date" when
+the project is already on the target version. Cover that case by running
+`ait setup` on a fixture that is on the new release but still carries
+leftovers. Either the prune runs there, or the task documents explicitly that
+such projects need `ait setup`.
 
 ## Registry scan (2026-10-08, read-only)
 
