@@ -9,10 +9,13 @@ This module is **pure**: no tmux, no Textual, no I/O. It operates only on the
 already-cleaned capture text produced by ``aitask_shadow_capture.sh``.
 
 The capture handed in **must be wrap-joined** (``tmux capture-pane -J`` or
-equivalent): the parser space-joins continuation lines onto a concern body,
-which is correct only for agent-emitted word-boundary breaks — raw soft-wrap
-would split a long line mid-word. The capture path (minimonitor, t1037_4) owns
-the join; see ``.claude/skills/aitask-shadow/concern-format.md``.
+equivalent): the parser rejoins continuation lines onto a concern body with the
+intra-token heuristic in :func:`_join_sep` (a space, except after a break inside
+a token such as ``follow-`` / ``up``). That heuristic is calibrated only for
+agent-emitted breaks, which fall at spaces or after token punctuation. Raw
+soft-wrap splits a long line mid-word wherever the column runs out, and no join
+rule can reconstruct that. The capture path (minimonitor, t1037_4) owns the
+join; see ``.claude/skills/aitask-shadow/concern-format.md``.
 
 Format (single source of truth: ``.claude/skills/aitask-shadow/concern-format.md``)::
 
@@ -620,20 +623,58 @@ def _last_block_region(text: str, *, require_close: bool) -> str | None:
     return text[body_start:close_idx]
 
 
-def _join_sep(joined: str) -> str:
-    """Separator to use when rejoining a hard-wrapped marker fragment.
+# A row ending here was broken *inside* a token: a `-` or `/` attached to the
+# token before it, an opening paren, or a lone `.` that starts the next token.
+# A `-` / `/` preceded by whitespace is a spaced separator (`fix -` / `which`),
+# so it is a word break and keeps its space. See `_join_sep`.
+_INTRA_TOKEN_BREAK = re.compile(r"(?:\S[-/]|\(|(?:^|\s)\.)$")
 
-    The renderers observed in the wild break at word *and* intra-token
-    boundaries: an intra-token break loses nothing, a word break consumes the
-    space. A fragment ending in ``-`` or ``/`` is taken as an intra-token break
-    (this reconstructs a wrapped path exactly); anything else is treated as a
-    word break and gets its space back.
+
+def _join_sep(joined: str) -> str:
+    """Separator to use when rejoining a hard-wrapped row onto ``joined``.
+
+    The one rejoin rule, shared by split markers (:func:`_join_split_marker`)
+    and body continuations (:func:`_scan_items`). Renderers break at word *and*
+    intra-token boundaries: an intra-token break loses nothing, a word break
+    consumes the space. A row matching :data:`_INTRA_TOKEN_BREAK` is taken as an
+    intra-token break and joins with no space; anything else gets its space
+    back.
+
+    Measured (t1914, OpenCode 1.18.34 and codex-cli 0.160.0 at 50-90 columns):
+    Codex breaks only at spaces. OpenCode also breaks after an attached ``-``
+    (``follow-`` / ``up``), after ``/`` (paths, ``https://``), after ``(``
+    (``maintainability(`` / ``low)`` — inside the trailer, where a space-join
+    lost the whole disposition / impact vector), after a lone ``.``
+    (``in .`` / ``aitask-scripts``), and after ``.`` or ``:`` inside a token.
+    When it breaks at a spaced dash it consumes the space (``fix -`` /
+    ``which``), which is why a whitespace-preceded ``-`` / ``/`` keeps it.
 
     This is a **heuristic**, and deliberately so: a capture cannot distinguish
-    "the renderer consumed a space here" from "the token continues here". See
-    :func:`_join_split_marker` for why an approximation is acceptable.
+    "the renderer consumed a space here" from "the token continues here". The
+    accepted residuals, each pinned by a test, are the breaks the left row
+    cannot decide:
+
+    - an intra-token ``.`` or ``:`` (``history.`` / ``csv`` -> ``history.
+      csv``; ``py:`` / ``415``), which read the same as a sentence end or a
+      ``Label: value``;
+    - a break between the dashes of ``--flag`` (``when -`` / ``-force``), which
+      reads the same as a spaced dash;
+    - a suspended hyphen (``pre-`` / ``and post-`` -> ``pre-and post-``);
+    - a lone ``/`` that starts an absolute path (``in /`` / ``home/user`` ->
+      ``in / home/user``), which reads the same as a spaced separator
+      (``foo /`` / ``bar``). The spaced separator is the reading chosen.
+
+    All of them are cosmetic: none occurs inside the terminal trailer grammar.
+
+    Only the last two characters are searched. Every clause of the rule is at
+    most two characters wide, and ``_scan_items`` calls this once per
+    continuation row with the whole body accumulated so far, so an unbounded
+    ``search`` would make a body quadratic in its row count. A two-character
+    slice cannot fake the ``^`` alternative: that alternative needs ``.`` to be
+    both the first and the last character, so it fires only on a one-character
+    ``joined`` that really is ``.``.
     """
-    return "" if joined.endswith(("-", "/")) else " "
+    return "" if _INTRA_TOKEN_BREAK.search(joined[-2:]) else " "
 
 
 def _join_split_marker(
@@ -658,9 +699,11 @@ def _join_split_marker(
     ``priority`` and ``body`` are reconstructed exactly; ``region`` is
     **best-effort** (see :func:`_join_sep`) — it is a display label rendered in
     the picker, never a key, so the load-bearing guarantee here is only that the
-    item is no longer dropped. The known imperfect case is a prose region
-    containing a spaced slash broken right after the slash (``foo / bar`` ->
-    ``foo /bar``): accepted, cosmetic, and pinned by a test.
+    item is no longer dropped. The known imperfect case is a region whose
+    absolute path is broken right after its whitespace-preceded leading slash
+    (``/`` / ``home/user`` -> ``/ home/user``), the flip side of keeping a
+    spaced slash (``foo / bar``) exact: accepted, cosmetic, and pinned by a
+    test, as are the other :func:`_join_sep` residuals.
 
     ``glyph`` is the block's marker glyph (:func:`_block_glyph`): the join stops
     at the next row that starts an item in that glyph.
@@ -715,7 +758,9 @@ def _scan_items(region: str) -> tuple[list[Concern], list[str]]:
 
     Returns ``(concerns, unrecovered)``. A line matching the item marker starts a
     new concern; any other non-blank line is a wrap continuation and is appended
-    (space-joined) to the current concern's body. Blank lines are ignored.
+    to the current concern's body, joined by :func:`_join_sep` (a space, except
+    after an intra-token break such as ``follow-`` / ``up``). Blank lines are
+    ignored.
 
     Three marker shapes are recognised, in order: the canonical
     ``- [priority | region] body`` (:data:`_ITEM`); a bracket the renderer
@@ -778,7 +823,10 @@ def _scan_items(region: str) -> tuple[list[Concern], list[str]]:
         i += consumed
     out: list[Concern] = []
     for priority, region_label, parts in items:
-        body = " ".join(p.strip() for p in parts if p.strip()).strip()
+        body = ""
+        for part in (p.strip() for p in parts):
+            if part:
+                body = part if not body else body + _join_sep(body) + part
         disposition, verdict, improves, worsens, effort = _parse_trailer(body)
         out.append(
             Concern(

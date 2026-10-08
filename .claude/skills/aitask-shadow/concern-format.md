@@ -146,6 +146,9 @@ protocol behind the preamble's comparisons).
 
   **Measured renderers.**
   - **Codex CLI** rewrites the glyph to `•`, which is accepted (see above).
+    It hard-wraps long bodies with literal newlines, but only at spaces
+    (measured on codex-cli 0.160.0 at 60 columns: 72 breaks, none inside a
+    token), so its bodies rejoin exactly.
   - **OpenCode (1.18.34): the producer code-spans the marker** (t1899
     measured the damage, t1908 the encoding).
     - **The damage.** OpenCode keeps the `-` glyph, both fences and the
@@ -172,14 +175,23 @@ protocol behind the preamble's comparisons).
       - A live production shadow `>pc` review of a deliberately flawed plan.
         Its 4 source rows were all code-spanned, and 4 of 4 were recovered,
         with exact priority, region and round.
-    - **Residual: hard-wrapped bodies.** OpenCode draws every row itself, so a
-      long body reaches the capture as separate rows that `-J` cannot rejoin,
-      and the parser space-joins them. A break inside a token therefore
-      damages the body (`history.` / `csv` → `history. csv`). A break inside a
-      trailer word (`follow-` / `up`) loses the trailer, so the concern shows
-      an unspecified disposition and no impact vector. That is the safe
-      direction: it still counts as needing attention. This body-join defect
-      is tracked separately and is not specific to the marker encoding.
+    - **Hard-wrapped bodies.** OpenCode draws every row itself, so a long body
+      reaches the capture as separate rows that `-J` cannot rejoin, and it
+      breaks *inside* tokens as well as at spaces. It breaks after:
+      - an attached `-` (including between the two dashes of `--flag`);
+      - `/`;
+      - `(`;
+      - a lone `.`;
+      - `.` or `:` inside a token.
+
+      Under a plain space-join a trailer break (`follow-` / `up`,
+      `maintainability(` / `low)`) lost the whole trailer. The intra-token
+      join rule (the `body` bullet below) removes that loss. It was measured
+      on a known 8-item block rendered at 50, 60, 72 and 90 columns. At every
+      width all 8 concerns parse their full trailer, against 0–5 of 8 before.
+      At 72 and 90 columns every body is exact. What remains are the
+      cosmetic residuals the `body` bullet lists: `history.` / `csv`,
+      `https:` / `//` and a `--` split.
     - **What the user sees without the encoding.** A shadow that emits plain
       brackets (an older render, or a model ignoring the rule) yields no
       concern. `unrecovered_markers` reports every bracket-stripped row, so
@@ -224,11 +236,12 @@ protocol behind the preamble's comparisons).
   - Across a join, `priority` and `body` are reconstructed **exactly**;
     `region` is **best-effort**. A capture cannot distinguish "the renderer
     consumed a space here" from "the token continues here", so the parser
-    treats a fragment ending in `-` or `/` as an intra-token break (exact for
-    paths, the only failure mode seen live) and restores a space otherwise. A
-    *prose* region broken right after a spaced slash therefore loses that
-    space. That is accepted: `region` is a display label rendered in the
-    picker, never a key.
+    rejoins with the same intra-token rule it uses for bodies (see the `body`
+    bullet below). A spaced slash (`foo / bar`) is therefore exact, while an
+    absolute path broken right after its whitespace-preceded leading slash
+    gains a space (`/` / `home/user` → `/ home/user`), because the two look
+    identical from the broken row. That is accepted: `region` is a display
+    label rendered in the picker, never a key.
   - The recovery cannot swallow a following item: the lookahead commits only
     on success, and it stops at any row that is itself an item **in its own
     glyph**, in any marker-looking glyph, accepted or not (`◦ [high | next] …`).
@@ -246,8 +259,25 @@ protocol behind the preamble's comparisons).
     item split wider than the envelope is outside the recovery bound described
     above.
 - `body` is free text. A wrapped continuation line (any non-blank line between
-  the fences that is **not** a marker) is appended, space-joined, to the current
-  concern's body.
+  the fences that is **not** a marker) is appended to the current concern's
+  body. The join adds **no space** when the row so far ends in an intra-token
+  break, and one space otherwise. An intra-token break is one of these:
+  - a `-` or `/` attached to a non-space character (`follow-` / `up`,
+    `src/` / `lib`);
+  - an opening `(` (`maintainability(` / `low)`);
+  - a lone `.` preceded by whitespace or at the start (`in .` / `aitask-scripts`).
+
+  A `-` or `/` preceded by whitespace is a spaced separator, so it keeps its
+  space (`fix -` / `which`). The rule is a heuristic, because a capture cannot
+  tell a consumed space from a continuing token. These residuals are accepted,
+  and all are cosmetic; none occurs inside the trailer grammar:
+  - an intra-token `.` or `:` gains a space (`history.` / `csv` →
+    `history. csv`, `py:` / `415`);
+  - a break between the dashes of `--flag` gains a space;
+  - a suspended hyphen loses one (`pre-` / `and` → `pre-and`);
+  - an absolute path broken right after its whitespace-preceded leading slash
+    gains one (`in /` / `home/user` → `in / home/user`). It reads the same as
+    a spaced separator (`foo /` / `bar`), and the parser chooses the separator.
 
 ### The region-less marker
 
@@ -397,10 +427,12 @@ carrying no vector keep their marker priority exactly as before.
 
 ### Capture-join contract
 
-The parser space-joins each non-marker continuation line onto the current
-concern's body. That is correct **only** for agent-emitted, word-boundary line
-breaks. Raw `tmux capture-pane` (without `-J`) splits a long logical line
-*mid-word* at the pane edge, which space-join would corrupt. Therefore the
+The parser rejoins each non-marker continuation line onto the current
+concern's body with the intra-token rule from the `body` grammar bullet. That rule
+is calibrated **only** for agent-emitted line breaks: a renderer's breaks fall
+at spaces or after token punctuation. Raw `tmux capture-pane` (without `-J`) splits a long
+logical line *mid-word* at the pane edge, wherever the column runs out, which
+no join rule can reconstruct. Therefore the
 capture handed to the parser **must be wrap-joined** — capture with
 `tmux capture-pane -J` (or otherwise rejoin soft-wrapped rows) so the only
 newlines the parser sees are real, agent-emitted breaks. The minimonitor capture

@@ -1,0 +1,91 @@
+• ===AITASK-CONCERNS===
+  Round: 1 @ 2026-10-08T00:00:00Z
+
+  • [high | r0] The re-entry guard in
+    .aitask-scripts/monitor/concern_parser.py double-commits
+    history.csv when --force-verify runs; the fix - which is
+    cheap - lands in a/b/c and/or https://example.com/x/y
+    without a well-known follow-up step, see
+    tests/test_concern_parser.py:415 and
+    pre-claim/post-claim paths. Disposition: follow-up.
+    Verified: CONFIRMED. Improves: correctness(high),
+    robustness(medium), verification(low). Worsens:
+    simplicity(low), maintainability(low). Effort: low.
+
+  • [medium | r1] A The re-entry guard in
+    .aitask-scripts/monitor/concern_parser.py double-commits
+    history.csv when --force-verify runs; the fix - which is
+    cheap - lands in a/b/c and/or https://example.com/x/y
+    without a well-known follow-up step, see
+    tests/test_concern_parser.py:415 and
+    pre-claim/post-claim paths. Disposition: follow-up.
+    Verified: CONFIRMED. Improves: correctness(high),
+    robustness(medium), verification(low). Worsens:
+    simplicity(low), maintainability(low). Effort: low.
+
+  • [low | r2] Ab cd The re-entry guard in
+    .aitask-scripts/monitor/concern_parser.py double-commits
+    history.csv when --force-verify runs; the fix - which is
+    cheap - lands in a/b/c and/or https://example.com/x/y
+    without a well-known follow-up step, see
+    tests/test_concern_parser.py:415 and
+    pre-claim/post-claim paths. Disposition: follow-up.
+    Verified: CONFIRMED. Improves: correctness(high),
+    robustness(medium), verification(low). Worsens:
+    simplicity(low), maintainability(low). Effort: low.
+
+  • [high | r3] Abc def g The re-entry guard in
+    .aitask-scripts/monitor/concern_parser.py double-commits
+    history.csv when --force-verify runs; the fix - which is
+    cheap - lands in a/b/c and/or https://example.com/x/y
+    without a well-known follow-up step, see
+    tests/test_concern_parser.py:415 and
+    pre-claim/post-claim paths. Disposition: follow-up.
+    Verified: CONFIRMED. Improves: correctness(high),
+    robustness(medium), verification(low). Worsens:
+    simplicity(low), maintainability(low). Effort: low.
+
+  • [medium | r4] Abcd efgh ij The re-entry guard in
+    .aitask-scripts/monitor/concern_parser.py double-commits
+    history.csv when --force-verify runs; the fix - which is
+    cheap - lands in a/b/c and/or https://example.com/x/y
+    without a well-known follow-up step, see
+    tests/test_concern_parser.py:415 and
+    pre-claim/post-claim paths. Disposition: follow-up.
+    Verified: CONFIRMED. Improves: correctness(high),
+    robustness(medium), verification(low). Worsens:
+    simplicity(low), maintainability(low). Effort: low.
+
+  • [low | r5] Abcde fghij klm The re-entry guard in
+    .aitask-scripts/monitor/concern_parser.py double-commits
+    history.csv when --force-verify runs; the fix - which is
+    cheap - lands in a/b/c and/or https://example.com/x/y
+    without a well-known follow-up step, see
+    tests/test_concern_parser.py:415 and
+    pre-claim/post-claim paths. Disposition: follow-up.
+    Verified: CONFIRMED. Improves: correctness(high),
+    robustness(medium), verification(low). Worsens:
+    simplicity(low), maintainability(low). Effort: low.
+
+  • [high | r6] Abcdef ghijkl mnopq The re-entry guard in
+    .aitask-scripts/monitor/concern_parser.py double-commits
+    history.csv when --force-verify runs; the fix - which is
+    cheap - lands in a/b/c and/or https://example.com/x/y
+    without a well-known follow-up step, see
+    tests/test_concern_parser.py:415 and
+    pre-claim/post-claim paths. Disposition: follow-up.
+    Verified: CONFIRMED. Improves: correctness(high),
+    robustness(medium), verification(low). Worsens:
+    simplicity(low), maintainability(low). Effort: low.
+
+  • [medium | r7] Abcdefg hijklmn opqrst u The re-entry
+    guard in .aitask-scripts/monitor/concern_parser.py
+    double-commits history.csv when --force-verify runs; the
+    fix - which is cheap - lands in a/b/c and/or
+    https://example.com/x/y without a well-known follow-up
+    step, see tests/test_concern_parser.py:415 and
+    pre-claim/post-claim paths. Disposition: follow-up.
+    Verified: CONFIRMED. Improves: correctness(high),
+    robustness(medium), verification(low). Worsens:
+    simplicity(low), maintainability(low). Effort: low.
+    ===END-CONCERNS===

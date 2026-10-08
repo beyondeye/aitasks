@@ -395,16 +395,13 @@ class TestSplitMarkerJoin(unittest.TestCase):
             [Concern("high", "Step 7 ownership guard", "The guard double-commits.")],
         )
 
-    def test_prose_spaced_slash_split_is_accepted_best_effort(self):
-        """Documented cosmetic loss — NOT a latent bug.
+    def test_prose_spaced_slash_split_keeps_its_space(self):
+        """A whitespace-preceded ``/`` is a spaced separator, not a path break.
 
-        Region reconstruction is explicitly best-effort: a capture cannot tell
-        "the renderer consumed a space" from "the token continues". The join
-        rule treats a trailing ``/`` as an intra-token break because that is
-        exact for paths (the only failure mode observed live). The cost is that
-        a *prose* region broken right after a spaced slash loses that space.
-        ``region`` is a display label, never a key, so this is accepted — and
-        pinned here so a future reader sees it was a decision.
+        The shared join rule (t1914) joins with no space only after a ``/``
+        attached to the token before it, so a *prose* region broken right after
+        a spaced slash keeps that space. (It used to be the pinned cosmetic
+        loss ``foo /bar``; the trade flipped to the absolute-path case below.)
         """
         text = block(
             "- [low | foo /",
@@ -412,7 +409,28 @@ class TestSplitMarkerJoin(unittest.TestCase):
         )
         self.assertEqual(
             parse_concerns(text),
-            [Concern("low", "foo /bar", "Prose region with a spaced slash.")],
+            [Concern("low", "foo / bar", "Prose region with a spaced slash.")],
+        )
+
+    def test_absolute_path_region_split_after_lone_slash_is_accepted_best_effort(self):
+        """Documented cosmetic loss — NOT a latent bug.
+
+        Region reconstruction is explicitly best-effort: a capture cannot tell
+        "the renderer consumed a space" from "the token continues". A row ending
+        in a whitespace-preceded ``/`` reads the same whether it is a spaced
+        separator (``foo / bar``, above) or the leading slash of an absolute
+        path. The join rule chooses the spaced separator, so an absolute path
+        broken right after its leading slash gains a space. ``region`` is a
+        display label, never a key, so this is accepted — and pinned here so a
+        future reader sees it was a decision.
+        """
+        text = block(
+            "- [low | /",
+            "home/user] Region that is an absolute path.",
+        )
+        self.assertEqual(
+            parse_concerns(text),
+            [Concern("low", "/ home/user", "Region that is an absolute path.")],
         )
 
     def test_at_bound_marker_parses(self):
@@ -1191,6 +1209,233 @@ class TestCodexBulletMarkers(unittest.TestCase):
         self.assertEqual(c.body, f"first item, continued {row}")
         self.assertIn(row, build_clipboard_payload([c]))
         self.assertEqual(unrecovered_markers(text), [row])
+
+
+class TestBodyContinuationJoin(unittest.TestCase):
+    """Body continuation rows rejoin with the shared intra-token rule (t1914).
+
+    One row per clause of ``_join_sep`` and per accepted residual. Renderers
+    that hard-wrap with literal newlines (OpenCode draws every row itself) break
+    inside tokens, so a plain space-join corrupted the body and — when the break
+    landed in the terminal trailer — lost disposition, verdict, impact vector
+    and effort.
+    """
+
+    def _body(self, *rows):
+        (c,) = parse_concerns(block(f"- [high | r] {rows[0]}", *rows[1:]))
+        return c
+
+    def test_attached_hyphen_break_rejoins_the_trailer(self):
+        c = self._body("Real problem. Disposition: follow-", "up. Effort: low.")
+        self.assertEqual(c.body, "Real problem. Disposition: follow-up. Effort: low.")
+        self.assertEqual(c.disposition, "follow-up")
+        self.assertEqual(c.effort, "low")
+
+    def test_open_paren_break_rejoins_the_impact_vector(self):
+        c = self._body(
+            "Real problem. Worsens: simplicity(low), maintainability(",
+            "low). Effort: low.",
+        )
+        self.assertEqual(
+            [(e.dimension, e.magnitude) for e in c.worsens],
+            [("simplicity", "low"), ("maintainability", "low")],
+        )
+        self.assertEqual(c.effort, "low")
+
+    def test_lone_dot_starts_the_next_token(self):
+        c = self._body("The guard in .", "aitask-scripts/x is wrong.")
+        self.assertEqual(c.body, "The guard in .aitask-scripts/x is wrong.")
+
+    def test_attached_slash_break_rejoins_a_path(self):
+        c = self._body("Look at src/", "lib/mod.py first.")
+        self.assertEqual(c.body, "Look at src/lib/mod.py first.")
+
+    def test_spaced_dash_keeps_its_space(self):
+        c = self._body("the fix -", "which is cheap - lands.")
+        self.assertEqual(c.body, "the fix - which is cheap - lands.")
+
+    def test_spaced_slash_keeps_its_space(self):
+        c = self._body("either foo /", "bar works.")
+        self.assertEqual(c.body, "either foo / bar works.")
+
+    def test_word_boundary_rows_round_trip(self):
+        long_body = (
+            "The re-entry guard double-commits when the lock was already held "
+            "by this host, producing a redundant commit (every time) on the "
+            "data branch. Disposition: follow-up. Effort: low."
+        )
+        rows = textwrap.wrap(long_body, width=30, break_on_hyphens=False)
+        self.assertGreater(len(rows), 3)
+        c = self._body(*rows)
+        self.assertEqual(c.body, long_body)
+
+    # Accepted residuals: the left row cannot decide them. Pinned as decisions.
+
+    def test_residual_intra_token_dot_gains_a_space(self):
+        c = self._body("It double-commits history.", "csv on retry.")
+        self.assertEqual(c.body, "It double-commits history. csv on retry.")
+
+    def test_residual_intra_token_colon_gains_a_space(self):
+        c = self._body("See tests/test_x.py:", "415 for the case.")
+        self.assertEqual(c.body, "See tests/test_x.py: 415 for the case.")
+
+    def test_residual_break_between_double_dashes_gains_a_space(self):
+        c = self._body("It fails when -", "-force-verify runs.")
+        self.assertEqual(c.body, "It fails when - -force-verify runs.")
+
+    def test_residual_suspended_hyphen_loses_its_space(self):
+        c = self._body("Both pre-", "and post-claim paths.")
+        self.assertEqual(c.body, "Both pre-and post-claim paths.")
+
+    def test_residual_absolute_path_after_lone_slash_gains_a_space(self):
+        c = self._body("Look in /", "home/user.")
+        self.assertEqual(c.body, "Look in / home/user.")
+
+    def test_two_char_suffix_decides_exactly_like_the_whole_string(self):
+        """The bounded search is the approved rule, not an approximation.
+
+        Exhaustive over every string of length 1-4 drawn from the characters
+        the rule distinguishes, plus a word character and a space.
+        """
+        import itertools
+        import concern_parser as cp
+
+        alphabet = "a .-/(:"
+        checked = 0
+        for n in range(1, 5):
+            for chars in itertools.product(alphabet, repeat=n):
+                s = "".join(chars)
+                self.assertEqual(
+                    cp._join_sep(s),
+                    "" if cp._INTRA_TOKEN_BREAK.search(s) else " ",
+                    repr(s),
+                )
+                checked += 1
+        self.assertGreater(checked, 2000)
+
+    def test_join_searches_a_bounded_suffix_not_the_accumulated_body(self):
+        """A many-row body must not rescan its growing prefix at every join.
+
+        The searched length is pinned rather than a wall-clock time: an
+        unbounded search over the accumulated body makes parsing quadratic in
+        the row count, and these parses run synchronously in UI handlers.
+        """
+        import concern_parser as cp
+
+        real = cp._INTRA_TOKEN_BREAK
+        lengths = []
+
+        class Spy:
+            def search(self, s):
+                lengths.append(len(s))
+                return real.search(s)
+
+        rows = ["word follow-"] + ["up and more text follow-"] * 300
+        cp._INTRA_TOKEN_BREAK = Spy()
+        try:
+            (c,) = parse_concerns(block(f"- [high | r] {rows[0]}", *rows[1:]))
+        finally:
+            cp._INTRA_TOKEN_BREAK = real
+        self.assertGreaterEqual(len(lengths), 300)
+        self.assertLessEqual(max(lengths), 2)
+        self.assertIn("follow-up and more", c.body)
+
+
+# The source the hard-wrap fixtures were rendered from (t1914). Each agent was
+# prompted to echo one 8-item block verbatim; every item has this body behind a
+# different pad, so the renderer's breaks land at different offsets.
+_HARDWRAP_BODY = (
+    "The re-entry guard in .aitask-scripts/monitor/concern_parser.py "
+    "double-commits history.csv when --force-verify runs; the fix - which is "
+    "cheap - lands in a/b/c and/or https://example.com/x/y without a well-known "
+    "follow-up step, see tests/test_concern_parser.py:415 and "
+    "pre-claim/post-claim paths. Disposition: follow-up. Verified: CONFIRMED. "
+    "Improves: correctness(high), robustness(medium), verification(low). "
+    "Worsens: simplicity(low), maintainability(low). Effort: low."
+)
+_HARDWRAP_PADS = (
+    "", "A", "Ab cd", "Abc def g", "Abcd efgh ij", "Abcde fghij klm",
+    "Abcdef ghijkl mnopq", "Abcdefg hijklmn opqrst u",
+)
+
+
+def _hardwrap_fixture(name):
+    with open(
+        os.path.join(os.path.dirname(__file__), "fixtures", name), encoding="utf-8"
+    ) as fh:
+        return fh.read()
+
+
+class TestMeasuredHardWrapCaptures(unittest.TestCase):
+    """Real OpenCode / Codex hard-wraps of a known block rejoin (t1914).
+
+    The fixtures are the reply blocks of live renders, captured with
+    ``tmux capture-pane -p -J`` (trailing pane padding stripped):
+    OpenCode 1.18.34 (``openai/gpt-6-astra``) at 60 and 90 columns, and
+    codex-cli 0.160.0 (``gpt-6.1-sol``, inline mode) at 60 columns. Every
+    captured row is an exact substring of the source, so whitespace is the
+    only thing the renderer changed.
+
+    Codex breaks only at spaces. OpenCode breaks inside tokens too — at 90
+    columns ``maintainability(`` / ``low)`` lost the trailer of all 8 items
+    under the old space-join.
+    """
+
+    # The residual spaces the OpenCode-60 render leaves (see `_join_sep`). Any
+    # other difference from the source is new damage and fails the test.
+    _OPENCODE_60_RESIDUALS = (
+        ("history. csv", "history.csv"),
+        ("https: //", "https://"),
+        ("- -force", "--force"),
+    )
+
+    def _sources(self):
+        return [(f"{p} {_HARDWRAP_BODY}" if p else _HARDWRAP_BODY)
+                for p in _HARDWRAP_PADS]
+
+    def _concerns(self, name):
+        text = _hardwrap_fixture(name)
+        self.assertEqual(unrecovered_markers(text), [])
+        concerns = parse_concerns(text)
+        self.assertEqual([c.region for c in concerns], [f"r{k}" for k in range(8)])
+        for c in concerns:
+            self.assertEqual(c.disposition, "follow-up", c.region)
+            self.assertEqual(c.verdict, "CONFIRMED", c.region)
+            self.assertEqual(
+                [(e.dimension, e.magnitude) for e in c.improves],
+                [("correctness", "high"), ("robustness", "medium"),
+                 ("verification", "low")],
+                c.region,
+            )
+            self.assertEqual(
+                [(e.dimension, e.magnitude) for e in c.worsens],
+                [("simplicity", "low"), ("maintainability", "low")],
+                c.region,
+            )
+            self.assertEqual(c.effort, "low", c.region)
+        return concerns
+
+    def test_codex_60_is_exact(self):
+        concerns = self._concerns("codex_shadow_hardwrap_60_capture.txt")
+        self.assertEqual([c.body for c in concerns], self._sources())
+
+    def test_opencode_90_is_exact(self):
+        concerns = self._concerns("opencode_shadow_hardwrap_90_capture.txt")
+        self.assertEqual([c.body for c in concerns], self._sources())
+
+    def test_opencode_60_differs_only_by_the_named_residuals(self):
+        concerns = self._concerns("opencode_shadow_hardwrap_60_capture.txt")
+        undone = []
+        for c in concerns:
+            body = c.body
+            for damaged, source in self._OPENCODE_60_RESIDUALS:
+                body = body.replace(damaged, source)
+            undone.append(body)
+        self.assertEqual(undone, self._sources())
+        # The residuals are really exercised, not vacuous.
+        joined = "\n".join(c.body for c in concerns)
+        for damaged, _source in self._OPENCODE_60_RESIDUALS:
+            self.assertIn(damaged, joined)
 
 
 OPENCODE_BRACKETLESS_FIXTURE = os.path.join(
