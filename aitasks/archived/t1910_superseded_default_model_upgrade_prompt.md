@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: high
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [codeagent, models, model_selection, install_scripts]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -15,7 +15,8 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-07 08:46
-updated_at: 2026-10-08 15:51
+updated_at: 2026-10-08 17:01
+completed_at: 2026-10-08 17:01
 ---
 
 ## Goal
@@ -128,3 +129,14 @@ defaults" — that would discard deliberate choices.
 > **✅ gate:plan_approved** run=2026-10-08T12:51:35Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-08T13:58:23Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-08T14:01:11Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:4051c7352ba0752f
+
+> **✅ gate:risk_evaluated** run=2026-10-08T14:01:11Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1910/risk_evaluated_2026-10-08T14:01:11Z-risk_evaluated-a1.log`
