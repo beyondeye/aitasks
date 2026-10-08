@@ -14,4 +14,4 @@ OpenCode adaptations, read **`.opencode/skills/opencode_tool_mapping.md`**.
 
 ## Arguments
 
-Accepts optional flags: `--agent <name>`, `--name <id>`, `--cli-id <str>`, `--notes <text>`, `--promote`, `--promote-ops <csv>`, `--dry-run`. Without arguments, prompts for missing inputs interactively. Example: `/aitask-add-model --agent claudecode --name opus4_7_1m --cli-id 'claude-opus-4-7[1m]' --promote`.
+Accepts optional flags: `--agent <name>`, `--name <id>`, `--cli-id <str>`, `--notes <text>`, `--promote`, `--promote-ops <csv>`, `--no-supersession`, `--dry-run`. Without arguments, prompts for missing inputs interactively. Example: `/aitask-add-model --agent claudecode --name opus4_7_1m --cli-id 'claude-opus-4-7[1m]' --promote`.
