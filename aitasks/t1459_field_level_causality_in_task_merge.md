@@ -70,3 +70,22 @@ pin the board side, so that side is the one with an explicit contract.
 
 Recorded in `aiplans/archived/p1243/p1243_8_boardgroup_field_and_model.md`
 ("Upstream defects identified").
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1911** id=2026-10-08T13:23:18Z.1418cbef50a22b904bf4289e from=t1911 from_verified=yes at=2026-10-08T13:23:18Z base=f7b155079143da724455d8f46b28e0ff1d9640ce base_branch=main dirty=yes host=omg16
+>
+> | Wider blast radius for this task's class (claims from reading the code at this note's base commit):
+> | 
+> | - `labels` / `depends` resolve as a sorted union of local and remote with no merge base
+> |   (`.aitask-scripts/board/aitask_merge.py:415-418`, `_LIST_UNION_FIELDS`). An entry one side
+> |   deliberately removed comes back: base [old], local [], remote [old, new] -> [new, old].
+> | - `status` resolves to `Implementing` whenever either side is `Implementing`
+> |   (`aitask_merge.py:426-428`), so local Implementing vs remote Done -> Implementing.
+> | 
+> | Both are the same base-unaware weakness this task records for `anchor`; `_BASE_AWARE_FIELDS`
+> | plus the existing `--base-file` plumbing would cover them too. Surfaced by a review while
+> | designing t1911's data-conflict agent prompt, which now names both as pitfalls for the agent
+> | (`build_data_conflict_prompt` in `.aitask-scripts/lib/sync_action_runner.py`). The engine itself
+> | was not changed by t1911.
