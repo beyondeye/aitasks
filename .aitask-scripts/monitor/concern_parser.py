@@ -36,6 +36,12 @@ Format (single source of truth: ``.claude/skills/aitask-shadow/concern-format.md
   by the other glyph
   (a wrapped quotation) stays body text. Any other marker-looking row is
   reported by :func:`unrecovered_markers`, never parsed.
+- A marker whose brackets a renderer **stripped** (OpenCode 1.18.34 renders
+  ``- [medium | r] body`` as ``- medium | r body``) cannot be parsed — its
+  region/body boundary is gone — and is reported by
+  :func:`unrecovered_markers` instead (t1908). OpenCode shadows avoid it at
+  the source by code-spanning the marker (`` - `[medium | r]` body ``), which
+  that renderer displays as the canonical row.
 - A marker whose ``[priority | region]`` bracket was split across rows by an
   agent TUI's own hard-wrap is rejoined, bounded to
   ``_MAX_MARKER_JOIN_ROWS`` following rows (t1167). Within that envelope
@@ -225,6 +231,19 @@ _MARKER_START = re.compile(rf"^\s*{_GLYPH}\s+\[")
 # narrower `_yield_table` boundary, which needs a whole item in the row's own
 # glyph (t1897).
 _MARKER_LIKE = re.compile(rf"^\s*{_ANY_GLYPH}\s+\[")
+
+# A marker whose brackets a renderer STRIPPED: OpenCode 1.18.34 removes the
+# `[`/`]` of every bracket span, so `- [medium | region] body` arrives as
+# `- medium | region body` and `- [low] body` as `- low body` (measured live,
+# t1899/t1908). REPORT-ONLY, like `_MARKER_LIKE`: without its brackets the
+# region/body boundary is gone, so such a row is never parsed — it is only
+# named, so the automatic paths stop being silent about it (t1908). The
+# priority is the closed vocabulary for the same reason `_ITEM_NO_REGION` uses
+# it. Accepted false positive: a wrapped body row that happens to begin
+# `- high …` / `- low …` is reported while staying in its concern's body.
+_BRACKETLESS_LIKE = re.compile(
+    rf"^\s*{_ANY_GLYPH}\s+(?:high|medium|low)(?:\s*\||\s+\S)", re.IGNORECASE
+)
 
 # `_MARKER_LIKE` with the glyph captured: the row starts a marker-looking item
 # in some glyph. Read by the split-join boundary, never by acceptance.
@@ -710,7 +729,9 @@ def _scan_items(region: str) -> tuple[list[Concern], list[str]]:
     ``unrecovered`` collects every remaining line that *looks* like a marker
     (:data:`_MARKER_LIKE`) but produced no concern — an over-bound split, a
     malformed bracket, an unclosed one, a marker glyph outside the accepted set,
-    or an accepted glyph that is not the block's own (t1892). A genuine
+    or an accepted glyph that is not the block's own (t1892) — plus every
+    bracket-stripped marker (:data:`_BRACKETLESS_LIKE`, t1908), including one a
+    successful split rejoin consumed into its region. A genuine
     continuation line can never begin ``- [`` (that is the collision-hardening
     invariant the format rests on), so such a line is by definition a marker the
     parser could not recover. Those lines still fall through to continuation
@@ -741,8 +762,16 @@ def _scan_items(region: str) -> tuple[list[Concern], list[str]]:
             m = _ITEM_NO_REGION.match(line)
         if m:
             items.append([m.group("priority"), region_label, [m.group("body")]])
+            # A split rejoin consumed the rows after `line` into the region. A
+            # bracket-stripped marker among them is still a concern the user
+            # cannot forward, so it is reported here too — consumption stays
+            # exactly as it was, nothing is accepted that was not before
+            # (t1908).
+            for consumed_line in lines[i + 1:i + consumed]:
+                if _BRACKETLESS_LIKE.match(consumed_line):
+                    unrecovered.append(consumed_line.strip())
         else:
-            if _MARKER_LIKE.match(line):
+            if _MARKER_LIKE.match(line) or _BRACKETLESS_LIKE.match(line):
                 unrecovered.append(line.strip())
             if line.strip() and items:
                 items[-1][2].append(line)
@@ -823,6 +852,10 @@ def unrecovered_markers(capture_text: str) -> list[str]:
     non-empty result means the user is looking at fewer concerns than the shadow
     emitted — the picker surfaces the count so the loss is visible rather than
     silent (t1274).
+
+    Bracket-stripped rows (``- medium | region body``, t1908) are reported
+    too: a renderer that removes the brackets leaves nothing parseable, and
+    without this the automatic paths stayed silent about the whole block.
 
     Deliberately a *report*, not a recovery. Widening the marker-join envelope
     (:data:`_MAX_MARKER_JOIN_ROWS`) is the documented t1167 trade-off and is not

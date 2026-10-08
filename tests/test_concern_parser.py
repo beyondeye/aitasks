@@ -1193,6 +1193,120 @@ class TestCodexBulletMarkers(unittest.TestCase):
         self.assertEqual(unrecovered_markers(text), [row])
 
 
+OPENCODE_BRACKETLESS_FIXTURE = os.path.join(
+    os.path.dirname(__file__), "fixtures", "opencode_shadow_bracketless_capture.txt"
+)
+OPENCODE_CODESPAN_FIXTURE = os.path.join(
+    os.path.dirname(__file__), "fixtures", "opencode_shadow_codespan_capture.txt"
+)
+
+
+class TestBracketlessMarkersReported(unittest.TestCase):
+    """OpenCode strips the brackets of every marker; the loss is reported (t1908).
+
+    The fixture is a verbatim OpenCode 1.18.34 render (captured via
+    `aitask_shadow_capture.sh --deep`) of a canonical three-item block whose raw
+    source (`opencode export`) carried the brackets. Without them the
+    region/body boundary is gone, so nothing parses — but the rows are reported
+    instead of leaving the automatic paths silent.
+    """
+
+    @staticmethod
+    def _text():
+        with open(OPENCODE_BRACKETLESS_FIXTURE, encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_real_render_has_no_brackets_and_parses_to_nothing(self):
+        text = self._text()
+        self.assertNotIn("[", text)
+        self.assertEqual(parse_concerns(text), [])
+        self.assertFalse(has_concern_block(text))
+
+    def test_every_stripped_row_is_reported(self):
+        self.assertEqual(
+            unrecovered_markers(self._text()),
+            [
+                "- high | region one First stripped body.",
+                "- low Region-less stripped body.",
+                "- medium | parser.py:12 A stripped body long enough",
+            ],
+        )
+
+    def test_word_continuing_after_a_priority_is_not_reported(self):
+        text = block(
+            "- [high | ok] the body wraps here and the next row",
+            "- high-level prose that only starts with a priority word",
+        )
+        self.assertEqual(unrecovered_markers(text), [])
+
+    def test_bracketless_row_outside_any_block_is_not_reported(self):
+        self.assertEqual(unrecovered_markers("- high | x outside a block"), [])
+
+    def test_row_consumed_by_a_split_rejoin_is_still_reported(self):
+        """A stripped row inside a recovered split marker is not silent.
+
+        The rejoin still consumes it (acceptance and the join boundary are
+        unchanged — this pins the known residual region), but the row is
+        reported so the user knows a second concern was swallowed.
+        """
+        text = block(
+            "- [high | split",
+            "- medium | stripped Second body.",
+            "end] First body.",
+        )
+        concerns = parse_concerns(text)
+        self.assertEqual(len(concerns), 1)
+        self.assertEqual(
+            concerns[0].region, "split - medium | stripped Second body. end"
+        )
+        self.assertEqual(
+            unrecovered_markers(text), ["- medium | stripped Second body."]
+        )
+
+
+class TestOpencodeCodeSpanMarkers(unittest.TestCase):
+    """An OpenCode shadow code-spans its markers, which then render canonically.
+
+    The producer rule (`{% if agent == "opencode" %}` in the four producer docs)
+    writes ``- `[priority | region]` body``. OpenCode 1.18.34 conceals the
+    backticks and keeps the brackets, so the row reaches the parser in the
+    canonical shape and needs no grammar change (t1908). The fixture is a
+    verbatim render of that controlled sample; its last row is a plain-bracket
+    control, which is stripped and therefore reported.
+    """
+
+    @staticmethod
+    def _text():
+        with open(OPENCODE_CODESPAN_FIXTURE, encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_backticks_are_concealed_and_brackets_kept(self):
+        text = self._text()
+        self.assertNotIn("`", text)
+        self.assertIn("- [high | region one] First body.", text)
+
+    def test_code_spanned_rows_parse(self):
+        concerns = parse_concerns(self._text())
+        self.assertEqual(
+            [(c.priority, c.region) for c in concerns],
+            [("high", "region one"), ("low", ""), ("medium", "parser.py:12")],
+        )
+        self.assertEqual(concerns[0].body, "First body.")
+        self.assertEqual(concerns[1].body, "Region-less body.")
+        self.assertTrue(has_concern_block(self._text()))
+
+    def test_plain_bracket_control_row_is_reported(self):
+        self.assertEqual(
+            unrecovered_markers(self._text()),
+            ["- medium | canonical Canonical control row."],
+        )
+
+    def test_forwarded_payload_is_canonical(self):
+        payload = build_clipboard_payload(parse_concerns(self._text())[:1])
+        self.assertIn("- [high | region one] First body.", payload)
+        self.assertNotIn("`", payload)
+
+
 class TestBlockRegion(unittest.TestCase):
     """The raw region a human inspects is the SAME one the parser read (t1293).
 
@@ -2988,7 +3102,11 @@ class TestRoundPreambleContract(unittest.TestCase):
             " ".join(ROUND_PREAMBLE_HEADINGS)))
 
 
-class TestRenderedShadowDocsKeepTheGuarantees(unittest.TestCase):
+# The rule an OpenCode-rendered producer carries and no other render does.
+OPENCODE_CODESPAN_RULE = "OpenCode: wrap the marker in a code span."
+
+
+class _RenderedShadowDocsContract:
     """The same guarantees must survive rendering (t1311).
 
     The shadow skill is templated: at runtime the agent reads
@@ -3000,13 +3118,15 @@ class TestRenderedShadowDocsKeepTheGuarantees(unittest.TestCase):
 
     ``fast`` is the profile whose render strips content (it is the only one
     setting ``shadow_impl_review_tier``), so it is the weakest surface.
+
+    A contract mixin, run once per agent surface by the concrete classes below:
+    the producers carry an OpenCode-only rule (t1908), so the OpenCode render is
+    no longer byte-identical to the Claude one and must be checked on its own.
     """
 
     PROFILE = "fast"
-    RENDERED_DIR = os.path.join(
-        os.path.dirname(__file__), "..", ".claude", "skills",
-        "aitask-shadow-%s-" % PROFILE,
-    )
+    AGENT: str
+    RENDERED_DIR: str
     PRODUCER_MARKER = TestProducerShortRegionRule.PRODUCER_MARKER
     KNOWN_PRODUCERS = TestProducerShortRegionRule.KNOWN_PRODUCERS
 
@@ -3019,7 +3139,7 @@ class TestRenderedShadowDocsKeepTheGuarantees(unittest.TestCase):
         repo = os.path.join(os.path.dirname(__file__), "..")
         proc = subprocess.run(
             ["./.aitask-scripts/aitask_skill_render.sh", "aitask-shadow",
-             "--profile", cls.PROFILE, "--agent", "claude", "--force"],
+             "--profile", cls.PROFILE, "--agent", cls.AGENT, "--force"],
             cwd=repo, capture_output=True, text=True,
         )
         cls.rendered_ok = proc.returncode == 0 and os.path.isdir(cls.RENDERED_DIR)
@@ -3046,6 +3166,15 @@ class TestRenderedShadowDocsKeepTheGuarantees(unittest.TestCase):
             if self.PRODUCER_MARKER in text:
                 found[os.path.basename(path)] = text
         return found
+
+    def test_codespan_rule_is_rendered_for_opencode_only(self):
+        """The `{% if agent == "opencode" %}` gate fires on that agent alone."""
+        want = self.AGENT == "opencode"
+        wrong = [
+            name for name, text in self._rendered_producers().items()
+            if (OPENCODE_CODESPAN_RULE in text) != want
+        ]
+        self.assertEqual(wrong, [])
 
     def test_no_rendered_doc_is_parser_live(self):
         offenders = []
@@ -3197,6 +3326,34 @@ class TestRenderedShadowDocsKeepTheGuarantees(unittest.TestCase):
             text = fh.read()
         self.assertEqual(_round_preamble_contract_offences(text), [])
         self.assertTrue(_round_preamble_headings_in_order(text))
+
+
+class TestRenderedShadowDocsKeepTheGuarantees(
+    _RenderedShadowDocsContract, unittest.TestCase
+):
+    """The Claude render — the surface a Claude shadow executes."""
+
+    AGENT = "claude"
+    RENDERED_DIR = os.path.join(
+        os.path.dirname(__file__), "..", ".claude", "skills",
+        "aitask-shadow-%s-" % _RenderedShadowDocsContract.PROFILE,
+    )
+
+
+class TestRenderedOpencodeShadowDocsKeepTheGuarantees(
+    _RenderedShadowDocsContract, unittest.TestCase
+):
+    """The OpenCode render (t1908) — the surface an OpenCode shadow executes.
+
+    Above all it re-checks that the gated code-span example never makes a
+    rendered doc parser-live.
+    """
+
+    AGENT = "opencode"
+    RENDERED_DIR = os.path.join(
+        os.path.dirname(__file__), "..", ".opencode", "skills",
+        "aitask-shadow-%s-" % _RenderedShadowDocsContract.PROFILE,
+    )
 
 
 class TestParseReviewedAtEpoch(unittest.TestCase):

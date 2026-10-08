@@ -1,0 +1,724 @@
+# Implementation Challenge (adversarial, tiered)
+
+A sub-procedure of the shadow skill (`aitask-shadow`). Use it when the user wants
+the **code actually written** for a task stress-tested — "review the
+implementation", "did it actually do what the plan said", "check the code that was
+written". This is the implementation-side companion to `plan-challenge.md` (which
+reviews the *plan*). Your job is to be a constructive adversary against the
+**implementation**: actively look for where the code, as written, is wrong — not
+to reassure.
+
+The review runs at one of four **effort tiers** — `quick`, `default`,
+`advanced`, `deep` — selected in the **Tier selection** section below.
+**Default is the compatibility tier**: the direct successor of the pre-tier
+adversarial review. Its **methodology** is that legacy three-axis analysis
+preserved one-to-one (one full-context pass, no cap, no fan-out); its
+**reporting rules** — dispositions, partition ordering, and the
+no-silent-omission rule — are the shared modern ones every tier uses.
+**Advanced is the recommended improved review.** Angle texts, the verdict ladder, the disposition rubric, and
+the ordering / cap / no-silent-omission rules live in the shared catalog
+`.claude/skills/aitask-shadow/impl-review-angles.md` — read it when a tier
+references it.
+
+**Advisory-only:** present the findings to the user; never drive the followed
+agent's pane. (Reading local git state — commits, diffs — is fine; "advisory-only"
+governs the *followed pane*, not your own repo reads.)
+
+## Inputs
+
+1. **Task definition + plan** — via `./.aitask-scripts/aitask_shadow_context.sh <task_id>`
+   (`TASK_FILE:` + active `PLAN_FILE:`). This is "what was supposed to be built."
+   Resolve `<task_id>` as in the shadow SKILL.md Step 2 if it wasn't passed.
+
+   **Archived-plan fallback (needed once the task is committed/archived).**
+   `aitask_shadow_context.sh` returns only the *active* plan and deliberately does
+   not scan the archive — so a completed task yields `PLAN_FILE:NOT_FOUND` even
+   though its plan (carrying the Final Implementation Notes you most need here)
+   lives under `aiplans/archived/`. When the active plan is missing, look there
+   before concluding there is no plan:
+   ```bash
+   ls aiplans/archived/p<N>_*.md 2>/dev/null                        # parent task
+   ls aiplans/archived/p<parent>/p<parent>_<child>_*.md 2>/dev/null  # child task
+   ```
+   Use the archived plan if found. Only when *neither* an active nor an archived
+   plan exists is the plan genuinely unavailable.
+2. **The actual code changes (real diff)** — a **composite** of four channels:
+   committed, staged, unstaged, and untracked — **scoped to the followed task's
+   own changes**. The followed agent often shares its checkout with other
+   sessions, so "everything dirty" is not the task's change. The **Review-state
+   assessment** below owns the resolution (the ownership-evidence helper, your
+   ownership judgement, the channel commands, the NUL-safe enumeration rule, and
+   the disclosure obligation) — do not resolve a diff source separately here.
+
+   Why a composite and not a first-match chain: the task workflow commits the
+   code *and* writes Final Implementation Notes only **after** the Step 8 review
+   prompt. So at the common pre-commit review moment there may be **no task
+   commit yet**, with all real changes sitting in the working tree / index — and
+   just as often an earlier session's task commit **plus** newer uncommitted
+   edits, where the newest work is exactly what the review most needs. A chain
+   that stops at the first non-empty channel silently reviews the older half.
+
+   Throughout this procedure and the angle catalog, "the diff" means this
+   **scoped composite** — the file parts you judged *in scope* or *tentative*
+   (see the assessment) — and there is no separate diff-gathering phase.
+
+   **Snapshot the diff you reviewed.** Once the scoped composite is resolved, save
+   that same text under this round's number N (the same N the block header
+   will carry), so a later round's preamble can say what changed since this
+   one — the working tree is overwritten between rounds and git only ever
+   shows the current diff:
+   ```bash
+   <the scoped composite diff text> | ./.aitask-scripts/aitask_shadow_rejected.sh snapshot <task_id> <N> --kind diff
+   ```
+   A skipped snapshot (`LOCK_BUSY`, exit 2, exit 4, no task id) is reported
+   in one sentence and never blocks the review. Protocol and read-back in
+   `.claude/skills/aitask-shadow/round-preamble.md`.
+3. **The plan's `## Final Implementation Notes`** — the agent's own narrative
+   (*Actual work done*, *Deviations from plan*, *Issues encountered*, *Key
+   decisions*), written by task-workflow Step 8 at end of implementation. This is
+   where deviations are *justified*.
+
+   **Frequently absent, and that is normal.** Step 8 writes them inside its
+   "Commit changes" branch — *after* the review prompt — so at the most common
+   moment for this review they do not exist yet. Their absence is a fact to state
+   (see the assessment below), never a reason to stop or to ask permission, and
+   the angle catalog's notes-absent modes for S1/S2 apply.
+
+When you (re)capture the followed pane to read long content, use the deep
+plan-review capture — `./.aitask-scripts/aitask_shadow_capture.sh --deep` — so a
+long diff or notes section isn't truncated to the default window's tail. Pass no
+pane id: the helper resolves your bound followed pane itself (add
+`<followed_pane_id>` only if Step 1 also had to).
+
+## Review-state assessment (required — run first, every tier)
+
+Resolve what there is to review, then **state** it. This assessment *informs*;
+it does not prompt — the single exception is one targeted question about
+ownership you genuinely cannot resolve (step 3). Absent Final Implementation
+Notes are the **normal** pre-commit state, not an anomaly — reviewing before
+they exist is the expected flow, so it never costs the user a confirmation
+round-trip.
+
+**1. Resolve the plan.** Take the active plan from input 1, then the
+archived-plan fallback. Only when neither exists is the plan unavailable.
+
+**2. Gather the ownership evidence, then the diff as a
+COMPOSITE, not a precedence chain.** The followed agent's checkout may be shared with other
+sessions, so the four channels are *candidates*, not the task's change. Start
+with the evidence helper:
+
+```bash
+./.aitask-scripts/aitask_shadow_scope.sh <task_id>
+```
+
+It resolves the **followed agent's** checkout (the task's registered worktree,
+else the bound followed pane's directory, else your own — reported as
+`CHECKOUT:<path>|<source>`; `shadow_cwd` is a coverage limit to state) and
+prints one `PART|<committed|dirty>|<hashes or channels>|<evidence>|<path>` line
+per changed file part. A path with both a task commit and newer uncommitted
+edits yields **two parts** — the task's committed change, and a dirty change
+that may be someone else's — and you judge them separately. It reports evidence
+only; the judgement is yours (step 3). The evidence tokens:
+
+| token | means |
+|---|---|
+| `f_commits:<n>` | committed part: the followed task's own tagged commits touch it |
+| `f_commit_earlier:<n>` | dirty part: the task committed this path earlier; this change is **newer** |
+| `f_plan:<section>` | the plan references the path, in that section (`critical_files`, `context`, `verification`, …; `top` = no heading) |
+| `f_task:<section>` | the task description references it |
+| `f_plan_suffix:<section>` / `f_task_suffix:<section>` | referenced only by a trailing sub-path (the module-relative form a sub-project plan uses) — weaker, short suffixes are ambiguous |
+| `f_plan_dir:<dir>` | the plan names an ancestor directory `<dir>/` |
+| `baseline_dirty` | the path was already dirty when the task was claimed |
+| `other_plan:t<X>` / `other_task:t<X>` / `other_commit:t<X>` | another active task's plan, description or commits claim it |
+| `other_plan_suffix:t<X>` / `other_task_suffix:t<X>` | another active task claims it by a trailing sub-path only |
+| `-` | no evidence at all |
+
+Its `SIGNAL:` lines state what was available — `dedicated_worktree`, `plan`,
+`task`, `commits`, `baseline`, `other_tasks` — and a missing signal is a limit
+to state, never a negative.
+
+Read each part's content through its own channel, inside the resolved checkout
+(`git -C "$checkout" …`): `git show <hash> -- "$path"` for a committed part,
+`git diff --cached -- "$path"` and `git diff -- "$path"` for staged and
+unstaged hunks, and the whole file for an untracked one. The channels, should
+you need to enumerate them yourself, are:
+
+```bash
+# committed — TWO steps: the helper yields commit METADATA, not paths
+#   (COMMIT|<hash>|<date>|<subject>|<ins>|<del>|<matched-id>)
+./.aitask-scripts/aitask_revert_analyze.sh --task-commits <task_id>
+# …then, per <hash> whose matched-id is exactly <task_id>, its paths NUL-separated:
+git diff-tree -r --no-commit-id --name-only -z <hash>
+git diff --cached --name-only -z                                     # staged
+git diff --name-only -z                                              # unstaged
+git ls-files --others --exclude-standard -z                          # UNTRACKED
+```
+
+Never stop at the first non-empty channel. The committed channel is the one
+that needs the explicit second call: without the `git diff-tree` step it
+contributes commit subjects but no paths, so a committed file whose name
+contains a space would fall outside the path-safety guarantee the other three
+channels get. (`git diff-tree -r --no-commit-id --name-only -z` is the plumbing
+form — no header to strip, no quoting, NUL-terminated.) A parent id's commit
+list also carries its children's commits; only an exact matched-id is the
+task's own.
+
+**Enumerate paths NUL-separated, never from `git status --short`.** That
+porcelain format is `XY PATH`, so a field-splitting read (`awk '{print $2}'`)
+drops everything after the first space — `new helper.py` enumerates as `new` and
+is then never read — and the format additionally C-quotes paths containing
+spaces, quotes, or non-ASCII bytes. `git ls-files --others --exclude-standard -z`
+emits raw, unquoted, NUL-terminated paths and already honors `.gitignore`.
+Consume every channel with a null-safe loop
+(`while IFS= read -r -d '' path; do … done < <(…)`) and quote `"$path"`
+everywhere downstream. The `-z` on the two `git diff` calls is for the same
+reason — a tracked path can contain a space just as easily. (The helper's
+`PART` lines already carry the path last and unquoted; take it whole.)
+
+**Untracked paths are load-bearing.** Neither `git diff` nor `git diff --cached`
+sees a brand-new file, so a task whose whole deliverable is a new helper or a new
+test would look like "nothing to review" while the implementation sits right
+there. Untracked files must be **read in full** (there is no diff to read) and
+reviewed as all-new code.
+
+**3. Ownership judgement (default — no scope prompt).** Decide, part by part,
+whose change it is by reading it in the light of the task and the plan and
+weighing the helper's evidence. The followed task's own changes are the default
+review boundary; the user never has to ask for it. The weights below are
+**guidance, not rules** — plan file lists are neither complete nor reliable:
+
+- `SIGNAL:dedicated_worktree|yes` — the checkout is the task's own worktree;
+  every part in it is the task's.
+- `f_commits` — the committed part is the task's.
+- `f_plan` under a file-list section (`critical_files`, `files_to_modify`, …) is
+  strong; `f_plan` elsewhere (a context or verification citation), `f_task`,
+  the `*_suffix` forms and `f_plan_dir` are supporting. A broad shared directory (`.aitask-scripts`,
+  `tests`) in `f_plan_dir` is nearly worthless.
+- **Content connection** can make an *unlisted* part credible: it implements
+  what the plan describes, tests or wires an in-scope change, or lives in a new
+  tree the task creates.
+- `other_*` (suffix forms included) and `baseline_dirty` are counter-evidence
+  and can make a *listed* part foreign — especially when its content matches the
+  other task.
+- A dirty part with `f_commit_earlier` is judged on its **own** content. The
+  task's earlier commit does not make a later edit the task's.
+- **Split a dirty part by hunk when its hunks may have different owners.** The
+  helper reports staged and unstaged changes of one file as a single dirty part
+  (the channels list says which it has), but they can come from different
+  sessions — the followed agent stages its edit, another session then edits the
+  same file unstaged. Read them separately (`git diff --cached -- "$path"` and
+  `git diff -- "$path"`) and judge each group on its own. Within either group you
+  may likewise take only the hunks attributable to the task. Review and snapshot
+  **only the attributable hunks**, and name the split in the disclosure (for
+  example, "`a.sh`: staged hunks in scope, unstaged hunks excluded").
+
+Each part — or, once split, each group of hunks — lands in one of four outcomes:
+
+- **In scope** — reviewed normally; its findings take any disposition.
+- **Tentative** — plausibly related but uncertain. Reviewed, but its findings
+  go in a separate **"Tentative — possibly another task's"** list and
+  are **never `blocking`**: in the concern block they carry
+  `Disposition: informational.` and the body opens with
+  `Possibly another task's (<one-line reason>):`, so the picker files them as
+  Informational and they cannot hold approval. Promote a tentative part only
+  when ownership becomes sufficiently clear — new evidence, or the user says so.
+- **Excluded** — clearly foreign. No findings; never in the block.
+- **Unrelated** — no credible connection to the task. Not reviewed.
+
+**Explain uncertain decisions briefly** — one line for each part you judged
+*against* its evidence (an unlisted part taken in, a listed part excluded) and
+for each tentative part. The rest are counts in the disclosure.
+
+**Ask only about material ambiguity you cannot resolve** — at most one targeted
+question per round, naming the parts and what would change. Otherwise decide,
+and state the limit. Never fall back to reviewing the whole workspace, and never
+treat ambiguity as ownership.
+
+Reading other code as **context** (callers, dependencies, the files a change
+calls into) is fine and often necessary; a finding must still be **caused by**
+an in-scope change, even when the breakage it causes sits elsewhere.
+Another task's change is never reviewed on its own merits.
+
+**Whole-workspace or another task's review** happens only on an explicit user
+request, applies to that run only, and is labelled as such in the disclosure.
+
+**Worked examples** (the four judgement cases):
+
+1. *Unlisted related file taken in.* `goengines/go.mod` is untracked with only
+   `f_plan_dir:goengines`; the plan creates the `goengines/` module and this is
+   its module file → in scope ("unlisted, but it is the module file of the tree
+   the plan creates").
+2. *Listed file excluded.* `lib/x.sh` carries
+   `f_plan:context,baseline_dirty,other_plan:t9`; the plan cites it only for a
+   pattern, it was dirty before the claim, and its hunks implement t9's feature
+   → excluded ("cited as context; the edit is t9's").
+3. *Shared file split.* `a.sh` has a committed part (`f_commits:1`) and a dirty
+   part (`f_commit_earlier:1,other_plan:t9`). The committed part is in scope;
+   the newer hunks touch nothing the task describes → tentative ("newer than
+   the task's commit and claimed by t9"). Likewise a dirty part on channels
+   `staged,unstaged` whose staged hunks continue the task's change while the
+   unstaged hunks implement t9's feature is split: staged hunks in scope,
+   unstaged hunks excluded, and only the staged hunks are reviewed and
+   snapshotted.
+4. *Missing plan.* `SIGNAL:plan|missing`; `web/app.ts` has `f_task:scope` and
+   its hunks implement the flow the task describes → in scope, and the
+   disclosure states that there was no plan to check file lists against.
+
+**4. Act on what you resolved:**
+
+- **No part in scope or tentative** — the *only* stop. Report "nothing of
+  t\<id\>'s to review" with the disclosure (what was excluded or unrelated, and
+  why) and end. When the plan is missing or parts stayed unresolved, say so —
+  never call that a clean result. This is not a prompt: there is nothing to
+  proceed with.
+- **No plan at all** — continue, code-only, announcing that angles S1 and S2
+  (plan risks, plan deviations) are unavailable for this run.
+- **Notes absent (the normal pre-commit case)** — **no warning, no prompt.** One
+  stated line: which channels are under review, and that the notes are not
+  written yet because task-workflow writes them *after* its Step 8 review prompt,
+  so deviations are audited against the plan directly.
+- **Notes present** — state the channels; full S1/S2 semantics apply.
+
+**Disclose the scope in one short line** before reviewing: the checkout and its
+source, how many parts are in scope / tentative / excluded / unrelated, and every
+limit that applies (plan missing, `shadow_cwd`, baseline missing or foreign,
+unresolved parts). Never claim complete coverage while any limit applies.
+
+This section carries the "tell the user what you reviewed" obligation for the
+whole procedure — stated once here, not repeated per tier.
+
+## Tier selection (after the assessment)
+
+Auto-detect the tier from the user's free-text ask:
+
+- "quick" / "fast" / `>i1` → **Quick**
+- "default" / "basic" / "legacy" / an unqualified "adversarial review" /
+  `>i2` → **Default**
+- "advanced" / "standard" / "normal" / `>i3` → **Advanced**
+- "deep" / "thorough" / "max" / "exhaustive" / `>i4` → **Deep**
+- A generic "review the implementation" (including a digitless `>i`) with no
+  level or compatibility wording:
+  run **advanced** — the tier configured by profile
+  'fast' via `shadow_impl_review_tier`. Announce it and name the
+  override in the same line: "say 'deep review' (or any other tier) to run a
+  different one." Do **NOT** ask.
+
+A tier digit counts as **explicit wording** — rank 1 of the resolution order
+below — so `>i3` runs Advanced whatever the profile configures, and needs no
+"inferred tier" announcement. `>i` with no digit names no tier: it is the
+*generic* ask the bullet above resolves.
+
+Nothing routes to Quick implicitly — it runs only on an explicit request.
+
+**Resolution order (apply in this order).** **1.** A tier named in the user's ask
+— the four explicit-wording bullets above — always wins, including over a profile
+default. **2.** Otherwise the profile's configured tier, when the key is set.
+**3.** Otherwise the prompt.
+
+**Angle scoping (user intent wins).** The tier picks the *default* angle set
+(see the activation table). A user ask naming specific angles or focus areas
+("just check the callers", "only plan deviations", "skip the cleanup angles")
+narrows or extends that default, at the tier's depth (candidate caps and the
+verify pass still apply in Advanced/Deep). Map free-text focus phrases to
+catalog angle names and confirm the resolved set in one line. Two guard rails:
+
+- Only an **explicit user narrowing** may drop a legacy axis from a run's
+  default set — for the Default tier that protects all three axes (S0/S1/S2)
+  equally; for Advanced/Deep it protects S1/S2 (S0 is not in their default
+  set — superseded by the A–E methodology).
+- Scoping never changes a tier's **methodology**: at Default, a focus request
+  narrows the attention of the single adversarial pass — it does not activate
+  Advanced's candidate fan-out, verdict ladder, or Deep's gap sweep. A user
+  who wants the angle methodology asks for Advanced/Deep.
+
+State the chosen tier (and any angle scoping) to the user before starting.
+
+**Announce an inferred tier (required).** When the tier was **inferred** rather
+than named — in particular when an unqualified "adversarial review" resolved to
+Default — say so explicitly in that same line and name the alternative, e.g.:
+*"Running **Default** (the legacy three-axis review) — Advanced is the
+recommended tier; say 'advanced review' for it."* A user must never have to infer
+which review they got from the shape of its output. This covers a
+**profile-derived** tier too: when the tier came from `shadow_impl_review_tier`
+rather than from the user's wording, say which profile supplied it and how to
+override it for this run.
+
+## Angle-activation table
+
+Angle and mechanism texts live in `impl-review-angles.md`.
+
+| Angle / mechanism | quick | default | advanced | deep |
+|---|---|---|---|---|
+| Single full-context legacy pass (methodology) | — | ✓ | — | — |
+| S0 — implementation flaws (legacy broad axis) | — | ✓ (legacy axis 1) | — (superseded by A–C) | — (superseded by A–E) |
+| A — line-by-line diff scan | hunk-only variant | — | ✓ | ✓ |
+| B — removed-behavior auditor | — | — | ✓ | ✓ |
+| C — cross-file tracer | — | — | ✓ | ✓ |
+| D — language-pitfall specialist | — | — | — | ✓ |
+| E — wrapper/proxy correctness | — | — | — | ✓ |
+| Reuse / Simplification / Efficiency | dup+dead-code hunk glance | — | ✓ | ✓ |
+| Altitude | — | — | ✓ | ✓ |
+| Conventions (CLAUDE.md) | — | — | ✓ | ✓ |
+| S1 — unmitigated plan risks | — | ✓ (legacy axis 2) | ✓ | ✓ |
+| S2 — plan-deviation auditor | notes-vs-diff glance | ✓ (legacy axis 3) | ✓ | ✓ |
+| Verify pass (verdict ladder) | — | — | precision | recall |
+| Gap sweep | — | — | — | ✓ |
+| Anti-drop rule | ✓ | ✓ | ✓ | ✓ |
+| Findings cap (see cap-overflow rule in the catalog) | ≤4 | none | ≤8 | ≤15 |
+
+## Tier: Quick
+
+`quick → 1 diff pass → no verify → ≤4 findings`
+
+A reduced hunk-only scan; no full-context review, no verification. Tell the
+user up front this is the reduced-scope pass. One pass over the resolved diff:
+flag only runtime-correctness bugs visible from the hunk alone — inverted/wrong
+condition, off-by-one, null/undefined deref where adjacent lines show the value
+can be absent, removed guard, falsy-zero check, missing `await`, wrong-variable
+copy-paste, error swallowed in a catch that should propagate — plus hunk-visible
+duplication of an existing helper and dead code the diff leaves behind. Also
+one cheap shadow glance: scan the Final Implementation Notes against the diff
+for a glaring unexplained deviation — **skip this glance entirely when the notes
+are absent** (the normal pre-commit case); there is nothing to glance at, and
+Quick does not read the plan itself. Skip test/fixture hunks (`test/`, `spec/`,
+`__tests__/`, `*_test.*`, `*.test.*`, `fixtures/`, `testdata/`). No full-file
+reads. Do **not** flag style, naming, perf, missing tests, or anything outside
+the hunk. Within that scope the catalog's **anti-drop rule** still applies: a
+hunk-visible candidate you are merely unsure about is reported, not dropped. At
+most **4 findings**, one line each. If nothing qualifies, say so.
+
+## Tier: Default (= Legacy)
+
+`default → 1 full-context adversarial pass → no formal verify → prioritized findings`
+
+The compatibility tier: the pre-tier adversarial review's **methodology**
+preserved one-to-one. (Its reporting rules are the shared modern ones — see the
+findings-presentation section below.) One full-context adversarial pass over the
+resolved implementation diff, the
+plan, its `## Risk` section, and the Final Implementation Notes, attacking
+along the three legacy axes from the catalog (skip any that don't apply; add
+others the change invites):
+
+- **Angle S0 — implementation flaws** (legacy axis 1)
+- **Angle S1 — unmitigated plan risks** (legacy axis 2)
+- **Angle S2 — plan-deviation auditor** (legacy axis 3)
+
+No multi-angle candidate fan-out, no verdict ladder, no gap sweep, no findings
+cap, no minimum. The findings presentation, honesty rules, advisory-only
+guardrail, and concern-block behavior below apply exactly as in every tier.
+
+Apply the catalog's **anti-drop rule**. There is no verify pass at this tier to
+adjudicate a half-believed candidate, so it goes straight into the findings list
+with an honest severity and disposition — never dropped. If you believe the
+matter is already handled, say so as an `informational` finding with your
+reasoning, and let the user decide.
+
+## Tier: Advanced
+
+`advanced → 10 angles × 6 candidates → precision verify → ≤8 findings`
+
+The recommended improved review. You are reviewing for **precision**: every
+finding you surface should be one a maintainer would act on.
+
+**Phase 1 — Find candidates.** Run **10 independent finder angles** in sequence
+yourself, in THIS context — do NOT spawn subagents for them: **A, B, C** +
+**Reuse, Simplification, Efficiency, Altitude, Conventions** + **S1, S2** (texts
+in the catalog). Each surfaces **up to 6 candidate findings** with `file`,
+`line`, a one-line `summary`, and a concrete `failure_scenario` (for
+cleanup/S-axis candidates, the failure scenario states the concrete cost per
+the catalog's cleanup-precedence note). Apply the catalog's **anti-drop rule**.
+
+**Phase 2 — Verify (self, 1-vote, 3-state, precision-biased).** Dedup
+candidates that point at the same line/mechanism, keeping the one with the most
+concrete failure scenario. For each remaining candidate, re-read the relevant
+code and assign exactly one verdict from the catalog's **verdict ladder**
+(without the recall addendum). Keep CONFIRMED and PLAUSIBLE; drop REFUTED.
+
+At most **8 findings** (cap-overflow rule in the catalog).
+
+## Tier: Deep
+
+`deep → 12 angles × 8 candidates → recall verify → gap sweep → ≤15 findings`
+
+You are reviewing for **recall**: catch every real bug a careful reviewer would
+catch in one sitting. At this level, catching real bugs matters more than
+avoiding false positives — err on the side of surfacing.
+
+**Phase 1 — Find candidates.** Run **12 independent finder angles** in sequence
+yourself, in THIS context — do NOT spawn subagents for them: **A, B, C, D, E** +
+**Reuse, Simplification, Efficiency, Altitude, Conventions** + **S1, S2**. Each
+surfaces **up to 8 candidate findings**. Do NOT let one angle's conclusions
+suppress another's — if two angles flag the same line for different reasons,
+record both. Apply the catalog's **anti-drop rule**.
+
+**Phase 2 — Verify (self, 1-vote, recall-biased).** Dedup near-duplicates (same
+defect, same location, same reason → keep one). For each remaining candidate,
+re-read the relevant code and assign exactly one verdict from the catalog's
+**verdict ladder**, applying the **recall addendum** (PLAUSIBLE by default).
+Keep CONFIRMED and PLAUSIBLE; drop REFUTED. Do NOT drop on uncertainty.
+
+**Phase 3 — Sweep for gaps.** Run the catalog's **gap-sweep focus list**:
+one more pass as a fresh reviewer holding the verified list, hunting ONLY for
+defects not already listed; up to 8 additional candidates, verified the same
+way as Phase 2. Never pad.
+
+At most **15 findings** (cap-overflow rule in the catalog).
+
+## Findings presentation (all tiers), then stay honest
+
+Produce a prose findings list, partitioned per the catalog's **ordering, caps,
+and no-silent-omission** rules: `blocking` findings first, then `follow-up`,
+then `informational`, severity-ordered within each partition. For each finding
+give:
+
+- a one-line statement of the problem;
+- *why* it bites (the triggering scenario);
+- its **impact vector** — which quality dimensions addressing the finding would
+  improve, which it would worsen, and what it would cost (see the emit section
+  for the closed vocabulary and grammar); the severity you quote is the priority
+  that vector derives, not a second judgement;
+- its **disposition** — `blocking`, `follow-up`, or `informational`, classified
+  per the catalog's **disposition rubric** (impact vs obligations — never by
+  angle, never by verdict);
+- in Advanced/Deep: its **verdict** (CONFIRMED or PLAUSIBLE).
+
+**Tentative-ownership findings form their own list**, after the partitions
+above, headed **"Tentative — possibly another task's"**. Each item opens with
+the one-line ownership reason from the assessment. They are capped at
+`informational` whatever their impact — ownership is what is uncertain, not the
+severity — so they never count against approval. Findings on *excluded* or
+*unrelated* parts do not exist: you did not review those parts.
+
+**Rechecks judge afresh.** Every round re-runs the evidence helper, reads the
+current changes, and makes a **fresh** ownership judgement. Earlier rounds'
+decisions and reasons are **context, not rules to preserve**: a part excluded
+last round is judged on its current content like any other, and new unrelated
+work lands excluded or unrelated rather than expanding the review. Clearly
+foreign work stays out of actionable findings every round. A previous round's
+concern whose part you now judge foreign or unrelated — including concerns that
+only an earlier, overbroad scope produced — is named once in prose as
+*"outside t\<id\>'s scope, not carried"*; it never re-enters the block and needs
+no rejection. A previous concern on a part now judged tentative is re-emitted
+only as `informational`. Genuine unresolved or regressed in-scope concerns stay.
+
+**Open every round after the first with the "Where this is heading" preamble.**
+From round 2 on, before this list: the six fixed headings (since last round /
+since the original plan / is it still doing what was asked / how much bigger
+did it get / was each change worth it / bottom line) with their plain labels
+and the fixed bottom-line rule — here "the plan" is the code change, heading 2
+reads "since implementation started" and compares the approved plan against
+the change as it now stands, and heading 1 uses the previous round's diff
+snapshot when present — per `.claude/skills/aitask-shadow/round-preamble.md`.
+Round 1 emits none. It is prose for the human, before the list and therefore
+before the block.
+
+**Add a plain-words line to every concern.** Each finding in this list ends
+with `In plain words: …` — a non-expert restatement of the finding's full
+block body (compose the body with its trailer first, then derive the line from
+it, so the two never diverge). Written for a reader who will not read the plan
+or the code: outcomes, not mechanisms; no paths or function names. Prose only
+— it never goes on a `- [` line or inside the block.
+
+If anything was left out — by the tier's cap or for any other reason — disclose
+it per the catalog's **no-silent-omission rule**.
+
+**Stay honest** (same rule as `plan-challenge.md`): if a dimension is genuinely
+clean, say so briefly — a short list of real problems beats a long list of weak
+ones. No generic "consider adding tests" filler, and never pad to reach a cap or
+a minimum — the extracted /code-review minimum-findings floors are deliberately
+NOT adopted, in any tier.
+
+**Honesty is not licence to drop.** The anti-padding rule forbids *inventing*
+weak findings; it never permits *suppressing* a real one. When you are unsure
+whether something is worth the user's time, that is exactly what the
+`informational` disposition is for — report it with your reasoning and let the
+user judge. Deciding on the user's behalf that a real observation is not worth
+showing is the one failure mode this section exists to prevent.
+
+## Also emit the structured concern block (for pick-and-forward)
+
+After the human-readable list, append a machine-parseable copy of the *same*
+concerns so the user can tick a subset and forward them to the followed agent via
+minimonitor's concern picker. This block is **additive** and does **not** relax
+the advisory-only guardrail (it is text for the *user* to copy).
+
+**Emit this block as the final output of your review — nothing after it.**
+Minimonitor's picker captures the tail of your pane and forwards the *last*
+concern block it finds, so trailing commentary after the block (or forgetting to
+emit it) makes the picker fall back to an earlier/stale block. Print the review,
+then the block, then stop.
+
+**Consult the rejection store before emitting.** Using the source task id from
+your launch arguments or Step 2 — resolving one now if you have neither (it is
+inferable from the followed agent's window name, e.g. `agent-pick-635_3`) — run
+`./.aitask-scripts/aitask_shadow_rejected.sh list <task_id>` and drop every
+fresh concern that is substantively the same as a previously-rejected entry,
+even when reworded. The full contract is in the rules list below.
+
+**Price your own suggestion: emit the impact vector.** Every finding ends its
+body with `Improves: <dimension>(<magnitude>)[, …].`, then
+`Worsens: <dimension>(<magnitude>)[, …].` — and **the Worsens sentence is
+mandatory**, as `Worsens: nothing.` when the fix genuinely costs nothing — then
+`Effort: <high|medium|low>.`, alongside the `Disposition:` and (Advanced/Deep)
+`Verified:` sentences. Without the worsen side a finding is a pure demand with
+externalised costs, and a change that absorbs every such demand is silently
+over-engineered; a finding that improves only non-obligated dimensions at a
+simplicity cost self-identifies as a bad trade. `Worsens: nothing.` is a
+*priced* empty set and an omitted `Worsens:` is a different state — the parser
+distinguishes them, so never drop the sentence to mean "nothing". The marker
+priority you write is then not a free choice: it is `derive_priority(improves)`,
+the strongest known magnitude on the improve side.
+
+**Dimensions are load-bearing; magnitudes are advisory.** Naming *which* quality
+moves is the information the old bare severity scalar never carried, and it is
+what the reader acts on. Calibrating *how far* it moves is noisy, so a magnitude
+refines a finding and never decides whether it is one. Draw every dimension from
+this closed vocabulary — the parser builds its name alternation from it, so an
+invented name makes the whole sentence fail to match and it stays visibly in the
+body:
+
+- `goal` — the task's AC / the user's stated intent is delivered
+- `correctness` — right behavior on reachable inputs
+- `robustness` — stability under failure / concurrency / hostile input (includes security)
+- `performance` — latency, throughput, resource cost
+- `verification` — testability; proof the change works
+- `maintainability` — readability, duplication, conventions; ease of safe change
+- `simplicity` — amount of mechanism; the classic worsen-side
+
+The vector is also what makes the disposition decidable: `blocking` when the
+improve side touches an obligation dimension for this task, `follow-up` when it
+is net-positive but touches none, `informational` when there is no proposed
+delta at all. The catalog's rubric in `impl-review-angles.md` stays
+authoritative — this is the same rule expressed over the vector.
+
+Emit a block delimited by an opening `===AITASK-CONCERNS===` line and a closing
+`===END-CONCERNS===` line (those two exact literals; single source of truth:
+`.claude/skills/aitask-shadow/concern-format.md`), with one concern per line
+between them. The concern lines themselves look like:
+
+```
+Round: 1 @ 2026-08-11T14:03:27Z
+- [high | file.ext:120] In path/to/file.ext the new guard compares the raw email instead of the normalized one, so a task assigned with a trailing-space email never matches and re-locks every resume. It bites on the common reclaim path. Normalizing both sides before compare would fix it — exact form your call. Improves: correctness(high). Worsens: nothing. Effort: low. Disposition: blocking. Verified: CONFIRMED.
+- [medium | unmitigated risk] The plan's Risk section flagged concurrent writers to the ledger, but the diff adds no locking around the append, so two resumes can interleave and drop one run. The Final Implementation Notes don't mention it, so it looks unaddressed rather than deliberately deferred. Improves: robustness(medium), verification(low). Worsens: simplicity(low). Effort: medium. Disposition: follow-up. Verified: PLAUSIBLE.
+- [low | accepted risk] The plan explicitly accepted the unlocked counter increment, on the rationale that only the reaper writes it. That rationale holds against the diff — the only other writer is behind the same mutex — so I am not asking for a change; flagging it so you can judge the single-writer assumption yourself. Improves: robustness(low). Worsens: nothing. Effort: low. Disposition: informational. Verified: CONFIRMED.
+```
+
+**Emit a round header as the first line inside the block.** Immediately after
+the opening fence — before the first `- [` marker — emit exactly one line of
+the form `Round: <N> @ <timestamp>`, for example
+`Round: 2 @ 2026-08-11T14:03:27Z`. If the request that triggered this review
+names a round ("recheck round N"), use that N; otherwise N is 1 for the first
+review you run in this conversation and increments by one on each later review
+you run in it (any review sub-procedure counts; a fresh shadow session starts
+at 1 again — the timestamp is what disambiguates). Obtain the timestamp by
+running `date -u +%Y-%m-%dT%H:%M:%SZ` — never estimate it. A **zero-concern**
+review (nothing found, or suppression removed everything) still emits the
+block: the two fences with only this header between them, which is the
+machine-readable record that the round completed clean.
+
+Rules — all load-bearing for minimonitor's parser; match them exactly:
+- One concern per line, in the form `- [priority | region] body`.
+- **OpenCode: wrap the marker in a code span.** OpenCode's markdown renderer
+  strips the `[` `]` from every bracket span, so a plain marker reaches
+  minimonitor as `- high | region body` and the concern cannot be forwarded.
+  Write every concern line as ``- `[priority | region]` body`` (region-less:
+  ``- `[priority]` body``): the whole bracket — and nothing else — inside one
+  pair of backticks, the body after it plain. The renderer hides the backticks
+  and shows the canonical `- [priority | region] body` row. This applies to
+  every concern line you emit, even though the examples above show the plain
+  form; every other rule here is unchanged.
+- The leading `- ` (dash **and** space) is **MANDATORY** on every concern line —
+  it is the wrap-collision guard (a soft-wrapped continuation line never carries
+  it, so the parser can't mistake wrapped text for a new item).
+- `priority` is one of `high`, `medium`, `low`, and for a vector-bearing finding
+  it is exactly `derive_priority(improves)` — the strongest known magnitude on
+  the improve side, `low` when that side is absent, empty, or carries only
+  unspecified magnitudes. That is the **single** mapping to this field: do not
+  compute it from anything else. The picker shows the derived value and flags a
+  marker that disagrees, rather than silently reconciling the two.
+- `region` for implementation concerns should identify the **code locus**
+  or the **axis** (`unmitigated risk`, `unjustified deviation`,
+  `pending narration`, `correctness`)
+  — it is **mandatory and never empty** (it is the row's only title in
+  minimonitor's picker; an omitted one renders as `(no region)`) — and MUST
+  stay **short** (≤ ~30 chars): use `basename.ext:LINE`, never a
+  full repo path (put the full path in the body instead). The whole
+  `[priority | region]` marker must survive on ONE rendered row: some agent
+  TUIs hard-wrap long lines with literal newlines that even a wrap-joined
+  capture cannot rejoin, and a wrap *inside the bracket* makes the item
+  unparseable to minimonitor.
+- `body` carries the **full framing** — the problem, *why it bites*, and enough
+  context for the receiving agent to choose **how** to fix it. Do **not** compress
+  it to a bare one-liner. "One logical line" is a **parser constraint** (emit no
+  literal newline mid-concern — let the terminal soft-wrap), not a brevity
+  constraint.
+- End the body with the finding's disposition as prose — one of
+  `Disposition: blocking.`, `Disposition: follow-up.`, or
+  `Disposition: informational.` — and, in Advanced/Deep, its verdict
+  (`Verified: CONFIRMED.` / `Verified: PLAUSIBLE.`). These stay **inside the
+  body** and the line format above is unchanged, but they are now **parsed**:
+  minimonitor derives the disposition from this trailer and groups the picker by
+  it. Two consequences for you: the trailer must be the **last thing in the
+  body** (it is matched only as a terminal run, so anything written after it is
+  not read as a trailer), and an omitted trailer makes the finding show up as
+  needing attention.
+- **Impact vector.** The same trailer run also carries
+  `Improves: <dimension>(<magnitude>)[, …].`,
+  `Worsens: <dimension>(<magnitude>)[, …].` or `Worsens: nothing.`, and
+  `Effort: <high|medium|low>.` — and the Worsens sentence is mandatory, in both
+  forms: a priced-nothing worsen side and an omitted one are different states
+  and the parser reads them differently. Dimension names come only from the
+  closed vocabulary above; the dimension names are the load-bearing part and
+  magnitudes are advisory, so an uncertain magnitude is still worth naming its
+  dimension for. Sentence order within the run is free.
+- Order items to match the prose list: blocking partition first, then
+  follow-up, then informational, severity-ordered within each partition.
+- **Scope.** Only concerns caused by parts you judged in scope or tentative
+  enter the block. A tentative part's concern is `Disposition: informational.`
+  and its body opens with `Possibly another task's (<reason>):`; it sits with
+  the informational items, after them.
+- **Suppress previously-rejected concerns.** Before emitting, run
+  `./.aitask-scripts/aitask_shadow_rejected.sh list <task_id>`. Exactly three
+  outcomes are defined: the single line `NO_REJECTIONS` means nothing is
+  rejected; a printed body is the user's previously-rejected concerns; and
+  **anything else** — a non-zero exit (a malformed task id exits `2`), empty
+  output, or output matching neither shape — means you could not consult the
+  store, so emit every fresh concern and state that rejection suppression was
+  skipped. Never read an error as "nothing was rejected". Drop a fresh concern
+  only when it is substantively the same as a rejected one; when unsure, **keep
+  it and say why** (fail-open). Whenever N ≥ 1 were dropped, report
+  `Suppressed N previously-rejected concern(s).` in the prose before the block.
+  When no task id can be resolved, say suppression was skipped.
+- **Always emit the closing `===END-CONCERNS===` fence** — minimonitor's
+  auto-offer only fires on a complete block.
+- **Round header.** The first line after the opening fence is
+  `Round: <N> @ <timestamp>` and nothing else. It MUST come **before** the
+  first `- [` marker — placed after an item it is absorbed into that item's
+  body and the round is lost — and it must never itself begin with `- [`. Take
+  N from the request when it names a round ("recheck round N"), else count from
+  1 within this conversation; get the timestamp from
+  `date -u +%Y-%m-%dT%H:%M:%SZ`, never by estimate. A **zero-concern** review —
+  the implementation is genuinely clean, or suppression left you with nothing
+  to forward — still emits the fences with only this header between them (say
+  so in the prose). Minimonitor reads the header to show the round, to re-offer
+  the picker when a later round repeats the same concerns, and to judge concern
+  freshness.
+- **Plain-words line.** Prose-only, and therefore **not** in this block: each
+  item of the human-readable list above ends with `In plain words: …`, a
+  non-expert restatement derived from the block body after the body is
+  composed. It is never a `- [` line and never inside the fences — the block
+  body stays byte-identical to what the picker forwards. Rules in
+  `.claude/skills/aitask-shadow/round-preamble.md`.
+- **Round preamble.** Prose-only, and emitted **before** the findings list
+  and the block: every round after the first opens with the
+  "Where this is heading" preamble (six fixed headings, fixed bottom-line
+  rule) from `round-preamble.md`; round 1 emits none. Nothing of it goes
+  inside the fences.
+
+**What minimonitor does with it (current behavior):** the picker derives each
+finding's disposition from the trailer above and splits the list into a
+**Needs addressing** section (`blocking`, `follow-up`, and anything with no
+trailer) and an **Informational** section, which is dimmed. The trailer text
+itself is hidden from the row but kept in the forwarded payload, so the
+receiving agent still sees the disposition and verdict verbatim. Ordering
+*within* a section is yours — keep emitting items in the partition order above.

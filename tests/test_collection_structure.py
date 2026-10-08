@@ -112,6 +112,17 @@ INHERITED_TEST_DUP_ALLOWLIST: frozenset[str] = frozenset({
     "DiscoverWindowPanesContractTests(_DiscoverWindowPanesContract)",
     "test_minimonitor_auto_close_guard: "
     "DiscoverWindowPanesAsyncContractTests(_DiscoverWindowPanesContract)",
+    # t1908 — the same parameterization shape: one rendered-shadow-docs
+    # contract over two agent surfaces. The four producers carry an
+    # `{% if agent == "opencode" %}` rule, so the OpenCode render is no longer
+    # byte-identical to the Claude one, and each is what that agent's shadow
+    # actually executes. Running the contract once per surface IS the
+    # mechanism. Genuinely collected: both subclasses run. Genuinely harmless:
+    # one skill render per class plus file reads, no app boot.
+    "test_concern_parser: "
+    "TestRenderedShadowDocsKeepTheGuarantees(_RenderedShadowDocsContract)",
+    "test_concern_parser: "
+    "TestRenderedOpencodeShadowDocsKeepTheGuarantees(_RenderedShadowDocsContract)",
 })
 
 

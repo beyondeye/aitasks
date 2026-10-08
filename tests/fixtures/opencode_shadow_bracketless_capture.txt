@@ -1,0 +1,9 @@
+     ===AITASK-CONCERNS===
+     Round: 2 @ 2026-10-06T00:00:00Z
+
+     - high | region one First stripped body.
+     - low Region-less stripped body.
+     - medium | parser.py:12 A stripped body long enough
+       to wrap at sixty columns so a continuation row is
+       observed too.
+       ===END-CONCERNS===

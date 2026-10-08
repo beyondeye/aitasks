@@ -1,0 +1,10 @@
+     ===AITASK-CONCERNS===
+     Round: 1 @ 2026-10-06T00:00:00Z
+
+     - [high | region one] First body.
+     - [low] Region-less body.
+     - [medium | parser.py:12] A body long enough to wrap
+       at sixty columns so a continuation row is observed
+       too.
+     - medium | canonical Canonical control row.
+       ===END-CONCERNS===

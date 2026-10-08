@@ -160,6 +160,17 @@ which is the machine-readable record that the round completed clean.
 
 Format rules — all load-bearing for minimonitor's parser; match them exactly:
 - One concern per line, in the form `- [priority | region] body`.
+{% if agent == "opencode" -%}
+- **OpenCode: wrap the marker in a code span.** OpenCode's markdown renderer
+  strips the `[` `]` from every bracket span, so a plain marker reaches
+  minimonitor as `- high | region body` and the concern cannot be forwarded.
+  Write every concern line as ``- `[priority | region]` body`` (region-less:
+  ``- `[priority]` body``): the whole bracket — and nothing else — inside one
+  pair of backticks, the body after it plain. The renderer hides the backticks
+  and shows the canonical `- [priority | region] body` row. This applies to
+  every concern line you emit, even though the examples above show the plain
+  form; every other rule here is unchanged.
+{% endif -%}
 - The leading `- ` (dash **and** space) is **MANDATORY** on every concern line
   — it is the wrap-collision guard (a soft-wrapped continuation line never
   carries it, so the parser can't mistake wrapped text for a new item).

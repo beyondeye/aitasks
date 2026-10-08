@@ -146,33 +146,46 @@ protocol behind the preamble's comparisons).
 
   **Measured renderers.**
   - **Codex CLI** rewrites the glyph to `•`, which is accepted (see above).
-  - **OpenCode (1.18.34, t1899): shadows launch and review, but concern items
-    cannot be parsed or forwarded.**
-    - **How it was measured.** Two samples, both rendered by OpenCode 1.18.34
-      (the session export's `version`): a live shadow `>pc` block captured
-      with `--deep`, and a controlled sample. Each capture was compared with
-      the assistant's raw message text from `opencode export`.
-    - **What it changes.** OpenCode keeps the `-` glyph, both fences and the
+  - **OpenCode (1.18.34): the producer code-spans the marker** (t1899
+    measured the damage, t1908 the encoding).
+    - **The damage.** OpenCode keeps the `-` glyph, both fences and the
       `Round:` header. But its markdown renderer strips the square brackets
       from **every** `[…]` span, list item or plain paragraph. So
       `- [medium | parser] body` arrives as `- medium | parser body`, and
-      `- [low] body` arrives as `- low body`. No glyph addition can repair
-      that.
-    - **Workarounds tried.** A backslash-escaped `\[…\]` renders with its
-      backslashes kept, so escaping does not help. No other producer-side
-      encoding was tested.
-    - **What the parser sees.** No row is item-shaped, so `parse_concerns`
-      returns `[]`. `parse_block_meta` still reads the `Round:` header, and
-      `is_metadata_only_block` is false.
-    - **What the user sees.**
-      - The **automatic** paths are **silent**. `has_concern_block` is false,
-        so nothing is auto-offered. `unrecovered_markers` reports nothing,
-        because its marker-like test needs the `[`.
-      - A **manual `c`** in either monitor TUI is not silent. Because the
-        block carries a round but is not a certified clean round, it reaches
-        the uncertified-round warning ("Concern block (round N) has no
-        parseable concerns and is not a clean-round record") and opens the
-        raw-block view. The concerns can be read there but not forwarded.
+      `- [low] body` arrives as `- low body`. The region/body boundary is gone
+      with the brackets, so no parser grammar can recover such a row, and no
+      glyph addition can repair it. A backslash-escaped `\[…\]` renders with
+      its backslashes kept, so escaping does not help either.
+    - **The encoding.** A code span survives. OpenCode conceals the backticks
+      and keeps the brackets inside, so ``- `[high | region one]` body``
+      renders as the canonical `- [high | region one] body` and parses with
+      **no grammar change**. Every producer therefore carries one rule, gated
+      on the `opencode` agent at render time, telling an OpenCode shadow to
+      code-span each marker. The Claude and Codex renders do not contain it
+      and are unchanged, and the forwarded payload stays canonical.
+    - **How it was measured.** All samples were rendered by OpenCode 1.18.34
+      (the session export's `version`), captured with
+      `aitask_shadow_capture.sh --deep`, and compared with the assistant's
+      raw text from `opencode export`.
+      - A controlled sample of code-spanned rows, with a plain-bracket control
+        row. The control row was stripped.
+      - A live production shadow `>pc` review of a deliberately flawed plan.
+        Its 4 source rows were all code-spanned, and 4 of 4 were recovered,
+        with exact priority, region and round.
+    - **Residual: hard-wrapped bodies.** OpenCode draws every row itself, so a
+      long body reaches the capture as separate rows that `-J` cannot rejoin,
+      and the parser space-joins them. A break inside a token therefore
+      damages the body (`history.` / `csv` → `history. csv`). A break inside a
+      trailer word (`follow-` / `up`) loses the trailer, so the concern shows
+      an unspecified disposition and no impact vector. That is the safe
+      direction: it still counts as needing attention. This body-join defect
+      is tracked separately and is not specific to the marker encoding.
+    - **What the user sees without the encoding.** A shadow that emits plain
+      brackets (an older render, or a model ignoring the rule) yields no
+      concern. `unrecovered_markers` reports every bracket-stripped row, so
+      minimonitor's automatic path warns once ("could not be parsed — none
+      are forwardable") and a manual `c` shows the same warning and the
+      raw-block view.
     - **Minor.** The close fence picks up two spaces of list-continuation
       indent, which the parser tolerates.
   - **Antigravity CLI (`agy`)** is not measured. It is not yet a supported
@@ -443,7 +456,13 @@ closing fence cannot stand in for a newer, still-streaming block):
 continuation line can never begin `- ` followed by `[` (the collision-hardening
 invariant), so any such line inside the block that produced no concern is by
 definition a marker the parser could not recover — an over-bound split, a
-malformed bracket, an unclosed one. The picker shows the count so the user knows
+malformed bracket, an unclosed one. A **bracket-stripped** row
+(`- medium | region body`, `- low body`, any marker-looking glyph, closed
+priority vocabulary) is reported too, including one that a successful split
+rejoin consumed into its region: a renderer that removes the brackets
+(OpenCode, see "Measured renderers") would otherwise leave the whole block
+silent. Accepted false positive: a wrapped body row that begins `- high …` is
+reported while staying in its concern's body. The picker shows the count so the user knows
 the list is short of what the shadow emitted, instead of the block degrading
 silently. It is a **report, not a recovery**: widening
 `_MAX_MARKER_JOIN_ROWS` remains the accepted t1167 limit.

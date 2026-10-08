@@ -3,14 +3,19 @@
 #   - .claude/skills/aitask-shadow/SKILL.md.j2 (entry-point template)
 #   - impl-challenge.md, the one profile-bearing procedure file
 #     (shadow_impl_review_tier gates the generic-ask tier fallback)
+#   - the four concern-block producers, each carrying one
+#     {% if agent == "opencode" %} rule (t1908: code-span the marker)
 #   - 4 per-agent stubs (claude / codex / opencode command + opencode skill)
 #   - 3 entry-point goldens under tests/golden/skills/aitask-shadow/
-#   - 3 impl-challenge goldens under tests/golden/procs/aitask-shadow/
+#   - 3 impl-challenge goldens under tests/golden/procs/aitask-shadow/, plus
+#     one OpenCode golden per producer (impl-challenge: one per profile)
 # Coverage:
 #   1.  Per-profile golden diff for the entry-point template (claude render).
 #   1b. Agent-dimension invariance for the entry point (no {% if agent %}).
-#   1p. impl-challenge goldens per profile + agent invariance.
-#   1i. The ten Jinja-free procedures render identically across every
+#   1p. impl-challenge goldens per profile; codex == claude, OpenCode golden.
+#   1a. The agent-gated producers: profile-invariant, codex == claude,
+#       OpenCode golden; the code-span rule renders for OpenCode only.
+#   1i. The Jinja-free procedures render identically across every
 #       (profile x agent) combination.
 #   2.  Both arms of the shadow_impl_review_tier conditional.
 #   2p. PRECEDENCE GUARD: the explicit-wording recognition table, the
@@ -61,17 +66,20 @@ PROFILES_DIR="aitasks/metadata/profiles"
 PROFILES=(default fast remote)
 AGENTS=(claude codex opencode)
 
-# impl-challenge is the only procedure carrying Jinja; the other eleven are
-# identity transforms and are covered by the invariance sweep in Test 1i.
-# Test 0 derives the inventory from disk, so a procedure added to the skill dir
-# and forgotten here fails loudly instead of going uncovered.
+# impl-challenge carries a profile conditional AND the OpenCode agent gate; the
+# three plan producers carry only the agent gate (t1908); the rest are identity
+# transforms covered by the invariance sweep in Test 1i. Test 0 derives the
+# inventory from disk, so a procedure added to the skill dir and forgotten here
+# fails loudly instead of going uncovered.
 PROC_FILES_VARYING=(impl-challenge)
-PROC_FILES_INVARIANT=(
-    concern-format
-    impl-review-angles
+PROC_FILES_AGENT_GATED=(
     plan-assumptions
     plan-challenge
     plan-diagnose-errors
+)
+PROC_FILES_INVARIANT=(
+    concern-format
+    impl-review-angles
     plan-decisions
     plan-explain
     plan-socratic
@@ -79,12 +87,14 @@ PROC_FILES_INVARIANT=(
     spawn-learn-skill
     task-summarize
 )
-PROC_FILES=("${PROC_FILES_VARYING[@]}" "${PROC_FILES_INVARIANT[@]}")
+PROC_FILES=("${PROC_FILES_VARYING[@]}" "${PROC_FILES_AGENT_GATED[@]}" "${PROC_FILES_INVARIANT[@]}")
+# The rule the OpenCode gate renders into every producer (t1908).
+CODESPAN_RULE="OpenCode: wrap the marker in a code span."
 
 # === Test 0: the arrays ARE the procedure inventory ===
 #
 # Every .md under the skill dir except SKILL.md must be listed in exactly one of
-# the two arrays, and every listed name must exist. Prose counts ("nine
+# the three arrays, and every listed name must exist. Prose counts ("nine
 # sub-procedures") went stale silently when round-preamble.md landed; an
 # assertion cannot. Mirrors Test 0 of test_skill_render_task_workflow.sh.
 
@@ -119,18 +129,51 @@ for profile in "${PROFILES[@]}"; do
     done
 done
 
-# === Test 1p: impl-challenge golden diffs + agent invariance ===
+# === Test 1p: impl-challenge golden diffs (claude canonical, OpenCode gated) ===
 
-echo "=== Test 1p: impl-challenge goldens × 3 profiles + agent invariance ==="
+echo "=== Test 1p: impl-challenge goldens × 3 profiles; codex==claude, OpenCode golden ==="
 for f in "${PROC_FILES_VARYING[@]}"; do
     for profile in "${PROFILES[@]}"; do
         rendered="$($RENDER "$SKILL_DIR/$f.md" "$PROFILES_DIR/$profile.yaml" claude 2>&1)"
         golden_content="$(cat "$PROC_GOLDEN_DIR/$f-$profile.md")"
         assert_eq "golden proc $f × $profile" "$golden_content" "$rendered"
-        for agent in codex opencode; do
-            other="$($RENDER "$SKILL_DIR/$f.md" "$PROFILES_DIR/$profile.yaml" "$agent" 2>&1)"
-            assert_eq "proc $f × $profile agent-invariant ($agent==claude)" "$rendered" "$other"
+        other="$($RENDER "$SKILL_DIR/$f.md" "$PROFILES_DIR/$profile.yaml" codex 2>&1)"
+        assert_eq "proc $f × $profile agent-invariant (codex==claude)" "$rendered" "$other"
+        opencode="$($RENDER "$SKILL_DIR/$f.md" "$PROFILES_DIR/$profile.yaml" opencode 2>&1)"
+        golden_content="$(cat "$PROC_GOLDEN_DIR/$f-$profile-opencode.md")"
+        assert_eq "golden proc $f × $profile × opencode" "$golden_content" "$opencode"
+    done
+done
+
+# === Test 1a: the agent-gated producers (t1908) ===
+#
+# Each carries one {% if agent == "opencode" %} rule and no profile conditional:
+# the claude render is the same for every profile, codex equals it, and the
+# OpenCode render matches its own golden. The rule must reach the OpenCode
+# render of every producer (impl-challenge included) and no other render.
+
+echo "=== Test 1a: agent-gated producers — codex==claude, OpenCode golden, rule placement ==="
+for f in "${PROC_FILES_AGENT_GATED[@]}"; do
+    base="$($RENDER "$SKILL_DIR/$f.md" "$PROFILES_DIR/default.yaml" claude 2>&1)"
+    for profile in "${PROFILES[@]}"; do
+        for agent in claude codex; do
+            cmp="$($RENDER "$SKILL_DIR/$f.md" "$PROFILES_DIR/$profile.yaml" "$agent" 2>&1)"
+            assert_eq "proc $f invariance $profile/$agent" "$base" "$cmp"
         done
+        opencode="$($RENDER "$SKILL_DIR/$f.md" "$PROFILES_DIR/$profile.yaml" opencode 2>&1)"
+        golden_content="$(cat "$PROC_GOLDEN_DIR/$f-opencode.md")"
+        assert_eq "golden proc $f × $profile × opencode" "$golden_content" "$opencode"
+    done
+done
+for f in "${PROC_FILES_VARYING[@]}" "${PROC_FILES_AGENT_GATED[@]}"; do
+    for agent in "${AGENTS[@]}"; do
+        rendered="$($RENDER "$SKILL_DIR/$f.md" "$PROFILES_DIR/fast.yaml" "$agent" 2>&1)"
+        if [[ "$agent" == opencode ]]; then
+            assert_contains "$f × opencode states the code-span rule" "$CODESPAN_RULE" "$rendered"
+            assert_not_contains "no Jinja {% leak $f × opencode" "{%" "$rendered"
+        else
+            assert_not_contains "$f × $agent has no OpenCode code-span rule" "$CODESPAN_RULE" "$rendered"
+        fi
     done
 done
 
