@@ -45,3 +45,10 @@ None identified.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+- **Actual work done:** Added `--no-supersession` to the `## Arguments` flag list in `.opencode/skills/aitask-add-model/SKILL.md`, after `--promote-ops <csv>` (same order as the Claude Step 1 list). Example unchanged; no workflow text copied.
+- **Deviations from plan:** None.
+- **Issues encountered:** None. `aitask_audit_wrappers.sh parity` exits 0 with no output.
+- **Key decisions:** Codex wrapper and OpenCode command carry no flag list, so they were left untouched.
+- **Upstream defects identified:** None
