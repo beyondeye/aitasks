@@ -84,6 +84,48 @@ ImportError: cannot import name 'normalize_board_idx' from 'task_yaml'
   `normalize_board_idx` present, the board's import of `task_yaml` must resolve
   to `lib/` or fail with a clear diagnostic, never an opaque ImportError.
 
+## Registry scan (2026-10-08, read-only)
+
+**Method.** For each registered project, a file counts as a leftover when it
+meets all three conditions:
+- it is tracked under `.aitask-scripts/` in that project;
+- it is **absent from the project's own installed release tag** (`v<VERSION>`);
+- it has existed somewhere in framework history.
+
+Comparing against the project's own version matters. A project on an older
+release legitimately carries files that later releases removed. For example,
+aitasks_mobile is on v0.27, which predates t1217, so its `board/task_yaml.py` is
+the correct copy for that version.
+
+Renames count too. `git log --diff-filter=D` misses `git mv` sources such as
+t1217's move, so the manifest audit must include `--diff-filter=R` sources.
+
+| project | version | leftovers | board crashes? |
+|---|---|---|---|
+| thinking_app | 0.36.1 | 8, incl. `board/task_yaml.py`, `stats/stats_data.py` | **yes**: ImportError `normalize_board_idx` |
+| thinking_backend | 0.36.1 | 8 (same set) | **yes**: same ImportError |
+| aitasks_go | 0.31.0 | 13, incl. `board/task_yaml.py`, `stats/stats_data.py` | no, runs |
+| aitasks_mobile | 0.27.0 | 6 (`aitask_install.sh`, brainstorm detailer/patcher, `_detailer_rules.md`) | n/a |
+| timexchange, teamim | 0.31.0 | 0 | — |
+| animeless | 0.36.0 | 0 | — |
+
+The 0.36.1 leftover set:
+- `aitask_codex_plan_invoke.py`
+- `board/task_yaml.py`
+- `lib/attachment_backend.sh`
+- `lib/attachment_backends/local.sh`
+- `lib/attachment_cache.sh`
+- `lib/attachment_utils.sh` (renamed to `lib/artifact_utils.sh`)
+- `lib/codex_plan_policy.sh`
+- `stats/stats_data.py` (moved to `lib/stats_data.py`)
+
+All of them are tracked in their project's git. The thinking_app stats TUI
+currently starts fine: `stats_app.py` imports bare `stats_data`, and today that
+resolves from `lib/`. Even so, `stats/stats_data.py` differs from
+`lib/stats_data.py`, so it is a latent shadow of the same shape and belongs in
+the manifest. Only Python modules that a TUI imports by bare name can shadow;
+stale `.sh` files are inert unless sourced.
+
 ## Workaround for an affected project
 
 In that project, delete `.aitask-scripts/board/task_yaml.py`
