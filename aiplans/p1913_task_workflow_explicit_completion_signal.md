@@ -303,3 +303,81 @@ Then Step 9 archives t1913, and this run ends with the new Step 10 banner.
 - timing: post-phase | name: exit_site_contract_test | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: missed or later-dropped exit-branch banner | desc: per-branch scanner pinning a workflow-end.md reference in every exit block, with self-checking allowlist and negative controls
 - timing: post-phase | name: render_drift_sweep | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: missed golden or untracked rendered prerender | desc: run every skill-render test, aitask_skill_verify.sh and an untracked-file check over the 3 remote prerender trees
 - timing: after | name: live_banner_render_check | type: manual_verification | priority: medium | effort: low | inline_risk: low | added_complexity: medium | addresses: banner paraphrased or reflowed in a live pane | desc: run a fast-profile pick in Claude Code (and one of Codex/OpenCode if available) and confirm the complete and one stopped banner render verbatim as the last output
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-08, plan review)
+- **Requested by user:** three review rounds on the plan.
+  - First, rejected the archived-and-idle COMPLETED fallback and screen-banner
+    matching.
+  - Then rejected a per-pane end-record design.
+  - Then descoped all monitor/minimonitor detection: the banners are user-facing
+    messages only, and the COMPLETED glyph keeps its current archival timing.
+    Goal 3 needs a separate design.
+  - Also required: pickrem Step 5 pre-claim exits get `unchanged` banners
+    directly, never through the Abort Procedure; per-branch, not per-file, exit
+    verification; and Step 7 ownership-guard failures derive their outcome from
+    the task's actual state, never from Step 4's `unchanged`.
+- **Changes made:** the plan was rewritten accordingly before approval.
+- **Files affected:** plan only.
+
+## Final Implementation Notes
+- **Actual work done:**
+  - New `.claude/skills/task-workflow/workflow-end.md`, the Workflow End Banner
+    Procedure:
+    - `## Complete` and `## Stopped` banners;
+    - a closed `outcome` vocabulary (`in-flight`, `ready`, `aborted`, `split`,
+      `unchanged`);
+    - an outcome-accuracy rule;
+    - the pickweb alternate Complete outcome.
+  - `task-workflow/SKILL.md` gained a NON-SKIPPABLE Step 10, and Step 9b and the
+    Step 9 Defer branch now hand off to it.
+  - Every exit in Steps 3, 4, Re-entry Routing, 6, 7 and 9 is wired to the
+    Stopped banner. Step 7's guard gets an explicit state-derived outcome block.
+  - Shared exit procedures each wired once: plan-approved-stop, task-abort,
+    merge-broker (one rule under the vocabulary table plus three inline
+    stop-in-flight lines), merge-target-sync, manual-verification, planning,
+    cross-repo-child-assignment, parallel-assessment and
+    execution-profile-selection-auto.
+  - pickrem and pickweb: every ending is wired. The Step 5 pre-claim refusals are
+    marked `unchanged` directly.
+  - Regenerated:
+    - 14 procs goldens;
+    - the pickrem and pickweb remote-claude goldens;
+    - the remote prerenders in all 3 agent trees, including the new
+      `workflow-end.md`.
+  - New `tests/test_workflow_end_banner_contract.sh`: a per-branch scanner with a
+    self-checking allowlist, a Guard 2 that keeps `unchanged` before Step 6, Step
+    10 render checks for all 3 profiles, and negative controls.
+- **Deviations from plan:**
+  - `execution-profile-selection-auto.md` was also wired: its aborts run with a
+    requested task id. The scanner found it.
+  - Step 4's unstructured script failure re-reads status instead of assuming
+    `unchanged`, because it can fail part-way.
+  - The merge-broker `recovery` rows are included alongside `stop`.
+  - The parallel-assessment golden did not change, because its Stop branch renders
+    away under `default`.
+- **Issues encountered:**
+  - The scanner's block detection initially treated column-0 Jinja tag lines as
+    block ends (false positive in pickrem Step 5). Jinja lines are now
+    transparent, and multi-line `(description: "…` option labels are stripped.
+  - The pickrem/pickweb render Test 6 compares against HEAD, so it fails until
+    this commit lands (expected).
+  - During review the user reported the minimonitor losing task titles and DONE
+    glyphs for this tmux session. This is unrelated to t1913: one pane's cwd had
+    moved to thinking_app, and pane-cwd discovery overrides
+    `AITASKS_PROJECT_<session>`. Filed as t1922.
+- **Key decisions:**
+  - Banners are fenced `text` blocks with a verbatim first line.
+  - No monitor, gate or ledger change, so Goal 4 holds trivially.
+  - Codex and OpenCode render from this same Claude source, so no port tasks are
+    needed.
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/agent_launch_utils.py:1289` — `_collect_live_roots` lets
+    the first pane cwd that walks up to a project override the explicit
+    `AITASKS_PROJECT_<session>`, so one wandering pane remaps the whole session.
+    Filed as t1922.
+  - `.claude/skills/aitask-pickrem/SKILL.md.j2:320` — any Step 8
+    ownership-guard failure, including `LOCK_LIVE_HOLDER` /
+    `LOCK_UNVERIFIABLE_HOLDER`, triggers the Abort Procedure. That procedure
+    unlocks and reverts the task even when another live session holds it.
