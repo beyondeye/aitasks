@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: enhancement
-status: Implementing
+status: Done
 labels: [codeagent, models, model_selection]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 1916
 followup_kind: carry_over
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-08 23:40
-updated_at: 2026-10-09 15:35
+updated_at: 2026-10-09 16:10
+completed_at: 2026-10-09 16:10
 ---
 
 ## Origin
@@ -89,3 +90,14 @@ models the framework ships as defaults is too limiting.
 > **✅ gate:plan_approved** run=2026-10-09T12:35:37Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-09T13:04:52Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-09T13:10:11Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:31ccef2b01ee6a0e
+
+> **✅ gate:risk_evaluated** run=2026-10-09T13:10:11Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1927/risk_evaluated_2026-10-09T13:10:11Z-risk_evaluated-a1.log`
