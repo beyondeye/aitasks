@@ -11,7 +11,6 @@
         "changelog": 97,
         "explore": 98,
         "revert": 100,
-        "test_414_flags": 91,
         "qa": 100,
         "wrap": 100,
         "work-report": 80,
@@ -85,27 +84,6 @@
             "period": "2026-W12",
             "runs": 1,
             "score_sum": 100
-          }
-        },
-        "test_414_flags": {
-          "all_time": {
-            "runs": 87,
-            "score_sum": 7900
-          },
-          "prev_month": {
-            "period": "2026-09",
-            "runs": 10,
-            "score_sum": 960
-          },
-          "month": {
-            "period": "2026-10",
-            "runs": 2,
-            "score_sum": 200
-          },
-          "week": {
-            "period": "2026-W41",
-            "runs": 2,
-            "score_sum": 200
           }
         },
         "qa": {
@@ -271,7 +249,6 @@
         "pick": 99,
         "changelog": 97,
         "explore": 99,
-        "test_414_flags": 100,
         "wrap": 100
       },
       "verifiedstats": {
@@ -336,22 +313,6 @@
             "period": "2026-W22",
             "runs": 4,
             "score_sum": 400
-          }
-        },
-        "test_414_flags": {
-          "all_time": {
-            "runs": 3,
-            "score_sum": 300
-          },
-          "month": {
-            "period": "2026-04",
-            "runs": 3,
-            "score_sum": 300
-          },
-          "week": {
-            "period": "2026-W18",
-            "runs": 3,
-            "score_sum": 300
           }
         },
         "wrap": {
