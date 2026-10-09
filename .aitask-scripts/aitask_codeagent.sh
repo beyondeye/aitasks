@@ -163,15 +163,19 @@ format_codex_model_label() {
 format_claude_model_label() {
     local raw_model="$1"
 
-    # claude-<family>-<major>-<minor>[-<date>] → <Family> <major>.<minor>
-    if [[ "$raw_model" =~ ^claude-([a-z]+)-([0-9]+)-([0-9]+)(-[0-9]+)?$ ]]; then
+    # claude-<family>-<major>[-<minor>][-<date>][\[1m\]] → <Family> <major>[.<minor>]
+    # The [1m] suffix names a context window, not a different model, so it is
+    # dropped. The minor is 1-2 digits so an 8-digit date on a major-only id
+    # (claude-opus-5-20251001) is read as the date, not as the minor.
+    local re='^claude-([a-z]+)-([0-9]+)(-([0-9]{1,2}))?(-[0-9]+)?(\[1m\])?$'
+    if [[ "$raw_model" =~ $re ]]; then
         local family="${BASH_REMATCH[1]}"
-        local major="${BASH_REMATCH[2]}"
-        local minor="${BASH_REMATCH[3]}"
+        local version="${BASH_REMATCH[2]}"
+        [[ -n "${BASH_REMATCH[4]}" ]] && version+=".${BASH_REMATCH[4]}"
         # Capitalize family name
         local cap_family
         cap_family="$(tr '[:lower:]' '[:upper:]' <<< "${family:0:1}")${family:1}"
-        echo "$cap_family $major.$minor"
+        echo "$cap_family $version"
         return
     fi
 

@@ -524,6 +524,31 @@ cp "$PROJECT_DIR/aitasks/metadata/project_config.yaml" "$TMPDIR_TEST/aitasks/met
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" coauthor claudecode/haiku4_5 2>&1)
 assert_contains_ci "coauthor strips date suffix from haiku" "AGENT_COAUTHOR_NAME:Claude Code/Haiku 4.5" "$output"
 
+# Test 21b: coauthor Claude Code labels [1m] and major-only cli_ids (t1918).
+# Exact-line asserts: a substring match would accept "Opus 5.5" for "Opus 5".
+echo "--- Test 21b: coauthor Claude Code [1m] and major-only ids ---"
+coauthor_name_line() {
+    (cd "$TMPDIR_TEST" && bash "$CODEAGENT" coauthor "$1" 2>&1) \
+        | grep '^AGENT_COAUTHOR_NAME:'
+}
+# No registry entry is a dated major-only id, so add two to the temp copy: they
+# exercise the rule that tells an 8-digit date apart from a 1-2 digit minor.
+claude_models="$TMPDIR_TEST/aitasks/metadata/models_claudecode.json"
+cp "$claude_models" "$claude_models.bak"
+jq '.models += [
+      {"name": "t1918_opus5_dated", "cli_id": "claude-opus-5-20251001"},
+      {"name": "t1918_opus5_dated_1m", "cli_id": "claude-opus-5-20251001[1m]"}
+    ]' "$claude_models.bak" > "$claude_models"
+assert_eq "coauthor drops [1m] from opus5_5_1m" "AGENT_COAUTHOR_NAME:Claude Code/Opus 5.5" "$(coauthor_name_line claudecode/opus5_5_1m)"
+assert_eq "coauthor drops [1m] from sonnet5_5_1m" "AGENT_COAUTHOR_NAME:Claude Code/Sonnet 5.5" "$(coauthor_name_line claudecode/sonnet5_5_1m)"
+assert_eq "coauthor labels major-only opus5" "AGENT_COAUTHOR_NAME:Claude Code/Opus 5" "$(coauthor_name_line claudecode/opus5)"
+assert_eq "coauthor labels major-only opus5_1m" "AGENT_COAUTHOR_NAME:Claude Code/Opus 5" "$(coauthor_name_line claudecode/opus5_1m)"
+assert_eq "coauthor reads 8 digits after a major as a date" "AGENT_COAUTHOR_NAME:Claude Code/Opus 5" "$(coauthor_name_line claudecode/t1918_opus5_dated)"
+assert_eq "coauthor reads dated major-only [1m] id" "AGENT_COAUTHOR_NAME:Claude Code/Opus 5" "$(coauthor_name_line claudecode/t1918_opus5_dated_1m)"
+output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" coauthor claudecode/opus5_5_1m 2>&1)
+assert_eq "coauthor [1m] trailer" "AGENT_COAUTHOR_TRAILER:Co-Authored-By: Claude Code/Opus 5.5 <claudecode@aitasks.io>" "$(grep '^AGENT_COAUTHOR_TRAILER:' <<< "$output")"
+mv "$claude_models.bak" "$claude_models"
+
 # Test 22: coauthor returns OpenCode metadata (Claude model via opencode)
 echo "--- Test 22: coauthor OpenCode metadata ---"
 cp "$PROJECT_DIR/aitasks/metadata/project_config.yaml" "$TMPDIR_TEST/aitasks/metadata/project_config.yaml"
