@@ -645,8 +645,12 @@ assert_contains "E6 control: a check after the unlock reports PRUNE_FAILED" "PRU
 out="$(eng "$WORK/e3" bogus)"; rc=$?
 assert_eq "E3 unknown verb → exit 64" "64" "$rc"
 assert_contains "E3 unknown verb is named" "UNKNOWN_VERB:bogus" "$out"
-out="$(eng "$WORK/e3" home)"; rc=$?
-assert_eq "E3 'home' is not an M1.5 verb (M1.6 adds it) → exit 64" "64" "$rc"
+mkdir -p "$WORK/e3home"
+out="$(HOME="$WORK/e3home" eng "$WORK/e3" home)"; rc=$?
+assert_exit_zero_rc "E3 'home' is a verb (M1.6) → exit 0" "$rc"
+assert_contains "E3 … and reports the root" "HOME_ROOT:$WORK/e3" "$out"
+out="$(HOME="$WORK/e3home" eng "$WORK/e3" home --bogus)"; rc=$?
+assert_eq "E3 'home' with a bad argument → exit 64" "64" "$rc"
 out="$(eng "$WORK/e3" build)"; rc=$?
 assert_eq "E3 build without goengines/ → exit 3" "3" "$rc"
 assert_contains "E3 … ENGINE_SOURCE_MISSING" "ENGINE_SOURCE_MISSING:" "$out"

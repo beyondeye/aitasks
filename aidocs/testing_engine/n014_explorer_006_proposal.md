@@ -2057,18 +2057,48 @@ override, and that no framework script of this feature names `~/.aitask/`.
 
 `ait engine home` prints `HOME_ROOT:<path>`, `HOME_LEGACY:<path>|<tenants>`,
 `HOME_SYMLINK:none|<target>` and `HOME_NEXT:<what --migrate would do>`. `ait
-engine home --migrate` runs under `flock $AITASKS_HOME/.home.lock`; runs a
-preflight over every present legacy entry before any move and refuses — with
-nothing moved and both trees intact — reporting `no-legacy-root`,
-`already-migrated`, `foreign-symlink:<target>`, `cross-device`,
-`unknown-entry:<name>` or `destination-exists:<name>` (a present legacy entry
-whose `$AITASKS_HOME/<name>` already exists; `engine/` always does after `ait
-setup`, and a `mv` onto an existing directory would nest the source inside
-it); only then moves each present entry of the
+engine home --migrate` holds `$AITASKS_HOME/.home.lock` — a `lib/stale_lock.sh`
+mutex, since `flock` is not on stock macOS — and refuses `busy` while another
+migration holds it. It runs a preflight over every present legacy entry
+before any `mkdir` or move and refuses — with nothing moved and both trees
+intact — reporting `no-legacy-root`, `already-migrated`,
+`foreign-symlink:<target>`, `cross-device` (the root) or `cross-device:<name>`
+(an entry), `unknown-entry:<name>` (names enumerated NUL-safe, so a name
+holding a newline is one unknown entry), `relative-symlink:<path>` (a relative
+link anywhere in the tree that points out of it would change target once
+moved; links that stay inside move with their targets; a scan that cannot
+read a directory or a link target refuses `scan-incomplete` instead of
+passing) or
+`destination-exists:<name>` (a present
+legacy entry whose `$AITASKS_HOME/<name>` already exists; `engine/` always
+does after `ait setup`, and a `mv` onto an existing directory would nest the
+source inside it), and for a root that cannot be a destination
+`root-not-absolute`, `root-not-normalized`, `same-root`, `root-inside-legacy`
+or `legacy-inside-root` — judged on the root's *resolved* path, so an outside
+symlink aliasing into the legacy tree is refused before anything is created.
+Only then it moves each present entry of the
 known set `{venv, pypy_venv, python, bin, uv, dev_tier, update_check,
-engine}` with a same-device `mv`, `rmdir`s the emptied legacy root and leaves
-`ln -s $AITASKS_HOME ~/.aitask` behind; prints `HOME_MIGRATED:<n>` or
-`HOME_SKIPPED:<reason>`. `pypy_venv` is in the known set because
+engine}` with a same-device `mv`, verifying each by inode, `rmdir`s the
+emptied legacy root and leaves `ln -s $AITASKS_HOME ~/.aitask` behind,
+verified by `readlink`; prints `HOME_MIGRATED:<n>` or `HOME_SKIPPED:<reason>`.
+A step that fails after the first move — `destination-exists:<name>` raced in,
+`move-failed:<name>`, `legacy-root-not-empty:<names>`, `symlink-failed` — or a
+catchable INT/TERM/HUP before the link is verified (`interrupted:<SIG>`)
+rolls every moved entry back, located by inode rather than by bookkeeping,
+and prints `HOME_ROLLED_BACK:<n>`; a signal after the verified link keeps the
+completed migration. A rollback blocked by a competing entry never
+overwrites it: `HOME_FAILED:rollback|<names>`, one
+`HOME_STRANDED:<name>|<now>|<legacy>` line each naming where the entry
+really is (including nested inside a competitor that raced in during the
+rollback), and runnable `HOME_RESTORE:<name>|<command>` steps: per entry,
+set the competitor aside and then restore the original, or the single move
+back when nothing occupies the legacy path (the move itself failed); when the
+legacy root
+itself was replaced, set that obstruction aside, recreate the directory, then
+restore each entry; when it is merely absent (the rollback could not recreate
+it), recreate it and restore each entry. A signal that lands after `ln -s` is recognised by the
+completed layout and keeps the migration.
+SIGKILL or power loss mid-move is not recovered. `pypy_venv` is in the known set because
 `setup_pypy_venv()` creates it and `python_resolve.sh` reads it. In this
 release `ait setup` only prints the `HOME_LEGACY:` hint; flipping the
 default (reserving `--no-home-migration` / `AIT_HOME_MIGRATE=0`) is a named
@@ -3199,10 +3229,14 @@ metadata.
 - **`assumption_home_symlink_compatibility`** — every existing consumer of
   the legacy `~/.aitask` tree keeps resolving when it becomes a symlink to
   `~/.aitasks`, because all of them dereference a path rather than compare
-  one: verified across the 35 references in 8 framework files, the venv's
+  one: verified across the 37 lines in 10 framework files that name it (29
+  outside comments, in 7 files), the venv's
   console-script shebangs, the `~/.aitask/bin/python3` wrappers, the
   `python/<ver>/bin/python3` symlinks and `pyvenv.cfg`; no `==`, `-ef`,
-  `realpath` or `samefile` on the home path anywhere. This is the
+  `realpath` or `samefile` on the home path anywhere except
+  `claude_hook_status.sh`'s `==` against `command -v python3`, which compares
+  PATH spellings — and PATH keeps the literal `~/.aitask/bin` entry, so it
+  still matches through the symlink. This is the
   precondition of `ait engine home --migrate`, re-checked by
   `tests/test_aitasks_home.sh` before the default is flipped.
 - **`assumption_legacy_user_root_coexists`** — in this release `~/.aitasks/`
@@ -3683,12 +3717,16 @@ document.
   split as the transition, the migration designed, shipped as an explicit
   verb and reversible through the symlink, becoming the default in a named
   follow-up.
-- **`tradeoff_home_migration_window`** — the migration has a sub-millisecond
-  window between `rmdir ~/.aitask` and `ln -s` during which a process that
-  hardcodes the legacy path sees ENOENT; narrowed by the flock, symlinking
-  immediately after the rmdir, and refusing while another `ait` holds the
-  home lock — not eliminated. Measured surface: 8 framework files with 35
-  references, 20 test files, 18 doc files, the venv's absolute shebangs and
+- **`tradeoff_home_migration_window`** — the migration has a window of
+  milliseconds (renames only), from the first `mv` to the verified `ln -s`,
+  during which a process that hardcodes the legacy path may see an entry
+  missing or ENOENT. Any `ait` command's update check can `mkdir -p` the
+  legacy root and write `update_check` inside that window; the migration
+  catches that after the fact (a non-empty root at `rmdir`, a recreated
+  directory at `ln`) and rolls back rather than leaving a split home.
+  Narrowed by the home lock, per-step verification and rollback — not
+  eliminated. Measured surface: 10 framework files with 37 lines naming the
+  root, 20 test files, 18 doc files, the venv's absolute shebangs and
   two symlink trees — none rewritten, all resolving through the symlink. The
   refusal cases are the ones a designer does not see on their own host (the
   known-entry set once lacked `pypy_venv`), which is why the verb is explicit

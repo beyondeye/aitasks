@@ -76,7 +76,8 @@ Tools:
   chatlink       Run the chat bug-intake gateway daemon (--headless)
   codeagent      Manage code agent and model configuration
   testmap        Run the test map engine (ait-testmap) after its version handshake
-  engine         Build, test, cross-build and prune the test map engine binaries
+  engine         Build, test, cross-build and prune the test map engine binaries;
+                 report or migrate the legacy per-user home (engine home)
   skillrun       Launch a code agent with a profile-aware aitask skill
   explain-runs     Manage aitask-explain run directories
   explain-cleanup  Remove stale aitask-explain run directories

@@ -17,8 +17,8 @@ fi
 _AITASKS_HOME_LOADED=1
 
 export AITASKS_HOME="${AITASKS_HOME:-$HOME/.aitasks}"
-# Taken (flock) by `ait engine home --migrate` and refused-against by any
-# `ait` that would otherwise touch the root mid-move.
+# A stale_lock mutex taken by `ait engine home --migrate` for the whole move,
+# so a second migration refuses (`HOME_SKIPPED:busy`) instead of racing it.
 export AITASKS_HOME_LOCK="$AITASKS_HOME/.home.lock"
 
 # aitasks_engine_dir <version|dev> — print the engine slot for one version:

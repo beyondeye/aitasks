@@ -2396,6 +2396,21 @@ setup_aitasks_home() {
     success "AITASKS_HOME:$AITASKS_HOME"
 }
 
+# --- Legacy per-user root hint (t1852_6) ---
+# report_home_legacy — when the legacy per-user root still holds tenants, print
+# its HOME_LEGACY: line (taken verbatim from `ait engine home`, the one owner of
+# that listing) and the explicit migration verb. Setup never migrates; flipping
+# that default is a named follow-up. Silent when there is nothing to report.
+report_home_legacy() {
+    local out line
+    out="$(bash "$SCRIPT_DIR/aitask_engine.sh" home 2>/dev/null)" || return 0
+    line="$(printf '%s\n' "$out" | grep '^HOME_LEGACY:' | grep -v '^HOME_LEGACY:none$' | grep -v '|(empty)$')" || return 0
+    [[ -n "$line" ]] || return 0
+    info "  $line"
+    info "    (optional) 'ait engine home --migrate' moves these into $AITASKS_HOME and leaves a symlink behind"
+    return 0
+}
+
 # --- Test map engine install (t1852_5) ---
 # install_engine_binary [--local-engine <path>] [--engine-from-source]
 #                       [--no-testmap] [--force-engine]
@@ -4951,6 +4966,7 @@ main() {
     info "  Bash: $BASH_VERSION ($(command -v bash))"
     info "  Python venv: $VENV_DIR"
     info "  AITASKS_HOME:$AITASKS_HOME"
+    report_home_legacy
     if [[ -x "$VENV_DIR/bin/python" ]]; then
         info "  Python: $("$VENV_DIR/bin/python" -c 'import sys; print("{}.{}.{}".format(*sys.version_info[:3]))' 2>/dev/null || echo unknown)"
     fi

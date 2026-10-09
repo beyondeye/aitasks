@@ -115,6 +115,7 @@ ait engine build            # this checkout -> $AITASKS_HOME/engine/dev/ (use: A
 ait engine test             # go vet + go test over goengines/
 ait engine cross            # release matrix + sums (goengines/build.sh all)
 ait engine prune [--dry-run]  # drop v*/ slots no registered project uses
+ait engine home [--migrate]   # report / move the legacy ~/.aitask root into $AITASKS_HOME
 ```
 Build and release mechanics: `aidocs/framework/go_engine.md`; engine interfaces:
 `goengines/README.md`.
