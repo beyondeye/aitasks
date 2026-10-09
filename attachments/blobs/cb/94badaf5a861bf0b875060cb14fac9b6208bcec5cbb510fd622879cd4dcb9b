@@ -1,0 +1,441 @@
+{
+  "schema_version": "1.1.0",
+  "trail_id": "trail-testmap-feature",
+  "title": "Test map feature: module landing order",
+  "owner": "aitasks#1852",
+  "scope": {
+    "kind": "topic",
+    "topics": [
+      "aitasks#1852"
+    ],
+    "selection_note": "Topic rooted at t1852. All ten module parents t1852 to t1861 carry anchor 1852, as do their children and the follow-ups spawned from them, so a refresh picks up every task created since. t1852 itself is now archived; it stays as a landed entry and no longer appears among the live members."
+  },
+  "generation": {
+    "generated_at": "2026-10-09T13:05:14Z",
+    "generator": {
+      "agent_string": "claudecode/opus5_5",
+      "skill": "aitask-trail"
+    },
+    "inputs": [
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1853"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1854"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1855"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1856"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1857"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1858"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1859"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1860"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1861"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1863"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1878"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1905"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1906"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1931"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1939"
+      }
+    ],
+    "input_digest": "5c9e550ef727583f"
+  },
+  "freshness": {
+    "state": "current",
+    "checked_at": "2026-10-09T13:05:14Z"
+  },
+  "narrative": {
+    "problem_statement": "The test map feature (proposal aidocs/testing_engine/n014_explorer_006_proposal.md) is cut into ten module parents whose submodules depend on each other across parents. With M1 (t1852) fully landed, this trail answers which parent to coarse-plan next, how the M1 follow-ups fit around that, and in what order the remaining modules follow.",
+    "recommendation_summary": "Pick t1853 next: its children's first provider, M1.2, has landed. t1859 can also be coarse-planned now, because its earliest submodule M8.1 has no dependencies. Run the M1 follow-ups alongside, with t1931 before t1939. Then t1854, t1855 and t1856, t1857, t1858 and t1860, and finally t1861 and the t1863 cross-linking pass, each planned once the provider submodules its earliest children consume have landed.",
+    "overview": "M1 is done. All six t1852 children are archived and t1852 itself was archived with them. That gives the rest of the feature what it builds on: the Go engine skeleton, the per-user root, the release and CI pipeline, the version handshake, the install and upgrade verbs, and the home migration verb.\n\nPick t1853 (M2, the registry and map model) next. Planning is now one parent at a time, in proposal wave order at submodule granularity: a parent's coarse pass starts once the specific provider submodules its earliest children consume have landed. That replaces this trail's earlier advice to coarse-plan all ten parents before implementing anything. M2's first children consume only M1.2, which has landed, so t1853 is unblocked. Two decisions recorded when t1853's earlier pass was aborted still apply: M2.6 belongs in wave B, and its children need --no-sibling-dep with explicit --deps. t1859 is the other parent whose earliest submodule, the M8.1 verifier exit contract, has no dependencies, so its coarse pass can run now too. Its later children still wait for M3 to M7.\n\nThe M1 follow-ups block none of that and can be picked in any gap:\n- t1905 fixes setup's .gitignore helpers committing the whole index. It touches aitask_setup.sh, as t1939 will, so land it first if both are near.\n- t1906 re-runs the deferred frozen-agents acceptance test from t1852_5.\n- t1878 decides whether the CI bench step may become a required check. The goengines-check.yml workflow it waits on now exists.\n- t1931 is the real-host check of `ait engine home --migrate` on Linux and macOS. t1939, which makes setup migrate by default, depends on it.\n\nAfter M2: t1854 (runners, scheduling and cost) once M2.1 lands, then t1855 and t1856 (selection and the ait test run surface), then t1857, t1858 and t1860 (onboarding, agent review and the workflow seams), which interleave. t1861 (rollout) is last and waits for a release. t1863, the one cross-linking pass, runs after the last parent has been coarse-planned and ends by refreshing this trail with --deep.",
+    "method_note": "Lite depth. Membership and metadata come from one gatherer snapshot of topic 1852 (15 live members). t1852 is kept as a landed entry from its archived record and is not in the inputs. The ordering of the module parents comes from the proposal's Module Map and wave table, as transcribed into the parent bodies. It is adjusted by the user's 2026-09-22 decision to plan and implement in wave order at submodule granularity, which invalidates the previous version's 'coarse-plan all ten first' premise. Hard ordering facts are limited to the recorded depends edges: t1878 on t1852_3, t1906 on t1852_5, and t1939 on t1931. Everything else is advisory. Not verified: whether the proposal's dependency cells are internally consistent beyond the M2.6 and M4.5 conflicts noted in t1853, t1855 and t1859; whether t1859's coarse pass should wait for t1853 in practice; and the state of any target repository used by t1861. The previous version flagged the proposal file as untracked in git; it is now tracked."
+  },
+  "waves": [
+    {
+      "wave_id": "w-foundation",
+      "ordinal": 1,
+      "title": "M1 engine foundation (landed)",
+      "purpose": "The root of the whole graph: the Go engine skeleton, the per-user root, the release pipeline, the shim and version handshake, the install, upgrade and developer verbs, and the home migration verb. Every other engine submodule adds a package to the M1.2 binary.",
+      "entries": [
+        {
+          "entry_id": "e-m1",
+          "position": 1,
+          "task": "aitasks#1852",
+          "topic": "aitasks#1852",
+          "classification": "preferred_predecessor",
+          "confidence": "high",
+          "rationale": "Landed. All six children (M1.1 to M1.6) are archived, and the parent was archived with the last of them. Its follow-ups are grouped in wave 3.",
+          "snapshot": {
+            "status": "Done",
+            "priority": "medium",
+            "effort": "high",
+            "depends": [],
+            "gates_pending": []
+          }
+        }
+      ]
+    },
+    {
+      "wave_id": "w-next-passes",
+      "ordinal": 2,
+      "title": "Next coarse passes: M2 registry and the M8.1 root",
+      "purpose": "Start the two parents whose earliest children consume only landed work: M2 (on M1.2) and M8 (M8.1 has no dependencies).",
+      "why_now": "Both parents' earliest providers are in the tree, so their coarse passes can name real depends edges instead of hypotheses.",
+      "entries": [
+        {
+          "entry_id": "e-m2",
+          "position": 1,
+          "task": "aitasks#1853",
+          "topic": "aitasks#1852",
+          "classification": "preferred_predecessor",
+          "confidence": "high",
+          "rationale": "The next pick. M2 owns the loaded registry, the testmap: grammar and rewriter, and the scanner facts that the selector, stale, the seeder and the packet writer all consume. M2.1 is the provider M3.1 waits for. Its earlier pass was aborted to land M1 first, which is now done.",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "high",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ]
+          }
+        },
+        {
+          "entry_id": "e-m8",
+          "position": 2,
+          "task": "aitasks#1859",
+          "topic": "aitasks#1852",
+          "classification": "core",
+          "confidence": "medium",
+          "rationale": "Its coarse pass is unblocked because M8.1, the verifier exit contract in lib/gate_verifier_lib.sh, has no dependencies and sits in proposal wave A. Its other children (waves D, E and G) consume M3 to M7 and must wait for them, so only M8.1 is implementable right after planning.",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "high",
+            "depends": [],
+            "gates_pending": []
+          }
+        }
+      ]
+    },
+    {
+      "wave_id": "w-m1-followups",
+      "ordinal": 3,
+      "title": "M1 follow-ups (alongside wave 2)",
+      "purpose": "Close out the hardening, verification and default-flip work M1 left behind. None of it blocks M2, so pick these in gaps between module work.",
+      "entries": [
+        {
+          "entry_id": "e-setup-gitignore-scope",
+          "position": 1,
+          "task": "aitasks#1905",
+          "topic": "aitasks#1852",
+          "classification": "optional",
+          "confidence": "high",
+          "rationale": "A real bug from t1852_5's review: setup's sibling .gitignore helpers commit the whole index. It is small and independent, and it edits aitask_setup.sh, which t1939 also edits, so landing it first avoids an overlap.",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "followup_kind": "upstream_defect"
+          }
+        },
+        {
+          "entry_id": "e-mv-install-verbs",
+          "position": 2,
+          "task": "aitasks#1906",
+          "topic": "aitasks#1852",
+          "classification": "optional",
+          "confidence": "high",
+          "rationale": "Manual verification of t1852_5: the frozen-agents acceptance run deferred from its install regression sweep, plus the offline install's TESTMAP_BINARY:skipped line. It needs a quiet host with the dedicated tmux server stopped.",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "depends": [
+              "aitasks#1852_5"
+            ],
+            "gates_pending": [],
+            "followup_kind": "manual_verification"
+          }
+        },
+        {
+          "entry_id": "e-bench-ci",
+          "position": 3,
+          "task": "aitasks#1878",
+          "topic": "aitasks#1852",
+          "classification": "optional",
+          "confidence": "medium",
+          "rationale": "Validates the bench gate's host normalization on GitHub runners and decides whether the CI bench step becomes required. It was waiting on t1852_3's goengines-check.yml, which now exists. It matters more as M2 onward add benchmarks, and the samples have to be spread over at least two days.",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "depends": [
+              "aitasks#1852_3"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "followup_kind": "risk_mitigation"
+          }
+        },
+        {
+          "entry_id": "e-home-real-host",
+          "position": 4,
+          "task": "aitasks#1931",
+          "topic": "aitasks#1852",
+          "classification": "hard_prerequisite",
+          "confidence": "high",
+          "rationale": "Real-host check of `ait engine home --migrate` on Linux and macOS, including the BSD userland paths only coded for so far. t1939 depends on it.",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "depends": [],
+            "gates_pending": [],
+            "followup_kind": "risk_mitigation"
+          }
+        },
+        {
+          "entry_id": "e-home-default-flip",
+          "position": 5,
+          "task": "aitasks#1939",
+          "topic": "aitasks#1852",
+          "classification": "core",
+          "confidence": "medium",
+          "rationale": "The proposal's named follow-up for M1.6: setup migrates the legacy home by default, with --no-home-migration and AIT_HOME_MIGRATE=0 as opt-outs, and the 18 doc files naming ~/.aitask are updated. It must not land before t1931 has run cleanly.",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "depends": [
+              "aitasks#1931"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "wave_id": "w-runners",
+      "ordinal": 4,
+      "title": "Runners, scheduling and cost (waves B to C)",
+      "purpose": "Plan and land the runner contract, the reference runners, the scheduler and the cost ledger: everything that executes a test and records what it cost.",
+      "entries": [
+        {
+          "entry_id": "e-m3",
+          "position": 1,
+          "task": "aitasks#1854",
+          "topic": "aitasks#1852",
+          "classification": "core",
+          "confidence": "high",
+          "rationale": "M3 provides the runner interface every builtin implements, the resources.yaml wave plan, and the cost rows that anchor last_pass evidence. M3.1 consumes M1.2 and M2.1, so its coarse pass waits for M2.1 to land.",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "high",
+            "depends": [],
+            "gates_pending": []
+          }
+        }
+      ]
+    },
+    {
+      "wave_id": "w-select-run",
+      "ordinal": 5,
+      "title": "Select, freshness and the run surface (waves C to D)",
+      "purpose": "Plan and land the map put to use: the selector, stale, the evidence join, score and readiness, the engine test composite, and the ait test bash front with its brief and agent instructions.",
+      "entries": [
+        {
+          "entry_id": "e-m4",
+          "position": 1,
+          "task": "aitasks#1855",
+          "topic": "aitasks#1852",
+          "classification": "core",
+          "confidence": "high",
+          "rationale": "M4 turns the registry into answers: the ranked list with reasons, the stale report the freshness gate consumes, and the readiness lines the completion policy flips on.",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "high",
+            "depends": [],
+            "gates_pending": []
+          }
+        },
+        {
+          "entry_id": "e-m5",
+          "position": 2,
+          "task": "aitasks#1856",
+          "topic": "aitasks#1852",
+          "classification": "core",
+          "confidence": "high",
+          "rationale": "M5 is the one verb every agent, gate and procedure calls. It must still answer when no registry or engine exists, so it can land before onboarding.",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "high",
+            "depends": [],
+            "gates_pending": []
+          }
+        }
+      ]
+    },
+    {
+      "wave_id": "w-onboard-review-seams",
+      "ordinal": 6,
+      "title": "Onboarding, the reading loop and workflow seams (waves E to H)",
+      "purpose": "Plan and land onboarding (ledger, seeder, adoption verbs, classify, the onboarding skill), agent review and author annotation, and the workflow, QA, maintenance-skill, docs and port seams. This is where the loop closes without a person.",
+      "entries": [
+        {
+          "entry_id": "e-m6",
+          "position": 1,
+          "task": "aitasks#1857",
+          "topic": "aitasks#1852",
+          "classification": "core",
+          "confidence": "high",
+          "rationale": "M6 brings an existing test tree onto the map in levels. Its engine verbs (M6.1 to M6.3) land in wave E, the skill (M6.5) in F, and classify and scaffold (M6.4) in G.",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "high",
+            "depends": [],
+            "gates_pending": []
+          }
+        },
+        {
+          "entry_id": "e-m7",
+          "position": 2,
+          "task": "aitasks#1858",
+          "topic": "aitasks#1852",
+          "classification": "core",
+          "confidence": "high",
+          "rationale": "M7 is the reading: packets out, verdicts in, calibration, author annotation, the review skill and its launch surfaces. Its cycle with M6 and M8 is acyclic only at submodule granularity, which is why the parents interleave here.",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "high",
+            "depends": [],
+            "gates_pending": []
+          }
+        },
+        {
+          "entry_id": "e-m9",
+          "position": 3,
+          "task": "aitasks#1860",
+          "topic": "aitasks#1852",
+          "classification": "core",
+          "confidence": "medium",
+          "rationale": "M9 carries the seams into task-workflow and aitask-qa, the maintenance skill, the docs and the Codex and OpenCode ports. M9.1 is wave F; M9.4 and M9.5 are wave H and come last.",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "high",
+            "depends": [],
+            "gates_pending": []
+          }
+        }
+      ]
+    },
+    {
+      "wave_id": "w-rollout",
+      "ordinal": 7,
+      "title": "Rollout and the cross-linking pass (wave I)",
+      "purpose": "Apply the released feature to the target repositories, and run the one cross-linking pass once every parent has been coarse-planned.",
+      "entries": [
+        {
+          "entry_id": "e-m10",
+          "position": 1,
+          "task": "aitasks#1861",
+          "topic": "aitasks#1852",
+          "classification": "core",
+          "confidence": "medium",
+          "rationale": "M10 is the feature applied: aitasks locally, plus aitasks_go, thinking_backend, aitasks_mobile and thinking_app as cross-repo level tasks. It adds no framework code and waits for a release.",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "high",
+            "depends": [],
+            "gates_pending": []
+          }
+        },
+        {
+          "entry_id": "e-crosslink",
+          "position": 2,
+          "task": "aitasks#1863",
+          "topic": "aitasks#1852",
+          "classification": "coordination_only",
+          "confidence": "high",
+          "rationale": "Checks every cross-parent depends cell against real depends entries and the module-to-task maps against real ids, treating archived records as complete evidence, then refreshes this trail with --deep. It needs every parent's coarse pass done, so it comes after t1861 is planned, not after the rollout lands.",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "followup_kind": "risk_mitigation"
+          }
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    {
+      "evidence_id": "ev-snapshot",
+      "source_type": "command_output",
+      "ref": "./.aitask-scripts/aitask_trail_gather.sh snapshot --scope topic 1852",
+      "observed_at": "2026-10-09T13:05:14Z",
+      "summary": "15 live members of topic 1852 (t1853 to t1861, t1863, t1878, t1905, t1906, t1931, t1939), OWNER aitasks#1852, DIGEST 5c9e550ef727583f."
+    }
+  ],
+  "rendering_hints": {
+    "depth": "lite"
+  }
+}
