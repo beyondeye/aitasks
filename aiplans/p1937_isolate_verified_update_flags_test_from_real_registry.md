@@ -145,3 +145,10 @@ cleanup follow-up from §3 is created before archival.
 
 ### Goal-achievement risk: low
 - None identified.
+
+## Final Implementation Notes
+- **Actual work done:** Added `setup_local_metadata_repo <script>` (no-remote, legacy-mode fixture) to `tests/lib/metadata_update_fixture.sh` and generalized the lib header ("Every setup_* helper echoes…"). Rewrote `tests/test_verified_update_flags.sh` on it: scratch-cwd preamble, one fixture repo (+ copied `aitask_resolve_detected_agent.sh`) removed by an EXIT trap, a `run_update` helper capturing `OUT`/`RC`, a no-remote guard assertion, exact `UPDATED:…:100` / `:90` tokens, fixture-JSON checks, explicit rc checks, and a byte-identical-registry check after each of the four rejection cases. 19 assertions, all pass.
+- **Deviations from plan:** Commit type is `bug:` (the task's `issue_type`), not `test:` as the plan's Step 9 note said — the commit-type convention takes the issue_type. The registry snapshot comparison uses `assert_eq` on `cat` output rather than `cmp -s`, which gives a readable diff on failure.
+- **Issues encountered:** None in the change itself. `tests/test_cd_guard_lint.sh` fails on the live tree, but every violation it lists is in other files (`test_add_model.sh`, `test_setup_hooks_only.sh`, `test_aitasks_home.sh`, …), several of which are being edited by concurrent sessions — none in the files touched here.
+- **Key decisions:** No-remote fixture (not `setup_remote_metadata_repo`): the test only exercises flag parsing/resolution, and a remote-less repo makes "never pushes" structural. The registry cleanup was deferred to a follow-up task (data branch currently diverged; concurrent CAS writers). Verification: real registry `test_414_flags` run counts unchanged (85 / 3) across two runs, no new data-branch registry commit; negative controls — writes redirected to another repo (old-defect shape) → 2 FAIL; broken resolver → 5 FAIL; `test_verified_update.sh` and `test_usage_update.sh` pass on the edited lib.
+- **Upstream defects identified:** None
