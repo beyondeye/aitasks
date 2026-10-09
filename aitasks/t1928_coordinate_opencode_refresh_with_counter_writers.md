@@ -12,8 +12,9 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1916
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-09 11:33
-updated_at: 2026-10-09 11:43
+updated_at: 2026-10-09 15:34
 ---
 
 ## Origin
@@ -53,3 +54,8 @@ Either make the refresh write through the same remote-aware commit flow the
 counter writers use (re-apply the merge on the fresh tip and retry on a
 non-fast-forward), or introduce a shared registry lock (see
 `lib/registry_lock.sh`) taken by all three writers around read-modify-write.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-09T12:34:51Z status=pass attempt=1 type=human
