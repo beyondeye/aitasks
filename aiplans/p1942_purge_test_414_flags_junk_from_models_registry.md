@@ -92,3 +92,10 @@ None identified.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+- **Actual work done:** Reconciled the diverged data branch with `aitask_sync.sh --batch` (`MERGED`, guarded merge 8621e612d, pushed; three other live sessions' dirty task files left uncommitted). Re-queried: junk only on `models_claudecode.json` rows `opus4_6` (91, 87 runs) and `opus4_7_1m` (100, 3 runs). Ran a one-off scratchpad script sourcing `lib/registry_cas.sh` → `ait_cas_rewrite <registry> 5 render_purge` with `jq 'del(.models[].verified.test_414_flags, .models[].verifiedstats.test_414_flags)'` — `CAS_RC:0 ATTEMPTS:1`. Registry diff: 39 deletions, 0 additions; `jq del(...) before.json | cmp - registry` identical, so every other row is byte-identical. The jq query now returns `[]` for all three registries.
+- **Deviations from plan:** None.
+- **Issues encountered:** None — the 11 remote commits touched only the registry and the local side had no registry commits, so the sync merge was conflict-free.
+- **Key decisions:** No committed purge script — a one-off data fix; the test that produced the junk was already isolated by t1937.
+- **Upstream defects identified:** None
