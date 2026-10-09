@@ -405,3 +405,108 @@ profile: no worktree, no merge.
 
 ### Planned mitigations
 - timing: after | name: real_host_migration_check | type: manual_verification | priority: medium | effort: low | inline_risk: medium | added_complexity: low | addresses: real-home half-migration risk (code-health) and untested BSD/macOS behaviour (goal-achievement) | desc: Run `ait engine home --migrate` on a real Linux host and a macOS host (macOS also runs tests/test_aitasks_home.sh); then confirm ait board (PyPy venv), ait monitor, ait setup and ait upgrade keep working through the ~/.aitask symlink
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-08 00:20)
+- **Requested by user:** five review findings, all verified valid:
+  1. A relative top-level symlink (`venv -> ../external`) migrates silently with a changed target.
+  2. A rollback `mv -n` can nest the original inside a competitor that appears after the check; `home_locate` never looked there, so `HOME_STRANDED` named the wrong place.
+  3. The manual-restore advice (`mv <now> <legacy>`) would nest the original inside the competitor.
+  4. A trailing-slash `AITASKS_HOME` produced an empty basename, so symlink-failure cleanup missed the stray link.
+  5. Newline-split entry enumeration let `venv` + LF read as a known entry.
+- **Changes made:**
+  1. The preflight scans every symlink in the legacy tree (`find -type l -print0`) and refuses `relative-symlink:<path>` when a relative target, resolved lexically from the link's directory, leaves the root. Relative links that stay inside the root still migrate.
+  2. `home_locate` gains a `legacy-nested` location. The rollback re-locates each entry after its `mv` and reports where it actually is. There is a new test seam, `pre-restore <name>`, which runs after the rollback's absence check.
+  3. Each stranded entry gets two runnable `HOME_RESTORE:<name>|<command>` lines (`printf %q`-quoted). The first sets the competitor aside at a non-existing `<legacy>.competing[.N]`; the second moves the original into place, re-pathed when it was nested inside the competitor.
+  4. `cmd_home` normalizes trailing slashes off `AITASKS_HOME` once, for the whole verb.
+  5. `home_entries` is NUL-terminated (`sort -z`, `read -d ''`), and names with control characters are `%q`-escaped in protocol lines (`home_show`). `tree_sig` in the test is NUL-safe as well.
+- **Tests:**
+  - H22 now executes the printed restore steps and checks that the original is restored and the competitor kept.
+  - New cases: H23 (reverse nesting during rollback, reported and restorable), H24 (newline name refused before any move), H25 (escaping relative links refused, top-level and nested; inner relative links migrate and resolve), and a trailing-slash H15 variant.
+  - Each fix was mutation-tested in an isolated copy, and its case fails when the fix is removed.
+  - Suites: `test_aitasks_home.sh` 200/200, `test_install_engine_binary.sh` 201/201. The real host report still shows `HOME_NEXT:migrate|7|…` (no false relative-link refusal).
+- **Files affected:** `.aitask-scripts/aitask_engine.sh`, `tests/test_aitasks_home.sh`, `aidocs/testing_engine/n014_explorer_006_proposal.md`
+
+### Change Request 2 (2026-10-08 00:45)
+- **Requested by user:** three findings, all verified valid:
+  1. The link scan ignored `find`'s exit status and `readlink` failures, so an unreadable directory could hide an outward relative interpreter link and the migration would still succeed.
+  2. When the legacy root itself was replaced by a file, the printed restore steps failed ("Not a directory").
+  3. A signal between `ln` and the phase advancing reported `HOME_ROLLED_BACK:0` for a completed migration. The reviewer marked this one as follow-up; it was done inline because the fix is small and contained.
+- **Changes made:**
+  1. `find`'s exit status rides along as a trailing NUL `FIND_RC:` sentinel record, which cannot collide because real records start with the absolute legacy path. A non-zero status refuses `scan-incomplete`, and an unreadable link target refuses `scan-incomplete:<path>`, both before any `mkdir` or move.
+  2. When the legacy root is not a directory at rollback time, `home_restore_root_steps` prints the restore steps in order: the obstruction set aside (`HOME_RESTORE:.|mv …`), `mkdir` of the root, then one `mv` per entry. The per-entry two-step form stays for per-entry competitors. A shared `home_aside` helper picks the aside name.
+  3. `home_on_signal` recognises a completed layout (the legacy root is a symlink whose readlink equals `$AITASKS_HOME`) while still in the `removed` phase, and reports `HOME_MIGRATED`. `home_locate` never treats a path through a symlinked legacy root as "back". There is a new `post-ln` seam.
+- **Tests:**
+  - H26: an unlistable `venv/hidden` directory holding an outward link is refused `scan-incomplete`, with nothing created. It is skipped when running as root.
+  - H27: the legacy root replaced by a file before linking gives exit 2; running the printed steps restores the tree byte-identically and keeps the obstruction aside.
+  - H28: TERM at `post-ln` reports `HOME_MIGRATED:8` and nothing is undone.
+  - The test's EXIT trap now runs `chmod -R u+rwx` before `rm -rf`.
+  - All three fixes were mutation-tested (each case fails without its fix). Suites: `test_aitasks_home.sh` 220/220, `test_install_engine_binary.sh` 201/201.
+- **Files affected:** `.aitask-scripts/aitask_engine.sh`, `tests/test_aitasks_home.sh`, `aidocs/testing_engine/n014_explorer_006_proposal.md`
+
+### Change Request 3 (2026-10-09 00:10)
+- **Requested by user:** one finding, verified valid. `home_restore_root_steps` always printed a "set the legacy root aside" `mv`. When the rollback's own `mkdir` had failed (for example, the parent is not writable), the root was absent and that first step failed.
+- **Changes made:** the set-aside step is printed only when `home_present "$LEGACY_ROOT"`. An absent root starts with `mkdir`, then the per-entry moves. The warning now distinguishes "replaced (obstruction kept aside)" from "missing and could not be recreated (check the parent is writable)".
+- **Tests:** H29. The `pre-link` hook removes the parent's write permission. Expected: exit 2, the originals intact in the new root, a first step of `mkdir` with no `.competing` step, and the "missing" warning. Once the parent is writable again, the printed steps restore the legacy tree byte-identically. It is skipped when running as root. Mutation-tested (an always-printed aside step fails H29). Suites: `test_aitasks_home.sh` 229/229, `test_install_engine_binary.sh` 201/201.
+- **Files affected:** `.aitask-scripts/aitask_engine.sh`, `tests/test_aitasks_home.sh`, `aidocs/testing_engine/n014_explorer_006_proposal.md`
+
+### Change Request 4 (2026-10-09 00:30)
+- **Requested by user:** one finding, verified valid. `home_restore_steps` always printed "set the legacy entry aside", even when the legacy path was free because the move back itself had failed (a read-only legacy directory). The first printed command then failed.
+- **Changes made:**
+  - The aside step is printed only when `home_present` finds something at the legacy entry path. A free path gets a single `mv <current> <legacy>`, and its warning says the move failed (check the legacy directory is writable) rather than naming a competitor.
+  - The full state space was then checked so this class is closed:
+    - **Legacy root:** a directory, an obstruction, or absent.
+    - **Entry path:** free or occupied.
+    - **Original location:** `AH/n`, `AH/n/n`, `legacy/n/n` or lost.
+
+    Every reachable combination now prints steps that start from the real state.
+- **Tests:** H30. The `post-moves` hook adds a competing `update_check` and makes the legacy directory read-only, so every entry is stranded.
+  - Expected: a free path gets one step and the occupied `update_check` gets two, with both warnings present.
+  - Once the directory is writable again, every printed step runs, the competitor is kept aside, and the legacy tree is restored byte-identically.
+  - It is skipped when running as root. Mutation-tested: an always-printed aside fails H30.
+  - Suites: `test_aitasks_home.sh` 240/240, `test_install_engine_binary.sh` 201/201.
+- **Files affected:** `.aitask-scripts/aitask_engine.sh`, `tests/test_aitasks_home.sh`, `aidocs/testing_engine/n014_explorer_006_proposal.md`
+
+## Final Implementation Notes
+- **Actual work done:**
+  - `ait engine home` is a lock-free, read-only report (`HOME_ROOT`, `HOME_LEGACY`, `HOME_SYMLINK`, `HOME_NEXT`).
+  - `ait engine home --migrate` runs:
+    - an unlocked preflight that creates nothing;
+    - `mkdir -p` of the root, then the `$AITASKS_HOME_LOCK` stale_lock mutex;
+    - a second preflight under the lock, then the dev:inode identity of each entry is recorded;
+    - per-entry `mv -n`, each verified by inode;
+    - `rmdir`, then `ln -s`, verified by `readlink`.
+  - Any failure after the first move, or INT/TERM/HUP before the link is verified, triggers a state-derived rollback. A blocked rollback prints `HOME_FAILED` / `HOME_STRANDED` and runnable `HOME_RESTORE` steps.
+  - Setup gained `report_home_legacy`, which echoes the report's `HOME_LEGACY:` line after `AITASKS_HOME:` and never migrates.
+  - `tests/test_aitasks_home.sh` gained H1–H30, H-I (a real `install.sh --dir`) and S1–S3: 240 assertions in total, about 6 s.
+  - E3 in `tests/test_install_engine_binary.sh` now pins `home` as a verb.
+  - Comment and documentation touch-ups: `lib/aitasks_home.sh`, the proposal (component, assumption and tradeoff text), CLAUDE.md, and the `ait` help line.
+- **Deviations from plan:**
+  - All D1–D8 decisions in Step 0 held.
+  - H19 interrupts at `pre-mv python`, not `bin`: `bin` sorts first, so nothing has moved yet at that point.
+  - Seam points ended up as `pre-mv`, `post-moves`, `pre-link`, `post-ln`, `post-link` and `pre-restore`.
+  - Four review rounds added:
+    - the relative-symlink and scan-completeness refusals;
+    - NUL-safe enumeration;
+    - reverse-nesting location;
+    - restore steps that start from the real state (per-entry competitor, free path, obstructed root, absent root);
+    - trailing-slash normalization;
+    - recognition of a completed layout in the signal handler.
+- **Issues encountered:**
+  - Bash ignores a SIGINT whose foreground child exited normally (wait-and-cooperative-exit), so the INT interruption test hook also kills itself.
+  - `ln -s target existing_dir` silently creates the link inside the directory; that is why the link is verified and the stray link is cleaned up.
+  - `mv -n` onto an existing directory still nests; that is why every move is verified by inode.
+- **Key decisions:**
+  - The lock is the stale_lock mutex, because `flock` is not on stock macOS.
+  - Engine slot writers are not coupled to the home lock (D7): the migration never touches `$AITASKS_HOME/engine`.
+  - Rollback derives each entry's location from on-disk identity, not from bookkeeping.
+  - The legacy path is spelled exactly once (`LEGACY_ROOT=… # legacy-root-ok:`).
+  - Setup reads the report rather than spelling the path itself.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:**
+  - The named follow-up that flips the setup default can call `ait engine home --migrate` and branch on the `HOME_*` protocol lines: exit 0 means migrated or nothing to do, 1 refused or rolled back, 2 stranded with `HOME_RESTORE` steps.
+  - The proposal's admission criteria for that follow-up (a real `install.sh --dir` with a working venv and PyPy venv afterwards, re-run, hostile symlink, cross-device, collision, override) are now covered by H-I, H11–H13, H7, H8, H5 and H11.
+  - The 18 doc files naming `~/.aitask` remain to be updated.
+  - `AIT_HOME_TEST_HOOK` mirrors the `AIT_ENGINE_TEST_*` seams.
+  - `tree_sig` in `test_aitasks_home.sh` is a reusable NUL-safe byte-identity signature.
