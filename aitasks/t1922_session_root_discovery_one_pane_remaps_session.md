@@ -12,10 +12,11 @@ active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
+risk_mitigation_tasks: [1934, 1935]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-08 17:14
-updated_at: 2026-10-09 11:13
+updated_at: 2026-10-09 15:34
 ---
 
 ## Problem
