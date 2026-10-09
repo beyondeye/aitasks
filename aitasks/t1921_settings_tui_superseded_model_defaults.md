@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1910
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-08 17:06
-updated_at: 2026-10-08 23:46
+updated_at: 2026-10-09 11:11
 ---
 
 ## Context
@@ -64,3 +65,8 @@ switched to, and let the user switch it from there.
 - A malformed table / registry does not break the tab (warnings only).
 - Website: update `website/content/docs/tuis/settings/` for the new marker and
   action; run `python3 check_links.py --build` in `website/`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-09T08:11:31Z status=pass attempt=1 type=human
