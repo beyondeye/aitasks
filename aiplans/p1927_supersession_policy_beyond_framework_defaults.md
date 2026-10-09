@@ -304,3 +304,65 @@ so there is no merge).
 - OpenCode is deferred, so goal 4 is delivered as a decision plus a follow-up
   task rather than as recorded edges, which is the scope the user chose. ·
   severity: low · → mitigation: follow-up task created in step 5
+
+## Post-Plan-Review Changes (before approval)
+
+- Review round 1 (user): added the single `record_lineage` opt-out covering both
+  recording paths, refusal of `--supersedes` + `--no-supersession`, a
+  partial-apply recovery, and made the add-only integration test required.
+- Review round 2 (user): recovery must report actual saved state (a failed call
+  can write some of its own files).
+- Review round 3 (user): simplified recovery to stop / report actual saved
+  state / targeted `record-supersession` retry; dropped the snapshot and
+  automatic partial-commit procedure and the partial-state test. General
+  promotion recovery and concurrency handling are left to separate work.
+
+## Final Implementation Notes
+
+- **Actual work done:** As planned.
+  - `aitask_add_model.sh record-supersession` accepts `--assume-registered`
+    (dry-run only; usage error otherwise) and passes it to the Python `record`
+    CLI. Usage text and the header comment are updated.
+  - `tests/test_add_model.sh` Test 10 now asserts the preview (NOTE + RECORDED +
+    table diff) and the non-dry-run usage error. The new required Test 14 runs
+    add-json → record-supersession (apply) and asserts the persisted link, the
+    `NOTE: commit` line, unchanged project and seed config, and the seed
+    invariant. A negative control (an isolated mutant copy whose apply skips
+    the table write) fails Test 14 (`predecessor link persisted`) and Test 13.
+  - Add-model `SKILL.md`: `--supersedes`, the Lineage question (same-family
+    candidates as suggestions only), the `record_lineage` opt-out, Step 2
+    validation, the Step 3 preview with BLOCKED handling, the Step 4 apply order
+    and failure handling, the Step 6 commit condition naming
+    `record-supersession`, and Notes (including that OpenCode has no lineages).
+  - Backfilled 11 edges, each dry-run previewed and confirmed by the user:
+    - claudecode: `fable5→fable5_1`, `opus4_5→opus4_6`, `sonnet4_5→sonnet4_6`,
+      `opus4_7→opus4_8` (`_1m` sibling skipped as `sibling_conflict`, since
+      `opus4_7_1m` already points to `opus4_8`);
+    - codex: `gpt5_2→gpt5_4`, `gpt5_4→gpt5_5`, `gpt5_5→gpt5_6_sol`,
+      `gpt5_6_sol→gpt6_sol`, `gpt5_6_luna→gpt6_luna`, `gpt5_3codex→gpt5_4`,
+      `gpt5_4_mini→gpt5_6_luna`.
+    - No edge for `gpt5_6_terra` or `gpt5_3codex_spark`.
+  - Docs: the add-model skill page (lineage question, `--supersedes`,
+    `--no-supersession` semantics) and codeagent.md (OpenCode has no lineages
+    yet). The OpenCode wrapper's Arguments line gains `--supersedes`.
+  - OpenCode deferred: follow-up task t1940 created (anchored to the t1916
+    topic).
+- **Deviations from plan:**
+  - The table backfill is committed as `enhancement: … (t1927)` instead of
+    `ait: … (t1927)`, because `ait:` commits must not carry a task tag (t1916
+    used `feature:` for its edge).
+  - The `.agents` wrapper needed no change: it already defers wholesale to the
+    Claude skill.
+- **Issues encountered:**
+  - The data branch has many unpushed commits, blocked by unstaged changes in
+    the data worktree (pre-existing; for `ait syncer`).
+  - `tests/test_multi_session_primitives.sh` is modified by another session and
+    is left out of these commits.
+- **Key decisions:**
+  - Reversed t1910's "record-supersession never takes --assume-registered"
+    decision. Registration-time lineage has the same preview problem
+    promote-config solved, and an apply still validates against the real
+    registry.
+  - The predecessor is always chosen by the user; family-prefix candidates are
+    suggestions, not inference.
+- **Upstream defects identified:** None
