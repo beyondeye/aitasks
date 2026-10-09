@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1926
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-09 15:31
-updated_at: 2026-10-09 15:34
+updated_at: 2026-10-09 16:02
 ---
 
 ## Origin
@@ -44,3 +45,8 @@ paths, or path-keyed SHAs, in the manifest) — keeping the flat set's coverage 
 the `aitasks/metadata/{codex,opencode}_skills/` staging copies. Add a
 `tests/test_prune_retired_skills.sh` case with a copied-blob user file under a
 retired DIR, plus a negative control.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-09T13:02:49Z status=pass attempt=1 type=human
