@@ -174,6 +174,20 @@
       "verifiedstats": {}
     },
     {
+      "name": "openai_gpt_5_4_mini_flex",
+      "cli_id": "openai/gpt-5.4-mini-flex",
+      "notes": "GPT-5.4 mini Flex (400k context, openai provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
       "name": "openai_gpt_5_5",
       "cli_id": "openai/gpt-5.5",
       "notes": "GPT-5.5 (400k context, openai provider)",
@@ -314,6 +328,34 @@
       "verifiedstats": {}
     },
     {
+      "name": "openai_gpt_6_1_sol",
+      "cli_id": "openai/gpt-6.1-sol",
+      "notes": "GPT-6.1 Sol (1050k context, openai provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "openai_gpt_6_1_sol_fast",
+      "cli_id": "openai/gpt-6.1-sol-fast",
+      "notes": "GPT-6.1 Sol Fast (1050k context, openai provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
       "name": "openai_gpt_6_astra",
       "cli_id": "openai/gpt-6-astra",
       "notes": "GPT-6 Astra (1050k context, openai provider)",
@@ -331,6 +373,76 @@
       "name": "openai_gpt_6_astra_fast",
       "cli_id": "openai/gpt-6-astra-fast",
       "notes": "GPT-6 Astra Fast (1050k context, openai provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "openai_gpt_6_astra_ultrafast",
+      "cli_id": "openai/gpt-6-astra-ultrafast",
+      "notes": "GPT-6 Astra Ultrafast (1050k context, openai provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "openai_gpt_6_luna",
+      "cli_id": "openai/gpt-6-luna",
+      "notes": "GPT-6 Luna (1050k context, openai provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "openai_gpt_6_luna_fast",
+      "cli_id": "openai/gpt-6-luna-fast",
+      "notes": "GPT-6 Luna Fast (1050k context, openai provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "openai_gpt_6_sol",
+      "cli_id": "openai/gpt-6-sol",
+      "notes": "GPT-6 Sol (1050k context, openai provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "openai_gpt_6_sol_fast",
+      "cli_id": "openai/gpt-6-sol-fast",
+      "notes": "GPT-6 Sol Fast (1050k context, openai provider)",
       "status": "active",
       "verified": {
         "pick": 0,
@@ -406,6 +518,20 @@
         "batch-review": 0,
         "pick": 0,
         "explain": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "opencode_claude_haiku_5_5",
+      "cli_id": "opencode/claude-haiku-5-5",
+      "notes": "Claude Haiku 5.5 (1000k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
         "work-report": 0,
         "trail": 0
       },
@@ -496,6 +622,20 @@
       "verifiedstats": {}
     },
     {
+      "name": "opencode_claude_opus_5_5",
+      "cli_id": "opencode/claude-opus-5-5",
+      "notes": "Claude Opus 5.5 (1000k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
       "name": "opencode_claude_sonnet_4",
       "cli_id": "opencode/claude-sonnet-4",
       "notes": "Claude Sonnet 4 (1000k context, opencode provider)",
@@ -552,6 +692,34 @@
       "verifiedstats": {}
     },
     {
+      "name": "opencode_claude_sonnet_5_5",
+      "cli_id": "opencode/claude-sonnet-5-5",
+      "notes": "Claude Sonnet 5.5 (1000k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "opencode_deepseek_v4_1_flash",
+      "cli_id": "opencode/deepseek-v4.1-flash",
+      "notes": "DeepSeek V4.1 Flash (1000k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
       "name": "opencode_deepseek_v4_flash",
       "cli_id": "opencode/deepseek-v4-flash",
       "notes": "DeepSeek V4 Flash (1000k context, opencode provider)",
@@ -597,6 +765,34 @@
       "name": "opencode_deepseek_v4_pro",
       "cli_id": "opencode/deepseek-v4-pro",
       "notes": "DeepSeek V4 Pro (1000k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "opencode_exo_free",
+      "cli_id": "opencode/exo-free",
+      "notes": "Exo Free (1048k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "opencode_fledge_alpha_free",
+      "cli_id": "opencode/fledge-alpha-free",
+      "notes": "Fledge Alpha Free (1048k context, opencode provider)",
       "status": "active",
       "verified": {
         "pick": 0,
@@ -1044,7 +1240,7 @@
     {
       "name": "opencode_gpt_5_6_sol",
       "cli_id": "opencode/gpt-5.6-sol",
-      "notes": "GPT-5.6 Sol (50% Off) (1050k context, opencode provider)",
+      "notes": "GPT-5.6 Sol (1050k context, opencode provider)",
       "status": "active",
       "verified": {
         "batch-review": 0,
@@ -1098,9 +1294,51 @@
       "verifiedstats": {}
     },
     {
+      "name": "opencode_gpt_6_1_sol",
+      "cli_id": "opencode/gpt-6.1-sol",
+      "notes": "GPT-6.1 Sol (1050k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
       "name": "opencode_gpt_6_astra",
       "cli_id": "opencode/gpt-6-astra",
       "notes": "GPT-6 Astra (1050k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "opencode_gpt_6_luna",
+      "cli_id": "opencode/gpt-6-luna",
+      "notes": "GPT-6 Luna (1050k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "opencode_gpt_6_sol",
+      "cli_id": "opencode/gpt-6-sol",
+      "notes": "GPT-6 Sol (1050k context, opencode provider)",
       "status": "active",
       "verified": {
         "pick": 0,
@@ -1129,6 +1367,20 @@
       "name": "opencode_grok_4_6",
       "cli_id": "opencode/grok-4.6",
       "notes": "Grok 4.6 (500k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "opencode_grok_4_7",
+      "cli_id": "opencode/grok-4.7",
+      "notes": "Grok 4.7 (500k context, opencode provider)",
       "status": "active",
       "verified": {
         "pick": 0,
@@ -1224,9 +1476,51 @@
       "verifiedstats": {}
     },
     {
+      "name": "opencode_ling_3_1_flash_free",
+      "cli_id": "opencode/ling-3.1-flash-free",
+      "notes": "Ling 3.1 Flash Free (262k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "opencode_longcat_2_5_preview_free",
+      "cli_id": "opencode/longcat-2.5-preview-free",
+      "notes": "LongCat 2.5 Preview Free (1000k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
       "name": "opencode_mimo_v2_5_free",
       "cli_id": "opencode/mimo-v2.5-free",
       "notes": "MiMo V2.5 Free (200k context, opencode provider)",
+      "status": "unavailable",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "opencode_mimo_v2_6_flash_free",
+      "cli_id": "opencode/mimo-v2.6-flash-free",
+      "notes": "MiMo-V2.6-Flash Free (200k context, opencode provider)",
       "status": "active",
       "verified": {
         "pick": 0,
@@ -1308,6 +1602,20 @@
       "verifiedstats": {}
     },
     {
+      "name": "opencode_mistral_large_4",
+      "cli_id": "opencode/mistral-large-4",
+      "notes": "Mistral Large 4 (524k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
       "name": "opencode_muse_spark_1_2",
       "cli_id": "opencode/muse-spark-1.2",
       "notes": "Muse Spark 1.2 (1048k context, opencode provider)",
@@ -1325,7 +1633,7 @@
       "name": "opencode_muse_spark_1_2_contributor_free",
       "cli_id": "opencode/muse-spark-1.2-contributor-free",
       "notes": "Muse Spark 1.2 Free (1048k context, opencode provider)",
-      "status": "active",
+      "status": "unavailable",
       "verified": {
         "pick": 0,
         "explain": 0,
@@ -1434,6 +1742,34 @@
       "verifiedstats": {}
     },
     {
+      "name": "opencode_qwen3_8_flash",
+      "cli_id": "opencode/qwen3.8-flash",
+      "notes": "Qwen3.8 Flash (1000k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
+      "name": "opencode_qwen3_8_max",
+      "cli_id": "opencode/qwen3.8-max",
+      "notes": "Qwen3.8 Max (262k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
       "name": "opencode_ring_2_6_1t_free",
       "cli_id": "opencode/ring-2.6-1t-free",
       "notes": "Ring 2.6 1T Free (262k context, opencode provider)",
@@ -1448,10 +1784,24 @@
       "verifiedstats": {}
     },
     {
+      "name": "opencode_space_bunny_free",
+      "cli_id": "opencode/space-bunny-free",
+      "notes": "Space Bunny Free (1048k context, opencode provider)",
+      "status": "active",
+      "verified": {
+        "pick": 0,
+        "explain": 0,
+        "batch-review": 0,
+        "work-report": 0,
+        "trail": 0
+      },
+      "verifiedstats": {}
+    },
+    {
       "name": "opencode_union_alpha",
       "cli_id": "opencode/union-alpha",
       "notes": "Union Alpha Free (262k context, opencode provider)",
-      "status": "active",
+      "status": "unavailable",
       "verified": {
         "pick": 0,
         "explain": 0,

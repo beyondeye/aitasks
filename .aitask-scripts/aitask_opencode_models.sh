@@ -163,7 +163,8 @@ process_model() {
 }
 
 # --- Merge with existing config ---
-# Preserves verified scores and marks disappeared models as unavailable
+# Preserves every field discovery does not own (verified scores, usage counters,
+# ...) and marks disappeared models as unavailable
 merge_with_existing() {
     local discovered="$1"
     local existing_file="$2"
@@ -178,7 +179,7 @@ merge_with_existing() {
     existing=$(cat "$existing_file")
 
     # Use jq to merge:
-    # 1. For each discovered model, preserve existing verified scores/stats if present
+    # 1. For each discovered model, carry over every existing field discovery does not own
     # 2. For existing models not in discovered, mark as unavailable
     jq --argjson discovered "$discovered" '
         # Build lookups of discovered models by name and cli_id
@@ -189,15 +190,19 @@ merge_with_existing() {
         (.models | map({(.name): .}) | add // {}) as $exist_name_map |
         (.models | map({(.cli_id): .}) | add // {}) as $exist_cli_map |
 
-        # Discovered models: preserve existing verified scores and stats
-        # even when the stored model name changes but cli_id remains stable.
+        # Discovered models: discovery owns name/cli_id/notes/status; every
+        # other field on the existing row (verified, verifiedstats, usagestats,
+        # ...) is written by other updaters and is carried over, even when the
+        # stored model name changes but cli_id remains stable. Null fields fall
+        # back to the discovered defaults.
         ($discovered | map(
             .name as $n |
             .cli_id as $id |
             ($exist_name_map[$n] // $exist_cli_map[$id]) as $existing |
             if $existing then
-                .verified = ($existing.verified // .verified) |
-                .verifiedstats = ($existing.verifiedstats // {})
+                . + ($existing
+                     | del(.name, .cli_id, .notes, .status)
+                     | with_entries(select(.value != null)))
             else
                 .
             end
