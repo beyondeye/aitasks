@@ -10,7 +10,7 @@ Layers exposed:
   no Textual import. Easy to unit-test.
 - `run_sync_batch(timeout)` — blocking subprocess invocation that returns a
   `SyncResult`. Designed to be called from inside a `@work(thread=True)` worker.
-- `SyncConflictScreen` (Textual `ModalScreen`) — modal listing conflicted files
+- `SyncConflictScreen` (`GuardedModalScreen`) — modal listing conflicted files
   with "Launch agent to resolve" / "Resolve Interactively" / "Dismiss" buttons.
   Dismisses with a CONFLICT_CHOICE_* value or None. Self-contained CSS.
 - `build_data_conflict_prompt(files, repo_root)` — pure builder for the prompt
@@ -48,7 +48,6 @@ from typing import Callable, Sequence
 from textual import on
 from textual.binding import Binding
 from textual.containers import Container, Horizontal
-from textual.screen import ModalScreen
 from textual.widgets import Button, Label
 
 _LIB_DIR = str(Path(__file__).resolve().parent)
@@ -56,6 +55,7 @@ if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 
 from agent_launch_utils import find_terminal, spawn_in_terminal  # noqa: E402
+from guarded_dismiss import GuardedModalScreen  # noqa: E402
 
 
 # --- Wire-protocol status constants (must match aitask_sync.sh --batch exactly) ---
@@ -493,7 +493,7 @@ def build_data_conflict_prompt(
     )
 
 
-class SyncConflictScreen(ModalScreen):
+class SyncConflictScreen(GuardedModalScreen):
     """Modal dialog shown when `ait sync` detects merge conflicts.
 
     Self-contained: ships its own CSS via `DEFAULT_CSS` so it renders correctly

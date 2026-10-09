@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import shlex
 import subprocess
 import sys
 import time
@@ -33,6 +34,7 @@ from agent_launch_utils import (  # noqa: E402
     compact_root,
     disambiguate_labels,
     discover_aitasks_sessions,
+    find_terminal,
     get_tmux_sessions,
     get_tmux_windows_result,
     is_tmux_available,
@@ -41,6 +43,7 @@ from agent_launch_utils import (  # noqa: E402
     resolve_agent_string,
     resolve_dry_run_command,
     resolve_pane_id_by_pid,
+    spawn_in_terminal,
     unique_window_name,
 )
 # Imported by name (not via the module) so tests can patch these seams on
@@ -119,7 +122,12 @@ from settings_screens import (  # noqa: E402
 
 from textual import work  # noqa: E402
 from textual.actions import SkipAction  # noqa: E402
-from textual.app import App, ComposeResult, ScreenStackError  # noqa: E402
+from textual.app import (  # noqa: E402
+    App,
+    ComposeResult,
+    ScreenStackError,
+    SuspendNotSupported,
+)
 from textual.binding import Binding  # noqa: E402
 from textual.containers import Vertical, VerticalScroll  # noqa: E402
 from textual.css.query import NoMatches, WrongType  # noqa: E402
@@ -2522,9 +2530,70 @@ class SyncerApp(TuiSwitcherMixin, ShortcutsMixin, App):
                     self.notify(err, severity="error")
                 elif result.new_window:
                     maybe_spawn_minimonitor(result.session, result.window)
+            elif result == "run":
+                # screen.full_command, never full_cmd: the dialog stores the
+                # user's edits and agent/profile changes there (t1225).
+                self._run_agent_in_terminal(screen.full_command, project_root)
             self._tick_refresh()
 
         self.push_screen(screen, on_launch)
+
+    def _run_agent_in_terminal(self, full_command: str, project_root: Path) -> None:
+        """Run the dialog's finalized command in ``project_root`` (t1915).
+
+        A multi-repo row's agent must run in ITS repo. ``cwd=`` alone is not
+        enough: some terminals (gnome-terminal's server, xdg-terminal-exec) do
+        not start the child in the spawner's cwd, so the shell cds first. The
+        newline keeps any ``;`` / ``||`` in the command out of the cd's scope.
+        The root is made absolute here, once, for every caller: the single-repo
+        failure route passes ``Path(".")``, and ``cd -- .`` selects nothing in
+        a terminal that did not start in the syncer's cwd.
+        """
+        try:
+            root = str(Path(project_root).resolve())
+        except OSError as exc:
+            # Resolving "." calls getcwd, which fails once the directory the
+            # syncer runs in is gone — report the root as given, launch nothing.
+            self._notify_launch_error(str(project_root), exc)
+            return
+        script = f"cd -- {shlex.quote(root)} || exit 1\n{full_command}"
+        argv = ["sh", "-c", script]
+        terminal = find_terminal()
+        # Runs in a screen-result callback: an escaping exception would end the
+        # syncer. A vanished repo dir (cwd=) or a broken terminal binary raises
+        # OSError before the shell ever starts.
+        if terminal:
+            try:
+                spawn_in_terminal(terminal, argv, cwd=root)
+            except OSError as exc:
+                self._notify_launch_error(root, exc)
+            return
+        ret = 0
+        launch_error: OSError | None = None
+        try:
+            with self.suspend():
+                try:
+                    ret = subprocess.call(argv, cwd=root)
+                except OSError as exc:
+                    # Caught INSIDE the block: App.suspend resumes the driver
+                    # after its yield with no `finally` (Textual 8.2.7), so an
+                    # exception leaving the block would keep the terminal
+                    # suspended. Notify only after the context restored it.
+                    launch_error = exc
+        except SuspendNotSupported:
+            self.notify(
+                "No terminal emulator found and this environment cannot "
+                "suspend the TUI to run the agent inline.",
+                severity="error",
+            )
+            return
+        if launch_error is not None:
+            self._notify_launch_error(root, launch_error)
+        elif ret != 0:
+            self.notify(f"Agent command exited with status {ret}", severity="error")
+
+    def _notify_launch_error(self, root: str, exc: OSError) -> None:
+        self.notify(f"Could not launch agent in {root}: {exc}", severity="error")
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:

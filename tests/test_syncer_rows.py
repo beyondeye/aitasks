@@ -12,6 +12,7 @@ import asyncio
 import contextlib
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -2848,7 +2849,10 @@ class DataConflictAgentTests(_TabbedShellBase):
     @contextlib.contextmanager
     def agent_seams(self):
         _SpyAgentScreen.instances = []
-        calls = argparse.Namespace(dry_run=[], interactive=[], minimonitor=[])
+        calls = argparse.Namespace(
+            dry_run=[], interactive=[], minimonitor=[],
+            terminal="xterm", spawns=[], spawn_error=None,
+        )
 
         def dry_run(root, op, *args, **kwargs):
             calls.dry_run.append((Path(root), op, args))
@@ -2857,7 +2861,18 @@ class DataConflictAgentTests(_TabbedShellBase):
         def interactive(app, on_done=None, repo_root=None):
             calls.interactive.append(repo_root)
 
+        def spawn(terminal, argv, **kwargs):
+            calls.spawns.append((terminal, argv, kwargs))
+            if calls.spawn_error is not None:
+                raise calls.spawn_error
+
+        # find_terminal / spawn_in_terminal are always stubbed: no test in this
+        # class may open a real terminal window.
         with mock.patch.object(
+            syncer_app, "find_terminal", lambda: calls.terminal
+        ), mock.patch.object(
+            syncer_app, "spawn_in_terminal", spawn
+        ), mock.patch.object(
             syncer_app, "resolve_dry_run_command", dry_run
         ), mock.patch.object(
             syncer_app, "resolve_agent_string", lambda *a, **kw: "claudecode/x"
@@ -3015,6 +3030,307 @@ class DataConflictAgentTests(_TabbedShellBase):
                     self.assertIsInstance(app.screen, SyncFailureScreen)
                     await pilot.press("escape")
                     await pilot.pause()
+
+        self._run(runner())
+
+
+class AgentRunInTerminalTests(_TabbedShellBase):
+    """The agent dialog's "Run in terminal" result (t1915): dispatched in the
+    target repo, with the dialog's edited command, and never able to take the
+    syncer down — or leave its terminal suspended — on a launch failure.
+
+    Reuses DataConflictAgentTests' seams without re-running its tests."""
+
+    agent_seams = DataConflictAgentTests.agent_seams
+    _two_repos = DataConflictAgentTests._two_repos
+    _conflict = DataConflictAgentTests._conflict
+    FILES = DataConflictAgentTests.FILES
+
+    EDITED = "claude --model edited 'resolve'"
+
+    @staticmethod
+    def _script(root) -> str:
+        return f"cd -- {root} || exit 1\n{AgentRunInTerminalTests.EDITED}"
+
+    @staticmethod
+    def _capture_notices(app, events: list | None = None) -> list[tuple[str, str]]:
+        notices: list[tuple[str, str]] = []
+
+        def notify(msg, **kw):
+            notices.append((str(msg), kw.get("severity", "information")))
+            if events is not None:
+                events.append("notify")
+
+        app.notify = notify
+        return notices
+
+    async def _open_failure_agent(self, app, pilot, repo_root):
+        app._last_failure = SyncFailureContext(
+            ref_name="main", action="push",
+            command="git push origin main:main", status="ERROR",
+            stderr_tail="rejected", repo_root=repo_root,
+        )
+        app.action_agent_resolve()
+        await pilot.pause()
+        failure = app.screen
+        self.assertIsInstance(failure, SyncFailureScreen)
+        await pilot.click("#btn_failure_launch")
+        await pilot.pause()
+        self.assertEqual(len(_SpyAgentScreen.instances), 1)
+        spy = _SpyAgentScreen.instances[0]
+        self.assertIs(app.screen, spy)
+        return failure, spy
+
+    async def _open_conflict_agent(self, app, pilot, row, target):
+        self._conflict(app, row, target)
+        await pilot.pause()
+        conflict = app.screen
+        self.assertIsInstance(conflict, SyncConflictScreen)
+        await pilot.click("#btn_sync_agent")
+        await pilot.pause()
+        self.assertEqual(len(_SpyAgentScreen.instances), 1)
+        spy = _SpyAgentScreen.instances[0]
+        self.assertIs(app.screen, spy)
+        return conflict, spy
+
+    # ------------------------------------------------------- run dispatch
+
+    def test_run_in_terminal_spawns_in_the_conflicting_repo(self):
+        async def runner():
+            sessions, row, target = self._two_repos()
+            root = str(Path("/tmp/repo1").resolve())
+            seams = Seams()
+            with self.agent_seams() as calls:
+                async with self.booted(sessions=sessions, seams=seams) as (app, pilot):
+                    _, spy = await self._open_conflict_agent(app, pilot, row, target)
+                    spy.full_command = self.EDITED
+                    spy.dismiss("run")
+                    await self.settle(app, pilot)
+            self.assertEqual(len(calls.spawns), 1)
+            terminal, argv, kwargs = calls.spawns[0]
+            self.assertEqual(terminal, "xterm")
+            self.assertEqual(argv, ["sh", "-c", self._script(root)])
+            self.assertEqual(kwargs, {"cwd": root})
+            self.assertEqual(seams.launches, [])
+
+        self._run(runner())
+
+    def test_run_without_terminal_runs_inline_in_the_failed_repo(self):
+        async def runner():
+            inline: list[tuple[list[str], dict]] = []
+
+            def call(argv, **kwargs):
+                inline.append((argv, kwargs))
+                return 1
+
+            with self.agent_seams() as calls:
+                calls.terminal = None
+                async with self.booted(repos=1) as (app, pilot):
+                    notices = self._capture_notices(app)
+                    _, spy = await self._open_failure_agent(
+                        app, pilot, "/tmp/repo1"
+                    )
+                    spy.full_command = self.EDITED
+                    with mock.patch.object(
+                        app, "suspend", contextlib.nullcontext
+                    ), mock.patch.object(syncer_app.subprocess, "call", call):
+                        spy.dismiss("run")
+                        await self.settle(app, pilot)
+            root = str(Path("/tmp/repo1").resolve())
+            self.assertEqual(calls.spawns, [])
+            self.assertEqual(
+                inline, [(["sh", "-c", self._script(root)], {"cwd": root})]
+            )
+            self.assertIn(
+                ("Agent command exited with status 1", "error"), notices
+            )
+
+        self._run(runner())
+
+    def test_single_repo_failure_cds_to_an_absolute_root(self):
+        """repo_root=None (ordinary single-repo mode) reaches _launch_agent as
+        Path("."): the spawned shell must still land in the project when the
+        terminal starts somewhere else. Executes the captured argv for real,
+        from a different directory, with the agent command swapped for pwd."""
+        async def runner():
+            with self.agent_seams() as calls:
+                async with self.booted(repos=1) as (app, pilot):
+                    _, spy = await self._open_failure_agent(app, pilot, None)
+                    spy.full_command = "pwd"
+                    spy.dismiss("run")
+                    await self.settle(app, pilot)
+            return calls
+
+        expected = str(Path.cwd().resolve())
+        calls = self._run(runner())
+        self.assertEqual(len(calls.spawns), 1)
+        _, argv, kwargs = calls.spawns[0]
+        self.assertEqual(kwargs, {"cwd": expected})
+        self.assertTrue(Path(kwargs["cwd"]).is_absolute())
+        with tempfile.TemporaryDirectory() as elsewhere:
+            # No cwd inheritance: the terminal "started" in an unrelated dir.
+            out = subprocess.run(
+                argv, cwd=elsewhere, capture_output=True, text=True, check=True
+            ).stdout.strip()
+        self.assertEqual(out, expected)
+
+    def test_vanished_cwd_root_notifies_without_launching(self):
+        """Path(".") cannot be made absolute once the syncer's own directory is
+        deleted (getcwd fails): notify with the root as given, spawn nothing.
+        Reproduced for real — the process cwd is removed for the call."""
+        async def runner():
+            with self.agent_seams() as calls:
+                async with self.booted(repos=1) as (app, pilot):
+                    notices = self._capture_notices(app)
+                    original = os.getcwd()
+                    with tempfile.TemporaryDirectory() as tmp:
+                        doomed = Path(tmp) / "gone"
+                        doomed.mkdir()
+                        os.chdir(doomed)
+                        try:
+                            doomed.rmdir()
+                            app._run_agent_in_terminal(self.EDITED, Path("."))
+                        finally:
+                            os.chdir(original)
+                    await pilot.pause()
+                    self.assertTrue(app.is_running)
+            self.assertEqual(calls.spawns, [])
+            self.assertEqual(len(notices), 1)
+            self.assertEqual(notices[0][1], "error")
+            self.assertIn("Could not launch agent in .:", notices[0][0])
+
+        self._run(runner())
+
+    def test_terminal_spawn_oserror_notifies_and_keeps_the_app(self):
+        async def runner():
+            sessions, row, target = self._two_repos()
+            root = str(Path("/tmp/repo1").resolve())
+            with self.agent_seams() as calls:
+                calls.spawn_error = FileNotFoundError(2, "No such directory", root)
+                async with self.booted(sessions=sessions) as (app, pilot):
+                    notices = self._capture_notices(app)
+                    _, spy = await self._open_conflict_agent(app, pilot, row, target)
+                    spy.dismiss("run")
+                    await self.settle(app, pilot)
+
+                    self.assertTrue(app.is_running)
+                    self.assertEqual(len(calls.spawns), 1)
+                    errors = [m for m, sev in notices if sev == "error"]
+                    self.assertEqual(len(errors), 1)
+                    self.assertIn(f"Could not launch agent in {root}", errors[0])
+                    # Still usable: the retained offer reopens its modal.
+                    app.action_agent_resolve()
+                    await pilot.pause()
+                    self.assertIsInstance(app.screen, SyncConflictScreen)
+                    await pilot.press("escape")
+                    await pilot.pause()
+
+        self._run(runner())
+
+    # ------------------------------------- inline path: real App.suspend
+
+    @staticmethod
+    def _fake_driver(events: list, can_suspend: bool = True) -> mock.MagicMock:
+        driver = mock.MagicMock()
+        driver.can_suspend = can_suspend
+        driver.no_automatic_restart = lambda: contextlib.nullcontext()
+        driver.suspend_application_mode.side_effect = (
+            lambda: events.append("suspend")
+        )
+        driver.resume_application_mode.side_effect = (
+            lambda: events.append("resume")
+        )
+        return driver
+
+    def _run_inline(self, call, *, can_suspend: bool = True):
+        """Drive ``_run_agent_in_terminal`` through the REAL ``App.suspend``
+        with a stand-in driver, returning (events, notices). ``events`` is ONE
+        sequence shared by the driver, the inline call and ``notify``, so a test
+        can assert the terminal was handed back BEFORE the user was told. A
+        ``nullcontext`` suspend could not show either."""
+        result: dict = {}
+        events: list[str] = []
+
+        def recorded_call(argv, **kwargs):
+            events.append("call")
+            return call(argv, **kwargs)
+
+        async def runner():
+            with self.agent_seams() as calls:
+                calls.terminal = None
+                async with self.booted(repos=1) as (app, pilot):
+                    notices = self._capture_notices(app, events)
+                    driver = self._fake_driver(events, can_suspend)
+                    with mock.patch.object(app, "_driver", driver), \
+                            mock.patch.object(
+                                syncer_app.subprocess, "call", recorded_call
+                            ):
+                        app._run_agent_in_terminal(self.EDITED, Path("/tmp/repo1"))
+                    await pilot.pause()
+                    self.assertTrue(app.is_running)
+                    result.update(notices=notices)
+
+        self._run(runner())
+        return events, result["notices"]
+
+    def test_inline_oserror_resumes_the_terminal_then_notifies(self):
+        def call(argv, **kwargs):
+            raise FileNotFoundError(2, "No such file or directory", "/tmp/repo1")
+
+        events, notices = self._run_inline(call)
+        self.assertEqual(events, ["suspend", "call", "resume", "notify"])
+        root = str(Path("/tmp/repo1").resolve())
+        self.assertEqual(len(notices), 1)
+        self.assertEqual(notices[0][1], "error")
+        self.assertIn(f"Could not launch agent in {root}", notices[0][0])
+
+    def test_inline_nonzero_exit_resumes_the_terminal_then_notifies(self):
+        events, notices = self._run_inline(lambda argv, **kwargs: 1)
+        self.assertEqual(events, ["suspend", "call", "resume", "notify"])
+        self.assertEqual(
+            notices, [("Agent command exited with status 1", "error")]
+        )
+
+    def test_inline_without_suspend_support_is_contained(self):
+        def call(argv, **kwargs):
+            raise AssertionError("must not run without a suspended terminal")
+
+        events, notices = self._run_inline(call, can_suspend=False)
+        self.assertEqual(events, ["notify"])
+        self.assertEqual(len(notices), 1)
+        self.assertEqual(notices[0][1], "error")
+        self.assertIn("cannot suspend", notices[0][0])
+
+    # ------------------------------------------------ guarded modal bases
+
+    def test_stale_conflict_cancel_keeps_the_agent_dialog(self):
+        async def runner():
+            sessions, row, target = self._two_repos()
+            with self.agent_seams():
+                async with self.booted(sessions=sessions) as (app, pilot):
+                    conflict, spy = await self._open_conflict_agent(
+                        app, pilot, row, target
+                    )
+                    for _ in range(2):
+                        conflict.action_cancel()
+                        await pilot.pause()
+                    self.assertIs(app.screen, spy)
+                    self.assertTrue(app.is_running)
+
+        self._run(runner())
+
+    def test_stale_failure_cancel_keeps_the_agent_dialog(self):
+        async def runner():
+            with self.agent_seams():
+                async with self.booted(repos=1) as (app, pilot):
+                    failure, spy = await self._open_failure_agent(
+                        app, pilot, "/tmp/repo1"
+                    )
+                    for _ in range(2):
+                        failure.action_cancel()
+                        await pilot.pause()
+                    self.assertIs(app.screen, spy)
+                    self.assertTrue(app.is_running)
 
         self._run(runner())
 

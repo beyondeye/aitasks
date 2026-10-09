@@ -1,13 +1,20 @@
 """sync_failure_screen - Failure summary modal for the syncer TUI."""
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass
+from pathlib import Path
 
 from textual import on
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, VerticalScroll
-from textual.screen import ModalScreen
 from textual.widgets import Button, Label, Static
+
+_LIB_DIR = str(Path(__file__).resolve().parent.parent / "lib")
+if _LIB_DIR not in sys.path:
+    sys.path.insert(0, _LIB_DIR)
+
+from guarded_dismiss import GuardedModalScreen  # noqa: E402
 
 
 @dataclass
@@ -23,7 +30,7 @@ class SyncFailureContext:
     repo_root: str | None = None
 
 
-class SyncFailureScreen(ModalScreen):
+class SyncFailureScreen(GuardedModalScreen):
     """Show a sync-action failure summary; user picks Launch agent or Dismiss."""
 
     DEFAULT_CSS = """
