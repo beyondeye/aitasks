@@ -1076,19 +1076,55 @@ class CodeBrowserApp(TuiSwitcherMixin, ShortcutsMixin, App):
         rel_path = str(self._current_file_path.relative_to(self._project_root))
         self.push_screen(CopyFilePathScreen(abs_path, rel_path))
 
-    @work(exclusive=True)
+    @work(exclusive=True, group="editor")
     async def action_open_in_editor(self) -> None:
-        """Suspend the app and open the current file in $EDITOR."""
+        """Suspend the app and open the current file in $EDITOR.
+
+        Own worker group: an exclusive default-group worker would cancel the
+        in-flight ``_load_explain_data`` / ``_refresh_explain_data``
+        annotation loading. ``$EDITOR`` is shlex-split so values carrying
+        arguments (``code -w``) work — unless the whole value already names
+        an executable, which keeps unquoted paths with spaces working.
+
+        Same containment as ``run_launch_command``: the OSError is caught
+        INSIDE ``with self.suspend():`` — ``App.suspend`` resumes the driver
+        after its yield with no ``finally`` (Textual 8.2.7) — and notified
+        after resume; an escaping exception would end the codebrowser
+        (worker exit_on_error).
+        """
         if not self._current_file_path:
             self.notify("No file selected", severity="warning")
             return
-        if sys.platform == "win32":
-            editor = os.environ.get("EDITOR", "notepad")
+        default = "notepad" if sys.platform == "win32" else "nano"
+        editor = os.environ.get("EDITOR", "").strip() or default
+        if sys.platform == "win32" or shutil.which(editor):
+            # A value naming a whole executable (an unquoted path with
+            # spaces, `/opt/my editor/bin/ed`) launches as one argv[0], as
+            # before; POSIX shlex would also eat Windows path backslashes.
+            editor_argv = [editor]
         else:
-            editor = os.environ.get("EDITOR", "nano")
+            try:
+                editor_argv = shlex.split(editor)
+            except ValueError as exc:
+                self.notify(f"Invalid $EDITOR {editor!r}: {exc}", severity="error")
+                return
         filepath = self._current_file_path
-        with self.suspend():
-            subprocess.call([editor, str(filepath)])
+        launch_error: OSError | None = None
+        try:
+            with self.suspend():
+                try:
+                    subprocess.call([*editor_argv, str(filepath)])
+                except OSError as exc:
+                    launch_error = exc
+        except SuspendNotSupported:
+            self.notify(
+                "This environment cannot suspend the TUI to run $EDITOR.",
+                severity="error",
+            )
+            return
+        if launch_error is not None:
+            self.notify(f"Could not launch editor: {launch_error}", severity="error")
+            return
         if self.explain_manager:
             self._refresh_explain_data(filepath)
 
