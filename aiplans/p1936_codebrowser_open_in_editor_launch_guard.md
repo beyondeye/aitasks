@@ -130,3 +130,18 @@ Step 9 (Post-Implementation): commit code (`bug: … (t1936)`), plan via
 
 ### Goal-achievement risk: low
 - `shlex.split` is POSIX-only by design; Windows keeps the single-argv behaviour, so `$EDITOR` with arguments remains unsupported there. Codebrowser's inline suspend path is not a Windows target, so this is accepted rather than mitigated. · severity: low · → mitigation: none needed
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-09 16:20)
+- **Requested by user:** Unconditional `shlex.split($EDITOR)` regressed unquoted executable paths containing spaces (`EDITOR='/opt/my editor/bin/ed'` launched before, now split into two words and failed).
+- **Changes made:** When the whole stripped `$EDITOR` value resolves to an executable (`shutil.which`, which also accepts a path with a separator), it launches as one argv[0]; only otherwise is it shlex-split. New test `test_unquoted_executable_path_with_spaces_stays_whole` uses a real temporary executable under a directory with a space; a mutant without the whole-value check fails exactly that test.
+- **Files affected:** `.aitask-scripts/codebrowser/codebrowser_app.py`, `tests/test_codebrowser_open_in_editor.py`
+
+## Final Implementation Notes
+- **Actual work done:** `CodeBrowserApp.action_open_in_editor` now runs in its own `"editor"` worker group (no longer cancels default-group annotation workers); resolves `$EDITOR` as whole-executable-first, else `shlex.split` (POSIX; Windows keeps single argv); blank `$EDITOR` falls back to the default; malformed `$EDITOR` (unclosed quote) is notified without suspending; `OSError` is caught inside `with self.suspend():` and notified after resume; `SuspendNotSupported` is contained. Explain refresh only on a successful launch. New `tests/test_codebrowser_open_in_editor.py` (10 tests) drives the real decorated worker through the real `App.suspend` with a fake driver.
+- **Deviations from plan:** Added the whole-executable check (post-review); test file is a new module rather than an extension of the t1929 test file.
+- **Issues encountered:** None beyond the review finding. Red proof: against the pre-change module 7/9 original tests fail (the two passing ones — unset-EDITOR default, no-file warning — are behaviour-preserving controls).
+- **Key decisions:** Group name `"editor"` (not the shared `"launch"` group) so an editor session and a run-in-terminal launch never cancel each other. An unquoted path with spaces *plus* arguments is inherently ambiguous and must be quoted (it never worked before either).
+- **Upstream defects identified:**
+  - .aitask-scripts/board/aitask_board.py:5037 — `run_editor` has the same defect as t1936's codebrowser action: `subprocess.call([editor, path])` inside `with self.suspend():` with no OSError guard (a missing $EDITOR ends the board and leaves the terminal suspended), `$EDITOR` with arguments treated as one executable, no SuspendNotSupported handling, and `@work(exclusive=True)` in the default group
