@@ -356,9 +356,9 @@ Commit the code as `bug: … (t1922)`, commit the plan through
 ### Goal-achievement risk: medium
 - Unregistered sessions (pre-upgrade, or created by hand) still rely on a pane
   guess. A tie, or a failed read, can still mis-root one, together with its
-  marks and `p`, until `ait ide` stamps it · severity: medium · → mitigation: unregistered_session_ambiguity
+  marks and `p`, until `ait ide` stamps it · severity: medium · → mitigation: t1935
 - Mid-dialog root changes are still possible for unregistered sessions whose
-  vote flips · severity: low · → mitigation: bind_dialog_project_root
+  vote flips · severity: low · → mitigation: t1934
 
 ### Planned mitigations
 - timing: pre-phase | name: characterize_discovery_unanimous | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: discovery-consumer regression in the unanimous case | desc: Pin current sync/async/checked discovery results for unanimous, registry-only and no-match sessions before changing the resolver
