@@ -154,3 +154,17 @@ DIR	<path>	[<ownership source dir>]
 
 ### Goal-achievement risk: low
 None identified.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-09 16:20)
+- **Requested by user:** The "a DIR with no matching DIRSHA records is always kept" wording was wrong for empty directories. An empty retired dir (no files) leaves `unknown` empty and is pruned whatever the DIRSHA records say. Reproduced: manifest stripped of DIRSHA plus an empty `.agents/skills/aitask-pickn` gives exit 0, `PRUNED`, and the dir is removed. Keep the runtime behaviour (pre-existing empty-dir cleanup) and qualify the comments.
+- **Changes made:** Qualified the DIR record description in `retired_skills_manifest.txt`, the FILE-only rationale in `retired_scripts_manifest.txt` and the matching comment in `tests/test_retired_scripts_manifest.sh`: a DIR that holds any unmatched file is kept, and a DIR with no files is removed. No runtime change.
+- **Files affected:** `.aitask-scripts/retired_skills_manifest.txt`, `.aitask-scripts/retired_scripts_manifest.txt`, `tests/test_retired_scripts_manifest.sh`
+
+## Final Implementation Notes
+- **Actual work done:** `aitask_prune_retired_skills.sh` now decides DIR ownership per exact shipped path. A file `<dir>/<rel>` is known only when a `DIRSHA <source>/<rel> <blob>` record exists, where `<source>` is the DIR itself or the optional third field of its DIR record. `is_known_blob` takes an optional shipped-path argument, so the one function still backs both the FILE (flat SHA) and DIR (DIRSHA) checks, and the existing hash-less negative control still disables both. `retired_skills_manifest.txt` gained 65 DIRSHA records generated from history, staging aliases on the two `aitasks/metadata/*_skills` DIR records, and a rewritten header with the recipe and the alias rule. Tests 6–8 were added to `tests/test_prune_retired_skills.sh`, and the Test 1 fixture now uses per-path blobs.
+- **Deviations from plan:** The first plan keyed DIRSHA on `<dir-name>/<rel>`, pooling agent roots. Plan review showed that this accepts a copy of the Claude-only `SKILL.md.j2` under `.agents/`, so the keys now keep the full shipped path and only release.yml-proven staging counterparts are aliased. After review, the "DIR without DIRSHA is always kept" wording was qualified to exclude empty directories (see Post-Review Changes).
+- **Issues encountered:** The old `ls-tree` SHA recipe misses some merge-side blobs: the `-m --raw` form finds 65 pairs where it finds 60, and the flat set also holds `bd6cce08`, which only the original recipe caught. The flat SHA lines were left unchanged because they now govern FILE records only.
+- **Key decisions:** Blob-first `"$sha:$path"` assoc keys (fixed-width hex, so the join is unambiguous). Fail-closed: a DIR whose files have no DIRSHA match is kept. An empty DIR is still removed (the existing cleanup behaviour, documented rather than changed). The Test 6 pre-fix mutant uses a Claude SKILL.md blob that is also in the flat set, so the control fails for the right reason.
+- **Upstream defects identified:** None
