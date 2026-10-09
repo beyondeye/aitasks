@@ -3,12 +3,13 @@ priority: low
 effort: medium
 depends: []
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [codeagent, models, model_selection]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1916
 followup_kind: carry_over
 created_at: 2026-10-09 16:00
-updated_at: 2026-10-09 16:00
+updated_at: 2026-10-09 16:12
 ---
 
 ## Origin
