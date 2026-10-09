@@ -182,3 +182,17 @@ machine is still on an old version.
 - t1678 (data-index lock adoption): once this lands, the stats writers' local
   commit path and their pre/post converge no longer touch the shared index or
   worktree. If t1678 is planned first, it should not spend effort locking them.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1919** id=2026-10-09T08:41:59Z.f6d2dd04742d34514b91d2fe from=t1919 from_verified=yes at=2026-10-09T08:41:59Z base=dfa4d47b15f4bb77258ba081382670dab0b8532b base_branch=main dirty=yes host=omg16
+>
+> | t1919 (committed dfa4d47b1 on main) changed the opencode refresh merge your task body cites as "seeded/preserved by aitask_opencode_models.sh (~L160, ~L200)":
+> | 
+> | - ~L200 (merge_with_existing, rediscovered rows) no longer hand-picks `verified`/`verifiedstats`. It now overlays the existing row minus the discovery-owned `name`/`cli_id`/`notes`/`status` (nulls dropped). So it carries `usagestats` and any other non-owned field too. Once the counters move off models_*.json, this branch cannot re-add them, because it only carries what is already on the row.
+> | - ~L160 (new-row defaults in process_model) still writes `"verified": {...0}` and `"verifiedstats": {}` for newly discovered models. That is the only place the refresh would re-add a stats key, so the "does not re-add them" acceptance item should target it.
+> | - Pinned by tests/test_opencode_models_merge.sh (5 cases) — update it if the stored fields move.
+> | - t1928 (refresh vs. counter-writer last-writer-wins race on models_opencode.json) becomes moot for every counter this task moves out of the file. Consider it when planning, or fold it in.
+> | 
+> | Line numbers are as of dfa4d47b1.
