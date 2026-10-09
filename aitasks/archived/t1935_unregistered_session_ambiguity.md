@@ -3,13 +3,14 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Done
 labels: [monitor, minimonitor, tmux]
 gates: [risk_evaluated]
 anchor: 1922
 followup_kind: risk_mitigation
 created_at: 2026-10-09 15:34
-updated_at: 2026-10-09 15:34
+updated_at: 2026-10-09 15:41
+completed_at: 2026-10-09 15:41
 ---
 
 ## Origin
@@ -68,3 +69,14 @@ Tests: a tied-root session alongside a verified one (switcher never launches
 into the guess; dedupe keeps the verified record); a failed pane read with
 competing roots → restore and monitor actions do not launch; marks cycle refused
 and purge suppressed for an unverified session.
+
+## Closed — won't do (2026-10-09)
+
+Closed unimplemented by decision after t1922 landed. t1922 made the
+`@aitask_project_root` session stamp authoritative; the pane vote it hardens is
+only a fallback for sessions that predate the stamp (or were created by hand),
+and those are stamped by the next `ait ide`. The failure this task guards
+against needs that transitional, unstamped state PLUS a rare event (a vote
+flipping mid-dialog / a tied vote or failed tmux read), so the added state and
+per-consumer guards are judged over-engineering for a super-rare edge case.
+Reopen only if a mis-rooted unstamped session is actually observed.
