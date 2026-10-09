@@ -3,11 +3,12 @@ priority: low
 effort: low
 depends: []
 issue_type: chore
-status: Ready
+status: Implementing
 labels: [codeagent, models]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1916
 created_at: 2026-10-09 16:11
-updated_at: 2026-10-09 16:11
+updated_at: 2026-10-09 16:12
 ---
 
 ## Origin
