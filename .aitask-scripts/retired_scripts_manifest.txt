@@ -19,10 +19,11 @@
 # no .gitattributes (no CRLF/text filter), so an installed copy hashes
 # identically to the blob it came from.
 #
-# FILE RECORDS ONLY — no DIR records. The pruner's DIR check is content-only
-# against this flat SHA set, so a user file copied from a shipped blob into a
-# retired directory would count as "known" and the whole directory would go.
-# A FILE record removes only the historically shipped filename. The cost: an
+# FILE RECORDS ONLY — no DIR records. A DIR record is owned per path through
+# DIRSHA records, which the recipe below does not produce; without them the
+# pruner keeps any directory that still holds a file (only an empty one would
+# be removed), so a DIR record here would never prune a leftover file.
+# A FILE record removes exactly the historically shipped filename. The cost: an
 # emptied directory (lib/attachment_backends/) is left behind — git does not
 # track empty directories, so it is inert.
 #

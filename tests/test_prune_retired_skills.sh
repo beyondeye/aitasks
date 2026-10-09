@@ -14,7 +14,10 @@
 #            `task-workflow`.
 #   Rule 2 — content-hash ownership: a user-modified or user-authored file at a
 #            retired path is preserved, never deleted.
-# Both have an explicit negative control that runs a deliberately broken copy of
+#   Rule 3 — DIR ownership is per shipped path (t1932): a byte-for-byte copy of
+#            a shipped blob under a name that never shipped there — or under an
+#            agent root that never shipped it — keeps the whole directory.
+# Each has an explicit negative control that runs a deliberately broken copy of
 # the helper and asserts it DOES cause the damage — so a regression that
 # weakens either guard cannot pass silently.
 
@@ -42,16 +45,26 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 PROJ="$TMP/proj"
 
-# Two DIFFERENT framework-owned blobs from the manifest. The SHA set is flat by
-# design (it must also match the staging copies, which are byte-for-byte cp's of
-# the agent-tree wrappers), so any manifest SHA placed at any retired path is
-# framework-owned. Using two distinct ones also covers "content from an older
-# shipped release" without hard-coding a version.
-SHA_A="$(grep '^SHA'"$(printf '\t')" "$MANIFEST" | sed -n '1p' | cut -f2)"
-SHA_B="$(grep '^SHA'"$(printf '\t')" "$MANIFEST" | sed -n '2p' | cut -f2)"
+TAB="$(printf '\t')"
 
-if [[ -z "$SHA_A" || -z "$SHA_B" || "$SHA_A" == "$SHA_B" ]]; then
-    echo "FAIL: could not read two distinct SHA records from $MANIFEST"
+# FILE records are owned through the flat SHA set (the record is already the
+# exact path), so any SHA record works there.
+SHA_A="$(grep "^SHA$TAB" "$MANIFEST" | sed -n '1p' | cut -f2)"
+
+# DIR records are owned PER PATH: dir_blob <shipped-path> [<n>] prints the n-th
+# blob a DIRSHA record pairs with that exact path.
+dir_blob() {
+    grep "^DIRSHA$TAB$1$TAB" "$MANIFEST" | sed -n "${2:-1}p" | cut -f3
+}
+
+for _p in .claude/skills/aitask-pickn/SKILL.md .claude/skills/aitask-pickn/SKILL.md.j2 \
+          .claude/skills/task-workflown/SKILL.md .opencode/skills/aitask-pickn/SKILL.md; do
+    [[ -n "$(dir_blob "$_p")" ]] || { echo "FAIL: no DIRSHA record for $_p in $MANIFEST"; exit 1; }
+done
+# Two distinct .agents blobs: covers "content from an older shipped release"
+# without hard-coding a version.
+if [[ -z "$SHA_A" || -z "$(dir_blob .agents/skills/aitask-pickn/SKILL.md 2)" ]]; then
+    echo "FAIL: could not read the fixture's SHA / DIRSHA records from $MANIFEST"
     exit 1
 fi
 
@@ -60,6 +73,11 @@ shipped() {
     local sha="$1" dest="$2"
     mkdir -p "$(dirname "$dest")"
     git cat-file blob "$sha" > "$dest"
+}
+
+# Write the n-th blob shipped at <shipped-path> to a fixture path.
+shipped_at() {
+    shipped "$(dir_blob "$1" "$2")" "$3"
 }
 
 # Write user content (never a shipped blob) to a fixture path.
@@ -74,16 +92,17 @@ build_fixture() {
     mkdir -p "$PROJ"
 
     # --- retired: fully framework-owned (must be PRUNED) ---
-    shipped "$SHA_A" "$PROJ/.claude/skills/aitask-pickn/SKILL.md"
-    shipped "$SHA_B" "$PROJ/.claude/skills/aitask-pickn/SKILL.md.j2"   # older shipped version
-    shipped "$SHA_A" "$PROJ/.agents/skills/aitask-pickn/SKILL.md"
+    shipped_at .claude/skills/aitask-pickn/SKILL.md 1 "$PROJ/.claude/skills/aitask-pickn/SKILL.md"
+    shipped_at .claude/skills/aitask-pickn/SKILL.md.j2 1 "$PROJ/.claude/skills/aitask-pickn/SKILL.md.j2"
+    shipped_at .agents/skills/aitask-pickn/SKILL.md 2 "$PROJ/.agents/skills/aitask-pickn/SKILL.md"   # older shipped version
     shipped "$SHA_A" "$PROJ/.opencode/commands/aitask-pickn.md"
-    shipped "$SHA_A" "$PROJ/aitasks/metadata/codex_skills/aitask-pickn/SKILL.md"
+    # staging copy: owned through its DIR record's source (.agents/skills/…)
+    shipped_at .agents/skills/aitask-pickn/SKILL.md 1 "$PROJ/aitasks/metadata/codex_skills/aitask-pickn/SKILL.md"
     shipped "$SHA_A" "$PROJ/aitasks/metadata/opencode_commands/aitask-pickn.md"
 
     # --- retired: user-touched (must be KEPT) ---
     # a) directory where ONE file among shipped ones was modified
-    shipped "$SHA_A" "$PROJ/.claude/skills/task-workflown/SKILL.md"
+    shipped_at .claude/skills/task-workflown/SKILL.md 1 "$PROJ/.claude/skills/task-workflown/SKILL.md"
     mine "$PROJ/.claude/skills/task-workflown/planning.md" "# my local tweak"
     # b) a user's own unrelated skill parked at a retired name (untracked)
     mine "$PROJ/.opencode/skills/aitask-pickn/SKILL.md" "# my own pickn skill"
@@ -300,6 +319,119 @@ assert_eq "missing manifest exits 0" "0" "$RC5"
 assert_eq "missing manifest prunes nothing" "" "$OUT5"
 assert_dir_exists "retired path untouched without a manifest" \
     "$PROJ/.claude/skills/aitask-pickn"
+
+echo "=== Test 6: copied blobs at never-shipped destinations keep the dir (Rule 3) ==="
+# The Claude-only template: .claude/skills/aitask-pickn shipped SKILL.md.j2,
+# .agents/ and .opencode/ never did. For case a, use a SKILL.md blob that is ALSO
+# in the flat SHA set, so the pre-fix control below fails for the right reason.
+J2_BLOB="$(dir_blob .claude/skills/aitask-pickn/SKILL.md.j2)"
+CLAUDE_SKILL_BLOB=""
+while IFS= read -r b; do
+    if grep -q "^SHA$TAB$b\$" "$MANIFEST"; then CLAUDE_SKILL_BLOB="$b"; break; fi
+done < <(grep "^DIRSHA$TAB.claude/skills/aitask-pickn/SKILL.md$TAB" "$MANIFEST" | cut -f3)
+assert_eq "fixture: a Claude SKILL.md blob is also in the flat SHA set" "yes" \
+    "$([[ -n "$CLAUDE_SKILL_BLOB" ]] && echo yes || echo no)"
+assert_eq "fixture: SKILL.md.j2 never shipped under .agents/" "" \
+    "$(grep "^DIRSHA$TAB.agents/skills/aitask-pickn/SKILL.md.j2$TAB" "$MANIFEST" || true)"
+
+build_copied_fixture() {
+    rm -rf "$PROJ"
+    mkdir -p "$PROJ"
+    # a) pristine SKILL.md + a user file that is a byte copy of it
+    shipped "$CLAUDE_SKILL_BLOB" "$PROJ/.claude/skills/aitask-pickn/SKILL.md"
+    shipped "$CLAUDE_SKILL_BLOB" "$PROJ/.claude/skills/aitask-pickn/my_notes.md"
+    # b) pristine Codex SKILL.md + the Claude-only template copied in — in the
+    #    agent tree and in its staging copy
+    shipped_at .agents/skills/aitask-pickn/SKILL.md 1 "$PROJ/.agents/skills/aitask-pickn/SKILL.md"
+    shipped "$J2_BLOB" "$PROJ/.agents/skills/aitask-pickn/SKILL.md.j2"
+    shipped_at .agents/skills/aitask-pickn/SKILL.md 1 "$PROJ/aitasks/metadata/codex_skills/aitask-pickn/SKILL.md"
+    shipped "$J2_BLOB" "$PROJ/aitasks/metadata/codex_skills/aitask-pickn/SKILL.md.j2"
+    # c) a genuine staging copy — must still prune through its alias
+    shipped_at .opencode/skills/aitask-pickn/SKILL.md 1 "$PROJ/aitasks/metadata/opencode_skills/aitask-pickn/SKILL.md"
+}
+
+build_copied_fixture
+BEFORE6="$(snapshot | grep -v opencode_skills)"
+set +e
+OUT6="$("$PRUNER" --dir "$PROJ" 2>/dev/null)"
+RC6=$?
+set -e
+assert_eq "copied-blob run exits 0" "0" "$RC6"
+for p in \
+    ".claude/skills/aitask-pickn" \
+    ".agents/skills/aitask-pickn" \
+    "aitasks/metadata/codex_skills/aitask-pickn" ; do
+    assert_contains "KEPT copied-blob dir: $p" "KEPT:$p:unrecognized-content" "$OUT6"
+    assert_not_contains "no PRUNED for copied-blob dir: $p" "PRUNED:$p" "$OUT6"
+done
+assert_eq "copied-blob dirs are byte-identical afterwards" "$BEFORE6" "$(snapshot)"
+assert_contains "genuine opencode staging copy still prunes via its alias" \
+    "PRUNED:aitasks/metadata/opencode_skills/aitask-pickn" "$OUT6"
+assert_dir_not_exists "genuine staging copy removed" \
+    "$PROJ/aitasks/metadata/opencode_skills/aitask-pickn"
+
+# Negative control: the pre-fix helper (content-only DIR check against the flat
+# SHA set) DOES delete case a, user file included.
+BROKEN_PATH="$CTRL_DIR/broken_path.sh"
+# shellcheck disable=SC2016  # the sed pattern is literal shell source, not an expansion
+sed 's|is_known_blob "\$f" "\$src/\${f#"\$abs"/}"|is_known_blob "$f"|' "$PRUNER" > "$BROKEN_PATH"
+chmod +x "$BROKEN_PATH"
+assert_eq "path-key control is actually a mutation" "differ" \
+    "$(cmp -s "$PRUNER" "$BROKEN_PATH" && echo same || echo differ)"
+build_copied_fixture
+set +e
+"$BROKEN_PATH" --dir "$PROJ" >/dev/null 2>"$TMP/ctrl_path.err"
+RC_P=$?
+set -e
+assert_eq "path-key control ran to completion" "0" "$RC_P"
+assert_file_not_exists "content-only control DOES delete the user's copied file (Rule 3 is load-bearing)" \
+    "$PROJ/.claude/skills/aitask-pickn/my_notes.md"
+
+echo "=== Test 7: a DIR without DIRSHA records is kept (fail closed) ==="
+NO_DIRSHA="$CTRL_DIR/no_dirsha_manifest.txt"
+grep -v "^DIRSHA$TAB" "$MANIFEST" > "$NO_DIRSHA"
+build_fixture
+set +e
+OUT7="$("$PRUNER" --dir "$PROJ" --manifest "$NO_DIRSHA" 2>/dev/null)"
+RC7=$?
+set -e
+assert_eq "no-DIRSHA run exits 0" "0" "$RC7"
+for p in \
+    ".claude/skills/aitask-pickn" \
+    ".agents/skills/aitask-pickn" \
+    "aitasks/metadata/codex_skills/aitask-pickn" ; do
+    assert_contains "pristine dir KEPT without DIRSHA records: $p" "KEPT:$p:unrecognized-content" "$OUT7"
+    assert_dir_exists "pristine dir survives without DIRSHA records: $p" "$PROJ/$p"
+done
+assert_contains "FILE records still prune through the flat SHA set" \
+    "PRUNED:.opencode/commands/aitask-pickn.md" "$OUT7"
+
+echo "=== Test 8: DIRSHA records are complete against history ==="
+if [[ "$(git -C "$PROJECT_DIR" rev-parse --is-shallow-repository 2>/dev/null)" == "true" ]]; then
+    echo "SKIP: completeness checks need full history (shallow clone)"
+else
+    mapfile -t DIRS < <(grep "^DIR$TAB" "$MANIFEST" | cut -f2,3 \
+        | awk -F'\t' '{print ($2 == "" ? $1 : $2)}' | sort -u)
+    # Same recipe as the manifest header.
+    expected="$(cd "$PROJECT_DIR" && git log --all -m --no-renames --raw --no-abbrev --format= -- "${DIRS[@]}" \
+        | awk -F'\t' '{split($1,a," "); print a[3]"\t"$2; print a[4]"\t"$2}' \
+        | grep -v '^0\{40\}' | sort -u \
+        | awk -F'\t' '{print "DIRSHA\t"$2"\t"$1}' | sort)"
+    missing="$(comm -23 <(printf '%s\n' "$expected") <(grep "^DIRSHA$TAB" "$MANIFEST" | sort))"
+    assert_eq "every (path, blob) ever shipped under a retired DIR is a DIRSHA record" "" "$missing"
+
+    bad=""
+    while IFS= read -r b; do
+        [[ "$(git -C "$PROJECT_DIR" cat-file -t "$b" 2>/dev/null)" == "blob" ]] || bad+="$b "
+    done < <(grep "^DIRSHA$TAB" "$MANIFEST" | cut -f3)
+    assert_eq "every DIRSHA blob is a blob in this repository" "" "$bad"
+
+    unbacked=""
+    for src in "${DIRS[@]}"; do
+        grep -q "^DIRSHA$TAB$src/" "$MANIFEST" || unbacked+="$src "
+    done
+    assert_eq "every DIR ownership source has DIRSHA records" "" "$unbacked"
+fi
 
 # Unused-variable guard for the initial snapshot (kept for readability above).
 : "$BEFORE"

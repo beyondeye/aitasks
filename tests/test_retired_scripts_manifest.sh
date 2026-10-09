@@ -45,10 +45,11 @@ SHAS="$(manifest_records SHA)"
 assert_eq "manifest has FILE records" "yes" "$([[ -n "$FILES" ]] && echo yes || echo no)"
 assert_eq "manifest has SHA records" "yes" "$([[ -n "$SHAS" ]] && echo yes || echo no)"
 
-# No DIR records, deliberately: the helper's DIR check is content-only against a
-# flat SHA set, so a user file copied from a shipped blob into a retired dir
-# would count as known and take the whole dir with it.
-assert_eq "manifest carries no DIR record (content-only DIR ownership)" "" \
+# No DIR records, deliberately: a DIR is owned per path through DIRSHA records
+# (t1932), which this manifest's recipe does not produce — a DIR record here
+# would keep any directory that still holds a file (only an empty one is
+# removed). FILE records already remove exactly what shipped.
+assert_eq "manifest carries no DIR record (FILE records only)" "" \
     "$(manifest_records DIR)"
 
 # THE catastrophic case: a listed path the release still ships.

@@ -28,10 +28,17 @@
 #   have customized the skill, kept their own unrelated skill at that name, or
 #   edited an untracked Codex/OpenCode staging wrapper. Deleting those on
 #   upgrade would be unrecoverable for untracked files. A path is therefore
-#   removed ONLY when `git hash-object` of every file under it appears in the
-#   manifest's SHA set (every version the framework ever shipped there).
-#   Anything else is preserved, reported as KEPT, and named in a closing
-#   warning with a manual cleanup command.
+#   removed ONLY when `git hash-object` of every file under it is a version the
+#   framework shipped there. Anything else is preserved, reported as KEPT, and
+#   named in a closing warning with a manual cleanup command.
+#
+#   A FILE record is matched against the manifest's flat SHA set (the record is
+#   already the exact shipped path). A DIR record is matched PER PATH: a file
+#   <dir>/<rel> is known only when a DIRSHA record pairs <source>/<rel> with its
+#   blob, where <source> is the DIR's own path unless the record names the
+#   directory it was copied from (the staging trees under aitasks/metadata/).
+#   Content alone is not enough — a user file copied byte-for-byte from a
+#   shipped blob, under a name that never shipped there, is unrecognized.
 #
 #   Directories are ALL-OR-NOTHING: one modified or unrecognized file preserves
 #   the whole directory. A partial delete would leave a broken half-skill.
@@ -98,21 +105,24 @@ fi
 # --- Load the manifest -------------------------------------------------------
 
 declare -A KNOWN_SHA=()
+declare -A KNOWN_DIR_BLOB=()   # "<blob>:<shipped path>" — blob is fixed-width hex
+declare -A DIR_SOURCE=()
 RETIRED_DIRS=()
 RETIRED_FILES=()
 RETIRED_STEMS=()
 
-while IFS=$'\t' read -r kind value; do
+while IFS=$'\t' read -r kind value extra; do
     case "$kind" in
-        DIR)  RETIRED_DIRS+=("$value") ;;
-        FILE) RETIRED_FILES+=("$value") ;;
-        STEM) RETIRED_STEMS+=("$value") ;;
-        SHA)  KNOWN_SHA["$value"]=1 ;;
-        *)    : ;;  # comments and blank lines
+        DIR)    RETIRED_DIRS+=("$value"); DIR_SOURCE["$value"]="${extra:-$value}" ;;
+        FILE)   RETIRED_FILES+=("$value") ;;
+        STEM)   RETIRED_STEMS+=("$value") ;;
+        SHA)    KNOWN_SHA["$value"]=1 ;;
+        DIRSHA) KNOWN_DIR_BLOB["$extra:$value"]=1 ;;
+        *)      : ;;  # comments and blank lines
     esac
-done < <(grep -E '^(DIR|FILE|STEM|SHA)'$'\t' "$MANIFEST" || true)
+done < <(grep -E '^(DIR|FILE|STEM|SHA|DIRSHA)'$'\t' "$MANIFEST" || true)
 
-if [[ ${#KNOWN_SHA[@]} -eq 0 ]]; then
+if [[ ${#KNOWN_SHA[@]} -eq 0 && ${#KNOWN_DIR_BLOB[@]} -eq 0 ]]; then
     # No ownership data — refuse to delete anything by path alone.
     warn "aitask_prune_retired_skills.sh: manifest has no SHA records; skipping prune." >&2
     exit 0
@@ -120,13 +130,18 @@ fi
 
 KEPT_PATHS=()
 
-# is_known_blob <file> — true when the file's git blob hash is one the
-# framework shipped at a retired path. Uses `git hash-object`, which is a pure
-# hash function and works outside a git repository.
+# is_known_blob <file> [<shipped-path>] — true when the file's git blob hash is
+# one the framework shipped: with <shipped-path>, at exactly that path (DIRSHA);
+# without it, at any retired FILE path (SHA). Uses `git hash-object`, which is a
+# pure hash function and works outside a git repository.
 is_known_blob() {
-    local f="$1" sha
+    local f="$1" path="${2:-}" sha
     sha="$(git hash-object -- "$f" 2>/dev/null)" || return 1
-    [[ -n "${KNOWN_SHA[$sha]:-}" ]]
+    if [[ -n "$path" ]]; then
+        [[ -n "${KNOWN_DIR_BLOB[$sha:$path]:-}" ]]
+    else
+        [[ -n "${KNOWN_SHA[$sha]:-}" ]]
+    fi
 }
 
 report_kept() {
@@ -174,9 +189,12 @@ for rel in "${RETIRED_DIRS[@]:-}"; do
         continue
     fi
 
+    # Ownership is looked up under the directory the content was shipped at —
+    # the DIR itself, or the source a staging DIR record names.
+    src="${DIR_SOURCE[$rel]}"
     unknown=""
     while IFS= read -r -d '' f; do
-        if ! is_known_blob "$f"; then
+        if ! is_known_blob "$f" "$src/${f#"$abs"/}"; then
             unknown="${f#"$PROJECT_DIR"/}"
             break
         fi

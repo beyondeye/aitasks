@@ -156,8 +156,9 @@ deletion therefore leaves every upgraded project with a discoverable slash
 command whose authoring template is gone. Add the retired surfaces to
 `.aitask-scripts/retired_skills_manifest.txt`; `aitask_prune_retired_skills.sh`
 (wired into both install paths) removes them — but only where the on-disk
-content hashes to a version the framework actually shipped, so a user's own
-customization at that path is preserved and reported rather than deleted.
+content hashes to a version the framework actually shipped at that exact path,
+so a user's own customization there is preserved and reported rather than
+deleted.
 
 ## Use recognizable name-suffix conventions for generated artifact dirs
 

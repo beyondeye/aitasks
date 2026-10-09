@@ -9,18 +9,38 @@
 # framework ownership: a user may have customized the skill, kept their own
 # unrelated skill at that name, or edited an untracked staging wrapper. The
 # pruner therefore deletes a file ONLY when `git hash-object <file>` appears in
-# the SHA set below; anything else is preserved and reported. Release tarballs
+# the records below; anything else is preserved and reported. Release tarballs
 # copy files verbatim and this repo has no .gitattributes (no CRLF/text filter),
 # so an installed copy hashes identically to the blob it came from.
 #
-# The SHA set is FLAT (not keyed by path) on purpose: it also covers the staging
-# copies under aitasks/metadata/{codex,opencode}_skills/, which are byte-for-byte
-# `cp`s of the agent-tree wrappers.
+# DIR OWNERSHIP IS PER PATH, NOT JUST PER CONTENT. A file inside a retired DIR is
+# known only when its exact (shipped path, blob) pair is a DIRSHA record — a
+# user file copied byte-for-byte from a shipped blob, under a name that never
+# shipped there, keeps the whole directory. The agent root is part of the key:
+# .claude/skills/aitask-pickn shipped SKILL.md.j2, .agents/ and .opencode/ never
+# did, so a copy of it under .agents/ is not framework-owned.
+#
+# STAGING ALIASES. The untracked staging dirs under aitasks/metadata/ never
+# appear in git history; their DIR record names the directory they are a
+# verbatim copy of, and ownership is looked up there. Each alias is proven by
+# release packaging: .github/workflows/release.yml builds codex_skills/<s> with
+# `cp -r .agents/skills/<s>` and opencode_skills/<s> with
+# `cp -r .opencode/skills/<s>`, and install.sh copies both verbatim into
+# aitasks/metadata/. Never add an alias without equivalent packaging proof.
+#
+# The SHA set is FLAT and governs FILE records only (a FILE record is already
+# the exact path; the flat set also covers the opencode_commands/ staging copy).
 #
 # RECORD TYPES (tab-separated):
-#   DIR <path>    retired directory   — removed all-or-nothing (every file must
-#                                       match a SHA and no extra file present)
-#   FILE <path>   retired single file — removed when its hash matches
+#   DIR <path> [<source>]  retired directory — removed all-or-nothing (every file
+#                          <path>/<rel> must have a DIRSHA <source>/<rel> record
+#                          for its blob). <source> defaults to <path>. A DIR
+#                          holding any file with no matching DIRSHA record is
+#                          kept; a DIR with no files at all (empty, or only
+#                          empty subdirectories) has nothing to own and is
+#                          removed whatever the DIRSHA records say.
+#   DIRSHA <path> <blob>   a blob the framework shipped at exactly <path>
+#   FILE <path>   retired single file — removed when its hash matches a SHA
 #   STEM <name>   rendered-closure stem — matched EXACTLY against
 #                 <root>/<stem>-<profile>[-<agent>]- dirs. Never prefix-globbed:
 #                 the required hyphen after the stem is what stops a retired
@@ -33,7 +53,19 @@
 #                 explicit --prune-rendered flag.
 #
 # REGENERATE (run from the repo root; the prefixes are the authoring surfaces
-# that were deleted — history still holds every version they shipped in):
+# that were deleted — history still holds every version they shipped in).
+#
+# DIRSHA records (`-m` covers merge-side versions, `--no-renames` keeps each
+# path's own blobs):
+#
+#   DIRS=".claude/skills/aitask-pickn .claude/skills/task-workflown \
+#         .agents/skills/aitask-pickn .opencode/skills/aitask-pickn"
+#   git log --all -m --no-renames --raw --no-abbrev --format= -- $DIRS \
+#     | awk -F'\t' '{split($1,a," "); print a[3]"\t"$2; print a[4]"\t"$2}' \
+#     | grep -v '^0\{40\}' | sort -u \
+#     | awk -F'\t' '{print "DIRSHA\t"$2"\t"$1}' | sort
+#
+# SHA records:
 #
 #   PFX=".claude/skills/aitask-pickn .claude/skills/task-workflown \
 #        .agents/skills/aitask-pickn .opencode/skills/aitask-pickn \
@@ -48,12 +80,78 @@ DIR	.claude/skills/aitask-pickn
 DIR	.claude/skills/task-workflown
 DIR	.agents/skills/aitask-pickn
 DIR	.opencode/skills/aitask-pickn
-DIR	aitasks/metadata/codex_skills/aitask-pickn
-DIR	aitasks/metadata/opencode_skills/aitask-pickn
+DIR	aitasks/metadata/codex_skills/aitask-pickn	.agents/skills/aitask-pickn
+DIR	aitasks/metadata/opencode_skills/aitask-pickn	.opencode/skills/aitask-pickn
 FILE	.opencode/commands/aitask-pickn.md
 FILE	aitasks/metadata/opencode_commands/aitask-pickn.md
 STEM	aitask-pickn
 STEM	task-workflown
+
+DIRSHA	.agents/skills/aitask-pickn/SKILL.md	5a4dd1ec2320e15061e7745ea5af47767dbd9fa6
+DIRSHA	.agents/skills/aitask-pickn/SKILL.md	a879475ca31e12841f190f54e2a7344e71cdbec1
+DIRSHA	.agents/skills/aitask-pickn/SKILL.md	ccef6ffa6b94c4a7826ebdf37b48ce5261ac46a7
+DIRSHA	.agents/skills/aitask-pickn/SKILL.md	d7d34fca1f7b8b8fbda411f57e6ee4c4b492169a
+DIRSHA	.claude/skills/aitask-pickn/SKILL.md	1534eab2d266e90a5f4266db80fef5eddc18a6ac
+DIRSHA	.claude/skills/aitask-pickn/SKILL.md	51b7be6497e32b086503cad8b51dd9b95a6fefb6
+DIRSHA	.claude/skills/aitask-pickn/SKILL.md	690ff53b8ecd4356aeb9cdc730147f2be6389ec0
+DIRSHA	.claude/skills/aitask-pickn/SKILL.md	95e6a06645849552a5c648ba243aa003d97ac997
+DIRSHA	.claude/skills/aitask-pickn/SKILL.md.j2	9930cc5c4f33c624d49dc35d62402f9c95f0834b
+DIRSHA	.claude/skills/aitask-pickn/SKILL.md.j2	9e0f023107734cc2e7163ab816009dd19c631657
+DIRSHA	.claude/skills/aitask-pickn/SKILL.md.j2	b11de0d96f4f8ac0a76571f25aa6abc0cdc8af7b
+DIRSHA	.claude/skills/task-workflown/agent-attribution.md	028f1e563a38efaa44d70f44a963b7443717c7b1
+DIRSHA	.claude/skills/task-workflown/agent-attribution.md	1da74084b593d2497689d2fe1435901fafbeec54
+DIRSHA	.claude/skills/task-workflown/agent-attribution.md	c5837e464de0439556ddc9580272e63c9c3de3ac
+DIRSHA	.claude/skills/task-workflown/auto-verification.md	8df74fca078334d00d82b53ed2a6f37be44e9618
+DIRSHA	.claude/skills/task-workflown/code-agent-commit-attribution.md	68f5385707532f73f5233eb3fdeec03dfc113c9f
+DIRSHA	.claude/skills/task-workflown/contributor-attribution.md	78b6daf8080524228d20bca41b72d54b315b955d
+DIRSHA	.claude/skills/task-workflown/crash-recovery.md	084b2b26a13a233680ee67ceb3fa04db5cb2f089
+DIRSHA	.claude/skills/task-workflown/crash-recovery.md	faf967ed3bf7181d03f7e8b8e1db31b911803456
+DIRSHA	.claude/skills/task-workflown/cross-repo-child-assignment.md	86e7493b6aec262be4f1824b838e7f57fc2b67f5
+DIRSHA	.claude/skills/task-workflown/cross-repo-child-assignment.md	bc62d720bd06f8689e78ec5029489ad6d1844e64
+DIRSHA	.claude/skills/task-workflown/execution-profile-selection-auto.md	b8aaf9fd14cd36712a5826f6ab136d22e2eaec4c
+DIRSHA	.claude/skills/task-workflown/execution-profile-selection.md	68971e760af9d5434f2131aaca5abebb68655325
+DIRSHA	.claude/skills/task-workflown/execution-profile-selection.md	f6e2c5b3645beb78fabc55f743dabc6d169a13dc
+DIRSHA	.claude/skills/task-workflown/gate-cli.md	1035c3db42658cba974420d1ef4fcf9f09fd9b0e
+DIRSHA	.claude/skills/task-workflown/gate-recording.md	954b3d42d10e9deb6697afc67c4670c1ef8011dd
+DIRSHA	.claude/skills/task-workflown/issue-update.md	0ee8ac9c6e16c2d5188620ec0f99291c6d7ceaba
+DIRSHA	.claude/skills/task-workflown/lock-release.md	1e7531f3e9afc745eab444377e34e73ec79be401
+DIRSHA	.claude/skills/task-workflown/manual-verification-followup.md	5da29bb274cd4a19b1b82722434dae08904c9da0
+DIRSHA	.claude/skills/task-workflown/manual-verification-followup.md	6e6b8d575100cfc3682e25b7dfb9f587aa256811
+DIRSHA	.claude/skills/task-workflown/manual-verification-followup.md	e040762cdc8e028e5baf495519ab6a3d3aa38852
+DIRSHA	.claude/skills/task-workflown/manual-verification.md	4c632c804843b2227e36b5069eb37e73357ac636
+DIRSHA	.claude/skills/task-workflown/manual-verification.md	7298e0486d10cc29c3c74ad44b3b31a2998c082c
+DIRSHA	.claude/skills/task-workflown/model-self-detection.md	237019e4c24deb824a8b343348aac5f74fab72ed
+DIRSHA	.claude/skills/task-workflown/model-self-detection.md	a68826ea5b2a39a429d1c8883a6ed57e432352b3
+DIRSHA	.claude/skills/task-workflown/plan-externalization.md	0f2dd96b3f9abe1afc9f3da91788f4affd3728dc
+DIRSHA	.claude/skills/task-workflown/plan-externalization.md	53f7842f92f000a1d4f125fdf34ded1a2f2d5f03
+DIRSHA	.claude/skills/task-workflown/planning-cross-repo.md	6a97396b00833dbe956b037bbc5aa0fcdd43e017
+DIRSHA	.claude/skills/task-workflown/planning.md	6e78579d07aa3e323fbbd5b314b4d629fef5e0ae
+DIRSHA	.claude/skills/task-workflown/planning.md	d32f0885b45317da0969344193f60da51cd0e6eb
+DIRSHA	.claude/skills/task-workflown/planning.md	e32fcc34c81fd042c9045551eb7e4f32459fb085
+DIRSHA	.claude/skills/task-workflown/pr-close-decline.md	f69eeda3b40932e0d6bd7fbc6466d307c57d1024
+DIRSHA	.claude/skills/task-workflown/profiles.md	245bcbb4c691378db56d08ad19ffe454da01cea5
+DIRSHA	.claude/skills/task-workflown/profiles.md	5ad2955fd527cf25aeeea1ab9495565e90d8b6a7
+DIRSHA	.claude/skills/task-workflown/related-task-discovery.md	b0f52cbd8d7847558fc20891ef098f656dccce41
+DIRSHA	.claude/skills/task-workflown/remote-drift-check.md	12941a3fbafdec66ef5105df31e7f93e30306051
+DIRSHA	.claude/skills/task-workflown/remote-drift-check.md	4fa62f7ae1d7ee281415c1fc9f5f17c40df2ee1c
+DIRSHA	.claude/skills/task-workflown/remote-drift-check.md	e2e6b7304418b1ca294fcd59628d2707f325a01a
+DIRSHA	.claude/skills/task-workflown/repo-structure.md	8c755853eb3d113d7809b9347ebc86b678dda40d
+DIRSHA	.claude/skills/task-workflown/risk-evaluation.md	e862f46db8094e72fdb2bb4226a8aea990665816
+DIRSHA	.claude/skills/task-workflown/risk-mitigation-followup.md	6824a1597cd6c982dc56a88eff88571345ca149a
+DIRSHA	.claude/skills/task-workflown/satisfaction-feedback.md	898e8c14c6edbe942d368803b3c7f896e6ac1ce2
+DIRSHA	.claude/skills/task-workflown/satisfaction-feedback.md	d284ec57dcf1eb0fe775fa81beb066d6a00ddfcd
+DIRSHA	.claude/skills/task-workflown/satisfaction-feedback.md	fb9c06eb70100d22bac34f496cbf30408c7eb848
+DIRSHA	.claude/skills/task-workflown/SKILL.md	2006d7fb0bac402230598e1c6d82b770f530ed9f
+DIRSHA	.claude/skills/task-workflown/SKILL.md	3a4b2b8690e931af573c72e4bd9848cd7e0e7d5d
+DIRSHA	.claude/skills/task-workflown/SKILL.md	4babec373dc174f5e825dd771da3e9ade4cc8fdf
+DIRSHA	.claude/skills/task-workflown/SKILL.md	590cc37304722fdc06b0db3d00d86a16161ff39d
+DIRSHA	.claude/skills/task-workflown/task-abort.md	a6094cfe2d3ec24431e26210401d1fde78a8bca5
+DIRSHA	.claude/skills/task-workflown/task-creation-batch.md	8c45c4be9fdb6593e47f0f53e0691005aeb5be50
+DIRSHA	.claude/skills/task-workflown/task-fold-content.md	1fc0d77c35b23ad3cabf15606b61223c18c111d9
+DIRSHA	.claude/skills/task-workflown/task-fold-marking.md	0fc664462f982cb54b9ee80ccee44ead4ebf48a8
+DIRSHA	.claude/skills/task-workflown/upstream-followup.md	1c9f4cb5a7907e1cb8a928b6b2ddfe0e44776491
+DIRSHA	.claude/skills/task-workflown/upstream-followup.md	c2ef29e5865673e3dc7f93f93a13e99a028d3419
+DIRSHA	.opencode/skills/aitask-pickn/SKILL.md	2fe7e879fed47bc8acaf0ecd1c855a91fdc8b9cb
 
 SHA	028f1e563a38efaa44d70f44a963b7443717c7b1
 SHA	084b2b26a13a233680ee67ceb3fa04db5cb2f089
