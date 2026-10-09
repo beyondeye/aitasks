@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1911
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-09 11:34
-updated_at: 2026-10-09 11:39
+updated_at: 2026-10-09 11:56
 ---
 
 ## Origin
@@ -35,3 +36,8 @@ Note that the tmux branch of the same callbacks already uses `screen.full_comman
 ## Suggested fix
 
 Dispatch `["sh", "-c", screen.full_command]` with `cwd=str(self._project_root)` (terminal via `spawn_in_terminal`, else inline under `suspend()`), keeping the rebuild only as the no-dialog fallback. Mind the launch-error lessons from t1915's syncer fix: catch `OSError` from the spawn / inline call (an exception escaping a screen-result callback ends the TUI), and catch it INSIDE `with self.suspend():` — Textual 8.2.7's `App.suspend` resumes the driver with no `finally`. Add tests that set the dialog's `full_command` to a distinct edited value before dismissing with `"run"`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-09T08:56:43Z status=pass attempt=1 type=human
