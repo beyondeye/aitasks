@@ -112,3 +112,11 @@ handler being edited.
 ### Goal-achievement risk: low
 None identified. The root cause was reproduced (the crash needs the no-profiles
 fixture) and the regression test asserts the exact failure mode.
+
+## Final Implementation Notes
+- **Actual work done:** `settings_app.py` — the Profiles tab's empty-state "Create New Profile" button id is now `btn_profile_add_new_{rc}` (repop-counter suffixed, with a comment on the deferred `remove_children()`), and the button handler matches it with `startswith("btn_profile_add_new")`. New `tests/test_settings_reload_all.py` (3 tests): `r` twice with no profiles keeps the app running, every tab container repopulates, exactly one add-new button survives, the reload notification fires twice; the suffixed button still opens `NewProfileScreen` after a reload; the with-profile path keeps exactly one `profiles_buttons_*` container and no add-new button.
+- **Deviations from plan:** None.
+- **Issues encountered:** The task's description said `r` crashes on any repopulate of the Profiles tab; reproduction showed it needs the no-profiles fixture (the populated branch already suffixed every direct-child id). Red proof run on a scratch copy of `.aitask-scripts/` with the two edits reverted: both no-profile tests error with `DuplicateIds`; the with-profile test passes (as expected — it pins existing behaviour).
+- **Key decisions:** Kept t1921's "fix the file, then reopen Settings" message unchanged — `r` on a malformed code-agent config still crashes (see upstream defect below), so pointing users at `r` there would trade an error message for a crash.
+- **Upstream defects identified:**
+  - `.aitask-scripts/settings/settings_app.py:4527 — action_reload_configs/_reload_all_configs does not catch config_mgr.load_all() errors; pressing r with a malformed codeagent_config.json crashes the Settings TUI with an uncaught JSONDecodeError`
