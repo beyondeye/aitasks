@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1911
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-09 15:38
-updated_at: 2026-10-09 15:50
+updated_at: 2026-10-09 16:00
 ---
 
 ## Origin
@@ -35,3 +36,8 @@ t1929 moved codebrowser's explain / create / history-QA run-in-terminal launches
 ## Suggested fix
 
 Give the worker its own group, split `$EDITOR` with `shlex.split`, and catch `OSError` inside the suspend block / `SuspendNotSupported` around it, notifying after resume. Reuse the real-`App.suspend` fake-driver ordering test pattern from `tests/test_codebrowser_dialog_run_dispatch.py::LaunchWorkerLiveTests`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-09T13:00:24Z status=pass attempt=1 type=human
