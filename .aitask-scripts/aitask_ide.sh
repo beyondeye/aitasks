@@ -48,6 +48,11 @@ attaching and offers to recreate their viewers (the default; the agents stay
 frozen), restore them, re-pick their tasks, or skip. Everything lands in the
 session being opened. Without a terminal it prints a one-line hint instead.
 
+Ownership: ait ide stamps the session as belonging to this project. If a
+session with the configured name already belongs to another project (or its
+ownership cannot be verified), ait ide refuses and changes nothing — start this
+project in its own session with --session NAME.
+
 Note: The tmux session is shared, not per-terminal. If you run 'ait ide' in a
 second terminal, you don't get a separate IDE — you get another view of the
 same session, showing the same windows, panes, and TUIs. Changes in one
@@ -82,9 +87,44 @@ _IDE_SOCK_ARGS=()
 while IFS= read -r _line; do _IDE_SOCK_ARGS+=("$_line"); done < <(ait_tmux_socket_args)
 _IDE_SOCK_NAME="$(ait_tmux_socket_name)"
 
+# die with the reason a session claim was refused (t1922). <rc> is the
+# 45/46/47 contract of _tmux_bootstrap_set_project_registry; <stderr> is what
+# it printed, carrying the BOOTSTRAP_FAILED sentinel. Anything else is replayed
+# and reported as a plain failure.
+die_claim_refused() {
+    local rc="$1" errs="$2" owner="" line prefix
+    case "$rc" in
+        45)
+            # Literal prefix match: a session name is data (it may hold `/`),
+            # never part of a regex.
+            prefix="BOOTSTRAP_FAILED:session_owned:${SESSION}:"
+            while IFS= read -r line; do
+                if [[ "$line" == "$prefix"* ]]; then
+                    owner="${line#"$prefix"}"
+                    break
+                fi
+            done <<<"$errs"
+            die "tmux session '$SESSION' belongs to project ${owner:-another project}; not touching it. Start this project in its own session: ait ide --session NAME"
+            ;;
+        46)
+            die "Could not verify which project owns tmux session '$SESSION' — not touching it. Retry, or use: ait ide --session NAME"
+            ;;
+        47)
+            die "Could not register tmux session '$SESSION' to this project."
+            ;;
+    esac
+    [[ -z "$errs" ]] || printf '%s\n' "$errs" >&2
+    die "Failed to set up tmux session '$SESSION' (exit $rc)."
+}
+
 # Thin wrappers that delegate to the shared bootstrap helpers (t826_2).
+# Claims the session before ANY change to it (t1922): every caller runs it
+# ahead of window creation, the frozen offer and the attach, and a refusal
+# ends the script here.
 set_project_registry() {
-    _tmux_bootstrap_set_project_registry "$(pwd)" "$SESSION"
+    local rc=0 errs
+    errs=$(_tmux_bootstrap_set_project_registry "$(pwd)" "$SESSION" 2>&1 >/dev/null) || rc=$?
+    [[ "$rc" -eq 0 ]] || die_claim_refused "$rc" "$errs"
 }
 
 ensure_syncer_window() {
@@ -171,6 +211,13 @@ fi
 # Fresh-session path. spawn_session_detached handles new-session + env
 # registry + syncer in one call (shared with the TUI switcher's
 # inactive-project bootstrap path, t826_2). Then attach.
-spawn_session_detached "$(pwd)"
+# stderr is captured (and replayed on success) so a claim refusal's sentinel
+# can name the owner; spawn_session_detached sets no state this script reads.
+_ide_spawn_rc=0
+_ide_spawn_errs="$(spawn_session_detached "$(pwd)" 2>&1 >/dev/null)" || _ide_spawn_rc=$?
+if [[ "$_ide_spawn_rc" -ne 0 ]]; then
+    die_claim_refused "$_ide_spawn_rc" "$_ide_spawn_errs"
+fi
+[[ -z "$_ide_spawn_errs" ]] || printf '%s\n' "$_ide_spawn_errs" >&2
 offer_frozen_agents
 exec tmux ${_IDE_SOCK_ARGS[@]+"${_IDE_SOCK_ARGS[@]}"} attach -t "$SESSION_T"

@@ -82,6 +82,9 @@ class DiscoverAitasksSessionsAsyncParityTests(unittest.TestCase):
             project_group="cfg_registered",
         )
         stale_root = self.tmp / "stale_proj"
+        # Registered via the session option (t1922): authoritative, so its
+        # pane — sitting in another project — must not be consulted at all.
+        stamped_root = _make_project(self.tmp / "stamped_proj")
 
         registry = self.tmp / "projects.yaml"
         registry.write_text(
@@ -99,10 +102,14 @@ class DiscoverAitasksSessionsAsyncParityTests(unittest.TestCase):
         os.environ["AITASKS_PROJECTS_INDEX"] = str(registry)
 
         responses = {
-            ("list-sessions", "-F", "#{session_name}"): (
+            ("list-sessions", "-F", alu._SESSION_LIST_FORMAT): (
                 0,
-                "pane_sess\nenv_sess\n",
+                f"pane_sess\t\nenv_sess\t\nstamped_sess\t{stamped_root}\n",
             ),
+            (
+                "list-panes", "-s", "-t", "=stamped_sess:",
+                "-F", "#{pane_current_path}",
+            ): (0, f"{pane_root}\n"),
             (
                 "list-panes", "-s", "-t", "=pane_sess:",
                 "-F", "#{pane_current_path}",
@@ -128,6 +135,13 @@ class DiscoverAitasksSessionsAsyncParityTests(unittest.TestCase):
         by_session = {s.session: s for s in async_result}
         self.assertEqual(by_session["pane_sess"].project_group, "reg_live")
         self.assertEqual(by_session["env_sess"].project_group, "cfg_env")
+        self.assertEqual(by_session["stamped_sess"].project_root, stamped_root)
+        for calls in (fake_tmux.sync_calls, fake_tmux.async_calls):
+            self.assertNotIn(
+                ("list-panes", "-s", "-t", "=stamped_sess:",
+                 "-F", "#{pane_current_path}"),
+                calls,
+            )
         self.assertEqual(
             by_session["aaa_registered"].project_group, "reg_registered"
         )

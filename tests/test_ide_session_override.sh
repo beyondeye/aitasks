@@ -45,7 +45,24 @@ printf '%s\n' "$*" >> "$STUB_LOG"
 case " $* " in
     *" display-message "*) echo "${STUB_CURRENT_SESSION:-other}"; exit 0 ;;
     *" has-session "*) exit 1 ;;
-    *" new-session "*) exit 0 ;;
+    *" new-session "*)
+        # Remember the session this call "created", so the ownership claim
+        # that follows (t1922) can read it back from list-sessions.
+        prev=""
+        for a in "$@"; do
+            [ "$prev" = "-s" ] && printf '%s' "$a" > "$STUB_LOG.session"
+            prev="$a"
+        done
+        exit 0 ;;
+    *" list-sessions "*)
+        [ -f "$STUB_LOG.session" ] && printf '%s\t%s\n' \
+            "$(cat "$STUB_LOG.session")" "$(cat "$STUB_LOG.stamp" 2>/dev/null)"
+        exit 0 ;;
+    *" set-option "*)
+        for a in "$@"; do last="$a"; done
+        printf '%s' "$last" > "$STUB_LOG.stamp"
+        exit 0 ;;
+    *" set-environment "*) exit 0 ;;
 esac
 exit 1
 STUB

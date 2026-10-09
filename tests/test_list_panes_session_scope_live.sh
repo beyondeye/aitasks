@@ -198,6 +198,83 @@ priv_tmux new-session -d -s other2 -n unrelated -c "$TMPROOT/pb" 'sleep 600'
 assert_eq "isolation: without a colliding window, bare =beta lists beta" \
     "beta " "$(bare_session_of beta)"
 
+# --- Phase C: a claimed session keeps its root when one pane wanders (t1922) --
+# Discovery used to take the FIRST pane that walked up to a project, so one pane
+# that `cd`'d into another repo re-rooted the whole session once it was listed
+# first. A session claimed by the bootstrap carries @aitask_project_root, which
+# discovery treats as authoritative. Real shells, real `cd`, real
+# pane_current_path — the fakes in test_session_root_resolution.py cannot vouch
+# for what tmux reports after a cd.
+BOOT="$PROJECT_DIR/.aitask-scripts/lib/tmux_bootstrap.sh"
+priv_claim() {   # priv_claim <root> <session> -> prints the claim's exit code
+    local rc=0
+    (cd "$PROJECT_DIR" && env -u TMUX -u TMUX_PANE TMUX_TMPDIR="$TMX" \
+        AITASKS_TMUX_SOCKET="$SOCK" AITASKS_PROJECTS_INDEX="$TMPROOT/index.yaml" \
+        bash -c 'source "$1"; _tmux_bootstrap_set_project_registry "$2" "$3"' \
+        _ "$BOOT" "$1" "$2" >/dev/null 2>&1) || rc=$?
+    echo "$rc"
+}
+wander_pane="$(priv_tmux new-session -d -P -F '#{pane_id}' -s gamma -n main \
+    -c "$TMPROOT/pa" 'bash --norc --noprofile')"
+second_pane="$(priv_tmux split-window -d -P -F '#{pane_id}' -t '=gamma:main' \
+    -c "$TMPROOT/pa" 'bash --norc --noprofile')"
+assert_eq "wander: A claims its session" "0" "$(priv_claim "$TMPROOT/pa" gamma)"
+
+priv_tmux send-keys -t "$wander_pane" "cd '$TMPROOT/pb'" Enter
+want_pb="$(cd "$TMPROOT/pb" && pwd -P)"
+for _ in $(seq 1 50); do
+    [ "$(priv_tmux display-message -p -t "$wander_pane" '#{pane_current_path}')" = "$want_pb" ] && break
+    sleep 0.1
+done
+assert_eq "wander: the first pane really moved into project B" \
+    "$want_pb" "$(priv_tmux display-message -p -t "$wander_pane" '#{pane_current_path}')"
+
+gamma_roots() {
+    (cd "$PROJECT_DIR" && env -u TMUX -u TMUX_PANE \
+        TMUX_TMPDIR="$TMX" AITASKS_TMUX_SOCKET="$SOCK" \
+        "$PYTHON" - <<'PYEOF'
+import asyncio
+import sys
+sys.path.insert(0, ".aitask-scripts/lib")
+import agent_launch_utils as alu
+
+def root(sessions):
+    return [str(s.project_root.resolve()) for s in sessions if s.session == "gamma"]
+
+print("sync", *root(alu.discover_aitasks_sessions()))
+print("async", *root(asyncio.run(alu.discover_aitasks_sessions_async())))
+checked, complete = alu.discover_aitasks_sessions_checked()
+print("checked", *root(checked), complete)
+PYEOF
+    )
+}
+assert_gamma_on_a() {   # assert_gamma_on_a <label>
+    local out want_pa
+    out="$(gamma_roots)"
+    want_pa="$(cd "$TMPROOT/pa" && pwd -P)"
+    assert_eq "$1: sync discovery keeps gamma on A" "sync $want_pa" \
+        "$(grep '^sync ' <<<"$out")"
+    assert_eq "$1: async discovery keeps gamma on A" "async $want_pa" \
+        "$(grep '^async ' <<<"$out")"
+    assert_eq "$1: checked discovery keeps gamma on A, complete" "checked $want_pa True" \
+        "$(grep '^checked ' <<<"$out")"
+}
+assert_gamma_on_a "wander (first pane in B)"
+
+# Then EVERY pane: no pane vote can still say A — only the stamp can.
+priv_tmux send-keys -t "$second_pane" "cd '$TMPROOT/pb'" Enter
+for _ in $(seq 1 50); do
+    [ "$(priv_tmux display-message -p -t "$second_pane" '#{pane_current_path}')" = "$want_pb" ] && break
+    sleep 0.1
+done
+assert_eq "wander: the second pane moved into project B too" \
+    "$want_pb" "$(priv_tmux display-message -p -t "$second_pane" '#{pane_current_path}')"
+assert_gamma_on_a "wander (every pane in B)"
+assert_eq "wander: B's claim on A's session is refused" "45" \
+    "$(priv_claim "$TMPROOT/pb" gamma)"
+assert_eq "wander: the stamp still names A" "$TMPROOT/pa" \
+    "$(priv_tmux list-sessions -F '#{session_name}	#{@aitask_project_root}' | sed -n 's/^gamma	//p')"
+
 # --- Source guard -------------------------------------------------------------
 offenders="$(grep -rnE '"list-panes", "-s", "-t", (tmux_)?session_target\(' \
     "$PROJECT_DIR/.aitask-scripts" --include='*.py' || true)"

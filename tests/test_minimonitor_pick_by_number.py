@@ -2249,5 +2249,89 @@ class PickerWithNewRowRenderTests(unittest.TestCase):
         asyncio.run(runner())
 
 
+# -- t1922: one wandering pane must not re-root the followed session ----------
+
+class _WanderServer:
+    """Fake tmux for real discovery: one session, an optional ownership stamp,
+    and pane cwds listed in a chosen order."""
+
+    def __init__(self, stamp: str, panes: list[str]) -> None:
+        self.stamp = stamp
+        self.panes = panes
+
+    def run(self, args, timeout=5.0):
+        if args[0] == "list-sessions":
+            return (0, f"s1\t{self.stamp}\n")
+        if args[0] == "list-panes":
+            return (0, "".join(p + "\n" for p in self.panes))
+        return (1, "")   # show-environment: no legacy global
+
+
+class WanderingPaneRegressionTests(unittest.TestCase):
+    """`p` resolved — and could launch — the OTHER repo's task (t1922).
+
+    The followed pane's session belongs to repo A, one of its panes sits in
+    repo B, and the typed id exists in both repos. Discovery used to take the
+    first pane listed, so the session→root map pointed at B and both the dialog
+    and the launch went to B. Driven end to end through REAL discovery (over a
+    fake tmux) and a REAL TaskInfoCache over real task files.
+    """
+
+    def setUp(self):
+        import agent_launch_utils as alu
+        self.alu = alu
+        self._tmp = tempfile.TemporaryDirectory()
+        base = Path(self._tmp.name)
+        self.repo_a, self.repo_b = base / "repo_a", base / "repo_b"
+        for repo, status in ((self.repo_a, "Ready"), (self.repo_b, "Postponed")):
+            (repo / "aitasks" / "metadata").mkdir(parents=True)
+            (repo / "aitasks" / "metadata" / "project_config.yaml").write_text("x: 1\n")
+            _write_task(repo / "aitasks", "7", status)
+        self.fallback = base / "fallback"
+        self.fallback.mkdir()
+        self._saved_tmux = alu._TMUX
+
+    def tearDown(self):
+        self.alu._TMUX = self._saved_tmux
+        self._tmp.cleanup()
+
+    def _pick_7(self, server):
+        self.alu._TMUX = server
+        mapping = {s.session: s.project_root
+                   for s in self.alu.discover_aitasks_sessions()}
+        own = _snap("%own", window_index="1", session="s1",
+                    window_name="agent-pick-99")
+        app = _mk_app({}, snapshots=[own])
+        app._task_cache = TaskInfoCache(self.fallback, mapping)
+        app._set_session_root_map(mapping)
+        screen, callback = _enter(app, "7")
+        callback(("pick", False))
+        (tid, root, _kill), = app.spy_launch
+        return screen._info, root
+
+    def test_stamped_session_resolves_and_launches_in_a(self):
+        server = _WanderServer(str(self.repo_a),
+                               [str(self.repo_b), str(self.repo_a), str(self.repo_a)])
+        info, root = self._pick_7(server)
+        self.assertEqual(info.status, "Ready", "the dialog must describe A's t7")
+        self.assertEqual(root.resolve(), self.repo_a.resolve())
+
+    def test_unstamped_majority_resolves_and_launches_in_a(self):
+        """Pre-stamp sessions: the wandering pane listed FIRST no longer wins."""
+        server = _WanderServer("", [str(self.repo_b), str(self.repo_a), str(self.repo_a)])
+        info, root = self._pick_7(server)
+        self.assertEqual(info.status, "Ready")
+        self.assertEqual(root.resolve(), self.repo_a.resolve())
+
+    def test_control_the_fixture_can_see_repo_b(self):
+        """Negative control: when B genuinely owns the panes, B is what `p`
+        shows and launches — so the two cases above are not passing because
+        the fixture cannot reach B at all."""
+        server = _WanderServer("", [str(self.repo_b), str(self.repo_b), str(self.repo_a)])
+        info, root = self._pick_7(server)
+        self.assertEqual(info.status, "Postponed")
+        self.assertEqual(root.resolve(), self.repo_b.resolve())
+
+
 if __name__ == "__main__":
     unittest.main()

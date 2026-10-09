@@ -100,9 +100,11 @@ which re-emits the resolver's output verbatim.
 1. **Live tmux scan** — `discover_aitasks_sessions()` in
    `.aitask-scripts/lib/agent_launch_utils.py:255` enumerates currently
    live tmux sessions. Matches `<name>` against `project_name` (basename
-   of the project root) first, then `session`. This step already covers
-   the tmux global env var `AITASKS_PROJECT_<sess>` set by `ait ide` —
-   `discover_aitasks_sessions()` falls back to it internally.
+   of the project root) first, then `session`. Each session's root comes
+   from its `@aitask_project_root` ownership stamp (set when `ait ide` /
+   the bootstrap claims the session), else a pane-cwd vote, else the
+   legacy tmux global env var `AITASKS_PROJECT_<sess>` —
+   `discover_aitasks_sessions()` applies all three internally (t1922).
 2. **Per-user index** — `~/.config/aitasks/projects.yaml` (above).
 3. **Process env var** — `AITASKS_PROJECT_<name>` set in the calling
    shell environment. Useful as a manual override for non-tmux contexts

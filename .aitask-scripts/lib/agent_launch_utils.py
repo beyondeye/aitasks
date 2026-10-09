@@ -179,9 +179,11 @@ def _tmux_session_name_ok(name: str) -> bool:
 class AitasksSession:
     """A tmux session identified as belonging to an aitasks project.
 
-    Produced by :func:`discover_aitasks_sessions` when a session's pane cwd
-    walks up into an aitasks project root, or when the session's name matches
-    an ``AITASKS_PROJECT_<sess>`` global env entry set by ``ait ide``.
+    Produced by :func:`discover_aitasks_sessions` when the session carries a
+    valid :data:`PROJECT_ROOT_OPTION` stamp, when its panes' cwds vote for an
+    aitasks project root, or when the session's name matches a legacy
+    ``AITASKS_PROJECT_<sess>`` global env entry (see that function for the
+    priority order).
 
     When ``include_registered=True`` is passed to
     :func:`discover_aitasks_sessions`, synthesized entries are also produced
@@ -1109,15 +1111,80 @@ def parse_default_session_unreadable(stderr: str) -> str | None:
     return None
 
 
-def _project_root_from_pane_paths(pane_paths: list[str]) -> Path | None:
-    """Resolve the first aitasks project root visible in tmux pane cwd output."""
+#: Session-scoped tmux user option naming the project that owns a session
+#: (t1922). Stamped by ``_tmux_bootstrap_set_project_registry`` when ``ait ide``
+#: or the bootstrap claims a session, and gone with the session — so, unlike
+#: the global ``AITASKS_PROJECT_<session>`` it supersedes, it can never be
+#: inherited by a later session that reuses the name.
+PROJECT_ROOT_OPTION = "@aitask_project_root"
+
+#: ``list-sessions`` format: the session name and its registration in ONE
+#: round-trip. ``#{@option}`` expands to the empty string when unset.
+_SESSION_LIST_FORMAT = "#{session_name}\t#{" + PROJECT_ROOT_OPTION + "}"
+
+
+def _parse_session_list(out: str) -> list[tuple[str, str]]:
+    """``(session, registered_value)`` per line of :data:`_SESSION_LIST_FORMAT`.
+
+    Split on the FIRST tab, so a registered path containing a tab survives,
+    and keep the value EXACTLY — a project path may legitimately end in
+    whitespace, and stripping it would void that session's authoritative stamp.
+    A line without a tab is a bare session name — unregistered — which keeps
+    callers and test doubles that answer with names only working.
+    """
+    entries: list[tuple[str, str]] = []
+    for line in out.splitlines():
+        name, _, value = line.partition("\t")
+        if name:
+            entries.append((name, value))
+    return entries
+
+
+def _registered_root(value: str) -> Path | None:
+    """The session option's project root, or ``None`` if unset or not a project.
+
+    Same marker check as :func:`_registry_entry_from_output`: a value naming a
+    moved or deleted project is no registration at all.
+    """
+    if not value:
+        return None
+    path = Path(value)
+    if not (path / "aitasks" / "metadata" / "project_config.yaml").is_file():
+        return None
+    return path
+
+
+def _root_key(path: Path) -> str:
+    """Realpath identity of a root, with :attr:`AitasksSession.key`'s fallback."""
+    try:
+        return os.path.realpath(path)
+    except OSError:
+        return str(path)
+
+
+def _pane_vote(pane_paths: list[str]) -> Path | None:
+    """The project root most of a session's panes walk up to (t1922).
+
+    Ties go to the smallest realpath, so the answer depends on the SET of pane
+    directories, never on the order tmux lists them in. Taking the first pane
+    instead let one pane that wandered into another repo re-root the whole
+    session as soon as the windows listed ahead of it were closed.
+    """
+    counts: dict[str, int] = {}
+    roots: dict[str, Path] = {}
     for raw_path in pane_paths:
         if not raw_path:
             continue
         candidate = _walk_up_to_aitasks(Path(raw_path))
-        if candidate is not None:
-            return candidate
-    return None
+        if candidate is None:
+            continue
+        key = _root_key(candidate)
+        counts[key] = counts.get(key, 0) + 1
+        roots.setdefault(key, candidate)
+    if not counts:
+        return None
+    best = min(counts, key=lambda k: (-counts[k], k))
+    return roots[best]
 
 
 def _dedupe_sessions_by_key(
@@ -1245,15 +1312,21 @@ def discover_aitasks_sessions(
 ) -> list[AitasksSession]:
     """Enumerate aitasks-like tmux sessions on the current tmux server.
 
-    Detection is per-session in priority order:
+    Detection is per-session in priority order (t1922):
 
-    1. **Pane-cwd walk-up** — any pane's ``pane_current_path`` that has an
-       ancestor containing ``aitasks/metadata/project_config.yaml`` wins.
-    2. **Registry fallback** — the tmux global env var
-       ``AITASKS_PROJECT_<sess>`` (set by ``ait ide`` on startup) names the
-       project root directly.
+    1. **Session registration** — the session-scoped option
+       :data:`PROJECT_ROOT_OPTION`, stamped when ``ait ide`` / the bootstrap
+       claims the session. When it names a valid project it is authoritative:
+       pane directories are not consulted (and not even listed), so a pane that
+       ``cd``'d into another repo cannot re-root the session.
+    2. **Pane vote** — the project most panes' ``pane_current_path`` walks up to
+       (an ancestor containing ``aitasks/metadata/project_config.yaml``), ties to
+       the smallest realpath (:func:`_pane_vote`), so pane order never decides.
+    3. **Legacy registry fallback** — only when no pane resolves: the tmux
+       global env var ``AITASKS_PROJECT_<sess>``. It is keyed by session NAME and
+       outlives the session, which is why it can no longer outrank a pane.
 
-    Sessions matching neither heuristic are excluded. Returns a list sorted by
+    Sessions matching none of these are excluded. Returns a list sorted by
     session name for stable display. Returns an empty list when tmux is
     unavailable or no aitasks sessions are running. No module-level caching —
     each call re-queries tmux so long-running monitors see live state.
@@ -1287,61 +1360,53 @@ def _collect_live_roots(run, read_registry) -> list[tuple[str, Path]]:
     """The one discovery walk, over a pluggable ``(rc, stdout)`` runner.
 
     ``run(args)`` answers a tmux command and ``read_registry(session)`` the
-    ``AITASKS_PROJECT_<sess>`` fallback. :func:`discover_aitasks_sessions`
-    passes the plain gateway primitives, so its behaviour is exactly what it
-    always was: every failure folds into "nothing here".
-    :func:`discover_aitasks_sessions_checked` passes status-recording adapters
-    instead, so the SAME walk can also say whether it saw everything.
+    legacy ``AITASKS_PROJECT_<sess>`` fallback. :func:`discover_aitasks_sessions`
+    passes the plain gateway primitives, so every failure folds into "nothing
+    here". :func:`discover_aitasks_sessions_checked` passes status-recording
+    adapters instead, so the SAME walk can also say whether it saw everything.
+
+    The per-session rule is :func:`discover_aitasks_sessions`' docstring. A
+    registered session (its :data:`PROJECT_ROOT_OPTION` arrives in the SAME
+    ``list-sessions`` answer) issues no further tmux call at all.
 
     Each session's panes are listed with :func:`tmux_session_scope_target`
     (``=<session>:``), never a bare ``=<session>``, which tmux may resolve as a
     window of another session and so map this session to that one's root.
     """
-    rc, out = run(["list-sessions", "-F", "#{session_name}"])
-    sessions = [s for s in out.strip().splitlines() if s] if rc == 0 else []
+    rc, out = run(["list-sessions", "-F", _SESSION_LIST_FORMAT])
+    entries = _parse_session_list(out) if rc == 0 else []
 
     live_roots: list[tuple[str, Path]] = []
-    for session in sessions:
-        prc, pout = run(
-            ["list-panes", "-s", "-t", tmux_session_scope_target(session),
-             "-F", "#{pane_current_path}"]
-        )
-        pane_paths = pout.strip().splitlines() if prc == 0 else []
-        project_root = _project_root_from_pane_paths(pane_paths)
-
+    for session, registered in entries:
+        project_root = _registered_root(registered)
         if project_root is None:
-            project_root = read_registry(session)
-
+            project_root = _unregistered_root(
+                session, run(_list_panes_argv(session)), read_registry)
         if project_root is None:
             continue
-
         live_roots.append((session, project_root))
     return live_roots
 
 
-def discover_aitasks_sessions_checked() -> tuple[list[AitasksSession], bool]:
-    """:func:`discover_aitasks_sessions`, plus whether the answer is complete.
+def _list_panes_argv(session: str) -> list[str]:
+    return ["list-panes", "-s", "-t", tmux_session_scope_target(session),
+            "-F", "#{pane_current_path}"]
 
-    Returns ``(sessions, complete)``. The default discovery folds every tmux
-    failure into emptiness — a failed ``list-sessions`` reads as "no sessions",
-    a failed ``list-panes`` as "no pane paths", a failed ``show-environment`` as
-    "no registered root". That is right for a display loop and wrong for a
-    caller that must RULE OUT a live session before acting on another
-    candidate (``aitask_project_resolve.sh candidates``, t1869): an empty answer
-    there has to mean "nothing is running", never "could not look".
 
-    Per-command dispositions (tmux messages pinned in ``tmux_exec``):
+def _unregistered_root(session, panes_answer, read_registry) -> Path | None:
+    """Rules 2–3 for one unregistered session, given its ``list-panes`` answer."""
+    prc, pout = panes_answer
+    project_root = _pane_vote(pout.strip().splitlines() if prc == 0 else [])
+    if project_root is None:
+        project_root = read_registry(session)
+    return project_root
 
-    * ``list-sessions`` — ``ok`` → the sessions; ``no_tmux`` / ``no_server`` →
-      a DEFINITE empty (no live session can exist); anything else → incomplete.
-    * ``list-panes`` — ``ok`` → the paths; a vanished session (``can't find
-      session``/``window``) or a server that died mid-scan → that session is
-      gone; anything else → incomplete.
-    * ``show-environment -g AITASKS_PROJECT_<s>`` — ``ok`` → parsed; ``unknown
-      variable`` or no server → a definite absence; anything else → incomplete.
 
-    Equivalent to ``discover_aitasks_sessions()`` (``include_registered=False``)
-    whenever ``complete`` is True.
+def _checked_adapters():
+    """Status-recording ``(run, read_registry, incomplete)`` for the checked walk.
+
+    ``incomplete`` is a one-element list the adapters set to True whenever a
+    query failed for a reason that is not a definite "nothing there".
     """
     incomplete = [False]
 
@@ -1368,6 +1433,53 @@ def discover_aitasks_sessions_checked() -> tuple[list[AitasksSession], bool]:
         incomplete[0] = True
         return None
 
+    return run, read_registry, incomplete
+
+
+def unregistered_session_attribution(session: str) -> tuple[Path | None, bool]:
+    """``(root, complete)``: the root discovery gives ``session`` WITHOUT its stamp.
+
+    Rules 2–3 of :func:`discover_aitasks_sessions` (pane vote, then the legacy
+    global) for one session, through the checked adapters — so a failed query
+    answers ``complete=False``, never "nobody owns it". This is the ownership
+    evidence ``_tmux_bootstrap_set_project_registry`` consults before claiming
+    an existing, unstamped session (t1922): a session that predates the stamp
+    is not free just because it carries no stamp.
+    """
+    run, read_registry, incomplete = _checked_adapters()
+    root = _unregistered_root(session, run(_list_panes_argv(session)), read_registry)
+    return root, not incomplete[0]
+
+
+def discover_aitasks_sessions_checked() -> tuple[list[AitasksSession], bool]:
+    """:func:`discover_aitasks_sessions`, plus whether the answer is complete.
+
+    Returns ``(sessions, complete)``. The default discovery folds every tmux
+    failure into emptiness — a failed ``list-sessions`` reads as "no sessions",
+    a failed ``list-panes`` as "no pane paths", a failed ``show-environment`` as
+    "no registered root". That is right for a display loop and wrong for a
+    caller that must RULE OUT a live session before acting on another
+    candidate (``aitask_project_resolve.sh candidates``, t1869): an empty answer
+    there has to mean "nothing is running", never "could not look".
+
+    Per-command dispositions (tmux messages pinned in ``tmux_exec``):
+
+    * ``list-sessions`` — ``ok`` → the sessions; ``no_tmux`` / ``no_server`` →
+      a DEFINITE empty (no live session can exist); anything else → incomplete.
+    * ``list-panes`` — ``ok`` → the paths; a vanished session (``can't find
+      session``/``window``) or a server that died mid-scan → that session is
+      gone; anything else → incomplete.
+    * ``show-environment -g AITASKS_PROJECT_<s>`` — ``ok`` → parsed; ``unknown
+      variable`` or no server → a definite absence; anything else → incomplete.
+
+    A registered session (t1922) issues neither ``list-panes`` nor
+    ``show-environment``: its root came with the ``list-sessions`` answer, so
+    no later query can make it incomplete.
+
+    Equivalent to ``discover_aitasks_sessions()`` (``include_registered=False``)
+    whenever ``complete`` is True.
+    """
+    run, read_registry, incomplete = _checked_adapters()
     live_roots = _collect_live_roots(run, read_registry)
     sessions = _assemble_aitasks_sessions(live_roots, include_registered=False)
     return sessions, not incomplete[0]
@@ -1381,24 +1493,20 @@ async def discover_aitasks_sessions_async(
     The tmux round-trips use :meth:`TmuxClient.run_async`; all non-I/O assembly
     is shared with the sync path to preserve discovery parity.
     """
-    rc, out = await _TMUX.run_async(["list-sessions", "-F", "#{session_name}"])
-    sessions = [s for s in out.strip().splitlines() if s] if rc == 0 else []
+    rc, out = await _TMUX.run_async(["list-sessions", "-F", _SESSION_LIST_FORMAT])
+    entries = _parse_session_list(out) if rc == 0 else []
 
     live_roots: list[tuple[str, Path]] = []
-    for session in sessions:
-        prc, pout = await _TMUX.run_async(
-            ["list-panes", "-s", "-t", tmux_session_scope_target(session),
-             "-F", "#{pane_current_path}"]
-        )
-        pane_paths = pout.strip().splitlines() if prc == 0 else []
-        project_root = _project_root_from_pane_paths(pane_paths)
-
+    for session, registered in entries:
+        project_root = _registered_root(registered)
+        if project_root is None:
+            prc, pout = await _TMUX.run_async(_list_panes_argv(session))
+            project_root = _pane_vote(
+                pout.strip().splitlines() if prc == 0 else [])
         if project_root is None:
             project_root = await _read_registry_entry_async(session)
-
         if project_root is None:
             continue
-
         live_roots.append((session, project_root))
 
     return _assemble_aitasks_sessions(

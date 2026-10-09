@@ -115,10 +115,13 @@ Both fields are **advisory** — nothing in the monitor is gated on them. Monito
 
 ### Multi-session view
 
-By default both `ait monitor` and [`ait minimonitor`]({{< relref "/docs/tuis/minimonitor" >}}) aggregate every active code agent across every aitasks tmux session on this tmux server into a **single unified list**. Sessions are auto-discovered via:
+By default both `ait monitor` and [`ait minimonitor`]({{< relref "/docs/tuis/minimonitor" >}}) aggregate every active code agent across every aitasks tmux session on this tmux server into a **single unified list**. Each session is attributed to a project in this order:
 
-1. The `AITASKS_PROJECT_<session>` tmux global environment variable (set by `ait ide` on startup).
-2. Pane-cwd walk-up: any pane whose current working directory has an ancestor containing `aitasks/metadata/project_config.yaml`.
+1. **Session ownership.** `ait ide` records which project owns the session it starts or attaches to. That record lives on the session itself and disappears with it. When present, it decides the project outright, so a pane that has `cd`'d into another repository does not move the session.
+2. **Pane vote.** For a session with no ownership record, the project that most of its panes' working directories sit inside (a directory with an ancestor containing `aitasks/metadata/project_config.yaml`). A tie goes to the alphabetically first project path, so the order in which tmux lists the panes never matters.
+3. **Legacy variable.** If no pane is inside a project, the `AITASKS_PROJECT_<session>` tmux global environment variable.
+
+`ait ide` never takes over a session that belongs to another project. If the configured session name is already in use by a different project, it stops without changing that session and tells you to start this project in its own session with `ait ide --session NAME`.
 
 Press `M` inside either TUI to toggle the multi-session view ON/OFF for that TUI instance. The toggle is in-memory only and applies to the current TUI process; it is not persisted to configuration and is not shared with the other TUI (toggling `M` in the main monitor does not affect a running minimonitor, and vice versa).
 

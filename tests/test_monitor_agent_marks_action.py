@@ -460,5 +460,50 @@ class PurgeSchedulingTests(_ActionFixture):
         self.assertFalse(os.path.exists(seen[0]), "temp observation file leaked")
 
 
+class MisMappedSessionMarksTests(_ActionFixture):
+    """A session briefly mapped to the wrong root hides its marks, never purges
+    them (t1922).
+
+    Before t1922 one wandering pane could re-root a whole session. Marks are
+    keyed by ``(canonical root, window)``, so while mis-mapped the session's
+    starred / parked agents looked unmarked. The liveness purge only sweeps
+    roots some enumerated session maps to, so the right root's marks must
+    survive the mis-mapped tick and reappear once the mapping is corrected.
+    """
+
+    WINDOW = "agent-pick-1914"
+
+    def test_marks_survive_a_mismapped_tick_and_reappear(self):
+        mf = agent_marks.load_safe(self.store)
+        agent_marks.cycle(mf, self.here, self.WINDOW)
+        agent_marks.dump(mf, self.store)
+
+        app = self.app(
+            MiniMonitorApp, mapping={SESSION: self.here},
+            snaps={"%1": snapshot(self.WINDOW)},
+            sessions={SESSION}, agents={(SESSION, self.WINDOW)},
+        )
+        snap = app._snapshots["%1"]
+        self.assertEqual(app._mark_kind(snap), agent_marks.KIND_PRIORITY)
+
+        # A mis-mapped tick: the session's root now reads as `there`.
+        app._set_session_root_map({SESSION: self.there})
+        app._refresh_marks()
+        self.assertEqual(app._mark_kind(snap), agent_marks.KIND_NONE,
+                         "while mis-mapped the mark is hidden")
+        observed, sweepable, complete = app._collect_marks_observation()
+        self.assertNotIn(os.path.realpath(self.here), sweepable,
+                         "the right root must not be sweepable while unmapped")
+        mf = agent_marks.load(self.store)
+        dropped = agent_marks.sweep_liveness(
+            mf, observed, sweepable, complete=complete)
+        self.assertEqual(dropped, [], "the mis-mapped tick must purge nothing")
+
+        # Corrected mapping: the mark is found again.
+        app._set_session_root_map({SESSION: self.here})
+        app._refresh_marks()
+        self.assertEqual(app._mark_kind(snap), agent_marks.KIND_PRIORITY)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)

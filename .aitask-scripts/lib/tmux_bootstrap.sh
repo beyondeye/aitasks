@@ -3,8 +3,9 @@
 #
 # Shared between `aitask_ide.sh` (sourced), `tui_switcher.py` and
 # `agent_restore.py` (both via the standalone CLI form below). Single source of
-# truth for: how a session is named, which window is seeded first,
-# which env vars are written, and whether the syncer auto-starts.
+# truth for: how a session is named, which window is seeded first, how a
+# session is claimed for a project (the @aitask_project_root stamp, t1922),
+# and whether the syncer auto-starts.
 #
 # Sourced form (from aitask_ide.sh):
 #     source "$SCRIPT_DIR/lib/tmux_bootstrap.sh"
@@ -39,6 +40,14 @@ _TMUX_BOOTSTRAP_SCRIPTS_DIR="$(cd "$_TMUX_BOOTSTRAP_LIB_DIR/.." && pwd)"
 # transitively; both are guarded against double-sourcing.
 # shellcheck source=tmux_exec.sh disable=SC1091
 source "$_TMUX_BOOTSTRAP_LIB_DIR/tmux_exec.sh"
+# Interpreter for the session-claim ownership evidence (t1922). Already in the
+# scaffold baseline (tests/lib/test_scaffold.sh); guarded against re-sourcing.
+# shellcheck source=python_resolve.sh disable=SC1091
+source "$_TMUX_BOOTSTRAP_LIB_DIR/python_resolve.sh"
+# Cross-process mutex serializing session claims (t1922). In the scaffold
+# baseline together with its stale_lock.sh core.
+# shellcheck source=registry_lock.sh disable=SC1091
+source "$_TMUX_BOOTSTRAP_LIB_DIR/registry_lock.sh"
 
 # --- Public helpers (callable after sourcing) ---------------------------
 
@@ -573,16 +582,232 @@ _tmux_bootstrap_read_syncer_autostart() {
     echo "$out"
 }
 
-# _tmux_bootstrap_set_project_registry <project_root> <session>
+# Session-scoped tmux user option naming the project that owns a session
+# (t1922). Mirrors agent_launch_utils.PROJECT_ROOT_OPTION, which discovery
+# treats as authoritative. It dies with the session, so — unlike the global
+# AITASKS_PROJECT_<session> it supersedes — no later session reusing the name
+# can inherit it.
+_TMUX_BOOTSTRAP_ROOT_OPTION="@aitask_project_root"
+
+# _tmux_bootstrap_realpath <dir> — physical path, or empty if not a directory.
+_tmux_bootstrap_realpath() {
+    (cd "$1" 2>/dev/null && pwd -P) || true
+}
+
+# _tmux_bootstrap_is_project <dir> — 0 if <dir> carries the project marker.
+_tmux_bootstrap_is_project() {
+    [[ -n "$1" && -f "$1/aitasks/metadata/project_config.yaml" ]]
+}
+
+# _tmux_bootstrap_read_stamp <session>
 #
-# Registers <project_root> under the per-session tmux global env var
-# AITASKS_PROJECT_<session> AND appends it to the per-user persistent
-# index via `aitask_projects.sh add`. Both writes are best-effort.
+# Prints the session's @aitask_project_root (empty when unset) and returns 0,
+# or returns 1 when the read could not be done. Read from the same
+# `list-sessions` line discovery parses, not from show-options/display-message:
+# both of those answer rc 0 with empty output for a session that does not
+# exist (measured, tmux 3.7c), which would turn a failed read into "unset".
+# A missing row is a failure too — every caller has just seen the session.
+_tmux_bootstrap_read_stamp() {
+    local session="$1" out line name
+    if ! out=$(ait_tmux list-sessions -F "#{session_name}	#{${_TMUX_BOOTSTRAP_ROOT_OPTION}}" 2>/dev/null); then
+        return 1
+    fi
+    while IFS= read -r line; do
+        name="${line%%	*}"
+        [[ "$name" == "$session" ]] || continue
+        [[ "$line" == *"	"* ]] && printf '%s\n' "${line#*	}" || printf '\n'
+        return 0
+    done <<<"$out"
+    return 1
+}
+
+# _tmux_bootstrap_session_evidence <session>
+#
+# Which project discovery gives <session> WITHOUT its stamp (pane vote, then
+# the legacy global) — asked of discovery itself
+# (agent_launch_utils.unregistered_session_attribution), so the claim and the
+# monitor can never disagree about a pre-stamp session. Prints ROOT:<path>,
+# NONE, or UNVERIFIED; anything that prevents a complete answer (no Python, a
+# crash, a failed tmux query) is UNVERIFIED, never NONE.
+_tmux_bootstrap_session_evidence() {
+    local session="$1" py out
+    py=$(resolve_python 2>/dev/null) || py=""
+    if [[ -z "$py" ]]; then
+        echo UNVERIFIED
+        return 0
+    fi
+    out=$("$py" - "$_TMUX_BOOTSTRAP_LIB_DIR" "$session" 2>/dev/null <<'PYEOF'
+import sys
+lib, session = sys.argv[1:3]
+sys.path.insert(0, lib)
+import agent_launch_utils as alu
+root, complete = alu.unregistered_session_attribution(session)
+if not complete:
+    print("UNVERIFIED")
+elif root is None:
+    print("NONE")
+else:
+    print(f"ROOT:{root}")
+PYEOF
+) || out=""
+    case "$out" in
+        ROOT:*|NONE) printf '%s\n' "$out" ;;
+        *) echo UNVERIFIED ;;
+    esac
+}
+
+# _tmux_bootstrap_report_claim <code> <session> [owner]
+#
+# A claim refusal: the structured sentinel first, the human-readable line LAST
+# (tui_switcher._ensure_session_live shows the last stderr line).
+_tmux_bootstrap_report_claim() {
+    local code="$1" session="$2" owner="${3:-}"
+    case "$code" in
+        45)
+            echo "BOOTSTRAP_FAILED:session_owned:$session:$owner" >&2
+            echo "tmux session '$session' belongs to project $owner — not re-pointing it. Use 'ait ide --session NAME' for a separate session." >&2
+            ;;
+        46)
+            echo "BOOTSTRAP_FAILED:claim_unverified:$session" >&2
+            echo "Could not verify which project owns tmux session '$session' — leaving it untouched." >&2
+            ;;
+        47)
+            echo "BOOTSTRAP_FAILED:claim_write_failed:$session" >&2
+            echo "Could not register tmux session '$session' to this project." >&2
+            ;;
+    esac
+}
+
+# _tmux_bootstrap_set_project_registry <project_root> <session> [--created]
+#
+# Claims <session> for <project_root> (t1922): stamps the session option
+# @aitask_project_root, which discovery treats as authoritative, then — only
+# once the stamp is verified — the legacy global AITASKS_PROJECT_<session>
+# (read by older framework versions) and the per-user index
+# (`aitask_projects.sh add`); those two stay best-effort.
+#
+# Ownership rule, in order:
+#   1. Read the stamp. A failed read is NEVER "unset"            -> 46.
+#   2. Stamped with a valid project: ours -> refresh, return 0;
+#      another project's                                          -> 45.
+#   3. Unstamped (or stamp names no project) and --created (THIS
+#      invocation's new-session made the session)                 -> claim.
+#   4. Unstamped, existing session: ask discovery's evidence. Unverified -> 46;
+#      another project -> 45 (a session that predates the stamp is not free
+#      just because it carries none); ours or nothing             -> claim.
+#   5. Claim: set-option, then RE-READ and compare. Either failing -> 47.
+#
+# Steps 1-5 run under a per-(tmux server, session) cross-process mutex
+# (registry_lock / stale_lock): without it two claimers on an unowned session
+# both read "no owner" and both stamp. A mutex held past
+# _TMUX_BOOTSTRAP_CLAIM_LOCK_TIMEOUT (15s) is "cannot verify" -> 46.
+#
+# Returns 0 claimed/already ours, 45 owned by another project, 46 ownership
+# unverifiable, 47 the stamp could not be written. Refusals touch nothing and
+# print a sentinel (see _tmux_bootstrap_report_claim). Callers must stop on any
+# non-zero BEFORE modifying or attaching to the session. Every mandatory
+# command is checked explicitly: callers invoke this in `|| …` contexts, where
+# bash suspends errexit inside the function.
 _tmux_bootstrap_set_project_registry() {
     local root="$1"
     local session="$2"
+    local created="${3:-}"
+    local lock rc=0
+    lock="$(_tmux_bootstrap_claim_lock_dir "$session")"
+    if ! _tmux_bootstrap_claim_lock_acquire "$lock"; then
+        _tmux_bootstrap_report_claim 46 "$session"
+        return 46
+    fi
+    _tmux_bootstrap_claim_locked "$root" "$session" "$created" || rc=$?
+    _tmux_bootstrap_claim_lock_release "$lock"
+    [[ "$rc" -eq 0 ]] || return "$rc"
+
     ait_tmux set-environment -g "AITASKS_PROJECT_${session}" "$root" 2>/dev/null || true
     "$_TMUX_BOOTSTRAP_SCRIPTS_DIR/aitask_projects.sh" add "$root" >/dev/null 2>&1 || true
+    return 0
+}
+
+# _tmux_bootstrap_claim_lock_dir <session> — the claim mutex for <session> on
+# THIS tmux server: keyed by the server's socket path and the session name, so
+# claims on different servers (or different sessions) never contend. Per-user
+# and shared across repositories, because two projects racing for one session
+# name is exactly what it serializes.
+_tmux_bootstrap_claim_lock_dir() {
+    local session="$1" out socket key base
+    out=$(ait_tmux list-sessions -F '#{socket_path}' 2>/dev/null) || out=""
+    socket="${out%%$'\n'*}"
+    key=$(printf '%s|%s' "${socket:-$(ait_tmux_socket_name)}" "$session" | cksum)
+    key="${key%% *}"
+    base="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/aitasks-$(id -u)/session-claim"
+    printf '%s/%s.lock\n' "$base" "$key"
+}
+
+# Seams so a test can disable the mutex and prove the concurrent-claim
+# regression it guards actually fails without it.
+_tmux_bootstrap_claim_lock_acquire() {
+    mkdir -p "$(dirname "$1")" 2>/dev/null || return 1
+    registry_lock_acquire "$1" "${_TMUX_BOOTSTRAP_CLAIM_LOCK_TIMEOUT:-15}" "tmux session claim"
+}
+
+_tmux_bootstrap_claim_lock_release() {
+    registry_lock_release "$1"
+}
+
+# _tmux_bootstrap_claim_locked <project_root> <session> [--created]
+#
+# Steps 1-5 of the claim rule, run ONLY while holding the session's claim
+# mutex: the read, the evidence and the write must be one critical section, or
+# two projects can both read "no owner" and both stamp (the second silently
+# replacing the first). Returns 0 / 45 / 46 / 47; the best-effort writes are
+# the caller's, after release.
+_tmux_bootstrap_claim_locked() {
+    local root="$1"
+    local session="$2"
+    local created="${3:-}"
+    local root_real owner owner_real evidence verify target
+    root_real="$(_tmux_bootstrap_realpath "$root")"
+    [[ -n "$root_real" ]] || root_real="$root"
+
+    if ! owner=$(_tmux_bootstrap_read_stamp "$session"); then
+        _tmux_bootstrap_report_claim 46 "$session"
+        return 46
+    fi
+
+    owner_real=""
+    _tmux_bootstrap_is_project "$owner" && owner_real="$(_tmux_bootstrap_realpath "$owner")"
+    if [[ -n "$owner_real" && "$owner_real" != "$root_real" ]]; then
+        _tmux_bootstrap_report_claim 45 "$session" "$owner_real"
+        return 45
+    fi
+
+    if [[ -z "$owner_real" && "$created" != "--created" ]]; then
+        evidence="$(_tmux_bootstrap_session_evidence "$session")"
+        case "$evidence" in
+            NONE) ;;
+            ROOT:*)
+                owner_real="$(_tmux_bootstrap_realpath "${evidence#ROOT:}")"
+                if [[ "$owner_real" != "$root_real" ]]; then
+                    _tmux_bootstrap_report_claim 45 "$session" "${owner_real:-${evidence#ROOT:}}"
+                    return 45
+                fi
+                ;;
+            *)
+                _tmux_bootstrap_report_claim 46 "$session"
+                return 46
+                ;;
+        esac
+    fi
+
+    target="$(ait_tmux_window_target "$session" "")"
+    if ! ait_tmux set-option -t "$target" "$_TMUX_BOOTSTRAP_ROOT_OPTION" "$root" 2>/dev/null; then
+        _tmux_bootstrap_report_claim 47 "$session"
+        return 47
+    fi
+    if ! verify=$(_tmux_bootstrap_read_stamp "$session") || [[ "$verify" != "$root" ]]; then
+        _tmux_bootstrap_report_claim 47 "$session"
+        return 47
+    fi
+    return 0
 }
 
 # _tmux_bootstrap_ensure_syncer_window <project_root> <session>
@@ -617,9 +842,16 @@ _tmux_bootstrap_report_exists() {
 #
 # Idempotently spawns a detached tmux session for <project_root> with
 # the project's configured session name and a seeded `monitor` window.
-# If the session already exists, only the per-session env / persistent
-# registry / syncer-window steps run (the existing session is left
-# untouched). Safe to call from inside another tmux session.
+# If the session already exists, only the claim / persistent registry /
+# syncer-window steps run (the existing session's windows are left untouched).
+# Safe to call from inside another tmux session.
+#
+# Every path claims the session through _tmux_bootstrap_set_project_registry
+# (t1922) BEFORE the syncer step, and returns its refusal unchanged: a session
+# stamped by — or, pre-stamp, attributed to — another project is never
+# re-pointed or given this project's syncer window (45), and an ownership read
+# or stamp write that fails stops the bootstrap too (46 / 47). Only a session
+# THIS call created is claimed without evidence (--created).
 #
 # --create-only: CREATE the session or change NOTHING (t1784). The default
 # mode is "ensure", which is right for `ait ide` — a user running it in a
@@ -643,7 +875,10 @@ _tmux_bootstrap_report_exists() {
 # Exit codes: 2 usage / not a directory, 3 tmux missing, 4 new-session failed,
 # 42 not an aitasks project (BOOTSTRAP_FAILED:stale_path), 43 the session
 # already exists (--create-only only), 44 unreadable default_session
-# (--create-only only).
+# (--create-only only), 45 the session belongs to another project
+# (BOOTSTRAP_FAILED:session_owned:<s>:<owner>), 46 its ownership could not be
+# verified (BOOTSTRAP_FAILED:claim_unverified:<s>), 47 the ownership stamp could
+# not be written (BOOTSTRAP_FAILED:claim_write_failed:<s>).
 spawn_session_detached() {
     local root="$1"
     local mode="${2:-}"
@@ -669,7 +904,7 @@ spawn_session_detached() {
         return 42
     fi
 
-    local session session_t scan shape
+    local session session_t scan shape created=""
     scan=$(_tmux_bootstrap_default_session_scan_checked "$root")
     if [[ "$scan" == bad$'\t'* ]]; then
         shape="${scan#bad$'\t'}"
@@ -727,6 +962,7 @@ spawn_session_detached() {
                 echo "spawn_session_detached: tmux new-session failed for '$session'" >&2
                 return 4
             }
+        created="--created"
     elif [[ "$mode" == "--create-only" ]]; then
         # An existing session, and the caller asked to create or change nothing:
         # return BEFORE the registry / syncer steps, which would re-point it.
@@ -734,7 +970,8 @@ spawn_session_detached() {
         return 43
     fi
 
-    _tmux_bootstrap_set_project_registry "$root" "$session"
+    _tmux_bootstrap_set_project_registry "$root" "$session" ${created:+"$created"} \
+        || return $?
     _tmux_bootstrap_ensure_syncer_window "$root" "$session"
     if [[ "$mode" == "--create-only" ]]; then
         echo "BOOTSTRAP_CREATED:$session"

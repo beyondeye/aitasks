@@ -125,6 +125,7 @@ collision_fixture() {
     rm -f "$AITASKS_PROJECTS_INDEX"
 }
 
+stamp()    { tm list-sessions -F "#{session_name}	#{@aitask_project_root}" 2>/dev/null | sed -n "s|^$1	||p"; }
 registry() { tm show-environment -g "AITASKS_PROJECT_$1" 2>/dev/null | sed -n "s|^AITASKS_PROJECT_$1=||p"; }
 windows()  { tm list-windows -t "=$1" -F '#{window_name}' 2>/dev/null | paste -sd ' ' -; }
 index_written() { [ -f "$AITASKS_PROJECTS_INDEX" ] && echo yes || echo no; }
@@ -189,22 +190,63 @@ section "A1 — no session: create-only creates it and says so"
 )
 
 # ---------------------------------------------------------------------------
-section "A0 — CONTROL: the default mode DOES clobber a foreign session"
+section "A0 — CONTROL: the default mode DOES claim a session nobody owns"
 # ---------------------------------------------------------------------------
 # Why this case is permanent. A2-A4 assert "nothing changed", and a detector
-# that cannot see a change passes them vacuously. This drives the SAME fixture
-# through the default ("ensure") mode — which `ait ide` keeps on purpose — and
-# requires the clobber to be visible. That proves the detectors work, and shows
-# that the flag, not the fixture, is what prevents the clobber.
+# that cannot see a change passes them vacuously. This drives the default
+# ("ensure") mode — which `ait ide` keeps on purpose — at an existing session
+# with NO ownership evidence (pane outside any project, no registry entry), the
+# one shape it still claims (t1922), and requires the change to be visible.
+# That proves the detectors work.
 (
     collision_fixture outside
+    tm set-environment -g -u "AITASKS_PROJECT_$NAME"
     boot "$PROJ_B"
 
-    assert_eq "A0: the default mode exits 0 on an existing session" "0" "$BOOT_RC"
-    assert_eq "A0: it RE-POINTS the foreign session's registry entry at B" \
+    assert_eq "A0: the default mode exits 0 on an unowned session" "0" "$BOOT_RC"
+    assert_eq "A0: it stamps the session for B" "$PROJ_B" "$(stamp "$NAME")"
+    assert_eq "A0: it points the legacy registry entry at B" \
         "$PROJ_B" "$(registry "$NAME")"
-    assert_contains "A0: and adds B's syncer window to A's session" \
-        "syncer" "$(windows "$NAME")"
+    assert_contains "A0: and adds B's syncer window" "syncer" "$(windows "$NAME")"
+)
+
+# ---------------------------------------------------------------------------
+section "A0b — the default mode REFUSES a session another project owns (t1922)"
+# ---------------------------------------------------------------------------
+# The clobber the control above would be on A's session: before t1922 ensure
+# mode re-pointed A's registry entry at B and added B's syncer window. A
+# session that predates the ownership stamp is not free just because it
+# carries none — discovery's evidence (A's registry entry here, A's panes in
+# A0c) names its owner.
+(
+    collision_fixture outside
+    before="$(snapshot "$NAME")"
+    boot "$PROJ_B"
+
+    assert_eq "A0b: exit 45" "45" "$BOOT_RC"
+    assert_contains "A0b: the structured refusal names the owner" \
+        "BOOTSTRAP_FAILED:session_owned:$NAME:$PROJ_A" "$BOOT_ERR"
+    assert_eq "A0b: windows, panes and registry are identical" \
+        "$before" "$(snapshot "$NAME")"
+    assert_eq "A0b: no stamp was written" "" "$(stamp "$NAME")"
+    assert_not_contains "A0b: no syncer window was added" "syncer" "$(windows "$NAME")"
+    assert_eq "A0b: the per-user index was not written" "no" "$(index_written)"
+)
+
+# ---------------------------------------------------------------------------
+section "A0c — the same refusal when only A's PANES name the owner"
+# ---------------------------------------------------------------------------
+(
+    collision_fixture inside
+    before="$(snapshot "$NAME")"
+    boot "$PROJ_B"
+
+    assert_eq "A0c: exit 45" "45" "$BOOT_RC"
+    assert_contains "A0c: the structured refusal names the owner" \
+        "BOOTSTRAP_FAILED:session_owned:$NAME:$PROJ_A" "$BOOT_ERR"
+    assert_eq "A0c: windows, panes and registry are identical" \
+        "$before" "$(snapshot "$NAME")"
+    assert_not_contains "A0c: no syncer window was added" "syncer" "$(windows "$NAME")"
 )
 
 # ---------------------------------------------------------------------------
