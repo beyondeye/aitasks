@@ -12,8 +12,9 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1916
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-09 15:45
-updated_at: 2026-10-09 15:56
+updated_at: 2026-10-09 16:00
 ---
 
 ## Origin
@@ -48,3 +49,8 @@ Rebuild the test on the scaffolded fixture used by `tests/test_verified_update.s
 `tests/lib/metadata_update_fixture.sh`) so it never touches the real registry;
 optionally clean the accumulated `test_414_flags` entries out of
 `models_claudecode.json` in a separate, reviewed commit.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-09T13:00:48Z status=pass attempt=1 type=human
