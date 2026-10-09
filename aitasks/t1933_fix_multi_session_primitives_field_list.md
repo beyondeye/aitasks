@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -44,3 +46,5 @@ Add `default_session_problem` to the expected sorted field list at tests/test_mu
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-10-09T12:54:56Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-10-09T13:02:51Z status=pass attempt=1 type=human
