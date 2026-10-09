@@ -42,7 +42,7 @@ from shortcuts_mixin import ShortcutsMixin
 # t953). Ambient $TMUX self-probes (_detect_*) stay raw by design.
 _TMUX = TmuxClient()
 
-from textual.app import App, ComposeResult
+from textual.app import App, ComposeResult, SuspendNotSupported
 from textual.binding import Binding
 from textual.containers import Horizontal, Container
 from textual.css.query import NoMatches
@@ -1507,7 +1507,7 @@ class CodeBrowserApp(TuiSwitcherMixin, ShortcutsMixin, App):
             )
             def on_result(result):
                 if result == "run":
-                    self._run_agent_command("explain", arg)
+                    self.run_launch_command(["sh", "-c", screen.full_command])
                 elif isinstance(result, TmuxLaunchConfig):
                     _, err = launch_in_tmux(screen.full_command, result)
                     if err:
@@ -1517,20 +1517,63 @@ class CodeBrowserApp(TuiSwitcherMixin, ShortcutsMixin, App):
             self.push_screen(screen, on_result)
         else:
             # Fallback: direct launch without modal
-            self._run_agent_command("explain", arg)
+            self.run_launch_command(self._codeagent_argv("explain", arg))
 
-    @work(exclusive=True)
-    async def _run_agent_command(self, operation: str, arg: str) -> None:
-        """Launch code agent in a terminal or inline."""
+    def _codeagent_argv(self, operation: str, arg: str) -> list[str]:
+        """Default wrapper argv — only for the no-dialog fallback."""
         wrapper = str(self._project_root / ".aitask-scripts" / "aitask_codeagent.sh")
+        return [wrapper, "invoke", operation, arg]
+
+    @work(exclusive=True, group="launch")
+    async def run_launch_command(
+        self, argv: list[str], *, refresh_explain: bool = False
+    ) -> None:
+        """Run ``argv`` in a new terminal, or inline under ``suspend()``.
+
+        Every AgentCommandScreen "run" branch (explain, create, history QA)
+        passes ``["sh", "-c", screen.full_command]``: ``run_terminal`` stores
+        the user's edits there and the agent/profile controls regenerate it, so
+        rebuilding default wrapper argv would silently launch a different
+        configuration (t1225, t1929). Only the no-dialog fallback passes
+        rebuilt argv.
+
+        Own worker group: ``_load_explain_data`` / ``_refresh_explain_data``
+        are exclusive in the default group, and an exclusive launch there
+        would cancel in-flight annotation loading.
+
+        An escaping exception would end the codebrowser (worker
+        exit_on_error), so launch failures are notified instead. The inline
+        OSError is caught INSIDE ``with self.suspend():`` — ``App.suspend``
+        resumes the driver after its yield with no ``finally`` (Textual
+        8.2.7), so an exception leaving the block would keep the terminal
+        suspended (t1915).
+        """
+        cwd = str(self._project_root)
         terminal = _find_terminal()
         if terminal:
-            spawn_in_terminal(terminal, [wrapper, "invoke", operation, arg],
-                              cwd=str(self._project_root))
-        else:
+            try:
+                spawn_in_terminal(terminal, argv, cwd=cwd)
+            except OSError as exc:
+                self.notify(f"Could not launch command: {exc}", severity="error")
+            return
+        launch_error: OSError | None = None
+        try:
             with self.suspend():
-                subprocess.call([wrapper, "invoke", operation, arg],
-                                cwd=str(self._project_root))
+                try:
+                    subprocess.call(argv, cwd=cwd)
+                except OSError as exc:
+                    launch_error = exc
+        except SuspendNotSupported:
+            self.notify(
+                "No terminal emulator found and this environment cannot "
+                "suspend the TUI to run the command inline.",
+                severity="error",
+            )
+            return
+        if launch_error is not None:
+            self.notify(f"Could not launch command: {launch_error}", severity="error")
+        elif refresh_explain:
+            self.action_refresh_explain()
 
     def action_create_task(self) -> None:
         """Launch aitask_create.sh with --file-ref pre-populated from the current file and selection."""
@@ -1562,11 +1605,13 @@ class CodeBrowserApp(TuiSwitcherMixin, ShortcutsMixin, App):
         else:
             title = "Create task"
 
+        # Quoted: the command runs through a shell (tmux, and "run" via
+        # sh -c), and the project root may contain spaces.
         if ref_arg:
-            full_cmd = f"{create_script} --file-ref {shlex.quote(ref_arg)}"
+            full_cmd = f"{shlex.quote(create_script)} --file-ref {shlex.quote(ref_arg)}"
             prompt_str = f"ait create --file-ref {ref_arg}"
         else:
-            full_cmd = create_script
+            full_cmd = shlex.quote(create_script)
             prompt_str = "ait create"
 
         screen = AgentCommandScreen(
@@ -1577,7 +1622,9 @@ class CodeBrowserApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
         def on_result(result):
             if result == "run":
-                self._run_create_from_selection(ref_arg)
+                self.run_launch_command(
+                    ["sh", "-c", screen.full_command], refresh_explain=True
+                )
             elif isinstance(result, TmuxLaunchConfig):
                 _, err = launch_in_tmux(screen.full_command, result)
                 if err:
@@ -1593,24 +1640,6 @@ class CodeBrowserApp(TuiSwitcherMixin, ShortcutsMixin, App):
                         )
 
         self.push_screen(screen, on_result)
-
-    @work(exclusive=True)
-    async def _run_create_from_selection(self, ref_arg: str | None) -> None:
-        """Launch aitask_create.sh in a terminal (or via suspend), then refresh annotations."""
-        create_script = str(self._project_root / ".aitask-scripts" / "aitask_create.sh")
-        cmd: list[str] = [create_script]
-        if ref_arg:
-            cmd.extend(["--file-ref", ref_arg])
-        terminal = _find_terminal()
-        if terminal:
-            spawn_in_terminal(
-                terminal, cmd,
-                cwd=str(self._project_root),
-            )
-        else:
-            with self.suspend():
-                subprocess.call(cmd, cwd=str(self._project_root))
-            self.action_refresh_explain()
 
 
 def main() -> None:

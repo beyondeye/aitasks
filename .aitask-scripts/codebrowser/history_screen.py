@@ -1,7 +1,6 @@
 """History screen composing left pane + detail pane for browsing completed tasks."""
 
 import shutil
-import subprocess
 import sys
 import time
 from pathlib import Path
@@ -9,7 +8,7 @@ from typing import List, Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 from agent_command_screen import AgentCommandScreen, resolve_skill_profile
-from agent_launch_utils import find_terminal as _find_terminal, spawn_in_terminal, resolve_dry_run_command, resolve_agent_string, TmuxLaunchConfig, launch_in_tmux, maybe_spawn_minimonitor
+from agent_launch_utils import resolve_dry_run_command, resolve_agent_string, TmuxLaunchConfig, launch_in_tmux, maybe_spawn_minimonitor
 
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -437,7 +436,9 @@ class HistoryScreen(Screen):
             )
             def on_result(result):
                 if result == "run":
-                    self._run_qa_command(task_id)
+                    # The dialog's command, never full_cmd: it carries the
+                    # user's edits and agent/profile changes (t1225, t1929).
+                    self.app.run_launch_command(["sh", "-c", screen.full_command])
                 elif isinstance(result, TmuxLaunchConfig):
                     _, err = launch_in_tmux(screen.full_command, result)
                     if err:
@@ -446,24 +447,7 @@ class HistoryScreen(Screen):
                         maybe_spawn_minimonitor(result.session, result.window)
             self.app.push_screen(screen, on_result)
         else:
-            self._run_qa_command(task_id)
-
-    @work(exclusive=True)
-    async def _run_qa_command(self, task_id: str) -> None:
-        """Launch QA agent in a terminal or inline."""
-        wrapper = str(self._project_root / ".aitask-scripts" / "aitask_codeagent.sh")
-        terminal = _find_terminal()
-        if terminal:
-            spawn_in_terminal(
-                terminal, [wrapper, "invoke", "qa", task_id],
-                cwd=str(self._project_root),
-            )
-        else:
-            with self.app.suspend():
-                subprocess.call(
-                    [wrapper, "invoke", "qa", task_id],
-                    cwd=str(self._project_root),
-                )
+            self.app.run_launch_command(self.app._codeagent_argv("qa", task_id))
 
     def action_toggle_focus(self) -> None:
         """Cycle focus: history_list → recent_list → detail → history_list."""
