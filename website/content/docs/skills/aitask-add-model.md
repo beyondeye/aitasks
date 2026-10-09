@@ -13,6 +13,7 @@ Register a single, already-known code-agent model in the framework's model regis
 ```
 /aitask-add-model
 /aitask-add-model --agent claudecode --name opus4_7_1m --cli-id 'claude-opus-4-7[1m]' --notes "1M context" --promote --promote-ops pick,explore,brainstorm-explorer
+/aitask-add-model --agent claudecode --name haiku5_5 --cli-id claude-haiku-5-5 --notes "..." --supersedes haiku4_5
 /aitask-add-model --dry-run ...
 ```
 
@@ -35,6 +36,8 @@ Use `/aitask-add-model` when you already know the model you want to register —
 
 Appends the model entry to `aitasks/metadata/models_<agent>.json` with empty `verified` / `verifiedstats`, syncs to `seed/models_<agent>.json`, and commits both files separately (metadata via `./ait git`, seed via plain `git`).
 
+It also asks whether the new model succeeds an already-registered model of the same agent — offering the registered models of the same family (for example `haiku4_5` for `haiku5_5`) and "None". Naming one (or passing `--supersedes <old>`) records that lineage in `.aitask-scripts/lib/model_supersessions.json`, so projects still configured with the old model are offered the new one on `ait upgrade`. The candidates are only suggestions: nothing is recorded unless you choose a predecessor.
+
 ### Promote mode (`--promote`)
 
 Everything add-mode does, plus:
@@ -51,7 +54,9 @@ A recorded supersession is global — every operation still using the old model 
 
 - **Recorded** when the promotion moves every seed operation off the old model. A matching `_1m` variant pair is recorded alongside when both variants are registered.
 - **Refused** when the old model stays the seed default of another operation (a partial promotion), when the old model already has a different successor, when the new edge would close a cycle, or when the new model is not registered. The skill then offers to add the remaining operations, to promote without recording a supersession (`--no-supersession`), or to abort. Nothing is written by a refused apply.
-- `record-supersession` declares a lineage without a promotion: one a partial promotion could not record (once no seed default uses the old model), or the successor of a model that was never a default (for example `haiku4_5` → `haiku5_5`): `./.aitask-scripts/aitask_add_model.sh record-supersession --agent <agent> --old <old> --new <new>`.
+- A lineage chosen at registration (the lineage question or `--supersedes`) follows the same rules and is previewed in the dry-run alongside the registry diff. It is refused while the old model is still a seed default — promote the new model for those operations instead.
+- `--no-supersession` records nothing at all: neither the supersession a promotion implies nor a lineage chosen at registration. Passing it together with `--supersedes` is refused as contradictory.
+- `record-supersession` declares a lineage outside the skill: one a partial promotion could not record (once no seed default uses the old model), or one declared after the model was registered: `./.aitask-scripts/aitask_add_model.sh record-supersession --agent <agent> --old <old> --new <new>`.
 - Existing entries are never overwritten, and a cross-agent replacement (for example a `claudecode` model replaced by a `codex` one) is not recorded.
 
 ## Supported Agents

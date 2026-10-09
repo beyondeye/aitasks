@@ -8,7 +8,10 @@ models via web research, this one skips research and takes known inputs
 (e.g., a just-announced Opus release) to:
 
 - **Add mode** — append the model to `aitasks/metadata/models_<agent>.json`
-  and the matching `seed/` file.
+  and the matching `seed/` file. When the new model succeeds an
+  already-registered one (e.g. `haiku4_5` → `haiku5_5`), it also records that
+  lineage in `.aitask-scripts/lib/model_supersessions.json`, so projects still
+  configured with the old model are offered the new one on `ait upgrade`.
 - **Promote mode** — in addition, patch `codeagent_config.json` defaults
   for listed ops and, for `claudecode`, update `DEFAULT_AGENT_STRING` in
   `.aitask-scripts/lib/agent_string.sh` (and the resolution-chain help note
@@ -36,8 +39,10 @@ If invoked with CLI flags, parse them directly. Supported flags:
 - `--promote` — also update config defaults + `DEFAULT_AGENT_STRING`
 - `--promote-ops <csv>` — required with `--promote`; comma-separated ops
   (e.g., `pick,explore,brainstorm-explorer`)
-- `--no-supersession` — promote without recording a supersession (see
-  Step 3)
+- `--supersedes <old>` — the already-registered model of the same agent that
+  this one succeeds (records `<old>` → `<name>`; see "Lineage" below)
+- `--no-supersession` — record no supersession at all: neither the edges a
+  promotion implies nor a `--supersedes` lineage (see "Lineage" below)
 - `--dry-run` — preview only, no writes
 
 If any required input is missing, collect it via `AskUserQuestion`:
@@ -50,6 +55,32 @@ If any required input is missing, collect it via `AskUserQuestion`:
 - **promote-ops** (if promote) — multiSelect from the keys present in
   `aitasks/metadata/codeagent_config.json` under `.defaults` (read the
   file to enumerate)
+- **predecessor** — see "Lineage" below
+
+**Lineage.** Unless `--supersedes` or `--no-supersession` was given, ask with
+`AskUserQuestion`:
+
+- Question: "Does `<agent>/<name>` succeed an already-registered model? Projects
+  still configured with that model will be offered `<name>` on `ait upgrade`."
+- Header: `Lineage`
+- Options: up to three registered models of the same agent whose name starts
+  with the same leading letters as `<name>` (its family — `haiku` for
+  `haiku5_5`), newest first, each described by its `notes`; plus `None — no
+  lineage`. These candidates are a convenience, not an inference: the user
+  picks one, names another registered model via "Other", or declines. Never
+  record a lineage the user did not choose.
+
+The answer (or `--supersedes`) is `<old>`; "None" leaves it unset.
+
+**One opt-out: `record_lineage`.** Keep a single decision that governs **both**
+recording paths — the edges `promote-config` derives from the seed defaults it
+retires, and the explicit `<old>` → `<name>` lineage. It starts `true` and
+becomes `false` on `--no-supersession` or on any choice below that declines
+recording ("Register without lineage", "Promote without recording
+supersession", "Apply without recording supersession"). While it is `false`:
+`promote-config` runs with `--no-supersession`, `record-supersession` is not
+run at all (neither preview nor apply), and the Step 4 summary says that no
+lineage will be recorded.
 
 ### Step 2: Validate Inputs
 
@@ -67,7 +98,16 @@ jq -e --arg n "<name>" 'any(.models[]?; .name == $n)' \
 
 If the model name already exists, abort with a message — the add step
 will fail anyway, and the user needs to either pick a new name or skip
-to `promote-config` manually.
+to `promote-config` manually. If the model is registered and only its lineage
+is missing, say so: run
+`./.aitask-scripts/aitask_add_model.sh record-supersession --agent <agent> --old <old> --new <name>`
+directly.
+
+When `<old>` is set, it must be registered in the same registry and differ
+from `<name>`. `--supersedes` together with `--no-supersession` is
+contradictory — refuse before any dry-run: "`--supersedes` declares a lineage
+and `--no-supersession` forbids one — pass one of them." Do not guess which
+one wins.
 
 ### Step 3: Compute Proposed Changes (Dry Run)
 
@@ -117,6 +157,28 @@ the diffs. Relay them to the user:
     add-and-promote run the preview is missing `--assume-registered`; otherwise
     register the model first.
 
+If `<old>` is set and `record_lineage` is `true`, preview the lineage — with
+`--assume-registered` for the same reason as above (only on a `--dry-run`):
+
+```bash
+./.aitask-scripts/aitask_add_model.sh record-supersession --dry-run --assume-registered \
+  --agent <agent> --old <old> --new <name>
+```
+
+Skip it in promote mode when the `promote-config` preview already printed
+`RECORDED:<agent>/<old>-><agent>/<name>` — the promotion records that edge.
+Relay its lines as for `promote-config` (`RECORDED`, `RECORDED_SIBLING`,
+`WARN:family`, `SKIPPED`). A `BLOCKED` line means the apply would be refused;
+resolve it with `AskUserQuestion` before Step 4:
+
+- `BLOCKED:in_seed:<agent>/<old>|<ops>` — `<old>` is still the seed default
+  of `<ops>`, and the framework never ships a default it declares obsolete.
+  Options: `Promote instead` (restart in promote mode with those ops) /
+  `Register without lineage` / `Abort`.
+- `BLOCKED:conflict|cycle|seed_invariant:…` — the table already says
+  something else. Options: `Register without lineage` / `Abort`; never edit
+  the table to force the edge in.
+
 And for `claudecode` only:
 
 ```bash
@@ -136,20 +198,42 @@ If not already a dry-run, use `AskUserQuestion`:
   - `Apply` (description: `Write the changes shown in the dry-run above`)
   - `Abort` (description: `Make no changes`)
 
-In promote mode, when the preview recorded a supersession, add a third
-option: `Apply without recording supersession` (description: `Promote the
-defaults but declare no lineage — upgrading projects are not offered the new
-model`) — it runs `promote-config` with `--no-supersession`.
+When a preview recorded a supersession (in either mode), add a third
+option: `Apply without recording supersession` (description: `Apply the
+registration and defaults but declare no lineage — upgrading projects are not
+offered the new model`). It sets `record_lineage` to `false`, which runs
+`promote-config` with `--no-supersession` and skips `record-supersession`.
 
 If `Apply`, run the same subcommands without `--dry-run` (and without
-`--assume-registered`). Subcommand order when promoting:
+`--assume-registered`), in this order, dropping the ones that do not apply:
 
 1. `add-json` — registers the model
-2. `promote-config` — updates `codeagent_config.json` (and seed) and
-   records the supersession
-3. `promote-default-agent-string` — updates `DEFAULT_AGENT_STRING` in
-   `.aitask-scripts/lib/agent_string.sh` and the resolution-chain note in
-   `.aitask-scripts/aitask_codeagent.sh` (claudecode only)
+2. `promote-config` (promote mode) — updates `codeagent_config.json` (and
+   seed) and records the supersession the promotion implies
+3. `record-supersession` (only when `record_lineage` is `true`, `<old>` is
+   set, and step 2 did not already record `<old>` → `<name>`) — records the
+   lineage; it validates against the real registry, which step 1 just wrote
+4. `promote-default-agent-string` (promote mode, claudecode only) — updates
+   `DEFAULT_AGENT_STRING` in `.aitask-scripts/lib/agent_string.sh` and the
+   resolution-chain note in `.aitask-scripts/aitask_codeagent.sh`
+
+**If a call fails,** stop — do not run the remaining calls. Report which calls
+succeeded and which failed (with its output), then report what is actually
+saved by looking, not by exit status — a failed call can have written some of
+its own files before failing:
+
+```bash
+./ait git status --short -- aitasks/metadata/models_<agent>.json aitasks/metadata/codeagent_config.json
+git status --short -- seed/ .aitask-scripts/lib/model_supersessions.json
+```
+
+Never relay a helper's "Nothing was written" as a statement about the whole
+operation. If the model is registered but the lineage is missing (typically
+`record-supersession` refused it), give the targeted retry, to run once the
+`BLOCKED` cause is resolved:
+`./.aitask-scripts/aitask_add_model.sh record-supersession --agent <agent> --old <old> --new <name>`
+— re-running this skill with the same `--name` would stop at the duplicate
+check.
 
 ### Step 5: Manual-Review Reminder (promote mode only)
 
@@ -227,9 +311,10 @@ git show --stat <sha>    # <sha> from the commit's "[<branch> <sha>]" line — n
 in promote mode. The config is already tracked, so it is never `add`ed —
 `commit -- <paths>` takes a tracked file's worktree content without one.
 
-**Supersession table (main branch, promote mode, when `promote-config`
-printed `NOTE: commit .aitask-scripts/lib/model_supersessions.json`):** the
-table is already tracked, so there is no `add`:
+**Supersession table (main branch, when `promote-config` or
+`record-supersession` printed `NOTE: commit
+.aitask-scripts/lib/model_supersessions.json`):** the table is already
+tracked, so there is no `add`:
 ```bash
 git commit -m "ait: Record <agent>/<name> supersession" \
     -- .aitask-scripts/lib/model_supersessions.json
@@ -268,13 +353,16 @@ Execute the **Satisfaction Feedback Procedure** (see
   projects carry), and only when it retires the old model from the seed
   entirely — the framework must never ship a default it declares obsolete.
   Supersession is not limited to defaults: when you register the successor of a
-  model that was never a default (e.g. `haiku4_5` → `haiku5_5`), declare the
-  lineage so users who chose the old model are offered the new one. The same
-  verb declares a lineage a partial promotion could not record, once the old
-  model is no longer a seed default:
+  model that was never a default (e.g. `haiku4_5` → `haiku5_5`), the Step 1
+  lineage question (or `--supersedes`) records it, so users who chose the old
+  model are offered the new one. Outside this workflow — a lineage a partial
+  promotion could not record once the old model is no longer a seed default,
+  or one declared after the fact — run
   `./.aitask-scripts/aitask_add_model.sh record-supersession --agent <a> --old <old> --new <new> [--dry-run]`
   (same guards; commit the table as in Step 6). Existing edges are never
   overwritten.
+- OpenCode models carry no supersession lineages yet: this skill refuses
+  `opencode`, and so does `record-supersession`.
 - `promote-default-agent-string` is `claudecode`-only because only
   `.aitask-scripts/lib/agent_string.sh` hardcodes a default fallback
   (`DEFAULT_AGENT_STRING="${DEFAULT_AGENT_STRING:-...}"`). The subcommand

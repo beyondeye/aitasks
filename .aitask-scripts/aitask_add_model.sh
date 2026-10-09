@@ -13,6 +13,7 @@
 #                                  and record the model(s) the promotion
 #                                  supersedes (lib/model_supersessions.json)
 #   record-supersession            Record "<old> is superseded by <new>" alone
+#                                  (e.g. the successor just registered by add-json)
 #   promote-default-agent-string   Update DEFAULT_AGENT_STRING in
 #                                  lib/agent_string.sh + the resolution-chain
 #                                  note in aitask_codeagent.sh (claudecode only)
@@ -346,18 +347,22 @@ $SUPERSESSION_BLOCKED_HELP"
 
 # --- Subcommand: record-supersession ---
 
-# Declare "<agent>/<old> is superseded by <agent>/<new>" on its own — for a
+# Declare "<agent>/<old> is superseded by <agent>/<new>" on its own — the
+# successor of a model registered in the same run (add-json, then this), a
 # lineage a partial promotion could not record (promote-config
-# --no-supersession), once no seed default uses <old> any more. Same guards as
-# promote-config, always against the real registry.
+# --no-supersession) once no seed default uses <old> any more, or any lineage
+# declared later. Same guards as promote-config. --assume-registered (dry-run
+# only) previews a <new> that add-json has not written yet; an apply always
+# validates against the real registry.
 cmd_record_supersession() {
-    local agent="" old="" new="" dry_run=false
+    local agent="" old="" new="" dry_run=false assume_registered=false
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --agent)   agent="$2"; shift 2 ;;
             --old)     old="$2"; shift 2 ;;
             --new)     new="$2"; shift 2 ;;
             --dry-run) dry_run=true; shift ;;
+            --assume-registered) assume_registered=true; shift ;;
             *) die "Unknown argument to record-supersession: '$1'" ;;
         esac
     done
@@ -365,6 +370,9 @@ cmd_record_supersession() {
     validate_agent "$agent"
     validate_name "$old"
     validate_name "$new"
+    if $assume_registered && ! $dry_run; then
+        die "--assume-registered is only valid with --dry-run"
+    fi
 
     local seed_rel="seed/codeagent_config.json"
     local seed_file="$REPO_ROOT/$seed_rel"
@@ -372,10 +380,11 @@ cmd_record_supersession() {
     [[ -f "$seed_file" ]] || die "record-supersession needs $seed_rel: supersession is recorded in the framework source repository"
 
     local tmp_table record_out="" record_rc=0
+    local record_args=(--new "$new" --old "$old" --seed "$seed_file")
+    $assume_registered && record_args+=(--assume-registered)
     tmp_table=$(mktemp_suffixed "${TMPDIR:-/tmp}/aitask_add_model_supersession_XXXXXX.json")
     record_out=$(supersession_record "$agent" "$tmp_table" \
-        "record-supersession $(date +%Y-%m-%d)" \
-        --new "$new" --old "$old" --seed "$seed_file") || record_rc=$?
+        "record-supersession $(date +%Y-%m-%d)" "${record_args[@]}") || record_rc=$?
     [[ -n "$record_out" ]] && printf '%s\n' "$record_out"
     if [[ "$record_rc" -eq 3 ]]; then
         rm -f "$tmp_table"
@@ -489,6 +498,7 @@ Subcommands:
   promote-config               --agent <a> --name <n> --ops <csv>             [--dry-run]
                                [--no-supersession] [--assume-registered]
   record-supersession          --agent <a> --old <n> --new <n>                [--dry-run]
+                               [--assume-registered]
   promote-default-agent-string --agent <a> --name <n>                         [--dry-run]
 
 Supported agents: claudecode, codex.
@@ -501,8 +511,10 @@ superseded by the new one (.aitask-scripts/lib/model_supersessions.json), so
 `ait upgrade` offers the new model to projects still using the old one. A
 supersession is global, so a promotion that leaves the old model as another
 seed op's default is refused (BLOCKED:partial) unless --no-supersession is
-given; record-supersession declares it later. --assume-registered (dry-run
-only) previews a model that add-json has not written yet.
+given; record-supersession declares it later. record-supersession also
+declares the successor of a model that was never a default. --assume-registered
+(dry-run only, on promote-config and record-supersession) previews a model that
+add-json has not written yet.
 
 The AITASK_REPO_ROOT env var overrides the repo root used for file
 resolution (defaults to the parent dir of .aitask-scripts). This is used

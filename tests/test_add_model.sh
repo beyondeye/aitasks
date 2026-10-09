@@ -491,10 +491,18 @@ rc=0
 out=$(bash "$HELPER" record-supersession --dry-run --agent claudecode --old opus4_5 --new opus4_7 2>&1) || rc=$?
 assert_eq "record-supersession refuses an unregistered target" "1" "$rc"
 assert_contains "record-supersession names it" "BLOCKED:unregistered:claudecode/opus4_7" "$out"
+dry_record=$(bash "$HELPER" record-supersession --dry-run --assume-registered \
+    --agent claudecode --old opus4_5 --new opus4_7 2>&1)
+assert_contains "record-supersession preview notes the assumed registration" \
+    "NOTE:assumes_registration:claudecode/opus4_7" "$dry_record"
+assert_contains "record-supersession preview records the lineage" \
+    "RECORDED:claudecode/opus4_5->claudecode/opus4_7" "$dry_record"
+assert_contains "record-supersession preview shows the table diff" "+++ b/$FIXTURE_TABLE_REL" "$dry_record"
 rc=0
-out=$(bash "$HELPER" record-supersession --dry-run --assume-registered --agent claudecode --old opus4_5 --new opus4_7 2>&1) || rc=$?
-assert_eq "record-supersession accepts no --assume-registered" "1" "$rc"
-assert_eq "refusals wrote nothing" "$checksum_before" "$(fixture_checksum)"
+out=$(bash "$HELPER" record-supersession --assume-registered --agent claudecode --old opus4_5 --new opus4_7 2>&1) || rc=$?
+assert_eq "record-supersession --assume-registered without --dry-run is an error" "1" "$rc"
+assert_contains "record-supersession --assume-registered usage error" "only valid with --dry-run" "$out"
+assert_eq "refusals and previews wrote nothing" "$checksum_before" "$(fixture_checksum)"
 
 bash "$HELPER" add-json --agent claudecode --name opus4_7 --cli-id claude-opus-4-7 --notes n >/dev/null
 out=$(bash "$HELPER" promote-config --agent claudecode --name opus4_7 --ops pick,explore 2>&1)
@@ -613,6 +621,24 @@ assert_eq "no edge after --no-supersession" "" "$(table_successor opus4_6)"
 out=$(bash "$HELPER" record-supersession --agent claudecode --old opus4_6 --new opus4_7 2>&1)
 assert_contains "record-supersession records once retired" "RECORDED:claudecode/opus4_6->claudecode/opus4_7" "$out"
 assert_eq "explicit edge in the table" "opus4_7" "$(table_successor opus4_6)"
+assert_eq "seed invariant holds" "OK" "$(seed_invariant)"
+teardown_fixture
+
+echo "=== Test 14: add-only registration with a lineage: add-json, then record-supersession (t1927) ==="
+setup_fixture
+register_models opus4_5
+config_sums() {
+    md5sum "$FIXTURE_DIR/aitasks/metadata/codeagent_config.json" \
+        "$FIXTURE_DIR/seed/codeagent_config.json" | awk '{print $1}'
+}
+configs_before=$(config_sums)
+bash "$HELPER" add-json --agent claudecode --name opus4_7 --cli-id claude-opus-4-7 --notes n >/dev/null
+out=$(bash "$HELPER" record-supersession --agent claudecode --old opus4_5 --new opus4_7 2>&1)
+assert_contains "apply records the predecessor link" "RECORDED:claudecode/opus4_5->claudecode/opus4_7" "$out"
+assert_contains "apply prints the commit reminder" \
+    "NOTE: commit .aitask-scripts/lib/model_supersessions.json" "$out"
+assert_eq "predecessor link persisted in the table" "opus4_7" "$(table_successor opus4_5)"
+assert_eq "no default moved (project + seed config unchanged)" "$configs_before" "$(config_sums)"
 assert_eq "seed invariant holds" "OK" "$(seed_invariant)"
 teardown_fixture
 
