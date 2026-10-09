@@ -8,6 +8,8 @@ source "$SCRIPT_DIR/lib/terminal_compat.sh"
 source "$SCRIPT_DIR/lib/task_utils.sh"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/lib/verified_update_lib.sh"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/registry_cas.sh"
 
 # Anchor to the repo root before anything resolves a relative path. TWO
 # independent cwd anchors depend on it: `aitasks/metadata/models_<agent>.json`
@@ -202,17 +204,30 @@ ensure_model_exists() {
     fi
 }
 
-update_model_file() {
-    local models_file="$1"
+# Render for ait_cas_rewrite (lib/registry_cas.sh): record the score on the
+# snapshot it hands us. It can run against several fresh snapshots, so it
+# re-checks the target on each one — a concurrent refresh may have renamed the
+# row (it matches by cli_id) — and it derives the new score from what it
+# rendered, never from a later re-read of the live file. Must return, never die;
+# RENDER_MODEL_GONE and RENDERED_VALUE carry the outcome back (the render runs
+# in the current shell).
+RENDER_MODEL_GONE=0
+RENDERED_VALUE=""
+render_verified_update() {
+    local snapshot="$1"
     local model_name="$2"
     local skill_name="$3"
-    local raw_score="$4"
-    local mapped_score
-    mapped_score="$(map_score "$raw_score")"
+    local mapped_score="$4"
+    local out
 
-    local tmp_file
-    tmp_file="$(mktemp "${TMPDIR:-/tmp}/aitask_verified_update.XXXXXX")"
+    RENDER_MODEL_GONE=0
+    RENDERED_VALUE=""
+    if ! jq -e --arg model "$model_name" 'any(.models[]; .name == $model)' "$snapshot" >/dev/null 2>&1; then
+        RENDER_MODEL_GONE=1
+        return 1
+    fi
 
+    out="$(
     jq \
         --arg model "$model_name" \
         --arg skill "$skill_name" \
@@ -271,13 +286,45 @@ update_model_file() {
                 .
             end
         )
-        ' "$models_file" > "$tmp_file"
+        ' "$snapshot"
+    )" || return 1
 
-    mv "$tmp_file" "$models_file"
-
-    jq -r --arg model "$model_name" --arg skill "$skill_name" '
+    RENDERED_VALUE="$(jq -r --arg model "$model_name" --arg skill "$skill_name" '
         .models[] | select(.name == $model) | .verified[$skill]
-    ' "$models_file"
+    ' <<< "$out")" || return 1
+    [[ -n "$RENDERED_VALUE" && "$RENDERED_VALUE" != "null" ]] || return 1
+
+    # jq's own single trailing newline, which $( ) stripped
+    printf '%s\n' "$out"
+}
+
+update_model_file() {
+    local models_file="$1"
+    local model_name="$2"
+    local skill_name="$3"
+    local raw_score="$4"
+    local mapped_score
+    mapped_score="$(map_score "$raw_score")"
+
+    # Every outcome is checked explicitly: the remote wrapper calls this under
+    # `set +e`, so errexit cannot be relied on here.
+    local cas_rc=0
+    ait_cas_rewrite "$models_file" "$REGISTRY_CAS_ATTEMPTS" \
+        render_verified_update "$model_name" "$skill_name" "$mapped_score" || cas_rc=$?
+    if (( cas_rc != 0 )); then
+        if [[ "$RENDER_MODEL_GONE" == "1" ]]; then
+            die "Model '$model_name' is no longer in $models_file (renamed or removed by a concurrent refresh) — nothing was recorded; re-run."
+        fi
+        if (( cas_rc == 2 )); then
+            die "$models_file kept changing while recording the score ($REGISTRY_CAS_ATTEMPTS attempts) — nothing was recorded; re-run."
+        fi
+        die "Failed to update $models_file — nothing was recorded."
+    fi
+    if (( AIT_CAS_ATTEMPTS > 1 )) && [[ "$SILENT" == "false" ]]; then
+        warn "$models_file changed while recording the score; re-applied on the fresh content ($AIT_CAS_ATTEMPTS attempts)."
+    fi
+
+    printf '%s\n' "$RENDERED_VALUE"
 }
 
 main() {

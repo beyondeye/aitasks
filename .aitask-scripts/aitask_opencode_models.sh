@@ -15,11 +15,15 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/terminal_compat.sh
 source "$SCRIPT_DIR/lib/terminal_compat.sh"
+# shellcheck source=lib/registry_cas.sh
+source "$SCRIPT_DIR/lib/registry_cas.sh"
 
 # --- Constants ---
 METADATA_DIR="${TASK_DIR:-aitasks}/metadata"
 METADATA_FILE="$METADATA_DIR/models_opencode.json"
 SEED_FILE="seed/models_opencode.json"
+# Attempts at the compare-and-swap write before giving up (see registry_cas.sh)
+MAX_SWAP_ATTEMPTS=5
 
 # --- Flags ---
 DRY_RUN=false
@@ -164,7 +168,16 @@ process_model() {
 
 # --- Merge with existing config ---
 # Preserves every field discovery does not own (verified scores, usage counters,
-# ...) and marks disappeared models as unavailable
+# ...) and marks disappeared models as unavailable. <existing_file> is the
+# registry to merge from (the CAS snapshot on the write path), or "" / a missing
+# path when there is none.
+#
+# The usage and verified updaters write the same registry, so the write path
+# merges from a byte snapshot and swaps the result in only if the registry still
+# matches it (ait_cas_rewrite, lib/registry_cas.sh). A counter write landing
+# while this runs makes the swap re-merge on the fresh content instead of being
+# overwritten; the counter writers use the same CAS, so they cannot overwrite a
+# refresh that swapped in under them either.
 merge_with_existing() {
     local discovered="$1"
     local existing_file="$2"
@@ -246,14 +259,22 @@ fi
 # other provider's derived name) and skipping/deleting would lose models and
 # their verified stats, so refuse the whole run and leave the registry intact.
 RESERVED_FALLBACK_PREFIX="unregistered_"
-reserved_discovered=$(jq -r --arg p "$RESERVED_FALLBACK_PREFIX" \
-    '.[] | select(.name | startswith($p)) | "  \(.name) (\(.cli_id))"' <<< "$discovered")
-reserved_existing=""
-if [[ -f "$METADATA_FILE" ]]; then
-    reserved_existing=$(jq -r --arg p "$RESERVED_FALLBACK_PREFIX" \
-        '.models[] | select(.name | startswith($p)) | "  \(.name) (\(.cli_id))"' "$METADATA_FILE")
-fi
-if [[ -n "$reserved_discovered" || -n "$reserved_existing" ]]; then
+
+# reserved_guard_message <registry_file> — print the refusal message when the
+# discovered set or <registry_file>'s rows carry a reserved name; print nothing
+# when both are clean. <registry_file> may be "" (no registry yet).
+reserved_guard_message() {
+    local registry_file="$1"
+    local reserved_discovered reserved_existing="" msg
+    reserved_discovered=$(jq -r --arg p "$RESERVED_FALLBACK_PREFIX" \
+        '.[] | select(.name | startswith($p)) | "  \(.name) (\(.cli_id))"' <<< "$discovered") || return 1
+    if [[ -n "$registry_file" && -f "$registry_file" ]]; then
+        reserved_existing=$(jq -r --arg p "$RESERVED_FALLBACK_PREFIX" \
+            '.models[] | select(.name | startswith($p)) | "  \(.name) (\(.cli_id))"' "$registry_file") || return 1
+    fi
+    if [[ -z "$reserved_discovered" && -z "$reserved_existing" ]]; then
+        return 0
+    fi
     msg="Refusing to update $METADATA_FILE: model names starting with '${RESERVED_FALLBACK_PREFIX}' are reserved for agent-string fallbacks of unregistered models (see aitask_resolve_detected_agent.sh). Nothing was written."
     if [[ -n "$reserved_discovered" ]]; then
         # Editing the registry cannot fix these: the name is re-derived from
@@ -269,7 +290,12 @@ Existing rows in $METADATA_FILE with a reserved name:
 $reserved_existing
   Fix: rename or remove each listed row by hand, carrying its verified and verifiedstats over to the new name. If its cli_id is still discovered, fix the provider id first (see above), or the next run derives the reserved name again."
     fi
-    die "$msg"
+    printf '%s\n' "$msg"
+}
+
+reserved_msg="$(reserved_guard_message "$METADATA_FILE")" || die "Failed to read $METADATA_FILE"
+if [[ -n "$reserved_msg" ]]; then
+    die "$reserved_msg"
 fi
 
 # --- Merge with existing ---
@@ -303,10 +329,38 @@ if [[ "$DRY_RUN" == "true" ]]; then
 fi
 
 # --- Write output ---
-mkdir -p "$METADATA_DIR"
+# Render for ait_cas_rewrite: re-merge from the snapshot it hands us. Runs once
+# per attempt, so a row a concurrent writer changed is merged, never erased.
+# Must return, never die (registry_cas.sh); RESERVED_MSG tells the caller why.
+RESERVED_MSG=""
+render_refresh() {
+    RESERVED_MSG="$(reserved_guard_message "$1")" || return 1
+    [[ -z "$RESERVED_MSG" ]] || return 1
+    merged="$(merge_with_existing "$discovered" "$1")" || return 1
+    # Consistent formatting: 2-space indent, sorted by name
+    jq --indent 2 '.models |= sort_by(.name)' <<< "$merged" || return 1
+}
 
-# Write with consistent formatting (2-space indent, sorted by name)
-jq --indent 2 '.models |= sort_by(.name)' <<< "$merged" > "$METADATA_FILE"
+cas_rc=0
+ait_cas_rewrite "$METADATA_FILE" "$MAX_SWAP_ATTEMPTS" render_refresh || cas_rc=$?
+if [[ -n "$RESERVED_MSG" ]]; then
+    # A reserved row arrived after the pre-write guard (e.g. through a pull).
+    die "$RESERVED_MSG"
+fi
+if (( cas_rc == 2 )); then
+    die "$METADATA_FILE kept changing during the refresh ($MAX_SWAP_ATTEMPTS attempts) — a concurrent writer (usage/verified update, sync) is active. Nothing was written; re-run."
+fi
+if (( cas_rc != 0 )); then
+    die "Failed to write $METADATA_FILE. Nothing was written."
+fi
+if (( AIT_CAS_ATTEMPTS > 1 )); then
+    info "$METADATA_FILE changed while merging; re-merged on the fresh content ($AIT_CAS_ATTEMPTS attempts)"
+fi
+
+unavailable_count=$(jq '
+    .models | map(select(.status == "unavailable")) | length
+' <<< "$merged")
+total_count=$(jq '.models | length' <<< "$merged")
 success "Updated $METADATA_FILE ($total_count models: $model_count active, $unavailable_count unavailable)"
 
 # --- Sync to seed if requested ---

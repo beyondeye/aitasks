@@ -81,6 +81,39 @@ _mdfix_write_models() {
 EOF
 }
 
+# --- Concurrent-writer hooks (t1928) -----------------------------------------
+# Scripts for AIT_CAS_BEFORE_SWAP_HOOK (lib/registry_cas.sh). The hook runs
+# after the writer rendered its update from a snapshot and before the swap, so
+# whatever it writes is a write the updater did NOT see when it read the
+# registry — the stale-writer ordering. AIT_CAS_DEST names the registry.
+
+# mdfix_write_refresh_hook <hook_path>
+# Attempt 1 only: what an OpenCode-style refresh swapping in looks like —
+# regenerated notes on the target row plus a newly discovered row.
+mdfix_write_refresh_hook() {
+    cat > "$1" <<'EOF'
+if [[ "$AIT_CAS_ATTEMPT" == 1 ]]; then
+    jq '(.models[] | select(.name == "opus4_6")).notes = "Refreshed by discovery"
+        | .models += [{"name": "opus4_7", "cli_id": "claude-opus-4-7", "notes": "New", "verified": {}}]' \
+        "$AIT_CAS_DEST" > "$AIT_CAS_DEST.hook" && mv "$AIT_CAS_DEST.hook" "$AIT_CAS_DEST"
+fi
+EOF
+}
+
+# mdfix_write_rename_hook <hook_path> <copy_path>
+# Attempt 1 only: a refresh that renamed the target row (it matches rows by
+# cli_id, so the name can change under a writer). Saves the registry it left
+# behind to <copy_path> for a byte comparison.
+mdfix_write_rename_hook() {
+    cat > "$1" <<EOF
+if [[ "\$AIT_CAS_ATTEMPT" == 1 ]]; then
+    jq '(.models[] | select(.name == "opus4_6")).name = "opus4_6_renamed"' \\
+        "\$AIT_CAS_DEST" > "\$AIT_CAS_DEST.hook" && mv "\$AIT_CAS_DEST.hook" "\$AIT_CAS_DEST"
+    cp "\$AIT_CAS_DEST" "$2"
+fi
+EOF
+}
+
 # --- Legacy mode: origin + work clone ---------------------------------------
 
 # setup_remote_metadata_repo <script_basename>

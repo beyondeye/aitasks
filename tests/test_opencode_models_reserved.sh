@@ -23,7 +23,7 @@ PASS=0
 FAIL=0
 TOTAL=0
 
-# Build a throwaway project: the script, its one lib, a stub opencode that
+# Build a throwaway project: the script, its libs, a stub opencode that
 # emits the verbose listing in $1, and (optionally) an existing registry.
 setup_fixture() {
     local listing="$1"
@@ -31,6 +31,8 @@ setup_fixture() {
     mkdir -p "$FIX/.aitask-scripts/lib" "$FIX/bin" "$FIX/aitasks/metadata" "$FIX/seed"
     cp "$PROJECT_DIR/.aitask-scripts/aitask_opencode_models.sh" "$FIX/.aitask-scripts/"
     cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" "$FIX/.aitask-scripts/lib/"
+    cp "$PROJECT_DIR/.aitask-scripts/lib/atomic_write.sh" "$FIX/.aitask-scripts/lib/"
+    cp "$PROJECT_DIR/.aitask-scripts/lib/registry_cas.sh" "$FIX/.aitask-scripts/lib/"
     printf '%s\n' "$listing" > "$FIX/listing.txt"
     cat > "$FIX/bin/opencode" <<EOF
 #!/usr/bin/env bash

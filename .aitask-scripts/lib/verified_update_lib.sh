@@ -15,6 +15,10 @@
 _AIT_VERIFIED_UPDATE_LIB_LOADED=1
 
 MAX_REMOTE_RETRIES=5
+# Attempts at each caller's compare-and-swap registry rewrite (lib/registry_cas.sh)
+# before it gives up with nothing recorded. Read by the caller scripts.
+# shellcheck disable=SC2034
+REGISTRY_CAS_ATTEMPTS=5
 
 # --- Out-param interface (the chain does NOT return values via stdout) ---
 #
@@ -190,7 +194,16 @@ commit_and_push_from_remote_clone() {
     configure_clone_identity "$clone_dir"
 
     ensure_model_exists "$clone_dir/$models_file" "$model_name"
-    new_value="$("$_AIT_UPDATE_MODEL_FILE_FN" "$clone_dir/$models_file" "$model_name" "$skill_name" "$extra_arg")"
+    # The status is checked explicitly: commit_metadata_update runs this whole
+    # function under `set +e`, so a failing callback would otherwise fall
+    # through to the no-change branch below and report success with an empty
+    # value (and the caller would print UPDATED:). Stop before anything is
+    # staged, committed or pushed.
+    if ! new_value="$("$_AIT_UPDATE_MODEL_FILE_FN" "$clone_dir/$models_file" "$model_name" "$skill_name" "$extra_arg")" \
+            || [[ -z "$new_value" ]]; then
+        rm -rf "$tmpdir"
+        die "Failed to update $models_file in the task data clone — nothing was committed or pushed"
+    fi
 
     git -C "$clone_dir" add "$models_file"
     if git -C "$clone_dir" diff --cached --quiet -- "$models_file"; then

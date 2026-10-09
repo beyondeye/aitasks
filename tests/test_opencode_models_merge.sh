@@ -9,7 +9,9 @@
 #
 # Runs the real script against a stub `opencode` on PATH that prints canned
 # `opencode models --verbose` output. OPENCODE_MODELS_SCRIPT overrides the
-# script under test (used to show these cases fail on the pre-fix merge).
+# script under test (used to show these cases fail on the pre-fix merge), and
+# REGISTRY_CAS_LIB the compare-and-swap lib (t1928 negative control). Tests 6-8
+# drive the lib's AIT_CAS_BEFORE_SWAP_HOOK seam to land a write after the merge.
 # Run: bash tests/test_opencode_models_merge.sh
 
 set -u
@@ -25,7 +27,7 @@ PASS=0
 FAIL=0
 TOTAL=0
 
-# Build a throwaway project: the script, its one lib, a stub opencode that runs
+# Build a throwaway project: the script, its libs, a stub opencode that runs
 # the optional hook in $2 (simulating a concurrent writer) and then emits the
 # verbose listing in $1.
 setup_fixture() {
@@ -34,6 +36,8 @@ setup_fixture() {
     mkdir -p "$FIX/.aitask-scripts/lib" "$FIX/bin" "$FIX/aitasks/metadata" "$FIX/seed"
     cp "$SCRIPT_UNDER_TEST" "$FIX/.aitask-scripts/aitask_opencode_models.sh"
     cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" "$FIX/.aitask-scripts/lib/"
+    cp "$PROJECT_DIR/.aitask-scripts/lib/atomic_write.sh" "$FIX/.aitask-scripts/lib/"
+    cp "${REGISTRY_CAS_LIB:-$PROJECT_DIR/.aitask-scripts/lib/registry_cas.sh}" "$FIX/.aitask-scripts/lib/registry_cas.sh"
     printf '%s\n' "$listing" > "$FIX/listing.txt"
     printf '%s\n' "$hook" > "$FIX/hook.sh"
     cat > "$FIX/bin/opencode" <<EOF
@@ -198,6 +202,83 @@ run_refresh > "$FIX/refresh.log" || rc=$?
 assert_exit_zero_rc "refresh exits 0" "$rc"
 assert_eq "verified defaulted" "0" "$(field "$FIX/$REGISTRY" opencode_foo '.verified.pick')"
 assert_eq "verifiedstats defaulted" "{}" "$(field "$FIX/$REGISTRY" opencode_foo '.verifiedstats | tojson')"
+rm -rf "$FIX"
+
+# --- Tests 6-8: writes landing AFTER the merge read the registry (t1928) ---
+# AIT_CAS_BEFORE_SWAP_HOOK (lib/registry_cas.sh) runs after the merge rendered
+# its result and before the swap — the window Test 4's discovery hook cannot
+# reach. Its cwd is the fixture root, and AIT_CAS_DEST names the registry.
+
+REGISTRY_FOO_V0='{
+  "models": [
+    {
+      "name": "opencode_foo",
+      "cli_id": "opencode/foo",
+      "notes": "Foo",
+      "status": "active",
+      "verified": {"pick": 0},
+      "verifiedstats": {}
+    }
+  ]
+}'
+
+echo "=== Test 6: a usage write between merge and swap is re-merged, not erased ==="
+setup_fixture "$LISTING_FOO"
+printf '%s\n' "$REGISTRY_FOO_V0" > "$FIX/$REGISTRY"
+cat > "$FIX/swap_hook.sh" <<'EOF'
+if [[ "$AIT_CAS_ATTEMPT" == 1 ]]; then
+    jq '(.models[] | select(.name == "opencode_foo")).usagestats = {"pick": {"all_time": {"runs": 7}}}' \
+        "$AIT_CAS_DEST" > reg.tmp && mv reg.tmp "$AIT_CAS_DEST"
+fi
+EOF
+rc=0
+AIT_CAS_BEFORE_SWAP_HOOK="$FIX/swap_hook.sh" run_refresh > "$FIX/refresh.log" || rc=$?
+assert_exit_zero_rc "refresh exits 0" "$rc"
+assert_eq "post-merge usage count kept in metadata" "7" \
+    "$(field "$FIX/$REGISTRY" opencode_foo '.usagestats.pick.all_time.runs')"
+assert_eq "post-merge usage count kept in seed" "7" \
+    "$(field "$FIX/seed/models_opencode.json" opencode_foo '.usagestats.pick.all_time.runs')"
+assert_eq "notes still regenerated" "Foo New (200k context, opencode provider)" \
+    "$(field "$FIX/$REGISTRY" opencode_foo '.notes')"
+assert_contains "re-merge reported" "re-merged" "$(cat "$FIX/refresh.log")"
+rm -rf "$FIX"
+
+echo "=== Test 7: a registry that never settles fails closed ==="
+setup_fixture "$LISTING_FOO"
+printf '%s\n' "$REGISTRY_FOO_V0" > "$FIX/$REGISTRY"
+cat > "$FIX/swap_hook.sh" <<'EOF'
+jq --argjson n "$AIT_CAS_ATTEMPT" \
+    '(.models[] | select(.name == "opencode_foo")).usagestats = {"pick": {"all_time": {"runs": $n}}}' \
+    "$AIT_CAS_DEST" > reg.tmp && mv reg.tmp "$AIT_CAS_DEST"
+EOF
+rc=0
+AIT_CAS_BEFORE_SWAP_HOOK="$FIX/swap_hook.sh" run_refresh > "$FIX/refresh.log" || rc=$?
+assert_eq "refresh exits non-zero" "1" "$([[ $rc -ne 0 ]] && echo 1 || echo 0)"
+assert_contains "refusal says nothing was written" "Nothing was written" "$(cat "$FIX/refresh.log")"
+assert_eq "registry notes not regenerated (refresh output never swapped in)" "Foo" \
+    "$(field "$FIX/$REGISTRY" opencode_foo '.notes')"
+assert_eq "registry keeps the concurrent writer's last value" "5" \
+    "$(field "$FIX/$REGISTRY" opencode_foo '.usagestats.pick.all_time.runs')"
+assert_file_not_exists "seed not synced" "$FIX/seed/models_opencode.json"
+rm -rf "$FIX"
+
+echo "=== Test 8: a registry created mid-run is merged, not overwritten ==="
+setup_fixture "$LISTING_FOO"
+cat > "$FIX/swap_hook.sh" <<'EOF'
+if [[ "$AIT_CAS_ATTEMPT" == 1 ]]; then
+    cat > "$AIT_CAS_DEST" <<'JSON'
+{"models": [{"name": "opencode_foo", "cli_id": "opencode/foo", "notes": "Foo", "status": "active",
+  "verified": {"pick": 0}, "verifiedstats": {}, "usagestats": {"pick": {"all_time": {"runs": 3}}}}]}
+JSON
+fi
+EOF
+rc=0
+AIT_CAS_BEFORE_SWAP_HOOK="$FIX/swap_hook.sh" run_refresh > "$FIX/refresh.log" || rc=$?
+assert_exit_zero_rc "refresh exits 0" "$rc"
+assert_eq "usagestats from the mid-run registry kept" "3" \
+    "$(field "$FIX/$REGISTRY" opencode_foo '.usagestats.pick.all_time.runs')"
+assert_eq "notes regenerated" "Foo New (200k context, opencode provider)" \
+    "$(field "$FIX/$REGISTRY" opencode_foo '.notes')"
 rm -rf "$FIX"
 
 echo ""

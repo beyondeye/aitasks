@@ -979,6 +979,61 @@ assert_eq "verified: registry unchanged after --cli-id refusal" "$before_fb" \
 rm -rf "$TMPDIR_FB"
 
 
+# =====================================================================
+# Concurrent writers: compare-and-swap rewrite (t1928)
+# =====================================================================
+
+echo "--- Test t1928a: a refresh swapped in under a stale score writer is kept ---"
+TMPDIR_CA="$(setup_repo)"
+mdfix_write_refresh_hook "$TMPDIR_CA/hook.sh"
+rc=0
+out_ca=$(cd "$TMPDIR_CA" && AIT_CAS_BEFORE_SWAP_HOOK="$TMPDIR_CA/hook.sh" \
+    ./.aitask-scripts/aitask_verified_update.sh --agent-string claudecode/opus4_6 --skill pick --score 5 --date 2026-03-11 2>&1) || rc=$?
+assert_exit_zero_rc "stale writer: exits 0" "$rc"
+assert_contains "stale writer: reports UPDATED with the new value" "UPDATED:claudecode/opus4_6:pick:100" "$out_ca"
+assert_eq "stale writer: refresh's notes kept" "Refreshed by discovery" \
+    "$(json_get "$TMPDIR_CA" '.models[] | select(.name == "opus4_6") | .notes')"
+assert_eq "stale writer: refresh's new row kept" "claude-opus-4-7" \
+    "$(json_get "$TMPDIR_CA" '.models[] | select(.name == "opus4_7") | .cli_id')"
+assert_eq "stale writer: score recorded on top" "100" \
+    "$(json_get "$TMPDIR_CA" '.models[] | select(.name == "opus4_6") | .verified.pick')"
+rm -rf "$TMPDIR_CA"
+
+echo "--- Test t1928b: target renamed between attempts — fails, records nothing ---"
+TMPDIR_CB="$(setup_repo)"
+mdfix_write_rename_hook "$TMPDIR_CB/hook.sh" "$TMPDIR_CB/after_rename.json"
+rc=0
+out_cb=$(cd "$TMPDIR_CB" && AIT_CAS_BEFORE_SWAP_HOOK="$TMPDIR_CB/hook.sh" \
+    ./.aitask-scripts/aitask_verified_update.sh --agent-string claudecode/opus4_6 --skill pick --score 5 --date 2026-03-11 2>&1) || rc=$?
+assert_exit_nonzero_rc "renamed target: exits non-zero" "$rc"
+assert_contains "renamed target: names the cause" "no longer in" "$out_cb"
+assert_not_contains "renamed target: no UPDATED: token" "UPDATED:" "$out_cb"
+assert_not_contains "renamed target: no UPDATED_REMOTE_ONLY: token" "UPDATED_REMOTE_ONLY:" "$out_cb"
+rc=0; cmp -s "$TMPDIR_CB/after_rename.json" "$TMPDIR_CB/aitasks/metadata/models_claudecode.json" || rc=$?
+assert_eq "renamed target: registry is exactly what the rename left" "0" "$rc"
+assert_eq "renamed target: nothing recorded under the new name" "null" \
+    "$(json_get "$TMPDIR_CB" '.models[] | select(.name == "opus4_6_renamed") | .verifiedstats')"
+rm -rf "$TMPDIR_CB"
+
+echo "--- Test t1928c: remote path — a failing update callback reports no success ---"
+TMPDIR_CC="$(setup_remote_metadata_repo aitask_verified_update.sh)"
+WORK_CC="$TMPDIR_CC/work"
+printf 'exit 1\n' > "$TMPDIR_CC/hook.sh"
+cp "$WORK_CC/aitasks/metadata/models_claudecode.json" "$TMPDIR_CC/before.json"
+origin_before_cc="$(git --git-dir="$TMPDIR_CC/origin.git" rev-parse main)"
+rc=0
+out_cc=$(cd "$WORK_CC" && AIT_CAS_BEFORE_SWAP_HOOK="$TMPDIR_CC/hook.sh" \
+    ./.aitask-scripts/aitask_verified_update.sh --agent-string claudecode/opus4_6 --skill pick --score 5 --date 2026-03-11 2>&1) || rc=$?
+assert_exit_nonzero_rc "remote callback failure: exits non-zero" "$rc"
+assert_not_contains "remote callback failure: no UPDATED: token" "UPDATED:" "$out_cc"
+assert_not_contains "remote callback failure: no UPDATED_REMOTE_ONLY: token" "UPDATED_REMOTE_ONLY:" "$out_cc"
+assert_contains "remote callback failure: says nothing was pushed" "nothing was committed or pushed" "$out_cc"
+assert_eq "remote callback failure: origin tip unchanged" "$origin_before_cc" \
+    "$(git --git-dir="$TMPDIR_CC/origin.git" rev-parse main)"
+rc=0; cmp -s "$TMPDIR_CC/before.json" "$WORK_CC/aitasks/metadata/models_claudecode.json" || rc=$?
+assert_eq "remote callback failure: local registry unchanged" "0" "$rc"
+rm -rf "$TMPDIR_CC"
+
 echo ""
 echo "==============================="
 echo "Results: $PASS passed, $FAIL failed, $TOTAL total"

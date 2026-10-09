@@ -29,6 +29,11 @@ if [[ -z "${_AIT_TEST_SCAFFOLD_LOADED:-}" ]]; then
         # aitask_plan_externalize.sh, aitask_gate_pass.sh, aitask_projects.sh);
         # it is a stdlib-only leaf with no deps of its own (t1379).
         cp "$PROJECT_DIR/.aitask-scripts/lib/atomic_write.sh"    "$repo_dir/.aitask-scripts/lib/"
+        # registry_cas.sh is sourced at startup by every writer of a model
+        # registry (aitask_usage_update.sh, aitask_verified_update.sh,
+        # aitask_opencode_models.sh); it sources atomic_write.sh, copied above,
+        # from its own directory (t1928).
+        cp "$PROJECT_DIR/.aitask-scripts/lib/registry_cas.sh"    "$repo_dir/.aitask-scripts/lib/"
         # …and its Python sibling, for the same reason on the Python side: any
         # scaffolded test that copies board/, brainstorm/ or diffviewer/ modules
         # imports it transitively. Both are stdlib-only leaves, so copying them

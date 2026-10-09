@@ -9,7 +9,8 @@
 #   each render from the same old text, and the second rename silently discards
 #   the first. Atomicity makes that loss clean rather than corrupt -- it does
 #   not prevent it. A caller that read-modify-writes a shared file must hold its
-#   own mutex.
+#   own mutex, or use lib/registry_cas.sh (optimistic compare-and-swap, for
+#   files that also change under writers no mutex reaches).
 #
 #   Atomic *visibility*, not crash durability: there is no fsync, matching
 #   atomic_write.py. A crash between the write and the rename leaves the
