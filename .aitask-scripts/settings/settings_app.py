@@ -3707,9 +3707,11 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 "[dim]No profiles found in aitasks/metadata/profiles/[/dim]",
                 classes="section-hint",
             ))
+            # rc-suffixed: remove_children() is deferred, so a fixed id would
+            # collide with the not-yet-removed copy on repop (e.g. `r` reload).
             container.mount(Button(
                 "Create New Profile", variant="primary",
-                id="btn_profile_add_new",
+                id=f"btn_profile_add_new_{rc}",
             ))
             container.mount(Label(
                 f"[dim]\u2191\u2193: navigate  |  {self._tab_switch_hint()}[/dim]",
@@ -4065,7 +4067,7 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
             self.save_tmux_settings()
         elif btn_id.startswith("btn_tmux_revert"):
             self._revert_tmux_settings()
-        elif btn_id == "btn_profile_add_new":
+        elif btn_id.startswith("btn_profile_add_new"):
             existing = sorted(self.config_mgr.profiles.keys())
             self.push_screen(
                 NewProfileScreen(existing),
