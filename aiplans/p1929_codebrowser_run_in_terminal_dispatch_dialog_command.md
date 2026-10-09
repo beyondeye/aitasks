@@ -182,7 +182,6 @@ method calls. `OVERRIDE = "opencode run --model x '/aitask-explain foo.py'"` is 
 ### Code-health risk: low
 - Dispatching the dry-run string through `sh -c` instead of `wrapper invoke` could, in principle, lose wrapper-side setup. In practice the tmux branch of the same callbacks already launches this exact string, and the t1850 `env AITASK_AGENT_STRING=…` prefix carries the env export. · severity: low · → mitigation: none (pinned by step 3 spy tests)
 - Removing `_run_agent_command` / `_run_create_from_selection` / `_run_qa_command`: a grep over `.aitask-scripts/` and `tests/` found no other callers. · severity: low · → mitigation: none (dead-helper pin in step 3)
-
 - Moving create's `"run"` branch onto `sh -c` exposes the unquoted default script path, so a project root with spaces breaks. That is now a plan step (quote it) and is pinned by a real-execution test. · severity: low (residual) · → mitigation: none (in-plan step + test)
 - A shared App-level exclusive worker could cancel annotation loading. The dedicated `"launch"` group prevents it, and a real-Textual overlap test pins it. · severity: low (residual) · → mitigation: none (in-plan step + test)
 
@@ -192,3 +191,12 @@ None identified.
 ## Step 9 (Post-Implementation)
 
 Commit the code (`bug: … (t1929)`), commit the plan through `./ait git`, then archive per task-workflow Step 9.
+
+## Final Implementation Notes
+- **Actual work done:** Added `CodeBrowserApp.run_launch_command(argv, *, refresh_explain=False)` — `@work(exclusive=True, group="launch")` — plus `_codeagent_argv(operation, arg)` for the no-dialog fallback. Explain, create and history-QA "run" branches now dispatch `["sh", "-c", screen.full_command]`; the explain/QA fallbacks dispatch rebuilt wrapper argv through the same worker. Removed `_run_agent_command`, `_run_create_from_selection` and `HistoryScreen._run_qa_command` (and history_screen's now-unused `subprocess` / `find_terminal` / `spawn_in_terminal` imports). The create dialog's default command now `shlex.quote`s the script path in both forms, which also fixes its tmux branch for project roots with spaces. New `tests/test_codebrowser_dialog_run_dispatch.py` (21 tests).
+- **Deviations from plan:** None in substance. The plan was revised before approval to add three review findings: quoting the create script path, the dedicated `"launch"` worker group, and real-`App.suspend` ordering tests. The space-root test runs the default command via `os.spawnvp("sh", ...)`, and its stub writes one argv entry per line through a loop, because `printf '%s\n'` with no args emits an empty line.
+- **Issues encountered:** The full suite's serial carve-out had one failure in `tests/test_minimonitor_bottom_pin_live.py::test_2_the_press_hit_the_thumb`. That live tmux test is unrelated to codebrowser and passed 6/6 on an isolated re-run. The parallel lane had 8500 passed, 2 skipped.
+- **Key decisions:** The worker lives on the App (HistoryScreen already depends on its app being CodeBrowserApp). A non-zero exit is still not reported (unchanged behaviour; cancelling create is not a failure). All four red proofs were mutate-and-restore runs, each failing exactly its targeted test: the run branch reverted to rebuild, the script path unquoted (both forms), `group="launch"` dropped, and the OSError handler moved outside `suspend()`.
+- **Upstream defects identified:**
+  - .aitask-scripts/codebrowser/codebrowser_app.py:1079 — action_open_in_editor runs subprocess.call([editor, path]) inside `with self.suspend():` with no OSError guard (a missing $EDITOR binary raises, which ends the codebrowser and leaves the terminal suspended); an $EDITOR with arguments (e.g. "code -w") is also treated as one executable name; and as an exclusive default-group worker it cancels in-flight explain-annotation loading
+
