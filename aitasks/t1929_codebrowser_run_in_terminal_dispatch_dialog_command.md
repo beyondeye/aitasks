@@ -3,13 +3,14 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [codebrowser, tui]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1911
 followup_kind: upstream_defect
 created_at: 2026-10-09 11:34
-updated_at: 2026-10-09 11:34
+updated_at: 2026-10-09 11:39
 ---
 
 ## Origin
