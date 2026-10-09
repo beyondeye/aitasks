@@ -11,7 +11,7 @@
 #   PROJECT_DIR                  repo root
 #   setup_fake_aitask_repo       from tests/lib/test_scaffold.sh
 #
-# Both helpers echo the fixture's base directory; the caller removes it.
+# Every setup_* helper echoes the fixture's directory; the caller removes it.
 
 # --- Shared building blocks -------------------------------------------------
 
@@ -112,6 +112,30 @@ if [[ "\$AIT_CAS_ATTEMPT" == 1 ]]; then
     cp "\$AIT_CAS_DEST" "$2"
 fi
 EOF
+}
+
+# --- Legacy mode: no remote ------------------------------------------------
+
+# setup_local_metadata_repo <script_basename>
+# Echoes <repo_dir>: a legacy-mode checkout with NO remote, so an update
+# commits locally and can never push anywhere. Use it whenever a test only
+# needs the script's local behaviour — never run a metadata updater against
+# the real repository, which records and pushes a real score (t1937).
+setup_local_metadata_repo() {
+    local script="$1"
+    local repo_dir
+    repo_dir="$(mktemp -d)"
+    (
+        cd "$repo_dir" || exit 1
+        git init --quiet
+        git config user.email "test@test.com"
+        git config user.name "Test"
+        _mdfix_populate "$repo_dir" "$script"
+        git add .
+        git commit -m "Initial setup" --quiet
+    )
+
+    echo "$repo_dir"
 }
 
 # --- Legacy mode: origin + work clone ---------------------------------------
