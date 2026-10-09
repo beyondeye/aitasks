@@ -134,6 +134,50 @@ class FindOffersTests(unittest.TestCase):
         self.assertFalse(ms.is_kept(ms.without_kept(kept, offer), offer))
 
 
+class SharedReaderTests(unittest.TestCase):
+    """Readers shared by the CLI and the Settings TUI (t1921)."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory(prefix="ait_ms_readers_")
+        self.addCleanup(self._tmp.cleanup)
+        self.dir = Path(self._tmp.name)
+
+    def test_load_registries_skips_local_and_warns_on_bad_json(self):
+        (self.dir / "models_claudecode.json").write_text(
+            json.dumps({"models": [{"name": "opus5"},
+                                   {"name": "gone", "status": "unavailable"}]}))
+        (self.dir / "models_claudecode.local.json").write_text("{not json")
+        (self.dir / "models_codex.json").write_text("{not json")
+        registries, warnings = ms.load_registries(str(self.dir))
+        self.assertEqual(registries, {"claudecode": {"opus5"}})
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("cannot read models_codex.json", warnings[0])
+        self.assertIn("no offers for 'codex'", warnings[0])
+
+    def test_load_registries_missing_dir_is_empty(self):
+        self.assertEqual(ms.load_registries(str(self.dir / "nope")), ({}, []))
+
+    def test_load_kept(self):
+        self.assertEqual(ms.load_kept(None), ({}, []))
+        self.assertEqual(ms.load_kept(str(self.dir / "absent.json")), ({}, []))
+        path = self.dir / KEPT_NAME
+        path.write_text(json.dumps({
+            "project": {"claudecode/opus5": "claudecode/opus5_5", "x": 1},
+            "local": [],
+            "other": {"ignored": "yes"}}))
+        kept, warnings = ms.load_kept(str(path))
+        self.assertEqual(kept, {"project": {"claudecode/opus5": "claudecode/opus5_5"}})
+        self.assertEqual(len(warnings), 2)
+        path.write_text("[1]")
+        self.assertEqual(ms.load_kept(str(path))[0], {})
+
+    def test_kept_path_outside_git_is_none(self):
+        self.assertIsNone(ms.kept_path(str(self.dir)))
+        subprocess.run(["git", "init", "-q", "."], cwd=self.dir, check=True)
+        self.assertEqual(Path(ms.kept_path(str(self.dir))).resolve(),
+                         (self.dir / ".git" / KEPT_NAME).resolve())
+
+
 class RecordTests(unittest.TestCase):
     AVAIL = {"m1", "m2", "m3", "m1_1m", "m2_1m"}
 

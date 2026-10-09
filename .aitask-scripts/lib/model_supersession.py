@@ -36,12 +36,20 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 import re
+import subprocess
 from collections import namedtuple
 
 TABLE_VERSION = 1
 SIBLING_SUFFIX = "_1m"
 LAYERS = ("project", "local")
+
+#: The framework-owned table shipped next to this module.
+DEFAULT_TABLE_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "model_supersessions.json")
+#: Per-clone keep memory, in the git common dir (never committed).
+KEPT_FILENAME = "ait-codeagent-supersession-kept.json"
 
 # Whole-value validators: always fullmatch(), never match(). Python's `$` also
 # matches just before a trailing newline, so match() would accept
@@ -180,6 +188,36 @@ def load_registry(path):
     return names
 
 
+def load_registries(metadata_dir):
+    """``(registries, warnings)`` for every ``models_<agent>.json`` in a dir.
+
+    ``models_<agent>.local.json`` holds user overrides, not the registry, and is
+    skipped. An unreadable registry is a warning, never an exception: that
+    agent simply gets no offers.
+    """
+    registries = {}
+    warnings = []
+    try:
+        names = sorted(os.listdir(metadata_dir))
+    except OSError:
+        names = []
+    for filename in names:
+        if not (filename.startswith("models_") and filename.endswith(".json")):
+            continue
+        agent = filename[len("models_"):-len(".json")]
+        if "." in agent:  # models_<agent>.local.json — user overrides, not the registry
+            continue
+        path = os.path.join(metadata_dir, filename)
+        try:
+            found = load_registry(path)
+        except (OSError, SupersessionError) as exc:
+            warnings.append(f"cannot read {filename}: {exc} — no offers for '{agent}'")
+            continue
+        if found is not None:
+            registries[agent] = found
+    return registries, warnings
+
+
 def _seed_ops_using(seed_defaults, agent, name) -> list:
     return [op for op, value in seed_defaults.items()
             if parse_agent_string(value) == (agent, name)]
@@ -238,6 +276,63 @@ def seed_violations(table, seed_defaults) -> list:
 
 
 # --- keep memory -------------------------------------------------------------
+
+def _git(root, *args):
+    try:
+        proc = subprocess.run(["git", "-C", str(root), *args],
+                              capture_output=True, text=True, timeout=15)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return proc.stdout.strip() if proc.returncode == 0 else None
+
+
+def git_common_dir(root):
+    """The git common dir of ``root`` as a path string, or None outside git."""
+    if _git(root, "rev-parse", "--is-inside-work-tree") != "true":
+        return None
+    out = _git(root, "rev-parse", "--git-common-dir")
+    if not out:
+        return None
+    return out if os.path.isabs(out) else os.path.join(str(root), out)
+
+
+def kept_path(root):
+    """Where the keep memory of ``root``'s clone lives, or None outside git."""
+    common = git_common_dir(root)
+    return os.path.join(common, KEPT_FILENAME) if common is not None else None
+
+
+def load_kept(path):
+    """``(kept, warnings)`` from a keep-memory file; None or missing -> ``{}``.
+
+    Malformed content is ignored with a warning, never raised: the memory only
+    suppresses re-asking, so losing it is the safe direction.
+    """
+    if path is None or not os.path.isfile(path):
+        return {}, []
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError) as exc:
+        return {}, [f"ignoring unreadable {path}: {exc}"]
+    if not isinstance(data, dict):
+        return {}, [f"ignoring malformed {path}: not a JSON object"]
+    kept = {}
+    warnings = []
+    for layer in LAYERS:
+        if layer not in data:
+            continue
+        entries = data[layer]
+        if not isinstance(entries, dict):
+            warnings.append(f"ignoring malformed '{layer}' entry in {path}")
+            continue
+        clean = {k: v for k, v in entries.items()
+                 if isinstance(k, str) and isinstance(v, str)}
+        if len(clean) != len(entries):
+            warnings.append(f"ignoring malformed '{layer}' records in {path}")
+        kept[layer] = clean
+    return kept, warnings
+
 
 def _kept_key(offer) -> str:
     return f"{offer.agent}/{offer.old}"

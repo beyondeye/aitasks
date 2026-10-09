@@ -79,6 +79,7 @@ _TARGETS_METADATA = re.compile(
 WIRED: dict[str, str] = {
     # Settings TUI — ConfigManager.save_* / delete_* / import
     ".aitask-scripts/settings/settings_app.py::save_codeagent": "self._commit(",
+    ".aitask-scripts/settings/settings_app.py::save_codeagent_layer": "self._commit(",
     ".aitask-scripts/settings/settings_app.py::save_board": "self._commit(",
     ".aitask-scripts/settings/settings_app.py::save_project_settings": "self._commit(",
     ".aitask-scripts/settings/settings_app.py::save_profile": "self._commit(",

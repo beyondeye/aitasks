@@ -21,6 +21,8 @@ from rich.markup import escape
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 # Add .aitask-scripts to path for sibling packages (e.g. brainstorm)
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from module_shadow_guard import assert_lib_not_shadowed  # noqa: E402
+assert_lib_not_shadowed(Path(__file__).resolve().parent.parent / "lib")
 from tui_switcher import TuiSwitcherMixin  # noqa: E402
 from shortcuts_mixin import ShortcutsMixin, render_label_cfg  # noqa: E402
 from agent_launch_utils import (  # noqa: E402
@@ -61,7 +63,9 @@ from config_utils import (  # noqa: E402
     split_config,
     validate_export_bundle,
 )
+from guarded_dismiss import GuardedModalScreen  # noqa: E402
 from launch_modes import DEFAULT_LAUNCH_MODE, normalize_launch_mode  # noqa: E402
+import model_supersession as ms  # noqa: E402
 from metadata_commit import commit_metadata, remedy_command  # noqa: E402
 
 from textual import on  # noqa: E402
@@ -92,6 +96,9 @@ BOARD_CONFIG = METADATA_DIR / "board_config.json"
 PROJECT_CONFIG = METADATA_DIR / "project_config.yaml"
 PROFILES_DIR = METADATA_DIR / "profiles"
 LOCAL_PROFILES_DIR = PROFILES_DIR / "local"
+#: Which code-agent models supersede which (t1910). Module-level so tests can
+#: point the Agent Defaults tab at a fixture table.
+SUPERSESSION_TABLE = ms.DEFAULT_TABLE_PATH
 
 def _repo_rel(path) -> str:
     """Repo-relative form of a metadata path, for the commit helper.
@@ -184,6 +191,11 @@ _SHORTCUTS_EXPORT_SENTINEL = "__shortcuts__"
 # rebind tab switching in the Shortcuts editor and the footer hint follows
 # automatically (see _tab_switch_hint). Insertion order drives the hint order
 # (a/b/c/m/p/s/t by default).
+# Agent Defaults row-id prefix -> supersession layer name (model_supersession
+# LAYERS), and that layer's label as the tab shows it.
+_AGENT_ROW_LAYERS = {"agent_proj_": "project", "agent_user_": "local"}
+_AGENT_LAYER_LABELS = {"project": "project", "local": "user"}
+
 _TAB_SWITCH_ACTIONS = {
     "switch_tab_agent": "tab_agent",
     "switch_tab_board": "tab_board",
@@ -578,9 +590,19 @@ class ConfigManager:
         # Model files (read-only)
         self.models = {}
         for provider, path in MODEL_FILES.items():
-            data = _load_json(path)
-            if data:
-                self.models[provider] = data
+            try:
+                data = _load_json(path)
+            except (OSError, ValueError):
+                # An unreadable registry must not keep Settings from opening:
+                # that provider just has no models here. The Agent Defaults
+                # tab's superseded-model check names the file in a warning.
+                continue
+            models = data.get("models") if isinstance(data, dict) else None
+            if not isinstance(models, list):
+                continue  # wrong shape: every reader assumes a model list
+            # Keep only entry dicts; readers call .get() on each entry.
+            self.models[provider] = {
+                **data, "models": [m for m in models if isinstance(m, dict)]}
 
         # Profiles
         self.load_profiles()
@@ -636,6 +658,68 @@ class ConfigManager:
             if lp.is_file():
                 lp.unlink()
         return self._commit([_repo_rel(CODEAGENT_CONFIG)])
+
+    def reload_codeagent(self):
+        """Re-read the code-agent layers from disk, all or nothing.
+
+        Raises OSError / ValueError (JSONDecodeError) on an unreadable layer and
+        then leaves the in-memory state exactly as it was — the caller reports.
+        """
+        merged = load_layered_config(str(CODEAGENT_CONFIG), defaults={"defaults": {}})
+        project = _load_json(CODEAGENT_CONFIG)
+        local = _load_json(local_path_for(str(CODEAGENT_CONFIG)))
+        self.codeagent, self.codeagent_project, self.codeagent_local = merged, project, local
+
+    def _codeagent_layer_path(self, layer: str) -> Path:
+        if layer == "project":
+            return Path(CODEAGENT_CONFIG)
+        return local_path_for(str(CODEAGENT_CONFIG))
+
+    def save_codeagent_layer(self, layer: str, data: dict):
+        """Write ONE code-agent layer; only the project layer is committed.
+
+        Unlike `save_codeagent`, the other layer's file is neither rewritten nor
+        removed, and a per-user write attempts no commit at all.
+        """
+        if layer == "project":
+            save_project_config(str(CODEAGENT_CONFIG), data)
+            return self._commit([_repo_rel(CODEAGENT_CONFIG)])
+        save_local_config(str(self._codeagent_layer_path("local")), data)
+        return None
+
+    def switch_codeagent_default(self, layer: str, key: str,
+                                 old_value: str, new_value: str):
+        """Replace `old_value` with `new_value` for `key` in one layer.
+
+        Re-reads the layer file immediately before writing and builds the update
+        from that fresh content, so edits made elsewhere since the tab was drawn
+        survive. Returns `(status, detail)`:
+        `("switched", CommitResult | None)`, `("changed", current_value)` when
+        the op no longer holds `old_value`, `("unreadable", reason)`, or
+        `("write_failed", reason)` when the write itself raised.
+        """
+        path = self._codeagent_layer_path(layer)
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+        except FileNotFoundError:
+            return "unreadable", f"{path} does not exist"
+        except (OSError, ValueError) as exc:
+            return "unreadable", f"{path}: {exc}"
+        defaults = data.get("defaults") if isinstance(data, dict) else None
+        if not isinstance(defaults, dict):
+            return "unreadable", f"{path} has no 'defaults' object"
+        current = defaults.get(key)
+        if current != old_value:
+            return "changed", current
+        defaults[key] = new_value
+        try:
+            result = self.save_codeagent_layer(layer, data)
+        except OSError as exc:
+            # The atomic write normally leaves the original intact, but this
+            # cannot prove it; the caller re-reads the file to show the truth.
+            return "write_failed", f"{path}: {exc}"
+        return "switched", result
 
     def save_board(self, merged: dict):
         project_data, user_data = split_config(
@@ -1472,6 +1556,76 @@ class ResetShortcutsConfirmScreen(ModalScreen):
         self.dismiss(False)
 
 
+class SupersededSwitchScreen(GuardedModalScreen):
+    """Enter on a superseded Agent Defaults row: switch, pick another, or cancel.
+
+    Dismisses with "switch", "pick", or None. The caller binds the exact
+    (current, target) pair this dialog displayed, so a table change while it is
+    open cannot turn "switch to X" into a write of Y.
+    """
+
+    DEFAULT_CSS = """
+    #ss_dialog {
+        width: 70%;
+        height: auto;
+        background: $surface;
+        border: thick $accent;
+        padding: 1 2;
+    }
+    #ss_dialog Label { width: 100%; }
+    /* Stacked, full-width buttons: three side by side overflow the dialog at
+       80 columns (the last one is drawn outside it, yet still focusable). */
+    #ss_buttons { margin-top: 1; height: auto; }
+    #ss_buttons Button { width: 100%; margin: 0 0 1 0; }
+    """
+
+    BINDINGS = [Binding("escape", "cancel", "Cancel", show=False)]
+
+    def __init__(self, operation: str, layer_label: str, current: str,
+                 target: str, kept: bool):
+        super().__init__()
+        self.operation = operation
+        self.layer_label = layer_label
+        self.current = current
+        self.target = target
+        self.kept = kept
+
+    def compose(self) -> ComposeResult:
+        with Container(id="ss_dialog"):
+            yield Label(
+                f"[bold]{escape(self.operation)}[/bold] ({self.layer_label}) uses "
+                f"[#FFB86C]{escape(self.current)}[/], which is superseded by "
+                f"[#50FA7B]{escape(self.target)}[/].",
+                id="ss_title",
+            )
+            if self.kept:
+                yield Label(
+                    "[dim]You kept the current model when "
+                    "'ait codeagent check-superseded' offered this switch.[/dim]",
+                    id="ss_kept",
+                )
+            with Vertical(id="ss_buttons"):
+                yield Button(f"Switch to {self.target}", variant="primary",
+                             id="btn_ss_switch")
+                yield Button("Choose another model…", id="btn_ss_pick")
+                yield Button("Cancel", id="btn_ss_cancel")
+
+    @on(Button.Pressed, "#btn_ss_switch")
+    def do_switch(self):
+        self.dismiss("switch")
+
+    @on(Button.Pressed, "#btn_ss_pick")
+    def do_pick(self):
+        self.dismiss("pick")
+
+    @on(Button.Pressed, "#btn_ss_cancel")
+    def do_cancel(self):
+        self.dismiss(None)
+
+    def action_cancel(self):
+        self.dismiss(None)
+
+
 class LintResultsScreen(ModalScreen):
     """Read-only list of shortcut coherence warnings. Self-contained CSS
     because it needs a scrollable list layout not present in the app CSS."""
@@ -1532,6 +1686,8 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
     /* Config rows */
     ConfigRow { height: 1; width: 100%; padding: 0 1; }
+    .superseded-note { width: 100%; height: auto; padding: 0 1 0 4; }
+    .superseded-note-user { padding: 0 1 0 9; }
     ConfigRow.row-focused { background: $primary 20%; }
 
     /* Cycle fields */
@@ -1660,6 +1816,10 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
         Binding("n", "pg_rename", "Rename group", show=False),
         Binding("y", "pg_sync", "Sync groups", show=False),
         Binding("f", "pg_refresh", "Refresh groups", show=False),
+        # Agent Defaults tab — gated to that tab by check_action, and yields to
+        # any existing user binding on the same key (see _switch_key_state).
+        # show=False: the key lives in the tab's section-hint footer.
+        Binding("o", "agent_switch_superseded", "Switch to newer model", show=False),
         # Tab switching — registry-backed (scope "settings") so the keys are
         # rebindable in the Shortcuts editor and the per-tab footer hints derive
         # from them (_tab_switch_hint). show=False: they belong to the manually
@@ -1682,6 +1842,7 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
     _PROJECT_GROUPS_TAB_ACTIONS = frozenset(
         {"pg_assign", "pg_clear", "pg_rename", "pg_sync", "pg_refresh"}
     )
+    _AGENT_TAB_ACTIONS = frozenset({"agent_switch_superseded"})
 
     def check_action(self, action: str, parameters):
         """Gate the sc_* / profile_* / pg_* bindings to their owning tab."""
@@ -1692,8 +1853,17 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # no extra guard here.
         if isinstance(self.screen, ModalScreen):
             if (action in _TAB_SWITCH_ACTIONS
-                    or action in self._PROJECT_GROUPS_TAB_ACTIONS):
+                    or action in self._PROJECT_GROUPS_TAB_ACTIONS
+                    or action in self._AGENT_TAB_ACTIONS):
                 return None
+        if action in self._AGENT_TAB_ACTIONS:
+            try:
+                if self.query_one(TabbedContent).active != "tab_agent":
+                    return None  # inert on other tabs
+            except Exception:
+                return None
+            if self._switch_key_state()[1]:
+                return None  # a user binding owns this key; let it fire
         if action in self._SHORTCUT_TAB_ACTIONS:
             try:
                 if self.query_one(TabbedContent).active != "tab_shortcuts":
@@ -1737,6 +1907,11 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._profiles_tab_rc: int = 0  # counter snapshot for profiles tab widgets
         self._shortcuts_swept: bool = False  # global scope sweep runs once
         self._shortcuts_query: str = ""  # fuzzy filter for the Shortcuts tab
+        # Agent Defaults: (layer, op) -> (current, target) as last rendered, so
+        # the `o` switch acts on exactly what the note showed.
+        self._displayed_offers: dict[tuple[str, str], tuple[str, str]] = {}
+        self._kept_path: str | None = None
+        self._kept_path_resolved: bool = False
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -1989,16 +2164,23 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
                     event.prevent_default()
                     event.stop()
                     return
-                current_agent, current_model = "", ""
-                if "/" in current_val and current_val != "(inherits project)":
-                    current_agent, current_model = current_val.split("/", 1)
-                self.push_screen(
-                    AgentModelPickerScreen(
-                        key, current_agent, current_model,
-                        all_models=self.config_mgr.models,
-                    ),
-                    callback=self._handle_agent_pick,
-                )
+                layer = "project" if fid.startswith("agent_proj_") else "local"
+                offers, _ = self._supersession_state()
+                entry = offers.get((layer, key))
+                if entry is not None:
+                    offer, kept = entry
+                    shown = (f"{offer.agent}/{offer.old}", f"{offer.agent}/{offer.new}")
+                    self.push_screen(
+                        SupersededSwitchScreen(
+                            key, _AGENT_LAYER_LABELS[layer], shown[0], shown[1], kept,
+                        ),
+                        callback=lambda choice, ly=layer, k=key, sh=shown, cv=current_val:
+                            self._handle_superseded_choice(choice, ly, k, sh, cv),
+                    )
+                    event.prevent_default()
+                    event.stop()
+                    return
+                self._open_agent_model_picker(key, current_val)
                 event.prevent_default()
                 event.stop()
                 return
@@ -2240,6 +2422,40 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
         project_defaults = self.config_mgr.codeagent_project.get("defaults", {})
         local_defaults = self.config_mgr.codeagent_local.get("defaults", {})
 
+        # Superseded model defaults (t1921): one note line under each marked
+        # row — ConfigRow is one row high, so a suffix on its value would be
+        # clipped first at narrow widths.
+        superseded, sup_warnings = self._supersession_state()
+        self._displayed_offers = {
+            lk: (f"{o.agent}/{o.old}", f"{o.agent}/{o.new}")
+            for lk, (o, _kept) in superseded.items()
+        }
+        switch_key, shadowed_by = self._switch_key_state()
+        switch_keys = "Enter" if shadowed_by or not switch_key else f"{switch_key}/Enter"
+        for msg in sup_warnings:
+            container.mount(Static(
+                f"[yellow]Superseded-model check: {escape(msg)}[/yellow]",
+                classes="superseded-note",
+            ))
+        pending = sum(1 for _o, kept in superseded.values() if not kept)
+        if pending:
+            container.mount(Static(
+                f"[#FFB86C]{pending} default(s) use a superseded model[/] "
+                f"[dim]— {switch_keys} on a \u26a0 row to switch[/dim]",
+                classes="superseded-note",
+            ))
+
+        def _mount_superseded_note(layer: str, op: str) -> None:
+            entry = superseded.get((layer, op))
+            if entry is not None:
+                classes = "superseded-note"
+                if layer == "local":
+                    classes += " superseded-note-user"  # align under the └ row
+                container.mount(Static(
+                    self._superseded_note(entry[0], entry[1], switch_keys),
+                    classes=classes,
+                ))
+
         # Collect all operation keys (union, preserving order)
         all_keys = list(dict.fromkeys(
             list(project_defaults.keys()) + list(local_defaults.keys())
@@ -2336,6 +2552,7 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 id=f"agent_proj_{sk}_{rc}",
                 raw_value=proj_raw,
             ))
+            _mount_superseded_note("project", key)
 
             # User row (subordinate, indented under project row)
             if key in local_defaults:
@@ -2350,6 +2567,7 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 subordinate=True,
                 raw_value=user_raw,
             ))
+            _mount_superseded_note("local", key)
 
             # All-providers hint (show for the effective model)
             effective_model = (
@@ -2443,11 +2661,212 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
                         classes="op-desc",
                     ))
 
+        if shadowed_by:
+            switch_hint = (f"Enter on a \u26a0 row: switch superseded "
+                           f"({switch_key} is bound to {escape(shadowed_by)})")
+        elif switch_key:
+            switch_hint = f"{switch_key}: switch superseded"
+        else:
+            switch_hint = "Enter on a \u26a0 row: switch superseded"
         container.mount(Label(
             "[dim]Enter: edit  |  d: remove local preference  |  "
+            f"{switch_hint}  |  "
             f"\u2191\u2193: navigate  |  {self._tab_switch_hint()}[/dim]",
             classes="section-hint",
         ))
+
+    # --- superseded model defaults (t1921) ------------------------------
+    def _supersession_state(self):
+        """Offers for the in-memory code-agent layers, plus warnings.
+
+        Returns `(offers, warnings)` with `offers[(layer, op)] = (Offer, kept)`.
+        Never raises: a malformed table or registry only yields warnings. The
+        keep memory written by `ait codeagent check-superseded` is read, never
+        written.
+        """
+        try:
+            table = ms.load_table(SUPERSESSION_TABLE)
+        except (OSError, ms.SupersessionError) as exc:
+            return {}, [f"supersession table unreadable: {exc}"]
+        registries, warnings = ms.load_registries(str(METADATA_DIR))
+        kept, kept_warnings = ms.load_kept(self._kept_memory_path())
+        warnings = warnings + kept_warnings
+        offers = {}
+        layers = (("project", self.config_mgr.codeagent_project),
+                  ("local", self.config_mgr.codeagent_local))
+        for layer, data in layers:
+            defaults = data.get("defaults") if isinstance(data, dict) else None
+            if not isinstance(defaults, dict):
+                continue
+            # Launch modes are not agent strings; find_offers would report each
+            # one as a malformed value.
+            agent_defaults = {k: v for k, v in defaults.items()
+                              if not k.endswith("-launch-mode")}
+            found, layer_warnings = ms.find_offers(layer, agent_defaults, table, registries)
+            warnings.extend(layer_warnings)
+            for offer in found:
+                for op in offer.ops:
+                    offers[(layer, op)] = (offer, ms.is_kept(kept, offer))
+        return offers, warnings
+
+    def _kept_memory_path(self):
+        """The clone's keep-memory path, discovered once (it runs git).
+
+        Only the location is cached; the file itself is re-read on every check
+        so a `check-superseded` answer given meanwhile is still picked up.
+        """
+        if not self._kept_path_resolved:
+            self._kept_path = ms.kept_path(Path.cwd())
+            self._kept_path_resolved = True
+        return self._kept_path
+
+    def _switch_key_state(self):
+        """`(key, shadowed_by)` for the superseded-switch action.
+
+        A newly introduced default key must not take an existing user binding
+        away: if the user has bound another settings/shared action to the same
+        key (and has not rebound the switch itself), that binding keeps the key
+        and `shadowed_by` names it — the switch stays reachable through Enter.
+        """
+        action = "agent_switch_superseded"
+        scope = self._shortcuts_scope
+        key = keybinding_registry.resolve_key(scope, action)
+        overrides = keybinding_registry.load_user_overrides()
+        if key is None or action in overrides.get(scope, {}):
+            return key, None
+        for row_scope, other, _default, label in keybinding_registry.iter_scope_bindings(scope):
+            if row_scope not in (scope, "shared") or other == action:
+                continue
+            if other not in overrides.get(row_scope, {}):
+                continue
+            if keybinding_registry.resolve_key(row_scope, other) == key:
+                return key, label or other
+        return key, None
+
+    def _superseded_note(self, offer, kept: bool, switch_keys: str) -> str:
+        target = f"{offer.agent}/{offer.new}"
+        if kept:
+            return (f"[dim]superseded by {target} (kept via check-superseded) "
+                    f"— {switch_keys}: switch[/dim]")
+        return (f"[#FFB86C]⚠ superseded by {target}[/] "
+                f"[dim]— {switch_keys}: switch[/dim]")
+
+    def _open_agent_model_picker(self, key: str, current_val: str) -> None:
+        current_agent, current_model = "", ""
+        if "/" in current_val and current_val != "(inherits project)":
+            current_agent, current_model = current_val.split("/", 1)
+        self.push_screen(
+            AgentModelPickerScreen(
+                key, current_agent, current_model,
+                all_models=self.config_mgr.models,
+            ),
+            callback=self._handle_agent_pick,
+        )
+
+    def _handle_superseded_choice(self, choice, layer: str, key: str,
+                                  shown: tuple[str, str], current_val: str) -> None:
+        if choice == "switch":
+            self._switch_superseded(layer, key, shown)
+        elif choice == "pick":
+            self._editing_layer = "project" if layer == "project" else "user"
+            self._open_agent_model_picker(key, current_val)
+
+    def _focused_agent_row(self):
+        """`(layer, key)` for a focused agent-string row, else None."""
+        focused = self.focused
+        if not isinstance(focused, ConfigRow):
+            return None
+        fid = focused.id or ""
+        if "brainstorm_launch_" in fid:
+            return None
+        for prefix, layer in _AGENT_ROW_LAYERS.items():
+            if fid.startswith(prefix):
+                return layer, focused.row_key
+        return None
+
+    def action_agent_switch_superseded(self) -> None:
+        row = self._focused_agent_row()
+        if row is None:
+            self.notify("Select a model row on Agent Defaults", severity="warning")
+            return
+        layer, key = row
+        self._switch_superseded(layer, key, self._displayed_offers.get((layer, key)))
+
+    def _switch_superseded(self, layer: str, key: str, expected) -> None:
+        """Switch `key` in `layer` from `expected[0]` to `expected[1]`.
+
+        `expected` is the pair the user was shown. The switch happens only if a
+        fresh read of both layers still offers exactly that pair, and the writer
+        re-checks the op's value on disk before writing.
+        """
+        label = _AGENT_LAYER_LABELS[layer]
+        try:
+            self.config_mgr.reload_codeagent()
+        except (OSError, ValueError) as exc:
+            self.notify(f"Cannot read code-agent config: {exc} — nothing switched",
+                        severity="error", timeout=10)
+            return
+        offers, _ = self._supersession_state()
+        entry = offers.get((layer, key))
+        if entry is None or expected is None:
+            self.notify(f"{key}: no superseded model in the {label} layer",
+                        severity="warning")
+            self._populate_agent_tab()
+            return
+        offer = entry[0]
+        fresh = (f"{offer.agent}/{offer.old}", f"{offer.agent}/{offer.new}")
+        if fresh != tuple(expected):
+            self.notify(
+                f"{key}: the offer changed to {fresh[0]} → {fresh[1]} since it "
+                "was shown — nothing switched; review the refreshed row",
+                severity="warning", timeout=10)
+            self._populate_agent_tab()
+            return
+        status, detail = self.config_mgr.switch_codeagent_default(
+            layer, key, fresh[0], fresh[1])
+        if status == "unreadable":
+            self.notify(f"Cannot read {detail} — nothing switched",
+                        severity="error", timeout=10)
+            return
+        try:
+            self.config_mgr.reload_codeagent()
+        except (OSError, ValueError) as exc:
+            if status == "write_failed":
+                self.notify(
+                    f"Could not write {detail} — the switch may not have been saved, "
+                    f"and the tab could not refresh: {exc}. The display still shows "
+                    "the last config it could read.", severity="error", timeout=10)
+            elif status == "switched":
+                self.notify(
+                    f"Switched {key} ({label}) to {fresh[1]}, but the tab could not "
+                    f"refresh: {exc}. The display still shows the last config it "
+                    "could read — fix the file, then reopen Settings.",
+                    severity="error", timeout=10)
+            else:
+                self.notify(
+                    f"{key} changed on disk — not switched; the tab could not "
+                    f"refresh: {exc}", severity="error", timeout=10)
+            return
+        if status == "switched":
+            self.notify(f"Switched {key} ({label}) to {fresh[1]}")
+        elif status == "changed":
+            self.notify(f"{key} changed on disk to {detail} — not switched",
+                        severity="warning")
+        else:  # write_failed, refreshed from disk
+            self.notify(f"Could not write {detail} — the switch may not have been "
+                        "saved; the tab now shows what is on disk",
+                        severity="error", timeout=10)
+        self._populate_agent_tab()
+        row_id = (f"agent_{'proj' if layer == 'project' else 'user'}_"
+                  f"{_safe_id(key)}_{self._repop_counter}")
+
+        def _refocus() -> None:
+            try:
+                self.query_one(f"#{row_id}").focus()
+            except Exception:
+                pass
+
+        self.call_after_refresh(_refocus)
 
     def _handle_agent_pick(self, result):
         if result is None:

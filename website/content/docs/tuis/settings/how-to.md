@@ -41,6 +41,17 @@ If you previously set a per-user override and want to revert to the project defa
 3. Press **d** or **Delete**
 4. The user override is removed and the project default is restored
 
+## Switch a Superseded Default to the Newer Model
+
+When a newer model supersedes one your defaults use, the entry shows `⚠ superseded by <agent>/<model>` underneath it.
+
+1. Press **a** to go to the **Agent Defaults** tab
+2. Navigate to the entry with the `⚠ superseded by …` note
+3. Press **o**, or press **Enter** and choose **Switch to …**
+4. Only that entry's layer changes: a **[PROJECT]** entry is saved and committed, a **[USER]** entry is saved to your local override file
+
+To review every superseded default at once from the command line, run `ait codeagent check-superseded`.
+
 ## View Available Models
 
 1. Press **m** to go to the **Models** tab

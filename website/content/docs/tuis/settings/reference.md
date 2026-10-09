@@ -32,6 +32,7 @@ depth: [advanced]
 | **Enter** / **Space** | Edit field or cycle value | Agent Defaults, Board, Profiles |
 | **Enter** | Assign or change selected project's group | Project Groups |
 | **d** / **Delete** | Remove user override | Agent Defaults |
+| **o** | Switch the selected superseded model to its newer model (on a `⚠ superseded by …` entry; **Enter** offers the same switch) | Agent Defaults |
 | **h** | Assign or change selected project's group | Project Groups |
 | **u** | Clear selected project's group | Project Groups |
 | **n** | Rename a project-group | Project Groups |

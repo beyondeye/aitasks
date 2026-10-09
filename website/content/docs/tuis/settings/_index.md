@@ -41,6 +41,17 @@ The picker opens with a **Top Verified** list showing the highest-scoring models
 
 Press **d** or **Delete** on an entry to remove a user override and revert to the project default.
 
+#### Superseded models
+
+When an entry's model has been superseded by a newer registered model of the same agent (the same record [`ait codeagent check-superseded`]({{< relref "/docs/commands/codeagent#check-superseded" >}}) reads), a note appears directly under that entry: `⚠ superseded by claudecode/opus5_5`. The note is per layer -- a **[USER]** entry that inherits the project value carries no note of its own. If you declined that same switch when `ait codeagent check-superseded` offered it, the note is dimmed and says `(kept via check-superseded)`; the Settings TUI shows that choice but never changes it.
+
+To switch a marked entry to the newer model:
+
+- press **o** on the entry, or
+- press **Enter** on it and choose **Switch to …** (**Choose another model…** opens the normal model picker).
+
+A switch changes only the selected entry's layer. A project switch is saved to `codeagent_config.json` and committed; a user switch is saved to `codeagent_config.local.json` and never committed. The current value is re-read from disk first: if the entry or the offered model changed since the tab was drawn, nothing is switched and the tab refreshes. If you have already bound **o** to another Settings action, that binding keeps the key and **Enter** remains the way to switch.
+
 ### Board (b)
 
 {{< static-img src="imgs/aitasks_settings_board_tab.svg" alt="Board tab showing column configuration and user settings" caption="The Board tab displays column definitions (read-only) and editable user settings" >}}
@@ -141,6 +152,7 @@ Two buttons act on the table:
 | **s** | Switch to Shortcuts tab |
 | **Enter** | Edit selected field |
 | **d** / **Delete** | Remove user override (Agent Defaults) |
+| **o** | Switch a superseded model to its newer model (Agent Defaults) |
 | **e** | Export all configs to `.aitcfg.json` bundle |
 | **i** | Import configs from `.aitcfg.json` bundle |
 | **r** | Reload all configs from disk |

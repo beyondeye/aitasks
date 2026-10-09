@@ -46,7 +46,6 @@ import argparse
 import json
 import os
 import shlex
-import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -58,11 +57,11 @@ import atomic_write  # noqa: E402
 import metadata_commit  # noqa: E402
 import model_supersession as ms  # noqa: E402
 
-DEFAULT_TABLE = SCRIPT_DIR / "lib" / "model_supersessions.json"
+DEFAULT_TABLE = Path(ms.DEFAULT_TABLE_PATH)
 METADATA_REL = "aitasks/metadata"
 PROJECT_REL = f"{METADATA_REL}/codeagent_config.json"
 LOCAL_REL = f"{METADATA_REL}/codeagent_config.local.json"
-KEPT_FILENAME = "ait-codeagent-supersession-kept.json"
+KEPT_FILENAME = ms.KEPT_FILENAME
 COMMIT_TIMEOUT = 60
 RERUN_HINT = "Run 'ait codeagent check-superseded' in a terminal to review them."
 
@@ -87,23 +86,9 @@ def _read_json(path: Path):
 
 # --- git ---------------------------------------------------------------------
 
-def _git(root: Path, *args):
-    try:
-        proc = subprocess.run(["git", "-C", str(root), *args],
-                              capture_output=True, text=True, timeout=15)
-    except (OSError, subprocess.TimeoutExpired):
-        return None
-    return proc.stdout.strip() if proc.returncode == 0 else None
-
-
 def _git_common_dir(root: Path):
-    if _git(root, "rev-parse", "--is-inside-work-tree") != "true":
-        return None
-    out = _git(root, "rev-parse", "--git-common-dir")
-    if not out:
-        return None
-    path = Path(out)
-    return path if path.is_absolute() else root / path
+    common = ms.git_common_dir(root)
+    return Path(common) if common is not None else None
 
 
 def _scrubbed_env() -> dict:
@@ -253,46 +238,16 @@ def _load_layer(root: Path, layer: str, rel: str):
 
 
 def _load_registries(root: Path) -> dict:
-    registries = {}
-    meta = root / METADATA_REL
-    for path in sorted(meta.glob("models_*.json")):
-        agent = path.name[len("models_"):-len(".json")]
-        if "." in agent:  # models_<agent>.local.json — user overrides, not the registry
-            continue
-        try:
-            names = ms.load_registry(path)
-        except (OSError, ms.SupersessionError) as exc:
-            _warn(f"cannot read {path.name}: {exc} — no offers for '{agent}'")
-            continue
-        if names is not None:
-            registries[agent] = names
+    registries, warnings = ms.load_registries(str(root / METADATA_REL))
+    for msg in warnings:
+        _warn(msg)
     return registries
 
 
 def _load_kept(kept_path):
-    if kept_path is None or not kept_path.is_file():
-        return {}
-    try:
-        data = _read_json(kept_path)
-    except (OSError, ValueError) as exc:
-        _warn(f"ignoring unreadable {kept_path}: {exc}")
-        return {}
-    if not isinstance(data, dict):
-        _warn(f"ignoring malformed {kept_path}: not a JSON object")
-        return {}
-    kept = {}
-    for layer in ms.LAYERS:
-        if layer not in data:
-            continue
-        entries = data[layer]
-        if not isinstance(entries, dict):
-            _warn(f"ignoring malformed '{layer}' entry in {kept_path}")
-            continue
-        clean = {k: v for k, v in entries.items()
-                 if isinstance(k, str) and isinstance(v, str)}
-        if len(clean) != len(entries):
-            _warn(f"ignoring malformed '{layer}' records in {kept_path}")
-        kept[layer] = clean
+    kept, warnings = ms.load_kept(str(kept_path) if kept_path is not None else None)
+    for msg in warnings:
+        _warn(msg)
     return kept
 
 
