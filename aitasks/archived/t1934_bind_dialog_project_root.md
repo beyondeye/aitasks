@@ -3,13 +3,14 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Done
 labels: [monitor, minimonitor, tmux]
 gates: [risk_evaluated]
 anchor: 1922
 followup_kind: risk_mitigation
 created_at: 2026-10-09 15:34
-updated_at: 2026-10-09 15:34
+updated_at: 2026-10-09 15:41
+completed_at: 2026-10-09 15:41
 ---
 
 ## Origin
@@ -62,3 +63,14 @@ Tests: a regression where the root changes between dialog stages and the task
 number exists in both projects — at the number stage and at the confirm stage —
 asserting no launch/kill/board write happens (spies), plus the no-followed-pane
 agreement case.
+
+## Closed — won't do (2026-10-09)
+
+Closed unimplemented by decision after t1922 landed. t1922 made the
+`@aitask_project_root` session stamp authoritative; the pane vote it hardens is
+only a fallback for sessions that predate the stamp (or were created by hand),
+and those are stamped by the next `ait ide`. The failure this task guards
+against needs that transitional, unstamped state PLUS a rare event (a vote
+flipping mid-dialog / a tied vote or failed tmux read), so the added state and
+per-consumer guards are judged over-engineering for a super-rare edge case.
+Reopen only if a mis-rooted unstamped session is actually observed.
