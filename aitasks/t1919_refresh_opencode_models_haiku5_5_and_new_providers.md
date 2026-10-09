@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1916
 followup_kind: carry_over
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-08 17:01
-updated_at: 2026-10-08 23:55
+updated_at: 2026-10-09 11:11
 ---
 
 ## Origin
@@ -63,3 +64,8 @@ these numbers will drift.
 - Existing `verified`/`verifiedstats` are preserved (the script keeps them for
   models that are still present).
 - `jq .` succeeds on both files.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-09T08:11:20Z status=pass attempt=1 type=human
