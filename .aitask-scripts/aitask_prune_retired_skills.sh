@@ -3,7 +3,15 @@
 #
 # Usage:
 #   aitask_prune_retired_skills.sh [--dir <project>] [--manifest <file>]
-#                                  [--prune-rendered] [--quiet]
+#                                  [--label <noun>] [--prune-rendered] [--quiet]
+#
+# TWO MANIFESTS, ONE MECHANISM
+#   The default manifest (retired_skills_manifest.txt) lists retired skill
+#   surfaces. install.sh and `ait setup` also run this helper with
+#   `--manifest retired_scripts_manifest.txt --label script` to prune files the
+#   framework deleted or moved out of .aitask-scripts/ — tarball extraction is
+#   just as additive as the skill-install loops. --label changes only the
+#   human-facing wording; the FILE/DIR/SHA ownership rules are identical.
 #
 # WHY THIS EXISTS
 #   install_skills() (install.sh), setup_codex() and setup_opencode()
@@ -61,6 +69,7 @@ source "$SCRIPT_DIR/lib/agent_skills_paths.sh"
 
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 MANIFEST="$SCRIPT_DIR/retired_skills_manifest.txt"
+LABEL="skill"
 PRUNE_RENDERED=false
 QUIET=false
 
@@ -68,10 +77,11 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --dir)             PROJECT_DIR="$2"; shift 2 ;;
         --manifest)        MANIFEST="$2"; shift 2 ;;
+        --label)           LABEL="$2"; shift 2 ;;
         --prune-rendered)  PRUNE_RENDERED=true; shift ;;
         --quiet)           QUIET=true; shift ;;
         -h|--help)
-            sed -n '2,10p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+            sed -n '2,14p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
             exit 0 ;;
         *) die "aitask_prune_retired_skills.sh: unknown argument: $1" ;;
     esac
@@ -222,15 +232,19 @@ done
 if [[ ${#KEPT_PATHS[@]} -gt 0 && "$QUIET" != true ]]; then
     {
         printf '\n'
-        warn "${#KEPT_PATHS[@]} retired skill path(s) were KEPT, not deleted:"
+        warn "${#KEPT_PATHS[@]} retired ${LABEL} path(s) were KEPT, not deleted:"
         for entry in "${KEPT_PATHS[@]}"; do
             printf '    %s\n' "$entry"
         done
         printf '\n'
         printf '  "unrecognized-content" means the file differs from every version the\n'
-        printf '  framework shipped there — a local modification, or your own skill at\n'
-        printf '  that name. "rendered-closure-not-verifiable" means a generated\n'
-        printf '  per-profile directory, which an upgrade never deletes.\n\n'
+        printf '  framework shipped there — a local modification, or your own %s at\n' "$LABEL"
+        if [[ ${#RETIRED_STEMS[@]} -gt 0 ]]; then
+            printf '  that name. "rendered-closure-not-verifiable" means a generated\n'
+            printf '  per-profile directory, which an upgrade never deletes.\n\n'
+        else
+            printf '  that name.\n\n'
+        fi
         printf '  These are safe to leave in place. If you do not need them:\n'
         for entry in "${KEPT_PATHS[@]}"; do
             printf '    rm -rf %s\n' "${entry%%  (*}"

@@ -707,6 +707,18 @@ test). Enforcement: `tests/test_board_package_contract.py`
 `tests/test_trails_app.py` and `tests/test_trail_screen_host_protocol.py`
 (the shared binding objects and the host surface).
 
+**`board/` precedes `lib/`, so a stale file there shadows a shared module.**
+Because C1 puts `board/` ahead of `lib/` on `sys.path`, any `board/<name>.py`
+named like a `lib/` module wins the bare import. An upgrade-leftover
+`board/task_yaml.py` (moved to `lib/` by t1217) crashed every fresh `ait board`
+with an opaque `ImportError` (t1926). Every TUI that puts its own directory
+first — `aitask_board.py`, `trails_app.py`, `syncer_app.py`, `settings_app.py`
+— therefore calls `module_shadow_guard.assert_lib_not_shadowed(<its lib/>)`
+right after its `sys.path` block, which names the shadowing file and exits.
+Never give a module outside `lib/` a `lib/` module's basename, and never give
+a `lib/` module a stdlib name; `tests/test_lib_shadow_guard.py` enforces both
+and pins the four call sites. A new own-dir-first TUI joins that list.
+
 ## Single tmux session per project
 
 The aitasks framework is designed to use exactly ONE tmux session per project.

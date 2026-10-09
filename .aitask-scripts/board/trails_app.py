@@ -45,6 +45,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 # Own directory too (C1): sibling board modules are imported by bare name.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from module_shadow_guard import assert_lib_not_shadowed  # noqa: E402
+assert_lib_not_shadowed(Path(__file__).resolve().parent.parent / "lib")
 
 from rich.cells import cell_len, set_cell_size
 from textual.app import App

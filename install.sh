@@ -964,12 +964,32 @@ install_opencode_staging() {
 # commit_installed_data_files() both discover changes with
 # `git ls-files --modified`, which reports deleted files.
 prune_retired_skills() {
+    _prune_retired "retired_skills_manifest.txt" "skill" "Retired-skill" \
+        "No retired skill surfaces present."
+}
+
+# --- Prune retired framework scripts (upgrade migration) ---
+# The tarball extraction above is just as additive: a file the framework
+# deleted or MOVED out of .aitask-scripts/ survives every upgrade and stays
+# committed in the project. A moved Python module can then shadow its
+# replacement — t1217's board/task_yaml.py → lib/task_yaml.py left a stale
+# board/ copy that crashed every fresh `ait board`. Same helper, same
+# content-hash ownership, its own manifest.
+prune_retired_scripts() {
+    _prune_retired "retired_scripts_manifest.txt" "script" "Retired-script" \
+        "No retired framework scripts present."
+}
+
+# _prune_retired <manifest> <noun> <failure-prefix> <none-msg>
+_prune_retired() {
+    local manifest="$1" noun="$2" fail_prefix="$3" none_msg="$4"
     local helper="$INSTALL_DIR/.aitask-scripts/aitask_prune_retired_skills.sh"
     [[ -f "$helper" ]] || return 0
 
     local out pruned kept
-    if ! out="$(bash "$helper" --dir "$INSTALL_DIR")"; then
-        warn "  Retired-skill prune failed — nothing was removed."
+    if ! out="$(bash "$helper" --dir "$INSTALL_DIR" \
+            --manifest "$INSTALL_DIR/.aitask-scripts/$manifest" --label "$noun")"; then
+        warn "  $fail_prefix prune failed — nothing was removed."
         return 0
     fi
 
@@ -977,14 +997,14 @@ prune_retired_skills() {
     kept="$(printf '%s\n' "$out" | grep -c '^KEPT:')" || kept=0
 
     if [[ "$pruned" -gt 0 ]]; then
-        info "  Removed $pruned retired skill path(s):"
+        info "  Removed $pruned retired $noun path(s):"
         printf '%s\n' "$out" | grep '^PRUNED:' | sed 's/^PRUNED:/    /'
     fi
     if [[ "$kept" -gt 0 ]]; then
         info "  Kept $kept retired path(s) — see the warning above for cleanup."
     fi
     if [[ "$pruned" -eq 0 && "$kept" -eq 0 ]]; then
-        info "  No retired skill surfaces present."
+        info "  $none_msg"
     fi
 }
 
@@ -1588,6 +1608,9 @@ main() {
 
     info "Pruning retired skill surfaces..."
     prune_retired_skills
+
+    info "Pruning retired framework scripts..."
+    prune_retired_scripts
 
     # Clean up seed directory after all seed installers have run
     rm -rf "$INSTALL_DIR/seed"

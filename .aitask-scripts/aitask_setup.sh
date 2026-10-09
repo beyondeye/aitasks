@@ -3537,13 +3537,29 @@ setup_code_agents() {
 # Kept deliberately small and non-fatal: a prune failure must never abort
 # `ait setup`, whose job is to repair an installation.
 prune_retired_skills() {
-    local project_dir="$1"
+    _prune_retired "$1" "retired_skills_manifest.txt" "skill" "Retired-skill"
+}
+
+# --- Prune retired framework scripts (see install.sh prune_retired_scripts) ---
+# Covers projects `ait upgrade` skips as "Already up to date" but which still
+# carry a file the framework deleted or moved out of .aitask-scripts/ — e.g. a
+# stale board/task_yaml.py shadowing lib/task_yaml.py. main() calls it after
+# snapshot_pre_setup_dirty and before commit_framework_files, so the deletion
+# is committed as setup's own change, never mistaken for pre-existing dirt.
+prune_retired_scripts() {
+    _prune_retired "$1" "retired_scripts_manifest.txt" "script" "Retired-script"
+}
+
+# _prune_retired <project_dir> <manifest> <noun> <failure-prefix>
+_prune_retired() {
+    local project_dir="$1" manifest="$2" noun="$3" fail_prefix="$4"
     local helper="$SCRIPT_DIR/aitask_prune_retired_skills.sh"
     [[ -f "$helper" ]] || return 0
 
     local out pruned kept
-    if ! out="$(bash "$helper" --dir "$project_dir")"; then
-        warn "Retired-skill prune failed — nothing was removed."
+    if ! out="$(bash "$helper" --dir "$project_dir" \
+            --manifest "$SCRIPT_DIR/$manifest" --label "$noun")"; then
+        warn "$fail_prefix prune failed — nothing was removed."
         return 0
     fi
 
@@ -3552,7 +3568,7 @@ prune_retired_skills() {
 
     if [[ "$pruned" -gt 0 ]]; then
         echo ""
-        info "Removed $pruned retired skill path(s):"
+        info "Removed $pruned retired $noun path(s):"
         printf '%s\n' "$out" | grep '^PRUNED:' | sed 's/^PRUNED:/    /'
     fi
     if [[ "$kept" -gt 0 ]]; then
@@ -4950,6 +4966,8 @@ main() {
 
     setup_contribution_check
     echo ""
+
+    prune_retired_scripts "$SCRIPT_DIR/.."
 
     commit_framework_files
     echo ""

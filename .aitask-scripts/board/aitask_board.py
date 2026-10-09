@@ -15,6 +15,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 # name, and not every loader (the fixture's spec_from_file_location, the
 # shortcut sweep, subprocess probes) has put board/ on sys.path first.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+# board/ now precedes lib/: refuse to run with a stale or foreign module in
+# board/ named like a lib/ one (t1926 — an upgrade-leftover task_yaml.py).
+from module_shadow_guard import assert_lib_not_shadowed  # noqa: E402
+assert_lib_not_shadowed(Path(__file__).resolve().parent.parent / "lib")
 from rich.cells import cell_len
 from rich.markup import escape
 from mark_glyphs import MARK_CHECKED, MARK_UNCHECKED, mark_markup

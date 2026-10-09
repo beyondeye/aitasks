@@ -1,0 +1,121 @@
+# retired_scripts_manifest.txt — ownership data for aitask_prune_retired_skills.sh
+#                                (invoked with --manifest <this file> --label script)
+#
+# Files the framework deleted or MOVED out of .aitask-scripts/ that installed
+# projects must stop carrying, plus the set of git blob hashes the framework
+# ever SHIPPED at those paths.
+#
+# WHY THIS EXISTS: install.sh extracts the release tarball over the project —
+# purely additive — so a script the framework deleted or moved stays in every
+# upgraded project, committed there by the framework-commit staging. A moved
+# Python module is worse than dead weight: t1217 moved board/task_yaml.py to
+# lib/task_yaml.py, aitask_board.py puts board/ ahead of lib/ on sys.path, and
+# the stale copy shadowed its replacement and crashed every fresh `ait board`.
+#
+# WHY HASHES: an exact path is NOT proof of framework ownership — a user may have
+# edited the file or kept their own at that name. The pruner deletes a file ONLY
+# when `git hash-object <file>` appears in the SHA set below; anything else is
+# preserved and reported. Release tarballs copy files verbatim and this repo has
+# no .gitattributes (no CRLF/text filter), so an installed copy hashes
+# identically to the blob it came from.
+#
+# FILE RECORDS ONLY — no DIR records. The pruner's DIR check is content-only
+# against this flat SHA set, so a user file copied from a shipped blob into a
+# retired directory would count as "known" and the whole directory would go.
+# A FILE record removes only the historically shipped filename. The cost: an
+# emptied directory (lib/attachment_backends/) is left behind — git does not
+# track empty directories, so it is inert.
+#
+# NEVER LIST A PATH THE CURRENT RELEASE SHIPS. The prune runs after extraction;
+# a listed live path would match its own (shipped) hash and be deleted from
+# every project. tests/test_retired_scripts_manifest.sh enforces this, and also
+# fails when a deleted/moved .aitask-scripts/ path is missing from this file.
+#
+# RECORD TYPES (tab-separated): FILE <path>, SHA <blob>.
+#
+# REGENERATE (run from the repo root after deleting or moving any file under
+# .aitask-scripts/; `-m` covers merges, `--no-renames` makes a move show as a
+# delete so the source path and its last blob are both kept):
+#
+#   PATHS=$(comm -23 \
+#       <(git log -m --format= --name-only --diff-filter=A -- .aitask-scripts/ | sort -u) \
+#       <(git ls-files .aitask-scripts/ | sort -u) | grep -v __pycache__)
+#   for p in $PATHS; do printf 'FILE\t%s\n' "$p"; done
+#   git log -m --no-renames --raw --no-abbrev --format= -- $PATHS \
+#       | awk '{print $3; print $4}' | grep -v '^0\{40\}$' | sort -u \
+#       | sed 's/^/SHA\t/'
+#
+# Retired by: t433_7 (archive v2 suffix drop), t579_5 (crew_meta_template),
+# t641 (aitask_install.sh -> aitask_upgrade.sh), t891_2 (brainstorm
+# detailer/patcher), t1076_1 (attachment -> artifact substrate), t1171 (codex
+# plan policy), t1217 (board/task_yaml.py -> lib/), t1235 (stats/stats_data.py
+# -> lib/).
+
+FILE	.aitask-scripts/aitask_brainstorm_apply_detailer.sh
+FILE	.aitask-scripts/aitask_brainstorm_apply_patcher.sh
+FILE	.aitask-scripts/aitask_codex_plan_invoke.py
+FILE	.aitask-scripts/aitask_install.sh
+FILE	.aitask-scripts/aitask_zip_old_v2.sh
+FILE	.aitask-scripts/board/task_yaml.py
+FILE	.aitask-scripts/brainstorm/templates/crew_meta_template.yaml
+FILE	.aitask-scripts/brainstorm/templates/detailer.md
+FILE	.aitask-scripts/brainstorm/templates/patcher.md
+FILE	.aitask-scripts/lib/archive_iter_v2.py
+FILE	.aitask-scripts/lib/archive_scan_v2.sh
+FILE	.aitask-scripts/lib/archive_utils_v2.sh
+FILE	.aitask-scripts/lib/attachment_backend.sh
+FILE	.aitask-scripts/lib/attachment_backends/local.sh
+FILE	.aitask-scripts/lib/attachment_cache.sh
+FILE	.aitask-scripts/lib/attachment_utils.sh
+FILE	.aitask-scripts/lib/codex_plan_policy.sh
+FILE	.aitask-scripts/lib/task_resolve_v2.sh
+FILE	.aitask-scripts/skill_templates/_detailer_rules.md
+FILE	.aitask-scripts/stats/stats_data.py
+
+SHA	02b1123240bb353d0561ad1533e30b6d2978225e
+SHA	09a1d286ecdfb37af42f9d139f24c97f5107bad9
+SHA	0c500e2a5d7929f8fc50e858db3960c63946fcff
+SHA	0cc9591c943716c2cc148ec7e80d882e0bce6929
+SHA	1b7eee61a5c8ae845aed8fd2b57542585b221101
+SHA	1e6a25dab9c7f438d2cb22868f67757bc3f2366d
+SHA	2458d5a0386a7eb10ecf525458b0afddfc31b010
+SHA	25da36788de0baa4d5fb43db20caa3878c61b9da
+SHA	37745fd0a52a6096fca9072436a59d77f4912cf2
+SHA	4c30b42be509b1516d3f97f6ba81a417c13058fb
+SHA	4f0ae5eadf260ed31cbae4e357335a9835f719db
+SHA	52c3fbc133b1b672a8813dda4b7163aedacfde91
+SHA	685a99be104249d5c5c09892d6d874bab27494bb
+SHA	69092314163492da20767faa269866d89a73879d
+SHA	6a56f5706bc52424b32fd0edbbfda76aa2f5085e
+SHA	6bc09b9fe95b16be0aeed8f4748890b608f74f6b
+SHA	7be074bb16647aaf81365f7b371f71d4c723a21f
+SHA	7e6131efc7d2c91c3f8902ea29ce25ad8e72dd99
+SHA	807d84551a8f39546e28d4aeda2bc13eb2dcc77f
+SHA	82db8b4908ce025db14d8642826e271ce8da24ee
+SHA	91f5dcb7dd5b7f11b7b18bad7ae20d85d2879c0a
+SHA	937b3281f06244471d3a521345f8d823e1129111
+SHA	94be8f912b1830f1f873932ac0cae56d86fe9231
+SHA	9ae85858610328d35fd56e5d99403724ed833970
+SHA	9cf3f28f352379bce4d03c4771577c3ec3b19499
+SHA	9e7ddb1237f24bda8480a97b50b3094e15d9bf56
+SHA	9f7b26ab577408b9851578b85a541ad5eac27e47
+SHA	a03fa3874ac6da76d98d50f12aa79b5883d933c2
+SHA	a342e64837116426ded2b29eabb778927d442397
+SHA	a4e01b85c5c9ff91ce6e62440b778d3149caa505
+SHA	b5757837d9602f8096314b10a2eed4b74ecdb021
+SHA	b974ec3ec135db674363c9e0f7e076e34e8ff22a
+SHA	bd257d5f904ce8282736c02559f6a2ee6e8f8069
+SHA	be2d953c36b7b43d5551959007fa210359c782e0
+SHA	c2db6f85af89cf75376a749d7a683cad1c2e0b03
+SHA	c6c123d71d4eb54bafb439a8cff884182336153f
+SHA	c84c23c37f4784d3c6eec5bf0e5d8caa70ebcc82
+SHA	cb35bc6224b0d193e02eea545f8c2d20894d31a7
+SHA	ccf1dc1a6945a30f96dfdccc8d3d06db13ab7e50
+SHA	cf48adc011263284f732810b3a5c5a629f1aced1
+SHA	cf7aa06ebb7a25657cdf028049f4afaf702991a3
+SHA	d3e7a5ecbc9207d90f8c6a73f72e84c7a105de39
+SHA	d7f23b5ef247a42815579daf3f00c93e0e3280d3
+SHA	e691137c8446c8bb66af44e8b6d435bf1cd856e5
+SHA	ea62c97bd3e3e06e5e25ad3a09fb35a4b765c94d
+SHA	f433bfdf3de792d09e10b1ec0c271ee91730dc71
+SHA	fffc41cdecddb5f0d4ff19184751e74dd9a6e862

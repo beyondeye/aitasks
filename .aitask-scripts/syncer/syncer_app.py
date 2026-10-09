@@ -25,6 +25,8 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from module_shadow_guard import assert_lib_not_shadowed  # noqa: E402
+assert_lib_not_shadowed(Path(__file__).resolve().parent.parent / "lib")
 from desync_state import physical_main_branch, snapshot  # noqa: E402
 from tui_switcher import TuiSwitcherMixin  # noqa: E402
 from shortcuts_mixin import ShortcutsMixin  # noqa: E402

@@ -373,6 +373,24 @@ a `*/SKILL.md` closure, or inside a helper that such a skill invokes. Example:
 `aitask_skill_invalidate.sh` is run only by Python save-hooks (Settings TUI /
 AgentCommandScreen), so it needs zero whitelist entries.
 
+## Retiring or moving a file under `.aitask-scripts/`
+
+`install.sh` extracts the release tarball over the project, which is purely
+additive: a file you delete or `git mv` stays in every upgraded project, and is
+committed there. A moved Python module can then shadow its replacement (t1217's
+`board/task_yaml.py` → `lib/task_yaml.py` crashed `ait board`; t1926).
+
+So in the same commit that deletes or moves the file, regenerate
+`.aitask-scripts/retired_scripts_manifest.txt` with the recipe in its header.
+`install.sh` (`prune_retired_scripts`) and `ait setup` run
+`aitask_prune_retired_skills.sh --manifest retired_scripts_manifest.txt --label
+script`, which removes a listed file only when its content hashes to a version
+the framework shipped. A locally modified copy is kept and reported.
+`tests/test_retired_scripts_manifest.sh` fails when a retired path or blob is
+missing, and — the dangerous direction — when a listed path is still shipped.
+Retiring a skill surface follows the same design with
+`retired_skills_manifest.txt` (`aidocs/framework/skill_authoring_conventions.md`).
+
 ## The `ait` dispatcher is user-facing only
 
 The `ait` dispatcher (`./ait`) is the user-facing CLI surface. Only add a new
