@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1910
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-09 15:25
-updated_at: 2026-10-09 15:30
+updated_at: 2026-10-09 15:34
 ---
 
 ## Origin
@@ -40,3 +41,8 @@ t1921 stopped recommending `r` in its refresh-failure messages ("fix the file, t
 ## Suggested fix
 
 Give the Profiles tab's fixed-id widgets the `_repop_counter` suffix (or `await` the `remove_children()` before remounting), then add an `App.run_test` regression test that presses `r` and asserts the app keeps running and every tab repopulates. Verify in a real terminal as well.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-09T12:34:54Z status=pass attempt=1 type=human
