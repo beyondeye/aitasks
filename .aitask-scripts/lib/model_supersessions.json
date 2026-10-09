@@ -37,12 +37,56 @@
       "haiku4_5": {
         "by": "haiku5_5",
         "source": "record-supersession 2026-10-08"
+      },
+      "fable5": {
+        "by": "fable5_1",
+        "source": "record-supersession 2026-10-09"
+      },
+      "opus4_5": {
+        "by": "opus4_6",
+        "source": "record-supersession 2026-10-09"
+      },
+      "sonnet4_5": {
+        "by": "sonnet4_6",
+        "source": "record-supersession 2026-10-09"
+      },
+      "opus4_7": {
+        "by": "opus4_8",
+        "source": "record-supersession 2026-10-09"
       }
     },
     "codex": {
       "gpt6_sol": {
         "by": "gpt6_1_sol",
         "source": "t1886 95f0394cb"
+      },
+      "gpt5_6_sol": {
+        "by": "gpt6_sol",
+        "source": "record-supersession 2026-10-09"
+      },
+      "gpt5_5": {
+        "by": "gpt5_6_sol",
+        "source": "record-supersession 2026-10-09"
+      },
+      "gpt5_4": {
+        "by": "gpt5_5",
+        "source": "record-supersession 2026-10-09"
+      },
+      "gpt5_2": {
+        "by": "gpt5_4",
+        "source": "record-supersession 2026-10-09"
+      },
+      "gpt5_3codex": {
+        "by": "gpt5_4",
+        "source": "record-supersession 2026-10-09"
+      },
+      "gpt5_6_luna": {
+        "by": "gpt6_luna",
+        "source": "record-supersession 2026-10-09"
+      },
+      "gpt5_4_mini": {
+        "by": "gpt5_6_luna",
+        "source": "record-supersession 2026-10-09"
       }
     }
   }
