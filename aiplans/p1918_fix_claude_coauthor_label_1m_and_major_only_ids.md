@@ -138,3 +138,10 @@ None identified.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+- **Actual work done:** `format_claude_model_label()` (`.aitask-scripts/aitask_codeagent.sh`) now accepts `claude-<family>-<major>[-<minor>][-<date>][[1m]]`, drops `[1m]`, and emits `<Family> <major>[.<minor>]`. Test 21b in `tests/test_codeagent.sh` adds seven exact-line `assert_eq` checks (six name lines + one trailer), including two test-only dated major-only registry entries appended to the temp `models_claudecode.json` copy and restored afterwards.
+- **Deviations from plan:** None beyond the two review rounds folded in before approval: (1) `[1m]` is stripped, not labelled `(1M context)` — the user confirmed opus5_5 / sonnet5_5 / opus5 always run with 1M context, so the `_1m` entries are the same model; (2) every new case asserts the exact line, and dated major-only fixtures exercise the 1-2-digit minor rule.
+- **Issues encountered:** None. Negative control (test suite run against the HEAD version of the script in a symlinked scratch tree) failed all 7 new assertions and passed the 236 existing ones. It also exposed that the old regex labelled `claude-opus-5-20251001` as `Opus 5.20251001` (the date read as a minor).
+- **Key decisions:** The date group stays `(-[0-9]+)?` so every id the old regex accepted still yields its old label (Test 21 haiku date strip unchanged). `[1m]` stripping applies to 4.x ids too: the trailer names the model, and the context window is a session setting.
+- **Upstream defects identified:** None
