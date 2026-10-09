@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1916
 followup_kind: carry_over
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-08 23:40
-updated_at: 2026-10-08 23:55
+updated_at: 2026-10-09 15:35
 ---
 
 ## Origin
@@ -79,3 +80,8 @@ models the framework ships as defaults is too limiting.
   `python3 tests/test_install_superseded_prompt_pty.py` pass.
 - `cd website && python3 check_links.py --build` passes if docs change.
 - Step 6 of the add-model SKILL names `record-supersession` in its commit condition.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-09T12:35:37Z status=pass attempt=1 type=human
