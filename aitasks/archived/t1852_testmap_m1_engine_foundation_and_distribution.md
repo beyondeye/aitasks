@@ -3,19 +3,19 @@ priority: medium
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Done
 labels: [testing, testmap, go_engine, install, ait_setup]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
-children_to_implement: [t1852_6]
 artifacts:
   - handle: art:trail-testmap-feature
     kind: implementation_trail
     name: "Test map feature: module landing order"
 created_at: 2026-09-22 09:19
-updated_at: 2026-10-06 23:13
+updated_at: 2026-10-09 15:29
+completed_at: 2026-10-09 15:29
 ---
 
 ## Goal
