@@ -389,7 +389,7 @@ profile: no worktree, no merge.
   `HOME_FAILED` / `HOME_STRANDED` output with manual restore steps, and every
   test on a scratch HOME. SIGKILL and power loss mid-move still leave a split
   home, which a later run refuses as `destination-exists` without repairing
-  it · severity: medium · → mitigation: real_host_migration_check
+  it · severity: medium · → mitigation: t1931
 - Signal recovery that tracks phases adds state (`HOME_PHASE`,
   `HOME_INODE[]`) and trap code to a `set -euo pipefail` script. It is kept
   readable by making rollback derive from on-disk inodes rather than from
@@ -401,10 +401,10 @@ profile: no worktree, no merge.
 ### Goal-achievement risk: low
 - BSD/macOS behaviour (`stat -f`, `mv -n`, `ln -s` onto a recreated directory)
   is coded for but only exercised on Linux here, and the cross-device case
-  skips on a single-filesystem host · severity: low · → mitigation: real_host_migration_check
+  skips on a single-filesystem host · severity: low · → mitigation: t1931
 
 ### Planned mitigations
-- timing: after | name: real_host_migration_check | type: manual_verification | priority: medium | effort: low | inline_risk: medium | added_complexity: low | addresses: real-home half-migration risk (code-health) and untested BSD/macOS behaviour (goal-achievement) | desc: Run `ait engine home --migrate` on a real Linux host and a macOS host (macOS also runs tests/test_aitasks_home.sh); then confirm ait board (PyPy venv), ait monitor, ait setup and ait upgrade keep working through the ~/.aitask symlink
+- timing: after | name: real_host_migration_check | type: manual_verification | priority: medium | effort: low | inline_risk: medium | added_complexity: low | addresses: real-home half-migration risk (code-health) and untested BSD/macOS behaviour (goal-achievement) | desc: Run `ait engine home --migrate` on a real Linux host and a macOS host (macOS also runs tests/test_aitasks_home.sh); then confirm ait board (PyPy venv), ait monitor, ait setup and ait upgrade keep working through the ~/.aitask symlink | created: t1931
 
 ## Post-Review Changes
 
