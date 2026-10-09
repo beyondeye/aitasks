@@ -89,21 +89,21 @@
         },
         "test_414_flags": {
           "all_time": {
-            "runs": 85,
-            "score_sum": 7700
+            "runs": 87,
+            "score_sum": 7900
           },
           "prev_month": {
-            "period": "2026-08",
-            "runs": 8,
-            "score_sum": 720
-          },
-          "month": {
             "period": "2026-09",
             "runs": 10,
             "score_sum": 960
           },
+          "month": {
+            "period": "2026-10",
+            "runs": 2,
+            "score_sum": 200
+          },
           "week": {
-            "period": "2026-W39",
+            "period": "2026-W41",
             "runs": 2,
             "score_sum": 200
           }
@@ -1559,7 +1559,7 @@
       "usagestats": {
         "pick": {
           "all_time": {
-            "runs": 50
+            "runs": 59
           },
           "prev_month": {
             "period": "2026-09",
@@ -1567,11 +1567,11 @@
           },
           "month": {
             "period": "2026-10",
-            "runs": 29
+            "runs": 38
           },
           "week": {
             "period": "2026-W41",
-            "runs": 28
+            "runs": 37
           }
         },
         "changelog": {
