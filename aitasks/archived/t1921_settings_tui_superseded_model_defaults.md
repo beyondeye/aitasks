@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [ait_settings, models, model_selection]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1910
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-08 17:06
-updated_at: 2026-10-09 11:11
+updated_at: 2026-10-09 15:26
+completed_at: 2026-10-09 15:26
 ---
 
 ## Context
@@ -74,3 +75,14 @@ switched to, and let the user switch it from there.
 > **✅ gate:plan_approved** run=2026-10-09T08:11:31Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-09T12:24:43Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-09T12:26:50Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:f23a95ab1232578d
+
+> **✅ gate:risk_evaluated** run=2026-10-09T12:26:50Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1921/risk_evaluated_2026-10-09T12:26:50Z-risk_evaluated-a1.log`
