@@ -176,3 +176,29 @@ original `full_cmd` instead of the user-edited `screen.full_command` fails.
 
 ### Goal-achievement risk: low
 - Terminals that ignore the spawner's cwd would start the agent in the wrong repo · severity: low · → mitigation: none (addressed in design by the explicit `cd --` prefix, pinned by the run-in-terminal test)
+
+## Implementation Progress
+
+- [x] Step 1 — `"run"` branch + `_run_agent_in_terminal` / `_notify_launch_error` in `syncer_app.py`
+- [x] Step 2 — `SyncConflictScreen` and `SyncFailureScreen` re-based on `GuardedModalScreen`
+- [x] Step 3 — `AgentRunInTerminalTests` (8 tests) in `tests/test_syncer_rows.py`; `agent_seams()` now always stubs `find_terminal` / `spawn_in_terminal`
+- [x] Red proofs — five mutants, each caught: unguarded bases (2 stale-cancel tests fail), no `"run"` branch (3 run tests), dispatching `full_cmd` instead of `screen.full_command` (2), inline `except OSError` moved outside `suspend()` (resume count drops to 0), spawn `try` removed (OSError test)
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-09 00:00)
+- **Requested by user:** (1) single-repo failures carry `repo_root=None`, reach `_launch_agent` as `Path(".")`, and produced `cd -- .`, which selects nothing in a terminal that does not start in the syncer's cwd; (2) the inline-OSError test did not prove the terminal is resumed *before* the notification.
+- **Changes made:** `_run_agent_in_terminal` resolves `project_root` to an absolute path once, for the script and `cwd=`. New `test_single_repo_failure_cds_to_an_absolute_root` drives the `repo_root=None` route and executes the captured argv from an unrelated temp dir (command swapped for `pwd`), asserting it lands in the project. Inline tests now record one shared event sequence (driver suspend/resume, the call, notify) and assert `["suspend", "call", "resume", "notify"]`. Red proofs: unresolved root and notify-inside-suspend each fail exactly their test.
+- **Files affected:** `.aitask-scripts/syncer/syncer_app.py`, `tests/test_syncer_rows.py`
+
+### Change Request 2 (2026-10-09 00:30)
+- **Requested by user:** resolving `Path(".")` calls `getcwd`, which raises `FileNotFoundError` once the syncer's directory is deleted — outside every `OSError` handler, so the vanished-directory recovery contract was incomplete.
+- **Changes made:** the resolution is wrapped in `except OSError`, notifying with the root as given (`.`) and launching nothing. New `test_vanished_cwd_root_notifies_without_launching` reproduces it for real (process cwd removed for the call, restored in `finally`); red proof: unguarded resolve fails exactly that test.
+- **Files affected:** `.aitask-scripts/syncer/syncer_app.py`, `tests/test_syncer_rows.py`
+
+## Final Implementation Notes
+- **Actual work done:** `SyncerApp._launch_agent`'s callback now handles the `AgentCommandScreen` `"run"` result via a new `_run_agent_in_terminal(full_command, project_root)`: dispatches `screen.full_command` (the user-edited command) as `sh -c "cd -- <abs root> || exit 1\n<cmd>"`, in a terminal emulator (`spawn_in_terminal(..., cwd=root)`) or, with none found, inline under `App.suspend()`. `SyncConflictScreen` (shared with the board) and `SyncFailureScreen` now derive from `GuardedModalScreen`; `sync_failure_screen.py` adds `lib/` to `sys.path` itself so it imports standalone. 10 new tests in `AgentRunInTerminalTests` (`tests/test_syncer_rows.py`); `DataConflictAgentTests.agent_seams()` now always stubs `find_terminal`/`spawn_in_terminal`.
+- **Deviations from plan:** Three review rounds hardened the launch path beyond the original plan: (1) `OSError` from spawn / inline call is caught and notified (an escaping exception in a screen-result callback ends the syncer); the inline catch sits INSIDE `suspend()` because Textual 8.2.7's `App.suspend` resumes the driver after its `yield` with no `finally`; `SuspendNotSupported` is caught too. (2) The root is made absolute — single-repo failures carry `repo_root=None` → `Path(".")`, and `cd -- .` selects nothing in a terminal that does not inherit cwd. (3) That resolution is itself guarded: `Path(".").resolve()` calls `getcwd`, which fails once the syncer's directory is deleted.
+- **Issues encountered:** A `nullcontext` stand-in for `App.suspend` cannot prove terminal restoration; the restoration tests patch `app._driver` with a MagicMock and use the real `App.suspend`, recording suspend/call/resume/notify in one shared event list so ordering is asserted. The `_run_agent_in_terminal` tests that need it call the method directly (driver patched only around the call).
+- **Key decisions:** Both `cd --` in the script AND `cwd=` on the spawn — `cwd=` follows the brainstorm/tui_switcher convention, the `cd` covers terminals that ignore the spawner's cwd; a newline (not `&&`) separates the cd from the command so `;`/`||` in the command stay out of the cd's scope. Only `OSError` and `SuspendNotSupported` are caught — anything else is a real fault. Red proofs: 8 mutants (unguarded bases, no run branch, dispatching `full_cmd`, except outside suspend, unguarded spawn, unresolved root, notify inside suspend, unguarded resolve), each failing exactly its test(s).
+- **Upstream defects identified:** None
