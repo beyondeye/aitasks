@@ -72,3 +72,15 @@ its positive form:
 The live-captured fixtures are `tests/review_loop_fixtures.py`
 `CODEX_0154_STARFIELD_RAW_1/_2` and `CODEX_0154_NOANIM_AT_REST_RAW` /
 `_TICK2_RAW`.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1944** id=2026-10-11T16:18:19Z.cf13adf9c0bd9172dab2e809 from=t1944 from_verified=yes at=2026-10-11T16:18:19Z base=828bc0ad5e1bce1d810f992760195746af706ef1 base_branch=main dirty=yes host=omg16
+>
+> | t1944 (commit 828bc0ad5) changed the launch-side starfield key your body assumes.
+> | 
+> | - Framework Codex launches no longer pass `-c tui.animations=false`. `tui.animations` is Codex's master switch; off, codex-cli 0.160 stops repainting the `Working (Ns …)` counter, so working panes read idle. Launches now pass `-c tui.animations=true -c tui.whimsy=false -c tui.effects.starfield=false` (CODEX_TUI_OVERRIDES in lib/agent_string.sh). The seed / .codex/config.toml carry `[tui] whimsy = false` + `[tui.effects] starfield = false`.
+> | - Measured: 0.154.0 honours only `tui.whimsy` (it silently ignores `tui.effects.*`); 0.160.1 honours both (`whimsy` is an alias of `effects.starfield`, canonical wins). The 0.160 starfield also stops by itself after a 15 s IDLE_TIMEOUT once visible; 0.154's is perpetual.
+> | - Detector-relevant: a live 0.160.1 starfield capture (`tests/review_loop_fixtures.py` CODEX_0160_STARFIELD_RAW_1/_2) classifies as SHADOW_DIALOG in `review_loop._codex_state` (the `›⠁Ask Codex…` composer line misses the composer pattern), whereas the 0.154 starfield fixtures classify BUSY. The tests only assert "not READY" for it; your detector-side defence would own pinning that.
+> | - A pane with animations ON now ticks its elapsed counter every second while working (visible text change), so a Braille-stripping defence must not also strip/normalise that counter.
