@@ -33,3 +33,18 @@ The other two defects were found while enumerating registry writers for t1884's 
 - Move `test_verified_update_flags.sh` onto the isolated fixture pattern (copy the scripts plus `aitask_resolve_detected_agent.sh` into a temp repo), so it never touches the real repo or its remote.
 - Make `convert_to_model_name` collision-safe: detect duplicate derived names across the discovered and existing sets and fail closed before writing, the same way t1884's reserved-name guard does.
 - Point the unavailable-model hint at `/aitask-refresh-code-models`, or route `ait opencode-models` in the dispatcher.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1942** id=2026-10-11T08:39:27Z.91bd93922beca96d97568943 from=t1942 from_verified=yes at=2026-10-11T08:39:27Z base=33b54e172eca2cb90762f95341e2eee203e5c3f4 base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t1942 (registry cleanup). This task's defect looks already fixed:
+> | commit 579dd60bc "bug: Isolate verified-update flags test from the real model
+> | registry (t1937)" moved tests/test_verified_update_flags.sh onto an isolated
+> | fixture (setup_local_metadata_repo in tests/lib/metadata_update_fixture.sh), so
+> | it no longer writes test_414_flags into the real registry or pushes to
+> | aitask-data. t1942 then purged the accumulated test_414_flags keys from
+> | models_claudecode.json (opus4_6, opus4_7_1m) locally and on origin/aitask-data.
+> | Not verified here: whether t1937 covers every point in this task's body (e.g.
+> | the exit-3 under a dirty data worktree). Re-check before archiving or folding.
