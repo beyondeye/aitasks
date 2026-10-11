@@ -1,5 +1,64 @@
 # Changelog
 
+## v0.37.0
+
+### Features
+
+- **Test-map engine launcher** (t1852_4): Added the `ait testmap` command. It finds the test-map engine and checks that the engine's version matches your framework version before handing over.
+- **Test-map engine installed by setup and upgrade** (t1852_5): `ait setup` and `ait upgrade` now download the engine for your exact framework version and verify its checksum. New flags (`--local-engine`, `--engine-from-source`, `--force-engine`, `--no-testmap`) and developer verbs (`ait engine build|test|cross|prune`) control how it is installed.
+- **Framework home report and migration** (t1852_6): `ait engine home` shows where the framework's home directory lives. `ait engine home --migrate` moves the legacy `~/.aitask` root into `$AITASKS_HOME` and leaves a symlink behind; if any step fails, it rolls the move back.
+- **Tabbed multi-trail sessions** (t1895): `ait trails` can keep several trails open as tabs. Switch with `[` / `]` or `1`–`9` and close with `ctrl+w`. Background tabs refresh on their own and show a marker when they change.
+- **Pick a task from a trail** (t1946): Press `p` in `ait trails` to open the same `/aitask-pick` dialog as the board for the focused trail member. If an agent window for that task already exists, it is focused instead.
+- **Newer models offered for superseded defaults** (t1910): When a default model in your config has a newer replacement, `ait upgrade` offers to switch. `ait codeagent check-superseded` runs the same check on demand.
+- **Code agent for data sync conflicts** (t1911): When a task-data sync conflicts, the conflict dialog in the syncer and the board can launch a code agent to resolve it. The agent works in a separate worktree, and other sessions' work is preserved.
+- **Claude Haiku 5.5** (t1916): Registered Claude Haiku 5.5 and its 1M-context variant, recorded as the successor to Haiku 4.5.
+- **Superseded defaults in the Settings TUI** (t1921): The Settings TUI marks code-agent defaults that a newer model replaces. Press `o` or Enter on a marked row to switch it.
+
+### Bug Fixes
+
+- **Plan-path extraction keeps multi-part extensions** (t1889): A path like `SKILL.md.j2` is no longer cut down to `SKILL.md`. Trail and parallel-work conflict checks therefore report fewer false overlaps.
+- **Codex bullet concern markers parsed** (t1892): Codex renders concern markers as `•` bullets, and monitor and minimonitor now pick those up.
+- **Two shadow findings no longer merge into one** (t1897): A marker split across lines now stops rejoining at the next item, whatever its bullet glyph.
+- **Codex shadows launch inline** (t1900): Codex shadows now run without the alternate screen, so their output stays readable. A leftover update dialog in the scrollback no longer makes the pane look like it is waiting for input.
+- **Codex 0.160 update dialog detected** (t1904): The monitor recognizes the update dialog's new wording in codex-cli 0.160.
+- **OpenCode shadow concerns reach the monitor** (t1908): OpenCode's renderer strips square brackets, so OpenCode shadows now wrap their concern markers in code spans. Rows that still arrive without brackets are reported instead of silently dropped.
+- **Hard-wrapped concern text rejoined correctly** (t1914): A line break in the middle of a word (`history.csv`, `follow-up`) no longer corrupts the concern text or loses its disposition and effort fields.
+- **Syncer "Run in terminal" works** (t1915): This button used to do nothing. It now runs the command you edited, in the right repository. The sync dialogs also no longer close a different dialog by mistake.
+- **Co-author trailer for 1M and major-only Claude IDs** (t1918): Commits now say "Claude Opus 5.5" instead of the raw model id for `[1m]` and major-only Claude models.
+- **One stray pane no longer remaps a tmux session** (t1922): A single pane that changes directory into another repository no longer moves its whole session to that project in the monitors. `ait ide` also refuses to take over a session that belongs to another project.
+- **Upgrades remove retired framework scripts** (t1926): `ait upgrade` and `ait setup` now delete script files that the framework no longer ships. The TUIs refuse to start if a stale module would load in place of the framework's own.
+- **No lost updates in the model registry** (t1928): The OpenCode model refresh and the usage and verified-score counters no longer overwrite each other's changes when they run at the same time.
+- **Codebrowser "Run in terminal" runs your edited command** (t1929): The command you edited in the dialog is the one that runs. Projects whose path contains spaces also work now.
+- **Settings reload with no profiles** (t1930): Pressing `r` in Settings no longer crashes when there are no execution profiles.
+- **Retired-skill pruning is path-aware** (t1932): The pruner no longer deletes your own file just because its contents match a file the framework once shipped.
+- **Session field-list test updated** (t1933): A test that pins the fields of a tmux session object was updated to include a recently added field.
+- **Verified-score test isolated** (t1937): The verified-score flags test no longer commits and pushes junk scores to the real model registry.
+- **Settings reload survives a malformed config** (t1938): Reloading with a broken config file now shows an error that names the file. The TUI keeps running.
+- **Codebrowser open-in-editor hardened** (t1936): A missing `$EDITOR` program no longer crashes codebrowser, an `$EDITOR` with arguments (such as `code -w`) now works, and opening the editor no longer cancels annotation loading.
+- **Board editor launch hardened** (t1943): The board's editor launch gets the same fixes and shares the same `$EDITOR` parsing rule.
+- **Codex working timer ticks again** (t1944): Animations are back on in Codex panes; only the starfield effect is disabled.
+
+### Improvements
+
+- **Shadow `>pd` plan-decisions shortcode** (t1894): Ask a shadow agent to list a plan's main design decisions, with the alternatives and reasons behind each. The shadow docs now include a shortcode reference table.
+- **`>pd` reports only real trade-offs** (t1901): `>pd` now lists only choices that have a real downside, instead of filling a fixed number of entries.
+- **All Codex launches run inline** (t1902): Every Codex pane the framework starts now runs without the alternate screen, so scrollback is kept.
+- **Profiles can turn off satisfaction feedback** (t1907): A profile can turn off the end-of-task rating question, and the `fast` profile now does. Usage stats are still recorded.
+- **Explicit workflow end banners** (t1913): Every task-workflow run now ends with a clear Complete or Stopped banner that states the task's outcome.
+- **Model lineage at registration** (t1927): The add-model skill asks which model a new one replaces. Lineages were also filled in for older Claude and Codex models.
+- **OpenCode model lineages** (t1940): Offers to switch superseded default models now cover OpenCode, with 54 recorded lineages.
+
+### Documentation
+
+- **Simpler concept pages** (t1891): The shadow-agent, implementation-trails, task-notes and cross-repo concept pages were rewritten in a plain what / why / how structure. Their detailed internals moved to the workflow pages.
+- **Screen-recording docs** (t1893_1): Added a reference page for the screen-recording skill, plus workflow guides for bug reports, animation timing and recording tips.
+
+### Maintenance
+
+- **OpenCode concern rendering measured** (t1899): Recorded how OpenCode renders shadow concern blocks. This measurement led to the t1908 fix.
+- **OpenCode model registry refresh** (t1919): Added 25 OpenCode models, including the Claude 5.5 family. Refreshing the registry no longer resets usage counters.
+- **OpenCode add-model wrapper** (t1920): The OpenCode add-model wrapper now lists the `--no-supersession` flag.
+
 ## v0.36.1
 
 ### Features
