@@ -1,5 +1,7 @@
 ---
 priority: low
+risk_code_health: low
+risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: enhancement
@@ -66,3 +68,5 @@ in `tests/test_model_supersession.py`) give no protection. Many entries are
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-10-11T11:52:17Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-10-11T16:11:10Z status=pass attempt=1 type=human
