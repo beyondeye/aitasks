@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [trails, aitask_board, minimonitor, shortcuts]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-10-11 16:44
-updated_at: 2026-10-11 16:44
+updated_at: 2026-10-11 16:49
 ---
 
 ## Problem
