@@ -6,6 +6,7 @@ settings, model lists, and execution profiles.
 """
 from __future__ import annotations
 
+import copy
 import json
 import os
 import re
@@ -536,6 +537,50 @@ def _aggregate_verifiedstats(
 # ---------------------------------------------------------------------------
 # ConfigManager
 # ---------------------------------------------------------------------------
+class ConfigReadError(ValueError):
+    """A config file exists but could not be read or parsed.
+
+    Carries the offending path so the caller can name it; subclasses
+    ValueError so existing `(OSError, ValueError)` handlers still match.
+    """
+
+    def __init__(self, path, cause):
+        self.path = Path(path)
+        self.cause = cause
+        super().__init__(f"{path}: {cause}")
+
+
+def _read_config(path, reader):
+    """Run `reader()`, re-raising any read/parse failure as ConfigReadError(path)."""
+    try:
+        return reader()
+    except (OSError, ValueError, yaml.YAMLError) as exc:
+        raise ConfigReadError(path, exc) from exc
+
+
+def _read_json_layer(path) -> dict:
+    """Read one JSON config layer ({} when absent); it must be an object."""
+    data = _read_config(path, lambda: _load_json(Path(path)))
+    if not isinstance(data, dict):
+        raise ConfigReadError(path, f"expected a JSON object, got {type(data).__name__}")
+    return data
+
+
+def _merge_layers(defaults: dict, project: dict, local: dict) -> dict:
+    """defaults <- project <- local, exactly as `load_layered_config` merges.
+
+    Merging layers already read (instead of calling `load_layered_config`,
+    which reads both files again) keeps a failure attributed to the file that
+    actually failed.
+    """
+    result = copy.deepcopy(defaults)
+    if project:
+        result = deep_merge(result, project)
+    if local:
+        result = deep_merge(result, local)
+    return result
+
+
 class ConfigManager:
     """Load and save all aitasks config files.
 
@@ -569,10 +614,17 @@ class ConfigManager:
         self.load_all()
 
     def load_all(self):
-        # Codeagent config
-        self.codeagent = load_layered_config(str(CODEAGENT_CONFIG), defaults={"defaults": {}})
-        self.codeagent_project = _load_json(CODEAGENT_CONFIG)
-        self.codeagent_local = _load_json(local_path_for(str(CODEAGENT_CONFIG)))
+        """Re-read every config from disk, all or nothing.
+
+        Raises ConfigReadError naming the unreadable file and then leaves the
+        in-memory state exactly as it was — the caller reports.
+        """
+        # Codeagent config. Each layer is read once, on its own, so a failure
+        # names the file that failed; the merge works on what was read.
+        codeagent_project = _read_json_layer(CODEAGENT_CONFIG)
+        codeagent_local = _read_json_layer(local_path_for(str(CODEAGENT_CONFIG)))
+        codeagent = _merge_layers(
+            {"defaults": {}}, codeagent_project, codeagent_local)
 
         # Board config
         defaults = {
@@ -580,15 +632,16 @@ class ConfigManager:
             "column_order": [],
             "settings": {"auto_refresh_minutes": 0},
         }
-        self.board = load_layered_config(str(BOARD_CONFIG), defaults=defaults)
-        self.board_project = _load_json(BOARD_CONFIG)
-        self.board_local = _load_json(local_path_for(str(BOARD_CONFIG)))
+        board_project = _read_json_layer(BOARD_CONFIG)
+        board_local = _read_json_layer(local_path_for(str(BOARD_CONFIG)))
+        board = _merge_layers(defaults, board_project, board_local)
 
         # Project config (YAML, project-scoped only)
-        self.project_config = load_yaml_config(PROJECT_CONFIG)
+        project_config = _read_config(
+            PROJECT_CONFIG, lambda: load_yaml_config(PROJECT_CONFIG))
 
         # Model files (read-only)
-        self.models = {}
+        all_models = {}
         for provider, path in MODEL_FILES.items():
             try:
                 data = _load_json(path)
@@ -601,10 +654,18 @@ class ConfigManager:
             if not isinstance(models, list):
                 continue  # wrong shape: every reader assumes a model list
             # Keep only entry dicts; readers call .get() on each entry.
-            self.models[provider] = {
+            all_models[provider] = {
                 **data, "models": [m for m in models if isinstance(m, dict)]}
 
-        # Profiles
+        # Every read succeeded: only now replace the in-memory state.
+        self.codeagent, self.codeagent_project, self.codeagent_local = (
+            codeagent, codeagent_project, codeagent_local)
+        self.board, self.board_project, self.board_local = (
+            board, board_project, board_local)
+        self.project_config = project_config
+        self.models = all_models
+
+        # Profiles (never raises: an unreadable profile is skipped)
         self.load_profiles()
 
     def load_profiles(self):
@@ -2840,7 +2901,7 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 self.notify(
                     f"Switched {key} ({label}) to {fresh[1]}, but the tab could not "
                     f"refresh: {exc}. The display still shows the last config it "
-                    "could read — fix the file, then reopen Settings.",
+                    "could read — fix the file, then press r to reload.",
                     severity="error", timeout=10)
             else:
                 self.notify(
@@ -4426,9 +4487,19 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
     def action_import_configs(self):
         self.push_screen(ImportScreen(), callback=self._handle_import)
 
-    def _reload_all_configs(self):
-        """Re-read every config from disk and repopulate the tabs."""
-        self.config_mgr.load_all()
+    def _reload_all_configs(self) -> bool:
+        """Re-read every config from disk and repopulate the tabs.
+
+        All or nothing: an unreadable file is reported and the config and tabs
+        already loaded are kept. Returns False in that case.
+        """
+        try:
+            self.config_mgr.load_all()
+        except ConfigReadError as exc:
+            self.notify(f"Cannot reload configs — {exc}. Kept the config "
+                        "already loaded; fix the file, then press r to reload.",
+                        severity="error", timeout=10)
+            return False
         self._populate_agent_tab()
         self._populate_board_tab()
         self._populate_project_tab()
@@ -4438,6 +4509,7 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._populate_profiles_tab()
         keybinding_registry.refresh_all()
         self._populate_shortcuts_tab()
+        return True
 
     def _notify_commit(self, result, paths):
         """Surface the outcome of a project-layer metadata commit.
@@ -4525,8 +4597,8 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
             self.notify(f"Import failed: {exc}", severity="error")
 
     def action_reload_configs(self):
-        self._reload_all_configs()
-        self.notify("Configs reloaded from disk")
+        if self._reload_all_configs():
+            self.notify("Configs reloaded from disk")
 
 
 # ---------------------------------------------------------------------------

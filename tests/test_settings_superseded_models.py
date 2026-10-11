@@ -573,7 +573,7 @@ class UnreadableConfigTests(_Fixture):
                 self.assertEqual(len(refresh_notes), 1)
                 self.assertTrue(refresh_notes[0].startswith("Switched pick"))
                 self.assertIn("last config it could read", refresh_notes[0])
-                self.assertNotIn("press r", refresh_notes[0])
+                self.assertIn("press r", refresh_notes[0])
                 # The failed refresh left the in-memory layers untouched.
                 self.assertEqual(before, (app.config_mgr.codeagent_project,
                                           app.config_mgr.codeagent_local))

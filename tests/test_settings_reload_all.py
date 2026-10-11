@@ -13,7 +13,15 @@ What is pinned here:
   and exactly one add-new button survives once removals settle;
 * the same with a profile (that path already used suffixed ids — pinned so it
   stays that way);
-* the suffixed add-new button still opens the New Profile dialog.
+* the suffixed add-new button still opens the New Profile dialog;
+* `r` with a malformed config (JSON or YAML) keeps the app running, names the
+  unreadable file in an error, and keeps the config already loaded — all or
+  nothing, so a valid file read before the broken one is not applied either —
+  and a later `r` after the fix reloads normally (t1938);
+* the error names the layer that actually failed — a broken per-user
+  `*.local.json` is never reported as its project file — because `load_all`
+  reads each JSON layer exactly once and merges what it read, with the same
+  defaults <- project <- local precedence as `load_layered_config`.
 
 Run: python3 tests/test_settings_reload_all.py
 """
@@ -35,10 +43,11 @@ sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "settings"))
 
 from textual.widgets import Button  # noqa: E402
 
+import config_utils  # noqa: E402
 import keybinding_registry  # noqa: E402
 from shortcuts_mixin import refresh_label_case  # noqa: E402
 import settings_app  # noqa: E402
-from settings_app import NewProfileScreen, SettingsApp  # noqa: E402
+from settings_app import ConfigManager, NewProfileScreen, SettingsApp  # noqa: E402
 
 META = Path("aitasks") / "metadata"
 SIZE = (140, 60)
@@ -79,12 +88,18 @@ class _Fixture(unittest.TestCase):
             status="nochange", subject="", detail="", allow_new=allow_new)
         self.addCleanup(setattr, settings_app, "commit_metadata", prev_commit)
         self.notes: list = []
+        self.errors: list = []
 
     def make_app(self) -> SettingsApp:
         app = SettingsApp()
         app._run_projects_group = lambda *a: (0, "", "")
-        notes = self.notes
-        app.notify = lambda message, **kw: notes.append(str(message))
+        notes, errors = self.notes, self.errors
+
+        def notify(message, **kw):
+            notes.append(str(message))
+            if kw.get("severity") == "error":
+                errors.append(str(message))
+        app.notify = notify
         return app
 
     def run_async(self, coro):
@@ -156,6 +171,171 @@ class ReloadWithProfileTest(_Fixture):
                 self.assertEqual(len(hboxes), 1)
                 self.assertEqual(self.add_new_buttons(app), [])
         self.run_async(body())
+
+
+
+class ReloadMalformedConfigTest(_Fixture):
+    with_profile = False
+
+    def write(self, name: str, text: str) -> None:
+        (self.root / META / name).write_text(text, encoding="utf-8")
+
+    def assert_rejected(self, app: SettingsApp, filename: str) -> None:
+        self.assertTrue(app.is_running)
+        self.assertEqual(len(self.errors), 1, self.errors)
+        self.assertIn(filename, self.errors[0])
+        self.assertIn("press r", self.errors[0])
+        self.assertNotIn("Configs reloaded from disk", self.notes)
+        self.assert_tabs_repopulated(app)
+
+    def test_malformed_codeagent_keeps_running(self) -> None:
+        async def body():
+            app = self.make_app()
+            async with app.run_test(size=SIZE) as pilot:
+                await pilot.pause()
+                before = dict(app.config_mgr.codeagent)
+                self.write("codeagent_config.json", "{not json")
+                await pilot.press("r")
+                await pilot.pause()
+                self.assert_rejected(app, "codeagent_config.json")
+                self.assertEqual(app.config_mgr.codeagent, before)
+        self.run_async(body())
+
+    def test_failure_is_all_or_nothing(self) -> None:
+        async def body():
+            app = self.make_app()
+            async with app.run_test(size=SIZE) as pilot:
+                await pilot.pause()
+                before = (dict(app.config_mgr.codeagent),
+                          dict(app.config_mgr.codeagent_project))
+                # Valid and read first, but must not land: the board file
+                # read after it is broken.
+                self.write("codeagent_config.json",
+                           json.dumps({"defaults": {"pick": "x/y"}}))
+                self.write("board_config.json", "{not json")
+                await pilot.press("r")
+                await pilot.pause()
+                self.assert_rejected(app, "board_config.json")
+                self.assertEqual(before, (app.config_mgr.codeagent,
+                                          app.config_mgr.codeagent_project))
+        self.run_async(body())
+
+    def test_malformed_project_yaml(self) -> None:
+        async def body():
+            app = self.make_app()
+            async with app.run_test(size=SIZE) as pilot:
+                await pilot.pause()
+                self.write("project_config.yaml", "key: [unclosed\n")
+                await pilot.press("r")
+                await pilot.pause()
+                self.assert_rejected(app, "project_config.yaml")
+        self.run_async(body())
+
+    def test_reload_recovers_after_fix(self) -> None:
+        async def body():
+            app = self.make_app()
+            async with app.run_test(size=SIZE) as pilot:
+                await pilot.pause()
+                self.write("codeagent_config.json", "{not json")
+                await pilot.press("r")
+                await pilot.pause()
+                self.assertEqual(len(self.errors), 1)
+                self.write("codeagent_config.json",
+                           json.dumps({"defaults": {"pick": "x/y"}}))
+                await pilot.press("r")
+                await pilot.pause()
+                self.assertTrue(app.is_running)
+                self.assertEqual(len(self.errors), 1)
+                self.assertIn("Configs reloaded from disk", self.notes)
+                self.assertEqual(
+                    app.config_mgr.codeagent["defaults"]["pick"], "x/y")
+        self.run_async(body())
+
+
+    def _assert_local_named(self, project_name: str) -> None:
+        local_name = project_name.replace(".json", ".local.json")
+
+        async def body():
+            app = self.make_app()
+            async with app.run_test(size=SIZE) as pilot:
+                await pilot.pause()
+                self.write(local_name, "{not json")
+                await pilot.press("r")
+                await pilot.pause()
+                self.assert_rejected(app, local_name)
+                self.assertNotIn(project_name, self.errors[0])
+        self.run_async(body())
+
+    def test_malformed_codeagent_local_layer_is_named(self) -> None:
+        self._assert_local_named("codeagent_config.json")
+
+    def test_malformed_board_local_layer_is_named(self) -> None:
+        self._assert_local_named("board_config.json")
+
+    def test_non_object_layer_is_rejected(self) -> None:
+        async def body():
+            app = self.make_app()
+            async with app.run_test(size=SIZE) as pilot:
+                await pilot.pause()
+                self.write("codeagent_config.local.json", "[]")
+                await pilot.press("r")
+                await pilot.pause()
+                self.assert_rejected(app, "codeagent_config.local.json")
+                self.assertIn("JSON object", self.errors[0])
+        self.run_async(body())
+
+
+class LoadAllLayersTest(_Fixture):
+    """`ConfigManager.load_all` without the TUI."""
+
+    def write(self, name: str, data) -> None:
+        (self.root / META / name).write_text(json.dumps(data), encoding="utf-8")
+
+    def test_each_json_layer_read_once(self) -> None:
+        self.write("codeagent_config.local.json", {"defaults": {}})
+        self.write("board_config.json", {"columns": []})
+        self.write("board_config.local.json", {"columns": []})
+        mgr = ConfigManager()
+        reads: list = []
+
+        def counting(load):
+            def wrapper(path):
+                reads.append(Path(path).name)
+                return load(path)
+            return wrapper
+        # Both modules' bindings: a regression back to load_layered_config
+        # would re-read through config_utils' own global.
+        for mod in (settings_app, config_utils):
+            prev = mod._load_json
+            mod._load_json = counting(prev)
+            self.addCleanup(setattr, mod, "_load_json", prev)
+        mgr.load_all()
+        layers = [n for n in reads if n.startswith(("codeagent_config", "board_config"))]
+        self.assertEqual(sorted(layers), sorted([
+            "codeagent_config.json", "codeagent_config.local.json",
+            "board_config.json", "board_config.local.json"]))
+
+    def test_merge_matches_load_layered_config(self) -> None:
+        self.write("codeagent_config.json", {
+            "defaults": {"pick": "a/1", "explore": "a/2"}, "extra": [1, 2]})
+        self.write("codeagent_config.local.json", {
+            "defaults": {"pick": "b/1"}, "extra": [3]})
+        self.write("board_config.json", {
+            "columns": [{"id": "now"}], "settings": {"x": 1}})
+        self.write("board_config.local.json", {"settings": {"auto_refresh_minutes": 5}})
+        mgr = ConfigManager()
+        self.assertEqual(mgr.codeagent, config_utils.load_layered_config(
+            str(settings_app.CODEAGENT_CONFIG), defaults={"defaults": {}}))
+        self.assertEqual(mgr.codeagent["defaults"],
+                         {"pick": "b/1", "explore": "a/2"})
+        self.assertEqual(mgr.codeagent["extra"], [3])
+        self.assertEqual(mgr.board, config_utils.load_layered_config(
+            str(settings_app.BOARD_CONFIG), defaults={
+                "columns": [], "column_order": [],
+                "settings": {"auto_refresh_minutes": 0}}))
+        self.assertEqual(mgr.board["settings"],
+                         {"auto_refresh_minutes": 5, "x": 1})
+        self.assertEqual(mgr.board["column_order"], [])
 
 
 if __name__ == "__main__":
