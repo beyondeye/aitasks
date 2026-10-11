@@ -3,15 +3,16 @@ priority: medium
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [testing, testmap, go_engine]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
+assigned_to: dario-e@beyond-eye.com
 anchor: 1852
 created_at: 2026-09-22 09:19
-updated_at: 2026-09-22 16:53
+updated_at: 2026-10-11 14:47
 ---
 
 ## Goal
