@@ -1455,8 +1455,8 @@
         },
         "changelog": {
           "all_time": {
-            "runs": 2,
-            "score_sum": 200
+            "runs": 3,
+            "score_sum": 300
           },
           "prev_month": {
             "period": "2026-09",
@@ -1465,13 +1465,13 @@
           },
           "month": {
             "period": "2026-10",
-            "runs": 1,
-            "score_sum": 100
+            "runs": 2,
+            "score_sum": 200
           },
           "week": {
             "period": "2026-W41",
-            "runs": 1,
-            "score_sum": 100
+            "runs": 2,
+            "score_sum": 200
           }
         },
         "wrap": {
