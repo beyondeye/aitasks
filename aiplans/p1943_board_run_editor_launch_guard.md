@@ -176,3 +176,20 @@ None identified.
 
 ## Upstream defect to record (Step 8b)
 - `.aitask-scripts/board/aitask_board.py:5063` — `_run_sync` (thread worker running `aitask_sync.sh --batch`) is not coordinated with the board's suspend-and-edit path. An in-flight background sync can pull, merge or commit task data while `$EDITOR` holds the same task file open, and cancelling the worker never stopped its thread or subprocess.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-11 17:05)
+- **Requested by user:** The threaded overlap probe read `not thread_release.is_set()` (only proves the test had not released the thread) and ignored the startup wait's result; a finished-first mutation still passed. Assert startup, read an explicit thread-finished signal at editor launch, and add a negative control where the thread finishes first.
+- **Changes made:** `threaded_sync_blocker` now takes a `finished` Event it sets itself in `finally`; the probe reads `not finished.is_set()` at launch; `thread_started` (the `started.wait` result) is asserted; new `blocker="thread_finished"` mode releases and awaits the worker before the editor launches, used by the new negative-control test `test_overlap_probe_sees_a_thread_that_finished_first`. Scratch mutation (overlap test run with the thread finished first) is now killed.
+- **Files affected:** tests/test_board_run_editor.py
+
+Also during implementation: the first full-suite run failed `test_board_fixture_harness::test_no_board_test_module_reaches_the_live_tree` — the new test imported the canonical `aitask_board`. Rewired it onto `bf.FixtureBoardTestBase` (`self.ab`), building the host class per fixture-bound module.
+
+## Final Implementation Notes
+- **Actual work done:** New `.aitask-scripts/lib/editor_argv.py` (`resolve_editor_argv()`: blank/unset → nano/notepad, whole-executable-first via `shutil.which`, else POSIX `shlex.split`, Windows single argv; ValueError message `Invalid $EDITOR '<v>': <err>`). `KanbanApp.run_editor` now runs in worker group `"editor"`, resolves via the helper, catches `OSError` inside `with self.suspend():`, catches `SuspendNotSupported`, notifies after resume and skips the reload on a failed launch. Codebrowser's `action_open_in_editor` swapped its inline rule for the helper (notice text byte-identical). Tests: `tests/test_board_run_editor.py` (12, real `App.suspend` with a fake driver, board loaded via `board_fixture`) and `tests/test_editor_argv.py` (8).
+- **Deviations from plan:** The board test reaches `KanbanApp` through `bf.FixtureBoardTestBase` (`self.ab`) rather than `import aitask_board` — the tier-1 live-tree sweep in `test_board_fixture_harness.py` forbids canonical board imports outside its allowlist. The threaded-overlap probe was strengthened after review (explicit thread-finished Event, startup asserted, finished-first negative control).
+- **Issues encountered:** First full-suite run failed the live-tree sweep (above); fixed. Scratch negative control: all 5 key board tests fail against the pre-fix `run_editor`; the finished-first mutant of the overlap test is killed.
+- **Key decisions:** Shared only the argv rule (two callers, subtle rule → drift risk); containment stays per caller because post-launch work differs. Own worker group: the old exclusive default-group cancel never stopped `_run_sync`'s thread/subprocess, it only marked the worker cancelled — the overlap is pre-existing and pinned by test, not claimed safe.
+- **Upstream defects identified:**
+  - `.aitask-scripts/board/aitask_board.py:5063` — `_run_sync` (thread worker running `aitask_sync.sh --batch`) is not coordinated with the board's suspend-and-edit path: an in-flight background auto-sync can pull/merge/commit task data while `$EDITOR` holds the same task file open; cancelling the worker never stopped its thread or subprocess (pre-existing, unchanged by t1943).
