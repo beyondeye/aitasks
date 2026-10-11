@@ -48,12 +48,12 @@ How to read it*).
 
 | submodule | scope | depends on | wave |
 |---|---|---|---|
-| **M2.1** Registry core | the directory layout, the id grammar `<path>[#<member>][@<variant>]`, the six core tables, the `config.yaml` schema with every key and default, `check` and its rules, `scan --apply` persisting `variants:`, deterministic sorted writes, `CONTRACT_MISMATCH`, `exclude:` globs, `UNCOVERED_VALUE` / `UNMAPPED_ARTIFACT` reconciliation. Owns `internal/registry`, verbs `scan` and `check`, golden tests for the merges and the id grammar | M1.2 | A |
-| **M2.2** Annotation grammar and rewriter | grammar v3 (`testmap:unit` blocks and every key), per-language comment leaders incl. Python docstrings read-only, unknown-key refusal, the line-targeted rewriter with `REWRITE_CONFLICT`, fixed per-language insertion positions, `annotate` / `annotate --suggest` / `annotate --from-body`, `verify`, `# Covers:` prose never matched. Owns `internal/annot` (all but `--author`), verbs `annotate` and `verify`, placement goldens per language | M2.1 | A |
-| **M2.3** Dependency scanners | bash, python, go, kotlin (opaque contract), the Gradle module graph, the plugin protocol under `aitestmap/scanners/`, the opt-in `android-res` symbol scanner, the XDG blob cache, the exported facts (`static:invocation` / `static:import` / `static:package`, anchor lines, declared symbols). Owns `internal/deps`, one red-proved fixture per opaque branch | M1.2 | B |
-| **M2.4** Axes and variants | `axes.yaml`, the runner-side `axis:` / `token_format:`, `<unit>@<value>` ids, the facet join, `--axis`, `axes --list\|--check\|--explain`, the three axis check rules. Owns `internal/axes`, verb `axes` | M2.1 | C |
-| **M2.5** Scoped rows and areas | `_scoped.yaml`, `registry/areas.yaml` and `areas:` blocks, `areas --import-codemap`, `owns:` by area name, kind ranking data, triggers, `reads`, `DEAD_SCOPE` / `KIND_MISMATCH\|CONVERT_TO_SUITE`, `classify --suggest` with the three onboarding signals and `fanout:<n>`, the digest-exemption of scoped rows. Owns the scoped tables in `internal/registry`, verbs `areas` and `classify --suggest` | M2.1 | B |
-| **M2.6** Adoption tables | the `seeds` and `adopted` tables in the loader; `onboard.yaml`'s `rejections[]` / `reviews[]` / `kind_proposals[]` / `calibration[]` as read tables; the load rules `SEED_SHADOWED` / `ADOPTED_ORPHAN` / absent-`by:`-is-human; the write routing for every verb that touches the three files; `SEEDED:` / `ADOPTED:` counts on `check`. Owns the two tables in `internal/registry`, the `onboard.yaml` reader, goldens for the `by:` merge and the shadow rule | M2.1, M2.2 | E — see *Known inconsistencies* |
+| **M2.1** Registry core | the directory layout, the id grammar `<path>[#<member>][@<variant>]`, the loader and its one merge rule with the edges / rules / waivers tables (scopes + areas land from M2.5, axes from M2.4, seeds + adopted from M2.6), the `config.yaml` schema with every key and default, `check` with its rule framework and `STALE_PATH` / `UNSTAMPED` / `UNANNOTATED_MEMBER` / `DEAD_MEMBER` / `UNREGISTERED` / `UNMAPPED_ARTIFACT`, `scan --apply` persisting `variants:` over two injected inputs (the annotation source M2.2 plugs in, the unit lister M3.1 plugs in), deterministic sorted writes, `CONTRACT_MISMATCH`, `exclude:` globs. Owns `internal/registry` (core), verbs `scan` and `check`, golden tests for the merges and the id grammar | M1.2 | A |
+| **M2.2** Annotation grammar and rewriter | grammar v3 (`testmap:unit` blocks and every key), per-language comment leaders incl. Python docstrings read-only, unknown-key refusal, the stamp format, the line-targeted rewriter with `REWRITE_CONFLICT`, fixed per-language insertion positions, `annotate`, `verify`, a post-re-stamp hook in both that M2.6 fills, the annotation source `scan` reads, `# Covers:` prose never matched. Owns `internal/annot` (all but `--suggest` / `--from-body` (M2.3) and `--author` (M7.4)), verbs `annotate` and `verify`, placement goldens per language | M2.1 | A |
+| **M2.3** Dependency scanners | bash, python, go (the `go list` result cached under a key that changes with any Go source's import set, not `go.sum` alone), kotlin (opaque contract), the Gradle module graph, the plugin protocol under `aitestmap/scanners/`, the opt-in `android-res` symbol scanner, the XDG blob cache, the exported facts (`static:invocation` / `static:import` / `static:package`, anchor lines, declared symbols); `annotate --suggest` / `annotate --from-body` as named extensions of M2.2's `internal/annot`. Owns `internal/deps` and those two arms, one red-proved fixture per opaque branch, a red-proved changed-local-import fixture | M1.2, M2.2 | B |
+| **M2.4** Axes and variants | `axes.yaml` and the axes table in the loader, the runner-side `axis:` / `token_format:` (named extension of M3.1's `describe` parse), `<unit>@<value>` ids, the facet join and forced-facet resolution (`select --axis` is parsed by M4.1), `axes --list\|--check\|--explain`, the three axis check rules `DEAD_AXIS_SOURCE` / `UNKNOWN_VARIANT` / `UNCOVERED_VALUE`. Owns `internal/axes`, verb `axes` | M2.1, M3.1 | C |
+| **M2.5** Scoped rows and areas | `_scoped.yaml`, `registry/areas.yaml` and `areas:` blocks, `areas --import-codemap`, `owns:` by area name, kind ranking data, triggers, `reads`, `DEAD_SCOPE` / `KIND_MISMATCH\|CONVERT_TO_SUITE`, `classify --suggest` with the source-set / directory-convention and resource signals and `fanout:<n>` (the recorded-p95 signal lands from M6.4), the digest-exemption of scoped rows. Owns the scoped tables in `internal/registry`, verbs `areas` and `classify --suggest` | M2.1 | B |
+| **M2.6** Adoption tables | the `seeds` and `adopted` tables in the loader; `onboard.yaml`'s `rejections[]` / `reviews[]` / `kind_proposals[]` / `calibration[]` as read tables; the load rules `SEED_SHADOWED` / `ADOPTED_ORPHAN` / absent-`by:`-is-human; the write routing for every verb that touches the three files; `SEEDED:` / `ADOPTED:` counts on `check`; the fill of M2.2's post-re-stamp hook (an automated re-stamp refreshes the matching `adopted.yaml` row and keeps its `by:`; only an explicit human actor deletes it). Owns the two tables in `internal/registry`, the `onboard.yaml` reader, goldens for the `by:` merge and the shadow rule | M2.1, M2.2 | B |
 
 ## Cross-module seams
 
@@ -83,6 +83,12 @@ edit as the owner's named extension):
 
 - `internal/annot` is M2.2's; **M7.4** lands the `--author` arm as its named
   extension.
+- `internal/annot`: **M2.3** lands `annotate --suggest` / `--from-body`; **M2.6**
+  fills M2.2's post-re-stamp hook in `annotate` / `verify`.
+- `scan` / `check` (M2.1): **M2.2** plugs the annotation source; **M3.1** plugs
+  the runner-backed unit lister.
+- `classify --suggest` (M2.5): **M6.4** lands the recorded-p95 signal.
+- M3.1's `describe` parse: **M2.4** lands `axis:` / `token_format:`.
 - `internal/registry` spans M2.1 and M2.6 by table (both in this parent).
 - `classify --suggest` (M2.5) computes the onboarding signals; **M6.4**
   consumes them in `onboard classify`.
@@ -96,15 +102,30 @@ edit as the owner's named extension):
   one-JSON-line-per-file form (M2.3); symbol-level attribution of Kotlin and
   Python changes and hunk-level attribution inside a member file (M2.3 / M4.1).
 
-## Known inconsistencies in the proposal — settle at the coarse pass
+## Known inconsistencies in the proposal — resolved at the coarse pass
 
-- **M2.6's wave contradicts its consumers.** The wave table puts M2.6 in wave
-  E, but the Module Map names it as a dependency of M4.1 (wave C), M4.2, M4.4
-  and M8.2 (wave D). M2.6's own dependencies (M2.1, M2.2) are wave A, so the
-  simplest repair is to plan M2.6 for wave C; the alternative is that the
-  selector, `stale`, `readiness` and `testmap_check` ship without seeded /
-  adopted rows and M2.6 extends them additively. Decide with the M4 and M8
-  parents and fix the proposal's tables (protocol §1).
+Settled on 2026-10-11 and fixed in the proposal (commit `3bc0de8ac`); the table
+above carries the result and `aiplans/p1853_testmap_m2_registry_and_map_model.md`
+("Deviations from the proposal") the reasons:
+
+- M2.6 moved from wave E to **wave B** (its consumers M4.1 / M4.2 / M4.4 / M8.2
+  are waves C–D).
+- `scan` / `check` read two injected inputs: M2.2 plugs the annotation source,
+  M3.1 plugs the runner lister (M2.1 ↔ M2.2 ↔ M3.1 cycle broken).
+- Table and check-rule partition inside `internal/registry` among M2.1 / M2.4 /
+  M2.5 / M2.6.
+- `annotate --suggest` / `--from-body` moved to M2.3 (they read the closure);
+  M2.3 depends on M2.2.
+- M2.4 depends on M3.1 (`describe`'s `axis:` / `token_format:`).
+- `classify --suggest`'s recorded-p95 signal lands with M6.4.
+- The `go list` cache is keyed on import sets, not `go.sum` alone.
+- The re-stamp provenance rule has an owner: M2.2's post-re-stamp hook, filled
+  by M2.6, applied by actor.
+
+**Automation-first (user directive, 2026-10-11).** Human review belonged to an
+older design; no M2 verb, load rule or check rule may make a human action a
+precondition of any path. `by: human:<email>` is an optional recorded value,
+never a gate.
 
 ## Reading list in the proposal
 
