@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [trails, aitask_board, minimonitor, shortcuts]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -15,7 +15,8 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-11 16:44
-updated_at: 2026-10-11 17:47
+updated_at: 2026-10-11 22:34
+completed_at: 2026-10-11 22:34
 ---
 
 ## Problem
@@ -153,3 +154,14 @@ actions must match the board's `(key, description)`; binding-set / scope tests),
 > **✅ gate:plan_approved** run=2026-10-11T14:47:33Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-11T19:29:05Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-11T19:34:22Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:1624da203482038c
+
+> **✅ gate:risk_evaluated** run=2026-10-11T19:34:22Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1946/risk_evaluated_2026-10-11T19:34:22Z-risk_evaluated-a1.log`
