@@ -305,3 +305,33 @@ None identified.
 
 ### Planned mitigations
 - timing: pre-phase | name: characterize_monitor_pick_sites | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — re-pointed seams hiding a monitor pick behaviour change | desc: pin monitor_app's sibling-pick and restart dialog args, notify strings and kill order against pre-refactor code
+
+## Post-review changes
+
+1. **Plan review, before implementation.** Three changes:
+   - `current_tmux_session` targets `$TMUX_PANE` and compares `#{socket_path}` with `$TMUX`.
+   - The builder passes `narrow` only when set.
+   - Trails callback tests were added.
+2. **Implementation review 1.** A verified caller can still sit in ANOTHER project's session on the same gateway server. Fix: the caller's session is used only when `discover_aitasks_sessions` attributes it to `project_root`.
+3. **Implementation review 2.** The configured `default_session` fallback is only a name, and every project defaults to `aitasks`. Fix: `_sessions_owned_by(project_root)`. A candidate (caller's session, then configured session) is searched only if owned. When neither is owned, nothing is searched and the caller launches.
+4. **Implementation review 3 (follow-up).** `_sessions_owned_by` scans the whole server. That moves to t1950: a targeted per-session resolver reusing `_collect_live_roots`' rule.
+
+## Final Implementation Notes
+- **Actual work done:**
+  - **Shared builder.** `agent_command_screen.build_pick_screen(project_root, task_id, *, narrow=False)` returns the configured `/aitask-pick` dialog, or None when unresolved. Board (Kanban + detail), trails, monitor (sibling + restart) and minimonitor all use it. Each caller keeps its own result policy.
+  - **Shared focus helper.** `agent_launch_utils.focus_existing_agent_window` is gateway-routed and searches only sessions attributed to the project. It is built on `current_tmux_session` (pane-targeted, socket-verified) and `_sessions_owned_by`. The board's `_focus_existing_agent_window` became a thin wrapper that keeps its notify; resume uses it too.
+  - **Shared binding.** `board_trail_screen.PICK_BINDING` is the one object both apps declare.
+  - **Trails `p`.** `TrailsApp.action_pick_task` plus a `check_action` gate. The live-member rule is factored into `_live_member_id`, shared with `T`. A warning covers a remapped key or the palette. The unresolved fallback mirrors `T`'s direct launch.
+  - **Docs.** The trails reference, overview and how-to pages cover `p`.
+- **Deviations from plan:**
+  - The focus helper goes beyond step 2: project-ownership checks on both candidate sessions (review rounds 2–3).
+  - The removed `pick_launch_argv` / `resolve_skill_profile` imports in the monitors were confirmed unused before removal.
+- **Issues encountered:**
+  - The live tmux fixture needed the `-S` socket directory pre-created (mode 0700).
+  - One full-suite run flaked in `test_minimonitor_bottom_pin_live.py` (scrollbar thumb press under load). It passed twice in isolation and in the next full run.
+- **Key decisions:**
+  - Construction seams in tests were re-pointed to `agent_command_screen`, with golden assertions unchanged. This is the dedupe regression for minimonitor and (via `test_monitor_pick_launch_sites.py`) monitor.
+  - The monitor sibling kill now runs after the dialog is built rather than between resolve and build. It still runs before `push_screen`, and the pins prove it.
+  - When no candidate session is owned, the helper returns False: a duplicate launch beats a launch silently suppressed by another project's window.
+  - Verification: the pre-phase characterization was green before and after the refactor. Mutant probes (bare `#S`, pane-targeted without the socket check) both fail the live test. The ownership regressions were red before each fix. Full Python suite: 8610 passed.
+- **Upstream defects identified:** None
