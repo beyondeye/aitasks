@@ -394,3 +394,50 @@ with paths named:
 
 ### Planned mitigations
 - timing: post-phase | name: family_rule_negative_control | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: the structural contract passes vacuously under ineffective line/variant rules | desc: Isolated mutants (family ignores agent; variant always empty) must fail the line/variant tests and the shipped contract
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-11 15:10)
+- **Requested by user:** (1) the auto-recorded `_1m` sibling of a variant-changing edge lacked `variant_change`, so the contract would reject it; (2) the Step 6b procedure was inlined in the refresh SKILL.md, against the extract-to-own-file convention; (3) its confirmation prompt lacked the NON-SKIPPABLE banner; (4) `cmd_record` read the registry twice.
+- **Changes made:** (1) `_declare` copies the base entry's `variant_change` onto the generated sibling; new test `test_sibling_of_a_variant_change_carries_the_reason` (red-proved against a pre-fix copy: KeyError); (2) Step 6b moved to `.claude/skills/aitask-refresh-code-models/supersession-lineages.md`, SKILL.md keeps a thin reference; (3) the banner is at the procedure's confirmation step; (4) new `load_registry_sets()` returns `(offerable, listed)` from one read; `load_registry`/`load_registry_names` delegate to it; `cmd_record` uses it.
+- **Files affected:** `.aitask-scripts/lib/model_supersession.py`, `.aitask-scripts/aitask_model_supersession.py`, `.claude/skills/aitask-refresh-code-models/SKILL.md`, `.claude/skills/aitask-refresh-code-models/supersession-lineages.md` (new), `tests/test_model_supersession.py`
+
+## Final Implementation Notes
+- **Actual work done:**
+  - `lib/model_supersession.py`:
+    - `STRICT_AGENTS = ("opencode",)`; the provider-aware `family(name, agent)` (line) and `variant(name, agent)`.
+    - `edge_contract_problems()` (unlisted_old / unlisted_new / cycle / family / variant / stray_variant_change, structural any-status registration).
+    - `load_registry_sets()` (one read) with `load_registry` / `load_registry_names` delegating to it.
+    - `validate_table` accepts an optional non-empty `variant_change`.
+    - `_declare` for strict agents emits `BLOCKED:unlisted_old` / `BLOCKED:family` / `BLOCKED:variant`, and `--variant-change` records the reason (`NOTE:variant_change`, `NOTE:variant_change_ignored`). The `_1m` sibling inherits the base edge's reason.
+  - `aitask_model_supersession.py record`: `--variant-change`, plus `listed` names from the same registry read.
+  - `aitask_add_model.sh`: `validate_agent --allow-opencode` for `record-supersession` only, and `--variant-change` forwarding. Usage and header are updated.
+  - Tests:
+    - `test_model_supersession.py`: FamilyTests, OpencodeRecordTests (incl. unlisted predecessor, legacy claudecode pin, sibling reason), EdgeContractTests (incl. a valid variant-change fixture and the availability-drift fixture), the shipped `test_every_edge_meets_the_contract`, and OpencodeOfferTests (unavailable old model, unavailable intermediate).
+    - `test_add_model.sh` Test 15.
+  - Backfilled 54 `opencode` edges, each dry-run previewed and confirmed by the user, 7 of them with `variant_change` (the codex tier mirrors):
+    - opencode provider: claude opus/sonnet/haiku/fable, the gpt flagship chain, glm, gemini, grok, minimax, qwen, deepseek, muse_spark;
+    - openai provider: the gpt and fast chains;
+    - opencode mirrors: 5_5→5_6_sol, 5_3_codex→5_4, 5_4_mini→5_6_luna;
+    - openai mirrors: 5_5→5_6_sol, 5_5_fast→5_6_sol_fast, 5_3_codex→5_4, 5_4_mini→5_6_luna.
+  - The refresh skill's Step 6b references the new procedure file `supersession-lineages.md` (NON-SKIPPABLE confirmation). Step 8 commits the table.
+  - Docs:
+    - the add-model skill Notes;
+    - `codeagent.md` (Superseded model defaults);
+    - `aitask-add-model.md` (agents table);
+    - `aitask-refresh-code-models.md` (lineage step).
+- **Deviations from plan:**
+  - Not recorded, by user decision: the gpt codex chain, nano/pro and kimi, plus all uncertain variant changes ("revisit when provider documentation confirms"). The uncertain openai-provider question came back unanswered and was treated as declined.
+  - Post-review: the procedure was extracted to its own file, the sibling inherits `variant_change`, and the registry is read once.
+- **Issues encountered:**
+  - The first contract fixtures used toy names (`a`/`b`/`c`), which the opencode line rule reads as distinct providers. Replaced with realistic `opencode_glm_*` names.
+  - The Python CLI has no `--report` flag (report is the default).
+- **Key decisions:**
+  - Strict blocking applies to opencode only, because it has no promotion path. claudecode/codex keep `WARN:family`, so `promote-config` is unchanged.
+  - The contract checks registration structurally (any status); the recorder still requires an offerable target.
+  - Variant changes are explicit, recorded exceptions rather than a looser family rule.
+- **Negative control (post-phase family_rule_negative_control):** isolated scratchpad mutants, deleted afterwards.
+  - (a) `family()` ignoring `agent` failed 22: the FamilyTests line cases, the line boundaries, and the `BLOCKED:family` case for `openai_codex_mini_latest`.
+  - (b) `variant()` always `""` failed 16: the variant boundaries, `BLOCKED:variant`, the controlled valid-variant fixture (`stray_variant_change`), the variant problem kind, and `test_every_edge_meets_the_contract` (7 variant-change edges were approved, so the conditional expectation applies).
+  - The sibling-reason test was red-proved against a pre-fix copy (KeyError).
+- **Upstream defects identified:** `.aitask-scripts/lib/model_supersession.py:_declare` — for claudecode/codex a cross-family edge is still only `WARN:family`, yet `ShippedTableTests` rejects it, so a `promote-config` that records such an edge would produce a table failing its own contract (pre-existing recorder/contract disagreement; opencode is now strict).
