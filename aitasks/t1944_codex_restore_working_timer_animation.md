@@ -135,3 +135,8 @@ On the installed codex-cli (0.160.0), with the new overrides:
   merged here. Its body assumes `tui.animations` is the key, so send it a note
   if this task changes the launch-side key.
 - t1902 (archived): added `tui.alternate_screen=never` to the same array. Keep it.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-11T13:56:20Z status=pass attempt=1 type=human
