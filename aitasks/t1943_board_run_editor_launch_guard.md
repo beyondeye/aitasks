@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1911
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-09 16:34
-updated_at: 2026-10-09 16:36
+updated_at: 2026-10-11 14:39
 ---
 
 ## Origin
@@ -34,3 +35,8 @@ Check the board's other default-group exclusive workers before choosing a group:
 ## Suggested fix
 
 Mirror codebrowser's `action_open_in_editor` after t1936: own worker group, whole-executable-first then `shlex.split` `$EDITOR`, catch `OSError` inside the suspend block and `SuspendNotSupported` around it, notify after resume, and skip the reload on a failed launch. Reuse the real-`App.suspend` fake-driver test pattern from `tests/test_codebrowser_open_in_editor.py`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-11T11:40:06Z status=pass attempt=1 type=human
