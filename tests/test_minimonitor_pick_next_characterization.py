@@ -41,6 +41,7 @@ sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts"))
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "lib"))
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "board"))
 
+import agent_command_screen as acs  # noqa: E402
 from monitor import minimonitor_app as mm  # noqa: E402
 from monitor.monitor_core import PaneCategory, TaskInfo  # noqa: E402
 
@@ -167,6 +168,9 @@ class _Harness:
 
     def run(self):
         """Invoke the action; return (screen, callback) for the pushed dialog."""
+        # Seams re-pointed in t1946: the dialog is built by the shared
+        # `agent_command_screen.build_pick_screen`, so the construction names are
+        # patched there; the golden kwargs below are unchanged.
         # Seam re-pointed in t1705_5: the pick argv + window name now come from
         # the shared `pick_launch_argv` (extracted so the frozen-agent restore
         # coordinator's --repick mode shares one definition with the TUIs). The
@@ -174,12 +178,12 @@ class _Harness:
         # returning a fixed string, so the golden assertion below keeps testing
         # the convention instead of testing the stub. Only the subprocess is
         # faked here — exactly what patching resolve_dry_run_command faked before.
-        with patch.object(mm, "pick_launch_argv",
+        with patch.object(acs, "pick_launch_argv",
                           lambda root, task_id, agent_string=None: (
                               self.dry_run, f"agent-pick-{task_id}")), \
-             patch.object(mm, "resolve_agent_string", return_value="claudecode/x"), \
-             patch.object(mm, "resolve_skill_profile", return_value="fast"), \
-             patch.object(mm, "AgentCommandScreen", _FakeScreen), \
+             patch.object(acs, "resolve_agent_string", return_value="claudecode/x"), \
+             patch.object(acs, "resolve_skill_profile", return_value="fast"), \
+             patch.object(acs, "AgentCommandScreen", _FakeScreen), \
              patch.object(mm, "launch_in_tmux", self._launch), \
              patch.object(mm, "maybe_spawn_minimonitor", self._spawn):
             self.app._launch_pick_for_own(

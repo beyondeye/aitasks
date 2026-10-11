@@ -76,8 +76,8 @@ from shortcuts_mixin import ShortcutsMixin  # noqa: E402
 from tui_clipboard import copy_to_system_clipboard  # noqa: E402
 
 import subprocess  # noqa: E402
-from agent_launch_utils import resolve_dry_run_command, pick_launch_argv, resolve_agent_string, TmuxLaunchConfig, launch_in_tmux, maybe_spawn_minimonitor, mark_monitor_pane, tmux_session_target, unmark_monitor_pane, load_tmux_defaults  # noqa: E402
-from agent_command_screen import AgentCommandScreen, resolve_skill_profile  # noqa: E402
+from agent_launch_utils import resolve_dry_run_command, resolve_agent_string, TmuxLaunchConfig, launch_in_tmux, maybe_spawn_minimonitor, mark_monitor_pane, tmux_session_target, unmark_monitor_pane, load_tmux_defaults  # noqa: E402
+from agent_command_screen import AgentCommandScreen, build_pick_screen  # noqa: E402
 from tmux_exec import TmuxClient  # noqa: E402
 
 # Gateway client for the Layer-A backend calls below (has-session /
@@ -3704,10 +3704,10 @@ class MonitorApp(
         current_info = self._task_cache.get_task_info(task_id, sess)
 
         target_root = self._root_for_snap(snap)
-        # Shared helper (t1705_5), called WITHOUT agent_string exactly as before
-        # the extraction — this launch resolves the operation's configured agent.
-        full_cmd, window_name = pick_launch_argv(target_root, target_id)
-        if not full_cmd:
+        # Shared dialog construction (t1946); it resolves the configured pick
+        # agent (no agent_string), exactly as this site did before.
+        screen = build_pick_screen(target_root, target_id)
+        if screen is None:
             self.notify(f"Failed to resolve pick command for t{target_id}", severity="error")
             return
 
@@ -3717,19 +3717,6 @@ class MonitorApp(
             self._monitor.kill_agent_pane_smart(pane_id)
             self._focused_pane_id = None
             self.notify(f"Killed {old_name}")
-
-        prompt_str = f"/aitask-pick {target_id}"
-        agent_string = resolve_agent_string(target_root, "pick")
-        screen = AgentCommandScreen(
-            f"Pick Task t{target_id}", full_cmd, prompt_str,
-            default_window_name=window_name,
-            project_root=target_root,
-            operation="pick",
-            operation_args=[target_id],
-            default_agent_string=agent_string,
-            skill_name="pick",
-            default_profile=resolve_skill_profile("pick", target_root),
-        )
 
         def on_pick_result(pick_result):
             if isinstance(pick_result, TmuxLaunchConfig):
@@ -3798,28 +3785,15 @@ class MonitorApp(
             return
 
         target_root = self._root_for_snap(snap)
-        # Shared helper (t1705_5), called WITHOUT agent_string exactly as before
-        # the extraction — this launch resolves the operation's configured agent.
-        full_cmd, window_name = pick_launch_argv(target_root, task_id)
-        if not full_cmd:
+        # Shared dialog construction (t1946); it resolves the configured pick
+        # agent (no agent_string), exactly as this site did before.
+        screen = build_pick_screen(target_root, task_id)
+        if screen is None:
             self.notify(
                 f"Failed to resolve pick command for t{task_id}",
                 severity="error",
             )
             return
-
-        prompt_str = f"/aitask-pick {task_id}"
-        agent_string = resolve_agent_string(target_root, "pick")
-        screen = AgentCommandScreen(
-            f"Pick Task t{task_id}", full_cmd, prompt_str,
-            default_window_name=window_name,
-            project_root=target_root,
-            operation="pick",
-            operation_args=[task_id],
-            default_agent_string=agent_string,
-            skill_name="pick",
-            default_profile=resolve_skill_profile("pick", target_root),
-        )
 
         old_window_name = snap.pane.window_name
 

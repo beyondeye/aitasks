@@ -50,6 +50,7 @@ sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "board"))
 from textual.app import App, ComposeResult  # noqa: E402
 from textual.widgets import Button, Checkbox, Input, Label  # noqa: E402
 
+import agent_command_screen as acs  # noqa: E402
 from monitor import minimonitor_app as mm  # noqa: E402
 from monitor.monitor_core import (  # noqa: E402
     PaneCategory, TaskInfo, TaskInfoCache,
@@ -622,16 +623,18 @@ class SharedLaunchImplementationTests(unittest.TestCase):
             snapshots=[own], pane_to_task={"%own": "77"},
         )
         del app._launch_pick  # exercise the real implementation, not the spy
+        # Construction seams live in `agent_command_screen` since t1946 (shared
+        # `build_pick_screen`).
         # Seam re-pointed in t1705_5 (see the note in
         # test_minimonitor_pick_next_characterization.py): the pick argv and
         # window name come from the shared `pick_launch_argv`. The stub computes
         # the real window-name convention so assertions on it keep their teeth.
-        with patch.object(mm, "pick_launch_argv",
+        with patch.object(acs, "pick_launch_argv",
                           lambda root, task_id, agent_string=None: (
                               "cmd --go", f"agent-pick-{task_id}")), \
-             patch.object(mm, "resolve_agent_string", return_value="claudecode/x"), \
-             patch.object(mm, "resolve_skill_profile", return_value="fast"), \
-             patch.object(mm, "AgentCommandScreen", _FakeScreen):
+             patch.object(acs, "resolve_agent_string", return_value="claudecode/x"), \
+             patch.object(acs, "resolve_skill_profile", return_value="fast"), \
+             patch.object(acs, "AgentCommandScreen", _FakeScreen):
             drive(app)
         self.assertEqual(len(constructed), 1)
         return constructed[0]

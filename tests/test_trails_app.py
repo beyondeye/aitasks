@@ -42,6 +42,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -522,6 +523,204 @@ class TrailTaskPolicyTests(TrailsAppTestBase):
         self._run(go())
 
 
+# --- the p policy (t1946) --------------------------------------------------------
+
+
+OVERRIDE = "opencode run --model x '/aitask-pick 1'"
+
+
+class _PickScreen:
+    """A real-shaped dialog result: only `full_command` is read back."""
+
+    def __init__(self, full_command="cmd --go"):
+        self.full_command = full_command
+
+
+class PickPolicyTests(TrailsAppTestBase):
+    """`p` on the focused member: the same `/aitask-pick` dialog as the board
+    for a live local member; hidden and refused on a ghost or with no focus."""
+
+    def _seam(self, app, *, focused_existing=False, resolved=True):
+        built, notes, pushed, runs = [], [], [], []
+
+        def _build(root, task_id, narrow=False):
+            built.append((root, task_id, narrow))
+            return _PickScreen() if resolved else None
+
+        patches = [
+            patch.object(self.ta, "build_pick_screen", _build),
+            patch.object(self.ta, "focus_existing_agent_window",
+                         lambda task_id, root: focused_existing),
+            patch.object(app, "push_screen",
+                         lambda screen, cb=None: pushed.append((screen, cb))),
+            patch.object(app, "notify",
+                         lambda message, *a, **k: notes.append(
+                             (message, k.get("severity", "information")))),
+            patch.object(app, "run_dialog_command",
+                         lambda cmd, **k: runs.append((cmd, k))),
+        ]
+        return built, notes, pushed, runs, patches
+
+    def _go(self, body, **seam_kw):
+        async def go():
+            app = bf.make_trails_app()
+            with self._patches()[0], self._patches()[1]:
+                async with app.run_test(size=(200, 48)) as pilot:
+                    await self._boot_and_select(app, pilot)
+                    built, notes, pushed, runs, patches = self._seam(app, **seam_kw)
+                    for ctx in patches:
+                        ctx.start()
+                    try:
+                        await body(app, pilot, built, notes, pushed, runs)
+                    finally:
+                        for ctx in patches:
+                            ctx.stop()
+        self._run(go())
+
+    def test_live_member_opens_the_pick_dialog(self):
+        async def body(app, pilot, built, notes, pushed, runs):
+            self.assertEqual(self._focused_filename(app), self.member_files[0])
+            self.assertTrue(app.check_action("pick_task", ()))
+            active = {b.binding.action for b in app.screen.active_bindings.values()}
+            self.assertIn("pick_task", active)
+            await pilot.press("p")
+            await self._wait_until(pilot, lambda: pushed or notes)
+            self.assertEqual(built, [(Path("."), self.member_ids[0], False)])
+            self.assertEqual(len(pushed), 1)
+            self.assertIsInstance(pushed[0][0], _PickScreen)
+            self.assertEqual(notes, [])
+        self._go(body)
+
+    def test_ghost_and_no_focus_hide_p_and_refuse_visibly(self):
+        async def body(app, pilot, built, notes, pushed, runs):
+            await pilot.press("down")
+            await pilot.press("down")
+            await self._wait_until(
+                pilot, lambda: getattr(app._focused_card(), "is_ghost", False))
+            self.assertFalse(app.check_action("pick_task", ()))
+            active = {b.binding.action for b in app.screen.active_bindings.values()}
+            self.assertNotIn("pick_task", active)
+            await pilot.press("p")          # hidden: not dispatched at all
+            for _ in range(3):
+                await pilot.pause()
+            self.assertEqual((built, notes, pushed), ([], [], []))
+            # A remapped key / the command palette reach the action itself.
+            app.action_pick_task()
+            self.assertEqual(notes, [("Pick needs a live local task under focus",
+                                      "warning")])
+            app.screen.set_focus(None)
+            await pilot.pause()
+            self.assertFalse(app.check_action("pick_task", ()))
+            app.action_pick_task()
+            self.assertEqual(len(notes), 2)
+            self.assertEqual((built, pushed, runs), ([], [], []))
+        self._go(body)
+
+    def test_running_agent_window_is_focused_instead_of_a_second_launch(self):
+        async def body(app, pilot, built, notes, pushed, runs):
+            await pilot.press("p")
+            await self._wait_until(pilot, lambda: notes)
+            self.assertEqual(notes, [(
+                f"Switched to existing agent window for t{self.member_ids[0]}",
+                "information")])
+            self.assertEqual((built, pushed, runs), ([], [], []))
+        self._go(body, focused_existing=True)
+
+    def test_unresolved_command_launches_directly(self):
+        async def body(app, pilot, built, notes, pushed, runs):
+            await pilot.press("p")
+            await self._wait_until(pilot, lambda: runs)
+            self.assertEqual(pushed, [])
+            self.assertEqual(notes[0][0],
+                             "Could not resolve agent command — launching directly")
+            self.assertEqual(runs, [(
+                f".aitask-scripts/aitask_codeagent.sh invoke pick {self.member_ids[0]}",
+                {"refocus_filename": self.member_files[0]})])
+        self._go(body, resolved=False)
+
+
+class PickCallbackTests(TrailsAppTestBase):
+    """The trails dialog-result policy, driven through the captured callback on
+    a stub host (the policy is this host's own — not the board's)."""
+
+    FILE = "t1_alpha.md"
+
+    def _open(self):
+        host = SimpleNamespace(
+            log=[], notes=[], pushed=[],
+            _modal_is_active=lambda: False,
+            _live_member_id=lambda: "1",
+            _focused_card=lambda: SimpleNamespace(
+                task_data=SimpleNamespace(filename=self.FILE)),
+        )
+        host.notify = lambda msg, severity="information", **k: (
+            host.notes.append((msg, severity)), host.log.append(("notify", msg)))
+        host.push_screen = lambda screen, cb=None: host.pushed.append((screen, cb))
+        host.run_dialog_command = lambda cmd, **k: host.log.append(("run", cmd, k))
+        host.refresh_board = lambda **k: host.log.append(("refresh", k))
+        self.launch_result = (1234, None)
+
+        def _launch(cmd, cfg):
+            host.log.append(("launch", cmd, cfg))
+            return self.launch_result
+
+        for name, stub in (
+                ("build_pick_screen", lambda root, tid, narrow=False: _PickScreen()),
+                ("focus_existing_agent_window", lambda tid, root: False),
+                ("launch_in_tmux", _launch),
+                ("maybe_spawn_minimonitor",
+                 lambda sess, win: host.log.append(("spawn", sess, win)))):
+            p = patch.object(self.ta, name, stub)
+            p.start()
+            self.addCleanup(p.stop)
+        self.ta.TrailsApp.action_pick_task(host)
+        self.assertEqual(len(host.pushed), 1)
+        screen, callback = host.pushed[0]
+        screen.full_command = OVERRIDE      # an in-dialog edit
+        host.log.clear()
+        return host, callback
+
+    def _cfg(self, new_window):
+        return self.ta.TmuxLaunchConfig(session="s", window="agent-pick-1",
+                                        new_session=False, new_window=new_window)
+
+    def test_run_dispatches_the_edited_command(self):
+        host, callback = self._open()
+        callback("run")
+        self.assertEqual(host.log, [
+            ("run", OVERRIDE, {"refocus_filename": self.FILE})])
+
+    def test_new_window_launch_spawns_the_companion_then_rerenders(self):
+        host, callback = self._open()
+        cfg = self._cfg(new_window=True)
+        callback(cfg)
+        self.assertEqual(host.log, [
+            ("launch", OVERRIDE, cfg), ("spawn", "s", "agent-pick-1"),
+            ("refresh", {"refocus_filename": self.FILE})])
+
+    def test_existing_window_launch_spawns_no_companion(self):
+        host, callback = self._open()
+        cfg = self._cfg(new_window=False)
+        callback(cfg)
+        self.assertEqual(host.log, [
+            ("launch", OVERRIDE, cfg),
+            ("refresh", {"refocus_filename": self.FILE})])
+
+    def test_launch_error_notifies_only(self):
+        host, callback = self._open()
+        self.launch_result = (None, "tmux new-window failed")
+        cfg = self._cfg(new_window=True)
+        callback(cfg)
+        self.assertEqual(host.log, [("launch", OVERRIDE, cfg),
+                                    ("notify", "tmux new-window failed")])
+        self.assertEqual(host.notes, [("tmux new-window failed", "error")])
+
+    def test_cancel_changes_nothing(self):
+        host, callback = self._open()
+        callback(None)
+        self.assertEqual(host.log, [])
+
+
 # --- one owner for the trail keys (C10) ----------------------------------------
 
 
@@ -561,6 +760,16 @@ class BindingOwnershipTests(TrailsAppTestBase):
                 self.assertIn(b, self.ta.TrailsApp.BINDINGS)
                 self.assertNotIn(b.action, board_actions)
                 self.assertNotIn(b.key, board_keys)
+
+    def test_the_pick_binding_is_one_object_in_both_apps(self):
+        """`p` (t1946): the board's row and the trails row are the SAME Binding,
+        so a `shortcuts.board.pick_task` override cannot split them."""
+        trails = [b for b in self.ta.TrailsApp.BINDINGS if b.action == "pick_task"]
+        board = [b for b in self.ab.KanbanApp.BINDINGS if b.action == "pick_task"]
+        self.assertEqual(len(trails), 1)
+        self.assertEqual(len(board), 1)
+        self.assertIs(trails[0], self.ts.PICK_BINDING)
+        self.assertIs(board[0], self.ts.PICK_BINDING)
 
     def test_the_trail_binding_objects_are_shared_by_identity(self):
         declared = [b for b in self.ta.TrailsApp.BINDINGS
@@ -626,6 +835,13 @@ class OverridePropagationTests(TrailsAppTestBase):
                 async with trails.run_test(size=(200, 48)) as pilot:
                     await self._x_opens_selector(trails, pilot, expect=True)
         self._run(go())
+
+    def test_a_board_scope_pick_override_rebinds_both_apps(self):
+        self._with_override("shortcuts:\n  board:\n    pick_task: o\n")
+        trails = bf.make_trails_app()
+        board = self.ab.KanbanApp()
+        self.assertEqual(self._key_for(trails, "pick_task"), "o")
+        self.assertEqual(self._key_for(board, "pick_task"), "o")
 
     def test_a_trails_scope_override_changes_nothing(self):
         self._with_override("shortcuts:\n  trails:\n    trail_select: x\n")

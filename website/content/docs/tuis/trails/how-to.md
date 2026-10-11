@@ -60,6 +60,12 @@ The view does not switch to the result by itself. Once the agent has written the
 
 **T** needs a live local task under focus. On a ghost card, or with nothing focused, it shows a warning and launches nothing.
 
+### How to Pick a Member
+
+Focus a live card and press **p**. This opens the same agent-launch dialog as **p** in the board, for [`/aitask-pick`]({{< relref "/docs/skills/aitask-pick" >}}) on that task. The TUI writes nothing. The launched workflow claims the task and plans it with you. If an agent window for that task is already running, **p** switches to it instead of starting a second one.
+
+**p** is hidden on a ghost card and when nothing is focused.
+
 ### How to Move a Wave onto the Board
 
 Moving tasks into board columns (`M` for a whole wave, `m` for one card) happens in the board, not here. Switching TUIs carries **neither the selected trail nor the focused card** — the board keeps its own active trail, independent of the one you are reading in `ait trails`:

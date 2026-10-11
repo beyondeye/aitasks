@@ -35,6 +35,7 @@ sys.path.insert(0, str(REPO_ROOT / "tests" / "lib"))
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "board"))
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "lib"))
 
+import agent_command_screen as acs  # noqa: E402
 import board_fixture as bf  # noqa: E402
 
 TASK_FILE = "t42_alpha.md"
@@ -59,10 +60,21 @@ class DialogRunTestBase(bf.FixtureBoardTestBase, unittest.TestCase):
         app = MagicMock()
         app._modal_is_active.return_value = False
         app._focus_existing_agent_window.return_value = False
-        app._resolve_pick_command.return_value = pick_cmd
-        app._resolve_pick_profile.return_value = "fast"
         app._resolve_resume_command.return_value = resume_cmd
         app._resolve_resume_profile.return_value = "fast"
+        # Both pick entry points build their dialog through the shared
+        # `agent_command_screen.build_pick_screen` (t1946), so pick resolution is
+        # stubbed where that builder reads it. `pick_cmd=None` is the unresolved
+        # command, exactly as `_resolve_pick_command` returning None was.
+        for name, stub in (
+                ("pick_launch_argv",
+                 lambda root, task_id, agent_string=None: (
+                     pick_cmd, f"agent-pick-{task_id}")),
+                ("resolve_agent_string", lambda root, op: None),
+                ("resolve_skill_profile", lambda skill, root=".": "fast")):
+            seam = patch.object(acs, name, stub)
+            seam.start()
+            self.addCleanup(seam.stop)
         return app
 
     def _focused(self, cls=None, *, approved_unstarted=False):

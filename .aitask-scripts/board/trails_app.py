@@ -5,7 +5,8 @@ Hosts ``TrailScreenMixin`` (board_trail_screen.py) over ``TaskManager``
 and the widget layer (board_widgets.py) **without importing ``aitask_board``**
 or any Kanban render path. It is the read-only trail reader: select a trail,
 walk its waves, open the entry detail and summary, refresh locally, re-check
-drift, watch the artifact, and launch ``/aitask-trail`` for a live member. The
+drift, watch the artifact, and launch ``/aitask-trail`` or ``/aitask-pick`` for
+a live member (an agent launch: the launched skill writes, this TUI never). The
 board's ``z`` view stays embedded and unchanged; the two hand off through the
 TUI switcher (``j`` → ``i`` from the board, ``j`` → ``b`` back).
 
@@ -18,8 +19,9 @@ reload or watch result for a background tab updates only that tab and marks it
 ``•``. Tabs are session-only, never persisted (the t1210_4 rule).
 
 Shortcut ownership (parent plan C10): this App registers under scope
-``"board"`` and declares the SAME ``TRAIL_BINDINGS`` objects the board does, so
-a ``shortcuts.board.<trail action>`` override rebinds both surfaces at once.
+``"board"`` and declares the SAME ``TRAIL_BINDINGS`` objects the board does —
+plus the shared ``PICK_BINDING`` (``p``, t1946) — so a
+``shortcuts.board.<action>`` override rebinds both surfaces at once.
 ``M`` (wave move) and ``S`` (task-data sync) are therefore *declared* here but
 hidden and non-dispatching: ``check_action`` refuses them and none of the
 ``TRAIL_ACTION_CAPABILITIES`` members exist on this class, so the mixin's own
@@ -39,6 +41,7 @@ interpolated, never copied.
 
 from __future__ import annotations
 
+import shlex
 import sys
 from pathlib import Path
 
@@ -57,8 +60,15 @@ from textual.screen import ModalScreen, Screen
 from rich.text import Text
 from textual.widgets import DataTable, Header, Input, SelectionList, Static
 
+from agent_command_screen import build_pick_screen
+from agent_launch_utils import (
+    TmuxLaunchConfig, focus_existing_agent_window, launch_in_tmux,
+    maybe_spawn_minimonitor,
+)
 from board_task_manager import TaskManager
-from board_trail_screen import TRAIL_BINDINGS, TrailScreenMixin
+from board_trail_screen import (
+    CODEAGENT_SCRIPT, PICK_BINDING, TRAIL_BINDINGS, TrailScreenMixin,
+)
 from board_trail_view import TRAIL_CSS, TrailColumn, TrailTaskCard
 from board_widgets import WIDGET_CSS, TaskCard
 from multirow_footer import MultiRowFooter
@@ -211,6 +221,8 @@ class TrailsApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
         Binding("right", "nav_right", "Right", show=False, priority=True),
         # The shared trail keys — the SAME objects the board declares (C10).
         *TRAIL_BINDINGS,
+        # `p` — the board's own pick row, the same object (C10, t1946).
+        PICK_BINDING,
         # Tab keys — this App's own rows (see TRAIL_TAB_BINDINGS).
         *TRAIL_TAB_BINDINGS,
     ]
@@ -375,20 +387,73 @@ class TrailsApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
         self._load_trail_tasks()
         self.refresh_board(refocus_filename=refocus_filename)
 
+    def _live_member_id(self) -> str:
+        """The focused live local member's own id, or "" — a ghost (archived /
+        cross-repo / deleted) card, or no focus, has none. The one rule `T` and
+        `p` launch for."""
+        focused = self._focused_card()
+        if isinstance(focused, TrailTaskCard) and not focused.is_ghost:
+            return task_own_id(focused.task_data) or ""
+        return ""
+
     def _trail_task_target(self) -> str | None:
         """`T` policy (C10): the focused live local member's own id, else a
         visible refusal and no launch. Silent only under a modal."""
         if self._modal_is_active():
             return None
-        focused = self._focused_card()
-        target = ""
-        if isinstance(focused, TrailTaskCard) and not focused.is_ghost:
-            target = task_own_id(focused.task_data) or ""
+        target = self._live_member_id()
         if not target:
             self.notify("T needs a live local task under focus",
                         severity="warning")
             return None
         return target
+
+    def action_pick_task(self):
+        """`p` (t1946): open the board's `/aitask-pick <N>` launch dialog for
+        the focused live member, or switch to its running agent window.
+
+        Hidden by `check_action` on a ghost card or with nothing focused; a
+        remapped key or the command palette can still reach it, so the refusal
+        is visible here too (silent only under a modal). The TUI writes nothing:
+        the launched skill claims the task after its own confirmations. The
+        result policy is this host's — `run` goes through `run_dialog_command`
+        (whose `_after_dialog_command` reloads), a successful tmux launch
+        re-renders, and a cancel changes nothing."""
+        if self._modal_is_active():
+            return
+        target = self._live_member_id()
+        if not target:
+            self.notify("Pick needs a live local task under focus",
+                        severity="warning")
+            return
+        filename = self._focused_card().task_data.filename
+        root = Path(".")
+        if focus_existing_agent_window(target, root):
+            self.notify(f"Switched to existing agent window for t{target}")
+            return
+        screen = build_pick_screen(root, target)
+        if screen is None:
+            # The `T` fallback's shape: still a real agent launch, no dialog.
+            self.notify("Could not resolve agent command — launching directly")
+            self.run_dialog_command(
+                shlex.join([str(CODEAGENT_SCRIPT), "invoke", "pick", target]),
+                refocus_filename=filename)
+            return
+
+        def on_pick_result(result):
+            if result == "run":
+                self.run_dialog_command(screen.full_command,
+                                        refocus_filename=filename)
+            elif isinstance(result, TmuxLaunchConfig):
+                _pid, err = launch_in_tmux(screen.full_command, result)
+                if err:
+                    self.notify(err, severity="error")
+                    return
+                if result.new_window:
+                    maybe_spawn_minimonitor(result.session, result.window)
+                self.refresh_board(refocus_filename=filename)
+
+        self.push_screen(screen, on_pick_result)
 
     def _refresh_subtitle(self):
         """No active trail → say so; the mixin's fallback prints the board's
@@ -585,6 +650,10 @@ class TrailsApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
                 return False
         elif action in ("trail_task", "view_details"):
             if not self._focused_card():
+                return False
+        elif action == "pick_task":
+            # Live local members only (t1946): hidden on a ghost and unfocused.
+            if not self._live_member_id():
                 return False
         return True
 

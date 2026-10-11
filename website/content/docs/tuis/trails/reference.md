@@ -24,6 +24,7 @@ Every key below can be rebound — press **?** for the in-place editor, or open
 | `R` | Open the agent workflow that re-authors the active trail | Trail selected; not while a launch is already starting |
 | `v` | Open the trail's summary in a scrollable dialog | The trail has a summary |
 | `T` | Open the `/aitask-trail` creation workflow for the focused task — the workflow confirms before it writes | Focused live local card (a ghost card, or no focus, gives a warning) |
+| `p` | Open the `/aitask-pick` launch dialog for the focused task — the same dialog as the board's `p`. If an agent window for that task is already running, switch to it instead | Focused live local card (hidden on a ghost card or with nothing focused) |
 | `Enter` | Open the focused member's detail screen | Focused card |
 | `Up` / `Down` / `Left` / `Right` | Move between cards and waves | |
 | `j` | TUI switcher | |
@@ -100,9 +101,9 @@ shortcuts:
     trail_select: o
 ```
 
-in `aitasks/metadata/userconfig.yaml` rebinds the key in both `ait trails` and the board's By-Trail view.
+in `aitasks/metadata/userconfig.yaml` rebinds the key in both `ait trails` and the board's By-Trail view. `p` works the same way: `shortcuts.board.pick_task` rebinds pick in `ait trails` and everywhere in the board.
 
-The `?` editor inside `ait trails` lists the `board` rows this TUI uses — the trail keys, navigation and quit — plus the shared actions. To rebind a key that only the Kanban board uses, open the editor from `ait board` or use [Settings → Shortcuts]({{< relref "/docs/tuis/settings#shortcuts-s" >}}).
+The `?` editor inside `ait trails` lists the `board` rows this TUI uses — the trail keys, `p` (pick), navigation and quit — plus the shared actions. To rebind a key that only the Kanban board uses, open the editor from `ait board` or use [Settings → Shortcuts]({{< relref "/docs/tuis/settings#shortcuts-s" >}}).
 
 ## Launch and environment
 
@@ -112,5 +113,5 @@ The `?` editor inside `ait trails` lists the `board` rows this TUI uses — the 
 | `j` → `i` | From any TUI, through the [TUI switcher]({{< relref "/docs/tuis" >}}#navigating-between-tuis); `i` is not shown on the switcher's hint row, but the entry is listed |
 
 - **Task directory** — read from `TASK_DIR` (default `aitasks`).
-- **Read-only** — the TUI never writes a trail, a task, or `board_config.json`; a project without a board configuration file is left without one.
+- **Read-only** — the TUI never writes a trail, a task, or `board_config.json`; a project without a board configuration file is left without one. `T`, `R` and `p` launch code-agent workflows, and those workflows write only after their own confirmations.
 - **Separate selection** — the open tabs are independent of the trail the board's By-Trail view shows; switching TUIs does not carry them across, and they are not kept when you quit.

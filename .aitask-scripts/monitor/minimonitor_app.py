@@ -91,7 +91,6 @@ from agent_launch_utils import (  # noqa: E402
     DEFAULT_TMUX_SESSION,
     load_tmux_defaults,
     resolve_dry_run_command,
-    pick_launch_argv,
     resolve_agent_string,
     TmuxLaunchConfig,
     launch_in_tmux,
@@ -101,7 +100,7 @@ from agent_launch_utils import (  # noqa: E402
     tmux_window_target,
     unmark_monitor_pane,
 )
-from agent_command_screen import AgentCommandScreen, resolve_skill_profile  # noqa: E402
+from agent_command_screen import AgentCommandScreen, build_pick_screen  # noqa: E402
 import gate_ledger  # noqa: E402  (narrow gate-summary shed; same import path as monitor_core)
 
 from rich.cells import cell_len, set_cell_size  # noqa: E402
@@ -3177,30 +3176,15 @@ class MiniMonitorApp(
         """
         if self._monitor is None:
             return
-        # Shared with monitor_app and the restore coordinator's --repick mode
-        # (t1705_5). Called WITHOUT agent_string, exactly as before the
-        # extraction, so this launch keeps resolving the operation's configured
-        # agent rather than a record's.
-        full_cmd, window_name = pick_launch_argv(target_root, target_id)
-        if not full_cmd:
+        # Shared dialog construction with board, trails and monitor (t1946).
+        # It resolves the operation's configured agent (no agent_string), so
+        # this launch keeps starting the configured agent rather than a record's.
+        screen = build_pick_screen(target_root, target_id, narrow=True)
+        if screen is None:
             self.notify(
                 f"Failed to resolve pick command for t{target_id}", severity="error"
             )
             return
-
-        prompt_str = f"/aitask-pick {target_id}"
-        agent_string = resolve_agent_string(target_root, "pick")
-        screen = AgentCommandScreen(
-            f"Pick Task t{target_id}", full_cmd, prompt_str,
-            default_window_name=window_name,
-            project_root=target_root,
-            operation="pick",
-            operation_args=[target_id],
-            default_agent_string=agent_string,
-            skill_name="pick",
-            default_profile=resolve_skill_profile("pick", target_root),
-            narrow=True,
-        )
 
         def on_pick_result(pick_result):
             if isinstance(pick_result, TmuxLaunchConfig):

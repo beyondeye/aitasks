@@ -24,6 +24,10 @@ Usage:
     )
     app.push_screen(screen, callback)
 
+The `/aitask-pick <N>` dialog has one shared construction —
+`build_pick_screen(project_root, task_id)` returns it configured (or None when
+the command cannot be resolved); the caller keeps its own result handling.
+
 A host that opens this dialog with a key the dialog itself binds may pass
 `debounce_key=<that key>` (opt-in, off by default) so an immediate repeat of
 the launching key cannot confirm the dialog — see OPENING_DEBOUNCE_SECONDS.
@@ -57,6 +61,8 @@ from agent_launch_utils import (  # noqa: E402
     get_tmux_windows,
     is_tmux_available,
     load_tmux_defaults,
+    pick_launch_argv,
+    resolve_agent_string,
     resolve_dry_run_command,
 )
 from guarded_dismiss import GuardedDismissMixin  # noqa: E402
@@ -1252,3 +1258,39 @@ class AgentCommandScreen(GuardedDismissMixin, ShortcutsMixin, ModalScreen):
             split_direction=split_direction,
             cwd=str(self._project_root),
         )
+
+
+def build_pick_screen(
+    project_root: Path,
+    task_id: str,
+    *,
+    narrow: bool = False,
+) -> AgentCommandScreen | None:
+    """The `/aitask-pick <task_id>` launch dialog every TUI opens (t1946).
+
+    One construction for the board (Kanban card and task detail), the
+    stand-alone trails TUI, monitor (next-sibling pick and restart) and
+    minimonitor. Returns None when the pick command cannot be resolved. What to
+    do then — and with the dialog's result — stays with each caller: the board
+    falls back to a direct wrapper launch, the monitors notify, and kill order
+    and notify wording differ per caller.
+
+    `pick_launch_argv` is called WITHOUT `agent_string`, so the operation's
+    configured agent is resolved, exactly as every TUI site did before
+    (`tests/test_pick_launch_argv.py`). `narrow` is passed only when set, so a
+    non-narrow caller's construction is identical to its pre-t1946 call.
+    """
+    full_cmd, window_name = pick_launch_argv(project_root, task_id)
+    if not full_cmd:
+        return None
+    return AgentCommandScreen(
+        f"Pick Task t{task_id}", full_cmd, f"/aitask-pick {task_id}",
+        default_window_name=window_name,
+        project_root=project_root,
+        operation="pick",
+        operation_args=[task_id],
+        default_agent_string=resolve_agent_string(project_root, "pick"),
+        skill_name="pick",
+        default_profile=resolve_skill_profile("pick", project_root),
+        **({"narrow": True} if narrow else {}),
+    )

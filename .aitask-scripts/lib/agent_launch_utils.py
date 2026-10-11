@@ -350,9 +350,9 @@ def pick_launch_argv(
     branch on that exactly as they did before this helper existed.
 
     Extracted (t1705_5) so the restore coordinator's ``--repick`` mode shares one
-    definition with the TUIs instead of forking it. Three call sites consume it —
-    `monitor/minimonitor_app.py`, and `monitor/monitor_app.py` twice (the pick
-    launch and `_on_restart_confirmed`).
+    definition with the TUIs instead of forking it. The TUIs reach it through
+    `agent_command_screen.build_pick_screen` (t1946) — board, trails, monitor
+    and minimonitor — and `agent_restore` calls it directly.
 
     **`agent_string` defaults to None on purpose, and that default is the whole
     contract.** None of the three TUI sites passed an agent string before the
@@ -469,6 +469,78 @@ def find_window_by_name(name: str, session: str) -> tuple[str, str] | None:
         if win_name == name:
             return (session, idx)
     return None
+
+
+def current_tmux_session() -> str | None:
+    """The caller's own session on the GATEWAY server, or None when the caller
+    is not verifiably a pane of that server.
+
+    A bare ``display-message -p '#S'`` sent to the gateway socket by a process
+    whose ``$TMUX`` names a DIFFERENT server has no client to resolve against, so
+    tmux answers with its "best" session — possibly another project's, whose
+    ``agent-pick-<id>`` window would then be selected for a same-numbered task.
+    So the probe targets the caller's own pane (``$TMUX_PANE``) and is trusted
+    only when the answering server's ``#{socket_path}`` is the socket ``$TMUX``
+    names: pane ids are per-server, and ``%0`` exists on every server.
+    """
+    tmux_env = os.environ.get("TMUX", "")
+    pane = os.environ.get("TMUX_PANE", "")
+    if not tmux_env or not pane:
+        return None
+    own_socket = tmux_env.split(",", 1)[0]
+    rc, out = _TMUX.run(
+        ["display-message", "-p", "-t", pane, "#{socket_path}\t#{session_name}"])
+    if rc != 0:
+        return None
+    sock, _, session = out.strip().partition("\t")
+    if not sock or not own_socket or (
+            os.path.realpath(sock) != os.path.realpath(own_socket)):
+        return None
+    return session or None
+
+
+def _sessions_owned_by(project_root: Path) -> set[str]:
+    """Live sessions the canonical discovery attributes to ``project_root``
+    (registration stamp, else pane vote, else legacy registry).
+
+    One gateway server hosts every project's sessions, so neither "the caller's
+    own session" nor "the configured session name" proves ownership: a caller
+    can sit in another project's session, and every project defaults to
+    ``default_session: aitasks``. Positive evidence only — a session discovery
+    cannot attribute, or attributes elsewhere, is not ours.
+    """
+    want = _root_key(Path(project_root))
+    return {found.session for found in discover_aitasks_sessions()
+            if _root_key(found.project_root) == want}
+
+
+def focus_existing_agent_window(task_id: str, project_root: Path) -> bool:
+    """Select a running ``agent-pick-<id>`` / ``agent-resume-<id>`` window
+    instead of launching a duplicate agent for the same task (t1946).
+
+    Shared by the board (pick and resume) and the stand-alone trails TUI.
+    Window names carry only the task number, so only a session attributed to
+    ``project_root`` is ever searched: the caller's own session when
+    :func:`current_tmux_session` verifies it, else the project's configured
+    ``default_session`` — each only if discovery roots it in ``project_root``.
+    When neither is, nothing is searched and the caller launches: a duplicate
+    agent is recoverable, a launch suppressed by another project's window is a
+    silent wrong answer. Returns True when such a window exists; the
+    ``select-window`` itself is best-effort.
+    """
+    owned = _sessions_owned_by(project_root)
+    candidates = (current_tmux_session(),
+                  load_tmux_defaults(project_root)["default_session"])
+    session = next((c for c in candidates if c and c in owned), None)
+    if session is None:
+        return False
+    for name in (f"agent-pick-{task_id}", f"agent-resume-{task_id}"):
+        existing = find_window_by_name(name, session)
+        if existing:
+            sess, idx = existing
+            _TMUX.run(["select-window", "-t", tmux_window_target(sess, idx)])
+            return True
+    return False
 
 
 def _walk_up_to_aitasks(path: Path) -> Path | None:

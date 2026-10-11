@@ -109,6 +109,12 @@ TRAIL_BINDINGS = [
 ]
 TRAIL_BINDING = {b.action: b for b in TRAIL_BINDINGS}
 
+#: `p` — pick the focused task. Not a trail key (the mixin implements no
+#: `pick_task`; each host does), but both hosts declare it, so the SAME object
+#: rides in both BINDINGS and a `shortcuts.board.pick_task` override rebinds
+#: `ait board` and `ait trails` at once (t1946).
+PICK_BINDING = Binding("p", "pick_task", "Pick")
+
 #: Optional host members each board-only trail action reaches, directly or
 #: through the chain it starts (`_review_then` → `_choose_move_destination` →
 #: `_apply_move_to_column`, which reads `marked` and `_column_title`).

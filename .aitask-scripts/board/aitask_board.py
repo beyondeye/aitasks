@@ -24,8 +24,8 @@ from rich.markup import escape
 from mark_glyphs import MARK_CHECKED, MARK_UNCHECKED, mark_markup
 from config_utils import task_dir
 from editor_argv import resolve_editor_argv
-from agent_command_screen import AgentCommandScreen, resolve_skill_profile
-from agent_launch_utils import find_terminal, spawn_in_terminal, find_window_by_name, resolve_dry_run_command, resolve_agent_string, TmuxLaunchConfig, launch_in_tmux, load_tmux_defaults, maybe_spawn_minimonitor, _lookup_window_name, tmux_window_target
+from agent_command_screen import AgentCommandScreen, build_pick_screen, resolve_skill_profile
+from agent_launch_utils import find_terminal, spawn_in_terminal, find_window_by_name, focus_existing_agent_window, resolve_dry_run_command, resolve_agent_string, TmuxLaunchConfig, launch_in_tmux, load_tmux_defaults, maybe_spawn_minimonitor, _lookup_window_name, tmux_window_target
 from sync_action_runner import (
     CONFLICT_CHOICE_AGENT,
     CONFLICT_CHOICE_INTERACTIVE,
@@ -135,8 +135,9 @@ from board_trail_view import (
 # `ab.board_trail_screen`; the board's own re-exports would be inert there.
 import board_trail_screen
 from board_trail_screen import (
-    CODEAGENT_FAILURE_NOTICE, CODEAGENT_SCRIPT, TRAIL_ACTION_CAPABILITIES,
-    TRAIL_BINDING, TRAIL_BINDINGS, TrailHost, TrailScreenMixin,
+    CODEAGENT_FAILURE_NOTICE, CODEAGENT_SCRIPT, PICK_BINDING,
+    TRAIL_ACTION_CAPABILITIES, TRAIL_BINDING, TRAIL_BINDINGS, TrailHost,
+    TrailScreenMixin,
 )
 
 # The task data layer lives in three modules (t1794_4): board_task_model.py
@@ -2297,8 +2298,9 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
         Binding("C", "commit_all", "Commit All"),
         # Task Creation
         Binding("n", "create_task", "New Task"),
-        # Pick task (shown conditionally via check_action)
-        Binding("p", "pick_task", "Pick"),
+        # Pick task (shown conditionally via check_action). Shared object with
+        # `ait trails` (C10) — see PICK_BINDING in board_trail_screen.py.
+        PICK_BINDING,
         # Work report (shown conditionally via check_action)
         Binding("w", "work_report", "Work Report"),
         # Brainstorm task (shown conditionally via check_action)
@@ -4558,21 +4560,8 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
         elif result == "pick":
             task_num, _ = TaskCard._parse_filename(task_data.filename)
             if task_num:
-                full_cmd = self._resolve_pick_command(task_num)
-                if full_cmd:
-                    num = task_num.lstrip("t")
-                    prompt_str = f"/aitask-pick {num}"
-                    agent_string = resolve_agent_string(Path("."), "pick")
-                    screen = AgentCommandScreen(
-                        f"Pick Task t{num}", full_cmd, prompt_str,
-                        default_window_name=f"agent-pick-{num}",
-                        project_root=Path("."),
-                        operation="pick",
-                        operation_args=[num],
-                        default_agent_string=agent_string,
-                        skill_name="pick",
-                        default_profile=self._resolve_pick_profile(),
-                    )
+                screen = build_pick_screen(Path("."), task_num.lstrip("t"))
+                if screen is not None:
                     def on_pick_result(pick_result):
                         if pick_result == "run":
                             self.run_dialog_command(
@@ -4731,20 +4720,8 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
         if self._focus_existing_agent_window(num):
             self.refresh_board(refocus_filename=focused.task_data.filename)
             return
-        full_cmd = self._resolve_pick_command(task_num)
-        if full_cmd:
-            prompt_str = f"/aitask-pick {num}"
-            agent_string = resolve_agent_string(Path("."), "pick")
-            screen = AgentCommandScreen(
-                f"Pick Task t{num}", full_cmd, prompt_str,
-                default_window_name=f"agent-pick-{num}",
-                project_root=Path("."),
-                operation="pick",
-                operation_args=[num],
-                default_agent_string=agent_string,
-                skill_name="pick",
-                default_profile=self._resolve_pick_profile(),
-            )
+        screen = build_pick_screen(Path("."), num)
+        if screen is not None:
             def on_pick_result(pick_result):
                 if pick_result == "run":
                     self.run_dialog_command(
@@ -5214,15 +5191,6 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
             self.refresh_board(refresh_locks=True)
         run_interactive_sync(self.app, on_done=reload)
 
-    def _resolve_pick_command(self, task_num: str):
-        """Resolve the full pick command via --dry-run, return command string or None."""
-        num = task_num.lstrip("t")
-        return resolve_dry_run_command(Path("."), "pick", num)
-
-    def _resolve_pick_profile(self) -> str:
-        """Resolve the active profile name for the pick skill."""
-        return resolve_skill_profile("pick")
-
     def _resolve_resume_command(self, task_num: str):
         """Resolve the full resume command via --dry-run, return command string or None."""
         num = task_num.lstrip("t")
@@ -5233,20 +5201,13 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
         return resolve_skill_profile("resume")
 
     def _focus_existing_agent_window(self, num: str) -> bool:
-        session = (
-            _current_tmux_session()
-            or load_tmux_defaults(Path.cwd())["default_session"]
-        )
-        for window_name in (f"agent-pick-{num}", f"agent-resume-{num}"):
-            existing = find_window_by_name(window_name, session)
-            if existing:
-                sess, idx = existing
-                subprocess.Popen(
-                    ["tmux", "select-window", "-t", tmux_window_target(sess, idx)],
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                )
-                self.notify(f"Switched to existing agent window for t{num}")
-                return True
+        """Switch to t<num>'s running pick/resume agent window, if any.
+
+        The lookup is shared with `ait trails` (`focus_existing_agent_window`,
+        gateway-routed, t1946); the notify is the board's."""
+        if focus_existing_agent_window(num, Path.cwd()):
+            self.notify(f"Switched to existing agent window for t{num}")
+            return True
         return False
 
     def action_gate_resume(self):

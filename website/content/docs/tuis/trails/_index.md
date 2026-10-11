@@ -21,7 +21,7 @@ depth: [intermediate]
 
 A trail answers "in what order should this group of tasks land, and why". Reading one does not need the board: `ait trails` starts directly in the trail selector, loads nothing but the task files and the trail itself, and never writes your board layout. Use it when you want to follow a trail — which wave is next, which members have landed, what has drifted — without the whole board in front of you.
 
-The TUI is **read-only**. It never writes a trail and never changes a task. The two keys that start trail authoring — `T` to create a trail for the focused task, `R` to re-author the one on screen — open the [`/aitask-trail`]({{< relref "/docs/skills/aitask-trail" >}}) workflow in a code agent, and that workflow asks you to confirm before it writes anything.
+The TUI is **read-only**. It never writes a trail and never changes a task. The two keys that start trail authoring — `T` to create a trail for the focused task, `R` to re-author the one on screen — open the [`/aitask-trail`]({{< relref "/docs/skills/aitask-trail" >}}) workflow in a code agent, and that workflow asks you to confirm before it writes anything. `p` is the other agent launch: it opens [`/aitask-pick`]({{< relref "/docs/skills/aitask-pick" >}}) for the focused task, and the task is claimed by that workflow, not by the TUI.
 
 ## Relationship to the board
 
@@ -32,6 +32,7 @@ The TUI is **read-only**. It never writes a trail and never changes a task. The 
 | Several trails open at once | No — one trail; choosing another replaces it | Yes — one tab each (`[` / `]`, `1`–`9`, `Ctrl+W`) |
 | `s` | Re-scans the project every time | Lists the trails from the last scan; `r` in the selector re-scans |
 | `T` | Hidden in By-Trail; used from the kanban and By-Topic views | Opens the trail-creation workflow for the focused live card |
+| `p` (pick the focused task) | Yes | Yes — the same launch dialog, for a live local card |
 | Move to a column (`m` / `M`) | Yes | No — there are no board columns here |
 | Sync with remote (`S`) | Yes | No — sync from the board or with `ait sync` |
 | Writes `board_config.json` | Yes (board layout and settings) | Never |

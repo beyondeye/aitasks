@@ -24,6 +24,7 @@ import ast
 import asyncio
 import sys
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -31,6 +32,7 @@ sys.path.insert(0, str(REPO_ROOT / "tests" / "lib"))
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "board"))
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "lib"))
 
+import agent_command_screen as acs  # noqa: E402
 import board_fixture as bf  # noqa: E402
 
 BOARD_SRC = REPO_ROOT / ".aitask-scripts" / "board" / "aitask_board.py"
@@ -41,8 +43,9 @@ class NestedDetailActionTests(bf.FixtureBoardTestBase, unittest.TestCase):
     triggered from a nested detail screen, routes to the *nested* task — and
     that the multi-level Esc-pop screen history still works.
 
-    Boots against a fixture tree (t1354_2). Helper audit: `_resolve_pick_command`
-    is stubbed to a literal `"true"` by `_assert_pick_routes_to`, so the pick
+    Boots against a fixture tree (t1354_2). Helper audit: the shared pick
+    builder's `pick_launch_argv` is stubbed to a literal `"true"` by
+    `_assert_pick_routes_to`, so the pick
     path never shells out to the real codeagent resolver, and the assertion
     checks `operation_args` — i.e. the intended branch — rather than merely that
     nothing raised.
@@ -94,7 +97,17 @@ class NestedDetailActionTests(bf.FixtureBoardTestBase, unittest.TestCase):
         is initiated for ``task`` (an AgentCommandScreen for its id is pushed)."""
         # Deterministic stub so the pick branch builds the AgentCommandScreen
         # rather than depending on a configured pick command.
-        app._resolve_pick_command = lambda task_num: "true"
+        # (t1946: the pick dialog is built by the shared
+        # `agent_command_screen.build_pick_screen`, so the stub sits there.)
+        for name, stub in (
+                ("pick_launch_argv",
+                 lambda root, task_id, agent_string=None: (
+                     "true", f"agent-pick-{task_id}")),
+                ("resolve_agent_string", lambda root, op: None),
+                ("resolve_skill_profile", lambda skill, root=".": "fast")):
+            seam = patch.object(acs, name, stub)
+            seam.start()
+            self.addCleanup(seam.stop)
         # Neutralise the pick-button enabled gate so "p" exercises the real
         # action_pick -> pick_task -> dismiss("pick") path deterministically.
         app.screen.query_one("#btn_pick").disabled = False

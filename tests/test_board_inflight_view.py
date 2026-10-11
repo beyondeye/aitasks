@@ -236,18 +236,25 @@ class InFlightPilotTests(bf.FixtureBoardTestBase, unittest.TestCase):
         self._run(go())
 
     def test_existing_agent_window_guard_reuses_window(self):
-        # Targets are bound to `self.ab` (the fixture-loaded module), NOT the
-        # string "aitask_board". Under the harness the board is imported under a
-        # synthetic module name, so a string target would patch the *canonical*
-        # module — a different object from the one under test — and this test
-        # would silently shell out to the real tmux helpers (t1354_2 Step 2b).
+        # The lookup is the shared, gateway-routed
+        # `agent_launch_utils.focus_existing_agent_window` (t1946), so its seams
+        # are patched on that (shared, bare-name) lib module; the select goes
+        # through the gateway client `_TMUX`, never a raw `tmux` Popen. The
+        # board keeps only the notify.
+        import agent_launch_utils as alu
         app = self.KanbanApp()
-        with patch.object(self.ab, "_current_tmux_session", return_value="aitasks"), \
-                patch.object(self.ab, "find_window_by_name",
-                             return_value=("aitasks", "2")), \
-                patch.object(self.ab.subprocess, "Popen") as popen:
+        notes = []
+        with patch.object(alu, "current_tmux_session", return_value="aitasks"), \
+                patch.object(alu, "_sessions_owned_by", return_value={"aitasks"}), \
+                patch.object(alu, "find_window_by_name",
+                             return_value=("aitasks", "2")) as find, \
+                patch.object(alu._TMUX, "run", return_value=(0, "")) as run, \
+                patch.object(app, "notify",
+                             lambda msg, **k: notes.append(msg)):
             self.assertTrue(app._focus_existing_agent_window("42"))
-            popen.assert_called_once()
+        find.assert_called_once_with("agent-pick-42", "aitasks")
+        run.assert_called_once_with(["select-window", "-t", "=aitasks:2"])
+        self.assertEqual(notes, ["Switched to existing agent window for t42"])
 
 
 class InFlightCardRenderTests(bf.FixtureBoardTestBase, unittest.TestCase):
