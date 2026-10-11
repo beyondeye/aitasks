@@ -1537,7 +1537,7 @@
         },
         "changelog": {
           "all_time": {
-            "runs": 2
+            "runs": 3
           },
           "prev_month": {
             "period": "2026-09",
@@ -1545,11 +1545,11 @@
           },
           "month": {
             "period": "2026-10",
-            "runs": 1
+            "runs": 2
           },
           "week": {
             "period": "2026-W41",
-            "runs": 1
+            "runs": 2
           }
         },
         "wrap": {
