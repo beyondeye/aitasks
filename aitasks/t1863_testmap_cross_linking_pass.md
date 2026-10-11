@@ -94,6 +94,18 @@ each row and that any already-created cross-repo task carries the
 project-qualified reference (`xdeps` + `xdeprepo`, both-or-neither);
 mismatches are **reported, never rewritten** from here.
 
+**Supplementary automation consumer:** also audit
+[t1853_7](t1853/t1853_7_automate_testmap_repair_for_existing_codebases.md),
+the user-requested full check–repair–recheck automation sibling. Its
+`Dependencies and cross-references` table is an additional source of consumer
+edges beyond the original module rows. Resolve those module references to real
+active or archived provider children, preserve its existing dependencies, and
+add missing pending-provider edges. Keep its dependency hold until every row
+is resolved; then set it Ready if it is still Postponed solely for that hold.
+Do not require this supplementary consumer's implementation plan as an extra
+Step 0 precondition, or depend back on it from its base providers. Report its
+unresolved rows in the dry run and include it in the refreshed trail.
+
 Then check the module → task map in every parent body against the real
 parent ids, and refresh the trail:
 `/aitask-trail --refresh trail-testmap-feature --deep`.
