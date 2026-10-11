@@ -12,8 +12,9 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1916
 followup_kind: carry_over
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-09 16:00
-updated_at: 2026-10-09 16:12
+updated_at: 2026-10-11 14:52
 ---
 
 ## Origin
@@ -60,3 +61,8 @@ in `tests/test_model_supersession.py`) give no protection. Many entries are
   `bash tests/test_install_superseded_models.sh`.
 - `ait codeagent check-superseded --report` offers an OpenCode successor for a
   config using a superseded OpenCode model.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-11T11:52:17Z status=pass attempt=1 type=human
