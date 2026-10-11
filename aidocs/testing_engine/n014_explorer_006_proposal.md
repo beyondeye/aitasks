@@ -689,12 +689,12 @@ Everything that reads and writes `aitestmap/` without running a test.
 
 | submodule | scope | components | owns | provides | depends on |
 |---|---|---|---|---|---|
-| **M2.1** Registry core | the directory layout, the id grammar `<path>[#<member>][@<variant>]`, the six core tables, `config.yaml` schema with every key and default, `check` and its rules, `scan --apply` persisting `variants:`, deterministic sorted writes, `CONTRACT_MISMATCH`, `exclude:` globs, `UNCOVERED_VALUE` / `UNMAPPED_ARTIFACT` reconciliation | `component_registry_loader` (core half), `component_cell_enumeration` | `internal/registry`; verbs `scan`, `check`; golden tests for the merges and the id grammar | the loaded registry every other engine package reads; `check` | M1.2 |
-| **M2.2** Annotation grammar and rewriter | grammar v3 (`testmap:unit` blocks and every key), per-language comment leaders incl. Python docstrings read-only, unknown-key refusal, the line-targeted rewriter with `REWRITE_CONFLICT`, fixed per-language insertion positions, `annotate` / `annotate --suggest` / `annotate --from-body`, `verify`, `# Covers:` prose never matched | `component_annotation_scanner` | `internal/annot` (all but `--author`); verbs `annotate`, `verify`; golden files for placement per language | the only writer of `testmap:` lines; the stamp format | M2.1 |
-| **M2.3** Dependency scanners | bash, python, go, kotlin (opaque contract), Gradle module graph, plugin protocol under `aitestmap/scanners/`, the opt-in `android-res` symbol scanner, the XDG blob cache, the exported facts (`static:invocation` / `static:import` / `static:package`, anchor lines, declared symbols) | `component_dependency_scanners` | `internal/deps`; one fixture per opaque branch (red-proved) | the closure for the selector; the facts for the seeder and the packet writer | M1.2 |
-| **M2.4** Axes and variants | `axes.yaml`, the runner-side `axis:` / `token_format:`, `<unit>@<value>` ids, the facet join, `--axis`, `axes --list\|--check\|--explain`, the three axis check rules | `component_variant_axes`, `component_axes` | `internal/axes`; verb `axes` | variant expansion for the selector, cost and evidence | M2.1 |
-| **M2.5** Scoped rows and areas | `_scoped.yaml`, `registry/areas.yaml` and `areas:` blocks, `areas --import-codemap`, `owns:` by area name, kind ranking data, triggers, `reads`, `DEAD_SCOPE` / `KIND_MISMATCH\|CONVERT_TO_SUITE`, `classify --suggest` with the three onboarding signals and `fanout:<n>`, the digest-exemption of scoped rows | `component_suite_registry`, `component_broad_test_scopes` (registry half) | the scoped tables in `internal/registry`; verbs `areas`, `classify --suggest` | the scoped join and the kind vocabulary | M2.1 |
-| **M2.6** Adoption tables | the `seeds` and `adopted` tables in the loader, `onboard.yaml`'s `rejections[]` / `reviews[]` / `kind_proposals[]` / `calibration[]` as read tables, the load rules `SEED_SHADOWED` / `ADOPTED_ORPHAN` / absent-`by:`-is-human, the write routing for every verb that touches the three files, `SEEDED:` / `ADOPTED:` counts on `check` | `component_registry_loader` (adoption half), `component_adoption_ledger` (data-model half) | the two tables in `internal/registry`; the `onboard.yaml` reader; golden tests for the `by:` merge and the shadow rule | the seeded-edge and adopted-edge rows the selector, `stale`, `readiness` and the `onboard` verbs read and write | M2.1, M2.2 |
+| **M2.1** Registry core | the directory layout, the id grammar `<path>[#<member>][@<variant>]`, the loader and its one merge rule with the edges / rules / waivers tables (the scopes and areas tables land from M2.5, the axes table from M2.4, the seeds and adopted tables from M2.6), `config.yaml` schema with every key and default, `check` with its rule framework and the rules `STALE_PATH` / `UNSTAMPED` / `UNANNOTATED_MEMBER` / `DEAD_MEMBER` / `UNREGISTERED` / `UNMAPPED_ARTIFACT`, `scan --apply` persisting `variants:` over two injected inputs — the annotation source (M2.2 plugs its scanner in) and the unit lister (M3.1 plugs the runner repository in), deterministic sorted writes, `CONTRACT_MISMATCH`, `exclude:` globs | `component_registry_loader` (core half), `component_cell_enumeration` | `internal/registry`; verbs `scan`, `check`; golden tests for the merges and the id grammar | the loaded registry every other engine package reads; `check` | M1.2 |
+| **M2.2** Annotation grammar and rewriter | grammar v3 (`testmap:unit` blocks and every key), per-language comment leaders incl. Python docstrings read-only, unknown-key refusal, the line-targeted rewriter with `REWRITE_CONFLICT`, fixed per-language insertion positions, `annotate` (`--suggest` / `--from-body` land from M2.3, `--author` from M7.4), `verify`, a post-re-stamp hook in `annotate` and `verify` that M2.6 fills, the annotation source `scan` reads, `# Covers:` prose never matched | `component_annotation_scanner` | `internal/annot` (all but `--suggest`, `--from-body` and `--author`); verbs `annotate`, `verify`; golden files for placement per language | the only writer of `testmap:` lines; the stamp format | M2.1 |
+| **M2.3** Dependency scanners | bash, python, go (the `go list` result cached under a key that changes with any Go source's import set, not `go.sum` alone), kotlin (opaque contract), Gradle module graph, plugin protocol under `aitestmap/scanners/`, the opt-in `android-res` symbol scanner, the XDG blob cache, the exported facts (`static:invocation` / `static:import` / `static:package`, anchor lines, declared symbols); `annotate --suggest` (from the closure) and `annotate --from-body` (from the Kotlin symbol resolution) as named extensions of M2.2's `internal/annot` | `component_dependency_scanners` | `internal/deps`; the `--suggest` / `--from-body` arms in `internal/annot`; one fixture per opaque branch (red-proved); a red-proved fixture for a changed local Go import under an unchanged `go.sum` | the closure for the selector; the facts for the seeder and the packet writer; `annotate --suggest` / `--from-body` | M1.2, M2.2 |
+| **M2.4** Axes and variants | `axes.yaml` and the axes table in the loader, the runner-side `axis:` / `token_format:` (a named extension of M3.1's `describe` parse), `<unit>@<value>` ids, the facet join and forced-facet resolution (the `--axis` flag is parsed by M4.1's `select`), `axes --list\|--check\|--explain`, the three axis check rules `DEAD_AXIS_SOURCE` / `UNKNOWN_VARIANT` / `UNCOVERED_VALUE` | `component_variant_axes`, `component_axes` | `internal/axes`; verb `axes` | variant expansion for the selector, cost and evidence | M2.1, M3.1 |
+| **M2.5** Scoped rows and areas | `_scoped.yaml`, `registry/areas.yaml` and `areas:` blocks, `areas --import-codemap`, `owns:` by area name, kind ranking data, triggers, `reads`, `DEAD_SCOPE` / `KIND_MISMATCH\|CONVERT_TO_SUITE`, `classify --suggest` with the source-set / directory-convention and resource signals and `fanout:<n>` (the recorded-p95 signal lands from M6.4), the digest-exemption of scoped rows | `component_suite_registry`, `component_broad_test_scopes` (registry half) | the scoped tables in `internal/registry`; verbs `areas`, `classify --suggest` | the scoped join and the kind vocabulary | M2.1 |
+| **M2.6** Adoption tables | the `seeds` and `adopted` tables in the loader, `onboard.yaml`'s `rejections[]` / `reviews[]` / `kind_proposals[]` / `calibration[]` as read tables, the load rules `SEED_SHADOWED` / `ADOPTED_ORPHAN` / absent-`by:`-is-human, the write routing for every verb that touches the three files, `SEEDED:` / `ADOPTED:` counts on `check`, the fill of M2.2's post-re-stamp hook (an automated re-stamp refreshes the matching `adopted.yaml` row and keeps its `by:`; only an explicit human actor deletes it) | `component_registry_loader` (adoption half), `component_adoption_ledger` (data-model half) | the two tables in `internal/registry`; the `onboard.yaml` reader; golden tests for the `by:` merge and the shadow rule | the seeded-edge and adopted-edge rows the selector, `stale`, `readiness` and the `onboard` verbs read and write | M2.1, M2.2 |
 
 #### M3 — Runners, scheduling and cost
 
@@ -702,7 +702,7 @@ Everything that executes a test and records what it cost.
 
 | submodule | scope | components | owns | provides | depends on |
 |---|---|---|---|---|---|
-| **M3.1** Runner contract and repository | `describe` / `list` / `run --manifest`, `runners.yaml` bindings, `builtin:` scheme, `command:` / `cwd:` overrides, shadow-by-name, batching keys, per-unit timeouts, `results.jsonl` / `runner.json`, reconciliation as mechanism failures, exit contract `0/1/2/75/64`, `subsumed_by:`, `fallback_command:`, `full: true` + `children:` | `component_runner_contract` | `internal/runner` (contract, repository, `run` verb) | the runner interface every builtin and project script implements | M1.2, M2.1 |
+| **M3.1** Runner contract and repository | `describe` / `list` / `run --manifest`, `runners.yaml` bindings, `builtin:` scheme, `command:` / `cwd:` overrides, shadow-by-name, batching keys, per-unit timeouts, `results.jsonl` / `runner.json`, reconciliation as mechanism failures, exit contract `0/1/2/75/64`, `subsumed_by:`, `fallback_command:`, `full: true` + `children:`, the runner-backed unit lister `scan` and `check` call (a named extension of M2.1) | `component_runner_contract` | `internal/runner` (contract, repository, `run` verb) | the runner interface every builtin and project script implements | M1.2, M2.1 |
 | **M3.2** Reference runners | `bash-file` (+ `list --invocations`), `pytest` (junitxml, `testmap:batch no`), `go-test`, `gradle-class`, `suite`, `device`, `engine-test`; the `full` suite wrapper's `children:` post-processors (pytest junitxml, bash-file per-file exit, `go test -json`) | `component_reference_runners` | `internal/runner/builtin/*`; `ait-testmap runner <name>`; the serial carve-out pin in `tests/test_serial_carveout_doc_drift.sh` | runners for every target repository without a project script | M3.1 |
 | **M3.3** Scheduler and resources | resource kinds and scopes, `resources.yaml`, `flock(2)` slot files, admission with 75 deferral and backoff, allocator with signal-safe release, `errgroup` execution, batching per `group_by`, `broad_after_unit` waves, admission-holding invocations last, `concurrency: serial\|parallel`, the schedule report and its check half | `component_scheduler_resources`, `component_broad_test_scopes` (scheduling half) | `internal/sched`; verb `schedule` | the wave plan `run` executes; exit 75 semantics | M3.1 |
 | **M3.4** Cost ledger | Welford / P² per `(id, host class)`, `.aitask-testmap/ledger.jsonl`, `costs --update`, `last_pass`, flake rate, the per-group estimate, `costs/predictions.yaml` (store only; `score` writes it in M4.4), `costs --gate-timeout`, the run-id prefixes, the `costs/policy.yaml` file format (read/write helpers; the writer logic is M8.5) | `component_cost_ledger` | `internal/cost`; verb `costs` | costs and anchors for the selector, the evidence join, readiness and the cadence | M3.1 |
@@ -714,7 +714,7 @@ what the map got wrong.
 
 | submodule | scope | components | owns | provides | depends on |
 |---|---|---|---|---|---|
-| **M4.1** Change-surface intake and selector | the `--changes -` line intake refusing `UNKNOWN:`, the graded walk with select / implies / escalate rules, variant expansion and axis join, test-dep at distance 1, `ESCALATE` on opaque files, scoped join, kind-then-cost ranking, invocation groups, stale marks, `--include-stale`, the suite budget with `DEFERRED`, `--format lines\|json\|tokens`, the prediction record, `explain` and `explain --sources --format table`, the `edge(seeded:…)` and `adopted(…)` reasons, `SELECTED:` and `UNMAPPED_SOURCE:` ahead of the rows | `component_selector` | `internal/selectr`, `internal/changesurface`; verbs `select`, `explain` | the ranked list; the prediction record; the table `aitask-qa` reads | M2.1, M2.3, M2.4, M2.5, M2.6, M3.4 |
+| **M4.1** Change-surface intake and selector | the `--changes -` line intake refusing `UNKNOWN:`, the graded walk with select / implies / escalate rules, variant expansion and axis join (`--axis` on `select`, resolved through M2.4), test-dep at distance 1, `ESCALATE` on opaque files, scoped join, kind-then-cost ranking, invocation groups, stale marks, `--include-stale`, the suite budget with `DEFERRED`, `--format lines\|json\|tokens`, the prediction record, `explain` and `explain --sources --format table`, the `edge(seeded:…)` and `adopted(…)` reasons, `SELECTED:` and `UNMAPPED_SOURCE:` ahead of the rows | `component_selector` | `internal/selectr`, `internal/changesurface`; verbs `select`, `explain` | the ranked list; the prediction record; the table `aitask-qa` reads | M2.1, M2.3, M2.4, M2.5, M2.6, M3.4 |
 | **M4.2** Freshness and staleness | stamp semantics (who may write one), `stale --task\|--all` with its line classes and encodings, `--confirm`, `--confirm-source`, `--confirm-evidenced`, `--retarget`, `SEEDED:` / `ADOPTED:` summaries, the `adopted(…)` DISPLAY field, `bootstrap_until` / `require_stamp` / `flake_threshold` | `component_freshness`, `component_staleness_tool` | `internal/stale` (all but the join); verb `stale` | the report the `testmap_fresh` gate and `testmap_check` consume | M2.2, M2.6, M4.1 |
 | **M4.3** Evidence join | `last_pass` anchors per reached variant, flake and cause filtering, ancestor check, one `git ls-tree` per sha, `EVIDENCED` vs `STALE` per variant, never rewriting | `component_evidence_join` | the join in `internal/stale` + `internal/gitx` | self-healing `STALE` rows | M3.4, M4.2 |
 | **M4.4** Feedback: score, attribute, readiness | automatic `score` after every full run (window scoring, per-task attribution, `REJECTION_CONTRADICTED`), `attribute` with `--propose` writing `seeded.yaml` rows of origin `observed`, `readiness` with `LEVEL` / `NEXT`, its criteria and counters (`cadence_declared`, `CADENCE:` and `approved_by\|engine` are added by M8.5) | `component_feedback_tools` | `internal/feedback` (all but `cadence.go`); verbs `score`, `attribute`, `readiness` | the scored history the policy flip needs; the observed-seed path | M2.6, M3.4, M4.1 |
@@ -739,7 +739,7 @@ Bringing an existing test tree onto the map, in levels, as tasks.
 | **M6.1** Phase ledger, detect, inventory, status, finish | the `onboard.yaml` schema and phase rows, `onboard detect [--write] [--force]` with the closed detector list and `DETECT_DIFF:`, `inventory`, `status`, `finish [--auto]`, `AIT_PROFILE_HEADLESS=1` refusals, `report_testmap_state()`'s `bootstrapping\|<next>` state, `ONBOARD_NEXT:` on the brief | `component_onboarding_engine_verbs` | `internal/onboard/{ledger,detect,inventory,status,finish}.go`; the extension of `report_testmap_state()` | the ledger every phase records into; the level-0 files | M1.5, M2.1, M2.5, M3.1, M5.2 |
 | **M6.2** Seeder and origin table | `onboard seed`, the origins `static:*` / `convention` / `cochange` / `plan` / `prose` / `coverage`, the class column, noisy-OR, `helper_roots` / `helper_fanin` separation, the `SEED_*` lines, `--apply`, `--json --out` | `component_seeder` | `internal/seed`; one fixture repo per origin | `registry/seeded.yaml` | M2.3, M2.6, M3.2, M6.1 |
 | **M6.3** Adoption verbs | `onboard adopt --class [--accept-min] [--scope] [--dry-run]`, `--class --auto` with the autonomous floor enforced (`ADOPT_REFUSED:not-autonomous`), per-row `<test> [<source>]` / `--area --batch` / `--files-from -`, `onboard reject`, `ADOPT_REFUSED:dirty-foreign`, the `ADOPT_SKIP` cases, `WROTE:`, `ADOPT_SUMMARY:`, provenance rows, the reviewed-stamp path deleting provenance rows | `component_adoption_ledger` (transitions half), `component_onboarding_engine_verbs` (the `adopt` / `reject` arms) | `internal/onboard/{adopt,reject}.go` | every non-agent adoption path; the rewriter calls the verdict intake reuses | M2.2, M2.6, M6.2 |
-| **M6.4** Classify and scaffold | `onboard classify [--apply\|--propose]` with `kind_proposals[]`, the level-2 writes (kind / area / scope / reads / batch lines, `needs:` bindings, `resources.yaml` entries), `onboard scaffold --axes \| --runner <builtin> --as <name> \| --members` with `SCAFFOLD_TODO` | `component_onboarding_engine_verbs` (the `classify` / `scaffold` arms), `component_suite_registry` (the signal consumers) | `internal/onboard/{classify,scaffold}.go` | levels 2 and 3 | M2.4, M2.5, M3.4, M6.1 |
+| **M6.4** Classify and scaffold | `onboard classify [--apply\|--propose]` with `kind_proposals[]`, the level-2 writes (kind / area / scope / reads / batch lines, `needs:` bindings, `resources.yaml` entries), `onboard scaffold --axes \| --runner <builtin> --as <name> \| --members` with `SCAFFOLD_TODO`, the recorded-p95 signal in `classify --suggest` (a named extension of M2.5) | `component_onboarding_engine_verbs` (the `classify` / `scaffold` arms), `component_suite_registry` (the signal consumers) | `internal/onboard/{classify,scaffold}.go` | levels 2 and 3 | M2.4, M2.5, M3.4, M6.1 |
 | **M6.5** Onboarding skill | `aitask-testmap-onboard` stub + `SKILL.md.j2` + one procedure file per phase; the survey and level proposal; task creation and claim; the `enable` phase's edits to `project_config.yaml`, profiles, `gates.yaml`, `docs:` / `notes:`, hand-maintained `CLAUDE.md`; the `full_run` phase (`costs --gate-timeout`, next level's task with `depends:`); `--policy selected` re-entry; `--no-task`; refresh mode; the headless flow; goldens; `tests/test_testmap_onboard_ledger.sh` | `component_onboarding_skill` | `.claude/skills/aitask-testmap-onboard/**`; `tests/golden/skills/aitask-testmap-onboard/`; the ledger test | levels 0 and 1 attended; level 0 and 1 headless once M7.2 and M7.5 exist (the `review.md` sub-phase is M7.5's) | M4.4, M5.1, M6.1, M6.2, M6.3, M8.2, M8.4 |
 
 #### M7 — Agent review and author annotation
@@ -835,10 +835,10 @@ its own.
 | wave | submodules | state reached |
 |---|---|---|
 | **A** foundation | M1.1, M1.2, M8.1, M2.1, M2.2 | `ait-testmap version` builds and installs by hand; a registry parses and `check`s; annotations are read and rewritten; the verifier lib already speaks 75 / 3 |
-| **B** map and runners | M1.3, M1.4, M2.3, M2.5, M3.1, M3.2 | release assets exist; `ait testmap` resolves the binary; closures and scoped rows load; the builtins list and run units on every target repository |
+| **B** map and runners | M1.3, M1.4, M2.3, M2.5, M2.6, M3.1, M3.2 | release assets exist; `ait testmap` resolves the binary; closures, scoped rows and the seeded / adopted tables load; the builtins list and run units on every target repository |
 | **C** select and run | M1.5, M2.4, M3.3, M3.4, M4.1, M4.5 | `ait setup` installs the engine; `ait testmap test --changes -` selects, schedules, runs and records cost on a hand-annotated registry |
 | **D** freshness and the front | M4.2, M4.3, M4.4, M5.1, M5.2, M5.3, M8.2 | `./ait test` works in three modes on a hand-annotated registry; `stale`, `score`, `readiness` and `--howto` answer; `testmap_check` can be declared; every agent's instructions name the verb |
-| **E** adoption data and onboarding engine | M2.6, M6.1, M6.2, M6.3, M8.3 (without the seeds step), M8.4 | seeds select; a person adopts by class or row; `onboard detect --write` produces level 0 on every target; `tests_pass` runs `./ait test --gate` under `full` and `selected`; the freshness gate confirms stamps |
+| **E** adoption data and onboarding engine | M6.1, M6.2, M6.3, M8.3 (without the seeds step), M8.4 | seeds select; a person adopts by class or row; `onboard detect --write` produces level 0 on every target; `tests_pass` runs `./ait test --gate` under `full` and `selected`; the freshness gate confirms stamps |
 | **F** reading and the onboarding skill | M6.5, M7.1, M7.2, M7.4, M9.1 | attended onboarding reaches level 1 with the skill's agent reading packets; the authoring agent stamps its own pairs; the pre-review procedure runs in every profile |
 | **G** loop closure | M6.4, M7.3, M7.5, M8.3 (seeds step), M8.5, M9.2, M9.3 | headless level 1; `auto` flips itself behind the cadence; calibration measures the reading; bulk review through the wrappers; the in-gate reading site; QA and the maintenance skill read the map |
 | **H** breadth | M1.6, M7.6, M9.4, M9.5 | the crew form; the home migration verb; docs and extension points; Codex and OpenCode ports |
@@ -2116,8 +2116,9 @@ naming `~/.aitask` are updated.
 ### Registry loader and writer *(M2.1 core; M2.6 adoption tables)*
 
 `internal/registry` merges `aitestmap/registry/*.yaml` plus `axes.yaml` into
-eight tables. **M2.1** — the six core tables (edges, scopes, areas, rules,
-waivers, axes) with unit ids `<path>[#<member>][@<variant>]`, each member's
+eight tables. **M2.1** — the loader, its one merge rule and the edges, rules
+and waivers tables, into which M2.5 lands the scopes and areas tables and
+M2.4 the axes table (the six core tables) with unit ids `<path>[#<member>][@<variant>]`, each member's
 `variants:` list from `_scanned.yaml`, `owns:` routing by glob for edges and
 rules and by area name for hand-declared scopes, observed axis sources merged
 widen-only, deterministic sorted writes only on change, the `config.yaml`
@@ -2127,7 +2128,12 @@ schema (every key under *Architecture* → The registry directory, with
 `UNSTAMPED` past bootstrap under `require_stamp`, `DEAD_SCOPE`,
 `DEAD_AXIS_SOURCE`, `UNKNOWN_VARIANT`, `UNCOVERED_VALUE`,
 `UNANNOTATED_MEMBER`, `DEAD_MEMBER`, `UNREGISTERED`, `UNMAPPED_ARTIFACT`,
-`KIND_MISMATCH|CONVERT_TO_SUITE`, `CONTRACT_MISMATCH`). **M2.6** — the
+`KIND_MISMATCH|CONVERT_TO_SUITE`, `CONTRACT_MISMATCH`; the rule framework and
+the non-scope, non-axis rules are M2.1's, `DEAD_SCOPE` and
+`KIND_MISMATCH|CONVERT_TO_SUITE` M2.5's, `DEAD_AXIS_SOURCE`, `UNKNOWN_VARIANT`
+and `UNCOVERED_VALUE` M2.4's). `scan` and `check` read two injected inputs:
+the annotation source (M2.2's scanner) and the unit lister (M3.1's runner
+repository). **M2.6** — the
 **seeds** table from `registry/seeded.yaml` and the **adopted** table from
 `registry/adopted.yaml` (row schemas under *Where state lives*);
 `onboard.yaml`'s `rejections[]`, `reviews[]`, `kind_proposals[]` and
@@ -2146,7 +2152,11 @@ only) + the test file; `annotate --author` → the test file + `adopted.yaml`;
 `onboard reject` → `seeded.yaml` (row removed) + `onboard.yaml` (rejection
 recorded so the seeder never re-proposes it); `attribute --propose` →
 `seeded.yaml`; a human re-stamp (`verify`, `annotate`, `stale
---confirm-source`, per-row `adopt`) → `adopted.yaml` (row removed).
+--confirm-source`, per-row `adopt`) → `adopted.yaml` (row removed), while an
+automated re-stamp through the same verbs refreshes the row and keeps its
+`by:` — a machine claim is never turned into a reviewed edge; `verify` and
+`annotate` reach this through a post-re-stamp hook M2.2 leaves and M2.6
+fills.
 `costs/policy.yaml` is read by the front and written by the engine (M8.5).
 Golden tests pin the core merges and the id grammar (M2.1) and the two
 adoption-table merges, the `by:` merge, the absent-`by:` rule and the shadow
@@ -2165,9 +2175,11 @@ end of file (a file-level block precedes the first unit); `testmap:kind`,
 per comment leader, with Python module docstrings read; unknown keys are
 refused with a line number. The line-targeted rewriter edits stamps by
 `(file, line, current text)` and refuses on `REWRITE_CONFLICT`; `annotate
---suggest <test>` proposes covers lines from the closure; `annotate
---from-body` seeds covers for a member from the Kotlin scanner's symbol
-resolution of the block's own lines; `verify` re-stamps; both generated
+--suggest <test>` (an M2.3 arm — it reads the closure) proposes covers lines
+from the closure; `annotate --from-body` (an M2.3 arm) seeds covers for a member from the Kotlin scanner's symbol
+resolution of the block's own lines; `verify` re-stamps (`annotate` and
+`verify` call a post-re-stamp hook through which M2.6 applies the provenance
+rule); both generated
 files are produced from every runner's `list` output. Callers of the
 rewriter beyond `verify` / `stale --confirm*`, none a new writer: `onboard
 adopt` (by class, by row, or from a `verifies` verdict) and `annotate
@@ -2185,8 +2197,10 @@ rewritten. Golden files pin block placement per language.
 <!-- section: component_dependency_scanners [dimensions: component_dependency_scanners] -->
 ### Dependency scanners *(M2.3)*
 
-`internal/deps`: built-in bash, python, go (`go list -deps -json` cached by
-`go.sum` digest), kotlin with the opaque contract over main and test roots
+`internal/deps`: built-in bash, python, go (`go list -deps -json`, cached under a key that
+changes with any Go source's import set as well as `go.mod` / `go.sum` — a
+`go.sum` digest alone misses a new import of a local package, which changes
+the graph without touching `go.sum`), kotlin with the opaque contract over main and test roots
 (a closed construct list — explicit repo import, same-package as fully
 connected, repo star import as a package edge, fully-qualified in-body
 reference — and every construct that defeats it — inline functions, `const
@@ -2279,7 +2293,8 @@ recorded p95 above `broad_threshold_s`, a source-set or directory convention,
 a resource declaration or use in the file) plus `fanout:<n>` above
 `unit_covers_max`, each printed as the reason on the
 `CLASSIFY:<test>|<kind>|<reason>` line; `onboard classify --apply |
---propose` (M6.4) is the consumer.
+--propose` (M6.4) is the consumer. The recorded-p95 signal needs the cost
+ledger (M3.4), so it lands with M6.4 as a named extension of this verb.
 <!-- /section: component_suite_registry -->
 
 <!-- section: component_broad_test_scopes [dimensions: component_broad_test_scopes] -->
