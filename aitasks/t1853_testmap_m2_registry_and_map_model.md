@@ -230,3 +230,5 @@ shows the whole feature as one lane.
 > | - Fixtures: fixture.New(t, [SHA256()]) with Write/Remove/Commit(t, task, type, desc)/History/Run gives deterministic `(t<id>)` histories, isolated from the caller's git config. Add your own fixture constructors on top of Repo.
 > | - Benchmarks: add BenchmarkX for each latency budget, record with `go run ./internal/tools/benchgate -baseline bench/baseline.txt -update`, and add budget=<d> where the proposal pins one. The full gate fails if a baseline benchmark disappears.
 > | - Dependencies are allowlisted (yaml.v3, doublestar/v4, x/sync — doublestar is added by its first importer). Invariants 4-5 have a lexical tripwire in guards_test.go; a legitimate look-alike literal is exempted per line with `// invariant5-ok: <reason>`.
+
+> **👁 note:read** id=2026-10-11T11:47:00Z.122c1b785dc1bc10f7ef50a9 by=t1853 at=2026-10-11T11:47:00Z mode=explicit ids=2026-09-22T14:31:15Z.6c43dc2ecf5f2d0694ab4655,2026-09-24T06:18:21Z.10ab06636ee23aae705623cc
