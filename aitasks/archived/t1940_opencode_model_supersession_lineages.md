@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: enhancement
-status: Implementing
+status: Done
 labels: [codeagent, models, model_selection]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -16,7 +16,8 @@ anchor: 1916
 followup_kind: carry_over
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-09 16:00
-updated_at: 2026-10-11 14:52
+updated_at: 2026-10-11 19:13
+completed_at: 2026-10-11 19:13
 ---
 
 ## Origin
@@ -70,3 +71,14 @@ in `tests/test_model_supersession.py`) give no protection. Many entries are
 > **✅ gate:plan_approved** run=2026-10-11T11:52:17Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-11T16:11:10Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-11T16:13:19Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:4036445121f95a50
+
+> **✅ gate:risk_evaluated** run=2026-10-11T16:13:19Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1940/risk_evaluated_2026-10-11T16:13:19Z-risk_evaluated-a1.log`
