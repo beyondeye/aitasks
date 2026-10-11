@@ -147,3 +147,54 @@ task-workflow Step 9.
 ### Goal-achievement risk: low
 - None identified. The defect is reproduced directly by the new `App.run_test`
   regressions (JSON and YAML cases plus the all-or-nothing invariant).
+
+## Final Implementation Notes
+
+- **Actual work done:** Steps 1–5 as planned. `ConfigReadError(ValueError)` plus a
+  module-level `_read_config(path, reader)` helper (rather than a static method)
+  sit above `ConfigManager`; `load_all()` reads every raising source into locals,
+  assigns only after all succeed, then calls `load_profiles()`.
+  `_reload_all_configs()` returns bool and notifies a single error naming the
+  file; `action_reload_configs` reports success only on True. t1921's
+  refresh-failure message now says "fix the file, then press r to reload" and
+  `test_settings_superseded_models.py:576` asserts "press r" is present.
+- **Deviations from plan:** the models accumulator is named `all_models` — the
+  existing loop already binds `models` to each file's list, and reusing the name
+  clobbered the dict (caught by the first test run).
+- **Issues encountered:** none beyond the name clash above.
+- **Key decisions:** the catch lives in `_reload_all_configs`, not only in the
+  action, so both import paths also survive an unreadable file (the partial
+  import path previously let the exception escape its `except` handler and skip
+  `_commit_imported`). Startup with a malformed file still fails at open —
+  unchanged, out of scope.
+- **Upstream defects identified:**
+  - `.aitask-scripts/settings/settings_app.py:2428 — a well-formed layer with a wrong-typed value (e.g. codeagent_config.json {"defaults": null}) passes ConfigManager.load_all, replaces the loaded state, and then crashes _populate_agent_tab with AttributeError ('NoneType' object has no attribute 'keys') outside the reload's error handling; pre-existing (the pre-t1938 load_all accepted it too). Validate the defaults mapping per layer before assignment, name the offending file, and add a regression that keeps the loaded state`
+- **Verification:** `tests/test_settings_reload_all.py` 7/7 OK; red proof — the
+  4 new tests fail against HEAD's `settings_app.py` (loaded from a scratch copy)
+  with `JSONDecodeError` / YAML `ParserError` and `app.is_running` False. All
+  `tests/test_settings_*.py` modules and the other modules importing
+  `settings_app` pass.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-11)
+- **Requested by user:** `load_all` read each project/local layer and then
+  re-read both through `load_layered_config` under a wrapper labelled with the
+  project path, so a local layer that went bad between the two reads was
+  reported as the project file (codeagent and board pairs). Merge the
+  already-read layers with `deep_merge`, keeping defaults and override
+  precedence, and cover local-file attribution.
+- **Changes made:** `_read_json_layer(path)` reads each JSON layer once under
+  its own path and rejects a non-object layer (`[]` would otherwise crash the
+  merge with an uncaught `AttributeError`). `_merge_layers(defaults, project,
+  local)` reproduces `load_layered_config`'s merge (deepcopy defaults, then
+  `deep_merge` project, then local, each only when non-empty) on the
+  already-read dicts; `load_all` no longer calls `load_layered_config`. New
+  tests: broken `codeagent_config.local.json` / `board_config.local.json` are
+  named (and the project file is not), a `[]` layer is rejected, each of the
+  four JSON layers is read exactly once (counting both `settings_app` and
+  `config_utils` `_load_json` bindings — red against the double-read version),
+  and the merged result equals `load_layered_config`'s for both configs with
+  local-over-project precedence.
+- **Files affected:** `.aitask-scripts/settings/settings_app.py`,
+  `tests/test_settings_reload_all.py`
