@@ -107,3 +107,15 @@ until they are *Done*, far too late; Step 0 is the real gate.
 - After repair, `./.aitask-scripts/aitask_ls.sh -v --children <parent> 99`
   for every parent shows blocked/unblocked exactly per its submodule table.
 - The refreshed trail lists child tasks grouped by wave.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1853** id=2026-10-11T14:44:15Z.e9e2f360d57c16e0c10bbc0a from=t1853 at=2026-10-11T14:44:15Z base=3bc0de8ac7a9c9d1f60173e1257715a744efc451 base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from the t1853 (M2) coarse pass (proposal commit 3bc0de8ac; t1853's `## Submodules` table synced to it).
+> | 
+> | - t1853 is decomposed: t1853_1..t1853_6 = M2.1..M2.6. Child depends: _1 [], _2 [t1853_1], _3 [t1853_2], _4 [t1853_1], _5 [t1853_1], _6 [t1853_1, t1853_2].
+> | - **Pending edge:** M2.4 → M3.1. t1853_4's body names "M3.1 (pending: t1854 not decomposed)"; t1854's pass was asked to add it. Check it at your Step 1.
+> | - M1.2 edges (M2.1, M2.3 → t1852_2) are deliberately omitted because t1852_2 is archived (your rule: satisfied, neither added nor required).
+> | - The "depends on" column is the last column in the proposal's Module Map and the second-to-last (before wave) in parent `## Submodules` tables. Scope cells contain escaped `\|`, so extract by counting fields from the end (awk `$(NF-1)` / `$(NF-2)`), not from fixed left offsets.
