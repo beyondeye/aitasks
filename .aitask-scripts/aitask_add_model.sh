@@ -13,7 +13,9 @@
 #                                  and record the model(s) the promotion
 #                                  supersedes (lib/model_supersessions.json)
 #   record-supersession            Record "<old> is superseded by <new>" alone
-#                                  (e.g. the successor just registered by add-json)
+#                                  (e.g. the successor just registered by add-json);
+#                                  the one subcommand that also accepts opencode,
+#                                  whose lineages are declared, not registered
 #   promote-default-agent-string   Update DEFAULT_AGENT_STRING in
 #                                  lib/agent_string.sh + the resolution-chain
 #                                  note in aitask_codeagent.sh (claudecode only)
@@ -44,10 +46,15 @@ require_jq() {
     command -v jq >/dev/null 2>&1 || die "jq is required. Install via your package manager."
 }
 
+# validate_agent <agent> [--allow-opencode]
+# --allow-opencode is passed by record-supersession only: OpenCode models are
+# CLI-discovered (aitask-refresh-code-models), so they are never registered or
+# promoted here, but their lineages are declared like any other agent's.
 validate_agent() {
-    local a="$1"
+    local a="$1" allow_opencode="${2:-}"
     [[ -z "$a" ]] && die "--agent is required"
     if [[ "$a" == "opencode" ]]; then
+        [[ "$allow_opencode" == "--allow-opencode" ]] && return 0
         die "Agent 'opencode' is not supported. Use aitask-refresh-code-models for opencode (models are provider-gated and CLI-discovered)."
     fi
     local v
@@ -356,22 +363,27 @@ $SUPERSESSION_BLOCKED_HELP"
 # validates against the real registry.
 cmd_record_supersession() {
     local agent="" old="" new="" dry_run=false assume_registered=false
+    local variant_change="" has_variant_change=false
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --agent)   agent="$2"; shift 2 ;;
             --old)     old="$2"; shift 2 ;;
             --new)     new="$2"; shift 2 ;;
+            --variant-change) variant_change="$2"; has_variant_change=true; shift 2 ;;
             --dry-run) dry_run=true; shift ;;
             --assume-registered) assume_registered=true; shift ;;
             *) die "Unknown argument to record-supersession: '$1'" ;;
         esac
     done
 
-    validate_agent "$agent"
+    validate_agent "$agent" --allow-opencode
     validate_name "$old"
     validate_name "$new"
     if $assume_registered && ! $dry_run; then
         die "--assume-registered is only valid with --dry-run"
+    fi
+    if $has_variant_change && [[ -z "$variant_change" ]]; then
+        die "--variant-change needs a non-empty reason"
     fi
 
     local seed_rel="seed/codeagent_config.json"
@@ -382,6 +394,7 @@ cmd_record_supersession() {
     local tmp_table record_out="" record_rc=0
     local record_args=(--new "$new" --old "$old" --seed "$seed_file")
     $assume_registered && record_args+=(--assume-registered)
+    $has_variant_change && record_args+=(--variant-change "$variant_change")
     tmp_table=$(mktemp_suffixed "${TMPDIR:-/tmp}/aitask_add_model_supersession_XXXXXX.json")
     record_out=$(supersession_record "$agent" "$tmp_table" \
         "record-supersession $(date +%Y-%m-%d)" "${record_args[@]}") || record_rc=$?
@@ -498,11 +511,12 @@ Subcommands:
   promote-config               --agent <a> --name <n> --ops <csv>             [--dry-run]
                                [--no-supersession] [--assume-registered]
   record-supersession          --agent <a> --old <n> --new <n>                [--dry-run]
-                               [--assume-registered]
+                               [--assume-registered] [--variant-change <reason>]
   promote-default-agent-string --agent <a> --name <n>                         [--dry-run]
 
-Supported agents: claudecode, codex.
-Use aitask-refresh-code-models for opencode (provider-gated, CLI-discovered).
+Supported agents: claudecode, codex; record-supersession also accepts opencode.
+Use aitask-refresh-code-models to register opencode models (provider-gated,
+CLI-discovered).
 
 --dry-run prints a unified diff and exits without writing any file.
 
@@ -515,6 +529,10 @@ given; record-supersession declares it later. record-supersession also
 declares the successor of a model that was never a default. --assume-registered
 (dry-run only, on promote-config and record-supersession) previews a model that
 add-json has not written yet.
+
+An opencode lineage stays within one provider and model line, and within one
+variant (mini, pro, flash ...) unless --variant-change records why the edge
+changes tier; --old must be registered in models_opencode.json (any status).
 
 The AITASK_REPO_ROOT env var overrides the repo root used for file
 resolution (defaults to the parent dir of .aitask-scripts). This is used

@@ -642,6 +642,67 @@ assert_eq "no default moved (project + seed config unchanged)" "$configs_before"
 assert_eq "seed invariant holds" "OK" "$(seed_invariant)"
 teardown_fixture
 
+echo "=== Test 15: record-supersession accepts opencode under the strict line/variant policy (t1940) ==="
+setup_fixture
+cat > "$FIXTURE_DIR/aitasks/metadata/models_opencode.json" <<'EOF'
+{
+  "models": [
+    {"name": "opencode_gpt_5_4", "cli_id": "opencode/gpt-5.4", "status": "unavailable"},
+    {"name": "opencode_gpt_5_5", "cli_id": "opencode/gpt-5.5", "status": "active"},
+    {"name": "opencode_gpt_5_6_sol", "cli_id": "opencode/gpt-5.6-sol", "status": "active"}
+  ]
+}
+EOF
+oc_successor() {
+    jq -r --arg n "$1" '.agents.opencode[$n].by // ""' \
+        "$FIXTURE_DIR/$FIXTURE_TABLE_REL" 2>/dev/null || true
+}
+table_sum() { md5sum "$FIXTURE_DIR/$FIXTURE_TABLE_REL" 2>/dev/null | awk '{print $1}'; }
+configs_before=$(config_sums)
+table_before=$(table_sum)
+out=$(bash "$HELPER" record-supersession --dry-run --agent opencode \
+    --old opencode_gpt_5_4 --new opencode_gpt_5_5 2>&1)
+assert_contains "opencode dry-run records an unavailable predecessor" \
+    "RECORDED:opencode/opencode_gpt_5_4->opencode/opencode_gpt_5_5" "$out"
+assert_contains "opencode dry-run shows the table diff" '"opencode"' "$out"
+assert_eq "dry-run writes nothing" "$table_before" "$(table_sum)"
+
+for mode in --dry-run apply; do
+    flags=(); [[ "$mode" == "--dry-run" ]] && flags=(--dry-run)
+    rc=0
+    out=$(bash "$HELPER" record-supersession "${flags[@]}" --agent opencode \
+        --old opencode_gpt_5_55 --new opencode_gpt_5_5 2>&1) || rc=$?
+    assert_eq "unlisted predecessor refused ($mode)" "1" "$rc"
+    assert_contains "unlisted predecessor names the BLOCKED reason ($mode)" \
+        "BLOCKED:unlisted_old:opencode/opencode_gpt_5_55" "$out"
+    assert_eq "unlisted predecessor writes nothing ($mode)" "$table_before" "$(table_sum)"
+done
+
+out=$(bash "$HELPER" record-supersession --agent opencode \
+    --old opencode_gpt_5_4 --new opencode_gpt_5_5 2>&1)
+assert_contains "opencode apply records" "RECORDED:opencode/opencode_gpt_5_4->opencode/opencode_gpt_5_5" "$out"
+assert_eq "opencode edge persisted" "opencode_gpt_5_5" "$(oc_successor opencode_gpt_5_4)"
+
+rc=0
+out=$(bash "$HELPER" record-supersession --agent opencode \
+    --old opencode_gpt_5_5 --new opencode_gpt_5_6_sol 2>&1) || rc=$?
+assert_eq "variant jump without a reason refused" "1" "$rc"
+assert_contains "variant refusal says Refused" "Refused" "$out"
+assert_contains "variant refusal names the tiers" \
+    "BLOCKED:variant:opencode/opencode_gpt_5_5->opencode/opencode_gpt_5_6_sol|base->sol" "$out"
+assert_eq "refused variant jump not persisted" "" "$(oc_successor opencode_gpt_5_5)"
+out=$(bash "$HELPER" record-supersession --agent opencode --old opencode_gpt_5_5 \
+    --new opencode_gpt_5_6_sol --variant-change "flagship -> sol tier" 2>&1)
+assert_contains "variant jump with a reason records" \
+    "NOTE:variant_change:opencode/opencode_gpt_5_5->opencode/opencode_gpt_5_6_sol|base->sol" "$out"
+assert_eq "reason stored on the edge" "flagship -> sol tier" \
+    "$(jq -r '.agents.opencode.opencode_gpt_5_5.variant_change // ""' "$FIXTURE_DIR/$FIXTURE_TABLE_REL")"
+assert_eq "no default moved (project + seed config unchanged)" "$configs_before" "$(config_sums)"
+
+out=$(bash "$HELPER" promote-config --agent opencode --name opencode_gpt_5_5 --ops pick 2>&1 || true)
+assert_contains "promote-config still refuses opencode" "aitask-refresh-code-models" "$out"
+teardown_fixture
+
 # --- Summary ---
 echo ""
 echo "Results: $PASS passed, $FAIL failed, $TOTAL total"

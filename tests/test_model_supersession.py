@@ -1,6 +1,7 @@
 """Tests for the superseded-model offer (t1910).
 
-Covers lib/model_supersession.py (chains, offers, the guarded recorder and the
+Covers lib/model_supersession.py (chains, offers, the guarded recorder, the
+provider-aware line/variant rule and edge contract (t1940), and the
 sibling contract), the shipped table's invariants, and the
 aitask_model_supersession.py CLI end to end in legacy-mode, branch-mode and
 non-git roots.
@@ -69,10 +70,16 @@ class ChainTests(unittest.TestCase):
                 {"name": "x3", "status": "active"}]}))
             self.assertEqual(ms.load_registry(path), {"x1", "x3"})
             self.assertIsNone(ms.load_registry(Path(tmp) / "missing.json"))
+            self.assertEqual(ms.load_registry_names(path), {"x1", "x2", "x3"})
+            self.assertEqual(ms.load_registry_sets(path), ({"x1", "x3"}, {"x1", "x2", "x3"}))
+            self.assertEqual(ms.load_registry_sets(Path(tmp) / "missing.json"), (None, None))
+            self.assertIsNone(ms.load_registry_names(Path(tmp) / "missing.json"))
 
     def test_validate_rejects_bad_shapes(self):
         for bad in ({"version": 2, "agents": {}}, {"version": 1},
-                    {"version": 1, "agents": {"claudecode": {"a": {"by": "B!"}}}}):
+                    {"version": 1, "agents": {"claudecode": {"a": {"by": "B!"}}}},
+                    {"version": 1, "agents": {"opencode": {
+                        "a": {"by": "b", "variant_change": ""}}}}):
             with self.subTest(bad=bad), self.assertRaises(ms.SupersessionError):
                 ms.validate_table(bad)
 
@@ -262,6 +269,203 @@ class RecordTests(unittest.TestCase):
         self.assertIn("BLOCKED:seed_invariant:qa|claudecode/m3", events)
 
 
+class FamilyTests(unittest.TestCase):
+    """Provider-prefixed (opencode) names: line = provider + line, then variant."""
+
+    CASES = {
+        "opencode_claude_opus_4_5": ("opencode_claude_opus", ""),
+        "opencode_gemini_3_1_pro": ("opencode_gemini", "pro"),
+        "opencode_gemini_3_8_flash": ("opencode_gemini", "flash"),
+        "opencode_gemini_3_5_flash_lite": ("opencode_gemini", "flash_lite"),
+        "opencode_gpt_5_4_mini": ("opencode_gpt", "mini"),
+        "opencode_gpt_5_5_pro": ("opencode_gpt", "pro"),
+        "opencode_gpt_5_6_sol": ("opencode_gpt", "sol"),
+        "opencode_gpt_5_5": ("opencode_gpt", ""),
+        "opencode_gpt_5_1_codex_max": ("opencode_gpt", "codex_max"),
+        "openai_gpt_5_4": ("openai_gpt", ""),
+        "opencode_qwen3_6_plus": ("opencode_qwen", "plus"),
+        "opencode_kimi_k2_5": ("opencode_kimi", ""),
+        "opencode_kimi_k3": ("opencode_kimi", ""),
+        "opencode_grok_build_0_1": ("opencode_grok_build", ""),
+        "opencode_grok_4_7": ("opencode_grok", ""),
+        "openai_codex_mini_latest": ("openai_codex_mini_latest", ""),
+        "opencode_claude_3_5_haiku": ("opencode_claude", "haiku"),
+        "opencode_claude_haiku_4_5": ("opencode_claude_haiku", ""),
+    }
+
+    def test_line_and_variant(self):
+        for name, (line, var) in self.CASES.items():
+            with self.subTest(name=name):
+                self.assertEqual(ms.family(name, "opencode"), line)
+                self.assertEqual(ms.variant(name, "opencode"), var)
+
+    def test_variant_and_line_boundaries_differ(self):
+        for old, new in (("opencode_gemini_3_1_pro", "opencode_gemini_3_8_flash"),
+                         ("opencode_gemini_3_5_flash", "opencode_gemini_3_5_flash_lite"),
+                         ("opencode_gpt_5_4_mini", "opencode_gpt_5_5_pro")):
+            with self.subTest(edge=f"{old}->{new}"):
+                self.assertEqual(ms.family(old, "opencode"), ms.family(new, "opencode"))
+                self.assertNotEqual(ms.variant(old, "opencode"), ms.variant(new, "opencode"))
+        for old, new in (("openai_gpt_5_4", "opencode_gpt_5_5"),
+                         ("openai_codex_mini_latest", "openai_gpt_5_4"),
+                         ("opencode_claude_3_5_haiku", "opencode_claude_haiku_4_5"),
+                         ("opencode_grok_build_0_1", "opencode_grok_4_7")):
+            with self.subTest(edge=f"{old}->{new}"):
+                self.assertNotEqual(ms.family(old, "opencode"), ms.family(new, "opencode"))
+
+    def test_other_agents_keep_leading_letters_and_no_variant(self):
+        self.assertEqual(ms.family("opus5_5"), "opus")
+        self.assertEqual(ms.family("opus5_5", "claudecode"), "opus")
+        self.assertEqual(ms.family("gpt5_3codex", "codex"), "gpt")
+        self.assertEqual(ms.family("gpt5_6_sol", "codex"), "gpt")
+        self.assertEqual(ms.variant("gpt5_6_sol", "codex"), "")
+        self.assertEqual(ms.variant("opencode_gpt_5_4_mini", "claudecode"), "")
+
+
+class OpencodeRecordTests(unittest.TestCase):
+    """The strict recorder refuses every edge the shipped contract would reject."""
+
+    LISTED = {"opencode_gpt_5_4", "opencode_gpt_5_5", "opencode_gpt_5_4_mini",
+              "opencode_gpt_5_5_pro", "opencode_gpt_5_6_sol", "openai_gpt_5_4",
+              "openai_codex_mini_latest", "opencode_glm_4_7", "opencode_glm_5"}
+    # opencode_glm_4_7 is listed but unavailable, so not offerable.
+    AVAIL = LISTED - {"opencode_glm_4_7"}
+
+    def record(self, old, new, variant_change=None, listed=None, t=None):
+        return ms.plan_explicit(ms.empty_table() if t is None else t, "opencode", old, new,
+                                {}, self.AVAIL, "src", variant_change=variant_change,
+                                listed=self.LISTED if listed is None else listed)
+
+    def test_same_line_and_variant_records_without_warning(self):
+        t, events, blocked = self.record("opencode_gpt_5_4", "opencode_gpt_5_5")
+        self.assertFalse(blocked)
+        self.assertEqual(events, ["RECORDED:opencode/opencode_gpt_5_4->opencode/opencode_gpt_5_5"])
+        self.assertEqual(t["agents"]["opencode"]["opencode_gpt_5_4"],
+                         {"by": "opencode_gpt_5_5", "source": "src"})
+
+    def test_variant_change_needs_a_reason(self):
+        t, events, blocked = self.record("opencode_gpt_5_4_mini", "opencode_gpt_5_5_pro")
+        self.assertTrue(blocked)
+        self.assertEqual(events, ["BLOCKED:variant:opencode/opencode_gpt_5_4_mini->"
+                                  "opencode/opencode_gpt_5_5_pro|mini->pro"])
+        self.assertEqual(t, ms.empty_table())
+        t, events, blocked = self.record("opencode_gpt_5_5", "opencode_gpt_5_6_sol",
+                                         variant_change="flagship -> sol tier")
+        self.assertFalse(blocked)
+        self.assertEqual(events, [
+            "RECORDED:opencode/opencode_gpt_5_5->opencode/opencode_gpt_5_6_sol",
+            "NOTE:variant_change:opencode/opencode_gpt_5_5->opencode/opencode_gpt_5_6_sol"
+            "|base->sol"])
+        self.assertEqual(t["agents"]["opencode"]["opencode_gpt_5_5"]["variant_change"],
+                         "flagship -> sol tier")
+
+    def test_cross_line_and_cross_provider_are_blocked_even_with_a_reason(self):
+        for old, new in (("openai_codex_mini_latest", "openai_gpt_5_4"),
+                         ("openai_gpt_5_4", "opencode_gpt_5_5")):
+            with self.subTest(edge=f"{old}->{new}"):
+                t, events, blocked = self.record(old, new, variant_change="why")
+                self.assertTrue(blocked)
+                self.assertEqual(events, [f"BLOCKED:family:opencode/{old}->opencode/{new}"])
+                self.assertEqual(t, ms.empty_table())
+
+    def test_unavailable_predecessor_records_unlisted_one_is_blocked(self):
+        _, events, blocked = self.record("opencode_glm_4_7", "opencode_glm_5")
+        self.assertFalse(blocked)
+        self.assertEqual(events, ["RECORDED:opencode/opencode_glm_4_7->opencode/opencode_glm_5"])
+        # Same line, same variant, offerable target: only the registration is wrong.
+        t, events, blocked = self.record("opencode_gpt_5_55", "opencode_gpt_5_5")
+        self.assertTrue(blocked)
+        self.assertEqual(events, ["BLOCKED:unlisted_old:opencode/opencode_gpt_5_55"])
+        self.assertEqual(t, ms.empty_table())
+        with self.assertRaises(ms.SupersessionError):
+            ms.plan_explicit(ms.empty_table(), "opencode", "opencode_gpt_5_4",
+                             "opencode_gpt_5_5", {}, self.AVAIL, "src")
+
+    def test_legacy_agents_keep_unchecked_predecessors(self):
+        _, events, blocked = ms.plan_explicit(ms.empty_table(), "claudecode", "opus5_55",
+                                              "opus5_5", {}, {"opus5_5"}, "src")
+        self.assertFalse(blocked)
+        self.assertEqual(events, ["RECORDED:claudecode/opus5_55->claudecode/opus5_5"])
+
+    def test_sibling_of_a_variant_change_carries_the_reason(self):
+        names = {"opencode_gpt_5_5", "opencode_gpt_5_6_sol",
+                 "opencode_gpt_5_5_1m", "opencode_gpt_5_6_sol_1m"}
+        self.assertEqual(ms.variant("opencode_gpt_5_6_sol_1m", "opencode"), "sol")
+        t, events, blocked = ms.plan_explicit(
+            ms.empty_table(), "opencode", "opencode_gpt_5_5", "opencode_gpt_5_6_sol", {},
+            names, "src", variant_change="flagship -> sol tier", listed=names)
+        self.assertFalse(blocked)
+        self.assertIn("RECORDED_SIBLING:opencode/opencode_gpt_5_5_1m->"
+                      "opencode/opencode_gpt_5_6_sol_1m", events)
+        self.assertEqual(t["agents"]["opencode"]["opencode_gpt_5_5_1m"]["variant_change"],
+                         "flagship -> sol tier")
+        # Recorder and contract agree on the generated sibling.
+        self.assertEqual(ms.edge_contract_problems(t, {"opencode": names}), [])
+        # Same-variant sibling: no stray reason.
+        names = {"opencode_gpt_5_4", "opencode_gpt_5_5", "opencode_gpt_5_4_1m",
+                 "opencode_gpt_5_5_1m"}
+        t, events, _ = ms.plan_explicit(ms.empty_table(), "opencode", "opencode_gpt_5_4",
+                                        "opencode_gpt_5_5", {}, names, "src", listed=names)
+        self.assertIn("RECORDED_SIBLING:opencode/opencode_gpt_5_4_1m->"
+                      "opencode/opencode_gpt_5_5_1m", events)
+        self.assertEqual(ms.edge_contract_problems(t, {"opencode": names}), [])
+
+    def test_reason_on_an_equal_variant_edge_is_ignored(self):
+        t, events, blocked = self.record("opencode_gpt_5_4", "opencode_gpt_5_5",
+                                         variant_change="not needed")
+        self.assertFalse(blocked)
+        self.assertEqual(events[-1], "NOTE:variant_change_ignored:"
+                                     "opencode/opencode_gpt_5_4->opencode/opencode_gpt_5_5")
+        self.assertNotIn("variant_change", t["agents"]["opencode"]["opencode_gpt_5_4"])
+
+
+class EdgeContractTests(unittest.TestCase):
+    LISTED = {"opencode": {"opencode_gpt_5_5", "opencode_gpt_5_6_sol", "opencode_gpt_5_4_mini",
+                           "opencode_gpt_5_5_pro", "openai_gpt_5_5", "opencode_glm_5",
+                           "opencode_glm_5_1", "opencode_glm_5_2"},
+              "claudecode": {"a", "b", "sonnet5", "opus5_5"}}
+
+    def problems(self, agent, old, new, **extra):
+        t = table(**{agent: [(old, new)]})
+        t["agents"][agent][old].update(extra)
+        return ms.edge_contract_problems(t, self.LISTED)
+
+    def test_valid_variant_change_with_reason_passes(self):
+        self.assertEqual(self.problems("opencode", "opencode_gpt_5_5", "opencode_gpt_5_6_sol",
+                                       variant_change="flagship -> sol tier"), [])
+
+    def test_each_problem_kind(self):
+        cases = {
+            "unlisted_old": ("opencode", "opencode_glm_4", "opencode_glm_5", {}),
+            "unlisted_new": ("opencode", "opencode_glm_5", "opencode_glm_6", {}),
+            "family": ("claudecode", "sonnet5", "opus5_5", {}),
+            "variant": ("opencode", "opencode_gpt_5_4_mini", "opencode_gpt_5_5_pro", {}),
+            "stray_variant_change": ("opencode", "opencode_glm_5", "opencode_glm_5_1",
+                                     {"variant_change": "why"}),
+        }
+        for kind, (agent, old, new, extra) in cases.items():
+            with self.subTest(kind=kind):
+                self.assertIn(f"{kind}:{agent}/{old}->{agent}/{new}",
+                              self.problems(agent, old, new, **extra))
+        self.assertIn("family:opencode/openai_gpt_5_5->opencode/opencode_gpt_5_6_sol",
+                      self.problems("opencode", "openai_gpt_5_5", "opencode_gpt_5_6_sol",
+                                    variant_change="why"))
+        cyc = table(opencode=[("opencode_glm_5", "opencode_glm_5_1"),
+                              ("opencode_glm_5_1", "opencode_glm_5")])
+        self.assertIn("cycle:opencode/opencode_glm_5->opencode/opencode_glm_5_1",
+                      ms.edge_contract_problems(cyc, self.LISTED))
+
+    def test_unavailable_intermediate_breaks_neither_contract_nor_offer(self):
+        # 5 -> 5_1 -> 5_2, then a refresh marks 5_1 unavailable: still listed
+        # (the contract holds), never offered (the chain reaches 5_2).
+        t = table(opencode=[("opencode_glm_5", "opencode_glm_5_1"),
+                            ("opencode_glm_5_1", "opencode_glm_5_2")])
+        self.assertEqual(ms.edge_contract_problems(t, self.LISTED), [])
+        self.assertEqual(ms.offer_target(t, "opencode", "opencode_glm_5",
+                                         {"opencode_glm_5", "opencode_glm_5_2"}),
+                         "opencode_glm_5_2")
+
+
 class SiblingContractTests(unittest.TestCase):
     """Recorder and contract share sibling_eligibility(): they must agree."""
 
@@ -322,14 +526,10 @@ class ShippedTableTests(unittest.TestCase):
         self.assertEqual(SHIPPED_TABLE.read_text(encoding="utf-8"),
                          ms.render_table(self.table))
 
-    def test_every_edge_is_registered_acyclic_and_same_family(self):
-        for agent, edges in self.table["agents"].items():
-            for old, entry in edges.items():
-                with self.subTest(edge=f"{agent}/{old}->{entry['by']}"):
-                    self.assertIn(old, self.regs[agent])
-                    self.assertIn(entry["by"], self.regs[agent])
-                    ms.resolve_chain(self.table, agent, old)
-                    self.assertEqual(ms.family(old), ms.family(entry["by"]))
+    def test_every_edge_meets_the_contract(self):
+        listed = {path.name[len("models_"):-len(".json")]: ms.load_registry_names(path)
+                  for path in (REPO_ROOT / "seed").glob("models_*.json")}
+        self.assertEqual(ms.edge_contract_problems(self.table, listed), [])
 
     def test_seed_invariant_and_sibling_completeness(self):
         self.assertEqual(ms.seed_violations(self.table, self.seed), [])
@@ -466,6 +666,40 @@ class CheckReportTests(CliCase):
             capture_output=True, text=True, timeout=60)
         self.assertEqual(proc.returncode, 3, proc.stderr)
         self.assertIn("BLOCKED:partial:claudecode/opus5|qa", proc.stdout)
+
+
+class OpencodeOfferTests(CliCase):
+    """check-superseded offers an OpenCode successor, past unavailable nodes."""
+
+    def run_opencode(self, chain, statuses):
+        root = self.tmp / "oc"
+        meta = root / "aitasks" / "metadata"
+        _write_json(meta / "codeagent_config.json",
+                    {"defaults": {"pick": "opencode/opencode_claude_opus_4_8"}})
+        _write_json(meta / "models_opencode.json", {"models": [
+            {"name": n, "cli_id": n, "status": st} for n, st in statuses.items()]})
+        self.set_table(table(opencode=chain))
+        return run_check(root, table_path=self.table_path)
+
+    def test_unavailable_old_model_is_offered_its_successor(self):
+        proc = self.run_opencode(
+            [("opencode_claude_opus_4_8", "opencode_claude_opus_5_5")],
+            {"opencode_claude_opus_4_8": "unavailable", "opencode_claude_opus_5_5": "active"})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.stdout.splitlines(), [
+            "OFFER:project|opencode/opencode_claude_opus_4_8|"
+            "opencode/opencode_claude_opus_5_5|pick"])
+
+    def test_unavailable_intermediate_is_skipped(self):
+        proc = self.run_opencode(
+            [("opencode_claude_opus_4_8", "opencode_claude_opus_5"),
+             ("opencode_claude_opus_5", "opencode_claude_opus_5_5")],
+            {"opencode_claude_opus_4_8": "active", "opencode_claude_opus_5": "unavailable",
+             "opencode_claude_opus_5_5": "active"})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.stdout.splitlines(), [
+            "OFFER:project|opencode/opencode_claude_opus_4_8|"
+            "opencode/opencode_claude_opus_5_5|pick"])
 
 
 class CheckInteractiveTests(CliCase):

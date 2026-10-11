@@ -65,7 +65,7 @@ A recorded supersession is global — every operation still using the old model 
 |-------|----------|--------------|-------|
 | `claudecode` | yes | yes (full) | Owns `DEFAULT_AGENT_STRING` |
 | `codex` | yes | yes (limited) | Promotion only touches config + seed |
-| `opencode` | no | no | Use [`/aitask-refresh-code-models`](../aitask-refresh-code-models/) — OpenCode models are gated by provider availability |
+| `opencode` | no | no | Use [`/aitask-refresh-code-models`](../aitask-refresh-code-models/) — OpenCode models are gated by provider availability. `record-supersession` accepts `opencode` for lineages within one provider, model line and variant; a change of tier needs `--variant-change "<reason>"` |
 
 ## Manual-Review List
 

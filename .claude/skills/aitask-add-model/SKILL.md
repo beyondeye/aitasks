@@ -361,8 +361,12 @@ Execute the **Satisfaction Feedback Procedure** (see
   `./.aitask-scripts/aitask_add_model.sh record-supersession --agent <a> --old <old> --new <new> [--dry-run]`
   (same guards; commit the table as in Step 6). Existing edges are never
   overwritten.
-- OpenCode models carry no supersession lineages yet: this skill refuses
-  `opencode`, and so does `record-supersession`.
+- OpenCode models are never registered or promoted here (this skill refuses
+  `opencode`), but `record-supersession --agent opencode` declares their
+  lineages. An OpenCode edge stays within one provider and model line, its old
+  model must be registered in `models_opencode.json` (any status), and a change
+  of variant (tier — `mini`, `pro`, `sol` …) is refused unless
+  `--variant-change "<reason>"` records why.
 - `promote-default-agent-string` is `claudecode`-only because only
   `.aitask-scripts/lib/agent_string.sh` hardcodes a default fallback
   (`DEFAULT_AGENT_STRING="${DEFAULT_AGENT_STRING:-...}"`). The subcommand

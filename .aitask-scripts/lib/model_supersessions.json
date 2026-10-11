@@ -88,6 +88,231 @@
         "by": "gpt5_6_luna",
         "source": "record-supersession 2026-10-09"
       }
+    },
+    "opencode": {
+      "opencode_claude_opus_4_1": {
+        "by": "opencode_claude_opus_4_5",
+        "source": "record-supersession 2026-10-11"
+      },
+      "opencode_claude_opus_4_5": {
+        "by": "opencode_claude_opus_4_6",
+        "source": "record-supersession 2026-10-11"
+      },
+      "opencode_claude_opus_4_6": {
+        "by": "opencode_claude_opus_4_7",
+        "source": "record-supersession 2026-10-11"
+      },
+      "opencode_claude_opus_4_7": {
+        "by": "opencode_claude_opus_4_8",
+        "source": "record-supersession 2026-10-11"
+      },
+      "opencode_claude_opus_4_8": {
+        "by": "opencode_claude_opus_5",
+        "source": "record-supersession 2026-10-11"
+      },
+      "opencode_claude_opus_5": {
+        "by": "opencode_claude_opus_5_5",
+        "source": "record-supersession 2026-10-11"
+      },
+      "opencode_claude_sonnet_4": {
+        "by": "opencode_claude_sonnet_4_5",
+        "source": "record-supersession 2026-10-11"
+      },
+      "opencode_claude_sonnet_4_5": {
+        "by": "opencode_claude_sonnet_4_6",
+        "source": "record-supersession 2026-10-11"
+      },
+      "opencode_claude_sonnet_4_6": {
+        "by": "opencode_claude_sonnet_5",
+        "source": "record-supersession 2026-10-11"
+      },
+      "opencode_claude_sonnet_5": {
+        "by": "opencode_claude_sonnet_5_5",
+        "source": "record-supersession 2026-10-11"
+      },
+      "opencode_claude_haiku_4_5": {
+        "by": "opencode_claude_haiku_5_5",
+        "source": "record-supersession 2026-10-11"
+      },
+      "opencode_claude_fable_5": {
+        "by": "opencode_claude_fable_5_1",
+        "source": "record-supersession 2026-10-11"
+      },
+      "opencode_gpt_5": {
+        "by": "opencode_gpt_5_1",
+        "source": "record-supersession 2026-10-11"
+      },
+      "opencode_gpt_5_1": {
+        "by": "opencode_gpt_5_2",
+        "source": "record-supersession 2026-10-11"
+      },
+      "opencode_gpt_5_2": {
+        "by": "opencode_gpt_5_4",
+        "source": "record-supersession 2026-10-11"
+      },
+      "opencode_gpt_5_4": {
+        "by": "opencode_gpt_5_5",
+        "source": "record-supersession 2026-10-11"
+      },
+      "opencode_gpt_5_6_sol": {
+        "by": "opencode_gpt_6_sol",
+        "source": "record-supersession 2026-10-11"
+      },
+      "opencode_gpt_6_sol": {
+        "by": "opencode_gpt_6_1_sol",
+        "source": "record-supersession 2026-10-11"
+      },
+      "opencode_gpt_5_6_luna": {
+        "by": "opencode_gpt_6_luna",
+        "source": "record-supersession 2026-10-11"
+      },
+      "opencode_glm_4_6": {
+        "by": "opencode_glm_5",
+        "source": "record-supersession 2026-10-11"
+      },
+      "opencode_glm_4_7": {
+        "by": "opencode_glm_5",
+        "source": "record-supersession 2026-10-11"
+      },
+      "opencode_glm_5": {
+        "by": "opencode_glm_5_1",
+        "source": "record-supersession 2026-10-11"
+      },
+      "opencode_glm_5_1": {
+        "by": "opencode_glm_5_2",
+        "source": "record-supersession 2026-10-11"
+      },
+      "opencode_glm_5_2": {
+        "by": "opencode_glm_5_3",
+        "source": "record-supersession 2026-10-11"
+      },
+      "opencode_gemini_3_pro": {
+        "by": "opencode_gemini_3_1_pro",
+        "source": "record-supersession 2026-10-11"
+      },
+      "opencode_gemini_3_flash": {
+        "by": "opencode_gemini_3_5_flash",
+        "source": "record-supersession 2026-10-11"
+      },
+      "opencode_gemini_3_5_flash": {
+        "by": "opencode_gemini_3_6_flash",
+        "source": "record-supersession 2026-10-11"
+      },
+      "opencode_gemini_3_6_flash": {
+        "by": "opencode_gemini_3_7_flash",
+        "source": "record-supersession 2026-10-11"
+      },
+      "opencode_gemini_3_7_flash": {
+        "by": "opencode_gemini_3_8_flash",
+        "source": "record-supersession 2026-10-11"
+      },
+      "opencode_grok_4_5": {
+        "by": "opencode_grok_4_6",
+        "source": "record-supersession 2026-10-11"
+      },
+      "opencode_grok_4_6": {
+        "by": "opencode_grok_4_7",
+        "source": "record-supersession 2026-10-11"
+      },
+      "opencode_minimax_m2_1": {
+        "by": "opencode_minimax_m2_5",
+        "source": "record-supersession 2026-10-11"
+      },
+      "opencode_minimax_m2_5": {
+        "by": "opencode_minimax_m2_7",
+        "source": "record-supersession 2026-10-11"
+      },
+      "opencode_minimax_m2_7": {
+        "by": "opencode_minimax_m3",
+        "source": "record-supersession 2026-10-11"
+      },
+      "opencode_qwen3_5_plus": {
+        "by": "opencode_qwen3_6_plus",
+        "source": "record-supersession 2026-10-11"
+      },
+      "opencode_deepseek_v4_flash": {
+        "by": "opencode_deepseek_v4_1_flash",
+        "source": "record-supersession 2026-10-11"
+      },
+      "opencode_muse_spark_1_2": {
+        "by": "opencode_muse_spark_1_3",
+        "source": "record-supersession 2026-10-11"
+      },
+      "opencode_muse_spark_1_2_contributor_free": {
+        "by": "opencode_muse_spark_1_3_contributor_free",
+        "source": "record-supersession 2026-10-11"
+      },
+      "opencode_gpt_5_5": {
+        "by": "opencode_gpt_5_6_sol",
+        "source": "record-supersession 2026-10-11",
+        "variant_change": "flagship -> sol tier (mirrors codex/gpt5_5)"
+      },
+      "opencode_gpt_5_3_codex": {
+        "by": "opencode_gpt_5_4",
+        "source": "record-supersession 2026-10-11",
+        "variant_change": "codex -> flagship (mirrors codex/gpt5_3codex)"
+      },
+      "opencode_gpt_5_4_mini": {
+        "by": "opencode_gpt_5_6_luna",
+        "source": "record-supersession 2026-10-11",
+        "variant_change": "mini -> luna tier (mirrors codex/gpt5_4_mini)"
+      },
+      "openai_gpt_5_2": {
+        "by": "openai_gpt_5_4",
+        "source": "record-supersession 2026-10-11"
+      },
+      "openai_gpt_5_4": {
+        "by": "openai_gpt_5_5",
+        "source": "record-supersession 2026-10-11"
+      },
+      "openai_gpt_5_6_sol": {
+        "by": "openai_gpt_6_sol",
+        "source": "record-supersession 2026-10-11"
+      },
+      "openai_gpt_6_sol": {
+        "by": "openai_gpt_6_1_sol",
+        "source": "record-supersession 2026-10-11"
+      },
+      "openai_gpt_5_6_luna": {
+        "by": "openai_gpt_6_luna",
+        "source": "record-supersession 2026-10-11"
+      },
+      "openai_gpt_5_4_fast": {
+        "by": "openai_gpt_5_5_fast",
+        "source": "record-supersession 2026-10-11"
+      },
+      "openai_gpt_5_6_sol_fast": {
+        "by": "openai_gpt_6_sol_fast",
+        "source": "record-supersession 2026-10-11"
+      },
+      "openai_gpt_6_sol_fast": {
+        "by": "openai_gpt_6_1_sol_fast",
+        "source": "record-supersession 2026-10-11"
+      },
+      "openai_gpt_5_6_luna_fast": {
+        "by": "openai_gpt_6_luna_fast",
+        "source": "record-supersession 2026-10-11"
+      },
+      "openai_gpt_5_5": {
+        "by": "openai_gpt_5_6_sol",
+        "source": "record-supersession 2026-10-11",
+        "variant_change": "flagship -> sol tier (mirrors codex/gpt5_5)"
+      },
+      "openai_gpt_5_5_fast": {
+        "by": "openai_gpt_5_6_sol_fast",
+        "source": "record-supersession 2026-10-11",
+        "variant_change": "flagship -> sol tier, fast (mirrors codex/gpt5_5)"
+      },
+      "openai_gpt_5_3_codex": {
+        "by": "openai_gpt_5_4",
+        "source": "record-supersession 2026-10-11",
+        "variant_change": "codex -> flagship (mirrors codex/gpt5_3codex)"
+      },
+      "openai_gpt_5_4_mini": {
+        "by": "openai_gpt_5_6_luna",
+        "source": "record-supersession 2026-10-11",
+        "variant_change": "mini -> luna tier (mirrors codex/gpt5_4_mini)"
+      }
     }
   }
 }

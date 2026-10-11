@@ -7,7 +7,8 @@ Usage:
     aitask_model_supersession.py record --table P --output P --models P
                                         --agent A --new B
                                         (--seed-before P --seed-after P | --old X --seed P)
-                                        [--assume-registered] [--source TEXT]
+                                        [--assume-registered] [--variant-change TEXT]
+                                        [--source TEXT]
 
 check
     Scans every key under `.defaults` in the project layer
@@ -34,7 +35,10 @@ record
     or an explicit declaration (--old/--seed) and writes the proposed table to
     --output. Prints RECORDED:/RECORDED_SIBLING:/SKIPPED:/WARN:/BLOCKED:/NOTE:
     lines. --assume-registered adds --new to the registry (previews of a model
-    `add-json` has not written yet).
+    `add-json` has not written yet); it never vouches for --old. For a
+    provider-prefixed agent (opencode) --old must be registered (any status)
+    and a change of variant (tier) needs --variant-change, the reason recorded
+    on the edge.
 
 Exit: 0 ok, 1 I/O or parse error, 2 usage, 3 record blocked.
 
@@ -421,10 +425,16 @@ def cmd_record(args, parser) -> int:
         parser.error("--old needs --seed (and excludes --seed-before/--seed-after)")
     if args.old is None and (args.seed_before is None or args.seed_after is None):
         parser.error("a promotion needs --seed-before and --seed-after (or use --old/--seed)")
+    if args.variant_change is not None and (args.old is None or not args.variant_change):
+        parser.error("--variant-change needs --old and a non-empty reason")
 
     try:
         table = ms.load_table(args.table)
-        registry = ms.load_registry(args.models) or set()
+        # One read: the offerable names gate --new; every registered name (any
+        # status) gates --old, which may be unavailable. --assume-registered
+        # never vouches for --old.
+        registry, listed = ms.load_registry_sets(args.models)
+        registry, listed = registry or set(), listed or set()
         events = []
         available = set(registry)
         if args.assume_registered and args.new not in available:
@@ -434,11 +444,11 @@ def cmd_record(args, parser) -> int:
         if args.old is not None:
             new_table, plan_events, blocked = ms.plan_explicit(
                 table, args.agent, args.old, args.new, _defaults_of(args.seed),
-                available, source)
+                available, source, variant_change=args.variant_change, listed=listed)
         else:
             new_table, plan_events, blocked = ms.plan_promotion(
                 table, args.agent, args.new, _defaults_of(args.seed_before),
-                _defaults_of(args.seed_after), available, source)
+                _defaults_of(args.seed_after), available, source, listed=listed)
         events.extend(plan_events)
         atomic_write.atomic_write_text(args.output, ms.render_table(new_table))
     except (OSError, ValueError) as exc:  # ValueError covers SupersessionError and bad JSON/UTF-8
@@ -475,6 +485,8 @@ def _parser():
     record.add_argument("--seed-before")
     record.add_argument("--seed-after")
     record.add_argument("--assume-registered", action="store_true")
+    record.add_argument("--variant-change",
+                        help="why an edge of a provider-prefixed agent changes variant (tier)")
     record.add_argument("--source")
     return parser, record
 

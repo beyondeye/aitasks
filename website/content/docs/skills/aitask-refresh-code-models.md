@@ -18,7 +18,7 @@ Research the latest AI code agent models via web search and update the `models_*
 
 ## Step-by-Step
 
-The skill follows an 8-step workflow:
+The skill follows an 8-step workflow, plus a lineage step in the framework repository:
 
 1. **Read current configs** — Loads all `aitasks/metadata/models_*.json` files and `codeagent_config.json` to identify current models and which are in use
 2. **Select agents** — Choose which agents to refresh (Claude, Gemini, Codex, OpenCode, or all)
@@ -26,6 +26,7 @@ The skill follows an 8-step workflow:
 4. **Compare** — Categorizes each model as NEW, UPDATED, DEPRECATED?, or UNCHANGED by comparing web research against current config
 5. **Present changes** — Displays a structured change report marking models that are in use
 6. **Update JSON files** — Applies approved changes to `models_*.json` files. Syncs to `seed/` if present
+   - **Propose lineages** (framework repository only) — For each newly added model, proposes the registered model it supersedes (same model line and variant, or an explicit tier change with a stated reason), previews each edge and records only the ones you confirm, so projects still on the old model are offered the new one (see [Superseded model defaults]({{< relref "/docs/commands/codeagent#superseded-model-defaults" >}}))
 7. **Verify research URLs** — Checks that the documentation URLs used for research are still reachable (informational only)
 8. **Commit** — Commits updated model files via `./ait git`
 

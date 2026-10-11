@@ -125,6 +125,15 @@ For new models, initialize both `verified` and `verifiedstats` even if no feedba
 - If it exists, copy each updated `models_<agent>.json` to `seed/models_<agent>.json`
 - If `seed/` does not exist, skip this step
 
+### Step 6b: Propose Supersession Lineages for New Models
+
+Execute the **Supersession Lineage Proposal Procedure** (see
+`.claude/skills/aitask-refresh-code-models/supersession-lineages.md`) with:
+`added_models` — per agent, the model names Step 6 added (for OpenCode, the
+names the discovery script added compared with the Step 1 snapshot). It runs
+only in the framework source repository and records only the lineages the user
+confirms.
+
 ### Step 7: Verify Research URLs
 
 After updating model files, verify that the research URLs listed in this SKILL.md are still reachable.
@@ -157,6 +166,14 @@ three are already tracked, so there is no `add`; name only the ones you changed
 ```bash
 git commit -m "ait: Sync refreshed models to seed templates" \
     -- seed/models_claudecode.json seed/models_codex.json seed/models_opencode.json
+git show --stat <sha>    # <sha> from the commit's "[<branch> <sha>]" line — not HEAD
+```
+
+**Supersession table** (main branch, only if Step 6b recorded at least one edge;
+the file is tracked, so there is no `add`):
+```bash
+git commit -m "ait: Record model supersession lineages" \
+    -- .aitask-scripts/lib/model_supersessions.json
 git show --stat <sha>    # <sha> from the commit's "[<branch> <sha>]" line — not HEAD
 ```
 
@@ -210,3 +227,4 @@ These URLs are used during the web research phase (Step 3). They are checked for
 - Both `aitasks/metadata/` (via `./ait git`) and `seed/` (via plain `git`) are updated when applicable
 - If web research fails for a specific agent, the skill continues with other agents rather than aborting
 - The self-update URL check (Step 7) only reports issues — it does not modify this SKILL.md automatically
+- Supersession lineages (Step 6b) are proposed, never recorded without confirmation, and only in the framework source repository; `aitask_opencode_models.sh` itself records none

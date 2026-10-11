@@ -28,6 +28,13 @@ Semantics, in one place:
 * ``_1m`` siblings: recording base edge ``A -> B`` also records
   ``A_1m -> B_1m`` when :func:`sibling_eligibility` says so. A derived edge never
   blocks a promotion.
+* An edge stays within one model LINE (:func:`family`). For a provider-prefixed
+  agent (:data:`STRICT_AGENTS`, i.e. opencode) the line includes the provider,
+  and the VARIANT after the version (:func:`variant`: ``mini``, ``pro``,
+  ``flash`` ...) must match too, unless the edge records why it changes tier in
+  ``variant_change``. :func:`edge_contract_problems` states that contract for
+  the shipped table; the recorder refuses, for a strict agent, every edge the
+  contract would reject.
 
 Stdlib only, Python >= 3.7: ``install.sh`` runs the CLI on top of this module
 before ``ait setup`` may have built the framework venv.
@@ -44,6 +51,12 @@ from collections import namedtuple
 TABLE_VERSION = 1
 SIBLING_SUFFIX = "_1m"
 LAYERS = ("project", "local")
+
+#: Agents whose model names are provider-prefixed (``<provider>_<model>``), so
+#: lineage is judged per provider, line and variant. They have no promotion
+#: path (``record-supersession`` only), so the recorder refuses every edge the
+#: shipped-table contract would reject instead of only warning.
+STRICT_AGENTS = ("opencode",)
 
 #: The framework-owned table shipped next to this module.
 DEFAULT_TABLE_PATH = os.path.join(
@@ -96,6 +109,10 @@ def validate_table(table) -> dict:
                     or not isinstance(entry.get("by"), str)
                     or not _MODEL_RE.fullmatch(entry["by"])):
                 raise SupersessionError(f"bad edge {agent}/{old}: {entry!r}")
+            if "variant_change" in entry and not (
+                    isinstance(entry["variant_change"], str) and entry["variant_change"]):
+                raise SupersessionError(
+                    f"bad variant_change on {agent}/{old}: {entry['variant_change']!r}")
     return table
 
 
@@ -144,10 +161,81 @@ def offer_target(table, agent, name, available):
     return None
 
 
-def family(name) -> str:
-    """Leading letters of a model name: ``opus5_5`` -> ``opus``."""
+def _split_prefixed(name):
+    """``(line, variant)`` of a provider-prefixed name.
+
+    The line is the provider plus the alphabetic tokens before the first token
+    that carries a digit (or that token's leading letters, when it is the first:
+    ``qwen3``); the variant is the alphabetic tokens after it.
+    ``opencode_gemini_3_1_pro`` -> ``("opencode_gemini", "pro")``.
+    """
+    provider, _, rest = name.partition("_")
+    words, tail, versioned = [], [], False
+    for token in rest.split("_") if rest else []:
+        if versioned:
+            if token.isalpha():
+                tail.append(token)
+        elif token.isalpha():
+            words.append(token)
+        else:
+            versioned = True
+            lead = _FAMILY_RE.match(token)
+            if not words and lead:
+                words.append(lead.group(0))
+    return "_".join([provider] + words), "_".join(tail)
+
+
+def family(name, agent=None) -> str:
+    """The model line: ``opus5_5`` -> ``opus``.
+
+    For a :data:`STRICT_AGENTS` agent it includes the provider:
+    ``opencode_claude_opus_4_5`` -> ``opencode_claude_opus``.
+    """
+    if agent in STRICT_AGENTS:
+        return _split_prefixed(name)[0]
     match = _FAMILY_RE.match(name)
     return match.group(0) if match else name
+
+
+def variant(name, agent=None) -> str:
+    """The variant after the version (``opencode_gpt_5_4_mini`` -> ``mini``).
+
+    Always ``""`` outside :data:`STRICT_AGENTS`, whose names are not tokenised.
+    """
+    return _split_prefixed(name)[1] if agent in STRICT_AGENTS else ""
+
+
+def edge_contract_problems(table, listed) -> list:
+    """Every way ``table`` breaks the edge contract, as ``<kind>:<edge>`` strings.
+
+    ``listed`` maps agent -> EVERY registered name, whatever its status: the
+    contract is structural. Availability is a runtime question
+    :func:`offer_target` answers by skipping an unavailable node, so a refresh
+    that marks an intermediate model unavailable must not break it; the
+    recorder still requires an offerable target when an edge is added.
+    """
+    problems = []
+    for agent, edges in table["agents"].items():
+        names = listed.get(agent, set())
+        for old, entry in edges.items():
+            new = entry["by"]
+            edge = f"{agent}/{old}->{agent}/{new}"
+            if old not in names:
+                problems.append(f"unlisted_old:{edge}")
+            if new not in names:
+                problems.append(f"unlisted_new:{edge}")
+            try:
+                resolve_chain(table, agent, old)
+            except SupersessionCycle:
+                problems.append(f"cycle:{edge}")
+            if family(old, agent) != family(new, agent):
+                problems.append(f"family:{edge}")
+            differs = variant(old, agent) != variant(new, agent)
+            if differs and "variant_change" not in entry:
+                problems.append(f"variant:{edge}")
+            elif not differs and "variant_change" in entry:
+                problems.append(f"stray_variant_change:{edge}")
+    return problems
 
 
 # --- configs and registries --------------------------------------------------
@@ -168,8 +256,8 @@ def parse_agent_string(value):
     return (match.group(1), match.group(2)) if match else None
 
 
-def load_registry(path):
-    """Offerable model names in a ``models_<agent>.json``; None when missing."""
+def _registry_entries(path):
+    """The named entries of a ``models_<agent>.json``; None when missing."""
     try:
         with open(path, "r", encoding="utf-8") as fh:
             data = json.load(fh)
@@ -180,12 +268,33 @@ def load_registry(path):
     models = data.get("models") if isinstance(data, dict) else None
     if not isinstance(models, list):
         raise SupersessionError(f"{path}: 'models' must be a list")
-    names = set()
-    for entry in models:
-        if (isinstance(entry, dict) and isinstance(entry.get("name"), str)
-                and entry.get("status", "active") != "unavailable"):
-            names.add(entry["name"])
-    return names
+    return [entry for entry in models
+            if isinstance(entry, dict) and isinstance(entry.get("name"), str)]
+
+
+def load_registry_sets(path):
+    """``(offerable, listed)`` names of a ``models_<agent>.json`` from one read.
+
+    ``listed`` is every name whatever its status; ``offerable`` excludes
+    ``status: unavailable``. ``(None, None)`` when the file is missing.
+    """
+    entries = _registry_entries(path)
+    if entries is None:
+        return None, None
+    listed = {entry["name"] for entry in entries}
+    offerable = {entry["name"] for entry in entries
+                 if entry.get("status", "active") != "unavailable"}
+    return offerable, listed
+
+
+def load_registry(path):
+    """Offerable model names in a ``models_<agent>.json``; None when missing."""
+    return load_registry_sets(path)[0]
+
+
+def load_registry_names(path):
+    """Every model name in a ``models_<agent>.json``, whatever its status."""
+    return load_registry_sets(path)[1]
 
 
 def load_registries(metadata_dir):
@@ -415,15 +524,25 @@ def missing_sibling_edges(table, seed_defaults, registries) -> list:
     return missing
 
 
-def _declare(table, agent, old, new, seed, available, source, events, in_seed_label):
+def _declare(table, agent, old, new, seed, available, source, events, in_seed_label,
+             variant_change=None, listed=None):
     """Add ``old -> new`` (+ eligible sibling) to ``table`` in place.
 
     The one guarded edge-adder. Appends events; returns True when blocked.
+    ``listed`` is every registered name of ``agent`` (any status); a
+    :data:`STRICT_AGENTS` agent requires it and refuses an unlisted ``old``.
     """
     edge = f"{agent}/{old}->{agent}/{new}"
     if old == new:
         events.append(f"SKIPPED:self:{agent}/{old}")
         return False
+    strict = agent in STRICT_AGENTS
+    if strict:
+        if listed is None:
+            raise SupersessionError(f"{agent}: recording needs the full model list")
+        if old not in listed:
+            events.append(f"BLOCKED:unlisted_old:{agent}/{old}")
+            return True
     remaining = _seed_ops_using(seed, agent, old)
     if remaining:
         events.append(f"BLOCKED:{in_seed_label}:{agent}/{old}|{','.join(remaining)}")
@@ -441,16 +560,39 @@ def _declare(table, agent, old, new, seed, available, source, events, in_seed_la
         if _closes_cycle(table, agent, old, new):
             events.append(f"BLOCKED:cycle:{edge}")
             return True
-        table["agents"].setdefault(agent, {})[old] = {"by": new, "source": source}
+        same_line = family(old, agent) == family(new, agent)
+        if strict and not same_line:
+            events.append(f"BLOCKED:family:{edge}")
+            return True
+        v_old, v_new = variant(old, agent), variant(new, agent)
+        tier = f"{v_old or 'base'}->{v_new or 'base'}"
+        if v_old != v_new and not variant_change:
+            events.append(f"BLOCKED:variant:{edge}|{tier}")
+            return True
+        entry = {"by": new, "source": source}
+        if v_old != v_new:
+            entry["variant_change"] = variant_change
+        table["agents"].setdefault(agent, {})[old] = entry
         events.append(f"RECORDED:{edge}")
-        if family(old) != family(new):
+        if v_old != v_new:
+            events.append(f"NOTE:variant_change:{edge}|{tier}")
+        elif variant_change:
+            events.append(f"NOTE:variant_change_ignored:{edge}")
+        if not same_line:
             events.append(f"WARN:family:{edge}")
 
     eligible, reason = sibling_eligibility(table, agent, old, new, seed, available)
     s_edge = f"{agent}/{old}{SIBLING_SUFFIX}->{agent}/{new}{SIBLING_SUFFIX}"
     if eligible:
-        table["agents"][agent][old + SIBLING_SUFFIX] = {
-            "by": new + SIBLING_SUFFIX, "source": f"{source} ({SIBLING_SUFFIX} sibling)"}
+        sibling = {"by": new + SIBLING_SUFFIX, "source": f"{source} ({SIBLING_SUFFIX} sibling)"}
+        # "_1m" carries a digit, so it never changes a name's line or variant:
+        # the sibling crosses exactly the tier its base edge does, for the same
+        # recorded reason (the base entry exists on both the new and the
+        # already-recorded path).
+        base_reason = table["agents"][agent][old].get("variant_change")
+        if base_reason:
+            sibling["variant_change"] = base_reason
+        table["agents"][agent][old + SIBLING_SUFFIX] = sibling
         events.append(f"RECORDED_SIBLING:{s_edge}")
     elif reason not in _SILENT_SIBLING_REASONS:
         events.append(f"SKIPPED:{reason}:{s_edge}")
@@ -463,7 +605,8 @@ def _invariant_events(table, seed, already_blocked) -> list:
             if (agent, name) not in already_blocked]
 
 
-def plan_promotion(table, agent, new, seed_before, seed_after, available, source):
+def plan_promotion(table, agent, new, seed_before, seed_after, available, source,
+                   listed=None):
     """Supersession implied by a promotion that patched ``seed_before`` into ``seed_after``.
 
     Predecessors are the old values of the seed ops that now hold ``agent/new``.
@@ -488,7 +631,7 @@ def plan_promotion(table, agent, new, seed_before, seed_after, available, source
     blocked_names = set()
     for old in predecessors:
         if _declare(table, agent, old, new, seed_after, available, source, events,
-                    "partial"):
+                    "partial", listed=listed):
             blocked = True
             blocked_names.add((agent, old))
     invariant = _invariant_events(table, seed_after, blocked_names)
@@ -496,11 +639,17 @@ def plan_promotion(table, agent, new, seed_before, seed_after, available, source
     return table, events, blocked or bool(invariant)
 
 
-def plan_explicit(table, agent, old, new, seed, available, source):
-    """An explicitly requested ``agent/old -> agent/new`` (``record-supersession``)."""
+def plan_explicit(table, agent, old, new, seed, available, source,
+                  variant_change=None, listed=None):
+    """An explicitly requested ``agent/old -> agent/new`` (``record-supersession``).
+
+    ``variant_change`` is the recorded reason a strict agent's edge may change
+    variant (tier); ``listed`` as in :func:`_declare`.
+    """
     table = copy.deepcopy(table)
     events = []
-    blocked = _declare(table, agent, old, new, seed, available, source, events, "in_seed")
+    blocked = _declare(table, agent, old, new, seed, available, source, events, "in_seed",
+                       variant_change=variant_change, listed=listed)
     invariant = _invariant_events(table, seed, {(agent, old)} if blocked else set())
     events.extend(invariant)
     return table, events, blocked or bool(invariant)
