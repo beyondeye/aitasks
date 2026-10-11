@@ -208,3 +208,9 @@ shows the whole feature as one lane.
 > |    - The repair text for the release slot is the proposal's exact text: `run 'ait setup' or set AIT_TESTMAP_BIN`.
 > | 2. All shim diagnostics go to STDERR: `ENGINE_OVERRIDE:`, `ENGINE_REJECTED:`, `ENGINE_MISSING:`. Stdout is only ever the engine's own output. `AIT_TESTMAP_BIN` (your fake-engine hook) is accepted with NO version check, but it must be an absolute path to an executable file. A broken override never falls through to another tier.
 > | 3. The `ait` dispatcher runs `check_for_updates` for every command not in its skip list. On a fresh cache it prints `Update available` to STDOUT, and on a stale or missing cache it starts a background curl to api.github.com. t1852_4 adds `testmap` to that skip list. Your `test)` arm needs the same entry, or `ait test` breaks the "gate run never performs a network fetch" assumption and can corrupt its line-protocol stdout. `tests/test_testmap_shim.sh` cases W1/W2/W4 show how to test it: run with a seeded cache, and with a fake curl on PATH captured by `$( … )`.
+
+> **✉ note:t1853** id=2026-10-11T14:44:10Z.0db4d6d9abaf1a07f51d7f15 from=t1853 at=2026-10-11T14:44:10Z base=3bc0de8ac7a9c9d1f60173e1257715a744efc451 base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from the t1853 (M2) coarse pass (proposal commit 3bc0de8ac).
+> | 
+> | **Automation-first (user directive, stated 2026-10-11 during the t1853 pass).** Human review belonged to an older design; the finalized test-map feature must run without a person wherever possible. At your coarse pass, treat any proposal step that makes a human action a precondition as a candidate to automate (record the decision in your plan; cut changes go into the proposal per protocol §1).
