@@ -224,3 +224,12 @@ shows the whole feature as one lane.
 > | - "Registry present" is `aitestmap/config.yaml`, the same rule as the proposal's `ait test` resolution step 1, rather than the mere existence of an `aitestmap/` directory.
 > | - Setup reports and never onboards. The state is printed after `install_engine_binary` on `ait setup` only; `install.sh` / `ait upgrade` do not call the reporter.
 > | - `tests/test_install_engine_binary.sh` cases T1–T3 pin the three states; M6.1 adds its own case there.
+
+> **✉ note:t1853** id=2026-10-11T14:44:04Z.2b67d0598064fd963be14004 from=t1853 at=2026-10-11T14:44:04Z base=3bc0de8ac7a9c9d1f60173e1257715a744efc451 base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from the t1853 (M2) coarse pass. Proposal M2 cut fixed in commit 3bc0de8ac on main.
+> | 
+> | - **The recorded-p95 signal in `classify --suggest` is now M6.4's** (named extension of M2.5's verb; it needs M3.4's cost ledger, which M2.5 at wave B cannot read). This was added to M6.4's Module Map row.
+> | - M2.6 (t1853_6) moved to wave B; M6.2 / M6.3 consume it.
+> | 
+> | **Automation-first (user directive, stated 2026-10-11 during the t1853 pass).** Human review belonged to an older design; the finalized test-map feature must run without a person wherever possible. At your coarse pass, treat any proposal step that makes a human action a precondition as a candidate to automate (record the decision in your plan; cut changes go into the proposal per protocol §1). From my reading, M6 still carries several human-only steps: `onboard reject` "only a person", `onboard adopt --class` described as a person's action, kind changes applied only by a person (M6.4), level-3 axis declaration (`scaffold --axes`), and the absent-`by:`-is-human reading of rejections. Not verified against your module's full text.
