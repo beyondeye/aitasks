@@ -23,6 +23,7 @@ from rich.cells import cell_len
 from rich.markup import escape
 from mark_glyphs import MARK_CHECKED, MARK_UNCHECKED, mark_markup
 from config_utils import task_dir
+from editor_argv import resolve_editor_argv
 from agent_command_screen import AgentCommandScreen, resolve_skill_profile
 from agent_launch_utils import find_terminal, spawn_in_terminal, find_window_by_name, resolve_dry_run_command, resolve_agent_string, TmuxLaunchConfig, launch_in_tmux, load_tmux_defaults, maybe_spawn_minimonitor, _lookup_window_name, tmux_window_target
 from sync_action_runner import (
@@ -207,7 +208,7 @@ from board_column_dialogs import (
     DeleteColumnConfirmScreen, MergeColumnsConfirmScreen,
 )
 
-from textual.app import App
+from textual.app import App, SuspendNotSupported
 from textual.content import Content
 from textual.containers import Container, Horizontal, HorizontalScroll, VerticalScroll
 from textual.widgets import Header, Static, Label, Markdown, Input, Button, SelectionList, DataTable
@@ -5034,16 +5035,45 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
             return
         self._launch_brainstorm(num, focused.task_data.filename)
 
-    @work(exclusive=True)
+    @work(exclusive=True, group="editor")
     async def run_editor(self, filepath):
-        """Suspend app and run system editor."""
-        editor = os.environ.get("EDITOR", "nano")
-        if sys.platform == "win32":
-            editor = os.environ.get("EDITOR", "notepad")
+        """Suspend the app and open ``filepath`` in $EDITOR.
 
+        Own worker group: an exclusive default-group worker would cancel the
+        board's other default-group workers (``_run_sync``,
+        ``run_aitask_pick``, ``run_codeagent_operation``, …). ``$EDITOR``
+        resolves through the shared ``resolve_editor_argv``
+        (lib/editor_argv.py), so ``code -w`` carries its arguments and
+        unquoted paths with spaces keep working.
+
+        The OSError is caught INSIDE ``with self.suspend():`` —
+        ``App.suspend`` resumes the driver after its yield with no
+        ``finally`` (Textual 8.2.7) — and notified after resume; an escaping
+        exception would leave the terminal suspended and end the board
+        (worker exit_on_error). A failed launch skips the reload.
+        """
+        try:
+            editor_argv = resolve_editor_argv()
+        except ValueError as exc:
+            self.notify(str(exc), severity="error")
+            return
         filename = Path(filepath).name
-        with self.suspend():
-            subprocess.call([editor, str(filepath)])
+        launch_error: OSError | None = None
+        try:
+            with self.suspend():
+                try:
+                    subprocess.call([*editor_argv, str(filepath)])
+                except OSError as exc:
+                    launch_error = exc
+        except SuspendNotSupported:
+            self.notify(
+                "This environment cannot suspend the TUI to run $EDITOR.",
+                severity="error",
+            )
+            return
+        if launch_error is not None:
+            self.notify(f"Could not launch editor: {launch_error}", severity="error")
+            return
 
         self.manager.load_tasks()
         self.refresh_board(refocus_filename=filename)

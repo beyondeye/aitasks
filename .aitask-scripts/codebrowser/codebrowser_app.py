@@ -31,6 +31,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 from agent_command_screen import AgentCommandScreen, resolve_skill_profile
 from agent_launch_utils import find_terminal as _find_terminal, spawn_in_terminal, resolve_dry_run_command, resolve_agent_string, TmuxLaunchConfig, launch_in_tmux, maybe_spawn_minimonitor, _lookup_window_name, tmux_session_target
 from tmux_exec import TmuxClient
+from editor_argv import resolve_editor_argv
 from tui_clipboard import copy_to_system_clipboard
 from tui_layout import NARROW, NORMAL, WIDE, terminal_tier
 from tui_switcher import TuiSwitcherMixin
@@ -1082,9 +1083,9 @@ class CodeBrowserApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
         Own worker group: an exclusive default-group worker would cancel the
         in-flight ``_load_explain_data`` / ``_refresh_explain_data``
-        annotation loading. ``$EDITOR`` is shlex-split so values carrying
-        arguments (``code -w``) work — unless the whole value already names
-        an executable, which keeps unquoted paths with spaces working.
+        annotation loading. ``$EDITOR`` resolves through the shared
+        ``resolve_editor_argv`` (lib/editor_argv.py), so ``code -w`` carries
+        its arguments and unquoted paths with spaces keep working.
 
         Same containment as ``run_launch_command``: the OSError is caught
         INSIDE ``with self.suspend():`` — ``App.suspend`` resumes the driver
@@ -1095,19 +1096,11 @@ class CodeBrowserApp(TuiSwitcherMixin, ShortcutsMixin, App):
         if not self._current_file_path:
             self.notify("No file selected", severity="warning")
             return
-        default = "notepad" if sys.platform == "win32" else "nano"
-        editor = os.environ.get("EDITOR", "").strip() or default
-        if sys.platform == "win32" or shutil.which(editor):
-            # A value naming a whole executable (an unquoted path with
-            # spaces, `/opt/my editor/bin/ed`) launches as one argv[0], as
-            # before; POSIX shlex would also eat Windows path backslashes.
-            editor_argv = [editor]
-        else:
-            try:
-                editor_argv = shlex.split(editor)
-            except ValueError as exc:
-                self.notify(f"Invalid $EDITOR {editor!r}: {exc}", severity="error")
-                return
+        try:
+            editor_argv = resolve_editor_argv()
+        except ValueError as exc:
+            self.notify(str(exc), severity="error")
+            return
         filepath = self._current_file_path
         launch_error: OSError | None = None
         try:
