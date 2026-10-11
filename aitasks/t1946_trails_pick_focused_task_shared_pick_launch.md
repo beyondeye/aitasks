@@ -11,8 +11,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-11 16:44
-updated_at: 2026-10-11 16:49
+updated_at: 2026-10-11 17:47
 ---
 
 ## Problem
@@ -143,3 +144,8 @@ actions must match the board's `(key, description)`; binding-set / scope tests),
   `tests/test_board_dialog_run_dispatch.py`, `tests/test_trails_app.py`,
   `tests/test_trail_screen_host_protocol.py`, `tests/test_minimonitor_pick_by_number.py`,
   `tests/test_pick_launch_argv.py` stay green.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-11T14:47:33Z status=pass attempt=1 type=human
