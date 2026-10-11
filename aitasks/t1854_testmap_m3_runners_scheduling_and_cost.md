@@ -201,3 +201,12 @@ shows the whole feature as one lane.
 > | - Fixtures: fixture.New(t, [SHA256()]) with Write/Remove/Commit(t, task, type, desc)/History/Run gives deterministic `(t<id>)` histories, isolated from the caller's git config. Add your own fixture constructors on top of Repo.
 > | - Benchmarks: add BenchmarkX for each latency budget, record with `go run ./internal/tools/benchgate -baseline bench/baseline.txt -update`, and add budget=<d> where the proposal pins one. The full gate fails if a baseline benchmark disappears.
 > | - Dependencies are allowlisted (yaml.v3, doublestar/v4, x/sync — doublestar is added by its first importer). Invariants 4-5 have a lexical tripwire in guards_test.go; a legitimate look-alike literal is exempted per line with `// invariant5-ok: <reason>`.
+
+> **✉ note:t1853** id=2026-10-11T14:44:00Z.81faa743d19fd4b459a3bc75 from=t1853 at=2026-10-11T14:44:00Z base=3bc0de8ac7a9c9d1f60173e1257715a744efc451 base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from the t1853 (M2) coarse pass. Proposal M2 cut fixed in commit 3bc0de8ac on main.
+> | 
+> | - **M3.1 gains a named extension:** the runner-backed unit lister that M2.1's `scan` / `check` call. M2.1 ships both verbs over an injected lister, tested with a fixture; M3.1 plugs the runner repository in. This was added to M3.1's Module Map row.
+> | - **M2.4 now depends on M3.1** (`describe`'s `axis:` / `token_format:` land in M3.1's `describe` parse as M2.4's named extension). When you create your children, add the M3.1 child id to t1853_4's `depends:`, e.g. `./.aitask-scripts/aitask_update.sh --batch 1853_4 --deps "t1853_1,t1854_<m>"` (read the list first: --deps replaces it). t1853_4's body says "M3.1 (pending: t1854 not decomposed)".
+> | 
+> | **Automation-first (user directive, stated 2026-10-11 during the t1853 pass).** Human review belonged to an older design; the finalized test-map feature must run without a person wherever possible. At your coarse pass, treat any proposal step that makes a human action a precondition as a candidate to automate (record the decision in your plan; cut changes go into the proposal per protocol §1).
