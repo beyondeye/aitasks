@@ -322,13 +322,13 @@ for index in "${!codex_operations[@]}"; do
     assert_contains_ci "codex $operation keeps representative argv" "probe" "$output"
 done
 
-# Test 11e: every Codex launch carries the shared TUI overrides — no
-# animations (t1797) and inline rather than alternate-screen mode (t1900,
-# t1902) — for skill composers, explore, and the batch-review/raw passthroughs,
+# Test 11e: every Codex launch carries the shared TUI overrides — no composer
+# starfield (t1797) with animations otherwise ON so the Working timer ticks
+# (t1944), and inline rather than alternate-screen mode (t1900, t1902) — for skill composers, explore, and the batch-review/raw passthroughs,
 # placed right after the binary, with the composer prompt still the LAST argv
 # element. Negative control: the other agents never receive them.
 echo "--- Test 11e: Codex launches carry the shared TUI overrides ---"
-CODEX_OVERRIDE_PREFIX="codex -c tui.animations=false -c tui.alternate_screen=never -m gpt-5.4"
+CODEX_OVERRIDE_PREFIX="codex -c tui.animations=true -c tui.whimsy=false -c tui.effects.starfield=false -c tui.alternate_screen=never -m gpt-5.4"
 dry_run_last_arg() {
     printf '%s\n' "$1" | python3 -c "
 import shlex, sys
@@ -364,6 +364,8 @@ for agent_string in "${negative_agents[@]}"; do
     output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --agent-string "$agent_string" --dry-run invoke pick 42 2>&1) || true
     assert_contains "$agent_string pick still dry-runs" "DRY_RUN:" "$output"
     assert_not_contains "$agent_string pick carries no Codex TUI override" "tui.animations" "$output"
+    assert_not_contains "$agent_string pick carries no Codex starfield override" "tui.whimsy" "$output"
+    assert_not_contains "$agent_string pick carries no Codex effects override" "tui.effects" "$output"
 done
 
 # Test 11f: EVERY Codex launch runs inline (t1902; t1900 covered shadows only):
@@ -393,13 +395,15 @@ done
 output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --agent-string codex/gpt5_4 \
     --resume-session 0199a213-81c0-7800-8aa1-bbab2a035a53 --dry-run invoke raw 2>&1)
 assert_contains "codex raw resume keeps resume <sid> leading, then the overrides" \
-    "codex resume 0199a213-81c0-7800-8aa1-bbab2a035a53 -c tui.animations=false -c tui.alternate_screen=never -m gpt-5.4" "$output"
+    "codex resume 0199a213-81c0-7800-8aa1-bbab2a035a53 -c tui.animations=true -c tui.whimsy=false -c tui.effects.starfield=false -c tui.alternate_screen=never -m gpt-5.4" "$output"
 for agent_string in "${negative_agents[@]}"; do
     for operation in pick shadow; do
         output=$(cd "$TMPDIR_TEST" && bash "$CODEAGENT" --agent-string "$agent_string" --dry-run invoke "$operation" probe 2>&1) || true
         assert_contains "$agent_string $operation still dry-runs" "DRY_RUN:" "$output"
         assert_not_contains "$agent_string $operation carries no animation override" \
             "tui.animations" "$output"
+        assert_not_contains "$agent_string $operation carries no starfield override" \
+            "tui.effects.starfield" "$output"
         assert_not_contains "$agent_string $operation carries no alternate-screen override" \
             "tui.alternate_screen" "$output"
     done

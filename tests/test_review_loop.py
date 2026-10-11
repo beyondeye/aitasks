@@ -601,7 +601,10 @@ class Codex0154ComposerTests(unittest.TestCase):
     """codex-cli 0.154.0 composer, with and without the starfield (t1797).
 
     Both pairs are live production-path captures from windows that differ
-    ONLY in ``-c tui.animations`` (see the fixture module docstring).
+    ONLY in ``-c tui.animations`` (see the fixture module docstring). The
+    animation-free pair is the pre-t1944 launch shape; framework launches now
+    keep animations on and switch off only the starfield (see
+    ``Codex0160AnimatedComposerTests``).
     """
 
     @staticmethod
@@ -630,6 +633,63 @@ class Codex0154ComposerTests(unittest.TestCase):
         self.assertGreater(self._braille(b), 0)
         self.assertNotEqual(rl.strip_ansi(a), rl.strip_ansi(b))
         self.assertNotEqual(a, b)
+
+
+class Codex0160AnimatedComposerTests(unittest.TestCase):
+    """codex-cli 0.160.1 under the post-t1944 launch overrides (animations on,
+    starfield off; see the fixture module docstring)."""
+
+    @staticmethod
+    def _braille(raw: str) -> int:
+        return sum("⠀" <= ch <= "⣿" for ch in rl.strip_ansi(raw))
+
+    def test_at_rest_composer_is_ready(self):
+        for raw in (fx.CODEX_0160_ANIM_AT_REST_RAW,
+                    fx.CODEX_0160_ANIM_AT_REST_TICK2_RAW):
+            self.assertEqual(rl._codex_state(raw), rl.SHADOW_READY)
+            self.assertIs(rl.shadow_prompt_ready(raw, "codex", True), True)
+
+    def test_at_rest_ticks_are_byte_identical_without_braille(self):
+        """Animations on, starfield off: the raw-tail hash still settles."""
+        self.assertEqual(fx.CODEX_0160_ANIM_AT_REST_RAW,
+                         fx.CODEX_0160_ANIM_AT_REST_TICK2_RAW)
+        self.assertEqual(self._braille(fx.CODEX_0160_ANIM_AT_REST_RAW), 0)
+
+    def test_working_ticks_differ_only_in_the_counter(self):
+        """The elapsed counter repaints every second while the agent works,
+        which is what animations=false had stopped (t1944). The counter is the
+        ONLY stripped difference, so a frozen counter would make them equal."""
+        a, b = fx.CODEX_0160_ANIM_WORKING_RAW_1, fx.CODEX_0160_ANIM_WORKING_RAW_2
+        for raw in (a, b):
+            self.assertEqual(rl._codex_state(raw), rl.SHADOW_WORKING)
+            self.assertIs(rl.shadow_prompt_ready(raw, "codex", True), False)
+        sa, sb = rl.strip_ansi(a), rl.strip_ansi(b)
+        self.assertIn("Working (6s", sa)
+        self.assertIn("Working (7s", sb)
+        self.assertNotEqual(sa, sb)
+        counter = re.compile(r"Working \(\d+s")
+        self.assertEqual(counter.sub("Working (Ns", sa),
+                         counter.sub("Working (Ns", sb))
+
+    def test_fresh_idle_inside_the_starfield_window_is_settled(self):
+        """Captured inside the window where the control drew the starfield:
+        the starfield keys, not 0.160's 15 s timeout, keep the pane still."""
+        a, b = fx.CODEX_0160_FRESH_IDLE_RAW, fx.CODEX_0160_FRESH_IDLE_TICK2_RAW
+        self.assertEqual(a, b)
+        self.assertEqual(self._braille(a), 0)
+        self.assertEqual(rl._codex_state(a), rl.SHADOW_READY)
+
+    def test_starfield_control_was_live_in_the_same_window(self):
+        """The control (starfield keys flipped on, same argv otherwise, same
+        instants) proves the window was eligible: Braille in both ticks, and
+        they differ even after strip_ansi. Its exact verdict is the detector's
+        business (codex_braille_detector_defense); it must not read ready."""
+        a, b = fx.CODEX_0160_STARFIELD_RAW_1, fx.CODEX_0160_STARFIELD_RAW_2
+        self.assertGreater(self._braille(a), 0)
+        self.assertGreater(self._braille(b), 0)
+        self.assertNotEqual(rl.strip_ansi(a), rl.strip_ansi(b))
+        for raw in (a, b):
+            self.assertNotEqual(rl._codex_state(raw), rl.SHADOW_READY)
 
 
 class CodexHistoricalDialogTests(unittest.TestCase):
@@ -703,6 +763,12 @@ class CodexHistoricalDialogTests(unittest.TestCase):
             "CODEX_AT_REST_RAW": rl.SHADOW_READY,
             "CODEX_0154_NOANIM_AT_REST_RAW": rl.SHADOW_READY,
             "CODEX_0154_NOANIM_AT_REST_TICK2_RAW": rl.SHADOW_READY,
+            "CODEX_0160_ANIM_AT_REST_RAW": rl.SHADOW_READY,
+            "CODEX_0160_ANIM_AT_REST_TICK2_RAW": rl.SHADOW_READY,
+            "CODEX_0160_ANIM_WORKING_RAW_1": rl.SHADOW_WORKING,
+            "CODEX_0160_ANIM_WORKING_RAW_2": rl.SHADOW_WORKING,
+            "CODEX_0160_FRESH_IDLE_RAW": rl.SHADOW_READY,
+            "CODEX_0160_FRESH_IDLE_TICK2_RAW": rl.SHADOW_READY,
             "CODEX_TYPED_RAW": rl.SHADOW_BUSY,
             "CODEX_0154_STARFIELD_RAW_1": rl.SHADOW_BUSY,
             "CODEX_0154_STARFIELD_RAW_2": rl.SHADOW_BUSY,

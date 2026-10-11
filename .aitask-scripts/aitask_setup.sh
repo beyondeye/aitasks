@@ -3152,6 +3152,44 @@ def deep_merge(base, overlay):
                     result[key].append(item)
     return result
 
+# t1944 retirement rule (one-shot). The t1797 seed wrote [tui] animations =
+# false, but animations is Codex's master switch: off, the Working timer stops
+# ticking and a working pane reads idle. A [tui] with animations = false and
+# neither whimsy nor effects is the pre-t1944 shape, so drop the key; the merge
+# below then adds the starfield-only keys, so this never matches again and a
+# value re-added afterwards is kept. animations = true is never touched, and
+# nothing is retired unless this merge installs a marker (seed whimsy or
+# effects) and the seed itself no longer carries the t1797 value.
+tui = existing.get('tui')
+seed_tui = seed.get('tui') if isinstance(seed.get('tui'), dict) else {}
+if (isinstance(tui, dict) and tui.get('animations') is False
+        and 'whimsy' not in tui and 'effects' not in tui
+        and ('whimsy' in seed_tui or 'effects' in seed_tui)
+        and seed_tui.get('animations') is not False):
+    del tui['animations']
+    print('[ait]   Removed [tui] animations = false (seeded by t1797; it stops the '
+          'Codex Working timer). To keep it deliberately, re-add it to '
+          '.codex/config.toml or set it in ~/.codex/config.toml.', file=sys.stderr)
+
+# t1944: tui.whimsy and tui.effects.starfield are two spellings of ONE Codex
+# preference (0.160 aliases whimsy to effects.starfield, and the canonical key
+# wins when both are set). If the project already states it in either spelling,
+# the seed supplies that same value for the missing spelling, never its own
+# false, so an explicit opt-in is not silently overridden by the other key.
+if isinstance(tui, dict) and isinstance(seed_tui, dict) and seed_tui:
+    effects = tui.get('effects') if isinstance(tui.get('effects'), dict) else {}
+    if 'starfield' in effects:
+        stated = effects['starfield']
+    else:
+        stated = tui.get('whimsy')
+    if stated is not None:
+        seed_tui = dict(seed_tui)
+        if 'whimsy' in seed_tui:
+            seed_tui['whimsy'] = stated
+        if isinstance(seed_tui.get('effects'), dict) and 'starfield' in seed_tui['effects']:
+            seed_tui['effects'] = dict(seed_tui['effects'], starfield=stated)
+        seed = dict(seed, tui=seed_tui)
+
 merged = deep_merge(existing, seed)
 
 def toml_serialize(d, prefix=''):

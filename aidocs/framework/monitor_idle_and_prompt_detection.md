@@ -141,24 +141,84 @@ against raw capture bytes rather than stripped text will not match.
 `strip_ansi` absorbs *colour* animation — which is why Codex's pulsing spinner
 colour needed nothing more than the `stripped` compare mode (t715). It cannot
 absorb an animation that draws **visible characters**, and Codex has one: the
-composer "starfield" (`codex-rs/tui/src/bottom_pane/chat_composer/sparkle.rs`,
-codex-cli 0.154.0). Braille dots (U+2800–U+28FF) twinkle on the blank cells
-around and *inside* the idle composer line (`›⠁Ask Codex to do anything⡀`) and
-move every 150 ms. On a pane showing it, the idle timer resets on every tick, so
-the pane never reads idle. The review loop's shadow readiness also flaps and
-never sees two identical raw tails, so the `L` recheck never fires (t1797).
+composer "starfield" (`codex-rs/tui/src/bottom_pane/chat_composer/sparkle.rs`).
+Braille dots (U+2800–U+28FF) twinkle on the blank cells around and *inside* the
+idle composer line (`›⠁Ask Codex to do anything⡀`) and move every 150 ms. On a
+pane showing it, the idle timer resets on every tick, so the pane never reads
+idle. The review loop's shadow readiness also flaps and never sees two
+identical raw tails, so the `L` recheck never fires (t1797). On codex-cli 0.154
+it draws for as long as the composer stays idle; 0.160 stops it after a 15 s
+`IDLE_TIMEOUT`, which still keeps a fresh pane busy for those 15 s.
 
-Upstream renders it only when all of these hold (`enabled_foreground`):
-`tui.whimsy` and `tui.animations` are on (both default on), the session model
+Upstream renders it only when all of these hold: `tui.animations` (the master
+switch) and the starfield effect are on (both default on), the session model
 matches `\bastra\b` (e.g. `gpt-6-astra`), the terminal is truecolor, and the
-terminal's default colours are known. So whether a given Codex pane animates
-depends on its model, not on the framework.
+terminal's default colours are known. The starfield effect is
+`tui.effects.starfield` on 0.160, and `tui.whimsy` on 0.154, which 0.160 keeps as
+an alias. So whether a given Codex pane animates depends on its model, not on
+the framework.
 
-**The sanctioned answer is launch-side.** Every framework Codex launch passes
-`-c tui.animations=false` (`CODEX_TUI_OVERRIDES` in `lib/agent_string.sh`,
-expanded by both `aitask_codeagent.sh` and `aitask_skillrun.sh`), including
-`codex resume <sid>`. A `-c` override outranks every config file, so
-framework-spawned panes (skills, shadows, restores) never animate.
+**The sanctioned answer is launch-side, and it switches off only the
+starfield.** Every framework Codex launch passes
+`-c tui.animations=true -c tui.whimsy=false -c tui.effects.starfield=false`
+(`CODEX_TUI_OVERRIDES` in `lib/agent_string.sh`, expanded by both
+`aitask_codeagent.sh` and `aitask_skillrun.sh`), including `codex resume <sid>`.
+A `-c` override outranks every config file, so framework-spawned panes (skills,
+shadows, restores) never draw the starfield. Both starfield keys are passed
+because each build honours only one for certain: 0.154 silently ignores
+`tui.effects.*`, and the `whimsy` alias may disappear upstream.
+
+`ait setup` also adds `[tui] whimsy = false` and `[tui.effects] starfield =
+false` to the project's `.codex/config.toml`. Each is a **default added when
+absent**: `merge_codex_settings` keeps an explicit project value. The two keys
+are two spellings of one preference (0.160 lets the canonical key win when both
+are set), so when the project already states it in either spelling, the merge
+fills the missing spelling with **that** value, never with the seed's `false`.
+Otherwise adding `effects.starfield = false` beside a project's
+`whimsy = true` would silently cancel the opt-in on 0.160. That covers Codex
+sessions started by hand in a trusted project.
+
+Measured live under identical terminal conditions (a private tmux server with
+a known `window-style` fg/bg, truecolor, `gpt-6-astra`):
+- the control (`-c tui.animations=true` alone) drew 44–54 dots per capture on
+  both 0.154.0 and 0.160.1 and changed every tick;
+- on 0.160.1, `-c tui.effects.starfield=false` and `-c tui.whimsy=false` each
+  gave a byte-stable tail with no dots;
+- on 0.154.0, only `tui.whimsy=false` did: with `tui.effects.starfield=false`
+  the starfield kept drawing;
+- launched by hand with no `-c` in this repository, whose `.codex/config.toml`
+  carries both starfield keys, 0.154.0 and 0.160.1 each gave the same
+  byte-stable tail. Re-enabling the starfield with `-c` over that config brought
+  back 44 dots, so the project file is what suppresses it.
+
+#### The status-row tick needs `tui.animations` on
+
+Do **not** answer the starfield with `tui.animations=false`, which is what
+t1797 first shipped. `animations` is the master switch over every TUI effect.
+With it off, codex-cli 0.160 schedules **no frame** for the
+`Working (Ns • esc to interrupt)` row during a normal turn
+(`status_indicator_widget.rs`, `impl Renderable for StatusIndicator`), so the
+elapsed counter repaints only when something unrelated redraws. A working pane
+then reads idle after the 5 s threshold. Measured on 0.160.1 during a
+`sleep 20` turn: with `animations=false`, the captured text did not change for
+19.9 s. With the post-t1944 overrides it changed every 0.92–1.03 s, and the
+same held on 0.154.0 (t1944). The explicit `tui.animations=true` also outranks
+the `[tui] animations = false` that t1797 seeded into project configs.
+
+`ait setup` retires that seeded value **once**. If a project's `[tui]` holds
+`animations = false` and neither `whimsy` nor `effects` (the pre-t1944 shape),
+`merge_codex_settings` drops the key and announces it. The same merge adds the
+starfield keys, so the rule can never match again: an `animations = false`
+added afterwards is a deliberate project choice and is kept. Each marker counts
+on its own: `whimsy`, or any `[tui.effects]` table (e.g. only `welcome`).
+Nothing is retired unless the merge actually installs a marker (the project's
+seed copy carries `whimsy` or `effects`) and that seed copy no longer carries
+the old value; otherwise a re-added value would be removed again on every run.
+
+One residual case no override fixes: an OS reduced-motion preference (read once
+at launch by Codex's `system_motion`, via the desktop portal on Linux)
+suppresses everything gated on `tui.animations`. On such a host the counter is
+irregular again.
 
 The same array also carries `-c tui.alternate_screen=never`, so every
 framework-launched Codex pane runs **inline** (`alternate_on=0`) and keeps tmux
@@ -166,26 +226,16 @@ scrollback, as Claude Code does. The followed-pane signals treat it like any
 inline pane:
 - prompt detection matches only the bottom `_PROMPT_DETECTION_TAIL_LINES` rows,
   so a dismissed dialog left in history does not read as awaiting input;
-- `history_size` growth reads as WORK in `classify_followed_change`. `ait setup`
-also adds `[tui] animations = false` to the project's `.codex/config.toml`, but
-only as a **default added when absent**: `merge_codex_settings` keeps an
-explicit project value. That covers Codex sessions started by hand in a trusted
-project that has not set `animations` itself.
-
-Measured live on 0.154.0 with `gpt-6-astra`, under identical terminal
-conditions:
-- the control (`-c tui.animations=true`) drew 47–54 dots per capture and changed
-  every tick;
-- the `-c tui.animations=false` flag gave a byte-stable tail with no dots;
-- the project config alone did the same.
+- `history_size` growth reads as WORK in `classify_followed_change`.
 
 - **Do not** strip Braille globally from the compare value. Braille is a common
   *working* spinner for ordinary CLI tools (`⠋⠙⠹…`), so in a non-agent pane, or
   for any future agent that spins with it, stripping it would read real activity
   as idle.
-- Codex ignores unknown `-c tui.*` keys, so a future rename of `animations`
-  would silently bring the starfield back. A Codex-scoped detector-side defense
-  for that case, and for Codex panes the framework did not launch, is t1797's
+- Codex ignores unknown `-c tui.*` keys (0.154.0 accepted `tui.effects.*` without
+  error and without effect), so a future rename of both starfield keys would
+  silently bring the starfield back. A Codex-scoped detector-side defense for
+  that case, and for Codex panes the framework did not launch, is t1797's
   risk-mitigation follow-up `codex_braille_detector_defense`.
 
 ## What NOT to do

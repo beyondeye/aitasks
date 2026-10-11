@@ -22,7 +22,7 @@ TOTAL=0
 . "$PROJECT_DIR/tests/lib/asserts.sh"
 
 
-CODEX_PREFIX="codex -c tui.animations=false -c tui.alternate_screen=never -m gpt-5.4"
+CODEX_PREFIX="codex -c tui.animations=true -c tui.whimsy=false -c tui.effects.starfield=false -c tui.alternate_screen=never -m gpt-5.4"
 
 run_dry() {
     # $1 = skill, rest = skill args

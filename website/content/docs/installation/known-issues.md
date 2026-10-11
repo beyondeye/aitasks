@@ -26,12 +26,14 @@ Use stronger reasoning/model settings when you need reliable workflow compliance
 
 #### Composer animation and idle detection
 
-With some models (currently the Astra family, such as `gpt-6-astra`), Codex animates a field of twinkling dots around the idle input box. The dots are visible characters, so `ait monitor` and `ait minimonitor` would never see such a pane go idle, and a shadow agent would never read as ready for an automatic recheck. The framework therefore turns Codex's TUI animations off:
+With some models (currently the Astra family, such as `gpt-6-astra`), Codex animates a field of twinkling dots around the idle input box. The dots are visible characters, so `ait monitor` and `ait minimonitor` would never see such a pane go idle, and a shadow agent would never read as ready for an automatic recheck. The framework therefore turns off that one effect, and only that one:
 
-- `ait codeagent invoke` and `ait skillrun` pass `-c tui.animations=false` to every Codex launch, including shadow agents and restored sessions. A command-line override takes precedence over every config file, so framework-launched Codex panes never animate.
-- `ait setup` adds `[tui] animations = false` to `.codex/config.toml` when the project config does not already set `animations`. An explicit value is kept, so a project that sets `animations = true` keeps the animation in Codex sessions you start by hand. Codex reads a project's `.codex/config.toml` only when the project is trusted.
+- `ait codeagent invoke` and `ait skillrun` pass `-c tui.whimsy=false -c tui.effects.starfield=false` to every Codex launch, including shadow agents and restored sessions. Both keys are passed because older Codex versions recognize only `tui.whimsy` and newer ones use `tui.effects.starfield`. A command-line override takes precedence over every config file, so framework-launched Codex panes never draw the dots.
+- The same launches also pass `-c tui.animations=true`. `tui.animations` is Codex's switch for all of its TUI animations: with it off, the `Working (Ns • esc to interrupt)` timer stops updating while the agent works, so the monitor would read a working Codex pane as idle.
+- `ait setup` adds `whimsy = false` under `[tui]` and `starfield = false` under `[tui.effects]` to `.codex/config.toml`, each only when the project config does not already set it, so an explicit project value is kept. The two keys mean the same thing, so if your project sets one of them (for example `whimsy = true` to keep the dots), setup gives the other one the same value. Codex reads a project's `.codex/config.toml` only when the project is trusted.
+- If `.codex/config.toml` sets `animations = false` under `[tui]`, has no `whimsy` key, and has no `[tui.effects]` table (not even one for an unrelated effect such as `welcome`), `ait setup` removes that line and prints a notice, but only in a run where it also adds the two keys above. Because of that, this happens at most once: an `animations = false` you add back afterwards is kept.
 
-If you start Codex by hand outside a trusted project, pass `-c tui.animations=false`, or set `animations = false` under `[tui]` in `~/.codex/config.toml`.
+If you start Codex by hand outside a trusted project, pass `-c tui.whimsy=false -c tui.effects.starfield=false`, or set the same keys in `~/.codex/config.toml`. Avoid `animations = false` unless you accept that the working timer stops updating. A desktop "reduce motion" accessibility setting has the same effect on Codex, so the monitor can misread working Codex panes on a host that has it on.
 
 #### Scrollback in Codex panes
 

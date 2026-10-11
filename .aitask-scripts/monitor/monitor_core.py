@@ -170,9 +170,10 @@ DEFAULT_TUI_NAMES = TUI_NAMES
 #     on user input, so a raw byte-equal comparison declares the pane
 #     "changed" every refresh tick and idle is never reached. It cannot
 #     absorb a VISIBLE-glyph animation such as the Codex composer starfield
-#     (Braille dots); that one is disabled at launch instead — see
-#     aidocs/framework/monitor_idle_and_prompt_detection.md, "Visible-glyph
-#     animation" (t1797).
+#     (Braille dots); that one is disabled at launch instead, by the starfield
+#     keys only, never `tui.animations` (which also stops the Working timer) —
+#     see aidocs/framework/monitor_idle_and_prompt_detection.md, "Visible-glyph
+#     animation" (t1797, t1944).
 #   raw — compare the full captured bytes including escape codes. Legacy
 #     behavior; only useful as a fallback if a future agent renders idle
 #     UI by toggling escape codes that semantically matter.

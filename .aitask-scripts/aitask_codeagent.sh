@@ -25,8 +25,9 @@ source "$SCRIPT_DIR/lib/agent_string.sh"
 DEFAULT_COAUTHOR_DOMAIN="aitasks.io"
 SUPPORTED_OPERATIONS=(pick explain batch-review qa explore explore-relay raw shadow learn work-report trail discuss)
 
-# CODEX_TUI_OVERRIDES (the `-c` pairs every Codex launch carries: no TUI
-# animations, inline rather than alternate-screen mode) comes from
+# CODEX_TUI_OVERRIDES (the `-c` pairs every Codex launch carries: no composer
+# starfield, animations otherwise on so the working timer ticks, inline rather
+# than alternate-screen mode) comes from
 # lib/agent_string.sh, shared with aitask_skillrun.sh.
 
 # --- Global flags (set by argument parser) ---

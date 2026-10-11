@@ -459,7 +459,7 @@ class CodexProcessModelTests(_TranscriptTestCase):
             ("/usr/bin/codex", "--model", "gpt-5.6-terra"),
             ("/usr/bin/codex", "--model=gpt-5.6-terra"),
             # A resumed agent: the flag is NOT adjacent to the binary.
-            ("/usr/bin/codex", "resume", "01a0-sid", "-c", "tui.animations=false",
+            ("/usr/bin/codex", "resume", "01a0-sid", "-c", "tui.animations=true",
              "-m", "gpt-5.6-terra"),
         )):
             with self.subTest(argv=argv):

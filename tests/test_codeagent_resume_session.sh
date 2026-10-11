@@ -87,19 +87,19 @@ assert_eq "codex resume: exits 0" "0" "$RC"
 # rebuilding.
 assert_contains "codex resume: 'resume <sid>' leads, before the model flag" \
     "codex resume sess_9" "$OUT"
-# t1797 / t1902: the shared TUI overrides (no animations, inline mode) ride
-# along AFTER `resume <sid>` (so `resume` stays the leading positional) and
-# BEFORE the model flag. A real
+# t1797 / t1902 / t1944: the shared TUI overrides (no starfield, animations
+# on, inline mode) ride along AFTER `resume <sid>` (so `resume` stays the
+# leading positional) and BEFORE the model flag. A real
 # `codex resume` accepting this order was verified live (t1797's plan, 2b).
 assert_contains "codex resume: the TUI overrides follow the session id" \
-    "codex resume sess_9 -c tui.animations=false -c tui.alternate_screen=never -m gpt-5.4" "$OUT"
+    "codex resume sess_9 -c tui.animations=true -c tui.whimsy=false -c tui.effects.starfield=false -c tui.alternate_screen=never -m gpt-5.4" "$OUT"
 
 run_ca --agent-string codex/gpt5_4 --dry-run invoke raw
 assert_eq "codex raw without --resume-session: exits 0" "0" "$RC"
 assert_not_contains "codex raw without --resume-session: no bare 'resume' leaks in" \
     "codex resume" "$OUT"
 assert_contains "codex raw without --resume-session: the TUI overrides lead" \
-    "codex -c tui.animations=false -c tui.alternate_screen=never -m gpt-5.4" "$OUT"
+    "codex -c tui.animations=true -c tui.whimsy=false -c tui.effects.starfield=false -c tui.alternate_screen=never -m gpt-5.4" "$OUT"
 
 echo ""
 echo "=== --resume-session: opencode is refused with exit 2 ==="

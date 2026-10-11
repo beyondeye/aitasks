@@ -11,15 +11,25 @@ default_mode_request_user_input = true
 [sandbox_workspace_write]
 network_access = true
 
-# Codex TUI: disable decorative animations (t1797). codex-cli 0.154.0 draws an
-# animated Braille "starfield" around the idle composer; the glyphs are visible
-# characters, so `ait monitor` / `ait minimonitor` never read an idle Codex pane
-# as idle and the shadow auto-recheck loop never sees it as ready.
-# `ait codeagent invoke` also passes `-c tui.animations=false`, which outranks
-# this file; this block covers Codex sessions started by hand in the project.
-# `ait setup` adds it only when the project config does not set `animations`.
+# Codex TUI: disable ONLY the composer "starfield" (t1797, narrowed by t1944).
+# For Astra-family models Codex draws animated Braille dots around the idle
+# composer; the glyphs are visible characters, so `ait monitor` /
+# `ait minimonitor` never read an idle Codex pane as idle and the shadow
+# auto-recheck loop never sees it as ready. `whimsy` is the codex-cli 0.154 key
+# (0.160 keeps it as an alias); `effects.starfield` is the 0.160 key.
+# Never set `animations = false` here: it is Codex's master switch and also
+# stops the `Working (Ns …)` timer from ticking, so a working pane reads idle.
+# `ait codeagent invoke` passes the same keys (plus `tui.animations=true`) as
+# `-c` overrides, which outrank this file; this block covers Codex sessions
+# started by hand in the project. `ait setup` adds each key only when absent
+# (copying the project's value when it sets the other spelling), and removes
+# once the `[tui] animations = false` the t1797 seed wrote (a `[tui]` with
+# `animations = false` and neither `whimsy` nor `effects`).
 [tui]
-animations = false
+whimsy = false
+
+[tui.effects]
+starfield = false
 
 # Protective rules for destructive commands.
 # Aitasks helper allow rules live in .codex/rules/default.rules.

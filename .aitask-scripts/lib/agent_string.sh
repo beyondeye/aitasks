@@ -34,13 +34,24 @@ SUPPORTED_AGENTS=(claudecode codex opencode)
 # no launcher repeats a setting. A `-c` override outranks every config file, so
 # these hold whatever the user or project config says.
 #
-#  * tui.animations=false (t1797). codex-cli 0.154.0 animates a Braille
-#    "starfield" (U+2800-U+28FF) around and inside the idle composer; the glyphs
-#    are visible characters that survive strip_ansi, so the monitor idle timer
-#    and the review-loop shadow readiness never settle on an idle Codex pane.
-#    `tui.animations` is preferred over `tui.whimsy` because it is narrower.
-#    Codex ignores unknown `-c tui.*` keys (measured on 0.154.0), so a build
-#    without this key is unaffected.
+#  * tui.whimsy=false + tui.effects.starfield=false (t1797, narrowed by
+#    t1944). Codex animates a Braille "starfield" (U+2800-U+28FF) around and
+#    inside the idle composer for Astra-family models; the glyphs are visible
+#    characters that survive strip_ansi, so the monitor idle timer and the
+#    review-loop shadow readiness never settle on an idle Codex pane. These two
+#    keys switch off ONLY the starfield. `tui.effects.starfield` is the 0.160
+#    key; `tui.whimsy` is the 0.154 key and a 0.160 alias of it (both measured
+#    to stop the starfield on 0.160.1 via `-c`). 0.154.0 silently ignores
+#    `tui.effects.*` (measured: the starfield kept drawing), so `whimsy` is what
+#    covers older builds and `effects.starfield` survives the alias's removal.
+#  * tui.animations=true (t1944). `animations` is the MASTER switch over every
+#    TUI effect, not a narrower starfield switch: with it off, codex-cli 0.160
+#    schedules no frame for the `Working (Ns • esc to interrupt)` row, so the
+#    elapsed counter repaints only when something unrelated redraws (measured:
+#    a 19.9 s capture gap mid-turn) and a working pane reads as IDLE. On, the
+#    counter ticks every second. The explicit `true` outranks the
+#    `[tui] animations = false` that t1797 seeded into projects. An OS
+#    reduced-motion preference still suppresses it (Codex's system_motion).
 #  * tui.alternate_screen=never (t1900, t1902). codex-cli 0.160.0 runs its TUI
 #    on the alternate screen by default, where tmux keeps no scrollback, so pane
 #    captures, shadow review and copy mode saw only the visible rows. `never`
@@ -55,7 +66,7 @@ SUPPORTED_AGENTS=(claudecode codex opencode)
 # still expands to nothing. The launcher tests (test_codeagent.sh 11e/11f,
 # test_codeagent_resume_session.sh, test_skillrun_codex.sh) pin the argv.
 # shellcheck disable=SC2034  # Read by callers after sourcing this lib.
-CODEX_TUI_OVERRIDES=(-c tui.animations=false -c tui.alternate_screen=never)
+CODEX_TUI_OVERRIDES=(-c tui.animations=true -c tui.whimsy=false -c tui.effects.starfield=false -c tui.alternate_screen=never)
 
 # --- Parsed agent string (set by parse_agent_string; read by callers in
 # aitask_codeagent.sh and aitask_skillrun.sh after sourcing) ---

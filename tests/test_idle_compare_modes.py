@@ -6,10 +6,13 @@ Exercises _finalize_capture directly — no tmux required. Covers:
   3. Visible-text changes always reset idle, regardless of mode.
   4. cycle_compare_mode walks default → raw → stripped → default and
      clears stored last-content on each transition.
-  5. The codex-cli 0.154.0 composer (t1797): the animation-free composer that
-     every framework launch now gets reaches idle, while the composer
-     "starfield" (visible Braille glyphs) never does — the reason the
-     animation is disabled at launch rather than absorbed here.
+  5. The codex-cli 0.154.0 composer (t1797): the animation-free composer
+     reaches idle, while the composer "starfield" (visible Braille glyphs)
+     never does — the reason the starfield is disabled at launch rather than
+     absorbed here.
+  6. The codex-cli 0.160.1 composer under the post-t1944 launch overrides
+     (animations on, starfield off): at rest it reaches idle, and while it
+     works the per-second elapsed counter keeps it out of idle.
 
 Run:
   python3 tests/test_idle_compare_modes.py
@@ -123,7 +126,7 @@ def _check_set_compare_mode_clears_last_content() -> None:
 
 def _check_codex_animation_free_composer_reaches_idle() -> None:
     """t1797: two live ticks of the codex-cli 0.154.0 idle composer launched
-    with `-c tui.animations=false` (what every framework launch carries) are
+    with `-c tui.animations=false` (the pre-t1944 launch override) are
     byte-identical, so the default stripped mode reaches idle."""
     mon = TmuxMonitor(session="aitasks", idle_threshold=0.05)
     pane = make_pane()
@@ -146,6 +149,59 @@ def _check_codex_starfield_never_reaches_idle() -> None:
     assert not snap.is_idle, "a starfield tick still counts as a change"
 
 
+def _check_codex_0160_animated_composer_reaches_idle_at_rest() -> None:
+    """t1944: animations on, starfield off — an at-rest codex-cli 0.160.1
+    pane is still byte-stable, so it reads idle."""
+    mon = TmuxMonitor(session="aitasks", idle_threshold=0.05)
+    pane = make_pane()
+    mon._finalize_capture(pane, fx.CODEX_0160_ANIM_AT_REST_RAW)
+    time.sleep(0.1)
+    snap = mon._finalize_capture(pane, fx.CODEX_0160_ANIM_AT_REST_TICK2_RAW)
+    assert snap.is_idle, "the at-rest 0.160 Codex composer must read idle"
+
+
+def _check_codex_0160_working_counter_keeps_pane_active() -> None:
+    """t1944: two live ticks 1.1 s apart of a working codex-cli 0.160.1 pane
+    differ ONLY in the elapsed counter (`Working (6s` -> `(7s`), so idle is
+    not reached — the repaint `tui.animations=false` had suppressed. The
+    control (the second tick with its counter frozen at the first value)
+    must read idle, which proves the counter is what keeps the pane active."""
+    mon = TmuxMonitor(session="aitasks", idle_threshold=0.05)
+    pane = make_pane()
+    mon._finalize_capture(pane, fx.CODEX_0160_ANIM_WORKING_RAW_1)
+    time.sleep(0.1)
+    snap = mon._finalize_capture(pane, fx.CODEX_0160_ANIM_WORKING_RAW_2)
+    assert not snap.is_idle, "a counter tick counts as a change"
+
+    frozen = fx.CODEX_0160_ANIM_WORKING_RAW_2.replace("7s", "6s")
+    assert frozen != fx.CODEX_0160_ANIM_WORKING_RAW_2, "control must freeze the counter"
+    mon = TmuxMonitor(session="aitasks", idle_threshold=0.05)
+    pane = make_pane()
+    mon._finalize_capture(pane, fx.CODEX_0160_ANIM_WORKING_RAW_1)
+    time.sleep(0.1)
+    snap = mon._finalize_capture(pane, frozen)
+    assert snap.is_idle, "with the counter frozen, nothing else changes"
+
+
+def _check_codex_0160_fresh_idle_settles_inside_starfield_window() -> None:
+    """t1944: a fresh, starfield-eligible 0.160.1 pane under the launch
+    overrides reads idle, while the starfield control captured at the same
+    instants never does."""
+    mon = TmuxMonitor(session="aitasks", idle_threshold=0.05)
+    pane = make_pane()
+    mon._finalize_capture(pane, fx.CODEX_0160_FRESH_IDLE_RAW)
+    time.sleep(0.1)
+    snap = mon._finalize_capture(pane, fx.CODEX_0160_FRESH_IDLE_TICK2_RAW)
+    assert snap.is_idle, "the starfield keys keep a fresh pane settled"
+
+    mon = TmuxMonitor(session="aitasks", idle_threshold=0.05)
+    pane = make_pane()
+    mon._finalize_capture(pane, fx.CODEX_0160_STARFIELD_RAW_1)
+    time.sleep(0.1)
+    snap = mon._finalize_capture(pane, fx.CODEX_0160_STARFIELD_RAW_2)
+    assert not snap.is_idle, "the control's starfield keeps it active"
+
+
 def main() -> int:
     _check_default_mode_ignores_animated_color()
     _check_raw_mode_preserves_legacy_behavior()
@@ -154,6 +210,9 @@ def main() -> int:
     _check_set_compare_mode_clears_last_content()
     _check_codex_animation_free_composer_reaches_idle()
     _check_codex_starfield_never_reaches_idle()
+    _check_codex_0160_animated_composer_reaches_idle_at_rest()
+    _check_codex_0160_working_counter_keeps_pane_active()
+    _check_codex_0160_fresh_idle_settles_inside_starfield_window()
     print("PASS")
     return 0
 

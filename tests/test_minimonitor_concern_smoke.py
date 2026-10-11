@@ -761,7 +761,7 @@ class FollowedPaneClassificationSmokeTests(unittest.TestCase):
         cls.codex_shadow_frame = os.path.join(cls.tmpdir, f"{key}_composer.frame")
         cls.codex_shadow_log = os.path.join(cls.tmpdir, f"{key}_submits.log")
         with open(cls.codex_shadow_frame, "w", encoding="utf-8") as fh:
-            fh.write(rlfx.CODEX_0154_NOANIM_AT_REST_RAW)
+            fh.write(rlfx.CODEX_0160_ANIM_AT_REST_RAW)
         session = f"{SESSION}_follow_{key}"
         res = _tmux("new-session", "-d", "-s", session, "-n", "agent-codex",
                     "-x", str(FRAME_PANE_W), "-y", str(FRAME_PANE_H),
@@ -1281,14 +1281,14 @@ class FollowedPaneClassificationSmokeTests(unittest.TestCase):
         return fired
 
     def test_codex_shadow_fires_through_the_real_path(self):
-        """t1797: a Codex shadow on the ANIMATION-FREE 0.154.0 composer (what
-        `-c tui.animations=false` gives every framework launch) satisfies the
-        production gates, not only the parser: the raw-tail hash streak
-        reaches 1, `_fire_shadow_recheck` revalidates a byte-equal fresh
+        """t1797 / t1944: a Codex shadow on the at-rest 0.160.1 composer
+        launched with the framework's overrides (animations on, starfield
+        off) satisfies the production gates, not only the parser: the raw-tail
+        hash streak reaches 1, `_fire_shadow_recheck` revalidates a byte-equal fresh
         capture and returns 'sent', and exactly one recheck is submitted."""
         from monitor import review_loop as rl
 
-        self._paint_codex_shadow(self.rlfx.CODEX_0154_NOANIM_AT_REST_RAW)
+        self._paint_codex_shadow(self.rlfx.CODEX_0160_ANIM_AT_REST_RAW)
         open(self.codex_shadow_log, "w").close()
         app, later_snap, (pane, cmd, pid) = self._arm_codex_shadow_case()
         fired = self._spy_fire(app)
