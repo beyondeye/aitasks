@@ -113,3 +113,8 @@ the share from any other directory that happens to sit at that path.
 Shares a root cause with **t1284** (unmounted share + persistent mountpoint
 dir). Fix the two together, or fix the root-resolution seam here and let t1284
 verify the unmount case.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-12T14:54:43Z status=pass attempt=1 type=human
