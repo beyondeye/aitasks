@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: medium
 depends: [t1658_1]
 issue_type: bug
-status: Implementing
+status: Done
 labels: [verification, bug]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -16,7 +16,8 @@ anchor: 1658
 followup_kind: verification_failure
 implemented_with: claudecode/opus5_5
 created_at: 2026-09-02 18:55
-updated_at: 2026-10-12 16:08
+updated_at: 2026-10-12 16:29
+completed_at: 2026-10-12 16:29
 boardcol: now
 boardidx: 29766
 ---
@@ -246,3 +247,14 @@ Tracked separately as **t1715** (stale-lock reaping); not in this task's scope.
 > **✅ gate:plan_approved** run=2026-10-12T13:08:47Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-12T13:27:34Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-12T13:29:22Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:b4b262d3d7996ea2
+
+> **✅ gate:risk_evaluated** run=2026-10-12T13:29:22Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1696/risk_evaluated_2026-10-12T13:29:22Z-risk_evaluated-a1.log`
