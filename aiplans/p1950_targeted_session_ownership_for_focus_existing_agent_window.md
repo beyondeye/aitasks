@@ -162,3 +162,17 @@ discovery path is unchanged and pinned by the existing t1922 / parity suites.
 ### Goal-achievement risk: low
 None identified. The task's three verification bullets map directly onto the
 unchanged contract tests, the new no-`list-panes` test, and the untouched discovery suites.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-12 09:20)
+- **Requested by user:** The `_sessions_owned_by` docstring claimed another project's sessions are never listed. That is false for a foreign *candidate*: an unstamped one still draws `list-panes` before the rule rejects it. Reword it to the narrower guarantee.
+- **Changes made:** The docstring now says the filter is by candidate NAME, not by owner. Non-candidates are never queried; a candidate belonging to another project may still have its panes listed before rejection. No code change.
+- **Files affected:** `.aitask-scripts/lib/agent_launch_utils.py`
+
+## Final Implementation Notes
+- **Actual work done:** Implemented as planned. `_attribute_session()` is now the single per-session rule (stamp → pane vote → legacy registry) and `_collect_live_roots` calls it. `_collect_live_roots(..., only=)` restricts the walk to exact candidate names. `_sessions_owned_by(project_root, candidates)` issues one `list-sessions` plus per-session queries for the ≤2 candidates only. `focus_existing_agent_window` computes its candidates before checking ownership; its contract is unchanged.
+- **Deviations from plan:** None in code. The `_sessions_owned_by` docstring was reworded after review to say the filter is by NAME, not owner (see Post-Review Changes).
+- **Issues encountered:** The `_Server` fake in `test_session_root_resolution.py` rejects unknown tmux verbs, so `TargetedOwnershipTests` wraps `_answer` to accept `select-window` for the positive case.
+- **Key decisions:** Narrowed the existing `list-sessions` walk instead of adding a per-session `display-message` probe. One `list-sessions` already carries every stamp; exact-name matching avoids tmux target resolution; and an absent name naturally resolves to "not owned". `discover_aitasks_sessions_async` keeps its inline copy of the rule (it cannot call a sync runner); the existing async-parity tests pin it. Negative control: putting the old whole-server lookup back in-process makes 3 of the 4 new tests fail, while the unfiltered-walk parity test still passes, as intended.
+- **Upstream defects identified:** None
