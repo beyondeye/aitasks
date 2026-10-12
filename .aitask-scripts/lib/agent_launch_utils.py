@@ -499,19 +499,29 @@ def current_tmux_session() -> str | None:
     return session or None
 
 
-def _sessions_owned_by(project_root: Path) -> set[str]:
-    """Live sessions the canonical discovery attributes to ``project_root``
-    (registration stamp, else pane vote, else legacy registry).
+def _sessions_owned_by(project_root: Path, candidates) -> set[str]:
+    """Those of ``candidates`` the canonical discovery rule attributes to
+    ``project_root`` (registration stamp, else pane vote, else legacy registry).
 
     One gateway server hosts every project's sessions, so neither "the caller's
     own session" nor "the configured session name" proves ownership: a caller
     can sit in another project's session, and every project defaults to
-    ``default_session: aitasks``. Positive evidence only — a session discovery
-    cannot attribute, or attributes elsewhere, is not ours.
+    ``default_session: aitasks``. Positive evidence only — a session the rule
+    cannot attribute, attributes elsewhere, or that does not exist is not ours.
+
+    Only the named candidates are attributed (t1950): one ``list-sessions``,
+    then per-session queries for those names alone, so a session that is not a
+    candidate is never queried. This filters by NAME, not by owner: a candidate
+    may itself belong to another project, and an unstamped one still has its
+    panes listed before the rule rejects it.
     """
+    names = {c for c in candidates if c}
+    if not names:
+        return set()
     want = _root_key(Path(project_root))
-    return {found.session for found in discover_aitasks_sessions()
-            if _root_key(found.project_root) == want}
+    return {session for session, root in _collect_live_roots(
+                _TMUX.run, _read_registry_entry, only=names)
+            if _root_key(root) == want}
 
 
 def focus_existing_agent_window(task_id: str, project_root: Path) -> bool:
@@ -523,14 +533,15 @@ def focus_existing_agent_window(task_id: str, project_root: Path) -> bool:
     ``project_root`` is ever searched: the caller's own session when
     :func:`current_tmux_session` verifies it, else the project's configured
     ``default_session`` — each only if discovery roots it in ``project_root``.
+    Only those two candidates are attributed, never the whole server.
     When neither is, nothing is searched and the caller launches: a duplicate
     agent is recoverable, a launch suppressed by another project's window is a
     silent wrong answer. Returns True when such a window exists; the
     ``select-window`` itself is best-effort.
     """
-    owned = _sessions_owned_by(project_root)
     candidates = (current_tmux_session(),
                   load_tmux_defaults(project_root)["default_session"])
+    owned = _sessions_owned_by(project_root, candidates)
     session = next((c for c in candidates if c and c in owned), None)
     if session is None:
         return False
@@ -1428,7 +1439,7 @@ def discover_aitasks_sessions(
     )
 
 
-def _collect_live_roots(run, read_registry) -> list[tuple[str, Path]]:
+def _collect_live_roots(run, read_registry, only=None) -> list[tuple[str, Path]]:
     """The one discovery walk, over a pluggable ``(rc, stdout)`` runner.
 
     ``run(args)`` answers a tmux command and ``read_registry(session)`` the
@@ -1444,20 +1455,34 @@ def _collect_live_roots(run, read_registry) -> list[tuple[str, Path]]:
     Each session's panes are listed with :func:`tmux_session_scope_target`
     (``=<session>:``), never a bare ``=<session>``, which tmux may resolve as a
     window of another session and so map this session to that one's root.
+
+    ``only``, when given, limits the walk to those exact session names (t1950):
+    any other session issues no per-session query, and a name absent from the
+    ``list-sessions`` answer does not exist and is simply not returned.
     """
     rc, out = run(["list-sessions", "-F", _SESSION_LIST_FORMAT])
     entries = _parse_session_list(out) if rc == 0 else []
 
     live_roots: list[tuple[str, Path]] = []
     for session, registered in entries:
-        project_root = _registered_root(registered)
-        if project_root is None:
-            project_root = _unregistered_root(
-                session, run(_list_panes_argv(session)), read_registry)
+        if only is not None and session not in only:
+            continue
+        project_root = _attribute_session(session, registered, run, read_registry)
         if project_root is None:
             continue
         live_roots.append((session, project_root))
     return live_roots
+
+
+def _attribute_session(session, registered, run, read_registry) -> Path | None:
+    """One session's project root by the canonical rule (t1922): the
+    registration stamp from its ``list-sessions`` line, else the pane vote,
+    else the legacy registry. ``None`` means unattributed."""
+    project_root = _registered_root(registered)
+    if project_root is None:
+        project_root = _unregistered_root(
+            session, run(_list_panes_argv(session)), read_registry)
+    return project_root
 
 
 def _list_panes_argv(session: str) -> list[str]:

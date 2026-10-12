@@ -197,7 +197,8 @@ class CurrentTmuxSessionTests(unittest.TestCase):
 
 class FocusExistingAgentWindowTests(unittest.TestCase):
     """`current_tmux_session` is NOT mocked: the gateway answer is. Session
-    ownership comes from a stubbed `discover_aitasks_sessions`."""
+    ownership comes from a stubbed `_collect_live_roots` (the per-session
+    discovery walk, narrowed to the candidates by `only`)."""
 
     def setUp(self):
         self.selects: list[list[str]] = []
@@ -224,7 +225,10 @@ class FocusExistingAgentWindowTests(unittest.TestCase):
         for target, attr, value in (
                 (alu._TMUX, "run", _run),
                 (alu, "find_window_by_name", _find),
-                (alu, "discover_aitasks_sessions", lambda: self.discovered),
+                (alu, "_collect_live_roots",
+                 lambda run, read_registry, only=None: [
+                     (s.session, s.project_root) for s in self.discovered
+                     if only is None or s.session in only]),
                 (alu, "load_tmux_defaults",
                  lambda root: {"default_session": "configured"})):
             p = patch.object(target, attr, value)

@@ -20,6 +20,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".aitask-scripts", "lib"))
 
@@ -260,6 +261,87 @@ class AttributionTests(_Base):
         server._answer = answer
         alu._TMUX = server
         self.assertEqual(alu.unregistered_session_attribution("s"), (None, False))
+
+
+class TargetedOwnershipTests(_Base):
+    """``focus_existing_agent_window`` attributes only its candidates (t1950).
+
+    The server also hosts sessions no lookup names: ``other`` (panes in another
+    repo) and ``stray`` (no resolvable pane, so attributing it would also cost a
+    ``show-environment``). Neither may be queried; only the one
+    ``list-sessions`` reaches them.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.server = _Server(
+            [("mine", ""), ("other", ""), ("stray", ""), ("stamped", str(self.b))],
+            {"mine": [str(self.a)], "other": [str(self.b)],
+             "stray": [str(self.plain)], "stamped": [str(self.a)]})
+        orig = self.server._answer
+
+        def answer(args):
+            if args[0] == "select-window":
+                self.server.calls.append(tuple(args))
+                return TmuxResult("ok", 0, "", "")
+            return orig(args)
+        self.server._answer = answer
+        alu._TMUX = self.server
+        self.searched = []
+        self.windows = {}
+
+        def find(name, session):
+            self.searched.append(session)
+            return self.windows.get((name, session))
+        for attr, value in (("find_window_by_name", find),
+                            ("load_tmux_defaults",
+                             lambda root: {"default_session": "missing"})):
+            p = patch.object(alu, attr, value)
+            p.start()
+            self.addCleanup(p.stop)
+
+    def _caller(self, session):
+        p = patch.object(alu, "current_tmux_session", lambda: session)
+        p.start()
+        self.addCleanup(p.stop)
+
+    def _queried(self):
+        """Sessions that drew a per-session query (list-panes / show-environment)."""
+        out = set()
+        for c in self.server.calls:
+            if c[0] == "list-panes":
+                out.add(c[c.index("-t") + 1].lstrip("=").rstrip(":"))
+            elif c[0] == "show-environment":
+                out.add(c[-1].replace("AITASKS_PROJECT_", ""))
+        return out
+
+    def test_lookup_lists_no_unrelated_session(self):
+        self._caller("mine")
+        self.windows[("agent-pick-42", "mine")] = ("mine", "3")
+        self.assertTrue(alu.focus_existing_agent_window("42", self.a))
+        self.assertEqual(self._queried(), {"mine"})
+        self.assertEqual(self.server.cmds("select-window"),
+                         [("select-window", "-t", "=mine:3")])
+
+    def test_missing_candidate_is_not_owned_and_costs_nothing(self):
+        self._caller(None)
+        self.assertFalse(alu.focus_existing_agent_window("42", self.a))
+        self.assertEqual(self.searched, [])
+        self.assertEqual([c[0] for c in self.server.calls], ["list-sessions"])
+
+    def test_stamped_candidate_of_another_project_is_not_owned(self):
+        """The stamp names repo_b, so the panes in repo_a are never consulted."""
+        self._caller("stamped")
+        self.assertFalse(alu.focus_existing_agent_window("42", self.a))
+        self.assertEqual(self.searched, [])
+        self.assertEqual(self._queried(), set())
+
+    def test_unfiltered_walk_still_attributes_every_session(self):
+        """Parity control: without ``only`` the walk is the full discovery."""
+        self.assertEqual(self._seam(self.server), {
+            "mine": self.R(self.a), "other": self.R(self.b),
+            "stamped": self.R(self.b)})
+        self.assertEqual(self._queried(), {"mine", "other", "stray"})
 
 
 if __name__ == "__main__":
