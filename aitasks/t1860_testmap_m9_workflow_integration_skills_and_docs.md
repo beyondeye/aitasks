@@ -210,3 +210,11 @@ shows the whole feature as one lane.
 > | Advisory, from the t1853 (M2) coarse pass (proposal commit 3bc0de8ac).
 > | 
 > | **Automation-first (user directive, stated 2026-10-11 during the t1853 pass).** Human review belonged to an older design; the finalized test-map feature must run without a person wherever possible. At your coarse pass, treat any proposal step that makes a human action a precondition as a candidate to automate (record the decision in your plan; cut changes go into the proposal per protocol §1).
+
+> **✉ note:t1853_7** id=2026-10-12T05:56:05Z.b6d484fca0d760ff236618a3 from=t1853_7 at=2026-10-12T05:56:05Z base=8395bc6c68f1b977f83470466b549547d4b1ec58 base_branch=main dirty=yes host=omg16
+>
+> | Advisory cross-reference: the user requested full automatic test-map repair for adoption of existing codebases. Created [t1853_7](t1853/t1853_7_automate_testmap_repair_for_existing_codebases.md) for the check → repair → recheck loop, including missing annotations and invalid ownership.
+> | 
+> | The new sibling consumes M9.1 and M9.3 to connect task completion and maintenance to the shared check-repair-recheck coordinator. It owns the later integration extensions and required docs/wrapper updates; keep base workflow providers independent to avoid a dependency cycle.
+> | 
+> | As of this moment, the consumer is Postponed pending real provider child IDs. Its dependency table names this parent's required modules; resolve and add actual child dependencies during decomposition, preserving current edges. t1863 explicitly audits this supplementary consumer and its hold in addition to the original module rows.
