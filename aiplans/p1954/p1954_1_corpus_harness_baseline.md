@@ -5,6 +5,8 @@ Sibling Tasks: aitasks/t1954/t1954_2_*.md, aitasks/t1954/t1954_3_*.md, aitasks/t
 Archived Sibling Plans: aiplans/archived/p1954/p1954_*_*.md
 Base branch: main
 Output branch: main
+plan_verified:
+  - claudecode/opus5_5 @ 2026-10-12 21:31
 ---
 
 # Plan: t1954_1 — Corpus, oracle, harness and baseline
@@ -22,16 +24,213 @@ Research dir (`R` below): `aidocs/testing_engine/t1954_parser_research/`.
 Scratch dir for downloads and builds: the session scratchpad, never a system
 path and never committed.
 
-## Step 0 — reality check at pick time
+## Verification of this plan (2026-10-12, at pick time)
 
-- `git log -1 --format=%H -- goengines/internal/testmap/annot`. Pin that commit
-  (expected `f096db065` or later).
-- Re-read `annot/lexctx.go` (`Context` fields), `lang.go` (`LangOf`),
-  `grammar.go` (`ParseFile`), and `rewrite.go` (`Apply`, `PlanCovers`,
-  `Placement`, `fixedPosition`, `RestampLine`, `ErrDocstring`). If the API
-  moved, adapt the seam patch and the adapter, and record what changed in the
-  findings.
-- Check for notes sent to t1954_1 (`aitask_query_files.sh inbox 1954_1`).
+Checked against the tree; the plan stands, with these corrections folded into
+the steps below:
+
+- **Pin unchanged.** `git log -1 -- goengines/internal/testmap/annot` is still
+  `f096db065a7249836c9a82f9d05bbd20fc43b961`; no M2.3–M2.6 change to `annot` yet.
+- **API matches.** `Context{Class, Docs, DocEnd, Package, Import, Uncertain}`,
+  `DocSpan{StartLine, StartCol, EndLine, EndCol, Raw}` (line/column, not byte
+  offsets — the adapter converts `DocLiteral` byte offsets), `LangOf(p, data)`,
+  `Classify(Lang, data)` (default branch = `classifyBash`, so an unhooked
+  research `Lang` would silently lex as bash — the baseline provider must report
+  the extra 4 languages `unsupported` and never run them), `ParseFile` (the only
+  caller of `LangOf` + `Classify` besides `Source`), `PlanCovers`, `Placement`,
+  `fixedPosition` (default branch = `leading(0)` for any unknown `Lang.Name`),
+  `RestampLine`, `ErrDocstring`/`ErrNotComment`/`ErrUncertainContext`/
+  `ErrNoMemberBlock`, `ConflictError{Reason: text|snapshot|ownership|concurrent}`,
+  `Apply(root, EditSet{Path, Snapshot, Edits})`. `annot/hook.go` is the M2.6
+  post-re-stamp hook (unrelated to the seam; untouched).
+- **Toolchain.** go 1.27.0 local, `goengines/go.mod` says `go 1.26.0` /
+  `toolchain go1.27.1` with `GOTOOLCHAIN=auto` → the research module copies
+  both lines; the toolchain actually used is recorded in `environment.md`.
+- **Missing tools → adjusted:**
+  - `shfmt` CLI is not installed → the bash oracle and the `shfmt` provider use
+    the `mvdan.cc/sh/v3/syntax` library in-process (research module dep only).
+    Because provider and oracle would then be the same code, the bash
+    cross-check's independent evidence is `bash -n` plus controlled execution
+    of the heredoc fixtures in scratch; this is stated in `oracle_check.md`.
+  - `/usr/bin/time` is not installed → peak RSS comes from re-executing the
+    bench as a child process and reading
+    `ProcessState.SysUsage().(*syscall.Rusage).Maxrss` (Linux: KiB). The method
+    is recorded in `environment.md`.
+  - `kotlinc` / `swiftc` absent → kotlinc release zip into scratch, run on the
+    local JDK 21; Swift via the official `swift` docker image (docker 29 is
+    present), with `-v <scratch>:/w` and `swiftc -parse`. If either fails, that
+    language is `native: none`.
+- **Isolation evidence (pre-phase 2) already found:** release tarball lists
+  explicit dirs (`.github/workflows/release.yml:133-142`, no `aidocs/`);
+  `goengines-check.yml:9-23` path filters are `goengines/**` + named files;
+  `tests/run_all_python_tests.sh:174,224` discover `tests/test_*.py` only;
+  shellcheck targets `.aitask-scripts/aitask_*.sh`. `tests/test_guard_contract_doc_drift.sh:52`
+  greps `aidocs/` for fixed banned phrases — the corpus must not contain them
+  (the guard is run once after the corpus is written).
+- **Guard mechanism made concrete.** The harness references `annot.ClassifyHook`
+  / `LangHook`, so it cannot compile against an unpatched snapshot as-is. Files
+  that touch the hooks carry `//go:build !unpatched`; the baseline provider and
+  the matrix writer do not. A committed `go.unpatched.mod` (+ `go.unpatched.sum`)
+  replaces `goengines => ./.baseline-unpatched/goengines`. The guard runs
+  `go run -tags unpatched -modfile=go.unpatched.mod ./cmd/t1954 matrix --provider baseline --out <tmp1>`
+  and the normal build's baseline matrix into `<tmp2>`, and requires
+  byte-identical output (identity header line excluded and compared
+  separately: same commit + tree, seam sha differs by design).
+- **LangHook scope simplified.** `LangOf` receives the repo-relative path, so the
+  hook cannot tell scratch paths from others by location; it maps only the 5
+  research extensions (`.ts`, `.js`, `.java`, `.rs`, `.swift`) and returns
+  `false` otherwise, so the 4 M2.2 languages always take the landed path. The
+  hook is set only inside the harness process.
+
+## Review amendments (user plan review, 2026-10-12 — all three verified valid)
+
+**A1. TypeScript/JS oracle must be parser-aware.** `ts.createScanner` is
+context-free: only the parser rescans template continuations
+(`reScanTemplateToken`), regex literals (`reScanSlashToken`) and JSX text. A
+bare scan loop misreads `}` after `${1}` as a brace, so it reports a fake
+`// testmap:covers` inside a template and misses the real comment after the
+closing backtick. So `R/oracle/ts_oracle.js` (run with node from the scratch
+`node_modules`):
+- parses with `ts.createSourceFile(name, text, Latest, /*setParentNodes*/ true, ScriptKind from ext: TS/TSX/JS/JSX)`;
+- collects every token leaf by recursive `node.getChildren(sf)`. The parser
+  produces template heads/middles/tails, regex literals and `JsxText` as
+  single leaves, so no template, regex or JSX byte is ever lexed as trivia;
+- builds comment ranges from each leaf's trivia `[leaf.pos, leaf.getStart(sf))`
+  as the union of `ts.forEachTrailingCommentRange(text, leaf.pos)` and
+  `ts.forEachLeadingCommentRange(text, leaf.pos)`. Leading collection skips
+  comments before the first newline when `pos > 0`, so both calls are needed.
+  It skips leaves of kind `JsxText` / `JsxTextAllWhiteSpaces`, and includes
+  the `EndOfFileToken`'s trivia;
+- self-checks full cover: leaf ranges + comment ranges + whitespace must
+  partition the file. Any unaccounted non-whitespace trivia byte is an oracle
+  error for that file, never a silent result;
+- reports diagnostics from `ts.createProgram([file], {noResolve, noLib, allowJs, jsx: preserve})`
+  → `getSyntacticDiagnostics(sf)`.
+
+**Validation before it may override hand expectations:**
+`R/oracle/ts_selftest/` holds pinned cases with hand-checked answers:
+- the reviewer's repro (a template continuation after `${1}` with a fake
+  covers line inside, then a real comment after the backtick);
+- nested `${`…`}` templates;
+- a regex literal containing `//`;
+- `/`-division vs regex ambiguity;
+- JSX text containing `//` and `/*`;
+- a shebang;
+- a malformed unterminated template.
+
+The same cases also run through a naive scan loop as a **negative control**,
+which must fail at least the template case, proving the self-test can detect
+the defect. TS/JS native evidence is used only if every self-test case passes.
+Otherwise `native: none` for TS/JS, with the failure recorded.
+
+A malformed fixture where the oracle reports 0 syntactic diagnostics cannot
+vouch for uncertainty. That fixture's `expect: uncertain` stays hand-only,
+marked as such. **General rule:** every native oracle that overrides a hand
+`.expect` first passes a self-test on that language's hardest fixtures,
+recorded in `oracle_check.md`.
+
+**A2. Capability contract: anchor availability and certainty are explicit.**
+In the shared interface, a zero `Anchors` field means "none", and
+`ToContext(lang, src, Result)` cannot see capabilities. So "verified there is
+no import block" is indistinguishable from "cannot tell", and a tokenizer's
+default zeros would act as placement evidence. Amend the interface:
+
+```go
+type AnchorSet uint8 // one bit per Anchors field
+const ( AShebang AnchorSet = 1 << iota; AHeaderEnd; APackage; AImportEnd; APrologue; AInnerAttrEnd )
+type Capabilities struct {
+    TokenRanges, FullCover, Errors, DocLiterals bool
+    Anchors AnchorSet // anchors the provider DETERMINES; a declared anchor with value 0 = confirmed none
+}
+type Need uint8 // NeedLexical | NeedWrite | NeedFreshFileInsert (bit set)
+func ToContext(lang string, src []byte, caps Capabilities, res Result, need Need) (annot.Context, error)
+```
+
+Requirements follow the real code path, not a blanket level. In the landed
+rewriter, `PlanCovers` restamps an existing covers line as a `Replace` without
+calling `Placement`. `Placement` returns `u.Last` (block already annotated) or
+the member opener before it consults `fixedPosition`. Only the **fresh
+file-level insertion** (`member == ""`, `u.Last == 0`) reaches
+`fixedPosition`, and with it `Package` / `Import` / `DocEnd`. The proposed
+extra-language rules apply only to that case as well. `Apply`/`verifyResult`
+never read anchors. So `ToContext` enforces the following itself, and no
+caller can bypass it:
+- **NeedLexical:** `Spans` only. Python docstring *read* records additionally
+  need `DocLiterals`; without it, Python read records are
+  `unsupported:DocLiterals` and line classes still score.
+- **NeedWrite** (every edit: restamp, member insertion, file-level append,
+  fresh file-level insertion): `caps.Errors`, because certainty must be
+  established and an empty `Diags` from a provider that does not report
+  errors proves nothing. Python also needs `DocLiterals`, because the
+  docstring records, the `ErrDocstring` refusal and `Apply`'s doc-shape check
+  depend on it. No anchors are needed.
+- **NeedFreshFileInsert** (on top of NeedWrite): `requiredAnchors[lang] ⊆ caps.Anchors`.
+  The table follows the landed `fixedPosition` and the proposed rules:
+
+  | language | required anchors |
+  |---|---|
+  | bash | none |
+  | Go | `APackage` |
+  | Kotlin | `APackage`, `AImportEnd` |
+  | TS/JS | `AImportEnd`, `APrologue` |
+  | Java | `APackage`, `AImportEnd` |
+  | Rust | `AInnerAttrEnd`, `AImportEnd` |
+  | Swift | `AImportEnd` |
+
+An anchor not declared in `caps.Anchors` is written into the `Context` as 0,
+but it can never reach `fixedPosition`. The edit runner classifies each op
+from the parsed file *before* planning it:
+- **restamp**: the unit already has a covers line for the source;
+- **member insertion**: `member != ""`;
+- **file-level append**: `member == ""`, `u.Last > 0`;
+- **fresh file-level insertion**: `member == ""`, `u.Last == 0`.
+
+It requests `NeedFreshFileInsert` only for the last kind.
+
+A missing requirement returns `*UnsupportedCapabilityError{Missing: []string}`
+(wrapping `ErrUnsupportedCapability`). The runner records `unsupported:<cap>`
+for **that op only**, and the remaining ops of the same `.edits` file are
+still measured. Declared anchors with value 0 pass through as
+confirmed-empty. `placement.go`'s proposed rules read anchors only after the
+same check.
+
+Unit and edit-suite tests (`provider/adapter_test.go` +
+`cmd/t1954/edit_caps_test.go`, Kotlin fixture through the real seam) pin:
+- undeclared anchor → fresh file-level insertion `unsupported:APackage,AImportEnd`;
+- with the same capabilities, a restamp, a member insertion and a file-level
+  append are measured: applied, with the full record list compared;
+- declared-zero anchors → fresh insertion accepted, placed as for "no
+  package/imports";
+- `Errors=false` → every write `unsupported:Errors`, while Lexical still scores;
+- Python without `DocLiterals` → writes and docstring read records unsupported,
+  while classes still score.
+
+This amends the parent's shared design. Step 0 below edits the interface block
+in `aiplans/p1954_research_multilanguage_annotation_parsers.md` and sends
+advisory notes to t1954_2 and t1954_3 (their plans defer to the shared design
+and do not restate it).
+
+**A3. Cold vs warm benchmark, and which number meets the budget.**
+- **Budget-comparable operation:** exactly what `annot.BenchmarkScan` times.
+  That is `registry.Scan(ctx, dir, registry.Inputs{Annotations: annot.Source{}, Lister: emptyLister{}}, false)`
+  over the regenerated M2.2 shape: 600 sources, 420 annotated tests (¼ Python),
+  1,000 docs, a fresh git repo, and `registry.ConfigPath` = `contract: 1`. A
+  provider enters through `ClassifyHook`. Only this end-to-end number is
+  compared with the 300 ms budget.
+- **Lexical-only timings** (provider `Analyze` + `ToContext`, or
+  `annot.Classify`, over preloaded bytes: the M2.2 shape's test files, every
+  aitasks bash/Python/Go test file, the sibling sets) are a separate table
+  labelled "lexical-only — not comparable to the scan budget".
+- **Cold:** each sample is a fresh child process (`t1954 bench-child --mode cold`)
+  pinned with `taskset -c 0`. The timer (`time.Now`) starts before provider
+  construction and initialization (grammar load, oracle subprocess start) and
+  stops after exactly one timed operation; there is no `testing.Benchmark`
+  calibration. The parent takes 3 fresh processes and reports the fastest and
+  all three, plus peak RSS from each child's rusage. The workload is generated
+  once beforehand, so "cold" means a cold process and provider, not a cold
+  page cache; this is stated in the results.
+- **Warm:** a separate child process runs one untimed warm-up operation, then
+  `testing.Benchmark` over the same operation (ns/op), fastest of 3 processes.
 
 ## Pre-phase (risk mitigations)
 
@@ -51,12 +250,12 @@ path and never committed.
    `./ait note 1954_2` (or `1954_3`) `--from 1954_1` with the evidence, so the
    child is re-scoped before it is picked.
 2. [scoped_commits_packaging_check] Show from the sources that nothing ships
-   or tests `R`:
+   or tests `R` (evidence gathered above; re-confirm at commit time):
    - the release tarball / `install.sh` / `aitask_setup.sh` file selection
    - `.github/workflows/*` path filters (`goengines-check.yml`)
    - `tests/run_all_python_tests.sh` discovery: harness Python files must not
      match its pattern (name them `*_oracle.py`, not `test_*.py`)
-   - the shellcheck globs
+   - the shellcheck globs, and `test_guard_contract_doc_drift.sh` (scans aidocs)
 
    Record the evidence (file:line) in `R/README.md` § *Isolation*. If
    something does include `R`, stop and ask the user. Every commit names its
@@ -65,11 +264,24 @@ path and never committed.
 
 ## Steps
 
+0. **Shared-design amendment (A2).** Edit the *Experimental interface* block
+   of `aiplans/p1954_research_multilanguage_annotation_parsers.md`: add
+   `AnchorSet`, `Capabilities.Anchors`, `Need`, the new `ToContext`
+   signature and its per-operation enforcement rules (anchors only for fresh
+   file-level insertion; `Errors` and, for Python, `DocLiterals` for every
+   write); replace "`Anchors` zero = none" with
+   "zero = none only for an anchor declared in `Capabilities.Anchors`". Commit
+   it with `aitask_task_commit.sh` naming that file. Then send `./ait note 1954_2 --from 1954_1`
+   and `./ait note 1954_3 --from 1954_1`, saying that the shared interface
+   gained explicit anchor availability and a Write-level `Errors` requirement,
+   and pointing to the amended section. In the notes, hedge that the harness
+   code itself lands with this child's commit.
 1. **Module, baseline and identity**
    - `R/go.mod`: module `github.com/beyondeye/aitasks/goengines/t1954research`.
      Use the same `go` / `toolchain` lines as `goengines/go.mod`, and
      `replace github.com/beyondeye/aitasks/goengines => ./.baseline/goengines`.
-   - `R/.gitignore`: `.baseline/`.
+     `R/go.unpatched.mod` is the same with `./.baseline-unpatched/goengines`.
+   - `R/.gitignore`: `.baseline/`, `.baseline-unpatched/`, `.baseline.tmp*/`.
    - `R/baseline/PIN` (key: value lines): `commit`, `tree` (from
      `git rev-parse <commit>:goengines`), `seam_sha256`.
    - `R/baseline/fetch.sh` (bash, `set -euo pipefail`):
@@ -80,7 +292,8 @@ path and never committed.
      5. write `IDENTITY` (commit, tree, seam sha);
      6. atomically rename the result to `.baseline/`.
 
-     `--unpatched` produces `.baseline-unpatched/` for the guard.
+     `--unpatched` produces `.baseline-unpatched/` (steps 1–3, 5–6; IDENTITY
+     carries `seam_sha256: none`).
    - `R/baseline/seam.patch`: exactly two nil-by-default exported hooks
      (`ClassifyHook` in `lexctx.go` `Classify`, `LangHook` in `lang.go`
      `LangOf`), and nothing else.
@@ -110,15 +323,17 @@ path and never committed.
 3. **Native cross-checks** (`R/oracle/`, results in `R/results/oracle_check.md`):
    - Python: `tokenize` + `ast` (`python3`).
    - Go: `go/scanner`.
-   - bash: shfmt / mvdan `syntax` positions, plus controlled execution of the
-     heredoc fixtures in a scratch copy.
-   - TS/JS: the `typescript` npm package installed into the scratch dir,
-     using `ts.createScanner` / `forEachLeadingCommentRange`.
+   - bash: mvdan `syntax` positions (library; no shfmt CLI), `bash -n`, plus
+     controlled execution of the heredoc fixtures in a scratch copy.
+   - TS/JS: the `typescript` npm package (pinned version) installed into the
+     scratch dir; the parser-aware `ts_oracle.js` of amendment A1, gated on its
+     self-test + negative control. A bare `createScanner` loop is never used as
+     an oracle.
    - Rust and Java: `rustc --emit=metadata` / `javac` validity, and the run
      scripts for the behaviour fixtures.
-   - Kotlin and Swift: try a pinned compiler download into the scratch dir
-     (the kotlinc release zip; swiftly or a swift.org tarball). If one
-     cannot be obtained, set `native: none` and say so.
+   - Kotlin: kotlinc release zip into scratch on local JDK 21. Swift: official
+     `swift` docker image, `swiftc -parse`. If one cannot be obtained, set
+     `native: none` and say so.
 
    Every disagreement between a hand `.expect` and a native tool is resolved
    in favour of the tool, or explained.
@@ -126,11 +341,17 @@ path and never committed.
    - `provider.go`: the interface from the shared design (`Span`, `Diag`,
      `Anchors`, `DocLiteral`, `DocInfo`, `Capabilities`, `Result`,
      `Provider`).
-   - `adapter.go`: `ToContext(lang, src, Result) (annot.Context, error)`.
-     It does no reconstruction; a missing capability returns
-     `ErrUnsupportedCapability`.
-   - `langs.go`: research `Lang` values for the extra 4 languages, served via
-     `LangHook` only for corpus scratch paths.
+   - `adapter.go`: `ToContext(lang, src, caps, Result, need Need) (annot.Context, error)`
+     per amendment A2. It enforces the per-need capability rules itself (anchors
+     only for fresh file-level insertion) and
+     does no reconstruction; a missing capability returns
+     `*UnsupportedCapabilityError`. Converts `DocLiteral` byte offsets to
+     `DocSpan` line/columns and `StmtEnd` to `DocEnd`. `adapter_test.go` pins
+     the A2 cases.
+   - `langs.go`: research `Lang` values for the extra 4 languages (+ JS),
+     served via `LangHook` by extension only (see verification notes).
+   - `seam.go` (`//go:build !unpatched`): installs/clears both hooks around
+     one provider run.
    - `placement.go`: the proposed file-level rules for TS/JS, Java, Rust and
      Swift from `Anchors`. Each is labelled `proposed`, and the default
      `fixedPosition` result is recorded next to it.
@@ -145,21 +366,22 @@ path and never committed.
    - **behaviour**: run the `exec` command before and after, in the scratch
      copy only.
    - `cmd/t1954` verbs:
-     - `matrix [--provider p] [--lang l]`, written to `R/results/matrix_<p>.md`
-       with the safety columns first;
+     - `matrix [--provider p] [--lang l] [--out dir]`, written to
+       `R/results/matrix_<p>.md` + combined `matrix.md`, safety columns first;
      - `edit`, the edit suite alone;
      - `realrepo --repo <path>`, a read-only walk of git-visible files in the
        known languages, which writes per-provider disagreement counts and
        paths (no contents) to `R/results/realrepo_<repo>.md`;
-     - `bench`, which uses `testing.Benchmark` over the M2.2 shape
-       (regenerated like `annot/bench_test.go`), the aitasks test files and
-       the sibling sets. It runs cold and warm, takes the fastest of 3, and
-       reports peak RSS via a `/usr/bin/time -v` re-exec;
-     - `footprint`, the probe-binary sizes for the 4 targets.
-   - **Guard** `cmd/t1954 guard`: runs the baseline matrix against
-     `.baseline-unpatched` (built with a second module path via `go work`, or
-     a copy of the harness module with a different replace) and against
-     `.baseline`, unhooked. Byte-identical output is required.
+     - `bench` (+ internal `bench-child`), per amendment A3: the
+       budget-comparable end-to-end `registry.Scan` over the regenerated M2.2
+       shape; separately labelled lexical-only tables (M2.2 test files, aitasks
+       tests, sibling sets); cold = a single timed first operation per fresh
+       process including provider init; warm = `testing.Benchmark` after a
+       warm-up; `taskset -c 0`; fastest of 3 processes; peak RSS from the
+       child's rusage;
+     - `footprint`, the probe-binary sizes for the 4 targets;
+     - `guard`, as described in the verification notes (byte-identical
+       baseline matrices from the unpatched and patched-unhooked builds).
 5. **Providers in this child**
    - `baseline` uses the real `annot` with both hooks nil. Its levels are
      class, docstring, anchors, record and edit; range is `n/a — not
@@ -177,9 +399,11 @@ path and never committed.
    - `realrepo` over aitasks, aitasks_go, aitasks_mobile, thinking_app,
      thinking_backend and timexchange (read-only; resolve paths with
      `./ait projects resolve <name>`).
-   - The bench against the 300 ms budget.
+   - The bench: only the end-to-end scan (cold and warm) is judged against the
+     300 ms budget; lexical-only rows are labelled not budget-comparable.
    - `R/results/environment.md`: date, CPU, nproc, tool versions, module
-     versions, and the PIN identity.
+     versions, the toolchain actually selected, the RSS method, and the PIN
+     identity.
    - `R/findings_t1954_1.md`, with observations, documentation claims,
      assumptions and unknowns in separate sections.
 7. **README** `R/README.md`: purpose, isolation evidence, prerequisites, and
@@ -187,12 +411,20 @@ path and never committed.
 
 ## Verification
 
-- `cd R && baseline/fetch.sh && go vet ./... && go run ./cmd/t1954 guard && go run ./cmd/t1954 matrix`
+- `cd R && baseline/fetch.sh && baseline/fetch.sh --unpatched && go vet ./... && go run ./cmd/t1954 guard && go run ./cmd/t1954 matrix`
   reproduces the committed `results/`.
 - Corrupting `.baseline/IDENTITY` makes every verb exit 2.
 - The baseline matrix shows 0 in every safety column on the 4 M2.2 languages.
   Any non-zero value is a finding about M2.2: record it and send a note to the
   owning task, but do not fix it here.
+- `bash tests/test_guard_contract_doc_drift.sh` still passes.
+- `go test ./provider/... ./cmd/t1954/...` passes (A2 capability cases,
+  including "anchors missing → only fresh file-level insertion unsupported").
+- `node oracle/ts_oracle.js --selftest` passes every case, and the naive-scan
+  negative control fails the template case (A1).
+- `results/bench.md` shows the end-to-end cold/warm rows separately from the
+  lexical-only rows, with the M2.2 baseline end-to-end within a sane factor of
+  the recorded ≈21 ms (A3 sanity check of the regenerated workload).
 - `git status --short` shows paths under `R` only (plus the task and plan
   files).
 
@@ -200,3 +432,24 @@ path and never committed.
 
 Commit with a `chore: … (t1954_1)` message naming only paths under `R`. Archive
 through the standard child Step 9.
+
+## Risk
+
+### Code-health risk: low
+- A Go module (`go.mod`, `go.sum`, harness code) under `aidocs/` could be picked up by tooling it was not meant for (release tarball, CI, python discovery, shellcheck, aidocs grep guards). Verified at pick time that none include it. · severity: low · → mitigation: inline pre-phase scoped_commits_packaging_check
+- The shared worktree holds other sessions' uncommitted work (task-data sync already reports unstaged changes); a broad `git add`/commit would absorb it. · severity: low · → mitigation: inline pre-phase scoped_commits_packaging_check
+
+### Goal-achievement risk: medium
+- Kotlin and Swift have no local compiler; if the kotlinc zip or the swift docker image cannot be used, their expectations rest on hand oracles. · severity: medium · → mitigation: in-plan (step 3 fetch attempts) + t1954_4 post-phase native_oracle_gap_followup
+- A candidate module may prove unbuildable and surface too late to re-scope t1954_2/3. · severity: low · → mitigation: inline pre-phase feasibility_smoke
+- The seam patch could alter baseline behaviour. · severity: low · → mitigation: in-plan (`guard` verb: unpatched vs patched-unhooked byte-identical matrices via `-modfile`)
+- A synthetic corpus can overfit to the authors' own expectations. · severity: low · → mitigation: in-plan (read-only `realrepo` disagreement runs)
+- A context-free native tokenizer used as an oracle can be wrong exactly on the hard cases (TS templates/regex/JSX) and would then override correct hand expectations. · severity: high (pre-review) → low (residual — addressed by amendment A1: parser-aware oracle, self-test with negative control, override only when it passes) · → mitigation: in-plan (A1)
+- Zero-valued anchors or empty diagnostics from a provider that cannot determine them would be read as placement/certainty evidence. · severity: high (pre-review) → low (residual — addressed by amendment A2: declared AnchorSet, per-operation enforcement inside ToContext so only fresh file-level insertion needs anchors, adapter + edit-suite tests) · → mitigation: in-plan (A2)
+- Cold latency diluted by benchmark calibration, or lexical-only timings judged against an end-to-end budget. · severity: medium (pre-review) → low (residual — addressed by amendment A3) · → mitigation: in-plan (A3)
+- The child is large (8 languages × corpus + 4 providers + 6 verbs); an unreached level must be reported "not measured", never omitted. · severity: low · → mitigation: in-plan (results record every cell as pass/fail/unsupported/n-a/not measured)
+
+### Planned mitigations
+(Confirmed by the user at parent t1954 planning; carried verbatim.)
+- timing: pre-phase | name: feasibility_smoke | type: chore | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: late-surfacing unbuildable candidate | desc: compile-probe every candidate module (CGO_ENABLED=0, 4 targets; cgo reference on host) before the corpus; re-scope children 2-3 by note
+- timing: pre-phase | name: scoped_commits_packaging_check | type: chore | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: tooling pickup of the aidocs Go module; shared dirty worktree | desc: confirm release/install/CI/test discovery exclude the research dir; path-scoped commits only; goengines untouched
