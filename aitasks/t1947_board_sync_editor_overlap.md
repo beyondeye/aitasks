@@ -12,8 +12,9 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1911
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-11 17:39
-updated_at: 2026-10-11 19:11
+updated_at: 2026-10-12 15:20
 ---
 
 ## Origin
@@ -31,3 +32,8 @@ t1943 moved `KanbanApp.run_editor` from the exclusive default worker group into 
 ## Suggested fix
 
 Coordinate the edit path with an in-flight sync. For example: before suspending, wait for or refuse while a `_run_sync` worker is running (notify "sync in progress"), and/or pause the auto-sync timer for the duration of the edit. Keep the editor's own worker group so edit still never cancels unrelated workers.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-12T12:20:50Z status=pass attempt=1 type=human
