@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1852
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-12 17:50
-updated_at: 2026-10-12 17:55
+updated_at: 2026-10-12 21:32
 ---
 
 ## Context
@@ -71,3 +72,8 @@ User decisions:
 - The identical-matrix guard passes.
 - A tampered `.baseline/IDENTITY` refuses to run.
 - `git status` shows changes only under the research dir.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-12T18:32:01Z status=pass attempt=1 type=human
