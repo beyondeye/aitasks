@@ -98,3 +98,10 @@ Current-branch mode (profile `fast`): no merge; archive via
   model checked before the resume guard) is confirmed in the source, and the
   derived model is selected by the same `status != "unavailable"` filter the
   launcher applies.
+
+## Final Implementation Notes
+- **Actual work done:** As planned, in `tests/test_codeagent_resume_session.sh` only: sourced `tests/lib/codeagent_defaults.sh`, built a hermetic `METADATA_DIR` with `codeagent_fixture_metadata` (removed by an EXIT trap), and replaced both `opencode/openai_gpt_5_2` pins with `opencode/$opencode_active`, which comes from `codeagent_active_model` over the fixture's `models_opencode.json`. Added a non-empty assertion on the derived model and a header note.
+- **Deviations from plan:** None.
+- **Issues encountered:** None. Verification: 40/40, exit 0, from the repo root and from `/tmp`. Negative control (a scratchpad copy that marks every fixture opencode entry `unavailable`): 4 FAIL (the non-empty check plus the 3 opencode asserts), exit 1. `shellcheck` shows only info-level notices (SC1091/SC2016), which already appear on the file's existing lines.
+- **Key decisions:** The whole file now reads the fixture copy, not only the opencode block. That way the launcher and the derivation read the same registry file, and the file no longer depends on the cwd (before this, it only worked when run from the repo root). The claudecode/codex cases still pin `opus5` / `gpt5_4`. Their exact-argv assertions need the matching cli_id, and both entries are currently active, so they were left alone.
+- **Upstream defects identified:** None
