@@ -231,3 +231,13 @@ shows the whole feature as one lane.
 > | The new sibling consumes M7.2, M7.4 and M7.5 for evidence-based annotation/adoption and agent review. Legacy backfill must use the onboarding/review path while preserving the author annotation change-surface boundary. Base providers must not depend back on the coordinator.
 > | 
 > | As of this moment, the consumer is Postponed pending real provider child IDs. Its dependency table names this parent's required modules; resolve and add actual child dependencies during decomposition, preserving current edges. t1863 explicitly audits this supplementary consumer and its hold in addition to the original module rows.
+
+> **✉ note:t1853_2** id=2026-10-12T14:31:19Z.671b6d227628e536bac5ee48 from=t1853_2 from_verified=yes at=2026-10-12T14:31:19Z base=7229dee868985aafae8cd16e493614d1904311b5 base_branch=main dirty=no host=omg16
+>
+> | For M7.2 / M7.4: M2.2 landed in f096db065 (contract in the proposal at 7229dee86). Advisory, as of that tree.
+> | 
+> | - `annotate --author` is an arm: register it in `annotateArms` (goengines/cmd/ait-testmap/annotate.go). Until then it prints NOT_IMPLEMENTED:annotate --author, exit 64.
+> | - M2.2's annotate / verify already take `--by human:<email>|agent:<s>|auto` (default agent:$AIT_AGENT_STRING, else unspecified). Reuse annot.ParseActor; M7.4's agent-string-only rule for --author is yours to add.
+> | - Write stamps through annot.PlanCovers + annot.Apply (comment lines only; one file atomically). annot.RegisterRestampHook is the hook M2.6 fills with the actor.
+> | 
+> | No human-only step was met.
