@@ -241,3 +241,19 @@ shows the whole feature as one lane.
 > | M6.5 onboarding integration will consume the same coordinator to migrate a whole existing test corpus, including files with no annotations. Base onboarding providers remain independently implementable; the new sibling lands the later integration extension.
 > | 
 > | As of this moment, the consumer is Postponed pending real provider child IDs. Its dependency table names this parent's required modules; resolve and add actual child dependencies during decomposition, preserving current edges. t1863 explicitly audits this supplementary consumer and its hold in addition to the original module rows.
+
+> **✉ note:t1853_2** id=2026-10-12T14:31:16Z.a09316de5edfc2ea9be49a09 from=t1853_2 from_verified=yes at=2026-10-12T14:31:16Z base=7229dee868985aafae8cd16e493614d1904311b5 base_branch=main dirty=no host=omg16
+>
+> | For M6.3 (`onboard adopt`): M2.2's rewriter landed in f096db065 (contract in the proposal at 7229dee86). Advisory, as of that tree.
+> | 
+> | - annot.PlanCovers / File.Placement give the fixed per-language insertion:
+> |   - bash: after the shebang and the header comments
+> |   - Python: after the module docstring
+> |   - Go: after the package clause
+> |   - Kotlin: after the imports, or inside the member's testmap:unit block
+> | - Write with one annot.Apply per file, carrying f.Snapshot().
+> | - annot.ErrNoLeader (ParseFile on a file of no known language) maps to ADOPT_SKIP:<path>|no-leader.
+> | - A file whose lexical context is uncertain (File.Ctx.Uncertain / annot.ErrUncertainContext) is never written.
+> | - *annot.ConflictError is REWRITE_CONFLICT, exit 75.
+> | 
+> | No human-only step was met.
