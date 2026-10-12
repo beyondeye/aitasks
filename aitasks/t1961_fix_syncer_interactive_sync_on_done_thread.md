@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1911
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-12 21:46
-updated_at: 2026-10-12 22:03
+updated_at: 2026-10-12 22:23
 ---
 
 ## Origin
@@ -36,3 +37,8 @@ The t1955 tests stub `run_interactive_sync` entirely (`tests/test_syncer_rows.py
 ## Suggested fix
 
 Call `self._tick_refresh()` directly in `on_done` (or `self.call_later(self._tick_refresh)`), since the callback already runs on the app thread. Add a test that drives the REAL `run_interactive_sync` through `App.suspend` with a suspend-capable fake driver (see `_fake_driver` in `tests/test_board_run_editor.py`), `find_terminal` returning None and `subprocess.call` stubbed, then asserts that the refresh ran and the worker did not error.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-12T19:23:22Z status=pass attempt=1 type=human
