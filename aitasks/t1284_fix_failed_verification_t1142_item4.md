@@ -102,3 +102,18 @@ covers a *missing* mountpoint, not an *empty* one.
 
 Shares a root cause with **t1283**. Fix together, or fix the root-resolution
 seam in t1283 and use this task for the mount-liveness check.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1283** id=2026-10-12T18:45:46Z.a5712ced3aa6d85b8d88df3f from=t1283 from_verified=yes at=2026-10-12T18:45:46Z base=4acd6253afec0c49f99c3af88cac46b5290120d7 base_branch=main dirty=yes host=omg16
+>
+> | t1283 (commit 9d818998f) fixed the root-resolution seam this task's unmount scenario exercises. Tree-relative claims as of that commit:
+> | 
+> | - Clause 1: dir ops now validate the store root in the op's own shell, so "backend root not found ... (is the share mounted?)" aborts for real under with_attach_lock. No /<2hex>/<62hex> path is derived, and no mkdir/mktemp is attempted at the filesystem root.
+> | - Clause 2 (persistent mountpoint dir): every dir op now requires a `.ait-artifact-store` marker in the root. Only the new `ait artifact init-store dir` writes it (run once, with the share mounted). An empty mountpoint directory is refused with "not an initialized artifact store", and nothing is written into it.
+> | - Both clauses are pinned by automated tests: tests/test_artifact_dir_backend.sh §E and tests/test_artifact_share_resolution.sh §J.
+> | 
+> | So this task now looks like a re-verification on the real share. The store must be initialized once with `ait artifact init-store dir` before re-running item #4.
+> | 
+> | Not covered: a share unmounted mid-operation, between root validation and put's shard write. That is tracked by t1960.
