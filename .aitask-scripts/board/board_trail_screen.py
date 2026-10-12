@@ -20,7 +20,8 @@ does. Two things are deliberately host policy rather than shared code:
 ``run_dialog_command`` lives here too (parent plan "Scope decisions"): every
 AgentCommandScreen "run" branch — the board's pick / create / brainstorm /
 work-report launches as well as the trail launch — dispatches through it, and
-the host's ``_after_dialog_command(refocus_filename)`` hook owns the refresh.
+the host's ``_after_dialog_command(refocus_filename)`` hook owns the refresh
+and its ``_suspend_sync_guard(what)`` decides whether a suspended run may start.
 
 **Patch targets.** The trail launch, drift, discovery and dialog-dispatch
 names (``discover_trails``, ``_trail_versions``, ``load_trail_blob``,
@@ -218,6 +219,16 @@ class TrailHost(Protocol):
     def _banner_budget(self) -> int: ...
 
     def _after_dialog_command(self, refocus_filename: str = "") -> None: ...
+
+    def _suspend_sync_guard(self, what: str):
+        """Context manager yielding whether a suspended launch may run.
+
+        The host owns sync coordination for ``run_dialog_command``'s
+        suspended child (t1955): True means proceed (any lock it takes is
+        held until the block exits), False means refused and already
+        notified.
+        """
+        ...
 
     def _trail_task_target(self) -> str | None: ...
 
@@ -1458,14 +1469,21 @@ class TrailScreenMixin:
         column-scoped work-report launch, which has no task file).
         ``error_notice`` is None for the non-agent TUI launches (create /
         brainstorm), whose non-zero exit is an ordinary cancel, not a failure.
+
+        The suspended run is under the host's ``_suspend_sync_guard``
+        (t1955): on the board it never overlaps a task-data sync. A refused
+        run launches nothing and skips the refresh hook.
         """
         args = ["sh", "-c", full_command]
         terminal = find_terminal()
         if terminal:
             spawn_in_terminal(terminal, args)
         else:
-            with self.suspend():
-                ret = subprocess.call(args)
+            with self._suspend_sync_guard("launch") as allowed:
+                if not allowed:
+                    return
+                with self.suspend():
+                    ret = subprocess.call(args)
             if ret != 0 and error_notice:
                 self.notify(error_notice, severity="error")
             self._after_dialog_command(refocus_filename)

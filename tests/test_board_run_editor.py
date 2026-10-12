@@ -18,6 +18,15 @@ plan file. It must match the containment t1936 gave codebrowser's
   sync whose session could not be proven stopped refuses edits and syncs
   until the probe proves it gone.
 
+The board's other suspend paths share that guard (``_suspend_sync_guard``,
+t1955): the no-terminal pick and code-agent launches, the dialog "run"
+dispatcher (``run_dialog_command``) and the conflict dialog's interactive
+sync. Each runs a child that commits task data, so each is refused while a
+sync is in flight or a stray may still run, holds the lock for the child's
+whole lifetime (a sync started meanwhile waits), and decides at execution —
+inside the worker — not when it was scheduled. ``SuspendedLaunchTests`` runs
+every case over all four launch paths.
+
 Every test boots a real Textual app that borrows the REAL decorated workers —
 from the ``board_fixture``-bound board module, never the live tree — and
 drives them through the real ``App.suspend`` with a stand-in driver and a
@@ -132,11 +141,17 @@ class _EditorHostBase(App):
 
 
 def _host_class(ab):
-    """Host borrowing the real editor/sync workers from the bound module ``ab``."""
+    """Host borrowing the real editor/sync/launch workers from ``ab``."""
     return type("_EditorHost", (_EditorHostBase,), {
         "run_editor": ab.KanbanApp.run_editor,
         "_run_sync": ab.KanbanApp._run_sync,
         "_stray_sync_blocks": ab.KanbanApp._stray_sync_blocks,
+        "_suspend_sync_guard": ab.KanbanApp._suspend_sync_guard,
+        "run_aitask_pick": ab.KanbanApp.run_aitask_pick,
+        "run_codeagent_operation": ab.KanbanApp.run_codeagent_operation,
+        "run_dialog_command": ab.KanbanApp.run_dialog_command,
+        "_after_dialog_command": ab.KanbanApp._after_dialog_command,
+        "_run_interactive_sync_shared": ab.KanbanApp._run_interactive_sync_shared,
     })
 
 
@@ -319,6 +334,189 @@ def _run_stray_sequence(ab, stray: SyncResult) -> dict:
 
     asyncio.run(runner())
     return out
+
+
+#: The board's suspended launch paths (t1955), each started as its real worker.
+LAUNCHES = {
+    "pick": lambda app: app.run_aitask_pick(FILE.name),
+    "resume": lambda app: app.run_codeagent_operation("resume", FILE.name),
+    "dialog": lambda app: app.run_dialog_command(
+        "agent-cmd", refocus_filename=FILE.name),
+    "interactive_sync": lambda app: app._run_interactive_sync_shared(),
+}
+
+
+def _raw_sync_thread(app):
+    """A sync on a plain thread (the auto-sync / ``_do_rename_task`` shape).
+
+    Not a Textual worker on purpose: an exclusive default-group launch worker
+    would cancel a ``_run_sync`` WORKER, but cancelling a thread worker never
+    stops its thread — the plain thread is the faithful in-flight sync.
+    """
+    raw = type(app)._run_sync.__wrapped__
+    ctx = contextvars.copy_context()  # the body uses self.app
+    thread = threading.Thread(target=ctx.run, args=(raw, app),
+                              kwargs={"show_notification": False})
+    thread.start()
+    return thread
+
+
+def _run_launch(ab, kind, *, sync_in_flight=False, sync_mid_launch=False,
+                stray=None):
+    """Run one launch worker through the real ``App.suspend``.
+
+    ``sync_in_flight``: a raw-thread sync is blocked in ``run_sync_batch``
+    before the launch starts. ``sync_mid_launch``: one is started from inside
+    the child (``subprocess.call``), i.e. while the board is suspended.
+    ``stray``: ``{"running": bool}`` — a recorded stray session 4242 is set
+    AFTER the worker is scheduled and before it runs (the execution boundary),
+    with the probe answering ``running``.
+
+    Returns ``(events, argvs, notices, result)``; ``events`` is the snapshot
+    taken when the launch worker ended.
+    """
+    events: list[str] = []
+    argvs: list[list[str]] = []
+    notices: list[tuple] = []
+    result: dict = {}
+    sync = _SyncStandIn()
+    holder: dict = {}
+
+    def recorded_call(argv, **kwargs):
+        events.append("call")
+        argvs.append(list(argv))
+        if sync_mid_launch:
+            app = holder["app"]
+            holder["thread"] = _raw_sync_thread(app)
+            result["attempted"] = app._sync_edit_lock.attempting.wait(5)
+            result["entered_while_open"] = sync.entered.wait(0.3)
+            sync.release.set()
+        return 0
+
+    def interactive(app, on_done=None, repo_root=None):
+        # The no-terminal shape of run_interactive_sync: suspend, run, refresh.
+        with app.suspend():
+            recorded_call(["./ait", "sync"])
+        if on_done is not None:
+            on_done()
+
+    async def runner():
+        app = _host_class(ab)(events)
+        holder["app"] = app
+
+        def notify(message, **kwargs):
+            events.append("notify")
+            notices.append((message, kwargs.get("severity")))
+
+        probe = stray or {"running": False}
+        async with app.run_test() as pilot:
+            with patch.object(app, "notify", notify), \
+                    patch.object(ab, "run_sync_batch", sync), \
+                    patch.object(ab, "sync_session_running",
+                                 lambda sid: probe["running"]), \
+                    patch.object(ab, "find_terminal", return_value=None), \
+                    patch.object(ab.board_trail_screen, "find_terminal",
+                                 return_value=None), \
+                    patch.object(ab, "run_interactive_sync", interactive):
+                if sync_in_flight:
+                    holder["thread"] = _raw_sync_thread(app)
+                    result["sync_entered"] = await asyncio.to_thread(
+                        sync.entered.wait, 5)
+                with patch.object(app, "_driver", _fake_driver(events)), \
+                        patch.object(ab.subprocess, "call", recorded_call):
+                    worker = LAUNCHES[kind](app)
+                    if stray is not None:
+                        app._stray_sync_session = 4242
+                    await worker.wait()
+                await pilot.pause()
+                result["events"] = list(events)
+                result["refocused"] = list(app.refocused)
+                result["calls_before_release"] = sync.calls
+                sync.release.set()
+                thread = holder.get("thread")
+                if thread is not None:
+                    # Off the loop: the raw sync body ends in call_from_thread.
+                    result["entered_after"] = await asyncio.to_thread(
+                        sync.entered.wait, 5)
+                    await asyncio.to_thread(thread.join, 5)
+                    result["thread_alive"] = thread.is_alive()
+                await pilot.pause()
+                result["sync_calls"] = sync.calls
+                result["stray_after"] = app._stray_sync_session
+                result["lock_free_after"] = app._sync_edit_lock.is_free()
+
+    asyncio.run(runner())
+    return result["events"], argvs, notices, result
+
+
+class SuspendedLaunchTests(bf.FixtureBoardTestBase, unittest.TestCase):
+    """Every board suspend path coordinates with syncs like ``run_editor``."""
+
+    def test_launch_runs_and_reloads_without_a_sync(self):
+        # Negative control for the refusals below.
+        for kind in LAUNCHES:
+            with self.subTest(kind=kind):
+                events, argvs, notices, result = _run_launch(self.ab, kind)
+                self.assertEqual(events, ["suspend", "call", "resume", "load"])
+                self.assertEqual(len(argvs), 1)
+                self.assertEqual(notices, [])
+                self.assertTrue(result["lock_free_after"])
+
+    def test_launch_refused_while_a_sync_is_in_flight(self):
+        for kind in LAUNCHES:
+            with self.subTest(kind=kind):
+                events, argvs, notices, result = _run_launch(
+                    self.ab, kind, sync_in_flight=True)
+                self.assertTrue(result["sync_entered"])
+                self.assertEqual(argvs, [])
+                self.assertEqual(events, ["notify"])
+                self.assertEqual(notices[0][1], "warning")
+                self.assertIn("Sync in progress", notices[0][0])
+                self.assertEqual(result["refocused"], [])
+                # The in-flight sync is untouched and finishes.
+                self.assertFalse(result["thread_alive"])
+                self.assertEqual(result["sync_calls"], 1)
+                self.assertTrue(result["lock_free_after"])
+
+    def test_sync_started_during_the_child_waits_for_it(self):
+        for kind in LAUNCHES:
+            with self.subTest(kind=kind):
+                _, argvs, _, result = _run_launch(
+                    self.ab, kind, sync_mid_launch=True)
+                self.assertEqual(len(argvs), 1)
+                self.assertTrue(result["attempted"],
+                                "sync thread never reached the lock")
+                self.assertFalse(result["entered_while_open"],
+                                 "sync ran while the child was running")
+                self.assertTrue(result["entered_after"])
+                self.assertFalse(result["thread_alive"])
+                self.assertTrue(result["lock_free_after"])
+
+    def test_stray_recorded_after_scheduling_refuses_at_execution(self):
+        # The stray lands after the worker was scheduled: the guard runs in
+        # the worker body, so the launch is still refused.
+        for kind in LAUNCHES:
+            with self.subTest(kind=kind):
+                events, argvs, notices, result = _run_launch(
+                    self.ab, kind, stray={"running": True})
+                self.assertEqual(argvs, [])
+                self.assertEqual(events, ["notify"])
+                self.assertEqual(notices[0][1], "error")
+                self.assertIn("session 4242", notices[0][0])
+                expected = "sync" if kind == "interactive_sync" else "launch"
+                self.assertIn(f"{expected} refused", notices[0][0])
+                self.assertEqual(result["stray_after"], 4242)
+                self.assertTrue(result["lock_free_after"])
+
+    def test_stray_proven_gone_lets_the_launch_run(self):
+        for kind in LAUNCHES:
+            with self.subTest(kind=kind):
+                events, argvs, notices, result = _run_launch(
+                    self.ab, kind, stray={"running": False})
+                self.assertEqual(events, ["suspend", "call", "resume", "load"])
+                self.assertEqual(notices, [])
+                self.assertIsNone(result["stray_after"])
+                self.assertTrue(result["lock_free_after"])
 
 
 @unittest.skipIf(sys.platform == "win32", "shlex-split $EDITOR is POSIX-only")

@@ -10,11 +10,13 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
+import contextvars
 import json
 import os
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -42,9 +44,12 @@ import agent_launch_utils  # noqa: E402
 from agent_launch_utils import AitasksSession, TmuxLaunchConfig  # noqa: E402
 import syncer_app  # noqa: E402
 from sync_action_runner import (  # noqa: E402
+    CONFLICT_CHOICE_INTERACTIVE,
     DATA_CONFLICT_WINDOW_NAME,
     STATUS_CONFLICT,
     STATUS_DEFERRED,
+    STATUS_NOTHING,
+    STATUS_TIMEOUT,
     SyncConflictScreen,
     SyncResult,
 )
@@ -3333,6 +3338,376 @@ class AgentRunInTerminalTests(_TabbedShellBase):
                     self.assertTrue(app.is_running)
 
         self._run(runner())
+
+
+class _ProbeLock:
+    """A real lock that reports every BLOCKING acquire attempt.
+
+    ``attempting`` is the handshake proving a sync thread reached the lock
+    while the child was open — without it, "the sync has not run yet" could
+    just mean "not scheduled yet". The guards' non-blocking acquires never
+    set it.
+    """
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self.attempting = threading.Event()
+
+    def acquire(self, blocking=True, timeout=-1):
+        if blocking:
+            self.attempting.set()
+        return self._lock.acquire(blocking, timeout)
+
+    def release(self):
+        self._lock.release()
+
+    def __enter__(self):
+        self.acquire()
+        return self
+
+    def __exit__(self, *exc):
+        self.release()
+
+
+class _SyncStandIn:
+    """``run_sync_batch`` stand-in: returns queued results (last one repeats),
+    optionally blocking until ``release`` is set; ``entered`` marks a call."""
+
+    def __init__(self, *results: SyncResult, block: bool = False):
+        self.results = list(results) or [SyncResult(status=STATUS_NOTHING)]
+        self.entered = threading.Event()
+        self.release = threading.Event()
+        if not block:
+            self.release.set()
+        self.calls = 0
+
+    def __call__(self, *args, **kwargs) -> SyncResult:
+        self.calls += 1
+        self.entered.set()
+        self.release.wait(timeout=10)
+        return self.results.pop(0) if len(self.results) > 1 else self.results[0]
+
+
+STRAY = SyncResult(
+    status=STATUS_TIMEOUT, stray_session=4242,
+    error_message="sync timed out after 30s; its processes could not be "
+                  "confirmed stopped (session 4242)")
+
+
+class StraySyncTests(_TabbedShellBase):
+    """The syncer's stray-sync containment and sync serialisation (t1955).
+
+    A timed-out sync whose session could not be proven stopped blocks ITS
+    repo's syncs and every agent launch on it until the probe proves the
+    session gone; syncs never overlap each other or a suspended child; and
+    every guard decides where the operation runs (the scheduled worker, the
+    launch callback), so a stray recorded after the choice still refuses.
+    """
+
+    agent_seams = DataConflictAgentTests.agent_seams
+    _two_repos = DataConflictAgentTests._two_repos
+    _conflict = DataConflictAgentTests._conflict
+    FILES = DataConflictAgentTests.FILES
+    _capture_notices = staticmethod(AgentRunInTerminalTests._capture_notices)
+    _open_conflict_agent = AgentRunInTerminalTests._open_conflict_agent
+
+    SINGLE_ROW = RowSpec("aitask-data", "", "aitask-data", "")
+    SINGLE_TARGET = ActionTarget(None, None, "")
+
+    @contextlib.contextmanager
+    def sync_seams(self, sync: _SyncStandIn, probe: dict):
+        with mock.patch.object(syncer_app, "run_sync_batch", sync), \
+                mock.patch.object(syncer_app, "sync_session_running",
+                                  lambda sid: probe["running"]):
+            yield
+
+    async def _sync(self, app, pilot, row, target):
+        app._sync_data_worker(row, target)
+        await self.settle(app, pilot)
+
+    @staticmethod
+    def _raw_sync_thread(app, row, target):
+        """The data-sync body on a plain thread, off any Textual worker."""
+        raw = type(app)._sync_data_worker.__wrapped__
+        ctx = contextvars.copy_context()
+        thread = threading.Thread(target=ctx.run, args=(raw, app, row, target))
+        thread.start()
+        return thread
+
+    def _record(self, app, root, sid=4242):
+        app._stray_sync_sessions[syncer_app._repo_key(root)] = sid
+
+    # ------------------------------------------------------ data sync
+
+    def test_stray_timeout_skips_syncs_until_the_probe_clears_it(self):
+        async def runner():
+            sync = _SyncStandIn(STRAY, SyncResult(status=STATUS_NOTHING))
+            probe = {"running": True}
+            row, target = self.SINGLE_ROW, self.SINGLE_TARGET
+            with self.sync_seams(sync, probe):
+                async with self.booted(repos=1) as (app, pilot):
+                    notices = self._capture_notices(app)
+                    await self._sync(app, pilot, row, target)
+                    self.assertEqual(app._stray_sync_sessions,
+                                     {syncer_app._repo_key(None): 4242})
+                    self.assertEqual(notices[-1][1], "error")
+                    self.assertIn("session 4242", notices[-1][0])
+
+                    notices.clear()
+                    await self._sync(app, pilot, row, target)
+                    self.assertEqual(sync.calls, 1)
+                    self.assertIn("Sync skipped", notices[-1][0])
+                    self.assertEqual(notices[-1][1], "error")
+
+                    probe["running"] = False
+                    await self._sync(app, pilot, row, target)
+                    self.assertEqual(sync.calls, 2)
+                    self.assertEqual(app._stray_sync_sessions, {})
+                    self.assertTrue(app._sync_data_lock.acquire(blocking=False))
+                    app._sync_data_lock.release()
+
+        self._run(runner())
+
+    def test_a_stray_blocks_only_its_own_repo(self):
+        async def runner():
+            sessions, row1, target1 = self._two_repos()
+            row0 = RowSpec("r0", sessions[0].key, "aitask-data", "repo0")
+            target0 = ActionTarget(Path("/tmp/repo0"), None, "repo0")
+            sync = _SyncStandIn(STRAY, SyncResult(status=STATUS_NOTHING))
+            with self.sync_seams(sync, {"running": True}):
+                async with self.booted(sessions=sessions) as (app, pilot):
+                    self._capture_notices(app)
+                    await self._sync(app, pilot, row1, target1)
+                    await self._sync(app, pilot, row0, target0)
+                    self.assertEqual(sync.calls, 2)
+                    await self._sync(app, pilot, row1, target1)
+                    self.assertEqual(sync.calls, 2)
+
+        self._run(runner())
+
+    def test_a_plain_timeout_records_nothing(self):
+        # Negative control: a timeout whose session WAS proven stopped.
+        async def runner():
+            sync = _SyncStandIn(SyncResult(status=STATUS_TIMEOUT,
+                                           error_message="sync timed out"))
+            with self.sync_seams(sync, {"running": True}):
+                async with self.booted(repos=1) as (app, pilot):
+                    notices = self._capture_notices(app)
+                    await self._sync(app, pilot, self.SINGLE_ROW, self.SINGLE_TARGET)
+                    self.assertEqual(app._stray_sync_sessions, {})
+                    self.assertEqual(notices[-1], ("Sync timed out", "warning"))
+                    await self._sync(app, pilot, self.SINGLE_ROW, self.SINGLE_TARGET)
+                    self.assertEqual(sync.calls, 2)
+
+        self._run(runner())
+
+    def test_a_second_sync_waits_for_the_first(self):
+        async def runner():
+            sync = _SyncStandIn(block=True)
+            row, target = self.SINGLE_ROW, self.SINGLE_TARGET
+            with self.sync_seams(sync, {"running": False}):
+                async with self.booted(repos=1) as (app, pilot):
+                    lock = app._sync_data_lock = _ProbeLock()
+                    self._capture_notices(app)
+                    app._sync_data_worker(row, target)
+                    self.assertTrue(await asyncio.to_thread(sync.entered.wait, 5))
+                    # Reset after the first acquisition: from here `attempting`
+                    # can only come from the second worker.
+                    lock.attempting.clear()
+                    # Exclusive group: this cancels the first WORKER, but its
+                    # thread keeps running — only the lock serialises them.
+                    app._sync_data_worker(row, target)
+                    self.assertTrue(
+                        await asyncio.to_thread(lock.attempting.wait, 5),
+                        "second sync never reached the lock while the first was open")
+                    await asyncio.sleep(0.3)
+                    self.assertEqual(sync.calls, 1)
+                    sync.release.set()
+                    await self.settle(app, pilot)
+                    for _ in range(50):
+                        if sync.calls == 2:
+                            break
+                        await asyncio.sleep(0.05)
+                    self.assertEqual(sync.calls, 2)
+
+        self._run(runner())
+
+    # --------------------------------------- launches: execution boundary
+
+    def test_stray_recorded_after_the_interactive_choice_refuses_it(self):
+        async def runner():
+            sessions, row, target = self._two_repos()
+            ctx = DataConflictContext(target, self.FILES)
+            for running, expected in ((True, []), (False, [Path("/tmp/repo1")])):
+                with self.agent_seams() as calls, \
+                        self.sync_seams(_SyncStandIn(), {"running": running}):
+                    async with self.booted(sessions=sessions) as (app, pilot):
+                        notices = self._capture_notices(app)
+                        app._on_conflict_resolved(CONFLICT_CHOICE_INTERACTIVE, ctx)
+                        # The worker is scheduled, not yet run.
+                        self._record(app, target.root)
+                        await self.settle(app, pilot)
+                        self.assertEqual(calls.interactive, expected)
+                        if running:
+                            self.assertTrue(any(
+                                "sync refused" in m and sev == "error"
+                                for m, sev in notices), notices)
+                        else:
+                            self.assertEqual(app._stray_sync_sessions, {})
+
+        self._run(runner())
+
+    def test_stray_recorded_after_the_agent_dialog_opened_refuses_the_launch(self):
+        cfg = TmuxLaunchConfig(session="s", window="agent-syncfix-data-conflict",
+                               new_session=False, new_window=True)
+
+        async def runner():
+            sessions, row, target = self._two_repos()
+            for result in ("run", cfg):
+                for running in (True, False):
+                    seams = Seams()
+                    with self.agent_seams() as calls, \
+                            self.sync_seams(_SyncStandIn(), {"running": running}):
+                        async with self.booted(sessions=sessions, seams=seams) as (app, pilot):
+                            notices = self._capture_notices(app)
+                            _, spy = await self._open_conflict_agent(
+                                app, pilot, row, target)
+                            self._record(app, target.root)
+                            spy.dismiss(result)
+                            await self.settle(app, pilot)
+                    launched = len(calls.spawns) + len(seams.launches)
+                    with self.subTest(result=result, running=running):
+                        self.assertEqual(launched, 0 if running else 1)
+                        if running:
+                            self.assertTrue(any(
+                                "launch refused" in m and sev == "error"
+                                for m, sev in notices), notices)
+
+        self._run(runner())
+
+    # --------------------------------- launches: a sync during the child
+
+    def _assert_sync_waited(self, seen: dict, thread_state: dict):
+        self.assertTrue(seen["attempted"],
+                        "sync thread never reached the lock while the child was open")
+        self.assertFalse(seen["entered_while_open"],
+                         "sync ran while the inline child was running")
+        self.assertTrue(thread_state["entered_after"])
+        self.assertFalse(thread_state["alive"])
+
+    def test_sync_started_during_interactive_sync_waits_for_it(self):
+        async def runner():
+            sync = _SyncStandIn()
+            row, target = self.SINGLE_ROW, self.SINGLE_TARGET
+            seen: dict = {}
+            holder: dict = {}
+
+            def interactive(app, on_done=None, repo_root=None):
+                holder["thread"] = self._raw_sync_thread(holder["app"], row, target)
+                seen["attempted"] = holder["app"]._sync_data_lock.attempting.wait(5)
+                seen["entered_while_open"] = sync.entered.wait(0.3)
+
+            with self.agent_seams(), self.sync_seams(sync, {"running": False}), \
+                    mock.patch.object(syncer_app, "run_interactive_sync", interactive):
+                async with self.booted(repos=1) as (app, pilot):
+                    app._sync_data_lock = _ProbeLock()
+                    holder["app"] = app
+                    self._capture_notices(app)
+                    await app._run_interactive_sync_shared(target).wait()
+                    state = {
+                        "entered_after": await asyncio.to_thread(sync.entered.wait, 5)}
+                    await asyncio.to_thread(holder["thread"].join, 5)
+                    state["alive"] = holder["thread"].is_alive()
+                    await self.settle(app, pilot)
+            self._assert_sync_waited(seen, state)
+
+        self._run(runner())
+
+    def test_sync_started_during_an_inline_agent_waits_for_it(self):
+        async def runner():
+            sessions, row, target = self._two_repos()
+            sync = _SyncStandIn()
+            seen: dict = {}
+            holder: dict = {}
+
+            def call(argv, **kwargs):
+                holder["thread"] = self._raw_sync_thread(holder["app"], row, target)
+                seen["attempted"] = holder["app"]._sync_data_lock.attempting.wait(5)
+                seen["entered_while_open"] = sync.entered.wait(0.3)
+                return 0
+
+            with self.agent_seams() as calls, \
+                    self.sync_seams(sync, {"running": False}):
+                calls.terminal = None
+                async with self.booted(sessions=sessions) as (app, pilot):
+                    app._sync_data_lock = _ProbeLock()
+                    holder["app"] = app
+                    self._capture_notices(app)
+                    _, spy = await self._open_conflict_agent(app, pilot, row, target)
+                    with mock.patch.object(app, "suspend", contextlib.nullcontext), \
+                            mock.patch.object(syncer_app.subprocess, "call", call):
+                        spy.dismiss("run")
+                        await pilot.pause()
+                    state = {
+                        "entered_after": await asyncio.to_thread(sync.entered.wait, 5)}
+                    await asyncio.to_thread(holder["thread"].join, 5)
+                    state["alive"] = holder["thread"].is_alive()
+                    await self.settle(app, pilot)
+            self._assert_sync_waited(seen, state)
+
+        self._run(runner())
+
+    # -------------------------------------- the timeout-recovery route
+
+    def _recovery_route(self, sessions, row, target):
+        """Stray timeout → `a` → failure modal → recovery agent → "run"."""
+        async def runner():
+            out: dict = {}
+            probe = {"running": True}
+            sync = _SyncStandIn(STRAY)
+            with self.agent_seams() as calls, self.sync_seams(sync, probe):
+                async with self.booted(sessions=sessions) as (app, pilot):
+                    notices = self._capture_notices(app)
+                    await self._sync(app, pilot, row, target)
+                    out["failure"] = app._last_failure
+                    for attempt in ("refused", "recovered"):
+                        if attempt == "recovered":
+                            probe["running"] = False
+                        _SpyAgentScreen.instances = []
+                        notices.clear()
+                        app.action_agent_resolve()
+                        await pilot.pause()
+                        out[f"{attempt}_modal"] = type(app.screen)
+                        await pilot.click("#btn_failure_launch")
+                        await pilot.pause()
+                        _SpyAgentScreen.instances[0].dismiss("run")
+                        await self.settle(app, pilot)
+                        out[f"{attempt}_spawns"] = len(calls.spawns)
+                        out[f"{attempt}_notices"] = list(notices)
+                    out["final"] = dict(app._stray_sync_sessions)
+            return out
+
+        return self._run(runner())
+
+    def _assert_recovery(self, out):
+        self.assertIsInstance(out["failure"], SyncFailureContext)
+        self.assertIs(out["refused_modal"], SyncFailureScreen)
+        self.assertEqual(out["refused_spawns"], 0)
+        self.assertTrue(any("launch refused" in m and sev == "error"
+                            for m, sev in out["refused_notices"]),
+                        out["refused_notices"])
+        self.assertEqual(out["recovered_spawns"], 1)
+        self.assertEqual(out["final"], {})
+
+    def test_recovery_agent_refused_while_the_stray_survives_single_repo(self):
+        # Recorded under root=None, launched under Path("."): one repo key.
+        out = self._recovery_route([sess("/tmp/repo0", "repo0")],
+                                   self.SINGLE_ROW, self.SINGLE_TARGET)
+        self._assert_recovery(out)
+
+    def test_recovery_agent_refused_while_the_stray_survives_multi_repo(self):
+        sessions, row, target = self._two_repos()
+        self._assert_recovery(self._recovery_route(sessions, row, target))
 
 
 if __name__ == "__main__":

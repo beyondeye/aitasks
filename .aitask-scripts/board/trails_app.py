@@ -41,6 +41,7 @@ interpolated, never copied.
 
 from __future__ import annotations
 
+import contextlib
 import shlex
 import sys
 from pathlib import Path
@@ -386,6 +387,16 @@ class TrailsApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
         """`run_dialog_command` suspend-path hook: reload tasks and re-render."""
         self._load_trail_tasks()
         self.refresh_board(refocus_filename=refocus_filename)
+
+    @contextlib.contextmanager
+    def _suspend_sync_guard(self, what: str):
+        """`run_dialog_command` suspend-path guard: always proceed.
+
+        This app never runs a task-data sync (its `S` is refused by the
+        capability guard), so there is nothing for a suspended launch to
+        overlap (t1955).
+        """
+        yield True
 
     def _live_member_id(self) -> str:
         """The focused live local member's own id, or "" — a ghost (archived /

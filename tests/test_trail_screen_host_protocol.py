@@ -72,7 +72,8 @@ EXPECTED_MEMBERS = {
     "manager", "tasks_dir", "base_filter", "sub_title", "title",
     "refresh_board", "_focused_card", "_modal_is_active", "_get_focused_col_id",
     "_queue_refocus", "apply_filter", "refresh_bindings", "_banner_budget",
-    "_after_dialog_command", "_trail_task_target", "notify", "push_screen",
+    "_after_dialog_command", "_suspend_sync_guard", "_trail_task_target",
+    "notify", "push_screen",
     "pop_screen", "set_interval", "call_after_refresh", "query_one", "query",
     "suspend",
 }
@@ -669,6 +670,21 @@ class DialogCommandHookTests(bf.FixtureBoardTestBase, unittest.TestCase):
         _spawn, call = self._dispatch(app, None, refocus_filename="t1_a.md")
         call.assert_called_once_with(["sh", "-c", "run-me"])
         app._after_dialog_command.assert_called_once_with("t1_a.md")
+
+    def test_suspend_path_runs_nothing_when_the_host_guard_refuses(self):
+        # t1955: the host's `_suspend_sync_guard` gates the suspended child.
+        app = MagicMock()
+        app._suspend_sync_guard.return_value.__enter__.return_value = False
+        _spawn, call = self._dispatch(app, None, refocus_filename="t1_a.md")
+        app._suspend_sync_guard.assert_called_once_with("launch")
+        call.assert_not_called()
+        app._after_dialog_command.assert_not_called()
+
+    def test_trails_host_guard_always_allows(self):
+        # The stand-alone trails app runs no sync, so nothing can overlap.
+        guard = bf.load_trails_app().TrailsApp._suspend_sync_guard
+        with guard(MagicMock(), "launch") as allowed:
+            self.assertIs(allowed, True)
 
     def test_terminal_path_leaves_the_refresh_to_the_dialog_callback(self):
         app = MagicMock()

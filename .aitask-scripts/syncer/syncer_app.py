@@ -13,10 +13,12 @@ Fetched column shows each repo's age since its last successful fetch.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import os
 import shlex
 import subprocess
 import sys
+import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime
@@ -80,6 +82,7 @@ from cross_repo_settings import (  # noqa: E402
     diff_across_repos,
     plan_push,
     read_operation_defaults,
+    repo_key,
 )
 from agent_command_screen import AgentCommandScreen  # noqa: E402
 from sync_action_runner import (  # noqa: E402
@@ -104,6 +107,7 @@ from sync_action_runner import (  # noqa: E402
     build_data_conflict_prompt,
     run_interactive_sync,
     run_sync_batch,
+    sync_session_running,
 )
 from sync_failure_screen import SyncFailureContext, SyncFailureScreen  # noqa: E402
 from upgrade_screens import (  # noqa: E402
@@ -337,6 +341,16 @@ class ActionTarget:
     root: Path | None
     branch: str | None
     label: str
+
+
+def _repo_key(root: Path | None) -> str:
+    """One stray-sync record key per repo, whichever spelling reaches us (t1955).
+
+    The same repo arrives as ``None`` (a single-repo sync target), ``Path(".")``
+    (the single-repo failure route) or an absolute project root; all go through
+    the shared ``repo_key`` identity (``AitasksSession.key``'s rule).
+    """
+    return repo_key(root or Path("."))
 
 
 @dataclass(frozen=True)
@@ -891,6 +905,13 @@ class SyncerApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._versions_gen = 0
         self._versions_active = False
         self._pending_versions: object = PENDING_UNSET
+        # A data sync never overlaps another or a suspended child, and a
+        # timed-out sync whose session could not be proven stopped blocks ITS
+        # repo's syncs and agent launches until sync_session_running proves it
+        # gone (t1955, the board's t1947 rule). Keyed by _repo_key; read and
+        # written only under the lock.
+        self._sync_data_lock = threading.Lock()
+        self._stray_sync_sessions: dict[str, int] = {}
         # Per-repo state, keyed by session key ("" in single-repo mode).
         self._snapshots: dict[str, dict[str, Any]] = {}
         # Success stamps drive the Fetched age DISPLAY; attempt stamps drive
@@ -2243,10 +2264,84 @@ class SyncerApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
     # ------------------------------------------------- aitask-data sync flow
 
+    def _stray_sync_blocks(self, root: Path | None) -> int | None:
+        """The stray session still blocking ``root``'s repo, else None (t1955).
+
+        Caller holds ``_sync_data_lock``. Re-probes on every call and drops the
+        record only once ``sync_session_running`` proves the session empty; an
+        unavailable probe keeps it blocking (fail closed).
+        """
+        key = _repo_key(root)
+        sid = self._stray_sync_sessions.get(key)
+        if sid is None:
+            return None
+        if sync_session_running(sid):
+            return sid
+        del self._stray_sync_sessions[key]
+        return None
+
+    @contextlib.contextmanager
+    def _task_data_guard(self, root: Path | None, what: str, label: str = ""):
+        """Hold ``_sync_data_lock`` across an operation on ``root``'s task data.
+
+        Yields True with the lock held until the block exits, or False — lock
+        NOT held, user notified — when a sync is in flight or a stray session
+        blocks the repo. Non-blocking: every caller runs on the event loop,
+        which must not wait on a sync thread; a sync requested meanwhile waits
+        in ``_sync_data_worker`` instead. Used at the execution boundary (the
+        worker / launch callback that runs the child), never at choice time.
+        """
+        if not self._sync_data_lock.acquire(blocking=False):
+            self.notify(
+                self._prefix(label, f"Sync in progress — {what} again when it finishes"),
+                severity="warning",
+            )
+            yield False
+            return
+        try:
+            sid = self._stray_sync_blocks(root)
+            if sid is not None:
+                self.notify(
+                    self._prefix(
+                        label,
+                        f"A timed-out sync (session {sid}) may still be changing "
+                        f"task data — {what} refused until it stops",
+                    ),
+                    severity="error",
+                )
+                yield False
+                return
+            yield True
+        finally:
+            self._sync_data_lock.release()
+
     @work(thread=True, exclusive=True, group="syncer-action")
     def _sync_data_worker(self, row: RowSpec, target: ActionTarget) -> None:
+        """Run one data sync, serialised and stray-aware (t1955).
+
+        The blocking lock makes a second sync (or one requested while a
+        suspended child holds the lock) wait, then see the current state: a
+        stray recorded by the earlier run skips it.
+        """
         try:
-            result = run_sync_batch(repo_root=target.root)
+            with self._sync_data_lock:
+                skipped_for = self._stray_sync_blocks(target.root)
+                if skipped_for is None:
+                    result = run_sync_batch(repo_root=target.root)
+                    if result.stray_session is not None:
+                        self._stray_sync_sessions[_repo_key(target.root)] = (
+                            result.stray_session)
+            if skipped_for is not None:
+                self.call_from_thread(
+                    self.notify,
+                    self._prefix(
+                        target.label,
+                        f"Sync skipped: a timed-out sync (session {skipped_for}) "
+                        "may still be changing task data",
+                    ),
+                    severity="error",
+                )
+                return
             self.call_from_thread(self._on_data_sync_done, row, target, result)
         finally:
             self.call_from_thread(self._set_busy, False)
@@ -2274,7 +2369,15 @@ class SyncerApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 row, "sync", sync_cmd, status,
                 result.error_message or "timeout", result.raw_output,
             )
-            self.notify(self._prefix(label, "Sync timed out"), severity="warning")
+            if result.stray_session is not None:
+                # Names the session: syncs and agent launches on this repo are
+                # now refused until it is proven stopped (t1955).
+                self.notify(
+                    self._prefix(label, f"Sync: {result.error_message}"),
+                    severity="error",
+                )
+            else:
+                self.notify(self._prefix(label, "Sync timed out"), severity="warning")
             self._post_action_refresh(row)
             return
 
@@ -2340,11 +2443,15 @@ class SyncerApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
     @work(exclusive=True, group="syncer-action")
     async def _run_interactive_sync_shared(self, target: ActionTarget) -> None:
-        run_interactive_sync(
-            self.app,
-            on_done=lambda: self.call_from_thread(self._tick_refresh),
-            repo_root=target.root,
-        )
+        # Guarded here, where it runs — not at the conflict choice (t1955).
+        with self._task_data_guard(target.root, "sync", target.label) as allowed:
+            if not allowed:
+                return
+            run_interactive_sync(
+                self.app,
+                on_done=lambda: self.call_from_thread(self._tick_refresh),
+                repo_root=target.root,
+            )
 
     # ---------------------------------------------------- main pull / push
 
@@ -2526,19 +2633,34 @@ class SyncerApp(TuiSwitcherMixin, ShortcutsMixin, App):
         )
 
         def on_launch(result: Any) -> None:
-            if isinstance(result, TmuxLaunchConfig):
-                _, err = launch_in_tmux(screen.full_command, result)
-                if err:
-                    self.notify(err, severity="error")
-                elif result.new_window:
-                    maybe_spawn_minimonitor(result.session, result.window)
-            elif result == "run":
-                # screen.full_command, never full_cmd: the dialog stores the
-                # user's edits and agent/profile changes there (t1225).
-                self._run_agent_in_terminal(screen.full_command, project_root)
+            # The one launch boundary for every syncer agent (data-conflict and
+            # failure recovery), guarded when the launch happens, not when it
+            # was chosen (t1955). The lock is held for the whole inline
+            # suspended child; tmux / terminal spawns hold it only to spawn,
+            # but a stray on this repo refuses every launch mode.
+            if isinstance(result, TmuxLaunchConfig) or result == "run":
+                with self._task_data_guard(project_root, "launch") as allowed:
+                    if allowed:
+                        # screen.full_command, never full_cmd: the dialog stores
+                        # the user's edits and agent/profile changes there (t1225).
+                        self._launch_chosen(result, screen.full_command,
+                                            project_root)
             self._tick_refresh()
 
         self.push_screen(screen, on_launch)
+
+    def _launch_chosen(
+        self, result: Any, full_command: str, project_root: Path
+    ) -> None:
+        """Launch the AgentCommandScreen's choice (caller holds the guard)."""
+        if isinstance(result, TmuxLaunchConfig):
+            _, err = launch_in_tmux(full_command, result)
+            if err:
+                self.notify(err, severity="error")
+            elif result.new_window:
+                maybe_spawn_minimonitor(result.session, result.window)
+        else:
+            self._run_agent_in_terminal(full_command, project_root)
 
     def _run_agent_in_terminal(self, full_command: str, project_root: Path) -> None:
         """Run the dialog's finalized command in ``project_root`` (t1915).

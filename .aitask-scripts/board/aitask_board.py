@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import os
 import re
 import sys
@@ -2382,8 +2383,9 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
         # above. Session-only; cleared on view switch, pruned on refresh.
         self.marked = MarkedSelection()
         self._auto_refresh_timer = None
-        # A sync and a suspended $EDITOR never overlap (t1947): _run_sync holds
-        # this around aitask_sync.sh, run_editor across the suspend. A timed-out
+        # A sync and a suspended $EDITOR / agent never overlap (t1947, t1955):
+        # _run_sync holds this around aitask_sync.sh, _suspend_sync_guard
+        # across every suspend that runs a child. A timed-out
         # sync whose session could not be proven stopped leaves its sid in
         # _stray_sync_session, refusing edits and syncs until it is (both read
         # and written only under the lock — see _stray_sync_blocks).
@@ -5024,6 +5026,36 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
         self._stray_sync_session = None
         return False
 
+    @contextlib.contextmanager
+    def _suspend_sync_guard(self, what: str):
+        """Hold ``_sync_edit_lock`` across a suspended child (t1947, t1955).
+
+        Yields True with the lock held, or False — lock NOT held, user
+        notified — when a sync is in flight or an unproven timed-out sync
+        (``_stray_sync_blocks``) may still be running. The acquire is
+        non-blocking: callers run on the event loop, which must not wait on a
+        sync thread, so a sync requested while the child runs (e.g.
+        ``_do_rename_task``'s, from a thread) waits in ``_run_sync`` instead.
+        ``what`` names the refused action in the notices.
+        """
+        if not self._sync_edit_lock.acquire(blocking=False):
+            self.notify(f"Sync in progress — {what} again when it finishes",
+                        severity="warning")
+            yield False
+            return
+        try:
+            if self._stray_sync_blocks():
+                self.notify(
+                    f"A timed-out sync (session {self._stray_sync_session}) may "
+                    f"still be changing task data — {what} refused until it stops",
+                    severity="error",
+                )
+                yield False
+                return
+            yield True
+        finally:
+            self._sync_edit_lock.release()
+
     @work(exclusive=True, group="editor")
     async def run_editor(self, filepath):
         """Suspend the app and open ``filepath`` in $EDITOR.
@@ -5041,12 +5073,10 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
         exception would leave the terminal suspended and end the board
         (worker exit_on_error). A failed launch skips the reload.
 
-        Never overlaps a sync (t1947): ``_sync_edit_lock`` is held across the
-        suspend. The acquire is non-blocking — this runs on the event loop,
-        which must not wait on a sync thread — so an edit during a sync is
-        refused, while a sync requested mid-edit (e.g. ``_do_rename_task``'s,
-        from a thread) waits in ``_run_sync`` until the editor returns. An
-        unproven timed-out sync (``_stray_sync_blocks``) also refuses the edit.
+        Never overlaps a sync (t1947): ``_suspend_sync_guard`` holds
+        ``_sync_edit_lock`` across the suspend, so an edit during a sync (or
+        while a timed-out sync may still run) is refused, and a sync requested
+        mid-edit waits until the editor returns.
         """
         try:
             editor_argv = resolve_editor_argv()
@@ -5054,32 +5084,22 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
             self.notify(str(exc), severity="error")
             return
         filename = Path(filepath).name
-        if not self._sync_edit_lock.acquire(blocking=False):
-            self.notify("Sync in progress — edit again when it finishes",
-                        severity="warning")
-            return
         launch_error: OSError | None = None
-        try:
-            if self._stray_sync_blocks():
+        with self._suspend_sync_guard("edit") as allowed:
+            if not allowed:
+                return
+            try:
+                with self.suspend():
+                    try:
+                        subprocess.call([*editor_argv, str(filepath)])
+                    except OSError as exc:
+                        launch_error = exc
+            except SuspendNotSupported:
                 self.notify(
-                    f"A timed-out sync (session {self._stray_sync_session}) may "
-                    "still be changing task data — edit refused until it stops",
+                    "This environment cannot suspend the TUI to run $EDITOR.",
                     severity="error",
                 )
                 return
-            with self.suspend():
-                try:
-                    subprocess.call([*editor_argv, str(filepath)])
-                except OSError as exc:
-                    launch_error = exc
-        except SuspendNotSupported:
-            self.notify(
-                "This environment cannot suspend the TUI to run $EDITOR.",
-                severity="error",
-            )
-            return
-        finally:
-            self._sync_edit_lock.release()
         if launch_error is not None:
             self.notify(f"Could not launch editor: {launch_error}", severity="error")
             return
@@ -5244,11 +5264,19 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
 
     @work(exclusive=True)
     async def _run_interactive_sync_shared(self):
-        """Run shared interactive sync helper, then refresh board state."""
+        """Run shared interactive sync helper, then refresh board state.
+
+        Under ``_suspend_sync_guard`` (t1955): its inline ``./ait sync`` never
+        overlaps the board's own sync, and never starts on a timed-out sync
+        that may still be running.
+        """
         def reload():
             self.manager.load_tasks()
             self.refresh_board(refresh_locks=True)
-        run_interactive_sync(self.app, on_done=reload)
+        with self._suspend_sync_guard("sync") as allowed:
+            if not allowed:
+                return
+            run_interactive_sync(self.app, on_done=reload)
 
     def _resolve_resume_command(self, task_num: str):
         """Resolve the full resume command via --dry-run, return command string or None."""
@@ -5385,7 +5413,11 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
 
     @work(exclusive=True)
     async def run_aitask_pick(self, filename):
-        """Launch code agent with /aitask-pick for the task."""
+        """Launch code agent with /aitask-pick for the task.
+
+        The suspended (no-terminal) launch runs under ``_suspend_sync_guard``
+        (t1955): the agent commits task data, so it never overlaps a sync.
+        """
         task_num, _ = TaskCard._parse_filename(filename)
         if not task_num:
             return
@@ -5395,8 +5427,11 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
         if terminal:
             spawn_in_terminal(terminal, [wrapper, "invoke", "pick", num])
         else:
-            with self.suspend():
-                ret = subprocess.call([wrapper, "invoke", "pick", num])
+            with self._suspend_sync_guard("launch") as allowed:
+                if not allowed:
+                    return
+                with self.suspend():
+                    ret = subprocess.call([wrapper, "invoke", "pick", num])
             if ret != 0:
                 self.notify(CODEAGENT_FAILURE_NOTICE, severity="error")
             self.manager.load_tasks()
@@ -5404,7 +5439,10 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
 
     @work(exclusive=True)
     async def run_codeagent_operation(self, operation: str, filename: str):
-        """Launch code agent operation for a task in a terminal or suspended app."""
+        """Launch code agent operation for a task in a terminal or suspended app.
+
+        The suspended launch runs under ``_suspend_sync_guard`` (t1955).
+        """
         task_num, _ = TaskCard._parse_filename(filename)
         if not task_num:
             return
@@ -5414,8 +5452,11 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
         if terminal:
             spawn_in_terminal(terminal, [wrapper, "invoke", operation, num])
         else:
-            with self.suspend():
-                ret = subprocess.call([wrapper, "invoke", operation, num])
+            with self._suspend_sync_guard("launch") as allowed:
+                if not allowed:
+                    return
+                with self.suspend():
+                    ret = subprocess.call([wrapper, "invoke", operation, num])
             if ret != 0:
                 self.notify(CODEAGENT_FAILURE_NOTICE, severity="error")
             self.manager.load_tasks()
