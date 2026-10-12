@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: medium
 depends: [t1076_3]
 issue_type: bug
-status: Implementing
+status: Done
 labels: [verification, bug]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -17,7 +17,8 @@ anchor: 1065
 followup_kind: verification_failure
 implemented_with: claudecode/opus5_5
 created_at: 2026-07-28 11:25
-updated_at: 2026-10-12 21:45
+updated_at: 2026-10-12 21:46
+completed_at: 2026-10-12 21:46
 boardidx: 56320
 ---
 
@@ -124,3 +125,14 @@ verify the unmount case.
 > **✅ gate:plan_approved** run=2026-10-12T14:54:43Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-12T18:35:43Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-12T18:45:58Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:27bd10ef7d38fc5a
+
+> **✅ gate:risk_evaluated** run=2026-10-12T18:45:58Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1283/risk_evaluated_2026-10-12T18:45:58Z-risk_evaluated-a1.log`
