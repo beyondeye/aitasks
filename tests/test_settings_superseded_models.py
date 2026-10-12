@@ -582,6 +582,65 @@ class UnreadableConfigTests(_Fixture):
                 self.assertTrue(app.is_running)
         self._run(runner())
 
+    def test_failed_refresh_after_switch_refuses_the_next_save(self):
+        """t1945: memory is behind the switched file, so a later save built on
+        it would put the superseded model back. It is refused until `r`."""
+        _write_json(self.root / LOCAL, {"defaults": {}})
+
+        async def runner():
+            app = self.make_app()
+            async with app.run_test(size=SIZE) as pilot:
+                await pilot.pause()
+                self._wrap_writer(app, LOCAL)
+                await self.press_on(app, pilot, "project", "pick", "o")
+                self.assertTrue(any(m.startswith("Switched pick") and
+                                    "could not refresh" in m
+                                    for m, _sev in self.notes), self.notes)
+                self.assertTrue(app.config_mgr.needs_reload("codeagent"))
+                switched = (self.root / PROJECT).read_bytes()
+                commits = len(self.commits)
+                self.notes.clear()
+
+                app._editing_layer = "project"
+                app._handle_agent_pick({"key": "explain", "value": "claudecode/opus5_5"})
+                self.assertEqual((self.root / PROJECT).read_bytes(), switched)
+                self.assertEqual((self.root / LOCAL).read_text(), "{broken")
+                self.assertEqual(len(self.commits), commits)
+                self.assertEqual([sev for _m, sev in self.notes], ["error"])
+                self.assertIn("Not saved", self.notes[0][0])
+
+                # Fixed and reloaded: the latch is released, and the save keeps
+                # the switch it would otherwise have undone.
+                _write_json(self.root / LOCAL, {"defaults": {}})
+                await pilot.press("r")
+                await pilot.pause()
+                self.assertFalse(app.config_mgr.needs_reload("codeagent"))
+                app._handle_agent_pick({"key": "explain", "value": "claudecode/opus5_5"})
+                self.assertEqual(_defaults(self.root / PROJECT), {
+                    "pick": "claudecode/opus5_5", "explain": "claudecode/opus5_5"})
+                self.assertTrue(app.is_running)
+        self._run(runner())
+
+    def test_failed_refresh_after_unwritten_switch_latches_nothing(self):
+        """`changed` wrote nothing, so memory is not behind any write of ours."""
+        _write_json(self.root / LOCAL, {"defaults": {}})
+
+        async def runner():
+            app = self.make_app()
+            async with app.run_test(size=SIZE) as pilot:
+                await pilot.pause()
+
+                def changed(*_args):
+                    (self.root / LOCAL).write_text("{broken", encoding="utf-8")
+                    return "changed", "claudecode/custom1"
+
+                app.config_mgr.switch_codeagent_default = changed
+                await self.press_on(app, pilot, "project", "pick", "o")
+                self.assertTrue(any("changed on disk" in m and "could not refresh" in m
+                                    for m, _sev in self.notes), self.notes)
+                self.assertFalse(app.config_mgr.needs_reload("codeagent"))
+        self._run(runner())
+
 
 class ShortcutClashTests(_Fixture):
     def test_existing_user_binding_keeps_the_key_and_enter_still_switches(self):

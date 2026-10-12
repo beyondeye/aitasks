@@ -54,7 +54,6 @@ from config_utils import (  # noqa: E402
     deep_merge,
     export_all_configs,
     import_all_configs,
-    load_layered_config,
     load_yaml_config,
     local_path_for,
     metadata_dir,
@@ -558,11 +557,59 @@ def _read_config(path, reader):
         raise ConfigReadError(path, exc) from exc
 
 
-def _read_json_layer(path) -> dict:
-    """Read one JSON config layer ({} when absent); it must be an object."""
+class ConfigStaleError(ConfigReadError):
+    """A write was refused: this config was written but not re-read since.
+
+    Memory is then behind disk, and every writer builds its payload from
+    memory — writing again would silently undo the earlier write.
+    """
+
+
+#: Keys a Settings reader indexes as a container, per JSON config: a layer may
+#: omit one, but one it sets must have this shape (t1945). (container, item).
+#: Only keys a reader depends on — rejecting any other shape would turn a
+#: working boot into a refusal (`column_order` is never read here).
+_CODEAGENT_LAYER_SHAPE = {"defaults": (dict, None)}
+_BOARD_LAYER_SHAPE = {"columns": (list, dict), "settings": (dict, None)}
+
+_JSON_TYPE_NAMES = {dict: "object", list: "array", str: "string",
+                    bool: "boolean", int: "number", float: "number",
+                    type(None): "null"}
+
+
+def _json_type(value) -> str:
+    return _JSON_TYPE_NAMES.get(type(value), type(value).__name__)
+
+
+def _check_layer_shape(path, data: dict, shape: dict) -> None:
+    """Raise ConfigReadError(path) when a key a reader depends on is mistyped."""
+    for key, (kind, item_kind) in shape.items():
+        if key not in data:
+            continue
+        value = data[key]
+        if not isinstance(value, kind):
+            raise ConfigReadError(path, f"'{key}' must be a JSON "
+                                  f"{_JSON_TYPE_NAMES[kind]}, got {_json_type(value)}")
+        if item_kind is not None:
+            for i, item in enumerate(value):
+                if not isinstance(item, item_kind):
+                    raise ConfigReadError(
+                        path, f"'{key}[{i}]' must be a JSON "
+                        f"{_JSON_TYPE_NAMES[item_kind]}, got {_json_type(item)}")
+
+
+def _read_json_layer(path, shape: dict | None = None) -> dict:
+    """Read one JSON config layer ({} when absent); it must be an object.
+
+    With `shape`, the keys it names must also have their declared shape.
+    Validating each layer is enough for the merge: `deep_merge` takes a key
+    from the last layer that sets it, else from correctly shaped defaults.
+    """
     data = _read_config(path, lambda: _load_json(Path(path)))
     if not isinstance(data, dict):
         raise ConfigReadError(path, f"expected a JSON object, got {type(data).__name__}")
+    if shape:
+        _check_layer_shape(path, data, shape)
     return data
 
 
@@ -581,6 +628,39 @@ def _merge_layers(defaults: dict, project: dict, local: dict) -> dict:
     return result
 
 
+# Per-family readers: each reads and validates its files, raises
+# ConfigReadError naming the file that failed, and assigns nothing. Each JSON
+# layer is read once, on its own, so a failure names the file that failed.
+def _read_codeagent_layers():
+    """(merged, project, local) for codeagent_config, each layer validated."""
+    project = _read_json_layer(CODEAGENT_CONFIG, _CODEAGENT_LAYER_SHAPE)
+    local = _read_json_layer(local_path_for(str(CODEAGENT_CONFIG)),
+                             _CODEAGENT_LAYER_SHAPE)
+    return _merge_layers({"defaults": {}}, project, local), project, local
+
+
+def _read_board_layers():
+    """(merged, project, local) for board_config, each layer validated."""
+    defaults = {
+        "columns": [],
+        "column_order": [],
+        "settings": {"auto_refresh_minutes": 0},
+    }
+    project = _read_json_layer(BOARD_CONFIG, _BOARD_LAYER_SHAPE)
+    local = _read_json_layer(local_path_for(str(BOARD_CONFIG)), _BOARD_LAYER_SHAPE)
+    return _merge_layers(defaults, project, local), project, local
+
+
+def _read_project_config() -> dict:
+    """project_config.yaml (project-scoped only)."""
+    return _read_config(PROJECT_CONFIG, lambda: load_yaml_config(PROJECT_CONFIG))
+
+
+#: Config families a write can leave memory behind on (see ConfigManager).
+#: `project` is project_config.yaml, written by both the Project and Tmux tabs.
+_FAMILIES = ("codeagent", "board", "project", "profiles")
+
+
 class ConfigManager:
     """Load and save all aitasks config files.
 
@@ -595,12 +675,21 @@ class ConfigManager:
     The commit lives in these methods rather than at their call sites so a ninth
     caller cannot forget it. `on_commit` keeps the manager Textual-free:
     `SettingsApp` wires it to a notifier once.
+
+    Refresh latch (t1945): every writer builds its payload from memory, so when
+    a write landed (or may have) and the re-read after it failed, memory is
+    behind disk and a second write would undo the first. Re-reads that follow a
+    write go through `refresh_after_write` / `refresh_all_after_write`, which
+    latch the family on failure; the writers refuse a latched family before
+    touching disk; only a successful re-read of that family releases it.
     """
 
     def __init__(self):
         #: Called with (CommitResult, paths) after every project-layer commit
         #: attempt. Set by SettingsApp; None in headless use.
         self.on_commit = None
+        #: Families written but not successfully re-read since (see above).
+        self._unrefreshed: set[str] = set()
         self.codeagent: dict = {}
         self.codeagent_project: dict = {}
         self.codeagent_local: dict = {}
@@ -616,29 +705,14 @@ class ConfigManager:
     def load_all(self):
         """Re-read every config from disk, all or nothing.
 
-        Raises ConfigReadError naming the unreadable file and then leaves the
-        in-memory state exactly as it was — the caller reports.
+        Raises ConfigReadError naming the unreadable or malformed file (bad
+        JSON/YAML, a non-object root, or a mistyped key a reader depends on)
+        and then leaves the in-memory state exactly as it was — the caller
+        reports. Success releases every refresh latch.
         """
-        # Codeagent config. Each layer is read once, on its own, so a failure
-        # names the file that failed; the merge works on what was read.
-        codeagent_project = _read_json_layer(CODEAGENT_CONFIG)
-        codeagent_local = _read_json_layer(local_path_for(str(CODEAGENT_CONFIG)))
-        codeagent = _merge_layers(
-            {"defaults": {}}, codeagent_project, codeagent_local)
-
-        # Board config
-        defaults = {
-            "columns": [],
-            "column_order": [],
-            "settings": {"auto_refresh_minutes": 0},
-        }
-        board_project = _read_json_layer(BOARD_CONFIG)
-        board_local = _read_json_layer(local_path_for(str(BOARD_CONFIG)))
-        board = _merge_layers(defaults, board_project, board_local)
-
-        # Project config (YAML, project-scoped only)
-        project_config = _read_config(
-            PROJECT_CONFIG, lambda: load_yaml_config(PROJECT_CONFIG))
+        codeagent, codeagent_project, codeagent_local = _read_codeagent_layers()
+        board, board_project, board_local = _read_board_layers()
+        project_config = _read_project_config()
 
         # Model files (read-only)
         all_models = {}
@@ -667,6 +741,61 @@ class ConfigManager:
 
         # Profiles (never raises: an unreadable profile is skipped)
         self.load_profiles()
+        self._unrefreshed.clear()
+
+    def reload_codeagent(self):
+        """Re-read the code-agent layers from disk, all or nothing.
+
+        Raises ConfigReadError (a ValueError) naming the unreadable or
+        malformed layer and then leaves the in-memory state exactly as it
+        was — the caller reports.
+        """
+        (self.codeagent, self.codeagent_project,
+         self.codeagent_local) = _read_codeagent_layers()
+        self._unrefreshed.discard("codeagent")
+
+    def reload_board(self):
+        """Re-read the board layers from disk, all or nothing (as above)."""
+        self.board, self.board_project, self.board_local = _read_board_layers()
+        self._unrefreshed.discard("board")
+
+    def reload_project_config(self):
+        """Re-read project_config.yaml from disk, all or nothing (as above)."""
+        self.project_config = _read_project_config()
+        self._unrefreshed.discard("project")
+
+    def refresh_after_write(self, family: str) -> None:
+        """Re-read `family` after a write that landed or may have.
+
+        On any failure the family is latched — memory is behind disk — and
+        the exception propagates for the caller to report.
+        """
+        reload = {"codeagent": self.reload_codeagent,
+                  "board": self.reload_board,
+                  "project": self.reload_project_config}[family]
+        try:
+            reload()
+        except Exception:
+            self._unrefreshed.add(family)
+            raise
+
+    def refresh_all_after_write(self) -> None:
+        """`load_all` after a write to any family (an import); latch all on failure."""
+        try:
+            self.load_all()
+        except Exception:
+            self._unrefreshed.update(_FAMILIES)
+            raise
+
+    def needs_reload(self, family: str) -> bool:
+        """True while `family` was written but not successfully re-read since."""
+        return family in self._unrefreshed
+
+    def _require_refreshed(self, family: str, path) -> None:
+        """Writer backstop: refuse, before touching disk, a latched family."""
+        if family in self._unrefreshed:
+            raise ConfigStaleError(path, "written earlier but not re-read since; "
+                                   "reload (r) before saving again")
 
     def load_profiles(self):
         self.profiles = {}
@@ -710,6 +839,7 @@ class ConfigManager:
         return result
 
     def save_codeagent(self, project_data: dict, local_data: dict):
+        self._require_refreshed("codeagent", CODEAGENT_CONFIG)
         save_project_config(str(CODEAGENT_CONFIG), project_data)
         if local_data:
             save_local_config(str(local_path_for(str(CODEAGENT_CONFIG))), local_data)
@@ -720,17 +850,6 @@ class ConfigManager:
                 lp.unlink()
         return self._commit([_repo_rel(CODEAGENT_CONFIG)])
 
-    def reload_codeagent(self):
-        """Re-read the code-agent layers from disk, all or nothing.
-
-        Raises OSError / ValueError (JSONDecodeError) on an unreadable layer and
-        then leaves the in-memory state exactly as it was — the caller reports.
-        """
-        merged = load_layered_config(str(CODEAGENT_CONFIG), defaults={"defaults": {}})
-        project = _load_json(CODEAGENT_CONFIG)
-        local = _load_json(local_path_for(str(CODEAGENT_CONFIG)))
-        self.codeagent, self.codeagent_project, self.codeagent_local = merged, project, local
-
     def _codeagent_layer_path(self, layer: str) -> Path:
         if layer == "project":
             return Path(CODEAGENT_CONFIG)
@@ -740,7 +859,9 @@ class ConfigManager:
         """Write ONE code-agent layer; only the project layer is committed.
 
         Unlike `save_codeagent`, the other layer's file is neither rewritten nor
-        removed, and a per-user write attempts no commit at all.
+        removed, and a per-user write attempts no commit at all. No refresh
+        latch here: its one caller, `switch_codeagent_default`, builds `data`
+        from a fresh read of the file, never from memory.
         """
         if layer == "project":
             save_project_config(str(CODEAGENT_CONFIG), data)
@@ -783,6 +904,7 @@ class ConfigManager:
         return "switched", result
 
     def save_board(self, merged: dict):
+        self._require_refreshed("board", BOARD_CONFIG)
         project_data, user_data = split_config(
             merged, project_keys=_BOARD_PROJECT_KEYS, user_keys=_BOARD_USER_KEYS
         )
@@ -792,6 +914,7 @@ class ConfigManager:
         return self._commit([_repo_rel(BOARD_CONFIG)])
 
     def save_project_settings(self, data: dict):
+        self._require_refreshed("project", PROJECT_CONFIG)
         save_yaml_config(str(PROJECT_CONFIG), data)
         return self._commit([_repo_rel(PROJECT_CONFIG)])
 
@@ -802,6 +925,7 @@ class ConfigManager:
         else:
             PROFILES_DIR.mkdir(parents=True, exist_ok=True)
             path = PROFILES_DIR / filename
+        self._require_refreshed("profiles", path)
         # Captured BEFORE the write: this method both updates and CREATES (the
         # "+ Add new profile" flow reaches it with a project-layer name that does
         # not exist yet), and only the writer can tell the two apart.
@@ -834,6 +958,7 @@ class ConfigManager:
             path = LOCAL_PROFILES_DIR / filename
         else:
             path = PROFILES_DIR / filename
+        self._require_refreshed("profiles", path)
         if path.is_file():
             path.unlink()
         self.profiles.pop(filename, None)
@@ -2890,7 +3015,12 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
                         severity="error", timeout=10)
             return
         try:
-            self.config_mgr.reload_codeagent()
+            if status in ("switched", "write_failed"):
+                # The write landed (or may have): a failed re-read latches the
+                # family so no later save is built on the pre-switch memory.
+                self.config_mgr.refresh_after_write("codeagent")
+            else:
+                self.config_mgr.reload_codeagent()
         except (OSError, ValueError) as exc:
             if status == "write_failed":
                 self.notify(
@@ -2935,9 +3065,13 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
         key = result["key"]
         value = result["value"]
         layer = self._editing_layer
+        if not self._may_save("codeagent"):
+            return
 
+        # Deep copies: the payload must not share the loaded layers' nested
+        # `defaults`, or a failed refresh would leave memory half-edited.
         if layer == "user":
-            local_data = dict(self.config_mgr.codeagent_local)
+            local_data = copy.deepcopy(self.config_mgr.codeagent_local)
             if "defaults" not in local_data:
                 local_data["defaults"] = {}
             local_data["defaults"][key] = value
@@ -2945,20 +3079,21 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 self.config_mgr.codeagent_project, local_data,
             )
         else:
-            project_data = dict(self.config_mgr.codeagent_project)
+            project_data = copy.deepcopy(self.config_mgr.codeagent_project)
             if "defaults" not in project_data:
                 project_data["defaults"] = {}
             project_data["defaults"][key] = value
-            local_data = dict(self.config_mgr.codeagent_local)
+            local_data = copy.deepcopy(self.config_mgr.codeagent_local)
             if "defaults" in local_data and key in local_data["defaults"]:
                 del local_data["defaults"][key]
                 if not local_data["defaults"]:
                     del local_data["defaults"]
             self.config_mgr.save_codeagent(project_data, local_data)
 
-        self.config_mgr.load_all()
-        self._populate_agent_tab()
-        self.notify(f"Saved {key} = {value} ({layer})")
+        done = f"Saved {key} = {value} ({layer})"
+        if self._refresh_after_save("codeagent", done):
+            self._populate_agent_tab()
+            self.notify(done)
 
     def _handle_launch_mode_pick(self, result):
         if result is None:
@@ -2966,9 +3101,13 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
         key = result["key"]
         value = result["value"]
         layer = self._editing_layer
+        if not self._may_save("codeagent"):
+            return
 
+        # Deep copies: the payload must not share the loaded layers' nested
+        # `defaults`, or a failed refresh would leave memory half-edited.
         if layer == "user":
-            local_data = dict(self.config_mgr.codeagent_local)
+            local_data = copy.deepcopy(self.config_mgr.codeagent_local)
             if "defaults" not in local_data:
                 local_data["defaults"] = {}
             local_data["defaults"][key] = value
@@ -2976,24 +3115,27 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 self.config_mgr.codeagent_project, local_data,
             )
         else:
-            project_data = dict(self.config_mgr.codeagent_project)
+            project_data = copy.deepcopy(self.config_mgr.codeagent_project)
             if "defaults" not in project_data:
                 project_data["defaults"] = {}
             project_data["defaults"][key] = value
-            local_data = dict(self.config_mgr.codeagent_local)
+            local_data = copy.deepcopy(self.config_mgr.codeagent_local)
             if "defaults" in local_data and key in local_data["defaults"]:
                 del local_data["defaults"][key]
                 if not local_data["defaults"]:
                     del local_data["defaults"]
             self.config_mgr.save_codeagent(project_data, local_data)
 
-        self.config_mgr.load_all()
-        self._populate_agent_tab()
-        self.notify(f"Saved {key} = {value} ({layer})")
+        done = f"Saved {key} = {value} ({layer})"
+        if self._refresh_after_save("codeagent", done):
+            self._populate_agent_tab()
+            self.notify(done)
 
     def _clear_user_override(self, key: str):
         """Remove a user-level override for an operation."""
-        local_data = dict(self.config_mgr.codeagent_local)
+        if not self._may_save("codeagent"):
+            return
+        local_data = copy.deepcopy(self.config_mgr.codeagent_local)
         if "defaults" in local_data and key in local_data["defaults"]:
             del local_data["defaults"][key]
             if not local_data["defaults"]:
@@ -3001,9 +3143,10 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
             self.config_mgr.save_codeagent(
                 self.config_mgr.codeagent_project, local_data,
             )
-            self.config_mgr.load_all()
-            self._populate_agent_tab()
-            self.notify(f"Cleared user override for {key}")
+            done = f"Cleared user override for {key}"
+            if self._refresh_after_save("codeagent", done):
+                self._populate_agent_tab()
+                self.notify(done)
         else:
             self.notify(f"No user override to clear for {key}", severity="warning")
 
@@ -3064,26 +3207,29 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
         return self.config_mgr.board.get("columns", [])
 
     def save_board_settings(self):
+        if not self._may_save("board"):
+            return
         container = self.query_one("#board_content", VerticalScroll)
         cycle_fields = list(container.query(CycleField))
         refresh_field = next(cf for cf in cycle_fields if cf.field_key == "auto_refresh_minutes")
         sync_field = next(cf for cf in cycle_fields if cf.field_key == "sync_on_refresh")
 
-        merged = dict(self.config_mgr.board)
+        # Deep copy: the payload must not share the loaded `settings` mapping.
+        merged = copy.deepcopy(self.config_mgr.board)
         if "settings" not in merged:
             merged["settings"] = {}
         merged["settings"]["auto_refresh_minutes"] = int(refresh_field.current_value)
         merged["settings"]["sync_on_refresh"] = sync_field.current_value == "yes"
 
         self.config_mgr.save_board(merged)
-        self.config_mgr.load_all()
-        self.notify("Board settings saved")
+        if self._refresh_after_save("board", "Board settings saved"):
+            self.notify("Board settings saved")
 
     def _revert_board_settings(self):
         """Revert board settings to their on-disk state."""
-        self.config_mgr.load_all()
-        self._populate_board_tab()
-        self.notify("Board settings reverted")
+        if self._refresh_for_revert(self.config_mgr.reload_board):
+            self._populate_board_tab()
+            self.notify("Board settings reverted")
 
     # -------------------------------------------------------------------
     # Project Config tab (editable)
@@ -3180,6 +3326,8 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
         ))
 
     def save_project_settings(self):
+        if not self._may_save("project"):
+            return
         container = self.query_one("#project_content", VerticalScroll)
         rows = list(container.query(ConfigRow))
 
@@ -3225,14 +3373,14 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
             data[key] = _coerce_project_config_value(key, raw_value)
 
         self.config_mgr.save_project_settings(data)
-        self.config_mgr.load_all()
-        self._populate_project_tab()
-        self.notify("Project config saved")
+        if self._refresh_after_save("project", "Project config saved"):
+            self._populate_project_tab()
+            self.notify("Project config saved")
 
     def _revert_project_settings(self):
-        self.config_mgr.load_all()
-        self._populate_project_tab()
-        self.notify("Project config reverted")
+        if self._refresh_for_revert(self.config_mgr.reload_project_config):
+            self._populate_project_tab()
+            self.notify("Project config reverted")
 
     def _handle_project_config_edit(self, result):
         if result is None:
@@ -3551,6 +3699,8 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
         ))
 
     def save_tmux_settings(self):
+        if not self._may_save("project"):
+            return
         container = self.query_one("#tmux_content", VerticalScroll)
         tmux_data: dict = {}
         rc = self._tmux_tab_rc
@@ -3605,14 +3755,14 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
             else:
                 data.pop("tmux", None)
         self.config_mgr.save_project_settings(data)
-        self.config_mgr.load_all()
-        self._populate_tmux_tab()
-        self.notify("Tmux settings saved")
+        if self._refresh_after_save("project", "Tmux settings saved"):
+            self._populate_tmux_tab()
+            self.notify("Tmux settings saved")
 
     def _revert_tmux_settings(self):
-        self.config_mgr.load_all()
-        self._populate_tmux_tab()
-        self.notify("Tmux settings reverted")
+        if self._refresh_for_revert(self.config_mgr.reload_project_config):
+            self._populate_tmux_tab()
+            self.notify("Tmux settings reverted")
 
     def _handle_tmux_config_edit(self, result):
         if result is None:
@@ -4150,6 +4300,8 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
             self._populate_project_groups_tab()
 
     def _save_profile(self, filename: str):
+        if not self._may_save("profiles"):
+            return
         base = dict(self.config_mgr.profiles.get(filename, {}))
         safe_fn = _safe_id(filename)
         rc = self._profiles_tab_rc
@@ -4249,6 +4401,8 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self.notify(f"Reverted '{filename}' to saved state")
 
     def _handle_new_profile(self, result):
+        if result is not None and not self._may_save("profiles"):
+            result = None  # refused: restore the selection as on cancel
         if result is None:
             # User cancelled — re-select previous profile
             if self._selected_profile == "+ Add new profile":
@@ -4281,7 +4435,7 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self.notify(f"Created {layer} profile '{filename}' (based on {base})")
 
     def _handle_delete_profile(self, confirmed: bool, filename: str):
-        if not confirmed:
+        if not confirmed or not self._may_save("profiles"):
             return
         self.config_mgr.delete_profile(filename)
         remaining = sorted(self.config_mgr.profiles.keys())
@@ -4487,14 +4641,57 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
     def action_import_configs(self):
         self.push_screen(ImportScreen(), callback=self._handle_import)
 
-    def _reload_all_configs(self) -> bool:
+    def _refresh_after_save(self, family: str, done: str) -> bool:
+        """Re-read `family` after a save already landed; report, never raise.
+
+        On failure the manager has latched the family, so the message says
+        both that the save landed and that further saves are refused.
+        """
+        try:
+            self.config_mgr.refresh_after_write(family)
+        except ConfigReadError as exc:
+            self.notify(f"{done}, but re-reading the config failed — {exc}. The "
+                        "loaded config could not be refreshed, and further "
+                        "saves here are refused until it is re-read: fix the "
+                        "file, then press r to reload.",
+                        severity="error", timeout=10)
+            return False
+        return True
+
+    def _refresh_for_revert(self, reload) -> bool:
+        """Re-read one family for a revert; report, never raise."""
+        try:
+            reload()
+        except ConfigReadError as exc:
+            self.notify(f"Cannot revert — {exc}. Kept the config already "
+                        "loaded; fix the file, then press r to reload.",
+                        severity="error", timeout=10)
+            return False
+        return True
+
+    def _may_save(self, family: str) -> bool:
+        """Refuse, before building any payload, a save on a latched family."""
+        if not self.config_mgr.needs_reload(family):
+            return True
+        self.notify("Not saved — this config was written earlier but could not "
+                    "be re-read since, so this edit would be built on stale "
+                    "data. Fix the file, then press r to reload.",
+                    severity="error", timeout=10)
+        return False
+
+    def _reload_all_configs(self, *, after_write: bool = False) -> bool:
         """Re-read every config from disk and repopulate the tabs.
 
         All or nothing: an unreadable file is reported and the config and tabs
-        already loaded are kept. Returns False in that case.
+        already loaded are kept. Returns False in that case. `after_write`
+        (an import just wrote files) also latches every family on failure, so
+        no later save is built on the memory the import left behind.
         """
         try:
-            self.config_mgr.load_all()
+            if after_write:
+                self.config_mgr.refresh_all_after_write()
+            else:
+                self.config_mgr.load_all()
         except ConfigReadError as exc:
             self.notify(f"Cannot reload configs — {exc}. Kept the config "
                         "already loaded; fix the file, then press r to reload.",
@@ -4577,14 +4774,14 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 overwrite=result.get("overwrite", False),
                 selected_files=result.get("selected_files"),
             )
-            self._reload_all_configs()
+            self._reload_all_configs(after_write=True)
             self._commit_imported(written, pre_existing)
             self.notify(f"Imported {len(written)} item(s)")
         except ConfigImportPartialError as exc:
             # Some files were committed before the failure. Reloading is
             # mandatory here: keeping the in-memory config would re-render state
             # that no longer matches disk, and a later save would write it back.
-            self._reload_all_configs()
+            self._reload_all_configs(after_write=True)
             # The files that DID land still need an owner — a partial import is
             # exactly the state that would otherwise sit dirty forever.
             self._commit_imported(exc.written, pre_existing)
@@ -4605,5 +4802,9 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
 # Entry point
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
-    app = SettingsApp()
+    try:
+        app = SettingsApp()
+    except ConfigReadError as exc:
+        print(f"Cannot start Settings — {exc}", file=sys.stderr)
+        sys.exit(1)
     app.run()
