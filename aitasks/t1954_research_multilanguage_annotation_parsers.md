@@ -3,12 +3,13 @@ priority: medium
 effort: high
 depends: []
 issue_type: chore
-status: Ready
+status: Implementing
 labels: [testing, testmap, go_engine]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1852
 created_at: 2026-10-12 15:57
-updated_at: 2026-10-12 15:57
+updated_at: 2026-10-12 16:02
 ---
 
 ## Context and user decision
