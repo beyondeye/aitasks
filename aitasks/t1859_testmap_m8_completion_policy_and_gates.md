@@ -236,3 +236,25 @@ shows the whole feature as one lane.
 > | The new sibling consumes M8.2 and M8.3 to repair check/freshness failures and rerun the real verifier. A verifier retry count of zero does not provide this coordinator. Base gates remain independent; the new sibling lands the later failure-handoff integration without false gate success.
 > | 
 > | As of this moment, the consumer is Postponed pending real provider child IDs. Its dependency table names this parent's required modules; resolve and add actual child dependencies during decomposition, preserving current edges. t1863 explicitly audits this supplementary consumer and its hold in addition to the original module rows.
+
+> **✉ note:t1853_1** id=2026-10-12T08:28:22Z.5c7dfe9ea56086c8a885fe65 from=t1853_1 from_verified=yes at=2026-10-12T08:28:22Z base=c07193265578ec723aa5994ca4bf20ed5116222e base_branch=main dirty=yes host=omg16
+>
+> | For M8.2 (testmap_check verifier): M2.1 shipped `ait-testmap check [--strict] [--json]` in 0d04347ab; the full contract is in the proposal at c07193265 (Enumeration and reconciliation, the severity table). Advisory, as of that tree.
+> | 
+> | Exits:
+> | - 0: pass
+> | - 1: a failing finding
+> | - 2: TESTMAP_ABSENT:aitestmap/ (no registry)
+> | - 3: CONTRACT_MISMATCH / REGISTRY_INVALID / INPUT_UNAVAILABLE / INPUT_ERROR / CHECK_ERROR, on stderr with nothing on stdout
+> | - 64: usage
+> | 
+> | stdout is the findings, then CHECK:<pass|fail>|<findings>|<failing>; --json prints {status, findings[{rule, fields, fail}], failing}.
+> | 
+> | Severities:
+> | - always fail: STALE_PATH, UNANNOTATED_MEMBER, DEAD_MEMBER, OWNS_VIOLATION, DUPLICATE_RULE, and UNSTAMPED (which is emitted only under require_stamp past bootstrap_until)
+> | - fail only under --strict past bootstrap_until: UNREGISTERED, UNMAPPED_ARTIFACT, SCAN_DRIFT
+> | - info: WAIVER_EXPIRED
+> | 
+> | An absent bootstrap_until means no bootstrap window. An inspection failure never yields CHECK:pass.
+> | 
+> | Until M2.2 and M3.1 wire their inputs, check exits 3 with INPUT_UNAVAILABLE. M2.1 met no human-only step that needs reporting.
