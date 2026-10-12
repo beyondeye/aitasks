@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1852
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-11 17:42
-updated_at: 2026-10-12 12:26
+updated_at: 2026-10-12 15:51
 ---
 
 ## Context
@@ -111,3 +112,8 @@ human action a precondition; the actor passed to the hook is data, not a gate.
 > | - Test pattern: drive the verbs through run() with t.Chdir and a swapped testmapInputs (see cmd/ait-testmap/scancheck_test.go TestInjectionProofThroughRun).
 
 > **👁 note:read** id=2026-10-12T09:26:35Z.0a5dbb5819d1a95d7aa1be0d by=t1853_2 at=2026-10-12T09:26:35Z mode=explicit ids=2026-10-12T08:27:47Z.8817881ff7d750d7e23633a2
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-12T12:51:04Z status=pass attempt=1 type=human
