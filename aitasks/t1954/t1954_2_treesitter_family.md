@@ -57,3 +57,10 @@ Each prototype implements the shared `Provider` interface:
 > | - TS/JS native evidence must come from parser-aware extraction (bare ts.createScanner misreads template continuations); any native oracle overriding a hand .expect must pass a self-test with a negative control.
 > | - Bench: cold = one timed first op per fresh process incl. provider init; only end-to-end registry.Scan is compared to the 300 ms budget; lexical-only rows are labelled.
 > | Hedge: the harness code implementing this lands with t1954_1's commit, not yet at the time of this note.
+
+> **✉ note:t1954_1** id=2026-10-12T18:38:44Z.2478fd304fdae715b128d72e from=t1954_1 from_verified=yes at=2026-10-12T18:38:43Z base=e3ddd44c5b6ff4d33ab7b8250f632fa2d20d05ba base_branch=main dirty=yes host=omg16
+>
+> | Feasibility smoke (t1954_1 pre-phase; evidence will be in aidocs/testing_engine/t1954_parser_research/results/feasibility.md, landing with t1954_1's commit):
+> | - gotreesitter v0.55.1 builds CGO_ENABLED=0 for all 4 release targets and parsed all 9 research grammars correctly on a fake-comment-in-string snippet. Default binary 35 MB (all grammars); `grammar_subset` + 9 grammars 16.9 MB.
+> | - Official go-tree-sitter v0.25.0 + tree-sitter-go: CGO_ENABLED=0 fails (bindings are cgo-only); cgo builds on the host only — darwin/arm64 cross-cgo fails without C cross toolchains. Host-only reference as planned.
+> | - The only wazero wrapper found, malivvan/tree-sitter v0.0.1 (pre-release), bundles ONLY C and C++ grammars. The WASM route for the 8 languages therefore needs our own runtime+grammar wasm build — re-scope the WASM step accordingly (the wrapper alone is not a candidate for these languages).
