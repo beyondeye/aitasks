@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: medium
 depends: [t1658_1]
 issue_type: bug
@@ -12,8 +14,9 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1658
 followup_kind: verification_failure
+implemented_with: claudecode/opus5_5
 created_at: 2026-09-02 18:55
-updated_at: 2026-10-12 11:26
+updated_at: 2026-10-12 16:08
 boardcol: now
 boardidx: 29766
 ---
@@ -236,3 +239,8 @@ Tracked separately as **t1715** (stale-lock reaping); not in this task's scope.
 > | keyed on $1 no longer sees the subcommand.
 
 > **👁 note:read** id=2026-10-12T08:26:30Z.5f355c500eb454a8a0f24b5f by=t1696 at=2026-10-12T08:26:30Z mode=explicit ids=2026-09-07T13:40:39Z.1adc9e86b6ca2e7432aa7b9d,2026-09-11T08:27:58Z.7711fe537a2c1e3674acffc1
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-12T13:08:47Z status=pass attempt=1 type=human
