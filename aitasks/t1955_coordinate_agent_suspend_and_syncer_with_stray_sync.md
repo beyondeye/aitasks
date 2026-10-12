@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: bug
@@ -46,3 +48,5 @@ Reuse the board's pattern: take `_sync_edit_lock` non-blocking around the agent 
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-10-12T14:43:27Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-10-12T18:45:18Z status=pass attempt=1 type=human
