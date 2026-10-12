@@ -391,6 +391,44 @@ for route in git-worktree-remove helper-force-rm; do
     assert_primary_data_intact "$route"
 done
 
+echo "=== Case 23: a linked worktree is clean, so a plain remove succeeds (t1711) ==="
+# Case 22 tears down with --force and its fixture has no .gitignore, so it never
+# saw the defect: with the directory-only `.aitask-data/` pattern, the linked
+# worktree's .aitask-data SYMLINK is untracked, `git worktree remove` refuses,
+# and cleanup reports WORKTREE_KEPT dirty -> CLEANED_PARTIAL, blocking archival.
+# 23a runs the repo's real .gitignore through the seam; 23b is the pre-fix block,
+# proving the case can tell the two apart.
+for variant in fixed prefix; do
+    fresh_repo
+    lw_fixture "$REPO"
+    if [[ "$variant" == fixed ]]; then
+        cp "$PROJECT_DIR/.gitignore" .gitignore
+    else
+        printf '.aitask-data/\naitasks\naiplans\naiwork/\n' > .gitignore
+    fi
+    git add .gitignore
+    git commit -qm "gitignore ($variant)"
+    git worktree add -q -b aitask/tA aiwork/tA "$PRIMARY"
+    "$PROJECT_DIR/.aitask-scripts/aitask_init_data.sh" --link-worktree aiwork/tA >/dev/null 2>&1
+
+    # Positive control: the worktree really has the symlink shape under test.
+    assert_eq "23 $variant: .aitask-data is a symlink in the worktree" "link" \
+        "$([[ -L aiwork/tA/.aitask-data ]] && echo link || echo notlink)"
+
+    wt_status="$(git -C aiwork/tA status --porcelain)"
+    run_helper remove tA     # no --force: exactly what task cleanup runs
+    if [[ "$variant" == fixed ]]; then
+        assert_eq "23 fixed: linked worktree status is clean" "" "$wt_status"
+        assert_contains "23 fixed: plain remove succeeds" "WORKTREE_REMOVED" "$OUT"
+        assert_eq "23 fixed: worktree directory is gone" "gone" \
+            "$([[ -d aiwork/tA ]] && echo present || echo gone)"
+    else
+        assert_contains "23 prefix: '.aitask-data/' leaves the symlink untracked" \
+            "?? .aitask-data" "$wt_status"
+        assert_contains "23 prefix: remove refuses with dirty" "WORKTREE_KEPT dirty" "$OUT"
+    fi
+done
+
 echo
 echo "=== Results ==="
 echo "Total:  $TOTAL"

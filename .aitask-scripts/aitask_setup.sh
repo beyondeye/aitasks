@@ -1891,27 +1891,27 @@ setup_data_branch() {
     local gitignore_changed=false
 
     # Migration: rewrite legacy trailing-slash entries to symlink-safe form.
-    # Trailing-slash patterns (`aitasks/`) match directories only and miss
-    # the symlinks setup_data_branch creates; bare entries (`aitasks`)
-    # match both. Older repos may already have the legacy form committed.
-    if [[ -f "$gitignore" ]] && \
-       { grep -qxF "aitasks/" "$gitignore" 2>/dev/null || \
-         grep -qxF "aiplans/" "$gitignore" 2>/dev/null; }; then
-        local tmp_gitignore
-        tmp_gitignore="$(mktemp "${TMPDIR:-/tmp}/aitask_gitignore_XXXXXX")"
-        awk '
-            /^aitasks\/$/ { print "aitasks"; next }
-            /^aiplans\/$/ { print "aiplans"; next }
-            { print }
-        ' "$gitignore" > "$tmp_gitignore" && mv "$tmp_gitignore" "$gitignore"
-        gitignore_changed=true
-    fi
+    # Trailing-slash patterns (`aitasks/`, `.aitask-data/`) match directories
+    # only and miss the symlinks the data layout creates; bare entries match
+    # both. Older repos may already have the legacy form committed. See
+    # _ait_rewrite_data_gitignore_lines (t699, t1711).
+    local rw_rc=0
+    _ait_rewrite_data_gitignore_lines "$gitignore" || rw_rc=$?
+    case "$rw_rc" in
+        0) gitignore_changed=true ;;
+        1) ;;
+        *) warn "Could not rewrite trailing-slash data entries in .gitignore (left unchanged) — 'ait setup' retries it" ;;
+    esac
 
-    if [[ ! -f "$gitignore" ]] || ! grep -qxF ".aitask-data/" "$gitignore" 2>/dev/null; then
+    # After the rewrite above, a legacy `.aitask-data/` line has become bare, so
+    # this checks the one form setup writes (LF or CRLF). On a failed rewrite it
+    # appends the bare block anyway, which is still symlink-safe.
+    if [[ ! -f "$gitignore" ]] || \
+       ! grep -qxF -e "$AIT_DATA_DIR_NAME" -e "$AIT_DATA_DIR_NAME"$'\r' -- "$gitignore" 2>/dev/null; then
         {
             echo ""
             echo "# Task data (lives on aitask-data branch, accessed via symlinks)"
-            echo ".aitask-data/"
+            echo "$AIT_DATA_DIR_NAME"
             echo "aitasks"
             echo "aiplans"
         } >> "$gitignore"
@@ -2725,6 +2725,93 @@ setup_worktree_dirs_gitignore() {
     fi
 
     success "Worktree directory rules added to .gitignore (${new_rules[*]})"
+}
+
+# --- Symlink-safe data-name gitignore rules (t699, t1711) ---
+# In branch mode .aitask-data, aitasks and aiplans are symlinks in every linked
+# worktree (ait_link_worktree_data). A trailing-slash pattern matches
+# directories only, so `.aitask-data/` leaves the worktree dirty
+# (`?? .aitask-data`) and `git worktree remove` refuses — task cleanup then
+# keeps the worktree and the task cannot archive. Rewrite each exact legacy
+# `<name>/` line to the bare `<name>`, which matches both shapes. The names come
+# from data_symlinks.sh, the one definition ait_link_worktree_data reads.
+#
+# Prints nothing on stdout. Exit status is a three-way contract that callers
+# MUST branch on (never collapse 1 and 2):
+#   0  rewrote the file
+#   1  nothing to do (no .gitignore, or no legacy line) — file untouched
+#   2  could not inspect or rewrite (unreadable or not a regular file, not
+#      writable, render or rename failure) — the original file is left in
+#      place, unmodified, with its mode intact
+
+# Renderer for ait_atomic_render: <gitignore> <space-separated legacy names>.
+# Whole-line match, names passed as data (no regex built from them). A CRLF
+# line keeps its CR: git strips a trailing CR before matching, so CRLF
+# `.aitask-data/` is still directory-only and needs the rewrite, and the
+# rewritten line keeps the file's own line ending. Other lines pass through
+# byte for byte.
+_ait_render_data_gitignore() {
+    awk -v names="$2" '
+        BEGIN { n = split(names, a, " "); for (i = 1; i <= n; i++) want[a[i] "/"] = a[i] }
+        {
+            line = $0; cr = ""
+            if (sub(/\r$/, "", line)) cr = "\r"
+            if (line in want) { print want[line] cr; next }
+            print
+        }
+    ' "$1" || return 1
+}
+
+_ait_rewrite_data_gitignore_lines() {
+    local gitignore="$1" name
+    local legacy=()
+    [[ -e "$gitignore" || -L "$gitignore" ]] || return 1
+    for name in "$AIT_DATA_DIR_NAME" "${AIT_DATA_LINKS[@]}"; do
+        # LF and CRLF forms: a CRLF line carries its CR into grep's line.
+        if grep -qxF -e "$name/" -e "$name/"$'\r' -- "$gitignore" 2>/dev/null; then
+            legacy+=("$name")
+        else
+            # grep 1 = no such line; 2 = unreadable / a directory, not "absent".
+            [[ $? -eq 1 ]] || return 2
+        fi
+    done
+    [[ ${#legacy[@]} -gt 0 ]] || return 1
+    # A read-only .gitignore is the user saying "do not touch": the rename below
+    # would replace it anyway, so refuse explicitly (as the session-hook install
+    # does for settings.json).
+    [[ -w "$gitignore" ]] || return 2
+    # shellcheck source=lib/atomic_write.sh
+    source "$SETUP_LIB_DIR/atomic_write.sh"
+    # Stages beside the resolved file with the file's current mode, renames it
+    # in, and discards the temp on failure. A hand-rolled mktemp+mv would land
+    # the file 0600 — stripping other users' read access in a shared checkout —
+    # and would replace a symlinked .gitignore instead of writing through it.
+    ait_atomic_render "$gitignore" _ait_render_data_gitignore \
+        "$gitignore" "${legacy[*]}" || return 2
+    return 0
+}
+
+# Re-run repair for existing installs: setup_data_branch's own Step 7 rewrite
+# sits behind its "already configured" early return, so on every later
+# `ait setup` only this reaches the file.
+#
+# It deliberately commits nothing. main() calls it LAST, immediately before
+# commit_framework_files, which commits .gitignore minus the pre-setup dirty
+# baseline. The other .gitignore helpers commit .gitignore themselves without
+# consulting that baseline, so running this ahead of any of them would let a
+# user's uncommitted .gitignore edit ride into a setup commit with the repair.
+setup_data_gitignore_symlink_safe() {
+    local project_dir="$SCRIPT_DIR/.."
+    local rc=0
+    _ait_rewrite_data_gitignore_lines "$project_dir/.gitignore" || rc=$?
+    case "$rc" in
+        0) success "Rewrote trailing-slash data entries in .gitignore to the symlink-safe form" ;;
+        1) success "Data entries in .gitignore already symlink-safe" ;;
+        *) warn "Could not rewrite trailing-slash data entries in .gitignore — left unchanged."
+           warn "  Linked task worktrees will show '?? $AIT_DATA_DIR_NAME' and worktree cleanup will keep them."
+           warn "  Fix by hand: change '$AIT_DATA_DIR_NAME/' to '$AIT_DATA_DIR_NAME' (likewise aitasks/ and aiplans/), or re-run 'ait setup'." ;;
+    esac
+    return 0
 }
 
 # --- Shadow rejection-store gitignore rule (t1427_1) ---
@@ -5006,6 +5093,12 @@ main() {
     echo ""
 
     prune_retired_scripts "$SCRIPT_DIR/.."
+
+    # MUST stay the last step before commit_framework_files: it leaves its
+    # .gitignore rewrite for that baseline-protected commit, and every earlier
+    # .gitignore helper self-commits without the baseline (t1711).
+    setup_data_gitignore_symlink_safe
+    echo ""
 
     commit_framework_files
     echo ""
