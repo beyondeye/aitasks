@@ -1,0 +1,551 @@
+package annot
+
+import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"regexp"
+	"slices"
+	"strconv"
+	"strings"
+	"time"
+	"unicode"
+	"unicode/utf8"
+
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/registry"
+	"github.com/bmatcuk/doublestar/v4"
+)
+
+// Token is the annotation namespace: `<leader> testmap:<key> <args>`.
+const Token = "testmap:"
+
+// Line is where an annotation key was read.
+type Line struct {
+	No        int    `json:"no"`
+	Text      string `json:"text"`
+	Docstring bool   `json:"docstring,omitempty"` // read from a Python module docstring (never written)
+}
+
+// KeyVal is one annotation line other than `unit` and `covers`.
+type KeyVal struct {
+	Key  string   `json:"key"`
+	Args []string `json:"args"`
+	Line Line     `json:"line"`
+}
+
+// Cover is one `testmap:covers <source> [@<date>/<blob10>]` line.
+type Cover struct {
+	Source string `json:"source"`
+	Stamp  Stamp  `json:"stamp"`
+	Line   Line   `json:"line"`
+}
+
+// Unit is one annotation block: the file-level block (Member "", before the
+// first `testmap:unit`) or a member block opened by `testmap:unit <Member>`
+// and owning every following annotation line up to the next opener.
+type Unit struct {
+	Member   string   `json:"member,omitempty"`
+	Opener   Line     `json:"opener"` // zero for the file-level block
+	Kind     *KeyVal  `json:"kind,omitempty"`
+	Runner   *KeyVal  `json:"runner,omitempty"`
+	Batch    *KeyVal  `json:"batch,omitempty"`
+	Reviewed *KeyVal  `json:"reviewed,omitempty"`
+	Covers   []Cover  `json:"covers,omitempty"`
+	Areas    []KeyVal `json:"areas,omitempty"`
+	Scopes   []KeyVal `json:"scopes,omitempty"`
+	Triggers []KeyVal `json:"triggers,omitempty"`
+	Reads    []KeyVal `json:"reads,omitempty"`
+	Needs    []KeyVal `json:"needs,omitempty"`
+	Axes     []KeyVal `json:"axes,omitempty"`
+	// Last is the last comment annotation line the block owns (0: none) —
+	// where a new line of this block is inserted.
+	Last int `json:"last,omitempty"`
+}
+
+// File is a parsed test file.
+type File struct {
+	Path    string
+	Lang    Lang
+	Units   []Unit // the file-level block first, members in file order
+	Lines   []string
+	CRLF    bool
+	FinalNL bool
+	Ctx     Context
+	data    []byte
+}
+
+// Annotated reports whether the file carries any annotation line.
+func (f *File) Annotated() bool {
+	for _, u := range f.Units {
+		if u.Member != "" || u.Last > 0 || len(u.Covers) > 0 || u.Kind != nil || u.Runner != nil ||
+			u.Batch != nil || u.Reviewed != nil || len(u.Areas)+len(u.Scopes)+len(u.Triggers)+
+			len(u.Reads)+len(u.Needs)+len(u.Axes) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// Unit returns the block of member ("" = the file-level block).
+func (f *File) Unit(member string) (*Unit, bool) {
+	for i := range f.Units {
+		if f.Units[i].Member == member {
+			return &f.Units[i], true
+		}
+	}
+	return nil, false
+}
+
+// Snapshot identifies the exact bytes the file was parsed from.
+func (f *File) Snapshot() string { return snapshotOf(f.data) }
+
+func snapshotOf(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+// SyntaxError is an annotation the grammar refuses, with its line.
+type SyntaxError struct {
+	Path   string
+	Line   int
+	Reason string
+}
+
+func (e *SyntaxError) Error() string { return fmt.Sprintf("%s:%d: %s", e.Path, e.Line, e.Reason) }
+
+// ErrNoLeader is a file whose language the grammar does not know.
+var ErrNoLeader = errors.New("no-leader")
+
+var (
+	keyRe  = regexp.MustCompile(`^[a-z]+`)
+	axisRe = regexp.MustCompile(`^[^.=\s|#@]+\.[^.=\s|#@]+=[^=\s|#@]+$`)
+)
+
+// ParseFile parses data as the file at path (repository-relative).
+func ParseFile(path string, data []byte) (*File, error) {
+	lang, ok := LangOf(path, data)
+	if !ok {
+		return nil, ErrNoLeader
+	}
+	f := &File{
+		Path:    path,
+		Lang:    lang,
+		Units:   []Unit{{}},
+		Lines:   splitLines(data),
+		FinalNL: bytes.HasSuffix(data, []byte("\n")),
+		CRLF:    bytes.Contains(data, []byte("\r\n")),
+		Ctx:     Classify(lang, data),
+		data:    data,
+	}
+	if !mayCarry(lang, data) {
+		return f, nil
+	}
+	if u := f.Ctx.Uncertain; u != nil {
+		return nil, &SyntaxError{Path: path, Line: u.Line,
+			Reason: "cannot determine comment context: " + u.Construct}
+	}
+	p := parser{f: f, members: map[string]bool{}}
+	var docs []docLine
+	docAt := 0
+	if lang.Docstring && len(f.Ctx.Docs) > 0 {
+		docAt = f.Ctx.Docs[0].StartLine
+		var err error
+		if docs, err = docstringLines(f); err != nil {
+			return nil, &SyntaxError{Path: path, Line: docAt, Reason: err.Error()}
+		}
+	}
+	for i, raw := range f.Lines {
+		text := strings.TrimSuffix(raw, "\r")
+		if i+1 == docAt {
+			// The module docstring, read as Python reads it: its literals
+			// decoded and concatenated, then split into lines.
+			for _, d := range docs {
+				if rest, ok := strings.CutPrefix(strings.TrimSpace(d.text), Token); ok {
+					l := Line{No: d.no, Text: strings.TrimSuffix(f.Lines[d.no-1], "\r"), Docstring: true}
+					if err := p.line(l, rest); err != nil {
+						return nil, err
+					}
+				}
+			}
+		}
+		switch {
+		case f.Ctx.Class[i] == Comment:
+			body := strings.TrimLeft(strings.TrimLeft(text, " \t")[len(lang.Leader):], " \t")
+			if rest, ok := strings.CutPrefix(body, Token); ok {
+				if err := p.line(Line{No: i + 1, Text: text}, rest); err != nil {
+					return nil, err
+				}
+			}
+		}
+	}
+	return f, nil
+}
+
+// docSegments is the raw source text on line no of each docstring literal
+// that lies on it, between its quotes.
+func docSegments(text string, no int, c Context) []string {
+	var out []string
+	for _, d := range c.Docs {
+		if seg, ok := spanSegment(text, no, d); ok {
+			out = append(out, seg)
+		}
+	}
+	return out
+}
+
+func spanSegment(text string, no int, d DocSpan) (string, bool) {
+	if no < d.StartLine || no > d.EndLine {
+		return "", false
+	}
+	from, to := 0, len(text)
+	if no == d.StartLine {
+		from = d.StartCol
+	}
+	if no == d.EndLine {
+		to = d.EndCol
+	}
+	if from > to || to > len(text) {
+		return "", false
+	}
+	return text[from:to], true
+}
+
+// mayCarry reports whether data can carry an annotation at all: the token
+// itself — or, in Python, anything, since the module docstring's value can
+// spell the token through escapes or split it across concatenated literals
+// ("test" "map:…") with no trace in the raw bytes.
+func mayCarry(l Lang, data []byte) bool {
+	return l.Docstring || bytes.Contains(data, []byte(Token))
+}
+
+// undecodable stands in the decoded value for a \N{…} escape, whose
+// character needs Unicode's name table; which bytes are such stand-ins is
+// tracked separately (a literal U+FFFD is ordinary text).
+const undecodable = "\uFFFD"
+
+// docLine is one line of the module docstring's value and the source line
+// its first non-blank character comes from.
+type docLine struct {
+	no   int
+	text string
+}
+
+// docstringLines is the module docstring's value — every literal decoded
+// (escapes, backslash-newline) and concatenated, as Python builds it — split
+// into lines, each attributed to its source line. An escape it cannot decode
+// (\N{…}) is an error: the value would be a guess.
+func docstringLines(f *File) ([]docLine, error) {
+	var val []byte
+	var at []int   // source line of each byte of val
+	var und []bool // whether each byte of val stands for an undecodable escape
+	for _, d := range f.Ctx.Docs {
+		var raw []byte
+		var rawAt []int
+		for no := d.StartLine; no <= d.EndLine; no++ {
+			seg, _ := spanSegment(strings.TrimSuffix(f.Lines[no-1], "\r"), no, d)
+			if no > d.StartLine {
+				raw = append(raw, '\n')
+				rawAt = append(rawAt, no)
+			}
+			raw = append(raw, seg...)
+			for range len(seg) { // per byte: seg may hold multi-byte runes
+				rawAt = append(rawAt, no)
+			}
+		}
+		dec, decAt, decUnd, err := decodePy(raw, rawAt, d.Raw)
+		if err != nil {
+			return nil, err
+		}
+		val, at, und = append(val, dec...), append(at, decAt...), append(und, decUnd...)
+	}
+	var out []docLine
+	start := 0
+	for i := 0; i <= len(val); i++ {
+		if i < len(val) && val[i] != '\n' {
+			continue
+		}
+		line, lineAt, lineUnd := val[start:i], at[start:i], und[start:i]
+		start = i + 1
+		if !slices.Contains(lineUnd, true) {
+			t := strings.TrimLeftFunc(string(line), unicode.IsSpace)
+			if t != "" {
+				out = append(out, docLine{no: lineAt[len(line)-len(t)], text: t})
+			}
+			continue
+		}
+		// An undecodable escape could be any one character — a line break,
+		// whitespace or a letter of the token — so the line is refused if
+		// any decoding could put an annotation on it; otherwise it is prose
+		// under every decoding and is skipped.
+		if mayStartAnnotation(line, lineUnd) {
+			return nil, errors.New("cannot decode a \\N{…} escape where it could decide an annotation")
+		}
+	}
+	return out, nil
+}
+
+// mayStartAnnotation reports whether some decoding of the undecodable
+// characters (und marks their bytes) makes a line of text start, after
+// whitespace, with the token: the text's own start, or the point right after
+// any undecodable character, since that one may be a line break.
+func mayStartAnnotation(text []byte, und []bool) bool {
+	type cell struct {
+		r   rune
+		unk bool
+	}
+	var cells []cell
+	for i := 0; i < len(text); {
+		r, n := utf8.DecodeRune(text[i:])
+		cells = append(cells, cell{r, und[i]})
+		i += n
+	}
+	tok := []rune(Token)
+	var from func(i, j int) bool // token position i, cell position j
+	from = func(i, j int) bool {
+		switch {
+		case i == len(tok):
+			return true
+		case j == len(cells):
+			return false
+		case cells[j].unk: // whitespace (before the token), or the next token rune
+			return (i == 0 && from(0, j+1)) || from(i+1, j+1)
+		case i == 0 && unicode.IsSpace(cells[j].r):
+			return from(0, j+1)
+		default:
+			return cells[j].r == tok[i] && from(i+1, j+1)
+		}
+	}
+	for j := 0; j <= len(cells); j++ {
+		if (j == 0 || cells[j-1].unk) && from(0, j) {
+			return true
+		}
+	}
+	return false
+}
+
+// decodePy decodes the escapes of a non-raw Python string literal's content,
+// carrying each output byte's source line and whether it stands for an
+// undecodable \N{…} escape.
+func decodePy(raw []byte, at []int, isRaw bool) ([]byte, []int, []bool, error) {
+	if isRaw {
+		return raw, at, make([]bool, len(raw)), nil
+	}
+	var out []byte
+	var outAt []int
+	var outUnd []bool
+	emitU := func(b []byte, l int, u bool) {
+		out = append(out, b...)
+		for range b {
+			outAt = append(outAt, l)
+			outUnd = append(outUnd, u)
+		}
+	}
+	emit := func(b []byte, l int) { emitU(b, l, false) }
+	for i := 0; i < len(raw); {
+		c, l := raw[i], at[i]
+		if c != '\\' || i+1 == len(raw) {
+			emit([]byte{c}, l)
+			i++
+			continue
+		}
+		n := raw[i+1]
+		switch {
+		case n == '\n': // backslash-newline: the line continues
+			i += 2
+		case strings.IndexByte("\\'\"", n) >= 0:
+			emit([]byte{n}, l)
+			i += 2
+		case strings.IndexByte("abfnrtv", n) >= 0:
+			emit([]byte{"\a\b\f\n\r\t\v"[strings.IndexByte("abfnrtv", n)]}, l)
+			i += 2
+		case n >= '0' && n <= '7':
+			j := i + 1
+			for j < len(raw) && j < i+4 && raw[j] >= '0' && raw[j] <= '7' {
+				j++
+			}
+			v, _ := strconv.ParseUint(string(raw[i+1:j]), 8, 32)
+			emit([]byte(string(rune(v))), l)
+			i = j
+		case n == 'x' || n == 'u' || n == 'U':
+			w := map[byte]int{'x': 2, 'u': 4, 'U': 8}[n]
+			if i+2+w > len(raw) {
+				return nil, nil, nil, fmt.Errorf("truncated \\%c escape in the module docstring", n)
+			}
+			v, err := strconv.ParseUint(string(raw[i+2:i+2+w]), 16, 32)
+			if err != nil {
+				return nil, nil, nil, fmt.Errorf("bad \\%c escape in the module docstring", n)
+			}
+			emit([]byte(string(rune(v))), l)
+			i += 2 + w
+		case n == 'N':
+			k := bytes.IndexByte(raw[i:], '}')
+			if i+2 >= len(raw) || raw[i+2] != '{' || k < 0 {
+				return nil, nil, nil, errors.New("bad \\N escape in the module docstring")
+			}
+			emitU([]byte(undecodable), l, true)
+			i += k + 1
+		default: // an unknown escape keeps its backslash
+			emit([]byte{c, n}, l)
+			i += 2
+		}
+	}
+	return out, outAt, outUnd, nil
+}
+
+type parser struct {
+	f       *File
+	members map[string]bool
+}
+
+func (p *parser) errf(l Line, format string, args ...any) error {
+	return &SyntaxError{Path: p.f.Path, Line: l.No, Reason: fmt.Sprintf(format, args...)}
+}
+
+// line parses one annotation: rest is the text after `testmap:`.
+func (p *parser) line(l Line, rest string) error {
+	key := keyRe.FindString(rest)
+	tail := rest[len(key):]
+	switch {
+	case key == "" && strings.TrimSpace(rest) == "":
+		return p.errf(l, "empty key")
+	case key == "", tail != "" && tail[0] != ' ' && tail[0] != '\t':
+		return p.errf(l, "malformed key %q", strings.Fields(rest)[0])
+	}
+	args := strings.Fields(tail)
+	u := &p.f.Units[len(p.f.Units)-1]
+	switch key {
+	case "unit":
+		if l.Docstring {
+			return p.errf(l, "testmap:unit inside the module docstring")
+		}
+		if len(args) != 1 {
+			return p.errf(l, "testmap:unit takes one member name")
+		}
+		// The name must be exactly one member fragment: `M@v` parses as a
+		// member plus a variant, which a block cannot open.
+		if id, err := registry.ParseID("x#" + args[0]); err != nil || id.Member != args[0] || id.Variant != "" {
+			return p.errf(l, "invalid member %q", args[0])
+		}
+		if p.members[args[0]] {
+			return p.errf(l, "duplicate member %q", args[0])
+		}
+		p.members[args[0]] = true
+		p.f.Units = append(p.f.Units, Unit{Member: args[0], Opener: l, Last: 0})
+		return nil
+	case "covers":
+		if len(args) < 1 || len(args) > 2 {
+			return p.errf(l, "testmap:covers takes a path and an optional stamp")
+		}
+		if err := registry.CheckPath(args[0]); err != nil {
+			return p.errf(l, "covers %q: %v", args[0], err)
+		}
+		c := Cover{Source: args[0], Line: l}
+		if len(args) == 2 {
+			s, err := ParseStamp(args[1])
+			if err != nil {
+				return p.errf(l, "%v", err)
+			}
+			c.Stamp = s
+		}
+		for _, o := range u.Covers {
+			if o.Source == c.Source {
+				return p.errf(l, "duplicate covers %q in one block (line %d)", c.Source, o.Line.No)
+			}
+		}
+		u.Covers = append(u.Covers, c)
+	case "kind", "runner":
+		if len(args) != 1 || !word(args[0]) {
+			return p.errf(l, "testmap:%s takes one word", key)
+		}
+		if err := p.single(l, key, u, args); err != nil {
+			return err
+		}
+	case "batch":
+		if len(args) != 1 || (args[0] != "yes" && args[0] != "no") {
+			return p.errf(l, "testmap:batch takes yes or no")
+		}
+		if err := p.single(l, key, u, args); err != nil {
+			return err
+		}
+	case "reviewed":
+		if len(args) != 1 {
+			return p.errf(l, "testmap:reviewed takes one date")
+		}
+		if _, err := time.Parse(time.DateOnly, args[0]); err != nil {
+			return p.errf(l, "testmap:reviewed: bad date %q", args[0])
+		}
+		if err := p.single(l, key, u, args); err != nil {
+			return err
+		}
+	case "area", "needs":
+		if len(args) == 0 {
+			return p.errf(l, "testmap:%s takes at least one name", key)
+		}
+		for _, a := range args {
+			if !word(a) {
+				return p.errf(l, "testmap:%s: invalid name %q", key, a)
+			}
+		}
+		kv := KeyVal{Key: key, Args: args, Line: l}
+		if key == "area" {
+			u.Areas = append(u.Areas, kv)
+		} else {
+			u.Needs = append(u.Needs, kv)
+		}
+	case "scope", "trigger", "reads":
+		if len(args) == 0 {
+			return p.errf(l, "testmap:%s takes at least one glob", key)
+		}
+		for _, g := range args {
+			if !word(g) || !doublestar.ValidatePattern(g) {
+				return p.errf(l, "testmap:%s: invalid glob %q", key, g)
+			}
+		}
+		kv := KeyVal{Key: key, Args: args, Line: l}
+		switch key {
+		case "scope":
+			u.Scopes = append(u.Scopes, kv)
+		case "trigger":
+			u.Triggers = append(u.Triggers, kv)
+		default:
+			u.Reads = append(u.Reads, kv)
+		}
+	case "axis":
+		if len(args) != 1 || !axisRe.MatchString(args[0]) {
+			return p.errf(l, "testmap:axis takes <axis>.<facet>=<value>")
+		}
+		u.Axes = append(u.Axes, KeyVal{Key: key, Args: args, Line: l})
+	default:
+		return p.errf(l, "unknown key %q", key)
+	}
+	if !l.Docstring {
+		u.Last = l.No
+	}
+	return nil
+}
+
+// single records a key that may appear once per block.
+func (p *parser) single(l Line, key string, u *Unit, args []string) error {
+	slot := map[string]**KeyVal{"kind": &u.Kind, "runner": &u.Runner, "batch": &u.Batch, "reviewed": &u.Reviewed}[key]
+	if *slot != nil {
+		return p.errf(l, "duplicate testmap:%s in one block (line %d)", key, (*slot).Line.No)
+	}
+	*slot = &KeyVal{Key: key, Args: args, Line: l}
+	return nil
+}
+
+// word is a non-empty token without the line-protocol separator or a
+// control character.
+func word(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r == '|' || unicode.IsControl(r) {
+			return false
+		}
+	}
+	return true
+}

@@ -1,0 +1,74 @@
+package annot
+
+import (
+	"errors"
+	"fmt"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/beyondeye/aitasks/goengines/internal/gitx"
+)
+
+// Stamp is the `@<date>/<blob10>` suffix of a `testmap:covers` line: the
+// first ten hex digits of the covered source's git blob id when the claim was
+// confirmed (the staleness key) and the date it was confirmed (for the
+// reader). The zero Stamp is an unstamped edge.
+type Stamp struct {
+	Date string `json:"date,omitempty"` // YYYY-MM-DD
+	Blob string `json:"blob,omitempty"` // ten lowercase hex digits
+}
+
+// BlobLen is the number of blob-id hex digits a stamp keeps.
+const BlobLen = 10
+
+// IsZero reports whether the edge is unstamped.
+func (s Stamp) IsZero() bool { return s == Stamp{} }
+
+// String is the stamp as written: `@<date>/<blob10>`.
+func (s Stamp) String() string { return "@" + s.Date + "/" + s.Blob }
+
+// ParseStamp parses `@<YYYY-MM-DD>/<blob10>`.
+func ParseStamp(tok string) (Stamp, error) {
+	rest, ok := strings.CutPrefix(tok, "@")
+	date, blob, ok2 := strings.Cut(rest, "/")
+	if !ok || !ok2 {
+		return Stamp{}, fmt.Errorf("stamp %q: want @<YYYY-MM-DD>/<blob10>", tok)
+	}
+	if _, err := time.Parse(time.DateOnly, date); err != nil {
+		return Stamp{}, fmt.Errorf("stamp %q: bad date", tok)
+	}
+	if len(blob) != BlobLen || strings.Trim(blob, "0123456789abcdef") != "" {
+		return Stamp{}, fmt.Errorf("stamp %q: blob must be %d lowercase hex digits", tok, BlobLen)
+	}
+	return Stamp{Date: date, Blob: blob}, nil
+}
+
+// NewStamp stamps content as of today under the repository's object format
+// ("sha1" or "sha256").
+func NewStamp(today time.Time, content []byte, format string) (Stamp, error) {
+	id, err := gitx.BlobDigest(content, format)
+	if err != nil {
+		return Stamp{}, err
+	}
+	return Stamp{Date: today.Format(time.DateOnly), Blob: id[:BlobLen]}, nil
+}
+
+// now is the clock stamps are dated with; tests replace it.
+var now = time.Now
+
+// Errors a covered source or a target file can fail with.
+var (
+	ErrMissing  = errors.New("missing")
+	ErrNotAFile = errors.New("not-a-file")
+)
+
+// SourceStamp stamps the working-tree content of src, read through r without
+// following any symbolic link (ErrMissing, ErrNotAFile otherwise).
+func SourceStamp(r *os.Root, src, format string) (Stamp, error) {
+	data, _, err := readNoFollow(r, src)
+	if err != nil {
+		return Stamp{}, err
+	}
+	return NewStamp(now(), data, format)
+}

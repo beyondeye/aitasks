@@ -1,0 +1,128 @@
+package annot
+
+import (
+	"errors"
+	"io"
+	"io/fs"
+	"os"
+	"path"
+	"strings"
+	"syscall"
+)
+
+// Every file annot reads, hashes or writes is reached without following a
+// symbolic link anywhere on its path — a link that stays inside the
+// repository as well (never followed, as in registry's walk), so one file is
+// never read or written under two names — and without a window between the
+// check and the use: each directory is entered through a handle proven
+// (os.SameFile) to be the directory its no-follow Lstat described, and the
+// leaf is opened and proven the same way. A component swapped for a link at
+// any instant is refused, never followed. All of it goes through *os.Root,
+// so nothing escapes the repository either.
+
+func openRoot(root string) (*os.Root, error) { return os.OpenRoot(root) }
+
+// Test seams: they run between a check and the use it guards.
+var (
+	beforeEnterDir = func(string) {}
+	beforeOpenLeaf = func(string) {}
+)
+
+// openDir returns a handle on directory dir (slash-separated, relative to r;
+// "." is r itself), entered one component at a time. A component that is a
+// symbolic link or not a directory is ErrNotAFile; one that does not exist
+// is ErrMissing; any other error is returned as is. The caller closes it.
+func openDir(r *os.Root, dir string) (*os.Root, error) {
+	cur, err := r.OpenRoot(".")
+	if err != nil {
+		return nil, err
+	}
+	if dir == "." || dir == "" {
+		return cur, nil
+	}
+	for _, name := range strings.Split(dir, "/") {
+		fi, err := cur.Lstat(name)
+		if err != nil {
+			cur.Close()
+			return nil, classify(err)
+		}
+		if !fi.IsDir() { // a symbolic link (never followed) or a file
+			cur.Close()
+			return nil, ErrNotAFile
+		}
+		beforeEnterDir(name)
+		// "<name>/." makes name an intermediate component, which os.Root
+		// opens O_DIRECTORY|O_NOFOLLOW: a FIFO or device swapped in after the
+		// check fails at once (ENOTDIR) instead of blocking the open, as the
+		// final component of OpenRoot(name) would. A link is resolved, and
+		// then refused by the identity check below.
+		next, err := cur.OpenRoot(name + "/.")
+		cur.Close()
+		if errors.Is(err, syscall.ENOTDIR) {
+			return nil, ErrNotAFile
+		}
+		if err != nil {
+			return nil, classify(err)
+		}
+		got, err := next.Stat(".")
+		if err != nil || !os.SameFile(fi, got) { // swapped between the check and the open
+			next.Close()
+			if err != nil {
+				return nil, err
+			}
+			return nil, ErrNotAFile
+		}
+		cur = next
+	}
+	return cur, nil
+}
+
+func classify(err error) error {
+	if errors.Is(err, fs.ErrNotExist) {
+		return ErrMissing
+	}
+	return err
+}
+
+// readLeaf reads the regular file name (one component) of directory handle
+// d, refusing a link or a swap, and returns its content and permission bits.
+func readLeaf(d *os.Root, name string) ([]byte, fs.FileMode, error) {
+	fi, err := d.Lstat(name)
+	if err != nil {
+		return nil, 0, classify(err)
+	}
+	if !fi.Mode().IsRegular() {
+		return nil, 0, ErrNotAFile
+	}
+	beforeOpenLeaf(name)
+	// O_NONBLOCK: a FIFO or device swapped in after the check must not block
+	// the open; the identity check below then refuses it. (No effect on a
+	// regular file.)
+	f, err := d.OpenFile(name, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, 0, classify(err)
+	}
+	defer f.Close()
+	got, err := f.Stat()
+	if err != nil {
+		return nil, 0, err
+	}
+	if !got.Mode().IsRegular() || !os.SameFile(fi, got) { // swapped between the check and the open
+		return nil, 0, ErrNotAFile
+	}
+	data, err := io.ReadAll(f)
+	if err != nil {
+		return nil, 0, err
+	}
+	return data, fi.Mode().Perm(), nil
+}
+
+// readNoFollow reads rel (repository-relative) without following any link.
+func readNoFollow(r *os.Root, rel string) ([]byte, fs.FileMode, error) {
+	d, err := openDir(r, path.Dir(rel))
+	if err != nil {
+		return nil, 0, err
+	}
+	defer d.Close()
+	return readLeaf(d, path.Base(rel))
+}

@@ -1,0 +1,896 @@
+package annot
+
+import (
+	"go/scanner"
+	"go/token"
+	"strings"
+)
+
+// LineClass is what a line's first byte is, lexically.
+type LineClass uint8
+
+const (
+	// Code: the line starts in code (or continues a command or statement).
+	Code LineClass = iota
+	// Comment: the line starts in code context with the language's comment
+	// leader — the only lines annotations are read from and written to.
+	Comment
+	// Literal: the line starts inside a string, heredoc body, raw string or
+	// block comment — data, never an annotation.
+	Literal
+)
+
+// Unclosed is a construct the lexer could not establish the end of: the
+// file ended inside it, or it is a form the lexer does not model.
+type Unclosed struct {
+	Line      int
+	Construct string
+}
+
+// DocSpan is one string literal of the Python module docstring: its content
+// runs from StartCol on StartLine (after the opening quotes) to EndCol on
+// EndLine (the closing quotes), columns in bytes.
+type DocSpan struct {
+	StartLine, StartCol, EndLine, EndCol int
+	Raw                                  bool // an r-prefixed literal: no escapes
+}
+
+// Context is the lexical class of every line of a file.
+type Context struct {
+	Class     []LineClass // index i is line i+1
+	Docs      []DocSpan   // Python: the module docstring's literals (none: no docstring)
+	DocEnd    int         // Python: the line its statement ends on
+	Package   int         // Go / Kotlin: the package clause line, 0 when none
+	Import    int         // Kotlin: the last top-level import line, 0 when none
+	Uncertain *Unclosed   // non-nil: the classes cannot be trusted
+}
+
+// Classify lexes data in language l. Every construct the lexer does not
+// model falls to Literal or Uncertain, never to Comment: a misreading may
+// lose an annotation, it can never make data look like one.
+func Classify(l Lang, data []byte) Context {
+	lines := splitLines(data)
+	switch l.Name {
+	case Go.Name:
+		return classifyGo(data, lines)
+	case Python.Name:
+		return classifyPython(lines)
+	case Kotlin.Name:
+		return classifyKotlin(lines)
+	default:
+		return classifyBash(lines)
+	}
+}
+
+// splitLines splits data into lines without their "\n" (a "\r" stays on the
+// line); a final "\n" does not start another line.
+func splitLines(data []byte) []string {
+	if len(data) == 0 {
+		return nil
+	}
+	s := strings.TrimSuffix(string(data), "\n")
+	return strings.Split(s, "\n")
+}
+
+func indentOf(line string) string {
+	return line[:len(line)-len(strings.TrimLeft(line, " \t"))]
+}
+
+func startsWithLeader(line, leader string) bool {
+	return strings.HasPrefix(strings.TrimLeft(line, " \t"), leader)
+}
+
+// markRest classes every line from index i on as Literal.
+func markRest(c *Context, i int) {
+	for ; i < len(c.Class); i++ {
+		c.Class[i] = Literal
+	}
+}
+
+// ---------------------------------------------------------------- Go
+
+func classifyGo(data []byte, lines []string) Context {
+	ctx := Context{Class: make([]LineClass, len(lines))}
+	fset := token.NewFileSet()
+	file := fset.AddFile("", fset.Base(), len(data))
+	var s scanner.Scanner
+	s.Init(file, data, func(pos token.Position, msg string) {
+		if ctx.Uncertain == nil {
+			ctx.Uncertain = &Unclosed{Line: pos.Line, Construct: msg}
+		}
+	}, scanner.ScanComments)
+	for {
+		pos, tok, lit := s.Scan()
+		if tok == token.EOF {
+			break
+		}
+		p := fset.Position(pos)
+		switch {
+		case tok == token.PACKAGE && ctx.Package == 0:
+			ctx.Package = p.Line
+		case tok == token.COMMENT && strings.HasPrefix(lit, "//"):
+			if p.Line <= len(lines) && p.Column-1 == len(indentOf(lines[p.Line-1])) {
+				ctx.Class[p.Line-1] = Comment
+			}
+		}
+		if tok == token.COMMENT || tok == token.STRING {
+			n := strings.Count(lit, "\n")
+			for l := p.Line + 1; l <= p.Line+n && l <= len(lines); l++ {
+				ctx.Class[l-1] = Literal
+			}
+		}
+	}
+	if ctx.Uncertain != nil {
+		markRest(&ctx, ctx.Uncertain.Line-1)
+	}
+	return ctx
+}
+
+// ---------------------------------------------------------------- bash
+
+// A bash frame: 't' top level, 'P' $( … ), 'A' arithmetic, 'S' '…',
+// 'D' "…", 'C' $'…', 'B' `…`, 'E' ${ … }.
+type bframe struct {
+	kind  byte
+	dq    bool // 'E' opened inside "…": its single quotes are literal
+	depth int  // parens inside 'P' / 'A'
+	cases int  // open `case` inside 'P' (its patterns' ')' do not close)
+	line  int
+	col   int // 'A': where `$((` / `((` started on line
+}
+
+type heredoc struct {
+	delim  string
+	strip  bool // <<-
+	quoted bool // any quoting in the delimiter: the body is literal, no line joining
+	line   int
+	acc    string // an unquoted body's logical line, joined across backslash-newlines
+	join   bool   // the previous physical line ended in an unescaped backslash
+}
+
+var bashFrameName = map[byte]string{
+	'P': "command substitution", 'A': "arithmetic", 'S': "single-quoted string",
+	'D': "double-quoted string", 'C': "$'' string", 'B': "backtick substitution",
+	'E': "parameter expansion",
+}
+
+// classifyBash models the constructs that can make a line start inside data:
+// quotes, $'…', backticks, $(…) and arithmetic nesting, and heredocs. A
+// heredoc body starts after the next newline *token* — not the next physical
+// line: a backslash continuation or a quoted string spanning lines delays it,
+// exactly as bash does.
+func classifyBash(lines []string) Context {
+	ctx := Context{Class: make([]LineClass, len(lines))}
+	stack := []bframe{{kind: 't'}}
+	var pending, body []heredoc
+	cont := false
+	for i, ln := range lines {
+		no := i + 1
+		if len(body) > 0 {
+			// A body line: data. An unquoted body joins a line ending in an
+			// unescaped backslash with the next before the delimiter is
+			// compared; <<- strips tabs from the first piece only.
+			ctx.Class[i] = Literal
+			h := &body[0]
+			piece := ln
+			if h.strip && !h.join {
+				piece = strings.TrimLeft(piece, "\t")
+			}
+			if !h.quoted && oddTrailingBackslashes(piece) {
+				h.acc += piece[:len(piece)-1]
+				h.join = true
+				continue
+			}
+			logical := h.acc + piece
+			h.acc, h.join = "", false
+			if logical == h.delim {
+				body = body[1:]
+			}
+			continue
+		}
+		top := stack[len(stack)-1]
+		switch {
+		case cont:
+			ctx.Class[i] = Code // continues a command already in progress
+		case top.kind == 'S' || top.kind == 'D' || top.kind == 'C' || top.kind == 'B' || top.kind == 'E':
+			ctx.Class[i] = Literal
+		case top.kind == 'A':
+			ctx.Class[i] = Code
+		case startsWithLeader(ln, "#"):
+			ctx.Class[i] = Comment
+		default:
+			ctx.Class[i] = Code
+		}
+		var u *Unclosed
+		cont, u = lexBashLine(ln, no, &stack, &pending)
+		if u != nil {
+			ctx.Uncertain = u
+			markRest(&ctx, i+1)
+			return ctx
+		}
+		if k := stack[len(stack)-1].kind; !cont && (k == 't' || k == 'P') && len(pending) > 0 {
+			body, pending = append(body, pending...), nil
+		}
+	}
+	switch {
+	case len(body) > 0:
+		ctx.Uncertain = &Unclosed{Line: body[0].line, Construct: "heredoc " + body[0].delim}
+	case len(pending) > 0:
+		ctx.Uncertain = &Unclosed{Line: pending[0].line, Construct: "heredoc " + pending[0].delim}
+	case len(stack) > 1:
+		ctx.Uncertain = &Unclosed{Line: stack[1].line, Construct: bashFrameName[stack[1].kind]}
+	}
+	return ctx
+}
+
+// oddTrailingBackslashes reports a line ending in an unescaped backslash.
+func oddTrailingBackslashes(s string) bool {
+	n := len(s) - len(strings.TrimRight(s, "\\"))
+	return n%2 == 1
+}
+
+func isBashMeta(c byte) bool { return strings.IndexByte(" \t|&;()<>", c) >= 0 }
+
+// bashKeyword reports whether ln[i:] starts with word followed by a word end.
+func bashKeyword(ln string, i int, word string) bool {
+	if !strings.HasPrefix(ln[i:], word) {
+		return false
+	}
+	j := i + len(word)
+	return j == len(ln) || isBashMeta(ln[j])
+}
+
+// lexBashLine advances the frame stack over one line. continued reports a
+// backslash-newline in code context (no newline token).
+func lexBashLine(ln string, no int, stack *[]bframe, pending *[]heredoc) (continued bool, u *Unclosed) {
+	push := func(k byte) { *stack = append(*stack, bframe{kind: k, line: no}) }
+	pushAt := func(k byte, col int) { *stack = append(*stack, bframe{kind: k, line: no, col: col}) }
+	pop := func() { *stack = (*stack)[:len(*stack)-1] }
+	wordStart := true
+	for i := 0; i < len(ln); {
+		top := &(*stack)[len(*stack)-1]
+		c := ln[i]
+		rest := ln[i:]
+		switch top.kind {
+		case 'S':
+			if c == '\'' {
+				pop()
+			}
+			i++
+			continue
+		case 'C':
+			if c == '\\' {
+				i += 2
+				continue
+			}
+			if c == '\'' {
+				pop()
+			}
+			i++
+			continue
+		case 'B':
+			switch {
+			case c == '\\':
+				i += 2
+			case c == '`':
+				pop()
+				i++
+				wordStart = false
+			case strings.HasPrefix(rest, "<<") && !strings.HasPrefix(rest, "<<<"):
+				return false, &Unclosed{Line: no, Construct: "heredoc inside backticks"}
+			default:
+				i++
+			}
+			continue
+		case 'D':
+			switch {
+			case c == '\\':
+				i += 2
+			case c == '"':
+				pop()
+				i++
+				wordStart = false
+			case strings.HasPrefix(rest, "${"):
+				*stack = append(*stack, bframe{kind: 'E', dq: true, line: no})
+				i += 2
+			case strings.HasPrefix(rest, "$(("):
+				pushAt('A', i)
+				i += 3
+			case strings.HasPrefix(rest, "$("):
+				push('P')
+				i += 2
+			case c == '`':
+				push('B')
+				i++
+			default:
+				i++
+			}
+			continue
+		case 'E':
+			// ${ … }: a word, never code; quotes and substitutions nest.
+			switch {
+			case c == '\\':
+				i += 2
+			case c == '}':
+				// The first unquoted '}' closes, whatever literal '{' came
+				// before (bash: ${x:-{a}b} is "{ab}"); a nested ${…} is its
+				// own frame.
+				pop()
+				i++
+				wordStart = false
+			case c == '\'' && !top.dq:
+				push('S')
+				i++
+			case c == '"':
+				push('D')
+				i++
+			case strings.HasPrefix(rest, "${"):
+				*stack = append(*stack, bframe{kind: 'E', dq: top.dq, line: no})
+				i += 2
+			case strings.HasPrefix(rest, "$(("):
+				pushAt('A', i)
+				i += 3
+			case strings.HasPrefix(rest, "$("):
+				push('P')
+				i += 2
+			case c == '`':
+				push('B')
+				i++
+			default:
+				i++
+			}
+			continue
+		case 'A':
+			switch c {
+			case '\\':
+				i += 2
+				continue
+			case '(':
+				top.depth++
+			case ')':
+				if top.depth == 0 && strings.HasPrefix(rest, "))") {
+					pop()
+					i += 2
+					wordStart = false
+					continue
+				}
+				if top.depth == 0 {
+					// A lone ')': bash reads `$((` / `((` as arithmetic only when
+					// it closes with `))`; this one opened a subshell. Re-lex from
+					// the opener as `$(` + `(` (or two subshell parens).
+					if top.line != no {
+						return false, &Unclosed{Line: top.line, Construct: "arithmetic or subshell"}
+					}
+					col := top.col
+					if ln[col] == '$' {
+						*top = bframe{kind: 'P', line: no} // resume at the subshell's '('
+					} else {
+						pop() // `((`: two subshell parens, plain metacharacters
+					}
+					i = col + 2
+					wordStart = true
+					continue
+				}
+				top.depth--
+			}
+			i++
+			continue
+		}
+		// code context: 't' or 'P'
+		switch {
+		case c == ' ' || c == '\t':
+			wordStart = true
+			i++
+		case c == '#' && wordStart:
+			return false, nil // a comment runs to the end of the line
+		case c == '\\':
+			if i == len(ln)-1 {
+				return true, nil
+			}
+			i += 2
+			wordStart = false
+		case c == '\'':
+			push('S')
+			i++
+			wordStart = false
+		case c == '"':
+			push('D')
+			i++
+			wordStart = false
+		case strings.HasPrefix(rest, "$'"):
+			push('C')
+			i += 2
+			wordStart = false
+		case strings.HasPrefix(rest, "${"):
+			push('E')
+			i += 2
+			wordStart = false
+		case strings.HasPrefix(rest, "$(("):
+			pushAt('A', i)
+			i += 3
+			wordStart = false
+		case strings.HasPrefix(rest, "$("):
+			push('P')
+			i += 2
+			wordStart = true
+		case wordStart && strings.HasPrefix(rest, "(("):
+			pushAt('A', i)
+			i += 2
+		case c == '`':
+			push('B')
+			i++
+			wordStart = false
+		case strings.HasPrefix(rest, "<<<"):
+			i += 3
+			wordStart = true
+		case strings.HasPrefix(rest, "<<"):
+			h, next, ok := parseHeredoc(ln, i)
+			if !ok {
+				return false, &Unclosed{Line: no, Construct: "heredoc delimiter"}
+			}
+			h.line = no
+			*pending = append(*pending, h)
+			i = next
+			wordStart = true
+		case top.kind == 'P' && c == '(':
+			top.depth++
+			i++
+			wordStart = true
+		case top.kind == 'P' && c == ')':
+			switch {
+			case top.depth > 0:
+				top.depth--
+			case top.cases == 0:
+				pop()
+			}
+			i++
+			wordStart = true
+		case isBashMeta(c):
+			i++
+			wordStart = true
+		case wordStart && top.kind == 'P' && bashKeyword(ln, i, "case"):
+			top.cases++
+			i += 4
+			wordStart = false
+		case wordStart && top.kind == 'P' && bashKeyword(ln, i, "esac"):
+			if top.cases > 0 {
+				top.cases--
+			}
+			i += 4
+			wordStart = false
+		default:
+			i++
+			wordStart = false
+		}
+	}
+	return false, nil
+}
+
+// parseHeredoc reads the operator at ln[i:] ("<<" or "<<-") and its
+// delimiter word after bash's quote removal: '…', "…", $'…' and $"…" lose
+// their quotes (and the $), an unquoted \x is x. A backslash inside a quoted
+// segment — an escape bash would decode (it does, in $'…') — is not modelled:
+// ok is false and the caller refuses the file rather than guess the
+// delimiter.
+func parseHeredoc(ln string, i int) (h heredoc, next int, ok bool) {
+	j := i + 2
+	if j < len(ln) && ln[j] == '-' {
+		h.strip = true
+		j++
+	}
+	for j < len(ln) && (ln[j] == ' ' || ln[j] == '\t') {
+		j++
+	}
+	var b strings.Builder
+	for j < len(ln) && !isBashMeta(ln[j]) {
+		c := ln[j]
+		if c == '$' && j+1 < len(ln) && (ln[j+1] == '\'' || ln[j+1] == '"') {
+			j++ // $'…' / $"…": the $ goes with the quotes
+			c = ln[j]
+		}
+		switch c {
+		case '\'', '"':
+			h.quoted = true
+			k := strings.IndexByte(ln[j+1:], c)
+			if k < 0 {
+				return h, 0, false
+			}
+			seg := ln[j+1 : j+1+k]
+			if strings.ContainsRune(seg, '\\') {
+				return h, 0, false
+			}
+			b.WriteString(seg)
+			j += k + 2
+		case '\\':
+			h.quoted = true
+			if j+1 < len(ln) {
+				b.WriteByte(ln[j+1])
+			}
+			j += 2
+		default:
+			b.WriteByte(c)
+			j++
+		}
+	}
+	h.delim = b.String()
+	return h, j, h.delim != ""
+}
+
+// ---------------------------------------------------------------- Python
+
+// A Python frame: 'c' code, 'f' an f-string replacement field (code),
+// 'p' its format spec, 's' a string.
+type pframe struct {
+	kind   byte
+	depth  int // brackets in 'c' / 'f'
+	quote  byte
+	triple bool
+	fstr   bool
+	doc    bool // a string literal of the module's first statement
+	line   int
+}
+
+var pyPrefixes = map[string]bool{
+	"r": true, "u": true, "b": true, "br": true, "rb": true,
+	"f": true, "fr": true, "rf": true, "t": true, "tr": true, "rt": true,
+}
+
+func isIdentStart(c byte) bool {
+	return c == '_' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= 0x80
+}
+
+func isIdentChar(c byte) bool { return isIdentStart(c) || c >= '0' && c <= '9' }
+
+// firstStmt tracks the module's first statement, which is the docstring when
+// it consists of string literals only (parentheses allowed, implicit
+// concatenation included, no f-, t- or bytes literal) — as Python decides.
+type firstStmt struct {
+	phase   int // 0 before it, 1 inside it, 2 after it
+	only    bool
+	operand bool // an operand just ended (a literal, or a closing parenthesis)
+	spans   []DocSpan
+	open    DocSpan // the literal being read
+}
+
+func classifyPython(lines []string) Context {
+	ctx := Context{Class: make([]LineClass, len(lines))}
+	stack := []pframe{{kind: 'c'}}
+	fs := firstStmt{only: true}
+	// endFirst closes the first statement on line no.
+	endFirst := func(no int) {
+		if fs.phase != 1 {
+			return
+		}
+		fs.phase = 2
+		if fs.only && len(fs.spans) > 0 {
+			ctx.Docs, ctx.DocEnd = fs.spans, no
+		}
+	}
+	// token notes a token of the first statement; str says it is a literal
+	// that may be part of a docstring.
+	token := func(topLevel, str bool) {
+		if !topLevel || fs.phase == 2 {
+			return
+		}
+		fs.phase = 1
+		if !str {
+			fs.only = false
+		}
+		fs.operand = false
+	}
+	cont := false
+	for i, ln := range lines {
+		no := i + 1
+		top := stack[len(stack)-1]
+		switch {
+		case cont:
+			ctx.Class[i] = Code
+		case top.kind == 'c' && startsWithLeader(ln, "#"):
+			ctx.Class[i] = Comment
+		case top.kind == 'c':
+			ctx.Class[i] = Code
+		default:
+			ctx.Class[i] = Literal
+		}
+		cont = false
+		push := func(f pframe) { f.line = no; stack = append(stack, f) }
+		pop := func() pframe { f := stack[len(stack)-1]; stack = stack[:len(stack)-1]; return f }
+		startString := func(j int, prefix string) int {
+			q := ln[j]
+			triple := strings.HasPrefix(ln[j:], strings.Repeat(string(q), 3))
+			fstr := strings.ContainsAny(prefix, "ft")
+			topLevel := len(stack) == 1
+			doc := topLevel && fs.phase != 2 && !fstr && !strings.Contains(prefix, "b")
+			token(topLevel, doc)
+			push(pframe{kind: 's', quote: q, triple: triple, fstr: fstr, doc: doc})
+			n := 1
+			if triple {
+				n = 3
+			}
+			if doc {
+				fs.open = DocSpan{StartLine: no, StartCol: j + n, Raw: strings.Contains(prefix, "r")}
+			}
+			return j + n
+		}
+		j := 0
+	line:
+		for j < len(ln) {
+			top := &stack[len(stack)-1]
+			c := ln[j]
+			switch top.kind {
+			case 's':
+				switch {
+				case c == '\\':
+					j += 2
+				case top.fstr && c == '{':
+					if j+1 < len(ln) && ln[j+1] == '{' {
+						j += 2
+					} else {
+						push(pframe{kind: 'f'})
+						j++
+					}
+				case top.fstr && c == '}':
+					j++
+					if j < len(ln) && ln[j] == '}' {
+						j++
+					}
+				case c == top.quote && (!top.triple || strings.HasPrefix(ln[j:], strings.Repeat(string(c), 3))):
+					f := pop()
+					if f.doc {
+						fs.open.EndLine, fs.open.EndCol = no, j
+						fs.spans = append(fs.spans, fs.open)
+						fs.operand = true
+					}
+					if f.triple {
+						j += 3
+					} else {
+						j++
+					}
+				default:
+					j++
+				}
+				continue
+			case 'p':
+				switch c {
+				case '{':
+					push(pframe{kind: 'f'})
+				case '}':
+					pop() // the spec
+					pop() // its replacement field
+				}
+				j++
+				continue
+			}
+			// code: 'c' or 'f'
+			topLevel := len(stack) == 1
+			switch {
+			case c == ' ' || c == '\t' || c == '\r':
+				j++
+			case c == ';':
+				if topLevel && top.depth == 0 {
+					endFirst(no)
+				}
+				j++
+			case c == '#':
+				break line
+			case c == '\\':
+				if j == len(ln)-1 {
+					cont = true
+					break line
+				}
+				j += 2
+			case isIdentStart(c):
+				k := j
+				for k < len(ln) && isIdentChar(ln[k]) {
+					k++
+				}
+				if p := strings.ToLower(ln[j:k]); k < len(ln) && (ln[k] == '\'' || ln[k] == '"') && pyPrefixes[p] {
+					j = startString(k, p)
+					continue
+				}
+				token(topLevel, false)
+				j = k
+			case c == '\'' || c == '"':
+				j = startString(j, "")
+			case c == '(' || c == ')':
+				if c == '(' {
+					top.depth++
+					// After an operand, '(' is a call ("a"("b")), which is no
+					// docstring; elsewhere it only groups.
+					token(topLevel, !(topLevel && fs.operand))
+				} else {
+					if top.depth > 0 {
+						top.depth--
+					}
+					token(topLevel, true)
+					if topLevel {
+						fs.operand = true
+					}
+				}
+				j++
+			case c == '[' || c == '{':
+				top.depth++
+				token(topLevel, false)
+				j++
+			case c == '}' && top.kind == 'f' && top.depth == 0:
+				pop()
+				j++
+			case c == ':' && top.kind == 'f' && top.depth == 0:
+				push(pframe{kind: 'p'})
+				j++
+			case c == ']' || c == '}':
+				if top.depth > 0 {
+					top.depth--
+				}
+				token(topLevel, false)
+				j++
+			default:
+				token(topLevel, false)
+				j++
+			}
+		}
+		if t := stack[len(stack)-1]; t.kind == 's' && !t.triple && !strings.HasSuffix(ln, "\\") {
+			ctx.Uncertain = &Unclosed{Line: t.line, Construct: "unterminated string"}
+			markRest(&ctx, i+1)
+			return ctx
+		}
+		// A newline outside brackets, strings and continuations ends a
+		// statement.
+		if len(stack) == 1 && stack[0].depth == 0 && !cont {
+			endFirst(no)
+		}
+	}
+	if len(stack) > 1 {
+		ctx.Uncertain = &Unclosed{Line: stack[1].line, Construct: "unterminated string"}
+	}
+	endFirst(len(lines))
+	return ctx
+}
+
+// ---------------------------------------------------------------- Kotlin
+
+// A Kotlin frame: 'c' code, 't' a ${…} template (code), 's' "…",
+// 'r' """…""", 'b' a block comment.
+type kframe struct {
+	kind  byte
+	depth int // braces in 't'; nesting in 'b'
+	line  int
+}
+
+func classifyKotlin(lines []string) Context {
+	ctx := Context{Class: make([]LineClass, len(lines))}
+	stack := []kframe{{kind: 'c'}}
+	for i, ln := range lines {
+		no := i + 1
+		top := stack[len(stack)-1]
+		switch {
+		case top.kind == 'c' && startsWithLeader(ln, "//"):
+			ctx.Class[i] = Comment
+		case top.kind == 'c' || top.kind == 't':
+			ctx.Class[i] = Code
+			if top.kind == 'c' && top.depth == 0 && len(stack) == 1 {
+				t := strings.TrimLeft(ln, " \t")
+				switch {
+				case strings.HasPrefix(t, "package ") && ctx.Package == 0:
+					ctx.Package = no
+				case strings.HasPrefix(t, "import "):
+					ctx.Import = no
+				}
+			}
+		default:
+			ctx.Class[i] = Literal
+		}
+		push := func(k byte) { stack = append(stack, kframe{kind: k, line: no}) }
+		pop := func() { stack = stack[:len(stack)-1] }
+		j := 0
+	line:
+		for j < len(ln) {
+			top := &stack[len(stack)-1]
+			c := ln[j]
+			rest := ln[j:]
+			switch top.kind {
+			case 'b':
+				switch {
+				case strings.HasPrefix(rest, "/*"):
+					top.depth++
+					j += 2
+				case strings.HasPrefix(rest, "*/"):
+					top.depth--
+					if top.depth == 0 {
+						pop()
+					}
+					j += 2
+				default:
+					j++
+				}
+				continue
+			case 's':
+				switch {
+				case c == '\\':
+					j += 2
+				case strings.HasPrefix(rest, "${"):
+					push('t')
+					j += 2
+				case c == '"':
+					pop()
+					j++
+				default:
+					j++
+				}
+				continue
+			case 'r':
+				switch {
+				case strings.HasPrefix(rest, "${"):
+					push('t')
+					j += 2
+				case strings.HasPrefix(rest, `"""`):
+					n := len(rest) - len(strings.TrimLeft(rest, `"`))
+					pop()
+					j += n
+				default:
+					j++
+				}
+				continue
+			}
+			// code: 'c' or 't'
+			switch {
+			case strings.HasPrefix(rest, "//"):
+				break line
+			case strings.HasPrefix(rest, "/*"):
+				push('b')
+				stack[len(stack)-1].depth = 1
+				j += 2
+			case strings.HasPrefix(rest, `"""`):
+				push('r')
+				j += 3
+			case c == '"':
+				push('s')
+				j++
+			case c == '\'':
+				j = skipKotlinChar(ln, j)
+			case c == '`':
+				if k := strings.IndexByte(ln[j+1:], '`'); k >= 0 {
+					j += k + 2
+				} else {
+					j++
+				}
+			case c == '{':
+				top.depth++
+				j++
+			case c == '}':
+				if top.kind == 't' && top.depth == 0 {
+					pop()
+				} else if top.depth > 0 {
+					top.depth--
+				}
+				j++
+			default:
+				j++
+			}
+		}
+		if stack[len(stack)-1].kind == 's' {
+			ctx.Uncertain = &Unclosed{Line: stack[len(stack)-1].line, Construct: "unterminated string"}
+			markRest(&ctx, i+1)
+			return ctx
+		}
+	}
+	if len(stack) > 1 {
+		names := map[byte]string{'t': "string template", 's': "string", 'r': "raw string", 'b': "block comment"}
+		ctx.Uncertain = &Unclosed{Line: stack[1].line, Construct: names[stack[1].kind]}
+	}
+	return ctx
+}
+
+// skipKotlinChar skips a char literal at ln[j] ('x', '\n', 'A', '"'),
+// or just the quote when no literal closes on this line.
+func skipKotlinChar(ln string, j int) int {
+	for k := j + 1; k < len(ln) && k <= j+8; k++ {
+		switch ln[k] {
+		case '\\':
+			k++
+		case '\'':
+			return k + 1
+		}
+	}
+	return j + 1
+}

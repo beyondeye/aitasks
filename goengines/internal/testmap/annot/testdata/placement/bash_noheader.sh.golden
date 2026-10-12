@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# testmap:covers src/new @2026-10-12/aaaaaaaaaa
+set -e
+echo hi

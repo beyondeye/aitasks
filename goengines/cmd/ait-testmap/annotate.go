@@ -1,0 +1,182 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"os"
+	"strconv"
+
+	"github.com/beyondeye/aitasks/goengines/internal/lineproto"
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/annot"
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/registry"
+)
+
+// stampExits is the exit contract of `annotate` and `verify`: 0 every edge
+// stamped or current, 1 an edge skipped or a target refused, 2 no
+// `aitestmap/`, 3 a framework, syntax or hook error, 64 usage, 75 a rewrite
+// conflict (the file changed under the edit: re-run).
+var stampExits = lineproto.ExitContract{
+	lineproto.ExitOK, lineproto.ExitFail, lineproto.ExitNothingRan, lineproto.ExitFramework,
+	lineproto.ExitUsage, lineproto.ExitRefused,
+}
+
+// annotateArms are the named extensions of `annotate`: M2.3 registers
+// `--suggest` and `--from-body`, M7.4 `--author`. The first argument selects
+// the arm; an arm that has not landed is a stub.
+var annotateArms = map[string]func(e env, args []string) int{}
+
+var reservedArms = []string{"--suggest", "--from-body", "--author"}
+
+// actorFlag resolves `--by`: an explicit actor, else agent:$AIT_AGENT_STRING
+// when exported, else unspecified (never a human).
+func actorFlag(by string) (annot.Actor, error) {
+	if by != "" {
+		return annot.ParseActor(by)
+	}
+	if s := os.Getenv("AIT_AGENT_STRING"); s != "" {
+		return annot.ParseActor("agent:" + s)
+	}
+	return annot.Actor{}, nil
+}
+
+// unitArg parses a target `<path>[#<member>]`; a variant carries no stamp.
+func unitArg(s string) (registry.ID, error) {
+	id, err := registry.ParseID(s)
+	if err != nil {
+		return id, err
+	}
+	if id.Variant != "" {
+		return id, errors.New("a variant carries no stamp: " + s)
+	}
+	return id, nil
+}
+
+// runAnnotate is `annotate [--by <actor>] [--json] <test> <source>...`.
+func runAnnotate(e env, args []string) int {
+	if len(args) > 0 {
+		for _, arm := range reservedArms {
+			if args[0] != arm {
+				continue
+			}
+			if run, ok := annotateArms[arm]; ok {
+				return run(e, args[1:])
+			}
+			fmt.Fprintf(e.stderr, "NOT_IMPLEMENTED:annotate %s\n", arm)
+			return lineproto.ExitUsage
+		}
+	}
+	const usage = "ait-testmap annotate [--by human:<email>|agent:<agent-string>|auto] [--json] <test>[#<member>] <source>..."
+	fs := flag.NewFlagSet("annotate", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	by := fs.String("by", "", "the actor confirming the stamps")
+	asJSON := fs.Bool("json", false, "print one JSON object")
+	if err := fs.Parse(args); err != nil || fs.NArg() < 2 {
+		return lineproto.Usage(e.stderr, usage)
+	}
+	actor, err := actorFlag(*by)
+	if err != nil {
+		return lineproto.Usage(e.stderr, usage)
+	}
+	test, err := unitArg(fs.Arg(0))
+	if err != nil {
+		return lineproto.Usage(e.stderr, usage)
+	}
+	for _, s := range fs.Args()[1:] {
+		if registry.CheckPath(s) != nil {
+			return lineproto.Usage(e.stderr, usage)
+		}
+	}
+	root, err := cwd()
+	if err != nil {
+		return reportError(e, err)
+	}
+	res, err := annot.Annotate(context.Background(), root, test, fs.Args()[1:], actor)
+	return printStamps(e, res, err, *asJSON)
+}
+
+// runVerify is `verify [--by <actor>] [--json] <test>...`.
+func runVerify(e env, args []string) int {
+	const usage = "ait-testmap verify [--by human:<email>|agent:<agent-string>|auto] [--json] <test>[#<member>]..."
+	fs := flag.NewFlagSet("verify", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	by := fs.String("by", "", "the actor confirming the stamps")
+	asJSON := fs.Bool("json", false, "print one JSON object")
+	if err := fs.Parse(args); err != nil || fs.NArg() < 1 {
+		return lineproto.Usage(e.stderr, usage)
+	}
+	actor, err := actorFlag(*by)
+	if err != nil {
+		return lineproto.Usage(e.stderr, usage)
+	}
+	var targets []registry.ID
+	for _, a := range fs.Args() {
+		id, err := unitArg(a)
+		if err != nil {
+			return lineproto.Usage(e.stderr, usage)
+		}
+		targets = append(targets, id)
+	}
+	root, err := cwd()
+	if err != nil {
+		return reportError(e, err)
+	}
+	res, err := annot.Verify(context.Background(), root, targets, actor)
+	return printStamps(e, res, err, *asJSON)
+}
+
+// printStamps prints a stamping verb's result — the STAMP_REFUSED /
+// STAMP_SKIP / STAMP lines in order, WROTE:<path> per file, then
+// STAMPS:<added>|<restamped>|<current>|<skipped> — or its error, and returns
+// the exit code.
+func printStamps(e env, res *annot.Result, err error, asJSON bool) int {
+	if err != nil {
+		return reportStampError(e, err)
+	}
+	code := lineproto.ExitOK
+	if res.Failed() {
+		code = lineproto.ExitFail
+	}
+	if asJSON {
+		if err := lineproto.NewWriter(e.stdout, true).Emit(res); err != nil {
+			return reportError(e, err)
+		}
+		return code
+	}
+	lines := append([][]string{}, res.Lines...)
+	for _, w := range res.Wrote {
+		lines = append(lines, []string{"WROTE", w})
+	}
+	a, r, c, s := res.Counts()
+	lines = append(lines, []string{"STAMPS", strconv.Itoa(a), strconv.Itoa(r), strconv.Itoa(c), strconv.Itoa(s)})
+	if c := printLines(e, lines); c != lineproto.ExitOK {
+		return c
+	}
+	return code
+}
+
+// reportStampError maps the stamping verbs' errors: a refused grammar line is
+// ANNOT_INVALID:<path>|<line>|<reason> (3), a rewrite conflict
+// REWRITE_CONFLICT:<path>|<line> (75), a hook failure RESTAMP_HOOK_ERROR (3);
+// everything else reports as scan and check do.
+func reportStampError(e env, err error) int {
+	var se *annot.SyntaxError
+	if errors.As(err, &se) {
+		l, lerr := lineproto.Format("ANNOT_INVALID", se.Path, strconv.Itoa(se.Line), oneLine(se.Reason))
+		if lerr != nil {
+			return reportError(e, err)
+		}
+		fmt.Fprintln(e.stderr, l)
+		return lineproto.ExitFramework
+	}
+	var ce *annot.ConflictError
+	if errors.As(err, &ce) {
+		if l, lerr := ce.Line(); lerr == nil {
+			fmt.Fprintln(e.stderr, l)
+			return ce.ExitCode()
+		}
+	}
+	return reportError(e, err)
+}

@@ -1,0 +1,498 @@
+package annot
+
+import (
+	"bytes"
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"os"
+	"path"
+	"strings"
+
+	"github.com/beyondeye/aitasks/goengines/internal/lineproto"
+)
+
+// EditKind is what an Edit does to its line.
+type EditKind int
+
+const (
+	// Replace rewrites line Line (a `testmap:covers` comment line) to New.
+	Replace EditKind = iota
+	// InsertAfter inserts New after line Line (0: at the top of the file).
+	InsertAfter
+)
+
+// Edit is one line-targeted change: the line it is anchored to with the text
+// that line must still carry (Want), and the block the edited line must
+// belong to afterwards — Member ("" = the file-level block) and Source, the
+// `testmap:covers` source it must name. A line's text alone does not pin its
+// block (an earlier opener can be renamed), so Apply checks both.
+type Edit struct {
+	Kind   EditKind
+	Line   int
+	Want   string
+	New    string
+	Member string
+	Source string
+}
+
+// EditSet is every edit to one file, applied atomically. Snapshot, when set,
+// is File.Snapshot() of the parse the edits were planned from: any change to
+// the file since then is a conflict.
+type EditSet struct {
+	Path     string
+	Snapshot string
+	Edits    []Edit
+}
+
+// ConflictError is a file that no longer matches what the edit was planned
+// against: REWRITE_CONFLICT:<path>|<line>, exit 75 (re-read and retry).
+type ConflictError struct {
+	Path   string
+	At     int
+	Reason string // text | snapshot | ownership | concurrent
+}
+
+func (e *ConflictError) Error() string {
+	return fmt.Sprintf("%s:%d: rewrite conflict (%s)", e.Path, e.At, e.Reason)
+}
+
+// Line is REWRITE_CONFLICT:<path>|<line>.
+func (e *ConflictError) Line() (string, error) {
+	return lineproto.Format("REWRITE_CONFLICT", e.Path, fmt.Sprint(e.At))
+}
+
+// ExitCode is the refused exit: the caller re-reads the file and retries.
+func (e *ConflictError) ExitCode() int { return lineproto.ExitRefused }
+
+// Refusals that protect Invariant 6.
+var (
+	// ErrNotComment: an edit would touch a line that is not a comment
+	// annotation (code, a string, a heredoc body, a docstring), or would
+	// produce one.
+	ErrNotComment = errors.New("not a comment annotation line")
+	// ErrUncertainContext: the file's comment context cannot be established.
+	ErrUncertainContext = errors.New("uncertain-context")
+	// ErrNoMemberBlock: the member has no `testmap:unit` block.
+	ErrNoMemberBlock = errors.New("no-member-block")
+	// ErrDocstring: the covers line sits in a Python module docstring.
+	ErrDocstring = errors.New("docstring")
+)
+
+// Apply is the only writer of `testmap:` lines. It re-reads the file without
+// following any link, refuses a stale plan (Snapshot, Want, ownership), and
+// proves the result changes comment annotation lines only: every edited line
+// is a comment annotation of the expected block, and every other line keeps
+// its bytes and its lexical class. The write is atomic and keeps the file's
+// mode, line endings and final-newline state. changed is false when the
+// result equals the file (nothing is written).
+func Apply(root string, set EditSet) (changed bool, err error) {
+	r, err := openRoot(root)
+	if err != nil {
+		return false, err
+	}
+	defer r.Close()
+	// Everything below happens inside one verified directory handle, with
+	// single-component names only: no path is resolved twice.
+	d, err := openDir(r, path.Dir(set.Path))
+	if err != nil {
+		return false, fmt.Errorf("%s: %w", set.Path, err)
+	}
+	defer d.Close()
+	base := path.Base(set.Path)
+	data, mode, err := readLeaf(d, base)
+	if err != nil {
+		return false, fmt.Errorf("%s: %w", set.Path, err)
+	}
+	first := 0
+	if len(set.Edits) > 0 {
+		first = set.Edits[0].Line
+	}
+	if set.Snapshot != "" && snapshotOf(data) != set.Snapshot {
+		return false, &ConflictError{Path: set.Path, At: first, Reason: "snapshot"}
+	}
+	f, err := ParseFile(set.Path, data)
+	if err != nil {
+		return false, err
+	}
+	if f.Ctx.Uncertain != nil {
+		return false, fmt.Errorf("%s: %w", set.Path, ErrUncertainContext)
+	}
+	out, edited, err := f.render(set.Edits)
+	if err != nil {
+		return false, err
+	}
+	if err := verifyResult(f, out, edited, set); err != nil {
+		return false, err
+	}
+	if bytes.Equal(out, data) {
+		return false, nil
+	}
+	return true, writeAtomic(d, base, set.Path, data, out, mode)
+}
+
+// editedLine maps an edited line of the result to its edit.
+type editedLine struct {
+	newNo int
+	edit  Edit
+}
+
+// render validates each edit against f and returns the new content, the new
+// line number of every edited line, and the old→new mapping of the others.
+func (f *File) render(edits []Edit) ([]byte, []editedLine, error) {
+	n := len(f.Lines)
+	repl := map[int]Edit{}
+	ins := map[int][]Edit{}
+	for _, e := range edits {
+		if strings.ContainsAny(e.New, "\r\n") {
+			return nil, nil, fmt.Errorf("%s: edit text spans lines", f.Path)
+		}
+		switch e.Kind {
+		case Replace:
+			if e.Line < 1 || e.Line > n || strings.TrimSuffix(f.Lines[e.Line-1], "\r") != e.Want {
+				return nil, nil, &ConflictError{Path: f.Path, At: e.Line, Reason: "text"}
+			}
+			if f.Ctx.Class[e.Line-1] != Comment {
+				return nil, nil, fmt.Errorf("%s:%d: %w", f.Path, e.Line, ErrNotComment)
+			}
+			// A Replace re-stamps a covers line: the line must already be
+			// that line, never another comment (a shebang, prose) or code.
+			if !ownedBy(f, e.Line, e.Member, e.Source) {
+				if coverAt(f, e.Line) {
+					return nil, nil, &ConflictError{Path: f.Path, At: e.Line, Reason: "ownership"}
+				}
+				return nil, nil, fmt.Errorf("%s:%d: %w", f.Path, e.Line, ErrNotComment)
+			}
+			if _, dup := repl[e.Line]; dup {
+				return nil, nil, fmt.Errorf("%s:%d: two edits replace one line", f.Path, e.Line)
+			}
+			repl[e.Line] = e
+		case InsertAfter:
+			want := ""
+			if e.Line >= 1 && e.Line <= n {
+				want = strings.TrimSuffix(f.Lines[e.Line-1], "\r")
+			}
+			if e.Line < 0 || e.Line > n || want != e.Want {
+				return nil, nil, &ConflictError{Path: f.Path, At: e.Line, Reason: "text"}
+			}
+			ins[e.Line] = append(ins[e.Line], e)
+		default:
+			return nil, nil, fmt.Errorf("%s: unknown edit kind", f.Path)
+		}
+	}
+	eol := ""
+	if f.CRLF {
+		eol = "\r"
+	}
+	var out []string
+	var edited []editedLine
+	emitInserts := func(after int) {
+		for _, e := range ins[after] {
+			out = append(out, e.New+eol)
+			edited = append(edited, editedLine{newNo: len(out), edit: e})
+		}
+	}
+	emitInserts(0)
+	for l := 1; l <= n; l++ {
+		line := f.Lines[l-1]
+		if e, ok := repl[l]; ok {
+			cr := ""
+			if strings.HasSuffix(line, "\r") {
+				cr = "\r"
+			}
+			out = append(out, e.New+cr)
+			edited = append(edited, editedLine{newNo: len(out), edit: e})
+		} else {
+			out = append(out, line)
+		}
+		emitInserts(l)
+	}
+	s := strings.Join(out, "\n")
+	if f.FinalNL || (len(f.Lines) == 0 && len(out) > 0) {
+		s += "\n"
+	}
+	return []byte(s), edited, nil
+}
+
+// verifyResult is Invariant 6 and the ownership check, on the result: it
+// parses, its context is certain, every edited line is a comment annotation
+// naming the edit's source in the edit's block, and every other line keeps
+// its class.
+func verifyResult(old *File, out []byte, edited []editedLine, set EditSet) error {
+	nf, err := ParseFile(set.Path, out)
+	if err != nil {
+		return fmt.Errorf("%s: the edit would not parse: %w", set.Path, err)
+	}
+	if nf.Ctx.Uncertain != nil {
+		return fmt.Errorf("%s: %w", set.Path, ErrUncertainContext)
+	}
+	isEdited := map[int]bool{}
+	for _, e := range edited {
+		isEdited[e.newNo] = true
+		if nf.Ctx.Class[e.newNo-1] != Comment {
+			return fmt.Errorf("%s:%d: %w", set.Path, e.newNo, ErrNotComment)
+		}
+		if !ownedBy(nf, e.newNo, e.edit.Member, e.edit.Source) {
+			return &ConflictError{Path: set.Path, At: e.edit.Line, Reason: "ownership"}
+		}
+	}
+	oldNo := 0
+	for i := range nf.Lines {
+		if isEdited[i+1] {
+			if replaced(edited, i+1) {
+				oldNo++
+			}
+			continue
+		}
+		oldNo++
+		if old.Ctx.Class[oldNo-1] != nf.Ctx.Class[i] || old.Lines[oldNo-1] != nf.Lines[i] {
+			return fmt.Errorf("%s:%d: the edit would change what line %d means: %w", set.Path, i+1, oldNo, ErrNotComment)
+		}
+	}
+	if !sameDocShape(old.Ctx.Docs, nf.Ctx.Docs) {
+		return fmt.Errorf("%s: the edit would change the module docstring: %w", set.Path, ErrNotComment)
+	}
+	return nil
+}
+
+// sameDocShape reports two docstrings made of the same literals, line
+// extents and columns (an insertion above may shift their line numbers).
+func sameDocShape(a, b []DocSpan) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].EndLine-a[i].StartLine != b[i].EndLine-b[i].StartLine ||
+			a[i].StartCol != b[i].StartCol || a[i].EndCol != b[i].EndCol {
+			return false
+		}
+	}
+	return true
+}
+
+func replaced(edited []editedLine, newNo int) bool {
+	for _, e := range edited {
+		if e.newNo == newNo {
+			return e.edit.Kind == Replace
+		}
+	}
+	return false
+}
+
+// ownedBy reports whether line no of f is a non-docstring `testmap:covers
+// <source>` line of the block of member.
+func ownedBy(f *File, no int, member, source string) bool {
+	for _, u := range f.Units {
+		for _, c := range u.Covers {
+			if c.Line.No == no {
+				return u.Member == member && c.Source == source && !c.Line.Docstring
+			}
+		}
+	}
+	return false
+}
+
+// coverAt reports whether line no of f is any `testmap:covers` line.
+func coverAt(f *File, no int) bool {
+	for _, u := range f.Units {
+		for _, c := range u.Covers {
+			if c.Line.No == no {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// beforeRename is a test seam: it runs after the new content is written to
+// the temporary file and before the original is re-read for a concurrent
+// change.
+var beforeRename = func(string) {}
+
+// writeAtomic replaces file name of directory handle d (rel names it in
+// errors) with out: a temporary file created exclusively beside it, the
+// original mode, a last check that the file still holds old, then a rename
+// within d — single-component names throughout, so neither the temporary
+// file nor the rename can be redirected through a link.
+func writeAtomic(d *os.Root, name, rel string, old, out []byte, mode os.FileMode) error {
+	var rnd [6]byte
+	if _, err := rand.Read(rnd[:]); err != nil {
+		return err
+	}
+	tmp := "." + name + ".ait-" + hex.EncodeToString(rnd[:])
+	fh, err := d.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			d.Remove(tmp)
+		}
+	}()
+	if _, err := fh.Write(out); err != nil {
+		fh.Close()
+		return err
+	}
+	if err := fh.Chmod(mode); err != nil {
+		fh.Close()
+		return err
+	}
+	if err := fh.Sync(); err != nil {
+		fh.Close()
+		return err
+	}
+	if err := fh.Close(); err != nil {
+		return err
+	}
+	beforeRename(rel)
+	cur, _, err := readLeaf(d, name)
+	if err != nil {
+		return fmt.Errorf("%s: %w", rel, err)
+	}
+	if !bytes.Equal(cur, old) {
+		return &ConflictError{Path: rel, At: 0, Reason: "concurrent"}
+	}
+	if err := d.Rename(tmp, name); err != nil {
+		return err
+	}
+	committed = true
+	return nil
+}
+
+// RestampLine rewrites only the stamp of a `testmap:covers` line: indent,
+// leader, spacing and path bytes are kept; an unstamped line gains one.
+func RestampLine(text string, s Stamp) (string, error) {
+	k := strings.Index(text, Token+"covers")
+	if k < 0 {
+		return "", fmt.Errorf("not a testmap:covers line: %q", text)
+	}
+	i := k + len(Token+"covers")
+	for i < len(text) && (text[i] == ' ' || text[i] == '\t') {
+		i++
+	}
+	for i < len(text) && text[i] != ' ' && text[i] != '\t' {
+		i++ // the path
+	}
+	pathEnd := i
+	for i < len(text) && (text[i] == ' ' || text[i] == '\t') {
+		i++
+	}
+	if i < len(text) && text[i] == '@' {
+		j := i
+		for j < len(text) && text[j] != ' ' && text[j] != '\t' {
+			j++
+		}
+		return text[:i] + s.String() + text[j:], nil
+	}
+	return text[:pathEnd] + " " + s.String(), nil
+}
+
+// Placement returns where a new annotation line of member's block goes:
+// after line `after` (0 = the top), with the given indent and the file's
+// leader. A block that already has a comment annotation grows after its last
+// one; a member block without one grows after its opener; the file-level
+// block without one starts at the language's fixed position — and never
+// after the first member opener, which would make the new line a member's.
+func (f *File) Placement(member string) (after int, indent, leader string, err error) {
+	u, ok := f.Unit(member)
+	if !ok {
+		return 0, "", "", ErrNoMemberBlock
+	}
+	leader = f.Lang.Leader
+	switch {
+	case u.Last > 0:
+		return u.Last, indentOf(f.Lines[u.Last-1]), leader, nil
+	case member != "":
+		return u.Opener.No, indentOf(f.Lines[u.Opener.No-1]), leader, nil
+	}
+	after = f.fixedPosition()
+	if len(f.Units) > 1 && after >= f.Units[1].Opener.No {
+		op := f.Units[1].Opener.No
+		return op - 1, indentOf(f.Lines[op-1]), leader, nil
+	}
+	return after, "", leader, nil
+}
+
+// fixedPosition is the per-language insertion point of a file-level block
+// that has no comment annotation yet.
+func (f *File) fixedPosition() int {
+	n := len(f.Lines)
+	leading := func(i int) int { // shebang, then the run of comment lines
+		if i == 0 && n > 0 && strings.HasPrefix(f.Lines[0], "#!") {
+			i = 1
+		}
+		for i < n && f.Ctx.Class[i] == Comment {
+			i++
+		}
+		return i
+	}
+	switch f.Lang.Name {
+	case Python.Name:
+		if len(f.Ctx.Docs) > 0 {
+			return f.Ctx.DocEnd
+		}
+		return leading(0)
+	case Go.Name:
+		return f.Ctx.Package
+	case Kotlin.Name:
+		switch {
+		case f.Ctx.Import > 0:
+			return f.Ctx.Import
+		case f.Ctx.Package > 0:
+			return f.Ctx.Package
+		}
+		i := 0
+		if n > 0 && strings.HasPrefix(f.Lines[0], "#!") {
+			i = 1
+		}
+		for i < n {
+			t := strings.TrimSpace(f.Lines[i])
+			if t == "" || f.Ctx.Class[i] == Comment || f.Ctx.Class[i] == Literal || strings.HasPrefix(t, "/*") {
+				i++
+				continue
+			}
+			break
+		}
+		return i
+	default:
+		return leading(0)
+	}
+}
+
+// PlanCovers plans the edit that makes member's block cover source with
+// stamp s: the existing covers line re-stamped, or a new line at Placement.
+// A covers line in the module docstring is ErrDocstring (never written).
+func PlanCovers(f *File, member, source string, s Stamp) (Edit, error) {
+	u, ok := f.Unit(member)
+	if !ok {
+		return Edit{}, ErrNoMemberBlock
+	}
+	for _, c := range u.Covers {
+		if c.Source != source {
+			continue
+		}
+		if c.Line.Docstring {
+			return Edit{}, ErrDocstring
+		}
+		nl, err := RestampLine(c.Line.Text, s)
+		if err != nil {
+			return Edit{}, err
+		}
+		return Edit{Kind: Replace, Line: c.Line.No, Want: c.Line.Text, New: nl, Member: member, Source: source}, nil
+	}
+	after, indent, leader, err := f.Placement(member)
+	if err != nil {
+		return Edit{}, err
+	}
+	want := ""
+	if after > 0 {
+		want = strings.TrimSuffix(f.Lines[after-1], "\r")
+	}
+	return Edit{
+		Kind: InsertAfter, Line: after, Want: want,
+		New:    indent + leader + " " + Token + "covers " + source + " " + s.String(),
+		Member: member, Source: source,
+	}, nil
+}

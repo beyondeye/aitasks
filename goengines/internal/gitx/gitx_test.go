@@ -117,6 +117,42 @@ func TestRevParse(t *testing.T) {
 	}
 }
 
+func TestListFiles(t *testing.T) {
+	r := fixture.New(t)
+	r.Write(t, ".gitignore", "build/\n")
+	r.Write(t, "tracked.sh", "a\n")
+	r.Write(t, "gone.sh", "b\n")
+	r.Commit(t, "1", "chore", "c")
+	r.Write(t, "sub/untracked.py", "c\n")
+	r.Write(t, "build/ignored.sh", "d\n")
+	r.Remove(t, "gone.sh") // deleted since the index: still listed
+	got, err := r.Git.ListFiles(ctx)
+	want := []string{".gitignore", "gone.sh", "sub/untracked.py", "tracked.sh"}
+	if err != nil || strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("got %v %v, want %v", got, err, want)
+	}
+}
+
+// git exits 0 when it cannot read an untracked directory and only warns on
+// stderr; the listing must fail instead of looking complete.
+func TestListFilesUnreadableDirectoryFails(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("permissions are not enforced for root")
+	}
+	r := fixture.New(t)
+	r.Write(t, "locked/a.sh", "a\n")
+	dir := filepath.Join(r.Dir, "locked")
+	if err := os.Chmod(dir, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(dir, 0o755) })
+	_, err := r.Git.ListFiles(ctx)
+	var ge *gitx.Error
+	if !errors.As(err, &ge) || !strings.Contains(ge.Stderr, "locked") {
+		t.Fatalf("got %v, want a *gitx.Error naming the directory", err)
+	}
+}
+
 // A GIT_DIR inherited from a hook environment must not redirect gitx away
 // from the repository it was pointed at.
 func TestEnvScrub(t *testing.T) {

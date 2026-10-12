@@ -1,0 +1,381 @@
+package annot
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+
+	"github.com/beyondeye/aitasks/goengines/internal/gitx"
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/registry"
+)
+
+// StampLine is STAMP:<test>|<source>|<stamp>|<state>.
+type StampLine struct {
+	Test   string    `json:"test"`
+	Source string    `json:"source"`
+	Stamp  string    `json:"stamp"`
+	State  EdgeState `json:"state"`
+}
+
+// SkipLine is STAMP_SKIP:<test>|<source>|<reason>: an edge not stamped.
+type SkipLine struct {
+	Test   string `json:"test"`
+	Source string `json:"source"`
+	Reason string `json:"reason"`
+}
+
+// RefuseLine is STAMP_REFUSED:<test>|<reason>: a target not touched.
+type RefuseLine struct {
+	Test   string `json:"test"`
+	Reason string `json:"reason"`
+}
+
+// Result is what `annotate` or `verify` did, in output order.
+type Result struct {
+	Stamps  []StampLine  `json:"stamps"`
+	Skips   []SkipLine   `json:"skipped"`
+	Refused []RefuseLine `json:"refused"`
+	Wrote   []string     `json:"wrote"`
+	Lines   [][]string   `json:"-"` // the protocol lines, in output order (WROTE and STAMPS excluded)
+}
+
+// Failed reports whether an edge was skipped or a target refused (exit 1).
+func (r *Result) Failed() bool { return len(r.Skips)+len(r.Refused) > 0 }
+
+// Counts is the STAMPS:<added>|<restamped>|<current>|<skipped> summary.
+func (r *Result) Counts() (added, restamped, current, skipped int) {
+	for _, s := range r.Stamps {
+		switch s.State {
+		case Added:
+			added++
+		case Restamped:
+			restamped++
+		default:
+			current++
+		}
+	}
+	return added, restamped, current, len(r.Skips) + len(r.Refused)
+}
+
+func newResult() *Result {
+	return &Result{Stamps: []StampLine{}, Skips: []SkipLine{}, Refused: []RefuseLine{}, Wrote: []string{}}
+}
+
+func (r *Result) refuse(test, reason string) {
+	r.Refused = append(r.Refused, RefuseLine{test, reason})
+	r.Lines = append(r.Lines, []string{"STAMP_REFUSED", test, reason})
+}
+
+func (r *Result) skip(test, source, reason string) {
+	r.Skips = append(r.Skips, SkipLine{test, source, reason})
+	r.Lines = append(r.Lines, []string{"STAMP_SKIP", test, source, reason})
+}
+
+func (r *Result) stamp(test, source string, s Stamp, st EdgeState) {
+	r.Stamps = append(r.Stamps, StampLine{test, source, s.Date + "/" + s.Blob, st})
+	r.Lines = append(r.Lines, []string{"STAMP", test, source, s.Date + "/" + s.Blob, string(st)})
+}
+
+// session is what both verbs need: the configuration, the repository's object
+// format, and the confined root every file goes through.
+type session struct {
+	root   string
+	cfg    registry.Config
+	format string
+	r      *os.Root
+	stamps map[string]stampResult // source → its stamp, read once per invocation
+}
+
+type stampResult struct {
+	st  Stamp
+	why string
+}
+
+func open(ctx context.Context, root string) (*session, error) {
+	if fi, err := os.Stat(filepath.Join(root, registry.Dir)); err != nil || !fi.IsDir() {
+		if err == nil || errors.Is(err, fs.ErrNotExist) {
+			return nil, registry.ErrAbsent
+		}
+		return nil, err
+	}
+	cfg, err := registry.LoadConfig(root)
+	if err != nil {
+		return nil, err
+	}
+	format, err := gitx.Repo{Dir: root}.ObjectFormat(ctx)
+	if err != nil {
+		return nil, err
+	}
+	r, err := openRoot(root)
+	if err != nil {
+		return nil, err
+	}
+	return &session{root: root, cfg: cfg, format: format, r: r, stamps: map[string]stampResult{}}, nil
+}
+
+// load reads and parses a target test file. A non-empty reason is a refusal
+// (STAMP_REFUSED); err is a framework or syntax error.
+func (s *session) load(p string) (f *File, reason string, err error) {
+	if s.cfg.Excluded(p) {
+		return nil, "excluded", nil
+	}
+	data, _, err := readNoFollow(s.r, p)
+	switch {
+	case errors.Is(err, ErrMissing):
+		return nil, "missing", nil
+	case errors.Is(err, ErrNotAFile):
+		return nil, "not-a-file", nil
+	case err != nil:
+		return nil, "", err
+	}
+	f, err = ParseFile(p, data)
+	switch {
+	case errors.Is(err, ErrNoLeader):
+		return nil, "no-leader", nil
+	case err != nil:
+		return nil, "", err
+	case f.Ctx.Uncertain != nil:
+		return nil, "uncertain-context", nil
+	}
+	return f, "", nil
+}
+
+// stampOf stamps source; a non-empty reason is a skip (missing, not-a-file).
+// A source is read and hashed once per invocation: every edge naming it is
+// confirmed against the same snapshot of its bytes.
+func (s *session) stampOf(source string) (Stamp, string, error) {
+	if c, ok := s.stamps[source]; ok {
+		return c.st, c.why, nil
+	}
+	st, err := SourceStamp(s.r, source, s.format)
+	why := ""
+	switch {
+	case errors.Is(err, ErrMissing):
+		st, why = Stamp{}, "missing"
+	case errors.Is(err, ErrNotAFile):
+		st, why = Stamp{}, "not-a-file"
+	case err != nil:
+		return Stamp{}, "", err
+	}
+	s.stamps[source] = stampResult{st, why}
+	return st, why, nil
+}
+
+// Annotate makes test's block (the file-level block, or the `testmap:unit`
+// block of test.Member) cover every source, stamped now: an existing covers
+// line is re-stamped (or left as is when its stamp names the current blob),
+// a missing one is inserted at the fixed position. One file, all or nothing:
+// a source that cannot be stamped writes nothing. The post-re-stamp hook runs
+// after the write with every edge.
+func Annotate(ctx context.Context, root string, test registry.ID, sources []string, actor Actor) (*Result, error) {
+	s, err := open(ctx, root)
+	if err != nil {
+		return nil, err
+	}
+	defer s.r.Close()
+	res := newResult()
+	tid := test.String()
+	f, reason, err := s.load(test.Path)
+	if err != nil {
+		return nil, err
+	}
+	if reason != "" {
+		res.refuse(tid, reason)
+		return res, nil
+	}
+	u, ok := f.Unit(test.Member)
+	if !ok {
+		res.refuse(tid, ErrNoMemberBlock.Error())
+		return res, nil
+	}
+	type planned struct {
+		source string
+		before Stamp
+		after  Stamp
+		state  EdgeState
+	}
+	var plan []planned
+	var edits []Edit
+	seen := map[string]bool{}
+	for _, src := range sources {
+		if seen[src] {
+			continue
+		}
+		seen[src] = true
+		st, why, err := s.stampOf(src)
+		if err != nil {
+			return nil, err
+		}
+		if why != "" {
+			res.skip(tid, src, why)
+			continue
+		}
+		var before Stamp
+		for _, c := range u.Covers {
+			if c.Source == src {
+				before = c.Stamp
+			}
+		}
+		if !before.IsZero() && before.Blob == st.Blob {
+			plan = append(plan, planned{src, before, before, Current})
+			continue
+		}
+		e, err := PlanCovers(f, test.Member, src, st)
+		if errors.Is(err, ErrDocstring) {
+			res.skip(tid, src, ErrDocstring.Error())
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		state := Restamped
+		if e.Kind == InsertAfter {
+			state = Added
+		}
+		plan = append(plan, planned{src, before, st, state})
+		edits = append(edits, e)
+	}
+	if res.Failed() {
+		return res, nil // all or nothing
+	}
+	if len(edits) > 0 {
+		changed, err := Apply(root, EditSet{Path: test.Path, Snapshot: f.Snapshot(), Edits: edits})
+		if err != nil {
+			return nil, err
+		}
+		if changed {
+			res.Wrote = append(res.Wrote, test.Path)
+		}
+	}
+	lines, err := s.coverLines(test.Path, test.Member)
+	if err != nil {
+		return nil, err
+	}
+	var edges []Restamp
+	for _, p := range plan {
+		res.stamp(tid, p.source, p.after, p.state)
+		edges = append(edges, Restamp{Test: test, Source: p.source, File: test.Path,
+			Line: lines[p.source], Before: p.before, After: p.after, State: p.state})
+	}
+	return res, runRestampHooks(ctx, root, actor, edges)
+}
+
+// coverLines re-reads a written file: source → covers line, in member's block.
+func (s *session) coverLines(p, member string) (map[string]int, error) {
+	data, _, err := readNoFollow(s.r, p)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", p, err)
+	}
+	f, err := ParseFile(p, data)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]int{}
+	if u, ok := f.Unit(member); ok {
+		for _, c := range u.Covers {
+			out[c.Source] = c.Line.No
+		}
+	}
+	return out, nil
+}
+
+// Verify re-stamps the covers lines of each target — every block of a
+// `<path>` target, one block of a `<path>#<member>` target — whose stamp does
+// not name the source's current blob. A line already current is left
+// untouched; a source that cannot be stamped, or a covers line in a Python
+// docstring that would need a new stamp, is skipped (the rest still go
+// ahead). Results come in target order (a block named twice is reported
+// once, at its first target); each file is written once, atomically, after
+// every target was planned; the post-re-stamp hook runs once, after every
+// write succeeded.
+func Verify(ctx context.Context, root string, targets []registry.ID, actor Actor) (*Result, error) {
+	s, err := open(ctx, root)
+	if err != nil {
+		return nil, err
+	}
+	defer s.r.Close()
+	res := newResult()
+	type planned struct {
+		f      *File
+		reason string // the file's refusal, when it cannot be stamped
+		done   map[string]bool
+		edits  []Edit
+	}
+	files := map[string]*planned{}
+	var order []string // paths, first-seen order: the write order
+	var edges []Restamp
+	for _, t := range targets {
+		p, ok := files[t.Path]
+		if !ok {
+			f, reason, err := s.load(t.Path)
+			if err != nil {
+				return nil, err
+			}
+			p = &planned{f: f, reason: reason, done: map[string]bool{}}
+			files[t.Path] = p
+			order = append(order, t.Path)
+		}
+		if p.reason != "" {
+			res.refuse(t.String(), p.reason)
+			continue
+		}
+		var units []Unit
+		if t.Member == "" {
+			units = p.f.Units
+		} else if u, ok := p.f.Unit(t.Member); ok {
+			units = []Unit{*u}
+		} else {
+			res.refuse(t.String(), ErrNoMemberBlock.Error())
+			continue
+		}
+		for _, u := range units {
+			if p.done[u.Member] {
+				continue
+			}
+			p.done[u.Member] = true
+			id := registry.ID{Path: t.Path, Member: u.Member}
+			for _, c := range u.Covers {
+				st, why, err := s.stampOf(c.Source)
+				if err != nil {
+					return nil, err
+				}
+				switch {
+				case why != "":
+					res.skip(id.String(), c.Source, why)
+				case !c.Stamp.IsZero() && c.Stamp.Blob == st.Blob:
+					res.stamp(id.String(), c.Source, c.Stamp, Current)
+					edges = append(edges, Restamp{Test: id, Source: c.Source, File: t.Path,
+						Line: c.Line.No, Before: c.Stamp, After: c.Stamp, State: Current})
+				case c.Line.Docstring:
+					res.skip(id.String(), c.Source, ErrDocstring.Error())
+				default:
+					e, err := PlanCovers(p.f, u.Member, c.Source, st)
+					if err != nil {
+						return nil, err
+					}
+					p.edits = append(p.edits, e)
+					res.stamp(id.String(), c.Source, st, Restamped)
+					edges = append(edges, Restamp{Test: id, Source: c.Source, File: t.Path,
+						Line: c.Line.No, Before: c.Stamp, After: st, State: Restamped})
+				}
+			}
+		}
+	}
+	for _, path := range order {
+		p := files[path]
+		if len(p.edits) == 0 {
+			continue
+		}
+		changed, err := Apply(root, EditSet{Path: path, Snapshot: p.f.Snapshot(), Edits: p.edits})
+		if err != nil {
+			return nil, err
+		}
+		if changed {
+			res.Wrote = append(res.Wrote, path)
+		}
+	}
+	return res, runRestampHooks(ctx, root, actor, edges)
+}

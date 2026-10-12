@@ -11,16 +11,17 @@ import (
 	"strings"
 
 	"github.com/beyondeye/aitasks/goengines/internal/lineproto"
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/annot"
 	"github.com/beyondeye/aitasks/goengines/internal/testmap/registry"
 )
 
 // testmapInputs returns the injected inputs `scan` and `check` read. It is
 // the wiring point of two named extensions: M2.2 sets Annotations (its
-// `testmap:` scanner) and M3.1 sets Lister (the runner repository). A nil
-// field makes both verbs refuse with INPUT_UNAVAILABLE, exit 3 — they never
-// run on an empty input as if it were the repository.
+// `testmap:` scanner, annot.Source) and M3.1 sets Lister (the runner
+// repository). A nil field makes both verbs refuse with INPUT_UNAVAILABLE,
+// exit 3 — they never run on an empty input as if it were the repository.
 var testmapInputs = func() registry.Inputs {
-	return registry.Inputs{}
+	return registry.Inputs{Annotations: annot.Source{}}
 }
 
 // scanCheckExits is the exit contract of `scan` and `check`: 0 clean, 1 a

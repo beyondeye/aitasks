@@ -1,0 +1,46 @@
+package gitx
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"os/exec"
+	"slices"
+)
+
+// ListFiles returns the working tree's git-visible files: tracked paths
+// (including ones deleted since the index was written) and untracked paths
+// that no ignore rule excludes — `git ls-files --cached --others
+// --exclude-standard`. Paths are relative to Dir, deduplicated (an unmerged
+// path is listed once per stage) and sorted.
+//
+// git exits 0 when it cannot read a directory while collecting untracked
+// files, and reports it only on stderr, so a listing that skipped part of the
+// tree would look complete. ListFiles therefore treats any stderr output as a
+// failure: an *Error carrying it, whatever the exit code.
+func (r Repo) ListFiles(ctx context.Context) ([]string, error) {
+	args := []string{"ls-files", "-z", "--cached", "--others", "--exclude-standard"}
+	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", r.Dir}, args...)...)
+	cmd.Env = Env()
+	var out, errb bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &errb
+	if err := cmd.Run(); err != nil {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
+			return nil, &Error{Args: args, ExitCode: ee.ExitCode(), Stderr: errb.String()}
+		}
+		return nil, err
+	}
+	if errb.Len() > 0 {
+		return nil, &Error{Args: args, ExitCode: 0, Stderr: errb.String()}
+	}
+	var files []string
+	for rec := range bytes.SplitSeq(out.Bytes(), []byte{0}) {
+		if len(rec) > 0 {
+			files = append(files, string(rec))
+		}
+	}
+	slices.Sort(files)
+	return slices.Compact(files), nil
+}

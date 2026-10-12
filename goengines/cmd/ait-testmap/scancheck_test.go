@@ -94,7 +94,7 @@ func TestScanCheckInputUnavailable(t *testing.T) {
 	repo(t)
 	for _, verb := range []string{"scan", "check"} {
 		code, out, errs := call(verb)
-		if code != 3 || out != "" || errs != "INPUT_UNAVAILABLE:annotations\n" {
+		if code != 3 || out != "" || errs != "INPUT_UNAVAILABLE:lister\n" {
 			t.Errorf("%s: %d %q %q", verb, code, out, errs)
 		}
 	}
