@@ -102,7 +102,10 @@ context.
   mismatch it refuses to run (exit non-zero) and never falls back to the
   checkout. It prints the identity at the top of every result file.
 - `oracle/` — native-tool helpers (Python `tokenize`/`ast`, Pygments, the
-  TypeScript scanner) invoked as subprocesses.
+  parser-aware TypeScript comment extractor) invoked as subprocesses. A
+  native tool overrides a hand `.expect` only after passing a self-test on
+  that language's hardest fixtures with a negative control; a context-free
+  scan loop (e.g. bare `ts.createScanner`) is never an oracle.
 - `corpus/<lang>/<case>.<ext>.in` + `<case>.<ext>.expect` (+ optional
   `<case>.<ext>.edits`) — the `.in` suffix keeps fixtures out of every
   language table (M2.2's convention), so a future `ait-testmap scan` over
@@ -148,7 +151,8 @@ using the real code and re-implementing neither.
   patched-but-unhooked snapshot, and must be identical. This proves the patch
   is behaviour-neutral.
 - A provider reaches the seam through the **shared adapter**
-  `provider.ToContext(lang, src, Result) (annot.Context, error)`. It builds
+  `provider.ToContext(lang, src, caps, Result, need) (annot.Context, error)`
+  (capability enforcement: see *Experimental interface*). It builds
   `Class` from line-comment / non-code spans, `Docs`/`DocEnd` from
   `Result.Doc` (see the interface), `Package`/`Import` from `Anchors`, and
   `Uncertain` from any `Diag`. A provider that cannot supply a field the
@@ -180,7 +184,9 @@ using the real code and re-implementing neither.
 type SpanKind uint8 // LineComment | BlockComment | String | Heredoc | DocLiteral | Other
 type Span struct{ Start, End int; Kind SpanKind }  // byte range, as the provider reports it
 type Diag struct{ Start, End int; Reason string }   // ERROR/MISSING node, error token, unterminated construct, unsupported form
-type Anchors struct{ Shebang, HeaderEnd, Package, ImportEnd, Prologue, InnerAttrEnd int } // lines, 0 = none
+type Anchors struct{ Shebang, HeaderEnd, Package, ImportEnd, Prologue, InnerAttrEnd int } // lines; 0 = none ONLY for an anchor declared in Capabilities.Anchors
+type AnchorSet uint8 // one bit per Anchors field
+const ( AShebang AnchorSet = 1 << iota; AHeaderEnd; APackage; AImportEnd; APrologue; AInnerAttrEnd )
 // Python module docstring, normalised by the provider (never reconstructed by the adapter):
 type DocLiteral struct{ ContentStart, ContentEnd int; Raw bool } // byte offsets of the literal's CONTENT (after prefix + opening quotes, before closing quotes)
 type DocInfo struct {
@@ -192,6 +198,7 @@ type Capabilities struct {
     FullCover   bool // tokens/leaves partition the whole input (reconstruction is checkable)
     Errors      bool // reports malformed input as diagnostics
     DocLiterals bool // fills Result.Doc (content bounds, raw flags, statement end)
+    Anchors     AnchorSet // anchors the provider DETERMINES; undeclared = unknown, never "none"
 }
 type Result struct {
     Spans   []Span
@@ -206,7 +213,43 @@ type Provider interface {
     Caps(lang string) Capabilities
     Analyze(lang string, src []byte) (Result, error) // error = provider failure → "unsupported", never "no comments"
 }
+type Need uint8 // NeedLexical | NeedWrite | NeedFreshFileInsert (bit set)
+func ToContext(lang string, src []byte, caps Capabilities, res Result, need Need) (annot.Context, error)
 ```
+
+**Capability enforcement (amended by t1954_1 plan review, 2026-10-12).**
+`ToContext` itself enforces what each operation needs, following the real
+rewriter code path. A missing requirement is an
+`*UnsupportedCapabilityError{Missing}` (wrapping `ErrUnsupportedCapability`).
+The runner records it as `unsupported:<cap>` for that operation only.
+- **NeedLexical:** `Spans`. Python docstring *read* records also need
+  `DocLiterals`.
+- **NeedWrite** — every edit (restamp, member insertion, file-level append,
+  fresh file-level insertion): `Errors`, because an empty `Diags` from a
+  provider that cannot report errors proves no certainty. Python also needs
+  `DocLiterals` (docstring records, the `ErrDocstring` refusal, `Apply`'s
+  doc-shape check). No anchors.
+- **NeedFreshFileInsert** — only the file-level block with no annotation yet
+  (`member == ""`, `u.Last == 0`), the one path that reaches `fixedPosition`
+  or a proposed extra-language rule. It needs these anchors in
+  `Capabilities.Anchors`:
+
+  | language | required anchors |
+  |---|---|
+  | bash | none |
+  | Go | Package |
+  | Kotlin | Package, ImportEnd |
+  | TS/JS | ImportEnd, Prologue |
+  | Java | Package, ImportEnd |
+  | Rust | InnerAttrEnd, ImportEnd |
+  | Swift | ImportEnd |
+
+  A declared anchor with value 0 is confirmed-empty and accepted.
+
+The edit runner classifies each op from the parsed file before planning it,
+and requests `NeedFreshFileInsert` only for that kind. A restamp, a member
+insertion or a file-level append by a provider without anchors is therefore
+still measured.
 
 **The baseline is not forced into this interface.** Its evidence is what
 `annot.Context` actually exposes: line classes, `Docs` column spans,
@@ -291,7 +334,7 @@ exposed"):
 - spans in bounds, sorted, non-overlapping;
 - a line-comment span starts with the leader and ends at end of line;
 - span bytes equal the native oracle's token bytes (Python `tokenize` offsets,
-  `go/scanner`, the TS scanner, shfmt positions);
+  `go/scanner`, the parser-aware TS extractor, mvdan/sh positions);
 - with `FullCover`, the concatenated leaves reproduce the input bytes exactly.
 
 Behaviour (controlled fixtures only): run before and after each applied edit in
@@ -331,11 +374,18 @@ later change to those files.
 
 - Record date, host CPU model, `nproc`, Go/tool versions, module versions and
   upstream commits in `results/environment.md`.
-- Bench pinned `taskset -c 0`, fastest of 3, cold (first-use grammar load) and
-  warm separately, peak RSS via `/usr/bin/time -v`; workloads: (a) the M2.2
-  bench shape, (b) every bash/Python/Go test file of aitasks, (c) read-only
-  sibling-repo sets. Compare against the 300 ms budget; no invented numbers —
-  a number not measured is written "not measured".
+- Bench pinned `taskset -c 0`, fastest of 3 fresh processes. Cold = one timed
+  first operation per fresh process, timer started before provider
+  construction/initialization (no benchmark calibration); warm = a separate
+  process, untimed warm-up, then `testing.Benchmark`. Peak RSS from the
+  child's rusage (`/usr/bin/time` is not installed on the research host).
+  Only the operation `annot.BenchmarkScan` times — end-to-end `registry.Scan`
+  with the annotation source over the M2.2 bench shape, provider via
+  `ClassifyHook` — is compared against the 300 ms budget. Lexical-only
+  timings ((b) every bash/Python/Go test file of aitasks, (c) read-only
+  sibling-repo sets, and the M2.2 shape's files) are labelled "not
+  budget-comparable". No invented numbers — a number not measured is
+  written "not measured".
 - Footprint: a probe binary per provider built `CGO_ENABLED=0 -trimpath` for
   the 4 release targets (failure recorded as evidence), size delta vs a no-op
   probe and vs the current `ait-testmap`.
@@ -380,8 +430,8 @@ Carried by t1954_1, before its step 1 (copied into its plan file):
    `annot/testdata` cases with their decoded values, refusals and placement
    goldens. Cross-check the expectations against native oracles where they
    exist: Python `tokenize` + `ast`, `go/scanner`, shfmt, bash execution of
-   the controlled heredoc fixtures, TypeScript's own scanner (installed into
-   the scratch dir via npm), and `rustc`/`javac` validity. For Kotlin and
+   the controlled heredoc fixtures, TypeScript's parser (installed into
+   the scratch dir via npm; parser-aware comment extraction, self-tested), and `rustc`/`javac` validity. For Kotlin and
    Swift, try a pinned compiler download into the scratch dir; if that fails,
    mark their native evidence `none`.
 3. Harness: the interface, the shared adapter `ToContext`, the record/edit
