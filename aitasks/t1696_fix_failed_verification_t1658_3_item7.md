@@ -234,3 +234,5 @@ Tracked separately as **t1715** (stale-lock reaping); not in this task's scope.
 > | pairs: every pull and abort in the task-data reconciliation now carries
 > | AIT_RECONCILE_GIT_OPTS (lib/task_utils.sh) before the subcommand, so a stub
 > | keyed on $1 no longer sees the subcommand.
+
+> **👁 note:read** id=2026-10-12T08:26:30Z.5f355c500eb454a8a0f24b5f by=t1696 at=2026-10-12T08:26:30Z mode=explicit ids=2026-09-07T13:40:39Z.1adc9e86b6ca2e7432aa7b9d,2026-09-11T08:27:58Z.7711fe537a2c1e3674acffc1
