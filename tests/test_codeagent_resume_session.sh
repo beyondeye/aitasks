@@ -22,6 +22,10 @@
 #     instead of returning it to where it was.
 #   * opencode REFUSES with exit 2, distinct from `die`'s 1: the coordinator
 #     branches on it to fail the restore before writing anything to the store.
+#     The opencode model is derived from a fixture registry, never pinned: the
+#     launcher refuses a model the registry marks unavailable before it reaches
+#     this guard, so a refresh that flipped a pinned entry turned the exit-2
+#     assertion into die's 1 (t1949, the t1871 pattern).
 #   * Session-id validation, because the value reaches an argv that tmux
 #     respawns.
 #
@@ -50,8 +54,19 @@ TOTAL=0
 
 # shellcheck source=lib/asserts.sh
 . "$PROJECT_DIR/tests/lib/asserts.sh"
+# Fixture-registry helpers — MUST be sourced after asserts.sh.
+# shellcheck source=lib/codeagent_defaults.sh
+. "$PROJECT_DIR/tests/lib/codeagent_defaults.sh"
 
 CODEAGENT="$PROJECT_DIR/.aitask-scripts/aitask_codeagent.sh"
+
+# A hermetic METADATA_DIR (t1949): the launcher reads its model registries from
+# here, and the opencode block derives its model from the same file. Every call
+# passes --agent-string, so no codeagent_config.json is installed.
+FIXTURE_META="$(mktemp -d)"
+trap 'rm -rf "$FIXTURE_META"' EXIT
+codeagent_fixture_metadata "$FIXTURE_META"
+export METADATA_DIR="$FIXTURE_META"
 
 # Run the wrapper, capturing stdout+stderr and the exit status without tripping
 # `set -e`. Sets RC and OUT.
@@ -104,12 +119,17 @@ assert_contains "codex raw without --resume-session: the TUI overrides lead" \
 echo ""
 echo "=== --resume-session: opencode is refused with exit 2 ==="
 
-run_ca --agent-string opencode/openai_gpt_5_2 --resume-session x1 --dry-run invoke raw
+# Derived, not pinned (t1949). `|| true` keeps an empty result a recorded FAIL
+# below instead of an abort under `set -e`.
+opencode_active="$(codeagent_active_model "$FIXTURE_META/models_opencode.json" || true)"
+assert_exit_zero "fixture opencode registry has an active model" test -n "$opencode_active"
+
+run_ca --agent-string "opencode/$opencode_active" --resume-session x1 --dry-run invoke raw
 assert_eq "opencode resume: exit 2 (usage), NOT die's 1" "2" "$RC"
 assert_contains "opencode resume: machine-readable refusal token" \
     "RESUME_UNSUPPORTED:opencode" "$OUT"
 
-run_ca --agent-string opencode/openai_gpt_5_2 --dry-run invoke raw
+run_ca --agent-string "opencode/$opencode_active" --dry-run invoke raw
 assert_eq "opencode raw without --resume-session: still works" "0" "$RC"
 
 echo ""
