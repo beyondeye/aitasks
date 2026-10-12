@@ -14,7 +14,7 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1681
 followup_kind: risk_mitigation
 created_at: 2026-09-02 17:07
-updated_at: 2026-09-02 17:19
+updated_at: 2026-10-12 16:49
 ---
 
 ## Origin
