@@ -128,3 +128,18 @@ worktree/merge.
 
 ### Goal-achievement risk: low
 - A cross-session *split* into a non-active window teleports to the session, landing on its active window rather than the split window · severity: low · → mitigation: none — identical to a same-session split today and to `_teleport_if_cross` semantics the task asks to reuse; new-window launches select the new window, so the main path lands correctly.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-12, at plan approval)
+- **Requested by user:** the constructor and `_initial_session` seam tests check two separate seams; neither proves `_populate_tmux_tab` uses the resolved session for the displayed selector and the initial window lookup. Add a mounted-dialog test.
+- **Changes made:** added `MountedTmuxTabSessionTests` (folded into this task rather than a follow-up) — see Verification.
+- **Files affected:** `tests/test_agent_command_dialog_default_session.py`
+
+## Final Implementation Notes
+- **Actual work done:** as planned. `pick_initial_session` gained `explicit_session` (checked first, only when live); `AgentCommandScreen` gained `default_tmux_session` and a `_initial_session()` seam that `_populate_tmux_tab` calls. `_teleport_if_cross(session=None)` now targets an optional session; both switcher dialog paths pass `default_tmux_session=self._session` and, after an error-free tmux launch that did not create a new session, call `_teleport_if_cross(result.session)`.
+- **Deviations from plan:** none in code. Tests: the mounted-dialog wiring test was added at plan review.
+- **Issues encountered:** none. Mutants run in an isolated scratch copy (never the shared tree): disconnecting `_populate_tmux_tab` from `_initial_session` was caught **only** by the mounted test (the seam tests stayed green — the reviewer's concern held); dropping the teleport or the preselection kwarg in the switcher was caught by the new `DialogTargetsSelectedSessionTests`.
+- **Key decisions:** no teleport after `new_session` launches, because `launch_in_tmux` already switch-clients into a new session. Teleport targets `result.session` (the dialog's confirmed value), not `self._session`. A cross-session split into a non-active window lands on that session's active window — same as a same-session split today.
+- **Upstream defects identified:** None
+- **Verification:** `tests/test_agent_command_dialog_default_session.py`, `tests/test_tui_switcher_agent_launch.py`, `tests/test_pick_command_screen.py` (golden unchanged), `bash tests/test_tui_switcher_multi_session.sh` (52/52), full `bash tests/run_all_python_tests.sh` → `PYTHON SUITE: PASSED (runner=pytest, exit=0)`. Not exercised live across two real tmux sessions.
