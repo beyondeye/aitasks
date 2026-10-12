@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: medium
 effort: high
 depends: []
 issue_type: chore
@@ -10,10 +12,11 @@ active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
+children_to_implement: [t1954_1]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1852
 created_at: 2026-10-12 15:57
-updated_at: 2026-10-12 16:02
+updated_at: 2026-10-12 17:50
 ---
 
 ## Context and user decision
