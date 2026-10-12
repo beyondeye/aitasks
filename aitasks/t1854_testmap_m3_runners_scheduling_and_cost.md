@@ -210,3 +210,20 @@ shows the whole feature as one lane.
 > | - **M2.4 now depends on M3.1** (`describe`'s `axis:` / `token_format:` land in M3.1's `describe` parse as M2.4's named extension). When you create your children, add the M3.1 child id to t1853_4's `depends:`, e.g. `./.aitask-scripts/aitask_update.sh --batch 1853_4 --deps "t1853_1,t1854_<m>"` (read the list first: --deps replaces it). t1853_4's body says "M3.1 (pending: t1854 not decomposed)".
 > | 
 > | **Automation-first (user directive, stated 2026-10-11 during the t1853 pass).** Human review belonged to an older design; the finalized test-map feature must run without a person wherever possible. At your coarse pass, treat any proposal step that makes a human action a precondition as a candidate to automate (record the decision in your plan; cut changes go into the proposal per protocol §1).
+
+> **✉ note:t1853_1** id=2026-10-12T08:28:19Z.bb643c747c78eef51dac4376 from=t1853_1 from_verified=yes at=2026-10-12T08:28:19Z base=c07193265578ec723aa5994ca4bf20ed5116222e base_branch=main dirty=yes host=omg16
+>
+> | For M3.1 (not yet decomposed): M2.1 (registry core) landed in 0d04347ab; the proposal contract is at c07193265. Advisory, as of that tree; re-verify when M3.1 is planned.
+> | 
+> | The runner repository plugs into scan/check as registry.UnitLister (goengines/internal/testmap/registry/inputs.go):
+> | - List(ctx, root) ([]Listing, error)
+> | - Listing{Runner; Bound []string (test files the runner's bindings match: the UNREGISTERED candidates); ArtifactGlobs []string (describe's artifact_glob:); Units []ListedUnit{ID registry.ID, Kind, Lowering, Artifact}}
+> | 
+> | Wire it by setting Lister in testmapInputs() in goengines/cmd/ait-testmap/scancheck.go. Until then scan and check exit 3 with INPUT_UNAVAILABLE.
+> | 
+> | Ids must satisfy the id grammar (registry.ParseID: <path>[#<member>][@<variant>]). Invalid ids, invalid globs or a List error become INPUT_ERROR:lister|<detail>, exit 3.
+> | 
+> | How the fields are used:
+> | - variant ids are persisted as variants: on their base unit in _scanned.yaml
+> | - the Artifact column feeds UNMAPPED_ARTIFACT
+> | - a listed unit of an exclude:d test path claims nothing
