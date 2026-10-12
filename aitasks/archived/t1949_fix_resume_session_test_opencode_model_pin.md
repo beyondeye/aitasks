@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [codeagent, testing]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 1797
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-11 19:13
-updated_at: 2026-10-12 09:20
+updated_at: 2026-10-12 10:07
+completed_at: 2026-10-12 10:07
 ---
 
 ## Origin
@@ -48,3 +49,14 @@ Derive the opencode model from the test's fixture registry instead of pinning it
 > **✅ gate:plan_approved** run=2026-10-12T06:20:30Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-12T07:03:44Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-12T07:07:51Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:edda262fb7b78978
+
+> **✅ gate:risk_evaluated** run=2026-10-12T07:07:51Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1949/risk_evaluated_2026-10-12T07:07:51Z-risk_evaluated-a1.log`
