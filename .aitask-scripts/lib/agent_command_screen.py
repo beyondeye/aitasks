@@ -143,15 +143,20 @@ def pick_initial_session(
     sessions: list[str],
     default_from_config: str | None,
     last_for_project: str | None,
+    explicit_session: str | None = None,
 ) -> str:
     """Resolve the initial session selection for the tmux tab.
 
     Priority:
-    1. Last session chosen in THIS project (per-project memory).
-    2. project_config.yaml's tmux.default_session, if live.
-    3. First live session (fallback for legacy/unconfigured projects).
-    4. _NEW_SESSION_SENTINEL when no sessions exist.
+    1. The caller's explicit session (e.g. the TUI switcher's selected
+       session), if live.
+    2. Last session chosen in THIS project (per-project memory).
+    3. project_config.yaml's tmux.default_session, if live.
+    4. First live session (fallback for legacy/unconfigured projects).
+    5. _NEW_SESSION_SENTINEL when no sessions exist.
     """
+    if explicit_session and explicit_session in sessions:
+        return explicit_session
     if last_for_project and last_for_project in sessions:
         return last_for_project
     if default_from_config and default_from_config in sessions:
@@ -398,6 +403,7 @@ class AgentCommandScreen(GuardedDismissMixin, ShortcutsMixin, ModalScreen):
         operation_args: list[str] | None = None,
         default_agent_string: str | None = None,
         default_tmux_window: str | None = None,
+        default_tmux_session: str | None = None,
         skill_name: str | None = None,
         default_profile: str | None = None,
         narrow: bool = False,
@@ -415,6 +421,7 @@ class AgentCommandScreen(GuardedDismissMixin, ShortcutsMixin, ModalScreen):
         self.current_agent_string: str | None = default_agent_string
         self._default_agent_string: str | None = default_agent_string
         self._default_tmux_window: str | None = default_tmux_window
+        self._default_tmux_session: str | None = default_tmux_session
         self._tmux_available = is_tmux_available()
         self._tmux_defaults = load_tmux_defaults(self._project_root)
         self._split_horizontal = self._tmux_defaults["default_split"] == "horizontal"
@@ -568,11 +575,7 @@ class AgentCommandScreen(GuardedDismissMixin, ShortcutsMixin, ModalScreen):
         session_options = [(s, s) for s in sessions]
         session_options.append(("+ Create new session", _NEW_SESSION_SENTINEL))
 
-        initial_session = pick_initial_session(
-            sessions,
-            self._tmux_defaults.get("default_session"),
-            AgentCommandScreen._last_session_by_project.get(self._project_key),
-        )
+        initial_session = self._initial_session(sessions)
 
         sess_row = Horizontal(classes="tmux-field-row")
         tmux.mount(sess_row)
@@ -642,6 +645,16 @@ class AgentCommandScreen(GuardedDismissMixin, ShortcutsMixin, ModalScreen):
             self.call_after_refresh(self._on_window_changed, win_value)
         else:
             self.call_after_refresh(self._show_new_session_input)
+
+    def _initial_session(self, sessions: list[str]) -> str:
+        """Initial tmux-tab session: the caller's explicit session wins (if
+        live) over the per-project memory and the configured default."""
+        return pick_initial_session(
+            sessions,
+            self._tmux_defaults.get("default_session"),
+            AgentCommandScreen._last_session_by_project.get(self._project_key),
+            explicit_session=self._default_tmux_session,
+        )
 
     def _compute_window_options(self, session: str):
         """Compute (options, value) for the window selector for a given session.

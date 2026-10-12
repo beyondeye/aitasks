@@ -1226,6 +1226,7 @@ class TuiSwitcherOverlay(ModalScreen):
             operation="explore",
             operation_args=[],
             default_agent_string=agent_string,
+            default_tmux_session=self._session,
             narrow=self._narrow,
         )
 
@@ -1234,10 +1235,17 @@ class TuiSwitcherOverlay(ModalScreen):
                 _, err = launch_in_tmux(screen.full_command, result)
                 if err:
                     self.app.notify(err, severity="error")
-                elif result.new_window:
-                    maybe_spawn_minimonitor(
-                        result.session, result.window, project_root=project_root,
-                    )
+                else:
+                    if result.new_window:
+                        maybe_spawn_minimonitor(
+                            result.session, result.window,
+                            project_root=project_root,
+                        )
+                    # Follow the launch to the session the user CONFIRMED in
+                    # the dialog. A new session needs no teleport here:
+                    # launch_in_tmux already switch-clients into it.
+                    if not result.new_session:
+                        self._teleport_if_cross(result.session)
                 self.dismiss(window_name)
             elif result == "run":
                 terminal = find_terminal()
@@ -1320,6 +1328,7 @@ class TuiSwitcherOverlay(ModalScreen):
             operation="raw",
             operation_args=[],
             default_agent_string=agent_string,
+            default_tmux_session=self._session,
             narrow=self._narrow,
         )
 
@@ -1328,10 +1337,17 @@ class TuiSwitcherOverlay(ModalScreen):
                 _, err = launch_in_tmux(screen.full_command, result)
                 if err:
                     self.app.notify(err, severity="error")
-                elif result.new_window:
-                    maybe_spawn_minimonitor(
-                        result.session, result.window, project_root=project_root,
-                    )
+                else:
+                    if result.new_window:
+                        maybe_spawn_minimonitor(
+                            result.session, result.window,
+                            project_root=project_root,
+                        )
+                    # Follow the launch to the session the user CONFIRMED in
+                    # the dialog. A new session needs no teleport here:
+                    # launch_in_tmux already switch-clients into it.
+                    if not result.new_session:
+                        self._teleport_if_cross(result.session)
                 self.dismiss(window_name)
             elif result == "run":
                 terminal = find_terminal()
@@ -1385,13 +1401,18 @@ class TuiSwitcherOverlay(ModalScreen):
             return
         self.dismiss(name)
 
-    def _teleport_if_cross(self) -> None:
-        """Issue `tmux switch-client` when the selected session differs from attached."""
-        if self._session == self._attached_session:
+    def _teleport_if_cross(self, session: str | None = None) -> None:
+        """Issue `tmux switch-client` when the target session differs from attached.
+
+        The target defaults to the selected session; the agent-dialog paths
+        pass the session the user confirmed in the dialog instead.
+        """
+        target = session or self._session
+        if target == self._attached_session:
             return
         try:
             _TMUX.spawn(
-                ["switch-client", "-t", tmux_session_target(self._session)],
+                ["switch-client", "-t", tmux_session_target(target)],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             )
         except (FileNotFoundError, OSError):

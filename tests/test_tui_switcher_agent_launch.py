@@ -261,6 +261,108 @@ class ExplorePickActionTests(unittest.TestCase):
             self.assertTrue(mock_app.notify.called)
 
 
+class DialogTargetsSelectedSessionTests(unittest.TestCase):
+    """Both dialog paths preselect the switcher's SELECTED session and, after a
+    successful tmux launch, teleport to the session the user confirmed (t1953).
+    """
+
+    ACTIONS = ("action_shortcut_agent", "action_shortcut_explore_pick")
+
+    def _make_overlay(self):
+        # Attached to s1, browsing s2 with Left/Right.
+        ov = ts.TuiSwitcherOverlay(session="s1")
+        ov._selected_key = "s2"
+        ov._running_names = set()
+        ov.dismiss = MagicMock()
+        ov._handle_stale_selection = MagicMock(return_value=False)
+        ov._ensure_session_live = MagicMock(return_value=True)
+        ov._selected_project_root = MagicMock(return_value=Path("/p2"))
+        return ov
+
+    def _open(self, action, launch_err=None):
+        """Open the dialog via `action`; return (screen, callback, gateway)."""
+        ov = self._make_overlay()
+        self.assertEqual(ov._session, "s2")
+        self.assertEqual(ov._attached_session, "s1")
+        mock_app = MagicMock()
+        gateway = MagicMock()
+        patches = [
+            patch.object(ts.TuiSwitcherOverlay, "app",
+                         new_callable=PropertyMock, return_value=mock_app),
+            patch.object(ts, "_TMUX", gateway),
+            patch.object(alu, "resolve_dry_run_command", return_value="claude"),
+            patch.object(alu, "resolve_agent_string",
+                         return_value="claudecode/opus4_8"),
+            patch.object(alu, "launch_in_tmux", return_value=(123, launch_err)),
+            patch.object(alu, "maybe_spawn_minimonitor"),
+        ]
+        for ctx in patches:
+            ctx.start()
+        self.addCleanup(lambda: [ctx.stop() for ctx in reversed(patches)])
+        getattr(ov, action)()
+        screen, callback = mock_app.push_screen.call_args.args
+        return screen, callback, gateway
+
+    @staticmethod
+    def _switches(gateway):
+        return [
+            c.args[0] for c in gateway.spawn.call_args_list
+            if c.args and c.args[0] and c.args[0][0] == "switch-client"
+        ]
+
+    def test_dialog_preselects_the_selected_session(self):
+        for action in self.ACTIONS:
+            with self.subTest(action=action):
+                screen, _cb, _gw = self._open(action)
+                self.assertIsInstance(screen, AgentCommandScreen)
+                self.assertEqual(screen._default_tmux_session, "s2")
+
+    def test_cross_session_launch_teleports_to_confirmed_session(self):
+        for action in self.ACTIONS:
+            with self.subTest(action=action):
+                _s, callback, gateway = self._open(action)
+                callback(TmuxLaunchConfig("s2", "agent-x-1",
+                                          new_session=False, new_window=True))
+                self.assertEqual(self._switches(gateway),
+                                 [["switch-client", "-t", "=s2"]])
+
+    def test_teleport_follows_the_dialog_choice_not_the_selection(self):
+        # The user changed the session in the dialog: s2 selected, s3 confirmed.
+        for action in self.ACTIONS:
+            with self.subTest(action=action):
+                _s, callback, gateway = self._open(action)
+                callback(TmuxLaunchConfig("s3", "0",
+                                          new_session=False, new_window=False))
+                self.assertEqual(self._switches(gateway),
+                                 [["switch-client", "-t", "=s3"]])
+
+    def test_same_session_launch_does_not_teleport(self):
+        for action in self.ACTIONS:
+            with self.subTest(action=action):
+                _s, callback, gateway = self._open(action)
+                callback(TmuxLaunchConfig("s1", "agent-x-1",
+                                          new_session=False, new_window=True))
+                self.assertEqual(self._switches(gateway), [])
+
+    def test_failed_launch_does_not_teleport(self):
+        for action in self.ACTIONS:
+            with self.subTest(action=action):
+                _s, callback, gateway = self._open(
+                    action, launch_err="tmux new-window failed (rc=1)")
+                callback(TmuxLaunchConfig("s2", "agent-x-1",
+                                          new_session=False, new_window=True))
+                self.assertEqual(self._switches(gateway), [])
+
+    def test_new_session_launch_adds_no_second_switch(self):
+        # launch_in_tmux (stubbed here) switch-clients into a new session itself.
+        for action in self.ACTIONS:
+            with self.subTest(action=action):
+                _s, callback, gateway = self._open(action)
+                callback(TmuxLaunchConfig("fresh", "agent-x-1",
+                                          new_session=True, new_window=True))
+                self.assertEqual(self._switches(gateway), [])
+
+
 class SwitcherNarrowSeamTests(unittest.TestCase):
     """The narrow decision seam (t1122): the mixin default, the minimonitor
     override, and the threading through the real entry point action_tui_switcher.
