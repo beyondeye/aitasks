@@ -1,12 +1,13 @@
 {
   "backend": "local",
   "created_at": 1790061898,
-  "current": "sha256:edb4b568f279d00c5b4242852ab1c1b7f5310f75a6334bcd866cff03bef7bb15",
+  "current": "sha256:e658a5b4ab9c3a8458fcf2beba28a34f6b06692c4b36ceaf55c84f2a5576df74",
   "handle": "art:trail-testmap-feature",
-  "updated_at": 1791785881,
+  "updated_at": 1791809981,
   "versions": [
     "sha256:0b4fbe4a013e609f24b89ffb10aa152a45fbb60e2c3334cd37f60d369c5e5661",
     "sha256:cb94badaf5a861bf0b875060cb14fac9b6208bcec5cbb510fd622879cd4dcb9b",
-    "sha256:edb4b568f279d00c5b4242852ab1c1b7f5310f75a6334bcd866cff03bef7bb15"
+    "sha256:edb4b568f279d00c5b4242852ab1c1b7f5310f75a6334bcd866cff03bef7bb15",
+    "sha256:e658a5b4ab9c3a8458fcf2beba28a34f6b06692c4b36ceaf55c84f2a5576df74"
   ]
 }
