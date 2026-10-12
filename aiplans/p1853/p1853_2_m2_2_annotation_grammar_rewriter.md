@@ -751,3 +751,118 @@ current branch, no merge).
 ### Planned mitigations
 - timing: post-phase | name: probe_own_repository | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — lexer misclassification / look-alike lines in a real repository failing scan | desc: run annot.Source and Classify over every known-language file of this repository via a temporary uncommitted test; record counts, Uncertain files and SyntaxErrors; fix lexer defects with a fixture or note t1861
 - timing: post-phase | name: interface_notes_downstream | type: chore | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — hook/model/universe shapes designed before their consumers | desc: hedged ./ait notes citing the commit sha to t1853_6, t1853_3, t1853_4, t1853_5, t1855, t1857, t1858, t1861
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-12 17:10)
+- **Requested by user:** seven review findings —
+  - (high) heredoc bodies ignored bash's backslash-newline joining
+  - (high) `${…}` parameter expansions were not modelled
+  - (medium) a TOCTOU between `lstatNoFollow` and `OpenFile`
+  - (medium) `testmap:unit M@v` was accepted
+  - (medium) the Python docstring was recognised by bracket depth and physical line rather than as the first statement
+  - (low) `verify` emitted results in file order, not target order
+  - (low, follow-up) sources were re-read per edge
+- **Changes made:** each was reproduced against bash / CPython `ast`, then fixed.
+  - Unquoted heredoc bodies join backslash-newlines before the delimiter is compared; `<<-` strips tabs from the first piece only.
+  - A new `${…}` frame (`E`): quote-aware and nestable; its single quotes are literal inside `"…"`.
+  - Handle-bound I/O: directories are entered one component at a time through `os.Root` handles checked with `os.SameFile`; the leaf is bound the same way; writes use only single-name operations in the verified directory.
+  - The member must round-trip as a member-only fragment.
+  - The Python lexer tracks the first *statement*, with column-exact `DocSpan`s.
+  - `Verify` plans in target order and writes once per file.
+  - Source stamps are cached per invocation (implemented rather than spawned: trivial).
+  - Each fix has classifier, `Apply` and command-level or bash-runtime tests; mutants of each are red.
+- **Files affected:** `annot/{lexctx,fsroot,rewrite,grammar,stampverbs}.go` and their tests; proposal; README.
+
+### Change Request 2 (2026-10-12 18:05)
+- **Requested by user:** four findings —
+  - (high) `<<$'EOF'` was decoded as `$EOF`
+  - (medium) literal `{` inside `${…}` was counted
+  - (medium) docstring literals were read as separate fragments, not as one concatenated value
+  - (medium) a FIFO swapped in for the leaf blocked `OpenFile`
+- **Changes made:**
+  - `$'…'` / `$"…"` delimiters lose the `$`; a backslash inside any quoted delimiter is refused as `Uncertain` (bash decodes ANSI-C escapes there).
+  - In `${…}` the first unquoted `}` closes.
+  - The docstring is read as Python's *value*: escapes and backslash-newline decoded, literals concatenated, split into logical lines attributed to source lines (`docstringLines`, `decodePy`).
+  - The leaf is opened `O_NONBLOCK` and must be regular. Directories are entered as `name/.`, which `os.Root` opens `O_DIRECTORY|O_NOFOLLOW` (verified with a scratch probe: `OpenRoot("fifo")` blocks, `OpenRoot("fifo/.")` fails `ENOTDIR`), with bounded FIFO tests.
+  - The repository probe then found a **panic**: docstring byte attribution counted runes (`for range seg`), crashing on non-ASCII docstrings. Fixed, with a regression.
+- **Files affected:** `annot/{lexctx,fsroot,grammar}.go` and their tests; proposal.
+
+### Change Request 3 (2026-10-12 18:35)
+- **Requested by user:**
+  - (medium) `"test" "map:covers …"` was skipped by the token prefilter
+  - (low) `"…"("arg")` was read as a docstring
+  - (low) a literal U+FFFD was taken for an undecodable escape
+- **Changes made:**
+  - Python files are always parsed (the docstring's value can spell the token with no trace in the raw bytes); other languages keep the token prefilter.
+  - A `(` after a completed operand is a call, not grouping.
+  - Undecodable `\N{…}` positions are carried in a provenance mask, separate from the text.
+- **Files affected:** `annot/{grammar,lexctx}.go`, `grammar_test.go`, `source_test.go`; proposal.
+
+### Change Request 4 (2026-10-12 19:00)
+- **Requested by user:**
+  - (medium) the `\N{…}` refusal predicate was unsound: `\N{LINE FEED}` can start a new line
+  - (medium) an ASCII-only trim in the refusal disagreed with the Unicode trim in the parser
+- **Changes made:** `mayStartAnnotation` treats each undecodable character as any one character (a line break, whitespace or a token letter). It refuses a line when some decoding could make that line, or a line split off at the escape, an annotation; one Unicode whitespace definition serves the check and the parse. `ParseFile` and `Source` regressions added; both properties mutation-checked.
+- **Files affected:** `annot/grammar.go`, `grammar_test.go`, `source_test.go`; proposal.
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - New package `goengines/internal/testmap/annot`:
+    - `lang.go`: the language table — bash, Python, Go and Kotlin by extension, or by shebang for files with no extension.
+    - `lexctx.go`: per-language comment-context classifiers, sorting each line into `Code` / `Comment` / `Literal`, plus `Uncertain`.
+      - Go: `go/scanner`.
+      - bash: quotes, `$'…'`, backticks, `$(…)` (including `case`), arithmetic and its re-lexing as `$(` + `(`, `${…}`, heredocs (newline-token start, body continuation, delimiter quoting).
+      - Python: every string form, f-string fields, and the first-statement docstring with column spans.
+      - Kotlin: templates, raw strings, nested block comments, char literals.
+    - `grammar.go`: grammar v3 (`ParseFile`), every key with its line, block ownership, line-numbered `SyntaxError`s, and the decoded-docstring reader.
+    - `stamp.go`: `@<date>/<blob10>`.
+    - `fsroot.go`: handle-bound, no-follow, non-blocking reads.
+    - `rewrite.go`: `Apply`, the only writer. It checks `Want`, the snapshot and ownership, proves the edit comment-only before and after (classes of every other line unchanged), and writes atomically with the original mode, CRLF and final-newline state preserved. Also `PlanCovers`, `Placement` and `RestampLine`.
+    - `hook.go`: `Actor` and `RegisterRestampHook`.
+    - `stampverbs.go`: the `Annotate` (all-or-nothing) and `Verify` (target order, stamp cache) engines.
+    - `source.go`: `Source` (`registry.AnnotationSource`).
+  - `gitx.Repo.ListFiles`: git-visible files; any git stderr output fails.
+  - Verbs `annotate` / `verify` in `cmd/ait-testmap/annotate.go`, plus the arm table for M2.3 / M7.4. The `scan` wiring is in `testmapInputs`.
+  - Benchmark `annot.BenchmarkScan`: ≈21 ms, `budget=300ms`. The full baseline was re-recorded pinned with `taskset -c 0`.
+  - Proposal paragraph and Line-protocol index row; README *Layout* and *Interfaces* rows.
+- **Deviations from plan:**
+  - The `REWRITE_CONFLICT` command-level test calls the glue's error mapper with a `*ConflictError` instead of exporting a test seam. `Apply`-level conflict tests (text, snapshot, ownership, concurrent) prove the conflict itself.
+  - `Replace` also requires the old line to already *be* the expected covers line. A mutant showed the class check alone would let a shebang or prose comment be replaced.
+  - Every Python file is parsed (round 3); the prefilter applies to other languages only.
+  - Arithmetic `<<` is a shift, so it never makes a file `Uncertain`. The plan had listed "a heredoc opener in arithmetic → Uncertain"; bash never reads one there.
+  - Docstring `Line.Text` is the physical line; the parsed text is the docstring's logical line.
+- **Issues encountered:**
+  - Four review rounds found real lexer and filesystem gaps, each verified against bash, CPython or the stdlib source, then fixed with mutation-checked tests (see *Post-Review Changes*).
+  - The repository probe found a real bash defect (`$(( cd … ) | …)` lexed as arithmetic, `tests/test_xdeps_blocking.sh:170`) and a panic (rune-vs-byte attribution).
+  - shfmt's JSON omits `Text` for an empty comment, which needed handling in the oracle.
+  - Two oracle mismatches were files another session was editing mid-probe; frozen copies gave 0 mismatches.
+- **probe_own_repository result (inline post-phase 1):**
+  - 2,391 git-visible files, 1,345 in a known language.
+  - 0 `Uncertain` after the fix above; 0 annotated files; `Source` over the repository succeeds in ≈130 ms.
+  - Oracle cross-checks of `Comment` lines: Python vs `tokenize` and docstring spans vs `ast` — 631 files, 0 mismatches. bash vs shfmt v3 — 647 files, 0 mismatches; 3 files shfmt cannot parse (associative-array subscripts with `~` / `:`, and the `$(( (` subshell). No Kotlin sources in the repository (fixtures only). The temporary probe was deleted, never committed.
+  - No `exclude:` note is needed for t1861 beyond the general notes below.
+- **Key decisions:**
+  - Annotations are read and written only on lexically proven comment lines, and `Apply` enforces Invariant 6 itself.
+  - Unmodelled constructs fall to `Literal` / `Uncertain`, never `Comment`.
+  - Only an explicit `human:` actor is a person; an absent actor is "unspecified".
+  - The hook runs once, after all writes; on error it does not run, keeping provenance.
+  - `verify` leaves current stamps untouched, so a re-run is byte-identical.
+  - `REWRITE_CONFLICT` exits 75.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:**
+  - **M2.6 (t1853_6):**
+    - Fill the hook with `annot.RegisterRestampHook` from an `init` in your own file in `internal/testmap/annot`; registry cannot import annot.
+    - `Restamp{Test, Source, File, Line, Before, After, State}`; `State` is `added`, `restamped` or `current` (`current` = confirmed, file untouched).
+    - `Actor{Kind: Unspecified|Human|Agent|Auto, Value}`; only `Human` is a person.
+    - The hook runs once per invocation, after every write.
+  - **M2.3 (t1853_3):** register `--suggest` / `--from-body` in `annotateArms` (`cmd/ait-testmap/annotate.go`). Use `annot.ParseFile`, `PlanCovers` and `Apply`; never write files yourself.
+  - **M2.4 / M2.5:**
+    - `annot.File.Units` already parses `axis`, `area`, `scope`, `trigger`, `reads`, `kind`, `runner`, `needs` and `batch`, each with its line.
+    - Extend `registry.UnitAnnotation` additively and fill it in `toRegistry` (`annot/source.go`).
+    - `reads` "helper files only" and the kind vocabulary are yours to enforce.
+  - **Callers of the rewriter (M4.2 / M6.3 / M7.x):**
+    - Plan with `PlanCovers` on a fresh `ParseFile`, and pass `EditSet{Snapshot: f.Snapshot()}`.
+    - Map `*ConflictError` to exit 75; `ErrNoLeader` is `ADOPT_SKIP:no-leader`.
+  - **Tests:** drive the verbs through `run()` with `t.Chdir`. The cmd test binary registers a recording hook in `annotate_test.go`.
