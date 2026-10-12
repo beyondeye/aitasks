@@ -26,7 +26,7 @@ from mark_glyphs import MARK_CHECKED, MARK_UNCHECKED, mark_markup
 from config_utils import task_dir
 from editor_argv import resolve_editor_argv
 from agent_command_screen import AgentCommandScreen, build_pick_screen, resolve_skill_profile
-from agent_launch_utils import find_terminal, spawn_in_terminal, focus_existing_agent_window, focus_existing_window, resolve_dry_run_command, resolve_agent_string, TmuxLaunchConfig, launch_in_tmux, maybe_spawn_minimonitor, _lookup_window_name
+from agent_launch_utils import find_terminal, spawn_in_terminal, focus_existing_agent_window, focus_existing_window, owned_lookup_session, resolve_dry_run_command, resolve_agent_string, TmuxLaunchConfig, launch_in_tmux, maybe_spawn_minimonitor, _lookup_window_name
 from sync_action_runner import (
     CONFLICT_CHOICE_AGENT,
     CONFLICT_CHOICE_INTERACTIVE,
@@ -262,7 +262,7 @@ def make_task_detail_screen(task, manager=None, read_only=False):
         task, manager, read_only=read_only,
         task_types_provider=lambda: _load_task_types(),
         user_email_provider=lambda: _get_user_email(),
-        tmux_session_provider=lambda: _current_tmux_session(),
+        tmux_session_provider=lambda: _owned_tmux_session(),
     )
 
 
@@ -1173,19 +1173,14 @@ class KanbanColumn(VerticalScroll):
         self.styles.border = ("round", self.col_color)
         self.styles.margin = (0, 1)
 
-def _current_tmux_session() -> str | None:
-    """Return the current tmux session name, or None if not in tmux."""
-    try:
-        result = subprocess.run(
-            ["tmux", "display-message", "-p", "#S"],
-            capture_output=True, text=True, timeout=2,
-        )
-        if result.returncode == 0:
-            name = result.stdout.strip()
-            return name or None
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-        pass
-    return None
+def _owned_tmux_session() -> str | None:
+    """This project's tmux session for the codebrowser focus, or None.
+
+    Socket-verified and ownership-checked (t1952): every project's session has
+    a `codebrowser` window, so an ambient `#S` could focus or spawn one in
+    another project's session.
+    """
+    return owned_lookup_session(Path.cwd())
 
 
 class DeleteConfirmScreen(ModalScreen):

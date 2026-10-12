@@ -29,7 +29,9 @@ file as its source.
 
 from __future__ import annotations
 
+import itertools
 import subprocess
+import threading
 from datetime import datetime
 
 from rich.markup import escape
@@ -791,6 +793,39 @@ class FollowupKindField(Static):
         self.remove_class("ro-focused")
 
 
+class _NewestWins:
+    """Lets only the newest of overlapping requests perform side effects.
+
+    `ticket()` is called on the event loop at request time and never blocks.
+    A worker calls `run_if_newest` after its slow part: the action runs under
+    `_act`, and only while no newer ticket exists. An older request that was
+    still current when it took the lock finishes before any newer one can act;
+    one that is overtaken first is dropped. So the last write is always the
+    newest request's, whatever order the workers' lookups finish in.
+    """
+
+    def __init__(self):
+        self._tickets = itertools.count(1)
+        self._latest = 0
+        self._act = threading.Lock()
+
+    def ticket(self) -> int:
+        self._latest = ticket = next(self._tickets)
+        return ticket
+
+    def run_if_newest(self, ticket: int, action) -> bool:
+        with self._act:
+            if ticket != self._latest:
+                return False
+            action()
+            return True
+
+
+#: `AITASK_CODEBROWSER_FOCUS` is session-wide, so ordering spans every
+#: FileReferencesField in the process, not one instance (t1952).
+_CODEBROWSER_FOCUS_ORDER = _NewestWins()
+
+
 class FileReferencesField(Static):
     """Focusable, read-only file_references field.
 
@@ -835,15 +870,35 @@ class FileReferencesField(Static):
             )
 
     def _launch_codebrowser(self, entry: str):
+        """Request a focus. The ticket is taken here, on the event loop, so
+        request order — not worker completion order — decides the winner."""
+        self._codebrowser_worker(entry, _CODEBROWSER_FOCUS_ORDER.ticket())
+
+    @work(thread=True)
+    def _codebrowser_worker(self, entry: str, ticket: int):
+        """Off the event loop: the session-ownership lookup and the launch are
+        gateway calls with 5s timeouts each (t1952)."""
+        self._focus_codebrowser(entry, ticket)
+
+    def _focus_codebrowser(self, entry: str, ticket: int):
+        """Worker body. Resolves the session, then acts only if no newer
+        request exists; notifications go back through the UI thread."""
         session = self._tmux_session_provider()
-        if not session:
-            self.app.notify(
-                "Codebrowser focus requires tmux", severity="warning")
-            return
-        ok, err = launch_or_focus_codebrowser(session, entry)
-        if not ok:
-            self.app.notify(
-                f"Codebrowser launch failed: {err}", severity="error")
+
+        def act():
+            if not session:
+                self.app.call_from_thread(
+                    self.app.notify,
+                    "No tmux session of this project to focus the codebrowser in",
+                    severity="warning")
+                return
+            ok, err = launch_or_focus_codebrowser(session, entry)
+            if not ok:
+                self.app.call_from_thread(
+                    self.app.notify,
+                    f"Codebrowser launch failed: {err}", severity="error")
+
+        _CODEBROWSER_FOCUS_ORDER.run_if_newest(ticket, act)
 
     def on_focus(self):
         self.add_class("ro-focused")

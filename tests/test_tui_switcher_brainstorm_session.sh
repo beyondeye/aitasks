@@ -84,12 +84,15 @@ with tempfile.TemporaryDirectory() as tmp:
 
     # --- _populate_list_for passes the SELECTED session's project_root ---
     ov = ts.TuiSwitcherOverlay(session="s1", current_tui="")
-    ov._session = "s2"            # browsed away to s2
     ov._attached_session = "s1"   # client is still attached to s1
     ov._all_sessions = [
         AitasksSession("s1", proot_a, "proj_a"),
         AitasksSession("s2", proot_b, "proj_b"),
     ]
+    # Browsed away to s2: `_selected_key` is the selection's source of truth;
+    # `_session` is a read-only property derived from it (t1099).
+    ov._selected_key = ov._all_sessions[1].key
+    print("SELECTED_SESSION:" + ov._session)
     ov.query_one = MagicMock(return_value=MagicMock())
     with patch("tui_switcher.get_tmux_windows", return_value=[]), \
          patch("tui_switcher._build_tui_list", return_value=[]), \
@@ -120,6 +123,8 @@ assert_eq "no-arg call falls back to cwd (legacy regression)" \
     "100,101" "${R[DISC_CWD]:-}"
 assert_eq "missing .aitask-crews/ dir returns empty list" \
     "" "${R[DISC_MISSING]:-}"
+assert_eq "selecting s2's key makes s2 the operating session" \
+    "s2" "${R[SELECTED_SESSION]:-}"
 assert_eq "_populate_list_for calls _discover_brainstorm_sessions once" \
     "1" "${R[POPULATE_DISC_CALLS]:-}"
 assert_eq "_populate_list_for passes the SELECTED session's project_root" \

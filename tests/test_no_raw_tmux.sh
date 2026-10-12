@@ -53,7 +53,6 @@ ALLOWLIST=(
   ".aitask-scripts/monitor/monitor_app.py"         # B/ambient _detect probes + own-pane rename-window
   ".aitask-scripts/monitor/minimonitor_app.py"     # B/ambient _detect probe (main(), pre-App)
   ".aitask-scripts/codebrowser/codebrowser_app.py" # B/ambient _detect probes
-  ".aitask-scripts/board/aitask_board.py"          # B/ambient _detect probe
   ".aitask-scripts/stats/stats_app.py"             # B/ambient _detect probe
 )
 

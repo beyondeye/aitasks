@@ -651,7 +651,7 @@ docstring (`board/__init__.py`) states the contract; the tests below enforce it.
 
 | Module | Holds |
 |---|---|
-| `aitask_board.py` | `KanbanApp` and `BoardScreen`, the Kanban columns and render paths, the board key map and `check_action`, the task-select / confirm modals, the `TASKS_DIR`-derived module constants, and the three injected helpers (`_load_task_types`, `_get_user_email`, `_current_tmux_session`) |
+| `aitask_board.py` | `KanbanApp` and `BoardScreen`, the Kanban columns and render paths, the board key map and `check_action`, the task-select / confirm modals, the `TASKS_DIR`-derived module constants, and the three injected helpers (`_load_task_types`, `_get_user_email`, `_owned_tmux_session`) |
 | `trails_app.py` | `TrailsApp` + `TrailsScreen` — the read-only trail reader |
 | `board_trail_screen.py` | `TrailScreenMixin` (the trail App half both Apps inherit), the `TrailHost` protocol, and `TRAIL_BINDINGS` |
 | `board_trail_view.py` | the pure trail view: wave lanes, trail cards, the selector / detail / summary modals, `TRAIL_CSS` |
