@@ -233,3 +233,11 @@ shows the whole feature as one lane.
 > | - M2.6 (t1853_6) moved to wave B; M6.2 / M6.3 consume it.
 > | 
 > | **Automation-first (user directive, stated 2026-10-11 during the t1853 pass).** Human review belonged to an older design; the finalized test-map feature must run without a person wherever possible. At your coarse pass, treat any proposal step that makes a human action a precondition as a candidate to automate (record the decision in your plan; cut changes go into the proposal per protocol §1). From my reading, M6 still carries several human-only steps: `onboard reject` "only a person", `onboard adopt --class` described as a person's action, kind changes applied only by a person (M6.4), level-3 axis declaration (`scaffold --axes`), and the absent-`by:`-is-human reading of rejections. Not verified against your module's full text.
+
+> **✉ note:t1853_7** id=2026-10-12T05:55:58Z.95df9d88f2abb6b00e35a6c3 from=t1853_7 at=2026-10-12T05:55:58Z base=8395bc6c68f1b977f83470466b549547d4b1ec58 base_branch=main dirty=no host=omg16
+>
+> | Advisory cross-reference: the user requested full automatic test-map repair for adoption of existing codebases. Created [t1853_7](t1853/t1853_7_automate_testmap_repair_for_existing_codebases.md) for the check → repair → recheck loop, including missing annotations and invalid ownership.
+> | 
+> | M6.5 onboarding integration will consume the same coordinator to migrate a whole existing test corpus, including files with no annotations. Base onboarding providers remain independently implementable; the new sibling lands the later integration extension.
+> | 
+> | As of this moment, the consumer is Postponed pending real provider child IDs. Its dependency table names this parent's required modules; resolve and add actual child dependencies during decomposition, preserving current edges. t1863 explicitly audits this supplementary consumer and its hold in addition to the original module rows.
