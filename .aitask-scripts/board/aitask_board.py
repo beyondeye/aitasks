@@ -7,6 +7,7 @@ import json
 import glob
 import shlex
 import subprocess
+import threading
 from dataclasses import field
 from pathlib import Path
 
@@ -34,6 +35,7 @@ from sync_action_runner import (
     build_data_conflict_prompt,
     run_sync_batch,
     run_interactive_sync,
+    sync_session_running,
     STATUS_AUTOMERGED,
     STATUS_MERGED,
     STATUS_CONFLICT,
@@ -2385,6 +2387,13 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
         # above. Session-only; cleared on view switch, pruned on refresh.
         self.marked = MarkedSelection()
         self._auto_refresh_timer = None
+        # A sync and a suspended $EDITOR never overlap (t1947): _run_sync holds
+        # this around aitask_sync.sh, run_editor across the suspend. A timed-out
+        # sync whose session could not be proven stopped leaves its sid in
+        # _stray_sync_session, refusing edits and syncs until it is (both read
+        # and written only under the lock — see _stray_sync_blocks).
+        self._sync_edit_lock = threading.Lock()
+        self._stray_sync_session: int | None = None
         # By-Trail session state lives on TrailScreenMixin (t1794_5).
         self._init_trail_state()
         # Supersession token for the post-re-render detached-focus watch, and
@@ -5005,6 +5014,21 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
             return
         self._launch_brainstorm(num, focused.task_data.filename)
 
+    def _stray_sync_blocks(self) -> bool:
+        """True while a timed-out sync may still be changing task data (t1947).
+
+        Caller holds ``_sync_edit_lock``. Re-probes the recorded session on
+        every call and clears it only once ``sync_session_running`` proves it
+        empty; an unavailable probe keeps it blocking (fail closed).
+        """
+        sid = self._stray_sync_session
+        if sid is None:
+            return False
+        if sync_session_running(sid):
+            return True
+        self._stray_sync_session = None
+        return False
+
     @work(exclusive=True, group="editor")
     async def run_editor(self, filepath):
         """Suspend the app and open ``filepath`` in $EDITOR.
@@ -5021,6 +5045,13 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
         ``finally`` (Textual 8.2.7) — and notified after resume; an escaping
         exception would leave the terminal suspended and end the board
         (worker exit_on_error). A failed launch skips the reload.
+
+        Never overlaps a sync (t1947): ``_sync_edit_lock`` is held across the
+        suspend. The acquire is non-blocking — this runs on the event loop,
+        which must not wait on a sync thread — so an edit during a sync is
+        refused, while a sync requested mid-edit (e.g. ``_do_rename_task``'s,
+        from a thread) waits in ``_run_sync`` until the editor returns. An
+        unproven timed-out sync (``_stray_sync_blocks``) also refuses the edit.
         """
         try:
             editor_argv = resolve_editor_argv()
@@ -5028,8 +5059,19 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
             self.notify(str(exc), severity="error")
             return
         filename = Path(filepath).name
+        if not self._sync_edit_lock.acquire(blocking=False):
+            self.notify("Sync in progress — edit again when it finishes",
+                        severity="warning")
+            return
         launch_error: OSError | None = None
         try:
+            if self._stray_sync_blocks():
+                self.notify(
+                    f"A timed-out sync (session {self._stray_sync_session}) may "
+                    "still be changing task data — edit refused until it stops",
+                    severity="error",
+                )
+                return
             with self.suspend():
                 try:
                     subprocess.call([*editor_argv, str(filepath)])
@@ -5041,6 +5083,8 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
                 severity="error",
             )
             return
+        finally:
+            self._sync_edit_lock.release()
         if launch_error is not None:
             self.notify(f"Could not launch editor: {launch_error}", severity="error")
             return
@@ -5062,11 +5106,32 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
 
     @work(exclusive=True, thread=True)
     def _run_sync(self, show_notification: bool = True, show_overlay: bool = False):
-        """Run ait sync --batch in background and handle the result."""
-        result = run_sync_batch()
+        """Run ait sync --batch in background and handle the result.
+
+        The sync runs under ``_sync_edit_lock`` (t1947), so one requested
+        while ``$EDITOR`` is open waits here until the editor returns, and
+        overlapping syncs run one after the other. Only the subprocess is
+        under the lock, never the ``call_from_thread`` handling below.
+        """
+        with self._sync_edit_lock:
+            skipped_for = (self._stray_sync_session
+                           if self._stray_sync_blocks() else None)
+            if skipped_for is None:
+                result = run_sync_batch()
+                if result.stray_session is not None:
+                    self._stray_sync_session = result.stray_session
 
         if show_overlay:
             self.app.call_from_thread(self.pop_screen)
+
+        if skipped_for is not None:
+            self.app.call_from_thread(
+                self.notify,
+                f"Sync skipped: a timed-out sync (session {skipped_for}) may "
+                "still be changing task data",
+                severity="error",
+            )
+            return
 
         status = result.status
 
@@ -5074,7 +5139,13 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
             self.app.call_from_thread(self._show_conflict_dialog, result.conflicted_files)
             return
         if status == STATUS_TIMEOUT:
-            if show_notification:
+            if result.stray_session is not None:
+                # Always shown: edits and syncs are now refused until the
+                # session is proven stopped, which a silent auto-sync must
+                # not leave unexplained.
+                self.app.call_from_thread(
+                    self.notify, f"Sync: {result.error_message}", severity="error")
+            elif show_notification:
                 self.app.call_from_thread(self.notify, "Sync timed out", severity="warning")
             return
         if status == STATUS_NOT_FOUND:

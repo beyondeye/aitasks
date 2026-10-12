@@ -10,6 +10,9 @@ Layers exposed:
   no Textual import. Easy to unit-test.
 - `run_sync_batch(timeout)` — blocking subprocess invocation that returns a
   `SyncResult`. Designed to be called from inside a `@work(thread=True)` worker.
+  On timeout it stops the sync's whole session before returning (see
+  `_stop_sync_session`); `sync_session_running(sid)` re-checks a session it
+  could not prove stopped.
 - `SyncConflictScreen` (`GuardedModalScreen`) — modal listing conflicted files
   with "Launch agent to resolve" / "Resolve Interactively" / "Dismiss" buttons.
   Dismisses with a CONFLICT_CHOICE_* value or None. Self-contained CSS.
@@ -38,9 +41,12 @@ Usage (from a host App's worker):
 """
 from __future__ import annotations
 
+import os
 import re
+import signal
 import subprocess
 import sys
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Sequence
@@ -219,6 +225,14 @@ STATUS_NOT_FOUND = "NOT_FOUND"
 # for auto-merge attempts on top of the network calls.
 DEFAULT_SYNC_TIMEOUT_SECONDS = 30
 
+# Stopping a timed-out sync (t1947). SIGTERM first: git removes its *.lock
+# files on TERM, and aitask_sync.sh has no traps of its own. Then SIGKILL
+# rounds until the session is empty — repeated, so a member that forks between
+# one membership listing and the kill is caught by the next round.
+_TERM_GRACE_SECONDS = 3.0
+_KILL_DEADLINE_SECONDS = 5.0
+_POLL_SECONDS = 0.05
+
 _SYNC_SCRIPT = "./.aitask-scripts/aitask_sync.sh"
 
 
@@ -238,6 +252,12 @@ class SyncResult:
     #: Per-file records from the `DEFERRED_FILE:` continuation lines. Populated
     #: only when the status line was `DEFERRED:` -- see parse_sync_output.
     deferred_files: list["DeferredFile"] = field(default_factory=list)
+    #: Set only for STATUS_TIMEOUT, when the timed-out sync's session could
+    #: not be proven empty (a member survived SIGKILL, or membership could not
+    #: be queried). Its processes may still be changing task data: treat the
+    #: data as unsafe to edit or re-sync until `sync_session_running(sid)` is
+    #: False (t1947).
+    stray_session: int | None = None
 
 
 def parse_sync_output(stdout: str) -> SyncResult:
@@ -365,6 +385,159 @@ def sync_batch_command(repo_root: Path | None = None) -> tuple[list[str], str | 
     return [str(repo_root / ".aitask-scripts" / "aitask_sync.sh"), "--batch"], str(repo_root)
 
 
+def _session_members(sid: int) -> list[int] | None:
+    """Live (non-zombie) pids in session ``sid``; ``None`` = cannot tell.
+
+    Session, not process group: coreutils ``timeout`` (``_git_with_timeout``
+    in aitask_sync.sh) moves itself and git into their own group, and a
+    descendant may close every inherited fd — but both keep the session. Only
+    an explicit ``setsid()`` leaves it.
+    """
+    if os.path.exists("/proc/self/stat"):
+        members = []
+        try:
+            entries = os.listdir("/proc")
+        except OSError:
+            return None
+        for name in entries:
+            if not name.isdigit():
+                continue
+            try:
+                with open(f"/proc/{name}/stat", "rb") as fh:
+                    stat = fh.read()
+            except (FileNotFoundError, ProcessLookupError):
+                continue  # exited between listing and reading
+            except OSError:
+                # Unreadable (permissions, I/O): it may be a member. Never
+                # let an unknown read pass as "gone".
+                return None
+            # comm (field 2) may hold spaces or parens: parse after the last
+            # ")". Then: state ppid pgrp session ...
+            fields = stat[stat.rfind(b")") + 2:].split()
+            try:
+                state, session = fields[0], int(fields[3])
+            except (IndexError, ValueError):
+                return None
+            if state == b"Z":
+                continue
+            if session == sid:
+                members.append(int(name))
+        return members
+    try:
+        out = subprocess.run(["pgrep", "-s", str(sid)], capture_output=True,
+                             text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if out.returncode == 1:
+        return []
+    if out.returncode != 0:
+        return None
+    try:
+        return [int(pid) for pid in out.stdout.split()]
+    except ValueError:
+        return None
+
+
+def sync_session_running(sid: int) -> bool:
+    """True while session ``sid`` has live members — or membership is unknown.
+
+    The recovery probe for `SyncResult.stray_session`: fails closed, so an
+    unavailable query keeps the data unsafe rather than declaring it safe.
+    """
+    return _session_members(sid) != []
+
+
+def _signal_members(members: list[int], sig: int) -> None:
+    for pid in members:
+        try:
+            os.kill(pid, sig)
+        except (ProcessLookupError, PermissionError):
+            pass
+
+
+def _wait_session_empty(sid: int, seconds: float, kill: bool = False) -> bool:
+    """Poll until session ``sid`` is empty (True) or ``seconds`` pass.
+
+    With ``kill``, SIGKILL whatever is listed on every poll. An unknown
+    membership returns False at once — it never counts as empty.
+    """
+    deadline = time.monotonic() + seconds
+    while True:
+        members = _session_members(sid)
+        if members is None:
+            return False
+        if not members:
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        if kill:
+            _signal_members(members, signal.SIGKILL)
+        time.sleep(_POLL_SECONDS)
+
+
+def _stop_sync_session(proc: subprocess.Popen) -> int | None:
+    """Stop every process of a timed-out sync; return its sid if unproven.
+
+    The sync was started with ``start_new_session``, so its sid is its pid.
+    Returns ``None`` only when the session is proven empty.
+    """
+    sid = proc.pid
+    members = _session_members(sid)
+    if members:
+        _signal_members(members, signal.SIGTERM)
+        if not _wait_session_empty(sid, _TERM_GRACE_SECONDS):
+            _wait_session_empty(sid, _KILL_DEADLINE_SECONDS, kill=True)
+    # Reap the direct child. proc.kill() is a no-op on a reaped pid; it only
+    # matters when membership could not be listed at all.
+    try:
+        proc.kill()
+    except OSError:
+        pass
+    proc.wait()
+    # Never communicate() again: a stray could hold the pipes open.
+    for pipe in (proc.stdout, proc.stderr):
+        if pipe is not None:
+            pipe.close()
+    return None if _session_members(sid) == [] else sid
+
+
+class SyncProcessTimeout(subprocess.TimeoutExpired):
+    """A timed-out sync, already stopped; ``stray_session`` as in SyncResult."""
+
+    def __init__(self, cmd, timeout, stray_session: int | None):
+        super().__init__(cmd, timeout)
+        self.stray_session = stray_session
+
+
+def _run_sync_process(argv, *, cwd, timeout, encoding, errors):
+    """``subprocess.run`` for the sync that contains its whole session.
+
+    ``subprocess.run(timeout=)`` kills only the direct child: the pull/rebase
+    git children outlive it and keep writing task data after the caller was
+    told the sync timed out (t1947). Here the sync gets its own session and a
+    timeout stops every member before `SyncProcessTimeout` is raised.
+
+    A clean exit is not drained: aitask_sync.sh waits for every child it
+    starts, so anything still in the session then is a helper daemon git
+    spawned on purpose (credential-cache, fsmonitor), not task-data work.
+    """
+    proc = subprocess.Popen(
+        argv,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        encoding=encoding,
+        errors=errors,
+        cwd=cwd,
+        start_new_session=True,
+    )
+    try:
+        out, err = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        raise SyncProcessTimeout(
+            argv, timeout, stray_session=_stop_sync_session(proc)) from None
+    return subprocess.CompletedProcess(argv, proc.returncode, out, err)
+
+
 def run_sync_batch(
     timeout: float = DEFAULT_SYNC_TIMEOUT_SECONDS,
     repo_root: Path | None = None,
@@ -376,15 +549,19 @@ def run_sync_batch(
     script becomes `STATUS_NOT_FOUND`. Otherwise hands off to
     `parse_sync_output`. ``repo_root`` targets another repo's sync script
     (see `sync_batch_command`); ``None`` is the legacy CWD-relative behavior.
+
+    A timeout returns only after the sync's whole session was stopped
+    (`_run_sync_process`); when that cannot be proven the result carries
+    ``stray_session``. A descendant that called ``setsid()`` itself — a
+    deliberately detached daemon — is outside the session and not tracked.
     """
     argv, cwd = sync_batch_command(repo_root)
     try:
-        result = subprocess.run(
+        result = _run_sync_process(
             argv,
-            capture_output=True,
             # BYTE-PRESERVING, and pinned to one codec. A git path may contain
             # any byte but NUL, so a plain `text=True` (locale codec,
-            # errors="strict") raises UnicodeDecodeError INSIDE subprocess.run
+            # errors="strict") raises UnicodeDecodeError INSIDE communicate()
             # on a path like b"a\xffb" -- before parse_sync_output ever sees it,
             # and past the two excepts below, so it would escape this function
             # and crash the calling TUI. surrogateescape round-trips such bytes:
@@ -396,10 +573,15 @@ def run_sync_batch(
             timeout=timeout,
             cwd=cwd,
         )
-    except subprocess.TimeoutExpired:
+    except SyncProcessTimeout as exc:
+        message = f"sync timed out after {timeout:g}s"
+        if exc.stray_session is not None:
+            message += (f"; its processes could not be confirmed stopped "
+                        f"(session {exc.stray_session})")
         return SyncResult(
             status=STATUS_TIMEOUT,
-            error_message=f"sync timed out after {timeout:g}s",
+            error_message=message,
+            stray_session=exc.stray_session,
         )
     except FileNotFoundError:
         return SyncResult(

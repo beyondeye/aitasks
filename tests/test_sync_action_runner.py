@@ -5,6 +5,7 @@ data-conflict agent prompt."""
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -159,7 +160,7 @@ class RunSyncBatchTargetingTests(unittest.TestCase):
     def test_rooted_subprocess_receives_target_cwd_and_argv(self):
         calls: list = []
         with mock.patch.object(
-            sync_action_runner.subprocess, "run", self._spy(calls)
+            sync_action_runner, "_run_sync_process", self._spy(calls)
         ):
             r = sync_action_runner.run_sync_batch(repo_root=Path("/target/repo"))
         self.assertEqual(r.status, STATUS_NOTHING)
@@ -173,7 +174,7 @@ class RunSyncBatchTargetingTests(unittest.TestCase):
         # Regression pin for the board caller: default stays CWD-relative.
         calls: list = []
         with mock.patch.object(
-            sync_action_runner.subprocess, "run", self._spy(calls)
+            sync_action_runner, "_run_sync_process", self._spy(calls)
         ):
             r = sync_action_runner.run_sync_batch()
         self.assertEqual(r.status, STATUS_NOTHING)
@@ -486,7 +487,7 @@ class DeferredFileReasonContractTest(unittest.TestCase):
 class NonUtf8PathTests(unittest.TestCase):
     """A git path may contain any byte but NUL, including invalid UTF-8.
 
-    The failure is inside subprocess.run, BEFORE parse_sync_output runs and past
+    The failure is inside the subprocess read, BEFORE parse_sync_output runs and past
     run_sync_batch's two excepts, so it escapes and crashes the calling TUI.
     That is why these drive run_sync_batch rather than the parser.
     """
@@ -506,7 +507,7 @@ class NonUtf8PathTests(unittest.TestCase):
             return SimpleNamespace(stdout=payload.decode(
                 kwargs["encoding"], kwargs["errors"]))
 
-        with mock.patch.object(sync_action_runner.subprocess, "run", fake_run):
+        with mock.patch.object(sync_action_runner, "_run_sync_process", fake_run):
             r = sync_action_runner.run_sync_batch()
 
         self.assertEqual(r.status, sync_action_runner.STATUS_DEFERRED)
@@ -529,10 +530,218 @@ class NonUtf8PathTests(unittest.TestCase):
             calls.append(kwargs)
             return SimpleNamespace(stdout="NOTHING\n")
 
-        with mock.patch.object(sync_action_runner.subprocess, "run", spy):
+        with mock.patch.object(sync_action_runner, "_run_sync_process", spy):
             sync_action_runner.run_sync_batch()
         self.assertEqual(calls[0]["encoding"], "utf-8")
         self.assertEqual(calls[0]["errors"], "surrogateescape")
+
+
+# A delayed descendant: records its pid, optionally leaves the process group
+# (what coreutils `timeout` does to the git it runs), sleeps, writes a marker.
+_WRITER = """\
+import os, sys, time
+pidfile, marker, delay, own_group = sys.argv[1:5]
+if own_group == "1":
+    os.setpgid(0, 0)
+with open(pidfile, "a") as fh:
+    fh.write(f"{os.getpid()}\\n")
+time.sleep(float(delay))
+with open(marker, "w") as fh:
+    fh.write("late")
+"""
+
+# Leaves the group, drops every inherited fd and hands the delayed write to a
+# grandchild started with Popen's default close_fds=True, then exits.
+_DROPPER = """\
+import os, subprocess, sys
+os.setpgid(0, 0)
+writer, pidfile, marker, delay = sys.argv[1:5]
+subprocess.Popen([sys.executable, writer, pidfile, marker, delay, "0"],
+                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                 stderr=subprocess.DEVNULL, close_fds=True)
+"""
+
+
+@unittest.skipIf(sys.platform == "win32", "POSIX sessions and signals")
+class TimeoutContainmentTests(unittest.TestCase):
+    """A timed-out sync is stopped as a whole session before it returns (t1947).
+
+    Real processes: a stand-in aitask_sync.sh under a temp repo root starts a
+    descendant that writes a marker ~1 s in, after the 0.5 s timeout. A marker
+    that appears after run_sync_batch returned is a sync process that outlived
+    the result the caller was given.
+    """
+
+    TIMEOUT = 0.5
+
+    def setUp(self):
+        import tempfile
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self.pidfile = self.root / "pids"
+        self.marker = self.root / "marker"
+        self.writer = self.root / "writer.py"
+        self.writer.write_text(_WRITER)
+        self.dropper = self.root / "dropper.py"
+        self.dropper.write_text(_DROPPER)
+        (self.root / ".aitask-scripts").mkdir()
+        self.script = self.root / ".aitask-scripts" / "aitask_sync.sh"
+
+    def tearDown(self):
+        import os
+        import signal
+        if self.pidfile.exists():
+            for pid in self.pidfile.read_text().split():
+                try:
+                    os.kill(int(pid), signal.SIGKILL)
+                except (ProcessLookupError, PermissionError):
+                    pass
+        self._tmp.cleanup()
+
+    def _write_script(self, body: str) -> None:
+        self.script.write_text("#!/bin/sh\n" + body + "\n")
+        self.script.chmod(0o755)
+
+    def _writer_cmd(self, delay: float, own_group: bool) -> str:
+        import shlex
+        return " ".join(shlex.quote(a) for a in (
+            sys.executable, str(self.writer), str(self.pidfile),
+            str(self.marker), str(delay), "1" if own_group else "0"))
+
+    def _sync(self) -> "sync_action_runner.SyncResult":
+        return sync_action_runner.run_sync_batch(
+            timeout=self.TIMEOUT, repo_root=self.root)
+
+    def _assert_stopped(self, result) -> None:
+        import time
+        self.assertEqual(result.status, sync_action_runner.STATUS_TIMEOUT)
+        self.assertIsNone(result.stray_session)
+        time.sleep(1.5)
+        self.assertFalse(self.marker.exists(),
+                         "a sync descendant outlived the timeout result")
+
+    def test_control_plain_subprocess_run_leaves_a_survivor(self):
+        # Proves the fixture makes a real survivor: subprocess.run(timeout=)
+        # kills only the direct sh, as run_sync_batch used to.
+        import subprocess
+        import time
+        self._write_script(self._writer_cmd(1.0, own_group=False)
+                           + " >/dev/null 2>&1")
+        with self.assertRaises(subprocess.TimeoutExpired):
+            subprocess.run([str(self.script)], capture_output=True,
+                           timeout=self.TIMEOUT)
+        time.sleep(1.5)
+        self.assertTrue(self.marker.exists())
+
+    def test_timeout_stops_a_same_group_child(self):
+        # The pull/rebase shape: a foreground git in the script's own group.
+        self._write_script(self._writer_cmd(1.0, own_group=False)
+                           + " >/dev/null 2>&1")
+        self._assert_stopped(self._sync())
+
+    def test_timeout_stops_a_child_in_its_own_process_group(self):
+        # The `timeout 10 git fetch` shape, out of killpg's reach.
+        self._write_script(self._writer_cmd(1.0, own_group=True)
+                           + " >/dev/null 2>&1")
+        self._assert_stopped(self._sync())
+
+    def test_timeout_stops_an_fd_dropping_descendant(self):
+        # Out of the group AND holding no inherited fd: only the session
+        # still ties it to the sync.
+        import shlex
+        launch = " ".join(shlex.quote(a) for a in (
+            sys.executable, str(self.dropper), str(self.writer),
+            str(self.pidfile), str(self.marker), "1.0"))
+        self._write_script(launch + " >/dev/null 2>&1\nsleep 5")
+        self._assert_stopped(self._sync())
+
+    def test_unprovable_stop_reports_the_session(self):
+        import os
+        import signal
+        import time
+        self._write_script(self._writer_cmd(30, own_group=False)
+                           + " >/dev/null 2>&1")
+        with mock.patch.object(sync_action_runner, "_signal_members",
+                               lambda members, sig: None), \
+                mock.patch.object(sync_action_runner, "_TERM_GRACE_SECONDS", 0.2), \
+                mock.patch.object(sync_action_runner, "_KILL_DEADLINE_SECONDS", 0.3):
+            result = self._sync()
+        self.assertEqual(result.status, sync_action_runner.STATUS_TIMEOUT)
+        sid = result.stray_session
+        self.assertIsNotNone(sid)
+        self.assertIn("could not be confirmed stopped", result.error_message)
+        self.assertTrue(sync_action_runner.sync_session_running(sid))
+        # Recovery: once the survivor is gone the probe releases.
+        for pid in self.pidfile.read_text().split():
+            os.kill(int(pid), signal.SIGKILL)
+        deadline = time.monotonic() + 5
+        while (sync_action_runner.sync_session_running(sid)
+               and time.monotonic() < deadline):
+            time.sleep(0.05)
+        self.assertFalse(sync_action_runner.sync_session_running(sid))
+
+    def test_unavailable_membership_query_fails_closed(self):
+        self._write_script(self._writer_cmd(30, own_group=False)
+                           + " >/dev/null 2>&1")
+        with mock.patch.object(sync_action_runner, "_session_members",
+                               lambda sid: None):
+            result = self._sync()
+            self.assertIsNotNone(result.stray_session)
+            self.assertTrue(
+                sync_action_runner.sync_session_running(result.stray_session))
+
+    def _probe_with_stat_error(self, exc: OSError):
+        """Membership of a live session while every /proc stat read raises."""
+        import builtins
+        real_open = builtins.open
+
+        def failing_open(path, *args, **kwargs):
+            if str(path).startswith("/proc/") and str(path).endswith("/stat") \
+                    and path != "/proc/self/stat":
+                raise exc
+            return real_open(path, *args, **kwargs)
+
+        with mock.patch.object(sync_action_runner, "open", failing_open,
+                               create=True):
+            return (sync_action_runner._session_members(os.getsid(0)),
+                    sync_action_runner.sync_session_running(os.getsid(0)))
+
+    @unittest.skipUnless(Path("/proc/self/stat").exists(), "/proc backend")
+    def test_unreadable_proc_entry_is_unknown_not_gone(self):
+        # The probe runs against this test's own (live) session: an
+        # unreadable stat must never read as an empty session.
+        import errno
+        for exc in (PermissionError(errno.EACCES, "denied"),
+                    OSError(errno.EIO, "I/O error")):
+            with self.subTest(exc=type(exc).__name__):
+                members, running = self._probe_with_stat_error(exc)
+                self.assertIsNone(members)
+                self.assertTrue(running)
+
+    @unittest.skipUnless(Path("/proc/self/stat").exists(), "/proc backend")
+    def test_vanished_proc_entry_is_skipped(self):
+        # Control: a process that exited between listing and reading is
+        # genuinely gone, so it is skipped rather than poisoning the probe.
+        import errno
+        for exc in (FileNotFoundError(errno.ENOENT, "gone"),
+                    ProcessLookupError(errno.ESRCH, "gone")):
+            with self.subTest(exc=type(exc).__name__):
+                members, running = self._probe_with_stat_error(exc)
+                self.assertEqual(members, [])
+                self.assertFalse(running)
+
+    def test_normal_exit_does_not_wait_for_session_helpers(self):
+        # A helper left in the session after a clean exit (credential-cache,
+        # fsmonitor) is not task-data work; waiting on it would stall syncs.
+        import time
+        self._write_script(self._writer_cmd(5, own_group=True)
+                           + " >/dev/null 2>&1 &\necho NOTHING")
+        started = time.monotonic()
+        result = sync_action_runner.run_sync_batch(timeout=10,
+                                                   repo_root=self.root)
+        self.assertEqual(result.status, STATUS_NOTHING)
+        self.assertIsNone(result.stray_session)
+        self.assertLess(time.monotonic() - started, 3)
 
 
 class _ConflictHost(App):
