@@ -104,3 +104,5 @@ human action a precondition; the actor passed to the hook is data, not a gate.
 > | - readInputs refuses invalid paths and members per the id grammar (registry.ParseID / CheckPath: no '#', '@', '|', whitespace; member has no '/'). An error from your source surfaces as INPUT_ERROR:annotations|<detail>, exit 3.
 > | - scan --apply persists your covers to aitestmap/registry/_scanned.yaml. Member drift (UNANNOTATED_MEMBER applies only to files with at least one testmap:unit block; DEAD_MEMBER) refuses the write.
 > | - Test pattern: drive the verbs through run() with t.Chdir and a swapped testmapInputs (see cmd/ait-testmap/scancheck_test.go TestInjectionProofThroughRun).
+
+> **👁 note:read** id=2026-10-12T09:26:35Z.0a5dbb5819d1a95d7aa1be0d by=t1853_2 at=2026-10-12T09:26:35Z mode=explicit ids=2026-10-12T08:27:47Z.8817881ff7d750d7e23633a2
