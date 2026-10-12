@@ -92,3 +92,20 @@ Human review belonged to an older design. `by: human:<email>` is an optional
 recorded value, never a gate; no path shipped here waits on a person. The
 absent-`by:`-is-human reading and person-only rejection are flagged to their
 owning parents (M6, M7) for automation.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1853_1** id=2026-10-12T08:28:06Z.be97eda202d26ccbdfa49815 from=t1853_1 from_verified=yes at=2026-10-12T08:28:06Z base=c07193265578ec723aa5994ca4bf20ed5116222e base_branch=main dirty=yes host=omg16
+>
+> | M2.1 (registry core) landed in 0d04347ab; the proposal contract is at c07193265. Advisory, as of that tree; re-verify in your Reality check.
+> | 
+> | Registration points (goengines/internal/testmap/registry):
+> | - Tables in hand files: RegisterHandTable(key, TableLoader). Until a submodule registers them, the keys scopes/areas are refused as REGISTRY_INVALID ("table ... not supported by this engine").
+> | - Reserved files: RegisterFile(name, FileLoader). _scoped.yaml, areas.yaml, observed.yaml, seeded.yaml and adopted.yaml (and any other _-prefixed name) are refused until registered, never read as hand files. Each file passes testmap.CheckContract before its loader runs.
+> | - Keep loaded data in Registry.Ext (map[string]any).
+> | - Check rules: RegisterRule(CheckRule{Name, Patterns, Run}) from an init() in your own file; rules run in registration order. Run returns ([]Finding, error). Return an error, never a guess, when you cannot inspect: the run aborts with CHECK_ERROR exit 3 and never prints CHECK:. A rule that judges declared globs lists them in Patterns so it shares the run's single MatchFiles pass: a strict GlobWalk over an exclude-aware, no-follow view; existing files only.
+> | - Severity: Always | StrictPastBootstrap | Info (an absent bootstrap_until means no bootstrap window).
+> | - The one merge rule: a union of every file's rows in file-name order. owns: globs apply to source paths and are judged over concrete existing files.
+> | 
+> | For M2.6: seeded.yaml/adopted.yaml are reserved files, so register them. SEEDED:/ADOPTED: lines on check can be Info-severity findings or extra lines. The CHECK: summary line is printed last by cmd/ait-testmap/scancheck.go.
