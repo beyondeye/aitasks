@@ -5,7 +5,9 @@
 # byte-identical), move-to-unregistered-backend guards, rm (manifest/blob guards with negative
 # controls, ambiguity, stale-reference cleanup, Folded revive-safety), ls/get/
 # versions, the decref-deleted artifact guard, aitask_update.sh preservation of
-# the artifacts: block, and the gc interplay (manifest block lifts after rm).
+# the artifacts: block, the gc interplay (manifest block lifts after rm), and
+# rm after a move off `local` (J: local blobs still swept, t1135 gap still
+# reported; K: dirty / uncommitted / ignored candidate blobs refuse the rm).
 # Uses a legacy-mode git repo fixture (no .aitask-data worktree ->
 # _ait_detect_data_worktree returns ".", task_git passes through to plain git).
 set -uo pipefail
@@ -324,6 +326,183 @@ assert_file_exists "manifest-referenced orphan blob survives gc" "attachments/bl
 assert_file_exists "rm kept the attachment-ledger blob (meta-file guard)" "attachments/blobs/$SHARDG"
 "$ATT" gc >/dev/null 2>&1
 assert_file_not_exists "gc sweeps once the manifest block is lifted" "attachments/blobs/$SHARDG"
+
+# ── J. rm sweeps LOCAL blobs whatever the manifest's current backend (t1286) ──
+# create --backend local -> move --to dir (move keeps its source blobs) -> rm.
+# The manifest then says `dir`, but the local blobs are still committed here and
+# are exactly what rm knows how to sweep. The dir-side copies stay (t1135 gap).
+STORE="$TMP/store"; mkdir -p "$STORE"
+printf 'attachments_gc_grace: 0\nartifacts:\n  backends:\n    dir:\n      path: %s\n' "$STORE" \
+    > aitasks/metadata/project_config.yaml
+git add aitasks/metadata/project_config.yaml; git commit -q -m "register dir backend"
+printf 'move v1\n' > "$TMP/mv1.txt"; printf 'move v2\n' > "$TMP/mv2.txt"
+HV1="$(artifact_sha256 "$TMP/mv1.txt")"; BV1="attachments/blobs/$(artifact_shard_path "$HV1")"
+HV2="$(artifact_sha256 "$TMP/mv2.txt")"; BV2="attachments/blobs/$(artifact_shard_path "$HV2")"
+"$ART" create 5 "$TMP/mv1.txt" --kind report --handle art:t5-mv --backend local >/dev/null 2>&1
+"$ART" update art:t5-mv "$TMP/mv2.txt" >/dev/null 2>&1
+# Negative control: another manifest still references v1's hash.
+"$ART" create 6 "$TMP/mv1.txt" --kind report --handle art:t6-mvshare >/dev/null 2>&1
+"$ART" move art:t5-mv --to dir >/dev/null 2>&1
+assert_contains "moved manifest names the dir backend" '"backend": "dir"' "$(manifest_of art:t5-mv)"
+assert_file_exists "move kept the v1 local blob" "$BV1"
+assert_file_exists "move kept the v2 local blob" "$BV2"
+mv_out="$("$ART" rm 5 art:t5-mv 2>&1)"; rc=$?
+assert_exit_zero_rc "rm of a moved artifact exits 0" "$rc"
+assert_contains "swept count matches the one unreferenced local blob" "1 orphan blob(s) swept" "$mv_out"
+assert_contains "dir-side gap still reported (not local)" "not local" "$mv_out"
+assert_contains "dir-side gap still names t1135" "t1135" "$mv_out"
+assert_file_not_exists "unreferenced local blob swept after move" "$BV2"
+assert_eq "swept local blob is no longer tracked" "" "$(git ls-files -- "$BV2")"
+assert_file_exists "local blob still referenced by another manifest KEPT" "$BV1"
+assert_file_exists "dir-store v1 copy untouched (t1135)" "$STORE/$(artifact_shard_path "$HV1")"
+assert_file_exists "dir-store v2 copy untouched (t1135)" "$STORE/$(artifact_shard_path "$HV2")"
+assert_eq "rm committed every path it touched" "" \
+    "$(git status --porcelain -- attachments/ artifacts/ aitasks/)"
+
+# ── K. unsafe deletion candidates REFUSE the rm (t1286) ──────────────────────
+# A swept blob is rolled back by reset + checkout, i.e. from its COMMITTED copy,
+# so deletion is only safe for a blob whose on-disk bytes ARE that copy. Each
+# case makes a moved artifact's only local blob unsafe; rm must refuse, keep the
+# blob's bytes and staging state, and restore the task entry and manifest.
+mk_moved() {  # mk_moved <task> <handle> <content> -> sets KB (blob relpath)
+    printf '%s\n' "$3" > "$TMP/k.src"
+    KB="attachments/blobs/$(artifact_shard_path "$(artifact_sha256 "$TMP/k.src")")"
+    "$ART" create "$1" "$TMP/k.src" --kind report --handle "$2" --backend local >/dev/null 2>&1
+    "$ART" move "$2" --to dir >/dev/null 2>&1
+}
+assert_refused() {  # assert_refused <label> <task> <handle> <expected-reason>; sets K_OUT
+    local label="$1" task="$2" handle="$3" why="$4" out rc
+    out="$("$ART" rm "$task" "$handle" 2>&1)"; rc=$?
+    K_OUT="$out"
+    assert_exit_nonzero_rc "$label: rm refused" "$rc"
+    assert_contains "$label: refusal names the blob" "$KB" "$out"
+    assert_contains "$label: refusal says why" "$why" "$out"
+    assert_contains "$label: frontmatter entry restored" "$handle" "$("$ART" ls "$task" 2>&1)"
+    assert_contains "$label: manifest restored (still on dir)" '"backend": "dir"' "$(manifest_of "$handle")"
+    assert_eq "$label: task file and manifest left clean" "" \
+        "$(git status --porcelain -- aitasks/ artifacts/)"
+}
+assert_bytes_kept() {  # assert_bytes_kept <label> <saved-copy>
+    if cmp -s "$KB" "$2"; then
+        PASS=$((PASS + 1)); TOTAL=$((TOTAL + 1))
+    else
+        FAIL=$((FAIL + 1)); TOTAL=$((TOTAL + 1)); echo "FAIL: $1: blob bytes preserved"
+    fi
+}
+
+# Case ORDER is load-bearing: K4/K5/K3 untrack their blob with a whole-index
+# commit (a path-scoped `git commit -- <path>` cannot name a path just removed
+# from the index), so they run BEFORE any case leaves something staged —
+# otherwise that commit would silently absorb the staged state under test.
+
+# K1. unstaged edit.
+mk_moved 5 art:t5-k1 'k1 bytes'; KB1="$KB"
+printf 'edit\n' >> "$KB"; cp "$KB" "$TMP/k1.saved"
+assert_refused K1 5 art:t5-k1 "uncommitted changes"
+assert_bytes_kept K1 "$TMP/k1.saved"
+assert_eq "K1: blob still unstaged-modified" " M $KB" "$(git status --porcelain -- "$KB")"
+
+# K4. untracked (absent from HEAD).
+mk_moved 5 art:t5-k4 'k4 bytes'; KB4="$KB"
+git rm -q --cached -- "$KB"; git commit -q -m "untrack k4 blob"
+cp "$KB" "$TMP/k4.saved"
+assert_refused K4 5 art:t5-k4 "uncommitted changes"
+assert_bytes_kept K4 "$TMP/k4.saved"
+assert_eq "K4: blob still untracked" "?? $KB" "$(git status --porcelain -- "$KB")"
+
+# K5. IGNORED untracked: `git status --porcelain` is silent, so the clean check
+# alone would pass it — only the explicit committed-copy check refuses it.
+mk_moved 5 art:t5-k5 'k5 bytes'; KB5="$KB"
+git rm -q --cached -- "$KB"; git commit -q -m "untrack k5 blob"
+cp .git/info/exclude "$TMP/exclude.saved"
+printf '%s\n' "$KB" >> .git/info/exclude
+assert_eq "K5: precondition — status is silent for the ignored blob" "" \
+    "$(git status --porcelain -- "$KB")"
+cp "$KB" "$TMP/k5.saved"
+assert_refused K5 5 art:t5-k5 "no committed copy"
+assert_bytes_kept K5 "$TMP/k5.saved"
+
+# K3. staged addition absent from HEAD (the last whole-index commit).
+mk_moved 5 art:t5-k3 'k3 bytes'; KB3="$KB"
+git rm -q --cached -- "$KB"; git commit -q -m "untrack k3 blob"
+git add -- "$KB"; cp "$KB" "$TMP/k3.saved"
+assert_refused K3 5 art:t5-k3 "uncommitted changes"
+assert_bytes_kept K3 "$TMP/k3.saved"
+assert_eq "K3: blob still a staged addition" "A  $KB" "$(git status --porcelain -- "$KB")"
+
+# K2. staged edit (no whole-index commit from here on).
+mk_moved 5 art:t5-k2 'k2 bytes'; KB2="$KB"
+printf 'edit\n' >> "$KB"; git add -- "$KB"; cp "$KB" "$TMP/k2.saved"
+assert_refused K2 5 art:t5-k2 "uncommitted changes"
+assert_bytes_kept K2 "$TMP/k2.saved"
+assert_eq "K2: blob still staged-modified" "M  $KB" "$(git status --porcelain -- "$KB")"
+
+# K6. skip-worktree: bytes clean and committed, status silent — but git would
+# refuse to stage the deletion AND to check the blob back out on rollback.
+mk_moved 5 art:t5-k6 'k6 bytes'; KB6="$KB"
+git update-index --skip-worktree -- "$KB"; cp "$KB" "$TMP/k6.saved"
+assert_refused K6 5 art:t5-k6 "skip-worktree or assume-unchanged"; K6_OUT="$K_OUT"
+assert_contains "K6: suggests the skip-worktree repair" \
+    "./ait git update-index --no-skip-worktree -- $KB" "$K6_OUT"
+assert_not_contains "K6: does not suggest an irrelevant flag" "no-assume-unchanged" "$K6_OUT"
+assert_bytes_kept K6 "$TMP/k6.saved"
+assert_eq "K6: skip-worktree flag left as found" "S $KB" "$(git ls-files -v -- "$KB")"
+
+# K7. assume-unchanged: `git add` would "succeed" without staging the deletion,
+# so rm would claim a sweep that never reaches the commit.
+mk_moved 5 art:t5-k7 'k7 bytes'; KB7="$KB"
+git update-index --assume-unchanged -- "$KB"; cp "$KB" "$TMP/k7.saved"
+assert_refused K7 5 art:t5-k7 "skip-worktree or assume-unchanged"; K7_OUT="$K_OUT"
+assert_contains "K7: suggests the assume-unchanged repair" \
+    "./ait git update-index --no-assume-unchanged -- $KB" "$K7_OUT"
+assert_not_contains "K7: does not suggest an irrelevant flag" "no-skip-worktree" "$K7_OUT"
+assert_bytes_kept K7 "$TMP/k7.saved"
+assert_eq "K7: assume-unchanged flag left as found" "h $KB" "$(git ls-files -v -- "$KB")"
+
+# Positive control: once K1's blob is clean again the same rm succeeds — the
+# refusal came from the dirty state — while every other K blob, still unsafe
+# (re-asserted here, immediately before), is a bystander that must not block it.
+assert_eq "control precondition: K2 still staged-modified" "M  $KB2" "$(git status --porcelain -- "$KB2")"
+assert_eq "control precondition: K3 still a staged addition" "A  $KB3" "$(git status --porcelain -- "$KB3")"
+assert_eq "control precondition: K4 still untracked" "?? $KB4" "$(git status --porcelain -- "$KB4")"
+assert_eq "control precondition: K5 still ignored and uncommitted" "" "$(git ls-files -- "$KB5")"
+assert_eq "control precondition: K6 still skip-worktree" "S $KB6" "$(git ls-files -v -- "$KB6")"
+assert_eq "control precondition: K7 still assume-unchanged" "h $KB7" "$(git ls-files -v -- "$KB7")"
+KB="$KB1"; git checkout -- "$KB"
+k1_out="$("$ART" rm 5 art:t5-k1 2>&1)"; rc=$?
+assert_exit_zero_rc "K1 control: rm succeeds once the blob is clean" "$rc"
+assert_contains "K1 control: swept its blob" "1 orphan blob(s) swept" "$k1_out"
+assert_file_not_exists "K1 control: blob gone" "$KB"
+assert_eq "K1 control: deletion committed" "" "$(git ls-files -- "$KB")"
+cp "$TMP/exclude.saved" .git/info/exclude
+
+# K6/K7 repair: running EXACTLY the command(s) the refusal printed clears the
+# flag and lets the same rm succeed with its deletion committed. (A combined
+# `--no-skip-worktree --no-assume-unchanged` leaves skip-worktree set.) The
+# fixture is legacy mode, where `./ait git` is plain git.
+follow_repair() {  # follow_repair <refusal-output>
+    local cmds c
+    cmds="$(printf '%s\n' "$1" | sed -n 's/.*clear the flag (\(.*\)), then re-run.*/\1/p')"
+    [[ -n "$cmds" ]] || return 1
+    while IFS= read -r c; do
+        c="${c# }"; [[ -n "$c" ]] || continue
+        # shellcheck disable=SC2086  # the printed command is word-split as a user would
+        git ${c#./ait git }
+    done <<< "$(printf '%s\n' "$cmds" | tr ';' '\n')"
+}
+check_repair() {  # check_repair <label> <handle> <blob-relpath> <refusal-output>
+    local klabel="$1" khandle="$2" kb="$3" krm_out rc
+    follow_repair "$4"; rc=$?
+    assert_exit_zero_rc "$klabel repair: printed command(s) ran" "$rc"
+    assert_eq "$klabel repair: index entry is plain again" "H $kb" "$(git ls-files -v -- "$kb")"
+    krm_out="$("$ART" rm 5 "$khandle" 2>&1)"; rc=$?
+    assert_exit_zero_rc "$klabel repair: retried rm succeeds" "$rc"
+    assert_contains "$klabel repair: retried rm swept the blob" "1 orphan blob(s) swept" "$krm_out"
+    assert_file_not_exists "$klabel repair: blob gone" "$kb"
+    assert_eq "$klabel repair: deletion committed" "" "$(git ls-files -- "$kb")"
+}
+check_repair K6 art:t5-k6 "$KB6" "$K6_OUT"
+check_repair K7 art:t5-k7 "$KB7" "$K7_OUT"
 
 echo ""
 echo "=========================="

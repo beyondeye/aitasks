@@ -445,7 +445,7 @@ ALLOWLIST=(
   # in a bare `warn`, and the bare-warn version is exactly the t1675 bug.
   # Exempted here, by line, so the verification stays a human-checked citation
   # instead of a blanket rule.
-  ".aitask-scripts/aitask_artifact.sh:660"
+  ".aitask-scripts/aitask_artifact.sh:667"
 )
 
 # ACCEPTED status handlers — forms whose failure handling is visible in the line

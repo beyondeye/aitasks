@@ -653,31 +653,82 @@ _artifact_rm_txn() {
         || die "ait artifact rm: could not delete the manifest for ${handle} (nothing committed)"
 
     local del_paths=( "$task_file" "$manifest_rel" )
-    local swept=0
-    if [[ "$backend" == "local" ]]; then
-        artifact_registry_activate local
-        local remaining h
-        if ! remaining="$(artifact_manifest referenced-hashes)"; then
-            # The fail-closed tree scan died (a malformed manifest somewhere —
-            # its path is in the error above). The task file is already patched
-            # and this manifest already deleted, both uncommitted — restore
-            # BOTH from HEAD so the tree is left untouched and the same rm can
-            # be re-run once the named manifest is repaired. (Computing the
-            # scan before mutation is not an option: it would include this
-            # doomed manifest's own hashes and block the whole sweep.)
-            txn_abort "ait artifact rm: could not compute remaining manifest references (see the malformed-manifest error above) — rolled back; repair that manifest and re-run"
+    local swept=0 remaining="" scanned=0 h blob_rel head_oid disk_oid doomed=()
+    # Local blobs are swept whatever the manifest's CURRENT backend is: `move`
+    # keeps its source blobs, so an artifact created on `local` and moved away
+    # still owns committed blobs here (t1286).
+    artifact_registry_activate local
+    # Pass 1 — select: present on disk, not owned by an attachment, and not
+    # referenced by any remaining manifest (on any backend).
+    for h in ${versions[@]+"${versions[@]}"}; do
+        [[ -f "$(attach_meta_dir)/$(artifact_shard_path "$h").json" ]] && continue
+        artifact_local_head "$h" || continue
+        if (( ! scanned )); then
+            if ! remaining="$(artifact_manifest referenced-hashes)"; then
+                # The fail-closed tree scan died (a malformed manifest somewhere —
+                # its path is in the error above). The task file is already patched
+                # and this manifest already deleted, both uncommitted — restore
+                # BOTH from HEAD so the tree is left untouched and the same rm can
+                # be re-run once the named manifest is repaired. (Computing the
+                # scan before mutation is not an option: it would include this
+                # doomed manifest's own hashes and block the whole sweep.)
+                txn_abort "ait artifact rm: could not compute remaining manifest references (see the malformed-manifest error above) — rolled back; repair that manifest and re-run"
+            fi
+            scanned=1
         fi
-        for h in ${versions[@]+"${versions[@]}"}; do
-            [[ -f "$(attach_meta_dir)/$(artifact_shard_path "$h").json" ]] && continue
-            printf '%s\n' "$remaining" | grep -qxF "$h" && continue
-            artifact_backend_delete "$h" \
-                || die "ait artifact rm: could not delete the orphaned blob $h"
-            _ARTIFACT_TXN_SWEPT_BLOBS+=( "$(artifact_local_blob_relpath "$h")" )
-            del_paths+=( "$(artifact_local_blob_relpath "$h")" )
-            swept=$((swept + 1))
-        done
-    else
-        warn "backend '${backend}' is not local — backend blobs were not deleted (cross-backend orphan reaping is t1135)"
+        printf '%s\n' "$remaining" | grep -qxF "$h" && continue
+        doomed+=( "$h" )
+    done
+    # Pass 2 — preflight EVERY candidate before deleting ANY. The rollback hook
+    # restores a swept blob by reset + checkout, i.e. from its COMMITTED copy, so
+    # a deletion is recoverable only when the on-disk bytes ARE that copy. Index
+    # membership is not enough: an unstaged/staged edit would be lost, and a
+    # staged addition absent from HEAD could not come back at all.
+    # txn_require_clean refuses those (and plain untracked blobs), but it is not
+    # a recovery proof on its own — `git status --porcelain` is silent for an
+    # IGNORED untracked file, which has no committed copy. So each candidate must
+    # also exist in HEAD as exactly its on-disk bytes (same git object id), and
+    # carry a plain index entry: under skip-worktree git refuses both to stage
+    # the deletion and to check the blob back out, and under assume-unchanged
+    # `git add` "succeeds" without staging the deletion at all.
+    # Every refusal dies; the armed trap restores the already-patched task file
+    # and deleted manifest, and no blob has been touched yet.
+    local idx_entry idx_tag fix
+    for h in ${doomed[@]+"${doomed[@]}"}; do
+        blob_rel="$(artifact_local_blob_relpath "$h")"
+        txn_require_clean "ait artifact rm" "$blob_rel"
+        head_oid="$(task_git rev-parse -q --verify "HEAD:${blob_rel}")" \
+            || die "ait artifact rm: ${blob_rel} has no committed copy on the data branch, so deleting it could not be rolled back — commit it or move it aside, then re-run"
+        disk_oid="$(task_git hash-object -- "$blob_rel")" \
+            || die "ait artifact rm: could not hash ${blob_rel} — refusing to delete a blob whose recovery cannot be verified"
+        [[ "$disk_oid" == "$head_oid" ]] \
+            || die "ait artifact rm: ${blob_rel} differs from its committed copy, so deleting it would lose bytes — restore or commit it, then re-run"
+        idx_entry="$(task_git ls-files -v -- "$blob_rel")" \
+            || die "ait artifact rm: could not read the index entry for ${blob_rel} — refusing to delete a blob whose recovery cannot be verified"
+        idx_tag="${idx_entry%% *}"
+        if [[ "$idx_tag" != "H" ]]; then
+            # One command per flag: a combined `--no-skip-worktree
+            # --no-assume-unchanged` leaves skip-worktree SET (measured).
+            # Uppercase/lowercase S = skip-worktree; lowercase = assume-unchanged.
+            fix=""
+            [[ "$idx_tag" == [Ss] ]] && fix="./ait git update-index --no-skip-worktree -- ${blob_rel}"
+            [[ "$idx_tag" == [a-z] ]] && fix="${fix:+${fix}; }./ait git update-index --no-assume-unchanged -- ${blob_rel}"
+            [[ -n "$fix" ]] \
+                || die "ait artifact rm: ${blob_rel} has an unexpected index entry ('${idx_entry}') — refusing to delete a blob whose recovery cannot be verified"
+            die "ait artifact rm: ${blob_rel} is flagged skip-worktree or assume-unchanged in the index, so git could neither stage its deletion nor restore it — clear the flag (${fix}), then re-run"
+        fi
+    done
+    # Pass 3 — delete.
+    for h in ${doomed[@]+"${doomed[@]}"}; do
+        blob_rel="$(artifact_local_blob_relpath "$h")"
+        artifact_backend_delete "$h" \
+            || die "ait artifact rm: could not delete the orphaned blob $h"
+        _ARTIFACT_TXN_SWEPT_BLOBS+=( "$blob_rel" )
+        del_paths+=( "$blob_rel" )
+        swept=$((swept + 1))
+    done
+    if [[ "$backend" != "local" ]]; then
+        warn "backend '${backend}' is not local — its backend blobs were not deleted (cross-backend orphan reaping is t1135)"
     fi
 
     if ! _artifact_commit "ait: Remove artifact ${handle} from t${task_id}" "${del_paths[@]}"; then
