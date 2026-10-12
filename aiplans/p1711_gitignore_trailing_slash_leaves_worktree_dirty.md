@@ -366,3 +366,61 @@ standard post-implementation flow (Step 9).
 
 ### Goal-achievement risk: low
 - Existing downstream installs are repaired only when the user runs `ait setup`, not on `ait upgrade` · severity: low · → mitigation: none. It is recorded as an out-of-scope follow-up above.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-12 18:20)
+- **Requested by user:** (1) CRLF `.gitignore` (core.autocrlf=true) was missed:
+  the rewriter returned 1, the repair said "already symlink-safe", and the
+  linked worktree still showed `?? .aitask-data`. (2) The gate's derived-name
+  check asserted a fixed count of 3, so a new canonical data link with a correct
+  rule would fail it.
+- **Changes made:**
+  - Verified first: git strips a trailing CR before matching, so CRLF
+    `.aitask-data/` stays directory-only (symlink untracked) while CRLF bare
+    `.aitask-data` works.
+  - Rewriter detection matches `name/` and `name/\r`. The renderer strips the CR
+    only for comparison and re-emits it, so CRLF files stay CRLF byte for byte.
+    The Step 7 presence check also accepts the CRLF bare line, so no duplicate
+    block is appended.
+  - The gate's non-vacuity check is now "data dir + at least one link, all
+    bare" with no fixed count or literals. Case C's fixture and expected output
+    are built from `NAMES` too (it hardcoded the three names).
+  - New Case F: a CRLF legacy fixture. The precondition (git reports the
+    symlink) passes, the rewrite returns 0, the bytes are exact with CRLF kept
+    and unrelated lines untouched, git status passes for every name, and a
+    second run returns 1.
+  - Red proofs: the LF-only detector fails Case F. A fourth link plus its rule
+    passes (51/51), and without the rule it fails Case A. End to end: a
+    core.autocrlf=true clone, repaired then linked, gives a clean worktree
+    status and a plain `git worktree remove` exits 0.
+- **Files affected:** `.aitask-scripts/aitask_setup.sh`,
+  `tests/test_gitignore_data_symlinks.sh`
+
+## Final Implementation Notes
+- **Actual work done:** This repo's `.gitignore` was already fixed by `dfbcc0f2a`. This task fixed the install path and added the gates.
+  - `setup_data_branch` now writes bare `.aitask-data` for new installs.
+  - A shared rewriter, `_ait_rewrite_data_gitignore_lines`, replaces the inline t699 `aitasks/`/`aiplans/` migration. It derives names from `data_symlinks.sh`, is CRLF-aware, uses a three-way exit status, and preserves mode and symlinks via `ait_atomic_render`.
+  - A new re-run repair, `setup_data_gitignore_symlink_safe`, runs last in `main()` before `commit_framework_files` and fixes existing installs on `ait setup`.
+  - Tests:
+    - new `tests/test_gitignore_data_symlinks.sh`: Cases A, C–F plus a negative control, 47 checks;
+    - `tests/test_data_branch_setup.sh`: exact-line checks, a symlink check on the generated file, and Tests 33–35;
+    - `tests/test_task_worktree_helper.sh`: Case 23, a seam test with a plain `remove`, real vs pre-fix `.gitignore`.
+- **Deviations from plan:**
+  - Case B (the new-install `.gitignore`) lives in `test_data_branch_setup.sh` through a local `assert_data_symlinks_ignored` helper, as the plan allowed.
+  - Case D's planned `TMPDIR` fault no longer applies, because the atomic render stages beside the file. It became D1 (stubbed render), D2 (directory) and D3 (read-only).
+  - CRLF handling and the derived-name gate were added in review (see Post-Review Changes).
+- **Issues encountered:**
+  - `porcelain_for` ran inside `$( )`, so its repo counter never advanced and every check reused one repo. Fixed with `mktemp -d` per call.
+  - The first rewriter draft used mktemp+mv, which dropped the mode to 600 and replaced a symlinked `.gitignore`. Replaced with `ait_atomic_render`.
+  - Placing the repair after `setup_data_branch` let later self-committing `.gitignore` helpers sweep the repair and a user's dirty `.gitignore` into a setup commit. Moved it to last.
+- **Key decisions:**
+  - The repair makes no commit of its own and relies on the baseline-protected `commit_framework_files`. A pre-dirty `.gitignore` gets the fix on disk, left uncommitted and reported.
+  - The structural gate asks git, never a hand-rolled matcher, and always has a control symlink. Test 35 pins the repair's placement in `main()`.
+  - Red proofs (scratch copies only) back each test: slash restored, LF-only detection, mktemp+mv, reordered `main()`, and a fourth link without a rule.
+  - Verified end to end that `aitask_merge_task.sh cleanup` gives `CLEANED` with the fix and `CLEANED_PARTIAL:WORKTREE_KEPT=dirty,BRANCH_KEPT=skipped` with the pre-fix block.
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_setup.sh:2724` — `setup_worktree_dirs_gitignore` commits with an unscoped `git commit -m` (no `-- .gitignore`). That is a whole-index sweep that can carry a concurrent session's staged files into a setup commit.
+  - `.aitask-scripts/aitask_setup.sh` — the self-committing `.gitignore` helpers (`setup_draft_directory`, `setup_python_cache_gitignore`, `setup_gate_logs_gitignore`, `setup_testmap_gitignore`, `setup_shadow_store_gitignore`, `setup_worktree_dirs_gitignore`) ignore `AIT_SETUP_DIRTY_BASELINE`. When their own rule is missing, they sweep a user's pre-existing uncommitted `.gitignore` edit into a setup commit (reproduced in Test 34's control analysis).
+  - `install.sh:1623` — `ait upgrade` does not run setup, so `setup_data_gitignore_symlink_safe` reaches existing installs only through `ait setup`. A call before `commit_installed_files` is possible, but that commit has no dirty-baseline protection.
+  - `tests/test_cd_guard_lint.sh` — already failing on main: `tests/test_add_model.sh` has no `enter_scratch_cwd` (t1940), and four `unconfined-andchain` cd sites are in `test_aitasks_home.sh:319`, `test_install_engine_binary.sh:224`, `test_setup_hooks_only.sh:74` and `test_upgrade_prunes_retired_scripts.sh:73`.
