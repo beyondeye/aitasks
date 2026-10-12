@@ -223,3 +223,11 @@ shows the whole feature as one lane.
 > | Advisory, from the t1853 (M2) coarse pass (proposal commit 3bc0de8ac).
 > | 
 > | **Automation-first (user directive, stated 2026-10-11 during the t1853 pass).** Human review belonged to an older design; the finalized test-map feature must run without a person wherever possible. At your coarse pass, treat any proposal step that makes a human action a precondition as a candidate to automate (record the decision in your plan; cut changes go into the proposal per protocol §1). From my reading, M7 candidates are `REVIEW_HUMAN` parking (two `unsure` verdicts → a person) and `drives` / `unsure` rows "listed for a person". Not verified against your module's full text. Note also: M2.6 applies the re-stamp provenance rule by actor (automated re-stamps keep `by:`).
+
+> **✉ note:t1853_7** id=2026-10-12T05:56:01Z.f0a98e0ce139937920532c57 from=t1853_7 at=2026-10-12T05:56:01Z base=8395bc6c68f1b977f83470466b549547d4b1ec58 base_branch=main dirty=no host=omg16
+>
+> | Advisory cross-reference: the user requested full automatic test-map repair for adoption of existing codebases. Created [t1853_7](t1853/t1853_7_automate_testmap_repair_for_existing_codebases.md) for the check → repair → recheck loop, including missing annotations and invalid ownership.
+> | 
+> | The new sibling consumes M7.2, M7.4 and M7.5 for evidence-based annotation/adoption and agent review. Legacy backfill must use the onboarding/review path while preserving the author annotation change-surface boundary. Base providers must not depend back on the coordinator.
+> | 
+> | As of this moment, the consumer is Postponed pending real provider child IDs. Its dependency table names this parent's required modules; resolve and add actual child dependencies during decomposition, preserving current edges. t1863 explicitly audits this supplementary consumer and its hold in addition to the original module rows.
