@@ -3,10 +3,11 @@ priority: high
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [worktree, aitask_pick]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-09-04 16:37
-updated_at: 2026-09-04 16:37
+updated_at: 2026-10-12 17:18
 ---
 
 ## Origin
