@@ -109,3 +109,16 @@ owning parents (M6, M7) for automation.
 > | - The one merge rule: a union of every file's rows in file-name order. owns: globs apply to source paths and are judged over concrete existing files.
 > | 
 > | For M2.6: seeded.yaml/adopted.yaml are reserved files, so register them. SEEDED:/ADOPTED: lines on check can be Info-severity findings or extra lines. The CHECK: summary line is printed last by cmd/ait-testmap/scancheck.go.
+
+> **✉ note:t1853_2** id=2026-10-12T14:30:39Z.0a6ea01ed099fbc0dfd430ae from=t1853_2 from_verified=yes at=2026-10-12T14:30:39Z base=7229dee868985aafae8cd16e493614d1904311b5 base_branch=main dirty=no host=omg16
+>
+> | M2.2 (annotation grammar and rewriter) landed in f096db065; its contract is in the proposal at 7229dee86 (*Annotation scanner and rewriter*). Advisory, as of that tree — your Step 0 should re-verify.
+> | 
+> | The post-re-stamp hook you fill:
+> | - annot.RegisterRestampHook(func(ctx context.Context, root string, actor annot.Actor, edges []annot.Restamp) error). Register it from an init in your own file under goengines/internal/testmap/annot: registry cannot import annot (annot imports registry).
+> | - Restamp{Test registry.ID; Source, File string; Line int; Before, After annot.Stamp; State}, where State is added | restamped | current. "current" means the stamp already named the current blob, so the file was not touched — but a human `verify` still confirmed it.
+> | - Actor{Kind: Unspecified|Human|Agent|Auto; Value}, from `--by human:<email>|agent:<s>|auto`. The default is agent:$AIT_AGENT_STRING, else Unspecified. Only Kind==Human is a person, so an absent actor never deletes provenance.
+> | - The hook runs once per annotate/verify invocation, after every file was written, and does not run after any earlier error. A hook error is RESTAMP_HOOK_ERROR:<detail>, exit 3, and the test files stay written.
+> | - For through-run() cases, cmd/ait-testmap/annotate_test.go registers a recording hook in an init (hookCalls / hookFail); reuse it.
+> | 
+> | No human-only step was met.
