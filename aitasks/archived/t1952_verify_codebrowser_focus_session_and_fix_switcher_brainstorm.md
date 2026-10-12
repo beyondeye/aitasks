@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [aitask_board, tmux]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 1946
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-12 12:15
-updated_at: 2026-10-12 15:11
+updated_at: 2026-10-12 16:57
+completed_at: 2026-10-12 16:57
 ---
 
 ## Origin
@@ -69,3 +70,14 @@ cause is the property assignment above, not t1951's change.
 > **✅ gate:plan_approved** run=2026-10-12T12:11:32Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-12T13:56:51Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-12T13:57:57Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:4032295b0df1b889
+
+> **✅ gate:risk_evaluated** run=2026-10-12T13:57:57Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1952/risk_evaluated_2026-10-12T13:57:57Z-risk_evaluated-a1.log`
