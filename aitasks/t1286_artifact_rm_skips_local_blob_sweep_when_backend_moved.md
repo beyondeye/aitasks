@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1142
+implemented_with: claudecode/opus5_5
 created_at: 2026-07-28 11:50
-updated_at: 2026-10-12 10:28
+updated_at: 2026-10-12 12:34
 boardidx: 59392
 ---
 
@@ -77,3 +78,8 @@ not an exotic one.
 
 Found incidentally during the t1142 verification run; recorded under "Upstream
 defects identified" in `aiplans/archived/p1142_manual_verification_auto.md`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-12T09:34:57Z status=pass attempt=1 type=human
