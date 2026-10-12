@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1910
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-11 14:47
-updated_at: 2026-10-11 17:40
+updated_at: 2026-10-12 11:26
 ---
 
 ## Origin
@@ -55,3 +56,8 @@ offending file and keeps the loaded state. Add `App.run_test` regressions next
 to `tests/test_settings_reload_all.py` (`ReloadMalformedConfigTest`) asserting
 the app keeps running, the error names the file, and `config_mgr.codeagent` is
 unchanged.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-12T08:26:43Z status=pass attempt=1 type=human
