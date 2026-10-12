@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [tui]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 1911
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-12 21:46
-updated_at: 2026-10-12 22:23
+updated_at: 2026-10-12 22:45
+completed_at: 2026-10-12 22:45
 ---
 
 ## Origin
@@ -46,3 +47,14 @@ Call `self._tick_refresh()` directly in `on_done` (or `self.call_later(self._tic
 > **✅ gate:plan_approved** run=2026-10-12T19:23:22Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-12T19:37:41Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-12T19:45:15Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:dd112866baf1a4d0
+
+> **✅ gate:risk_evaluated** run=2026-10-12T19:45:15Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1961/risk_evaluated_2026-10-12T19:45:15Z-risk_evaluated-a1.log`
