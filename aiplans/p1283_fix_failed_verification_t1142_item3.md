@@ -206,14 +206,14 @@ Post-implementation: commit code (`bug: ... (t1283)`), commit plan via
 ### Code-health risk: medium
 - A dir store created before this change (no marker) stops working until `ait artifact init-store dir` is run once. Intended fail-closed behaviour; the error names the exact remedy, and the only such store is the t1142 verification share · severity: low · → mitigation: none needed (actionable error message is part of the plan)
 - Rollback hooks run inside the chained EXIT trap; a backend op that exits there would leak the attach lock. Addressed by the delete-returns contract + the fault-injection test · severity: high · → mitigation: in plan (step 1 delete contract, step 5 fault injection)
-- Concurrent unmount between validation and `put`'s shard write is not protected · severity: medium · → mitigation: dir_put_concurrent_unmount_guard
+- Concurrent unmount between validation and `put`'s shard write is not protected · severity: medium · → mitigation: t1960
 - New `init` op in the backend contract: a future adapter that omits it fails with "command not found" instead of a clean message · severity: low · → mitigation: none needed (extension-point comment updated in step 2)
 
 ### Goal-achievement risk: low
 - The marker proves "this is an initialized aitasks store", not "the store this config meant". A wrong path pointing at a *different* initialized store would still be accepted. Neither observed defect needs more, and this is out of scope · severity: low · → mitigation: none needed
 
 ### Planned mitigations
-- timing: after | name: dir_put_concurrent_unmount_guard | type: bug | priority: medium | effort: medium | inline_risk: medium | added_complexity: medium | addresses: concurrent unmount between validation and put's shard write | desc: Keep every dir put filesystem operation (shard mkdir, temp file, final mv) tied to the validated root itself (e.g. an fd / cwd held on the validated directory plus relative paths), never re-resolved by pathname; acceptance = a test that makes the share disappear between validation and mutation and shows no shard, temp file or blob lands in the underlying mountpoint; pathname re-checks (marker or device/inode) are out (TOCTOU)
+- timing: after | name: dir_put_concurrent_unmount_guard | type: bug | priority: medium | effort: medium | inline_risk: medium | added_complexity: medium | addresses: concurrent unmount between validation and put's shard write | desc: Keep every dir put filesystem operation (shard mkdir, temp file, final mv) tied to the validated root itself (e.g. an fd / cwd held on the validated directory plus relative paths), never re-resolved by pathname; acceptance = a test that makes the share disappear between validation and mutation and shows no shard, temp file or blob lands in the underlying mountpoint; pathname re-checks (marker or device/inode) are out (TOCTOU) | created: t1960
 
 ## Post-Review Changes
 
