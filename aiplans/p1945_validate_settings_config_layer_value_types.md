@@ -504,3 +504,49 @@ None identified.
   must stay green, which proves a plain write never latches.
 - **handler_regression_sweep**: run every `tests/test_settings*.py` module and
   `tests/test_metadata_writer_inventory.py` individually; all pass.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-12 08:55)
+- **Requested by user:** `_refresh_after_save`'s message claimed "The tab still shows the config last loaded", but editable controls keep their pending values (board auto-refresh showed 5 while memory stayed 0).
+- **Changes made:** the sentence now reads "The loaded config could not be refreshed", keeping the saved-but-refresh-failed and further-save-refusal guidance.
+- **Files affected:** `.aitask-scripts/settings/settings_app.py`
+
+## Final Implementation Notes
+- **Actual work done:** All of steps 1-6, as approved. Shape validation lives in
+  `_read_json_layer(path, shape)` through `_check_layer_shape`, with JSON-named
+  types in the messages (`'defaults' must be a JSON object, got null`).
+  Per-family readers `_read_codeagent_layers` / `_read_board_layers` /
+  `_read_project_config` feed both `load_all` and the new
+  `reload_codeagent` / `reload_board` / `reload_project_config`. The refresh
+  latch (`_unrefreshed`, `refresh_after_write`, `refresh_all_after_write`,
+  `needs_reload`, `_require_refreshed`, `ConfigStaleError`) has four families:
+  codeagent, board, project and profiles. App helpers `_refresh_after_save` /
+  `_refresh_for_revert` / `_may_save` are used by all nine former `load_all()`
+  handlers, by the superseded switch's post-write re-read, and by both import
+  branches (`_reload_all_configs(after_write=True)`). Save payloads are
+  deep-copied. The `__main__` entry prints `Cannot start Settings — <file>: …`
+  and exits 1 instead of a traceback.
+- **Deviations from plan:** `save_codeagent_layer` is NOT latch-guarded. Its
+  only caller, `switch_codeagent_default`, builds `data` from a fresh file read,
+  so a guard could only refuse a safe write, and it would raise past that
+  method's `except OSError`. The guards are on `save_codeagent`, `save_board`,
+  `save_project_settings`, `save_profile` and `delete_profile`. The
+  now-unused `load_layered_config` import was dropped from `settings_app.py`.
+- **Issues encountered:** The plan went through four review rounds before
+  approval: save/revert crash paths, shallow-copy staging, lost writes after a
+  failed refresh, and the switch/import post-write re-reads. Each finding is
+  pinned by a regression. Red proof: on `git archive HEAD`, every new test
+  fails, and the mistyped-key tests fail with the original `AttributeError:
+  'NoneType' object has no attribute 'keys'`/`'get'`. Two mutants (revert back
+  on `load_all`; `dict(...)` staging in `_clear_user_override`) each fail their
+  target test with the intended signal.
+- **Key decisions:** The latch is set only by a failed re-read *after a write*,
+  never by a plain write. That keeps the headless back-to-back writer tests
+  valid; `test_plain_writes_never_latch` pins it. Only a successful re-read of
+  the family (or `load_all`) releases it. `refresh_after_write` latches on any
+  exception, because the write may have landed whatever the read failed with.
+  `column_order` and the values inside `defaults` are deliberately not
+  validated, since no Settings reader depends on them;
+  `test_unvalidated_keys_still_load` pins that.
+- **Upstream defects identified:** None
