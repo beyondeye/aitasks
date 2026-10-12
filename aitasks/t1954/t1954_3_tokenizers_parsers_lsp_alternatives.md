@@ -56,3 +56,7 @@ Every prototyped provider runs the **full matrix in all 8 languages through the 
 > | - TS/JS native evidence must come from parser-aware extraction (bare ts.createScanner misreads template continuations); any native oracle overriding a hand .expect must pass a self-test with a negative control.
 > | - Bench: cold = one timed first op per fresh process incl. provider init; only end-to-end registry.Scan is compared to the 300 ms budget; lexical-only rows are labelled.
 > | Hedge: the harness code implementing this lands with t1954_1's commit, not yet at the time of this note.
+
+> **✉ note:t1954_1** id=2026-10-12T18:38:46Z.e7c6cab92696f2b714cc7283 from=t1954_1 from_verified=yes at=2026-10-12T18:38:46Z base=e3ddd44c5b6ff4d33ab7b8250f632fa2d20d05ba base_branch=main dirty=yes host=omg16
+>
+> | Feasibility smoke (t1954_1 pre-phase; evidence will be in aidocs/testing_engine/t1954_parser_research/results/feasibility.md, landing with t1954_1's commit): Chroma v2.27.0, mvdan.cc/sh/v3 v3.14.1, antlr4-go v4.13.1 (runtime) all build CGO_ENABLED=0 for the 4 release targets. Advisory observation (not a measured matrix result): Chroma's swift lexer reported 21 comment tokens for a snippet with one real comment after a `#"""…"""#` raw string. ANTLR has no usable lexer without generating one from grammars-v4 with the Java ANTLR tool.
