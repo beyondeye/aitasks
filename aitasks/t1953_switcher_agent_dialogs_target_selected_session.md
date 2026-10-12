@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1946
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-12 12:29
-updated_at: 2026-10-12 12:41
+updated_at: 2026-10-12 15:26
 ---
 
 ## Context
@@ -92,3 +93,8 @@ live).
 - Keep the existing `AgentCommandScreen` golden/construction tests green; for
   example `tests/test_pick_command_screen.py`'s `build_pick_screen` golden must
   not gain the new key.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-12T12:26:56Z status=pass attempt=1 type=human
