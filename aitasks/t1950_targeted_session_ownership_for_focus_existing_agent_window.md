@@ -3,11 +3,12 @@ priority: low
 effort: low
 depends: []
 issue_type: performance
-status: Ready
+status: Implementing
 labels: [tmux, aitask_board]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1946
 created_at: 2026-10-11 19:33
-updated_at: 2026-10-11 19:33
+updated_at: 2026-10-12 08:59
 ---
 
 ## Context
