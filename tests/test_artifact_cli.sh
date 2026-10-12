@@ -335,6 +335,7 @@ STORE="$TMP/store"; mkdir -p "$STORE"
 printf 'attachments_gc_grace: 0\nartifacts:\n  backends:\n    dir:\n      path: %s\n' "$STORE" \
     > aitasks/metadata/project_config.yaml
 git add aitasks/metadata/project_config.yaml; git commit -q -m "register dir backend"
+"$ART" init-store dir >/dev/null 2>&1   # a dir store is initialized once (t1283)
 printf 'move v1\n' > "$TMP/mv1.txt"; printf 'move v2\n' > "$TMP/mv2.txt"
 HV1="$(artifact_sha256 "$TMP/mv1.txt")"; BV1="attachments/blobs/$(artifact_shard_path "$HV1")"
 HV2="$(artifact_sha256 "$TMP/mv2.txt")"; BV2="attachments/blobs/$(artifact_shard_path "$HV2")"

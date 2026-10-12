@@ -163,6 +163,7 @@ DIRSTORE="$TMP/dirstore"; mkdir -p "$DIRSTORE"
 printf 'artifacts:\n  backends:\n    dir:\n      path: %s\n' "$DIRSTORE" \
     > aitasks/metadata/project_config.yaml
 git add -A; git commit -q -m init
+"$ART" init-store dir >/dev/null 2>&1   # a dir store is initialized once (t1283)
 
 # Pure libs, for in-test hashing / shard paths.
 # shellcheck source=/dev/null

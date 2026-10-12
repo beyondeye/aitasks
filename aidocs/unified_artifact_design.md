@@ -289,7 +289,12 @@ zero-config. The first configured backend is **`dir`**
 share / USB). Note its extra assumption: the git-tracked `path` is one
 absolute path for the whole team, so every participating machine must mount
 the share there (true remote backends — t1089/t1090 — carry no such
-assumption). `ait artifact move <handle> --to <backend>` performs the safe
+assumption). The store is initialized once, with the share mounted, by
+`ait artifact init-store dir`, which writes a `.ait-artifact-store` marker
+into the root; every `dir` operation refuses a root that is missing or lacks
+the marker, so an unmounted share's empty mountpoint directory or a wrong path
+is never written to as if it were the store. The root is validated at
+operation entry only — a share unmounted mid-operation is not yet guarded. `ait artifact move <handle> --to <backend>` performs the safe
 backend move: copy every version blob to the registered target, verify, then
 repoint the manifest — non-destructive and resumable.
 

@@ -237,9 +237,16 @@ txn_rollback_report() {
         echo -e "${RED:-}Error: ${ctx} and the rollback did NOT fully restore:${NC:-}"
         printf '  - %s\n' "${_TXN_RESTORE_FAILED[@]}"
         echo "Nothing was committed, but the items above are left mid-transaction and need manual repair."
-        [[ "$_TXN_SNAP_RESTORE_INCOMPLETE" == true ]] && \
+        if [[ "$_TXN_SNAP_RESTORE_INCOMPLETE" == true ]]; then
             echo "Their pre-transaction contents are preserved in ${_TXN_SNAP_DIR} (<i>.blob = bytes, <i>.idx = index entry); remove that directory once repaired."
+        fi
     } >&2
+    # Explicit, LOAD-BEARING: _txn_exit_trap calls this from the EXIT trap, where
+    # the script's errexit is live. A non-zero status here (formerly the trailing
+    # `[[ incomplete ]] && echo` when only a HOOK recorded the failure) aborted
+    # the trap before snapshot cleanup and the chained registry_lock_release,
+    # leaking the global attach lock (t1283).
+    return 0
 }
 
 # txn_abort <message> -- the ONE abort helper for a verb's EXPLICIT failure arms

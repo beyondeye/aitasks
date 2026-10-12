@@ -18,6 +18,8 @@
 #   artifact_backend_head   <hash>          exit 0 iff present
 #   artifact_backend_delete <hash>          remove from backend
 #   artifact_backend_list                   enumerate stored hashes
+#   artifact_backend_init                   prepare the store (idempotent; run
+#                                           by `ait artifact init-store`)
 #
 # Source this file; do not execute directly. Sourced by aitask_attach.sh.
 # Design: aidocs/task_attachments_design.md §4 (storage layout), §5 (adapter);
@@ -44,6 +46,7 @@ _artifact_backend_call() {
         local) "artifact_local_${op}" "$@" ;;
         dir)   "artifact_dir_${op}" "$@" ;;
         # BACKEND-EXTENSION-POINT (dispatch): add `name) artifact_name_${op} "$@" ;;`
+        # — the module must define every contract op, init included.
         *) die "artifact_backend: unknown backend '$backend' (known: local, dir)" ;;
     esac
 }
@@ -53,3 +56,4 @@ artifact_backend_get()    { _artifact_backend_call get "$@"; }
 artifact_backend_head()   { _artifact_backend_call head "$@"; }
 artifact_backend_delete() { _artifact_backend_call delete "$@"; }
 artifact_backend_list()   { _artifact_backend_call list "$@"; }
+artifact_backend_init()   { _artifact_backend_call init "$@"; }

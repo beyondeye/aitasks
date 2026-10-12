@@ -17,9 +17,11 @@
 # version blob to the registered target, verify, then repoint the manifest —
 # non-destructive, resumable). Backends: `local` (zero-config, always
 # registered) and `dir` (a mounted directory root registered under
-# artifacts.backends.dir in aitasks/metadata/project_config.yaml). Backend
-# selection goes through lib/artifact_registry.sh (t1076_3); remote adapters
-# (s3/gdrive) arrive with t1089/t1090.
+# artifacts.backends.dir in aitasks/metadata/project_config.yaml). A `dir`
+# store must be initialized once (`init-store dir`, which writes the store
+# marker into the mounted root); every dir operation refuses a root without
+# the marker (t1283). Backend selection goes through lib/artifact_registry.sh
+# (t1076_3); remote adapters (s3/gdrive) arrive with t1089/t1090.
 #
 # LOCKING: every mutating verb runs its whole transaction (blob put, manifest
 # mutation, frontmatter patch, path-scoped commit) under the global
@@ -77,6 +79,10 @@ artifact manifest and never rewrite the task file.
   get    <handle> [--out <path>] [--version <sha256:hash>]
                                                Fetch the current (or a specific) version.
   versions <handle>                            List versions oldest-first (* = current).
+  init-store <backend>                         Mark a backend's store as initialized (once,
+                                               per store). A `dir` store must be initialized
+                                               with the share MOUNTED: every operation
+                                               refuses a root without the marker.
   help                                         Show this help.
 
 These verbs stage whole paths, so they REFUSE to start when a path they would
@@ -846,6 +852,27 @@ cmd_versions() {
     done < <(artifact_manifest versions "$handle")
 }
 
+# ── Verb: init-store ─────────────────────────────────────────────────────────
+
+# cmd_init_store <backend> -- prepare a registered backend's store. For `dir`
+# this writes the store marker into the configured root (which must already
+# exist — it is never created), so later operations can tell the mounted share
+# apart from an empty mountpoint or a wrong path. No attach lock: it touches no
+# git state, and the marker write is idempotent and atomic.
+cmd_init_store() {
+    local backend="${1:-}"
+    [[ -n "$backend" && $# -eq 1 ]] || die "Usage: ait artifact init-store <backend>"
+    artifact_registry_activate "$backend"
+    local out
+    out="$(artifact_backend_init)" || exit 1
+    case "$out" in
+        INITIALIZED:*)         success "Initialized the '${backend}' artifact store at ${out#INITIALIZED:}" ;;
+        ALREADY_INITIALIZED:*) info "The '${backend}' artifact store at ${out#ALREADY_INITIALIZED:} is already initialized — nothing to do" ;;
+        NOTHING_TO_INIT:*)     info "The '${backend}' backend needs no initialization — nothing to do" ;;
+        *)                     die "ait artifact init-store: unexpected backend output: $out" ;;
+    esac
+}
+
 main() {
     local verb="${1:-}"
     case "$verb" in
@@ -857,6 +884,7 @@ main() {
         ls|list)    shift; cmd_list "$@" ;;
         get)        shift; cmd_get "$@" ;;
         versions)   shift; cmd_versions "$@" ;;
+        init-store) shift; cmd_init_store "$@" ;;
         *)          die "Unknown verb: $verb (try 'ait artifact help')" ;;
     esac
 }

@@ -61,6 +61,12 @@ artifact_local_delete() {
     rm -f "$(artifact_local_blob_path "$1")"
 }
 
+# artifact_local_init -- the local store needs no preparation (its root is the
+# data worktree's attachments/blobs/, created on demand by put).
+artifact_local_init() {
+    printf 'NOTHING_TO_INIT:local\n'
+}
+
 # artifact_local_list -- print every stored hash (sha256:<hex>), one per line.
 artifact_local_list() {
     local root; root="$(_artifact_local_root)/blobs"

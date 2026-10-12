@@ -12,33 +12,108 @@
 # git-tracked path is one absolute path for the whole team: every
 # participating machine must mount the share there.
 #
-# The configured root must ALREADY EXIST — it is never created here. Silently
-# `mkdir -p`-ing a missing NAS mountpoint would write blobs into the empty
-# mountpoint dir (the unmounted-share data-loss trap); only shard subdirs are
-# created. Sourced by artifact_backend.sh; never executed directly. Requires
+# The configured root must ALREADY EXIST and carry the store MARKER
+# (.ait-artifact-store), written once by `ait artifact init-store dir` while
+# the share is mounted. Every op refuses a root without it (t1283). Neither
+# the root nor the marker is ever created implicitly: `mkdir -p`-ing a missing
+# mountpoint, or treating an existing EMPTY directory as the store, would
+# write blobs into the local filesystem underneath an unmounted share (or into
+# whatever unrelated directory the config happens to name), where every other
+# checkout then fails with "blob not found". The marker is what tells "the
+# share is mounted here" apart from "a directory exists here". Only shard
+# subdirs are created.
+#
+# VALIDATION BOUNDARY: the root is validated once, at op entry. `put` then
+# works on absolute paths, so a share unmounted BETWEEN that validation and
+# the shard mkdir / temp file / final mv is not protected against — that needs
+# the operations tied to the validated directory itself (follow-up of t1283).
+#
+# Sourced by artifact_backend.sh; never executed directly. Requires
 # artifact_utils.sh (artifact_shard_path, artifact_sha256) sourced first.
 
 [[ -n "${_AIT_ARTIFACT_BACKEND_DIRFS_LOADED:-}" ]] && return 0
 _AIT_ARTIFACT_BACKEND_DIRFS_LOADED=1
 
-# _artifact_dir_root -> echo the configured store root; die when unset or not
-# mounted (fail-closed — never invent the root).
-_artifact_dir_root() {
+# shellcheck source=lib/atomic_write.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/atomic_write.sh"
+
+_ARTIFACT_DIR_MARKER=".ait-artifact-store"
+_ARTIFACT_DIR_ROOT_ERROR=""
+
+# _artifact_dir_check_root -- exit 0 iff ARTIFACT_DIR_ROOT is a usable store:
+# set, an existing directory, and carrying the marker. Otherwise set
+# _ARTIFACT_DIR_ROOT_ERROR and return 1. Never call it inside $( ): the error
+# global would be lost with the subshell.
+_artifact_dir_check_root() {
+    if [[ -z "${ARTIFACT_DIR_ROOT:-}" ]]; then
+        _ARTIFACT_DIR_ROOT_ERROR="artifact_dir: ARTIFACT_DIR_ROOT not set — activate via artifact_registry_activate dir"
+    elif [[ ! -d "$ARTIFACT_DIR_ROOT" ]]; then
+        _ARTIFACT_DIR_ROOT_ERROR="artifact_dir: backend root not found: $ARTIFACT_DIR_ROOT (is the share mounted?)"
+    elif [[ ! -f "$ARTIFACT_DIR_ROOT/$_ARTIFACT_DIR_MARKER" ]]; then
+        _ARTIFACT_DIR_ROOT_ERROR="artifact_dir: $ARTIFACT_DIR_ROOT is not an initialized artifact store (no $_ARTIFACT_DIR_MARKER marker) — is the share mounted there? If this directory IS the share, run: ait artifact init-store dir"
+    else
+        return 0
+    fi
+    return 1
+}
+
+# _artifact_dir_require_root -- die unless the store root is usable. Call it in
+# the op's OWN shell, never inside $( ): a die in a command substitution only
+# exits the subshell, and under with_attach_lock's errexit-suppressed call
+# tree the caller then carries on with an empty root — which is how a blob
+# path once degenerated to /<2hex>/<62hex> at the filesystem root (t1283).
+_artifact_dir_require_root() {
+    _artifact_dir_check_root || die "$_ARTIFACT_DIR_ROOT_ERROR"
+}
+
+# _artifact_dir_blob_path <hash> -> the blob's path inside the store. Fails
+# (prints nothing) on an empty root rather than ever deriving /<2>/<62>.
+_artifact_dir_blob_path() {
+    [[ -n "${ARTIFACT_DIR_ROOT:-}" ]] || return 1
+    printf '%s/%s' "$ARTIFACT_DIR_ROOT" "$(artifact_shard_path "$1")"
+}
+
+# artifact_dir_init -- mark the configured root as the store (idempotent).
+# Run by a human with the share mounted (`ait artifact init-store dir`). The
+# root must already exist — it is never created, which is why the temp comes
+# from a bare mktemp rather than ait_atomic_tmp (that one mkdir -p's the
+# parent). The marker is installed atomically via ait_atomic_commit, whose
+# directory check matters here: `mv -f tmp <dir>` SUCCEEDS by moving the temp
+# inside the directory, so a directory squatting on the marker name would
+# otherwise yield INITIALIZED for a store every op still refuses. Prints
+# INITIALIZED:<root> or ALREADY_INITIALIZED:<root>.
+artifact_dir_init() {
     [[ -n "${ARTIFACT_DIR_ROOT:-}" ]] \
         || die "artifact_dir: ARTIFACT_DIR_ROOT not set — activate via artifact_registry_activate dir"
     [[ -d "$ARTIFACT_DIR_ROOT" ]] \
-        || die "artifact_dir: backend root not found: $ARTIFACT_DIR_ROOT (is the share mounted?)"
-    printf '%s' "$ARTIFACT_DIR_ROOT"
+        || die "artifact_dir: backend root not found: $ARTIFACT_DIR_ROOT (is the share mounted?) — the root is never created; mount the share (or create the directory on it) first"
+    local marker="$ARTIFACT_DIR_ROOT/$_ARTIFACT_DIR_MARKER"
+    if [[ -f "$marker" ]]; then
+        printf 'ALREADY_INITIALIZED:%s\n' "$ARTIFACT_DIR_ROOT"
+        return 0
+    fi
+    # Refuse before staging anything, and leave whatever is there untouched.
+    [[ -e "$marker" || -L "$marker" ]] \
+        && die "artifact_dir_init: $marker exists but is not a regular file — it was left untouched; remove it by hand if it is not needed, then re-run"
+    local tmp
+    tmp="$(mktemp "$ARTIFACT_DIR_ROOT/.marker.XXXXXX")" \
+        || die "artifact_dir_init: cannot write into $ARTIFACT_DIR_ROOT"
+    if ! printf 'aitasks artifact store v1\n' > "$tmp"; then
+        ait_atomic_discard "$tmp"
+        die "artifact_dir_init: could not write the store marker in $ARTIFACT_DIR_ROOT"
+    fi
+    ait_atomic_commit "$tmp" "$marker" \
+        || die "artifact_dir_init: could not install the store marker at $marker"
+    printf 'INITIALIZED:%s\n' "$ARTIFACT_DIR_ROOT"
 }
 
-# _artifact_dir_blob_path <hash> -> the blob's path inside the store.
-_artifact_dir_blob_path() {
-    printf '%s/%s' "$(_artifact_dir_root)" "$(artifact_shard_path "$1")"
-}
-
-# artifact_dir_head <hash> -- exit 0 iff the blob is present.
+# artifact_dir_head <hash> -- exit 0 iff the blob is present. Dies (rather
+# than answering "absent") when the store itself is unusable.
 artifact_dir_head() {
-    [[ -f "$(_artifact_dir_blob_path "$1")" ]]
+    _artifact_dir_require_root
+    local path
+    path="$(_artifact_dir_blob_path "$1")" || die "artifact_dir_head: could not derive the blob path for $1"
+    [[ -f "$path" ]]
 }
 
 # artifact_dir_put <hash> <file> -- idempotent atomic copy into the shard,
@@ -51,8 +126,9 @@ artifact_dir_head() {
 # git-tracked (repair = data-branch surgery); the dir store has no history.
 artifact_dir_put() {
     local hash="$1" src="$2" dest tmp
+    _artifact_dir_require_root
     [[ -f "$src" ]] || die "artifact_dir_put: not a file: $src"
-    dest="$(_artifact_dir_blob_path "$hash")"
+    dest="$(_artifact_dir_blob_path "$hash")" || die "artifact_dir_put: could not derive the blob path for $hash"
     if [[ -f "$dest" ]]; then
         [[ "$(artifact_sha256 "$dest")" == "$hash" ]] && return 0  # idempotent
         warn "artifact_dir_put: corrupt store entry for $hash at $dest — repairing with verified bytes"
@@ -80,19 +156,34 @@ artifact_dir_put() {
 # artifact_dir_get <hash> <dest> -- copy the blob to <dest> ("-" = stdout).
 artifact_dir_get() {
     local hash="$1" dest="$2" src
-    src="$(_artifact_dir_blob_path "$hash")"
+    _artifact_dir_require_root
+    src="$(_artifact_dir_blob_path "$hash")" || die "artifact_dir_get: could not derive the blob path for $hash"
     [[ -f "$src" ]] || die "artifact_dir_get: blob not present: $hash"
     if [[ "$dest" == "-" ]]; then cat "$src"; else cp "$src" "$dest"; fi
 }
 
-# artifact_dir_delete <hash> -- remove the blob (no-op if absent).
+# artifact_dir_delete <hash> -- remove the blob (no-op if absent). RETURNS
+# non-zero (with the cause on stderr) when the store is unusable — it NEVER
+# dies. Delete is the op the rollback hooks (_artifact_rollback_create_blobs,
+# _artifact_rollback_move_blobs, _attach_rollback_add_blobs) call from the
+# chained EXIT trap; an exit there would cut the trap short, skipping the
+# rollback report, the snapshot cleanup and the chained registry_lock_release
+# — leaking the global attach lock. Every caller handles a returned failure
+# (`|| txn_rollback_failed` in the hooks, `|| die` elsewhere).
 artifact_dir_delete() {
-    rm -f "$(_artifact_dir_blob_path "$1")"
+    local path
+    if ! _artifact_dir_check_root; then
+        warn "artifact_dir_delete: $_ARTIFACT_DIR_ROOT_ERROR"
+        return 1
+    fi
+    path="$(_artifact_dir_blob_path "$1")" || return 1
+    rm -f "$path" || return 1
 }
 
 # artifact_dir_list -- print every stored hash (sha256:<hex>), one per line.
 artifact_dir_list() {
-    local root; root="$(_artifact_dir_root)"
+    _artifact_dir_require_root
+    local root="$ARTIFACT_DIR_ROOT"
     local shard prefix f
     for shard in "$root"/*/; do
         [[ -d "$shard" ]] || continue

@@ -4,9 +4,12 @@
 # Covers: dir adapter round-trip (incl. corrupt-pre-existing-dest self-heal),
 # registry activation (param export, cross-activation leakage guard, fail-closed
 # validation incl. top-level non-mapping config), the resolver through dir
-# (regular-file cache entry, self-heal, unmounted-root die), and artifact_store
-# (cache warmed without a backend get round-trip; store repair). Uses a
-# legacy-mode git repo fixture (no .aitask-data worktree).
+# (regular-file cache entry, self-heal, unmounted-root die), artifact_store
+# (cache warmed without a backend get round-trip; store repair), and the
+# store-root guard (t1283: dies in the CURRENT shell, never derives a path from
+# an empty root, refuses an unmarked directory, delete returns instead of
+# dying, init-store). Uses a legacy-mode git repo fixture (no .aitask-data
+# worktree).
 set -uo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -48,6 +51,12 @@ source "$PROJECT_DIR/.aitask-scripts/lib/artifact_backend.sh"
 source "$PROJECT_DIR/.aitask-scripts/lib/artifact_cache.sh"
 # shellcheck source=/dev/null
 source "$PROJECT_DIR/.aitask-scripts/lib/artifact_registry.sh"
+
+# The store is initialized once (t1283) — positive control of init.
+artifact_registry_activate dir
+assert_eq "init marks a fresh store" "INITIALIZED:$STORE" "$(artifact_backend_init)"
+assert_file_exists "init wrote the store marker" "$STORE/.ait-artifact-store"
+assert_eq "init is idempotent" "ALREADY_INITIALIZED:$STORE" "$(artifact_backend_init)"
 
 # ── A. dir adapter round-trip ─────────────────────────────────────────────────
 artifact_registry_activate dir
@@ -203,6 +212,92 @@ assert_eq "artifact_store repaired the corrupt store entry" "$HD" "$(artifact_sh
 rm -rf "$XDG_CACHE_HOME"
 cpath="$(artifact_resolve "$HD")"
 assert_eq "cache-cleared re-resolve returns correct bytes" "$HD" "$(artifact_sha256 "$cpath")"
+
+# ── E. store-root guard (t1283) ───────────────────────────────────────────────
+# Each probe runs as `( op || true; echo CONTINUED )` — the op's status is
+# tested, so errexit is off exactly as inside with_attach_lock. A guard that
+# only dies inside a command substitution lets CONTINUED through.
+printf 'root guard bytes\n' > e1.bin
+HE="$(artifact_sha256 e1.bin)"; SHARD_E="$(artifact_shard_path "$HE")"
+export ARTIFACT_BACKEND=dir
+
+# D1 — a missing root (wrong path / unmounted share with no mountpoint dir).
+export ARTIFACT_DIR_ROOT="$TMP/no/such/store"
+out="$( ( artifact_backend_head "$HE" || true; echo CONTINUED ) 2>&1 )"; rc=$?
+assert_exit_nonzero_rc "head on a missing root dies" "$rc"
+assert_contains "missing-root head error asks about the mount" "is the share mounted" "$out"
+assert_not_contains "head on a missing root does not answer 'absent' and carry on" "CONTINUED" "$out"
+out="$( ( artifact_backend_put "$HE" e1.bin || true; echo CONTINUED ) 2>&1 )"; rc=$?
+assert_exit_nonzero_rc "put on a missing root dies" "$rc"
+assert_contains "missing-root put error asks about the mount" "is the share mounted" "$out"
+assert_not_contains "put on a missing root does not carry on" "CONTINUED" "$out"
+assert_not_contains "put derives no path from the missing root (no mkdir)" "mkdir" "$out"
+assert_not_contains "put derives no path from the missing root (no mktemp)" "mktemp" "$out"
+assert_dir_not_exists "the missing root is not created" "$ARTIFACT_DIR_ROOT"
+out="$( ( artifact_backend_list || true; echo CONTINUED ) 2>&1 )"; rc=$?
+assert_exit_nonzero_rc "list on a missing root dies" "$rc"
+out="$(ARTIFACT_DIR_ROOT="" _artifact_dir_blob_path "$HE")"; rc=$?
+assert_exit_nonzero_rc "blob path with an empty root fails" "$rc"
+assert_eq "blob path with an empty root prints nothing (never /<2>/<62>)" "" "$out"
+
+# D2 — an existing directory that is not the store (wrong path, or the empty
+# persistent mountpoint of an unmounted share — t1284).
+mkdir -p "$TMP/unmarked"
+export ARTIFACT_DIR_ROOT="$TMP/unmarked"
+out="$( ( artifact_backend_put "$HE" e1.bin || true; echo CONTINUED ) 2>&1 )"; rc=$?
+assert_exit_nonzero_rc "put into an unmarked directory dies" "$rc"
+assert_contains "unmarked-root error says it is not a store" "not an initialized artifact store" "$out"
+assert_contains "unmarked-root error names the remedy" "ait artifact init-store dir" "$out"
+assert_not_contains "put into an unmarked directory does not carry on" "CONTINUED" "$out"
+assert_eq "nothing was written into the unmarked directory" "" "$(find "$TMP/unmarked" -mindepth 1 -print)"
+out="$( ( artifact_backend_get "$HE" e1.out || true; echo CONTINUED ) 2>&1 )"; rc=$?
+assert_exit_nonzero_rc "get from an unmarked directory dies" "$rc"
+assert_contains "unmarked-root get error says it is not a store" "not an initialized artifact store" "$out"
+
+# Delete RETURNS on an unusable root (it runs inside rollback hooks, from the
+# EXIT trap, where an exit would skip the lock release) — and reports why.
+out="$( ( artifact_backend_delete "$HE"; echo "DELETE_RC=$?" ) 2>&1 )"
+assert_contains "delete on an unmarked root returns 1 and execution continues" "DELETE_RC=1" "$out"
+assert_contains "delete reports the cause" "not an initialized artifact store" "$out"
+export ARTIFACT_DIR_ROOT="$TMP/no/such/store"
+out="$( ( artifact_backend_delete "$HE"; echo "DELETE_RC=$?" ) 2>&1 )"
+assert_contains "delete on a missing root returns 1 (not a silent rm -f success)" "DELETE_RC=1" "$out"
+
+# init: never creates the root; marks an existing one; local needs nothing.
+out="$( (artifact_backend_init) 2>&1 )"; rc=$?
+assert_exit_nonzero_rc "init on a missing root dies" "$rc"
+assert_contains "init missing-root error asks about the mount" "is the share mounted" "$out"
+assert_dir_not_exists "init does not create the missing root" "$ARTIFACT_DIR_ROOT"
+export ARTIFACT_DIR_ROOT="$TMP/unmarked"
+assert_eq "init marks the existing directory" "INITIALIZED:$TMP/unmarked" "$(artifact_backend_init)"
+assert_exit_zero "put succeeds once the directory is initialized" artifact_backend_put "$HE" e1.bin
+assert_file_exists "blob lands in the initialized store" "$TMP/unmarked/$SHARD_E"
+assert_eq "init on local is a no-op" "NOTHING_TO_INIT:local" "$(ARTIFACT_BACKEND=local artifact_backend_init)"
+
+# A non-file squatting on the marker name: init must fail without claiming
+# success, leave it untouched, and leave no staged temp behind (`mv -f tmp dir`
+# would otherwise move the temp INSIDE it and report INITIALIZED).
+mkdir -p "$TMP/squat/.ait-artifact-store/keep"
+export ARTIFACT_DIR_ROOT="$TMP/squat"
+for attempt in 1 2; do
+    out="$( (artifact_backend_init) 2>&1 )"; rc=$?
+    assert_exit_nonzero_rc "init over a marker-named directory fails (attempt $attempt)" "$rc"
+    assert_not_contains "init over a marker-named directory claims no success (attempt $attempt)" "INITIALIZED" "$out"
+done
+assert_contains "the squat error says it is not a regular file" "not a regular file" "$out"
+assert_dir_exists "the marker-named directory is preserved" "$TMP/squat/.ait-artifact-store/keep"
+assert_eq "no staged marker temp anywhere under the root" "" "$(find "$TMP/squat" -name '.marker.*' -print)"
+assert_eq "nothing was moved into the marker-named directory" "keep" "$(ls -A "$TMP/squat/.ait-artifact-store")"
+out="$( (artifact_backend_put "$HE" e1.bin) 2>&1 )"; rc=$?
+assert_exit_nonzero_rc "the squatted root is still refused as a store" "$rc"
+# ait_atomic_commit's own guard, for the race where the directory appears
+# between the pre-check and the rename: the temp is discarded, not nested.
+mkdir -p "$TMP/race/.ait-artifact-store"
+printf 'x\n' > "$TMP/race/.marker.probe"
+out="$( (ait_atomic_commit "$TMP/race/.marker.probe" "$TMP/race/.ait-artifact-store") 2>&1 )"; rc=$?
+assert_exit_nonzero_rc "atomic commit onto a directory fails" "$rc"
+assert_file_not_exists "atomic commit onto a directory discards the temp" "$TMP/race/.marker.probe"
+assert_eq "atomic commit onto a directory nests nothing inside it" "" "$(ls -A "$TMP/race/.ait-artifact-store")"
 
 echo "=========================="
 echo "Results: $PASS/$TOTAL passed, $FAIL failed"

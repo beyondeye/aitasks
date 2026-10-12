@@ -34,6 +34,8 @@ write_config() {  # write_config <store-path>
 }
 write_config "$STORE"
 git add -A; git commit -q -m init
+# A dir store is initialized once, with the share mounted (t1283).
+"$ART" init-store dir >/dev/null 2>&1
 
 # Pure libs for in-test hashing / shard paths / manifest access.
 # shellcheck source=/dev/null
@@ -253,6 +255,112 @@ assert_exit_nonzero_rc "get with an unregistered manifest backend dies" "$rc"
 assert_contains "unregistered-get error is actionable" "not registered" "$out"
 mf set-backend art:t5-htmlplan dir >/dev/null
 git checkout -q -- artifacts/ 2>/dev/null || true
+
+# ── J. store-root guard through the real CLI (t1283) ─────────────────────────
+# Runs under with_attach_lock, whose errexit suppression is what used to
+# swallow the root guard's die. Every refusal must leave no commit, no
+# manifest, an untouched task file — and must not write a blob anywhere.
+out="$("$ART" init-store dir 2>&1)"; rc=$?
+assert_exit_zero_rc "init-store on an initialized store succeeds" "$rc"
+assert_contains "init-store on an initialized store is a no-op" "already initialized" "$out"
+printf 'guard bytes\n' > guard.txt
+HG="$(artifact_sha256 guard.txt)"; SHG="$(artifact_shard_path "$HG")"
+cp aitasks/t5_demo.md "$TMP/t5.guard.before"
+
+# J1 — configured path does not exist (t1142 #3a).
+write_config "$TMP/no/such/store"
+before="$(git rev-list --count HEAD)"
+out="$("$ART" create 5 guard.txt --kind report --handle art:t5-guard1 --backend dir 2>&1)"; rc=$?
+assert_exit_nonzero_rc "create with a missing store root dies" "$rc"
+assert_contains "missing-root create error asks about the mount" "is the share mounted" "$out"
+assert_not_contains "missing-root create derives no root-level path" "mktemp failed" "$out"
+assert_eq "missing-root create commits nothing" "$before" "$(git rev-list --count HEAD)"
+assert_eq "missing-root create leaves no manifest" "" "$(manifest_of art:t5-guard1)"
+assert_exit_zero "missing-root create leaves the task file untouched" cmp -s aitasks/t5_demo.md "$TMP/t5.guard.before"
+out="$("$ART" init-store dir 2>&1)"; rc=$?
+assert_exit_nonzero_rc "init-store on a missing root dies" "$rc"
+assert_dir_not_exists "init-store does not create the missing root" "$TMP/no/such/store"
+mkdir -p "$TMP/squat/.ait-artifact-store"
+write_config "$TMP/squat"
+out="$("$ART" init-store dir 2>&1)"; rc=$?
+assert_exit_nonzero_rc "init-store over a marker-named directory fails" "$rc"
+assert_not_contains "init-store over a marker-named directory reports no success" "Initialized" "$out"
+assert_eq "init-store leaves no temp residue in the squatted root" "" "$(find "$TMP/squat" -mindepth 1 ! -path "$TMP/squat/.ait-artifact-store" -print)"
+
+# J2 — configured path exists but is not the store: an unrelated empty dir, or
+# the persistent mountpoint dir of an unmounted share (t1142 #3b, t1284).
+mkdir -p "$TMP/mountpoint"
+write_config "$TMP/mountpoint"
+out="$("$ART" create 5 guard.txt --kind report --handle art:t5-guard2 --backend dir 2>&1)"; rc=$?
+assert_exit_nonzero_rc "create into an unmarked directory dies" "$rc"
+assert_contains "unmarked-root create error says it is not a store" "not an initialized artifact store" "$out"
+assert_eq "nothing was written into the unmarked directory" "" "$(find "$TMP/mountpoint" -mindepth 1 -print)"
+assert_eq "unmarked-root create commits nothing" "$before" "$(git rev-list --count HEAD)"
+assert_eq "unmarked-root create leaves no manifest" "" "$(manifest_of art:t5-guard2)"
+assert_exit_zero "unmarked-root create leaves the task file untouched" cmp -s aitasks/t5_demo.md "$TMP/t5.guard.before"
+write_config "$STORE"
+
+# J3 — the read path refuses too: a cold-cache get with the marker gone.
+rm -rf "$XDG_CACHE_HOME"
+mv "$STORE/.ait-artifact-store" "$TMP/marker.away"
+out="$("$ART" get art:t5-htmlplan --out guard.got 2>&1)"; rc=$?
+assert_exit_nonzero_rc "cold-cache get from an unmarked store dies" "$rc"
+assert_contains "unmarked-store get error says it is not a store" "not an initialized artifact store" "$out"
+mv "$TMP/marker.away" "$STORE/.ait-artifact-store"
+
+# J4/J5 — the store vanishes MID-transaction, after the blob was put, so the
+# rollback hook must delete from an unusable store. That deletion must be
+# RECORDED as failed (never claimed done), the rest of the rollback must
+# complete, and the global attach lock must be released. Two routes reach the
+# hook: J4 an explicit txn_abort (commit failure), J5 the EXIT trap (a die
+# mid-transaction) — the route where a dying hook would skip the chained
+# registry_lock_release. ATTACH_LOCK_TIMEOUT keeps a leaked lock from
+# stalling the follow-up create for the default 30 s.
+export ATTACH_LOCK_TIMEOUT=2
+LOCKDIR="attachments/.attach.lock"
+assert_rollback_recorded() {  # <label> <handle> <out>
+    assert_contains "$1: rollback reports it did not fully restore" "did NOT fully restore" "$3"
+    assert_contains "$1: the undeletable blob is recorded, not claimed deleted" "could not be deleted" "$3"
+    assert_eq "$1: no manifest left behind" "" "$(manifest_of "$2")"
+    assert_eq "$1: rollback left no dirty data paths" "" \
+        "$(git status --porcelain -- aitasks/ artifacts/ attachments/)"
+    assert_dir_not_exists "$1: the attach lock was released" "$LOCKDIR"
+}
+
+# J4 — commit failure (txn_abort route): the pre-commit hook pulls the share.
+printf 'mv "%s" "%s"\nexit 1\n' "$STORE" "$TMP/store.vanished" > .git/hooks/pre-commit
+chmod +x .git/hooks/pre-commit
+out="$("$ART" create 5 guard.txt --kind report --handle art:t5-guard4 --backend dir 2>&1)"; rc=$?
+rm -f .git/hooks/pre-commit
+assert_exit_nonzero_rc "J4: create whose share vanishes before the commit dies" "$rc"
+assert_rollback_recorded "J4" art:t5-guard4 "$out"
+mv "$TMP/store.vanished" "$STORE"
+assert_file_exists "J4: the blob put before the share vanished is still in the store" "$STORE/$SHG"
+rm -f "$STORE/$SHG"
+
+# J5 — a die mid-transaction (EXIT-trap route): a python shim pulls the share
+# and fails the frontmatter append, which runs after the blob put.
+VSHIM="$TMP/py_vanish.sh"
+{
+    printf '#!/usr/bin/env bash\n'
+    printf 'case " $* " in\n'
+    printf '    *"frontmatter_patch.py append"*) mv "%s" "%s"; echo "INJECTED: share vanished" >&2; exit 3 ;;\n' \
+        "$STORE" "$TMP/store.vanished"
+    printf 'esac\n'
+    printf 'exec "%s" "$@"\n' "$PY"
+} > "$VSHIM"
+chmod +x "$VSHIM"
+out="$(AIT_PYTHON="$VSHIM" "$ART" create 5 guard.txt --kind report --handle art:t5-guard5 --backend dir 2>&1)"; rc=$?
+assert_exit_nonzero_rc "J5: create whose share vanishes mid-transaction dies" "$rc"
+assert_contains "J5: the injected fault fired" "INJECTED: share vanished" "$out"
+assert_rollback_recorded "J5" art:t5-guard5 "$out"
+[[ -d "$TMP/store.vanished" ]] && mv "$TMP/store.vanished" "$STORE"
+# Lock-release proof by use: an immediate create gets the lock (a leaked one
+# would fail with "another attach operation is in progress").
+out="$("$ART" create 5 guard.txt --kind report --handle art:t5-guard6 --backend dir 2>&1)"; rc=$?
+assert_exit_zero_rc "after the faulted runs, a create acquires the lock and succeeds" "$rc"
+assert_not_contains "no stale attach lock after the faulted runs" "another attach operation" "$out"
+unset ATTACH_LOCK_TIMEOUT
 
 echo "=========================="
 echo "Results: $PASS/$TOTAL passed, $FAIL failed"

@@ -261,6 +261,31 @@ txn_rollback; C4_RC=$?
 assert_exit_zero_rc "C4: a clean rollback reports success" "$C4_RC"
 assert_eq "C4: with nothing recorded" "0" "${#_TXN_RESTORE_FAILED[@]}"
 
+# C5. The EXIT-trap route of a hook-only failure must run the WHOLE chain.
+# _txn_exit_trap reports from inside the EXIT trap, under the script's errexit;
+# a report returning non-zero there aborted the trap before snapshot cleanup
+# and the chained lock release (t1283). Drive a real exit in a child shell with
+# set -e and a stand-in "release" handler chained AFTER the txn trap, exactly
+# as registry_lock_acquire + txn_begin compose.
+C5_BEFORE="$(cat clean.txt)"
+C5_OUT="$(bash -c '
+    set -euo pipefail
+    source "$1/.aitask-scripts/lib/terminal_compat.sh"
+    source "$1/.aitask-scripts/lib/task_utils.sh"
+    source "$1/.aitask-scripts/lib/txn_snapshot.sh"
+    trap "echo RELEASED >&2" EXIT
+    c5_hook() { txn_rollback_failed "blob sha256:c5 on backend dir — could not be deleted"; }
+    txn_begin "c5 txn"
+    txn_on_rollback c5_hook
+    txn_snap_add clean.txt
+    printf "C5 MUTATED\n" > clean.txt
+    exit 1
+' _ "$PROJECT_DIR" 2>&1)"; C5_RC=$?
+assert_exit_nonzero_rc "C5: the aborted transaction keeps its failing status" "$C5_RC"
+assert_contains "C5: the incomplete rollback is reported" "did NOT fully restore" "$C5_OUT"
+assert_contains "C5: the chained release handler still runs after the report" "RELEASED" "$C5_OUT"
+assert_eq "C5: the snapshot half restored the bytes" "$C5_BEFORE" "$(cat clean.txt)"
+
 echo "=== D — branch mode (the data-worktree path resolution) ====================="
 
 # In branch mode only aitasks/ and aiplans/ are symlinked into the checkout

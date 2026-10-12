@@ -330,8 +330,13 @@ gate_command_exit_contract:
 # network share, or USB drive. `path` must be ABSOLUTE and is the SAME for
 # the whole team: every participating machine must mount the share at that
 # path (use a symlink if your mountpoint differs). The root must already
-# exist when used ("is the share mounted?" guard) — only shard subdirs are
-# created. Design: aidocs/unified_artifact_design.md §6.
+# exist ("is the share mounted?" guard) — only shard subdirs are created —
+# and must be initialized ONCE, with the share mounted:
+#   ait artifact init-store dir
+# which writes a store marker into the root. Every operation refuses a root
+# without the marker, so an unmounted share's empty mountpoint directory or a
+# wrong path is never mistaken for the store. Design:
+# aidocs/unified_artifact_design.md §6.
 #
 # Example:
 #   artifacts:
