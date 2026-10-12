@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [trails, aitask_board, minimonitor, shortcuts]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1946
 followup_kind: upstream_defect
 created_at: 2026-10-11 22:32
-updated_at: 2026-10-11 22:32
+updated_at: 2026-10-12 08:59
 ---
 
 ## Origin
