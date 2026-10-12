@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1957
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-12 21:31
-updated_at: 2026-10-12 21:35
+updated_at: 2026-10-12 22:08
 ---
 
 ## Context
@@ -109,3 +110,8 @@ trail document/digest/skill.
 - Manual (covered by the manual-verification sibling): `ait trails` on a trail
   with a member carrying `xdeprepo: aitasks_mobile` shows `↗`/`🌐` lines after a
   moment, without UI freeze.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-12T19:08:25Z status=pass attempt=1 type=human
