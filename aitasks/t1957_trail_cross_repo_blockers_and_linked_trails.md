@@ -3,11 +3,12 @@ priority: medium
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [trails, board, cross_repo]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-10-12 17:19
-updated_at: 2026-10-12 17:19
+updated_at: 2026-10-12 17:24
 ---
 
 ## Goal
