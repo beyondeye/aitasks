@@ -482,3 +482,54 @@ current branch, no merge).
 ### Planned mitigations
 - timing: post-phase | name: command_level_injection_proof | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — injection interfaces unproven at command level before M2.2/M3.1 exist | desc: drive scan/check through run() with fake providers swapped into testmapInputs; assert data reaches _scanned.yaml and a missing provider yields INPUT_UNAVAILABLE exit 3
 - timing: post-phase | name: interface_notes_downstream | type: chore | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — lineage-derived schemas / strictness table diverging from downstream assumptions | desc: hedged ./ait notes to t1853_2, t1853_4, t1853_5, t1853_6, t1854, t1859 naming the landed interfaces with the commit sha
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-12 08:40)
+- **Requested by user:** three blocking review findings — (1) `checkUnmappedArtifact` counted artifact claims from units of `exclude:`d tests, so an excluded claimant hid a real `UNMAPPED_ARTIFACT`; (2) `excludeFS.Stat`/`ReadDir` followed a directory symlink in a glob's literal prefix (`WithNoFollow` only governs links the walk meets as entries), making the universe depend on the pattern's spelling and reach outside the repository; (3) a rule's `select:` member half (`tests/a.py#[`) was never validated.
+- **Changes made:** each reproduced red first with a regression test, then fixed. (1) units whose test path is `exclude:`d claim nothing. (2) the view's `Stat` walks every component above the name with `fs.Lstat`: a hidden, symlinked or non-directory component makes the name absent, the name itself is described by `Lstat` (a link is a link), any other error is returned; `ReadDir` refuses a non-directory. Broad and narrow patterns through a symlinked directory now both match nothing. (3) `checkSelect` validates `<path glob>[#<member glob>]` — both halves well-formed globs, no `#`/`@`/`|`/whitespace, no `/` in the member — refusing with `REGISTRY_INVALID`. Benchmarks re-recorded (check ≈ 24 ms, scan ≈ 22 ms, budget 300 ms).
+- **Files affected:** `goengines/internal/testmap/registry/{rules_core.go,walk.go,load.go,check_test.go,walk_test.go,load_test.go}`, `goengines/bench/baseline.txt`.
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - New package `goengines/internal/testmap/registry`:
+    - `id.go`: id grammar `ParseID` / `String` / `Base` / `Valid` / `CheckPath`
+    - `config.go`: `Config` with every key and its default; `LoadConfig` / `ParseConfig`, validation, `Excluded`, `PastBootstrap`, `HostClass`
+    - `errors.go`: `InvalidError` → `REGISTRY_INVALID`; `CheckError` → `CHECK_ERROR`
+    - `load.go`: `Load`; hand files `{contract, owns, edges, rules, waivers}`; the union merge rule; reserved files and tables; `RegisterFile` / `RegisterHandTable`; `OwnerOf`; `Waived`
+    - `write.go`: deterministic `Render`; atomic `WriteFile`, which writes only on change
+    - `inputs.go`: `AnnotationSource`, `UnitLister`, `Inputs`; `INPUT_UNAVAILABLE` / `INPUT_ERROR`; validation of what providers return
+    - `scan.go`: `BuildScanned` (rows, variants, member drift) and `Scan`
+    - `walk.go`: `MatchFiles`, strict doublestar `GlobWalk` over an exclude-aware, no-follow `fs.FS` view
+    - `check.go`: rule framework, `RegisterRule`, `Check`, severities
+    - `rules_core.go`: the ten owned rules
+  - Verb glue `cmd/ait-testmap/scancheck.go`, with the `testmapInputs` wiring point. The `scan` and `check` rows in `verbs.go` are now real.
+  - Benchmarks `BenchmarkScan` / `BenchmarkCheck` (≈22 / 24 ms; `budget=300ms`).
+  - Proposal: the registry file format, the merge rule, ownership and the `scan` / `check` contract with its severity table; the line-protocol index row.
+  - README: *Layout* row, plus *Interfaces* rows for `scan` and `check`.
+- **Deviations from plan:**
+  - `Scan` / `Check` load the registry before checking inputs. So a broken registry reports `REGISTRY_INVALID` / `CONTRACT_MISMATCH` ahead of `INPUT_UNAVAILABLE`; both are exit 3.
+  - `ScanResult` / `CheckResult` findings carry a `fail` flag, so `--json` consumers need no severity table.
+  - The candidate universe changed twice during plan review, ending at D11: strict `GlobWalk`, no-follow, exclude-aware view, no git inventory.
+- **Issues encountered:**
+  - yaml.v3 quotes YAML 1.1 booleans such as `"y"` and digit-only blobs (`"0123456789"`). Goldens pin that. Unquoted dates decode into string fields fine.
+  - `benchgate -update` always re-records every line (no partial update). The baseline file therefore shows re-measured existing lines, recorded with `taskset -c 0`.
+  - Review round 1 found three real defects (see *Post-Review Changes*); each was red-proved and fixed.
+- **Key decisions:**
+  - `owns:` globs apply to **source** paths and are judged over concrete existing files, never one pattern against another.
+  - An absent `bootstrap_until` means no bootstrap window.
+  - An expired waiver is informational and stops waiving.
+  - `UNANNOTATED_MEMBER` applies only to files with ≥ 1 `testmap:unit` block.
+  - `SCAN_DRIFT` is structural: it fails under `--strict` past bootstrap.
+  - A rule `select:` cannot name a variant.
+  - `.git` entries are never part of the work tree; nested checkouts are in scope unless `exclude:` names them.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:**
+  - **M2.2 (t1853_2):** implement `registry.AnnotationSource`. Stamps arrive parsed (`StampedAt`, `StampedBlob`); the file-level unit has `Member == ""` and comes first. Wire it by setting `Annotations` in `testmapInputs()` in `cmd/ait-testmap/scancheck.go`. Note that `readInputs` refuses invalid paths and members.
+  - **M2.4 / M2.5 / M2.6:**
+    - Add tables with `RegisterHandTable` (`scopes` / `areas` are reserved for M2.5) or `RegisterFile` (`_scoped.yaml`, `areas.yaml`, `observed.yaml`, `seeded.yaml`, `adopted.yaml` are reserved and refused until registered).
+    - Keep loaded data in `Registry.Ext`.
+    - Add rules with `RegisterRule` from an `init` in your own file. A rule that judges patterns declares them in `Patterns`, so it shares the run's single `MatchFiles` pass, and it returns an error, never a guess, when it cannot inspect.
+  - **M3.1:** implement `registry.UnitLister`. `Listing{Runner, Bound, ArtifactGlobs, Units[{ID, Kind, Lowering, Artifact}]}`; `Bound` feeds `UNREGISTERED`.
+  - **Tests:** use `t.Chdir` plus a swapped `testmapInputs` to drive the verbs through `run()`. `fixtureinputs_test.go` has in-memory fakes and `cleanRepo`.
