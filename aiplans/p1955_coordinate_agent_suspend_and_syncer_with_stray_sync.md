@@ -386,3 +386,43 @@ the suspend paths.
 
 ### Planned mitigations
 - timing: post-phase | name: isolated_staged_tree_test | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: a commit whose exact contents were never tested in isolation | desc: run the touched test files from an export of the committed HEAD before pushing
+
+## Final Implementation Notes
+
+- **Actual work done:** Steps 1–7 as planned. Board: `KanbanApp._suspend_sync_guard`
+  (context manager, non-blocking `_sync_edit_lock` + `_stray_sync_blocks`) now wraps
+  `run_editor` (refactored onto it; notices byte-identical), the no-terminal branches of
+  `run_aitask_pick` / `run_codeagent_operation`, `_run_interactive_sync_shared`, and the
+  mixin's `run_dialog_command`. `TrailHost` gained `_suspend_sync_guard`; `TrailsApp`
+  implements it as always-allow. Syncer: module `_repo_key`, `_sync_data_lock`,
+  `_stray_sync_sessions`, `_stray_sync_blocks`, `_task_data_guard`; `_sync_data_worker`
+  serialises under the lock and records/skips strays; stray timeout notice is an error
+  naming the session; guards sit in `_run_interactive_sync_shared` and in
+  `_launch_agent.on_launch` (the shared launch boundary for conflict and recovery agents),
+  with the launch body extracted to `_launch_chosen`.
+- **Deviations from plan:** none in behaviour. `_launch_chosen` is a small extraction so
+  the guard can wrap both launch branches once.
+- **Issues encountered:** `AgentRunInTerminalTests._capture_notices` is a staticmethod;
+  re-binding it as a plain class attribute on the new test class made it a bound method
+  (notices went to the test instance) — wrapped in `staticmethod(...)`.
+- **Key decisions:** board tests run the in-flight sync on a raw thread rather than as the
+  `_run_sync` worker, because an exclusive default-group launch worker cancels a
+  `_run_sync` worker while its thread keeps running — the raw thread is the faithful shape.
+- **Upstream defects identified:**
+  - `.aitask-scripts/syncer/syncer_app.py:2453 — _run_interactive_sync_shared passes on_done=lambda: self.call_from_thread(self._tick_refresh), but the async worker and run_interactive_sync's inline (no-terminal) completion callback both run on the app thread, so a successful inline ./ait sync resumes the terminal and then raises RuntimeError (call_from_thread must run in a different thread); pre-existing in HEAD, the real helper's completion callback is untested`
+- **Verification:** 312 tests across the touched/related files pass. Mutants (scratch copy):
+  pick unguarded, dialog unguarded, syncer worker without stray check, syncer worker
+  without lock, guard moved off the launch boundary, interactive sync unguarded, raw-root
+  key — each turns specific new tests red.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-12 18:05)
+- **Requested by user:** (1) the two "sync started during the inline child" syncer tests inferred exclusion from a 0.3s non-entry without proving the sync thread reached the lock — a delayed thread passed with the guard removed; (2) the pre-existing `call_from_thread` on-app-thread bug in `_run_interactive_sync_shared`'s `on_done` → follow-up, not this task; (3) `_repo_key` duplicated `cross_repo_settings.repo_key`.
+- **Changes made:** (1) added a `_ProbeLock` (blocking-acquire handshake) to `test_syncer_rows.py`; both tests install it on `app._sync_data_lock` and assert `attempting` before asserting non-entry, keeping the positive "entered after" control. Re-ran the reviewer's mutant (always-allow guard + 0.6s delayed thread): both tests now fail; the delay alone (guard intact) passes. (2) recorded under Upstream defects for Step 8b. (3) `_repo_key` now delegates to `cross_repo_settings.repo_key(root or Path("."))`; the raw-root-key mutant is still caught by the single-repo recovery test.
+- **Files affected:** `.aitask-scripts/syncer/syncer_app.py`, `tests/test_syncer_rows.py`
+
+### Change Request 2 (2026-10-12 18:20)
+- **Requested by user:** `test_a_second_sync_waits_for_the_first` inferred serialisation from a 0.3s sleep without proving the second worker reached the lock; a non-locking worker with a stand-in delaying its second entry 0.6s passed.
+- **Changes made:** the test installs `_ProbeLock` on `app._sync_data_lock`, clears `attempting` after the first acquisition, and asserts the second worker attempted the lock while the first sync was still open before asserting `calls == 1`; the positive completion control (`calls == 2` after release) is kept. The reviewer's mutant now fails the test.
+- **Files affected:** `tests/test_syncer_rows.py`
