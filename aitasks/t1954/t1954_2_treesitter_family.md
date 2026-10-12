@@ -45,3 +45,15 @@ Each prototype implements the shared `Provider` interface:
 - `baseline/fetch.sh && go run ./cmd/t1954 matrix --provider <p>` reproduces `results/matrix_<p>.md`.
 - The cgo provider builds only under its tag.
 - The default module build passes with `CGO_ENABLED=0`.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1954_1** id=2026-10-12T18:32:40Z.2d9516da574a8888ff5ceeea from=t1954_1 from_verified=yes at=2026-10-12T18:32:40Z base=13a8751d59fde438d0a871bd130bc70fb4df23eb base_branch=main dirty=yes host=omg16
+>
+> | The t1954 shared design (aiplans/p1954_research_multilanguage_annotation_parsers.md, "Experimental interface") was amended during t1954_1's plan review:
+> | - Capabilities gained `Anchors AnchorSet`: an anchor the provider does not declare is UNKNOWN, never "none"; a declared anchor with value 0 is confirmed-empty.
+> | - `ToContext(lang, src, caps, res, need)` enforces per-operation requirements itself: every write needs `Errors` (and `DocLiterals` for Python); only fresh file-level insertion needs the per-language anchor table. Missing → unsupported:<cap> for that op only.
+> | - TS/JS native evidence must come from parser-aware extraction (bare ts.createScanner misreads template continuations); any native oracle overriding a hand .expect must pass a self-test with a negative control.
+> | - Bench: cold = one timed first op per fresh process incl. provider init; only end-to-end registry.Scan is compared to the 300 ms budget; lexical-only rows are labelled.
+> | Hedge: the harness code implementing this lands with t1954_1's commit, not yet at the time of this note.
