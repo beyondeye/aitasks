@@ -450,6 +450,7 @@ Every line class is defined once. This table says where.
 | `SURFACE` `EDGES` `STALE_PATH` `STALE` `EVIDENCED` `UNSTAMPED` `STALE_AREA` `REVIEW_DUE` `UNKNOWN` `DISPLAY` `DECISION` `CHECK_STRUCTURAL:` `SEEDED:` `ADOPTED:` | component *Staleness tool* |
 | `PREDICTION_SCORED:` `PREDICTION_FALSE_NEGATIVES:` `PREDICTION_MISSED:` `REJECTION_CONTRADICTED:` `LEVEL:` `NEXT:` `ADOPTED_UNREVIEWED:` `AGENT_ADOPTED:` | component *Feedback tools* |
 | `UNMAPPED_SOURCE:` `ESCALATE:` `DEFERRED:` `edge(…)` `adopted(…)` `axis(…)` `test-dep` `reads(…)` | component *Selector* |
+| `STAMP:` `STAMP_SKIP:` `STAMP_REFUSED:` `STAMPS:` `ANNOT_INVALID:` `REWRITE_CONFLICT:` `RESTAMP_HOOK_ERROR:` (`annotate`, `verify`; `WROTE:` reused) | component *Annotation scanner and rewriter* |
 | check rules `STALE_PATH` … `CONTRACT_MISMATCH`, `UNCOVERED_VALUE:` `UNMAPPED_ARTIFACT:` `DEAD_*` `UNKNOWN_VARIANT`, `OWNS_VIOLATION:` `DUPLICATE_RULE:` `WAIVER_EXPIRED:` `SCAN_DRIFT:` `SCAN:` `CHECK:` `REGISTRY_INVALID:` `INPUT_UNAVAILABLE:` `INPUT_ERROR:` `CHECK_ERROR:` | component *Registry loader*; *Enumeration and reconciliation* |
 | `ENGINE:` `CONTRACT_MISMATCH` `TESTMAP_BINARY:skipped` `AITASKS_HOME:` `HOME_*` | components *Engine binary*, *Engine install*, *Framework home* |
 <!-- /section: architecture -->
@@ -2220,6 +2221,138 @@ adopt time, one file rewritten per adopted item. Existing `# Covers:` prose
 headers are shown in packets as `REVIEW_PROSE` lines and read by the
 `prose` origin at 0.30, never matched by the annotation scanner and never
 rewritten. Golden files pin block placement per language.
+
+**The grammar, the rewriter and the stamping verbs (M2.2).**
+
+*Grammar.*
+- An annotation line is `<leader> testmap:<key> <args>`.
+- The language table is the four languages with a placement rule:
+  - bash: `.sh`, `.bash`, or a `sh` / `bash` shebang
+  - Python: `.py`, or a python shebang
+  - Go: `.go`
+  - Kotlin: `.kt`, `.kts`
+- A file of any other kind has no leader.
+- The keys and their arguments:
+  - `unit <Member>`
+  - `kind <word>` (M2.5 owns the vocabulary)
+  - `covers <path> [@<YYYY-MM-DD>/<blob10>]`
+  - `area <name>…`, `scope <glob>…`, `trigger <glob>…`, `reads <glob>…`
+  - `axis <axis>.<facet>=<value>`
+  - `reviewed <YYYY-MM-DD>`
+  - `runner <name>`, `needs <resource>…`, `batch yes|no`
+- `<blob10>` is the first ten hex digits of the source's blob id under the
+  repository's object format.
+- A refusal is a line-numbered syntax error: an unknown or empty key, an extra
+  token, a single-valued key repeated in a block, one source covered twice in a
+  block, a duplicate member, or an invalid path, glob, date or axis.
+
+*Comment context.* Annotations are read and written only on lines that a
+per-language lexer proves start in code context with the leader:
+- Go: `go/scanner`
+- bash: quotes, `$'…'`, backticks, `$(…)`, arithmetic, `${…}` expansions
+  (the first unquoted `}` closes, whatever literal `{` came before), and
+  heredocs.
+  - A heredoc body starts after the next *newline token*, so it is delayed
+    past a continuation or a quoted string spanning lines.
+  - An unquoted body joins backslash-newlines before its delimiter is
+    compared.
+  - The delimiter loses its quoting, `$'…'` and `$"…"` included. A backslash
+    inside a quoted delimiter is not modelled, so the file is uncertain.
+- Python: every string form, including f-string replacement fields. The
+  module docstring is the first statement when it consists of string
+  literals only, as Python decides (parenthesized, implicitly concatenated,
+  or followed by `;`).
+  - It is read as its *value*: literals decoded (escapes, backslash-newline)
+    and concatenated, then split into lines. A `(` after a literal is a call,
+    so it is no docstring.
+  - An undecodable `\N{…}` escape may be any one character: a line break,
+    whitespace or a letter. A line is refused if some decoding could make it,
+    or a line split off at the escape, an annotation; otherwise it is prose
+    (a literal U+FFFD is ordinary text). Leading whitespace is Unicode
+    whitespace throughout.
+  - Since that value can spell the token without the bytes `testmap:`
+    appearing, every Python file is parsed; other languages are prefiltered
+    on the token.
+- Kotlin: strings with templates, raw strings, and nested block comments
+
+An annotation-shaped line inside a heredoc, a string, a raw string or a block
+comment is data. A file whose lexer ends inside an open construct is
+*uncertain*: reading it when it carries `testmap:` is a syntax error, and it is
+never written. A Python module docstring is read, never written:
+- `testmap:unit` inside it is refused
+- a covers line there that needs a new stamp is skipped
+
+*The rewriter (`annot.Apply`).*
+- It is the only writer, and every caller (M4.2, M6.3, M7.2, M7.4) goes
+  through it.
+- Each edit is pinned by `(file, line, current text)` **and** by the block it
+  must belong to (member and source). In-process plans also carry a snapshot
+  digest of the bytes they were made from.
+- It refuses with `REWRITE_CONFLICT:<path>|<line>` (exit 75) when the text,
+  the snapshot or the owning block changed, or when the file changed during
+  the write.
+- It proves the result changes comment annotation lines only:
+  - a replaced line was already that covers line
+  - every edited line is a comment annotation of the expected block
+  - every other line keeps its bytes and its lexical class
+- It writes atomically through an `os.Root`, keeping the file's mode, line
+  endings and final-newline state.
+- It never follows a symbolic link anywhere on a path, for reads, hashing or
+  writes. Each directory, and the file itself, is entered through a handle
+  proven (`os.SameFile`) to be what a no-follow check described, so a
+  component swapped mid-run is refused, never followed. Opens cannot block on
+  a swapped-in FIFO or device: the leaf is opened non-blocking, and a
+  directory is entered as `<name>/.`, which `os.Root` opens `O_DIRECTORY`.
+- Fixed positions:
+  - bash: after the shebang and the leading comment block
+  - Python: after the module docstring, else after the leading comment block
+  - Go: after the package clause
+  - Kotlin: after the last top-level import, else after `package`, else after
+    the leading comment block
+  - a block that already has a comment annotation grows after its last one
+  - a member block grows after its opener
+  - a file-level line never lands after the first member opener
+
+*The annotation source (`annot.Source`).*
+- Its universe is the repository's git-visible files
+  (`git ls-files --cached --others --exclude-standard`; any stderr output from
+  git is an error) minus `exclude:`, minus paths through a symbolic link,
+  restricted to the language table.
+- It returns the files carrying an annotation.
+- A syntax error is `INPUT_ERROR:annotations|<path>:<line>: <reason>` on
+  `scan` / `check`.
+
+*`annotate` and `verify`.*
+- `annotate [--by <actor>] <test>[#<member>] <source>…` covers each source in
+  the block, stamped now: it inserts, re-stamps, or leaves a line whose stamp
+  already names the current blob. It works on one file, all or nothing.
+- `verify [--by <actor>] <test>[#<member>]…` re-stamps every covers line of
+  the target whose stamp does not name the current blob. Other lines are left
+  untouched, so a re-run is byte-identical. Results come in target order; a
+  block named twice is reported once. Each source is read once per
+  invocation.
+- Both print, in order:
+  - `STAMP:<test>|<source>|<date>/<blob10>|<added|restamped|current>`
+  - `STAMP_SKIP:<test>|<source>|<missing|not-a-file|docstring>`
+  - `STAMP_REFUSED:<test>|<excluded|missing|not-a-file|no-leader|uncertain-context|no-member-block>`
+  - `WROTE:<path>`
+  - finally `STAMPS:<added>|<restamped>|<current>|<skipped>`
+- Exit codes: 0, or 1 on a skip or a refusal. Errors go to stderr:
+  - `TESTMAP_ABSENT` (2)
+  - `ANNOT_INVALID:<path>|<line>|<reason>` (3)
+  - `REWRITE_CONFLICT` (75)
+  - `RESTAMP_HOOK_ERROR:<detail>` (3)
+- `--by` takes `human:<email>`, `agent:<agent-string>` or `auto`. It defaults
+  to `agent:$AIT_AGENT_STRING`, else unspecified. Only an explicit `human:` is
+  a person.
+- Once every file is written, the post-re-stamp hook
+  (`annot.RegisterRestampHook`, which M2.6 fills) receives every edge
+  (`added` / `restamped` / `current`, with the stamps before and after) and
+  the actor. After an error it does not run, which keeps provenance — the safe
+  direction.
+- The arms `--suggest`, `--from-body` (M2.3) and `--author` (M7.4) register in
+  `annotateArms`. Until then they are `NOT_IMPLEMENTED:annotate --<arm>`,
+  exit 64.
 <!-- /section: component_annotation_scanner -->
 
 <!-- section: component_dependency_scanners [dimensions: component_dependency_scanners] -->
