@@ -1,10 +1,11 @@
 {
   "backend": "local",
   "created_at": 1789896123,
-  "current": "sha256:bb9338b30e7170decf8bf6bc775d4016db8d600801fbd48ed276b6989b47f947",
+  "current": "sha256:f7b906303b641172d4affed8c31f9c1b9c667261084161bd143f554f7bbfb69a",
   "handle": "art:trail-artifacts-and-attachments",
-  "updated_at": 1789896123,
+  "updated_at": 1791788795,
   "versions": [
-    "sha256:bb9338b30e7170decf8bf6bc775d4016db8d600801fbd48ed276b6989b47f947"
+    "sha256:bb9338b30e7170decf8bf6bc775d4016db8d600801fbd48ed276b6989b47f947",
+    "sha256:f7b906303b641172d4affed8c31f9c1b9c667261084161bd143f554f7bbfb69a"
   ]
 }
