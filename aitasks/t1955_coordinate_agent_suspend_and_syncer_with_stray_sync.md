@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1911
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-12 16:30
-updated_at: 2026-10-12 16:45
+updated_at: 2026-10-12 17:43
 ---
 
 ## Origin
@@ -40,3 +41,8 @@ Two paths were left out of t1947's scope:
 ## Suggested fix
 
 Reuse the board's pattern: take `_sync_edit_lock` non-blocking around the agent suspend (refuse with a notice) and consult `_stray_sync_blocks()` first. In the syncer, record `stray_session` per target repo and refuse/skip that repo's next sync until `sync_session_running(sid)` is False, with a visible notice.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-12T14:43:27Z status=pass attempt=1 type=human
