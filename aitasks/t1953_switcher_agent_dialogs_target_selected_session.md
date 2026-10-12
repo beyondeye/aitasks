@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [tui_switcher, tmux, codeagent]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1946
 created_at: 2026-10-12 12:29
-updated_at: 2026-10-12 12:29
+updated_at: 2026-10-12 12:41
 ---
 
 ## Context
