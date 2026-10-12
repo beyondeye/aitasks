@@ -450,7 +450,7 @@ Every line class is defined once. This table says where.
 | `SURFACE` `EDGES` `STALE_PATH` `STALE` `EVIDENCED` `UNSTAMPED` `STALE_AREA` `REVIEW_DUE` `UNKNOWN` `DISPLAY` `DECISION` `CHECK_STRUCTURAL:` `SEEDED:` `ADOPTED:` | component *Staleness tool* |
 | `PREDICTION_SCORED:` `PREDICTION_FALSE_NEGATIVES:` `PREDICTION_MISSED:` `REJECTION_CONTRADICTED:` `LEVEL:` `NEXT:` `ADOPTED_UNREVIEWED:` `AGENT_ADOPTED:` | component *Feedback tools* |
 | `UNMAPPED_SOURCE:` `ESCALATE:` `DEFERRED:` `edge(…)` `adopted(…)` `axis(…)` `test-dep` `reads(…)` | component *Selector* |
-| check rules `STALE_PATH` … `CONTRACT_MISMATCH`, `UNCOVERED_VALUE:` `UNMAPPED_ARTIFACT:` `DEAD_*` `UNKNOWN_VARIANT` | component *Registry loader*; *Enumeration and reconciliation* |
+| check rules `STALE_PATH` … `CONTRACT_MISMATCH`, `UNCOVERED_VALUE:` `UNMAPPED_ARTIFACT:` `DEAD_*` `UNKNOWN_VARIANT`, `OWNS_VIOLATION:` `DUPLICATE_RULE:` `WAIVER_EXPIRED:` `SCAN_DRIFT:` `SCAN:` `CHECK:` `REGISTRY_INVALID:` `INPUT_UNAVAILABLE:` `INPUT_ERROR:` `CHECK_ERROR:` | component *Registry loader*; *Enumeration and reconciliation* |
 | `ENGINE:` `CONTRACT_MISMATCH` `TESTMAP_BINARY:skipped` `AITASKS_HOME:` `HOME_*` | components *Engine binary*, *Engine install*, *Framework home* |
 <!-- /section: architecture -->
 
@@ -2161,6 +2161,34 @@ fills.
 Golden tests pin the core merges and the id grammar (M2.1) and the two
 adoption-table merges, the `by:` merge, the absent-`by:` rule and the shadow
 rule (M2.6).
+
+**The registry files and the merge rule (M2.1).** A hand file
+`registry/<area>.yaml` carries `contract:`, `owns:` (globs over **source**
+paths), `edges:` rows `{test: <id>, covers: <path> | [<path>…]}`, `rules:`
+rows `{name, when: [<glob>…], select: [<glob>[#<member glob>]…], implies:
+[<path>…], escalate: <bool>, distance: <n>}` (one of `select` / `implies` /
+`escalate` required; `distance` defaults to 1) and `waivers:` rows `{path:
+<glob>, reason, until?: YYYY-MM-DD}`; M2.5 adds `scopes:` / `areas:`. An
+unknown top-level key is refused; an unknown row field is ignored (the
+contract is additive). The generated `_scanned.yaml` is `{contract, units:
+[{test: <path>[#<member>], line?, variants?: [<value>…], covers?: [{source,
+line?, stamped_at?, stamped_blob?}]}]}`. The names `_scoped.yaml`,
+`areas.yaml`, `observed.yaml`, `seeded.yaml`, `adopted.yaml` and any other
+`_`-prefixed file are reserved: refused until the owning submodule registers
+its loader, never read as a hand file. **The one merge rule**: every file
+contributes its rows to the same tables in file-name order, and a duplicate
+edge across files is a harmless union. A file that cannot be read or parsed is
+`REGISTRY_INVALID:<path>|<reason>` (exit 3), like `CONTRACT_MISMATCH`. Writes
+are routed by `owns:` — exactly one hand file must own a new row's source
+path, otherwise the writer refuses. Ownership is judged over **concrete
+paths**, never one pattern against another: `check` reports
+`OWNS_VIOLATION:<file>|<table>|<path>` for a declared edge's covers path, and
+for every existing file a rule's `when:` or a waiver's `path:` matches, that
+no `owns:` glob of the row's own file matches; a pattern that matches no file
+is not a violation, and a file created later is judged on the run that sees
+it. Two rules with one name are `DUPLICATE_RULE:<name>|<file>|<file>`; an
+expired waiver is reported `WAIVER_EXPIRED:<path>|<until>|<file>` and simply
+stops waiving.
 <!-- /section: component_registry_loader -->
 
 <!-- section: component_annotation_scanner [dimensions: component_annotation_scanner] -->
@@ -2275,6 +2303,36 @@ artifact column claims), both failing `check --strict` after bootstrap.
 `onboard detect`'s `UNIVERSE:` is the same count taken before runners exist;
 `onboard inventory` is the first consumer of `UNREGISTERED:` rows as a to-do
 list.
+
+**The `scan` / `check` contract (M2.1).** Both verbs read the two injected
+inputs; an input with no provider is `INPUT_UNAVAILABLE:<annotations|lister>`
+and a provider that fails or returns an invalid path is
+`INPUT_ERROR:<input>|<detail>`, both exit 3 — neither verb runs on an empty
+input as if it were the repository. A repository with no `aitestmap/` is
+`TESTMAP_ABSENT:aitestmap/`, exit 2. `scan [--apply]` prints the member drift,
+then `SCAN:<units>|<edges>|<variants>`, then `WROTE:<path>` (applied and
+changed) or `SCAN_DRIFT:<path>` (a dry run that would change it); member
+drift exits 1 and refuses the write; a re-apply with no change writes
+nothing. `check [--strict]` prints each rule's findings in a fixed order and
+ends with `CHECK:<pass|fail>|<findings>|<failing>`; it exits 1 iff a finding
+fails:
+
+| severity | rules |
+|---|---|
+| always fails | `STALE_PATH:<test>\|<source>` (the source is absent or a directory), `UNANNOTATED_MEMBER:<id>` (only in a file with at least one `testmap:unit` block), `DEAD_MEMBER:<file>#<member>`, `OWNS_VIOLATION`, `DUPLICATE_RULE`, `UNSTAMPED:<test>\|<source>` (reported only under `require_stamp` past `bootstrap_until`) |
+| fails under `--strict` past `bootstrap_until` (no `bootstrap_until` = no window) | `UNREGISTERED:<path>`, `UNMAPPED_ARTIFACT:<path>\|<runner>`, `SCAN_DRIFT:<path>` (the committed `_scanned.yaml` is not what `scan --apply` would write) |
+| never fails | `WAIVER_EXPIRED` |
+
+The files a declared pattern reaches (a runner's `artifact_glob:`, a rule's
+`when:`, a waiver's `path:`) are the **existing** files, found by a strict
+glob walk that reads only directories the full pattern can match: a deleted
+tracked file is never a candidate, an ignored one is, only `exclude:` removes
+files (`.git` metadata is never a work-tree file), and nested checkouts are in
+scope unless `exclude:` names them. A check that could not look never passes:
+an unreadable directory a pattern reaches, a stat that fails for a reason
+other than absence, or a failing input aborts the run with
+`CHECK_ERROR:<rule>|<detail>` (or the input line) on stderr, exit 3, and no
+`CHECK:` line.
 <!-- /section: component_cell_enumeration -->
 
 <!-- section: component_suite_registry [dimensions: component_suite_registry] -->
