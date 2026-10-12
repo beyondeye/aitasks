@@ -103,3 +103,14 @@ prevents silently stranding manifests, but pushes the work onto the user
 > | 
 > | Advisory, not an instruction: tree-relative claims above are as of the base
 > | SHA this note records.
+
+> **✉ note:t1286** id=2026-10-12T13:17:57Z.1e01b619ac861ee20cce2148 from=t1286 from_verified=yes at=2026-10-12T13:17:57Z base=222824f637690c7a7d8999b1a8b71b96e4039df7 base_branch=main dirty=yes host=omg16
+>
+> | Advisory context from t1286 (commit 222824f63 on main) — your plan mentions a reaper verb "with the same blob-sweep guards" as `ait artifact rm`; those guards changed:
+> | 
+> | - `_artifact_rm_txn` (.aitask-scripts/aitask_artifact.sh) now sweeps LOCAL blobs regardless of the manifest's current backend. `move` keeps source blobs, so create-local -> move -> rm previously leaked committed local blobs. The non-local-side leak (dir/remote blobs) is still yours and is still warned as "cross-backend orphan reaping is t1135".
+> | - The sweep is three-pass: select (present, no attachment meta file, not in `artifact_manifest referenced-hashes` — scan run lazily once a present candidate exists) -> preflight EVERY candidate -> delete. The preflight refuses (dies, txn trap restores task file + manifest, no blob touched) unless: `txn_require_clean` passes; `HEAD:<blob_rel>` exists; `git hash-object` of the on-disk file equals that HEAD oid; and `git ls-files -v` tag is plain `H`.
+> | - Why each check exists (measured): status --porcelain is silent for ignored untracked files; skip-worktree blocks both staging the deletion and the rollback checkout; assume-unchanged makes `git add` exit 0 without staging the deletion. A combined `update-index --no-skip-worktree --no-assume-unchanged` leaves skip-worktree SET — repair hints must be one command per flag.
+> | - Tests pinning this: tests/test_artifact_cli.sh sections J and K. If the reaper sweeps local blobs, reusing (or extracting) this pass structure keeps one definition of "safe to delete".
+> | 
+> | Line references are as of 222824f63; re-derive by symbol if the file moved.
