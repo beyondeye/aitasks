@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [worktree, aitask_pick]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -14,7 +14,8 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5_5
 created_at: 2026-09-04 16:37
-updated_at: 2026-10-12 17:46
+updated_at: 2026-10-12 21:46
+completed_at: 2026-10-12 21:46
 ---
 
 ## Origin
@@ -147,3 +148,14 @@ corrected line for **new** installs.
 > **✅ gate:plan_approved** run=2026-10-12T14:46:40Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-12T18:36:06Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-12T18:46:18Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:397fbbc16ec15e6c
+
+> **✅ gate:risk_evaluated** run=2026-10-12T18:46:18Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1711/risk_evaluated_2026-10-12T18:46:18Z-risk_evaluated-a1.log`
