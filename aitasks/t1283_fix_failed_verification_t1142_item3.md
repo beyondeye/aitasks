@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: medium
 depends: [t1076_3]
 issue_type: bug
@@ -12,8 +14,9 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1065
 followup_kind: verification_failure
+implemented_with: claudecode/opus5_5
 created_at: 2026-07-28 11:25
-updated_at: 2026-10-12 17:25
+updated_at: 2026-10-12 17:54
 boardidx: 56320
 ---
 
@@ -118,3 +121,5 @@ verify the unmount case.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-10-12T14:54:43Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-10-12T18:35:43Z status=pass attempt=1 type=human
