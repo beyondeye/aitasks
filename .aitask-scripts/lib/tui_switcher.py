@@ -53,6 +53,7 @@ from agent_launch_utils import (  # noqa: E402
     advance_group_selection,
     cross_group_ring,
     cross_group_step,
+    current_tmux_session,
     default_selected_group,
     disambiguate_labels,
     discover_aitasks_sessions,
@@ -137,19 +138,6 @@ def _format_desync_lines(lines_output: str) -> str:
     if not any_drift:
         return "[dim]all refs clean[/]"
     return " · ".join(parts)
-
-
-def _detect_current_session() -> str | None:
-    """Auto-detect the current tmux session name, or None if not inside tmux."""
-    if not os.environ.get("TMUX"):
-        return None
-    try:
-        rc, out = _TMUX.run(["display-message", "-p", "#S"])
-        if rc == 0 and out.strip():
-            return out.strip()
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-        pass
-    return None
 
 
 # Switcher-visible TUIs sourced from the central registry. See tui_registry.py
@@ -1508,8 +1496,10 @@ class TuiSwitcherMixin:
         if not os.environ.get("TMUX"):
             self.notify("TUI switcher requires tmux", severity="warning")
             return
-        # Prefer auto-detecting current tmux session, fall back to config
-        session = _detect_current_session()
+        # The caller's own session, verified against its server (t1951): it is
+        # the ATTACHED session — a client property, so no project-ownership
+        # check. A caller on another server gets None and the configured one.
+        session = current_tmux_session()
         if session is None:
             defaults = load_tmux_defaults(Path.cwd())
             session = defaults.get("default_session", "aitasks")

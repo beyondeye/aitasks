@@ -289,13 +289,39 @@ class SwitcherNarrowSeamTests(unittest.TestCase):
                 host._switcher_selected_session = MagicMock(return_value=None)
                 host._switcher_narrow = MagicMock(return_value=declared)
                 with patch.dict(ts.os.environ, {"TMUX": "/tmp/x"}), \
-                     patch.object(ts, "_detect_current_session",
+                     patch.object(ts, "current_tmux_session",
                                   return_value="s1"):
                     host.action_tui_switcher()
                 self.assertEqual(host.push_screen.call_count, 1)
                 overlay = host.push_screen.call_args.args[0]
                 self.assertIsInstance(overlay, ts.TuiSwitcherOverlay)
                 self.assertEqual(overlay._narrow, declared)
+
+
+class SwitcherAttachedSessionTests(unittest.TestCase):
+    """The attached session is `current_tmux_session()`'s socket-verified
+    answer, never a bare gateway `#S` (t1951)."""
+
+    def _open(self, verified):
+        host = ts.TuiSwitcherMixin()
+        host.current_tui_name = "board"
+        host.notify = MagicMock()
+        host.push_screen = MagicMock()
+        with patch.dict(ts.os.environ, {"TMUX": "/tmp/x"}), \
+             patch.object(ts, "current_tmux_session", return_value=verified), \
+             patch.object(ts, "load_tmux_defaults",
+                          return_value={"default_session": "configured"}):
+            host.action_tui_switcher()
+        return host.push_screen.call_args.args[0]
+
+    def test_verified_session_is_the_attached_one(self):
+        self.assertEqual(self._open("mine")._attached_session, "mine")
+
+    def test_unverified_caller_falls_back_to_the_configured_session(self):
+        self.assertEqual(self._open(None)._attached_session, "configured")
+
+    def test_no_bare_session_probe_remains(self):
+        self.assertFalse(hasattr(ts, "_detect_current_session"))
 
 
 class GitCompanionHookWiringTests(unittest.TestCase):

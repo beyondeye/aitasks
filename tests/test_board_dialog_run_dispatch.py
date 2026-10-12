@@ -204,13 +204,26 @@ class BrainstormBranchTests(DialogRunTestBase):
     def test_brainstorm_run_dispatches_dialog_command_without_notice(self):
         ab = self.ab
         app = self._mock_app()
-        with patch.object(ab, "_current_tmux_session", return_value="sess"), \
-                patch.object(ab, "find_window_by_name", return_value=None):
+        with patch.object(ab, "focus_existing_window", return_value=False):
             ab.KanbanApp._launch_brainstorm(app, "42", TASK_FILE)
         self._run_with_override(app)
         # Not a code agent: a non-zero exit is an ordinary TUI quit.
         app.run_dialog_command.assert_called_once_with(
             OVERRIDE, refocus_filename=TASK_FILE, error_notice=None)
+
+    def test_running_brainstorm_window_is_focused_not_relaunched(self):
+        """The lookup is the shared socket-verified, ownership-checked one
+        (t1951) — never a raw ambient probe plus raw `select-window`."""
+        ab = self.ab
+        app = self._mock_app()
+        with patch.object(ab, "focus_existing_window",
+                          return_value=True) as focus:
+            ab.KanbanApp._launch_brainstorm(app, "42", TASK_FILE)
+        focus.assert_called_once_with(("brainstorm-42",), Path.cwd())
+        app.notify.assert_called_once_with(
+            "Switched to existing brainstorm for t42")
+        app.push_screen.assert_not_called()
+        app.refresh_board.assert_called_once_with(refocus_filename=TASK_FILE)
 
 
 class CreateBranchTests(DialogRunTestBase):

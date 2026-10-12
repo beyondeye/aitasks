@@ -10,6 +10,10 @@
 * `agent_launch_utils.focus_existing_agent_window` — switch to a running
   `agent-pick-<id>` / `agent-resume-<id>` window instead of launching a
   duplicate; never in an unrelated session.
+* `agent_launch_utils.focus_existing_window` — the same lookup for any window
+  names; the board's `brainstorm-<num>` focus uses it (t1951).
+* `tui_switcher.TuiSwitcherMixin.action_tui_switcher` — its attached session is
+  `current_tmux_session()`'s verified answer, never a bare gateway `#S` (t1951).
 
 The probe is tested for real, not mocked: `LiveTwoServerTests` runs two private
 tmux servers whose pane ids collide (`%0` on both) and whose task numbers
@@ -289,6 +293,23 @@ class FocusExistingAgentWindowTests(unittest.TestCase):
         self.assertFalse(alu.focus_existing_agent_window("42", _ROOT))
         self.assertEqual((self.searched, self.selects), ([], []))
 
+    def test_brainstorm_window_in_the_owned_session_is_selected(self):
+        self.windows[("brainstorm-42", "projA")] = ("projA", "4")
+        self.assertTrue(alu.focus_existing_window(("brainstorm-42",), _ROOT))
+        self.assertEqual(self.selects, [["select-window", "-t", "=projA:4"]])
+
+    def test_brainstorm_window_of_another_project_is_untouched(self):
+        self.probe = (0, "/sock/ait\tprojB\n")
+        self.discovered = [
+            alu.AitasksSession(session="projB", project_root=Path("/proj/beta"),
+                               project_name="beta"),
+            alu.AitasksSession(session="configured", project_root=_ROOT,
+                               project_name="alpha")]
+        self.windows[("brainstorm-42", "projB")] = ("projB", "1")
+        self.assertFalse(alu.focus_existing_window(("brainstorm-42",), _ROOT))
+        self.assertEqual(self.searched, [("brainstorm-42", "configured")])
+        self.assertEqual(self.selects, [])
+
     def test_unverified_caller_searches_only_the_configured_session(self):
         """A caller on another server must not search the gateway's answer —
         `projB` holds a same-numbered window that must stay untouched."""
@@ -426,6 +447,57 @@ class LiveTwoServerTests(unittest.TestCase):
         self.assertEqual(alu.current_tmux_session(), "aitasks")
         self.assertFalse(alu.focus_existing_agent_window("42", self.root_a))
         self.assertEqual(self._active_window("aitasks"), "main")
+
+    def test_brainstorm_window_of_another_project_is_not_selected(self):
+        """t1951: the board's `brainstorm-<num>` focus. The caller sits in
+        project B's session, which holds B's `brainstorm-42`; project A's
+        lookup must leave it untouched and let A launch its own."""
+        self._tmux(self.gw_sock, "new-window", "-d", "-t", "=projB:", "-c",
+                   str(self.root_b), "-n", "brainstorm-42", "sleep 600")
+        self._caller(self.gw_sock, self.projb_pane)
+        self._defaults("projA")
+        self.assertFalse(alu.focus_existing_window(("brainstorm-42",),
+                                                   self.root_a))
+        self.assertEqual(self._active_window("projB"), "main")
+
+    def test_owned_brainstorm_window_becomes_active(self):
+        """Positive control for the brainstorm lookup."""
+        self._tmux(self.gw_sock, "new-window", "-d", "-t", "=projA:", "-c",
+                   str(self.root_a), "-n", "brainstorm-42", "sleep 600")
+        self._caller(self.gw_sock, self.proja_pane)
+        self._defaults("no-such-session")
+        self.assertTrue(alu.focus_existing_window(("brainstorm-42",),
+                                                  self.root_a))
+        self.assertEqual(self._active_window("projA"), "brainstorm-42")
+
+    def _switcher_attached(self, configured):
+        """Open the real switcher entry point; return the overlay's attached
+        session. Only the overlay push and the config read are stubbed."""
+        import tui_switcher as ts  # noqa: E402  (Textual import, deferred)
+        host = ts.TuiSwitcherMixin()
+        host.current_tui_name = "board"
+        host.notify = lambda *a, **k: None
+        pushed = []
+        host.push_screen = pushed.append
+        with patch.object(ts, "load_tmux_defaults",
+                          lambda root: {"default_session": configured}):
+            host.action_tui_switcher()
+        self.assertEqual(len(pushed), 1)
+        return pushed[0]._attached_session
+
+    def test_switcher_attaches_to_the_callers_own_session(self):
+        """t1951 decision: the attached session is the caller's client session
+        even when another project owns it — attachment is a client property,
+        not a project one."""
+        self._caller(self.gw_sock, self.projb_pane)
+        self.assertEqual(self._switcher_attached("projA"), "projB")
+
+    def test_switcher_caller_on_another_server_uses_the_configured_session(self):
+        """The caller's pane id names projB's pane on the gateway, so an
+        unverified probe could answer projB; the switcher must not adopt it."""
+        self.assertEqual(self.other_pane, self.projb_pane)
+        self._caller(self.other_sock, self.other_pane)
+        self.assertEqual(self._switcher_attached("projA"), "projA")
 
 
 if __name__ == "__main__":

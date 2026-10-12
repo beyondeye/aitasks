@@ -25,7 +25,7 @@ from mark_glyphs import MARK_CHECKED, MARK_UNCHECKED, mark_markup
 from config_utils import task_dir
 from editor_argv import resolve_editor_argv
 from agent_command_screen import AgentCommandScreen, build_pick_screen, resolve_skill_profile
-from agent_launch_utils import find_terminal, spawn_in_terminal, find_window_by_name, focus_existing_agent_window, resolve_dry_run_command, resolve_agent_string, TmuxLaunchConfig, launch_in_tmux, load_tmux_defaults, maybe_spawn_minimonitor, _lookup_window_name, tmux_window_target
+from agent_launch_utils import find_terminal, spawn_in_terminal, focus_existing_agent_window, focus_existing_window, resolve_dry_run_command, resolve_agent_string, TmuxLaunchConfig, launch_in_tmux, maybe_spawn_minimonitor, _lookup_window_name
 from sync_action_runner import (
     CONFLICT_CHOICE_AGENT,
     CONFLICT_CHOICE_INTERACTIVE,
@@ -4962,17 +4962,10 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
     def _launch_brainstorm(self, num: str, filename: str):
         """Launch brainstorm, switching to existing tmux window if found."""
         window_name = f"brainstorm-{num}"
-        session = (
-            _current_tmux_session()
-            or load_tmux_defaults(Path.cwd())["default_session"]
-        )
-        existing = find_window_by_name(window_name, session)
-        if existing:
-            sess, idx = existing
-            subprocess.Popen(
-                ["tmux", "select-window", "-t", tmux_window_target(sess, idx)],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            )
+        # Socket-verified and ownership-checked, like pick/resume (t1951):
+        # `brainstorm-<num>` carries only the number, so another project's
+        # window must never suppress this launch.
+        if focus_existing_window((window_name,), Path.cwd()):
             self.notify(f"Switched to existing brainstorm for t{num}")
             self.refresh_board(refocus_filename=filename)
             return

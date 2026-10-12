@@ -524,34 +524,52 @@ def _sessions_owned_by(project_root: Path, candidates) -> set[str]:
             if _root_key(root) == want}
 
 
-def focus_existing_agent_window(task_id: str, project_root: Path) -> bool:
-    """Select a running ``agent-pick-<id>`` / ``agent-resume-<id>`` window
-    instead of launching a duplicate agent for the same task (t1946).
+def owned_lookup_session(project_root: Path) -> str | None:
+    """The one session a same-project window lookup may search, or None.
 
-    Shared by the board (pick and resume) and the stand-alone trails TUI.
-    Window names carry only the task number, so only a session attributed to
-    ``project_root`` is ever searched: the caller's own session when
-    :func:`current_tmux_session` verifies it, else the project's configured
-    ``default_session`` — each only if discovery roots it in ``project_root``.
-    Only those two candidates are attributed, never the whole server.
-    When neither is, nothing is searched and the caller launches: a duplicate
-    agent is recoverable, a launch suppressed by another project's window is a
-    silent wrong answer. Returns True when such a window exists; the
-    ``select-window`` itself is best-effort.
+    Task-scoped window names (``agent-pick-<id>``, ``brainstorm-<num>``) carry
+    only the task number, so only a session attributed to ``project_root`` is
+    ever searched: the caller's own session when :func:`current_tmux_session`
+    verifies it, else the project's configured ``default_session`` — each only
+    if discovery roots it in ``project_root``. Only those two candidates are
+    attributed, never the whole server. None means search nothing and let the
+    caller launch: a duplicate is recoverable, a launch suppressed by another
+    project's window is a silent wrong answer.
     """
     candidates = (current_tmux_session(),
                   load_tmux_defaults(project_root)["default_session"])
     owned = _sessions_owned_by(project_root, candidates)
-    session = next((c for c in candidates if c and c in owned), None)
+    return next((c for c in candidates if c and c in owned), None)
+
+
+def focus_existing_window(window_names, project_root: Path) -> bool:
+    """Select the first of ``window_names`` running in
+    :func:`owned_lookup_session`, through the gateway (t1951).
+
+    Returns True when such a window exists; the ``select-window`` itself is
+    best-effort.
+    """
+    session = owned_lookup_session(project_root)
     if session is None:
         return False
-    for name in (f"agent-pick-{task_id}", f"agent-resume-{task_id}"):
+    for name in window_names:
         existing = find_window_by_name(name, session)
         if existing:
             sess, idx = existing
             _TMUX.run(["select-window", "-t", tmux_window_target(sess, idx)])
             return True
     return False
+
+
+def focus_existing_agent_window(task_id: str, project_root: Path) -> bool:
+    """Select a running ``agent-pick-<id>`` / ``agent-resume-<id>`` window
+    instead of launching a duplicate agent for the same task (t1946).
+
+    Shared by the board (pick and resume) and the stand-alone trails TUI; the
+    session it searches is :func:`owned_lookup_session`'s.
+    """
+    return focus_existing_window(
+        (f"agent-pick-{task_id}", f"agent-resume-{task_id}"), project_root)
 
 
 def _walk_up_to_aitasks(path: Path) -> Path | None:
