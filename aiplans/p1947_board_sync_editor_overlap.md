@@ -278,3 +278,19 @@ Step 9 (Post-Implementation): current-branch mode, so no merge; archive with
 - Out of scope; Step 8 records each as an upstream-defect candidate:
   - the other suspend sites (`run_aitask_pick` `:5339`, `run_codeagent_operation` `:5358`) run an agent in the suspended board with no sync coordination;
   - the syncer TUI gets the containment and `stray_session` but no sticky refusal of its next sync.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-12 12:55)
+- **Requested by user:** `_session_members` treated every `OSError` reading `/proc/<pid>/stat` as "process exited", so a `PermissionError`/I/O error yielded `[]` and `sync_session_running` returned False — clearing the board's unsafe state without proof. Add a backend-level regression (the existing unavailable-query test stubbed `_session_members` itself).
+- **Changes made:** only `FileNotFoundError`/`ProcessLookupError` (vanished between listing and reading) are skipped; any other `OSError`, and an unparseable stat line, return `None` (unknown → fail closed). Tests `test_unreadable_proc_entry_is_unknown_not_gone` (PermissionError, EIO → `None`/running) and control `test_vanished_proc_entry_is_skipped` (ENOENT, ESRCH → `[]`/not running) drive the real `/proc` backend against the test's own live session with `open` patched in the module namespace. Old behaviour reproduced as a mutant: `members=[] running=False`.
+- **Files affected:** `.aitask-scripts/lib/sync_action_runner.py`, `tests/test_sync_action_runner.py`
+
+## Final Implementation Notes
+- **Actual work done:** As planned (third revision, after two review rounds): a per-app `_sync_edit_lock` (non-blocking in `run_editor`, blocking around `run_sync_batch()` in `_run_sync`); session-contained `run_sync_batch` (`start_new_session`, TERM then repeated KILL rounds over every session member, proof by `/proc`/`pgrep -s` membership; `SyncResult.stray_session` when unproven); sticky board unsafe state `_stray_sync_session` cleared only by `sync_session_running(sid)` proving the session empty.
+- **Deviations from plan:** None in design. The four pre-existing `subprocess.run` mocks in `test_sync_action_runner.py` were repointed to the new `_run_sync_process` seam (same fake shape). The editor test host's `refresh_board` now records only explicit refocus targets (the borrowed `_run_sync` calls it with `refresh_locks=True`).
+- **Issues encountered:** A thread-only `threading.Thread` calling the undecorated `_run_sync` needs `contextvars.copy_context().run` (the body uses `self.app`). A first red proof at HEAD was not guard-specific (every test failed on missing attributes), so it was replaced by eight single-guard mutants in a scratch worktree — each fails only its guard's tests. `aitask_board.py` carried another session's (t1952) uncommitted hunks; only t1947 hunks were staged.
+- **Key decisions:** Session membership rather than process group (coreutils `timeout` `setpgid`s git out of the group) or a liveness pipe (a descendant can close inherited fds). Refuse rather than wait on the editor side. No drain on a clean exit (aitask_sync.sh waits for every child it starts; remaining session members are helper daemons such as credential-cache). Unknown membership always fails closed. `setsid()`-detached processes are the documented boundary.
+- **Upstream defects identified:**
+  - `.aitask-scripts/board/aitask_board.py:5387 — run_aitask_pick / run_codeagent_operation suspend the board and run a code agent with no _sync_edit_lock coordination, so an in-flight or thread-started sync can pull/commit task data under the agent (same class as t1947)`
+  - `.aitask-scripts/syncer/syncer_app.py:2249 — _sync_data_worker gets SyncResult.stray_session from run_sync_batch but has no sticky refusal, so its next sync can start while a timed-out sync's unproven session is still running`
