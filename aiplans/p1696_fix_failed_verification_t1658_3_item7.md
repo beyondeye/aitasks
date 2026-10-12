@@ -200,11 +200,64 @@ anchor (`$$`) and the no-server tmux socket are the same patterns
   missing, the fix is a fixture-local seed in this test file, not a change to
   the approach. · severity: low · → mitigation: none (handled in the step)
 
-## Final Implementation Notes (to record at completion)
+## Post-Review Changes
 
-Record that the t1658_3 item #7 defect was fixed by t1725_3 (fast-forward path)
-and t1731 (guarded merge). t1696 adds only the end-to-end regression test, and
-self-healing inside `task_data_converge()` is deliberately out of scope.
+### Change Request 1 (2026-10-12 16:30)
+- **Requested by user:** `OUT="$(run_sync "$T")"` dropped the recovery's exit
+  status, so a recovery that converged but exited non-zero still passed. The
+  reviewer confirmed this: making both recovery calls exit 7 still gave 36/36.
+- **Changes made:** both cells capture `$?` directly from the command
+  substitution, with no pipeline, and assert `the hinted recovery exits 0`.
+  Re-checked with the same mutation (M3: `; exit 7` after the sync call in a
+  scratch `sync_fixture.sh`): exactly those two assertions fail, and the suite
+  exits 1.
+- **Files affected:** `tests/test_metadata_partial_sync_recovery.sh`
+
+## Final Implementation Notes
+- **Actual work done:** added one file,
+  `tests/test_metadata_partial_sync_recovery.sh`, with 38 assertions in two
+  cells.
+  - Each cell starts with a real `aitask_usage_update.sh` partial result
+    (`UPDATED_REMOTE_ONLY`, exit 3) while a live-locked dirty `t10` is present.
+    It checks that stderr names `./ait sync`, then runs that recovery.
+  - **Cell A** (behind-only) → `PULLED`.
+  - **Cell B** (diverged, plus a second partial update that the converge seam
+    reports as `[diverged]`) → `MERGED`.
+  - Both cells assert a 0 exit status, the metadata commits are now ancestors of
+    HEAD, the branch is 0 ahead / 0 behind, and `t10` keeps its bytes, stays
+    ` M` and is in no commit. Cell B also asserts the registry merged to 2 runs,
+    the local t20 commit survived, and the remote equals HEAD.
+- **The original t1658_3 item #7 defect was fixed elsewhere:**
+  - t1725_3 (`152254289`, `d19473e25`): fast-forward when behind-only.
+  - t1731 (`e2f12c499`): guarded merge when diverged.
+  - So the `./ait sync` hints in `verified_update_lib.sh`, `task_utils.sh`
+    (`ff_blocked` / `local_diverged`), the updater help text and the
+    satisfaction-feedback procedures are correct as written. No hint, procedure
+    or golden was changed.
+  - Self-healing inside `task_data_converge()`'s diverged arm is deliberately
+    out of scope (user decision). That arm still hands off to `./ait sync`, and
+    nothing runs `./ait sync` automatically.
+- **Deviations from plan:**
+  - The SC2031 shellcheck info (a false positive caused by the fixture's
+    `run_sync` exporting in its own subshell) is silenced with a commented
+    disable, like `tests/test_tmux_control.sh:156`.
+  - `run_usage` passes the environment inline instead of using `export`.
+  - The footer matches `test_sync_guarded_merge.sh`.
+- **Issues encountered:** none. The updater ran unchanged inside
+  `sync_fixture`'s repo: there is a full copy of `.aitask-scripts`, a local bare
+  remote and `jq`.
+- **Key decisions:** discriminating checks used separate targeted mutations,
+  each in a scratch project copy:
+  - **M1** (`_rebase_blocked` always returns blocked): 3 Cell A recovery
+    assertions red, each `DEFERRED:protected_dirty`; Cell B green.
+  - **M2** (`_converge_by_guarded_merge` returns 1): 7 Cell B recovery
+    assertions red; Cell A green.
+  - **M3** (recovery exits 7): only the two exit assertions red.
+  - The restored copies are byte-identical to the real files, and the real tree
+    passes 38/38.
+  - Neighbouring suites unchanged: `test_sync_guarded_merge.sh` 147/147,
+    `test_usage_update.sh` 88/88.
+- **Upstream defects identified:** None
 
 ## Step 9
 
