@@ -130,3 +130,45 @@ Step 9 (Post-Implementation) covers archival.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-12 15:55)
+- **Requested by user:** The ownership lookup now runs synchronously from `FileReferencesField.on_key` → `_launch_codebrowser`. Every gateway call has a 5s default timeout (`tmux_exec._DEFAULT_TIMEOUT`), so the pane probe, `list-sessions`, and per-candidate `list-panes` can block the UI for up to about 20s, versus the removed probe's 2s cap. Resolve the session and hand off in a worker, with notifications on the UI thread.
+- **Changes made:** `_launch_codebrowser` is now a `@work(thread=True)` entry point, following the file's `_do_lock` pattern. Its body is the new plain method `_focus_codebrowser`, which resolves the session, launches, and sends both notifications through `self.app.call_from_thread(self.app.notify, …)`. The tests call `_focus_codebrowser` directly, using an `app` stand-in whose `call_from_thread` runs the callback inline (`_ui_thread_app`). A new test, `test_the_launch_resolves_the_session_off_the_event_loop`, stands in for `run_worker` and asserts two things: a thread worker is requested, and the provider is never called on the event loop. A negative control replaced the worker with a synchronous mutant, and the test failed on its assertion.
+- **Files affected:** `.aitask-scripts/board/board_detail_screen.py`, `tests/test_board_detail_screen.py`
+
+### Change Request 2 (2026-10-12 16:20)
+- **Requested by user:** With the thread worker, codebrowser focus requests can overlap with no ordering protection. If the lookup for first.py is held while second.py is requested and finishes, `AITASK_CODEBROWSER_FOCUS` ends up as first.py. `exclusive=True` cannot stop a thread that is already running. Fix the ordering, or stop stale requests from acting, and add a deterministic regression where the first request is delayed.
+- **Changes made:** Added `_NewestWins` and a module-level `_CODEBROWSER_FOCUS_ORDER` in `board_detail_screen.py`. The order is per process because the focus env var is session-wide.
+  - `_launch_codebrowser` takes a ticket on the event loop. That call never blocks.
+  - `_codebrowser_worker` is the `@work(thread=True)` wrapper.
+  - `_focus_codebrowser(entry, ticket)` does the slow lookup without the lock. It then runs the launch and both notifications through `run_if_newest`: under the lock, and only if its ticket is still the latest.
+  - So an older request that is overtaken before it acts is dropped. An older request that is already acting finishes before a newer one can act.
+- **Tests:** two deterministic Event-driven orderings with real threads, the real resolver and the real launch. "Overtaken during lookup" must write only `second.py`. "Already acting" must write `first.py` then `second.py`, and `second.py` must wait while `first.py` acts. The overlap helper releases and joins its threads in `finally`, so a failing run leaks no thread. The worker-request test also pins that the ticket travels with the request.
+- **Negative controls:** a mutant without the ticket check fails the overtaken test. A mutant without the lock fails the acting test.
+- **Files affected:** `.aitask-scripts/board/board_detail_screen.py`, `tests/test_board_detail_screen.py`
+
+## Final Implementation Notes
+- **Actual work done:**
+  - The board's codebrowser focus now resolves its session with `owned_lookup_session(Path.cwd())`, via the new board helper `_owned_tmux_session`, which replaces the raw ambient `_current_tmux_session`. When no session is found, the board warns instead of guessing.
+  - The board's entry in the raw-tmux allowlist is removed.
+  - `test_tui_switcher_brainstorm_session.sh` now selects the session through `_selected_key` and asserts the derived `_session`.
+  - The focus runs in a thread worker, with newest-wins ordering across overlapping requests.
+  - Tests:
+    - An end-to-end ownership regression running the real resolver and the real launch.
+    - A test that the worker is requested and the ticket is taken on the event loop.
+    - Two deterministic overlap orderings.
+  - `tui_conventions.md` now names the helper.
+- **Deviations from plan:**
+  - Change Requests 1–2: the worker and the newest-wins ordering were not in the original plan.
+  - The end-to-end regression uses the class fixture tree as project A instead of a chdir'd temp project. `test_board_fixture_harness.py` forbids `chdir` in board test modules.
+- **Issues encountered:**
+  - A concurrent session's uncommitted t1947 work, in `aitask_board.py`, `sync_action_runner.py` and `test_board_run_editor.py`, was caught mid-edit, so a full-suite run in the shared checkout failed with an `ImportError`. Verification therefore ran in a detached scratch worktree from HEAD with only this task's diff applied. That run passed: `PYTHON SUITE: PASSED (runner=pytest, exit=0)`.
+  - `aitask_board.py` holds both tasks' hunks, so this commit takes only this task's three hunks (import, factory binding, helper).
+- **Key decisions:**
+  - Ownership over the caller's bare session: the focus env var and the `codebrowser` window are per project-session. This matches the t1946/t1951 pick, resume and brainstorm focus.
+  - The ordering state is module-level, because the env var is session-wide.
+  - The ticket is taken on the event loop and is lock-free, so the UI never waits behind a launching worker.
+  - Side effects and notifications run under one lock, gated on the ticket still being the newest.
+- **Upstream defects identified:** None
