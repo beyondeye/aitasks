@@ -26,6 +26,7 @@
 #   Test 6  (stale >120s lock reclaimed with warn)  must still pass
 #   Test 6b (stale reclaim under contention)        must still pass
 #   Test 7  (vanished-dir stat-fail -> clean retry) must still pass
+#   Test 8  (EXIT trap is the guarded seam, t1692) must still pass
 #
 #   Tests 1/4/4b/5/6/6b/7 build their pre-held and asserted lock paths through
 #   the key_for_id() helper below — after t635_30 lands, update that ONE helper
@@ -97,7 +98,8 @@ lock_dir_for_id() { raw_lock_dir "$(key_for_id "$1")"; }
 ID_BASE="9$$"
 ID1="${ID_BASE}1"; ID2="${ID_BASE}2"; ID3="${ID_BASE}3"; ID4="${ID_BASE}4"
 ID5="${ID_BASE}5"; ID6="${ID_BASE}6"; ID7="${ID_BASE}7"; ID8="${ID_BASE}8"
-IDS=("$ID1" "$ID2" "$ID3" "$ID4" "$ID5" "$ID6" "$ID7" "$ID8")
+ID9="${ID_BASE}9"; ID10="${ID_BASE}10"
+IDS=("$ID1" "$ID2" "$ID3" "$ID4" "$ID5" "$ID6" "$ID7" "$ID8" "$ID9" "$ID10")
 
 LOCK_DIRS=()
 for id in "${IDS[@]}"; do
@@ -371,6 +373,82 @@ assert_not_contains "stat failure is 'lock vanished — retry', never a stale re
     "Removing stale gate lock" "$out"
 assert_eq "ledger block written after the clean retry" "1" "$(marker_count "$ID8")"
 assert_dir_not_exists "lock released on exit" "$T7_LOCK"
+
+# ============================================================
+echo "--- Test 8: the gate lock's EXIT trap is the guarded seam (t1692) ---"
+# ============================================================
+# aitask_gate.sh used to carry a private copy of the PRE-t1681 trap, so the
+# seam's chained-trap guard (lib/ledger_block.sh) never reached the gate lock.
+#
+# 8a pins the convergence structurally: every code line taking the gate lock is
+# immediately followed by the seam's trap installed BY NAME. A gate-local
+# wrapper would hide the guard — it finds itself by reading `trap -p EXIT` — so
+# "some trap that eventually calls the seam" is not good enough.
+t8_unpaired="$(awk '
+    pending && NF { if ($0 !~ /^[[:space:]]+trap '\''ait_ledger_lock_exit_trap'\'' EXIT[[:space:]]*$/) print pending; pending = "" }
+    /^[[:space:]]+acquire_gate_lock[[:space:]]/ { pending = NR ": " $0; next }
+    END { if (pending) print pending }
+' "$GATE")"
+t8_sites="$(grep -cE '^[[:space:]]+acquire_gate_lock[[:space:]]' "$GATE")"
+assert_eq "every gate-lock acquisition installs the seam trap next" "" "$t8_unpaired"
+assert_eq "the pairing check saw the three gate-lock sections" "3" "$t8_sites"
+assert_not_contains "the private pre-t1681 trap copy is gone" \
+    "_gate_lock_exit_trap" "$(cat "$GATE")"
+
+# 8b/8c drive a REAL gate-lock section: sourcing aitask_gate.sh with no
+# arguments defines all its functions (main "" only prints help, discarded), so
+# acquire_gate_lock is the shipped one — gate namespace, gate labels. The
+# arguments are saved BEFORE `set --`: that line keeps the driver's args away
+# from the sourced main, and the sourced `set -u` would make a later "$1" die
+# in the preamble — status 1, no lock, no trap — which is exactly what a
+# vacuous control looks like. So the driver also reports the lock it holds and
+# the trap it installed, and both arms assert that evidence before anything else.
+cat > "$TMP/t8_chain.sh" <<EOF
+t8_key="\${1:?}"; t8_mode="\${2:?}"
+set --
+. "$GATE" >/dev/null
+declare -F acquire_gate_lock ait_ledger_lock_exit_trap >/dev/null || exit 97
+gate_cleanup() { :; }
+acquire_gate_lock "\$t8_key"
+[[ -n "\$_AIT_LEDGER_LOCK_DIR" && -d "\$_AIT_LEDGER_LOCK_DIR" ]] || exit 96
+printf 'T8_LOCK_HELD:%s\n' "\$_AIT_LEDGER_LOCK_DIR" >&2
+case "\$t8_mode" in
+    chained) trap 'gate_cleanup; ait_ledger_lock_exit_trap' EXIT ;;
+    bare)    trap 'ait_ledger_lock_exit_trap' EXIT ;;
+    *)       exit 95 ;;
+esac
+printf 'T8_TRAP:%s\n' "\$(trap -p EXIT)" >&2
+die "t8 section died"
+EOF
+
+t8_run() {  # <id> <mode> -> sets out, rc
+    out="$( cd "$TMP" && TASK_DIR=aitasks bash "$TMP/t8_chain.sh" "$1" "$2" 2>&1 )"; rc=$?
+}
+
+# 8b — the misuse the guard exists for: cleanup chained in FRONT of the seam.
+t8_run "$ID9" chained
+assert_contains "8b: the gate lock was really held" \
+    "T8_LOCK_HELD:$(lock_dir_for_id "$ID9")" "$out"
+assert_contains "8b: the chained handler was installed" \
+    "T8_TRAP:trap -- 'gate_cleanup; ait_ledger_lock_exit_trap' EXIT" "$out"
+assert_contains "8b: the death came from inside the section" "t8 section died" "$out"
+assert_eq "8b: chained death is not reported as success" "1" "$rc"
+assert_contains "8b: the seam's guard fired at the gate lock" \
+    "ran behind another command in the EXIT trap" "$out"
+assert_dir_not_exists "8b: the seam released the gate lock" "$(lock_dir_for_id "$ID9")"
+
+# 8c — negative control: the bare sanctioned spelling the three sites use. Same
+# death, no guard warning — so 8b's warning comes from the chaining.
+t8_run "$ID10" bare
+assert_contains "8c: the gate lock was really held" \
+    "T8_LOCK_HELD:$(lock_dir_for_id "$ID10")" "$out"
+assert_contains "8c: the bare handler was installed" \
+    "T8_TRAP:trap -- 'ait_ledger_lock_exit_trap' EXIT" "$out"
+assert_contains "8c: the death came from inside the section" "t8 section died" "$out"
+assert_eq "8c: the die's status comes through the bare trap" "1" "$rc"
+assert_not_contains "8c: no guard warning for the sanctioned spelling" \
+    "ran behind another command" "$out"
+assert_dir_not_exists "8c: the seam released the gate lock" "$(lock_dir_for_id "$ID10")"
 
 echo ""
 echo "========================="

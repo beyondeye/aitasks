@@ -130,6 +130,14 @@ is_terminal_status() {
 # these wrappers bind this ledger's namespace and the label whose text
 # tests/test_gate_lock_characterization.sh pins. The names are kept because
 # cmd_append, cmd_materialize_active and cmd_begin_procedure all call them.
+#
+# Every section holding this lock installs the SEAM's EXIT trap by name,
+# `trap 'ait_ledger_lock_exit_trap' EXIT` (t1692). Never wrap it in a
+# gate-local function: the seam's chained-trap guard reads `trap -p EXIT` for
+# its own name, so a wrapper hides it and the guard goes silent. A section that
+# needs its own cleanup uses the seam's chained spelling instead —
+# `trap 'rc=$?; cleanup; ait_ledger_lock_exit_trap "$rc"' EXIT` (see
+# aitask_note.sh). tests/test_gate_lock_characterization.sh Test 8 pins both.
 acquire_gate_lock() {
     ait_ledger_lock_acquire "gate" "$1" "gate lock" "gate append lock"
 }
@@ -142,14 +150,6 @@ release_gate_lock_checked() {
     if ! release_gate_lock; then
         die "gate lock not released — the key stays wedged (see warning above)"
     fi
-}
-
-_gate_lock_exit_trap() {
-    local rc=$?
-    if ! release_gate_lock; then
-        if [[ $rc -eq 0 ]]; then rc=1; fi
-    fi
-    exit "$rc"
 }
 
 delegate_python() {
@@ -291,7 +291,7 @@ cmd_append() {
 
     local key="${task_id//\//_}"
     acquire_gate_lock "$key"
-    trap '_gate_lock_exit_trap' EXIT
+    trap 'ait_ledger_lock_exit_trap' EXIT
 
     # `--only-if-running` guard (atomic under the lock): if a terminal block was
     # already written for this run id, do nothing. Checked ONCE here, for both
@@ -970,7 +970,7 @@ cmd_materialize_active() {
 
     local key="${task_id//\//_}"
     acquire_gate_lock "$key"
-    trap '_gate_lock_exit_trap' EXIT
+    trap 'ait_ledger_lock_exit_trap' EXIT
 
     # Hard-fail helper for the profiled path: a re-derivation that cannot
     # complete must not leave a stale snapshot governing — drop the tuple
@@ -1224,7 +1224,7 @@ cmd_begin_procedure() {
     # cmd_append here would deadlock against our own hold.
     local key="${task_id//\//_}"
     acquire_gate_lock "$key"
-    trap '_gate_lock_exit_trap' EXIT
+    trap 'ait_ledger_lock_exit_trap' EXIT
 
     local state open_field attempt run_id terminal
     state="$(_gate_run_state "$file" "$gate")"
