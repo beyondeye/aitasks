@@ -110,3 +110,5 @@ human action a precondition.
 > | - annot.Classify(lang, data) gives per-line Code/Comment/Literal classes — bash heredocs and strings, Python strings and the docstring spans, Kotlin raw strings, Go via go/scanner — if your scanners need comment context.
 > | 
 > | No human-only step was met.
+
+> **👁 note:read** id=2026-10-12T14:41:56Z.76c8feb301ec334e22e0d48b by=t1853_3 at=2026-10-12T14:41:56Z mode=explicit ids=2026-10-12T14:30:51Z.c862329c5f9422e0629819f6
