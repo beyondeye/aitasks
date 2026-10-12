@@ -2447,9 +2447,11 @@ class SyncerApp(TuiSwitcherMixin, ShortcutsMixin, App):
         with self._task_data_guard(target.root, "sync", target.label) as allowed:
             if not allowed:
                 return
+            # A plain callable: this async worker runs on the app thread, and so
+            # does the helper's inline-completion callback (t1961).
             run_interactive_sync(
                 self.app,
-                on_done=lambda: self.call_from_thread(self._tick_refresh),
+                on_done=self._tick_refresh,
                 repo_root=target.root,
             )
 

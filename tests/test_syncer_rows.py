@@ -39,10 +39,12 @@ from textual.widgets import (  # noqa: E402
 )
 
 from textual.screen import ModalScreen  # noqa: E402
+from textual.worker import WorkerState  # noqa: E402
 
 import agent_launch_utils  # noqa: E402
 from agent_launch_utils import AitasksSession, TmuxLaunchConfig  # noqa: E402
 import syncer_app  # noqa: E402
+import sync_action_runner  # noqa: E402
 from sync_action_runner import (  # noqa: E402
     CONFLICT_CHOICE_INTERACTIVE,
     DATA_CONFLICT_WINDOW_NAME,
@@ -3708,6 +3710,77 @@ class StraySyncTests(_TabbedShellBase):
     def test_recovery_agent_refused_while_the_stray_survives_multi_repo(self):
         sessions, row, target = self._two_repos()
         self._assert_recovery(self._recovery_route(sessions, row, target))
+
+
+class InteractiveSyncCompletionTests(_TabbedShellBase):
+    """The REAL ``run_interactive_sync`` completing inline (t1961).
+
+    With no terminal emulator the helper suspends the app, runs ``ait sync``
+    and calls ``on_done`` synchronously — on the app thread, because
+    ``_run_interactive_sync_shared`` is an async worker. A callback that used
+    ``call_from_thread`` there raised, failing the worker and skipping the
+    post-sync refresh. Only the helper's own seams are stubbed: the terminal
+    probe, the child process and the driver.
+    """
+
+    async def _drive(self, target: ActionTarget, sessions=None) -> dict:
+        events: list[str] = []
+        calls: list[tuple[list[str], dict]] = []
+
+        def call(argv, **kwargs):
+            events.append("call")
+            calls.append((list(argv), kwargs))
+            return 0
+
+        driver = mock.MagicMock()
+        driver.can_suspend = True
+        driver.no_automatic_restart = lambda: contextlib.nullcontext()
+        driver.suspend_application_mode.side_effect = lambda: events.append("suspend")
+        driver.resume_application_mode.side_effect = lambda: events.append("resume")
+
+        with mock.patch.object(sync_action_runner, "find_terminal", lambda: None), \
+                mock.patch.object(sync_action_runner.subprocess, "call", call):
+            async with self.booted(sessions=sessions) as (app, pilot):
+                real_refresh = app._tick_refresh
+
+                def refresh():
+                    events.append("refresh")
+                    real_refresh()
+
+                with mock.patch.object(app, "_driver", driver), \
+                        mock.patch.object(app, "_tick_refresh", refresh):
+                    worker = app._run_interactive_sync_shared(target)
+                    try:
+                        await worker.wait()
+                    except Exception as exc:  # WorkerFailed — asserted below
+                        error = exc
+                    else:
+                        error = None
+                await self.settle(app, pilot)
+                lock_free = app._sync_data_lock.acquire(blocking=False)
+                if lock_free:
+                    app._sync_data_lock.release()
+                return {"state": worker.state, "error": error, "events": events,
+                        "calls": calls, "lock_free": lock_free}
+
+    def _assert_completed(self, out: dict) -> None:
+        self.assertIsNone(out["error"], f"worker failed: {out['error']!r}")
+        self.assertEqual(out["state"], WorkerState.SUCCESS)
+        self.assertEqual(out["events"], ["suspend", "call", "resume", "refresh"])
+        self.assertTrue(out["lock_free"])
+
+    def test_inline_sync_refreshes_and_the_worker_succeeds(self):
+        out = self._run(self._drive(ActionTarget(None, None, "")))
+        self._assert_completed(out)
+        self.assertEqual(out["calls"], [(["./ait", "sync"], {"cwd": None})])
+
+    def test_inline_sync_on_another_repo_refreshes(self):
+        sessions = [sess("/tmp/repo0", "repo0"), sess("/tmp/repo1", "repo1")]
+        out = self._run(self._drive(
+            ActionTarget(Path("/tmp/repo1"), None, "repo1"), sessions))
+        self._assert_completed(out)
+        self.assertEqual(out["calls"],
+                         [(["/tmp/repo1/ait", "sync"], {"cwd": "/tmp/repo1"})])
 
 
 if __name__ == "__main__":
