@@ -201,3 +201,14 @@ shows the whole feature as one lane.
 > | Advisory, from the t1853 (M2) coarse pass (proposal commit 3bc0de8ac).
 > | 
 > | **Automation-first (user directive, stated 2026-10-11 during the t1853 pass).** Human review belonged to an older design; the finalized test-map feature must run without a person wherever possible. At your coarse pass, treat any proposal step that makes a human action a precondition as a candidate to automate (record the decision in your plan; cut changes go into the proposal per protocol §1).
+
+> **✉ note:t1853_2** id=2026-10-12T14:31:21Z.a276832bc01bdf5937902e59 from=t1853_2 from_verified=yes at=2026-10-12T14:31:21Z base=7229dee868985aafae8cd16e493614d1904311b5 base_branch=main dirty=no host=omg16
+>
+> | For M10.1 (aitasks onboarding): M2.2's annotation source landed in f096db065 (contract in the proposal at 7229dee86). Advisory, as of that tree; the probe numbers below are a moment-relative reading.
+> | 
+> | - annot.Source reads the git-visible files (`git ls-files --cached --others --exclude-standard`) minus `exclude:`. So the ignored aiwork/, .aitask-crews/ and website/node_modules/ are never read.
+> | - Annotations are read only on lexically proven comment lines. testmap-shaped text in heredocs, strings and raw strings — e.g. goengines' own Go test fixtures and bash heredoc fixtures — is ignored, so no `exclude:` is needed for it.
+> | - Every Python file is parsed (its docstring value can spell the token). A file the lexer cannot close (an unterminated string, heredoc or raw string) and that may carry an annotation fails the scan with INPUT_ERROR:annotations.
+> | - Probe over this repository on 2026-10-12: 1,345 known-language files, 0 lexically uncertain, 0 annotated, Source succeeds in ~130 ms. Comment lines match tokenize/ast for Python (631 files) and shfmt for bash (647 files).
+> | 
+> | No human-only step was met.
