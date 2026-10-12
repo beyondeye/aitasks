@@ -81,3 +81,10 @@ existing pattern, and the new test is additive.
 None identified. The root cause is confirmed from the code: the async worker plus
 the synchronous `on_done` in the helper. The test exercises the real helper
 through `App.suspend`, which is exactly the path the task names.
+
+## Final Implementation Notes
+- **Actual work done:** `syncer_app.py` `_run_interactive_sync_shared` now passes `on_done=self._tick_refresh` (plain callable, with a one-line comment), replacing the `call_from_thread` lambda. Added `InteractiveSyncCompletionTests` to `tests/test_syncer_rows.py` (two tests: single-repo `root=None` → `["./ait","sync"]`, `cwd=None`; multi-repo → `["/tmp/repo1/ait","sync"]`, `cwd="/tmp/repo1"`). Both drive the REAL `run_interactive_sync`, stubbing only `sync_action_runner.find_terminal` (→ None), `sync_action_runner.subprocess.call` and `app._driver` (suspend-capable fake), and assert worker `SUCCESS`, event order `suspend, call, resume, refresh`, and `_sync_data_lock` free afterwards.
+- **Deviations from plan:** The refresh spy is a plain recording wrapper around the real `_tick_refresh` (not `mock.patch(wraps=...)`), so "refresh after resume" is asserted through the single ordered event list. `WorkerFailed` is caught and asserted rather than propagated, so the red run reports the cause directly.
+- **Issues encountered:** None. Red proof: both tests failed pre-fix with `RuntimeError: The call_from_thread method must run in a different thread from the app`; post-fix the whole module passes (164 tests).
+- **Key decisions:** Direct call instead of `call_later`. The callback already runs on the app thread, and this matches the board twin's plain `reload`. `_tick_refresh` only schedules the threaded refresh worker and does not take `_sync_data_lock`, so calling it inside the guard is safe.
+- **Upstream defects identified:** None
