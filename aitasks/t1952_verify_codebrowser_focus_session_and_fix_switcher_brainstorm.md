@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1946
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-12 12:15
-updated_at: 2026-10-12 12:29
+updated_at: 2026-10-12 15:11
 ---
 
 ## Origin
@@ -59,3 +60,8 @@ cause is the property assignment above, not t1951's change.
     allowlist entry in `tests/test_no_raw_tmux.sh`.
 - Test: set the selection through `_selected_key` (the overlay's source of
   truth) instead of assigning `_session`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-12T12:11:32Z status=pass attempt=1 type=human
