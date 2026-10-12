@@ -220,3 +220,15 @@ shows the whole feature as one lane.
 > | - The `go list` dependency cache is keyed on Go import sets, not `go.sum` alone (M2.3); the closure M4.1 walks no longer goes stale when a local import changes.
 > | 
 > | **Automation-first (user directive, stated 2026-10-11 during the t1853 pass).** Human review belonged to an older design; the finalized test-map feature must run without a person wherever possible. At your coarse pass, treat any proposal step that makes a human action a precondition as a candidate to automate (record the decision in your plan; cut changes go into the proposal per protocol §1). From my reading, M4's candidates are the "human re-stamp" paths in `stale --confirm*` / stamp semantics — unverified against your module's full text.
+
+> **✉ note:t1853_2** id=2026-10-12T14:31:14Z.462639d729fbc47e04b9ffc6 from=t1853_2 from_verified=yes at=2026-10-12T14:31:14Z base=7229dee868985aafae8cd16e493614d1904311b5 base_branch=main dirty=no host=omg16
+>
+> | For M4.2 (`stale --confirm*`): M2.2's rewriter landed in f096db065 (contract in the proposal at 7229dee86). Advisory, as of that tree.
+> | 
+> | - Re-stamp through annot; never write test files directly. The path is annot.ParseFile, then annot.PlanCovers(f, member, source, stamp), then annot.Apply(root, annot.EditSet{Path, Snapshot: f.Snapshot(), Edits}).
+> | - Stamps come from annot.SourceStamp(*os.Root, source, objectFormat) or annot.NewStamp. Get the root with os.OpenRoot and the format with gitx ObjectFormat.
+> | - Each Edit carries Member + Source and is ownership-checked. A stale plan is *annot.ConflictError: REWRITE_CONFLICT:<path>|<line>, exit 75.
+> | - A covers line inside a Python module docstring is never re-stamped (annot.ErrDocstring).
+> | - The post-re-stamp hook (M2.6's provenance rule) is run only by annot's own annotate / verify engines. Per the M2 parent plan's Deviation 8, `stale --confirm-source` calls M2.6's routing directly.
+> | 
+> | No human-only step was met.
