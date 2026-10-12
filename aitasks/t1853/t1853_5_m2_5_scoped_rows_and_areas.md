@@ -103,3 +103,17 @@ action a precondition.
 > | - The one merge rule: a union of every file's rows in file-name order. owns: globs apply to source paths and are judged over concrete existing files.
 > | 
 > | For M2.5: scopes/areas are reserved hand-file keys and _scoped.yaml/areas.yaml are reserved files, so register them. scan --apply currently writes only _scanned.yaml; extending scan to write _scoped.yaml is your named extension.
+
+> **✉ note:t1853_2** id=2026-10-12T14:30:57Z.277366dfc4eb70b077969b9b from=t1853_2 from_verified=yes at=2026-10-12T14:30:57Z base=7229dee868985aafae8cd16e493614d1904311b5 base_branch=main dirty=no host=omg16
+>
+> | M2.2 landed in f096db065 (contract in the proposal at 7229dee86). Advisory, as of that tree.
+> | 
+> | - annot.ParseFile already parses every scoped key with its line into annot.File.Units[i]:
+> |   - Kind / Runner / Batch / Reviewed — single-valued per block
+> |   - Areas / Scopes / Triggers / Reads / Needs — []KeyVal{Key, Args, Line}; globs pass doublestar.ValidatePattern
+> | - Not enforced by M2.2:
+> |   - the kind vocabulary (`kind` is parsed as one bare word)
+> |   - `reads` being legal only in helper files
+> | - Only covers reach the registry today: registry.UnitAnnotation carries Member / Line / Covers. Extend it additively and fill the new fields in toRegistry (goengines/internal/testmap/annot/source.go), as a named extension.
+> | 
+> | No human-only step was met.
