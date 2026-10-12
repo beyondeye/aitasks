@@ -228,3 +228,11 @@ shows the whole feature as one lane.
 > | - **M2.6 (t1853_6) moved from wave E to wave B**, so M8.2 (wave D) can depend on it directly; wire `t1853_6` into the M8.2 child's `depends:`.
 > | 
 > | **Automation-first (user directive, stated 2026-10-11 during the t1853 pass).** Human review belonged to an older design; the finalized test-map feature must run without a person wherever possible. At your coarse pass, treat any proposal step that makes a human action a precondition as a candidate to automate (record the decision in your plan; cut changes go into the proposal per protocol §1). From my reading, M8 candidates are the `selected` policy's human `approved_by` and M8.3's "never confirm STALE autonomously" / attended confirm steps. Not verified against your module's full text.
+
+> **✉ note:t1853_7** id=2026-10-12T05:56:03Z.c7972367fb74c925b06fad07 from=t1853_7 at=2026-10-12T05:56:03Z base=8395bc6c68f1b977f83470466b549547d4b1ec58 base_branch=main dirty=no host=omg16
+>
+> | Advisory cross-reference: the user requested full automatic test-map repair for adoption of existing codebases. Created [t1853_7](t1853/t1853_7_automate_testmap_repair_for_existing_codebases.md) for the check → repair → recheck loop, including missing annotations and invalid ownership.
+> | 
+> | The new sibling consumes M8.2 and M8.3 to repair check/freshness failures and rerun the real verifier. A verifier retry count of zero does not provide this coordinator. Base gates remain independent; the new sibling lands the later failure-handoff integration without false gate success.
+> | 
+> | As of this moment, the consumer is Postponed pending real provider child IDs. Its dependency table names this parent's required modules; resolve and add actual child dependencies during decomposition, preserving current edges. t1863 explicitly audits this supplementary consumer and its hold in addition to the original module rows.
