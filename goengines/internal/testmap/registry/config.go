@@ -1,0 +1,322 @@
+package registry
+
+import (
+	"bytes"
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/beyondeye/aitasks/goengines/internal/testmap"
+	"github.com/bmatcuk/doublestar/v4"
+	"gopkg.in/yaml.v3"
+)
+
+// Paths of the registry directory, repository-relative.
+const (
+	Dir         = "aitestmap"
+	ConfigPath  = Dir + "/config.yaml"
+	RegistryDir = Dir + "/registry"
+	ScannedPath = RegistryDir + "/_scanned.yaml"
+)
+
+// Config is `aitestmap/config.yaml`: the committed declaration of every knob
+// (proposal: Architecture → The registry directory). Every key has a default
+// (Defaults); an absent file is all defaults. Unknown keys are ignored — the
+// contract is additive, so an older engine ignores a newer field.
+type Config struct {
+	UnitCoversMax    int              `yaml:"unit_covers_max"`
+	SuiteBudgetS     int              `yaml:"suite_budget_s"`
+	BootstrapUntil   string           `yaml:"bootstrap_until"` // YYYY-MM-DD; empty = no bootstrap window
+	RequireStamp     bool             `yaml:"require_stamp"`
+	BroadReviewDays  int              `yaml:"broad_review_days"` // 0 = the opt-in REVIEW_DUE cadence is off
+	Concurrency      string           `yaml:"concurrency"`       // serial | parallel
+	BroadAfterUnit   bool             `yaml:"broad_after_unit"`
+	DevicePolicy     string           `yaml:"device_policy"`
+	HostClassName    string           `yaml:"host_class"` // empty = the hostname (HostClass)
+	FlakeThreshold   float64          `yaml:"flake_threshold"`
+	SymbolScanners   []string         `yaml:"symbol_scanners"`
+	RunGateAdmission RunGateAdmission `yaml:"run_gate_admission"`
+	Completion       Completion       `yaml:"completion"`
+	AgentReview      AgentReview      `yaml:"agent_review"`
+	Readiness        Readiness        `yaml:"readiness"`
+	Conventions      []Convention     `yaml:"conventions"`
+	HelperRoots      []string         `yaml:"helper_roots"`
+	HelperFanin      float64          `yaml:"helper_fanin"`
+	Exclude          []string         `yaml:"exclude"` // never listed, never UNREGISTERED
+	Docs             []string         `yaml:"docs"`
+	Notes            string           `yaml:"notes"` // at most MaxNotesLines lines
+	BroadThresholdS  int              `yaml:"broad_threshold_s"`
+}
+
+// RunGateAdmission records a person's approval of the `selected` completion
+// policy (written by the onboarding skill's --policy re-entry). It is an
+// optional recorded value, never a precondition of any engine path.
+type RunGateAdmission struct {
+	ApprovedBy *Approval `yaml:"approved_by"`
+}
+
+// Approval is who approved a policy, when, and what they said.
+type Approval struct {
+	Who       string `yaml:"who"`
+	At        string `yaml:"at"`
+	Statement string `yaml:"statement"`
+}
+
+// Completion is the completion policy block.
+type Completion struct {
+	Mode             string       `yaml:"mode"` // full | selected | auto
+	FullRunEvery     FullRunEvery `yaml:"full_run_every"`
+	Deferred         string       `yaml:"deferred"`           // run | fail
+	OnEmptySelection string       `yaml:"on_empty_selection"` // skip | full
+	EngineAbsent     string       `yaml:"engine_absent"`      // error | fallback_command
+}
+
+// FullRunEvery is the cadence that forces a full completion run under auto.
+type FullRunEvery struct {
+	Tasks               int     `yaml:"tasks"`
+	SelectionRatioAbove float64 `yaml:"selection_ratio_above"`
+	Days                int     `yaml:"days"`
+}
+
+// AgentReview holds the knobs of the two reading origins.
+type AgentReview struct {
+	Enabled            bool     `yaml:"enabled"`
+	Confidence         float64  `yaml:"confidence"`
+	AcceptMin          float64  `yaml:"accept_min"`
+	CalibrationMin     int      `yaml:"calibration_min"`
+	Batch              int      `yaml:"batch"`
+	PacketLines        int      `yaml:"packet_lines"`
+	MaxPairsPerRun     int      `yaml:"max_pairs_per_run"`
+	Author             bool     `yaml:"author"`
+	MeasuredConfidence *float64 `yaml:"measured_confidence"` // written by calibration
+}
+
+// Readiness holds the thresholds `readiness` judges a policy flip against.
+type Readiness struct {
+	MinScoredFullRuns         int  `yaml:"min_scored_full_runs"`
+	MaxFalseNegatives         int  `yaml:"max_false_negatives"`
+	RequireOpaqueProofs       bool `yaml:"require_opaque_proofs"`
+	MinFullRunsSinceMapChange int  `yaml:"min_full_runs_since_map_change"`
+}
+
+// Convention is one `{test, source}` naming pair of the `convention` origin.
+type Convention struct {
+	Test   string `yaml:"test"`
+	Source string `yaml:"source"`
+}
+
+// MaxNotesLines is the ceiling on `notes:` (printed verbatim by --howto).
+const MaxNotesLines = 10
+
+// Defaults returns the configuration of a project whose config.yaml sets
+// nothing. The values of the completion, agent_review, readiness and helper
+// blocks are the proposal's canonical block; project-specific example lists
+// (conventions, exclude, docs) default to empty.
+func Defaults() Config {
+	return Config{
+		UnitCoversMax:   8,
+		SuiteBudgetS:    600,
+		Concurrency:     "serial",
+		BroadAfterUnit:  true,
+		DevicePolicy:    "filter_by_resource",
+		FlakeThreshold:  0.2,
+		SymbolScanners:  []string{},
+		Conventions:     []Convention{},
+		HelperRoots:     []string{"tests/lib/**", "**/testing/**", "**/testdata/**"},
+		HelperFanin:     0.05,
+		Exclude:         []string{},
+		Docs:            []string{},
+		BroadThresholdS: 60,
+		Completion: Completion{
+			Mode:             "auto",
+			FullRunEvery:     FullRunEvery{Tasks: 5, SelectionRatioAbove: 0.60, Days: 7},
+			Deferred:         "run",
+			OnEmptySelection: "skip",
+			EngineAbsent:     "error",
+		},
+		AgentReview: AgentReview{
+			Enabled: true, Confidence: 0.90, AcceptMin: 0.85, CalibrationMin: 30,
+			Batch: 20, PacketLines: 120, MaxPairsPerRun: 400, Author: true,
+		},
+		Readiness: Readiness{
+			MinScoredFullRuns: 20, MaxFalseNegatives: 0, RequireOpaqueProofs: true,
+			MinFullRunsSinceMapChange: 3,
+		},
+	}
+}
+
+// LoadConfig reads `aitestmap/config.yaml` under root. An absent file is
+// Defaults(). A newer contract is a *testmap.ContractMismatchError; any other
+// problem is an *InvalidError.
+func LoadConfig(root string) (Config, error) {
+	cfg := Defaults()
+	data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(ConfigPath)))
+	if errors.Is(err, fs.ErrNotExist) {
+		return cfg, nil
+	}
+	if err != nil {
+		return cfg, invalidf(ConfigPath, "read: %v", err)
+	}
+	return ParseConfig(data)
+}
+
+// ParseConfig decodes and validates the content of config.yaml.
+func ParseConfig(data []byte) (Config, error) {
+	cfg := Defaults()
+	if err := contractCheck(ConfigPath, data); err != nil {
+		return cfg, err
+	}
+	if len(bytes.TrimSpace(data)) > 0 {
+		if err := yaml.Unmarshal(data, &cfg); err != nil {
+			return Defaults(), invalidf(ConfigPath, "%v", err)
+		}
+	}
+	if err := cfg.validate(); err != nil {
+		return Defaults(), invalidf(ConfigPath, "%v", err)
+	}
+	return cfg, nil
+}
+
+// contractCheck runs the M1.2 contract refusal, keeping a newer contract as
+// *testmap.ContractMismatchError and turning every other failure into an
+// *InvalidError.
+func contractCheck(path string, data []byte) error {
+	err := testmap.CheckContract(path, data)
+	if err == nil {
+		return nil
+	}
+	var cm *testmap.ContractMismatchError
+	if errors.As(err, &cm) {
+		return cm
+	}
+	return invalidf(path, "%v", strings.TrimPrefix(err.Error(), path+": "))
+}
+
+func (c Config) validate() error {
+	enums := []struct{ key, val, allowed string }{
+		{"concurrency", c.Concurrency, "serial|parallel"},
+		{"completion.mode", c.Completion.Mode, "full|selected|auto"},
+		{"completion.deferred", c.Completion.Deferred, "run|fail"},
+		{"completion.on_empty_selection", c.Completion.OnEmptySelection, "skip|full"},
+		{"completion.engine_absent", c.Completion.EngineAbsent, "error|fallback_command"},
+	}
+	for _, e := range enums {
+		if !contains(strings.Split(e.allowed, "|"), e.val) {
+			return fmt.Errorf("%s: %q is not one of %s", e.key, e.val, e.allowed)
+		}
+	}
+	if c.DevicePolicy == "" {
+		return errors.New("device_policy: empty")
+	}
+	nonNeg := []struct {
+		key string
+		v   int
+	}{
+		{"unit_covers_max", c.UnitCoversMax}, {"suite_budget_s", c.SuiteBudgetS},
+		{"broad_review_days", c.BroadReviewDays}, {"broad_threshold_s", c.BroadThresholdS},
+		{"completion.full_run_every.tasks", c.Completion.FullRunEvery.Tasks},
+		{"completion.full_run_every.days", c.Completion.FullRunEvery.Days},
+		{"agent_review.calibration_min", c.AgentReview.CalibrationMin},
+		{"agent_review.batch", c.AgentReview.Batch},
+		{"agent_review.packet_lines", c.AgentReview.PacketLines},
+		{"agent_review.max_pairs_per_run", c.AgentReview.MaxPairsPerRun},
+		{"readiness.min_scored_full_runs", c.Readiness.MinScoredFullRuns},
+		{"readiness.max_false_negatives", c.Readiness.MaxFalseNegatives},
+		{"readiness.min_full_runs_since_map_change", c.Readiness.MinFullRunsSinceMapChange},
+	}
+	for _, n := range nonNeg {
+		if n.v < 0 {
+			return fmt.Errorf("%s: %d is negative", n.key, n.v)
+		}
+	}
+	ratios := []struct {
+		key string
+		v   float64
+	}{
+		{"flake_threshold", c.FlakeThreshold}, {"helper_fanin", c.HelperFanin},
+		{"completion.full_run_every.selection_ratio_above", c.Completion.FullRunEvery.SelectionRatioAbove},
+		{"agent_review.confidence", c.AgentReview.Confidence},
+		{"agent_review.accept_min", c.AgentReview.AcceptMin},
+	}
+	if c.AgentReview.MeasuredConfidence != nil {
+		ratios = append(ratios, struct {
+			key string
+			v   float64
+		}{"agent_review.measured_confidence", *c.AgentReview.MeasuredConfidence})
+	}
+	for _, r := range ratios {
+		if !(r.v >= 0 && r.v <= 1) {
+			return fmt.Errorf("%s: %v is outside [0, 1]", r.key, r.v)
+		}
+	}
+	if c.BootstrapUntil != "" {
+		if _, err := time.Parse(time.DateOnly, c.BootstrapUntil); err != nil {
+			return fmt.Errorf("bootstrap_until: %q is not YYYY-MM-DD", c.BootstrapUntil)
+		}
+	}
+	for key, globs := range map[string][]string{"exclude": c.Exclude, "helper_roots": c.HelperRoots} {
+		for _, g := range globs {
+			if g == "" || !doublestar.ValidatePattern(g) {
+				return fmt.Errorf("%s: invalid glob %q", key, g)
+			}
+		}
+	}
+	for i, cv := range c.Conventions {
+		if cv.Test == "" || cv.Source == "" {
+			return fmt.Errorf("conventions[%d]: test and source are both required", i)
+		}
+	}
+	if n := len(strings.Split(strings.TrimRight(c.Notes, "\n"), "\n")); c.Notes != "" && n > MaxNotesLines {
+		return fmt.Errorf("notes: %d lines (at most %d)", n, MaxNotesLines)
+	}
+	return nil
+}
+
+// Excluded reports whether path matches an `exclude:` glob.
+func (c Config) Excluded(path string) bool {
+	return matchAny(c.Exclude, path)
+}
+
+// PastBootstrap reports whether today is after `bootstrap_until`. An absent
+// `bootstrap_until` means there is no bootstrap window, so the strict rules
+// apply — the direction that reports more, never less.
+func (c Config) PastBootstrap(today time.Time) bool {
+	if c.BootstrapUntil == "" {
+		return true
+	}
+	return today.Format(time.DateOnly) > c.BootstrapUntil
+}
+
+// HostClass is `host_class`, defaulting to the hostname.
+func (c Config) HostClass() string {
+	if c.HostClassName != "" {
+		return c.HostClassName
+	}
+	h, err := os.Hostname()
+	if err != nil {
+		return "unknown"
+	}
+	return h
+}
+
+func matchAny(globs []string, path string) bool {
+	for _, g := range globs {
+		if ok, _ := doublestar.Match(g, path); ok {
+			return true
+		}
+	}
+	return false
+}
+
+func contains(list []string, s string) bool {
+	for _, v := range list {
+		if v == s {
+			return true
+		}
+	}
+	return false
+}

@@ -1,0 +1,456 @@
+package registry
+
+import (
+	"bytes"
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/bmatcuk/doublestar/v4"
+	"gopkg.in/yaml.v3"
+)
+
+// ErrAbsent is returned by Load when the repository has no `aitestmap/`.
+var ErrAbsent = errors.New("no " + Dir + "/ directory")
+
+// From is the provenance of an edge row.
+type From string
+
+const (
+	FromAnnotation From = "annotation" // a `testmap:covers` line, persisted in _scanned.yaml
+	FromDeclared   From = "declared"   // an `edges:` row of a hand file
+)
+
+// Edge says a unit exercises a source path.
+type Edge struct {
+	Test        ID
+	Source      string
+	Line        int    // line of the covers annotation (0 for a declared edge)
+	StampedAt   string // stamp date; empty = unstamped
+	StampedBlob string // stamp blob prefix; empty = unstamped
+	From        From
+	File        string // the registry file the row came from
+}
+
+// Stamped reports whether the edge carries a stamp.
+func (e Edge) Stamped() bool { return e.StampedAt != "" || e.StampedBlob != "" }
+
+// Rule is a hand-declared selection rule: when a changed path matches When,
+// Select adds units at Distance, Implies adds virtual changes the walk
+// continues from, and Escalate puts everything at distance 0. Its semantics
+// are the selector's (M4.1); the registry loads and checks it.
+type Rule struct {
+	Name     string
+	When     []string
+	Select   []string
+	Implies  []string
+	Escalate bool
+	Distance int
+	File     string
+}
+
+// Waiver excuses source paths matching Path from UNMAPPED_SOURCE until Until
+// (inclusive; empty = no expiry).
+type Waiver struct {
+	Path   string
+	Reason string
+	Until  string
+	File   string
+}
+
+// Expired reports whether the waiver no longer applies on today.
+func (w Waiver) Expired(today time.Time) bool {
+	return w.Until != "" && today.Format(time.DateOnly) > w.Until
+}
+
+// HandFile is one hand-written registry file and the source globs it owns.
+type HandFile struct {
+	Path string
+	Owns []string
+}
+
+// Registry is the loaded `aitestmap/` directory. The merge rule: every
+// registry file contributes its rows to the same tables, in file-name order;
+// a duplicate edge across files is a harmless union.
+type Registry struct {
+	Config    Config
+	HandFiles []HandFile
+	Edges     []Edge
+	Rules     []Rule
+	Waivers   []Waiver
+	Units     []ScannedRow // _scanned.yaml rows, as persisted
+	// Ext holds the tables later submodules register (FileLoader /
+	// TableLoader), keyed by the name they choose.
+	Ext map[string]any
+}
+
+// A FileLoader loads one reserved registry file (by base name) into reg.
+type FileLoader func(reg *Registry, path string, data []byte) error
+
+// A TableLoader decodes one extra top-level table of a hand file.
+type TableLoader func(reg *Registry, path string, node *yaml.Node) error
+
+var (
+	fileLoaders = map[string]FileLoader{"_scanned.yaml": loadScanned}
+	handTables  = map[string]TableLoader{}
+)
+
+// reservedFiles are registry file names owned by later submodules (M2.4,
+// M2.5, M2.6, M4.4). Until one registers a FileLoader, the file is refused —
+// never silently skipped and never read as a hand file.
+var reservedFiles = []string{"_scoped.yaml", "areas.yaml", "observed.yaml", "seeded.yaml", "adopted.yaml"}
+
+// reservedHandTables are hand-file keys owned by M2.5.
+var reservedHandTables = []string{"scopes", "areas"}
+
+// RegisterFile installs the loader of a reserved registry file. It is called
+// from an init function of the owning submodule's file.
+func RegisterFile(name string, l FileLoader) { fileLoaders[name] = l }
+
+// RegisterHandTable installs the decoder of an extra hand-file table.
+func RegisterHandTable(key string, l TableLoader) { handTables[key] = l }
+
+// Load reads `aitestmap/config.yaml` and every `aitestmap/registry/*.yaml`
+// under root. A newer contract in any file is a
+// *testmap.ContractMismatchError; any other unreadable or malformed content
+// is an *InvalidError. A repository without `aitestmap/` is ErrAbsent.
+func Load(root string) (*Registry, error) {
+	if fi, err := os.Stat(filepath.Join(root, Dir)); err != nil || !fi.IsDir() {
+		if err == nil || errors.Is(err, fs.ErrNotExist) {
+			return nil, ErrAbsent
+		}
+		return nil, invalidf(Dir, "stat: %v", err)
+	}
+	cfg, err := LoadConfig(root)
+	if err != nil {
+		return nil, err
+	}
+	reg := &Registry{Config: cfg, Ext: map[string]any{}}
+	entries, err := os.ReadDir(filepath.Join(root, filepath.FromSlash(RegistryDir)))
+	if errors.Is(err, fs.ErrNotExist) {
+		return reg, nil
+	}
+	if err != nil {
+		return nil, invalidf(RegistryDir, "read: %v", err)
+	}
+	var names []string
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".yaml") {
+			names = append(names, e.Name())
+		}
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		path := RegistryDir + "/" + name
+		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(path)))
+		if err != nil {
+			return nil, invalidf(path, "read: %v", err)
+		}
+		if err := contractCheck(path, data); err != nil {
+			return nil, err
+		}
+		if l, ok := fileLoaders[name]; ok {
+			if err := l(reg, path, data); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		if strings.HasPrefix(name, "_") || contains(reservedFiles, name) {
+			return nil, invalidf(path, "reserved file not supported by this engine")
+		}
+		if err := loadHand(reg, path, data); err != nil {
+			return nil, err
+		}
+	}
+	return reg, nil
+}
+
+// stringList decodes a scalar or a sequence of scalars.
+type stringList []string
+
+func (s *stringList) UnmarshalYAML(n *yaml.Node) error {
+	if n.Kind == yaml.ScalarNode {
+		*s = []string{n.Value}
+		return nil
+	}
+	var l []string
+	if err := n.Decode(&l); err != nil {
+		return err
+	}
+	*s = l
+	return nil
+}
+
+type handEdge struct {
+	Test   string     `yaml:"test"`
+	Covers stringList `yaml:"covers"`
+}
+
+type handRule struct {
+	Name     string   `yaml:"name"`
+	When     []string `yaml:"when"`
+	Select   []string `yaml:"select"`
+	Implies  []string `yaml:"implies"`
+	Escalate bool     `yaml:"escalate"`
+	Distance *int     `yaml:"distance"`
+}
+
+type handWaiver struct {
+	Path   string `yaml:"path"`
+	Reason string `yaml:"reason"`
+	Until  string `yaml:"until"`
+}
+
+// documentRoot decodes data as one YAML mapping document.
+func documentRoot(path string, data []byte) (*yaml.Node, error) {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return nil, invalidf(path, "%v", err)
+	}
+	if len(doc.Content) == 0 {
+		return &yaml.Node{Kind: yaml.MappingNode}, nil
+	}
+	top := doc.Content[0]
+	if top.Kind != yaml.MappingNode {
+		return nil, invalidf(path, "top level is not a mapping")
+	}
+	return top, nil
+}
+
+func loadHand(reg *Registry, path string, data []byte) error {
+	top, err := documentRoot(path, data)
+	if err != nil {
+		return err
+	}
+	hf := HandFile{Path: path}
+	for i := 0; i+1 < len(top.Content); i += 2 {
+		key, val := top.Content[i].Value, top.Content[i+1]
+		switch key {
+		case "contract":
+		case "owns":
+			if err := val.Decode(&hf.Owns); err != nil {
+				return invalidf(path, "owns: %v", err)
+			}
+			for _, g := range hf.Owns {
+				if g == "" || !doublestar.ValidatePattern(g) {
+					return invalidf(path, "owns: invalid glob %q", g)
+				}
+			}
+		case "edges":
+			var rows []handEdge
+			if err := val.Decode(&rows); err != nil {
+				return invalidf(path, "edges: %v", err)
+			}
+			for n, r := range rows {
+				test, err := ParseID(r.Test)
+				if err != nil {
+					return invalidf(path, "edges[%d]: test: %v", n, err)
+				}
+				if len(r.Covers) == 0 {
+					return invalidf(path, "edges[%d]: covers is required", n)
+				}
+				for _, src := range r.Covers {
+					if err := checkPath(src); err != nil {
+						return invalidf(path, "edges[%d]: covers %q: %v", n, src, err)
+					}
+					reg.Edges = append(reg.Edges, Edge{Test: test, Source: src, From: FromDeclared, File: path})
+				}
+			}
+		case "rules":
+			var rows []handRule
+			if err := val.Decode(&rows); err != nil {
+				return invalidf(path, "rules: %v", err)
+			}
+			for n, r := range rows {
+				rule, err := r.validate()
+				if err != nil {
+					return invalidf(path, "rules[%d]: %v", n, err)
+				}
+				rule.File = path
+				reg.Rules = append(reg.Rules, rule)
+			}
+		case "waivers":
+			var rows []handWaiver
+			if err := val.Decode(&rows); err != nil {
+				return invalidf(path, "waivers: %v", err)
+			}
+			for n, w := range rows {
+				if w.Path == "" || !doublestar.ValidatePattern(w.Path) {
+					return invalidf(path, "waivers[%d]: invalid path %q", n, w.Path)
+				}
+				if strings.TrimSpace(w.Reason) == "" {
+					return invalidf(path, "waivers[%d]: reason is required", n)
+				}
+				if w.Until != "" {
+					if _, err := time.Parse(time.DateOnly, w.Until); err != nil {
+						return invalidf(path, "waivers[%d]: until %q is not YYYY-MM-DD", n, w.Until)
+					}
+				}
+				reg.Waivers = append(reg.Waivers, Waiver{Path: w.Path, Reason: w.Reason, Until: w.Until, File: path})
+			}
+		default:
+			if l, ok := handTables[key]; ok {
+				if err := l(reg, path, val); err != nil {
+					return err
+				}
+				continue
+			}
+			if contains(reservedHandTables, key) {
+				return invalidf(path, "table %s not supported by this engine", key)
+			}
+			return invalidf(path, "unknown key %s", key)
+		}
+	}
+	reg.HandFiles = append(reg.HandFiles, hf)
+	return nil
+}
+
+func (r handRule) validate() (Rule, error) {
+	if strings.TrimSpace(r.Name) == "" {
+		return Rule{}, errors.New("name is required")
+	}
+	if len(r.When) == 0 {
+		return Rule{}, fmt.Errorf("rule %s: when is required", r.Name)
+	}
+	if len(r.Select) == 0 && len(r.Implies) == 0 && !r.Escalate {
+		return Rule{}, fmt.Errorf("rule %s: one of select, implies, escalate is required", r.Name)
+	}
+	for _, g := range r.When {
+		if g == "" || !doublestar.ValidatePattern(g) {
+			return Rule{}, fmt.Errorf("rule %s: when: invalid glob %q", r.Name, g)
+		}
+	}
+	for _, p := range r.Select {
+		if err := checkSelect(p); err != nil {
+			return Rule{}, fmt.Errorf("rule %s: select %q: %v", r.Name, p, err)
+		}
+	}
+	for _, p := range r.Implies {
+		if err := checkPath(p); err != nil {
+			return Rule{}, fmt.Errorf("rule %s: implies %q: %v", r.Name, p, err)
+		}
+	}
+	d := 1
+	if r.Distance != nil {
+		d = *r.Distance
+	}
+	if d < 0 {
+		return Rule{}, fmt.Errorf("rule %s: distance %d is negative", r.Name, d)
+	}
+	return Rule{Name: r.Name, When: r.When, Select: r.Select, Implies: r.Implies, Escalate: r.Escalate, Distance: d}, nil
+}
+
+// checkSelect validates a rule's select pattern, `<path glob>[#<member glob>]`
+// — the id grammar with globs in place of names: each half is a well-formed
+// glob carrying none of the id delimiters ('#', '@', '|'), no whitespace, and
+// the member half no '/'. A rule never selects a variant by name; variants
+// follow their unit.
+func checkSelect(p string) error {
+	pathPart, member, hasMember := strings.Cut(p, "#")
+	if err := checkGlobPart("path", pathPart); err != nil {
+		return err
+	}
+	if !hasMember {
+		return nil
+	}
+	if strings.ContainsRune(member, '/') {
+		return errors.New("member contains '/'")
+	}
+	return checkGlobPart("member", member)
+}
+
+func checkGlobPart(what, g string) error {
+	if g == "" {
+		return fmt.Errorf("empty %s", what)
+	}
+	if err := checkChars(what, g); err != nil {
+		return err
+	}
+	if !doublestar.ValidatePattern(g) {
+		return fmt.Errorf("invalid %s glob", what)
+	}
+	return nil
+}
+
+// loadScanned loads the generated `_scanned.yaml`: one row per scanned unit
+// with its covers (edges from annotations) and its listed variants.
+func loadScanned(reg *Registry, path string, data []byte) error {
+	var doc ScannedDoc
+	if len(bytes.TrimSpace(data)) > 0 {
+		dec := yaml.NewDecoder(bytes.NewReader(data))
+		dec.KnownFields(true) // a generated file with an unknown field was not written by scan
+		if err := dec.Decode(&doc); err != nil {
+			return invalidf(path, "%v", err)
+		}
+	}
+	for n, row := range doc.Units {
+		test, err := ParseID(row.Test)
+		if err != nil {
+			return invalidf(path, "units[%d]: %v", n, err)
+		}
+		if test.Variant != "" {
+			return invalidf(path, "units[%d]: %s: a scanned unit carries no variant fragment", n, row.Test)
+		}
+		for _, v := range row.Variants {
+			if err := checkFragment("variant", v); err != nil {
+				return invalidf(path, "units[%d]: %v", n, err)
+			}
+		}
+		for _, c := range row.Covers {
+			if err := checkPath(c.Source); err != nil {
+				return invalidf(path, "units[%d]: covers %q: %v", n, c.Source, err)
+			}
+			reg.Edges = append(reg.Edges, Edge{
+				Test: test, Source: c.Source, Line: c.Line,
+				StampedAt: c.StampedAt, StampedBlob: c.StampedBlob,
+				From: FromAnnotation, File: path,
+			})
+		}
+	}
+	reg.Units = append(reg.Units, doc.Units...)
+	return nil
+}
+
+// Routing errors of OwnerOf.
+var (
+	ErrNoOwner        = errors.New("no hand file owns the path")
+	ErrAmbiguousOwner = errors.New("more than one hand file owns the path")
+)
+
+// OwnerOf returns the hand file a new declared row for source path must be
+// written to: the one file whose `owns:` globs match it. Zero or several
+// owners is an error — a writer refuses rather than guessing.
+func (r *Registry) OwnerOf(path string) (string, error) {
+	var owners []string
+	for _, hf := range r.HandFiles {
+		if matchAny(hf.Owns, path) {
+			owners = append(owners, hf.Path)
+		}
+	}
+	switch len(owners) {
+	case 1:
+		return owners[0], nil
+	case 0:
+		return "", fmt.Errorf("%s: %w", path, ErrNoOwner)
+	default:
+		return "", fmt.Errorf("%s: %w (%s)", path, ErrAmbiguousOwner, strings.Join(owners, ", "))
+	}
+}
+
+// Waived reports whether a live (unexpired) waiver covers path on today.
+func (r *Registry) Waived(path string, today time.Time) bool {
+	for _, w := range r.Waivers {
+		if w.Expired(today) {
+			continue
+		}
+		if ok, _ := doublestar.Match(w.Path, path); ok {
+			return true
+		}
+	}
+	return false
+}

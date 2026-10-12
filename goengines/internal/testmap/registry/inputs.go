@@ -1,0 +1,165 @@
+package registry
+
+import (
+	"context"
+	"errors"
+
+	"github.com/beyondeye/aitasks/goengines/internal/lineproto"
+	"github.com/bmatcuk/doublestar/v4"
+)
+
+// The two inputs `scan` and `check` read. Neither is implemented here: M2.2
+// provides the AnnotationSource (its scanner of `testmap:` lines) and M3.1
+// the UnitLister (its runner repository), each wired into the engine in
+// cmd/ait-testmap/scancheck.go as a named extension.
+
+// AnnotationSource reports the `testmap:` annotations of the repository's
+// test files.
+type AnnotationSource interface {
+	Annotations(ctx context.Context, root string) ([]FileAnnotations, error)
+}
+
+// FileAnnotations are the units one test file declares. The file-level unit
+// (the block before the first `testmap:unit`) has Member == "" and comes
+// first; members follow in file order.
+type FileAnnotations struct {
+	Path  string // repository-relative test file
+	Units []UnitAnnotation
+}
+
+// UnitAnnotation is one unit's annotation block.
+type UnitAnnotation struct {
+	Member string // "" for the file-level block
+	Line   int    // line of the `testmap:unit` opener; 0 for the file-level block
+	Covers []Cover
+}
+
+// Cover is one `testmap:covers <source> [@<date>/<blob10>]` line. The stamp
+// is parsed by M2.2 (it owns the stamp format); both fields empty means the
+// edge is unstamped.
+type Cover struct {
+	Source      string
+	Line        int
+	StampedAt   string
+	StampedBlob string
+}
+
+// UnitLister enumerates the units every runner lists — the enumeration
+// surface `scan --apply` persists and `check` reconciles against.
+type UnitLister interface {
+	List(ctx context.Context, root string) ([]Listing, error)
+}
+
+// Listing is one runner's `list` output plus what its declaration binds.
+type Listing struct {
+	Runner        string
+	Bound         []string // test files the runner's bindings match (UNREGISTERED candidates)
+	ArtifactGlobs []string // the runner's `artifact_glob:` (UNMAPPED_ARTIFACT)
+	Units         []ListedUnit
+}
+
+// ListedUnit is one `list` row: `<id> <kind> <lowering> [<artifact>]`.
+type ListedUnit struct {
+	ID       ID
+	Kind     string
+	Lowering string
+	Artifact string
+}
+
+// Inputs carries the injected inputs. A nil field is an input whose
+// provider has not landed or is not wired: `scan` and `check` then refuse
+// with INPUT_UNAVAILABLE (exit 3) rather than run on nothing.
+type Inputs struct {
+	Annotations AnnotationSource
+	Lister      UnitLister
+}
+
+// Input names, as printed in INPUT_UNAVAILABLE / INPUT_ERROR.
+const (
+	InputAnnotations = "annotations"
+	InputLister      = "lister"
+)
+
+// UnavailableError is an input with no provider.
+type UnavailableError struct{ Input string }
+
+func (e *UnavailableError) Error() string { return "input unavailable: " + e.Input }
+
+// Line is INPUT_UNAVAILABLE:<input>.
+func (e *UnavailableError) Line() (string, error) {
+	return lineproto.Format("INPUT_UNAVAILABLE", e.Input)
+}
+
+// ExitCode is the framework-error exit.
+func (e *UnavailableError) ExitCode() int { return lineproto.ExitFramework }
+
+// InputError is a provider that failed, or returned data that breaks the
+// interface (an invalid path or id).
+type InputError struct {
+	Input string
+	Err   error
+}
+
+func (e *InputError) Error() string { return e.Input + ": " + e.Err.Error() }
+func (e *InputError) Unwrap() error { return e.Err }
+
+// Line is INPUT_ERROR:<input>|<detail>.
+func (e *InputError) Line() (string, error) {
+	return lineproto.Format("INPUT_ERROR", e.Input, flatten(e.Err.Error()))
+}
+
+// ExitCode is the framework-error exit.
+func (e *InputError) ExitCode() int { return lineproto.ExitFramework }
+
+// readInputs runs both providers and validates what they return.
+func readInputs(ctx context.Context, root string, in Inputs) ([]FileAnnotations, []Listing, error) {
+	if in.Annotations == nil {
+		return nil, nil, &UnavailableError{Input: InputAnnotations}
+	}
+	if in.Lister == nil {
+		return nil, nil, &UnavailableError{Input: InputLister}
+	}
+	anns, err := in.Annotations.Annotations(ctx, root)
+	if err != nil {
+		return nil, nil, &InputError{Input: InputAnnotations, Err: err}
+	}
+	for _, f := range anns {
+		if err := checkPath(f.Path); err != nil {
+			return nil, nil, &InputError{Input: InputAnnotations, Err: err}
+		}
+		for _, u := range f.Units {
+			if u.Member != "" {
+				if err := checkFragment("member", u.Member); err != nil {
+					return nil, nil, &InputError{Input: InputAnnotations, Err: errors.New(f.Path + ": " + err.Error())}
+				}
+			}
+			for _, c := range u.Covers {
+				if err := checkPath(c.Source); err != nil {
+					return nil, nil, &InputError{Input: InputAnnotations, Err: errors.New(f.Path + ": covers: " + err.Error())}
+				}
+			}
+		}
+	}
+	lists, err := in.Lister.List(ctx, root)
+	if err != nil {
+		return nil, nil, &InputError{Input: InputLister, Err: err}
+	}
+	for _, l := range lists {
+		for _, p := range l.Bound {
+			if err := checkPath(p); err != nil {
+				return nil, nil, &InputError{Input: InputLister, Err: errors.New(l.Runner + ": bound: " + err.Error())}
+			}
+		}
+		for _, g := range l.ArtifactGlobs {
+			if g == "" || !doublestar.ValidatePattern(g) {
+				return nil, nil, &InputError{Input: InputLister, Err: errors.New(l.Runner + ": invalid artifact_glob " + g)}
+			}
+		}
+		for _, u := range l.Units {
+			if !u.ID.Valid() {
+				return nil, nil, &InputError{Input: InputLister, Err: errors.New(l.Runner + ": invalid id " + u.ID.String())}
+			}
+		}
+	}
+	return anns, lists, nil
+}

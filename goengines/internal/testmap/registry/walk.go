@@ -1,0 +1,154 @@
+package registry
+
+import (
+	"io/fs"
+	"os"
+	"path"
+	"sort"
+	"strings"
+
+	"github.com/bmatcuk/doublestar/v4"
+)
+
+// MatchFiles returns, for each pattern, the existing files under root that it
+// matches — the candidate universe of the rules that judge declared patterns
+// (a runner's `artifact_glob:`, a rule's `when:`, a waiver's `path:`).
+//
+// Each pattern is one strict doublestar.GlobWalk over an exclude-aware view of
+// the tree, so:
+//
+//   - only directories the full pattern can match are read: an unreadable
+//     directory no pattern reaches is never opened;
+//   - any I/O error in a directory a pattern does reach is returned
+//     (WithFailOnIOErrors) — an unreadable tree must never look reconciled;
+//   - the universe is the files that exist now: a deleted tracked file is not
+//     a candidate, an ignored one is;
+//   - only `exclude:` removes files (the view hides a file matching an
+//     `exclude:` glob, and a directory an `exclude:` glob ending in `/**`
+//     covers, without reading it), plus `.git` entries, which are repository
+//     metadata and never work-tree files. There is no other pruning: a
+//     nested checkout is in scope unless `exclude:` names it;
+//   - symbolic links are never followed, whatever the pattern's spelling: a
+//     linked directory is not descended into by a broad pattern
+//     (WithNoFollow) nor reached through a literal prefix (the view's Stat).
+//
+// A pattern whose base does not exist matches nothing. Each list is sorted.
+func MatchFiles(root string, patterns, exclude []string) (map[string][]string, error) {
+	view := &excludeFS{fsys: os.DirFS(root), exclude: exclude}
+	out := map[string][]string{}
+	for _, p := range patterns {
+		if _, done := out[p]; done {
+			continue
+		}
+		var files []string
+		err := doublestar.GlobWalk(view, p, func(name string, _ fs.DirEntry) error {
+			files = append(files, name)
+			return nil
+		}, doublestar.WithFailOnIOErrors(), doublestar.WithFilesOnly(), doublestar.WithNoFollow())
+		if err != nil {
+			return nil, err
+		}
+		sort.Strings(files)
+		out[p] = files
+	}
+	return out, nil
+}
+
+// excludeFS is the tree as `exclude:` leaves it. It implements fs.ReadDirFS
+// and fs.StatFS — the only two calls doublestar's walk makes — and Open.
+type excludeFS struct {
+	fsys    fs.FS
+	exclude []string
+}
+
+// hidden reports whether an entry is outside the view. Directories are hidden
+// only by an `exclude:` glob ending in `/**` (everything below them is
+// excluded, so the directory is never read); files by any `exclude:` glob.
+func (v *excludeFS) hidden(name string, dir bool) bool {
+	if name == "." {
+		return false
+	}
+	if path.Base(name) == ".git" {
+		return true
+	}
+	for _, g := range v.exclude {
+		if dir && !strings.HasSuffix(g, "/**") {
+			continue
+		}
+		if ok, _ := doublestar.Match(g, name); ok {
+			return true
+		}
+	}
+	return false
+}
+
+func notExist(op, name string) error {
+	return &fs.PathError{Op: op, Path: name, Err: fs.ErrNotExist}
+}
+
+// Stat describes name without following symbolic links anywhere on its path
+// (WithNoFollow only governs links the walk meets as entries; a pattern's
+// literal prefix reaches doublestar through Stat). Each directory above name
+// must be a real, visible directory — a hidden one, a symbolic link or a
+// non-directory makes name absent, exactly as a walk that met it as an entry
+// would never descend — and name itself is described by Lstat, so a link is a
+// link, never its target. Any other error (e.g. permission denied on a parent)
+// is returned, never read as absent.
+func (v *excludeFS) Stat(name string) (fs.FileInfo, error) {
+	if name != "." {
+		parts := strings.Split(name, "/")
+		for i := 1; i < len(parts); i++ {
+			dir := strings.Join(parts[:i], "/")
+			if v.hidden(dir, true) {
+				return nil, notExist("stat", name)
+			}
+			fi, err := fs.Lstat(v.fsys, dir)
+			if err != nil {
+				return nil, err
+			}
+			if !fi.IsDir() { // a symbolic link (never followed) or a file
+				return nil, notExist("stat", name)
+			}
+		}
+	}
+	fi, err := fs.Lstat(v.fsys, name)
+	if err != nil {
+		return nil, err
+	}
+	if v.hidden(name, fi.IsDir()) {
+		return nil, notExist("stat", name)
+	}
+	return fi, nil
+}
+
+func (v *excludeFS) Open(name string) (fs.File, error) {
+	if _, err := v.Stat(name); err != nil {
+		return nil, err
+	}
+	return v.fsys.Open(name)
+}
+
+func (v *excludeFS) ReadDir(name string) ([]fs.DirEntry, error) {
+	fi, err := v.Stat(name)
+	if err != nil {
+		return nil, err
+	}
+	if !fi.IsDir() { // a symbolic link to a directory is never read through
+		return nil, notExist("readdir", name)
+	}
+	entries, err := fs.ReadDir(v.fsys, name)
+	if err != nil {
+		return nil, err
+	}
+	kept := entries[:0]
+	for _, e := range entries {
+		child := e.Name()
+		if name != "." {
+			child = name + "/" + e.Name()
+		}
+		if !v.hidden(child, e.IsDir()) {
+			kept = append(kept, e)
+		}
+	}
+	return kept, nil
+}

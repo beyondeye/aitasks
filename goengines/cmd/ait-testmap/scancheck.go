@@ -1,0 +1,180 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"os"
+	"strconv"
+	"strings"
+
+	"github.com/beyondeye/aitasks/goengines/internal/lineproto"
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/registry"
+)
+
+// testmapInputs returns the injected inputs `scan` and `check` read. It is
+// the wiring point of two named extensions: M2.2 sets Annotations (its
+// `testmap:` scanner) and M3.1 sets Lister (the runner repository). A nil
+// field makes both verbs refuse with INPUT_UNAVAILABLE, exit 3 — they never
+// run on an empty input as if it were the repository.
+var testmapInputs = func() registry.Inputs {
+	return registry.Inputs{}
+}
+
+// scanCheckExits is the exit contract of `scan` and `check`: 0 clean, 1 a
+// failing finding (or refused member drift), 2 no `aitestmap/`, 3 the
+// registry or an input could not be loaded or inspected, 64 usage.
+var scanCheckExits = lineproto.ExitContract{
+	lineproto.ExitOK, lineproto.ExitFail, lineproto.ExitNothingRan, lineproto.ExitFramework, lineproto.ExitUsage,
+}
+
+// lineError is an error that renders as one protocol line.
+type lineError interface {
+	error
+	Line() (string, error)
+}
+
+// reportError prints the failure line on stderr and returns the exit code:
+// 2 for a repository with no `aitestmap/`, 3 for everything else.
+func reportError(e env, err error) int {
+	if errors.Is(err, registry.ErrAbsent) {
+		fmt.Fprintln(e.stderr, "TESTMAP_ABSENT:"+registry.Dir+"/")
+		return lineproto.ExitNothingRan
+	}
+	var le lineError
+	if errors.As(err, &le) {
+		if l, lerr := le.Line(); lerr == nil {
+			fmt.Fprintln(e.stderr, l)
+			return lineproto.ExitFramework
+		}
+	}
+	fmt.Fprintf(e.stderr, "CHECK_ERROR:engine|%s\n", oneLine(err.Error()))
+	return lineproto.ExitFramework
+}
+
+// oneLine makes free text safe for one line-protocol field.
+func oneLine(s string) string {
+	return strings.NewReplacer("|", "/", "\n", " ", "\r", " ").Replace(s)
+}
+
+// printLines writes every line, or nothing: a line that cannot be formatted
+// is a framework error reported before any stdout is produced.
+func printLines(e env, lines [][]string) int {
+	var out []string
+	for _, l := range lines {
+		s, err := lineproto.Format(l[0], l[1:]...)
+		if err != nil {
+			fmt.Fprintf(e.stderr, "CHECK_ERROR:output|%s\n", oneLine(err.Error()))
+			return lineproto.ExitFramework
+		}
+		out = append(out, s)
+	}
+	for _, s := range out {
+		fmt.Fprintln(e.stdout, s)
+	}
+	return lineproto.ExitOK
+}
+
+func findingLines(fs []registry.Finding) [][]string {
+	var lines [][]string
+	for _, f := range fs {
+		lines = append(lines, append([]string{f.Rule}, f.Fields...))
+	}
+	return lines
+}
+
+func cwd() (string, error) { return os.Getwd() }
+
+// runScan is `scan [--apply] [--json]`: build `_scanned.yaml` from the two
+// inputs; print the member drift, `SCAN:<units>|<edges>|<variants>`, then
+// `WROTE:<path>` (--apply, changed) or `SCAN_DRIFT:<path>` (dry run, would
+// change). Member drift exits 1 and refuses the write.
+func runScan(e env, args []string) int {
+	return scanWith(e, args, testmapInputs())
+}
+
+func scanWith(e env, args []string, in registry.Inputs) int {
+	const usage = "ait-testmap scan [--apply] [--json]"
+	fs := flag.NewFlagSet("scan", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	apply := fs.Bool("apply", false, "write _scanned.yaml when it changed")
+	asJSON := fs.Bool("json", false, "print one JSON object")
+	if err := fs.Parse(args); err != nil || fs.NArg() > 0 {
+		return lineproto.Usage(e.stderr, usage)
+	}
+	root, err := cwd()
+	if err != nil {
+		return reportError(e, err)
+	}
+	res, err := registry.Scan(context.Background(), root, in, *apply)
+	if err != nil {
+		return reportError(e, err)
+	}
+	code := lineproto.ExitOK
+	if len(res.Findings) > 0 {
+		code = lineproto.ExitFail
+	}
+	if *asJSON {
+		if err := lineproto.NewWriter(e.stdout, true).Emit(res); err != nil {
+			return reportError(e, err)
+		}
+		return code
+	}
+	lines := findingLines(res.Findings)
+	lines = append(lines, []string{"SCAN", strconv.Itoa(res.Units), strconv.Itoa(res.Edges), strconv.Itoa(res.Variants)})
+	for _, w := range res.Wrote {
+		lines = append(lines, []string{"WROTE", w})
+	}
+	if res.Changed && len(res.Wrote) == 0 {
+		lines = append(lines, []string{registry.RuleScanDrift, registry.ScannedPath})
+	}
+	if c := printLines(e, lines); c != lineproto.ExitOK {
+		return c
+	}
+	return code
+}
+
+// runCheck is `check [--strict] [--json]`: every registered rule's findings
+// in registration order, then `CHECK:<pass|fail>|<findings>|<failing>`;
+// exit 1 when a finding fails. A registry, input or inspection failure
+// prints its line on stderr, exits 3 and prints no CHECK: line.
+func runCheck(e env, args []string) int {
+	return checkWith(e, args, testmapInputs())
+}
+
+func checkWith(e env, args []string, in registry.Inputs) int {
+	const usage = "ait-testmap check [--strict] [--json]"
+	fs := flag.NewFlagSet("check", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	strict := fs.Bool("strict", false, "fail structural findings once bootstrap_until has passed")
+	asJSON := fs.Bool("json", false, "print one JSON object")
+	if err := fs.Parse(args); err != nil || fs.NArg() > 0 {
+		return lineproto.Usage(e.stderr, usage)
+	}
+	root, err := cwd()
+	if err != nil {
+		return reportError(e, err)
+	}
+	res, err := registry.Check(context.Background(), root, in, registry.CheckOptions{Strict: *strict})
+	if err != nil {
+		return reportError(e, err)
+	}
+	code := lineproto.ExitOK
+	if res.Failing > 0 {
+		code = lineproto.ExitFail
+	}
+	if *asJSON {
+		if err := lineproto.NewWriter(e.stdout, true).Emit(res); err != nil {
+			return reportError(e, err)
+		}
+		return code
+	}
+	lines := findingLines(res.Findings)
+	lines = append(lines, []string{"CHECK", res.Status, strconv.Itoa(len(res.Findings)), strconv.Itoa(res.Failing)})
+	if c := printLines(e, lines); c != lineproto.ExitOK {
+		return c
+	}
+	return code
+}

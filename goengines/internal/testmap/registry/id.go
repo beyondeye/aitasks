@@ -1,0 +1,143 @@
+// Package registry is the loaded test map: the `aitestmap/` directory read
+// into tables (edges, rules, waivers, the scanned units and their variants),
+// the `config.yaml` schema with every key and its default, the id grammar
+// every engine package keys units by, the deterministic writer of the
+// generated files, and the `scan` / `check` engines with their rule
+// framework.
+//
+// Later submodules land here as named extensions: M2.4 (axes), M2.5 (scoped
+// rows and areas) and M2.6 (seeds and adopted rows) register their tables
+// and check rules in their own files (see load.go and check.go); M2.2 and
+// M3.1 provide the two injected inputs `scan` and `check` read (inputs.go).
+package registry
+
+import (
+	"errors"
+	"fmt"
+	"strings"
+	"unicode"
+)
+
+// ID is a unit id, `<path>[#<member>][@<variant>]`: a test file, a member of
+// a file (opened by a `testmap:unit <member>` block) or a variant of either
+// on a declared axis. Ids are what runners list and what the cost ledger,
+// evidence and predictions are keyed by.
+type ID struct {
+	Path    string
+	Member  string
+	Variant string
+}
+
+// ErrBadID is wrapped by every ParseID failure.
+var ErrBadID = errors.New("invalid unit id")
+
+// ParseID parses `<path>[#<member>][@<variant>]`.
+//
+// path is non-empty, slash-separated and repository-relative: no leading or
+// trailing '/', no empty, '.' or '..' segment, no '\'. member and variant are
+// non-empty and carry no '/'. None of the three carries '#', '@', '|',
+// whitespace or a control character — '#' and '@' delimit the fragments and
+// '|' is the line-protocol field separator. At most one fragment of each kind
+// is allowed, member before variant.
+func ParseID(s string) (ID, error) {
+	rest, variant, hasVariant := strings.Cut(s, "@")
+	path, member, hasMember := strings.Cut(rest, "#")
+	id := ID{Path: path, Member: member, Variant: variant}
+	if err := checkPath(path); err != nil {
+		return ID{}, fmt.Errorf("%w %q: %v", ErrBadID, s, err)
+	}
+	if hasMember {
+		if err := checkFragment("member", member); err != nil {
+			return ID{}, fmt.Errorf("%w %q: %v", ErrBadID, s, err)
+		}
+	}
+	if hasVariant {
+		if err := checkFragment("variant", variant); err != nil {
+			return ID{}, fmt.Errorf("%w %q: %v", ErrBadID, s, err)
+		}
+	}
+	return id, nil
+}
+
+// MustParseID is ParseID for literals known to be valid; it panics otherwise.
+func MustParseID(s string) ID {
+	id, err := ParseID(s)
+	if err != nil {
+		panic(err)
+	}
+	return id
+}
+
+// String renders the id in its canonical form.
+func (id ID) String() string {
+	s := id.Path
+	if id.Member != "" {
+		s += "#" + id.Member
+	}
+	if id.Variant != "" {
+		s += "@" + id.Variant
+	}
+	return s
+}
+
+// Base is the id without its variant: the unit a variant belongs to.
+func (id ID) Base() ID {
+	id.Variant = ""
+	return id
+}
+
+// Valid reports whether id round-trips through ParseID.
+func (id ID) Valid() bool {
+	p, err := ParseID(id.String())
+	return err == nil && p == id
+}
+
+// CheckPath reports whether p is a valid repository-relative path in the id
+// grammar (the `<path>` part of an id, and every path a registry row names).
+func CheckPath(p string) error { return checkPath(p) }
+
+func checkPath(p string) error {
+	if p == "" {
+		return errors.New("empty path")
+	}
+	if strings.HasPrefix(p, "/") {
+		return errors.New("absolute path")
+	}
+	if strings.ContainsRune(p, '\\') {
+		return errors.New(`path contains '\'`)
+	}
+	if err := checkChars("path", p); err != nil {
+		return err
+	}
+	for _, seg := range strings.Split(p, "/") {
+		switch seg {
+		case "":
+			return errors.New("empty path segment")
+		case ".", "..":
+			return fmt.Errorf("path segment %q", seg)
+		}
+	}
+	return nil
+}
+
+func checkFragment(what, f string) error {
+	if f == "" {
+		return fmt.Errorf("empty %s", what)
+	}
+	if strings.ContainsRune(f, '/') {
+		return fmt.Errorf("%s contains '/'", what)
+	}
+	return checkChars(what, f)
+}
+
+func checkChars(what, s string) error {
+	for _, r := range s {
+		switch {
+		case r == '#' || r == '@' || r == '|':
+			return fmt.Errorf("%s contains %q", what, r)
+		case unicode.IsSpace(r) || unicode.IsControl(r):
+			return fmt.Errorf("%s contains whitespace or a control character", what)
+		}
+	}
+	return nil
+}

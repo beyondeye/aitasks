@@ -1,0 +1,66 @@
+package registry
+
+import (
+	"fmt"
+
+	"github.com/beyondeye/aitasks/goengines/internal/lineproto"
+)
+
+// InvalidError is a registry file the engine cannot load: a YAML error, an
+// unknown or reserved table, a malformed row or config value. It is a
+// framework error (exit 3), like CONTRACT_MISMATCH: a registry that cannot be
+// read cannot be checked, and must never read as clean.
+type InvalidError struct {
+	Path   string // repository-relative file
+	Reason string
+}
+
+func (e *InvalidError) Error() string { return e.Path + ": " + e.Reason }
+
+// Line is REGISTRY_INVALID:<path>|<reason>. A reason that cannot travel in a
+// line ('|' or a line break, e.g. from a YAML error) is flattened, never
+// emitted raw.
+func (e *InvalidError) Line() (string, error) {
+	return lineproto.Format("REGISTRY_INVALID", e.Path, flatten(e.Reason))
+}
+
+// ExitCode is the framework-error exit.
+func (e *InvalidError) ExitCode() int { return lineproto.ExitFramework }
+
+func invalidf(path, format string, args ...any) *InvalidError {
+	return &InvalidError{Path: path, Reason: fmt.Sprintf(format, args...)}
+}
+
+// CheckError is an inspection that failed while `check` or `scan` ran — an
+// unreadable directory under a declared pattern, a stat that failed for a
+// reason other than absence, an input provider's error. The run is aborted:
+// a check that could not look must never print CHECK:pass.
+type CheckError struct {
+	Rule string // the rule or stage that failed ("enumerate", "STALE_PATH", "input:annotations", …)
+	Err  error
+}
+
+func (e *CheckError) Error() string { return e.Rule + ": " + e.Err.Error() }
+func (e *CheckError) Unwrap() error { return e.Err }
+
+// Line is CHECK_ERROR:<rule>|<detail>.
+func (e *CheckError) Line() (string, error) {
+	return lineproto.Format("CHECK_ERROR", e.Rule, flatten(e.Err.Error()))
+}
+
+// ExitCode is the framework-error exit.
+func (e *CheckError) ExitCode() int { return lineproto.ExitFramework }
+
+// flatten makes free text safe for one line-protocol field.
+func flatten(s string) string {
+	b := []rune(s)
+	for i, r := range b {
+		switch r {
+		case '|':
+			b[i] = '/'
+		case '\n', '\r':
+			b[i] = ' '
+		}
+	}
+	return string(b)
+}

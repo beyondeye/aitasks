@@ -9,9 +9,11 @@
 # (starting git), cal=sha1 (SHA-1 hashing). Record and check with the default
 # producer (-p 1 -cpu 1 -count 3); on a hybrid P/E-core host pin both to one
 # core type. Recorded pinned to one P-core (taskset -c 0).
-internal/benchgate.BenchmarkCalibrate 1916202
-internal/benchgate.BenchmarkCalibrateSpawn 484506
-internal/benchgate.BenchmarkCalibrateHash 29347
+internal/benchgate.BenchmarkCalibrate 1822846
+internal/benchgate.BenchmarkCalibrateSpawn 474353
+internal/benchgate.BenchmarkCalibrateHash 27845
 cmd/ait-testmap.BenchmarkDispatchVersion 2909
-internal/gitx.BenchmarkBlobDigest 29001 cal=sha1
-internal/gitx.BenchmarkLsTree 862142 cal=spawn
+internal/gitx.BenchmarkBlobDigest 27296 cal=sha1
+internal/gitx.BenchmarkLsTree 746911 cal=spawn
+internal/testmap/registry.BenchmarkCheck 24339726 budget=300ms
+internal/testmap/registry.BenchmarkScan 22179851 budget=300ms

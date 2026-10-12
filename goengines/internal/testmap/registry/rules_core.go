@@ -1,0 +1,277 @@
+package registry
+
+import (
+	"errors"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"syscall"
+)
+
+// The check rules M2.1 owns, in the order `check` prints them.
+const (
+	RuleStalePath        = "STALE_PATH"
+	RuleUnstamped        = "UNSTAMPED"
+	RuleUnregistered     = "UNREGISTERED"
+	RuleUnmappedArtifact = "UNMAPPED_ARTIFACT"
+	RuleScanDrift        = "SCAN_DRIFT"
+	RuleOwnsViolation    = "OWNS_VIOLATION"
+	RuleDuplicateRule    = "DUPLICATE_RULE"
+	RuleWaiverExpired    = "WAIVER_EXPIRED"
+)
+
+func init() {
+	RegisterRule(CheckRule{Name: RuleStalePath, Run: checkStalePath})
+	RegisterRule(CheckRule{Name: RuleUnstamped, Run: checkUnstamped})
+	RegisterRule(CheckRule{Name: RuleUnannotatedMember, Run: memberDrift(RuleUnannotatedMember)})
+	RegisterRule(CheckRule{Name: RuleDeadMember, Run: memberDrift(RuleDeadMember)})
+	RegisterRule(CheckRule{Name: RuleUnregistered, Run: checkUnregistered})
+	RegisterRule(CheckRule{Name: RuleUnmappedArtifact, Patterns: artifactPatterns, Run: checkUnmappedArtifact})
+	RegisterRule(CheckRule{Name: RuleScanDrift, Run: checkScanDrift})
+	RegisterRule(CheckRule{Name: RuleOwnsViolation, Patterns: ownedPatterns, Run: checkOwns})
+	RegisterRule(CheckRule{Name: RuleDuplicateRule, Run: checkDuplicateRule})
+	RegisterRule(CheckRule{Name: RuleWaiverExpired, Run: checkWaiverExpired})
+}
+
+// liveEdges are the edges check judges: the annotation edges as the inputs
+// state them now (not as last persisted — drift is SCAN_DRIFT's job) plus
+// the declared edges of hand files. Edges of `exclude:`d tests are skipped.
+func (c *CheckContext) liveEdges() []Edge {
+	var out []Edge
+	for _, u := range c.Scanned.Units {
+		id, err := ParseID(u.Test)
+		if err != nil {
+			continue // BuildScanned only builds valid ids
+		}
+		for _, cv := range u.Covers {
+			out = append(out, Edge{Test: id, Source: cv.Source, Line: cv.Line,
+				StampedAt: cv.StampedAt, StampedBlob: cv.StampedBlob, From: FromAnnotation, File: ScannedPath})
+		}
+	}
+	for _, e := range c.Reg.Edges {
+		if e.From == FromDeclared && !c.Reg.Config.Excluded(e.Test.Path) {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// STALE_PATH:<test>|<source> — an edge whose source does not exist in the
+// working tree (absent, or a directory). A stat that fails for any other
+// reason is an inspection error, never "present" and never "stale".
+func checkStalePath(c *CheckContext) ([]Finding, error) {
+	var out []Finding
+	seen := map[[2]string]bool{}
+	for _, e := range c.liveEdges() {
+		key := [2]string{e.Test.String(), e.Source}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		fi, err := os.Stat(filepath.Join(c.Root, filepath.FromSlash(e.Source)))
+		switch {
+		case err == nil && !fi.IsDir():
+			continue
+		case err == nil, errors.Is(err, fs.ErrNotExist), errors.Is(err, syscall.ENOTDIR):
+			out = append(out, Finding{Rule: RuleStalePath, Fields: key[:], Severity: Always})
+		default:
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
+// UNSTAMPED:<test>|<source> — an annotation edge without a stamp, reported
+// only under `require_stamp` once `bootstrap_until` has passed (and then it
+// fails). Declared edges carry no stamp by design and seeds never count.
+func checkUnstamped(c *CheckContext) ([]Finding, error) {
+	cfg := c.Reg.Config
+	if !cfg.RequireStamp || !cfg.PastBootstrap(c.Today) {
+		return nil, nil
+	}
+	var out []Finding
+	for _, e := range c.liveEdges() {
+		if e.From == FromAnnotation && !e.Stamped() {
+			out = append(out, Finding{Rule: RuleUnstamped, Fields: []string{e.Test.String(), e.Source}, Severity: Always})
+		}
+	}
+	return out, nil
+}
+
+func memberDrift(rule string) func(*CheckContext) ([]Finding, error) {
+	return func(c *CheckContext) ([]Finding, error) {
+		var out []Finding
+		for _, f := range c.MemberDrift {
+			if f.Rule == rule {
+				out = append(out, f)
+			}
+		}
+		return out, nil
+	}
+}
+
+// UNREGISTERED:<path> — a test file some evidence says is a test (it carries
+// annotations, a runner's bindings match it, or a declared edge names it)
+// that no runner lists. `exclude:`d paths never.
+func checkUnregistered(c *CheckContext) ([]Finding, error) {
+	listed := map[string]bool{}
+	for _, l := range c.Lists {
+		for _, u := range l.Units {
+			listed[u.ID.Path] = true
+		}
+	}
+	candidates := map[string]bool{}
+	for _, f := range c.Anns {
+		candidates[f.Path] = true
+	}
+	for _, l := range c.Lists {
+		for _, p := range l.Bound {
+			candidates[p] = true
+		}
+	}
+	for _, e := range c.Reg.Edges {
+		if e.From == FromDeclared {
+			candidates[e.Test.Path] = true
+		}
+	}
+	var out []Finding
+	for p := range candidates {
+		if !listed[p] && !c.Reg.Config.Excluded(p) {
+			out = append(out, Finding{Rule: RuleUnregistered, Fields: []string{p}, Severity: StrictPastBootstrap})
+		}
+	}
+	return out, nil
+}
+
+func artifactPatterns(c *CheckContext) []string {
+	var p []string
+	for _, l := range c.Lists {
+		p = append(p, l.ArtifactGlobs...)
+	}
+	return p
+}
+
+// UNMAPPED_ARTIFACT:<path>|<runner> — an existing file matching a runner's
+// `artifact_glob:` that no listed id's artifact column claims. A unit of an
+// `exclude:`d test is never listed, so it claims nothing.
+func checkUnmappedArtifact(c *CheckContext) ([]Finding, error) {
+	claimed := map[string]bool{}
+	for _, l := range c.Lists {
+		for _, u := range l.Units {
+			if u.Artifact != "" && !c.Reg.Config.Excluded(u.ID.Path) {
+				claimed[u.Artifact] = true
+			}
+		}
+	}
+	var out []Finding
+	seen := map[[2]string]bool{}
+	for _, l := range c.Lists {
+		for _, g := range l.ArtifactGlobs {
+			for _, p := range c.Match[g] {
+				key := [2]string{p, l.Runner}
+				if claimed[p] || seen[key] {
+					continue
+				}
+				seen[key] = true
+				out = append(out, Finding{Rule: RuleUnmappedArtifact, Fields: key[:], Severity: StrictPastBootstrap})
+			}
+		}
+	}
+	return out, nil
+}
+
+// SCAN_DRIFT:aitestmap/registry/_scanned.yaml — the committed generated file
+// is not what `scan --apply` would write now, so `select` reads a stale
+// table until the next scan.
+func checkScanDrift(c *CheckContext) ([]Finding, error) {
+	rendered, err := RenderScanned(c.Scanned)
+	if err != nil {
+		return nil, err
+	}
+	drift, err := scannedDrift(c.Root, c.Scanned, rendered)
+	if err != nil {
+		return nil, err
+	}
+	if !drift {
+		return nil, nil
+	}
+	return []Finding{{Rule: RuleScanDrift, Fields: []string{ScannedPath}, Severity: StrictPastBootstrap}}, nil
+}
+
+func ownedPatterns(c *CheckContext) []string {
+	var p []string
+	for _, r := range c.Reg.Rules {
+		p = append(p, r.When...)
+	}
+	for _, w := range c.Reg.Waivers {
+		p = append(p, w.Path)
+	}
+	return p
+}
+
+// OWNS_VIOLATION:<file>|<table>|<path> — a hand file's row reaching a source
+// path its `owns:` globs do not match. Ownership is judged over concrete
+// paths, never one pattern against another: a declared edge's covers path,
+// and every existing file a rule's `when:` or a waiver's `path:` pattern
+// matches. A pattern matching no file is not a violation; a file created
+// later is judged on the run that sees it.
+func checkOwns(c *CheckContext) ([]Finding, error) {
+	owns := map[string][]string{}
+	for _, hf := range c.Reg.HandFiles {
+		owns[hf.Path] = hf.Owns
+	}
+	var out []Finding
+	seen := map[[3]string]bool{}
+	add := func(file, table, p string) {
+		key := [3]string{file, table, p}
+		if !seen[key] && !matchAny(owns[file], p) {
+			seen[key] = true
+			out = append(out, Finding{Rule: RuleOwnsViolation, Fields: key[:], Severity: Always})
+		}
+	}
+	for _, e := range c.Reg.Edges {
+		if e.From == FromDeclared {
+			add(e.File, "edges", e.Source)
+		}
+	}
+	for _, r := range c.Reg.Rules {
+		for _, w := range r.When {
+			for _, p := range c.Match[w] {
+				add(r.File, "rules", p)
+			}
+		}
+	}
+	for _, w := range c.Reg.Waivers {
+		for _, p := range c.Match[w.Path] {
+			add(w.File, "waivers", p)
+		}
+	}
+	return out, nil
+}
+
+// DUPLICATE_RULE:<name>|<file>|<file> — two rules with one name; the
+// selector could not tell which one a reason line names.
+func checkDuplicateRule(c *CheckContext) ([]Finding, error) {
+	first := map[string]string{}
+	var out []Finding
+	for _, r := range c.Reg.Rules {
+		if f, ok := first[r.Name]; ok {
+			out = append(out, Finding{Rule: RuleDuplicateRule, Fields: []string{r.Name, f, r.File}, Severity: Always})
+			continue
+		}
+		first[r.Name] = r.File
+	}
+	return out, nil
+}
+
+// WAIVER_EXPIRED:<path>|<until>|<file> — informational: an expired waiver
+// simply stops waiving, so the paths it covered surface as unmapped again.
+func checkWaiverExpired(c *CheckContext) ([]Finding, error) {
+	var out []Finding
+	for _, w := range c.Reg.Waivers {
+		if w.Expired(c.Today) {
+			out = append(out, Finding{Rule: RuleWaiverExpired, Fields: []string{w.Path, w.Until, w.File}, Severity: Info})
+		}
+	}
+	return out, nil
+}
