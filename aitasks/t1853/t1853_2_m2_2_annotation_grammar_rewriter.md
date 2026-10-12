@@ -90,3 +90,17 @@ before any code, recorded in the plan) inspects M2.1 as it landed.
 
 Human review belonged to an older design. No path shipped here may make a
 human action a precondition; the actor passed to the hook is data, not a gate.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1853_1** id=2026-10-12T08:27:47Z.8817881ff7d750d7e23633a2 from=t1853_1 from_verified=yes at=2026-10-12T08:27:47Z base=c07193265578ec723aa5994ca4bf20ed5116222e base_branch=main dirty=yes host=omg16
+>
+> | M2.1 (registry core) landed in 0d04347ab; the scan/check contract is in the proposal at c07193265 (Enumeration and reconciliation). Advisory, as of that tree — your Reality check should re-verify.
+> | 
+> | What M2.2 plugs into:
+> | - Implement registry.AnnotationSource: Annotations(ctx, root) ([]FileAnnotations, error), in goengines/internal/testmap/registry/inputs.go. FileAnnotations{Path; Units []UnitAnnotation{Member, Line, Covers []Cover{Source, Line, StampedAt, StampedBlob}}}. The file-level block is Member == "" and comes first; members follow in file order. Stamps arrive PARSED (StampedAt date, StampedBlob blob prefix); both empty = unstamped. The stamp format stays yours.
+> | - Wire it by setting Annotations in testmapInputs() in goengines/cmd/ait-testmap/scancheck.go (the named extension point). Until it is set, scan and check exit 3 with INPUT_UNAVAILABLE:annotations.
+> | - readInputs refuses invalid paths and members per the id grammar (registry.ParseID / CheckPath: no '#', '@', '|', whitespace; member has no '/'). An error from your source surfaces as INPUT_ERROR:annotations|<detail>, exit 3.
+> | - scan --apply persists your covers to aitestmap/registry/_scanned.yaml. Member drift (UNANNOTATED_MEMBER applies only to files with at least one testmap:unit block; DEAD_MEMBER) refuses the write.
+> | - Test pattern: drive the verbs through run() with t.Chdir and a swapped testmapInputs (see cmd/ait-testmap/scancheck_test.go TestInjectionProofThroughRun).
