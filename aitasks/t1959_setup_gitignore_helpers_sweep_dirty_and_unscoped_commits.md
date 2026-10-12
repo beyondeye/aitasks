@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1711
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-12 21:44
-updated_at: 2026-10-12 22:03
+updated_at: 2026-10-12 22:33
 ---
 
 ## Origin
@@ -41,3 +42,8 @@ The cd-guard lint failures turned up while running the related suites. They sit 
 ## Suggested fix
 
 Route every `.gitignore` helper through one baseline-aware path: write only, and let `commit_framework_files` commit, or path-scope each commit and skip it when `.gitignore` is in `AIT_SETUP_DIRTY_BASELINE`. Then consider calling `setup_data_gitignore_symlink_safe` from install.sh behind the same protection. Fix the cd-guard sites per `aidocs/framework/testing_conventions.md` (or split them into their own task).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-12T19:33:05Z status=pass attempt=1 type=human
