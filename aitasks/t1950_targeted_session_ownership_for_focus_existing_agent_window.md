@@ -11,8 +11,9 @@ active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1946
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-11 19:33
-updated_at: 2026-10-12 08:59
+updated_at: 2026-10-12 09:50
 ---
 
 ## Context
@@ -63,3 +64,8 @@ sessions) instead of the whole server.
 - Add a test proving a lookup issues no `list-panes` for an unrelated session.
 - Discovery parity: `discover_aitasks_sessions` results are unchanged (existing
   discovery tests, e.g. the t1922 pane-vote suites).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-12T06:50:07Z status=pass attempt=1 type=human
