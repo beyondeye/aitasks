@@ -287,3 +287,60 @@ the parent t1957 archives automatically when its last child is archived).
 
 ### Planned mitigations
 - timing: pre-phase | name: pin_bytrail_no_probe_in_compose | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — xdep worker supersession / probing in compose | desc: characterization test that By-Trail render + _rerender_trail spawn no subprocess (in t1957_1)
+
+## Final Implementation Notes
+
+- **Actual work done:** All plan steps implemented. Pre-phase test
+  `ByTrailNoProbeInComposeTests` passed on the pre-change code and after.
+  Per-ref coverage model (`resolved` / `checking` / `unchecked`) via
+  `xdep_ref_state`; session `xdep` (completed results only, replaced on each
+  accepted result) + `xdep_inflight` + `xdep_gen`; worker started from
+  `_start_session_drift`; start-before-render in `_apply_trail_content`,
+  `_activate_trail` and the board sync worker.
+- **Deviations from plan:**
+  - The three helpers (`xdep_ref_pairs`, `classify_xdep_status`,
+    `probe_xdep_status`) live in a new **`.aitask-scripts/lib/cross_repo_deps.py`**,
+    not in `board_task_manager.py`: the C1 import contract of
+    `board_trail_view.py` and `board_trail_screen.py` forbids importing
+    `board_task_manager`. `board_task_manager` imports them from there;
+    `cross_repo_dep_display` / `get_xdep_status` keep their behaviour.
+  - `aitask_board.py` re-exports the new view names (`XDEP_*`,
+    `xdep_ref_state`, `trail_xdep_refs`, `_xdep_member_display`,
+    `_remote_status_text`) and `tests/test_board_trail_view.py`
+    `VIEW_ONLY_NAMES` lists them — both required by the single-home /
+    re-export contract tests.
+- **Issues encountered:** The first-paint ordering tests initially passed
+  against the reverse-order mutant because the drift worker's callback
+  re-renders within a pause and masked the stale first paint; the tests now
+  stub the drift worker (`_no_drift_redraw`) so they observe the first paint.
+- **Key decisions:** an unprobed ref is never a failure — only a completed
+  probe can mark a member blocked or a ghost UNREACHABLE; `r` and tab switches
+  stay zero-subprocess and show such refs as `(not checked)`. Cached results
+  stay shown while a re-probe runs (no flicker on every sync / view entry).
+- **Upstream defects identified:** None
+- **Verification:** mutants (isolated, restored) — reverse order in
+  `_apply_trail_content` and in `_activate_trail`, absent-key-as-failure in
+  `xdep_ref_state`, no gen check in `_on_trail_xdep`, a probe in
+  `TrailTaskCard.compose`, supersession not clearing in-flight coverage — all
+  killed. Full python suite: `PYTHON SUITE: PASSED (runner=pytest, exit=0)`.
+  The board sync-worker reorder is pinned by `SyncStartsTrailBeforeRenderTests`
+  (added post-review; see below).
+- **Notes for sibling tasks:** `cross_repo_deps.probe_xdep_status` is the
+  cache-free probe for any off-thread caller (t1957_3/4 may reuse it). Tests
+  must patch it on `ab.board_trail_screen` (inert-patch guard). The
+  `.trail-xdeps` / `.trail-xdep-blocked` / `.trail-remote-status` label classes
+  are the render seams; the docs child (t1957_5) should describe the three
+  ref states (`[Status]`/UNREACHABLE, `checking…`, `not checked`).
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-12 22:40)
+- **Requested by user:** the sync completion path (`aitask_board.py` `_run_sync`)
+  calls `_start_trail_drift` before `refresh_board` but had no regression test;
+  pin `load_tasks → _start_trail_drift → refresh_board` for a By-Trail sync.
+- **Changes made:** `SyncStartsTrailBeforeRenderTests` in
+  `tests/test_board_bytrail_view.py` runs the undecorated `_run_sync` body on a
+  stand-in host with `run_sync_batch` returning `STATUS_SYNCED`, and asserts the
+  call order in By-Trail (and that other views start no trail probe). The
+  render-before-start mutant of the sync path is killed.
+- **Files affected:** `tests/test_board_bytrail_view.py`
