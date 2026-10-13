@@ -57,7 +57,7 @@ func Comments(name, lang string, src []byte) ([]provider.Span, string, error) {
 		mu.Unlock()
 		res, err := p.Analyze(lang, src)
 		return comments(res), "pytokenize", err
-	case "typescript", "javascript":
+	case "typescript", "tsx", "javascript":
 		t, err := tsOracle()
 		if err != nil || t == nil {
 			return nil, "", err

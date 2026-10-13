@@ -1,0 +1,242 @@
+# Tree-sitter runtime differential (t1954_2)
+
+baseline: commit=f096db065a7249836c9a82f9d05bbd20fc43b961 tree=200bd2130a1dc45f27bebdec16392da76bfc018b seam_sha256=9a8013a789e79117539ac3e7b2b1dfa924376b301fe6d9628f579ccc127d0296 snapshot=patched
+
+Each input is parsed by two runtimes and both trees go through the **same** mapping (`provider.MapTree`), so a difference is a runtime/table/scanner difference, never a mapping difference — except where the mapping is sensitive to a tree SHAPE one runtime produces (recorded in the findings). Grammars: the commits in `tsref/LOCK` (gotreesitter v0.55.1's `languages.lock`). Rerun: `tsref/fetch.sh && go run -tags 't1954cgo t1954wasm' ./cmd/t1954 tsdiff` (tswasm needs `tswasm/build.sh` first).
+
+**Levels.** *Tree*: identical flattened trees (kind, range, parent, ERROR/MISSING); otherwise whether the leaf ranges still agree. *Result*: the mapped `Result` the seam consumes — certainty, sorted spans, anchors, Python `DocInfo`.
+
+**Cause indicators are HEURISTIC, never an attribution.** `table-or-runtime (identical leaves)`: same token ranges, different tree — consistent with a table difference OR a runtime defect, it does not choose. `scanner`: an external token at the first divergent leaf. `recovery`: ERROR/MISSING at the first divergent leaf. `unknown` otherwise. Table provenance (gotreesitter `go` and `swift` are grammargen-owned, the rest mirror upstream `parser.c`) says where the tables came from, not what caused a difference. Repository files are listed as `<repo>:<dir>/<file>`; nothing was executed or written there.
+
+## gotreesitter vs tscgo
+
+| set | lang | files | runtime failures (A / B) | tree identical | tree differs: leaves identical / leaves differ | Result identical | Result differs | uncertain: A only / B only | spans differ | anchors differ | doc differs | indicators |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| corpus | bash | 66 | 0 / 0 | 58 | 3 / 5 | 61 | 5 | 3 / 1 | 3 | 0 | 0 | heuristic:scanner (external token at the first divergent leaf): 2; heuristic:table-or-runtime (identical leaves): 1; unknown: 2 |
+| corpus | python | 61 | 0 / 0 | 61 | 0 / 0 | 61 | 0 | 0 / 0 | 0 | 0 | 0 |  |
+| corpus | go | 20 | 0 / 0 | 16 | 1 / 3 | 19 | 1 | 0 / 0 | 1 | 0 | 0 | heuristic:recovery (ERROR/MISSING at the first divergent leaf): 1 |
+| corpus | kotlin | 25 | 0 / 0 | 23 | 0 / 2 | 24 | 1 | 0 / 1 | 1 | 0 | 0 | heuristic:recovery (ERROR/MISSING at the first divergent leaf): 1 |
+| corpus | typescript | 7 | 0 / 0 | 7 | 0 / 0 | 7 | 0 | 0 / 0 | 0 | 0 | 0 |  |
+| corpus | tsx | 1 | 0 / 0 | 1 | 0 / 0 | 1 | 0 | 0 / 0 | 0 | 0 | 0 |  |
+| corpus | javascript | 4 | 0 / 0 | 3 | 1 / 0 | 4 | 0 | 0 / 0 | 0 | 0 | 0 |  |
+| corpus | java | 10 | 0 / 0 | 9 | 1 / 0 | 10 | 0 | 0 / 0 | 0 | 0 | 0 |  |
+| corpus | rust | 9 | 0 / 0 | 7 | 1 / 1 | 8 | 1 | 0 / 0 | 1 | 0 | 0 | unknown: 1 |
+| corpus | swift | 10 | 0 / 0 | 7 | 0 / 3 | 9 | 1 | 0 / 0 | 1 | 0 | 0 | unknown: 1 |
+| aitasks | bash | 656 | 0 / 0 | 534 | 34 / 88 | 643 | 13 | 6 / 3 | 5 | 0 | 0 | heuristic:recovery (ERROR/MISSING at the first divergent leaf): 2; heuristic:scanner (external token at the first divergent leaf): 9; unknown: 2 |
+| aitasks | python | 650 | 0 / 0 | 644 | 6 / 0 | 650 | 0 | 0 / 0 | 0 | 0 | 0 |  |
+| aitasks | go | 143 | 0 / 0 | 142 | 1 / 0 | 143 | 0 | 0 / 0 | 0 | 0 | 0 |  |
+| aitasks | javascript | 1 | 0 / 0 | 1 | 0 / 0 | 1 | 0 | 0 / 0 | 0 | 0 | 0 |  |
+| aitasks_go | bash | 162 | 0 / 0 | 123 | 5 / 34 | 153 | 9 | 5 / 1 | 4 | 0 | 0 | heuristic:scanner (external token at the first divergent leaf): 9 |
+| aitasks_go | python | 245 | 0 / 0 | 244 | 1 / 0 | 245 | 0 | 0 / 0 | 0 | 0 | 0 |  |
+| aitasks_go | go | 161 | 0 / 0 | 160 | 1 / 0 | 161 | 0 | 0 / 0 | 0 | 0 | 0 |  |
+| aitasks_mobile | bash | 141 | 0 / 0 | 108 | 5 / 28 | 134 | 7 | 5 / 1 | 2 | 0 | 0 | heuristic:scanner (external token at the first divergent leaf): 7 |
+| aitasks_mobile | python | 148 | 0 / 0 | 148 | 0 / 0 | 148 | 0 | 0 / 0 | 0 | 0 | 0 |  |
+| aitasks_mobile | kotlin | 260 | 0 / 0 | 185 | 20 / 55 | 211 | 49 | 48 / 0 | 1 | 3 | 0 | heuristic:recovery (ERROR/MISSING at the first divergent leaf): 11; heuristic:scanner (external token at the first divergent leaf): 1; heuristic:table-or-runtime (identical leaves): 11; unknown: 26 |
+| aitasks_mobile | swift | 2 | 0 / 0 | 1 | 1 / 0 | 2 | 0 | 0 / 0 | 0 | 0 | 0 |  |
+| thinking_app | bash | 244 | 0 / 0 | 133 | 11 / 100 | 231 | 13 | 5 / 3 | 6 | 0 | 0 | heuristic:scanner (external token at the first divergent leaf): 11; unknown: 2 |
+| thinking_app | python | 277 | 0 / 0 | 274 | 3 / 0 | 277 | 0 | 0 / 0 | 0 | 0 | 0 |  |
+| thinking_app | kotlin | 784 | 0 / 0 | 470 | 177 / 137 | 574 | 210 | 207 / 0 | 6 | 61 | 0 | heuristic:recovery (ERROR/MISSING at the first divergent leaf): 74; heuristic:scanner (external token at the first divergent leaf): 7; heuristic:table-or-runtime (identical leaves): 85; unknown: 44 |
+| thinking_app | javascript | 1 | 0 / 0 | 1 | 0 / 0 | 1 | 0 | 0 / 0 | 0 | 0 | 0 |  |
+| thinking_backend | bash | 269 | 0 / 0 | 162 | 12 / 95 | 251 | 18 | 8 / 4 | 7 | 0 | 0 | heuristic:recovery (ERROR/MISSING at the first divergent leaf): 1; heuristic:scanner (external token at the first divergent leaf): 8; unknown: 9 |
+| thinking_backend | python | 317 | 0 / 0 | 314 | 3 / 0 | 317 | 0 | 0 / 0 | 0 | 0 | 0 |  |
+| timexchange | bash | 151 | 0 / 0 | 112 | 5 / 34 | 142 | 9 | 5 / 1 | 4 | 0 | 0 | heuristic:scanner (external token at the first divergent leaf): 9 |
+| timexchange | python | 197 | 0 / 0 | 196 | 1 / 0 | 197 | 0 | 0 / 0 | 0 | 0 | 0 |  |
+| timexchange | kotlin | 970 | 0 / 0 | 788 | 63 / 119 | 848 | 122 | 115 / 1 | 7 | 6 | 0 | heuristic:recovery (ERROR/MISSING at the first divergent leaf): 19; heuristic:scanner (external token at the first divergent leaf): 3; heuristic:table-or-runtime (identical leaves): 40; unknown: 60 |
+| timexchange | java | 15 | 0 / 0 | 15 | 0 / 0 | 15 | 0 | 0 / 0 | 0 | 0 | 0 |  |
+
+### Paths
+
+- corpus/bash — result differs: corpus/bash/lex_arith_command.sh.in — uncertain: gotreesitter only — heuristic:scanner (external token at the first divergent leaf) — first divergence node 1: subshell[0,16) vs compound_statement[0,16)
+- corpus/bash — result differs: corpus/bash/lex_double_subshell.sh.in — uncertain: tscgo only, spans — heuristic:scanner (external token at the first divergent leaf) — first divergence node 1: subshell[0,16) vs ERROR[0,18)
+- corpus/bash — result differs: corpus/bash/lex_param_expansion_literal_brace.sh.in — uncertain: gotreesitter only, spans — heuristic:table-or-runtime (identical leaves) — first divergence node 1: ERROR[0,19) vs command[0,21)
+- corpus/bash — result differs: corpus/bash/lex_param_expansion_literal_braces.sh.in — uncertain: gotreesitter only — unknown — first divergence node 10: ERROR[19,20) vs word[19,21)
+- corpus/bash — result differs: corpus/bash/lex_param_expansion_unterminated.sh.in — spans — unknown — first divergence node 1: command[0,52) vs command[0,4)
+- corpus/go — result differs: corpus/go/malformed_unterminated_block.go.in — spans — heuristic:recovery (ERROR/MISSING at the first divergent leaf) — first divergence node 4: ERROR[10,45) vs ERROR[10,11)
+- corpus/kotlin — result differs: corpus/kotlin/malformed_unterminated_string.kt.in — uncertain: tscgo only, spans — heuristic:recovery (ERROR/MISSING at the first divergent leaf) — first divergence node 7: infix_expression[8,21) vs ERROR[8,14)
+- corpus/rust — result differs: corpus/rust/malformed_nested.rs.in — spans — unknown — first divergence node 1: ERROR[0,60) vs block_comment[0,60)
+- corpus/swift — result differs: corpus/swift/regex_literals.swift.in — spans — unknown — first divergence node 1: property_declaration[0,94) vs property_declaration[0,22)
+- aitasks/bash — result differs: aitasks:.aitask-scripts/aitask_add_model.sh — uncertain: tscgo only — heuristic:scanner (external token at the first divergent leaf) — first divergence node 1498: array[8578,8591) vs ERROR[8577,8590)
+- aitasks/bash — result differs: aitasks:.aitask-scripts/aitask_attach.sh — uncertain: gotreesitter only — heuristic:scanner (external token at the first divergent leaf) — first divergence node 2129: subshell[10752,10768) vs compound_statement[10752,10768)
+- aitasks/bash — result differs: aitasks:.aitask-scripts/aitask_contribution_review.sh — uncertain: gotreesitter only — heuristic:scanner (external token at the first divergent leaf) — first divergence node 1406: list[11043,11207) vs pipeline[11043,11207)
+- aitasks/bash — result differs: aitasks:.aitask-scripts/aitask_fold_mark.sh — uncertain: tscgo only — heuristic:scanner (external token at the first divergent leaf) — first divergence node 3189: array[20003,20015) vs ERROR[20002,20014)
+- aitasks/bash — result differs: aitasks:.aitask-scripts/aitask_revert_analyze.sh — uncertain: gotreesitter only — heuristic:scanner (external token at the first divergent leaf) — first divergence node 566: list[5192,5256) vs pipeline[5192,5256)
+- aitasks/bash — result differs: aitasks:.aitask-scripts/aitask_review_commits.sh — uncertain: gotreesitter only — heuristic:scanner (external token at the first divergent leaf) — first divergence node 296: ERROR[2340,2352) vs regex[2340,2359)
+- aitasks/bash — result differs: aitasks:.aitask-scripts/aitask_setup.sh — uncertain: tscgo only — unknown — first divergence node 8836: word[54607,54612) vs word[54606,54612)
+- aitasks/bash — result differs: aitasks:.aitask-scripts/aitask_stats_legacy.sh — uncertain: gotreesitter only, spans — heuristic:scanner (external token at the first divergent leaf) — first divergence node 1: ERROR[0,22833) vs comment[0,19)
+- aitasks/bash — result differs: aitasks:lib/atomic_write.sh — spans — heuristic:scanner (external token at the first divergent leaf) — first divergence node 220: subshell[4111,4126) vs compound_statement[4111,4126)
+- aitasks/bash — result differs: aitasks:lib/task_utils.sh — spans — unknown — first divergence node 591: word[8199,8205) vs word[8198,8218)
+- aitasks/bash — result differs: aitasks:tests/test_atomic_task_file_writes.sh — spans — heuristic:recovery (ERROR/MISSING at the first divergent leaf) — first divergence node 1905: command_substitution[10199,10236) vs command_substitution[10199,10238)
+- aitasks/bash — result differs: aitasks:tests/test_atomic_write_sh.sh — spans — heuristic:recovery (ERROR/MISSING at the first divergent leaf) — first divergence node 643: command_substitution[4098,4135) vs command_substitution[4098,4137)
+- aitasks/bash — result differs: aitasks:tests/test_no_unscoped_task_commit.sh — uncertain: gotreesitter only — heuristic:scanner (external token at the first divergent leaf) — first divergence node 2647: subshell[29653,29708) vs compound_statement[29653,29708)
+- aitasks_go/bash — result differs: aitasks_go:.aitask-scripts/aitask_add_model.sh — uncertain: tscgo only — heuristic:scanner (external token at the first divergent leaf) — first divergence node 1225: array[5291,5304) vs ERROR[5290,5303)
+- aitasks_go/bash — result differs: aitasks_go:.aitask-scripts/aitask_attach.sh — uncertain: gotreesitter only — heuristic:scanner (external token at the first divergent leaf) — first divergence node 2111: subshell[10329,10345) vs compound_statement[10329,10345)
+- aitasks_go/bash — result differs: aitasks_go:.aitask-scripts/aitask_contribution_review.sh — uncertain: gotreesitter only — heuristic:scanner (external token at the first divergent leaf) — first divergence node 1406: list[11043,11207) vs pipeline[11043,11207)
+- aitasks_go/bash — result differs: aitasks_go:.aitask-scripts/aitask_create.sh — spans — heuristic:scanner (external token at the first divergent leaf) — first divergence node 5205: command[30107,30149) vs function_definition[30107,37657)
+- aitasks_go/bash — result differs: aitasks_go:.aitask-scripts/aitask_revert_analyze.sh — uncertain: gotreesitter only — heuristic:scanner (external token at the first divergent leaf) — first divergence node 476: list[3186,3250) vs pipeline[3186,3250)
+- aitasks_go/bash — result differs: aitasks_go:.aitask-scripts/aitask_review_commits.sh — uncertain: gotreesitter only — heuristic:scanner (external token at the first divergent leaf) — first divergence node 296: ERROR[2340,2352) vs regex[2340,2359)
+- aitasks_go/bash — result differs: aitasks_go:.aitask-scripts/aitask_stats_legacy.sh — uncertain: gotreesitter only, spans — heuristic:scanner (external token at the first divergent leaf) — first divergence node 1: ERROR[0,22792) vs comment[0,19)
+- aitasks_go/bash — result differs: aitasks_go:lib/atomic_write.sh — spans — heuristic:scanner (external token at the first divergent leaf) — first divergence node 219: subshell[3990,4005) vs compound_statement[3990,4005)
+- aitasks_go/bash — result differs: aitasks_go:lib/task_utils.sh — spans — heuristic:scanner (external token at the first divergent leaf) — first divergence node 1176: subshell[5886,5907) vs compound_statement[5886,5907)
+- aitasks_mobile/bash — result differs: aitasks_mobile:.aitask-scripts/aitask_add_model.sh — uncertain: tscgo only — heuristic:scanner (external token at the first divergent leaf) — first divergence node 1225: array[5291,5304) vs ERROR[5290,5303)
+- aitasks_mobile/bash — result differs: aitasks_mobile:.aitask-scripts/aitask_attach.sh — uncertain: gotreesitter only — heuristic:scanner (external token at the first divergent leaf) — first divergence node 2094: subshell[9651,9667) vs compound_statement[9651,9667)
+- aitasks_mobile/bash — result differs: aitasks_mobile:.aitask-scripts/aitask_contribution_review.sh — uncertain: gotreesitter only — heuristic:scanner (external token at the first divergent leaf) — first divergence node 1406: list[11043,11207) vs pipeline[11043,11207)
+- aitasks_mobile/bash — result differs: aitasks_mobile:.aitask-scripts/aitask_revert_analyze.sh — uncertain: gotreesitter only — heuristic:scanner (external token at the first divergent leaf) — first divergence node 476: list[3186,3250) vs pipeline[3186,3250)
+- aitasks_mobile/bash — result differs: aitasks_mobile:.aitask-scripts/aitask_review_commits.sh — uncertain: gotreesitter only — heuristic:scanner (external token at the first divergent leaf) — first divergence node 296: ERROR[2340,2352) vs regex[2340,2359)
+- aitasks_mobile/bash — result differs: aitasks_mobile:.aitask-scripts/aitask_stats_legacy.sh — uncertain: gotreesitter only, spans — heuristic:scanner (external token at the first divergent leaf) — first divergence node 1: ERROR[0,22792) vs comment[0,19)
+- aitasks_mobile/bash — result differs: aitasks_mobile:lib/task_utils.sh — spans — heuristic:scanner (external token at the first divergent leaf) — first divergence node 1107: subshell[5379,5400) vs compound_statement[5379,5400)
+- aitasks_mobile/kotlin — result differs: aitasks_mobile:dbaccess/Database.android.kt — uncertain: gotreesitter only — heuristic:recovery (ERROR/MISSING at the first divergent leaf) — first divergence node 54: statements[212,425) vs statements[212,432)
+- aitasks_mobile/kotlin — result differs: aitasks_mobile:dbaccess/AitDatabase.kt — uncertain: gotreesitter only — unknown — first divergence node 60: annotation[320,1419) vs class_declaration[320,1745)
+- aitasks_mobile/kotlin — result differs: aitasks_mobile:dbaccess/Database.ios.kt — uncertain: gotreesitter only — heuristic:recovery (ERROR/MISSING at the first divergent leaf) — first divergence node 73: statements[381,493) vs statements[381,494)
+- aitasks_mobile/kotlin — result differs: aitasks_mobile:applink/QrUrl.kt — uncertain: gotreesitter only — heuristic:recovery (ERROR/MISSING at the first divergent leaf) — first divergence node 388: function_declaration[5103,6550) vs function_declaration[5103,7292)
+- aitasks_mobile/kotlin — result differs: aitasks_mobile:monitor/KtorMonitorStreamClient.kt — uncertain: gotreesitter only — heuristic:table-or-runtime (identical leaves) — first divergence node 341: comparison_expression[2757,2881) vs call_expression[2757,2881)
+- aitasks_mobile/kotlin — result differs: aitasks_mobile:monitor/MonitorSessionMediator.kt — uncertain: gotreesitter only — heuristic:table-or-runtime (identical leaves) — first divergence node 615: comparison_expression[8680,8805) vs call_expression[8680,8805)
+- aitasks_mobile/kotlin — result differs: aitasks_mobile:monitor/PaneRenderStateMediator.kt — uncertain: gotreesitter only — heuristic:table-or-runtime (identical leaves) — first divergence node 1817: comparison_expression[13476,13597) vs call_expression[13476,13597)
+- aitasks_mobile/kotlin — result differs: aitasks_mobile:wire/ControlFrames.kt — uncertain: gotreesitter only — heuristic:table-or-runtime (identical leaves) — first divergence node 253: annotation[3789,3802) vs class_declaration[3789,3876)
+- aitasks_mobile/kotlin — result differs: aitasks_mobile:wire/MsgReader.kt — uncertain: gotreesitter only — unknown — first divergence node 1179: ERROR[5287,5293) vs statements[5287,5305)
+- aitasks_mobile/kotlin — result differs: aitasks_mobile:connectivity/ConnectivityMonitor.kt — uncertain: gotreesitter only, anchors — heuristic:recovery (ERROR/MISSING at the first divergent leaf) — first divergence node 13: ERROR[53,1994) vs import_list[53,538)
+- aitasks_mobile/kotlin — result differs: aitasks_mobile:monitor/EndpointRacerTest.kt — uncertain: gotreesitter only — heuristic:table-or-runtime (identical leaves) — first divergence node 1509: infix_expression[5207,5265) vs assignment[5207,5265)
+- aitasks_mobile/kotlin — result differs: aitasks_mobile:monitor/MonitorSessionMediatorTest.kt — uncertain: gotreesitter only — unknown — first divergence node 402: annotation[2900,2931) vs function_declaration[2900,3544)
+- aitasks_mobile/kotlin — result differs: aitasks_mobile:connections/Fakes.kt — uncertain: gotreesitter only — heuristic:recovery (ERROR/MISSING at the first divergent leaf) — first divergence node 114: class_declaration[1298,1772) vs class_declaration[1298,3231)
+- aitasks_mobile/kotlin — result differs: aitasks_mobile:panes/Fakes.kt — uncertain: gotreesitter only — heuristic:recovery (ERROR/MISSING at the first divergent leaf) — first divergence node 61: class_declaration[796,1150) vs class_declaration[796,2061)
+- aitasks_mobile/kotlin — result differs: aitasks_mobile:applink/HttpClientFactory.ios.kt — uncertain: gotreesitter only — unknown — first divergence node 254: annotation[2574,2634) vs function_declaration[2574,4753)
+- aitasks_mobile/kotlin — result differs: aitasks_mobile:kscan/BarcodeAnalyzer.kt — uncertain: gotreesitter only — heuristic:recovery (ERROR/MISSING at the first divergent leaf) — first divergence node 82: class_declaration[608,5496) vs class_declaration[608,6996)
+- aitasks_mobile/kotlin — result differs: aitasks_mobile:kscan/ScannerView.android.kt — uncertain: gotreesitter only — unknown — first divergence node 202: annotation[1259,1270) vs function_declaration[1259,6552)
+- aitasks_mobile/kotlin — result differs: aitasks_mobile:kscan/BarcodeFormat.kt — uncertain: gotreesitter only — heuristic:recovery (ERROR/MISSING at the first divergent leaf) — first divergence node 1: package_header[0,25) vs package_header[0,1069)
+- aitasks_mobile/kotlin — result differs: aitasks_mobile:kscan/ImageScanner.kt — uncertain: gotreesitter only — heuristic:recovery (ERROR/MISSING at the first divergent leaf) — first divergence node 1: package_header[0,25) vs package_header[0,988)
+- aitasks_mobile/kotlin — result differs: aitasks_mobile:kscan/ScannerBarcodeFrame.kt — uncertain: gotreesitter only — heuristic:table-or-runtime (identical leaves) — first divergence node 97: annotation[801,812) vs function_declaration[801,2614)
+- aitasks_mobile/kotlin — result differs: aitasks_mobile:kscan/ScannerHeader.kt — uncertain: gotreesitter only — unknown — first divergence node 119: annotation[1504,1543) vs function_declaration[1504,3412)
+- aitasks_mobile/kotlin — result differs: aitasks_mobile:kscan/ScannerView.kt — uncertain: gotreesitter only — unknown — first divergence node 33: annotation[819,830) vs function_declaration[819,1180)
+- aitasks_mobile/kotlin — result differs: aitasks_mobile:kscan/ScannerZoomAdjuster.kt — uncertain: gotreesitter only — unknown — first divergence node 143: annotation[1640,1651) vs function_declaration[1640,3139)
+- aitasks_mobile/kotlin — result differs: aitasks_mobile:kscan/ImageScanner.ios.kt — uncertain: gotreesitter only — unknown — first divergence node 148: annotation[999,1059) vs function_declaration[999,4219)
+- aitasks_mobile/kotlin — result differs: aitasks_mobile:kscan/ScannerView.ios.kt — uncertain: gotreesitter only — unknown — first divergence node 135: annotation[940,977) vs function_declaration[940,4897)
+- thinking_app/bash — result differs: thinking_app:.aitask-scripts/aitask_add_model.sh — uncertain: tscgo only — heuristic:scanner (external token at the first divergent leaf) — first divergence node 1498: array[8578,8591) vs ERROR[8577,8590)
+- thinking_app/bash — result differs: thinking_app:.aitask-scripts/aitask_attach.sh — uncertain: gotreesitter only — heuristic:scanner (external token at the first divergent leaf) — first divergence node 2129: subshell[10752,10768) vs compound_statement[10752,10768)
+- thinking_app/bash — result differs: thinking_app:.aitask-scripts/aitask_contribution_review.sh — uncertain: gotreesitter only — heuristic:scanner (external token at the first divergent leaf) — first divergence node 1406: list[11043,11207) vs pipeline[11043,11207)
+- thinking_app/bash — result differs: thinking_app:.aitask-scripts/aitask_fold_mark.sh — uncertain: tscgo only — heuristic:scanner (external token at the first divergent leaf) — first divergence node 3189: array[20003,20015) vs ERROR[20002,20014)
+- thinking_app/bash — result differs: thinking_app:.aitask-scripts/aitask_revert_analyze.sh — uncertain: gotreesitter only — heuristic:scanner (external token at the first divergent leaf) — first divergence node 566: list[5192,5256) vs pipeline[5192,5256)
+- thinking_app/bash — result differs: thinking_app:.aitask-scripts/aitask_review_commits.sh — uncertain: gotreesitter only — heuristic:scanner (external token at the first divergent leaf) — first divergence node 296: ERROR[2340,2352) vs regex[2340,2359)
+- thinking_app/bash — result differs: thinking_app:.aitask-scripts/aitask_setup.sh — uncertain: tscgo only — unknown — first divergence node 8836: word[54607,54612) vs word[54606,54612)
+- thinking_app/bash — result differs: thinking_app:.aitask-scripts/aitask_stats_legacy.sh — uncertain: gotreesitter only, spans — heuristic:scanner (external token at the first divergent leaf) — first divergence node 1: ERROR[0,22833) vs comment[0,19)
+- thinking_app/bash — result differs: thinking_app:lib/atomic_write.sh — spans — heuristic:scanner (external token at the first divergent leaf) — first divergence node 220: subshell[4111,4126) vs compound_statement[4111,4126)
+- thinking_app/bash — result differs: thinking_app:lib/task_utils.sh — spans — unknown — first divergence node 591: word[8199,8205) vs word[8198,8218)
+- thinking_app/bash — result differs: thinking_app:lib/mem-facts.sh — spans — heuristic:scanner (external token at the first divergent leaf) — first divergence node 346: subshell[7341,7372) vs compound_statement[7341,7372)
+- thinking_app/bash — result differs: thinking_app:verification/verification-timing-test.sh — spans — heuristic:scanner (external token at the first divergent leaf) — first divergence node 5670: subshell[41947,41989) vs compound_statement[41947,41989)
+- thinking_app/bash — result differs: thinking_app:verification/worker-peak-test.sh — spans — heuristic:scanner (external token at the first divergent leaf) — first divergence node 565: subshell[4928,4949) vs compound_statement[4928,4949)
+- thinking_app/kotlin — result differs: thinking_app:thinking/Screen.kt — uncertain: gotreesitter only — heuristic:recovery (ERROR/MISSING at the first divergent leaf) — first divergence node 1: package_header[0,28) vs package_header[0,1872)
+- thinking_app/kotlin — result differs: thinking_app:analytics/AnalyticsEvent.kt — uncertain: gotreesitter only — heuristic:recovery (ERROR/MISSING at the first divergent leaf) — first divergence node 1: package_header[0,38) vs package_header[0,398)
+- thinking_app/kotlin — result differs: thinking_app:analytics/AnalyticsParam.kt — uncertain: gotreesitter only — heuristic:recovery (ERROR/MISSING at the first divergent leaf) — first divergence node 1: package_header[0,38) vs package_header[0,306)
+- thinking_app/kotlin — result differs: thinking_app:analytics/AnalyticsUserProperty.kt — uncertain: gotreesitter only — heuristic:recovery (ERROR/MISSING at the first divergent leaf) — first divergence node 1: package_header[0,38) vs package_header[0,138)
+- thinking_app/kotlin — result differs: thinking_app:data/Gender.kt — uncertain: gotreesitter only — heuristic:recovery (ERROR/MISSING at the first divergent leaf) — first divergence node 1: package_header[0,33) vs package_header[0,1483)
+- thinking_app/kotlin — result differs: thinking_app:enforcement/ForegroundAppMonitor.kt — uncertain: gotreesitter only — heuristic:table-or-runtime (identical leaves) — first divergence node 113: comparison_expression[1891,2012) vs call_expression[1891,2012)
+- thinking_app/kotlin — result differs: thinking_app:enforcement/ProtectionTier.kt — uncertain: gotreesitter only, anchors — heuristic:recovery (ERROR/MISSING at the first divergent leaf) — first divergence node 11: ERROR[42,2994) vs import_list[42,875)
+- thinking_app/kotlin — result differs: thinking_app:navigation/TabDestination.kt — uncertain: gotreesitter only, anchors — heuristic:recovery (ERROR/MISSING at the first divergent leaf) — first divergence node 11: ERROR[41,3193) vs import_list[41,126)
+- thinking_app/kotlin — result differs: thinking_app:network/ApiResult.kt — uncertain: gotreesitter only, anchors — heuristic:recovery (ERROR/MISSING at the first divergent leaf) — first divergence node 11: ERROR[38,5090) vs import_list[38,783)
+- thinking_app/kotlin — result differs: thinking_app:onboarding/PermissionStep.kt — uncertain: gotreesitter only, anchors — heuristic:recovery (ERROR/MISSING at the first divergent leaf) — first divergence node 11: ERROR[41,6777) vs import_list[41,1533)
+- thinking_app/kotlin — result differs: thinking_app:components/Backgrounds.kt — uncertain: gotreesitter only — heuristic:table-or-runtime (identical leaves) — first divergence node 186: annotation[764,775) vs function_declaration[764,869)
+- thinking_app/kotlin — result differs: thinking_app:components/Buttons.kt — uncertain: gotreesitter only — unknown — first divergence node 2486: annotation[23708,23747) vs function_declaration[23708,28201)
+- thinking_app/kotlin — result differs: thinking_app:components/KidListLoadError.kt — uncertain: gotreesitter only, anchors — heuristic:recovery (ERROR/MISSING at the first divergent leaf) — first divergence node 13: ERROR[44,2320) vs import_list[44,1044)
+- thinking_app/kotlin — result differs: thinking_app:components/Text.kt — spans — unknown — first divergence node 1780: annotation[9678,9689) vs function_declaration[9678,10412)
+- thinking_app/kotlin — result differs: thinking_app:login/LoginSubmitError.kt — uncertain: gotreesitter only, anchors — heuristic:recovery (ERROR/MISSING at the first divergent leaf) — first divergence node 17: ERROR[49,2035) vs import_list[49,855)
+- thinking_app/kotlin — result differs: thinking_app:gradeRepair/GradeRepairViewModel.kt — uncertain: gotreesitter only, anchors — heuristic:recovery (ERROR/MISSING at the first divergent leaf) — first divergence node 15: ERROR[50,13145) vs import_list[50,1027)
+- thinking_app/kotlin — result differs: thinking_app:learningSettings/AddChildError.kt — uncertain: gotreesitter only, anchors — heuristic:recovery (ERROR/MISSING at the first divergent leaf) — first divergence node 15: ERROR[55,4706) vs import_list[55,1500)
+- thinking_app/kotlin — result differs: thinking_app:learningSettings/LearningSettingsClassNameScreen.kt — uncertain: gotreesitter only — heuristic:table-or-runtime (identical leaves) — first divergence node 2510: simple_identifier[15320,15329) vs navigation_expression[15320,15347)
+- thinking_app/kotlin — result differs: thinking_app:learningSettings/LearningSettingsClassScreen.kt — uncertain: gotreesitter only — heuristic:table-or-runtime (identical leaves) — first divergence node 2552: simple_identifier[15328,15337) vs navigation_expression[15328,15355)
+- thinking_app/kotlin — result differs: thinking_app:learningSettings/LearningSettingsSchoolScreen.kt — uncertain: gotreesitter only — heuristic:table-or-runtime (identical leaves) — first divergence node 2666: simple_identifier[16952,16961) vs navigation_expression[16952,16979)
+- thinking_app/kotlin — result differs: thinking_app:learningSettings/LearningSettingsStudySubjectsScreen.kt — uncertain: gotreesitter only — heuristic:table-or-runtime (identical leaves) — first divergence node 3881: simple_identifier[24016,24025) vs navigation_expression[24016,24043)
+- thinking_app/kotlin — result differs: thinking_app:learningSettings/LearningSettingsStudySubjectsViewModel.kt — uncertain: gotreesitter only — unknown — first divergence node 1291: infix_expression[9100,9144) vs assignment[9100,9144)
+- thinking_app/kotlin — result differs: thinking_app:main/KidLoadError.kt — uncertain: gotreesitter only, anchors — heuristic:recovery (ERROR/MISSING at the first divergent leaf) — first divergence node 15: ERROR[43,1978) vs import_list[43,607)
+- thinking_app/kotlin — result differs: thinking_app:main/MainScreen.kt — uncertain: gotreesitter only — heuristic:table-or-runtime (identical leaves) — first divergence node 8236: control_structure_body[47370,47371) vs control_structure_body[47370,47395)
+- thinking_app/kotlin — result differs: thinking_app:pinCode/ConfirmPinCodeScreen.kt — uncertain: gotreesitter only — unknown — first divergence node 1931: infix_expression[9606,9825) vs assignment[9606,9825)
+- thinking_backend/bash — result differs: thinking_backend:.aitask-scripts/aitask_add_model.sh — uncertain: tscgo only — heuristic:scanner (external token at the first divergent leaf) — first divergence node 1498: array[8578,8591) vs ERROR[8577,8590)
+- thinking_backend/bash — result differs: thinking_backend:.aitask-scripts/aitask_attach.sh — uncertain: gotreesitter only — heuristic:scanner (external token at the first divergent leaf) — first divergence node 2129: subshell[10752,10768) vs compound_statement[10752,10768)
+- thinking_backend/bash — result differs: thinking_backend:.aitask-scripts/aitask_contribution_review.sh — uncertain: gotreesitter only — heuristic:scanner (external token at the first divergent leaf) — first divergence node 1406: list[11043,11207) vs pipeline[11043,11207)
+- thinking_backend/bash — result differs: thinking_backend:.aitask-scripts/aitask_fold_mark.sh — uncertain: tscgo only — heuristic:scanner (external token at the first divergent leaf) — first divergence node 3189: array[20003,20015) vs ERROR[20002,20014)
+- thinking_backend/bash — result differs: thinking_backend:.aitask-scripts/aitask_revert_analyze.sh — uncertain: gotreesitter only — heuristic:scanner (external token at the first divergent leaf) — first divergence node 566: list[5192,5256) vs pipeline[5192,5256)
+- thinking_backend/bash — result differs: thinking_backend:.aitask-scripts/aitask_review_commits.sh — uncertain: gotreesitter only — heuristic:scanner (external token at the first divergent leaf) — first divergence node 296: ERROR[2340,2352) vs regex[2340,2359)
+- thinking_backend/bash — result differs: thinking_backend:.aitask-scripts/aitask_setup.sh — uncertain: tscgo only — unknown — first divergence node 8836: word[54607,54612) vs word[54606,54612)
+- thinking_backend/bash — result differs: thinking_backend:.aitask-scripts/aitask_stats_legacy.sh — uncertain: gotreesitter only, spans — heuristic:scanner (external token at the first divergent leaf) — first divergence node 1: ERROR[0,22833) vs comment[0,19)
+- thinking_backend/bash — result differs: thinking_backend:lib/atomic_write.sh — spans — heuristic:scanner (external token at the first divergent leaf) — first divergence node 220: subshell[4111,4126) vs compound_statement[4111,4126)
+- thinking_backend/bash — result differs: thinking_backend:lib/task_utils.sh — spans — unknown — first divergence node 591: word[8199,8205) vs word[8198,8218)
+- thinking_backend/bash — result differs: thinking_backend:prod/migrate_legacy_db.sh — spans — unknown — first divergence node 1943: list[18388,52848) vs list[18388,19009)
+- thinking_backend/bash — result differs: thinking_backend:prod/mirror_legacy_media.sh — spans — unknown — first divergence node 1: ERROR[0,40360) vs comment[0,19)
+- thinking_backend/bash — result differs: thinking_backend:prod/place_media_mirror.sh — uncertain: gotreesitter only — heuristic:recovery (ERROR/MISSING at the first divergent leaf) — first divergence node 2722: pipeline[20813,21069) vs redirected_statement[20813,21047)
+- thinking_backend/bash — result differs: thinking_backend:server/check_origin_certificate.sh — uncertain: tscgo only — unknown — first divergence node 1061: variable_assignments[8664,8692) vs command[8664,8736)
+- thinking_backend/bash — result differs: thinking_backend:server/provision_hetzner.sh — uncertain: gotreesitter only — unknown — first divergence node 49: word[1675,1687) vs word[1674,1731)
+- thinking_backend/bash — result differs: thinking_backend:server/setup_backup_remote.sh — uncertain: gotreesitter only — unknown — first divergence node 132: word[2361,2369) vs word[2360,2402)
+- thinking_backend/bash — result differs: thinking_backend:tests/test_caddy_indirection.sh — spans — unknown — first divergence node 1: ERROR[0,34945) vs comment[0,19)
+- thinking_backend/bash — result differs: thinking_backend:tests/test_restore_rehearsal.sh — spans — unknown — first divergence node 1993: ERROR[17195,17253) vs ERROR[17195,17210)
+- timexchange/bash — result differs: timexchange:.aitask-scripts/aitask_add_model.sh — uncertain: tscgo only — heuristic:scanner (external token at the first divergent leaf) — first divergence node 1225: array[5291,5304) vs ERROR[5290,5303)
+- timexchange/bash — result differs: timexchange:.aitask-scripts/aitask_attach.sh — uncertain: gotreesitter only — heuristic:scanner (external token at the first divergent leaf) — first divergence node 2111: subshell[10329,10345) vs compound_statement[10329,10345)
+- timexchange/bash — result differs: timexchange:.aitask-scripts/aitask_contribution_review.sh — uncertain: gotreesitter only — heuristic:scanner (external token at the first divergent leaf) — first divergence node 1406: list[11043,11207) vs pipeline[11043,11207)
+- timexchange/bash — result differs: timexchange:.aitask-scripts/aitask_create.sh — spans — heuristic:scanner (external token at the first divergent leaf) — first divergence node 5205: command[30107,30149) vs function_definition[30107,37657)
+- timexchange/bash — result differs: timexchange:.aitask-scripts/aitask_revert_analyze.sh — uncertain: gotreesitter only — heuristic:scanner (external token at the first divergent leaf) — first divergence node 476: list[3186,3250) vs pipeline[3186,3250)
+- timexchange/bash — result differs: timexchange:.aitask-scripts/aitask_review_commits.sh — uncertain: gotreesitter only — heuristic:scanner (external token at the first divergent leaf) — first divergence node 296: ERROR[2340,2352) vs regex[2340,2359)
+- timexchange/bash — result differs: timexchange:.aitask-scripts/aitask_stats_legacy.sh — uncertain: gotreesitter only, spans — heuristic:scanner (external token at the first divergent leaf) — first divergence node 1: ERROR[0,22792) vs comment[0,19)
+- timexchange/bash — result differs: timexchange:lib/atomic_write.sh — spans — heuristic:scanner (external token at the first divergent leaf) — first divergence node 219: subshell[3990,4005) vs compound_statement[3990,4005)
+- timexchange/bash — result differs: timexchange:lib/task_utils.sh — spans — heuristic:scanner (external token at the first divergent leaf) — first divergence node 1176: subshell[5886,5907) vs compound_statement[5886,5907)
+- timexchange/kotlin — result differs: timexchange:di/AppModuleBindsAnalytics.kt — uncertain: gotreesitter only — unknown — first divergence node 51: annotation[273,280) vs class_declaration[273,487)
+- timexchange/kotlin — result differs: timexchange:calendar/CalendarViewModel.kt — uncertain: gotreesitter only — heuristic:table-or-runtime (identical leaves) — first divergence node 331: simple_identifier[1457,1462) vs navigation_expression[1457,1556)
+- timexchange/kotlin — result differs: timexchange:calendar/ExpandableCalendar.kt — uncertain: gotreesitter only — unknown — first divergence node 515: annotation[2628,2639) vs function_declaration[2628,5534)
+- timexchange/kotlin — result differs: timexchange:component/InlineCalendar.kt — uncertain: gotreesitter only — unknown — first divergence node 111: annotation[620,631) vs function_declaration[620,1933)
+- timexchange/kotlin — result differs: timexchange:component/MonthViewCalendar.kt — uncertain: gotreesitter only — unknown — first divergence node 93: annotation[501,537) vs function_declaration[501,2029)
+- timexchange/kotlin — result differs: timexchange:schedule/basicEvent.kt — uncertain: gotreesitter only — unknown — first divergence node 957: annotation[4955,4966) vs function_declaration[4955,6992)
+- timexchange/kotlin — result differs: timexchange:utils/PlayStoreAppMetadataRetriever.kt — uncertain: gotreesitter only — heuristic:recovery (ERROR/MISSING at the first divergent leaf) — first divergence node 55: class_declaration[284,5409) vs class_declaration[284,5441)
+- timexchange/kotlin — result differs: timexchange:payments/PaymentServiceRevenueCat.kt — uncertain: gotreesitter only — heuristic:table-or-runtime (identical leaves) — first divergence node 294: call_expression[1665,1724) vs assignment[1665,1724)
+- timexchange/kotlin — result differs: timexchange:components/AchievementLogLine.kt — uncertain: gotreesitter only — unknown — first divergence node 1293: annotation[5677,5688) vs function_declaration[5677,5875)
+- timexchange/kotlin — result differs: timexchange:components/WizardLevelAndXp.kt — uncertain: gotreesitter only — unknown — first divergence node 935: annotation[4304,4315) vs function_declaration[4304,5118)
+- timexchange/kotlin — result differs: timexchange:components/WizardMessageTooltip.kt — uncertain: gotreesitter only — unknown — first divergence node 325: annotation[1909,1920) vs function_declaration[1909,5525)
+- timexchange/kotlin — result differs: timexchange:handlers/ShowInAppReviewsDialogEffect.kt — uncertain: gotreesitter only — heuristic:table-or-runtime (identical leaves) — first divergence node 742: control_structure_body[3700,3701) vs control_structure_body[3700,3738)
+- timexchange/kotlin — result differs: timexchange:addeditactivity/AddActivityScreen.kt — uncertain: gotreesitter only — heuristic:table-or-runtime (identical leaves) — first divergence node 1391: control_structure_body[7842,7862) vs control_structure_body[7842,7876)
+- timexchange/kotlin — result differs: timexchange:components/LinkedAppsDialog.kt — uncertain: gotreesitter only — unknown — first divergence node 467: annotation[2996,3035) vs function_declaration[2996,5336)
+- timexchange/kotlin — result differs: timexchange:components/SelectedSoundDialog.kt — uncertain: gotreesitter only — unknown — first divergence node 409: annotation[2658,2697) vs function_declaration[2658,4037)
+- timexchange/kotlin — result differs: timexchange:pagedefs/AddActivityBasePageDef.kt — spans — unknown — first divergence node 143: ERROR[906,1730) vs ERROR[906,1725)
+- timexchange/kotlin — result differs: timexchange:pagedefs/activityAdvFreezesOptionsPagedef.kt — uncertain: gotreesitter only — heuristic:table-or-runtime (identical leaves) — first divergence node 745: control_structure_body[4056,4057) vs control_structure_body[4056,4090)
+- timexchange/kotlin — result differs: timexchange:pagedefs/activityAdvTimeBonusesPagedef.kt — uncertain: gotreesitter only — heuristic:table-or-runtime (identical leaves) — first divergence node 822: control_structure_body[4358,4359) vs control_structure_body[4358,4407)
+- timexchange/kotlin — result differs: timexchange:apptoactlnks/AppToActivityLinksScreen.kt — uncertain: gotreesitter only — unknown — first divergence node 2431: annotation[11503,11514) vs function_declaration[11503,12748)
+- timexchange/kotlin — result differs: timexchange:goalcalendar/GoalCalendar.kt — uncertain: gotreesitter only — unknown — first divergence node 1576: annotation[7659,7670) vs function_declaration[7659,8150)
+- timexchange/kotlin — result differs: timexchange:goalcalendar/SimpleCalendarTitle.kt — uncertain: gotreesitter only — unknown — first divergence node 451: annotation[2180,2191) vs function_declaration[2180,2689)
+- timexchange/kotlin — result differs: timexchange:history/historyEvent.kt — uncertain: gotreesitter only — unknown — first divergence node 1059: annotation[5723,5734) vs function_declaration[5723,8228)
+- timexchange/kotlin — result differs: timexchange:login/LoginCubit.kt — uncertain: gotreesitter only, anchors — heuristic:recovery (ERROR/MISSING at the first divergent leaf) — first divergence node 13: ERROR[49,1419) vs import_list[49,225)
+- timexchange/kotlin — result differs: timexchange:loginok/CheckAndPromptEnablingAppLinks.kt — uncertain: gotreesitter only — unknown — first divergence node 826: annotation[3704,3739) vs function_declaration[3704,4898)
+- timexchange/kotlin — result differs: timexchange:loginok/EmailVerifiedScreen.kt — uncertain: gotreesitter only — heuristic:table-or-runtime (identical leaves) — first divergence node 475: ERROR[3019,7963) vs class_declaration[3019,7963)
+
+## tswasm vs tscgo
+
+| set | lang | files | runtime failures (A / B) | tree identical | tree differs: leaves identical / leaves differ | Result identical | Result differs | uncertain: A only / B only | spans differ | anchors differ | doc differs | indicators |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| corpus | bash | 66 | 0 / 0 | 66 | 0 / 0 | 66 | 0 | 0 / 0 | 0 | 0 | 0 |  |
+| corpus | python | 61 | 0 / 0 | 61 | 0 / 0 | 61 | 0 | 0 / 0 | 0 | 0 | 0 |  |
+| corpus | go | 20 | 0 / 0 | 20 | 0 / 0 | 20 | 0 | 0 / 0 | 0 | 0 | 0 |  |
+| corpus | kotlin | 25 | 0 / 0 | 25 | 0 / 0 | 25 | 0 | 0 / 0 | 0 | 0 | 0 |  |
+| corpus | typescript | 7 | 0 / 0 | 7 | 0 / 0 | 7 | 0 | 0 / 0 | 0 | 0 | 0 |  |
+| corpus | tsx | 1 | 0 / 0 | 1 | 0 / 0 | 1 | 0 | 0 / 0 | 0 | 0 | 0 |  |
+| corpus | javascript | 4 | 0 / 0 | 4 | 0 / 0 | 4 | 0 | 0 / 0 | 0 | 0 | 0 |  |
+| corpus | java | 10 | 0 / 0 | 10 | 0 / 0 | 10 | 0 | 0 / 0 | 0 | 0 | 0 |  |
+| corpus | rust | 9 | 0 / 0 | 9 | 0 / 0 | 9 | 0 | 0 / 0 | 0 | 0 | 0 |  |
+| corpus | swift | 10 | 0 / 0 | 10 | 0 / 0 | 10 | 0 | 0 / 0 | 0 | 0 | 0 |  |
+| aitasks | bash | 656 | 0 / 0 | 656 | 0 / 0 | 656 | 0 | 0 / 0 | 0 | 0 | 0 |  |
+| aitasks | python | 650 | 0 / 0 | 650 | 0 / 0 | 650 | 0 | 0 / 0 | 0 | 0 | 0 |  |
+| aitasks | go | 143 | 0 / 0 | 143 | 0 / 0 | 143 | 0 | 0 / 0 | 0 | 0 | 0 |  |
+| aitasks | javascript | 1 | 0 / 0 | 1 | 0 / 0 | 1 | 0 | 0 / 0 | 0 | 0 | 0 |  |
+| aitasks_go | bash | 162 | 0 / 0 | 162 | 0 / 0 | 162 | 0 | 0 / 0 | 0 | 0 | 0 |  |
+| aitasks_go | python | 245 | 0 / 0 | 245 | 0 / 0 | 245 | 0 | 0 / 0 | 0 | 0 | 0 |  |
+| aitasks_go | go | 161 | 0 / 0 | 161 | 0 / 0 | 161 | 0 | 0 / 0 | 0 | 0 | 0 |  |
+| aitasks_mobile | bash | 141 | 0 / 0 | 141 | 0 / 0 | 141 | 0 | 0 / 0 | 0 | 0 | 0 |  |
+| aitasks_mobile | python | 148 | 0 / 0 | 148 | 0 / 0 | 148 | 0 | 0 / 0 | 0 | 0 | 0 |  |
+| aitasks_mobile | kotlin | 260 | 0 / 0 | 260 | 0 / 0 | 260 | 0 | 0 / 0 | 0 | 0 | 0 |  |
+| aitasks_mobile | swift | 2 | 0 / 0 | 2 | 0 / 0 | 2 | 0 | 0 / 0 | 0 | 0 | 0 |  |
+| thinking_app | bash | 244 | 0 / 0 | 244 | 0 / 0 | 244 | 0 | 0 / 0 | 0 | 0 | 0 |  |
+| thinking_app | python | 277 | 0 / 0 | 277 | 0 / 0 | 277 | 0 | 0 / 0 | 0 | 0 | 0 |  |
+| thinking_app | kotlin | 784 | 0 / 0 | 784 | 0 / 0 | 784 | 0 | 0 / 0 | 0 | 0 | 0 |  |
+| thinking_app | javascript | 1 | 0 / 0 | 1 | 0 / 0 | 1 | 0 | 0 / 0 | 0 | 0 | 0 |  |
+| thinking_backend | bash | 269 | 0 / 0 | 269 | 0 / 0 | 269 | 0 | 0 / 0 | 0 | 0 | 0 |  |
+| thinking_backend | python | 317 | 0 / 0 | 317 | 0 / 0 | 317 | 0 | 0 / 0 | 0 | 0 | 0 |  |
+| timexchange | bash | 151 | 0 / 0 | 151 | 0 / 0 | 151 | 0 | 0 / 0 | 0 | 0 | 0 |  |
+| timexchange | python | 197 | 0 / 0 | 197 | 0 / 0 | 197 | 0 | 0 / 0 | 0 | 0 | 0 |  |
+| timexchange | kotlin | 970 | 0 / 0 | 970 | 0 / 0 | 970 | 0 | 0 / 0 | 0 | 0 | 0 |  |
+| timexchange | java | 15 | 0 / 0 | 15 | 0 / 0 | 15 | 0 | 0 / 0 | 0 | 0 | 0 |  |
+
+### Paths
+
+None.
+

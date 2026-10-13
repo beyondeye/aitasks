@@ -22,6 +22,7 @@ var requiredAnchors = map[string]AnchorSet{
 	"go":         APackage,
 	"kotlin":     APackage | AImportEnd,
 	"typescript": AImportEnd | APrologue,
+	"tsx":        AImportEnd | APrologue,
 	"javascript": AImportEnd | APrologue,
 	"java":       APackage | AImportEnd,
 	"rust":       AInnerAttrEnd | AImportEnd,

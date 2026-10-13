@@ -5,3 +5,6 @@
 
 # Python bytecode from corpus/gen and oracle/
 __pycache__/
+/.tsref/
+/.tsref.tmp*/
+/.tswasm/

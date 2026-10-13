@@ -11,6 +11,8 @@
 //	t1954 footprint
 //	t1954 oraclecheck                                native cross-checks of the hand oracles
 //	t1954 env                                        results/environment.md
+//	t1954 localpolicy [--provider p,…]              the local-error refusal alternative
+//	t1954 tsdiff   [--repos a,b] [--out f]           tree-sitter runtime differential (-tags t1954cgo)
 package main
 
 import (
@@ -61,11 +63,21 @@ func main() {
 		code = cmdOracleCheck(args)
 	case "env":
 		code = cmdEnv(args)
+	case "localpolicy":
+		code = cmdLocalPolicy(args)
 	default:
-		usage()
+		f, ok := extraVerbs[verb]
+		if !ok {
+			usage()
+		}
+		code = f(args)
 	}
 	os.Exit(code)
 }
+
+// extraVerbs are verbs compiled in only under a build tag (tsdiff needs the
+// cgo reference provider).
+var extraVerbs = map[string]func([]string) int{}
 
 func usage() {
 	fmt.Fprintln(os.Stderr, "usage: t1954 matrix|edit|guard|classes|oraclecheck|realrepo|bench|footprint|env [flags]")

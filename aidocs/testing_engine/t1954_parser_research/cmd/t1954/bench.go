@@ -209,7 +209,21 @@ func cmdBench(args []string) int {
 	out := fs.String("out", "results/bench.md", "output file")
 	runs := fs.Int("runs", 3, "fresh processes per measurement")
 	siblings := fs.String("siblings", "aitasks_go,aitasks_mobile,thinking_app,thinking_backend,timexchange", "registered sibling projects for the lexical-only sets (read-only)")
+	subjectsFlag := fs.String("subjects", strings.Join(benchSubjects, ","), "end-to-end subjects (comma list)")
+	lexFlag := fs.String("lex-subjects", strings.Join(lexSubjects, ","), "lexical-only subjects (comma list)")
+	title := fs.String("title", "t1954_1", "task named in the report title")
+	labels := fs.String("labels", "", "subject=label;… — a qualifier shown next to the subject (e.g. host-only)")
+	excluded := fs.String("excluded", "", "subject=reason;… — subjects reported as eliminated, not measured")
+	rerun := fs.String("rerun", "go run ./cmd/t1954 bench", "the rerun command printed in the report")
 	_ = fs.Parse(args)
+	e2e, lexSubs := splitList(*subjectsFlag), splitList(*lexFlag)
+	label, elim := kvList(*labels), kvList(*excluded)
+	subjectCell := func(s string) string {
+		if l := label[s]; l != "" {
+			return s + " (" + l + ")"
+		}
+		return s
+	}
 	tmp, err := os.MkdirTemp("", "t1954-bench-")
 	if err != nil {
 		fail(1, err)
@@ -243,12 +257,12 @@ func cmdBench(args []string) int {
 		}
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "# Performance (t1954_1)\n\n%s\n\n", id.Header())
-	fmt.Fprintf(&b, "Method (plan amendment A3): `taskset -c 0`; fastest of %d fresh processes; **cold** = one timed first operation per fresh process, the timer started before provider construction (grammar/oracle start-up included, no benchmark calibration); **warm** = a separate process, an untimed warm-up, then `testing.Benchmark` (ns/op). \"Cold\" is a cold PROCESS and provider, not a cold page cache (the workload is written once beforehand). Peak RSS (KiB, Linux `ru_maxrss`): the measured process itself (`RUSAGE_SELF`), and separately its subprocesses (`RUSAGE_CHILDREN`: `git ls-files` inside the scan, the Python oracle for pytokenize). The subprocess figure is an UPPER BOUND, not the subprocess's own working set: a forked child's `ru_maxrss` includes the pages it shares with the parent at fork, which is why the scan rows show the same value twice. Rerun: `go run ./cmd/t1954 bench`.\n\n", *runs)
+	fmt.Fprintf(&b, "# Performance (%s)\n\n%s\n\n", *title, id.Header())
+	fmt.Fprintf(&b, "Method (plan amendment A3): `taskset -c 0`; fastest of %d fresh processes; **cold** = one timed first operation per fresh process, the timer started before provider construction (grammar/oracle start-up included, no benchmark calibration); **warm** = a separate process, an untimed warm-up, then `testing.Benchmark` (ns/op). \"Cold\" is a cold PROCESS and provider, not a cold page cache (the workload is written once beforehand). Peak RSS (KiB, Linux `ru_maxrss`): the measured process itself (`RUSAGE_SELF`), and separately its subprocesses (`RUSAGE_CHILDREN`: `git ls-files` inside the scan, the Python oracle for pytokenize). The subprocess figure is an UPPER BOUND, not the subprocess's own working set: a forked child's `ru_maxrss` includes the pages it shares with the parent at fork, which is why the scan rows show the same value twice. Rerun: `%s`.\n\n", *runs, *rerun)
 	b.WriteString("## End-to-end scan — budget-comparable\n\n")
 	b.WriteString("The operation `annot.BenchmarkScan` times: `registry.Scan(ctx, dir, Inputs{Annotations: annot.Source{}, Lister: emptyLister}, false)` over the regenerated M2.2 bench shape (420 annotated tests, ¼ Python; 600 sources; 1,000 docs; a fresh git repository). A provider enters through `ClassifyHook` for its languages; the landed lexer handles the others (named per row). Budget: 300 ms (proposal *Engine binary identity and budget*); the landed `annot.BenchmarkScan` baseline is ≈21 ms (`goengines/bench/baseline.txt`).\n\n")
 	b.WriteString("| subject | languages via the subject | cold (fastest) | cold runs | warm (ns/op, fastest) | peak RSS KiB (process / subprocesses) | vs 300 ms budget |\n|---|---|---|---|---|---|---|\n")
-	for _, s := range benchSubjects {
+	for _, s := range e2e {
 		var cold, warm []sample
 		for range *runs {
 			cold = append(cold, runChild([]string{"--mode", "cold", "--op", "scan", "--subject", s, "--dir", shape}))
@@ -260,7 +274,7 @@ func cmdBench(args []string) int {
 		wb, _ := best(warm)
 		langs := composition(s)
 		if cb.err != "" || wb.err != "" {
-			fmt.Fprintf(&b, "| %s | %s | error: %s | | %s | | not measured |\n", s, langs, esc(cb.err), esc(wb.err))
+			fmt.Fprintf(&b, "| %s | %s | error: %s | | %s | | not measured |\n", subjectCell(s), langs, esc(cb.err), esc(wb.err))
 			continue
 		}
 		verdict := "within"
@@ -271,8 +285,11 @@ func cmdBench(args []string) int {
 		for _, n := range call {
 			cr = append(cr, ms(n))
 		}
-		fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %d / %d | %s (cold %.1f×, warm %.1f×) |\n", s, langs, ms(cb.ns), strings.Join(cr, ", "), ms(wb.ns),
+		fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %d / %d | %s (cold %.1f×, warm %.1f×) |\n", subjectCell(s), langs, ms(cb.ns), strings.Join(cr, ", "), ms(wb.ns),
 			max(cb.rss, wb.rss), max(cb.childRSS, wb.childRSS), verdict, float64(cb.ns)/float64(budget.Nanoseconds()), float64(wb.ns)/float64(budget.Nanoseconds()))
+	}
+	for _, s := range sortedKeys(elim) {
+		fmt.Fprintf(&b, "| %s | — | eliminated — not measured | | | | %s |\n", s, esc(elim[s]))
 	}
 	b.WriteString("\n## Lexical only — NOT comparable to the scan budget\n\n")
 	b.WriteString("Analyze + ToContext (or the landed `annot.Classify`) over preloaded bytes; files read before the timer starts. A subject is timed only on the files of its own languages.\n\n")
@@ -284,7 +301,7 @@ func cmdBench(args []string) int {
 		}
 		list := filepath.Join(tmp, "files.txt")
 		_ = os.WriteFile(list, []byte(strings.Join(set.Files, "\n")), 0o644)
-		for _, s := range lexSubjects {
+		for _, s := range lexSubs {
 			var cold, warm []sample
 			for range *runs {
 				cold = append(cold, runChild([]string{"--mode", "cold", "--op", "lex", "--subject", s, "--list", list}))
@@ -295,15 +312,34 @@ func cmdBench(args []string) int {
 			cb, _ := best(cold)
 			wb, _ := best(warm)
 			if cb.err != "" || wb.err != "" {
-				fmt.Fprintf(&b, "| %s | %s | | error: %s %s | | |\n", set.Name, s, esc(cb.err), esc(wb.err))
+				fmt.Fprintf(&b, "| %s | %s | | error: %s %s | | |\n", set.Name, subjectCell(s), esc(cb.err), esc(wb.err))
 				continue
 			}
 			n := countFor(s, set.Files)
 			if n == 0 {
 				continue
 			}
-			fmt.Fprintf(&b, "| %s | %s | %d | %s | %s | %d / %d |\n", set.Name, s, n, ms(cb.ns), ms(wb.ns), max(cb.rss, wb.rss), max(cb.childRSS, wb.childRSS))
+			fmt.Fprintf(&b, "| %s | %s | %d | %s | %s | %d / %d |\n", set.Name, subjectCell(s), n, ms(cb.ns), ms(wb.ns), max(cb.rss, wb.rss), max(cb.childRSS, wb.childRSS))
 		}
+	}
+	// Start-up detail some providers expose (e.g. tswasm's wazero compile and
+	// instantiate) — supplementary, NOT budget evidence: the cold rows above
+	// already include it inside their timer.
+	var detail []string
+	seen := map[string]bool{}
+	for _, s := range append(append([]string(nil), e2e...), lexSubs...) {
+		if seen[s] {
+			continue
+		}
+		seen[s] = true
+		if sub, err := benchSubject(s); err == nil && !sub.IsBaseline() {
+			if st, ok := sub.P.(interface{ InitStats() string }); ok {
+				detail = append(detail, fmt.Sprintf("- %s: %s (one construction in the parent process)", s, st.InitStats()))
+			}
+		}
+	}
+	if len(detail) > 0 {
+		b.WriteString("\n## Provider start-up detail — supplementary, not budget evidence\n\n" + strings.Join(detail, "\n") + "\n")
 	}
 	if err := os.WriteFile(*out, []byte(b.String()), 0o644); err != nil {
 		fail(1, err)
@@ -453,4 +489,34 @@ func cmdBenchChild(args []string) int {
 		return emit(childResult{Err: opErr.Error()})
 	}
 	return emit(childResult{NS: res.NsPerOp(), Files: len(items)})
+}
+
+func splitList(v string) []string {
+	var out []string
+	for _, x := range strings.Split(v, ",") {
+		if x = strings.TrimSpace(x); x != "" {
+			out = append(out, x)
+		}
+	}
+	return out
+}
+
+// kvList parses "k=v;k2=v2".
+func kvList(v string) map[string]string {
+	out := map[string]string{}
+	for _, kv := range strings.Split(v, ";") {
+		if k, val, ok := strings.Cut(kv, "="); ok && strings.TrimSpace(k) != "" {
+			out[strings.TrimSpace(k)] = strings.TrimSpace(val)
+		}
+	}
+	return out
+}
+
+func sortedKeys(m map[string]string) []string {
+	var out []string
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }

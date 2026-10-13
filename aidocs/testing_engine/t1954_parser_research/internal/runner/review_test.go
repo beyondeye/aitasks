@@ -112,3 +112,17 @@ func TestDisabledBehaviourIsNotMeasured(t *testing.T) {
 		t.Fatalf("no exec: expectation means nothing to measure: %d", r.BehaviourNotMeasured)
 	}
 }
+
+// A refusal for a different reason than expected writes nothing, so it is
+// not record corruption (it used to fall through to the corruption default).
+func TestRefusalReasonMismatchIsNotCorruption(t *testing.T) {
+	c := corpus.Case{Lang: "bash", Name: "u.sh", Data: []byte("x='open\n# testmap:covers src/a.sh\n"), Mode: 0o644,
+		Exp: corpus.Expect{Lang: "bash", Placement: map[string]int{}, Extra: map[string]string{}},
+		Edits: []corpus.Op{{Kind: "annotate", Outcome: "refused:not-comment", Text: "annotate",
+			Args: map[string]string{"member": "", "source": "src/b.sh", "stamp": "@2026-02-02/bbbbbbbbbb"}}}}
+	r := Run(Baseline, c, Options{})
+	if r.OpsRefused != 1 || r.RecordCorruption != 0 ||
+		!strings.Contains(strings.Join(r.Notes, "\n"), "refused for a different reason; file untouched") {
+		t.Fatalf("refused %d corruption %d notes %v", r.OpsRefused, r.RecordCorruption, r.Notes)
+	}
+}

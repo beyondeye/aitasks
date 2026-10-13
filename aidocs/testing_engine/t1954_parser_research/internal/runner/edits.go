@@ -175,6 +175,12 @@ func edits(row *Row, s Subject, c corpus.Case, lang string, opt Options) {
 				row.RecordCorruption++
 			case op.Outcome == "applied" && strings.HasPrefix(got, "refused"):
 				row.OverRefusal++
+			case strings.HasPrefix(op.Outcome, "refused") && strings.HasPrefix(got, "refused"):
+				// Refused for another reason (e.g. uncertain instead of
+				// not-comment): nothing was written, so it is no corruption.
+				// A file-level over-refusal is already scored by the
+				// refusal level; the reason mismatch stays in the notes.
+				row.note("%s: refused for a different reason; file untouched", tag)
 			default:
 				row.RecordCorruption++
 			}

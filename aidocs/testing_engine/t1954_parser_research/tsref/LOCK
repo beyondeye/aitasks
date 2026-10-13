@@ -1,0 +1,46 @@
+# Pinned C sources for the tree-sitter reference providers (tscgo, tswasm).
+# The commits are gotreesitter v0.55.1's grammars/languages.lock, so the C
+# references build exactly the grammars gotreesitter's tables came from.
+# Moving a pin is a deliberate, committed edit of this file; then run
+# `tsref/fetch.sh --print-sums` and paste the new srcsum lines.
+#
+# repo <name> <url> <commit>
+repo tree-sitter-bash https://github.com/tree-sitter/tree-sitter-bash a06c2e4415e9bc0346c6b86d401879ffb44058f7
+repo tree-sitter-python https://github.com/tree-sitter/tree-sitter-python 26855eabccb19c6abf499fbc5b8dc7cc9ab8bc64
+repo tree-sitter-go https://github.com/tree-sitter/tree-sitter-go 2346a3ab1bb3857b48b29d779a1ef9799a248cd7
+repo tree-sitter-kotlin https://github.com/fwcd/tree-sitter-kotlin 1852ea17b7f60fb3f9d84e0b1555d56b46b39fb1
+repo tree-sitter-typescript https://github.com/tree-sitter/tree-sitter-typescript 75b3874edb2dc714fb1fd77a32013d0f8699989f
+repo tree-sitter-javascript https://github.com/tree-sitter/tree-sitter-javascript 58404d8cf191d69f2674a8fd507bd5776f46cb11
+repo tree-sitter-java https://github.com/tree-sitter/tree-sitter-java e10607b45ff745f5f876bfa3e94fbcc6b44bdc11
+repo tree-sitter-rust https://github.com/tree-sitter/tree-sitter-rust 77a3747266f4d621d0757825e6b11edcbf991ca5
+repo tree-sitter-swift https://github.com/alex-pinkus/tree-sitter-swift 00bbb0a2550f8bc0023a2a4992922d51ae045626
+#
+# The Swift repository commits no generated parser at this commit: its
+# src/parser.c is generated from src/grammar.json with exactly this CLI.
+generator tree-sitter 0.26.9
+generate tree-sitter-swift
+#
+# grammar <lang> <repo> <src dir>  (the dir holding parser.c [+ scanner.c])
+grammar bash tree-sitter-bash src
+grammar python tree-sitter-python src
+grammar go tree-sitter-go src
+grammar kotlin tree-sitter-kotlin src
+grammar typescript tree-sitter-typescript typescript/src
+grammar tsx tree-sitter-typescript tsx/src
+grammar javascript tree-sitter-javascript src
+grammar java tree-sitter-java src
+grammar rust tree-sitter-rust src
+grammar swift tree-sitter-swift src
+#
+# srcsum <repo>/<dir> <sha256 over "<sha256>  <path>" of every file, sorted>
+srcsum tree-sitter-bash/src 0a7f70132341331f25d21f5243ad21a67a9862a874e6f7ecb9f8d8be5952bd81
+srcsum tree-sitter-python/src 8f0b69a9b17bb0f6166e85201b57f8b3246a1063edea2e617b8187db128ee341
+srcsum tree-sitter-go/src 653527d5191894f2e36d96d64a324766fda23bda146b1f03ea34b735250fa706
+srcsum tree-sitter-kotlin/src 6871f1673274391cdde30e97f16ef55e9ff242f8c49ffdf142f3a56d68468e2d
+srcsum tree-sitter-typescript/typescript/src 8a0c38c9d2848e1891144c1055094bd005a0a49ca9d63fd0193fabe15f7669d5
+srcsum tree-sitter-typescript/tsx/src ebd59d7895c3edb8be152ffee63d6f554e3d4e572e83f9ade973db8497303e97
+srcsum tree-sitter-javascript/src d838f0b8312b5e30b02d5c8b02440c708e2f7d8b31709197b48b388ed485989e
+srcsum tree-sitter-java/src 03487b010d9e22424460a44525cac751a5766cfacd5ab688365e3c1707cf0156
+srcsum tree-sitter-rust/src 707749e2c3dc103a294fd6c3fbb03560d5dbd7cfb93276444648de2006512a67
+srcsum tree-sitter-swift/src cbb158ed9d3147f464f61d22a73cb3a07b45ac664e205d1fab1bb37cdc68c0ed
+srcsum tree-sitter-typescript/common b4614de80b9e91529d788ba8c024a4726339463b7ad669bd9d638ce1cbb9b5ad

@@ -12,7 +12,7 @@ import (
 // fixedPosition has no rule for them and falls to the bash-like "after the
 // leading comment block" default; the runner records both.
 //
-//   - TS/JS: after the import block and any directive prologue;
+//   - TS/TSX/JS: after the import block and any directive prologue;
 //   - Java:  after the imports, else after the package clause;
 //   - Rust:  after inner attributes / `//!` docs and the `use` block;
 //   - Swift: after the imports;
@@ -24,7 +24,7 @@ import (
 func ProposedFilePlacement(f *annot.File, lang string, a Anchors) (after int, ok bool) {
 	lead := leading(f)
 	switch lang {
-	case "typescript", "javascript":
+	case "typescript", "tsx", "javascript":
 		after = max(lead, a.ImportEnd, a.Prologue)
 	case "java":
 		after = max(lead, a.Package, a.ImportEnd)

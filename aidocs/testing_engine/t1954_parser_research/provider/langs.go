@@ -8,9 +8,12 @@ import (
 
 // The research languages: `//` leader, no docstring. annot knows them only
 // through the seam's LangHook (ResearchLangOf), installed in the harness
-// process alone.
+// process alone. TSX is its own Lang because a provider sees only the Lang,
+// never the path, and TypeScript and TSX are different grammars (`<T>x` is a
+// type assertion in .ts and a JSX element in .tsx).
 var (
 	TypeScript = annot.Lang{Name: "typescript", Leader: "//"}
+	TSX        = annot.Lang{Name: "tsx", Leader: "//"}
 	JavaScript = annot.Lang{Name: "javascript", Leader: "//"}
 	Java       = annot.Lang{Name: "java", Leader: "//"}
 	Rust       = annot.Lang{Name: "rust", Leader: "//"}
@@ -21,12 +24,12 @@ var (
 // only through the seam.
 var (
 	M22Langs      = []string{"bash", "python", "go", "kotlin"}
-	ResearchLangs = []string{"typescript", "javascript", "java", "rust", "swift"}
+	ResearchLangs = []string{"typescript", "tsx", "javascript", "java", "rust", "swift"}
 	AllLangs      = append(append([]string(nil), M22Langs...), ResearchLangs...)
 )
 
 var researchExt = map[string]annot.Lang{
-	".ts": TypeScript, ".tsx": TypeScript, ".mts": TypeScript,
+	".ts": TypeScript, ".mts": TypeScript, ".tsx": TSX,
 	".js": JavaScript, ".jsx": JavaScript, ".mjs": JavaScript,
 	".java":  Java,
 	".rs":    Rust,
@@ -36,7 +39,7 @@ var researchExt = map[string]annot.Lang{
 var byName = map[string]annot.Lang{
 	annot.Bash.Name: annot.Bash, annot.Python.Name: annot.Python,
 	annot.Go.Name: annot.Go, annot.Kotlin.Name: annot.Kotlin,
-	TypeScript.Name: TypeScript, JavaScript.Name: JavaScript,
+	TypeScript.Name: TypeScript, TSX.Name: TSX, JavaScript.Name: JavaScript,
 	Java.Name: Java, Rust.Name: Rust, Swift.Name: Swift,
 }
 
@@ -49,7 +52,7 @@ func LangByName(name string) (annot.Lang, bool) {
 // IsResearch reports whether lang is one of the research languages.
 func IsResearch(lang string) bool {
 	_, ok := researchExt["."+map[string]string{
-		"typescript": "ts", "javascript": "js", "java": "java", "rust": "rs", "swift": "swift",
+		"typescript": "ts", "tsx": "tsx", "javascript": "js", "java": "java", "rust": "rs", "swift": "swift",
 	}[lang]]
 	return ok
 }

@@ -186,7 +186,7 @@ func validity(lang, file string, c corpus.Case, dir string) string {
 			return "reject:" + firstLine(err.Error())
 		}
 		return "accept"
-	case "typescript", "javascript":
+	case "typescript", "tsx", "javascript":
 		if ok, why := oracle.TSAvailable(); !ok {
 			return "none:" + why
 		}
