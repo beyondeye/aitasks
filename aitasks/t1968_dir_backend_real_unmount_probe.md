@@ -30,3 +30,9 @@ t1960 made every `dir` artifact backend op (`.aitask-scripts/lib/artifact_backen
 2. Start a large `ait artifact create … --backend dir` (or a put slowed with a `mkdir`/`cp` shim). While it holds the cwd, run a plain `sudo umount /mnt/aitstore`. It is expected to fail with EBUSY, and the put completes into the share.
 3. Repeat with `sudo umount -l /mnt/aitstore`. The put must not write anything into the now-exposed underlying `/mnt/aitstore` directory (`find /mnt/aitstore -mindepth 1` empty). Note whether the op succeeds, since writes go to the detached filesystem.
 4. With the share unmounted, `head` / `get` / `list` / `delete` refuse ("not an initialized artifact store"), and `delete` returns rather than dying.
+
+## Verification Checklist
+
+- [ ] Plain `sudo umount` of a tmpfs dir store while a put holds the cwd fails with EBUSY and the put completes into the share
+- [ ] `sudo umount -l` mid-put leaves the exposed underlying mountpoint directory empty (`find <mnt> -mindepth 1` prints nothing); record whether the op succeeded
+- [ ] With the share unmounted, head/get/list refuse with "not an initialized artifact store" and delete returns 1 without dying
