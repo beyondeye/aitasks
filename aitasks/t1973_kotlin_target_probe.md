@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1852
 followup_kind: risk_mitigation
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-13 15:52
-updated_at: 2026-10-13 15:55
+updated_at: 2026-10-13 17:29
 ---
 
 ## Origin
@@ -42,3 +43,8 @@ Measure and record:
 - **`annotate --from-body`:** whether it maps real member blocks, including receiver-position extension calls, and what it misses.
 
 File each defect found as its own task (bug, with a fixture reproducing it). Record the measurements in this task's plan.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-13T14:29:43Z status=pass attempt=1 type=human
