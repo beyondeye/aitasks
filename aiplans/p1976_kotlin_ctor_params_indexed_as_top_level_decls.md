@@ -351,3 +351,51 @@ this checkout. Three rules follow:
   declarations. Restored to c1 (`git diff --quiet c1`), green again.
 - [x] Step 6: `mine.patch` covers exactly the 3 paths (4 `parens` lines, 2 tests,
   version line).
+- [x] Step 7: commit window.
+  - Pause: t1975 (`aitasks-00`, pane %676) and t1977 (`aitasks-e5`, pane %680) were sent
+    pause requests. Both sessions were blocked on their own prompts, so the user
+    confirmed the pause on their behalf ("1975 and 1977 are currently paused").
+  - The first 7c run stopped with `HEAD_MOVED` before applying anything. The mover was
+    `a5c479de6` (t1954_3: 125 research files, **none under `goengines/`**). The 7a redo
+    verified `git diff --quiet BASE OLD -- goengines`, so the landing tree's `goengines/`
+    equals F's tested c1 and needed no re-test. Committed as **`8718afa08`** inside the
+    same pause.
+  - 7d: `HEAD == NEW`; `--stat` lists exactly the 3 paths; patch-id equals `mine.patch`
+    (`f6c9c148…`); `schemaVersion` 4 → 5; no staged or unstaged diff left on the paths.
+  - RELEASED sent to both sessions.
+- [x] Step 8a: `NOTE_APPENDED` on t1975 (`…b906cde1…`) and t1977 (`…fc748553…`): HEAD is
+  at 5, and their bump must be parent+1 from a fresh HEAD read.
+
+## Final Implementation Notes
+- **Actual work done:**
+  - `scanKotlin` now tracks open parentheses (`parens`, clamped like `depth`). A
+    declaration keyword counts as top-level only when `depth == 0 && parens == 0`, so
+    primary-constructor `val`/`var` parameters are no longer indexed, and `class X(`
+    still declares X.
+  - `schemaVersion` 4 → 5.
+  - Two tests: `TestKotlinCtorParamsAreNotTopLevel` (data class, enum, `@Inject
+    constructor`, multi-line, and a `<`-comparison guard; every case asserts a
+    declaration after the constructor) and `TestKotlinFromBodyIgnoresCtorParams` (the
+    `--from-body` repro with a positive `LoginState` ref).
+- **Deviations from plan:**
+  - The first commit attempt hit `HEAD_MOVED`. It was resolved inside the same pause by
+    proving `goengines/` unchanged since BASE, instead of the plan's "release first,
+    then loop to 7a". That rule exists to avoid holding a pause while waiting; this
+    redo took seconds, and no waiting was involved.
+  - Live delivery used `SendMessage` via a lock-pid → tmux pane → `ListAgents` join.
+    `aitask_live_endpoint.sh` answers `agent_unknown` until a task records
+    `implemented_with`, which is documented behaviour.
+  - The durable notes went through `./ait note` directly (no `--with-live`), because
+    the live message had already been sent.
+- **Issues encountered:** The first corpus `comm` ran on a locale-collated comparison of
+  Go's byte-sorted output and produced phantom "added" rows. Re-sorting with `LC_ALL=C`
+  gave 0 added.
+- **Key decisions:**
+  - Angle brackets are not tracked, because `<`/`>` are also comparison operators and a
+    counter on them would hide later declarations (pinned by the `comparison` case).
+  - All development and measurement happened in a frozen private copy of HEAD, so
+    t1977's concurrent `ktDeclName` work could not leak into the before/after corpus
+    diff.
+  - Corpus: 737 rows removed, all `val`/`var`, 0 added. At t1973's granularity
+    (distinct per-file names absent after the fix) that is exactly 697 in 224 files.
+- **Upstream defects identified:** None
