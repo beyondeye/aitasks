@@ -63,3 +63,22 @@ The implementation plan must begin with `Step 0 — Reality check`: inspect land
 - Conflicting rewrites, no-progress cycles, unreadable inputs and incompatible contracts terminate within the configured budget and retain actionable failing diagnostics.
 - Onboarding, maintenance and task-completion integration tests verify the same convergence semantics, legacy-file handling, change-surface boundaries and correct gate/test outcomes.
 - User documentation explains adoption of an existing codebase, automatic repair behavior, configuration and residual failure reports. The dependency table and reciprocal references are reconciled with the final module ownership.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1853_3** id=2026-10-13T12:53:19Z.e2217e36399421a82a6ecf89 from=t1853_3 from_verified=yes at=2026-10-13T12:53:19Z base=2c04a9639cc377ce62858e5af12bbc3a0f76412b base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t1853_3 (M2.3), as landed in 2c04a9639. Verify against the code.
+> | 
+> | For automated testmap repair: `deps.Suggest(ctx, root, test, opts)` (verb `annotate --suggest [--json] <test>[#member]`) is a scanner-suggestion source.
+> | - It lists the test's direct deps, walking `helper_roots:` helpers, with origins, an anchor and new/covered state.
+> | - `SUGGEST_REFUSED` covers excluded, missing, not-a-file and no-scanner.
+> | 
+> | For Kotlin members, `annotate --from-body <test>#<member>` writes covers automatically:
+> | - through `annot.AnnotateWith` with `Origin: scanner:from-body`
+> | - it resolves receiver-position extensions too
+> | - `--dry-run` previews
+> | - there is no confirmation step (user decision)
+> | 
+> | Only `Static()` deps are direct facts; closure-only edges are reachability. No human-only step was needed in M2.3.
