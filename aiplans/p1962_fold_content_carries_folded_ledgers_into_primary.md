@@ -204,3 +204,40 @@ Step 9: commit the code (`bug: … (t1962)`), commit the plan, and archive.
 ### Goal-achievement risk: low
 None identified. The real `gate_ledger`, `note_inbox` and `plan_paths`
 functions check each defect against the merged output.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-13)
+- **Requested by user:**
+  - (high) Passing the collected history through the `AIT_FOLD_HISTORY` env var hits `Argument list too long` around 128 KiB, after the declared body was already printed. A piped `--desc-file -` would then replace the description with a truncated body.
+  - (medium) The awk marker neutralizer missed forms the real parser accepts (U+00A0 between icon and namespace).
+  - (follow-up) Legacy folded layouts.
+- **Changes made:**
+  - The primary tail is now split around its existing `## Folded History` (`split_history before|after`) in bash. Nothing is passed via the environment.
+  - All output is built into a temp file and printed only once complete. Any failure exits non-zero with empty stdout, so `aitask_update.sh` keeps the current description. This also covers the pre-existing "folded file not found after the primary was printed" path.
+  - Neutralization moved into `ledger_block.neutralize_markers()`, the grammar owner. It uses the parser's own regex and `str.splitlines` semantics, which also catches markers after U+2028 / U+0085 inside an awk "line". The script calls python only when a body contains `**`.
+  - Created follow-up t1966 for the legacy layouts.
+- **Files affected:** `.aitask-scripts/aitask_fold_content.sh`, `.aitask-scripts/lib/ledger_block.py`, `tests/test_fold_content.sh`, `tests/test_ledger_block_neutralize.py` (new), `.claude/skills/task-workflow/task-fold-content.md`
+
+## Final Implementation Notes
+- **Actual work done:**
+  - `aitask_fold_content.sh` now emits declared → `## Merged from` → `## Folded Tasks` → `## Folded History` → the primary's own `## Inbox` / `## Gate Runs`.
+  - Folded tasks' framework tails (Inbox / Gate Runs / earlier Folded History) become `### t<N>: <name>` history entries, with headings shifted down two levels and markers neutralized.
+  - A primary that already has `## Folded History` gets the new entries appended to it.
+  - `--primary-stdin` strips only a recognizable, closed task frontmatter block (YAML comments allowed; at least one core task key required). Any other text, such as a description opening with a `---` rule, is kept verbatim.
+  - `plan_paths.cut_task_framework_sections` cuts at the new `FOLDED_HISTORY_HEADER` too, so folded note and gate-log paths are not task-declared.
+  - Output is buffered and printed only on success.
+- **Deviations from plan:**
+  - Neutralization is in Python (`ledger_block.neutralize_markers`) instead of awk, for parser parity (post-review CR1).
+  - History injection uses a bash split instead of awk+`ENVIRON` (CR1).
+  - Output buffering was added (CR1).
+  - Planning-time review also moved folded history out of declared text (the `## Folded History` framework section) and made stdin frontmatter detection require a closed block with a core key and accept YAML comments.
+- **Issues encountered:**
+  - grep does not read `\t` inside a bracket expression, so header checks use awk.
+  - `printf | awk` combined with an early awk `exit` under pipefail can turn SIGPIPE into a false "no", so the script uses here-strings.
+  - A trailing `[[ … ]] && printf` in the buffered brace group would have tripped errexit when false; replaced with `if`.
+- **Key decisions:**
+  - `## Folded History` is a third framework section. Its producer is the script, and its cut is in `plan_paths`. A parity test (`test_framework_header_parity`, inline mitigation `pin_framework_header_parity`) reads the headers from the owning Python modules and proves the script routes each one.
+  - The marker grammar has a single owner (`ledger_block`).
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/plan_paths.py:cut_task_framework_sections` — task bodies produced by the pre-t1962 fold script carry genuine `## Merged from` requirements below their `## Inbox` / `## Gate Runs`, so those requirements are excluded from declared text, and t1962's `split_fw` routes them into `## Folded History` on a re-fold. This is pre-existing debt, already captured as follow-up t1966.
