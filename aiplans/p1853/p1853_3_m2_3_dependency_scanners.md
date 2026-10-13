@@ -749,3 +749,241 @@ current branch, no merge).
 ### Planned mitigations
 - timing: post-phase | name: probe_own_repository | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — bash/python resolvers under-approximating on the real tree | desc: run deps.Scan over this repository via a temporary uncommitted probe; check every literal repo path and import found by an independent regexp oracle against the facts; fix each miss with a fixture; record counts, opaque reasons and timings
 - timing: after | name: kotlin_target_probe | type: test | priority: medium | effort: medium | inline_risk: medium | added_complexity: medium | addresses: goal-achievement — Kotlin opaque contract / import walk / android-res unmeasured on a real tree | desc: run the deps scanner over the thinking_app repository (cross-repo via ait projects); measure opaque frequency per reason, package-fallback and unresolved volume, android-res key counts and scan time against the proposal's numbers; file fixes as tasks
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-13 09:19)
+- **Requested by user:** fix eight verified review findings, each with a
+  regression test (interpreter-backed for the Python ones).
+- **Changes made** (every new regression was red against the pre-fix code
+  and green after):
+  1. **Python lexical scope.** The scanner keeps a scope stack:
+     - module bindings; def / class locals; conditional blocks
+     - `global` / `nonlocal` declarations
+     - bindings that may not happen (a conditional block, a function's
+       `global` assignment, an unknown import or unpacking) keep the
+       earlier values as alternatives
+     - a first pass collects every value a module name is ever bound to,
+       which is what function bodies read
+     - a bootstrap whose alternatives disagree is `Alt`, so precedence is
+       uncertain and every candidate is kept
+
+     The old code also missed a real dependency: a function that reads a
+     global after it is rebound loaded `b/subject.py`, and that file was
+     not even an edge.
+  2. **Python relative imports** are keyed in the modelled `sys.modules` by
+     the importing package's fully qualified name (from its `__init__.py`
+     chain), or by a directory key no absolute import can produce.
+  3. **Go:** `go list -e -deps -test -json`. Test mains are dropped; plain
+     packages are preferred and a test variant is used only for a directory
+     no plain package reported. The key prefix moved to `deps-golist-v2`.
+     A missing local package imported only by a test now makes that test
+     opaque.
+  4. **android-res:** a `<string>` and a `<plurals>` sharing a name fold
+     their digests into one key.
+  5. **Kotlin DI:** annotation chains are resolved through import aliases
+     and same-file typealiases, including the `@[A B]` / `@set:[…]` forms.
+  6. **`--from-body` extensions:** names at receiver positions (`.` / `::`)
+     resolve through explicit imports and aliases, then same-package or
+     star-imported **extension** declarations (a new `ktRaw.Exts` index).
+  7. **Plugins:** each runs in its own process group, the group is killed
+     on timeout and after the run, and `WaitDelay` (`pluginDrain`, 500 ms)
+     bounds the pipe drain.
+  8. **Plugin output:** a line must decode to exactly one object followed
+     by EOF (trailing `]`, `}` or a second value is refused).
+
+  `schemaVersion` is now 3.
+- **Measurements:**
+  - Cold bench 0.78 s → 1.00 s (budget 1.5 s). About 25 ms is `-test`; the
+    rest is the Python scope model, after allocation work that brought it
+    down from 1.07 s.
+  - Warm bench 116 ms (budget 150 ms).
+  - Baseline lines re-recorded for the two deps benches only.
+  - Real-repo probe: oracle 1027 of 1027 matched, 0 misses; bash and go dep
+    counts unchanged; python 2572 → 2573; no opaque files, no problems;
+    warm 116–121 ms.
+- **Files affected:**
+  - `goengines/internal/testmap/deps/{python,golist,kotlin,frombody,plugin,androidres,cache}.go`
+  - their tests: `python_test.go`, `golang_test.go`, `kotlin_test.go`,
+    `plugin_test.go`, `androidres_test.go`
+  - `goengines/cmd/ait-testmap/annotate_deps_test.go`
+  - `goengines/bench/baseline.txt`, `goengines/README.md`
+  - `aidocs/testing_engine/n014_explorer_006_proposal.md`
+
+### Change Request 2 (2026-10-13 11:42)
+- **Requested by user:** two more verified findings in the Python scope
+  model.
+  1. A nested function read its enclosing function's *current* local and
+     missed a later rebinding.
+  2. Alternatives truncated past `maxPyAlts` (and the analogous
+     `maxPyCombos` collapse) were dropped silently.
+- **Changes made** (each regression red on the round-1 scanner, green now,
+  and interpreter-checked):
+  1. **Per-scope history.** The history is keyed by `(scope, name)`, where
+     the scope is 0 for the module or a def's header line. A read that
+     crosses a def boundary gets the binding scope's whole history plus its
+     current value; that covers module names and enclosing-function locals.
+     The first pass now walks every body, so the local-only skip is gone.
+  2. **Overflow keeps candidates.** Opaque was rejected here because it
+     escalates only when the opaque file itself changes, so it would not
+     protect a test whose imports were lost. Instead, a module with any
+     unresolved bootstrap (dynamic, truncated or collapsed) adds to each
+     absolute import, closure-only via `anywhere`, every repository file
+     the import could name in any directory (`lookups.pyAnywhere`). A path
+     expression on an unknown base keeps its literal tail as a suffix ref
+     (`via suffix`).
+  3. **Same class, found while fixing.** A `sys.path` call counts as
+     top-level only when the statement *is* the call. The old scanner
+     claimed `b` static for an uncalled `lambda: sys.path.insert(0, 'b')`
+     and for `… if X else None`.
+
+  `schemaVersion` is now 4.
+- **Measurements:**
+  - Real-repo probe (1425 files): oracle 1030 of 1030 matched, 0 misses.
+    Widening is 3 `anywhere` and 42 `suffix` Python edges.
+  - Benches: cold 1.02 s (budget 1.5 s), warm 124 ms (budget 150 ms).
+    Baseline unchanged from Change Request 1.
+- **Files affected:** `goengines/internal/testmap/deps/{python,resolve,cache}.go`,
+  `python_test.go`, `goengines/README.md`,
+  `aidocs/testing_engine/n014_explorer_006_proposal.md`.
+
+### Change Request 3 (2026-10-13 11:55)
+- **Requested by user:** three verified findings.
+  1. A lone uncertain winner was claimed `static:import` although the
+     `anywhere` candidates of an unresolved bootstrap competed with it.
+  2. `Modules` / `ModuleOf` returned modules whose `Deps` aliased the
+     graph.
+  3. Plugin stdout and stderr were buffered without a bound. The reviewer
+     marked it as a follow-up; it is done inline instead.
+- **Changes made** (each regression red without its fix):
+  1. A lone uncertain winner is claimed only when no `pyAnywhere` file
+     that *is* the module (`<mod>.py` / `<mod>/__init__.py`, not a parent
+     package) differs from it. Certain imports, including those resolved
+     before the unresolved bootstrap, keep their claim. Interpreter-checked
+     with `EXTRA=x` and `EXTRA=nowhere`.
+  2. Both accessors clone each module's `Deps`.
+  3. `capWriter` caps stdout at `pluginOutputMax` (64 MiB). Past it, the
+     plugin is cancelled (group kill) and refused with `output exceeds`.
+     Stderr is capped at 64 KiB, and the reported first line at 512 bytes.
+- **Measurements:** cold 1.02 s, warm 116 ms; every gate is green.
+- **Files affected:** `goengines/internal/testmap/deps/{python,graph,plugin}.go`,
+  `python_test.go`, `kotlin_test.go`, `plugin_test.go`,
+  `goengines/README.md`, `aidocs/testing_engine/n014_explorer_006_proposal.md`.
+
+### Change Request 4 (2026-10-13 13:32)
+- **Requested by user:** the uncertain-winner check ignored imported
+  members. Under a namespace package, `from pkg import sub` had a lone
+  winner, `tests/pkg/sub.py`, while `x/pkg/sub.py` competed through the
+  unevaluable entry.
+- **Changes made:** competitors are now every file the import itself may
+  load (`importLoads`): the module and each imported name as a submodule,
+  never a parent package. An interpreter-backed regression
+  (`tests/test_nsmember.py`, `EXTRA=x` / `EXTRA=nowhere`) is red with the
+  module-only rule.
+- **Files affected:** `goengines/internal/testmap/deps/python.go`,
+  `python_test.go`.
+
+## Final Implementation Notes
+- **Actual work done:** `goengines/internal/testmap/deps` as designed (29
+  files, about 8.5k lines with tests). It covers:
+  - the bash, Python, Go (`go list`), Kotlin, Java-index, Gradle,
+    plugin and android-res scanners
+  - the path-independent blob cache (`schemaVersion` 4) and the `go list`
+    result cache (`deps-golist-v2` key)
+  - the in-memory `Graph`
+  - the `Suggest` / `FromBody` engines
+  - one red-proved fixture per opaque reason (14)
+  - the two annotate arms, registered from
+    `cmd/ait-testmap/annotate_deps.go`
+  - the additive `annot` extension: `Restamp.Origin`, plus
+    `AnnotateWith(…, AnnotateOptions{Origin, Snapshot})` with `Annotate`
+    delegating to it
+  - README and proposal rows
+
+  The post-phase `probe_own_repository` ran as planned (results below).
+- **Deviations from plan:**
+  - **Python model.** The model grew beyond the plan's statement-order
+    `sys.path` / `sys.modules`, through four post-review change requests:
+    - lexical scopes with alternatives
+    - per-scope binding history for deferred function bodies
+    - relative imports keyed by the importing package
+    - `sys.path` calls counted as top-level only when the statement is the
+      call
+    - unresolved bootstraps widen each import to every file it could name
+      anywhere (`anywhere`); unknown path bases keep their literal tail
+      (`suffix`)
+    - a lone uncertain winner is claimed only with no competing
+      module or member file
+  - **Go.** `go list` runs with `-test`, so test-only dependencies load.
+    Test mains are dropped, and a variant counts only for a directory no
+    plain package reported.
+  - **Plugins.** They run in their own process group with a bounded pipe
+    drain (`WaitDelay`), output is capped at 64 MiB (stdout) and 64 KiB
+    (stderr), and one JSON object per line is followed by EOF.
+  - **Cold benchmark.** Re-recorded at about 1.0 s (budget 1.5 s), against
+    0.78 s before the scope model. Only about 25 ms of that is `-test`.
+    Warm is about 116 ms (budget 150 ms).
+- **Issues encountered:**
+  - These were fixed during implementation:
+    - a bash `pyLine` panic on an empty name
+    - a spurious `go-input-untracked` from a `.baseline` replace target
+      (local replace/use targets are now walked)
+    - import-path collisions across modules (packages are scoped per run)
+    - literal `./ait board`-style strings (path runs)
+    - a warm scan at 375 ms (lookups memoized through a base-name index;
+      the bash env is computed once)
+    - a stale go-list key masked by an import union (now restricted to
+      `IgnoredGoFiles`)
+    - test races (atomic counters, a `sync.Once` per blob slot)
+  - `benchgate -update` re-records every line, so only the two deps lines
+    were edited by hand.
+- **Key decisions:**
+  - Under-selection is the dangerous direction: every unresolvable
+    construct becomes a closure-only edge or an opaque file, never a drop.
+  - Opaque escalates only when *that* file changes, so a test whose own
+    imports cannot be resolved is widened with candidate edges, not marked
+    opaque.
+  - Content hashing on every scan; no stat-based freshness.
+  - `--from-body` writes by default (user decision): actor
+    `agent:$AIT_AGENT_STRING`, else `auto`; origin `scanner:from-body`. The
+    inference snapshot is carried into `Apply`, with one re-inference and
+    then `REWRITE_CONFLICT`.
+- **Probe record (`probe_own_repository`, final run, 2026-10-13, 1425
+  files):**
+  - files: bash 653, go 127, python 645
+  - deps: bash 3583, go 4130, python 2618
+  - static: bash 2931, go 430, python 1423
+  - unresolved 584; no opaque files, no problems
+  - widened edges: Python 3 `anywhere` and 42 `suffix`, bash 46 `suffix`
+  - independent oracle (CPython `ast` for Python, a regexp for bash) over
+    the test files: 1030 of 1030 literal repository paths and imports
+    matched, 0 misses
+  - real-repo warm scan about 99–121 ms, cold about 450 ms on this host
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:**
+  - **M4.1 (t1855):**
+    - Walk `Closure(path, 0)` unbounded; source and import chains run
+      deeper than 2 hops.
+    - `Opaque` → `ESCALATE` only covers a change to that file; the graph
+      already widens tests whose own imports are uncertain.
+    - Use `ModuleOf` for Gradle runner sets.
+    - `ResKeys` / `ChangedKeys` fold a same-name `<string>` and `<plurals>`
+      into one key.
+  - **M6.2 seeder (t1857):** only `Static()` deps (non-empty `Origin`) are
+    seeds. `fallback`, `suffix`, `anywhere`, `embedded-python`,
+    `package-fallback`, `path`, `init`, `conftest` and every other
+    closure-only edge never are.
+  - **M7.x (t1858):**
+    - Register `--author` the way `annotate_deps.go` does
+      (`annotateArms` in an `init`).
+    - Stamp through `annot.AnnotateWith` with an `Origin` and the
+      inference snapshot.
+  - **Cache rule:** bump `schemaVersion` whenever any raw extraction
+    changes. `TestClassifyFingerprint` pins `annot.Classify` over a bash
+    corpus. Its corpus has no BOM case, so t1969-style lexer changes to
+    BOM handling would not trip it; a corpus line with a BOM would make
+    that change visible.
+  - **Mutation checks:** the red/green pattern used throughout was to save
+    the fixed file to the scratchpad, apply a one-line `sed` mutation, run
+    the targeted test, then restore by copy. It never uses
+    `git restore` / `stash`.
