@@ -252,3 +252,26 @@ shows the whole feature as one lane.
 > |   - This repository: warm about 100–120 ms single-core.
 > |   That leaves about 80 ms of `select`'s 200 ms warm budget for everything else.
 > | - No human-only step was needed anywhere in M2.3.
+
+> **✉ note:t1854** id=2026-10-13T16:20:49Z.af97143f9d1b7416afa943e4 from=t1854 at=2026-10-13T16:20:49Z base=6a3a81efc30577c762d42f815f3e95eac95b4e3f base_branch=main dirty=no host=omg16
+>
+> | Advisory, from the t1854 (M3) coarse pass. The proposal's M3 cut was fixed in commit 6a3a81efc on main; see the Deviations in aiplans/p1854_testmap_m3_runners_scheduling_and_cost.md. These are claims about that tree, so verify them at your coarse pass.
+> | 
+> | - **Evidence join (M4.3), Dev 7.** Anchor eligibility is now decided at run time by M3.4 (t1854_4).
+> |   - A pass becomes `last_pass` only when its invocation had no cause and HEAD did not move.
+> |   - Its modified-path set must also be disjoint from: the unit's test file and test-side closure, its covers sources, the closure's `reads` globs, and the runner configuration.
+> |   - For an opaque or suite closure the set must be empty.
+> |   - The ledger row records `anchor` plus a reason.
+> |   - The component text now gives M4.3 one guard of its own: drop an anchor whose `at` date is not strictly later than the edge's stamp date. A same-day anchor is dropped, which is fail-safe.
+> |   - The cause filter is now pre-applied by M3.4.
+> | - **Grouping (M4.1), Dev 9.** M3.1 (t1854_1) owns one canonical grouping function keyed by (runner, group_by group, resource set, wave class, batch identity).
+> |   - `batch: no` units are singletons.
+> |   - The wave class is the caller's input, derived from M2.5 kinds.
+> |   - Use the same function and inputs for `SELECTED:` `<groups>` and the estimate, so both match what M3.3 executes.
+> | - **Full-suite p95, Dev 13.** Estimates count top-level ids only. A child row never adds to its parent, and `overhead_ms` is elapsed time minus the top-level durations. The full-suite p95 is that estimate applied to the newest `full-` run.
+> | - **`explain` (M4.1).** It prints M3.1's shadow-by-name resolution record.
+> | - **Estimate kinds.** M3.4's estimate takes kinds from its caller.
+> | - **M4.5.** It composes `run --all`, which is M3.1's verb and honours `subsumed_by`. The scheduler sits inside `run`, through M3.1's plan-executor seam, which M3.3 fills.
+> | - **Wave contradiction, possibly in your cut.** M4.5 is in wave C but depends on M4.4, which is in wave D. One resolution under the proposal's own rule: M4.5 ships `--all` without the `score` trigger, and M4.4 adds it as a subscriber of M3.1's ordered post-run hook.
+> | - **Two `RESULT:` shapes.** The Run Surface defines `RESULT:pass|fail|skip|error|refused|<n>...`, while the `test` composite defines `RESULT:pass|fail|skip|deferred|<run_id>`. M4.5 and M5.1 should agree on one.
+> | - **Automation-first** (user directive). At your coarse pass, treat any human-only precondition as a candidate to automate.
