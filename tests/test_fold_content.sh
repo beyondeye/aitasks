@@ -11,6 +11,9 @@
 #     inert to the real ledger parsers and cut from task-declared text (t1962)
 #   - The primary's own ledgers stay last; a re-fold reuses Folded History
 #   - --primary-stdin strips only a recognizable, closed task frontmatter
+#   - Legacy (pre-t1962) layouts -- "## Merged from" after the ledgers, gate runs
+#     appended under it -- come out canonical, requirements declared and ledger
+#     records unchanged (t1966)
 #
 # Run: bash tests/test_fold_content.sh
 
@@ -43,8 +46,10 @@ setup_project() {
     mkdir -p aitasks
     setup_fake_aitask_repo "$PWD"
     cp "$PROJECT_DIR/.aitask-scripts/aitask_fold_content.sh" .aitask-scripts/
-    # Marker neutralization runs ledger_block's own grammar (t1962).
-    cp "$PROJECT_DIR/.aitask-scripts/lib/ledger_block.py" .aitask-scripts/lib/
+    # The declared/ledger split is plan_paths' partition (t1966) and marker
+    # neutralization is ledger_block's grammar (t1962): copy the closure, not a
+    # hand list.
+    copy_lib_py_closure "$PWD" plan_paths
     chmod +x .aitask-scripts/*.sh
 
     PROJECT_UNDER_TEST="$tmpdir"
@@ -195,6 +200,13 @@ write_primary_with_ledgers() {
 ## Gate Runs
 
 > **✅ gate:plan_approved** run=2026-10-12T08:30:00Z status=pass attempt=1 type=human"
+}
+
+# Every gate and note record of $1, full content and file order -- what the
+# ledger parsers derive state from, minus the line number a relocation shifts.
+py_records() {
+    py_lib "$1" 'print(repr([(b.name, b.icon, b.fields, b.body_fields, b.raw_marker, b.raw_body_lines)
+            for b in gate_ledger.parse_gate_run_blocks(out) + note_inbox.parse(out)]))'
 }
 
 # 1-based line number of the first line equal to $1 in $2 (0 if absent).
@@ -455,7 +467,8 @@ test_failure_leaves_stdout_empty() {
 
 # Risk mitigation pin_framework_header_parity: the script must route a folded
 # tail into "## Folded History" for EVERY header plan_paths cuts at, read from
-# the owning modules -- a header added on one side only fails here.
+# the owning modules, in every spacing the partition accepts -- the folded body
+# holds no "**", so this also pins split_fw's no-python precheck (t1966).
 test_framework_header_parity() {
     echo "=== Test: script recognizes every plan_paths framework header ==="
     setup_project
@@ -464,18 +477,205 @@ test_framework_header_parity() {
     local headers header output
     headers=$(py_lib "" 'print("\n".join((plan_paths.FOLDED_HISTORY_HEADER, note_inbox.SECTION_HEADER, gate_ledger.SECTION_HEADER)))')
     assert_eq "three cut headers" "3" "$(printf '%s\n' "$headers" | grep -c '^## ')"
+    local name variant
     while IFS= read -r header; do
         [[ -n "$header" ]] || continue
-        write_task aitasks/t13_other.md "Folded body
+        name=${header#\#\# }
+        for variant in "$header" "##  ${name}" "##"$'\t'"${name}" "${header} "$'\t'; do
+            write_task aitasks/t13_other.md "Folded body
 
-${header}
+${variant}
 
-> | ledger text"
-        output=$(bash .aitask-scripts/aitask_fold_content.sh aitasks/t12_simple.md aitasks/t13_other.md)
-        assert_contains "'${header}' routed to history" "#### ${header#\#\# }" "$output"
-        assert_eq "'${header}' cut from declared text" "no" \
-            "$(py_lib "$output" 'print("yes" if "ledger text" in plan_paths.task_body_text(out) else "no")')"
+> | ledger text old/hist.py"
+            output=$(bash .aitask-scripts/aitask_fold_content.sh aitasks/t12_simple.md aitasks/t13_other.md)
+            assert_contains "'${variant}' routed to history" "old/hist.py" \
+                "$(printf '%s\n' "$output" | sed -n '/^## Folded History/,$p')"
+            assert_eq "'${variant}' cut from declared text" "no" \
+                "$(py_lib "$output" 'print("yes" if "old/hist.py" in plan_paths.task_body_text(out) else "no")')"
+        done
     done <<< "$headers"
+
+    teardown
+}
+
+# --- Legacy layouts (t1966) ---------------------------------------------------
+
+# A pre-t1962 folded source: its own inbox, then a "## Merged from" section the
+# old script appended after it.
+test_legacy_folded_source_requirements_declared() {
+    echo "=== Test: a folded source's requirements after its ledgers stay declared ==="
+    setup_project
+    write_primary_with_ledgers aitasks/t12_simple.md
+    write_task aitasks/t13_other.md "Folded needs src/required.py
+
+## Inbox
+
+> **✉ note:t5** id=2026-10-12T10:00:00Z.0123456789abcdef01234567 at=2026-10-12T10:00:00Z
+>
+> | see src/unrelated.py
+
+## Merged from t3: older
+
+Needs src/older.py"
+
+    local output declared merged3 folded
+    output=$(bash .aitask-scripts/aitask_fold_content.sh aitasks/t12_simple.md aitasks/t13_other.md)
+    declared=$(py_lib "$output" 'print(" ".join(plan_paths.extract(plan_paths.task_body_text(out))))')
+    merged3=$(line_of "## Merged from t3: older" "$output")
+    folded=$(line_of "## Folded Tasks" "$output")
+
+    assert_contains "legacy merged requirement declared" "src/older.py" "$declared"
+    assert_contains "folded requirement declared" "src/required.py" "$declared"
+    assert_not_contains "folded note path not declared" "src/unrelated.py" "$declared"
+    assert_eq "legacy merged section precedes Folded Tasks" "yes" \
+        "$( (( 0 < merged3 && merged3 < folded )) && echo yes || echo "no: $merged3 $folded")"
+    assert_eq "real parser: only the primary's records" \
+        "$(py_records "$(cat aitasks/t12_simple.md)")" "$(py_records "$output")"
+
+    teardown
+}
+
+# A pre-t1962 primary: ledgers, then merged requirements and Folded Tasks, then
+# a gate run appended at EOF -- under "## Folded Tasks".
+test_legacy_primary_canonicalized() {
+    echo "=== Test: a legacy primary comes out canonical, records unchanged ==="
+    setup_project
+    write_task aitasks/t12_simple.md "Primary body a/b.py
+
+## Inbox
+
+> **✉ note:t3** id=2026-10-12T08:00:00Z.0123456789abcdef01234569 at=2026-10-12T08:00:00Z
+>
+> | primary note
+
+## Gate Runs
+
+> **✅ gate:plan_approved** run=2026-10-12T08:30:00Z status=pass attempt=1 type=human
+
+## Merged from t3: older
+
+Needs src/older.py
+
+## Folded Tasks
+
+- **t3** (\`t3_older.md\`)
+
+> **❌ gate:plan_approved** run=2026-10-12T09:30:00Z status=fail attempt=2 type=human
+>
+> Log: logs/late.md"
+    write_task aitasks/t13_other.md "Folded needs src/required.py"
+
+    local output declared gates last_decl
+    output=$(bash .aitask-scripts/aitask_fold_content.sh aitasks/t12_simple.md aitasks/t13_other.md)
+    declared=$(py_lib "$output" 'print(" ".join(plan_paths.extract(plan_paths.task_body_text(out))))')
+    gates=$(line_of "## Gate Runs" "$output")
+    last_decl=$(printf '%s\n' "$output" | grep -nE '^## (Merged from|Folded Tasks)' | tail -n1 | cut -d: -f1)
+
+    assert_contains "legacy merged requirement declared" "src/older.py" "$declared"
+    assert_contains "new merged requirement declared" "src/required.py" "$declared"
+    assert_not_contains "EOF gate log path not declared" "logs/late.md" "$declared"
+    assert_eq "records identical in content and order" \
+        "$(py_records "$(cat aitasks/t12_simple.md)")" "$(py_records "$output")"
+    assert_eq "latest gate status still derives from attempt 2" "fail" \
+        "$(py_lib "$output" 'print(gate_ledger.derive_gate_runs(out)["plan_approved"].status)')"
+    assert_eq "Gate Runs after every declared section" "yes" \
+        "$( (( 0 < last_decl && last_decl < gates )) && echo yes || echo "no: $last_decl $gates")"
+    assert_eq "no task heading after the ledgers" "" \
+        "$(printf '%s\n' "$output" | tail -n +"$gates" | grep -E '^##[[:space:]]' \
+            | grep -vE '^##[[:space:]]+(Inbox|Gate Runs|Folded History)[[:space:]]*$' || true)"
+
+    teardown
+}
+
+# Removing the task text between a gate block and a note block must not let
+# either swallow the other: parse_blocks only stops at its own namespace.
+test_legacy_mixed_namespace_boundaries() {
+    echo "=== Test: ledger records separated by task text keep their boundaries ==="
+    setup_project
+    local gate note output
+    gate="> **✅ gate:plan_approved** run=2026-10-12T08:30:00Z status=pass attempt=1 type=human
+>
+> Log: logs/a.md"
+    note="> **✉ note:t3** id=2026-10-12T08:00:00Z.0123456789abcdef01234569 at=2026-10-12T08:00:00Z
+>
+> | primary note"
+
+    write_task aitasks/t12_simple.md "Primary body a/b.py
+
+## Gate Runs
+
+${gate}
+
+## Merged from t3: older
+
+Needs src/older.py
+
+${note}"
+    write_task aitasks/t13_other.md "Folded needs src/required.py"
+    output=$(bash .aitask-scripts/aitask_fold_content.sh aitasks/t12_simple.md aitasks/t13_other.md)
+    assert_eq "primary gate->text->note: records unchanged" \
+        "$(py_records "$(cat aitasks/t12_simple.md)")" "$(py_records "$output")"
+    assert_eq "primary: no gate block holds a note marker" "False" \
+        "$(py_lib "$output" 'print(any("note:" in l for b in gate_ledger.parse_gate_run_blocks(out) for l in b.raw_body_lines))')"
+
+    # Mirror: note, task prose, gate -- in a folded source, whose history is
+    # neutralized, so compare the folded tail before and after neutralizing.
+    write_task aitasks/t12_simple.md "Primary body"
+    write_task aitasks/t13_other.md "Folded needs src/required.py
+
+${note}
+
+Declared prose src/kept.py
+
+${gate}"
+    output=$(bash .aitask-scripts/aitask_fold_content.sh aitasks/t12_simple.md aitasks/t13_other.md)
+    assert_contains "folded prose declared" "src/kept.py" \
+        "$(py_lib "$output" 'print(" ".join(plan_paths.extract(plan_paths.task_body_text(out))))')"
+    assert_eq "folded history: two separate inert records" "2" \
+        "$(printf '%s\n' "$output" | grep -cE '^> \| \*\*(✅ gate|✉ note):')"
+    assert_eq "real parser: folded records stay inert" "[]" "$(py_records "$output")"
+
+    teardown
+}
+
+# A live record ahead of the primary's own "## Folded History" and another
+# appended at EOF inside it: emitting history first must not swap them.
+test_live_records_keep_order_across_folded_history() {
+    echo "=== Test: live records keep their order around an existing Folded History ==="
+    setup_project
+    write_task aitasks/t12_simple.md "Primary a/b.py
+
+> **✅ gate:plan_approved** run=2026-10-12T08:30:00Z status=pass attempt=1 type=human
+
+## Gate Runs
+
+## Folded History
+
+### t9: earlier
+
+#### Gate Runs
+
+> | **✅ gate:plan_approved** status=pass
+
+> **❌ gate:plan_approved** run=2026-10-12T09:30:00Z status=fail attempt=2 type=human"
+    write_task aitasks/t13_other.md "Folded body"
+
+    local output again seps
+    output=$(bash .aitask-scripts/aitask_fold_content.sh aitasks/t12_simple.md aitasks/t13_other.md)
+    assert_eq "records identical in content and order" \
+        "$(py_records "$(cat aitasks/t12_simple.md)")" "$(py_records "$output")"
+    assert_eq "latest gate status still derives from attempt 2" "fail" \
+        "$(py_lib "$output" 'print(gate_ledger.derive_gate_runs(out)["plan_approved"].status)')"
+    assert_eq "exactly one Folded History" "1" \
+        "$(printf '%s\n' "$output" | grep -cxF '## Folded History')"
+
+    # Folding the result again changes neither the records nor the separators.
+    seps=$(printf '%s\n' "$output" | grep -c 'ledger records below' || true)
+    write_task aitasks/t12_simple.md "$output"
+    again=$(bash .aitask-scripts/aitask_fold_content.sh aitasks/t12_simple.md aitasks/t13_other.md)
+    assert_eq "re-fold: records unchanged" "$(py_records "$output")" "$(py_records "$again")"
+    assert_eq "re-fold: separators do not accumulate" "$seps" \
+        "$(printf '%s\n' "$again" | grep -c 'ledger records below' || true)"
 
     teardown
 }
@@ -500,6 +700,10 @@ test_stdin_whole_task_file
 test_stdin_commented_frontmatter
 test_stdin_leading_rule_preserved
 test_framework_header_parity
+test_legacy_folded_source_requirements_declared
+test_legacy_primary_canonicalized
+test_legacy_mixed_namespace_boundaries
+test_live_records_keep_order_across_folded_history
 test_large_history_refold
 test_unicode_whitespace_markers_inert
 test_failure_leaves_stdout_empty

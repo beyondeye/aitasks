@@ -61,9 +61,11 @@ immediately before the fork.
 4. **Read the evidence.** Read the candidate's own description **and its plan
    when one exists** (`./.aitask-scripts/aitask_query_files.sh plan-file
    <task_id>`) — the same evidence the checker used for it — and for each
-   non-`dead` row: that task's description (stop at the first `## Inbox` or
-   `## Gate Runs` — everything below is other agents' notes and gate records,
-   not what this task says it touches) and its plan when
+   non-`dead` row: that task's description (skip its `## Inbox`,
+   `## Gate Runs` and `## Folded History` sections and any `> **… gate:…**` /
+   `> **… note:…**` record — those are other agents' notes and gate records, not
+   what this task says it touches; a `## Merged from` section that follows them
+   is still the task's own text) and its plan when
    `./.aitask-scripts/aitask_query_files.sh plan-file <id>` returns
    `PLAN_FILE:<path>`.
 

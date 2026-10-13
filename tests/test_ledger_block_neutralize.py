@@ -57,5 +57,50 @@ class NeutralizeMarkersTests(unittest.TestCase):
         self.assertEqual(ledger_block.neutralize_markers(text), text)
 
 
+class MarkerBlockMaskTests(unittest.TestCase):
+    """``marker_block_mask`` gives a block the extent ``parse_blocks`` does (t1966)."""
+
+    # Namespaces never touch: a gate block runs on through an adjacent note
+    # marker in parse_blocks (it stops only at its own namespace), which is the
+    # adjacency plan_paths' FRAMEWORK_RUN_SEPARATOR exists to prevent.
+    CORPUS = (GATE + ">\n> Log: logs/a.md\n\n"          # gate, blank inside
+              + "prose ends the gate block\n"
+              + NOTE + "\n"
+              + "plain prose ends the note block\n"
+              + GATE.replace("attempt=1", "attempt=2")      # ended by a header
+              + "## Merged from t3: x\n"
+              + GATE.replace("attempt=1", "attempt=3")      # ended by its own
+              + GATE.replace("attempt=1", "attempt=4")      # namespace, then prose
+              + "prose\n"
+              + "> | **✅ gate:plan_approved** inert\n"    # neutralized: no block
+              + "> **Note:** an ordinary bold quote\n")
+
+    def test_masked_markers_are_the_parsed_markers(self):
+        lines = self.CORPUS.splitlines(keepends=True)
+        mask = ledger_block.marker_block_mask(lines)
+        parsed = {b.line_number for b in gate_ledger.parse_gate_run_blocks(self.CORPUS)}
+        parsed |= {b.line_number for b in note_inbox.parse(self.CORPUS)}
+        masked_markers = {i + 1 for i, line in enumerate(lines)
+                          if mask[i] and ledger_block._ANY_MARKER_RE.match(line)}
+        self.assertEqual(len(parsed), 5)
+        self.assertEqual(masked_markers, parsed)
+
+    def test_masked_bodies_are_the_parsed_bodies(self):
+        lines = self.CORPUS.splitlines(keepends=True)
+        mask = ledger_block.marker_block_mask(lines)
+        masked = [line.rstrip("\n") for i, line in enumerate(lines) if mask[i]
+                  and line.strip() and not ledger_block._ANY_MARKER_RE.match(line)]
+        blocks = gate_ledger.parse_gate_run_blocks(self.CORPUS) + note_inbox.parse(self.CORPUS)
+        parsed = sorted(l for b in blocks for l in b.raw_body_lines)
+        self.assertEqual(sorted(masked), parsed)
+
+    def test_non_block_lines_are_unmasked(self):
+        lines = self.CORPUS.splitlines(keepends=True)
+        mask = ledger_block.marker_block_mask(lines)
+        for i, line in enumerate(lines):
+            if line.startswith(("plain", "## ", "prose", "> | **", "> **Note")):
+                self.assertFalse(mask[i], line)
+
+
 if __name__ == "__main__":
     unittest.main()

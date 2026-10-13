@@ -118,31 +118,138 @@ def extract(text: str) -> list[str]:
 
 
 #: The reference-only ledger history of FOLDED tasks (t1962). Written by
-#: `aitask_fold_content.sh` (its FRAMEWORK_HEADER_ERE must recognize every header
-#: cut below) ahead of the primary's own `## Inbox` / `## Gate Runs`. The paths
-#: in another task's note bodies and gate logs are not this task's
-#: declarations, so the section is cut like the ledgers it carries.
+#: `aitask_fold_content.sh` ahead of the primary's own `## Inbox` /
+#: `## Gate Runs`, and split off by the same partition below. The paths in
+#: another task's note bodies and gate logs are not this task's declarations, so
+#: the section is framework like the ledgers it carries.
 FOLDED_HISTORY_HEADER = "## Folded History"
 
+#: Joins two framework runs that task text separated in the source (t1966).
+#: `ledger_block.parse_blocks` ends a block only at a marker of its OWN
+#: namespace, a `##` header or a non-`>` non-blank line, so a gate block made
+#: adjacent to a note block would swallow it. This comment line ends any open
+#: block, is not a `##` header, and is itself framework -- a re-split of a
+#: framework part is a fixed point.
+FRAMEWORK_RUN_SEPARATOR = (
+    "<!-- ledger records below were separated by task text in the source -->\n")
 
-def cut_task_framework_sections(body: str) -> str:
-    """Truncate a task body at the first framework-appended section.
 
-    `## Inbox` (note framework) is inserted BEFORE `## Gate Runs`
-    (aitask_note.sh), so cutting only at Gate Runs would leave other agents'
-    note prose -- arbitrary paths from other tasks -- in a task-declared
-    surface. `## Folded History` (fold framework) precedes both, for the same
-    reason. Note bodies cannot fake any of the headers: every body line is
-    prefixed `> | `, so an anchored match on the bare header is exact.
+def _framework_header_re() -> "re.Pattern":
+    """`## Inbox` / `## Gate Runs` / `## Folded History`, any spacing after `##`.
+
+    The names come from the owning modules. The `[ \\t]+` spacing is the union
+    of what this reader and `aitask_fold_content.sh` accepted before they shared
+    this partition, so no heading either treated as a ledger becomes declared.
     """
     import gate_ledger   # lazy: keeps the plan_paths_sh.sh bridge's load path unchanged
     import note_inbox
-    headers = (FOLDED_HISTORY_HEADER, note_inbox.SECTION_HEADER,
-               gate_ledger.SECTION_HEADER)
-    pattern = re.compile(
-        r"^(?:%s)[ \t]*$" % "|".join(re.escape(h) for h in headers), re.MULTILINE)
-    match = pattern.search(body)
-    return body if match is None else body[:match.start()]
+    names = []
+    for header in (FOLDED_HISTORY_HEADER, note_inbox.SECTION_HEADER,
+                   gate_ledger.SECTION_HEADER):
+        assert header.startswith("## "), header
+        names.append(re.escape(header[3:]))
+    return re.compile(r"##[ \t]+(?:%s)[ \t]*\Z" % "|".join(names))
+
+
+def split_task_framework_sections(body: str) -> "tuple[str, str]":
+    """Partition a task body into (declared, framework) text.
+
+    Framework is every `## Inbox` / `## Gate Runs` / `## Folded History`
+    section -- its header up to the next `##` heading -- plus every ledger
+    marker block wherever it sits. Declared is everything else, in file order.
+
+    Sections are skipped, not truncated at: a body written by the pre-t1962
+    fold script carries genuine `## Merged from t<N>` requirements AFTER its
+    own ledgers, and gate runs appended at EOF afterwards sit under such a
+    heading (t1966). Note bodies cannot fake a header: every body line is
+    prefixed `> | `. Lines are split as the ledger parsers split them, so a
+    CRLF header is a header.
+
+    The framework part keeps its lines in order, with FRAMEWORK_RUN_SEPARATOR
+    between runs that were not adjacent, so the gate and note parsers read the
+    same records from it as from the whole body.
+    """
+    import ledger_block
+    header_re = _framework_header_re()
+    lines = body.splitlines(keepends=True)
+    in_block = ledger_block.marker_block_mask(lines)
+    separator = FRAMEWORK_RUN_SEPARATOR.rstrip("\n")
+    in_section = False
+    picks = []
+    for idx, line in enumerate(lines):
+        content = (line.splitlines() or [""])[0]
+        if header_re.match(content):
+            in_section = True
+        elif ledger_block.SECTION_HEADER_RE.match(content):
+            in_section = False
+        picks.append(in_section or in_block[idx] or content == separator)
+    declared = "".join(line for line, pick in zip(lines, picks) if not pick)
+    return declared, _join_runs(lines, picks)
+
+
+def _join_runs(lines, picks) -> str:
+    """The picked lines in order, FRAMEWORK_RUN_SEPARATOR between runs that
+    were not adjacent in `lines`. Only the last line can lack a terminator, so
+    an earlier run always ends in one and the separator starts its own line."""
+    out: list[str] = []
+    last = None
+    for idx, (line, pick) in enumerate(zip(lines, picks)):
+        if not pick:
+            continue
+        if last is not None and last != idx - 1:
+            out.append(FRAMEWORK_RUN_SEPARATOR)
+        out.append(line)
+        last = idx
+    return "".join(out)
+
+
+def split_folded_history(framework: str) -> "tuple[str, str]":
+    """Split a framework part into (history, live) text for re-assembly.
+
+    History is every `## Folded History` section (any spacing after `##`) minus
+    the live ledger blocks inside it -- inert reference text, so it can move.
+    Live is everything else, in order: the task's own sections and every live
+    record, including a gate run appended at EOF below the history. Emitting
+    history first and live after keeps every live record's content and order
+    (aitask_fold_content.sh, t1966); the old separators are dropped and
+    recomputed, since the removed history lines change which runs touch. Live
+    text that does not open with a `##` header (a stray record) is prefixed with
+    the separator, so it never reads as part of whatever section precedes it.
+    """
+    import ledger_block
+    history_re = re.compile(r"##[ \t]+%s[ \t]*\Z" % re.escape(FOLDED_HISTORY_HEADER[3:]))
+    separator = FRAMEWORK_RUN_SEPARATOR.rstrip("\n")
+    lines = framework.splitlines(keepends=True)
+    in_block = ledger_block.marker_block_mask(lines)
+    in_history = False
+    history: list[str] = []
+    picks = []
+    for idx, line in enumerate(lines):
+        content = (line.splitlines() or [""])[0]
+        if history_re.match(content):
+            in_history = True
+        elif ledger_block.SECTION_HEADER_RE.match(content):
+            in_history = False
+        inert = in_history and not in_block[idx]
+        if inert and content != separator:
+            history.append(line)
+        picks.append(not inert and content != separator)
+    live = _join_runs(lines, picks)
+    first = next((line for line in live.splitlines() if line.strip()), "")
+    if first and not ledger_block.SECTION_HEADER_RE.match(first):
+        live = FRAMEWORK_RUN_SEPARATOR + live.lstrip("\n")
+    return "".join(history), live
+
+
+def cut_task_framework_sections(body: str) -> str:
+    """A task body's declared text: `split_task_framework_sections`' first part.
+
+    `## Inbox` (note framework) is inserted BEFORE `## Gate Runs`
+    (aitask_note.sh), so other agents' note prose -- arbitrary paths from other
+    tasks -- must not reach a task-declared surface; neither may
+    `## Folded History` (fold framework), for the same reason.
+    """
+    return split_task_framework_sections(body)[0]
 
 
 def task_body_text(raw: str) -> str:

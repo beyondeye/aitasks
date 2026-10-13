@@ -99,8 +99,8 @@ def build_marker_search_re(namespace: str) -> re.Pattern:
 
 
 #: A marker of ANY namespace -- :func:`build_marker_re` with the namespace and
-#: name charsets in place of one namespace. Only :func:`neutralize_markers` uses
-#: it; parsing stays namespace-bound.
+#: name charsets in place of one namespace. Only :func:`neutralize_markers` and
+#: :func:`marker_block_mask` use it; parsing stays namespace-bound.
 _ANY_MARKER_RE = re.compile(
     rf"^>\s*\*\*\S+\s+{_NAMESPACE_CHARS}:{_NAME_CHARS}\*\*")
 
@@ -247,6 +247,38 @@ def parse_blocks(text: str, namespace: str, factory=LedgerBlock,
             raw_body_lines=tuple(raw_body),
         ))
     return blocks
+
+
+def marker_block_mask(lines) -> list[bool]:
+    """For each line, whether it lies inside a marker block of ANY namespace.
+
+    ``lines`` is ``str.splitlines(keepends=True)`` output -- the parsers' own
+    line split. A block's extent is exactly :func:`parse_blocks`': the marker
+    line, then every ``>``-prefixed or blank line, up to the next marker, the
+    next ``##`` section header, or the first other line.
+
+    For telling ledger records from task text wherever they sit, e.g. gate runs
+    that an EOF append left under a non-ledger heading of a pre-t1962 folded
+    body (``plan_paths.split_task_framework_sections``, t1966).
+    """
+    mask = [False] * len(lines)
+    idx = 0
+    while idx < len(lines):
+        if not _ANY_MARKER_RE.match(lines[idx]):
+            idx += 1
+            continue
+        mask[idx] = True
+        idx += 1
+        while idx < len(lines):
+            nxt = lines[idx]
+            if _ANY_MARKER_RE.match(nxt) or SECTION_HEADER_RE.match(nxt):
+                break
+            if nxt.startswith(">") or not nxt.strip():
+                mask[idx] = True
+                idx += 1
+                continue
+            break
+    return mask
 
 
 def render_block(namespace: str, name: str, icon: str, marker_kv, body_lines) -> str:

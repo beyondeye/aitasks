@@ -826,7 +826,7 @@ def _classify_plan_paths(row, tree, tracked, tracked_dirs):
     a global field must not be less precise than the lines it summarizes.
 
     A task with no plan is read from its DESCRIPTION (t1688): when the body
-    (frontmatter stripped, cut at the first `## Inbox` / `## Gate Runs`) yields
+    (frontmatter stripped, ledger sections and records removed) yields
     a non-malformed token, the records are a `task_declared` marker followed by
     EVERY classified token. Emitting all of them is deliberate: this gatherer
     sees the code branch only, so a task-data path classifies `phantom` here,

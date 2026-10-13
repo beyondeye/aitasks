@@ -12,6 +12,11 @@
 #      note_inbox reads them as the primary's. Omitted when no folded task has any.
 #   5. The primary's own framework sections, kept last (gate runs append at EOF)
 #
+# Declared text and framework sections are told apart by the declared-text
+# reader's own partition (plan_paths.split_task_framework_sections), so a body
+# laid out by the pre-t1962 script -- "## Merged from" sections AFTER its
+# ledgers, gate runs appended under them -- is rewritten into the order above.
+#
 # The primary description can be read from a file (positional argument) or
 # piped through stdin (--primary-stdin). Stdin may be a plain description or a
 # whole task file; a recognizable, closed task frontmatter block is stripped.
@@ -73,13 +78,6 @@ if [[ "$use_stdin" == false && -z "$primary_file" ]]; then
 fi
 [[ ${#folded[@]} -eq 0 ]] && die "need at least one folded task file"
 
-# Framework-appended sections: everything from the first of these headers on is
-# ledger, not declared text. MUST recognize every header that
-# plan_paths.cut_task_framework_sections cuts at (tests/test_fold_content.sh pins
-# the parity), or folded history would read as task-declared paths.
-FRAMEWORK_HEADER_ERE='^##[ \t]+(Inbox|Gate Runs|Folded History)[ \t]*$'
-FOLDED_HISTORY_ERE='^##[ \t]+Folded History[ \t]*$'
-
 # Extract the description body (everything after the closing frontmatter ---).
 # Reads stdin when no file is given. Uses awk for macOS portability (no GNU sed
 # features).
@@ -113,13 +111,40 @@ is_task_frontmatter() {
     '
 }
 
-# split_fw head|tail - the declared part of a body (before the first framework
-# header) or the framework part (from it on).
+# split_fw <decl_file> <tail_file> [<live_file>] - write stdin's declared part
+# and its framework part (ledger sections and ledger blocks, wherever they sit),
+# via plan_paths.split_task_framework_sections: the partition every
+# declared-text reader uses, so the two cannot disagree. With <live_file>, the
+# framework part is split again by plan_paths.split_folded_history: its inert
+# "## Folded History" text goes to <tail_file> and every live section and record,
+# in order, to <live_file> -- so emitting history first never reorders a live
+# record. Text naming no framework header and holding no "**" has no framework
+# part and needs no python. The names, not "## <name>", are matched because the
+# partition accepts any spacing after "##" (tests/test_fold_content.sh pins the
+# parity).
 split_fw() {
-    awk -v part="$1" -v re="$FRAMEWORK_HEADER_ERE" '
-        !cut && $0 ~ re { cut = 1 }
-        (part == "head" && !cut) || (part == "tail" && cut)
-    '
+    local text=""
+    IFS= read -r -d '' text || true
+    if [[ "$text" != *Inbox* && "$text" != *'Gate Runs'* \
+          && "$text" != *'Folded History'* && "$text" != *'**'* ]]; then
+        printf '%s' "$text" > "$1"
+        : > "$2"
+        if [[ -n "${3:-}" ]]; then : > "$3"; fi
+        return 0
+    fi
+    [[ -n "$PY" ]] || die "python3 is required to split ledger sections from folded task text (run 'ait setup')"
+    printf '%s' "$text" | "$PY" -c '
+import sys
+sys.path.insert(0, sys.argv[1])
+import plan_paths
+data = sys.stdin.buffer.read().decode("utf-8", "surrogateescape")
+parts = plan_paths.split_task_framework_sections(data)
+if len(sys.argv) > 4:
+    parts = (parts[0],) + plan_paths.split_folded_history(parts[1])
+for path, part in zip(sys.argv[2:], parts):
+    with open(path, "wb") as handle:
+        handle.write(part.encode("utf-8", "surrogateescape"))
+' "$SCRIPT_DIR/lib" "$@"
 }
 
 # Make every ledger marker (any namespace) inert, via ledger_block's own
@@ -142,18 +167,6 @@ data = sys.stdin.buffer.read().decode("utf-8", "surrogateescape")
 sys.stdout.buffer.write(
     ledger_block.neutralize_markers(data).encode("utf-8", "surrogateescape"))
 ' "$SCRIPT_DIR/lib"
-}
-
-# split_history before|after - a framework tail split around the end of its
-# "## Folded History" section: "before" runs through the section's last line,
-# "after" starts at the next "## " header. No "## Folded History" -> all "after".
-split_history() {
-    awk -v part="$1" -v re="$FOLDED_HISTORY_ERE" '
-        state == 0 && $0 ~ re { state = 1 }
-        state == 1 && $0 !~ re && /^##[ \t]/ { state = 2 }
-        state == 0 { if (part == "after") print; next }
-        (state == 1 && part == "before") || (state == 2 && part == "after")
-    '
 }
 
 # Shift every markdown heading down two levels (capped at ######), so a folded
@@ -186,15 +199,19 @@ else
     primary_body=$(extract_body "$primary_file")
 fi
 
-primary_decl=$(split_fw head <<<"$primary_body")
-primary_tail=$(split_fw tail <<<"$primary_body")
-
 # Everything is built into a file and printed only once complete. Callers pipe
 # this into `aitask_update.sh --desc-file -`, which REPLACES the description:
 # a failure part-way must leave stdout empty (update then keeps the current
 # body), never a truncated body that drops the primary's ledgers.
-out_file=$(mktemp "${TMPDIR:-/tmp}/aitask_fold_content.XXXXXX")
-trap 'rm -f "$out_file"' EXIT
+work_dir=$(mktemp -d "${TMPDIR:-/tmp}/aitask_fold_content.XXXXXX")
+trap 'rm -rf "$work_dir"' EXIT
+out_file="$work_dir/out"
+
+printf '%s' "$primary_body" | split_fw "$work_dir/primary_decl" \
+    "$work_dir/primary_history" "$work_dir/primary_live"
+primary_decl=$(cat "$work_dir/primary_decl")
+primary_history=$(cat "$work_dir/primary_history")
+primary_live=$(cat "$work_dir/primary_live")
 
 {
     # Emit primary declared body unchanged.
@@ -223,10 +240,11 @@ trap 'rm -f "$out_file"' EXIT
 
         display_name="${name//_/ }"
         printf '\n## Merged from t%s: %s\n\n' "$n" "$display_name"
-        extract_body "$f" | split_fw head | neutralize_markers
+        extract_body "$f" | split_fw "$work_dir/folded_decl" "$work_dir/folded_tail"
+        neutralize_markers < "$work_dir/folded_decl"
         folded_refs+=("- **t${n}** (\`${base}\`)")
 
-        tail=$(extract_body "$f" | split_fw tail | shift_headings | neutralize_markers)
+        tail=$(shift_headings < "$work_dir/folded_tail" | neutralize_markers)
         if [[ -n "$tail" ]]; then
             if [[ -n "$history" ]]; then history+=$'\n\n'; fi
             history+="### t${n}: ${display_name}"$'\n\n'"${tail}"
@@ -239,21 +257,20 @@ trap 'rm -f "$out_file"' EXIT
         printf '%s\n' "$ref"
     done
 
-    # Folded History, then the primary's own framework sections (kept terminal).
-    # A primary that already carries a "## Folded History" (an earlier fold) gets
-    # the new entries appended to that section rather than a second one.
-    tail_before=$(split_history before <<<"$primary_tail")
-    tail_after=$(split_history after <<<"$primary_tail")
-    if [[ -n "$tail_before" ]]; then
-        printf '\n%s\n' "$tail_before"
+    # Folded History, then the primary's own live sections and records (kept
+    # terminal, in their original order). A primary that already carries a
+    # "## Folded History" (an earlier fold) gets the new entries appended to
+    # that section rather than a second one.
+    if [[ -n "$primary_history" ]]; then
+        printf '\n%s\n' "$primary_history"
     elif [[ -n "$history" ]]; then
         printf '\n## Folded History\n\nReference only: the notes and gate history these tasks carried before they were folded. Their markers are neutralized, so none of it is part of this task'"'"'s inbox or gate ledger.\n'
     fi
     if [[ -n "$history" ]]; then
         printf '\n%s\n' "$history"
     fi
-    if [[ -n "$tail_after" ]]; then
-        printf '\n%s\n' "$tail_after"
+    if [[ -n "$primary_live" ]]; then
+        printf '\n%s\n' "$primary_live"
     fi
 } > "$out_file"
 

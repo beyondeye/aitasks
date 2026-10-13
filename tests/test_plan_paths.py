@@ -296,6 +296,88 @@ class TaskBodyTests(unittest.TestCase):
                          "c/d.py\n")
 
 
+GATE = ("> **✅ gate:plan_approved** run=2026-10-12T09:00:00Z status=pass "
+        "attempt=1 type=human\n>\n> Log: logs/a.md\n")
+GATE2 = GATE.replace("attempt=1", "attempt=2").replace("logs/a.md", "logs/z.md")
+NOTE = ("> **✉ note:t5** id=2026-10-12T10:00:00Z.0123456789abcdef01234567 "
+        "at=2026-10-12T10:00:00Z\n>\n> | see x/y.py\n")
+
+
+def _records(text):
+    """Every gate and note record, full content and order, sans line number."""
+    import gate_ledger
+    import note_inbox
+    return [(b.name, b.icon, b.fields, b.body_fields, b.raw_marker, b.raw_body_lines)
+            for b in gate_ledger.parse_gate_run_blocks(text) + note_inbox.parse(text)]
+
+
+class LegacyLayoutTests(unittest.TestCase):
+    """Sections after the ledgers, and stray ledger blocks (t1966)."""
+
+    LEGACY = ("keep a/b.py\n\n## Gate Runs\n\n" + GATE
+              + "\n## Merged from t3: old\n\nsrc/older.py\n\n## Folded Tasks\n\n- t3\n\n"
+              + NOTE + "\n" + GATE2)
+
+    def declared(self, body):
+        return plan_paths.extract(plan_paths.cut_task_framework_sections(body))
+
+    def test_merged_section_after_the_ledgers_is_declared(self):
+        body = "keep a/b.py\n## Inbox\n> | x/y.py\n## Merged from t3: old\nsrc/older.py\n"
+        self.assertEqual(self.declared(body), ["a/b.py", "src/older.py"])
+
+    def test_eof_ledger_blocks_under_a_task_heading_are_not_declared(self):
+        self.assertEqual(self.declared(self.LEGACY), ["a/b.py", "src/older.py"])
+
+    def test_a_ledger_block_in_the_preamble_is_not_declared(self):
+        self.assertEqual(self.declared("keep a/b.py\n\n" + GATE + "\nmore c/d.py\n"),
+                         ["a/b.py", "c/d.py"])
+
+    def test_framework_part_keeps_every_record_intact(self):
+        for body in (self.LEGACY,
+                     GATE + "\nDeclared c.py\n\n" + NOTE,
+                     NOTE + "\nDeclared c.py\n\n" + GATE,
+                     "## Gate Runs\n" + GATE + "## Merged from t3: x\ntext\n" + GATE2,
+                     "## Inbox\n" + NOTE + "## Merged from t3: x\ntext\n" + NOTE.replace(
+                         "0123456789abcdef01234567", "0123456789abcdef01234568")):
+            with self.subTest(body=body[:40]):
+                declared, framework = plan_paths.split_task_framework_sections(body)
+                self.assertTrue(_records(body))
+                self.assertEqual(_records(framework), _records(body))
+                self.assertEqual(_records(declared), [])
+                again_declared, again = plan_paths.split_task_framework_sections(framework)
+                self.assertEqual((again_declared, again), ("", framework))
+
+    def test_folded_history_split_keeps_live_records(self):
+        framework = ("> **✅ gate:plan_approved** run=2026-10-12T08:00:00Z status=pass "
+                     "attempt=1 type=human\n\n## Gate Runs\n\n## Folded History\n\n"
+                     "### t9: x\n\n> | **✅ gate:plan_approved** status=pass\n\n" + GATE2)
+        history, live = plan_paths.split_folded_history(framework)
+        self.assertTrue(history.startswith("## Folded History"))
+        self.assertEqual(_records(history), [])
+        self.assertEqual(_records(history + "\n" + live), _records(framework))
+        self.assertTrue(live.startswith(plan_paths.FRAMEWORK_RUN_SEPARATOR))
+        again = plan_paths.split_folded_history(history + "\n" + live)
+        self.assertEqual(again[1], live)
+
+    def test_canonical_body_framework_is_the_old_tail(self):
+        body = "keep a/b.py\n\n## Inbox\n\n" + NOTE + "\n## Gate Runs\n\n" + GATE
+        declared, framework = plan_paths.split_task_framework_sections(body)
+        self.assertEqual(declared, "keep a/b.py\n\n")
+        self.assertEqual(framework, body[len(declared):])
+        self.assertNotIn(plan_paths.FRAMEWORK_RUN_SEPARATOR, framework)
+
+    def test_any_spacing_after_the_hashes_is_a_header(self):
+        for header in ("##  Folded History", "##\tFolded History", "##  Inbox",
+                       "##\tGate Runs", "## Inbox \t"):
+            with self.subTest(header=header):
+                self.assertEqual(self.declared("a/b.py\n%s\nold/hist.py\n" % header),
+                                 ["a/b.py"])
+
+    def test_a_crlf_header_is_a_header(self):
+        self.assertEqual(self.declared("a/b.py\r\n## Inbox\r\nold/hist.py\r\n"),
+                         ["a/b.py"])
+
+
 class ReferenceTests(unittest.TestCase):
     """`find_references` — the inverted search (t1873): which CHANGED paths a
     text references. No filename grammar, so no extension blind spot."""
