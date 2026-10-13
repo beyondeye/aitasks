@@ -2877,6 +2877,10 @@ _ait_rewrite_data_gitignore_lines() {
 # _ait_commit_gitignore_rule, which honours the same baseline), so running this
 # ahead of one of them would let that helper's commit carry the repair under
 # the helper's message.
+#
+# install.sh main() calls it too, for existing installs only — `ait upgrade`
+# never runs setup — after its snapshot_pre_install_dirty and immediately
+# before commit_installed_files, under the same baseline contract.
 setup_data_gitignore_symlink_safe() {
     local project_dir="$SCRIPT_DIR/.."
     local rc=0
@@ -4146,9 +4150,11 @@ AIT_SETUP_BASELINE_ARMED=0
 # deletion (t1959). git accepts an unmatched pathspec in the read-only queries
 # the snapshot runs; `git add` (commit_framework_files) does not, so the
 # default stays existence-filtered.
-# NOTE: The base list is duplicated in install.sh commit_installed_files().
-# If you change one, change the other. install.sh runs stand-alone via
-# curl|bash before extraction, so it cannot source a shared helper.
+# NOTE: The base list is duplicated in install.sh _install_framework_paths()
+# (used by its snapshot_pre_install_dirty and commit_installed_files). If you
+# change one, change the other — tests/test_install_upgrade_dirty_baseline.sh
+# pins the two. install.sh runs stand-alone via curl|bash and snapshots before
+# extraction, so it cannot source a shared helper.
 _ait_framework_paths() {
     local project_dir="$1" include_absent="${2:-0}"
     local p

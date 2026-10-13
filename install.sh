@@ -1152,40 +1152,33 @@ set_permissions() {
     find "$INSTALL_DIR/.aitask-scripts/lib" -name '*.sh' -exec chmod +x {} + 2>/dev/null || true
 }
 
-# --- Commit installed files to git (safety net) ---
-# Runs after extraction — commits framework files if this project has opted
-# into tracking them (heuristic: .aitask-scripts/VERSION is git-tracked).
-# No interactive prompt (stdin may not be a terminal when piped).
-# Non-fatal: warns on failure instead of aborting. Never pushes.
+# --- Pre-install dirty baseline ---
+# The upgrade cannot tell "the installer wrote this file" from "the developer
+# has uncommitted work here" by inspecting the tree at commit time. It can by
+# looking twice: snapshot the dirty framework-path set BEFORE extraction, then
+# commit only (changed-at-commit-time − baseline). Files in the baseline are
+# left alone and reported, never committed — if the upgrade rewrites a file
+# that was already dirty, that file's update goes uncommitted rather than
+# sweeping the developer's edit into the framework commit.
 #
-# Branch-mode safety: discovers changed files via `git ls-files`, then stages
-# them individually. `git ls-files` silently skips paths beyond symbolic links,
-# so symlinked `aitasks/metadata/` (data-branch worktree) drops out cleanly
-# instead of triggering `fatal: pathspec ... is beyond a symbolic link` and
-# aborting the entire `git add`. Data-worktree changes are committed by
-# commit_installed_data_files() below.
-commit_installed_files() {
-    if ! git -C "$INSTALL_DIR" rev-parse --is-inside-work-tree &>/dev/null; then
-        return
-    fi
+# Mirrors snapshot_pre_setup_dirty / commit_framework_files in
+# .aitask-scripts/aitask_setup.sh. The helpers are duplicated here because the
+# snapshot runs before extraction, when the new aitask_setup.sh is not on disk
+# (and install.sh runs stand-alone via curl|bash).
+AIT_INSTALL_DIRTY_BASELINE=""
+AIT_INSTALL_DATA_DIRTY_BASELINE=""
+AIT_INSTALL_BASELINE_ARMED=0
 
-    # Only auto-commit if the previous framework version was committed. We use
-    # .aitask-scripts/VERSION as the sentinel: projects that want framework
-    # files tracked commit it, projects that don't leave it untracked.
-    if ! git -C "$INSTALL_DIR" ls-files --error-unmatch .aitask-scripts/VERSION &>/dev/null; then
-        info "  .aitask-scripts/VERSION is not git-tracked — skipping auto-commit of framework update."
-        return
-    fi
-
-    local version="unknown"
-    if [[ -f "$INSTALL_DIR/.aitask-scripts/VERSION" ]]; then
-        version="$(cat "$INSTALL_DIR/.aitask-scripts/VERSION")"
-    fi
-
-    # Build list of framework paths to stage. NOTE: this list is duplicated in
-    # .aitask-scripts/aitask_setup.sh commit_framework_files(); keep them in sync.
-    # install.sh runs stand-alone via curl|bash so it cannot source a shared helper.
-    local paths_to_add=()
+# Print the framework pathspecs that exist in <dir>, one per line. With
+# <include_absent>=1, print every pathspec: the baseline needs that, because a
+# tracked framework file the user deleted (staged or not) is absent on disk yet
+# is exactly a pre-existing change. `git add` rejects an unmatched pathspec, so
+# the commit side stays existence-filtered.
+# NOTE: duplicated in .aitask-scripts/aitask_setup.sh _ait_framework_paths(),
+# which additionally lists install.sh and the CI files setup may install
+# (install never commits those). If you change one, change the other.
+_install_framework_paths() {
+    local dir="$1" include_absent="${2:-0}" p
     local check_paths=(
         ".aitask-scripts/"
         "aitasks/metadata/"
@@ -1202,63 +1195,228 @@ commit_installed_files() {
         "AGENTS.md"
         "opencode.json"
     )
-
     for p in "${check_paths[@]}"; do
-        if [[ -e "$INSTALL_DIR/$p" ]]; then
-            paths_to_add+=("$p")
+        if [[ "$include_absent" == "1" || -e "$dir/$p" ]]; then
+            printf '%s\n' "$p"
         fi
     done
+    return 0
+}
+
+# Data-branch framework pathspecs (framework-owned config only — never task or
+# plan content), with the same <include_absent> switch.
+_install_data_framework_paths() {
+    local dir="$1" include_absent="${2:-0}" p
+    for p in "aitasks/metadata/" "aireviewguides/"; do
+        if [[ "$include_absent" == "1" || -e "$dir/$p" ]]; then
+            printf '%s\n' "$p"
+        fi
+    done
+    return 0
+}
+
+# The main-repo commit eligibility, split so commit_installed_files can keep
+# its distinct messages. snapshot_pre_install_dirty gates on the SAME predicate
+# (_install_commit_eligible): a snapshot skipped in a state the committer acts
+# in would leave it committing against an empty baseline. No HEAD is required —
+# `ls-files --error-unmatch` reads the index, so a repository with no first
+# commit and a staged VERSION is eligible.
+_install_is_worktree() {
+    git -C "$1" rev-parse --is-inside-work-tree &>/dev/null
+}
+
+_install_version_tracked() {
+    git -C "$1" ls-files --error-unmatch -- .aitask-scripts/VERSION &>/dev/null
+}
+
+_install_commit_eligible() {
+    _install_is_worktree "$1" && _install_version_tracked "$1"
+}
+
+# Data-worktree eligibility, shared by the data snapshot and
+# commit_installed_data_files. Deliberately independent of the main repo's
+# state: the data commit has no main-repo guard.
+_install_data_worktree_present() {
+    [[ -d "$1/.git" || -f "$1/.git" ]] && _install_is_worktree "$1"
+}
+
+# Regex excluding data-branch paths from the main worktree's change list in
+# branch mode (they are committed by commit_installed_data_files). In branch
+# mode `aitasks/` and `aiplans/` are symlinks into the `.aitask-data`
+# worktree; `git ls-files` USUALLY skips pathspecs beyond such a symlink, but
+# when the target is inside the worktree and the symlink is tracked it can
+# walk through it. In legacy mode `aitasks/metadata/` lives on the main branch
+# and must NOT be filtered.
+_install_data_branch_exclude_re() {
+    if [[ -d "$1/.aitask-data/.git" || -f "$1/.aitask-data/.git" ]]; then
+        printf '%s' '^(aitasks|aiplans)/'
+    fi
+    return 0
+}
+
+# Emit the untracked + modified + staged set under <paths...> in <workdir>,
+# deduplicated, minus interpreter caches and <extra_exclude_re> (empty = none).
+# The staged term is load-bearing: a fully staged edit is invisible to both
+# `ls-files --others` and `ls-files --modified`. `diff --cached` with no commit
+# argument lists every staged path on an unborn HEAD, so staged content in a
+# repository with no first commit still counts. --no-renames: with rename detection a staged rename lists
+# only its destination, and the source — gone from the index, so invisible to
+# `ls-files --modified` too — would miss the baseline; extraction recreates it
+# and the commit would turn the user's pending rename into an addition.
+# Mirrors _ait_list_framework_changes in aitask_setup.sh.
+_install_list_changes() {
+    local workdir="$1" extra_exclude_re="$2"
+    shift 2
+    local exclude_re='(^|/)__pycache__/|\.py[co]$|\.pyd$'
+    if [[ -n "$extra_exclude_re" ]]; then
+        exclude_re="$exclude_re|$extra_exclude_re"
+    fi
+    local untracked modified staged
+    untracked="$(git -C "$workdir" ls-files --others --exclude-standard \
+        -- "$@" 2>/dev/null)" || true
+    modified="$(git -C "$workdir" ls-files --modified -- "$@" 2>/dev/null)" || true
+    staged="$(git -C "$workdir" diff --cached --name-only --no-renames \
+        -- "$@" 2>/dev/null)" || true
+    printf '%s\n%s\n%s\n' "$untracked" "$modified" "$staged" \
+        | sed '/^$/d' | sort -u | { grep -Ev "$exclude_re" || true; }
+}
+
+# Print stdin lines NOT present in the newline-joined set $1 (exact match).
+_install_subtract() {
+    if [[ -z "$1" ]]; then cat; return 0; fi
+    grep -Fxv -f <(printf '%s\n' "$1") || true
+}
+
+# Print stdin lines present in the newline-joined set $1 (exact match).
+_install_intersect() {
+    if [[ -z "$1" ]]; then cat >/dev/null; return 0; fi
+    grep -Fx -f <(printf '%s\n' "$1") || true
+}
+
+# Snapshot the pre-install dirty framework-path state. main() MUST call this
+# before extraction — nothing earlier writes into INSTALL_DIR. Each baseline is
+# gated only on its own committer's eligibility, so neither commit can ever act
+# with a baseline that was skipped.
+snapshot_pre_install_dirty() {
+    local data_dir="$INSTALL_DIR/.aitask-data" p
+    AIT_INSTALL_BASELINE_ARMED=1
+    AIT_INSTALL_DIRTY_BASELINE=""
+    AIT_INSTALL_DATA_DIRTY_BASELINE=""
+
+    if _install_data_worktree_present "$data_dir"; then
+        local data_paths=()
+        while IFS= read -r p; do data_paths+=("$p"); done \
+            < <(_install_data_framework_paths "$data_dir" 1)
+        AIT_INSTALL_DATA_DIRTY_BASELINE="$(_install_list_changes "$data_dir" "" \
+            "${data_paths[@]}")" || true
+    fi
+
+    if _install_commit_eligible "$INSTALL_DIR"; then
+        local fw_paths=()
+        while IFS= read -r p; do fw_paths+=("$p"); done \
+            < <(_install_framework_paths "$INSTALL_DIR" 1)
+        AIT_INSTALL_DIRTY_BASELINE="$(_install_list_changes "$INSTALL_DIR" \
+            "$(_install_data_branch_exclude_re "$INSTALL_DIR")" "${fw_paths[@]}")" || true
+    fi
+    return 0
+}
+
+# Print up to 20 of the arguments, indented, plus an overflow line. Positional
+# indexing, not `printf | head` (SIGPIPE under pipefail + errexit) and not a
+# nameref (`local -n` needs bash 4.3; curl|bash may run macOS's bash 3.2).
+_install_print_list() {
+    local _n=0 _item
+    for _item in "$@"; do
+        _n=$((_n + 1))
+        [[ $_n -le 20 ]] && printf '    %s\n' "$_item"
+    done
+    if [[ $# -gt 20 ]]; then
+        info "    ... and $(($# - 20)) more"
+    fi
+    return 0
+}
+
+# --- Commit installed files to git (safety net) ---
+# Runs after extraction — commits framework files if this project has opted
+# into tracking them (heuristic: .aitask-scripts/VERSION is git-tracked).
+# No interactive prompt (stdin may not be a terminal when piped).
+# Non-fatal: warns on failure instead of aborting. Never pushes.
+#
+# Commits only (changed − AIT_INSTALL_DIRTY_BASELINE): framework files that
+# were already dirty before extraction are reported and left alone. Unarmed
+# (snapshot_pre_install_dirty never ran) means an empty baseline — acceptable
+# only for direct test invocation.
+#
+# Branch-mode safety: discovers changed files via `git ls-files`, then stages
+# them individually. `git ls-files` silently skips paths beyond symbolic links,
+# so symlinked `aitasks/metadata/` (data-branch worktree) drops out cleanly
+# instead of triggering `fatal: pathspec ... is beyond a symbolic link` and
+# aborting the entire `git add`. Data-worktree changes are committed by
+# commit_installed_data_files() below.
+commit_installed_files() {
+    if ! _install_is_worktree "$INSTALL_DIR"; then
+        return
+    fi
+
+    # Only auto-commit if the previous framework version was committed. We use
+    # .aitask-scripts/VERSION as the sentinel: projects that want framework
+    # files tracked commit it, projects that don't leave it untracked.
+    if ! _install_version_tracked "$INSTALL_DIR"; then
+        info "  .aitask-scripts/VERSION is not git-tracked — skipping auto-commit of framework update."
+        return
+    fi
+
+    if [[ "$AIT_INSTALL_BASELINE_ARMED" != "1" ]]; then
+        warn "commit_installed_files: baseline not armed — committing without pre-install dirty protection" >&2
+    fi
+
+    local version="unknown"
+    if [[ -f "$INSTALL_DIR/.aitask-scripts/VERSION" ]]; then
+        version="$(cat "$INSTALL_DIR/.aitask-scripts/VERSION")"
+    fi
+
+    local paths_to_add=() p
+    while IFS= read -r p; do paths_to_add+=("$p"); done \
+        < <(_install_framework_paths "$INSTALL_DIR")
 
     if [[ ${#paths_to_add[@]} -eq 0 ]]; then
         return
     fi
 
-    # Discover changed files (untracked + modified). In branch mode, `aitasks/`
-    # and `aiplans/` are symlinks into the `.aitask-data` worktree. `git
-    # ls-files` USUALLY skips pathspecs beyond such a symlink, but the rule is
-    # nuanced — when the symlink target is INSIDE the worktree (e.g.,
-    # `.aitask-data/` lives under INSTALL_DIR) and the symlink is tracked,
-    # ls-files can walk through it. So in branch mode we additionally filter
-    # any `aitasks/` or `aiplans/` paths out of the result; they are committed
-    # by commit_installed_data_files() below. In legacy mode (no .aitask-data
-    # worktree) `aitasks/metadata/` lives on the main branch and must NOT be
-    # filtered.
-    local cache_artifacts_re='(^|/)__pycache__/|\.py[co]$|\.pyd$'
-    local data_branch_re=''
-    if [[ -d "$INSTALL_DIR/.aitask-data/.git" || -f "$INSTALL_DIR/.aitask-data/.git" ]]; then
-        data_branch_re='^(aitasks|aiplans)/'
+    local data_branch_re all_changes
+    data_branch_re="$(_install_data_branch_exclude_re "$INSTALL_DIR")"
+    all_changes="$(_install_list_changes "$INSTALL_DIR" "$data_branch_re" \
+        "${paths_to_add[@]}")" || true
+
+    local changed_files=() excluded_files=() changed_file
+    while IFS= read -r changed_file; do
+        [[ -n "$changed_file" ]] || continue
+        changed_files+=("$changed_file")
+    done < <(printf '%s\n' "$all_changes" | _install_subtract "$AIT_INSTALL_DIRTY_BASELINE")
+    while IFS= read -r changed_file; do
+        [[ -n "$changed_file" ]] || continue
+        excluded_files+=("$changed_file")
+    done < <(printf '%s\n' "$all_changes" | _install_intersect "$AIT_INSTALL_DIRTY_BASELINE")
+
+    if [[ ${#excluded_files[@]} -gt 0 ]]; then
+        warn "Pre-existing uncommitted changes under framework paths — left alone (not committed by the upgrade):"
+        _install_print_list "${excluded_files[@]}"
+        info "Review and commit them yourself when ready."
     fi
-
-    _filter_changes() {
-        if [[ -n "$data_branch_re" ]]; then
-            grep -Ev "$cache_artifacts_re" | grep -Ev "$data_branch_re"
-        else
-            grep -Ev "$cache_artifacts_re"
-        fi
-    }
-
-    local untracked modified all_changes
-    untracked="$(cd "$INSTALL_DIR" && git ls-files --others --exclude-standard \
-        "${paths_to_add[@]}" 2>/dev/null | _filter_changes)" || true
-    modified="$(cd "$INSTALL_DIR" && git ls-files --modified \
-        "${paths_to_add[@]}" 2>/dev/null | _filter_changes)" || true
-    all_changes="$(printf '%s\n%s\n' "$untracked" "$modified" | sed '/^$/d')"
 
     # One-time cleanup: drop any __pycache__ paths that were tracked before
     # the scoped .aitask-scripts/.gitignore landed.
     local cached_pycache
-    cached_pycache="$(cd "$INSTALL_DIR" && git ls-files '.aitask-scripts/*/__pycache__/*' 2>/dev/null || true)"
+    cached_pycache="$(git -C "$INSTALL_DIR" ls-files '.aitask-scripts/*/__pycache__/*' 2>/dev/null || true)"
 
-    if [[ -z "$all_changes" && -z "$cached_pycache" ]]; then
-        success "Framework files already committed to git (v${version})"
+    if [[ ${#changed_files[@]} -eq 0 && -z "$cached_pycache" ]]; then
+        if [[ ${#excluded_files[@]} -eq 0 ]]; then
+            success "Framework files already committed to git (v${version})"
+        else
+            info "No other framework changes to commit (v${version})"
+        fi
         return
     fi
-
-    local changed_files=()
-    while IFS= read -r changed_file; do
-        [[ -n "$changed_file" ]] || continue
-        changed_files+=("$changed_file")
-    done <<< "$all_changes"
 
     # Pathspec for the finalize diff-guard and commit: the framework changes
     # PLUS any stale __pycache__ paths we are about to `git rm --cached` (those
@@ -1266,7 +1424,7 @@ commit_installed_files() {
     # committed). Path-scoping both the guard and the commit is what stops a
     # bare `git commit` from sweeping a foreign pre-staged index on a dirty
     # curl|bash upgrade (mirrors commit_framework_files in aitask_setup.sh).
-    local commit_paths=("${changed_files[@]}")
+    local commit_paths=(${changed_files[@]+"${changed_files[@]}"})
 
     info "Committing framework update (v${version}) to git (${#changed_files[@]} files)..."
 
@@ -1306,10 +1464,17 @@ commit_installed_files() {
     # Post-commit verification: anything still untracked under the framework
     # paths indicates a gitignore rule, pathspec quirk, or a new file produced
     # between the list and the commit. Apply the same data-branch filter as
-    # above — those files belong on the aitask-data branch, not master.
+    # above — those files belong on the aitask-data branch, not master — and
+    # subtract the baseline: a pre-existing untracked file is deliberately left
+    # behind, not a commit failure.
+    local post_exclude_re='(^|/)__pycache__/|\.py[co]$|\.pyd$'
+    if [[ -n "$data_branch_re" ]]; then
+        post_exclude_re="$post_exclude_re|$data_branch_re"
+    fi
     local still_untracked
-    still_untracked="$(cd "$INSTALL_DIR" && git ls-files --others --exclude-standard \
-        "${paths_to_add[@]}" 2>/dev/null | _filter_changes)" || true
+    still_untracked="$(git -C "$INSTALL_DIR" ls-files --others --exclude-standard \
+        -- "${paths_to_add[@]}" 2>/dev/null | { grep -Ev "$post_exclude_re" || true; } \
+        | _install_subtract "$AIT_INSTALL_DIRTY_BASELINE")" || true
     if [[ -n "$still_untracked" ]]; then
         warn "Some framework files remain untracked after commit:"
         printf '%s\n' "$still_untracked" | awk 'NR<=20 {print "    " $0}'
@@ -1324,6 +1489,10 @@ commit_installed_files() {
 # but never reaches the master worktree's index. Commit those changes inside
 # the data worktree so install.sh and `ait setup` are symmetric.
 #
+# Commits only (changed − AIT_INSTALL_DATA_DIRTY_BASELINE): concurrent
+# sessions routinely have in-progress work in the data worktree, and it must
+# never ride into the framework-data commit.
+#
 # Inline data-worktree detection (install.sh runs stand-alone via curl|bash so
 # it cannot source .aitask-scripts/lib/task_utils.sh). Mirrors
 # _ait_detect_data_worktree() in that file.
@@ -1331,12 +1500,12 @@ commit_installed_data_files() {
     local data_dir="$INSTALL_DIR/.aitask-data"
 
     # Legacy mode (no separate data worktree) — nothing to do.
-    if [[ ! -d "$data_dir/.git" && ! -f "$data_dir/.git" ]]; then
+    if ! _install_data_worktree_present "$data_dir"; then
         return
     fi
 
-    if ! git -C "$data_dir" rev-parse --is-inside-work-tree &>/dev/null; then
-        return
+    if [[ "$AIT_INSTALL_BASELINE_ARMED" != "1" ]]; then
+        warn "commit_installed_data_files: baseline not armed — committing without pre-install dirty protection" >&2
     fi
 
     local version="unknown"
@@ -1344,35 +1513,36 @@ commit_installed_data_files() {
         version="$(cat "$INSTALL_DIR/.aitask-scripts/VERSION")"
     fi
 
-    # Framework-owned config dirs that may live on the data branch. Never
-    # commit task or plan content here — those are user data.
-    local data_check_paths=("aitasks/metadata/" "aireviewguides/")
-    local data_paths=()
-    for p in "${data_check_paths[@]}"; do
-        [[ -e "$data_dir/$p" ]] && data_paths+=("$p")
-    done
+    local data_paths=() p
+    while IFS= read -r p; do data_paths+=("$p"); done \
+        < <(_install_data_framework_paths "$data_dir")
 
     if [[ ${#data_paths[@]} -eq 0 ]]; then
         return
     fi
 
-    local cache_artifacts_re='(^|/)__pycache__/|\.py[co]$|\.pyd$'
-    local untracked modified all_changes
-    untracked="$(git -C "$data_dir" ls-files --others --exclude-standard \
-        "${data_paths[@]}" 2>/dev/null | grep -Ev "$cache_artifacts_re")" || true
-    modified="$(git -C "$data_dir" ls-files --modified \
-        "${data_paths[@]}" 2>/dev/null | grep -Ev "$cache_artifacts_re")" || true
-    all_changes="$(printf '%s\n%s\n' "$untracked" "$modified" | sed '/^$/d')"
+    local all_changes
+    all_changes="$(_install_list_changes "$data_dir" "" "${data_paths[@]}")" || true
 
-    if [[ -z "$all_changes" ]]; then
-        return
-    fi
-
-    local changed_files=()
+    local changed_files=() excluded_files=() changed_file
     while IFS= read -r changed_file; do
         [[ -n "$changed_file" ]] || continue
         changed_files+=("$changed_file")
-    done <<< "$all_changes"
+    done < <(printf '%s\n' "$all_changes" | _install_subtract "$AIT_INSTALL_DATA_DIRTY_BASELINE")
+    while IFS= read -r changed_file; do
+        [[ -n "$changed_file" ]] || continue
+        excluded_files+=("$changed_file")
+    done < <(printf '%s\n' "$all_changes" | _install_intersect "$AIT_INSTALL_DATA_DIRTY_BASELINE")
+
+    if [[ ${#excluded_files[@]} -gt 0 ]]; then
+        warn "Pre-existing uncommitted changes on the aitask-data branch — left alone (not committed by the upgrade):"
+        _install_print_list "${excluded_files[@]}"
+        info "Review and commit them yourself when ready."
+    fi
+
+    if [[ ${#changed_files[@]} -eq 0 ]]; then
+        return
+    fi
 
     info "Committing framework data update (v${version}) to aitask-data branch (${#changed_files[@]} files)..."
 
@@ -1519,6 +1689,11 @@ main() {
         fi
     done
 
+    # Baseline of the user's uncommitted framework-path work, taken before the
+    # first write into INSTALL_DIR. commit_installed_files and
+    # commit_installed_data_files commit only what changed beyond it.
+    snapshot_pre_install_dirty
+
     info "Extracting to $INSTALL_DIR..."
     tar -xzf "$tarball_path" -C "$INSTALL_DIR"
 
@@ -1636,6 +1811,20 @@ main() {
 
     # Drop the framework-release packaging/ tooling now that the shim is copied.
     cleanup_packaging_leftover "$INSTALL_DIR"
+
+    # Upgrade never runs setup, so this is the only route by which an
+    # upgraded-only project gets the t1711 symlink-safe data entries. It
+    # commits nothing itself: it MUST run after snapshot_pre_install_dirty and
+    # immediately before commit_installed_files, which commits the rewritten
+    # .gitignore only when it was clean before the upgrade. The declare -F
+    # guard: `--version` can pair this installer with an older tarball whose
+    # aitask_setup.sh predates the function, and under errexit an unknown
+    # command would abort the install after extraction, before the commit.
+    if [[ "$EXISTING_INSTALL" == true ]] && \
+       declare -F setup_data_gitignore_symlink_safe >/dev/null; then
+        info "Checking .gitignore data entries..."
+        setup_data_gitignore_symlink_safe
+    fi
 
     commit_installed_files
     commit_installed_data_files

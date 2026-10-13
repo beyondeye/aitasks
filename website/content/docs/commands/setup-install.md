@@ -99,7 +99,7 @@ ait upgrade 0.2.1              # Upgrade to specific version
 2. Checks if already up to date (skips if versions match)
 3. Downloads `install.sh` from the target version's git tag
 4. Runs the installer with `--force`, which shows the changelog between current and target versions and asks for confirmation
-5. Performs the full installation (tarball download, skill installation, setup)
+5. Performs the full installation (tarball download, skill installation, setup) and commits the framework files it changed. Framework files that already had uncommitted changes before the upgrade — edited, staged, deleted or new — are left uncommitted and listed, so your in-progress work never lands in the framework commit. It also rewrites the trailing-slash data entries `.aitask-data/`, `aitasks/` and `aiplans/` in `.gitignore` to the bare form, which also matches the symlinks that linked task worktrees carry; that rewrite is committed only when `.gitignore` had no uncommitted changes
 6. Offers newer models for code-agent defaults the framework has superseded (see below)
 7. Clears the update check cache
 
