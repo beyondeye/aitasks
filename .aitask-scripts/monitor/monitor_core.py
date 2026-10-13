@@ -818,7 +818,13 @@ async def compute_shadow_staleness(
     unverifiable-read-as-a-negative-verdict bug t1446 fixed in
     ``discover_window_panes``. It now returns ``(ok, value)`` and only an
     ``ok`` read reaches the stamp rows; ``-q`` still makes a genuinely *unset*
-    option a verified ``(True, "")``, which is what "never analyzed" means.
+    option a verified ``(True, "")``, which is what "never analyzed" means. A
+    shadow pane that vanished between discovery and the read is likewise a
+    failed read, not "never analyzed" (t1971): ``-q`` answers a missing pane
+    with rc 0 and no output, so ``get_pane_option`` confirms the pane before
+    calling an empty value verified. Preserving is right for it — clearing the
+    state of a shadow that is gone belongs to the caller's discovery branch,
+    which sees the absence on its next lookup.
 
     The empty-stamp branch returns **before** the last-change lookup: that
     ordering is a cost gate, not an accident — a shadow that never analyzed
@@ -2232,22 +2238,47 @@ class TmuxMonitor:
         and ``-v`` prints just the value. Used by minimonitor's shadow-freshness
         check (t1104).
 
-        Returns ``(ok, value)``. ``ok`` is ``False`` only when tmux could not
-        answer (transport failure / timeout ``rc == -1``, or a tmux command
-        error ``rc == 1``); ``(True, "")`` is a *verified* "this option is not
-        set". The pair mirrors :func:`find_shadow_pane_status` and exists for
-        the reason t1446's ``(observed, panes)`` does: this used to return ``""``
-        on failure, and :func:`compute_shadow_staleness` read that as "the shadow
-        has never analyzed anything: nothing to warn about", so a tmux failure
-        *cleared* a standing staleness banner (t1451). A 2-tuple cannot be
-        consumed without binding the flag, whereas ``""`` is silently falsy.
+        Returns ``(ok, value)``. ``ok`` is ``False`` when tmux could not answer
+        (transport failure / timeout ``rc == -1``, or a tmux command error
+        ``rc == 1``) **or the pane does not exist** (t1971); ``(True, "")`` is a
+        *verified* "this option is not set". The pair mirrors
+        :func:`find_shadow_pane_status` and exists for the reason t1446's
+        ``(observed, panes)`` does: this used to return ``""`` on failure, and
+        :func:`compute_shadow_staleness` read that as "the shadow has never
+        analyzed anything: nothing to warn about", so a tmux failure *cleared* a
+        standing staleness banner (t1451). A 2-tuple cannot be consumed without
+        binding the flag, whereas ``""`` is silently falsy.
+
+        ``-q`` answers a MISSING pane exactly like an unset option — rc 0, no
+        output (measured on tmux 3.7c) — so an empty value is ambiguous and is
+        reported as verified only after ``display-message`` echoes ``pane_id``
+        back. The confirm runs **after** the read on purpose: pane ids are never
+        reused within a server, so a pane that exists now existed when it was
+        read; confirming first would let it vanish in between. A non-empty value
+        needs no confirm (tmux prints one only for a live pane), so the second
+        round trip is paid only on an empty value. The echo is compared
+        exactly, so ``pane_id`` must be a ``%N`` id — anything else reads an
+        empty value as a failed read, never as a verified one.
+
+        The read itself stays ``show-options -p``, not a ``#{@opt}`` format:
+        a format returns the *inherited* value (pane, then window, then
+        session), while this reads the pane-local one only.
         """
         rc, out = await self.tmux_run_async(
             ["show-options", "-pqv", "-t", pane_id, option], timeout=timeout
         )
         if rc != 0:
             return (False, "")
-        return (True, out.strip())
+        value = out.strip()
+        if value:
+            return (True, value)
+        rc, out = await self.tmux_run_async(
+            ["display-message", "-p", "-t", pane_id, "#{pane_id}"],
+            timeout=timeout,
+        )
+        if rc != 0 or out.strip() != pane_id:
+            return (False, "")
+        return (True, "")
 
     def get_last_change_wall(self, pane_id: str) -> float | None:
         """Wall-clock epoch (approx) when ``pane_id``'s content last changed.

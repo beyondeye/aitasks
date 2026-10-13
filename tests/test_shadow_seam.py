@@ -435,28 +435,53 @@ class GetPaneOptionContractTests(unittest.TestCase):
     method still collapses `rc != 0` into `""`.
     """
 
-    def _read(self, rc: int, out: str) -> tuple[bool, str]:
+    def _read(self, *responses: tuple[int, str]) -> tuple[bool, str]:
+        """Answer the gateway calls in order with ``responses``; the argv of
+        every call made is kept in ``self.calls``."""
         mon = TmuxMonitor.__new__(TmuxMonitor)   # no tmux, no control client
+        script = list(responses)
+        self.calls: list[list[str]] = []
 
         async def _fake_async(args, timeout=5.0):
-            return (rc, out)
+            self.calls.append(list(args))
+            return script.pop(0)
 
         mon.tmux_run_async = _fake_async
         return asyncio.run(mon.get_pane_option("%5", "@opt"))
 
     def test_success_returns_ok_and_stripped_value(self):
-        self.assertEqual(self._read(0, "1000.0\n"), (True, "1000.0"))
+        """A value proves the pane exists: no confirm round trip (cost gate)."""
+        self.assertEqual(self._read((0, "1000.0\n")), (True, "1000.0"))
+        self.assertEqual(len(self.calls), 1)
 
-    def test_unset_option_is_a_VERIFIED_empty(self):
-        """`-q` makes an unset option print nothing at rc 0. That is a real
-        observation of absence, and must stay distinct from a failed read."""
-        self.assertEqual(self._read(0, ""), (True, ""))
+    def test_unset_option_is_VERIFIED_only_once_the_pane_is_confirmed(self):
+        """`-q` makes an unset option print nothing at rc 0 — and a MISSING pane
+        too (t1971). The empty read is verified by echoing the pane id back,
+        AFTER the read: a pane that exists at the confirm existed at the read."""
+        self.assertEqual(self._read((0, ""), (0, "%5\n")), (True, ""))
+        self.assertEqual(self.calls, [
+            ["show-options", "-pqv", "-t", "%5", "@opt"],
+            ["display-message", "-p", "-t", "%5", "#{pane_id}"],
+        ])
+
+    def test_missing_pane_reports_not_ok(self):
+        """tmux echoes an empty line for a missing pane (t1971)."""
+        self.assertEqual(self._read((0, ""), (0, "\n")), (False, ""))
+
+    def test_different_echoed_pane_reports_not_ok(self):
+        """An echo naming another pane is not this pane's confirmation."""
+        self.assertEqual(self._read((0, ""), (0, "%7\n")), (False, ""))
+
+    def test_failed_confirm_reports_not_ok(self):
+        self.assertEqual(self._read((0, ""), (-1, "")), (False, ""))
 
     def test_transport_failure_reports_not_ok(self):
-        self.assertEqual(self._read(-1, ""), (False, ""))
+        self.assertEqual(self._read((-1, "")), (False, ""))
+        self.assertEqual(len(self.calls), 1)
 
     def test_tmux_command_error_reports_not_ok(self):
-        self.assertEqual(self._read(1, ""), (False, ""))
+        self.assertEqual(self._read((1, "")), (False, ""))
+        self.assertEqual(len(self.calls), 1)
 
 
 class FormatStaleDurationTests(unittest.TestCase):
