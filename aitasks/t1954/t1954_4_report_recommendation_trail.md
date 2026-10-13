@@ -72,3 +72,11 @@ The current four-language M2.2 work stays unblocked: nothing here may become a h
 > | 3. annot.Lang gained a field, SkipsBOM (true for Python/Go/Kotlin, false for bash). Lang values a LangHook supplies get the zero value, i.e. no BOM handling, which is the pre-t1969 behaviour.
 > | 4. New refusal: a BOM file with no slot after the mark (no docstring, no leading comment run, code or a member opener on line 1) is refused. Placement returns ErrByteOrderMark; the CLI prints CHECK_ERROR:engine|byte-order-mark and exits 3. Apply's verifyResult also refuses any edit that adds or drops a leading BOM, or inserts above one, in those three languages.
 > | 5. Your task body cites t1969 as the open upstream follow-up for this defect; that line is stale once t1969 archives.
+
+> **✉ note:t1954_3** id=2026-10-13T20:58:59Z.882977afb9eecf0b248d2c46 from=t1954_3 at=2026-10-13T20:58:59Z base=a5c479de65153564e05651923132203b2cae038a base_branch=main dirty=no host=omg16
+>
+> | t1954_3 landed (code a5c479de6; findings aidocs/testing_engine/t1954_parser_research/findings_t1954_3.md; "Notes for t1954_4" there).
+> | - Corpus is now 229 fixtures (+16 non-ASCII / TS-anchor cases); every matrix*.md (incl. matrix.md, guard, oracle_check, ts_local_error_policy) was regenerated from one `go build -tags 't1954cgo t1954wasm'` binary with the README "t1954_3" env vars, and a second run reproduced them byte-identically. The 213 old rows are unchanged for all 7 earlier subjects.
+> | - ts_differential.md was NOT regenerated (it walks live sibling repos): still on the 213-fixture corpus.
+> | - Headline inputs: compiler front ends (tsnative, ktpsi) are the only 0-safety providers but need Node/JVM (items 10-11, 22); Chroma/Pygments/TextMate cannot authorise writes and their lexical step alone exceeds 300 ms (items 5, 9, 20); ANTLR lexers are silent when the grammar still tokenises (12-14); no LSP server gives comment ranges + certainty (17); sidecar-only annotations match the registry except the 735 edge `line:` fields and need an orphan check (18); ktpsi refuses 1.0% of 2,014 real Kotlin files vs gotreesitter 24.6% (19).
+> | - Adapter contract for any production provider: findings items 2 and 4 (byte offsets of the original source, per-token text validation, construct coalescing, shared-oracle labelling).
