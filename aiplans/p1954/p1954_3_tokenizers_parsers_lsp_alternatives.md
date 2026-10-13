@@ -775,3 +775,115 @@ unobtainable still leaves that candidate with documentation-only evidence
 ### Planned mitigations
 - timing: pre-phase | name: toolchain_fetch_smoke | type: chore | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: external runtimes failing late | desc: install every external runtime into scratch and smoke-call it before any provider code; re-scope failures to "not measured" up front
 - timing: post-phase | name: candidate_coverage_audit | type: chore | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: breadth — shallow or missing evidence | desc: tick every candidate from the task and parent lists against the findings ledger (prototype link or cited elimination); fill gaps before commit
+
+## Final Implementation Notes
+- **Actual work done** (all under `aidocs/testing_engine/t1954_parser_research/`, `R` below):
+  - Pre-phase `toolchain_fetch_smoke`: every runtime was installed into
+    scratch and smoke-called before any provider code:
+    - a Pygments 2.21.0 venv;
+    - the ANTLR 4.13.1 jar (sha256) and grammars-v4 `89fd3648`;
+    - the kotlinc 2.4.21 PSI;
+    - gopls v0.23.0, pyright 1.1.414, typescript-language-server 6.0.2 and
+      kotlin-lsp v263.6379.0 (`initialize` round trip each);
+    - vscode-textmate, oniguruma and tm-grammars; scc v4.1.0; zig 0.17.0.
+
+    Recorded in `results/environment.md` ("t1954_3 tools", `env --t3`).
+  - Corpus 213 → 229:
+    - 8 non-ASCII fixtures (2-, 3- and 4-byte characters, one per directory
+      plus `.tsx` and `.js`);
+    - `nonascii_doc.py` and `latin1_member.py`;
+    - 4 hand-placed TS/JS anchor fixtures;
+    - `oraclecheck` 0 disagreements; the 213 old rows byte-identical for all
+      7 earlier subjects.
+  - Adapter contract (`provider/`): `offsets.go`, `tokencheck.go` (Layer 1),
+    `coalesce.go` (Layer 2), `highlight.go`, `subproc.go`, the
+    `provider.SharedOracle` label (`internal/runner/range.go`), and the
+    FullCover-with-diagnostics runner rule. Tests: `offsets_test.go`,
+    `tokencheck_test.go`, `coalesce_test.go` (recorded Pygments stream +
+    negative control), `internal/runner/shared_oracle_test.go`.
+  - Providers:
+    - `chroma`;
+    - `pygments` (`oracle/pygments_oracle.py`, with `--normcheck` /
+      `--doccheck`);
+    - `textmate` (`oracle/textmate_oracle.js`);
+    - `tsnative` (the `ts_oracle.js` provider mode);
+    - `ktpsi` (`oracle/KtPsiOracle.java` + `ktpsi_build.sh`);
+    - `antlr` (`antlr/LOCK`, `antlr/gen.sh [--check]`, committed
+      `provider/antlrgen/{kotlin,java,rust}`).
+  - Verbs: `lsp`, `sidecar`, `footprint-t3`, `env --t3`. Probes:
+    `feasibility/t3_probes.sh`.
+  - Results:
+    - all `matrix*.md` regenerated from one full-tag binary;
+    - `guard.md`, `oracle_check.md`;
+    - `results/t3/realrepo_*.md` (6 repos), `lsp.md`, `sidecar.md`;
+    - `bench_t3.md`, `footprint_t3.md`, `t3_probes.md`;
+    - `findings_t1954_3.md`; README updated.
+  - Post-phase `candidate_coverage_audit`: the ledger table (findings item
+    26).
+- **Deviations from plan:**
+  1. The combined `matrix.md` was regenerated from the full-tag build
+     (available), so no separate `matrix_t1954_3.md` and no `--combined`
+     flag were needed.
+  2. Footprint became its own verb `footprint-t3` instead of `footprint
+     --only`, so t1954_1's `footprint.md` is untouched. `env` gained `--t3`,
+     which rewrites only its own section.
+  3. `ts_differential.md` was not regenerated: it walks the live sibling
+     repositories and would mix repository drift into t1954_2's evidence.
+     It stays labelled as the 213-fixture corpus.
+  4. The bench end-to-end rows for Chroma, Pygments and TextMate are
+     recorded failures (`unsupported:DocLiterals` on the M2.2 workload's
+     Python files). `tsnative` was not benchmarked: there are no TS/JS test
+     files in the lexical sets. `ktpsi` and `antlr` are lexical-only.
+  5. LSP stayed an experiment, not a seam provider (one server per
+     language, a project required, asynchronous certainty).
+  6. kotlin-lsp replaced fwcd/kotlin-language-server, which is deprecated by
+     its own README.
+- **Issues encountered (adapter defects the harness caught; all fixed, listed
+  apart in findings item 4):**
+  - the ktpsi visitor skipped error elements inside string templates (2
+    false Silent-uncertain);
+  - `Comment.Multiline` fragments were classed by text (4 false Rust
+    FP-writable in Chroma and Pygments);
+  - Pygments with `ensurenl` off missed a final comment line with no newline
+    (a record corruption on `nonl_edit.sh`); fixed by ensurenl emulation and
+    trimming the appended byte;
+  - FullCover was checked on uncertain ANTLR inputs.
+
+  Smaller issues:
+  - scc v4 moved its module path to `/v4`;
+  - `tm-grammars` exports no `package.json`, so packages are resolved via
+    `NODE_PATH`;
+  - the kotlinc distribution ships unshaded `com.intellij` and needs an
+    `ExtensionStorage`;
+  - the upstream Rust lexer base failed `go vet` (an unreachable return,
+    dropped in `gen.sh`);
+  - a `/usr/bin/time`-based loop never ran;
+  - the antlr footprint probe first linked the whole provider package (28.9
+    MB), and was fixed to drive the lexers directly (+1.3 MB).
+- **Key decisions:**
+  - `ToContext` unchanged; providers coalesce instead.
+  - Highlighters declare `Errors` (error tokens) so the matrix measures
+    their silence.
+  - Strict UTF-8 tools return `unsupported:UTF-8-input`, never a guess.
+  - The generated ANTLR Go is committed, with a byte-identity regeneration
+    check.
+  - The grammar licenses were read per grammar: Kotlin Apache-2.0, Java BSD,
+    Rust MIT.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:**
+  - **t1954_4:**
+    - Rerun from one `go build -tags 't1954cgo t1954wasm'` binary with the
+      README "t1954_3" env vars. This session's committed matrices came from
+      exactly that, and a second run reproduced them byte-identically.
+    - `ts_differential.md` still reflects the 213-fixture corpus.
+    - Recommendation inputs:
+      - findings items 5, 9 and 20: highlighters cannot authorise writes or
+        fit the budget;
+      - items 10, 11, 19 and 22: compiler front ends are clean but bring a
+        runtime;
+      - items 12–14: ANTLR;
+      - item 17: LSP;
+      - item 18: sidecar line loss, orphan check, consumers;
+      - item 23: adapter cost.
+      - The adapter contract (item 4 and the notes) should carry into any
+        production provider.
