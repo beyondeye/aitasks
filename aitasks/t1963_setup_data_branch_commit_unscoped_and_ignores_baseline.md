@@ -3,13 +3,14 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [ait_setup, worktree]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1711
 followup_kind: upstream_defect
 created_at: 2026-10-13 08:32
-updated_at: 2026-10-13 08:32
+updated_at: 2026-10-13 08:48
 ---
 
 ## Origin
