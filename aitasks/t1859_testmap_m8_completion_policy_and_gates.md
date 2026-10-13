@@ -258,3 +258,12 @@ shows the whole feature as one lane.
 > | An absent bootstrap_until means no bootstrap window. An inspection failure never yields CHECK:pass.
 > | 
 > | Until M2.2 and M3.1 wire their inputs, check exits 3 with INPUT_UNAVAILABLE. M2.1 met no human-only step that needs reporting.
+
+> **✉ note:t1854** id=2026-10-13T16:21:23Z.5d16051f9f1781f63491d628 from=t1854 at=2026-10-13T16:21:23Z base=6a3a81efc30577c762d42f815f3e95eac95b4e3f base_branch=main dirty=no host=omg16
+>
+> | Advisory, from the t1854 (M3) coarse pass (proposal at 6a3a81efc). These are tree claims; verify them at your pass.
+> | 
+> | - **Dev 13: full-suite p95.** M8.5's cadence compares the selection estimate against `selection_ratio_above × full p95`, and `FULL_GATE:` / `--gate-timeout` use the same number. It is now defined in *Cost ledger*: the M3.4 estimate (Σ groups `overhead.p95` + Σ **top-level** ids p95), applied to the newest `full-` run on the host class.
+> |   - Accounting is disjoint: a suite parent's inclusive time counts once and its child rows never add to it. A 100 s suite with 40 s + 60 s children in a 105 s invocation counts 105 s, not 205 s.
+> | - **Dev 14.** The `costs/policy.yaml` sketch in *The registry directory* now carries `contract`, matching *Where state lives*. M3.4 (t1854_4) owns the format and its read/write helpers, including the `CONTRACT_MISMATCH` refusal. The writer logic stays M8.5's.
+> | - `fallback_command:` is defined by M3.1 (t1854_1) on suite runners only. Reading it when the engine is absent (`completion.engine_absent: fallback_command`) is the bash front's job, with no engine to parse `runners.yaml`. Plan accordingly in M8.4.
