@@ -3,13 +3,14 @@ priority: low
 effort: low
 depends: []
 issue_type: test
-status: Ready
+status: Implementing
 labels: [tests, tmux, trails]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1957
 followup_kind: review_finding
 created_at: 2026-10-13 17:19
-updated_at: 2026-10-13 17:19
+updated_at: 2026-10-13 17:22
 ---
 
 ## Origin
