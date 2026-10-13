@@ -18,6 +18,9 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # shellcheck source=lib/asserts.sh
 . "$PROJECT_DIR/tests/lib/asserts.sh"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 
 PASS=0
 FAIL=0

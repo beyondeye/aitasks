@@ -70,7 +70,7 @@ build_tarball() {   # build_tarball <out.tar.gz> <with-manifest:1|0>
     stage="$TMP/stage_$with_manifest"
     list="$TMP/list_$with_manifest"
     rm -rf "$stage"; mkdir -p "$stage"
-    (cd "$PROJECT_DIR" && git ls-files -co --exclude-standard -- \
+    (cd "$PROJECT_DIR" || exit 1; git ls-files -co --exclude-standard -- \
         ait CHANGELOG.md .aitask-scripts packaging seed .claude/skills \
         | while IFS= read -r f; do [[ -f "$f" ]] && printf '%s\n' "$f"; done) > "$list"
     (cd "$PROJECT_DIR" && tar -cf - -T "$list") | tar -xf - -C "$stage"

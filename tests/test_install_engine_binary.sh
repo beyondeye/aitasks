@@ -221,7 +221,7 @@ assert_contains "R1 never fatal" "AFTER rc=0" "$out"
 assert_eq "R1 the installed binary is the mirror's" "same" "$(cmp -s "$MIR/$ASSET" "$S/ait-testmap" && echo same || echo differs)"
 assert_eq "R1 the sidecar verifies with sha256sum -c" "ait-testmap: OK" "$(sumcheck "$S" ait-testmap.sha256)"
 assert_file_not_exists "R1 a release slot carries no .dev" "$S/.dev"
-assert_eq "R1 staging is cleaned up" "" "$(cd "$AH/engine" && ls -A | grep '^\.staging' || true)"
+assert_eq "R1 staging is cleaned up" "" "$(ls -A "$AH/engine" | grep '^\.staging' || true)"
 
 out="$(AIT_ENGINE_RELEASE_URL="file://$WORK/no-such-mirror" insetup "$AH" 'install_engine_binary')"
 assert_eq "R2 an intact verified slot is present with no fetch" "TESTMAP_BINARY:present|$S/ait-testmap" "$(line "$out" TESTMAP_BINARY:)"

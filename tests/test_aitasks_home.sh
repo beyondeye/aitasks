@@ -316,7 +316,7 @@ tree_sig() {
     [[ -e "$d" ]] || { echo ABSENT; return; }
     [[ -d "$d" ]] || { echo "F $(cksum <"$d")"; return; }
     # NUL-separated and %q-printed, so a name holding a newline is one entry.
-    (cd "$d" && find . -print0 | LC_ALL=C sort -z | while IFS= read -r -d '' p; do
+    (cd "$d" || exit 1; find . -print0 | LC_ALL=C sort -z | while IFS= read -r -d '' p; do
         if [[ -L "$p" ]]; then printf 'L %q -> %q\n' "$p" "$(readlink "$p")"
         elif [[ -d "$p" ]]; then printf 'D %q\n' "$p"
         else printf 'F %q %s\n' "$p" "$(cksum <"$p")"; fi

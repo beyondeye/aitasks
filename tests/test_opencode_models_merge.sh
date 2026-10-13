@@ -18,10 +18,17 @@ set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-SCRIPT_UNDER_TEST="${OPENCODE_MODELS_SCRIPT:-$PROJECT_DIR/.aitask-scripts/aitask_opencode_models.sh}"
+# abs_path <path> — anchor a relative override at the invoking directory, so it
+# still names the same file after enter_scratch_cwd moves the cwd.
+abs_path() { case "$1" in /*) printf '%s\n' "$1" ;; *) printf '%s\n' "$PWD/$1" ;; esac; }
+SCRIPT_UNDER_TEST="$(abs_path "${OPENCODE_MODELS_SCRIPT:-$PROJECT_DIR/.aitask-scripts/aitask_opencode_models.sh}")"
+CAS_LIB_UNDER_TEST="$(abs_path "${REGISTRY_CAS_LIB:-$PROJECT_DIR/.aitask-scripts/lib/registry_cas.sh}")"
 
 # shellcheck source=lib/asserts.sh
 . "$PROJECT_DIR/tests/lib/asserts.sh"
+# Start from an empty read-only dir, never the invoking one (t1826).
+. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
+enter_scratch_cwd
 
 PASS=0
 FAIL=0
@@ -37,7 +44,7 @@ setup_fixture() {
     cp "$SCRIPT_UNDER_TEST" "$FIX/.aitask-scripts/aitask_opencode_models.sh"
     cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" "$FIX/.aitask-scripts/lib/"
     cp "$PROJECT_DIR/.aitask-scripts/lib/atomic_write.sh" "$FIX/.aitask-scripts/lib/"
-    cp "${REGISTRY_CAS_LIB:-$PROJECT_DIR/.aitask-scripts/lib/registry_cas.sh}" "$FIX/.aitask-scripts/lib/registry_cas.sh"
+    cp "$CAS_LIB_UNDER_TEST" "$FIX/.aitask-scripts/lib/registry_cas.sh"
     printf '%s\n' "$listing" > "$FIX/listing.txt"
     printf '%s\n' "$hook" > "$FIX/hook.sh"
     cat > "$FIX/bin/opencode" <<EOF
