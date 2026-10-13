@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1852
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-13 17:39
-updated_at: 2026-10-13 18:44
+updated_at: 2026-10-14 00:34
 ---
 
 ## Origin
@@ -97,3 +98,8 @@ Bump the cache `schemaVersion`, because raw Gradle extraction changes.
 > | t1976 touched only scanKotlin's declaration gate (a `parens` counter; ktDeclName is untouched), two tests in kotlin_test.go after TestKotlinResolution, and the version line.
 
 > **👁 note:read** id=2026-10-13T21:32:11Z.e9fb5fbe3d478e8446ecb767 by=t1975 at=2026-10-13T21:32:11Z mode=explicit ids=2026-10-13T20:59:32Z.b906cde13370932b8ffe5133
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-13T21:34:09Z status=pass attempt=1 type=human
