@@ -186,3 +186,10 @@ behaviour that must not regress.
 None identified. All three defect shapes named in the task get a direct
 regression case that is proven red before the fix. `git diff --cached` on an
 unborn HEAD listing staged paths is already exercised by install's G2b.
+
+## Final Implementation Notes
+- **Actual work done:** `aitask_setup.sh` — `snapshot_pre_setup_dirty` now captures the data baseline first, gated only on the data-worktree-present predicate `commit_framework_data_files` uses, then the main baseline gated on work tree + VERSION in the index (HEAD requirement dropped); bootstrap commit-all kept for VERSION-not-in-index. `_ait_list_framework_changes` adds `--no-renames` to its staged term. `_ait_data_framework_paths` gained an optional `include_absent` arg (default 0, committer unchanged); the snapshot passes 1, so the `${#data_paths[@]} -gt 0` guard went away. Header comments rewritten. `tests/test_setup_git.sh` Test 28 adds cases 28a / 28a2 / 28b / 28c.
+- **Deviations from plan:** None. Post-plan-review change before approval: 28c pins `git config diff.renames true` repo-locally (an inherited `diff.renames=false` would make the pre-fix staged query list both sides and void the negative control).
+- **Issues encountered:** None. Red proof: with Test 28 added and the source unmodified, 10 assertions failed across all four cases (28a ×3, 28a2 ×2, 28b ×3, 28c ×2); 146 others passed. After the fix: 156/156. Related suites `test_data_branch_setup.sh` (291/291), `test_upgrade_prunes_retired_scripts.sh`, `test_install_upgrade_dirty_baseline.sh` exit 0. shellcheck: only pre-existing findings, none on changed lines.
+- **Key decisions:** The main gate is NOT "work tree only" even though `commit_framework_files` has no VERSION guard: its role as the first-time tracker of a fresh install needs the empty-baseline bootstrap, otherwise every extracted file would be baselined and nothing committed. `git commit -- <paths>` on an unborn HEAD with other paths staged (28b) works and leaves the user's staged `.gitignore`/VERSION in the index.
+- **Upstream defects identified:** None
