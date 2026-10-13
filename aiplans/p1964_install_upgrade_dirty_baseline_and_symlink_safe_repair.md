@@ -233,3 +233,24 @@ the case's dirty state → upgrade → assert. Counters per `tests/lib/asserts.s
 
 Commit code (`bug: … (t1964)`, path-scoped) and plan separately; archive via the
 task-workflow Step 9 flow.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-13 09:30)
+- **Requested by user:** guard the repair call against an older tarball (raised during self-review); fix staged-rename source omission; replace bare `sed -i` in the fixture.
+- **Changes made:** `declare -F` guard on `setup_data_gitignore_symlink_safe` (case H); `--no-renames` on the staged inventory (case R); fixture uses `sed_inplace` and fails closed if the edit did not apply.
+- **Files affected:** install.sh, tests/test_install_upgrade_dirty_baseline.sh
+
+### Change Request 2 (2026-10-13 09:45)
+- **Requested by user:** cd-guard lint failure; pin rename detection for case R's negative control; drop the redundant HEAD/empty-tree probe.
+- **Changes made:** tarball builder uses `git -C` / `tar -C`; `run_install` pins `diff.renames=true` via `GIT_CONFIG_COUNT`; `_install_list_changes` runs plain `git diff --cached --name-only --no-renames` (handles an unborn HEAD itself).
+- **Files affected:** install.sh, tests/test_install_upgrade_dirty_baseline.sh
+
+## Final Implementation Notes
+- **Actual work done:** install.sh gained self-contained baseline helpers (`_install_framework_paths`, `_install_data_framework_paths`, `_install_is_worktree` / `_install_version_tracked` / `_install_commit_eligible`, `_install_data_worktree_present`, `_install_data_branch_exclude_re`, `_install_list_changes`, `_install_subtract` / `_install_intersect`, `_install_print_list`) and `snapshot_pre_install_dirty`, called before extraction. `commit_installed_files` and `commit_installed_data_files` commit only changed − baseline and list the rest as "left alone". Existing installs run `setup_data_gitignore_symlink_safe` immediately before the commit. setup comments cross-reference the install.sh copies; the `ait upgrade` docs describe both behaviours. New test `tests/test_install_upgrade_dirty_baseline.sh` (71 checks: A, B, C, C2, D, R, E, F, F2, G1, G2a, G2b, H, P).
+- **Deviations from plan:** each baseline is gated on its own committer's predicate (no HEAD requirement; data baseline independent of the main repo) — from plan review. Added the `declare -F` guard + case H, the `--no-renames` staged inventory + case R, and the rename-detection pin. The HEAD/empty-tree base selection in the plan was dropped: `git diff --cached` with no commit argument already lists staged paths on an unborn HEAD.
+- **Issues encountered:** fixture first edited `labels.txt`, which the install does not ship (the edit created an untracked file) — switched to `task_types.txt`. G2b's `.gitignore` falls past the 20-line left-alone display cut, so it asserts on the index/commit state instead.
+- **Key decisions:** helpers duplicated in install.sh (snapshot runs before the new aitask_setup.sh exists); a parity check (case P) pins the path lists. `_install_print_list` takes positional args rather than a nameref so curl|bash works under macOS bash 3.2. Negative controls verified: pre-fix installer fails A, B, C2, D, F, F2, G2b; targeted mutants (HEAD-guarded snapshot, data baseline behind the main guard, existence-filtered baseline, no `declare -F` guard, rename detection on under an inherited `diff.renames=false`) each fail only their intended case.
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_setup.sh:4181 — snapshot_pre_setup_dirty returns before capturing the data-branch baseline when .aitask-scripts/VERSION is untracked (or HEAD is unborn), yet commit_framework_data_files commits whenever the data worktree exists, so dirty aitasks/metadata/ edits are swept into setup's data commit in that state`
+  - `.aitask-scripts/aitask_setup.sh:4217 — _ait_list_framework_changes lists staged paths with rename detection on; a staged rename inside framework paths baselines only its destination, so a setup step that recreates the source commits it and turns the pending rename into an addition (needs --no-renames)`
