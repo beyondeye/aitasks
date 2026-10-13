@@ -1,0 +1,224 @@
+package deps
+
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"os/exec"
+	"path"
+	"path/filepath"
+	"strings"
+	"syscall"
+	"time"
+
+	"github.com/beyondeye/aitasks/goengines/internal/lineproto"
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/registry"
+	"github.com/bmatcuk/doublestar/v4"
+)
+
+// The scanner plugin protocol (v1). Every regular, executable file directly
+// under `aitestmap/scanners/` (a symbolic link is never run) runs once per
+// scan with the repository root as its working directory and the scan's
+// universe on stdin, one path per line. It prints one JSON object per line:
+//
+//	{"file": "<path>", "deps": ["<path>", ...], "opaque": "<reason>", "reads": ["<glob>", ...]}
+//
+// `file` is required; the other keys are optional. Every path must be a
+// repository path in the universe and every glob valid; an unknown key, a
+// malformed line, a non-zero exit or a run longer than PluginTimeout is a
+// *PluginError (SCANNER_ERROR:<plugin>|<detail>, exit 3). Plugin deps are
+// closure-only edges (`plugin:<name>`); an opaque plugin answer marks the
+// file opaque as `plugin:<name>`.
+
+// PluginDir is where scanner plugins live.
+const PluginDir = registry.Dir + "/scanners"
+
+// PluginTimeout bounds one plugin run.
+var PluginTimeout = 30 * time.Second
+
+// pluginOutputMax bounds what one plugin run may print on stdout: past it
+// the plugin is killed and refused, so a noisy plugin cannot exhaust memory.
+// pluginStderrMax bounds the stderr kept (only its first line is reported).
+var (
+	pluginOutputMax = 64 << 20
+	pluginStderrMax = 64 << 10
+)
+
+// capWriter keeps at most max bytes. Past it, it records the overflow, calls
+// onOver once and discards the rest, so the pipe keeps draining.
+type capWriter struct {
+	buf    bytes.Buffer
+	max    int
+	over   bool
+	onOver func()
+}
+
+func (w *capWriter) Write(p []byte) (int, error) {
+	if room := w.max - w.buf.Len(); len(p) > room {
+		w.buf.Write(p[:max(room, 0)])
+		if !w.over && w.onOver != nil {
+			w.onOver()
+		}
+		w.over = true
+		return len(p), nil
+	}
+	return w.buf.Write(p)
+}
+
+// pluginDrain bounds the wait for a plugin's output pipes once the plugin has
+// exited or been killed: a process it started that still holds them (and
+// escaped the process-group kill) cannot hold the scan.
+var pluginDrain = 500 * time.Millisecond
+
+// PluginError is a plugin that failed or broke the protocol.
+type PluginError struct {
+	Plugin string
+	At     int // the stdout line, 0 for a run failure
+	Reason string
+}
+
+func (e *PluginError) Error() string {
+	if e.At > 0 {
+		return fmt.Sprintf("scanner plugin %s: line %d: %s", e.Plugin, e.At, e.Reason)
+	}
+	return fmt.Sprintf("scanner plugin %s: %s", e.Plugin, e.Reason)
+}
+
+// Line is SCANNER_ERROR:<plugin>|<detail>.
+func (e *PluginError) Line() (string, error) {
+	detail := e.Reason
+	if e.At > 0 {
+		detail = fmt.Sprintf("line %d: %s", e.At, e.Reason)
+	}
+	return lineproto.Format("SCANNER_ERROR", e.Plugin, strings.NewReplacer("|", "/", "\n", " ", "\r", " ").Replace(detail))
+}
+
+// ExitCode is the framework-error exit.
+func (e *PluginError) ExitCode() int { return lineproto.ExitFramework }
+
+type pluginLine struct {
+	plugin string
+	File   string   `json:"file"`
+	Deps   []string `json:"deps"`
+	Opaque *string  `json:"opaque"`
+	Reads  []string `json:"reads"`
+}
+
+// pluginPhase runs every plugin and validates its output.
+func (s *state) pluginPhase() ([]pluginLine, error) {
+	var out []pluginLine
+	stdin := strings.Join(s.u.list, "\n") + "\n"
+	for _, p := range s.u.list {
+		if path.Dir(p) != PluginDir {
+			continue
+		}
+		fi, err := s.r.Lstat(p)
+		if err != nil || !fi.Mode().IsRegular() || fi.Mode().Perm()&0o111 == 0 {
+			continue
+		}
+		lines, err := s.runPlugin(p, stdin)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, lines...)
+	}
+	return out, nil
+}
+
+func (s *state) runPlugin(p, stdin string) ([]pluginLine, error) {
+	name := path.Base(p)
+	ctx, cancel := context.WithTimeout(s.ctx, PluginTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, filepath.Join(s.root, filepath.FromSlash(p)))
+	cmd.Dir = s.root
+	cmd.Stdin = strings.NewReader(stdin)
+	stdout := &capWriter{max: pluginOutputMax, onOver: cancel}
+	stderr := &capWriter{max: pluginStderrMax}
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	// The plugin leads its own process group; a timeout kills the whole
+	// group, so the processes a plugin script starts die with it.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	cmd.WaitDelay = pluginDrain
+	err := cmd.Run()
+	if cmd.Process != nil {
+		// Whatever the plugin left running in its group goes too.
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	}
+	if err == nil && ctx.Err() != nil {
+		err = ctx.Err() // exited, but its output was cut short
+	}
+	if stdout.over {
+		return nil, &PluginError{Plugin: name, Reason: fmt.Sprintf("output exceeds %d bytes", pluginOutputMax)}
+	}
+	if err != nil {
+		reason := err.Error()
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			reason = "timed out after " + PluginTimeout.String()
+		}
+		if first, _, _ := strings.Cut(strings.TrimSpace(stderr.buf.String()), "\n"); first != "" {
+			if len(first) > 512 {
+				first = first[:512] + "…"
+			}
+			reason += ": " + first
+		}
+		return nil, &PluginError{Plugin: name, Reason: reason}
+	}
+	sc := bufio.NewScanner(&stdout.buf)
+	sc.Buffer(make([]byte, 64*1024), 1<<20)
+	var out []pluginLine
+	no := 0
+	for sc.Scan() {
+		no++
+		text := strings.TrimSpace(sc.Text())
+		if text == "" {
+			continue
+		}
+		var pl pluginLine
+		dec := json.NewDecoder(strings.NewReader(text))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&pl); err != nil {
+			return nil, &PluginError{Plugin: name, At: no, Reason: "malformed line: " + err.Error()}
+		}
+		if err := dec.Decode(&struct{}{}); err != io.EOF {
+			return nil, &PluginError{Plugin: name, At: no, Reason: "trailing data after the JSON object"}
+		}
+		if err := s.checkPluginLine(pl); err != nil {
+			return nil, &PluginError{Plugin: name, At: no, Reason: err.Error()}
+		}
+		pl.plugin = name
+		out = append(out, pl)
+	}
+	if err := sc.Err(); err != nil {
+		return nil, &PluginError{Plugin: name, Reason: "reading output: " + err.Error()}
+	}
+	return out, nil
+}
+
+func (s *state) checkPluginLine(pl pluginLine) error {
+	if pl.File == "" {
+		return errors.New(`"file" is required`)
+	}
+	for _, p := range append([]string{pl.File}, pl.Deps...) {
+		if err := registry.CheckPath(p); err != nil {
+			return fmt.Errorf("%q: %v", p, err)
+		}
+		if !s.u.has(p) {
+			return fmt.Errorf("%q is not a file of the scan", p)
+		}
+	}
+	if pl.Opaque != nil && *pl.Opaque == "" {
+		return errors.New(`"opaque" must be a non-empty reason`)
+	}
+	for _, g := range pl.Reads {
+		if g == "" || !doublestar.ValidatePattern(g) {
+			return fmt.Errorf("invalid glob %q in reads", g)
+		}
+	}
+	return nil
+}

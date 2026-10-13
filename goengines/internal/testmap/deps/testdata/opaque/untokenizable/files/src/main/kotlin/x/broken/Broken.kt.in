@@ -1,0 +1,3 @@
+package x.broken
+
+val s = "never closed

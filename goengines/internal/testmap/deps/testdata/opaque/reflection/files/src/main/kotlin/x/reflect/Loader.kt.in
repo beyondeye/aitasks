@@ -1,0 +1,3 @@
+package x.reflect
+
+fun load(): Any = Class.forName("x.impl.RepoImpl").getDeclaredConstructor().newInstance()

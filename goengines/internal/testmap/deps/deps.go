@@ -1,0 +1,85 @@
+// Package deps is the test map's dependency scanners: one pass over the
+// repository's git-visible files that yields, per file, its forward
+// dependencies, whether it is opaque, the globs it reads and the symbols it
+// declares — inverted in memory into the graph the selector walks, the
+// static facts the seeder reads and the anchors and symbols the review
+// packets show.
+//
+// Scanners: bash (literal invocation facts, `$SCRIPT_DIR` / `$PROJECT_DIR`
+// forms, embedded Python), python (imports through the file's own
+// `sys.path` bootstrap), go (`go list`, package granularity), kotlin (the
+// opaque contract), java (index only), the Gradle module graph, executable
+// plugins under `aitestmap/scanners/`, and the opt-in `android-res` symbol
+// scanner.
+//
+// Under-selection — a real dependency the graph misses — is the dangerous
+// direction. Every resolver prefers over-approximation: a path it cannot
+// pin down becomes a closure-only fallback edge, and a construct that
+// defeats a scanner makes the file opaque (a change to it escalates). Only
+// direct, resolved relations carry an Origin (and may be seeded); every other
+// edge is closure-only.
+//
+// Per-file facts are cached by blob under `<CacheDir>/<blob>.json` as
+// path-independent syntax (cache.go); resolution against the path and the
+// universe runs in memory on every scan.
+package deps
+
+// Origin is the seed origin a direct dependency carries (proposal: The
+// Adoption Model → the origin table). "" marks a closure-only edge: the
+// selector walks it, the seeder never writes it.
+type Origin string
+
+const (
+	Invocation Origin = "static:invocation"
+	Import     Origin = "static:import"
+	Package    Origin = "static:package"
+)
+
+// Dep is one forward edge of a file.
+type Dep struct {
+	Target string `json:"target"`
+	Line   int    `json:"line,omitempty"` // the anchor line in the scanned file; 0 = file- or package-level
+	Origin Origin `json:"origin,omitempty"`
+	Via    string `json:"via"`
+}
+
+// Symbol is a declared symbol of a file (never its body).
+type Symbol struct {
+	Name string `json:"name"`
+	Kind string `json:"kind"`
+	Line int    `json:"line"`
+}
+
+// FileFacts is everything the scanners know about one file.
+type FileFacts struct {
+	Path       string   `json:"path"`
+	Lang       string   `json:"lang"`
+	Deps       []Dep    `json:"deps,omitempty"`
+	Opaque     string   `json:"opaque,omitempty"` // the reason; "" = transparent
+	Reads      []string `json:"reads,omitempty"`  // globs (scanner plugins)
+	Symbols    []Symbol `json:"symbols,omitempty"`
+	Keys       []string `json:"keys,omitempty"`       // android-res string keys; "*" = every key
+	Unresolved []string `json:"unresolved,omitempty"` // literal refs / imports that matched no repository file
+}
+
+// GradleModule is one Gradle project of the build.
+type GradleModule struct {
+	Name      string   `json:"name"` // ":" for the root project, ":a:b" otherwise
+	Dir       string   `json:"dir"`  // repository-relative; "" = the repository root
+	BuildFile string   `json:"build_file,omitempty"`
+	Deps      []string `json:"deps,omitempty"` // logical names of the projects it depends on, direct
+}
+
+// Problem is a non-fatal finding of a scan: an input it could not read
+// fully, a dynamic build construct, an unwritable cache.
+type Problem struct {
+	Path   string `json:"path"`
+	Reason string `json:"reason"`
+}
+
+// Reach is one file a closure walk reached.
+type Reach struct {
+	Path     string `json:"path"`
+	Distance int    `json:"distance"`
+	Via      string `json:"via"` // the edge that first reached it
+}

@@ -1,0 +1,4 @@
+{
+ "construct": "src/main/java/x/impl/RepoImpl.java",
+ "test": "src/test/kotlin/y/ServiceTest.kt"
+}

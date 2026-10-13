@@ -1,0 +1,865 @@
+package deps
+
+import (
+	"path"
+	"regexp"
+	"slices"
+	"strings"
+
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/annot"
+)
+
+// The bash scanner extracts literal invocation facts: the repository paths a
+// script executes, sources or names, with the directory variables it builds
+// them from. It is syntactic and path-independent (cached by blob); bashFacts
+// resolves it against the file's path and the universe.
+
+// pathExpr is a path a script builds: Base + Rel. Base is "dir" (the
+// script's own directory), "cwd" (the repository root: `ait` runs scripts
+// from it), "lit" (a bare relative path), "var:<NAME>", or "unknown" (a
+// non-literal word — then Rel is its literal tail, matched as a suffix).
+type pathExpr struct {
+	Base string `json:"base"`
+	Rel  string `json:"rel,omitempty"`
+}
+
+type bashAssign struct {
+	Var  string   `json:"var"`
+	Expr pathExpr `json:"expr"`
+	Line int      `json:"line"`
+}
+
+type bashRef struct {
+	Expr pathExpr `json:"expr"`
+	Line int      `json:"line"`
+	Via  string   `json:"via"` // source | exec | path | embedded
+}
+
+type bashRaw struct {
+	Assigns []bashAssign `json:"assigns,omitempty"`
+	Refs    []bashRef    `json:"refs,omitempty"`
+	Py      []pyImport   `json:"py,omitempty"` // embedded Python imports (python -c, -m, heredocs)
+}
+
+// part is one piece of a shell word.
+type part struct {
+	kind byte // 'l' literal, 'v' variable, 'c' command substitution, 'x' other expansion
+	text string
+}
+
+type word struct {
+	parts []part
+	raw   string
+	op    bool // a control operator (; & | ( ) < >), raw holds it
+}
+
+// litText is the concatenation of the word's literal parts (expansions
+// dropped): enough to read the statements of an embedded `python -c` string.
+func (w word) litText() string {
+	var b strings.Builder
+	for _, p := range w.parts {
+		if p.kind == 'l' {
+			b.WriteString(p.text)
+		}
+	}
+	return b.String()
+}
+
+func (w word) literal() (string, bool) {
+	var b strings.Builder
+	for _, p := range w.parts {
+		if p.kind != 'l' {
+			return "", false
+		}
+		b.WriteString(p.text)
+	}
+	return b.String(), true
+}
+
+// splitWords splits one line of shell into words and operators, quote-aware.
+// A `#` at the start of a word ends the line. A quote left open at the end of
+// the line closes there (its continuation lines are Literal lines, scanned on
+// their own).
+func splitWords(ln string) []word {
+	var out []word
+	var cur word
+	var lit strings.Builder
+	inWord := false
+	flushLit := func() {
+		if lit.Len() > 0 {
+			cur.parts = append(cur.parts, part{'l', lit.String()})
+			lit.Reset()
+		}
+	}
+	start := 0
+	endWord := func(i int) {
+		if inWord {
+			flushLit()
+			cur.raw = ln[start:i]
+			out = append(out, cur)
+		}
+		cur = word{}
+		inWord = false
+	}
+	begin := func(i int) {
+		if !inWord {
+			inWord = true
+			start = i
+		}
+	}
+	i := 0
+	for i < len(ln) {
+		c := ln[i]
+		switch {
+		case c == ' ' || c == '\t' || c == '\r':
+			endWord(i)
+			i++
+		case strings.IndexByte(";&|()<>", c) >= 0:
+			endWord(i)
+			j := i + 1
+			for j < len(ln) && strings.IndexByte(";&|<>", ln[j]) >= 0 && ln[j] == c {
+				j++
+			}
+			out = append(out, word{op: true, raw: ln[i:j]})
+			i = j
+		case c == '#' && !inWord:
+			return out
+		case c == '\\':
+			begin(i)
+			if i+1 < len(ln) {
+				lit.WriteByte(ln[i+1])
+			}
+			i += 2
+		case c == '\'':
+			begin(i)
+			j := strings.IndexByte(ln[i+1:], '\'')
+			if j < 0 {
+				lit.WriteString(ln[i+1:])
+				i = len(ln)
+			} else {
+				lit.WriteString(ln[i+1 : i+1+j])
+				i += j + 2
+			}
+		case c == '"':
+			begin(i)
+			i = dquote(ln, i+1, &lit, &cur, flushLit)
+		case c == '$' || c == '`':
+			begin(i)
+			flushLit()
+			var p part
+			p, i = expansion(ln, i)
+			if p.kind == 'l' {
+				lit.WriteString(p.text)
+			} else {
+				cur.parts = append(cur.parts, p)
+			}
+		default:
+			begin(i)
+			lit.WriteByte(c)
+			i++
+		}
+	}
+	endWord(len(ln))
+	return out
+}
+
+// dquote reads a double-quoted string from i (after the quote) and returns
+// the index after its closing quote (or the end of the line).
+func dquote(ln string, i int, lit *strings.Builder, cur *word, flushLit func()) int {
+	for i < len(ln) {
+		c := ln[i]
+		switch c {
+		case '"':
+			return i + 1
+		case '\\':
+			if i+1 < len(ln) {
+				lit.WriteByte(ln[i+1])
+			}
+			i += 2
+		case '$', '`':
+			flushLit()
+			var p part
+			p, i = expansion(ln, i)
+			if p.kind == 'l' {
+				lit.WriteString(p.text)
+			} else {
+				cur.parts = append(cur.parts, p)
+			}
+		default:
+			lit.WriteByte(c)
+			i++
+		}
+	}
+	return i
+}
+
+var identRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*`)
+
+// expansion reads one `$…` or backtick expansion at i.
+func expansion(ln string, i int) (part, int) {
+	if ln[i] == '`' {
+		j := strings.IndexByte(ln[i+1:], '`')
+		if j < 0 {
+			return part{'c', ln[i+1:]}, len(ln)
+		}
+		return part{'c', ln[i+1 : i+1+j]}, i + j + 2
+	}
+	if i+1 >= len(ln) {
+		return part{'l', "$"}, i + 1
+	}
+	switch ln[i+1] {
+	case '(':
+		end := matchParen(ln, i+1)
+		inner := ln[i+2 : max(i+2, end)]
+		if strings.HasPrefix(inner, "(") { // $(( arithmetic ))
+			return part{'x', inner}, min(len(ln), end+1)
+		}
+		return part{'c', inner}, min(len(ln), end+1)
+	case '{':
+		end := matchBrace(ln, i+1)
+		inner := ln[i+2 : max(i+2, end)]
+		name := identRe.FindString(inner)
+		if name == "" || strings.HasPrefix(inner, "#") || strings.HasPrefix(inner, "!") {
+			return part{'x', inner}, min(len(ln), end+1)
+		}
+		rest := inner[len(name):]
+		if name == "BASH_SOURCE" && (rest == "" || rest == "[0]") {
+			return part{'v', "BASH_SOURCE"}, min(len(ln), end+1)
+		}
+		if rest != "" && !strings.HasPrefix(rest, ":-") && !strings.HasPrefix(rest, "-") {
+			return part{'x', inner}, min(len(ln), end+1)
+		}
+		return part{'v', name}, min(len(ln), end+1)
+	case '\'':
+		j := strings.IndexByte(ln[i+2:], '\'')
+		if j < 0 {
+			return part{'l', ln[i+2:]}, len(ln)
+		}
+		return part{'l', ln[i+2 : i+2+j]}, i + j + 3
+	}
+	if name := identRe.FindString(ln[i+1:]); name != "" {
+		return part{'v', name}, i + 1 + len(name)
+	}
+	if strings.IndexByte("0123456789@*#?$!-", ln[i+1]) >= 0 {
+		return part{'x', ln[i+1 : i+2]}, i + 2
+	}
+	return part{'l', "$"}, i + 1
+}
+
+// matchParen returns the index of the ')' closing the '(' at i, quote-aware,
+// or len(ln) when it does not close on this line.
+func matchParen(ln string, i int) int {
+	depth := 0
+	for j := i; j < len(ln); j++ {
+		switch ln[j] {
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 {
+				return j
+			}
+		case '\'':
+			k := strings.IndexByte(ln[j+1:], '\'')
+			if k < 0 {
+				return len(ln)
+			}
+			j += k + 1
+		case '"':
+			for j++; j < len(ln) && ln[j] != '"'; j++ {
+				if ln[j] == '\\' {
+					j++
+				} else if ln[j] == '$' && j+1 < len(ln) && ln[j+1] == '(' {
+					j = matchParen(ln, j+1)
+				}
+			}
+		case '\\':
+			j++
+		}
+	}
+	return len(ln)
+}
+
+func matchBrace(ln string, i int) int {
+	depth := 0
+	for j := i; j < len(ln); j++ {
+		switch ln[j] {
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return j
+			}
+		}
+	}
+	return len(ln)
+}
+
+var (
+	srcVar = `\$(?:\{BASH_SOURCE(?:\[0\])?\}|BASH_SOURCE|0|\{0\})`
+	// $(cd "$(dirname "${BASH_SOURCE[0]}")[/rel]" && pwd)
+	reDirOf = regexp.MustCompile(`^\s*cd\s+"?\$\(\s*dirname\s+"?` + srcVar + `"?\s*\)"?(/[^"\s;&)]*)?"?\s*(?:&&|;)\s*pwd(?:\s+-P)?\s*$`)
+	// $(dirname "${BASH_SOURCE[0]}")
+	reDirname = regexp.MustCompile(`^\s*dirname\s+"?` + srcVar + `"?\s*$`)
+	// $(cd "$Y[/rel]" && pwd)
+	reCdVar = regexp.MustCompile(`^\s*cd\s+"?\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?(/[^"\s;&)]*)?"?\s*(?:&&|;)\s*pwd(?:\s+-P)?\s*$`)
+	// $(pwd)
+	rePwdCmd   = regexp.MustCompile(`^\s*pwd(?:\s+-P)?\s*$`)
+	assignRe   = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)=`)
+	funcRe     = regexp.MustCompile(`^\s*(?:function\s+([A-Za-z_][A-Za-z0-9_:.-]*)|([A-Za-z_][A-Za-z0-9_:.-]*)\s*\(\s*\))`)
+	caseArmRe  = regexp.MustCompile(`^\s*\(?\s*([a-z][a-z0-9_-]*(?:\s*\|\s*[a-z][a-z0-9_-]*)*)\s*\)`)
+	outTokenRe = regexp.MustCompile(`\b([A-Z][A-Z0-9_]{2,}):`)
+	echoRe     = regexp.MustCompile(`(^|[\s;|&(])(echo|printf)\s`)
+	pyStmtRe   = regexp.MustCompile(`^\s*(?:from\s+(\.*[A-Za-z_][\w.]*|\.+)\s+import\s+([\w\s,()*]+)|import\s+([A-Za-z_][\w.]*(?:\s+as\s+\w+)?(?:\s*,\s*[A-Za-z_][\w.]*(?:\s+as\s+\w+)?)*))`)
+)
+
+// exprOfParts turns a word's parts into a pathExpr: a literal, one leading
+// variable (or `$(dirname "$0")`-style command) plus a literal, or — for any
+// other non-literal word — its literal tail as a suffix ("unknown" base).
+func exprOfParts(parts []part) (pathExpr, bool) {
+	if len(parts) == 0 {
+		return pathExpr{}, false
+	}
+	rest := func(ps []part) (string, bool) {
+		var b strings.Builder
+		for _, p := range ps {
+			if p.kind != 'l' {
+				return "", false
+			}
+			b.WriteString(p.text)
+		}
+		return b.String(), true
+	}
+	if s, ok := rest(parts); ok {
+		return pathExpr{Base: "lit", Rel: s}, true
+	}
+	head := parts[0]
+	if tail, ok := rest(parts[1:]); ok {
+		switch head.kind {
+		case 'v':
+			if head.text == "PWD" {
+				return pathExpr{Base: "cwd", Rel: strings.TrimPrefix(tail, "/")}, true
+			}
+			return pathExpr{Base: "var:" + head.text, Rel: strings.TrimPrefix(tail, "/")}, true
+		case 'c':
+			if e, ok := cmdExpr(head.text); ok {
+				e.Rel = joinRel(e.Rel, strings.TrimPrefix(tail, "/"))
+				return e, true
+			}
+		}
+	}
+	// Non-literal: keep the literal tail after the last expansion.
+	last := -1
+	for i, p := range parts {
+		if p.kind != 'l' {
+			last = i
+		}
+	}
+	tail, _ := rest(parts[last+1:])
+	return pathExpr{Base: "unknown", Rel: strings.TrimPrefix(tail, "/")}, true
+}
+
+// cmdExpr recognises the command substitutions that name a directory.
+func cmdExpr(cmd string) (pathExpr, bool) {
+	if m := reDirOf.FindStringSubmatch(cmd); m != nil {
+		return pathExpr{Base: "dir", Rel: strings.TrimPrefix(m[1], "/")}, true
+	}
+	if reDirname.MatchString(cmd) {
+		return pathExpr{Base: "dir"}, true
+	}
+	if m := reCdVar.FindStringSubmatch(cmd); m != nil {
+		if m[1] == "PWD" {
+			return pathExpr{Base: "cwd", Rel: strings.TrimPrefix(m[2], "/")}, true
+		}
+		return pathExpr{Base: "var:" + m[1], Rel: strings.TrimPrefix(m[2], "/")}, true
+	}
+	if rePwdCmd.MatchString(cmd) {
+		return pathExpr{Base: "cwd"}, true
+	}
+	return pathExpr{}, false
+}
+
+func joinRel(a, b string) string {
+	switch {
+	case a == "":
+		return b
+	case b == "":
+		return a
+	}
+	return a + "/" + b
+}
+
+var (
+	pathRunRe = regexp.MustCompile(`[A-Za-z0-9_./-]+`)
+	escapeRe  = regexp.MustCompile(`\\[ntr]`)
+	capsSegRe = regexp.MustCompile(`^[A-Z][A-Z0-9_]*/`)
+)
+
+// pathRuns extracts the path-shaped runs of a piece of data text — a Python
+// string, a heredoc body, a quoted sentence: maximal runs of path characters,
+// so a path wrapped in backticks or quotes, followed by `::name` or `,`, or
+// preceded by a literal `\n` is still found. A run starting with "/" right
+// after a `}` (`{REPO_ROOT}/install.sh`) is relative; a run led by an
+// ALL-CAPS segment (`REPO_ROOT/x.sh`) also yields its remainder.
+func pathRuns(text string) []string {
+	text = escapeRe.ReplaceAllString(text, " ")
+	var out []string
+	for _, loc := range pathRunRe.FindAllStringIndex(text, -1) {
+		run := text[loc[0]:loc[1]]
+		if strings.HasPrefix(run, "/") && loc[0] > 0 && text[loc[0]-1] == '}' {
+			run = run[1:]
+		}
+		dotSlash := strings.HasPrefix(run, "./") && len(run) > 2
+		run = strings.TrimRight(strings.TrimPrefix(run, "./"), ".")
+		if pathLike(run) || dotSlash && run != "" && !strings.HasPrefix(run, ".") {
+			out = append(out, run)
+		}
+		if m := capsSegRe.FindString(run); m != "" && pathLike(run[len(m):]) {
+			out = append(out, run[len(m):])
+		}
+	}
+	return out
+}
+
+// pathLike reports whether a literal looks like a repository file path.
+func pathLike(s string) bool {
+	if s == "" || strings.Contains(s, "://") || strings.ContainsAny(s, "*?[]{}=") || strings.HasPrefix(s, "/") {
+		return false
+	}
+	if strings.Contains(s, "/") {
+		return true
+	}
+	switch path.Ext(s) {
+	case ".sh", ".bash", ".py":
+		return true
+	}
+	return false
+}
+
+var (
+	interpreters  = []string{"bash", "sh", "zsh", "dash", "python", "python3", "pypy3", "exec", "command", "nohup", "time", "env", "sudo", "xargs"}
+	pythons       = []string{"python", "python3", "pypy3"}
+	cmdKeywords   = []string{"then", "do", "else", "elif", "if", "while", "until", "!", "{", "}", "time", "fi", "done", "esac"}
+	declKeywords  = []string{"export", "local", "readonly", "declare", "typeset"}
+	sourceBuiltin = []string{"source", "."}
+)
+
+// scanBash extracts the raw facts of a bash script.
+func scanBash(data []byte) rawFile {
+	ctx := annot.Classify(annot.Bash, data)
+	lines := strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
+	b := &bashRaw{}
+	var syms []Symbol
+	caseDepth := 0
+	topCase := false
+	for i, ln := range lines {
+		no := i + 1
+		cls := annot.Code
+		if ctx.Uncertain == nil && i < len(ctx.Class) {
+			cls = ctx.Class[i]
+		}
+		switch cls {
+		case annot.Comment:
+			continue
+		case annot.Literal:
+			b.literalLine(ln, no)
+			continue
+		}
+		b.codeLine(ln, no, "")
+		// Symbols.
+		if m := funcRe.FindStringSubmatch(ln); m != nil {
+			name := m[1]
+			if name == "" {
+				name = m[2]
+			}
+			syms = append(syms, Symbol{Name: name, Kind: "func", Line: no})
+		}
+		trim := strings.TrimSpace(ln)
+		if strings.HasPrefix(trim, "case ") && strings.HasSuffix(trim, " in") {
+			if caseDepth == 0 {
+				topCase = !strings.HasPrefix(ln, " ") && !strings.HasPrefix(ln, "\t")
+			}
+			caseDepth++
+		} else if trim == "esac" || strings.HasPrefix(trim, "esac ") || strings.HasPrefix(trim, "esac;") {
+			caseDepth = max(0, caseDepth-1)
+		} else if caseDepth == 1 && topCase {
+			if m := caseArmRe.FindStringSubmatch(ln); m != nil {
+				for _, v := range strings.Split(m[1], "|") {
+					syms = append(syms, Symbol{Name: strings.TrimSpace(v), Kind: "verb", Line: no})
+				}
+			}
+		}
+		if echoRe.MatchString(ln) {
+			for _, m := range outTokenRe.FindAllStringSubmatch(ln, -1) {
+				syms = append(syms, Symbol{Name: m[1], Kind: "token", Line: no})
+			}
+		}
+	}
+	return rawFile{Bash: b, Symbols: dedupeSymbols(syms)}
+}
+
+func dedupeSymbols(syms []Symbol) []Symbol {
+	seen := map[string]bool{}
+	var out []Symbol
+	for _, s := range syms {
+		k := s.Kind + "\x00" + s.Name
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
+		out = append(out, s)
+	}
+	return out
+}
+
+// literalLine scans a heredoc body or string-continuation line: embedded
+// Python imports, and path-shaped words as closure-only refs.
+func (b *bashRaw) literalLine(ln string, no int) {
+	b.pyLine(ln, no)
+	for _, w := range splitWords(ln) {
+		if w.op {
+			continue
+		}
+		b.refWord(w, no, "embedded", false)
+	}
+	for _, run := range pathRuns(ln) {
+		b.Refs = append(b.Refs, bashRef{Expr: pathExpr{Base: "lit", Rel: run}, Line: no, Via: "embedded"})
+	}
+}
+
+// pyLine records a Python import statement embedded in a script.
+func (b *bashRaw) pyLine(text string, no int) {
+	for _, stmt := range strings.Split(text, ";") {
+		m := pyStmtRe.FindStringSubmatch(stmt)
+		if m == nil {
+			continue
+		}
+		if m[1] != "" {
+			mod := strings.TrimLeft(m[1], ".")
+			lvl := len(m[1]) - len(mod)
+			var names []string
+			for _, n := range strings.Split(strings.Trim(strings.TrimSpace(m[2]), "()"), ",") {
+				if f := strings.Fields(n); len(f) > 0 && f[0] != "*" {
+					names = append(names, f[0])
+				}
+			}
+			b.Py = append(b.Py, pyImport{Module: mod, Names: names, Level: lvl, Line: no})
+			continue
+		}
+		for _, n := range strings.Split(m[3], ",") {
+			f := strings.Fields(n)
+			if len(f) > 0 {
+				b.Py = append(b.Py, pyImport{Module: f[0], Line: no})
+			}
+		}
+	}
+}
+
+// refWord records w as a ref when it names a path. bare reports that a lone
+// `$VAR` counts (an argument of source / an interpreter / command position).
+func (b *bashRaw) refWord(w word, no int, via string, bare bool) {
+	if len(w.parts) == 1 && w.parts[0].kind == 'v' {
+		if bare {
+			b.Refs = append(b.Refs, bashRef{Expr: pathExpr{Base: "var:" + w.parts[0].text}, Line: no, Via: via})
+		}
+		return
+	}
+	// A quoted literal holding a sentence or a whole command line
+	// (`"./ait board"`): its path-shaped runs, closure-only — text inside a
+	// string is evidence, not a proven invocation.
+	if s, isLit := w.literal(); isLit && strings.ContainsAny(strings.TrimSpace(s), " \t") {
+		for _, run := range pathRuns(s) {
+			b.Refs = append(b.Refs, bashRef{Expr: pathExpr{Base: "lit", Rel: run}, Line: no, Via: "string"})
+		}
+		return
+	}
+	e, ok := exprOfParts(w.parts)
+	if !ok {
+		return
+	}
+	rel := strings.TrimPrefix(e.Rel, "./")
+	if e.Base == "lit" || e.Base == "unknown" {
+		orig := e.Rel
+		if s, isLit := w.literal(); isLit {
+			orig = s
+			if j := strings.IndexByte(orig, '='); strings.HasPrefix(orig, "-") && j > 0 {
+				orig = orig[j+1:]
+			}
+		}
+		if !pathLike(orig) {
+			return
+		}
+		rel = strings.TrimPrefix(orig, "./")
+	} else if rel == "" {
+		if !bare {
+			return
+		}
+	} else if !pathLike(rel) && !strings.Contains(rel, "..") {
+		return
+	}
+	e.Rel = rel
+	b.Refs = append(b.Refs, bashRef{Expr: e, Line: no, Via: via})
+}
+
+// codeLine scans one line (or a command substitution's text) of code.
+func (b *bashRaw) codeLine(ln string, no int, _ string) {
+	ws := splitWords(ln)
+	cmdPos := true
+	var cmd string // the current command word
+	argIdx := 0
+	for i := 0; i < len(ws); i++ {
+		w := ws[i]
+		// Recurse into command substitutions: `out=$(bash "$X/y.sh")`.
+		for _, p := range w.parts {
+			if p.kind == 'c' {
+				b.codeLine(p.text, no, "")
+			}
+		}
+		if w.op {
+			if w.raw != "<" && w.raw != ">" && w.raw != ">>" && w.raw != "<<" && w.raw != "<<<" {
+				cmdPos, cmd, argIdx = true, "", 0
+			}
+			continue
+		}
+		lit, isLit := w.literal()
+		if cmdPos {
+			if isLit && slices.Contains(cmdKeywords, lit) {
+				continue
+			}
+			if isLit && slices.Contains(declKeywords, lit) {
+				cmd = lit
+				cmdPos = false
+				continue
+			}
+			if m := assignRe.FindString(w.raw); m != "" {
+				b.assignment(w, m, no)
+				continue
+			}
+			cmdPos = false
+			cmd = lit
+			argIdx = 0
+			if !isLit || pathLike(lit) {
+				b.refWord(w, no, "exec", true)
+			}
+			continue
+		}
+		argIdx++
+		switch {
+		case slices.Contains(declKeywords, cmd):
+			if m := assignRe.FindString(w.raw); m != "" {
+				b.assignment(w, m, no)
+			}
+		case slices.Contains(sourceBuiltin, cmd) && argIdx == 1:
+			b.refWord(w, no, "source", true)
+		case slices.Contains(pythons, cmd) && isLit && lit == "-c" && i+1 < len(ws):
+			for k, l := range strings.Split(ws[i+1].litText(), "\n") {
+				b.pyLine(l, no+k)
+			}
+			i++
+		case slices.Contains(pythons, cmd) && isLit && lit == "-m" && i+1 < len(ws):
+			if s, ok := ws[i+1].literal(); ok {
+				b.Py = append(b.Py, pyImport{Module: s, Line: no})
+			}
+			i++
+		case slices.Contains(interpreters, cmd) && isLit && (strings.HasPrefix(lit, "-") || assignRe.MatchString(lit)):
+			// a flag or env assignment before the script
+		case slices.Contains(interpreters, cmd):
+			b.refWord(w, no, "exec", true)
+			if cmd == "exec" || cmd == "command" || cmd == "nohup" || cmd == "time" || cmd == "env" || cmd == "sudo" || cmd == "xargs" {
+				if isLit {
+					cmd = lit
+					argIdx = 0
+				}
+			} else {
+				cmd = "" // the script's own arguments follow
+			}
+		default:
+			b.refWord(w, no, "path", false)
+		}
+	}
+}
+
+// assignment records `NAME=value` (the value is also a candidate ref: a
+// variable bound to a file is how `LIB=…; source "$LIB"` names it).
+func (b *bashRaw) assignment(w word, prefix string, no int) {
+	name := prefix[:len(prefix)-1]
+	rhs := w.raw[len(prefix):]
+	val := splitWords(rhs)
+	if len(val) == 0 || val[0].op {
+		return
+	}
+	v := val[0]
+	var e pathExpr
+	if len(v.parts) == 1 && v.parts[0].kind == 'c' {
+		ce, ok := cmdExpr(v.parts[0].text)
+		if !ok {
+			return
+		}
+		e = ce
+	} else {
+		var ok bool
+		if e, ok = exprOfParts(v.parts); !ok {
+			return
+		}
+		if e.Base == "lit" && strings.HasPrefix(e.Rel, "/") {
+			return
+		}
+		e.Rel = strings.TrimPrefix(e.Rel, "./")
+	}
+	if e.Base == "unknown" {
+		b.refWord(v, no, "path", false)
+		return
+	}
+	b.Assigns = append(b.Assigns, bashAssign{Var: name, Expr: e, Line: no})
+	if e.Rel != "" {
+		b.refWord(v, no, "path", false)
+	}
+}
+
+// --- resolution ---------------------------------------------------------
+
+// bashEnv evaluates a script's variable bindings: every value each variable
+// is ever assigned (a function may run after a later reassignment), as
+// repository-relative candidates.
+func bashEnv(p string, b *bashRaw) map[string][]string {
+	env := map[string][]string{}
+	for pass := 0; pass < 3; pass++ {
+		changed := false
+		for _, a := range b.Assigns {
+			for _, v := range evalExpr(p, a.Expr, env) {
+				if !slices.Contains(env[a.Var], v) && len(env[a.Var]) < 16 {
+					env[a.Var] = append(env[a.Var], v)
+					changed = true
+				}
+			}
+		}
+		if !changed {
+			break
+		}
+	}
+	return env
+}
+
+// evalExpr returns the repository-relative candidates of e in file p, or
+// nil when its base is unknown. Candidates escaping the repository are
+// dropped.
+func evalExpr(p string, e pathExpr, env map[string][]string) []string {
+	dir := path.Dir(p)
+	var bases []string
+	switch {
+	case e.Base == "dir":
+		bases = []string{dir}
+	case e.Base == "cwd":
+		bases = []string{"."}
+	case e.Base == "lit":
+		bases = []string{".", dir}
+	case strings.HasPrefix(e.Base, "var:"):
+		bases = env[strings.TrimPrefix(e.Base, "var:")]
+	}
+	var out []string
+	for _, base := range bases {
+		c := path.Clean(path.Join(base, e.Rel))
+		if c == ".." || strings.HasPrefix(c, "../") {
+			continue
+		}
+		if !slices.Contains(out, c) {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// bashDirs returns the directories a script's bindings resolve to (its
+// contribution to the source roots).
+func bashDirs(env map[string][]string, u *universe) []string {
+	var out []string
+	for _, vals := range env {
+		for _, v := range vals {
+			d := v
+			if d == "." {
+				d = ""
+			}
+			if u.isDir(d) && !u.has(v) {
+				out = append(out, d)
+			}
+		}
+	}
+	return out
+}
+
+// bashFacts resolves a script's refs: a resolved candidate in the universe
+// is a static:invocation fact (a closure-only edge for heredoc / string
+// content); a miss, or an unknown base, is retried against every source root
+// (closure-only `fallback`); a non-literal word's tail is suffix-matched
+// (closure-only `suffix`).
+func bashFacts(p string, b *bashRaw, env map[string][]string, lk *lookups) ([]Dep, []string) {
+	u := lk.u
+	dir := path.Dir(p)
+	if dir == "." {
+		dir = ""
+	}
+	var deps []Dep
+	var unresolved []string
+	for _, r := range b.Refs {
+		origin := Invocation
+		if r.Via == "embedded" || r.Via == "string" {
+			origin = ""
+		}
+		hit := false
+		if r.Expr.Base != "unknown" {
+			for _, c := range evalExpr(p, r.Expr, env) {
+				if u.has(c) && c != p {
+					deps = append(deps, Dep{Target: c, Line: r.Line, Origin: origin, Via: r.Via})
+					hit = true
+				}
+			}
+		}
+		if hit || r.Expr.Rel == "" {
+			continue
+		}
+		if r.Expr.Base == "unknown" {
+			for _, c := range lk.suffixMatch(r.Expr.Rel) {
+				if c != p {
+					deps = append(deps, Dep{Target: c, Line: r.Line, Via: "suffix"})
+					hit = true
+				}
+			}
+			continue
+		}
+		cands := slices.Clone(lk.inRoots(r.Expr.Rel))
+		for _, root := range []string{dir, parentDir(dir)} {
+			if c := path.Clean(path.Join(root, r.Expr.Rel)); u.has(c) {
+				cands = append(cands, c)
+			}
+		}
+		for _, c := range cands {
+			if c != p {
+				deps = append(deps, Dep{Target: c, Line: r.Line, Via: "fallback"})
+				hit = true
+			}
+		}
+		if !hit && (r.Via == "source" || r.Via == "exec") {
+			unresolved = append(unresolved, r.Expr.Rel)
+		}
+	}
+	for _, imp := range b.Py {
+		for _, c := range lk.pyFallback(imp) {
+			if c != p {
+				deps = append(deps, Dep{Target: c, Line: imp.Line, Via: "embedded-python"})
+			}
+		}
+	}
+	return deps, unresolved
+}
+
+func parentDir(d string) string {
+	if d == "" {
+		return ""
+	}
+	p := path.Dir(d)
+	if p == "." {
+		return ""
+	}
+	return p
+}

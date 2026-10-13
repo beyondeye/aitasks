@@ -164,13 +164,35 @@ func (s *session) stampOf(source string) (Stamp, string, error) {
 	return st, why, nil
 }
 
-// Annotate makes test's block (the file-level block, or the `testmap:unit`
+// AnnotateOptions are the optional inputs of AnnotateWith.
+type AnnotateOptions struct {
+	// Origin is recorded on every edge passed to the post-re-stamp hook
+	// (Restamp.Origin): the provenance of an automated caller.
+	Origin string
+	// Snapshot, when set, is the File.Snapshot of the bytes the caller planned
+	// from (e.g. the reading its sources were inferred from). A test file that
+	// no longer matches is a *ConflictError{snapshot}, and the write is guarded
+	// by this snapshot rather than by a later reading, so a change at any
+	// point between the caller's reading and the rename is refused.
+	Snapshot string
+}
+
+// beforeApply is a test seam: it runs after AnnotateWith planned its edits
+// and before Apply re-reads the file.
+var beforeApply = func(string) {}
+
+// Annotate is AnnotateWith with no options.
+func Annotate(ctx context.Context, root string, test registry.ID, sources []string, actor Actor) (*Result, error) {
+	return AnnotateWith(ctx, root, test, sources, actor, AnnotateOptions{})
+}
+
+// AnnotateWith makes test's block (the file-level block, or the `testmap:unit`
 // block of test.Member) cover every source, stamped now: an existing covers
 // line is re-stamped (or left as is when its stamp names the current blob),
 // a missing one is inserted at the fixed position. One file, all or nothing:
 // a source that cannot be stamped writes nothing. The post-re-stamp hook runs
 // after the write with every edge.
-func Annotate(ctx context.Context, root string, test registry.ID, sources []string, actor Actor) (*Result, error) {
+func AnnotateWith(ctx context.Context, root string, test registry.ID, sources []string, actor Actor, opts AnnotateOptions) (*Result, error) {
 	s, err := open(ctx, root)
 	if err != nil {
 		return nil, err
@@ -185,6 +207,10 @@ func Annotate(ctx context.Context, root string, test registry.ID, sources []stri
 	if reason != "" {
 		res.refuse(tid, reason)
 		return res, nil
+	}
+	snap := f.Snapshot()
+	if opts.Snapshot != "" && opts.Snapshot != snap {
+		return nil, &ConflictError{Path: test.Path, Reason: "snapshot"}
 	}
 	u, ok := f.Unit(test.Member)
 	if !ok {
@@ -242,7 +268,8 @@ func Annotate(ctx context.Context, root string, test registry.ID, sources []stri
 		return res, nil // all or nothing
 	}
 	if len(edits) > 0 {
-		changed, err := Apply(root, EditSet{Path: test.Path, Snapshot: f.Snapshot(), Edits: edits})
+		beforeApply(test.Path)
+		changed, err := Apply(root, EditSet{Path: test.Path, Snapshot: snap, Edits: edits})
 		if err != nil {
 			return nil, err
 		}
@@ -258,7 +285,7 @@ func Annotate(ctx context.Context, root string, test registry.ID, sources []stri
 	for _, p := range plan {
 		res.stamp(tid, p.source, p.after, p.state)
 		edges = append(edges, Restamp{Test: test, Source: p.source, File: test.Path,
-			Line: lines[p.source], Before: p.before, After: p.after, State: p.state})
+			Line: lines[p.source], Before: p.before, After: p.after, State: p.state, Origin: opts.Origin})
 	}
 	return res, runRestampHooks(ctx, root, actor, edges)
 }

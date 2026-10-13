@@ -1,0 +1,180 @@
+package deps
+
+import (
+	"context"
+	"errors"
+	"io/fs"
+	"os"
+	"strings"
+
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/annot"
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/registry"
+)
+
+// BodyRef is one source a member block's body names, through one symbol.
+type BodyRef struct {
+	Source string `json:"source"`
+	Symbol string `json:"symbol"`
+	Line   int    `json:"line"`
+}
+
+// FromBody resolves the symbols a Kotlin member block's own lines name —
+// from its `testmap:unit` opener to the next opener or the end of the file —
+// through the file's explicit imports and aliases, its package's top-level
+// declarations, its star-imported packages and fully-qualified references,
+// to the repository files that declare them. The test file, helpers and
+// excluded files are dropped.
+//
+// snapshot is annot's snapshot of the very bytes the refs were inferred from:
+// the caller passes it to annot.AnnotateWith, so a member edited after the
+// inference is a rewrite conflict, never a stale mapping.
+func FromBody(ctx context.Context, root string, test registry.ID, o Options) (refused string, refs []BodyRef, snapshot string, err error) {
+	if err := requireRegistry(root); err != nil {
+		return "", nil, "", err
+	}
+	if o.Config.Excluded(test.Path) {
+		return "excluded", nil, "", nil
+	}
+	data, err := readNoFollowFile(root, test.Path)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return targetMissing(root, test.Path), nil, "", nil
+		}
+		return "", nil, "", err
+	}
+	if l, ok := annot.LangOf(test.Path, data); !ok || l.Name != annot.Kotlin.Name {
+		return "not-kotlin", nil, "", nil
+	}
+	if test.Member == "" {
+		return "no-member", nil, "", nil
+	}
+	f, err := annot.ParseFile(test.Path, data)
+	if err != nil {
+		return "", nil, "", err
+	}
+	u, ok := f.Unit(test.Member)
+	if !ok {
+		return "no-member-block", nil, "", nil
+	}
+	start, end := u.Opener.No, len(f.Lines)
+	for _, other := range f.Units {
+		if other.Opener.No > start && other.Opener.No <= end {
+			end = other.Opener.No - 1
+		}
+	}
+	toks, lexErr := ktLex(string(data))
+	if lexErr != nil {
+		return "untokenizable", nil, "", nil
+	}
+	g, err := Scan(ctx, root, o)
+	if err != nil {
+		return "", nil, "", err
+	}
+	self := scanKotlin(data).Kt
+	seen := map[string]bool{}
+	add := func(files []string, sym string, line int) {
+		for _, file := range files {
+			if file == test.Path || seen[file] || o.Config.Excluded(file) || g.isHelper(file) {
+				continue
+			}
+			if _, ok := g.files[file]; !ok {
+				continue
+			}
+			seen[file] = true
+			refs = append(refs, BodyRef{Source: file, Symbol: sym, Line: line})
+		}
+	}
+	for i := 0; i < len(toks); i++ {
+		t := toks[i]
+		if t.line < start || t.line > end || t.kind != 'n' {
+			continue
+		}
+		if i > 0 && (toks[i-1].text == "." || toks[i-1].text == "::") {
+			// A receiver position (`"hi".render()`, `x?.render`,
+			// `String::render`): only an extension the file imports or
+			// can see resolves here — the receiver's type is not inferred.
+			add(resolveExt(t.text, self, g.kt), t.text, t.line)
+			continue
+		}
+		if i > 0 && toks[i-1].text == "?" {
+			continue
+		}
+		segs, next := chainAt(toks, i)
+		if len(segs) >= 2 {
+			if files := g.kt.lookup(segs); files != nil {
+				add(files, strings.Join(segs, "."), t.line)
+				i = next - 1
+				continue
+			}
+		}
+		add(resolveSimple(segs[0], self, g.kt), segs[0], t.line)
+	}
+	if len(refs) == 0 {
+		return "no-symbols", nil, "", nil
+	}
+	return "", refs, f.Snapshot(), nil
+}
+
+// resolveSimple resolves an unqualified name: an explicit import (by its
+// last segment or alias), then the file's own package, then its star
+// imports.
+func resolveSimple(name string, k *ktRaw, ix *ktIndex) []string {
+	for _, imp := range k.Imports {
+		segs := strings.Split(imp.Path, ".")
+		if imp.Star || (imp.Alias != name && (imp.Alias != "" || segs[len(segs)-1] != name)) {
+			continue
+		}
+		if files := ix.lookup(segs); files != nil {
+			return files
+		}
+	}
+	if files := ix.decls[k.Package+"\x00"+name]; len(files) > 0 && (k.Package == "" || ix.isPkg(k.Package)) {
+		return files
+	}
+	for _, imp := range k.Imports {
+		if imp.Star && ix.isPkg(imp.Path) {
+			if files := ix.decls[imp.Path+"\x00"+name]; len(files) > 0 {
+				return files
+			}
+		}
+	}
+	return nil
+}
+
+// resolveExt resolves a name at a receiver position: an explicit import of
+// it (by its last segment or alias), then an extension declared in the
+// file's own package, then one in a star-imported package.
+func resolveExt(name string, k *ktRaw, ix *ktIndex) []string {
+	for _, imp := range k.Imports {
+		segs := strings.Split(imp.Path, ".")
+		if imp.Star || (imp.Alias != name && (imp.Alias != "" || segs[len(segs)-1] != name)) {
+			continue
+		}
+		if files := ix.lookup(segs); files != nil {
+			return files
+		}
+	}
+	if files := ix.exts[k.Package+"\x00"+name]; len(files) > 0 && ix.isPkg(k.Package) {
+		return files
+	}
+	for _, imp := range k.Imports {
+		if imp.Star && ix.isPkg(imp.Path) {
+			if files := ix.exts[imp.Path+"\x00"+name]; len(files) > 0 {
+				return files
+			}
+		}
+	}
+	return nil
+}
+
+func targetMissing(root, p string) string {
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		return "missing"
+	}
+	defer r.Close()
+	if _, err := r.Lstat(p); errors.Is(err, fs.ErrNotExist) {
+		return "missing"
+	}
+	return "not-a-file"
+}

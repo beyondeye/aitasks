@@ -1,0 +1,179 @@
+package deps
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"strconv"
+
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/annot"
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/registry"
+	"github.com/bmatcuk/doublestar/v4"
+)
+
+// The engines behind M2.3's two `annotate` arms (registered into M2.2's
+// annotateArms from cmd/ait-testmap/annotate_deps.go): `--suggest` proposes
+// covers lines from the test file's closure (read-only), `--from-body`
+// resolves a Kotlin member block's own symbols to the files that declare
+// them (the caller stamps them through annot.AnnotateWith).
+
+// Suggestion is one proposed covers source of a test.
+type Suggestion struct {
+	Source  string   `json:"source"`
+	Origins []string `json:"origins"` // the static origins, or ["closure"]
+	Anchor  string   `json:"anchor"`  // <file>:<line> of the first relation
+	Via     string   `json:"via"`
+	Covered bool     `json:"covered"` // the target block already covers it
+}
+
+// requireRegistry is the registry-absent check the stamping verbs share.
+func requireRegistry(root string) error {
+	fi, err := os.Stat(filepath.Join(root, registry.Dir))
+	switch {
+	case err == nil && fi.IsDir():
+		return nil
+	case err == nil || errors.Is(err, fs.ErrNotExist):
+		return registry.ErrAbsent
+	}
+	return err
+}
+
+// targetState classifies a test path the arms are pointed at: "" (a file of
+// the scan), or a refusal reason.
+func targetState(root string, g *Graph, cfg registry.Config, p string) (string, error) {
+	if cfg.Excluded(p) {
+		return "excluded", nil
+	}
+	if _, ok := g.files[p]; ok {
+		return "", nil
+	}
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		return "", err
+	}
+	defer r.Close()
+	ok, err := regularNoFollow(r, p, map[string]bool{})
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		if _, err := r.Lstat(p); errors.Is(err, fs.ErrNotExist) {
+			return "missing", nil
+		}
+		return "not-a-file", nil
+	}
+	return "no-scanner", nil
+}
+
+func (g *Graph) isHelper(p string) bool {
+	for _, h := range g.helper {
+		if ok, _ := doublestar.Match(h, p); ok {
+			return true
+		}
+	}
+	return false
+}
+
+// Suggest proposes the covers sources of test (a file, or a member of it —
+// file-level facts are the v1 granularity, so a member gets its file's
+// closure): the test file's direct deps, with any helper (`helper_roots:`)
+// walked through to its own direct deps. Excluded files, helpers and the test
+// itself are never proposed.
+func Suggest(ctx context.Context, root string, test registry.ID, o Options) (string, []Suggestion, error) {
+	if err := requireRegistry(root); err != nil {
+		return "", nil, err
+	}
+	g, err := Scan(ctx, root, o)
+	if err != nil {
+		return "", nil, err
+	}
+	if why, err := targetState(root, g, o.Config, test.Path); why != "" || err != nil {
+		return why, nil, err
+	}
+	covered := coveredSources(root, test)
+	type agg struct {
+		s       Suggestion
+		origins map[string]bool
+	}
+	byTarget := map[string]*agg{}
+	note := func(target string, d Dep, anchorFile, via string) {
+		if target == test.Path || o.Config.Excluded(target) || g.isHelper(target) {
+			return
+		}
+		a, ok := byTarget[target]
+		if !ok {
+			anchor := anchorFile
+			if d.Line > 0 {
+				anchor += ":" + strconv.Itoa(d.Line)
+			}
+			a = &agg{s: Suggestion{Source: target, Anchor: anchor, Via: via, Covered: covered[target]}, origins: map[string]bool{}}
+			byTarget[target] = a
+		}
+		if d.Origin != "" {
+			a.origins[string(d.Origin)] = true
+		}
+	}
+	f := g.files[test.Path]
+	for _, d := range f.Deps {
+		if g.isHelper(d.Target) && d.Target != test.Path {
+			if hf, ok := g.files[d.Target]; ok {
+				for _, hd := range hf.Deps {
+					note(hd.Target, Dep{Line: hd.Line}, d.Target, "helper:"+d.Target)
+				}
+			}
+			continue
+		}
+		note(d.Target, d, test.Path, d.Via)
+	}
+	var out []Suggestion
+	for _, t := range sortedKeys(byTarget) {
+		a := byTarget[t]
+		a.s.Origins = sortedKeys(a.origins)
+		if len(a.s.Origins) == 0 {
+			a.s.Origins = []string{"closure"}
+		}
+		out = append(out, a.s)
+	}
+	return "", out, nil
+}
+
+// coveredSources returns the sources test's block already covers (an
+// unparseable file covers nothing here; annotate reports its error).
+func coveredSources(root string, test registry.ID) map[string]bool {
+	out := map[string]bool{}
+	data, err := readNoFollowFile(root, test.Path)
+	if err != nil {
+		return out
+	}
+	f, err := annot.ParseFile(test.Path, data)
+	if err != nil {
+		return out
+	}
+	if u, ok := f.Unit(test.Member); ok {
+		for _, c := range u.Covers {
+			out[c.Source] = true
+		}
+	}
+	return out
+}
+
+// readNoFollowFile reads a repository file reached through real directories
+// only.
+func readNoFollowFile(root, p string) ([]byte, error) {
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		return nil, err
+	}
+	defer r.Close()
+	ok, err := regularNoFollow(r, p, map[string]bool{})
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, fmt.Errorf("%s: %w", p, fs.ErrNotExist)
+	}
+	return r.ReadFile(p)
+}

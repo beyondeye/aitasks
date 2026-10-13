@@ -1,0 +1,237 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"flag"
+	"io"
+	"os"
+	"strconv"
+	"strings"
+
+	"github.com/beyondeye/aitasks/goengines/internal/lineproto"
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/annot"
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/deps"
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/registry"
+)
+
+// M2.3's arms of `annotate`, registered into M2.2's extension point.
+func init() {
+	annotateArms["--suggest"] = runSuggest
+	annotateArms["--from-body"] = runFromBody
+}
+
+// fromBodyOrigin is the provenance `--from-body` records on every edge it
+// stamps (annot.Restamp.Origin, read by M2.6's hook).
+const fromBodyOrigin = "scanner:from-body"
+
+// afterFromBodyInference is a test seam: it runs between the inference and
+// the stamping write.
+var afterFromBodyInference = func() {}
+
+func depsOptions(root string) (deps.Options, error) {
+	cfg, err := registry.LoadConfig(root)
+	if err != nil {
+		return deps.Options{}, err
+	}
+	return deps.Options{Config: cfg}, nil
+}
+
+// runSuggest is `annotate --suggest [--json] <test>[#<member>]`: the test's
+// proposed covers sources, read-only.
+func runSuggest(e env, args []string) int {
+	const usage = "ait-testmap annotate --suggest [--json] <test>[#<member>]"
+	fs := flag.NewFlagSet("annotate --suggest", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	asJSON := fs.Bool("json", false, "print one JSON object")
+	if err := fs.Parse(args); err != nil || fs.NArg() != 1 {
+		return lineproto.Usage(e.stderr, usage)
+	}
+	test, err := unitArg(fs.Arg(0))
+	if err != nil {
+		return lineproto.Usage(e.stderr, usage)
+	}
+	root, err := cwd()
+	if err != nil {
+		return reportError(e, err)
+	}
+	if err := requireRegistryDir(root); err != nil {
+		return reportError(e, err)
+	}
+	o, err := depsOptions(root)
+	if err != nil {
+		return reportError(e, err)
+	}
+	refused, sug, err := deps.Suggest(context.Background(), root, test, o)
+	if err != nil {
+		return reportStampError(e, err)
+	}
+	tid := test.String()
+	if *asJSON {
+		code := lineproto.ExitOK
+		if refused != "" {
+			code = lineproto.ExitFail
+		}
+		out := struct {
+			Test        string            `json:"test"`
+			Refused     string            `json:"refused,omitempty"`
+			Suggestions []deps.Suggestion `json:"suggestions"`
+		}{tid, refused, sug}
+		if out.Suggestions == nil {
+			out.Suggestions = []deps.Suggestion{}
+		}
+		if err := lineproto.NewWriter(e.stdout, true).Emit(out); err != nil {
+			return reportError(e, err)
+		}
+		return code
+	}
+	if refused != "" {
+		if c := printLines(e, [][]string{{"SUGGEST_REFUSED", tid, refused}}); c != lineproto.ExitOK {
+			return c
+		}
+		return lineproto.ExitFail
+	}
+	var lines [][]string
+	fresh, covered := 0, 0
+	for _, s := range sug {
+		state := "new"
+		if s.Covered {
+			state = "covered"
+			covered++
+		} else {
+			fresh++
+		}
+		lines = append(lines, []string{"SUGGEST", tid, s.Source, strings.Join(s.Origins, ","), s.Anchor, s.Via, state})
+	}
+	lines = append(lines, []string{"SUGGESTS", strconv.Itoa(fresh), strconv.Itoa(covered)})
+	return printLines(e, lines)
+}
+
+// requireRegistryDir answers TESTMAP_ABSENT before any scan.
+func requireRegistryDir(root string) error {
+	fi, err := os.Stat(root + "/" + registry.Dir)
+	if err != nil || !fi.IsDir() {
+		return registry.ErrAbsent
+	}
+	return nil
+}
+
+// fromBodyActor is `--by`, else the automated caller: agent:$AIT_AGENT_STRING
+// when exported, else auto — never unspecified, never a human.
+func fromBodyActor(by string) (annot.Actor, error) {
+	if by != "" {
+		return annot.ParseActor(by)
+	}
+	if s := os.Getenv("AIT_AGENT_STRING"); s != "" {
+		return annot.ParseActor("agent:" + s)
+	}
+	return annot.Actor{Kind: annot.Auto}, nil
+}
+
+// runFromBody is `annotate --from-body [--by <actor>] [--dry-run] [--json]
+// <test>#<member>`: stamp the covers lines a Kotlin member's body resolves
+// to, recording the scanner provenance.
+func runFromBody(e env, args []string) int {
+	const usage = "ait-testmap annotate --from-body [--by human:<email>|agent:<agent-string>|auto] [--dry-run] [--json] <test>#<member>"
+	fs := flag.NewFlagSet("annotate --from-body", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	by := fs.String("by", "", "the actor confirming the stamps")
+	dry := fs.Bool("dry-run", false, "print the resolved sources, write nothing")
+	asJSON := fs.Bool("json", false, "print one JSON object")
+	if err := fs.Parse(args); err != nil || fs.NArg() != 1 {
+		return lineproto.Usage(e.stderr, usage)
+	}
+	actor, err := fromBodyActor(*by)
+	if err != nil {
+		return lineproto.Usage(e.stderr, usage)
+	}
+	test, err := unitArg(fs.Arg(0))
+	if err != nil {
+		return lineproto.Usage(e.stderr, usage)
+	}
+	root, err := cwd()
+	if err != nil {
+		return reportError(e, err)
+	}
+	if err := requireRegistryDir(root); err != nil {
+		return reportError(e, err)
+	}
+	o, err := depsOptions(root)
+	if err != nil {
+		return reportError(e, err)
+	}
+	ctx := context.Background()
+	tid := test.String()
+	var refs []deps.BodyRef
+	var res *annot.Result
+	// One recompute: a member edited between the inference and the write is
+	// re-inferred once; a second conflict is REWRITE_CONFLICT.
+	for attempt := 0; ; attempt++ {
+		refused, r, snap, err := deps.FromBody(ctx, root, test, o)
+		if err != nil {
+			return reportStampError(e, err)
+		}
+		if refused != "" {
+			if *asJSON {
+				return emitFromBodyJSON(e, tid, refused, nil, nil, lineproto.ExitFail)
+			}
+			if c := printLines(e, [][]string{{"FROM_BODY_REFUSED", tid, refused}}); c != lineproto.ExitOK {
+				return c
+			}
+			return lineproto.ExitFail
+		}
+		refs = r
+		if *dry {
+			break
+		}
+		afterFromBodyInference()
+		var sources []string
+		for _, ref := range refs {
+			sources = append(sources, ref.Source)
+		}
+		res, err = annot.AnnotateWith(ctx, root, test, sources, actor,
+			annot.AnnotateOptions{Origin: fromBodyOrigin, Snapshot: snap})
+		var ce *annot.ConflictError
+		if errors.As(err, &ce) && ce.Reason == "snapshot" && attempt == 0 {
+			continue
+		}
+		if err != nil {
+			return reportStampError(e, err)
+		}
+		break
+	}
+	if *asJSON {
+		code := lineproto.ExitOK
+		if res != nil && res.Failed() {
+			code = lineproto.ExitFail
+		}
+		return emitFromBodyJSON(e, tid, "", refs, res, code)
+	}
+	var lines [][]string
+	for _, r := range refs {
+		lines = append(lines, []string{"FROM_BODY", tid, r.Source, r.Symbol, strconv.Itoa(r.Line)})
+	}
+	if c := printLines(e, lines); c != lineproto.ExitOK {
+		return c
+	}
+	if *dry {
+		return lineproto.ExitOK
+	}
+	return printStamps(e, res, nil, false)
+}
+
+func emitFromBodyJSON(e env, tid, refused string, refs []deps.BodyRef, res *annot.Result, code int) int {
+	if refs == nil {
+		refs = []deps.BodyRef{}
+	}
+	out := struct {
+		Test     string         `json:"test"`
+		Refused  string         `json:"refused,omitempty"`
+		FromBody []deps.BodyRef `json:"from_body"`
+		Result   *annot.Result  `json:"result,omitempty"`
+	}{tid, refused, refs, res}
+	if err := lineproto.NewWriter(e.stdout, true).Emit(out); err != nil {
+		return reportError(e, err)
+	}
+	return code
+}

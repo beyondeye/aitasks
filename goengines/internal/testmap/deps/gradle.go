@@ -1,0 +1,333 @@
+package deps
+
+import (
+	"path"
+	"regexp"
+	"slices"
+	"strings"
+	"unicode"
+)
+
+// The Gradle module graph: logical project names → directories (settings
+// `include` plus `projectDir` overrides, and every directory holding a build
+// file), each module's project dependencies (`project(":x")` and
+// `projects.x` accessors), and the build inputs every source depends on.
+// A construct the textual parse cannot read marks its build file opaque
+// (`gradle-dynamic`); an unreadable dependency block widens the module's
+// deps to every module.
+
+type gradleName struct {
+	Name string `json:"name"`
+	Line int    `json:"line"`
+}
+
+type gradleDir struct {
+	Name string `json:"name"`
+	Dir  string `json:"dir"`
+	Line int    `json:"line"`
+}
+
+type gradleRaw struct {
+	Includes    []gradleName `json:"includes,omitempty"`
+	ProjectDirs []gradleDir  `json:"project_dirs,omitempty"`
+	ProjectRefs []gradleName `json:"project_refs,omitempty"`
+	Accessors   []gradleName `json:"accessors,omitempty"` // projects.a.b chains
+	Dynamic     []gradleName `json:"dynamic,omitempty"`   // Name = what could not be read
+}
+
+var (
+	gradleComment   = regexp.MustCompile(`(?m)//[^\n]*$|/\*(?s:.*?)\*/`)
+	includeRe       = regexp.MustCompile(`(?m)^\s*include(?:Flat)?\b\s*\(?([^\n]*)`)
+	strLitRe        = regexp.MustCompile(`"([^"$\n]*)"|'([^'$\n]*)'`)
+	projectDirRe    = regexp.MustCompile(`project\(\s*["']([^"'$]+)["']\s*\)\.projectDir\s*=\s*(?:file\(\s*["']([^"'$]+)["']\s*\)|(?:new\s+)?File\(\s*(?:rootDir|settingsDir|rootProject\.projectDir)\s*,\s*["']([^"'$]+)["']\s*\))`)
+	projectDirAny   = regexp.MustCompile(`\.projectDir\s*=`)
+	projectRefRe    = regexp.MustCompile(`\bproject\(\s*(?:path\s*[:=]\s*)?(?:(?:"([^"$]*)"|'([^'$]*)')[^)]*|([^)]*))\)`)
+	accessorRe      = regexp.MustCompile(`\bprojects\.([A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)*)`)
+	gradleBuildBase = []string{"build.gradle", "build.gradle.kts"}
+	gradleSettings  = []string{"settings.gradle", "settings.gradle.kts"}
+)
+
+func lineOf(s string, at int) int { return strings.Count(s[:at], "\n") + 1 }
+
+func scanGradle(data []byte) rawFile {
+	// Blank comments out, keeping offsets (and so line numbers).
+	src := gradleComment.ReplaceAllStringFunc(string(data), func(m string) string {
+		return strings.Map(func(r rune) rune {
+			if r == '\n' {
+				return '\n'
+			}
+			return ' '
+		}, m)
+	})
+	g := &gradleRaw{}
+	for _, m := range includeRe.FindAllStringSubmatchIndex(src, -1) {
+		args := src[m[2]:m[3]]
+		line := lineOf(src, m[0])
+		lits := strLitRe.FindAllStringSubmatch(args, -1)
+		rest := strings.TrimSpace(strLitRe.ReplaceAllString(args, ""))
+		rest = strings.Trim(rest, "(), \t")
+		if len(lits) == 0 || strings.Trim(rest, ",") != "" {
+			g.Dynamic = append(g.Dynamic, gradleName{Name: "include", Line: line})
+		}
+		for _, l := range lits {
+			g.Includes = append(g.Includes, gradleName{Name: l[1] + l[2], Line: line})
+		}
+	}
+	matched := map[int]bool{}
+	for _, m := range projectDirRe.FindAllStringSubmatchIndex(src, -1) {
+		dir := ""
+		for _, k := range []int{4, 6} {
+			if m[k] >= 0 {
+				dir = src[m[k]:m[k+1]]
+			}
+		}
+		g.ProjectDirs = append(g.ProjectDirs, gradleDir{Name: src[m[2]:m[3]], Dir: dir, Line: lineOf(src, m[0])})
+		matched[lineOf(src, m[0])] = true
+	}
+	for _, m := range projectDirAny.FindAllStringIndex(src, -1) {
+		if l := lineOf(src, m[0]); !matched[l] {
+			g.Dynamic = append(g.Dynamic, gradleName{Name: "projectDir", Line: l})
+		}
+	}
+	for _, m := range projectRefRe.FindAllStringSubmatchIndex(src, -1) {
+		line := lineOf(src, m[0])
+		if matched[line] {
+			continue // the project("…").projectDir = … of an override
+		}
+		switch {
+		case m[2] >= 0:
+			g.ProjectRefs = append(g.ProjectRefs, gradleName{Name: src[m[2]:m[3]], Line: line})
+		case m[4] >= 0:
+			g.ProjectRefs = append(g.ProjectRefs, gradleName{Name: src[m[4]:m[5]], Line: line})
+		default:
+			g.Dynamic = append(g.Dynamic, gradleName{Name: "project(" + strings.TrimSpace(src[m[6]:m[7]]) + ")", Line: line})
+		}
+	}
+	for _, m := range accessorRe.FindAllStringSubmatchIndex(src, -1) {
+		g.Accessors = append(g.Accessors, gradleName{Name: src[m[2]:m[3]], Line: lineOf(src, m[0])})
+	}
+	return rawFile{Gradle: g}
+}
+
+// gradleBuild is the resolved Gradle build of a repository.
+type gradleBuild struct {
+	modules []GradleModule
+	inputs  []string            // settings, gradle.properties, libs.versions.toml, buildSrc/**
+	closure map[string][]string // module name → build files of its transitive deps
+	dynamic map[string]bool     // build / settings files with a construct the parse could not read
+}
+
+// accessorName is the typesafe-accessor form of a project name segment:
+// `feature-auth` → `featureAuth`.
+func accessorName(seg string) string {
+	var b strings.Builder
+	up := false
+	for _, r := range seg {
+		if r == '-' || r == '_' {
+			up = true
+			continue
+		}
+		if up {
+			r = unicode.ToUpper(r)
+			up = false
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+func moduleNameOf(dir string) string {
+	if dir == "" {
+		return ":"
+	}
+	return ":" + strings.ReplaceAll(dir, "/", ":")
+}
+
+// buildGradle resolves modules, dependencies and build inputs.
+func buildGradle(files map[string]*scanned, u *universe, problem func(p, r string)) *gradleBuild {
+	b := &gradleBuild{closure: map[string][]string{}, dynamic: map[string]bool{}}
+	byName := map[string]*GradleModule{}
+	byDir := map[string]*GradleModule{}
+	var order []*GradleModule
+	addModule := func(name, dir string) *GradleModule {
+		if m, ok := byName[name]; ok {
+			return m
+		}
+		m := &GradleModule{Name: name, Dir: dir}
+		byName[name] = m
+		if _, ok := byDir[dir]; !ok {
+			byDir[dir] = m
+		}
+		order = append(order, m)
+		return m
+	}
+	var settingsFiles, buildFiles []string
+	for _, p := range u.list {
+		base := path.Base(p)
+		switch {
+		case slices.Contains(gradleSettings, base):
+			settingsFiles = append(settingsFiles, p)
+		case slices.Contains(gradleBuildBase, base):
+			buildFiles = append(buildFiles, p)
+		}
+	}
+	if len(settingsFiles) == 0 && len(buildFiles) == 0 {
+		return b
+	}
+	for _, sf := range settingsFiles {
+		sd := rootDir(path.Dir(sf))
+		sc := files[sf]
+		if sc == nil || sc.raw.Gradle == nil {
+			continue
+		}
+		g := sc.raw.Gradle
+		root := moduleNameOf(sd)
+		if sd == "" {
+			root = ":"
+		}
+		addModule(root, sd)
+		overrides := map[string]string{}
+		for _, pd := range g.ProjectDirs {
+			overrides[":"+strings.TrimPrefix(pd.Name, ":")] = path.Clean(joinRel(sd, pd.Dir))
+		}
+		for _, inc := range g.Includes {
+			name := ":" + strings.TrimPrefix(inc.Name, ":")
+			dir := joinRel(sd, strings.ReplaceAll(strings.TrimPrefix(name, ":"), ":", "/"))
+			if o, ok := overrides[name]; ok {
+				dir = rootDir(o)
+			}
+			addModule(name, dir)
+		}
+		if len(g.Dynamic) > 0 {
+			b.dynamic[sf] = true
+			problem(sf, "gradle-dynamic: "+g.Dynamic[0].Name)
+		}
+		b.inputs = append(b.inputs, sf)
+	}
+	for _, bf := range buildFiles {
+		d := rootDir(path.Dir(bf))
+		m, ok := byDir[d]
+		if !ok {
+			m = addModule(moduleNameOf(d), d)
+		}
+		if m.BuildFile == "" {
+			m.BuildFile = bf
+		}
+	}
+	accessors := map[string]string{}
+	for _, m := range order {
+		if m.Name == ":" {
+			continue
+		}
+		var segs []string
+		for _, s := range strings.Split(strings.TrimPrefix(m.Name, ":"), ":") {
+			segs = append(segs, accessorName(s))
+		}
+		accessors[strings.Join(segs, ".")] = m.Name
+	}
+	allNames := func() []string {
+		var out []string
+		for _, m := range order {
+			out = append(out, m.Name)
+		}
+		return out
+	}
+	for _, m := range order {
+		sc := files[m.BuildFile]
+		if m.BuildFile == "" || sc == nil || sc.raw.Gradle == nil {
+			continue
+		}
+		g := sc.raw.Gradle
+		dyn := len(g.Dynamic) > 0
+		for _, r := range g.ProjectRefs {
+			name := ":" + strings.TrimPrefix(r.Name, ":")
+			if r.Name == ":" || r.Name == "" {
+				name = ":"
+			}
+			if _, ok := byName[name]; !ok {
+				problem(m.BuildFile, "gradle-dynamic: unknown project "+r.Name)
+				dyn = true
+				continue
+			}
+			m.Deps = append(m.Deps, name)
+		}
+		for _, a := range g.Accessors {
+			chain := a.Name
+			for chain != "" {
+				if name, ok := accessors[chain]; ok {
+					m.Deps = append(m.Deps, name)
+					break
+				}
+				k := strings.LastIndexByte(chain, '.')
+				if k < 0 {
+					break
+				}
+				chain = chain[:k] // projects.core.data.dependencyProject → core.data
+			}
+		}
+		if dyn {
+			b.dynamic[m.BuildFile] = true
+			if len(g.Dynamic) > 0 {
+				problem(m.BuildFile, "gradle-dynamic: "+g.Dynamic[0].Name)
+			}
+			m.Deps = allNames()
+		}
+		slices.Sort(m.Deps)
+		m.Deps = slices.DeleteFunc(slices.Compact(m.Deps), func(n string) bool { return n == m.Name })
+	}
+	for _, p := range u.list {
+		if path.Base(p) == "gradle.properties" && !strings.Contains(p, "/") ||
+			p == "gradle/libs.versions.toml" || strings.HasPrefix(p, "buildSrc/") {
+			b.inputs = append(b.inputs, p)
+		}
+	}
+	slices.Sort(b.inputs)
+	b.inputs = slices.Compact(b.inputs)
+	for _, m := range order {
+		seen := map[string]bool{m.Name: true}
+		queue := slices.Clone(m.Deps)
+		var files []string
+		for len(queue) > 0 {
+			n := queue[0]
+			queue = queue[1:]
+			if seen[n] {
+				continue
+			}
+			seen[n] = true
+			if dm := byName[n]; dm != nil {
+				if dm.BuildFile != "" {
+					files = append(files, dm.BuildFile)
+				}
+				queue = append(queue, dm.Deps...)
+			}
+		}
+		slices.Sort(files)
+		b.closure[m.Name] = files
+	}
+	for _, m := range order {
+		b.modules = append(b.modules, *m)
+	}
+	slices.SortFunc(b.modules, func(x, y GradleModule) int { return strings.Compare(x.Name, y.Name) })
+	return b
+}
+
+// sourceEdges are the closure-only Gradle edges of a Kotlin / Java source:
+// its module's build file, its transitive project dependencies' build files,
+// and every build input.
+func (b *gradleBuild) sourceEdges(p string) []Dep {
+	m, ok := moduleOf(b.modules, p)
+	if !ok {
+		return nil
+	}
+	var out []Dep
+	if m.BuildFile != "" {
+		out = append(out, Dep{Target: m.BuildFile, Via: "module-build"})
+	}
+	for _, f := range b.closure[m.Name] {
+		out = append(out, Dep{Target: f, Via: "module-build"})
+	}
+	for _, f := range b.inputs {
+		out = append(out, Dep{Target: f, Via: "build-input"})
+	}
+	return out
+}

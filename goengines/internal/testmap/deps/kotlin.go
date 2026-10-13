@@ -1,0 +1,430 @@
+package deps
+
+import (
+	"path"
+	"regexp"
+	"slices"
+	"strings"
+)
+
+// The kotlin scanner implements the opaque contract
+// (assumption_kotlin_scanner_fail_closed): a closed construct list —
+// explicit repository imports, same-package as fully connected, repository
+// star imports, fully-qualified in-body references — and every construct that
+// defeats it marks the file opaque. Java files are indexed (package + file
+// stem) so imports of them resolve; their own deps are not scanned.
+
+type ktImport struct {
+	Path  string `json:"path"`
+	Alias string `json:"alias,omitempty"`
+	Star  bool   `json:"star,omitempty"`
+	Line  int    `json:"line"`
+}
+
+type ktRef struct {
+	Chain string `json:"chain"`
+	Line  int    `json:"line"`
+}
+
+type ktRaw struct {
+	Package string     `json:"package,omitempty"`
+	Imports []ktImport `json:"imports,omitempty"`
+	Decls   []Symbol   `json:"decls,omitempty"` // top-level declarations
+	Exts    []string   `json:"exts,omitempty"`  // the top-level extension functions / properties among them
+	Refs    []ktRef    `json:"refs,omitempty"`  // dotted chains in the body
+	Keys    []string   `json:"keys,omitempty"`  // android-res string keys
+}
+
+type javaRaw struct {
+	Package string `json:"package,omitempty"`
+}
+
+var (
+	ktModifiers = []string{"public", "private", "internal", "protected", "suspend", "operator", "infix",
+		"override", "tailrec", "external", "actual", "expect", "open", "final", "abstract", "inline", "data",
+		"enum", "sealed", "annotation", "inner", "value", "const", "lateinit", "crossinline", "noinline", "reified"}
+	diAnnotations = []string{"Module", "Provides", "Binds", "Inject", "Component", "Subcomponent", "InstallIn",
+		"EntryPoint", "HiltViewModel", "AndroidEntryPoint", "HiltAndroidApp"}
+	declKeywordsKt = []string{"class", "interface", "object", "fun", "val", "var", "typealias"}
+)
+
+// chainAt reads `a.b.c` from toks[i] (identifiers joined by '.'), returning
+// the segments and the index after.
+func chainAt(toks []ktok, i int) ([]string, int) {
+	var segs []string
+	j := i
+	for j < len(toks) && toks[j].kind == 'n' {
+		segs = append(segs, toks[j].text)
+		if j+2 < len(toks) && toks[j+1].text == "." && toks[j+1].kind == 'o' && toks[j+2].kind == 'n' {
+			j += 2
+			continue
+		}
+		j++
+		break
+	}
+	return segs, j
+}
+
+// scanKotlin extracts a Kotlin file's package, imports, top-level
+// declarations, body references, opaque constructs and resource keys.
+func scanKotlin(data []byte) rawFile {
+	toks, err := ktLex(string(data))
+	k := &ktRaw{}
+	out := rawFile{Kt: k}
+	if err != nil {
+		out.Opaque = append(out.Opaque, "untokenizable")
+	}
+	add := func(reason string) {
+		if !slices.Contains(out.Opaque, reason) {
+			out.Opaque = append(out.Opaque, reason)
+		}
+	}
+	depth := 0
+	seenDecl := false
+	refSeen := map[string]bool{}
+	keySeen := map[string]bool{}
+	var annots [][]string            // every annotation's written chain
+	aliases := map[string][]string{} // import alias / typealias name → the chain it stands for
+	for i := 0; i < len(toks); i++ {
+		t := toks[i]
+		if t.kind == 'o' {
+			switch t.text {
+			case "{":
+				depth++
+			case "}":
+				depth = max(0, depth-1)
+			case "@":
+				annots = append(annots, annotationsAt(toks, i)...)
+			case "::":
+				if i+3 < len(toks) && toks[i+1].text == "class" && toks[i+2].text == "." && toks[i+3].text == "java" {
+					add("reflection")
+				}
+			}
+			continue
+		}
+		if t.kind == 's' && i+2 < len(toks) && toks[i+1].text == "." && toks[i+2].text == "localized" {
+			if !keySeen[t.text] {
+				keySeen[t.text] = true
+				k.Keys = append(k.Keys, t.text)
+			}
+			continue
+		}
+		if t.kind != 'n' {
+			continue
+		}
+		prevDot := i > 0 && (toks[i-1].text == "." || toks[i-1].text == "::" || toks[i-1].text == "?")
+		switch {
+		case t.text == "package" && !seenDecl && depth == 0 && k.Package == "" && !prevDot:
+			segs, j := chainAt(toks, i+1)
+			k.Package = strings.Join(segs, ".")
+			i = j - 1
+			continue
+		case t.text == "import" && depth == 0 && !prevDot:
+			segs, j := chainAt(toks, i+1)
+			imp := ktImport{Path: strings.Join(segs, "."), Line: t.line}
+			if j+1 < len(toks) && toks[j].text == "." && toks[j+1].text == "*" {
+				imp.Star = true
+				j += 2
+			} else if j+1 < len(toks) && toks[j].text == "as" && toks[j+1].kind == 'n' {
+				imp.Alias = toks[j+1].text
+				j += 2
+			}
+			if imp.Alias != "" {
+				aliases[imp.Alias] = segs
+			}
+			if imp.Path != "" {
+				k.Imports = append(k.Imports, imp)
+				if strings.HasPrefix(imp.Path, "org.koin.") || imp.Path == "org.koin" {
+					add("di-koin")
+				}
+			}
+			i = j - 1
+			continue
+		case t.text == "inline":
+			for j := i + 1; j < len(toks) && j < i+8 && toks[j].kind == 'n'; j++ {
+				if toks[j].text == "fun" {
+					add("inline-fun")
+					break
+				}
+				if !slices.Contains(ktModifiers, toks[j].text) {
+					break
+				}
+			}
+		case t.text == "const" && i+1 < len(toks) && toks[i+1].text == "val":
+			add("const-val")
+		case t.text == "Class" && i+2 < len(toks) && toks[i+1].text == "." && toks[i+2].text == "forName":
+			add("reflection")
+		case t.text == "getIdentifier" && i+1 < len(toks) && toks[i+1].text == "(":
+			add("dynamic-resource")
+		case t.text == "R" && i+4 < len(toks) && toks[i+1].text == "." && (toks[i+2].text == "string" || toks[i+2].text == "plurals") && toks[i+3].text == "." && toks[i+4].kind == 'n':
+			if key := toks[i+4].text; !keySeen[key] {
+				keySeen[key] = true
+				k.Keys = append(k.Keys, key)
+			}
+		}
+		if depth == 0 && !prevDot && slices.Contains(declKeywordsKt, t.text) {
+			if name, line, ext := ktDeclName(toks, i); name != "" {
+				seenDecl = true
+				k.Decls = append(k.Decls, Symbol{Name: name, Kind: t.text, Line: line})
+				if ext {
+					k.Exts = append(k.Exts, name)
+				}
+			}
+		}
+		// typealias A = x.y.Z: A stands for the chain.
+		if t.text == "typealias" && !prevDot && i+3 < len(toks) && toks[i+1].kind == 'n' && toks[i+2].text == "=" {
+			segs, _ := chainAt(toks, i+3)
+			aliases[toks[i+1].text] = segs
+		}
+		// Dotted chains in the body: candidate fully-qualified references.
+		if !prevDot {
+			if segs, _ := chainAt(toks, i); len(segs) >= 2 && isLowerStart(segs[0]) {
+				c := strings.Join(segs, ".")
+				if !refSeen[c] {
+					refSeen[c] = true
+					k.Refs = append(k.Refs, ktRef{Chain: c, Line: t.line})
+				}
+			}
+		}
+	}
+	for _, a := range annots {
+		if isDIAnnotation(a, aliases) {
+			add("di")
+			break
+		}
+	}
+	out.Symbols = k.Decls
+	return out
+}
+
+// annotationsAt returns the annotation chains written at the '@' toks[i]:
+// `@Inject`, `@dagger.Module`, `@field:Inject`, and each entry of the
+// multi-annotation forms `@[A B]` / `@set:[A B]`.
+func annotationsAt(toks []ktok, i int) [][]string {
+	j := i + 1
+	// A use-site target (`field:`, `get:`, `file:` …) precedes the annotation.
+	if j+1 < len(toks) && toks[j].kind == 'n' && toks[j+1].text == ":" && toks[j+1].kind == 'o' {
+		j += 2
+	}
+	if j < len(toks) && toks[j].kind == 'n' {
+		segs, _ := chainAt(toks, j)
+		return [][]string{segs}
+	}
+	if j >= len(toks) || toks[j].text != "[" {
+		return nil
+	}
+	var out [][]string
+	depth := 0
+	for k := j; k < len(toks); k++ {
+		switch toks[k].text {
+		case "[", "(":
+			depth++
+		case "]", ")":
+			depth--
+			if depth == 0 {
+				return out
+			}
+		}
+		if depth == 1 && toks[k].kind == 'n' && toks[k-1].text != "." {
+			segs, next := chainAt(toks, k)
+			out = append(out, segs)
+			k = next - 1
+		}
+	}
+	return out
+}
+
+// isDIAnnotation reports whether an annotation chain names one of the DI
+// constructs, through the file's import aliases and typealiases (`import
+// javax.inject.Inject as Wire` makes `@Wire` an @Inject). Either the
+// written name or what it stands for counts: over-approximation.
+func isDIAnnotation(segs []string, aliases map[string][]string) bool {
+	seen := map[string]bool{}
+	for len(segs) > 0 {
+		if slices.Contains(diAnnotations, segs[len(segs)-1]) {
+			return true
+		}
+		target, ok := aliases[segs[0]]
+		if !ok || seen[segs[0]] || len(target) == 0 {
+			return false
+		}
+		seen[segs[0]] = true
+		segs = append(slices.Clone(target), segs[1:]...)
+	}
+	return false
+}
+
+func isLowerStart(s string) bool { return s != "" && s[0] >= 'a' && s[0] <= 'z' }
+
+// ktDeclName returns the declared name of the declaration whose keyword is
+// toks[i]: for fun / val / var the last identifier before the parameter list
+// or type (an extension's receiver is skipped, and ext reports it).
+func ktDeclName(toks []ktok, i int) (name string, line int, ext bool) {
+	kw := toks[i].text
+	j := i + 1
+	if kw == "fun" && j < len(toks) && toks[j].text == "interface" {
+		j++
+	}
+	if j < len(toks) && toks[j].text == "<" { // generics
+		d := 0
+		for ; j < len(toks); j++ {
+			if toks[j].text == "<" {
+				d++
+			} else if toks[j].text == ">" {
+				d--
+				if d == 0 {
+					j++
+					break
+				}
+			}
+		}
+	}
+	switch kw {
+	case "class", "interface", "object", "typealias":
+		if j < len(toks) && toks[j].kind == 'n' {
+			return toks[j].text, toks[j].line, false
+		}
+		return "", 0, false
+	}
+	for ; j < len(toks); j++ {
+		switch {
+		case toks[j].kind == 'n':
+			name, line = toks[j].text, toks[j].line
+		case toks[j].text == ".":
+			ext = true
+		case toks[j].text == "?":
+		case toks[j].text == "<" || toks[j].text == ">" || toks[j].text == ",":
+		default:
+			return name, line, ext
+		}
+	}
+	return name, line, ext
+}
+
+var javaPkgRe = regexp.MustCompile(`(?m)^\s*package\s+([\w.]+)\s*;`)
+
+func scanJava(data []byte) rawFile {
+	j := &javaRaw{}
+	if m := javaPkgRe.FindSubmatch(data); m != nil {
+		j.Package = string(m[1])
+	}
+	return rawFile{Java: j}
+}
+
+// --- index and resolution -----------------------------------------------
+
+// ktIndex maps the repository's Kotlin / Java packages to their files and
+// (package, top-level name) to the declaring files.
+type ktIndex struct {
+	pkgFiles map[string][]string
+	decls    map[string][]string // pkg + "\x00" + name
+	exts     map[string][]string // pkg + "\x00" + name, extension declarations only
+}
+
+func buildKtIndex(files map[string]*scanned) *ktIndex {
+	ix := &ktIndex{pkgFiles: map[string][]string{}, decls: map[string][]string{}, exts: map[string][]string{}}
+	for _, p := range sortedKeys(files) {
+		sc := files[p]
+		switch {
+		case sc.raw.Kt != nil:
+			pkg := sc.raw.Kt.Package
+			ix.pkgFiles[pkg] = append(ix.pkgFiles[pkg], p)
+			for _, d := range sc.raw.Kt.Decls {
+				k := pkg + "\x00" + d.Name
+				if !slices.Contains(ix.decls[k], p) {
+					ix.decls[k] = append(ix.decls[k], p)
+				}
+			}
+			for _, name := range sc.raw.Kt.Exts {
+				k := pkg + "\x00" + name
+				if !slices.Contains(ix.exts[k], p) {
+					ix.exts[k] = append(ix.exts[k], p)
+				}
+			}
+		case sc.raw.Java != nil:
+			pkg := sc.raw.Java.Package
+			ix.pkgFiles[pkg] = append(ix.pkgFiles[pkg], p)
+			stem := strings.TrimSuffix(path.Base(p), ".java")
+			ix.decls[pkg+"\x00"+stem] = append(ix.decls[pkg+"\x00"+stem], p)
+		}
+	}
+	return ix
+}
+
+func (ix *ktIndex) isPkg(p string) bool {
+	_, ok := ix.pkgFiles[p]
+	return ok && p != ""
+}
+
+// lookup walks the longest declared prefix: the longest prefix of segs that
+// is a repository package whose next segment is a top-level declaration
+// there. It covers nested members, enum entries and companion members
+// (`pkg.Outer.Inner.CONST` → the file declaring Outer).
+func (ix *ktIndex) lookup(segs []string) []string {
+	for i := len(segs) - 1; i >= 1; i-- {
+		pkg := strings.Join(segs[:i], ".")
+		if files, ok := ix.decls[pkg+"\x00"+segs[i]]; ok && ix.isPkg(pkg) {
+			return files
+		}
+	}
+	return nil
+}
+
+// longestPkg returns the longest prefix of segs that is a repository
+// package, "" when none.
+func (ix *ktIndex) longestPkg(segs []string) string {
+	for i := len(segs); i >= 1; i-- {
+		if pkg := strings.Join(segs[:i], "."); ix.isPkg(pkg) {
+			return pkg
+		}
+	}
+	return ""
+}
+
+// ktFacts resolves a Kotlin file's imports, its package and its body
+// references.
+func ktFacts(p string, k *ktRaw, ix *ktIndex) ([]Dep, []string) {
+	var deps []Dep
+	var unres []string
+	add := func(files []string, d Dep) {
+		for _, f := range files {
+			if f != p {
+				d.Target = f
+				deps = append(deps, d)
+			}
+		}
+	}
+	for _, imp := range k.Imports {
+		segs := strings.Split(imp.Path, ".")
+		if imp.Star {
+			if ix.isPkg(imp.Path) {
+				add(ix.pkgFiles[imp.Path], Dep{Line: imp.Line, Via: "star-import"})
+				continue
+			}
+			if files := ix.lookup(segs); files != nil {
+				add(files, Dep{Line: imp.Line, Via: "star-import"})
+				continue
+			}
+		} else if files := ix.lookup(segs); files != nil {
+			add(files, Dep{Line: imp.Line, Origin: Import, Via: "import"})
+			continue
+		}
+		if pkg := ix.longestPkg(segs); pkg != "" {
+			add(ix.pkgFiles[pkg], Dep{Line: imp.Line, Via: "package-fallback"})
+			unres = append(unres, imp.Path)
+		}
+	}
+	add(ix.pkgFiles[k.Package], Dep{Via: "same-package"})
+	for _, r := range k.Refs {
+		segs := strings.Split(r.Chain, ".")
+		if files := ix.lookup(segs); files != nil {
+			add(files, Dep{Line: r.Line, Origin: Import, Via: "fq-ref"})
+			continue
+		}
+		if pkg := ix.longestPkg(segs); strings.Count(pkg, ".") >= 1 && len(pkg) < len(r.Chain) {
+			add(ix.pkgFiles[pkg], Dep{Line: r.Line, Via: "package-fallback"})
+			unres = append(unres, r.Chain)
+		}
+	}
+	return deps, unres
+}

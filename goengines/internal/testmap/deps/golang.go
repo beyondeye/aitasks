@@ -1,0 +1,147 @@
+package deps
+
+import (
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"regexp"
+	"slices"
+	"strconv"
+	"strings"
+)
+
+// goRaw is a Go file's header — everything `go list` decides package
+// membership and imports from — plus its exported symbols.
+type goRaw struct {
+	Package    string   `json:"package,omitempty"`
+	PkgLine    int      `json:"pkg_line,omitempty"`
+	Directives []string `json:"directives,omitempty"` // every //go: line and legacy // +build line
+	Cgo        string   `json:"cgo,omitempty"`        // the preamble of `import "C"`
+	Imports    []string `json:"imports,omitempty"`    // sorted
+	ParseErr   bool     `json:"parse_err,omitempty"`
+}
+
+var (
+	directiveRe = regexp.MustCompile(`(?m)^[ \t]*//(go:[^\n]*|[ \t]*\+build[^\n]*)$`)
+	goPkgRe     = regexp.MustCompile(`(?m)^package[ \t]+([A-Za-z_][A-Za-z0-9_]*)`)
+	goImportRe  = regexp.MustCompile(`"([^"\n]+)"`)
+)
+
+// scanGo extracts a Go file's header and exported symbols. A file that does
+// not parse still yields its directives and a token-level header.
+func scanGo(data []byte) rawFile {
+	g := &goRaw{}
+	for _, m := range directiveRe.FindAllStringSubmatch(string(data), -1) {
+		g.Directives = append(g.Directives, strings.TrimSpace(m[1]))
+	}
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "", data, parser.ParseComments|parser.SkipObjectResolution)
+	var syms []Symbol
+	if f != nil && f.Name != nil {
+		g.Package = f.Name.Name
+		g.PkgLine = fset.Position(f.Package).Line
+		for _, imp := range f.Imports {
+			p, perr := strconv.Unquote(imp.Path.Value)
+			if perr != nil {
+				continue
+			}
+			g.Imports = append(g.Imports, p)
+			if p == "C" {
+				if imp.Doc != nil {
+					g.Cgo = imp.Doc.Text()
+				}
+				for _, d := range f.Decls {
+					if gd, ok := d.(*ast.GenDecl); ok && gd.Tok == token.IMPORT && gd.Doc != nil && slices.Contains(gd.Specs, ast.Spec(imp)) {
+						g.Cgo += gd.Doc.Text()
+					}
+				}
+			}
+		}
+		syms = goSymbols(fset, f)
+	}
+	if err != nil {
+		g.ParseErr = true
+		if g.Package == "" {
+			if m := goPkgRe.FindSubmatchIndex(data); m != nil {
+				g.Package = string(data[m[2]:m[3]])
+				g.PkgLine = strings.Count(string(data[:m[0]]), "\n") + 1
+			}
+		}
+		if len(g.Imports) == 0 {
+			// Token-level fallback over the import section.
+			head := string(data)
+			if k := strings.Index(head, "\nfunc "); k > 0 {
+				head = head[:k]
+			}
+			for _, blk := range regexp.MustCompile(`(?s)\nimport\s*(\([^)]*\)|"[^"\n]*")`).FindAllStringSubmatch(head, -1) {
+				for _, m := range goImportRe.FindAllStringSubmatch(blk[1], -1) {
+					g.Imports = append(g.Imports, m[1])
+				}
+			}
+		}
+	}
+	slices.Sort(g.Imports)
+	g.Imports = slices.Compact(g.Imports)
+	return rawFile{Go: g, Symbols: syms}
+}
+
+// goSymbols lists the exported top-level identifiers (methods as
+// `Type.Method`).
+func goSymbols(fset *token.FileSet, f *ast.File) []Symbol {
+	var out []Symbol
+	add := func(name, kind string, pos token.Pos) {
+		if ast.IsExported(name) {
+			out = append(out, Symbol{Name: name, Kind: kind, Line: fset.Position(pos).Line})
+		}
+	}
+	for _, d := range f.Decls {
+		switch d := d.(type) {
+		case *ast.FuncDecl:
+			name := d.Name.Name
+			if d.Recv != nil && len(d.Recv.List) > 0 {
+				recv := recvName(d.Recv.List[0].Type)
+				if recv == "" || !ast.IsExported(name) {
+					continue
+				}
+				out = append(out, Symbol{Name: recv + "." + name, Kind: "method", Line: fset.Position(d.Pos()).Line})
+				continue
+			}
+			add(name, "func", d.Pos())
+		case *ast.GenDecl:
+			for _, s := range d.Specs {
+				switch s := s.(type) {
+				case *ast.TypeSpec:
+					add(s.Name.Name, "type", s.Pos())
+				case *ast.ValueSpec:
+					kind := "var"
+					if d.Tok == token.CONST {
+						kind = "const"
+					}
+					for _, n := range s.Names {
+						add(n.Name, kind, n.Pos())
+					}
+				}
+			}
+		}
+	}
+	return out
+}
+
+func recvName(e ast.Expr) string {
+	switch t := e.(type) {
+	case *ast.StarExpr:
+		return recvName(t.X)
+	case *ast.Ident:
+		return t.Name
+	case *ast.IndexExpr:
+		return recvName(t.X)
+	case *ast.IndexListExpr:
+		return recvName(t.X)
+	}
+	return ""
+}
+
+// header is the part of a Go file the go-list key covers.
+func (g *goRaw) header() string {
+	return strings.Join([]string{g.Package, strings.Join(g.Directives, "\x01"), g.Cgo, strings.Join(g.Imports, "\x01")}, "\x02")
+}

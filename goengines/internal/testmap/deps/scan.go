@@ -1,0 +1,312 @@
+package deps
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"path"
+	"path/filepath"
+	"slices"
+	"strings"
+	"sync"
+
+	"github.com/beyondeye/aitasks/goengines/internal/gitx"
+	"github.com/beyondeye/aitasks/goengines/internal/platform"
+	"github.com/beyondeye/aitasks/goengines/internal/testmap"
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/registry"
+)
+
+// Options configure a scan.
+type Options struct {
+	// Config supplies `exclude:` and `symbol_scanners:`.
+	Config registry.Config
+	// CacheDir is the blob cache; "" is `testmap.CacheDir()/deps`.
+	CacheDir string
+	// Uncached scans without reading or writing any cache.
+	Uncached bool
+}
+
+// AndroidRes is the opt-in symbol scanner's name in `symbol_scanners:`.
+const AndroidRes = "android-res"
+
+func defaultCacheDir() (string, error) {
+	d, err := testmap.CacheDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(d, "deps"), nil
+}
+
+// symbolScanners validates `symbol_scanners:`: android-res is the only one
+// that exists, and an unknown name is an error rather than a scanner silently
+// not run.
+func symbolScanners(names []string) (androidRes bool, err error) {
+	for _, n := range names {
+		if n != AndroidRes {
+			return false, fmt.Errorf("symbol_scanners: unknown scanner %q (known: %s)", n, AndroidRes)
+		}
+		androidRes = true
+	}
+	return androidRes, nil
+}
+
+// universe is the scan's file set: the git-visible files, minus `exclude:`,
+// minus files missing from the working tree, minus anything reached through a
+// symbolic link or that is not a regular file.
+type universe struct {
+	files map[string]bool
+	list  []string // sorted
+	dirs  map[string]bool
+}
+
+func (u *universe) has(p string) bool { return u.files[p] }
+
+// isDir reports whether some universe file lies under dir ("" = the root).
+func (u *universe) isDir(dir string) bool { return dir == "" || u.dirs[dir] }
+
+func buildUniverse(r *os.Root, listed []string, cfg registry.Config) (*universe, error) {
+	u := &universe{files: map[string]bool{}, dirs: map[string]bool{}}
+	dirOK := map[string]bool{}
+	for _, p := range listed {
+		if cfg.Excluded(p) {
+			continue
+		}
+		ok, err := regularNoFollow(r, p, dirOK)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", p, err)
+		}
+		if !ok {
+			continue
+		}
+		u.files[p] = true
+		u.list = append(u.list, p)
+		for d := path.Dir(p); d != "."; d = path.Dir(d) {
+			if u.dirs[d] {
+				break
+			}
+			u.dirs[d] = true
+		}
+	}
+	slices.Sort(u.list)
+	return u, nil
+}
+
+// regularNoFollow reports whether rel is a regular file reached through real
+// directories only. Missing, a symbolic link anywhere on the path, or any
+// other kind of file is false; other errors are returned. Read-only scans
+// need no race hardening beyond os.Root's confinement: a file swapped under
+// the scan is at worst scanned in its new form.
+func regularNoFollow(r *os.Root, rel string, dirOK map[string]bool) (bool, error) {
+	parts := strings.Split(rel, "/")
+	for i := 1; i < len(parts); i++ {
+		d := strings.Join(parts[:i], "/")
+		if ok, seen := dirOK[d]; seen {
+			if !ok {
+				return false, nil
+			}
+			continue
+		}
+		fi, err := r.Lstat(d)
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+			dirOK[d] = false
+			return false, nil
+		case err != nil:
+			return false, err
+		}
+		dirOK[d] = fi.IsDir()
+		if !fi.IsDir() {
+			return false, nil
+		}
+	}
+	fi, err := r.Lstat(rel)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return false, nil
+	case err != nil:
+		return false, err
+	}
+	return fi.Mode().IsRegular(), nil
+}
+
+// rawSlot is the raw facts of one (blob, kind), extracted once per scan.
+type rawSlot struct {
+	once sync.Once
+	raw  rawFile
+}
+
+// scanned is one file after the raw phase.
+type scanned struct {
+	kind       string
+	blob       string
+	raw        rawFile
+	unreadable bool
+}
+
+// state carries one scan between its phases.
+type state struct {
+	ctx        context.Context
+	root       string
+	format     string
+	cfg        registry.Config
+	androidRes bool
+	r          *os.Root
+	u          *universe
+	cache      *cache
+	files      map[string]*scanned // the scanned universe files, by path
+	slots      map[string]*rawSlot
+	problems   []Problem
+	mu         sync.Mutex
+}
+
+func (s *state) problem(p, reason string) {
+	s.mu.Lock()
+	s.problems = append(s.problems, Problem{Path: p, Reason: reason})
+	s.mu.Unlock()
+}
+
+// Scan scans the repository at root and returns its dependency graph.
+func Scan(ctx context.Context, root string, o Options) (*Graph, error) {
+	androidRes, err := symbolScanners(o.Config.SymbolScanners)
+	if err != nil {
+		return nil, err
+	}
+	repo := gitx.Repo{Dir: root}
+	format, err := repo.ObjectFormat(ctx)
+	if err != nil {
+		return nil, err
+	}
+	listed, err := repo.ListFiles(ctx)
+	if err != nil {
+		return nil, err
+	}
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		return nil, err
+	}
+	defer r.Close()
+	u, err := buildUniverse(r, listed, o.Config)
+	if err != nil {
+		return nil, err
+	}
+	s := &state{ctx: ctx, root: root, format: format, cfg: o.Config, androidRes: androidRes,
+		r: r, u: u, files: map[string]*scanned{}, slots: map[string]*rawSlot{}}
+	s.cache, err = openCache(o)
+	if err != nil {
+		s.problem("", "cache-unavailable: "+err.Error())
+	}
+	if err := s.rawPhase(); err != nil {
+		return nil, err
+	}
+	if s.cache != nil && s.cache.writeErr != nil {
+		s.problem("", "cache-unwritable: "+s.cache.writeErr.Error())
+	}
+	gl, err := s.goPhase()
+	if err != nil {
+		return nil, err
+	}
+	plugins, err := s.pluginPhase()
+	if err != nil {
+		return nil, err
+	}
+	facts, modules, ix := s.resolve(gl, plugins)
+	g := newGraph(facts, modules, s.problems)
+	g.kt = ix
+	g.helper = o.Config.HelperRoots
+	return g, nil
+}
+
+// rawPhase extracts every scannable universe file, from the cache when its
+// blob is there, in a bounded worker pool.
+func (s *state) rawPhase() error {
+	type job struct {
+		path string
+		sc   *scanned
+	}
+	var jobs []job
+	for _, p := range s.u.list {
+		var data []byte
+		read := false
+		kind := kindOf(p, func() []byte {
+			if !read {
+				data, _ = s.r.ReadFile(p)
+				read = true
+			}
+			return data
+		})
+		if kind == "" {
+			continue
+		}
+		sc := &scanned{kind: kind}
+		s.files[p] = sc
+		jobs = append(jobs, job{p, sc})
+	}
+	g, ctx := platform.NewGroup(s.ctx, 0)
+	for _, j := range jobs {
+		g.Go(func() error {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			data, err := s.r.ReadFile(j.path)
+			if err != nil {
+				if errors.Is(err, fs.ErrNotExist) {
+					// Deleted since the listing: nothing to scan.
+					j.sc.kind = ""
+					return nil
+				}
+				j.sc.unreadable = true
+				return nil
+			}
+			blob, err := gitx.BlobDigest(data, s.format)
+			if err != nil {
+				return err
+			}
+			j.sc.blob = blob
+			// One extraction per distinct blob in a scan, even when two
+			// workers meet the same content at once.
+			s.mu.Lock()
+			slot, ok := s.slots[blob+"\x00"+j.sc.kind]
+			if !ok {
+				slot = &rawSlot{}
+				s.slots[blob+"\x00"+j.sc.kind] = slot
+			}
+			s.mu.Unlock()
+			slot.once.Do(func() {
+				if raw, ok := s.cache.get(blob, j.sc.kind); ok {
+					slot.raw = raw
+					return
+				}
+				slot.raw = scanRaw(j.sc.kind, data)
+				s.cache.put(blob, j.sc.kind, slot.raw)
+			})
+			j.sc.raw = slot.raw
+			return nil
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return err
+	}
+	for p, sc := range s.files {
+		if sc.kind == "" {
+			delete(s.files, p)
+		}
+	}
+	return nil
+}
+
+// rawOf returns the cached-or-scanned raw facts of a file outside the scan
+// set (a gitignored Go file the go-list key must cover), by its bytes.
+func (s *state) rawOf(kind string, data []byte) (rawFile, string, error) {
+	blob, err := gitx.BlobDigest(data, s.format)
+	if err != nil {
+		return rawFile{}, "", err
+	}
+	if raw, ok := s.cache.get(blob, kind); ok {
+		return raw, blob, nil
+	}
+	raw := scanRaw(kind, data)
+	s.cache.put(blob, kind, raw)
+	return raw, blob, nil
+}

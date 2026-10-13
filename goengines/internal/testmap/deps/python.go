@@ -1,0 +1,1823 @@
+package deps
+
+import (
+	"maps"
+	"path"
+	"slices"
+	"strconv"
+	"strings"
+)
+
+// The python scanner extracts imports, the file's own sys.path bootstrap
+// (evaluated symbolically against `__file__`), and path-shaped strings.
+// pyFacts resolves them with an ordered model of sys.path and sys.modules,
+// statement by statement.
+
+type pyImport struct {
+	Module string   `json:"module"` // dotted, without the leading dots of a relative import
+	Names  []string `json:"names,omitempty"`
+	Level  int      `json:"level,omitempty"` // relative-import dots
+	Line   int      `json:"line"`
+	Top    bool     `json:"top,omitempty"`  // top-level straight-line: its position in the modelled order is certain
+	Dyn    bool     `json:"dyn,omitempty"`  // importlib / __import__
+	Bare   bool     `json:"bare,omitempty"` // `import a.b` (binds the top package) rather than `from`
+}
+
+// pyPath is a symbolic path: Anchor "file" (relative to the file's own
+// path: `Path(__file__)` itself is ""), "cwd" (the repository root), or
+// "lit" (a bare relative string: tried against the root and the file's
+// directory).
+type pyPath struct {
+	Anchor string `json:"anchor"`
+	Rel    string `json:"rel,omitempty"`
+}
+
+type pyBoot struct {
+	Op         string   `json:"op"`              // insert | append
+	Index      int      `json:"index,omitempty"` // insert position; -1 = not a literal
+	Paths      []pyPath `json:"paths,omitempty"` // applied in order (a literal for-loop yields several)
+	Unresolved bool     `json:"unresolved,omitempty"`
+	Alt        bool     `json:"alt,omitempty"` // Paths are alternatives: which one applies depends on which binding ran
+	Line       int      `json:"line"`
+	Top        bool     `json:"top,omitempty"`
+}
+
+// pyStmt is one import or bootstrap statement, in file order.
+type pyStmt struct {
+	Import *pyImport `json:"import,omitempty"`
+	Boot   *pyBoot   `json:"boot,omitempty"`
+}
+
+type pyPathRef struct {
+	Path pyPath `json:"path"`
+	Line int    `json:"line"`
+}
+
+type pyRaw struct {
+	Stmts     []pyStmt    `json:"stmts,omitempty"`
+	Paths     []pyPathRef `json:"paths,omitempty"` // path-shaped strings and path expressions
+	Uncertain bool        `json:"uncertain,omitempty"`
+}
+
+// --- tokenizer ------------------------------------------------------------
+
+type ptok struct {
+	kind byte // 'n' name, 'o' operator, 's' string, 'f' f-string, 'd' number
+	text string
+	line int
+}
+
+type plogical struct {
+	toks   []ptok
+	line   int
+	indent int
+}
+
+// pyLogical splits Python source into logical lines of tokens. ok is false
+// when a string never closes (the lexical context cannot be trusted).
+func pyLogical(src string) (out []plogical, ok bool) {
+	var cur plogical
+	depth := 0
+	line := 1
+	atStart := true
+	cont := false
+	i := 0
+	emit := func() {
+		if len(cur.toks) > 0 {
+			out = append(out, cur)
+		}
+		cur = plogical{}
+	}
+	for i < len(src) {
+		if atStart && depth == 0 && !cont {
+			// Measure indentation; skip blank and comment-only lines.
+			ind, j := 0, i
+			for j < len(src) && (src[j] == ' ' || src[j] == '\t' || src[j] == '\f') {
+				if src[j] == '\t' {
+					ind = (ind/8 + 1) * 8
+				} else {
+					ind++
+				}
+				j++
+			}
+			if j < len(src) && (src[j] == '\n' || src[j] == '#' || src[j] == '\r') {
+				for j < len(src) && src[j] != '\n' {
+					j++
+				}
+				i = j + 1
+				line++
+				continue
+			}
+			cur.indent, cur.line = ind, line
+			atStart = false
+			i = j
+			continue
+		}
+		cont = false
+		c := src[i]
+		switch {
+		case c == '\n':
+			line++
+			i++
+			if depth == 0 {
+				emit()
+				atStart = true
+			}
+		case c == ' ' || c == '\t' || c == '\r' || c == '\f':
+			i++
+		case c == '#':
+			for i < len(src) && src[i] != '\n' {
+				i++
+			}
+		case c == '\\' && i+1 < len(src) && (src[i+1] == '\n' || src[i+1] == '\r'):
+			for i < len(src) && src[i] != '\n' {
+				i++
+			}
+			i++
+			line++
+			cont = true
+		case c == '"' || c == '\'':
+			t, n, nl, good := pyString(src, i, "")
+			if !good {
+				return out, false
+			}
+			t.line = line
+			cur.toks = append(cur.toks, t)
+			line += nl
+			i = n
+		case isIdentStart(c) || c >= 0x80:
+			j := i
+			for j < len(src) && (isIdentChar(src[j]) || src[j] >= 0x80) {
+				j++
+			}
+			name := src[i:j]
+			if j < len(src) && (src[j] == '"' || src[j] == '\'') && isStrPrefix(name) {
+				t, n, nl, good := pyString(src, j, strings.ToLower(name))
+				if !good {
+					return out, false
+				}
+				t.line = line
+				cur.toks = append(cur.toks, t)
+				line += nl
+				i = n
+				continue
+			}
+			cur.toks = append(cur.toks, ptok{'n', name, line})
+			i = j
+		case c >= '0' && c <= '9':
+			j := i
+			for j < len(src) && (isIdentChar(src[j]) || src[j] == '.') {
+				j++
+			}
+			cur.toks = append(cur.toks, ptok{'d', src[i:j], line})
+			i = j
+		default:
+			switch c {
+			case '(', '[', '{':
+				depth++
+			case ')', ']', '}':
+				depth = max(0, depth-1)
+			}
+			cur.toks = append(cur.toks, ptok{'o', string(c), line})
+			i++
+		}
+	}
+	emit()
+	return out, true
+}
+
+func isIdentStart(c byte) bool { return c == '_' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' }
+func isIdentChar(c byte) bool  { return isIdentStart(c) || c >= '0' && c <= '9' }
+
+func isStrPrefix(s string) bool {
+	switch strings.ToLower(s) {
+	case "r", "b", "u", "f", "rb", "br", "fr", "rf":
+		return true
+	}
+	return false
+}
+
+// pyString reads a string literal whose quote starts at i. It returns the
+// token, the index after it, the newlines it spans, and false when it never
+// closes.
+func pyString(src string, i int, prefix string) (ptok, int, int, bool) {
+	q := src[i]
+	triple := strings.HasPrefix(src[i:], strings.Repeat(string(q), 3))
+	open := 1
+	if triple {
+		open = 3
+	}
+	j := i + open
+	nl := 0
+	for j < len(src) {
+		c := src[j]
+		switch {
+		case c == '\\':
+			if j+1 < len(src) && src[j+1] == '\n' {
+				nl++
+			}
+			j += 2
+			continue
+		case c == '\n':
+			if !triple {
+				return ptok{}, 0, 0, false
+			}
+			nl++
+		case c == q:
+			if !triple {
+				kind := byte('s')
+				if strings.Contains(prefix, "f") {
+					kind = 'f'
+				}
+				return ptok{kind: kind, text: src[i+1 : j]}, j + 1, nl, true
+			}
+			if strings.HasPrefix(src[j:], strings.Repeat(string(q), 3)) {
+				kind := byte('s')
+				if strings.Contains(prefix, "f") {
+					kind = 'f'
+				}
+				return ptok{kind: kind, text: src[i+3 : j]}, j + 3, nl, true
+			}
+		}
+		j++
+	}
+	return ptok{}, 0, 0, false
+}
+
+// --- scopes ---------------------------------------------------------------
+
+// pyFrame is one open block: a def or class body, with its own namespace,
+// or a conditional block (if / try / loop / with / match), whose bindings
+// may not happen.
+type pyFrame struct {
+	indent    int
+	kind      byte // 'd' def, 'c' class, 'b' conditional block
+	id        int  // a def's header line: its key in the history
+	locals    map[string][]pval
+	globals   []string // names a def declares `global`
+	nonlocals []string
+}
+
+// pyScope is Python's namespace state at one point of the module, kept
+// lexically: module bindings, def / class locals, and conditional blocks.
+// Every binding is a set of alternatives: a binding that may not happen (a
+// conditional block, a function's `global` assignment) keeps the earlier
+// values too, and pval{} is an unknown value. A function body runs later, so
+// its reads of a name bound outside it — a module name or an enclosing
+// function's local — see every value that name is ever bound to in its own
+// scope (hist, collected by a first pass over the module).
+type pyScope struct {
+	mod    map[string][]pval
+	hist   map[pyKey][]pval
+	rec    bool // the first pass: record hist
+	frames []pyFrame
+}
+
+// pyKey names a binding in the history: its scope (0 the module, else the
+// def's header line) and the name.
+type pyKey struct {
+	scope int
+	name  string
+}
+
+const (
+	maxPyAlts   = 16 // alternatives kept per name; past it, one is unknown
+	maxPyCombos = 32 // combinations a statement is evaluated under
+)
+
+func newPyScope(hist map[pyKey][]pval) *pyScope {
+	s := &pyScope{mod: map[string][]pval{}, hist: hist}
+	if hist == nil {
+		s.hist, s.rec = map[pyKey][]pval{}, true
+	}
+	return s
+}
+
+// closeTo ends every block whose body ended at a line of this indentation.
+func (s *pyScope) closeTo(indent int) {
+	for len(s.frames) > 0 && s.frames[len(s.frames)-1].indent >= indent {
+		s.frames = s.frames[:len(s.frames)-1]
+	}
+}
+
+func (s *pyScope) open(indent int, kind byte, line int) {
+	s.frames = append(s.frames, pyFrame{indent: indent, kind: kind, id: line})
+}
+
+// declare records `global` / `nonlocal` names in the innermost def.
+func (s *pyScope) declare(kw string, names []string) {
+	for i := len(s.frames) - 1; i >= 0; i-- {
+		if f := &s.frames[i]; f.kind == 'd' {
+			if kw == "global" {
+				f.globals = append(f.globals, names...)
+			} else {
+				f.nonlocals = append(f.nonlocals, names...)
+			}
+			return
+		}
+	}
+}
+
+// bind binds name to vals in the namespace a statement here assigns to.
+// cond: the binding may not happen (the earlier values stay possible).
+func (s *pyScope) bind(name string, vals []pval, cond bool) {
+	if len(vals) == 0 {
+		vals = unknownPy
+	}
+	for i := len(s.frames) - 1; i >= 0; i-- {
+		f := &s.frames[i]
+		switch {
+		case f.kind == 'b':
+			cond = true
+			continue
+		case f.kind == 'd' && slices.Contains(f.globals, name):
+			s.setMod(name, vals, true) // the function may run at any later point
+			return
+		case f.kind == 'd' && slices.Contains(f.nonlocals, name):
+			for j := i - 1; j >= 0; j-- {
+				if o := &s.frames[j]; o.kind == 'd' {
+					o.locals = setPyVals(o.locals, name, vals, true)
+					s.record(o.id, name, vals)
+					return
+				}
+			}
+			return
+		}
+		f.locals = setPyVals(f.locals, name, vals, cond)
+		if f.kind == 'd' {
+			s.record(f.id, name, vals)
+		}
+		return
+	}
+	s.setMod(name, vals, cond)
+}
+
+func (s *pyScope) setMod(name string, vals []pval, cond bool) {
+	s.mod = setPyVals(s.mod, name, vals, cond)
+	s.record(0, name, vals)
+}
+
+// record adds a binding's values to the history (first pass only).
+func (s *pyScope) record(scope int, name string, vals []pval) {
+	if !s.rec {
+		return
+	}
+	k := pyKey{scope, name}
+	if h := s.hist[k]; h == nil {
+		s.hist[k] = vals
+	} else if slices.ContainsFunc(vals, func(v pval) bool { return !slices.Contains(h, v) }) {
+		s.hist[k] = unionPy(h, vals)
+	}
+}
+
+// later is a binding as a function body that runs later reads it: every
+// value its scope ever binds it to, plus the current ones.
+func (s *pyScope) later(scope int, name string, cur []pval) ([]pval, bool) {
+	if s.rec {
+		return cur, len(cur) > 0
+	}
+	h := s.hist[pyKey{scope, name}]
+	if !slices.ContainsFunc(cur, func(v pval) bool { return !slices.Contains(h, v) }) {
+		return h, len(h) > 0 // the usual case: the history holds every current value
+	}
+	return unionPy(h, cur), true
+}
+
+// unknownPy is the binding of an unknown value. Alternative lists are never
+// mutated in place (unionPy copies), so one is shared.
+var unknownPy = []pval{{}}
+
+func setPyVals(m map[string][]pval, name string, vals []pval, cond bool) map[string][]pval {
+	if m == nil {
+		m = map[string][]pval{}
+	}
+	if cond {
+		m[name] = unionPy(m[name], vals)
+	} else {
+		m[name] = vals
+	}
+	return m
+}
+
+func unionPy(a, b []pval) []pval {
+	out := slices.Clone(a)
+	for _, v := range b {
+		if !slices.Contains(out, v) {
+			out = append(out, v)
+		}
+	}
+	if len(out) > maxPyAlts {
+		out = append(out[:maxPyAlts-1], pval{})
+	}
+	return out
+}
+
+// get returns name's alternatives as a statement here reads them: the
+// innermost def / class local, else the module binding. Across a def
+// boundary (the reader is a function body nested in the binding's scope),
+// the read happens when the function runs: every value the binding's scope
+// ever gives it.
+func (s *pyScope) get(name string) ([]pval, bool) {
+	crossed := false
+frames:
+	for i := len(s.frames) - 1; i >= 0; i-- {
+		f := &s.frames[i]
+		switch {
+		case f.kind == 'b':
+			continue
+		case f.kind == 'd' && slices.Contains(f.globals, name):
+			crossed = true
+			break frames
+		case f.kind == 'c' && crossed:
+			continue // a class body does not enclose its methods
+		}
+		v, ok := f.locals[name]
+		if crossed && f.kind == 'd' {
+			if _, bound := s.hist[pyKey{f.id, name}]; bound || ok {
+				return s.later(f.id, name, v)
+			}
+		} else if ok {
+			return v, true
+		}
+		if f.kind == 'd' {
+			crossed = true
+		}
+	}
+	v, ok := s.mod[name]
+	if crossed {
+		if _, bound := s.hist[pyKey{0, name}]; bound || ok {
+			return s.later(0, name, v)
+		}
+	}
+	return v, ok
+}
+
+// noPyEnv is the environment of a statement that reads no bound name
+// (evaluation only reads an environment).
+var noPyEnv = []map[string]pval{{}}
+
+// envs returns the concrete environments a statement is evaluated under:
+// one per combination of the alternatives of the names it reads (skip is
+// left out). Past maxPyCombos, a name with several alternatives is unknown.
+func (s *pyScope) envs(toks []ptok, skip string) []map[string]pval {
+	var names []string
+	var alts [][]pval
+	n := 1
+	for i, t := range toks {
+		if t.kind != 'n' || t.text == skip || (i > 0 && toks[i-1].text == ".") || slices.Contains(names, t.text) {
+			continue
+		}
+		v, ok := s.get(t.text)
+		if !ok {
+			continue
+		}
+		names, alts = append(names, t.text), append(alts, v)
+		n = min(n*len(v), maxPyCombos+1)
+	}
+	if len(names) == 0 {
+		return noPyEnv
+	}
+	if n == 1 || n > maxPyCombos {
+		e := make(map[string]pval, len(names))
+		for k, name := range names {
+			if len(alts[k]) == 1 {
+				e[name] = alts[k][0]
+			} else {
+				e[name] = pval{}
+			}
+		}
+		return []map[string]pval{e}
+	}
+	out := []map[string]pval{{}}
+	for k, name := range names {
+		next := make([]map[string]pval, 0, len(out)*len(alts[k]))
+		for _, e := range out {
+			for _, v := range alts[k] {
+				c := maps.Clone(e)
+				c[name] = v
+				next = append(next, c)
+			}
+		}
+		out = next
+	}
+	return out
+}
+
+// --- statements -----------------------------------------------------------
+
+var compoundKeywords = []string{"if", "elif", "else", "for", "while", "try", "except", "finally", "with", "def", "class", "async", "match", "case"}
+
+// pyScan is one pass over a module's logical lines.
+type pyScan struct {
+	r    *pyRaw
+	s    *pyScope
+	syms []Symbol
+}
+
+// scanPython extracts a module's imports, bootstrap and path strings. A
+// first pass collects every value each module-level name is bound to (what
+// function bodies read); the second extracts.
+func scanPython(data []byte) rawFile {
+	lines, ok := pyLogical(string(data))
+	first := &pyScan{s: newPyScope(nil)}
+	first.walk(lines)
+	sc := &pyScan{r: &pyRaw{Uncertain: !ok}, s: newPyScope(first.s.hist)}
+	sc.walk(lines)
+	return rawFile{Py: sc.r, Symbols: sc.syms}
+}
+
+func (sc *pyScan) walk(lines []plogical) {
+	// A literal `for v in (a, b):` at indent 0 binds v to each value for its
+	// body, which stays "top" for bootstrap purposes.
+	var loopVar string
+	var loopVals []pval
+	loopIndent := -1
+	for _, lg := range lines {
+		sc.s.closeTo(lg.indent)
+		if loopIndent >= 0 && lg.indent <= loopIndent {
+			loopVar, loopVals, loopIndent = "", nil, -1
+		}
+		toks := lg.toks
+		top := lg.indent == 0
+		inLoop := loopIndent >= 0 && lg.indent > loopIndent
+		if len(toks) > 0 && toks[0].kind == 'n' && slices.Contains(compoundKeywords, toks[0].text) {
+			kw := toks[0].text
+			if sc.r != nil {
+				if lg.indent == 0 && (kw == "def" || kw == "class") && len(toks) > 1 && toks[1].kind == 'n' {
+					sc.syms = append(sc.syms, Symbol{Name: toks[1].text, Kind: kw, Line: lg.line})
+				}
+				if kw == "async" && lg.indent == 0 && len(toks) > 2 && toks[1].text == "def" {
+					sc.syms = append(sc.syms, Symbol{Name: toks[2].text, Kind: "def", Line: lg.line})
+				}
+			}
+			colon := headerColon(toks)
+			header := toks
+			if colon >= 0 {
+				header = toks[:colon]
+			}
+			if sc.r != nil {
+				sc.pathRefs(header)
+			}
+			if kw == "async" && len(header) > 1 {
+				kw, header = header[1].text, header[1:]
+			}
+			kind := byte('b')
+			if kw == "def" || kw == "class" {
+				kind = kw[0]
+			}
+			literal := false
+			if kw == "for" && lg.indent == 0 && colon == len(toks)-1 {
+				if envs := sc.s.envs(header, ""); len(envs) == 1 {
+					if v, vals, good := literalFor(header, envs[0]); good {
+						loopVar, loopVals, loopIndent = v, vals, lg.indent
+						sc.s.bind(v, vals, true)
+						literal = true
+					}
+				}
+			}
+			sc.header(kw, header, literal)
+			sc.s.open(lg.indent, kind, lg.line)
+			// A one-line compound (`if x: import y`): its body is not top.
+			if colon >= 0 && colon < len(toks)-1 {
+				for _, st := range splitSemi(toks[colon+1:]) {
+					sc.statement(st, false, false, "", nil)
+				}
+				sc.s.closeTo(lg.indent)
+			}
+			continue
+		}
+		for _, st := range splitSemi(toks) {
+			if inLoop {
+				sc.statement(st, top, true, loopVar, loopVals)
+			} else {
+				sc.statement(st, top, false, "", nil)
+			}
+		}
+	}
+}
+
+// headerColon returns the index of a compound header's ':' at bracket depth
+// 0 (not a slice, annotation, lambda or walrus colon), -1 if none.
+func headerColon(toks []ptok) int {
+	depth := 0
+	lambdas := 0
+	for i, t := range toks {
+		if t.kind == 'n' && t.text == "lambda" && depth == 0 {
+			lambdas++
+		}
+		if t.kind != 'o' {
+			continue
+		}
+		switch t.text {
+		case "(", "[", "{":
+			depth++
+		case ")", "]", "}":
+			depth--
+		case ":":
+			if depth != 0 || i+1 < len(toks) && toks[i+1].text == "=" && toks[i+1].kind == 'o' {
+				continue
+			}
+			if lambdas > 0 {
+				lambdas--
+				continue
+			}
+			return i
+		}
+	}
+	return -1
+}
+
+// header binds the names a compound statement's header binds, in the
+// enclosing namespace: a def / class name, loop targets, `with … as`,
+// `except … as`, match captures, and walrus targets.
+func (sc *pyScan) header(kw string, toks []ptok, literalFor bool) {
+	switch kw {
+	case "def", "class":
+		if len(toks) > 1 && toks[1].kind == 'n' {
+			sc.s.bind(toks[1].text, nil, false)
+		}
+	case "for":
+		if !literalFor {
+			in := slices.IndexFunc(toks, func(t ptok) bool { return t.kind == 'n' && t.text == "in" })
+			if in > 1 {
+				for _, n := range targetNames(toks[1:in]) {
+					sc.s.bind(n, nil, true)
+				}
+			}
+		}
+	case "with", "except":
+		for i, t := range toks {
+			if t.kind == 'n' && t.text == "as" && i+1 < len(toks) {
+				end := i + 2
+				if toks[i+1].text == "(" || toks[i+1].text == "[" {
+					end = matchTok(toks, i+1) + 1
+				}
+				for _, n := range targetNames(toks[i+1 : min(end, len(toks))]) {
+					sc.s.bind(n, nil, kw == "except")
+				}
+			}
+		}
+	case "case":
+		for i, t := range toks[1:] {
+			i++
+			if t.kind != 'n' || t.text == "_" || t.text == "None" || t.text == "True" || t.text == "False" ||
+				toks[i-1].text == "." || i+1 < len(toks) && (toks[i+1].text == "." || toks[i+1].text == "(" || toks[i+1].text == "=") {
+				continue
+			}
+			sc.s.bind(t.text, nil, true)
+		}
+	}
+	sc.walrus(toks)
+}
+
+func splitSemi(toks []ptok) [][]ptok {
+	var out [][]ptok
+	depth, start := 0, 0
+	for i, t := range toks {
+		if t.kind != 'o' {
+			continue
+		}
+		switch t.text {
+		case "(", "[", "{":
+			depth++
+		case ")", "]", "}":
+			depth--
+		case ";":
+			if depth == 0 {
+				out = append(out, toks[start:i])
+				start = i + 1
+			}
+		}
+	}
+	return append(out, toks[start:])
+}
+
+// literalFor recognises `for v in (a, b)` / `[a, b]` with evaluable items.
+func literalFor(toks []ptok, env map[string]pval) (string, []pval, bool) {
+	if len(toks) < 5 || toks[1].kind != 'n' || toks[2].text != "in" {
+		return "", nil, false
+	}
+	open := toks[3].text
+	if open != "(" && open != "[" || toks[len(toks)-1].text != map[string]string{"(": ")", "[": "]"}[open] {
+		return "", nil, false
+	}
+	var vals []pval
+	for _, item := range splitTop(toks[4:len(toks)-1], ",") {
+		if len(item) == 0 {
+			continue
+		}
+		v, n := evalPy(item, 0, env)
+		if n != len(item) || v.kind != 'p' && v.kind != 's' {
+			return "", nil, false
+		}
+		vals = append(vals, v)
+	}
+	return toks[1].text, vals, len(vals) > 0
+}
+
+// splitTop splits toks on sep at bracket depth 0.
+func splitTop(toks []ptok, sep string) [][]ptok {
+	var out [][]ptok
+	depth, start := 0, 0
+	for i, t := range toks {
+		if t.kind != 'o' {
+			continue
+		}
+		switch t.text {
+		case "(", "[", "{":
+			depth++
+		case ")", "]", "}":
+			depth--
+		default:
+			if t.text == sep && depth == 0 {
+				out = append(out, toks[start:i])
+				start = i + 1
+			}
+		}
+	}
+	return append(out, toks[start:])
+}
+
+// statement records one simple statement. top: straight-line module code,
+// its position in the modelled order certain; inLoop: in the body of a
+// literal for-loop (loopVar over loopVals), whose bootstraps apply in order.
+func (sc *pyScan) statement(toks []ptok, top, inLoop bool, loopVar string, loopVals []pval) {
+	if len(toks) == 0 {
+		return
+	}
+	line := toks[0].line
+	if toks[0].kind == 'n' {
+		switch toks[0].text {
+		case "import":
+			for _, item := range splitTop(toks[1:], ",") {
+				mod := dotted(item)
+				if mod == "" {
+					continue
+				}
+				// `import a.b` binds a; `import a.b as c` binds c to a.b.
+				if as := slices.IndexFunc(item, func(t ptok) bool { return t.text == "as" }); as > 0 && as+1 < len(item) {
+					sc.s.bind(item[as+1].text, []pval{{kind: 'm', text: mod}}, false)
+				} else {
+					first, _, _ := strings.Cut(mod, ".")
+					sc.s.bind(first, []pval{{kind: 'm', text: first}}, false)
+				}
+				if sc.r != nil {
+					sc.r.Stmts = append(sc.r.Stmts, pyStmt{Import: &pyImport{Module: mod, Line: line, Top: top, Bare: true}})
+				}
+			}
+			return
+		case "from":
+			j := 1
+			lvl := 0
+			for j < len(toks) && toks[j].text == "." {
+				lvl++
+				j++
+			}
+			k := j
+			for k < len(toks) && toks[k].text != "import" {
+				k++
+			}
+			mod := dotted(toks[j:k])
+			var names []string
+			if k < len(toks) {
+				for _, item := range splitTop(toks[k+1:], ",") {
+					for len(item) > 0 && item[0].text == "(" {
+						item = item[1:]
+					}
+					if len(item) == 0 {
+						continue
+					}
+					if item[0].text == "*" {
+						sc.s.taint()
+						continue
+					}
+					if item[0].kind != 'n' {
+						continue
+					}
+					names = append(names, item[0].text)
+					bound, val := item[0].text, pval{}
+					if lvl == 0 {
+						val = pval{kind: 'm', text: joinDot(mod, item[0].text)}
+					}
+					if len(item) > 2 && item[1].text == "as" && item[2].kind == 'n' {
+						bound = item[2].text
+					}
+					sc.s.bind(bound, []pval{val}, false)
+				}
+			}
+			if sc.r != nil {
+				sc.r.Stmts = append(sc.r.Stmts, pyStmt{Import: &pyImport{Module: mod, Names: names, Level: lvl, Line: line, Top: top}})
+			}
+			return
+		case "global", "nonlocal":
+			var names []string
+			for _, t := range toks[1:] {
+				if t.kind == 'n' {
+					names = append(names, t.text)
+				}
+			}
+			sc.s.declare(toks[0].text, names)
+			return
+		case "del":
+			for _, n := range targetNames(toks[1:]) {
+				sc.s.bind(n, nil, false)
+			}
+			return
+		}
+	}
+	if sc.r != nil {
+		sc.r.dynamicImports(toks)
+		if slices.ContainsFunc(toks, func(t ptok) bool { return t.kind == 'n' && t.text == "sys" }) {
+			// Only a statement that is the sys.path call itself runs at its
+			// position; one inside a lambda, a conditional expression or a
+			// larger expression may run later, or never.
+			atTop := (top || inLoop) && len(toks) > 5 && toks[0].text == "sys" && toks[5].text == "(" && matchTok(toks, 5) == len(toks)-1
+			if b := sc.boot(toks, atTop, loopVar, loopVals); b != nil {
+				sc.r.Stmts = append(sc.r.Stmts, pyStmt{Boot: b})
+			}
+		}
+	}
+	sc.assign(toks)
+	sc.walrus(toks)
+	if sc.r != nil {
+		sc.pathRefs(toks)
+	}
+}
+
+// taint makes every module binding possibly unknown (`from x import *` may
+// rebind any of them).
+func (s *pyScope) taint() {
+	for name, vals := range s.mod {
+		s.mod[name] = unionPy(vals, []pval{{}})
+	}
+}
+
+// boot evaluates a bootstrap statement under every combination of its
+// names' alternatives. When they disagree, the effect is one of them,
+// unknown which (Alt): every candidate is kept and the order is uncertain.
+func (sc *pyScan) boot(toks []ptok, top bool, loopVar string, loopVals []pval) *pyBoot {
+	var out *pyBoot
+	for _, e := range sc.s.envs(toks, loopVar) {
+		b := bootOf(toks, top, loopVar, loopVals, e)
+		if b == nil {
+			return nil
+		}
+		if out == nil {
+			out = b
+			continue
+		}
+		if b.Op != out.Op || b.Index != out.Index || !slices.Equal(b.Paths, out.Paths) || b.Unresolved != out.Unresolved {
+			out.Alt = true
+		}
+		for _, p := range b.Paths {
+			if !slices.Contains(out.Paths, p) {
+				out.Paths = append(out.Paths, p)
+			}
+		}
+		out.Unresolved = out.Unresolved || b.Unresolved
+	}
+	return out
+}
+
+// assign binds an assignment's targets: a single name to the value of the
+// right-hand side (its alternatives), any other name it rebinds (unpacking,
+// an augmented assignment) to unknown.
+func (sc *pyScan) assign(toks []ptok) {
+	targets, rhs, aug := assignment(toks)
+	if aug != "" {
+		sc.s.bind(aug, nil, false)
+		return
+	}
+	var vals []pval
+	for _, tg := range targets {
+		if len(tg) != 1 || tg[0].kind != 'n' {
+			for _, n := range targetNames(tg) {
+				sc.s.bind(n, nil, false)
+			}
+			continue
+		}
+		if vals == nil {
+			for _, e := range sc.s.envs(rhs, "") {
+				v, n := evalPy(rhs, 0, e)
+				if n != len(rhs) || v.kind != 'p' && v.kind != 's' && v.kind != 'm' {
+					v = pval{}
+				}
+				vals = unionPy(vals, []pval{v})
+			}
+		}
+		sc.s.bind(tg[0].text, vals, false)
+	}
+}
+
+// assignment splits `t1 = t2 = … = rhs` at its depth-0 '=' signs; aug is the
+// target of an augmented assignment (`x += …`).
+func assignment(toks []ptok) (targets [][]ptok, rhs []ptok, aug string) {
+	depth, start := 0, 0
+	for i := 0; i < len(toks); i++ {
+		t := toks[i]
+		if t.kind == 'n' && t.text == "lambda" && depth == 0 {
+			break // a default argument's '=' is the lambda's own
+		}
+		if t.kind != 'o' {
+			continue
+		}
+		switch t.text {
+		case "(", "[", "{":
+			depth++
+		case ")", "]", "}":
+			depth--
+		case "=":
+			if depth != 0 {
+				continue
+			}
+			if i+1 < len(toks) && toks[i+1].text == "=" && toks[i+1].kind == 'o' {
+				i++ // ==
+				continue
+			}
+			if i > 0 && toks[i-1].kind == 'o' {
+				switch toks[i-1].text {
+				case "!", ":", "=":
+					continue // != , walrus
+				case "<", ">":
+					if !(i > 1 && toks[i-2].text == toks[i-1].text) {
+						continue // <= >=
+					}
+					fallthrough // <<= >>=
+				case "+", "-", "*", "/", "%", "@", "&", "|", "^":
+					if len(targets) == 0 && toks[0].kind == 'n' {
+						aug = toks[0].text
+					}
+					return nil, nil, aug
+				}
+			}
+			tg := toks[start:i]
+			if c := slices.IndexFunc(tg, func(t ptok) bool { return t.kind == 'o' && t.text == ":" }); c > 0 {
+				tg = tg[:c] // x: T = v
+			}
+			targets = append(targets, tg)
+			start = i + 1
+		}
+	}
+	if len(targets) == 0 {
+		return nil, nil, ""
+	}
+	return targets, toks[start:], ""
+}
+
+// targetNames returns the plain names an assignment target binds (tuple and
+// starred unpacking); attribute and subscript targets bind none.
+func targetNames(toks []ptok) []string {
+	var out []string
+	for i, t := range toks {
+		if t.kind != 'n' || t.text == "in" || t.text == "as" || i > 0 && toks[i-1].text == "." {
+			continue
+		}
+		if i+1 < len(toks) && (toks[i+1].text == "." || toks[i+1].text == "[" || toks[i+1].text == "(") {
+			continue
+		}
+		out = append(out, t.text)
+	}
+	return out
+}
+
+// walrus binds every `name := …` target to unknown.
+func (sc *pyScan) walrus(toks []ptok) {
+	for i := 0; i+2 < len(toks); i++ {
+		if toks[i].kind == 'n' && toks[i+1].text == ":" && toks[i+2].text == "=" && toks[i+1].kind == 'o' && toks[i+2].kind == 'o' {
+			sc.s.bind(toks[i].text, nil, false)
+		}
+	}
+}
+
+// dotted reads `a.b.c` (an `as` alias and the rest are ignored).
+func dotted(toks []ptok) string {
+	var b strings.Builder
+	for i, t := range toks {
+		if i%2 == 0 {
+			if t.kind != 'n' {
+				break
+			}
+			b.WriteString(t.text)
+		} else {
+			if t.text != "." {
+				break
+			}
+			b.WriteByte('.')
+		}
+	}
+	return strings.TrimSuffix(b.String(), ".")
+}
+
+// dynamicImports records importlib.import_module("x") / __import__("x").
+func (r *pyRaw) dynamicImports(toks []ptok) {
+	for i := 0; i+2 < len(toks); i++ {
+		if toks[i].kind != 'n' || (toks[i].text != "import_module" && toks[i].text != "__import__") || toks[i+1].text != "(" {
+			continue
+		}
+		if t := toks[i+2]; t.kind == 's' {
+			r.Stmts = append(r.Stmts, pyStmt{Import: &pyImport{Module: t.text, Line: t.line, Dyn: true, Bare: true}})
+		}
+	}
+}
+
+// bootOf recognises sys.path.insert / append / extend and other sys.path
+// mutations (the latter as unresolved).
+func bootOf(toks []ptok, top bool, loopVar string, loopVals []pval, env map[string]pval) *pyBoot {
+	for i := 0; i+4 < len(toks); i++ {
+		if toks[i].text != "sys" || toks[i+1].text != "." || toks[i+2].text != "path" {
+			continue
+		}
+		line := toks[i].line
+		op := toks[i+4].text
+		if toks[i+3].text != "." {
+			// sys.path = …, sys.path[…] = …, sys.path += …
+			if toks[i+3].text == "=" || toks[i+3].text == "[" || toks[i+3].text == "+" {
+				return &pyBoot{Op: "assign", Unresolved: true, Line: line, Top: top}
+			}
+			continue
+		}
+		if i+5 >= len(toks) || toks[i+5].text != "(" {
+			continue
+		}
+		close := matchTok(toks, i+5)
+		args := splitTop(toks[i+6:close], ",")
+		b := &pyBoot{Op: op, Line: line, Top: top}
+		var val []ptok
+		switch op {
+		case "insert":
+			if len(args) != 2 {
+				b.Unresolved = true
+				return b
+			}
+			b.Index = -1
+			if len(args[0]) == 1 && args[0][0].kind == 'd' {
+				if n, err := strconv.Atoi(args[0][0].text); err == nil {
+					b.Index = n
+				}
+			}
+			val = args[1]
+		case "append":
+			if len(args) != 1 {
+				b.Unresolved = true
+				return b
+			}
+			val = args[0]
+		case "extend":
+			b.Op = "append"
+			if len(args) == 1 && len(args[0]) >= 2 && (args[0][0].text == "[" || args[0][0].text == "(") {
+				for _, item := range splitTop(args[0][1:len(args[0])-1], ",") {
+					if v, n := evalPy(item, 0, env); n == len(item) && (v.kind == 'p' || v.kind == 's') {
+						b.Paths = append(b.Paths, v.asPath())
+					} else if len(item) > 0 {
+						b.Unresolved = true
+					}
+				}
+				return b
+			}
+			b.Unresolved = true
+			return b
+		case "remove", "pop", "clear", "reverse", "sort":
+			b.Unresolved = true
+			return b
+		default:
+			continue
+		}
+		// `for v in (…): sys.path.insert(0, str(v))`: one path per value.
+		if loopVar != "" && usesName(val, loopVar) {
+			for _, lv := range loopVals {
+				e := map[string]pval{}
+				for k, v := range env {
+					e[k] = v
+				}
+				e[loopVar] = lv
+				if v, n := evalPy(val, 0, e); n == len(val) && (v.kind == 'p' || v.kind == 's') {
+					b.Paths = append(b.Paths, v.asPath())
+				} else {
+					b.Unresolved = true
+				}
+			}
+			return b
+		}
+		if v, n := evalPy(val, 0, env); n == len(val) && (v.kind == 'p' || v.kind == 's') {
+			b.Paths = []pyPath{v.asPath()}
+		} else {
+			b.Unresolved = true
+		}
+		return b
+	}
+	return nil
+}
+
+func usesName(toks []ptok, name string) bool {
+	for _, t := range toks {
+		if t.kind == 'n' && t.text == name {
+			return true
+		}
+	}
+	return false
+}
+
+func matchTok(toks []ptok, i int) int {
+	depth := 0
+	for j := i; j < len(toks); j++ {
+		switch toks[j].text {
+		case "(", "[", "{":
+			if toks[j].kind == 'o' {
+				depth++
+			}
+		case ")", "]", "}":
+			if toks[j].kind == 'o' {
+				depth--
+				if depth == 0 {
+					return j
+				}
+			}
+		}
+	}
+	return len(toks)
+}
+
+// pathRefs records path-shaped strings and evaluable path expressions (under
+// every combination of the names' alternatives).
+func (sc *pyScan) pathRefs(toks []ptok) {
+	var envs []map[string]pval
+	for i := 0; i < len(toks); i++ {
+		t := toks[i]
+		if t.kind == 's' || t.kind == 'f' {
+			// A string may hold a command line, markdown or a template: its
+			// path-shaped runs are candidates.
+			for _, run := range pathRuns(t.text) {
+				sc.r.Paths = append(sc.r.Paths, pyPathRef{Path: pyPath{Anchor: "lit", Rel: run}, Line: t.line})
+			}
+			continue
+		}
+		if t.kind != 'n' || (i > 0 && toks[i-1].text == ".") {
+			continue
+		}
+		if _, bound := sc.s.get(t.text); !bound && t.text != "__file__" && t.text != "Path" && t.text != "os" && t.text != "pathlib" {
+			continue
+		}
+		if envs == nil {
+			envs = sc.s.envs(toks, "")
+		}
+		next := i + 1
+		from := len(sc.r.Paths)
+		failed := false
+		for _, e := range envs {
+			v, n := evalPy(toks, i, e)
+			if n > i+1 && v.kind == 'p' && v.anchor != "lit" {
+				ref := pyPathRef{Path: v.asPath(), Line: t.line}
+				if !slices.Contains(sc.r.Paths[from:], ref) {
+					sc.r.Paths = append(sc.r.Paths, ref)
+				}
+				next = max(next, n)
+			} else {
+				failed = true
+			}
+		}
+		// A base the scanner cannot evaluate (an unknown or an overflowed
+		// binding): its literal tail is matched against the universe.
+		if tail := literalTail(toks, i); failed && tail != "" {
+			sc.r.Paths = append(sc.r.Paths, pyPathRef{Path: pyPath{Anchor: "suffix", Rel: tail}, Line: t.line})
+		}
+		i = next - 1
+	}
+}
+
+// literalTail returns the `/ "a" / "b"` chain that follows the term at
+// toks[i] (a name with its attributes, calls and subscripts), joined.
+func literalTail(toks []ptok, i int) string {
+	j := i + 1
+	for j < len(toks) {
+		switch {
+		case toks[j].text == "." && j+1 < len(toks) && toks[j+1].kind == 'n':
+			j += 2
+			continue
+		case toks[j].kind == 'o' && (toks[j].text == "(" || toks[j].text == "["):
+			j = matchTok(toks, j) + 1
+			continue
+		}
+		break
+	}
+	var parts []string
+	for j+1 < len(toks) && toks[j].kind == 'o' && toks[j].text == "/" && toks[j+1].kind == 's' {
+		parts = append(parts, toks[j+1].text)
+		j += 2
+	}
+	return strings.Join(parts, "/")
+}
+
+// --- the bootstrap evaluator ----------------------------------------------
+
+// pval is a symbolic value: 'p' path (anchor + rel), 's' string, 'm' a
+// module or callable name (text), 'P' a Path's `.parents` (anchor + rel),
+// 0 unknown.
+type pval struct {
+	kind   byte
+	anchor string
+	rel    string
+	text   string
+}
+
+func (v pval) asPath() pyPath {
+	if v.kind == 's' {
+		return pyPath{Anchor: "lit", Rel: v.text}
+	}
+	return pyPath{Anchor: v.anchor, Rel: v.rel}
+}
+
+func (v pval) join(s string) pval {
+	switch v.kind {
+	case 'p':
+		return pval{kind: 'p', anchor: v.anchor, rel: joinRel(v.rel, s)}
+	case 's':
+		return pval{kind: 'p', anchor: "lit", rel: joinRel(v.text, s)}
+	}
+	return pval{}
+}
+
+func toPath(v pval) pval {
+	if v.kind == 's' {
+		if strings.HasPrefix(v.text, "/") {
+			return pval{}
+		}
+		return pval{kind: 'p', anchor: "lit", rel: v.text}
+	}
+	return v
+}
+
+// evalPy evaluates the expression starting at toks[i] and returns its value
+// and the index after it. Supported: `__file__`, `Path(x)`, `.resolve()`,
+// `.absolute()`, `.parent`, `.parents[N]`, `/ "x"`, `os.path.dirname /
+// abspath / realpath / normpath / join`, `str(x)`, `os.fspath(x)`,
+// `os.getcwd()`, string literals and names bound earlier.
+func evalPy(toks []ptok, i int, env map[string]pval) (pval, int) {
+	v, j := evalTerm(toks, i, env)
+	for j+1 < len(toks) && toks[j].kind == 'o' && toks[j].text == "/" {
+		rhs, k := evalTerm(toks, j+1, env)
+		if rhs.kind == 's' && v.kind != 0 {
+			v = toPath(v).join(rhs.text)
+		} else if rhs.kind == 'p' && rhs.anchor == "lit" && v.kind != 0 {
+			v = toPath(v).join(rhs.rel)
+		} else {
+			return pval{}, k
+		}
+		j = k
+	}
+	return v, j
+}
+
+func evalTerm(toks []ptok, i int, env map[string]pval) (pval, int) {
+	if i >= len(toks) {
+		return pval{}, i
+	}
+	t := toks[i]
+	var v pval
+	j := i + 1
+	switch {
+	case t.kind == 's':
+		v = pval{kind: 's', text: t.text}
+	case t.kind == 'n' && t.text == "__file__":
+		v = pval{kind: 'p', anchor: "file"}
+	case t.kind == 'n':
+		if b, ok := env[t.text]; ok {
+			v = b
+		} else {
+			v = pval{kind: 'm', text: t.text}
+		}
+	case t.kind == 'o' && t.text == "(":
+		close := matchTok(toks, i)
+		inner, n := evalPy(toks, i+1, env)
+		if n != close {
+			return pval{}, close + 1
+		}
+		v, j = inner, close+1
+	default:
+		return pval{}, j
+	}
+	for j < len(toks) {
+		switch {
+		case toks[j].text == "." && j+1 < len(toks) && toks[j+1].kind == 'n':
+			attr := toks[j+1].text
+			j += 2
+			switch {
+			case v.kind == 'm':
+				v = pval{kind: 'm', text: v.text + "." + attr}
+			case v.kind == 'p' && attr == "parent":
+				v = v.join("..")
+			case v.kind == 'p' && attr == "parents":
+				v = pval{kind: 'P', anchor: v.anchor, rel: v.rel}
+			case (v.kind == 'p' || v.kind == 's') && (attr == "resolve" || attr == "absolute" || attr == "expanduser"):
+				v = pval{kind: 'M', anchor: v.anchor, rel: v.rel, text: v.text} // a method returning itself
+				if toPath(v).kind == 0 {
+					return pval{}, j
+				}
+			case v.kind == 'p' && attr == "joinpath":
+				v = pval{kind: 'J', anchor: v.anchor, rel: v.rel}
+			default:
+				return pval{}, j
+			}
+		case toks[j].text == "(" && toks[j].kind == 'o':
+			close := matchTok(toks, j)
+			args := splitTop(toks[j+1:close], ",")
+			nv, ok := call(v, args, env)
+			if !ok {
+				return pval{}, close + 1
+			}
+			v, j = nv, close+1
+		case toks[j].text == "[" && toks[j].kind == 'o' && v.kind == 'P':
+			close := matchTok(toks, j)
+			if close != j+2 || toks[j+1].kind != 'd' {
+				return pval{}, close + 1
+			}
+			n, err := strconv.Atoi(toks[j+1].text)
+			if err != nil {
+				return pval{}, close + 1
+			}
+			p := pval{kind: 'p', anchor: v.anchor, rel: v.rel}
+			for k := 0; k <= n; k++ {
+				p = p.join("..")
+			}
+			v, j = p, close+1
+		default:
+			if v.kind == 'M' || v.kind == 'J' || v.kind == 'P' {
+				return pval{}, j
+			}
+			return v, j
+		}
+	}
+	if v.kind == 'M' || v.kind == 'J' || v.kind == 'P' {
+		return pval{}, j
+	}
+	return v, j
+}
+
+// call applies a callable value to its arguments.
+func call(fn pval, args [][]ptok, env map[string]pval) (pval, bool) {
+	var vals []pval
+	for _, a := range args {
+		if len(a) == 0 {
+			continue
+		}
+		v, n := evalPy(a, 0, env)
+		if n != len(a) {
+			return pval{}, false
+		}
+		vals = append(vals, v)
+	}
+	switch fn.kind {
+	case 'M':
+		if len(vals) == 0 {
+			if fn.anchor == "" && fn.text != "" {
+				return toPath(pval{kind: 's', text: fn.text}), true
+			}
+			return pval{kind: 'p', anchor: fn.anchor, rel: fn.rel}, true
+		}
+		return pval{}, false
+	case 'J':
+		p := pval{kind: 'p', anchor: fn.anchor, rel: fn.rel}
+		for _, v := range vals {
+			if v.kind != 's' {
+				return pval{}, false
+			}
+			p = p.join(v.text)
+		}
+		return p, true
+	case 'm':
+	default:
+		return pval{}, false
+	}
+	one := func() (pval, bool) {
+		if len(vals) != 1 || (vals[0].kind != 'p' && vals[0].kind != 's') {
+			return pval{}, false
+		}
+		return vals[0], true
+	}
+	switch fn.text {
+	case "Path", "pathlib.Path", "PurePath", "pathlib.PurePath", "PosixPath":
+		v, ok := one()
+		if !ok {
+			return pval{}, false
+		}
+		v = toPath(v)
+		return v, v.kind == 'p'
+	case "str", "os.fspath", "os.path.abspath", "os.path.realpath", "os.path.normpath", "os.path.expanduser":
+		return one()
+	case "os.path.dirname":
+		v, ok := one()
+		if !ok {
+			return pval{}, false
+		}
+		v = toPath(v)
+		return v.join(".."), v.kind == 'p'
+	case "os.path.join":
+		if len(vals) == 0 || (vals[0].kind != 'p' && vals[0].kind != 's') {
+			return pval{}, false
+		}
+		p := toPath(vals[0])
+		for _, v := range vals[1:] {
+			if v.kind != 's' {
+				return pval{}, false
+			}
+			p = p.join(v.text)
+		}
+		return p, p.kind == 'p'
+	case "os.getcwd":
+		return pval{kind: 'p', anchor: "cwd"}, len(vals) == 0
+	}
+	return pval{}, false
+}
+
+// --- resolution -----------------------------------------------------------
+
+// resolvePyPath returns the repository-relative candidates of a symbolic
+// path in file p ("." is the root); paths escaping the repository are
+// dropped.
+func resolvePyPath(p string, pp pyPath) []string {
+	var bases []string
+	switch pp.Anchor {
+	case "file":
+		bases = []string{p}
+	case "cwd":
+		bases = []string{"."}
+	case "lit":
+		bases = []string{".", path.Dir(p)}
+	}
+	var out []string
+	for _, b := range bases {
+		c := path.Clean(path.Join(b, pp.Rel))
+		if c == ".." || strings.HasPrefix(c, "../") || slices.Contains(out, c) {
+			continue
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
+func rootDir(c string) string {
+	if c == "." {
+		return ""
+	}
+	return c
+}
+
+// pyBootDirs returns the directories a module's bootstrap resolves to (its
+// contribution to the source roots).
+func pyBootDirs(p string, r *pyRaw, u *universe) []string {
+	var out []string
+	for _, st := range r.Stmts {
+		if st.Boot == nil {
+			continue
+		}
+		for _, pp := range st.Boot.Paths {
+			for _, c := range resolvePyPath(p, pp) {
+				if d := rootDir(c); u.isDir(d) && !u.has(c) {
+					out = append(out, d)
+				}
+			}
+		}
+	}
+	return out
+}
+
+// pyLoc is where a module was found: its file (a module's .py, or a
+// package's __init__.py — "" for a namespace package) and, for a package,
+// the directories its submodules are searched in (__path__).
+type pyLoc struct {
+	file    string
+	pkgDirs []string
+}
+
+// findIn looks name up in each directory, in order: a regular package
+// (dir/name/__init__.py) or a module (dir/name.py) is a definite hit; a
+// directory without __init__.py is a namespace portion, used only when no
+// definite hit exists anywhere.
+func findIn(name string, dirs []string, u *universe) (hits []pyLoc, ns []string) {
+	for _, d := range dirs {
+		pkg := joinRel(d, name)
+		if init := joinRel(pkg, "__init__.py"); u.has(init) {
+			hits = append(hits, pyLoc{file: init, pkgDirs: []string{pkg}})
+		} else if mod := joinRel(d, name+".py"); u.has(mod) {
+			hits = append(hits, pyLoc{file: mod})
+		} else if u.isDir(pkg) && pkg != "" {
+			ns = append(ns, pkg)
+		}
+	}
+	return hits, ns
+}
+
+// pyModel is the ordered sys.path and sys.modules of one module, advanced
+// statement by statement.
+type pyModel struct {
+	p       string
+	u       *universe
+	syspath []string
+	allDirs []string         // every directory any state of syspath held
+	mods    map[string]pyLoc // sys.modules, by fully qualified name
+	pkg     string           // the module's own package (its directory's __init__.py chain), "" when none
+	unsure  bool             // a bootstrap the model could not apply exactly
+	wild    bool             // some sys.path entry could not be evaluated: an import may load a file from any directory
+	deps    []Dep
+	unres   []string
+	lk      *lookups // source-root retries, for misses
+}
+
+func (m *pyModel) note(dirs ...string) {
+	for _, d := range dirs {
+		if !slices.Contains(m.allDirs, d) {
+			m.allDirs = append(m.allDirs, d)
+		}
+	}
+}
+
+func (m *pyModel) boot(b *pyBoot) {
+	var dirs []string
+	for _, pp := range b.Paths {
+		for _, c := range resolvePyPath(m.p, pp) {
+			dirs = append(dirs, rootDir(c))
+			break // the first base is Python's (anchor-exact); lit tries the root first
+		}
+	}
+	m.note(dirs...)
+	if !b.Top || b.Unresolved || b.Alt || (b.Op == "insert" && b.Index < 0) || b.Op == "assign" {
+		m.unsure = true
+		return
+	}
+	for _, d := range dirs {
+		if b.Op == "append" {
+			m.syspath = append(m.syspath, d)
+			continue
+		}
+		at := min(b.Index, len(m.syspath))
+		m.syspath = slices.Insert(m.syspath, at, d)
+	}
+}
+
+// resolve resolves an import. certain: Python's choice is known (the import
+// runs at its own line in straight-line top-level code, with no unsure
+// bootstrap before it); then the winner is static:import. Otherwise every
+// candidate over every directory the model saw is an edge, and none is
+// claimed unless it is the only one.
+func (m *pyModel) resolve(imp *pyImport) {
+	// An entry the model could not evaluate may hold the module: the files
+	// the import could name anywhere are candidates, and they compete with
+	// a lone uncertain winner below.
+	var wide []string
+	if m.wild && imp.Level == 0 {
+		wide = m.lk.pyAnywhere(*imp)
+		for _, h := range wide {
+			m.add(Dep{Target: h, Line: imp.Line, Via: "anywhere"})
+		}
+	}
+	certain := imp.Top && !imp.Dyn && !m.unsure
+	dirs := m.syspath
+	if !certain {
+		dirs = m.allDirs
+	}
+	// fq names the module in the modelled sys.modules. A relative import is
+	// qualified by the importing package (`from . import helper` in pkg is
+	// pkg.helper, never the top-level helper).
+	fq := ""
+	if imp.Level > 0 {
+		base := path.Dir(m.p)
+		for k := 1; k < imp.Level; k++ {
+			base = path.Dir(base)
+		}
+		dirs = []string{rootDir(base)}
+		certain = certain || imp.Top
+		fq = m.relPackage(imp.Level, base)
+	}
+	parts := strings.Split(imp.Module, ".")
+	if imp.Module == "" {
+		parts = nil
+	}
+	type cand struct {
+		file string
+		via  string
+	}
+	var winners, others []cand
+	var locs []pyLoc // the current candidates for the module so far
+	for i, seg := range parts {
+		fq = joinDot(fq, seg)
+		if loc, ok := m.mods[fq]; ok && certain {
+			locs = []pyLoc{loc}
+			continue
+		}
+		var search []string
+		if i == 0 {
+			search = dirs
+		} else {
+			for _, l := range locs {
+				search = append(search, l.pkgDirs...)
+			}
+		}
+		hits, ns := findIn(seg, search, m.u)
+		if len(hits) == 0 && len(ns) > 0 {
+			hits = []pyLoc{{pkgDirs: ns}}
+		}
+		if len(hits) == 0 {
+			locs = nil
+			break
+		}
+		if certain {
+			locs = hits[:1]
+			for _, h := range hits[1:] {
+				if h.file != "" {
+					others = append(others, cand{h.file, "import"})
+				}
+			}
+			m.mods[fq] = locs[0]
+		} else {
+			locs = hits
+		}
+		if i < len(parts)-1 {
+			for _, l := range locs {
+				if l.file != "" {
+					others = append(others, cand{l.file, "init"})
+				}
+			}
+		}
+	}
+	finals := locs
+	if len(parts) > 0 && len(finals) == 0 {
+		m.miss(imp)
+		return
+	}
+	// `from pkg import name`: name is an attribute of pkg or its submodule.
+	var named []pyLoc
+	for _, n := range imp.Names {
+		var search []string
+		for _, l := range finals {
+			search = append(search, l.pkgDirs...)
+		}
+		if imp.Level > 0 && len(parts) == 0 {
+			search = dirs
+		}
+		hits, _ := findIn(n, search, m.u)
+		if len(hits) == 0 {
+			continue
+		}
+		if certain {
+			named = append(named, hits[0])
+			m.mods[joinDot(fq, n)] = hits[0]
+			for _, h := range hits[1:] {
+				others = append(others, cand{h.file, "import"})
+			}
+		} else {
+			named = append(named, hits...)
+		}
+	}
+	for _, l := range append(slices.Clone(finals), named...) {
+		if l.file != "" {
+			winners = append(winners, cand{l.file, "import"})
+		}
+	}
+	if len(winners) == 0 && len(others) == 0 && len(parts) == 0 && len(imp.Names) > 0 {
+		m.miss(imp)
+		return
+	}
+	// A lone uncertain winner is claimed only when nothing competes with it:
+	// no other candidate the model found, and none an unevaluated entry
+	// could supply.
+	origin := Origin("")
+	if certain || len(winners) == 1 && !slices.ContainsFunc(wide, func(f string) bool {
+		return f != winners[0].file && importLoads(f, imp)
+	}) {
+		origin = Import
+	}
+	for _, w := range winners {
+		m.add(Dep{Target: w.file, Line: imp.Line, Origin: origin, Via: w.via})
+	}
+	for _, o := range others {
+		m.add(Dep{Target: o.file, Line: imp.Line, Via: o.via})
+	}
+}
+
+// importLoads reports whether f is a file the import itself may load from
+// some directory: the module, or a name it imports as a submodule (`from
+// pkg import sub` loads pkg/sub.py, even under a namespace package) — not
+// a parent package.
+func importLoads(f string, imp *pyImport) bool {
+	if imp.Module != "" && isModuleFile(f, imp.Module) {
+		return true
+	}
+	for _, n := range imp.Names {
+		if isModuleFile(f, joinDot(imp.Module, n)) {
+			return true
+		}
+	}
+	return false
+}
+
+// isModuleFile reports whether f is the module mod itself under some
+// directory (mod.py or mod/__init__.py), not a parent package.
+func isModuleFile(f, mod string) bool {
+	rel := strings.ReplaceAll(mod, ".", "/")
+	for _, c := range []string{rel + ".py", rel + "/__init__.py"} {
+		if f == c || strings.HasSuffix(f, "/"+c) {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *pyModel) add(d Dep) {
+	if d.Target == m.p || d.Target == "" {
+		return
+	}
+	m.deps = append(m.deps, d)
+}
+
+// miss retries an import against every source root (closure-only).
+func (m *pyModel) miss(imp *pyImport) {
+	hits := m.lk.pyFallback(*imp)
+	for _, h := range hits {
+		m.add(Dep{Target: h, Line: imp.Line, Via: "fallback"})
+	}
+	if len(hits) == 0 && imp.Level > 0 {
+		m.unres = append(m.unres, strings.Repeat(".", imp.Level)+imp.Module)
+	}
+}
+
+// relPackage is the fully qualified package a relative import of level
+// dots resolves in: the module's package with level-1 trailing segments
+// dropped. When the module is in no package (or the dots climb past its
+// top), the name is keyed by directory, a key no absolute import produces.
+func (m *pyModel) relPackage(level int, base string) string {
+	segs := strings.Split(m.pkg, ".")
+	if m.pkg == "" || len(segs) < level {
+		return "\x00" + base
+	}
+	return strings.Join(segs[:len(segs)-(level-1)], ".")
+}
+
+// pyPackage is the dotted package a directory is, through its chain of
+// __init__.py directories ("" when it has none).
+func pyPackage(dir string, u *universe) string {
+	var segs []string
+	for d := dir; d != "" && u.has(joinRel(d, "__init__.py")); d = parentDir(d) {
+		segs = append(segs, path.Base(d))
+	}
+	slices.Reverse(segs)
+	return strings.Join(segs, ".")
+}
+
+func joinDot(a, b string) string {
+	if a == "" {
+		return b
+	}
+	return a + "." + b
+}
+
+// pyFacts resolves a module: its imports in statement order through the
+// modelled sys.path / sys.modules, its ancestors' conftest.py, and its
+// path-shaped strings (closure-only).
+func pyFacts(p string, r *pyRaw, lk *lookups) ([]Dep, []string) {
+	u := lk.u
+	dir := rootDir(path.Dir(p))
+	m := &pyModel{p: p, u: u, syspath: []string{dir, ""}, mods: map[string]pyLoc{},
+		pkg: pyPackage(dir, u), unsure: r.Uncertain, lk: lk}
+	m.note(m.syspath...)
+	for _, st := range r.Stmts {
+		if st.Boot != nil {
+			m.boot(st.Boot)
+		}
+	}
+	// Second pass, in order: the first pass only collected allDirs for the
+	// uncertain imports; the order-faithful state is rebuilt here.
+	m.syspath = []string{dir, ""}
+	m.unsure = r.Uncertain
+	m.wild = slices.ContainsFunc(r.Stmts, func(st pyStmt) bool {
+		return st.Boot != nil && (st.Boot.Unresolved || st.Boot.Op == "assign")
+	})
+	for _, st := range r.Stmts {
+		switch {
+		case st.Boot != nil:
+			m.boot(st.Boot)
+		case st.Import != nil:
+			m.resolve(st.Import)
+		}
+	}
+	for d := dir; ; d = parentDir(d) {
+		if c := joinRel(d, "conftest.py"); u.has(c) && c != p {
+			m.add(Dep{Target: c, Via: "conftest"})
+		}
+		if d == "" {
+			break
+		}
+	}
+	for _, pr := range r.Paths {
+		if pr.Path.Anchor == "suffix" {
+			for _, c := range lk.suffixMatch(pr.Path.Rel) {
+				m.add(Dep{Target: c, Line: pr.Line, Via: "suffix"})
+			}
+			continue
+		}
+		for _, c := range resolvePyPath(p, pr.Path) {
+			if u.has(c) {
+				m.add(Dep{Target: c, Line: pr.Line, Via: "path"})
+			}
+		}
+	}
+	return m.deps, m.unres
+}

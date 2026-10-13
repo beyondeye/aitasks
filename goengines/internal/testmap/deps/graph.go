@@ -1,0 +1,158 @@
+package deps
+
+import (
+	"slices"
+	"strings"
+)
+
+// Graph is a scan's result: every file's facts, the reverse index, the
+// Gradle modules and the scan's problems. It is immutable once Scan returns.
+type Graph struct {
+	files    map[string]*FileFacts
+	order    []string
+	reverse  map[string][]string
+	modules  []GradleModule
+	problems []Problem
+	kt       *ktIndex // for --from-body's symbol resolution
+	helper   []string // helper_roots, for --suggest / --from-body
+}
+
+func newGraph(facts map[string]*FileFacts, modules []GradleModule, problems []Problem) *Graph {
+	g := &Graph{files: facts, reverse: map[string][]string{}, modules: modules}
+	for p, f := range facts {
+		g.order = append(g.order, p)
+		for _, d := range f.Deps {
+			g.reverse[d.Target] = append(g.reverse[d.Target], p)
+		}
+	}
+	slices.Sort(g.order)
+	for k, v := range g.reverse {
+		slices.Sort(v)
+		g.reverse[k] = slices.Compact(v)
+	}
+	slices.SortFunc(problems, func(a, b Problem) int {
+		if c := strings.Compare(a.Path, b.Path); c != 0 {
+			return c
+		}
+		return strings.Compare(a.Reason, b.Reason)
+	})
+	g.problems = slices.CompactFunc(problems, func(a, b Problem) bool { return a == b })
+	return g
+}
+
+// Files returns every scanned file, sorted.
+func (g *Graph) Files() []string { return slices.Clone(g.order) }
+
+// Facts returns a copy of path's facts.
+func (g *Graph) Facts(path string) (FileFacts, bool) {
+	f, ok := g.files[path]
+	if !ok {
+		return FileFacts{}, false
+	}
+	c := *f
+	c.Deps = slices.Clone(f.Deps)
+	c.Reads = slices.Clone(f.Reads)
+	c.Symbols = slices.Clone(f.Symbols)
+	c.Keys = slices.Clone(f.Keys)
+	c.Unresolved = slices.Clone(f.Unresolved)
+	return c, true
+}
+
+// Static returns path's direct deps that carry an Origin — the facts the
+// seeder reads. Closure-only edges are never among them.
+func (g *Graph) Static(path string) []Dep {
+	f, ok := g.files[path]
+	if !ok {
+		return nil
+	}
+	var out []Dep
+	for _, d := range f.Deps {
+		if d.Origin != "" {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+// Reverse returns the files with a direct dep on path, sorted.
+func (g *Graph) Reverse(path string) []string { return slices.Clone(g.reverse[path]) }
+
+// Closure walks path's forward deps breadth-first and returns every file
+// reached (path itself excluded), nearest first, then by path. max <= 0 is
+// unbounded: chains of sources and imports run deeper than two hops, so the
+// selector's test-side closure walks them all.
+func (g *Graph) Closure(path string, max int) []Reach {
+	seen := map[string]bool{path: true}
+	var out []Reach
+	frontier := []Reach{{Path: path}}
+	for dist := 1; len(frontier) > 0 && (max <= 0 || dist <= max); dist++ {
+		var next []Reach
+		for _, r := range frontier {
+			f, ok := g.files[r.Path]
+			if !ok {
+				continue
+			}
+			for _, d := range f.Deps {
+				if seen[d.Target] {
+					continue
+				}
+				seen[d.Target] = true
+				next = append(next, Reach{Path: d.Target, Distance: dist, Via: d.Via})
+			}
+		}
+		slices.SortFunc(next, func(a, b Reach) int { return strings.Compare(a.Path, b.Path) })
+		out = append(out, next...)
+		frontier = next
+	}
+	return out
+}
+
+// Opaque returns path's opaque reason, "" when it is transparent.
+func (g *Graph) Opaque(path string) string {
+	if f, ok := g.files[path]; ok {
+		return f.Opaque
+	}
+	return ""
+}
+
+// Modules returns a copy of the Gradle modules, sorted by name.
+func (g *Graph) Modules() []GradleModule {
+	out := make([]GradleModule, len(g.modules))
+	for i, m := range g.modules {
+		out[i] = m.clone()
+	}
+	return out
+}
+
+// ModuleOf returns a copy of the module whose directory is the deepest one
+// containing path.
+func (g *Graph) ModuleOf(path string) (GradleModule, bool) {
+	m, ok := moduleOf(g.modules, path)
+	return m.clone(), ok
+}
+
+func (m GradleModule) clone() GradleModule {
+	m.Deps = slices.Clone(m.Deps)
+	return m
+}
+
+func moduleOf(mods []GradleModule, path string) (GradleModule, bool) {
+	best, found := GradleModule{}, false
+	for _, m := range mods {
+		if !within(path, m.Dir) {
+			continue
+		}
+		if !found || len(m.Dir) > len(best.Dir) {
+			best, found = m, true
+		}
+	}
+	return best, found
+}
+
+// within reports whether path lies under dir ("" is the repository root).
+func within(path, dir string) bool {
+	return dir == "" || path == dir || strings.HasPrefix(path, dir+"/")
+}
+
+// Problems returns the scan's non-fatal findings, sorted.
+func (g *Graph) Problems() []Problem { return slices.Clone(g.problems) }

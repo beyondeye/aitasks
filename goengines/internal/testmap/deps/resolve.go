@@ -1,0 +1,357 @@
+package deps
+
+import (
+	"path"
+	"slices"
+	"strings"
+)
+
+// fileB builds one file's facts during resolution.
+type fileB struct {
+	FileFacts
+	goPackage string
+	goPkgLine int
+	goImports []string
+	opaques   []string
+}
+
+func (f *fileB) add(d Dep) {
+	if d.Target == "" || d.Target == f.Path {
+		return
+	}
+	f.Deps = append(f.Deps, d)
+}
+
+func (f *fileB) addOpaque(reason string) {
+	if !slices.Contains(f.opaques, reason) {
+		f.opaques = append(f.opaques, reason)
+	}
+}
+
+// generatedPath reports a generated or KSP / kapt source by its path.
+func generatedPath(p string) bool {
+	if strings.HasPrefix(p, "build/generated/") || strings.Contains(p, "/build/generated/") {
+		return true
+	}
+	for _, seg := range strings.Split(path.Dir(p), "/") {
+		if seg == "generated" || seg == "ksp" || seg == "kapt" {
+			return true
+		}
+	}
+	return false
+}
+
+// resolve turns the raw facts into each file's FileFacts.
+func (s *state) resolve(gl *goResult, plugins []pluginLine) (map[string]*FileFacts, []GradleModule, *ktIndex) {
+	b := map[string]*fileB{}
+	for p, sc := range s.files {
+		f := &fileB{FileFacts: FileFacts{Path: p, Lang: sc.kind, Symbols: sc.raw.Symbols}}
+		if sc.unreadable {
+			f.addOpaque("unreadable")
+		}
+		for _, r := range sc.raw.Opaque {
+			if r == "dynamic-resource" && !s.androidRes {
+				continue
+			}
+			f.addOpaque(r)
+		}
+		if sc.raw.Go != nil {
+			f.goPackage, f.goPkgLine, f.goImports = sc.raw.Go.Package, sc.raw.Go.PkgLine, sc.raw.Go.Imports
+		}
+		if sc.raw.Py != nil && sc.raw.Py.Uncertain {
+			f.addOpaque("uncertain")
+		}
+		b[p] = f
+	}
+	roots, envs := s.sourceRoots()
+	lk := newLookups(s.u, roots)
+	for p, sc := range s.files {
+		f := b[p]
+		switch {
+		case sc.raw.Bash != nil:
+			deps, unres := bashFacts(p, sc.raw.Bash, envs[p], lk)
+			f.Deps = append(f.Deps, deps...)
+			f.Unresolved = append(f.Unresolved, unres...)
+		case sc.raw.Py != nil:
+			deps, unres := pyFacts(p, sc.raw.Py, lk)
+			f.Deps = append(f.Deps, deps...)
+			f.Unresolved = append(f.Unresolved, unres...)
+		}
+	}
+	goFacts(gl, b, s.u)
+	ix := buildKtIndex(s.files)
+	gb := buildGradle(s.files, s.u, s.problem)
+	for p, sc := range s.files {
+		f := b[p]
+		switch {
+		case sc.raw.Kt != nil:
+			deps, unres := ktFacts(p, sc.raw.Kt, ix)
+			f.Deps = append(f.Deps, deps...)
+			f.Unresolved = append(f.Unresolved, unres...)
+			if s.androidRes {
+				f.Keys = slices.Clone(sc.raw.Kt.Keys)
+			}
+			if generatedPath(p) {
+				f.addOpaque("generated")
+			}
+			for _, d := range gb.sourceEdges(p) {
+				f.add(d)
+			}
+		case sc.raw.Java != nil:
+			f.addOpaque("java-unscanned")
+			if generatedPath(p) {
+				f.addOpaque("generated")
+			}
+			if s.androidRes {
+				f.Keys = []string{"*"}
+			}
+			for _, d := range gb.sourceEdges(p) {
+				f.add(d)
+			}
+		case sc.raw.Gradle != nil:
+			if gb.dynamic[p] {
+				f.addOpaque("gradle-dynamic")
+			}
+		}
+	}
+	// Plugins: closure-only deps, opaque answers and read globs.
+	for _, pl := range plugins {
+		f, ok := b[pl.File]
+		if !ok {
+			f = &fileB{FileFacts: FileFacts{Path: pl.File, Lang: "plugin:" + pl.plugin}}
+			b[pl.File] = f
+		}
+		for _, d := range pl.Deps {
+			f.add(Dep{Target: d, Via: "plugin:" + pl.plugin})
+		}
+		if pl.Opaque != nil {
+			f.addOpaque("plugin:" + pl.plugin)
+		}
+		f.Reads = append(f.Reads, pl.Reads...)
+	}
+	out := map[string]*FileFacts{}
+	for p, f := range b {
+		ff := f.FileFacts
+		ff.Opaque = firstOpaque(f.opaques...)
+		if ff.Opaque == "" {
+			for _, o := range f.opaques {
+				if strings.HasPrefix(o, "plugin:") {
+					ff.Opaque = o
+					break
+				}
+			}
+		}
+		ff.Deps = normalizeDeps(p, ff.Deps)
+		slices.Sort(ff.Reads)
+		ff.Reads = slices.Compact(ff.Reads)
+		slices.Sort(ff.Unresolved)
+		ff.Unresolved = slices.Compact(ff.Unresolved)
+		slices.Sort(ff.Keys)
+		ff.Keys = slices.Compact(ff.Keys)
+		out[p] = &ff
+	}
+	return out, gb.modules, ix
+}
+
+// normalizeDeps keeps, per target, every distinct origin once (its first
+// anchor line), and drops a closure-only edge to a target that already has
+// an origin edge. The result is sorted by target, origin edges first.
+func normalizeDeps(self string, deps []Dep) []Dep {
+	type key struct {
+		target string
+		origin Origin
+	}
+	best := map[key]Dep{}
+	var keys []key
+	for _, d := range deps {
+		if d.Target == self || d.Target == "" {
+			continue
+		}
+		k := key{d.Target, d.Origin}
+		cur, ok := best[k]
+		if !ok {
+			keys = append(keys, k)
+			best[k] = d
+			continue
+		}
+		if d.Line > 0 && (cur.Line == 0 || d.Line < cur.Line) {
+			best[k] = d
+		}
+	}
+	hasOrigin := map[string]bool{}
+	for _, k := range keys {
+		if k.origin != "" {
+			hasOrigin[k.target] = true
+		}
+	}
+	var out []Dep
+	for _, k := range keys {
+		if k.origin == "" && hasOrigin[k.target] {
+			continue
+		}
+		out = append(out, best[k])
+	}
+	slices.SortFunc(out, func(a, b Dep) int {
+		if c := strings.Compare(a.Target, b.Target); c != 0 {
+			return c
+		}
+		return strings.Compare(string(b.Origin), string(a.Origin))
+	})
+	return out
+}
+
+// lookups memoizes the universe-wide resolutions every file repeats — an
+// import or path retried against the source roots, a suffix match — so a
+// warm scan resolves each distinct question once.
+type lookups struct {
+	u       *universe
+	roots   []string // the source roots; "" (the repository root) first
+	py      map[string][]string
+	inRoot  map[string][]string
+	suffix  map[string][]string
+	byBase  map[string][]string // file base name → files
+	rootSet map[string]bool
+}
+
+func newLookups(u *universe, roots []string) *lookups {
+	l := &lookups{u: u, roots: roots, py: map[string][]string{}, inRoot: map[string][]string{},
+		suffix: map[string][]string{}, byBase: map[string][]string{}}
+	for _, f := range u.list {
+		b := path.Base(f)
+		l.byBase[b] = append(l.byBase[b], f)
+	}
+	l.rootSet = map[string]bool{}
+	for _, r := range roots {
+		l.rootSet[r] = true
+	}
+	return l
+}
+
+// pyFallback returns every file an import could name under any source
+// root — the module (or package __init__), the imported names as
+// submodules, and the parent packages' __init__ — memoized, through the
+// base-name index.
+func (l *lookups) pyFallback(imp pyImport) []string { return l.pyNamed(imp, false) }
+
+// pyAnywhere returns every file an import could name under any directory
+// of the repository: what a module whose sys.path holds an entry the
+// scanner could not evaluate may load.
+func (l *lookups) pyAnywhere(imp pyImport) []string { return l.pyNamed(imp, true) }
+
+func (l *lookups) pyNamed(imp pyImport, anywhere bool) []string {
+	k := imp.Module + "\x00" + strings.Join(imp.Names, ",")
+	if anywhere {
+		k = "*" + k
+	}
+	if v, ok := l.py[k]; ok {
+		return v
+	}
+	var out []string
+	found := map[string]bool{}
+	match := func(rel string) {
+		for _, f := range l.byBase[path.Base(rel)] {
+			root, ok := "", f == rel
+			if !ok && strings.HasSuffix(f, "/"+rel) {
+				root, ok = strings.TrimSuffix(f, "/"+rel), true
+			}
+			if ok && (anywhere || l.rootSet[root]) && !slices.Contains(out, f) {
+				out = append(out, f)
+				found[root] = true
+			}
+		}
+	}
+	mod := strings.ReplaceAll(imp.Module, ".", "/")
+	if mod != "" {
+		match(mod + ".py")
+		match(mod + "/__init__.py")
+	}
+	for _, n := range imp.Names {
+		match(joinRel(mod, n+".py"))
+		match(joinRel(joinRel(mod, n), "__init__.py"))
+	}
+	segs := strings.Split(mod, "/")
+	for _, root := range sortedKeys(found) {
+		for i := 1; i < len(segs); i++ {
+			if f := joinRel(joinRel(root, strings.Join(segs[:i], "/")), "__init__.py"); l.u.has(f) && !slices.Contains(out, f) {
+				out = append(out, f)
+			}
+		}
+	}
+	l.py[k] = out
+	return out
+}
+
+// inRoots returns the universe files rel names under any source root.
+func (l *lookups) inRoots(rel string) []string {
+	if v, ok := l.inRoot[rel]; ok {
+		return v
+	}
+	var v []string
+	clean := path.Clean(rel)
+	if clean != "." && !strings.HasPrefix(clean, "../") && clean != ".." && !strings.Contains(clean, "/../") {
+		// Index path: the files named like rel whose remaining prefix is a root.
+		for _, f := range l.byBase[path.Base(clean)] {
+			switch {
+			case f == clean:
+				if l.rootSet[""] {
+					v = append(v, f)
+				}
+			case strings.HasSuffix(f, "/"+clean):
+				if l.rootSet[strings.TrimSuffix(f, "/"+clean)] {
+					v = append(v, f)
+				}
+			}
+		}
+	} else {
+		for _, root := range l.roots {
+			c := path.Clean(path.Join(root, rel))
+			if l.u.has(c) && !slices.Contains(v, c) {
+				v = append(v, c)
+			}
+		}
+	}
+	l.inRoot[rel] = v
+	return v
+}
+
+// suffixMatch returns the universe files whose path is tail or ends in
+// "/"+tail, memoized. A tail without a directory component must still name a
+// script.
+func (l *lookups) suffixMatch(tail string) []string {
+	tail = strings.TrimPrefix(path.Clean(tail), "./")
+	if v, ok := l.suffix[tail]; ok {
+		return v
+	}
+	var v []string
+	if tail != "." && tail != "" && !strings.HasPrefix(tail, "..") && pathLike(tail) {
+		for _, f := range l.byBase[path.Base(tail)] {
+			if f == tail || strings.HasSuffix(f, "/"+tail) {
+				v = append(v, f)
+			}
+		}
+	}
+	l.suffix[tail] = v
+	return v
+}
+
+// sourceRoots is the repository root plus every directory some scanned
+// file's own bootstrap resolves to (bash directory variables, Python
+// sys.path entries): the roots an unresolvable base is retried against.
+func (s *state) sourceRoots() ([]string, map[string]map[string][]string) {
+	set := map[string]bool{"": true}
+	envs := map[string]map[string][]string{}
+	for p, sc := range s.files {
+		switch {
+		case sc.raw.Bash != nil:
+			envs[p] = bashEnv(p, sc.raw.Bash)
+			for _, d := range bashDirs(envs[p], s.u) {
+				set[d] = true
+			}
+		case sc.raw.Py != nil:
+			for _, d := range pyBootDirs(p, sc.raw.Py, s.u) {
+				set[d] = true
+			}
+		}
+	}
+	return sortedKeys(set), envs
+}

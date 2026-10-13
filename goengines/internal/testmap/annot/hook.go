@@ -74,6 +74,9 @@ type Restamp struct {
 	Before Stamp       `json:"before"`
 	After  Stamp       `json:"after"`
 	State  EdgeState   `json:"state"`
+	// Origin is the provenance a caller stamped the edge from (e.g.
+	// `scanner:from-body`); "" when a person or agent named the source.
+	Origin string `json:"origin,omitempty"`
 }
 
 // RestampHook runs once after `annotate` or `verify` wrote every file, with

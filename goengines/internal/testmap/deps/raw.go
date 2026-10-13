@@ -1,0 +1,79 @@
+package deps
+
+import (
+	"path"
+	"strings"
+
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/annot"
+)
+
+// rawFile is what one scanner extracts from one file's bytes, independent of
+// the file's path: the unit the blob cache stores. Resolution against the
+// path and the universe happens in memory, on every scan.
+type rawFile struct {
+	Opaque  []string `json:"opaque,omitempty"` // content-rule reasons, any order (firstOpaque picks)
+	Symbols []Symbol `json:"symbols,omitempty"`
+
+	Bash   *bashRaw   `json:"bash,omitempty"`
+	Py     *pyRaw     `json:"py,omitempty"`
+	Go     *goRaw     `json:"go,omitempty"`
+	Kt     *ktRaw     `json:"kt,omitempty"`
+	Java   *javaRaw   `json:"java,omitempty"`
+	Gradle *gradleRaw `json:"gradle,omitempty"`
+}
+
+// Scanner kinds.
+const (
+	kindBash   = "bash"
+	kindPython = "python"
+	kindGo     = "go"
+	kindKotlin = "kotlin"
+	kindJava   = "java"
+	kindGradle = "gradle"
+)
+
+// kindOf picks the scanner for a path. data is needed only for a file with
+// no extension (a shebang decides); readData is called at most once.
+func kindOf(p string, readData func() []byte) string {
+	base := path.Base(p)
+	switch {
+	case strings.HasSuffix(base, ".gradle") || strings.HasSuffix(base, ".gradle.kts"):
+		return kindGradle
+	case strings.HasSuffix(base, ".java"):
+		return kindJava
+	}
+	if path.Ext(base) == "" {
+		if l, ok := annot.LangOf(p, readData()); ok {
+			return l.Name
+		}
+		return ""
+	}
+	if l, ok := annot.LangOf(p, nil); ok {
+		return l.Name
+	}
+	return ""
+}
+
+// scanRawHook is a test seam: it runs on every cache miss, before a scanner
+// extracts a file.
+var scanRawHook = func(kind string) {}
+
+// scanRaw runs kind's scanner over data.
+func scanRaw(kind string, data []byte) rawFile {
+	scanRawHook(kind)
+	switch kind {
+	case kindBash:
+		return scanBash(data)
+	case kindPython:
+		return scanPython(data)
+	case kindGo:
+		return scanGo(data)
+	case kindKotlin:
+		return scanKotlin(data)
+	case kindJava:
+		return scanJava(data)
+	case kindGradle:
+		return scanGradle(data)
+	}
+	return rawFile{}
+}

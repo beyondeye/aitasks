@@ -159,7 +159,9 @@ func TestStampVerbUsage(t *testing.T) {
 			t.Errorf("%v: %d %q %q", args, code, out, errs)
 		}
 	}
-	for _, arm := range []string{"--suggest", "--from-body", "--author"} {
+	// --suggest and --from-body landed with M2.3 (annotate_deps.go); --author
+	// (M7.4) is still a stub.
+	for _, arm := range []string{"--author"} {
 		if code, _, errs := call("annotate", arm, "tests/t.sh"); code != 64 || errs != "NOT_IMPLEMENTED:annotate "+arm+"\n" {
 			t.Errorf("%s: %d %q", arm, code, errs)
 		}

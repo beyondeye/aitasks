@@ -1,0 +1,3 @@
+package x.util
+
+inline fun measure(block: () -> Int): Int = block()

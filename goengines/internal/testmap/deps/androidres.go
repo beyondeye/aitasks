@@ -1,0 +1,119 @@
+package deps
+
+import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/xml"
+	"io"
+	"regexp"
+	"slices"
+	"strings"
+)
+
+// The opt-in android-res symbol scanner (`symbol_scanners: [android-res]`):
+// the Kotlin scanner records the string keys each file names
+// (`R.string.<k>`, `R.plurals.<k>`, `"<k>".localized()`), exposed as
+// FileFacts.Keys; a Java file (unscanned) names every key ("*"). For a changed
+// `res/values*/*.xml`, the selector diffs the before blob against the
+// working tree with ChangedKeys.
+
+// ResValuesRe matches the resource files whose keys ChangedKeys diffs.
+var ResValuesRe = regexp.MustCompile(`(^|/)res/values[^/]*/[^/]+\.xml$`)
+
+type resElem struct {
+	XMLName xml.Name
+	Attrs   []xml.Attr `xml:",any,attr"`
+	Inner   string     `xml:",innerxml"`
+}
+
+// ResKeys returns the `<string>` and `<plurals>` keys of a values file, each
+// with a digest of the whole element — its attributes included, so a
+// `formatted="false"` change is a changed key. A `<string>` and a `<plurals>`
+// sharing a name are two resources behind one bare key: the key's digest
+// covers both, so a change to either is a change to the key.
+func ResKeys(data []byte) (map[string]string, error) {
+	elems := map[string][]string{} // name → the digest of every element with that name
+	fold := func() map[string]string {
+		out := make(map[string]string, len(elems))
+		for name, ds := range elems {
+			if len(ds) == 1 {
+				out[name] = ds[0]
+				continue
+			}
+			slices.Sort(ds)
+			h := sha256.Sum256([]byte(strings.Join(ds, "\x00")))
+			out[name] = hex.EncodeToString(h[:])
+		}
+		return out
+	}
+	d := xml.NewDecoder(bytes.NewReader(data))
+	depth := 0
+	for {
+		tok, err := d.Token()
+		if err == io.EOF {
+			return fold(), nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		switch t := tok.(type) {
+		case xml.StartElement:
+			if depth == 1 && (t.Name.Local == "string" || t.Name.Local == "plurals") {
+				var el resElem
+				if err := d.DecodeElement(&el, &t); err != nil {
+					return nil, err
+				}
+				name := ""
+				var attrs []string
+				for _, a := range t.Attr {
+					if a.Name.Local == "name" && a.Name.Space == "" {
+						name = a.Value
+					}
+					attrs = append(attrs, a.Name.Space+":"+a.Name.Local+"="+a.Value)
+				}
+				if name == "" {
+					continue
+				}
+				slices.Sort(attrs)
+				h := sha256.Sum256([]byte(t.Name.Local + "\x00" + strings.Join(attrs, "\x00") + "\x00" + el.Inner))
+				elems[name] = append(elems[name], hex.EncodeToString(h[:]))
+				continue
+			}
+			depth++
+		case xml.EndElement:
+			depth--
+		}
+	}
+}
+
+// ChangedKeys lists the keys added, removed or changed between two versions
+// of a values file, sorted. A nil side means every key of the other side
+// changed (no before blob: the whole file is the symbol set).
+func ChangedKeys(before, after []byte) ([]string, error) {
+	var b, a map[string]string
+	var err error
+	if before != nil {
+		if b, err = ResKeys(before); err != nil {
+			return nil, err
+		}
+	}
+	if after != nil {
+		if a, err = ResKeys(after); err != nil {
+			return nil, err
+		}
+	}
+	var out []string
+	for k, v := range a {
+		if before == nil || b[k] != v {
+			out = append(out, k)
+		}
+	}
+	for k := range b {
+		if _, ok := a[k]; !ok || after == nil {
+			out = append(out, k)
+		}
+	}
+	slices.Sort(out)
+	return slices.Compact(out), nil
+}

@@ -451,6 +451,7 @@ Every line class is defined once. This table says where.
 | `PREDICTION_SCORED:` `PREDICTION_FALSE_NEGATIVES:` `PREDICTION_MISSED:` `REJECTION_CONTRADICTED:` `LEVEL:` `NEXT:` `ADOPTED_UNREVIEWED:` `AGENT_ADOPTED:` | component *Feedback tools* |
 | `UNMAPPED_SOURCE:` `ESCALATE:` `DEFERRED:` `edge(…)` `adopted(…)` `axis(…)` `test-dep` `reads(…)` | component *Selector* |
 | `STAMP:` `STAMP_SKIP:` `STAMP_REFUSED:` `STAMPS:` `ANNOT_INVALID:` `REWRITE_CONFLICT:` `RESTAMP_HOOK_ERROR:` (`annotate`, `verify`; `WROTE:` reused) | component *Annotation scanner and rewriter* |
+| `SUGGEST:` `SUGGESTS:` `SUGGEST_REFUSED:` `FROM_BODY:` `FROM_BODY_REFUSED:` `SCANNER_ERROR:` (`annotate --suggest`, `annotate --from-body`, any scan) | component *Dependency scanners* |
 | check rules `STALE_PATH` … `CONTRACT_MISMATCH`, `UNCOVERED_VALUE:` `UNMAPPED_ARTIFACT:` `DEAD_*` `UNKNOWN_VARIANT`, `OWNS_VIOLATION:` `DUPLICATE_RULE:` `WAIVER_EXPIRED:` `SCAN_DRIFT:` `SCAN:` `CHECK:` `REGISTRY_INVALID:` `INPUT_UNAVAILABLE:` `INPUT_ERROR:` `CHECK_ERROR:` | component *Registry loader*; *Enumeration and reconciliation* |
 | `ENGINE:` `CONTRACT_MISMATCH` `TESTMAP_BINARY:skipped` `AITASKS_HOME:` `HOME_*` | components *Engine binary*, *Engine install*, *Framework home* |
 <!-- /section: architecture -->
@@ -2350,9 +2351,23 @@ never written. A Python module docstring is read, never written:
   (`added` / `restamped` / `current`, with the stamps before and after) and
   the actor. After an error it does not run, which keeps provenance — the safe
   direction.
-- The arms `--suggest`, `--from-body` (M2.3) and `--author` (M7.4) register in
-  `annotateArms`. Until then they are `NOT_IMPLEMENTED:annotate --<arm>`,
-  exit 64.
+- The arms of `annotate` register in M2.2's `annotateArms` table
+  (`cmd/ait-testmap/annotate.go`). An arm that has not landed is
+  `NOT_IMPLEMENTED:annotate --<arm>`, exit 64 (`--author`, M7.4).
+  - `--suggest` and `--from-body` register from M2.3's own
+    `cmd/ait-testmap/annotate_deps.go`, and their engines live in
+    `internal/testmap/deps`: arm code in `annot` would be an import cycle,
+    since the scanners read `annot`'s lexer and grammar. Their contract is
+    under *Dependency scanners*.
+  - A caller that infers its sources stamps through
+    `annot.AnnotateWith(…, AnnotateOptions{Origin, Snapshot})`:
+    - `Origin` is the provenance the hook receives on every edge
+      (`Restamp.Origin`, for example `scanner:from-body`; empty from
+      `annotate`).
+    - `Snapshot` is the snapshot of the reading it inferred from. A file
+      that no longer matches is `REWRITE_CONFLICT`, and `Apply`'s guarded
+      write re-checks that same snapshot, so an edit at any point between
+      the inference and the rename is refused rather than stamped.
 <!-- /section: component_annotation_scanner -->
 
 <!-- section: component_dependency_scanners [dimensions: component_dependency_scanners] -->
@@ -2388,6 +2403,190 @@ identifiers; Kotlin declarations) for the `REVIEW_SOURCE` lines — never a
 source body. The deeper closure stays the selector's distance-2 walk and is
 never seeded as an edge. Each opaque branch is red-proved by a fixture
 test.
+
+**The scanners as landed (M2.3).** The engine API is
+`deps.Scan(ctx, root, Options) → *Graph`:
+- `Facts(path)` returns `{deps, opaque, reads, symbols, keys, unresolved}`.
+- `Static(path)` returns the direct deps that carry an origin, the facts the
+  seeder reads.
+- `Closure(path, max)` walks forward deps; `max <= 0` is unbounded, because
+  source and import chains run deeper than two hops, so the selector's
+  test-side closure walks them all.
+- `Reverse(path)`, `Opaque(path)`, `Modules()`, `ModuleOf(path)` and
+  `Problems()`.
+
+Under-selection is the dangerous direction, so every resolver
+over-approximates:
+- A dep that carries an origin is a direct, resolved relation. Every other
+  edge is closure-only: it is walked, never seeded.
+- Each dep has a `via`, one of:
+  - bash: `source`, `exec`, `path`
+  - fallbacks: `fallback`, `suffix`, `string`, `embedded`, `embedded-python`
+  - Python: `import`, `init`, `conftest`
+  - Go: `package`, `same-package`, `xtest`, `embed`, `testdata`, `cgo`
+  - Kotlin: `star-import`, `fq-ref`, `package-fallback`
+  - Gradle: `module-build`, `build-input`
+  - plugins: `plugin:<name>`
+
+*Universe and cache.*
+- The universe is the same as the annotation source's: git-visible files
+  minus `exclude:`, minus files missing from the working tree, minus paths
+  through a symbolic link.
+- The blob cache (`deps/<blob>.json`, keyed by the blob id under the
+  repository's object format) stores only path-independent syntax. Each file
+  is resolved against its path and the universe in memory on every scan, so
+  one blob at two paths is correct.
+- Freshness is by content only: every scan hashes every file, never trusting
+  size or mtime.
+- A version or kind mismatch, or a corrupt entry, is rescanned. An unusable
+  cache only slows the scan down.
+
+*Source roots.* The roots an unresolvable base is retried against are the
+repository root plus every directory that some scanned file's own bootstrap
+resolves to: bash directory variables and Python `sys.path` entries. A path
+whose base a file cannot resolve, and a known base whose candidate misses,
+are tried against every root, and hits are closure-only (`fallback`).
+
+*bash.*
+- Every line except comment lines is scanned. Heredoc bodies and quoted
+  sentences yield their path-shaped runs, closure-only.
+- A variable is evaluated against every binding it has in the file, since a
+  function may run after a later reassignment.
+- Embedded Python (`python3 -c`, `python3 - <<EOF`, `-m`) is resolved
+  against the source roots.
+- A non-literal word's literal tail is suffix-matched (closure-only).
+
+*Python.*
+- `sys.path` and `sys.modules` are modelled in statement order: `insert(0)`
+  precedes the script's own directory, and repeated front inserts reverse.
+- An import resolves at its own line, with a module cache keyed by the exact
+  fully qualified name. A child of a loaded package resolves inside that
+  package's directory.
+- A bootstrap or import under control flow has uncertain precedence: every
+  candidate over every reached state is an edge, and none is claimed unless
+  it is the only one.
+- Bindings keep Python's lexical scope:
+  - A def or class body's assignments are its own locals and never become
+    the module's value.
+  - A binding that may not happen keeps the earlier value too, as an
+    alternative. That covers a conditional block, a function's `global`
+    assignment, and an import or unpacking that rebinds a name to something
+    unknown.
+  - A function body reads every value a name bound outside it is ever
+    given, because it runs later. That covers a module name and an
+    enclosing function's local.
+  - A bootstrap whose alternatives disagree applies all of them, with
+    uncertain precedence.
+  - Only a statement that is the `sys.path` call itself runs at its
+    position. A call inside a lambda, a conditional expression or a larger
+    expression has uncertain precedence.
+- A `sys.path` entry the scanner cannot evaluate keeps every candidate. That
+  covers a dynamic value, and too many alternatives or combinations for the
+  evaluation bounds (which become unknown). Each import of that module also
+  depends, closure-only (`anywhere`), on every repository file the import
+  could name in any directory. A lone candidate the model found itself is
+  then claimed static only when none of those competes with it. A path
+  expression on an unknown base keeps its literal tail, suffix-matched
+  (`suffix`).
+- A relative import is cached under the importing package's name, so
+  `from . import helper` in `pkg` is `pkg.helper`, never the top-level
+  `helper`.
+- Parent `__init__.py`, ancestor `conftest.py`, path strings and misses
+  retried against the source roots are closure-only.
+
+*Go.*
+- The graph comes from `go list -e -deps -test -json -mod=readonly ./...` per
+  module (`GOPROXY=off`), at package granularity, so packages only test
+  files import are loaded too. A test main is dropped, and a test variant
+  counts only for a directory no plain package reported. The members are:
+  - `GoFiles`, `CgoFiles` and `IgnoredGoFiles`: a tag-excluded file still
+    belongs, and its own imports count
+  - the test files and `export_test.go`
+  - embedded files, C/H/S files and `testdata/`
+- The result is cached under a key over every input `go list` reads:
+  - `go.mod`, `go.sum` and `go.work` of every module, and every local
+    `replace` / `use` target
+  - the header of every `.go` file on disk: package, `//go:` directives,
+    cgo preamble and imports. Gitignored and `_`/`testdata` packages count,
+    because `-deps` loads what `./...` skips.
+  - each package directory's non-Go names, and the recursive listing of
+    every embedding package's directory
+  - the package-selecting environment and the `go` binary's identity
+- A result whose reported inputs fall outside that key is used, never
+  cached. A local package error, an unresolved local import, a failing
+  `go list` or a missing `go` makes the affected files opaque
+  (`go-list-failed`, `go-unavailable`) and is never cached.
+
+*Kotlin, Java and Gradle.*
+- The opaque reasons are, in precedence order: `inline-fun`, `const-val`,
+  `di` (Dagger/Hilt annotations, also through an import alias, a typealias
+  or the `@[…]` form), `di-koin`, `reflection`, `untokenizable`,
+  `generated` (a `build/generated/` prefix or a `generated` / `ksp` / `kapt`
+  path segment), `java-unscanned`, `dynamic-resource` (`getIdentifier(`,
+  under android-res only) and `gradle-dynamic`. For every language there are
+  also `unreadable`, `uncertain`, `go-list-failed` and `go-unavailable`.
+- Java files are indexed by package and file stem, so Kotlin imports of them
+  resolve; their own deps are unscanned, so they are opaque.
+- Imports resolve by the longest declared prefix, which covers nested
+  members, enum entries and companion members. An unresolvable import inside
+  a repository package keeps that whole package reachable
+  (`package-fallback`).
+- Gradle modules are the `include` names with their `projectDir` overrides,
+  plus every directory holding a build file. Their dependencies are
+  `project(":x")` and the `projects.x` accessors.
+- Each source depends (closure-only) on its module's build file, the build
+  files of its transitive project dependencies, and the build inputs
+  (settings, `gradle.properties`, `gradle/libs.versions.toml`, `buildSrc/**`).
+- A construct the parse cannot read makes its build file `gradle-dynamic`,
+  and a dynamic dependency block widens to every module.
+
+*Plugins (v1).*
+- Every regular executable directly under `aitestmap/scanners/` runs once
+  per scan: cwd is the root, stdin is the universe, one path per line, and a
+  run is bounded to 30 s.
+- A plugin leads its own process group. A timeout kills the whole group, and
+  the wait for output pipes a leftover process still holds is bounded.
+- Output is bounded while the plugin runs. Past 64 MiB of stdout the plugin
+  is killed and refused. Stderr keeps 64 KiB, and only its first line is
+  reported, shortened.
+- It prints one `{"file", "deps", "opaque"?, "reads"?}` JSON line per file.
+  Paths must be in the universe, globs must be valid, and unknown keys and
+  trailing data after the object are refused.
+- Any failure is `SCANNER_ERROR:<plugin>|<detail>` (exit 3). Plugin deps are
+  closure-only.
+
+*android-res* (`symbol_scanners: [android-res]`; any other name is an
+error):
+- `FileFacts.Keys` lists a Kotlin file's `R.string` / `R.plurals` /
+  `"<k>".localized()` keys. A Java file names every key (`*`).
+- `deps.ResKeys` and `deps.ChangedKeys(before, after)` diff a `values*` file.
+  Attributes count, and a nil side means every key. A `<string>` and a
+  `<plurals>` sharing a name share one key, and a change to either changes
+  it.
+
+*The two arms.*
+- `annotate --suggest [--json] <test>[#<member>]` is read-only. It prints
+  `SUGGEST:<test>|<source>|<origins or closure>|<anchor>|<via>|<new|covered>`
+  for the test file's direct deps, walking through `helper_roots:` helpers,
+  then `SUGGESTS:<new>|<covered>`. A refusal is
+  `SUGGEST_REFUSED:<test>|<excluded|missing|not-a-file|no-scanner>` (exit 1).
+- `annotate --from-body [--by <actor>] [--dry-run] [--json] <test>#<member>`
+  resolves the symbols named by a Kotlin member block's own lines. A name at
+  a receiver position (`"hi".render()`, `x?.render`, `String::render`)
+  resolves only as an extension: through an explicit import or its alias,
+  or one declared in the file's package or a star-imported package. The
+  receiver's type is not inferred. It prints
+  `FROM_BODY:<test>|<source>|<symbol>|<line>`, then stamps those sources
+  through `annot.AnnotateWith` with the usual `STAMP*` lines.
+  - It records `Origin: scanner:from-body`. The actor defaults to
+    `agent:$AIT_AGENT_STRING`, else `auto`.
+  - The write is guarded by the inference's own snapshot. A member edited
+    in between is re-inferred once; a second conflict is `REWRITE_CONFLICT`
+    (75).
+  - `--dry-run` writes nothing.
+  - A refusal is
+    `FROM_BODY_REFUSED:<test>|<excluded|missing|not-a-file|not-kotlin|no-member|no-member-block|untokenizable|no-symbols>`
+    (exit 1).
 <!-- /section: component_dependency_scanners -->
 
 <!-- section: component_variant_axes [dimensions: component_variant_axes] -->

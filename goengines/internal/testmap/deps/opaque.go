@@ -1,0 +1,52 @@
+package deps
+
+import "slices"
+
+// opaqueReasons is the closed list of opaque reasons, in precedence order:
+// when a file matches several, the first enabled one is reported. Every
+// reason is red-proved by a fixture under testdata/opaque/<reason>/ (see
+// opaque_test.go, which fails when a reason has no fixture).
+//
+//   - Kotlin content rules (assumption_kotlin_scanner_fail_closed): constructs
+//     that defeat the closed construct list — inline functions and `const val`
+//     (inlined into callers), DI bindings and Koin modules (a binding no
+//     import names), reflection (`Class.forName`, `::class.java`), and a file
+//     the tokenizer cannot finish.
+//   - Path / config rules: generated or KSP sources, Java sources (indexed for
+//     imports, their own deps unscanned), `getIdentifier(` resource lookups
+//     under android-res, a Gradle build file with a non-literal include,
+//     projectDir or project() argument.
+//   - Any language: a file that cannot be read, a bash or Python file whose
+//     lexical context cannot be established, and the Go files of a package
+//     `go list` failed on (or of every module, when there is no `go`).
+var opaqueReasons = []string{
+	"inline-fun",
+	"const-val",
+	"di",
+	"di-koin",
+	"reflection",
+	"untokenizable",
+	"generated",
+	"java-unscanned",
+	"dynamic-resource",
+	"gradle-dynamic",
+	"unreadable",
+	"uncertain",
+	"go-list-failed",
+	"go-unavailable",
+}
+
+// disabledOpaque is the red-proof seam: a reason listed here never fires, so
+// a test can observe the narrow graph the reason protects against.
+var disabledOpaque = map[string]bool{}
+
+// firstOpaque returns the first enabled reason among candidates, in
+// opaqueReasons order; "" when none applies.
+func firstOpaque(candidates ...string) string {
+	for _, r := range opaqueReasons {
+		if !disabledOpaque[r] && slices.Contains(candidates, r) {
+			return r
+		}
+	}
+	return ""
+}

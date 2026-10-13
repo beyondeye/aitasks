@@ -1,0 +1,721 @@
+package deps
+
+import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
+	"os"
+	"os/exec"
+	"path"
+	"path/filepath"
+	"regexp"
+	"slices"
+	"strings"
+)
+
+// The go scanner's graph comes from `go list -e -deps -test -json` per module,
+// cached under a key over every input that list reads (goKey). Package
+// granularity: a file depends on its package's files and on the files of
+// every local package it imports.
+
+// goPkg is the part of a `go list -json` package the graph uses. Dir is
+// repository-relative once loaded.
+type goPkg struct {
+	Dir             string    `json:"Dir"`
+	ImportPath      string    `json:"ImportPath"`
+	Name            string    `json:"Name"`
+	ForTest         string    `json:"ForTest,omitempty"`
+	Standard        bool      `json:"Standard,omitempty"`
+	GoFiles         []string  `json:"GoFiles,omitempty"`
+	CgoFiles        []string  `json:"CgoFiles,omitempty"`
+	IgnoredGoFiles  []string  `json:"IgnoredGoFiles,omitempty"`
+	TestGoFiles     []string  `json:"TestGoFiles,omitempty"`
+	XTestGoFiles    []string  `json:"XTestGoFiles,omitempty"`
+	CFiles          []string  `json:"CFiles,omitempty"`
+	CXXFiles        []string  `json:"CXXFiles,omitempty"`
+	HFiles          []string  `json:"HFiles,omitempty"`
+	SFiles          []string  `json:"SFiles,omitempty"`
+	SysoFiles       []string  `json:"SysoFiles,omitempty"`
+	EmbedFiles      []string  `json:"EmbedFiles,omitempty"`
+	TestEmbedFiles  []string  `json:"TestEmbedFiles,omitempty"`
+	XTestEmbedFiles []string  `json:"XTestEmbedFiles,omitempty"`
+	Imports         []string  `json:"Imports,omitempty"`
+	TestImports     []string  `json:"TestImports,omitempty"`
+	XTestImports    []string  `json:"XTestImports,omitempty"`
+	Error           *goErr    `json:"Error,omitempty"`
+	Module          *goModRef `json:"Module,omitempty"`
+	// Run is the module directory whose `go list` reported the package: its
+	// import paths resolve in that run's context (two modules may load
+	// different directories under one import path, e.g. through `replace`).
+	Run string `json:"Run"`
+}
+
+type goErr struct {
+	Err string `json:"Err"`
+}
+
+type goModRef struct {
+	Path string `json:"Path"`
+	Main bool   `json:"Main"`
+}
+
+// goModule is one module of the repository.
+type goModule struct {
+	Dir    string `json:"dir"` // repository-relative; "" = the root
+	Path   string `json:"path"`
+	Failed string `json:"failed,omitempty"` // go-list-failed | go-unavailable: every file of the module is opaque
+}
+
+// goResult is one scan's Go graph input: the modules, their local packages,
+// and the local import paths `go list` could not resolve.
+type goResult struct {
+	Modules []goModule          `json:"modules"`
+	Pkgs    []goPkg             `json:"pkgs"`
+	Missing []string            `json:"missing,omitempty"` // run + "\x00" + import path
+	DirGo   map[string][]string `json:"dir_go"`            // walked directory → its .go files (repository-relative)
+}
+
+// goKeyInput is everything the go-list cache key covers.
+type goKeyInput struct {
+	Env   []string
+	Mods  []goKeyMod
+	Work  []string // go.work files' bytes
+	Files []goKeyFile
+	NonGo map[string][]string // per directory holding .go files: the names of its non-Go files
+	Embed map[string][]string // per directory with a //go:embed: the recursive listing of its subtree
+}
+
+type goKeyMod struct{ Dir, GoMod, GoSum string }
+
+type goKeyFile struct {
+	Path, Header string
+	InUniverse   bool
+	SkippedByAll bool // under a `_`- or testdata directory (what `./...` skips)
+}
+
+// goKeyFunc computes the key; a test seam (red proofs swap in reduced keys).
+var goKeyFunc = fullGoKey
+
+func fullGoKey(in goKeyInput) string {
+	h := sha256.New()
+	w := func(parts ...string) {
+		for _, p := range parts {
+			fmt.Fprintf(h, "%d:%s;", len(p), p)
+		}
+	}
+	w("deps-golist-v2")
+	w(in.Env...)
+	for _, m := range in.Mods {
+		w("mod", m.Dir, m.GoMod, m.GoSum)
+	}
+	w(in.Work...)
+	for _, f := range in.Files {
+		w("file", f.Path, f.Header)
+	}
+	for _, d := range sortedKeys(in.NonGo) {
+		w("nongo", d)
+		w(in.NonGo[d]...)
+	}
+	for _, d := range sortedKeys(in.Embed) {
+		w("embed", d)
+		w(in.Embed[d]...)
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+func sortedKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	return keys
+}
+
+// Test seams: goExecHook runs before every `go list`; lookPath finds go.
+var (
+	goExecHook = func(dir string) {}
+	lookPath   = exec.LookPath
+)
+
+var (
+	moduleLineRe = regexp.MustCompile(`(?m)^\s*module\s+"?([^\s"]+)"?`)
+	// replace X [v] => ./local/path (single-line or inside a block)
+	replaceLocalRe = regexp.MustCompile(`(?m)=>\s*"?(\.{1,2}/[^\s"]*)"?\s*$`)
+	// use ./dir (single-line or inside a block)
+	workUseRe = regexp.MustCompile(`(?m)^\s*(?:use\s+)?"?(\.{1,2}(?:/[^\s"()]*)?)"?\s*$`)
+)
+
+// localTargets returns the in-repository directories a go.mod's local
+// `replace` directives (or a go.work's `use` lines) name: go list loads
+// packages from them, so the key walks them even when they sit in a
+// directory the module walk skips.
+func localTargets(base string, data []byte, re *regexp.Regexp) []string {
+	var out []string
+	for _, m := range re.FindAllSubmatch(data, -1) {
+		c := path.Clean(path.Join(dirOrDot(base), string(m[1])))
+		if c == ".." || strings.HasPrefix(c, "../") {
+			continue
+		}
+		out = append(out, rootDir(c))
+	}
+	return out
+}
+
+// goPhase builds (or loads) the Go graph input of every module.
+func (s *state) goPhase() (*goResult, error) {
+	var modDirs, extra []string
+	var work []string
+	for _, p := range s.u.list {
+		switch path.Base(p) {
+		case "go.mod":
+			modDirs = append(modDirs, rootDir(path.Dir(p)))
+		case "go.work":
+			data, _ := s.r.ReadFile(p)
+			work = append(work, p, string(data))
+			extra = append(extra, localTargets(rootDir(path.Dir(p)), data, workUseRe)...)
+		}
+	}
+	if len(modDirs) == 0 {
+		return &goResult{}, nil
+	}
+	in := goKeyInput{NonGo: map[string][]string{}, Embed: map[string][]string{}}
+	res := &goResult{DirGo: map[string][]string{}}
+	walked := map[string]bool{}
+	for _, m := range modDirs {
+		gomod, _ := s.r.ReadFile(joinRel(m, "go.mod"))
+		gosum, err := s.r.ReadFile(joinRel(m, "go.sum"))
+		sum := string(gosum)
+		if err != nil {
+			sum = "<absent>"
+		}
+		in.Mods = append(in.Mods, goKeyMod{Dir: m, GoMod: string(gomod), GoSum: sum})
+		mp := ""
+		if mm := moduleLineRe.FindSubmatch(gomod); mm != nil {
+			mp = string(mm[1])
+		}
+		res.Modules = append(res.Modules, goModule{Dir: m, Path: mp})
+		if err := s.walkGo(m, m, false, &in, res, walked); err != nil {
+			return nil, err
+		}
+		extra = append(extra, localTargets(m, gomod, replaceLocalRe)...)
+	}
+	slices.Sort(extra)
+	for _, t := range slices.Compact(extra) {
+		if walked[t] {
+			continue
+		}
+		gomod, _ := s.r.ReadFile(joinRel(t, "go.mod"))
+		gosum, _ := s.r.ReadFile(joinRel(t, "go.sum"))
+		in.Mods = append(in.Mods, goKeyMod{Dir: "target:" + t, GoMod: string(gomod), GoSum: string(gosum)})
+		if err := s.walkGo(t, t, false, &in, res, walked); err != nil {
+			return nil, err
+		}
+	}
+	in.Work = work
+	in.Env = goEnv()
+	slices.SortFunc(in.Files, func(a, b goKeyFile) int { return strings.Compare(a.Path, b.Path) })
+	key := goKeyFunc(in)
+	var dir string
+	if s.cache != nil {
+		dir = filepath.Join(s.cache.dir, "golist")
+		var cached goResult
+		if readJSON(dir, key+".json", &cached) {
+			return &cached, nil
+		}
+	}
+	goBin, err := lookPath("go")
+	if err != nil {
+		for i := range res.Modules {
+			res.Modules[i].Failed = "go-unavailable"
+		}
+		s.problem("", "go-unavailable: "+err.Error())
+		return res, nil
+	}
+	cacheable := true
+	for i, m := range res.Modules {
+		seenDir := map[string]bool{}
+		pkgs, err := s.runGoList(goBin, m.Dir)
+		if err != nil {
+			res.Modules[i].Failed = "go-list-failed"
+			s.problem(m.Dir, "go-list-failed: "+oneLineErr(err))
+			cacheable = false
+			continue
+		}
+		// `-test` also loads what only test files import, listing test
+		// variants (`p [q.test]`) and test mains (`q.test`) beside the plain
+		// packages: a test main is not a source package, and a variant counts
+		// only for a directory no plain package reported (a dependency that
+		// was recompiled for a test and is imported by nothing else).
+		pkgs = slices.DeleteFunc(pkgs, func(p goPkg) bool {
+			return p.ForTest == "" && p.Name == "main" && strings.HasSuffix(p.ImportPath, ".test")
+		})
+		slices.SortStableFunc(pkgs, func(a, b goPkg) int { return cmpBool(isVariant(a), isVariant(b)) })
+		for _, p := range pkgs {
+			if p.Standard {
+				continue
+			}
+			if isVariant(p) {
+				p.ImportPath, _, _ = strings.Cut(p.ImportPath, " [")
+				p.ForTest = ""
+			}
+			if p.Dir == "" {
+				if p.Error != nil && s.underLocalModule(p.ImportPath, res.Modules) {
+					res.Missing = append(res.Missing, m.Dir+"\x00"+p.ImportPath)
+					cacheable = false
+				}
+				continue
+			}
+			rel, err := filepath.Rel(s.root, p.Dir)
+			if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				continue // a dependency outside the repository
+			}
+			p.Dir = rootDir(filepath.ToSlash(rel))
+			if seenDir[p.Dir] {
+				continue
+			}
+			seenDir[p.Dir] = true
+			p.Run = m.Dir
+			if p.Error != nil {
+				cacheable = false
+			}
+			// Post-check: every input go list reports must lie in what the key
+			// covered, or the result is used now and never cached.
+			if !walked[p.Dir] {
+				s.problem(p.Dir, "go-input-untracked: package directory outside the keyed walk")
+				cacheable = false
+			}
+			for _, e := range slices.Concat(p.EmbedFiles, p.TestEmbedFiles, p.XTestEmbedFiles) {
+				if _, ok := in.Embed[p.Dir]; !ok {
+					s.problem(joinRel(p.Dir, e), "go-input-untracked: embedded file outside the keyed listing")
+					cacheable = false
+				}
+			}
+			p.Module = nil
+			res.Pkgs = append(res.Pkgs, p)
+		}
+	}
+	slices.SortFunc(res.Pkgs, func(a, b goPkg) int {
+		if c := strings.Compare(a.Run, b.Run); c != 0 {
+			return c
+		}
+		return strings.Compare(a.Dir, b.Dir)
+	})
+	slices.Sort(res.Missing)
+	if cacheable && dir != "" {
+		if err := writeJSONAtomic(dir, key+".json", res); err != nil {
+			s.problem("", "cache-unwritable: "+err.Error())
+		}
+	}
+	return res, nil
+}
+
+// isVariant reports a test variant: a package recompiled for a test.
+func isVariant(p goPkg) bool { return p.ForTest != "" || strings.Contains(p.ImportPath, " [") }
+
+func cmpBool(a, b bool) int {
+	switch {
+	case a == b:
+		return 0
+	case a:
+		return 1
+	}
+	return -1
+}
+
+func oneLineErr(err error) string {
+	return strings.Join(strings.Fields(err.Error()), " ")
+}
+
+func (s *state) underLocalModule(ip string, mods []goModule) bool {
+	for _, m := range mods {
+		if m.Path != "" && (ip == m.Path || strings.HasPrefix(ip, m.Path+"/")) {
+			return true
+		}
+	}
+	return false
+}
+
+// goEnv is the environment that changes which files and packages go list
+// selects, plus the toolchain's identity.
+func goEnv() []string {
+	var out []string
+	for _, k := range []string{"GOOS", "GOARCH", "CGO_ENABLED", "GOFLAGS", "GOWORK", "GOEXPERIMENT", "GOTOOLCHAIN", "GOPATH", "GO111MODULE"} {
+		out = append(out, k+"="+os.Getenv(k))
+	}
+	if bin, err := lookPath("go"); err == nil {
+		out = append(out, "go="+bin)
+		if fi, err := os.Stat(bin); err == nil {
+			out = append(out, "go-mtime="+fi.ModTime().UTC().String())
+		}
+	} else {
+		out = append(out, "go=<none>")
+	}
+	return out
+}
+
+// walkGo walks a module directory on disk over every directory go list could
+// load a package from: everything except `.`-prefixed directories (an import
+// path element cannot begin with a dot) and nested modules (keyed as their
+// own module). `_`-prefixed, testdata and vendor directories are walked —
+// `./...` skips them, but `go list -deps` loads them when a local package
+// imports them. Symbolic links are not followed.
+func (s *state) walkGo(modRoot, dir string, _ bool, in *goKeyInput, res *goResult, walked map[string]bool) error {
+	f, err := s.r.Open(dirOrDot(dir))
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	ents, err := f.ReadDir(-1)
+	f.Close()
+	if err != nil {
+		return err
+	}
+	walked[dir] = true
+	if dir != modRoot {
+		for _, e := range ents {
+			if e.Name() == "go.mod" && e.Type().IsRegular() {
+				return nil // a nested module
+			}
+		}
+	}
+	var gofiles, nongo []string
+	embeds := false
+	for _, e := range ents {
+		name := e.Name()
+		p := joinRel(dir, name)
+		switch {
+		case e.Type()&fs.ModeSymlink != 0:
+			continue
+		case e.IsDir():
+			if strings.HasPrefix(name, ".") {
+				continue
+			}
+			if err := s.walkGo(modRoot, p, false, in, res, walked); err != nil {
+				return err
+			}
+		case !e.Type().IsRegular():
+			continue
+		case strings.HasSuffix(name, ".go"):
+			raw, err := s.goRawOf(p)
+			if err != nil {
+				return err
+			}
+			in.Files = append(in.Files, goKeyFile{Path: p, Header: raw.header(), InUniverse: s.u.has(p),
+				SkippedByAll: skippedByAll(p, modRoot)})
+			for _, d := range raw.Directives {
+				if strings.HasPrefix(d, "go:embed") {
+					embeds = true
+				}
+			}
+			gofiles = append(gofiles, p)
+		default:
+			nongo = append(nongo, name)
+		}
+	}
+	if len(gofiles) > 0 {
+		res.DirGo[dir] = gofiles
+		in.NonGo[dir] = nongo
+	}
+	if embeds {
+		var listing []string
+		if err := s.listTree(dir, "", &listing); err != nil {
+			return err
+		}
+		in.Embed[dir] = listing
+	}
+	return nil
+}
+
+// skippedByAll reports whether `./...` (from modRoot) would skip p.
+func skippedByAll(p, modRoot string) bool {
+	rel := strings.TrimPrefix(strings.TrimPrefix(p, modRoot), "/")
+	segs := strings.Split(rel, "/")
+	for _, seg := range segs[:len(segs)-1] {
+		if strings.HasPrefix(seg, "_") || strings.HasPrefix(seg, ".") || seg == "testdata" {
+			return true
+		}
+	}
+	return false
+}
+
+func dirOrDot(d string) string {
+	if d == "" {
+		return "."
+	}
+	return d
+}
+
+// listTree appends the relative path of every file and directory under dir
+// (recursively, links not followed).
+func (s *state) listTree(dir, rel string, out *[]string) error {
+	f, err := s.r.Open(dirOrDot(joinRel(dir, rel)))
+	if err != nil {
+		return err
+	}
+	ents, err := f.ReadDir(-1)
+	f.Close()
+	if err != nil {
+		return err
+	}
+	for _, e := range ents {
+		r := joinRel(rel, e.Name())
+		switch {
+		case e.Type()&fs.ModeSymlink != 0:
+			*out = append(*out, r+"@")
+		case e.IsDir():
+			*out = append(*out, r+"/")
+			if err := s.listTree(dir, r, out); err != nil {
+				return err
+			}
+		default:
+			*out = append(*out, r)
+		}
+	}
+	return nil
+}
+
+// goRawOf returns a Go file's raw facts, from the scan when it is a universe
+// file, else from its current bytes (blob cache, rescanned on a miss): an
+// ignored or generated file is never trusted by name.
+func (s *state) goRawOf(p string) (*goRaw, error) {
+	if sc, ok := s.files[p]; ok && sc.raw.Go != nil {
+		return sc.raw.Go, nil
+	}
+	data, err := s.r.ReadFile(p)
+	if err != nil {
+		return &goRaw{Package: "<unreadable>"}, nil
+	}
+	raw, _, err := s.rawOf(kindGo, data)
+	if err != nil {
+		return nil, err
+	}
+	if raw.Go == nil {
+		return &goRaw{}, nil
+	}
+	return raw.Go, nil
+}
+
+// runGoList runs `go list -e -deps -test -json ./...` in one module.
+func (s *state) runGoList(goBin, modDir string) ([]goPkg, error) {
+	goExecHook(modDir)
+	args := []string{"list", "-e", "-deps", "-test", "-json"}
+	if _, err := s.r.Stat(joinRel(modDir, "vendor/modules.txt")); err != nil {
+		args = append(args, "-mod=readonly")
+	}
+	args = append(args, "./...")
+	cmd := exec.CommandContext(s.ctx, goBin, args...)
+	cmd.Dir = filepath.Join(s.root, filepath.FromSlash(modDir))
+	cmd.Env = append(os.Environ(), "GOPROXY=off")
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("go list in %q: %v: %s", dirOrDot(modDir), err, strings.TrimSpace(stderr.String()))
+	}
+	var out []goPkg
+	dec := json.NewDecoder(&stdout)
+	for {
+		var p goPkg
+		err := dec.Decode(&p)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("go list in %q: %v", dirOrDot(modDir), err)
+		}
+		out = append(out, p)
+	}
+	return out, nil
+}
+
+// --- facts ----------------------------------------------------------------
+
+// goFacts adds the Go edges and opaque marks.
+func goFacts(res *goResult, facts map[string]*fileB, u *universe) {
+	if res == nil {
+		return
+	}
+	// Failed modules: every universe Go file under them is opaque.
+	for _, m := range res.Modules {
+		if m.Failed == "" {
+			continue
+		}
+		for d, files := range res.DirGo {
+			if !within(d, m.Dir) {
+				continue
+			}
+			for _, f := range files {
+				if ff, ok := facts[f]; ok {
+					ff.addOpaque(m.Failed)
+				}
+			}
+		}
+	}
+	byPath := map[string]*goPkg{}
+	for i := range res.Pkgs {
+		byPath[res.Pkgs[i].Run+"\x00"+res.Pkgs[i].ImportPath] = &res.Pkgs[i]
+	}
+	// importFiles returns the non-test files of a local package, by import
+	// path; a local path go list did not report falls back to the module
+	// path arithmetic over the walk.
+	importFiles := func(run, ip string) []string {
+		if q, ok := byPath[run+"\x00"+ip]; ok {
+			return pkgMembers(q, u)
+		}
+		for _, m := range res.Modules {
+			if m.Path == "" || !(ip == m.Path || strings.HasPrefix(ip, m.Path+"/")) {
+				continue
+			}
+			d := joinRel(m.Dir, strings.TrimPrefix(strings.TrimPrefix(ip, m.Path), "/"))
+			var out []string
+			for _, f := range res.DirGo[d] {
+				if !strings.HasSuffix(f, "_test.go") && u.has(f) {
+					out = append(out, f)
+				}
+			}
+			return out
+		}
+		return nil
+	}
+	missingImporter := func(run string, imports []string) bool {
+		for _, ip := range imports {
+			if slices.Contains(res.Missing, run+"\x00"+ip) {
+				return true
+			}
+		}
+		return false
+	}
+	for i := range res.Pkgs {
+		p := &res.Pkgs[i]
+		members := pkgMembers(p, u)
+		var tests, xtests []string
+		for _, f := range p.TestGoFiles {
+			tests = appendUniverse(tests, u, joinRel(p.Dir, f))
+		}
+		for _, f := range p.XTestGoFiles {
+			xtests = appendUniverse(xtests, u, joinRel(p.Dir, f))
+		}
+		for _, f := range p.IgnoredGoFiles {
+			if !strings.HasSuffix(f, "_test.go") {
+				continue
+			}
+			full := joinRel(p.Dir, f)
+			if ff, ok := facts[full]; ok && ff.goPackage != "" && strings.HasSuffix(ff.goPackage, "_test") {
+				xtests = appendUniverse(xtests, u, full)
+			} else {
+				tests = appendUniverse(tests, u, full)
+			}
+		}
+		var aux []string
+		for _, f := range slices.Concat(p.CFiles, p.CXXFiles, p.HFiles, p.SFiles, p.SysoFiles) {
+			aux = appendUniverse(aux, u, joinRel(p.Dir, f))
+		}
+		embeds := func(list []string) []string {
+			var out []string
+			for _, e := range list {
+				out = appendUniverse(out, u, joinRel(p.Dir, e))
+			}
+			return out
+		}
+		var testdata []string
+		for _, f := range u.list {
+			if strings.HasPrefix(f, joinRel(p.Dir, "testdata")+"/") {
+				testdata = append(testdata, f)
+			}
+		}
+		var ignoredFiles []string
+		for _, f := range p.IgnoredGoFiles {
+			ignoredFiles = append(ignoredFiles, joinRel(p.Dir, f))
+		}
+		opaque := ""
+		if p.Error != nil {
+			opaque = "go-list-failed"
+		}
+		link := func(f string, imports []string, extra ...viaList) {
+			ff, ok := facts[f]
+			if !ok {
+				return
+			}
+			if opaque != "" || missingImporter(p.Run, imports) {
+				ff.addOpaque("go-list-failed")
+			}
+			// go list reports no imports for a tag-excluded file: its own
+			// header supplies them. Every other file's imports come from go
+			// list alone, so a stale result is the key's fault, never masked.
+			if slices.Contains(ignoredFiles, f) {
+				imports = slices.Concat(imports, ff.goImports)
+			}
+			for _, ip := range imports {
+				for _, t := range importFiles(p.Run, ip) {
+					ff.add(Dep{Target: t, Via: "import"})
+				}
+			}
+			for _, l := range extra {
+				for _, t := range l.files {
+					ff.add(Dep{Target: t, Via: l.via})
+				}
+			}
+		}
+		for _, f := range members {
+			link(f, p.Imports, viaList{"same-package", members}, viaList{"cgo", aux}, viaList{"embed", embeds(p.EmbedFiles)})
+		}
+		for _, f := range tests {
+			ff, ok := facts[f]
+			if !ok {
+				continue
+			}
+			for _, t := range members {
+				ff.add(Dep{Target: t, Line: ff.goPkgLine, Origin: Package, Via: "package"})
+			}
+			link(f, slices.Concat(p.Imports, p.TestImports), viaList{"same-package", tests},
+				viaList{"embed", embeds(p.TestEmbedFiles)}, viaList{"testdata", testdata})
+		}
+		for _, f := range xtests {
+			ff, ok := facts[f]
+			if !ok {
+				continue
+			}
+			for _, t := range members {
+				ff.add(Dep{Target: t, Line: ff.goPkgLine, Origin: Package, Via: "package"})
+			}
+			link(f, p.XTestImports, viaList{"xtest", tests}, viaList{"same-package", xtests},
+				viaList{"embed", embeds(p.XTestEmbedFiles)}, viaList{"testdata", testdata})
+		}
+	}
+}
+
+type viaList struct {
+	via   string
+	files []string
+}
+
+// pkgMembers is a package's non-test files in the universe (GoFiles,
+// CgoFiles and the non-test IgnoredGoFiles — a tag-excluded file still
+// belongs, as an over-approximation).
+func pkgMembers(p *goPkg, u *universe) []string {
+	var out []string
+	for _, f := range slices.Concat(p.GoFiles, p.CgoFiles) {
+		out = appendUniverse(out, u, joinRel(p.Dir, f))
+	}
+	for _, f := range p.IgnoredGoFiles {
+		if !strings.HasSuffix(f, "_test.go") {
+			out = appendUniverse(out, u, joinRel(p.Dir, f))
+		}
+	}
+	return out
+}
+
+func appendUniverse(list []string, u *universe, p string) []string {
+	if u.has(p) && !slices.Contains(list, p) {
+		return append(list, p)
+	}
+	return list
+}

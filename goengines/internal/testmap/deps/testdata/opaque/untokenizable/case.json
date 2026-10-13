@@ -1,0 +1,4 @@
+{
+ "construct": "src/main/kotlin/x/broken/Broken.kt",
+ "test": "src/test/kotlin/y/ServiceTest.kt"
+}

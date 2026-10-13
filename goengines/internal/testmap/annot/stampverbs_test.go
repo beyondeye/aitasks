@@ -278,3 +278,58 @@ func TestVerifyTargetOrderAndOneReadPerSource(t *testing.T) {
 		t.Errorf("src/a.sh read %d times, want 1", reads)
 	}
 }
+
+// AnnotateWith records the caller's provenance on every hook edge; Annotate
+// records none.
+func TestAnnotateWithOrigin(t *testing.T) {
+	r := repo(t, map[string]string{"src/a.sh": "a\n", "tests/t.sh": "#!/bin/sh\necho\n"})
+	calls := recordHooks(t)
+	if _, err := Annotate(bg, r.Dir, registry.ID{Path: "tests/t.sh"}, []string{"src/a.sh"}, Actor{Kind: Auto}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := AnnotateWith(bg, r.Dir, registry.ID{Path: "tests/t.sh"}, []string{"src/a.sh"}, Actor{Kind: Auto},
+		AnnotateOptions{Origin: "scanner:from-body"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(*calls) != 2 || (*calls)[0].edges[0].Origin != "" || (*calls)[1].edges[0].Origin != "scanner:from-body" {
+		t.Fatalf("origins: %+v", *calls)
+	}
+}
+
+// A caller's snapshot guards the whole window from its reading to the
+// rename: a file that differs at AnnotateWith's own reload, or that changes
+// after the reload and before Apply, is a snapshot conflict and nothing is
+// written.
+func TestAnnotateWithSnapshotGuardsTheWrite(t *testing.T) {
+	const orig = "#!/bin/sh\necho\n"
+	r := repo(t, map[string]string{"src/a.sh": "a\n", "tests/t.sh": orig})
+	planned := snapshotOf([]byte(orig))
+	id := registry.ID{Path: "tests/t.sh"}
+	edited := "#!/bin/sh\necho changed\n"
+	path := filepath.Join(r.Dir, "tests", "t.sh")
+
+	// Changed before the reload.
+	r.Write(t, "tests/t.sh", edited)
+	_, err := AnnotateWith(bg, r.Dir, id, []string{"src/a.sh"}, Actor{}, AnnotateOptions{Snapshot: planned})
+	var ce *ConflictError
+	if !errors.As(err, &ce) || ce.Reason != "snapshot" {
+		t.Fatalf("changed before reload: %v", err)
+	}
+	if got, _ := os.ReadFile(path); string(got) != edited {
+		t.Fatalf("written: %q", got)
+	}
+
+	// Changed after the reload, before Apply: the planned snapshot, not the
+	// reload's, guards Apply.
+	r.Write(t, "tests/t.sh", orig)
+	old := beforeApply
+	beforeApply = func(string) { r.Write(t, "tests/t.sh", edited) }
+	t.Cleanup(func() { beforeApply = old })
+	_, err = AnnotateWith(bg, r.Dir, id, []string{"src/a.sh"}, Actor{}, AnnotateOptions{Snapshot: planned})
+	if !errors.As(err, &ce) || ce.Reason != "snapshot" {
+		t.Fatalf("changed before Apply: %v", err)
+	}
+	if got, _ := os.ReadFile(path); string(got) != edited {
+		t.Fatalf("written: %q", got)
+	}
+}

@@ -1,0 +1,5 @@
+package x.k
+
+object Limits {
+    const val MAX = 3
+}

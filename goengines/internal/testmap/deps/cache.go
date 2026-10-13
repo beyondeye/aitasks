@@ -1,0 +1,115 @@
+package deps
+
+import (
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"sync"
+)
+
+// schemaVersion versions everything a cache entry depends on: the rawFile
+// shapes and every extraction rule — including annot.Classify, which the
+// bash and python scanners read line classes from. Bump it whenever any of
+// them changes; TestClassifyFingerprint fails when M2.2's lexers change
+// without a bump.
+const schemaVersion = 4
+
+// entry is one cache file, `<dir>/<blob>.json`.
+type entry struct {
+	V    int     `json:"v"`
+	Kind string  `json:"kind"`
+	Raw  rawFile `json:"raw"`
+}
+
+// cache is the blob-keyed store of path-independent raw facts. A nil *cache
+// (Uncached, or no cache root) misses every lookup and stores nothing.
+type cache struct {
+	dir      string
+	mu       sync.Mutex
+	writeErr error // the first write failure, reported once as a Problem
+}
+
+func openCache(o Options) (*cache, error) {
+	if o.Uncached {
+		return nil, nil
+	}
+	dir := o.CacheDir
+	if dir == "" {
+		d, err := defaultCacheDir()
+		if err != nil {
+			return nil, err
+		}
+		dir = d
+	}
+	return &cache{dir: dir}, nil
+}
+
+// get returns the cached raw facts of a blob scanned as kind. A missing,
+// corrupt, older-schema or other-kind entry is a miss (it is rescanned and
+// overwritten), never an error.
+func (c *cache) get(blob, kind string) (rawFile, bool) {
+	if c == nil {
+		return rawFile{}, false
+	}
+	data, err := os.ReadFile(filepath.Join(c.dir, blob+".json"))
+	if err != nil {
+		return rawFile{}, false
+	}
+	var e entry
+	if json.Unmarshal(data, &e) != nil || e.V != schemaVersion || e.Kind != kind {
+		return rawFile{}, false
+	}
+	return e.Raw, true
+}
+
+// put stores raw facts atomically (a temp file in the cache directory, then a
+// rename), so a concurrent reader sees the old entry or the new one, never a
+// torn one. A failure is remembered, not returned: the scan goes on uncached.
+func (c *cache) put(blob, kind string, raw rawFile) {
+	if c == nil {
+		return
+	}
+	if err := writeJSONAtomic(c.dir, blob+".json", entry{V: schemaVersion, Kind: kind, Raw: raw}); err != nil {
+		c.mu.Lock()
+		if c.writeErr == nil {
+			c.writeErr = err
+		}
+		c.mu.Unlock()
+	}
+}
+
+// writeJSONAtomic writes v as JSON to dir/name through a temp file + rename.
+func writeJSONAtomic(dir, name string, v any) error {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	var rb [8]byte
+	if _, err := rand.Read(rb[:]); err != nil {
+		return err
+	}
+	tmp := filepath.Join(dir, "."+name+"."+hex.EncodeToString(rb[:]))
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	if err := os.Rename(tmp, filepath.Join(dir, name)); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return nil
+}
+
+// readJSON reads dir/name into v; a missing or corrupt file is false.
+func readJSON(dir, name string, v any) bool {
+	data, err := os.ReadFile(filepath.Join(dir, name))
+	if err != nil {
+		return false
+	}
+	return json.Unmarshal(data, v) == nil
+}
