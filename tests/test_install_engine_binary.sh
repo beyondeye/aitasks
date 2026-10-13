@@ -255,6 +255,47 @@ out="$(PATH="$WORK/plan9:$PATH" insetup "$WORK/r6" 'install_engine_binary')"
 assert_eq "R6 an off-matrix platform is reported" "TESTMAP_BINARY:platform-unsupported|Plan9|x86_64" "$(line "$out" TESTMAP_BINARY:)"
 assert_dir_not_exists "R6 no slot is written" "$(slot_of "$WORK/r6")"
 
+# --- H: engine_sha256 never hands the tool a file name ---------------------------
+echo "--- H: engine_sha256 hashes from stdin (t1970) ---"
+
+# sha256sum/shasum escape a name holding a newline or backslash ('\<hex>  …')
+# and option-parse a leading '-'. The helper takes the first tool on PATH, so a
+# PATH holding only one tool is the only way to reach the shasum fallback.
+HELLO_HEX="5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03"
+NL=$'\n'
+HF="$WORK/hfix"
+mkdir -p "$HF"
+printf 'hello\n' >"$HF/hello"
+printf 'hello\n' >"$HF/nl${NL}name.bin"
+printf 'hello\n' >"$HF/trail.bin${NL}"
+printf 'hello\n' >"$HF/back\\slash.bin"
+printf 'hello\n' >"$HF/-dash.bin"
+# hsum <bindir> <fn> <args…> — run an engine_install.sh function with PATH=<bindir>.
+hsum() {
+    bash -c 'warn(){ :; }; source "$1/.aitask-scripts/lib/engine_install.sh"; bin="$2"; shift 2; PATH="$bin" "$@"' \
+        _ "$PROJECT_DIR" "$@"
+}
+for tool in sha256sum shasum; do
+    tool_path="$(command -v "$tool" 2>/dev/null)" || tool_path=""
+    if [[ -z "$tool_path" ]]; then
+        echo "SKIP: H $tool not installed — backend not exercised"
+        continue
+    fi
+    bin="$WORK/hbin_$tool"
+    mkdir -p "$bin"
+    ln -s "$tool_path" "$bin/$tool"
+    assert_eq "H1 $tool: plain name hashes to the known vector" "$HELLO_HEX" "$(hsum "$bin" engine_sha256 "$HF/hello" 2>&1)"
+    assert_eq "H2 $tool: name with an embedded newline" "$HELLO_HEX" "$(hsum "$bin" engine_sha256 "$HF/nl${NL}name.bin" 2>&1)"
+    assert_eq "H3 $tool: name ending in a newline" "$HELLO_HEX" "$(hsum "$bin" engine_sha256 "$HF/trail.bin${NL}" 2>&1)"
+    assert_eq "H4 $tool: name with a backslash" "$HELLO_HEX" "$(hsum "$bin" engine_sha256 "$HF/back\\slash.bin" 2>&1)"
+    assert_eq "H5 $tool: relative name starting with '-'" "$HELLO_HEX" "$(cd "$HF" && hsum "$bin" engine_sha256 -dash.bin 2>&1)"
+    assert_eq "H6 $tool: engine_file_matches accepts the newline name" "match" \
+        "$(hsum "$bin" engine_file_matches "$HF/nl${NL}name.bin" "$HELLO_HEX" 2>&1 && echo match)"
+    rc=0; out="$(hsum "$bin" engine_sha256 "$HF/no-such-file" 2>&1)" || rc=$?
+    assert_eq "H7 $tool: a missing file fails" "1" "$rc"
+    assert_eq "H7 $tool: … silently, printing nothing" "" "$out"
+done
+
 # --- D: .dev protection and the slot lock ----------------------------------------
 echo "--- D: .dev protection, the publication lock, a fresh root ---"
 

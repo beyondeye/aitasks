@@ -76,12 +76,16 @@ engine_read_framework_version() {
 }
 
 # engine_sha256 <file> — print the file's sha256 hex digest.
+# The file is fed on stdin so the tool never sees its name: sha256sum/shasum
+# escape a name holding a newline or backslash with a leading '\' (which the
+# hex check below rejects) and option-parse a leading '-'. stderr is redirected
+# before the input so a missing file's redirect error stays quiet too.
 engine_sha256() {
     local out
     if command -v sha256sum >/dev/null 2>&1; then
-        out="$(sha256sum "$1" 2>/dev/null)" || return 1
+        out="$(sha256sum 2>/dev/null < "$1")" || return 1
     elif command -v shasum >/dev/null 2>&1; then
-        out="$(shasum -a 256 "$1" 2>/dev/null)" || return 1
+        out="$(shasum -a 256 2>/dev/null < "$1")" || return 1
     else
         return 1
     fi
