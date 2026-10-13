@@ -409,3 +409,213 @@ with its last child).
 
 ### Planned mitigations
 - timing: post-phase | name: measure_linked_scan_latency | type: performance | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — linked-trail scan latency | desc: measure scan_linked_trails on the real registry; add progress callback + session export cache if >2s
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - `lib/archive_iter.py` gained an opt-in, keyword-only `errors` list on
+    `_iter_single_archive`, `iter_numbered_archives`, `iter_legacy_archive`,
+    `iter_all_archived_markdown`, `iter_archived_frontmatter` and
+    `find_archived_markdown_by_id`.
+  - `lib/archive_iter.py` also gained a public `checked_glob` (`Path.glob`
+    when `errors` is None; otherwise an explicit listing that reports a
+    directory it cannot list).
+  - `lib/trail_discovery.py`: `discover_trails(scan_errors=None)` passes
+    that list through, to both the archived half and the active directory
+    listings.
+  - New `lib/trail_links.py` provides `lookup_task_meta`, `build_export` /
+    `export` CLI, the pure `find_linked_trails`, and the thread-only
+    `scan_linked_trails`.
+  - Tests:
+    - 42 in the new `tests/test_trail_links.py`: relation, scan, end-to-end
+      with the real artifact CLI and resolver, and a live PyPy case;
+    - 17 new cases in `tests/test_archive_iter_consolidated.py`;
+    - 5 new cases in `tests/test_trail_discovery.py`.
+- **Deviations from plan:**
+  - **Framed export record.** The export prints one `TRAIL_LINKS_EXPORT:<json>`
+    line and the scanner reads only that line. Under PyPy (the board's fast
+    path, whose `sys.executable` the scan re-uses), `import yaml` loads PyYAML's
+    C extension through cpyext and prints `(_common_types_metatype, …)` lines to
+    **stdout**. Parsing the whole stdout as JSON made every export
+    `export_failed` from a PyPy-hosted board. This is pinned by a live PyPy test
+    (skipped when `~/.aitask/pypy_venv` is absent) and by a noise unit test.
+    Both fail under the pre-fix parsing.
+  - **An extra zstd test.** A fixture that is only half truncated is caught by
+    a tar error, so it never exercised the exit-status check. The mutant that
+    removed the check survived until a fixture was added: whole tar members
+    with no end marker, followed by a garbage zstd frame. That is the case only
+    the exit status catches.
+- **Issues encountered:**
+  - Synthetic export fixtures first omitted their own members' `tasks` entries.
+    The scan correctly reported `partial` ("not exported"), so the helper now
+    auto-fills `tasks` the way the real export does.
+  - A scan test lacked a resolver entry for a local foreign ref. The scan
+    correctly reported `not_found` and found no link.
+  - `tests/test_trail_discovery_sequencing.py` stubbed
+    `_iter_trail_frontmatter_records` with a one-argument lambda. It now
+    accepts the new optional `scan_errors` (same precedent as t1957_2's stub
+    update).
+  - The first review round's suite: `PYTHON SUITE: PASSED (runner=pytest,
+    exit=0)`, 8827 passed, 2 skipped. An earlier run failed only because the framing edit landed while
+    it was in progress: workers held the old scanner while the on-disk export
+    printed the framed record.
+- **Key decisions:**
+  - **Ownership is decided once, in the scanner, by root.** The export emits
+    the metadata of every member id regardless of project name (review
+    finding 1). Mutants confirm the alias and missing-name end-to-end tests fail
+    when the export filters by `project.name` or the scanner classifies by name.
+  - **The default `archive_iter` path is unchanged.** It is pinned by "default
+    stays best-effort" tests. The zstd drain and exit-status check run only on
+    the opt-in path.
+  - Mutants confirmed each guard is test-pinned:
+    - the `completed` guard on the zstd exit status (early-stop SIGPIPE);
+    - exception recording;
+    - frontmatter reporting;
+    - `scan_errors` plumbing;
+    - the checked directory listing and existence probes;
+    - the checked active lookup in `lookup_task_meta`;
+    - local-unreadable propagation;
+    - stale registry rows.
+- **measure_linked_scan_latency (post-phase) — results on this host
+  (2026-10-13):**
+  - Setup: 7 other registered projects, local aitasks trail
+    `art:trail-artifacts-and-attachments`, 4 workers.
+  - **Total scan: 1.53s.** A second run with a doc holding `aitasks#1595` took
+    1.64s and then 1.63s.
+  - Per-project export times:
+
+    | project | export |
+    |---|---|
+    | thinking_app (7 trails) | 1.26s |
+    | thinking_backend | 0.54s |
+    | aitasks_mobile | 0.11s |
+    | aitasks_go | 0.09s |
+    | timexchange | 0.08s |
+    | teamim | 0.06s |
+    | animeless | 0.06s |
+
+    Resolver calls took 0.07–0.10s each (`aitasks`, `thinking_app`,
+    `thinking_backend`).
+  - The scan stays under the ~2s threshold, so no progress callback or export
+    cache was added. The slowest single export, `thinking_app`, sets the
+    makespan.
+  - Real detection works: the `aitasks#1595` doc finds `rev-member: aitasks#1595`
+    in thinking_app's `art:trail-parallel-throughput`.
+  - Real scans on this host are `complete=False` today. thinking_app
+    (`art:trail-build-test-speed`, `art:trail-localization-programme`) and
+    thinking_backend (`art:trail-new-prod-and-dev-servers`) hold stored trails
+    with `schema_version 1.0.0`, which their own 1.1.0 schema rejects as well.
+    `partial` is the honest answer.
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/archive_iter.py:_iter_single_archive (gz branch) — a truncated .tar.gz raises EOFError, which the except clause (TarError/OSError/SubprocessError) does not catch, so every best-effort caller (board, stats, codebrowser, trail_gather, dep_resolution) crashes instead of skipping the bundle; t1957_3 catches it only on the opt-in errors path to keep the default path unchanged`
+  - `thinking_app#art:trail-build-test-speed / art:trail-localization-programme and thinking_backend#art:trail-new-prod-and-dev-servers — stored trails at schema_version 1.0.0 are rejected by the 1.1.0 schema in both repos, so they render as error cards and keep every cross-repo scan from this host partial (data in other repos; needs a refresh there)`
+- **Notes for sibling tasks (t1957_4):**
+  - **API:** `trail_links.scan_linked_trails(session.doc)` returns
+    `LinkScan(links, errors, complete)`. Call it from a thread worker; cwd must
+    be the project root. Each `LinkedTrail` has
+    `(project, root, handle, name, reasons)`, where `project` is the name the
+    project was searched under (registry name preferred) and `root` is a
+    realpath. Hand `root` + `handle` to `launch_or_focus_trails`.
+  - **Error kinds** for the modal's disabled rows:
+    - `stale` — registered path moved, missing, or never recorded
+      (name-only registry row: detail "no path registered");
+    - `not_found` — not registered;
+    - `export_failed`;
+    - `timeout` — 30s per project;
+    - `partial` — searched, but some tasks, directories, archives or trails
+      were unreadable. Its links are still returned, and paths in the detail
+      are relative to that project's root;
+    - `registry_unreadable` — `project` is the registry path;
+    - `local_unreadable` — a member of the current trail could not be read.
+
+    Never show the definitive "No linked trails" when `complete` is False.
+  - **Reasons** carry the `fwd-xdeps:` / `fwd-member:` / `rev-xdeps:` /
+    `rev-member:` prefixes, followed by the refs involved.
+  - **Latency** is about 1.6s on this host with 7 projects, so a
+    "Searching linked trails in N projects…" notice is enough; no progress UI
+    is needed.
+  - **Interpreter:** the export subprocess uses `sys.executable`, so a scan
+    started from the PyPy board runs the export under PyPy. The framed record
+    makes that safe.
+
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-13)
+- **Requested by user:** three review findings.
+  1. `Path.glob` swallows `PermissionError`, so an inaccessible
+     `aitasks/archived` holding a trail owner gave
+     `LinkScan(links=[], errors=[], complete=True)`. The fix must cover child
+     and bundle directories and keep the default callers' behaviour.
+  2. A name-only registry row (`('broken', '')`) was skipped silently.
+  3. Invalid UTF-8 in the local `project_config.yaml` raised
+     `UnicodeDecodeError` out of `scan_linked_trails`.
+- **Changes made:**
+  1. **Directory listings:**
+     - `archive_iter.checked_glob` lists each directory a pattern enters with
+       `os.scandir` and reports one it cannot list, while an absent directory
+       is still empty. It equals `Path.glob` when `errors` is None.
+     - `_checked_exists` stats bundle and legacy paths, so an unsearchable
+       `_b0/` is reported instead of reading as absent.
+     - `_note` now records each entry once, because several globs list the
+       same directory.
+     - The same blind spot existed on the active side
+       (`_iter_active_task_frontmatter` and `lookup_task_meta`'s globs); both
+       now use `checked_glob`. The opt-in list was therefore renamed
+       `archive_errors` → `scan_errors` (`discover_trails(scan_errors=)`, and
+       the export field `scan_errors`).
+  2. A name-only registry row becomes `stale` with detail
+     "no path registered".
+  3. `_local_project_name` also catches `ValueError`. The same class of decode
+     failure was fixed in the export and resolver subprocess calls
+     (`errors="replace"`), so undecodable output becomes an `export_failed` row
+     instead of an exception in the worker.
+  - **Tests (regression tests were red before the fix, except the
+    archive_iter ones, which could not import before `checked_glob` existed):**
+    - archive_iter: unlistable archive dir, unlistable child dir, unsearchable
+      bundle dir, and `checked_glob` ≡ `Path.glob` on a normal tree including
+      an absent directory;
+    - trail_discovery: unlistable archive dir and active child dir;
+    - trail_links: name-only registry row, invalid-UTF-8 local config, a member
+      in an unlistable child dir (`unreadable`, not `missing`), undecodable
+      export output, and the reviewer's end-to-end case (an archived owner in
+      a mode-000 `aitasks/archived` gives `partial`, `complete=False`).
+  - **Mutants** (an isolated copy):
+    - `checked_glob` → plain `Path.glob` fails 7 tests;
+    - `_checked_exists` → plain `exists()` fails the bundle-dir test;
+    - an unchecked active child glob in `lookup_task_meta` fails its test.
+- **Verification:** full suite `PYTHON SUITE: PASSED (runner=pytest,
+  exit=0)`, 8846 passed, 2 skipped. A real-registry rescan still finds
+  `rev-member: aitasks#1595` (1.91s while the suite was loading the machine).
+- **Files affected:** `.aitask-scripts/lib/archive_iter.py`,
+  `.aitask-scripts/lib/trail_discovery.py`, `.aitask-scripts/lib/trail_links.py`,
+  `tests/test_archive_iter_consolidated.py`, `tests/test_trail_discovery.py`,
+  `tests/test_trail_discovery_sequencing.py`, `tests/test_trail_links.py`
+
+### Change Request 2 (2026-10-13)
+- **Requested by user:** `lookup_task_meta` checked its active-directory
+  listing errors only when the archive lookup returned None. When an
+  inaccessible active `t42/` hid a `t42_3` carrying xdeps, an archived copy
+  without dependencies came back as `ok`, and the scan reported
+  `complete=True` with no links. Active files take precedence, so an archived
+  copy cannot be authoritative when the active location could not be checked.
+- **Changes made:**
+  - An active-listing failure now returns `unreadable` before the archive is
+    consulted at all.
+  - The same flaw existed one level down. `find_archived_markdown_by_id`
+    searches loose files before bundles, so a bundle hit after an unlistable
+    loose `archived/t42/` was also returned as `ok`. Any error the archive
+    lookup records now makes the result `unreadable`, whether or not it hit.
+    The lookup stops at its first hit, and an early-stopped bundle read
+    records nothing, so every recorded failure lies at a location that
+    precedes the hit.
+  - Trail-owner discovery has no equivalent per-item gap: its directory
+    failures already land in `scan_errors`, which makes the export `partial`.
+  - Regressions, both red before the fix:
+    - an unlistable active `t42/` plus an archived copy → `unreadable`, plus a
+      scan-level `local_unreadable` with `complete=False`;
+    - an unlistable loose `archived/t42/` plus a bundle copy → `unreadable`.
+- **Files affected:** `.aitask-scripts/lib/trail_links.py`,
+  `tests/test_trail_links.py`
+- **Verification:** full suite `PYTHON SUITE: PASSED (runner=pytest,
+  exit=0)`, 8848 passed, 2 skipped.
