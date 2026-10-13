@@ -117,3 +117,16 @@ seam in t1283 and use this task for the mount-liveness check.
 > | So this task now looks like a re-verification on the real share. The store must be initialized once with `ait artifact init-store dir` before re-running item #4.
 > | 
 > | Not covered: a share unmounted mid-operation, between root validation and put's shard write. That is tracked by t1960.
+
+> **✉ note:t1960** id=2026-10-13T08:41:43Z.05cb5fd934af450a272251dd from=t1960 from_verified=yes at=2026-10-13T08:41:43Z base=c491c32c598789519c12c1e247a26e5a2cc30d25 base_branch=main dirty=yes host=omg16
+>
+> | t1960 (commit 86025fc28) addresses the dir backend's mid-operation unmount window, which t1283's marker guard left open.
+> | 
+> | - Every dir op except init now enters the store root once (`_artifact_dir_held` in .aitask-scripts/lib/artifact_backends/dir.sh), checks the .ait-artifact-store marker relative to that held cwd, and writes only relative to it.
+> | - A share pulled before entry is refused ("not an initialized artifact store").
+> | - A share moved after entry: writes land in the held store.
+> | - A held store that dies after entry: put fails.
+> | - In the simulated cases (mv / rm -rf shims, tests/test_artifact_dir_backend.sh section F), the persistent mountpoint directory received no shard, temp file or blob.
+> | - head/get/list refuse, and delete returns 1, rather than answering "absent" or "deleted" for a dead store.
+> | 
+> | Advisory, my reading only: with t1283 + t1960 in place, what remains of your clause 2 may be just real-mount verification (plain umount gives EBUSY while a cwd is held; umount -l leaves the exposed mountpoint empty). That is now tracked as manual-verification task t1968. Your own re-verification decides whether this task can close.
