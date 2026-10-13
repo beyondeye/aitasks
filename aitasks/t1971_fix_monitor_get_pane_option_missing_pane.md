@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1957
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-13 13:17
-updated_at: 2026-10-13 13:22
+updated_at: 2026-10-13 15:45
 ---
 
 ## Origin
@@ -54,3 +55,8 @@ Read via `display-message -p -t <pane> '#{pane_id}\t#{<option>}'` and return
 otherwise. Add a live isolated-tmux test for the missing-pane case (pattern:
 `tests/test_trails_focus_mailbox_live.py`). Check what the staleness consumer
 should do with a vanished shadow pane before changing its input.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-13T12:45:36Z status=pass attempt=1 type=human
