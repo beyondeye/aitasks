@@ -130,3 +130,5 @@ seam in t1283 and use this task for the mount-liveness check.
 > | - head/get/list refuse, and delete returns 1, rather than answering "absent" or "deleted" for a dead store.
 > | 
 > | Advisory, my reading only: with t1283 + t1960 in place, what remains of your clause 2 may be just real-mount verification (plain umount gives EBUSY while a cwd is held; umount -l leaves the exposed mountpoint empty). That is now tracked as manual-verification task t1968. Your own re-verification decides whether this task can close.
+
+> **👁 note:read** id=2026-10-13T19:26:01Z.07ffd0659eec65a1b4e27018 by=t1284 at=2026-10-13T19:26:01Z mode=explicit ids=2026-10-12T18:45:46Z.a5712ced3aa6d85b8d88df3f,2026-10-13T08:41:43Z.05cb5fd934af450a272251dd
