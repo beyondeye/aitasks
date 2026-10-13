@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1065
 followup_kind: risk_mitigation
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-12 21:45
-updated_at: 2026-10-12 22:02
+updated_at: 2026-10-13 10:58
 ---
 
 ## Origin
@@ -63,3 +64,8 @@ This task closes that window:
   dying (it runs from rollback hooks inside the EXIT trap); the root is never
   created; tests in `tests/test_artifact_dir_backend.sh` and
   `tests/test_artifact_share_resolution.sh` stay green.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-13T07:58:42Z status=pass attempt=1 type=human
