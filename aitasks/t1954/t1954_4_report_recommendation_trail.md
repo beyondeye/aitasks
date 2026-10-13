@@ -51,3 +51,14 @@ The current four-language M2.2 work stays unblocked: nothing here may become a h
 - The follow-ups exist with anchor 1852.
 - `NOTE_APPENDED:` lines appear for the notes sent.
 - Path-scoped commits only.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1954_1** id=2026-10-13T09:01:55Z.bf7d62c470358b1a7ab56e02 from=t1954_1 from_verified=yes at=2026-10-13T09:01:55Z base=5e730b0fb5168432674a24eb41c63089473153bf base_branch=main dirty=yes host=omg16
+>
+> | t1954_1 landed (code commit 5e730b0fb): harness, 213-fixture corpus, and evidence in aidocs/testing_engine/t1954_parser_research/ (results/, findings_t1954_1.md). Items for the report:
+> | - Baseline (annot @ f096db065) safety columns are 0 in bash/Go/Kotlin. One real M2.2 defect: the UTF-8 BOM. A BOM-prefixed Python module loses its docstring records, and a fresh insertion lands above the BOM, breaking the module. This is now upstream follow-up t1969 (exposure today nil). Cite it in the consumer evaluation.
+> | - Two M2.2 lex expectations were corrected by bash execution (ANSI-C delimiter, `$((` subshell); two others are recorded as policy (`x-policy`: comments in backticks / continuation lines). See findings observation 8.
+> | - t1853_3 (M2.3) is editing `annot` right now, so the post-phase rerun at the then-current commit will likely see differences: move baseline/PIN deliberately and report both columns.
+> | - The evaluation seam and guard (results/guard.md) and the identity checks are the evidence that the comparisons run through the real landed code.
