@@ -748,7 +748,7 @@ current branch, no merge).
 
 ### Planned mitigations
 - timing: post-phase | name: probe_own_repository | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — bash/python resolvers under-approximating on the real tree | desc: run deps.Scan over this repository via a temporary uncommitted probe; check every literal repo path and import found by an independent regexp oracle against the facts; fix each miss with a fixture; record counts, opaque reasons and timings
-- timing: after | name: kotlin_target_probe | type: test | priority: medium | effort: medium | inline_risk: medium | added_complexity: medium | addresses: goal-achievement — Kotlin opaque contract / import walk / android-res unmeasured on a real tree | desc: run the deps scanner over the thinking_app repository (cross-repo via ait projects); measure opaque frequency per reason, package-fallback and unresolved volume, android-res key counts and scan time against the proposal's numbers; file fixes as tasks
+- timing: after | name: kotlin_target_probe | type: test | priority: medium | effort: medium | inline_risk: medium | added_complexity: medium | addresses: goal-achievement — Kotlin opaque contract / import walk / android-res unmeasured on a real tree | desc: run the deps scanner over the thinking_app repository (cross-repo via ait projects); measure opaque frequency per reason, package-fallback and unresolved volume, android-res key counts and scan time against the proposal's numbers; file fixes as tasks | created: t1973
 
 ## Post-Review Changes
 
