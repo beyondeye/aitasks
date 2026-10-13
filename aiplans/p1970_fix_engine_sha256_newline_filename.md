@@ -72,3 +72,10 @@ None identified.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+- **Actual work done:** `engine_sha256` (`.aitask-scripts/lib/engine_install.sh`) now feeds the file to `sha256sum` / `shasum -a 256` on stdin (`2>/dev/null < "$1"`), so the name reaches neither argv nor output; `${out%% *}` and the 64-hex check are unchanged (output is `<hex>  -`). Added section H to `tests/test_install_engine_binary.sh`: per backend (restricted PATH holding only that tool), plain-name control, embedded/trailing newline, backslash, relative leading-`-` name, `engine_file_matches` on the newline name, and a missing file (rc 1, silent).
+- **Deviations from plan:** None. The plan's H6 (missing file) became H7; H6 is the `engine_file_matches` consumer check.
+- **Issues encountered:** None. The pre-fix control (H section run against `git show HEAD:` copy of the lib in a scratch tree) failed H2–H6 on both backends while H1/H7 passed; with the fix all 16 pass. The full file passes 217/217 with no SKIPs.
+- **Key decisions:** `2>/dev/null` placed before the `<` redirect so the shell's own "No such file" message is silenced, preserving the old quiet failure. The test lives in the existing engine-install test file (next to the R tier that consumes `engine_file_matches`) rather than a new file.
+- **Upstream defects identified:** None
