@@ -1,0 +1,21 @@
+// é€漢😀 header comment
+package app;
+
+import java.util.List;
+
+// testmap:covers src/main/java/app/Real.java
+public class NonAscii {
+    // 😀 € plain comment
+    // testmap:unit nonAscii
+    // testmap:covers src/main/java/app/Member.java
+    static int nonAscii() { return "😀".length(); }
+
+    public static void main(String[] a) {
+        String s = "é€😀 // testmap:covers fake";
+        String t = """
+            漢字😀
+            // testmap:covers src/fake2.java
+            """;
+        System.out.println(nonAscii() + s.length() + t.length() + List.of(1).size());
+    }
+}

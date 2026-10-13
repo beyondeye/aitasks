@@ -211,3 +211,75 @@ print(sys.version_info[0])
        edits=[(f"annotate member= source=src/fresh.py stamp={NEW}", "applied",
                ("ins", 2, f"# testmap:covers src/fresh.py {NEW}{W}"))]),
 ]
+
+# t1954_3: non-ASCII position fixtures (see hand_bash.py). Python providers
+# report code points of the DECODED text, so the byte conversion must use the
+# codec the file declares: UTF-8 here, Latin-1 under a PEP 263 cookie below.
+FIXTURES += [
+    Fx("nonascii.py", f'''# é€漢😀 header comment{C}
+s = "é€😀 # testmap:covers src/fake.py"{L}
+# testmap:covers src/real.py{W}
+t = "漢字😀"  # é trailing
+
+# 😀 € plain comment{C}
+# testmap:unit TestNonAscii{W}
+# testmap:covers src/member.py{W}
+def test_non_ascii():
+    return "😀 # testmap:covers src/fake2.py"{L}
+
+
+if __name__ == "__main__":
+    print(len(s), len(t), test_non_ascii())
+''', placement={"": "src/real.py", "TestNonAscii": "src/member.py"}, native=NATIVE + ["python-exec"],
+       exec_="python3 {file}",
+       notes=["t1954_3 non-ASCII positions: 2-, 3- and 4-byte characters before every comment, look-alike and edit target"],
+       edits=[
+           (f"annotate member= source=src/real.py stamp={RE} from=original", "applied",
+            ("rep", "src/real.py", f"# testmap:covers src/real.py {RE}{W}")),
+           (f"annotate member= source=src/new.py stamp={NEW} from=original", "applied",
+            ("ins", "src/real.py", f"# testmap:covers src/new.py {NEW}{W}")),
+           (f"annotate member=TestNonAscii source=src/more.py stamp={NEW} from=original", "applied",
+            ("ins", "src/member.py", f"# testmap:covers src/more.py {NEW}{W}")),
+           (f"raw kind=replace line=2 member= source=src/fake.py from=original new=# testmap:covers src/fake.py {RE}",
+            "refused:not-comment"),
+       ]),
+
+    Fx("nonascii_doc.py", f'''# é€漢😀 a comment before the module docstring{C}
+"""Module 😀 doc, é.
+
+testmap:covers src/doc_x.py{R}
+"""
+# testmap:covers src/a.py{W}
+x = "€😀"
+print(x)
+''', docrecs=[doc(4, "src/doc_x.py")], placement={"": 6}, native=NATIVE + ["python-exec"], exec_="python3 {file}",
+       notes=["t1954_3: the docstring's content bounds and statement end follow non-ASCII bytes"],
+       edits=[
+           (f"annotate member= source=src/doc_x.py stamp={RE}", "refused:docstring"),
+           (f"annotate member= source=src/a.py stamp={RE} from=original", "applied",
+            ("rep", 6, f"# testmap:covers src/a.py {RE}{W}")),
+           (f"annotate member= source=src/b.py stamp={NEW} from=original", "applied",
+            ("ins", 6, f"# testmap:covers src/b.py {NEW}{W}")),
+       ]),
+
+    Fx("latin1_member.py", f'''# -*- coding: latin-1 -*-{C}
+# café, naïve, ½{C}
+s = "é # testmap:covers src/fake_latin1.py"{L}
+# testmap:covers src/latin1_file.py{W}
+
+# testmap:unit TestLatin1{W}
+# testmap:covers src/latin1_member.py{W}
+def test_latin1():
+    return "½"
+
+
+print(len(s), test_latin1())
+''', encoding="latin-1", placement={"": 4, "TestLatin1": 7}, native=NATIVE + ["python-exec"], exec_="python3 {file}",
+       notes=["t1954_3: one byte per non-ASCII character under a PEP 263 Latin-1 cookie; a UTF-8 decoder must refuse, never guess"],
+       edits=[
+           (f"annotate member= source=src/latin1_file.py stamp={RE} from=original", "applied",
+            ("rep", 4, f"# testmap:covers src/latin1_file.py {RE}{W}")),
+           (f"annotate member=TestLatin1 source=src/latin1_more.py stamp={NEW} from=original", "applied",
+            ("ins", 7, f"# testmap:covers src/latin1_more.py {NEW}{W}")),
+       ]),
+]

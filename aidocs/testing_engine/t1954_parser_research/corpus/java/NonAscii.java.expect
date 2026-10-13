@@ -1,0 +1,15 @@
+lang: java
+expect: certain
+read:
+  - line=6 member= key=covers value=src/main/java/app/Real.java stamp= origin=comment
+  - line=9 member=nonAscii key=unit value=nonAscii stamp= origin=comment
+  - line=10 member=nonAscii key=covers value=src/main/java/app/Member.java stamp= origin=comment
+writable: 6,9-10
+readonly: 
+lookalikes: 14,17
+comments: 1,6,8-10
+refuse: none
+placement: file=6 member:nonAscii=10
+native: javac+java-exec
+exec: java {file}
+note: t1954_3 non-ASCII positions: 2-, 3- and 4-byte characters before every comment, look-alike and edit target

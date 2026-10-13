@@ -232,3 +232,36 @@ echo exec
        edits=[(f"annotate member= source=src/exec2.sh stamp={NEW}", "applied",
                ("ins", 2, f"# testmap:covers src/exec2.sh {NEW}{W}"))]),
 ]
+
+# t1954_3: non-ASCII position fixtures. A 2-byte (é), 3-byte (€, 漢) and
+# 4-byte (😀, a UTF-16 surrogate pair) character precede a real comment, a
+# look-alike inside a string, and the lines above every edit target, so a
+# provider that converts code points or UTF-16 units instead of bytes
+# misplaces spans (an adapter failure, listed apart from candidate defects).
+FIXTURES += [
+    Fx("nonascii.sh", f"""#!/usr/bin/env bash
+# é€漢😀 header comment{C}
+s="é€😀 # testmap:covers src/fake.sh"{L}
+# testmap:covers src/real.sh{W}
+t='漢字😀' # é trailing
+
+# 😀 € plain comment{C}
+# testmap:unit NonAscii{W}
+# testmap:covers src/member.sh{W}
+non_ascii() {{
+    echo "😀 # testmap:covers src/fake2.sh"{L}
+}}
+echo "${{#s}} ${{#t}}" "$(non_ascii)"
+""", placement={"": "src/real.sh", "NonAscii": "src/member.sh"}, native=NATIVE + ["bash-exec"], exec_="bash {file}",
+       notes=["t1954_3 non-ASCII positions: 2-, 3- and 4-byte characters before every comment, look-alike and edit target"],
+       edits=[
+           (f"annotate member= source=src/real.sh stamp={RE} from=original", "applied",
+            ("rep", "src/real.sh", f"# testmap:covers src/real.sh {RE}{W}")),
+           (f"annotate member= source=src/new.sh stamp={NEW} from=original", "applied",
+            ("ins", "src/real.sh", f"# testmap:covers src/new.sh {NEW}{W}")),
+           (f"annotate member=NonAscii source=src/more.sh stamp={NEW} from=original", "applied",
+            ("ins", "src/member.sh", f"# testmap:covers src/more.sh {NEW}{W}")),
+           (f"raw kind=replace line=3 member= source=src/fake.sh from=original new=# testmap:covers src/fake.sh {RE}",
+            "refused:not-comment"),
+       ]),
+]

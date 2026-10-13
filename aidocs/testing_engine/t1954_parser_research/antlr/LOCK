@@ -1,0 +1,9 @@
+# t1954_3 ANTLR4 provider: pinned generator and grammars. gen.sh refuses any
+# input whose sha256 differs. Moving a pin is a deliberate committed edit.
+tool: https://www.antlr.org/download/antlr-4.13.1-complete.jar sha256=bc13a9c57a8dd7d5196888211e5ede657cb64a3ce968608697e4f668251a8487
+grammars_v4: 89fd36482e8cb68a4e55df021a8adbc7541b52f2
+file: kotlin/kotlin/KotlinLexer.g4 sha256=cef6a0ecc86bdc36677bf3c0bae6930a9a54e92d7a16dff60122857e4de5e524
+file: kotlin/kotlin/UnicodeClasses.g4 sha256=387767a9424559354176d93272d2d05835992f6ad37f5ee82ed7d9f411ae53c6
+file: java/java/JavaLexer.g4 sha256=b8d9b65d796197d234a1adaddd152afe491e9e411e6a6aad5300fe62df158ea6
+file: rust/RustLexer.g4 sha256=22a0e797c642a9f8a920fd5e7b6eb86a0176a7968906adc0553b1997a041857c
+file: rust/Go/rust_lexer_base.go sha256=434a82acb7b7281b7e454137741a8f7d684815e53504ffa4a9e16987d06f6420

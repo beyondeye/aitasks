@@ -123,3 +123,36 @@ fn main() {{}}
        edits=[(f"annotate member= source=src/crlf.rs stamp={RE}", "applied",
                ("rep", 1, f"// testmap:covers src/crlf.rs {RE}{W}"))]),
 ]
+
+# t1954_3: non-ASCII position fixtures (see hand_bash.py).
+FIXTURES += [
+    Fx("nonascii.rs", f"""//! é€漢😀 crate docs{C}
+use std::fmt;
+
+// testmap:covers src/real.rs{W}
+
+// 😀 € plain comment{C}
+// testmap:unit non_ascii{W}
+// testmap:covers src/member.rs{W}
+fn non_ascii() -> usize {{
+    "😀".len()
+}}
+
+fn main() {{
+    let s = "é€😀 // testmap:covers src/fake.rs";{L}
+    let raw = r#"漢字😀
+// testmap:covers src/fake2.rs{L}
+"#;
+    println!("{{}} {{}} {{}} {{:?}}", s.len(), raw.len(), non_ascii(), fmt::Error);
+}}
+""", placement={"": "src/real.rs", "non_ascii": "src/member.rs"}, native=NATIVE + ["rust-exec"], exec_=EXEC,
+       notes=["t1954_3 non-ASCII positions: 2-, 3- and 4-byte characters before every comment, look-alike and edit target"],
+       edits=[
+           (f"annotate member= source=src/real.rs stamp={RE} from=original", "applied",
+            ("rep", "src/real.rs", f"// testmap:covers src/real.rs {RE}{W}")),
+           (f"annotate member=non_ascii source=src/more.rs stamp={NEW} from=original", "applied",
+            ("ins", "src/member.rs", f"// testmap:covers src/more.rs {NEW}{W}")),
+           (f"raw kind=replace line=16 member= source=src/fake2.rs from=original new=// testmap:covers src/fake2.rs {RE}",
+            "refused:not-comment"),
+       ]),
+]

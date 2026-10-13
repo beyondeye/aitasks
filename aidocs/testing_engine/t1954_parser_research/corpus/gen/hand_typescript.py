@@ -159,3 +159,102 @@ export const y = a;
        edits=[(f"annotate member= source=src/crlf.ts stamp={RE}", "applied",
                ("rep", 2, f"// testmap:covers src/crlf.ts {RE}{W}"))]),
 ]
+
+# t1954_3: non-ASCII position fixtures (see hand_bash.py) for .ts, .tsx and
+# .js — JavaScript engines and the TypeScript compiler report UTF-16 units.
+FIXTURES += [
+    Fx("nonascii.ts", f"""// é€漢😀 header comment{C}
+import {{ strict as assert }} from "node:assert";
+
+// testmap:covers src/real.ts{W}
+
+// 😀 € plain comment{C}
+// testmap:unit nonAscii{W}
+// testmap:covers src/member.ts{W}
+function nonAscii(): number {{ return "😀".length; }}
+
+const s = "é€😀 // testmap:covers src/fake.ts";{L}
+const t = {BT}漢字😀
+// testmap:covers src/fake2.ts{L}
+${{s.length}}{BT};
+assert.ok(nonAscii() + t.length > 0);
+""", placement={"": "src/real.ts", "nonAscii": "src/member.ts"}, native=NATIVE_TS + ["node-exec"], exec_="node {file}",
+       notes=["t1954_3 non-ASCII positions: 2-, 3- and 4-byte characters before every comment, look-alike and edit target"],
+       edits=[
+           (f"annotate member= source=src/real.ts stamp={RE} from=original", "applied",
+            ("rep", "src/real.ts", f"// testmap:covers src/real.ts {RE}{W}")),
+           (f"annotate member=nonAscii source=src/more.ts stamp={NEW} from=original", "applied",
+            ("ins", "src/member.ts", f"// testmap:covers src/more.ts {NEW}{W}")),
+           (f"raw kind=replace line=13 member= source=src/fake2.ts from=original new=// testmap:covers src/fake2.ts {RE}",
+            "refused:not-comment"),
+       ]),
+
+    Fx("nonascii.tsx", f"""// é€漢😀 header comment{C}
+import {{ useState }} from "react";
+
+// testmap:covers src/real.tsx{W}
+export function C() {{
+  const [s] = useState("é€😀 // testmap:covers src/fake.tsx");{L}
+  return <p title={{s}}>漢字😀 // testmap:covers src/fake2.tsx</p>;{L}
+}}
+""", placement={"": "src/real.tsx"}, native=NATIVE_TS,
+       notes=["t1954_3 non-ASCII positions in TSX; not executed (no React runtime)"],
+       edits=[
+           (f"annotate member= source=src/real.tsx stamp={RE} from=original", "applied",
+            ("rep", "src/real.tsx", f"// testmap:covers src/real.tsx {RE}{W}")),
+           (f"annotate member= source=src/new.tsx stamp={NEW} from=original", "applied",
+            ("ins", "src/real.tsx", f"// testmap:covers src/new.tsx {NEW}{W}")),
+       ]),
+
+    Fx("nonascii.js", f"""// é€漢😀 header comment{C}
+"use strict";
+const s = "é€😀 // testmap:covers src/fake.js";{L}
+// testmap:covers src/real.js{W}
+console.log(s.length, {BT}漢字😀{BT}.length);
+""", placement={"": "src/real.js"}, native=NATIVE_TS + ["node-exec"], exec_="node {file}",
+       notes=["t1954_3 non-ASCII positions in JavaScript"],
+       edits=[
+           (f"annotate member= source=src/real.js stamp={RE} from=original", "applied",
+            ("rep", "src/real.js", f"// testmap:covers src/real.js {RE}{W}")),
+           (f"annotate member= source=src/new.js stamp={NEW} from=original", "applied",
+            ("ins", "src/real.js", f"// testmap:covers src/new.js {NEW}{W}")),
+       ]),
+]
+
+# t1954_3: independent, hand-written expectations for the proposed file-level
+# placement rule (after the imports and any directive prologue), so a provider
+# that derives the anchors from the same TypeScript AST as the ts-parser
+# oracle (tsnative) is checked against something it did not produce.
+FIXTURES += [
+    Fx("fresh_noimports.ts", f"""// A header comment.{C}
+export const x = 1;
+console.log(x);
+""", placement={"": 1}, native=NATIVE_TS + ["node-exec"], exec_="node {file}",
+       notes=["t1954_3 anchors: no imports, no prologue: after the leading comment block"],
+       edits=[(f"annotate member= source=src/fresh_noimports.ts stamp={NEW}", "applied",
+               ("ins", 1, f"// testmap:covers src/fresh_noimports.ts {NEW}{W}"))]),
+
+    Fx("fresh_imports_only.ts", """import { a } from "./a";
+import { b } from "./b";
+""", placement={"": 2}, native=NATIVE_TS,
+       notes=["t1954_3 anchors: a file of imports only: after the last import"],
+       edits=[(f"annotate member= source=src/fresh_imports_only.ts stamp={NEW}", "applied",
+               ("ins", 2, f"// testmap:covers src/fresh_imports_only.ts {NEW}{W}"))]),
+
+    Fx("fresh_strict_imports.js", """"use strict";
+import fs from "node:fs";
+export const exists = fs.existsSync(".");
+""", placement={"": 2}, native=NATIVE_TS,
+       notes=["t1954_3 anchors: a directive prologue followed by an import: after the import"],
+       edits=[(f"annotate member= source=src/fresh_strict_imports.js stamp={NEW}", "applied",
+               ("ins", 2, f"// testmap:covers src/fresh_strict_imports.js {NEW}{W}"))]),
+
+    Fx("fresh_comment_between.tsx", f"""import {{ a }} from "./a";
+import type {{ B }} from "./b";
+// A comment between the imports and the code.{C}
+export const C = (b: B) => <div>{{a}}{{String(b)}}</div>;
+""", placement={"": 2}, native=NATIVE_TS,
+       notes=["t1954_3 anchors: a comment between the imports and the code: the rule places the block right after the imports"],
+       edits=[(f"annotate member= source=src/fresh_comment_between.tsx stamp={NEW}", "applied",
+               ("ins", 2, f"// testmap:covers src/fresh_comment_between.tsx {NEW}{W}"))]),
+]

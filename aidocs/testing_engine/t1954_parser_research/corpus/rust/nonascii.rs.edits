@@ -1,0 +1,21 @@
+op: annotate member= source=src/real.rs stamp=@2026-02-02/bbbbbbbbbb from=original
+outcome: applied
+after:
+  - line=4 member= key=covers value=src/real.rs stamp=@2026-02-02/bbbbbbbbbb origin=comment
+  - line=7 member=non_ascii key=unit value=non_ascii stamp= origin=comment
+  - line=8 member=non_ascii key=covers value=src/member.rs stamp= origin=comment
+
+op: annotate member=non_ascii source=src/more.rs stamp=@2026-10-12/aaaaaaaaaa from=original
+outcome: applied
+after:
+  - line=4 member= key=covers value=src/real.rs stamp= origin=comment
+  - line=7 member=non_ascii key=unit value=non_ascii stamp= origin=comment
+  - line=8 member=non_ascii key=covers value=src/member.rs stamp= origin=comment
+  - line=9 member=non_ascii key=covers value=src/more.rs stamp=@2026-10-12/aaaaaaaaaa origin=comment
+
+op: raw kind=replace line=16 member= source=src/fake2.rs from=original new=// testmap:covers src/fake2.rs @2026-02-02/bbbbbbbbbb
+outcome: refused:not-comment
+after:
+  - line=4 member= key=covers value=src/real.rs stamp= origin=comment
+  - line=7 member=non_ascii key=unit value=non_ascii stamp= origin=comment
+  - line=8 member=non_ascii key=covers value=src/member.rs stamp= origin=comment

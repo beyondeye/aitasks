@@ -10,9 +10,12 @@
 //	t1954 bench    [--provider p,…] [--quick]
 //	t1954 footprint
 //	t1954 oraclecheck                                native cross-checks of the hand oracles
-//	t1954 env                                        results/environment.md
+//	t1954 env      [--t3]                            results/environment.md (--t3: only the t1954_3 tools section)
 //	t1954 localpolicy [--provider p,…]              the local-error refusal alternative
 //	t1954 tsdiff   [--repos a,b] [--out f]           tree-sitter runtime differential (-tags t1954cgo)
+//	t1954 lsp      [--servers a,b] [--workdir d]     do language servers expose comments? (t1954_3)
+//	t1954 sidecar                                    the registry fed from YAML sidecars (t1954_3)
+//	t1954 footprint-t3                               the t1954_3 candidates' footprint
 package main
 
 import (
@@ -75,12 +78,13 @@ func main() {
 	os.Exit(code)
 }
 
-// extraVerbs are verbs compiled in only under a build tag (tsdiff needs the
-// cgo reference provider).
+// extraVerbs are verbs registered from their own files: tsdiff compiled in
+// only under a build tag (it needs the cgo reference provider), and the
+// t1954_3 experiments (lsp, sidecar, footprint-t3).
 var extraVerbs = map[string]func([]string) int{}
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: t1954 matrix|edit|guard|classes|oraclecheck|realrepo|bench|footprint|env [flags]")
+	fmt.Fprintln(os.Stderr, "usage: t1954 matrix|edit|guard|classes|oraclecheck|realrepo|bench|footprint|env|localpolicy|lsp|sidecar|footprint-t3 [flags]")
 	os.Exit(64)
 }
 

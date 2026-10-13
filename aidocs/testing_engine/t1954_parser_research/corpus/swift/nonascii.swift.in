@@ -1,0 +1,16 @@
+// é€漢😀 header comment
+import Foundation
+
+// testmap:covers Sources/App/Real.swift
+
+// 😀 € plain comment
+// testmap:unit testNonAscii
+// testmap:covers Sources/App/Member.swift
+func testNonAscii() -> Int { return "😀".count }
+
+let s = "é€😀 // testmap:covers Sources/fake.swift"
+let raw = """
+漢字😀
+// testmap:covers Sources/fake2.swift
+"""
+print(s.count, raw.count, testNonAscii())

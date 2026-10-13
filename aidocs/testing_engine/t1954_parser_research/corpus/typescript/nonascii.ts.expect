@@ -1,0 +1,15 @@
+lang: typescript
+expect: certain
+read:
+  - line=4 member= key=covers value=src/real.ts stamp= origin=comment
+  - line=7 member=nonAscii key=unit value=nonAscii stamp= origin=comment
+  - line=8 member=nonAscii key=covers value=src/member.ts stamp= origin=comment
+writable: 4,7-8
+readonly: 
+lookalikes: 11,13
+comments: 1,4,6-8
+refuse: none
+placement: file=4 member:nonAscii=8
+native: node-ts+node-exec
+exec: node {file}
+note: t1954_3 non-ASCII positions: 2-, 3- and 4-byte characters before every comment, look-alike and edit target

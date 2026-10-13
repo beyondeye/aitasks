@@ -4,8 +4,8 @@
 
 - unpatched: `baseline: commit=f096db065a7249836c9a82f9d05bbd20fc43b961 tree=200bd2130a1dc45f27bebdec16392da76bfc018b seam_sha256=none snapshot=unpatched`
 - patched:   `baseline: commit=f096db065a7249836c9a82f9d05bbd20fc43b961 tree=200bd2130a1dc45f27bebdec16392da76bfc018b seam_sha256=9a8013a789e79117539ac3e7b2b1dfa924376b301fe6d9628f579ccc127d0296 snapshot=patched`
-- compared: 28593 bytes
+- compared: 30546 bytes
 
-**GUARD:PASS|baseline matrices byte-identical (28593 bytes) excluding the identity line**
+**GUARD:PASS|baseline matrices byte-identical (30546 bytes) excluding the identity line**
 
 Negative control (run by hand in a scratch copy, 2026-10-12): a mutant unpatched snapshot whose Go lexer drops the package anchor (`c.Package = 0`) makes the guard report `GUARD:FAIL|baseline matrices differ …` — the guard can detect a behaviour difference.

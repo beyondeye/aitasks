@@ -1,0 +1,12 @@
+lang: typescript
+expect: certain
+read:
+  - line=4 member= key=covers value=src/real.tsx stamp= origin=comment
+writable: 4
+readonly: 
+lookalikes: 6-7
+comments: 1,4
+refuse: none
+placement: file=4
+native: node-ts
+note: t1954_3 non-ASCII positions in TSX; not executed (no React runtime)

@@ -1,0 +1,11 @@
+lang: typescript
+expect: certain
+read:
+writable: 
+readonly: 
+lookalikes: 
+comments: 3
+refuse: none
+placement: file=2
+native: node-ts
+note: t1954_3 anchors: a comment between the imports and the code: the rule places the block right after the imports

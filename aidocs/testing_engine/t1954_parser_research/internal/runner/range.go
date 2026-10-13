@@ -46,7 +46,13 @@ func rangeLevel(row *Row, lang string, c corpus.Case, res provider.Result, s Sub
 		}
 	}
 	caps := s.Caps(lang)
-	if caps.FullCover {
+	switch {
+	case caps.FullCover && len(res.Leaves) == 0 && len(res.Diags) > 0:
+		// A lexer that reports a recognition error may leave the offending
+		// input untokenised (ANTLR: Recover skips it); the adapter attributes
+		// that gap to the Diag (t1954_3 Layer 1) and sends no partition.
+		row.note("range: full cover not checked: uncertain input, recovery gaps attributed to its diagnostics")
+	case caps.FullCover:
 		for _, v := range partitionViolations(res.Leaves, src) {
 			viol++
 			row.note("range: full cover: %s", v)
@@ -60,6 +66,8 @@ func rangeLevel(row *Row, lang string, c corpus.Case, res provider.Result, s Sub
 			oracleNote = "oracle " + name + " failed: " + oneLine(err.Error())
 		case name == s.Name:
 			oracleNote = "provider is the oracle (" + name + ")"
+		case sharesOracle(s, name):
+			oracleNote = "self-consistency: shares the " + name + " extraction, not independent validation"
 		case name == "":
 			oracleNote = "no native oracle"
 		default:
@@ -76,6 +84,13 @@ func rangeLevel(row *Row, lang string, c corpus.Case, res provider.Result, s Sub
 	} else {
 		row.Range = fmt.Sprintf("fail:%d (%s)", viol, oracleNote)
 	}
+}
+
+// sharesOracle: the subject wraps the very extraction the oracle uses
+// (t1954_3 tsnative vs ts-parser), so agreement proves only consistency.
+func sharesOracle(s Subject, name string) bool {
+	so, ok := s.P.(provider.SharedOracle)
+	return ok && name != "" && so.SharesOracle() == name
 }
 
 // partitionViolations requires the leaves to be an exact partition of src:

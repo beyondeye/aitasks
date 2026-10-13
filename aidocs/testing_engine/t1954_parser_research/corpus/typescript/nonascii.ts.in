@@ -1,0 +1,15 @@
+// é€漢😀 header comment
+import { strict as assert } from "node:assert";
+
+// testmap:covers src/real.ts
+
+// 😀 € plain comment
+// testmap:unit nonAscii
+// testmap:covers src/member.ts
+function nonAscii(): number { return "😀".length; }
+
+const s = "é€😀 // testmap:covers src/fake.ts";
+const t = `漢字😀
+// testmap:covers src/fake2.ts
+${s.length}`;
+assert.ok(nonAscii() + t.length > 0);

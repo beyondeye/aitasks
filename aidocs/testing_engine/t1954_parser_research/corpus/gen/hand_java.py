@@ -126,3 +126,38 @@ class Crlf {{}}
        edits=[(f"annotate member= source=src/crlf2.java stamp={NEW}", "applied",
                ("ins", 3, f"// testmap:covers src/crlf2.java {NEW}{W}"))]),
 ]
+
+# t1954_3: non-ASCII position fixtures (see hand_bash.py).
+FIXTURES += [
+    Fx("NonAscii.java", f"""// é€漢😀 header comment{C}
+package app;
+
+import java.util.List;
+
+// testmap:covers src/main/java/app/Real.java{W}
+public class NonAscii {{
+    // 😀 € plain comment{C}
+    // testmap:unit nonAscii{W}
+    // testmap:covers src/main/java/app/Member.java{W}
+    static int nonAscii() {{ return "😀".length(); }}
+
+    public static void main(String[] a) {{
+        String s = "é€😀 // testmap:covers fake";{L}
+        String t = {Q3}
+            漢字😀
+            // testmap:covers src/fake2.java{L}
+            {Q3};
+        System.out.println(nonAscii() + s.length() + t.length() + List.of(1).size());
+    }}
+}}
+""", placement={"": "Real.java", "nonAscii": "Member.java"}, native=NATIVE + ["java-exec"], exec_="java {file}",
+       notes=["t1954_3 non-ASCII positions: 2-, 3- and 4-byte characters before every comment, look-alike and edit target"],
+       edits=[
+           (f"annotate member= source=src/main/java/app/Real.java stamp={RE} from=original", "applied",
+            ("rep", "Real.java", f"// testmap:covers src/main/java/app/Real.java {RE}{W}")),
+           (f"annotate member=nonAscii source=src/main/java/app/More.java stamp={NEW} from=original", "applied",
+            ("ins", "Member.java", f"    // testmap:covers src/main/java/app/More.java {NEW}{W}")),
+           (f"raw kind=replace line=17 member=nonAscii source=src/fake2.java from=original new=            // testmap:covers src/fake2.java",
+            "refused:not-comment"),
+       ]),
+]

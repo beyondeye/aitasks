@@ -1,0 +1,15 @@
+lang: rust
+expect: certain
+read:
+  - line=4 member= key=covers value=src/real.rs stamp= origin=comment
+  - line=7 member=non_ascii key=unit value=non_ascii stamp= origin=comment
+  - line=8 member=non_ascii key=covers value=src/member.rs stamp= origin=comment
+writable: 4,7-8
+readonly: 
+lookalikes: 14,16
+comments: 1,4,6-8
+refuse: none
+placement: file=4 member:non_ascii=8
+native: rustc+rust-exec
+exec: rustc --edition 2021 -o prog {file} 2>/dev/null && ./prog
+note: t1954_3 non-ASCII positions: 2-, 3- and 4-byte characters before every comment, look-alike and edit target

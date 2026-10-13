@@ -1,0 +1,12 @@
+lang: typescript
+expect: certain
+read:
+writable: 
+readonly: 
+lookalikes: 
+comments: 1
+refuse: none
+placement: file=1
+native: node-ts+node-exec
+exec: node {file}
+note: t1954_3 anchors: no imports, no prologue: after the leading comment block

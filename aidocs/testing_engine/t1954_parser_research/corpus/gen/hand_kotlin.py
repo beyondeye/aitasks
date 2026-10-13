@@ -119,3 +119,35 @@ class T
        edits=[(f"annotate member= source=app/crlf2.kt stamp={NEW}", "applied",
                ("ins", 3, f"// testmap:covers app/crlf2.kt {NEW}{W}"))]),
 ]
+
+# t1954_3: non-ASCII position fixtures (see hand_bash.py). The JVM reports
+# UTF-16 code units; 😀 is a surrogate pair.
+FIXTURES += [
+    Fx("nonascii.kt", f"""// é€漢😀 header comment{C}
+package app.tests
+
+import kotlin.math.abs
+
+// testmap:covers app/src/Real.kt{W}
+val s = "é€😀 // testmap:covers app/fake.kt"{L}
+val raw = {Q3}漢字😀
+// testmap:covers app/fake2.kt{L}
+{Q3}
+
+// 😀 € plain comment{C}
+class NonAsciiTest {{
+    // testmap:unit NonAscii{W}
+    // testmap:covers app/src/Member.kt{W}
+    fun nonAscii() = abs(-1) + "😀".length
+}}
+""", placement={"": "app/src/Real.kt", "NonAscii": "app/src/Member.kt"}, native=NATIVE,
+       notes=["t1954_3 non-ASCII positions: 2-, 3- and 4-byte characters before every comment, look-alike and edit target"],
+       edits=[
+           (f"annotate member= source=app/src/Real.kt stamp={RE} from=original", "applied",
+            ("rep", "app/src/Real.kt", f"// testmap:covers app/src/Real.kt {RE}{W}")),
+           (f"annotate member=NonAscii source=app/src/More.kt stamp={NEW} from=original", "applied",
+            ("ins", "app/src/Member.kt", f"    // testmap:covers app/src/More.kt {NEW}{W}")),
+           (f"raw kind=replace line=9 member= source=app/fake2.kt from=original new=// testmap:covers app/fake2.kt {RE}",
+            "refused:not-comment"),
+       ]),
+]

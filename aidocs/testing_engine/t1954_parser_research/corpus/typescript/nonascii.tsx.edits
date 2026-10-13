@@ -1,0 +1,10 @@
+op: annotate member= source=src/real.tsx stamp=@2026-02-02/bbbbbbbbbb from=original
+outcome: applied
+after:
+  - line=4 member= key=covers value=src/real.tsx stamp=@2026-02-02/bbbbbbbbbb origin=comment
+
+op: annotate member= source=src/new.tsx stamp=@2026-10-12/aaaaaaaaaa from=original
+outcome: applied
+after:
+  - line=4 member= key=covers value=src/real.tsx stamp= origin=comment
+  - line=5 member= key=covers value=src/new.tsx stamp=@2026-10-12/aaaaaaaaaa origin=comment

@@ -1,0 +1,4 @@
+import { a } from "./a";
+import type { B } from "./b";
+// A comment between the imports and the code.
+export const C = (b: B) => <div>{a}{String(b)}</div>;

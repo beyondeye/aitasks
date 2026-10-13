@@ -139,3 +139,37 @@ b{BT}
        edits=[(f"annotate member= source=src/bom2.go stamp={NEW}", "applied",
                ("ins", 3, f"// testmap:covers src/bom2.go {NEW}{W}"))]),
 ]
+
+# t1954_3: non-ASCII position fixtures (see hand_bash.py).
+FIXTURES += [
+    Fx("nonascii.go", f"""// é€漢😀 header comment{C}
+package main
+
+import "fmt"
+
+// testmap:covers internal/real.go{W}
+
+// 😀 € plain comment{C}
+// testmap:unit TestNonAscii{W}
+// testmap:covers internal/member.go{W}
+func nonASCII() string {{ return "😀 // testmap:covers internal/fake2.go" }}{L}
+
+func main() {{
+\ts := "é€😀 // testmap:covers internal/fake.go"{L}
+\traw := {BT}漢字😀
+// testmap:covers internal/fake3.go{L}
+{BT}
+\tfmt.Println(len(s), len(raw), nonASCII()) // é trailing
+}}
+""", placement={"": "internal/real.go", "TestNonAscii": "internal/member.go"}, native=NATIVE + ["go-run"],
+       exec_="go run {file}",
+       notes=["t1954_3 non-ASCII positions: 2-, 3- and 4-byte characters before every comment, look-alike and edit target"],
+       edits=[
+           (f"annotate member= source=internal/real.go stamp={RE} from=original", "applied",
+            ("rep", "internal/real.go", f"// testmap:covers internal/real.go {RE}{W}")),
+           (f"annotate member=TestNonAscii source=internal/more.go stamp={NEW} from=original", "applied",
+            ("ins", "internal/member.go", f"// testmap:covers internal/more.go {NEW}{W}")),
+           (f"raw kind=replace line=16 member= source=internal/fake3.go from=original new=// testmap:covers internal/fake3.go {RE}",
+            "refused:not-comment"),
+       ]),
+]

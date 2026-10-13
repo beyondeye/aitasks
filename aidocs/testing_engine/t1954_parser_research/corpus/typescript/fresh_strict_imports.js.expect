@@ -1,0 +1,11 @@
+lang: javascript
+expect: certain
+read:
+writable: 
+readonly: 
+lookalikes: 
+comments: 
+refuse: none
+placement: file=2
+native: node-ts
+note: t1954_3 anchors: a directive prologue followed by an import: after the import

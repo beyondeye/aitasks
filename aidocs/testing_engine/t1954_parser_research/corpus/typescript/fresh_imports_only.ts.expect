@@ -1,0 +1,11 @@
+lang: typescript
+expect: certain
+read:
+writable: 
+readonly: 
+lookalikes: 
+comments: 
+refuse: none
+placement: file=2
+native: node-ts
+note: t1954_3 anchors: a file of imports only: after the last import

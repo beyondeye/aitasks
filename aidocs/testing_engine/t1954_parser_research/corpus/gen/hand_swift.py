@@ -98,3 +98,33 @@ print(1)
        edits=[(f"annotate member= source=Sources/crlf.swift stamp={RE}", "applied",
                ("rep", 2, f"// testmap:covers Sources/crlf.swift {RE}{W}"))]),
 ]
+
+# t1954_3: non-ASCII position fixtures (see hand_bash.py).
+FIXTURES += [
+    Fx("nonascii.swift", f"""// é€漢😀 header comment{C}
+import Foundation
+
+// testmap:covers Sources/App/Real.swift{W}
+
+// 😀 € plain comment{C}
+// testmap:unit testNonAscii{W}
+// testmap:covers Sources/App/Member.swift{W}
+func testNonAscii() -> Int {{ return "😀".count }}
+
+let s = "é€😀 // testmap:covers Sources/fake.swift"{L}
+let raw = {Q3}
+漢字😀
+// testmap:covers Sources/fake2.swift{L}
+{Q3}
+print(s.count, raw.count, testNonAscii())
+""", placement={"": "Real.swift", "testNonAscii": "Member.swift"}, native=NATIVE,
+       notes=["t1954_3 non-ASCII positions: 2-, 3- and 4-byte characters before every comment, look-alike and edit target"],
+       edits=[
+           (f"annotate member= source=Sources/App/Real.swift stamp={RE} from=original", "applied",
+            ("rep", "Real.swift", f"// testmap:covers Sources/App/Real.swift {RE}{W}")),
+           (f"annotate member=testNonAscii source=Sources/App/More.swift stamp={NEW} from=original", "applied",
+            ("ins", "Member.swift", f"// testmap:covers Sources/App/More.swift {NEW}{W}")),
+           (f"raw kind=replace line=14 member=testNonAscii source=Sources/fake2.swift from=original new=// testmap:covers Sources/fake2.swift {RE}",
+            "refused:not-comment"),
+       ]),
+]

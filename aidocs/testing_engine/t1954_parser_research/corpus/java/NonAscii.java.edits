@@ -1,0 +1,21 @@
+op: annotate member= source=src/main/java/app/Real.java stamp=@2026-02-02/bbbbbbbbbb from=original
+outcome: applied
+after:
+  - line=6 member= key=covers value=src/main/java/app/Real.java stamp=@2026-02-02/bbbbbbbbbb origin=comment
+  - line=9 member=nonAscii key=unit value=nonAscii stamp= origin=comment
+  - line=10 member=nonAscii key=covers value=src/main/java/app/Member.java stamp= origin=comment
+
+op: annotate member=nonAscii source=src/main/java/app/More.java stamp=@2026-10-12/aaaaaaaaaa from=original
+outcome: applied
+after:
+  - line=6 member= key=covers value=src/main/java/app/Real.java stamp= origin=comment
+  - line=9 member=nonAscii key=unit value=nonAscii stamp= origin=comment
+  - line=10 member=nonAscii key=covers value=src/main/java/app/Member.java stamp= origin=comment
+  - line=11 member=nonAscii key=covers value=src/main/java/app/More.java stamp=@2026-10-12/aaaaaaaaaa origin=comment
+
+op: raw kind=replace line=17 member=nonAscii source=src/fake2.java from=original new=            // testmap:covers src/fake2.java
+outcome: refused:not-comment
+after:
+  - line=6 member= key=covers value=src/main/java/app/Real.java stamp= origin=comment
+  - line=9 member=nonAscii key=unit value=nonAscii stamp= origin=comment
+  - line=10 member=nonAscii key=covers value=src/main/java/app/Member.java stamp= origin=comment

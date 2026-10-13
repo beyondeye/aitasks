@@ -1,0 +1,19 @@
+//! é€漢😀 crate docs
+use std::fmt;
+
+// testmap:covers src/real.rs
+
+// 😀 € plain comment
+// testmap:unit non_ascii
+// testmap:covers src/member.rs
+fn non_ascii() -> usize {
+    "😀".len()
+}
+
+fn main() {
+    let s = "é€😀 // testmap:covers src/fake.rs";
+    let raw = r#"漢字😀
+// testmap:covers src/fake2.rs
+"#;
+    println!("{} {} {} {:?}", s.len(), raw.len(), non_ascii(), fmt::Error);
+}

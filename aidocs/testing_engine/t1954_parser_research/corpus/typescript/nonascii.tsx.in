@@ -1,0 +1,8 @@
+// é€漢😀 header comment
+import { useState } from "react";
+
+// testmap:covers src/real.tsx
+export function C() {
+  const [s] = useState("é€😀 // testmap:covers src/fake.tsx");
+  return <p title={s}>漢字😀 // testmap:covers src/fake2.tsx</p>;
+}

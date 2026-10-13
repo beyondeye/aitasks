@@ -1,0 +1,5 @@
+// é€漢😀 header comment
+"use strict";
+const s = "é€😀 // testmap:covers src/fake.js";
+// testmap:covers src/real.js
+console.log(s.length, `漢字😀`.length);

@@ -1,0 +1,21 @@
+op: annotate member= source=Sources/App/Real.swift stamp=@2026-02-02/bbbbbbbbbb from=original
+outcome: applied
+after:
+  - line=4 member= key=covers value=Sources/App/Real.swift stamp=@2026-02-02/bbbbbbbbbb origin=comment
+  - line=7 member=testNonAscii key=unit value=testNonAscii stamp= origin=comment
+  - line=8 member=testNonAscii key=covers value=Sources/App/Member.swift stamp= origin=comment
+
+op: annotate member=testNonAscii source=Sources/App/More.swift stamp=@2026-10-12/aaaaaaaaaa from=original
+outcome: applied
+after:
+  - line=4 member= key=covers value=Sources/App/Real.swift stamp= origin=comment
+  - line=7 member=testNonAscii key=unit value=testNonAscii stamp= origin=comment
+  - line=8 member=testNonAscii key=covers value=Sources/App/Member.swift stamp= origin=comment
+  - line=9 member=testNonAscii key=covers value=Sources/App/More.swift stamp=@2026-10-12/aaaaaaaaaa origin=comment
+
+op: raw kind=replace line=14 member=testNonAscii source=Sources/fake2.swift from=original new=// testmap:covers Sources/fake2.swift @2026-02-02/bbbbbbbbbb
+outcome: refused:not-comment
+after:
+  - line=4 member= key=covers value=Sources/App/Real.swift stamp= origin=comment
+  - line=7 member=testNonAscii key=unit value=testNonAscii stamp= origin=comment
+  - line=8 member=testNonAscii key=covers value=Sources/App/Member.swift stamp= origin=comment

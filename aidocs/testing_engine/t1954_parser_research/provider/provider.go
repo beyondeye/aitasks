@@ -160,3 +160,11 @@ func (e *UnsupportedCapabilityError) Error() string {
 }
 
 func (e *UnsupportedCapabilityError) Unwrap() error { return ErrUnsupportedCapability }
+
+// SharedOracle is implemented by a provider that wraps the same extraction
+// a native oracle uses (tsnative and the ts-parser oracle share
+// oracle/ts_oracle.js). The runner then labels its range comparison as
+// self-consistency, never as independent validation (t1954_3).
+type SharedOracle interface {
+	SharesOracle() string // the oracle name it shares, as internal/oracle reports it
+}

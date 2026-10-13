@@ -1,0 +1,13 @@
+lang: javascript
+expect: certain
+read:
+  - line=4 member= key=covers value=src/real.js stamp= origin=comment
+writable: 4
+readonly: 
+lookalikes: 3
+comments: 1,4
+refuse: none
+placement: file=4
+native: node-ts+node-exec
+exec: node {file}
+note: t1954_3 non-ASCII positions in JavaScript

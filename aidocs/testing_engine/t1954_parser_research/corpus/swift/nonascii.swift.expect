@@ -1,0 +1,14 @@
+lang: swift
+expect: certain
+read:
+  - line=4 member= key=covers value=Sources/App/Real.swift stamp= origin=comment
+  - line=7 member=testNonAscii key=unit value=testNonAscii stamp= origin=comment
+  - line=8 member=testNonAscii key=covers value=Sources/App/Member.swift stamp= origin=comment
+writable: 4,7-8
+readonly: 
+lookalikes: 11,14
+comments: 1,4,6-8
+refuse: none
+placement: file=4 member:testNonAscii=8
+native: swiftc
+note: t1954_3 non-ASCII positions: 2-, 3- and 4-byte characters before every comment, look-alike and edit target

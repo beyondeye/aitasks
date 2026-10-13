@@ -12,14 +12,14 @@ Rerun: `go run ./cmd/t1954 oraclecheck` (environment: `results/environment.md`; 
 
 | lang | fixtures | validity matches / checked | comment agreement (M2.2 self-test) | comment agreement (hand) | exec ok / run | native none |
 |---|---|---|---|---|---|---|
-| bash | 66 | 29 / 29 | 39 / 39 | 12 / 12 | 9 / 9 | 0 |
-| python | 61 | 24 / 24 | 41 / 41 | 17 / 17 | 9 / 9 | 0 |
-| go | 20 | 16 / 16 | 8 / 8 | 9 / 9 | 1 / 1 | 0 |
-| kotlin | 25 | 19 / 19 | 0 / 0 | 0 / 0 | 0 / 0 | 0 |
-| typescript | 12 | 11 / 11 | 0 / 0 | 10 / 10 | 6 / 6 | 0 |
-| java | 10 | 10 / 10 | 0 / 0 | 0 / 0 | 3 / 3 | 0 |
-| rust | 9 | 9 / 9 | 0 / 0 | 0 / 0 | 6 / 6 | 0 |
-| swift | 10 | 10 / 10 | 0 / 0 | 0 / 0 | 0 / 0 | 0 |
+| bash | 67 | 30 / 30 | 39 / 39 | 13 / 13 | 10 / 10 | 0 |
+| python | 64 | 27 / 27 | 41 / 41 | 20 / 20 | 12 / 12 | 0 |
+| go | 21 | 17 / 17 | 8 / 8 | 10 / 10 | 2 / 2 | 0 |
+| kotlin | 26 | 20 / 20 | 0 / 0 | 0 / 0 | 0 / 0 | 0 |
+| typescript | 19 | 18 / 18 | 0 / 0 | 17 / 17 | 9 / 9 | 0 |
+| java | 11 | 11 / 11 | 0 / 0 | 0 / 0 | 4 / 4 | 0 |
+| rust | 10 | 10 / 10 | 0 / 0 | 0 / 0 | 7 / 7 | 0 |
+| swift | 11 | 11 / 11 | 0 / 0 | 0 / 0 | 0 / 0 | 0 |
 
 ## Per fixture
 
@@ -83,6 +83,7 @@ Rerun: `go run ./cmd/t1954 oraclecheck` (environment: `results/environment.md`; 
 | bash | lookalikes.sh | M2.2 | valid | accept | yes | agree (shfmt, 2 comment lines) |  |
 | bash | malformed_unterminated_single.sh | hand | invalid | reject:malformed_unterminated_single.sh: line 2: unexpected EOF while looking for matching `'' | yes | n/a (malformed) |  |
 | bash | malformed_unterminated_subst.sh | hand | invalid | reject:malformed_unterminated_subst.sh: line 4: unexpected EOF while looking for matching `)' | yes | n/a (malformed) |  |
+| bash | nonascii.sh | hand | valid | accept | yes | agree (shfmt, 5 comment lines) | ok |
 | bash | nonl_edit.sh | hand | valid | accept | yes | agree (shfmt, 2 comment lines) |  |
 | bash | ordinary.sh | hand | valid | accept | yes | agree (shfmt, 7 comment lines) | ok |
 | bash | placement_bash_existing.sh | M2.2 | valid | accept | yes | agree (shfmt, 1 comment lines) |  |
@@ -105,6 +106,7 @@ Rerun: `go run ./cmd/t1954 oraclecheck` (environment: `results/environment.md`; 
 | go | lookalikes.go | M2.2 | valid | accept | yes | agree (goscanner, 2 comment lines) |  |
 | go | malformed_unterminated_block.go | hand | invalid | reject:malformed_unterminated_block.go:2:1: comment not terminated | yes | n/a (malformed) |  |
 | go | malformed_unterminated_string.go | hand | invalid | reject:malformed_unterminated_string.go:2:9: string literal not terminated | yes | n/a (malformed) |  |
+| go | nonascii.go | hand | valid | accept | yes | agree (goscanner, 5 comment lines) | ok |
 | go | ordinary.go | hand | valid | accept | yes | agree (goscanner, 4 comment lines) | ok |
 | go | placement_go_buildtag.go | M2.2 | valid | accept | yes | agree (goscanner, 0 comment lines) |  |
 | go | placement_go_pkgdoc.go | M2.2 | valid | accept | yes | agree (goscanner, 0 comment lines) |  |
@@ -118,6 +120,7 @@ Rerun: `go run ./cmd/t1954 oraclecheck` (environment: `results/environment.md`; 
 | java | MalformedComment.java | hand | invalid | reject:MalformedComment.java:2: error: unclosed comment | yes | n/a (malformed) |  |
 | java | MalformedTextBlock.java | hand | invalid | reject:MalformedTextBlock.java:2: error: unclosed text block | yes | n/a (malformed) |  |
 | java | Nested.java | hand | valid | accept | yes | n/a (no comment oracle) |  |
+| java | NonAscii.java | hand | valid | accept | yes | n/a (no comment oracle) | ok |
 | java | Ordinary.java | hand | valid | accept | yes | n/a (no comment oracle) | ok |
 | java | TextBlocks.java | hand | valid | accept | yes | n/a (no comment oracle) | ok |
 | java | UnicodeEscape.java | hand | valid | accept | yes | n/a (no comment oracle) | ok |
@@ -138,6 +141,7 @@ Rerun: `go run ./cmd/t1954 oraclecheck` (environment: `results/environment.md`; 
 | kotlin | malformed_unterminated_block.kt | hand | invalid | reject:malformed_unterminated_block.kt:4:1: error: syntax error: Unclosed comment. | yes | n/a (malformed) |  |
 | kotlin | malformed_unterminated_string.kt | hand | invalid | reject:malformed_unterminated_string.kt:1:22: error: syntax error: Expecting '"'. | yes | n/a (malformed) |  |
 | kotlin | nested_comments.kt | hand | valid | accept | yes | n/a (no comment oracle) |  |
+| kotlin | nonascii.kt | hand | valid | accept | yes | n/a (no comment oracle) |  |
 | kotlin | ordinary.kt | hand | valid | accept | yes | n/a (no comment oracle) |  |
 | kotlin | placement_kotlin_imports.kt | M2.2 | valid | accept | yes | n/a (no comment oracle) |  |
 | kotlin | placement_kotlin_license.kt | M2.2 | valid | accept | yes | n/a (no comment oracle) |  |
@@ -186,6 +190,7 @@ Rerun: `go run ./cmd/t1954 oraclecheck` (environment: `results/environment.md`; 
 | python | embedded_sql.py | hand | valid | accept | yes | agree (pytokenize, 1 comment lines) | ok |
 | python | fstrings_312.py | hand | valid | accept | yes | agree (pytokenize, 1 comment lines) | ok |
 | python | latin1_cookie.py | hand | valid | accept | yes | agree (pytokenize, 3 comment lines) | ok |
+| python | latin1_member.py | hand | valid | accept | yes | agree (pytokenize, 5 comment lines) | ok |
 | python | lex_brackets.py | M2.2 | fragment | accept | n/a | agree (pytokenize, 1 comment lines) |  |
 | python | lex_continuation.py | M2.2 | fragment | reject:ast: invalid syntax | n/a | agree (pytokenize, 0 comment lines; 1 explained) |  |
 | python | lex_docstring.py | M2.2 | fragment | accept | n/a | agree (pytokenize, 1 comment lines) |  |
@@ -197,6 +202,8 @@ Rerun: `go run ./cmd/t1954 oraclecheck` (environment: `results/environment.md`; 
 | python | lookalikes.py | M2.2 | valid | accept | yes | agree (pytokenize, 2 comment lines) |  |
 | python | malformed_unterminated_single.py | hand | invalid | reject:tokenize: unterminated string literal (detected at line 1) | yes | n/a (malformed) |  |
 | python | nodoc_fresh.py | hand | valid | accept | yes | agree (pytokenize, 0 comment lines) | ok |
+| python | nonascii.py | hand | valid | accept | yes | agree (pytokenize, 5 comment lines) | ok |
+| python | nonascii_doc.py | hand | valid | accept | yes | agree (pytokenize, 2 comment lines) | ok |
 | python | not_doc_bytes.py | hand | valid | accept | yes | agree (pytokenize, 1 comment lines) |  |
 | python | not_doc_call.py | hand | valid | accept | yes | agree (pytokenize, 1 comment lines) |  |
 | python | not_doc_fstring.py | hand | valid | accept | yes | agree (pytokenize, 1 comment lines) |  |
@@ -214,6 +221,7 @@ Rerun: `go run ./cmd/t1954 oraclecheck` (environment: `results/environment.md`; 
 | rust | malformed_nested.rs | hand | invalid | reject:error[E0758]: unterminated block comment | yes | n/a (malformed) |  |
 | rust | malformed_raw.rs | hand | invalid | reject:error[E0748]: unterminated raw string | yes | n/a (malformed) |  |
 | rust | nested_comments.rs | hand | valid | accept | yes | n/a (no comment oracle) | ok |
+| rust | nonascii.rs | hand | valid | accept | yes | n/a (no comment oracle) | ok |
 | rust | ordinary.rs | hand | valid | accept | yes | n/a (no comment oracle) | ok |
 | rust | raw_strings.rs | hand | valid | accept | yes | n/a (no comment oracle) | ok |
 | swift | crlf.swift | hand | valid | accept | yes | n/a (no comment oracle) |  |
@@ -222,18 +230,26 @@ Rerun: `go run ./cmd/t1954 oraclecheck` (environment: `results/environment.md`; 
 | swift | malformed_multiline.swift | hand | invalid | reject:/w/malformed_multiline.swift:1:9: error: unterminated string literal | yes | n/a (malformed) |  |
 | swift | malformed_nested.swift | hand | invalid | reject:/w/malformed_nested.swift:2:34: error: unterminated '/*' comment | yes | n/a (malformed) |  |
 | swift | nested_comments.swift | hand | valid | accept | yes | n/a (no comment oracle) |  |
+| swift | nonascii.swift | hand | valid | accept | yes | n/a (no comment oracle) |  |
 | swift | ordinary.swift | hand | valid | accept | yes | n/a (no comment oracle) |  |
 | swift | raw_strings.swift | hand | valid | accept | yes | n/a (no comment oracle) |  |
 | swift | regex_literals.swift | hand | valid | accept | yes | n/a (no comment oracle) |  |
 | swift | shebang.swift | hand | valid | accept | yes | n/a (no comment oracle) |  |
 | typescript | crlf.ts | hand | valid | accept | yes | agree (ts-parser, 1 comment lines) |  |
 | typescript | embedded.ts | hand | valid | accept | yes | agree (ts-parser, 1 comment lines) | ok |
+| typescript | fresh_comment_between.tsx | hand | valid | accept | yes | agree (ts-parser, 1 comment lines) |  |
+| typescript | fresh_imports_only.ts | hand | valid | accept | yes | agree (ts-parser, 0 comment lines) |  |
+| typescript | fresh_noimports.ts | hand | valid | accept | yes | agree (ts-parser, 1 comment lines) | ok |
+| typescript | fresh_strict_imports.js | hand | valid | accept | yes | agree (ts-parser, 0 comment lines) |  |
 | typescript | html_comments.js | hand | valid | reject:Expression expected. | explained | agree (ts-parser, 1 comment lines) | ok |
 | typescript | imports.ts | hand | valid | accept | yes | agree (ts-parser, 1 comment lines) |  |
 | typescript | jsx_text.jsx | hand | valid | accept | yes | agree (ts-parser, 1 comment lines) |  |
 | typescript | jsx_text.tsx | hand | valid | accept | yes | agree (ts-parser, 1 comment lines) |  |
 | typescript | malformed_unterminated_comment.js | hand | invalid | reject:'*/' expected. | yes | n/a (malformed) |  |
 | typescript | malformed_unterminated_template.ts | hand | invalid | reject:Unterminated template literal. | yes | n/a (malformed) |  |
+| typescript | nonascii.js | hand | valid | accept | yes | agree (ts-parser, 2 comment lines) | ok |
+| typescript | nonascii.ts | hand | valid | accept | yes | agree (ts-parser, 5 comment lines) | ok |
+| typescript | nonascii.tsx | hand | valid | accept | yes | agree (ts-parser, 2 comment lines) |  |
 | typescript | ordinary.ts | hand | valid | accept | yes | agree (ts-parser, 3 comment lines) | ok |
 | typescript | prologue.js | hand | valid | accept | yes | agree (ts-parser, 0 comment lines) | ok |
 | typescript | regex.ts | hand | valid | accept | yes | agree (ts-parser, 2 comment lines) | ok |

@@ -21,7 +21,8 @@
 // Offsets are converted from UTF-16 code units to UTF-8 BYTES.
 //
 // Usage:
-//   node ts_oracle.js --serve            JSON lines {lang, src(base64)} -> {comments, diags, error}
+//   node ts_oracle.js --serve            JSON lines {name, src(base64)} -> {comments, diags, error};
+//                                        with "mode":"provider" -> the tsnative provider view (providerView)
 //   node ts_oracle.js --selftest         pinned cases + the naive-scan negative control
 //   node ts_oracle.js --file <path>      one file, human-readable
 // typescript is resolved through NODE_PATH (the scratch node_modules).
@@ -108,6 +109,54 @@ function analyze(name, text) {
   };
 }
 
+// providerView is the t1954_3 `tsnative` PROVIDER view of the same parse
+// (mode "provider"): the oracle's comments plus the literal constructs —
+// string literals, whole template expressions (interpolations included, the
+// t1954_2 policy), regex literals and JSX text — and the placement anchors
+// from the AST: ImportEnd (line of the last top-level import) and Prologue
+// (line of the last directive of the leading "use …" prologue); 0 = none,
+// determined. Every span carries its UTF-8 text so the Go side can check the
+// UTF-16 → byte conversion (t1954_3 Layer 1). The tsnative provider SHARES
+// this extraction with the ts-parser oracle: its range evidence is
+// self-consistency, never independent validation.
+function providerView(name, text) {
+  const r = analyze(name, text);
+  if (r.unaccounted.length) return { error: "unaccounted bytes at " + r.unaccounted.join(",") };
+  const sf = ts.createSourceFile(name, text, ts.ScriptTarget.Latest, true, scriptKind(name));
+  const bm = byteMap(text);
+  const buf = Buffer.from(text, "utf8");
+  const span = (s, e, kind) => [bm[s], bm[e], kind, buf.slice(bm[s], bm[e]).toString("base64")];
+  const lits = [];
+  (function walk(n) {
+    switch (n.kind) {
+      case ts.SyntaxKind.StringLiteral:
+      case ts.SyntaxKind.NoSubstitutionTemplateLiteral:
+      case ts.SyntaxKind.TemplateExpression:
+      case ts.SyntaxKind.RegularExpressionLiteral:
+        lits.push(span(n.getStart(sf), n.end, "string"));
+        return; // a template's interpolations are inside its range
+      case ts.SyntaxKind.JsxText:
+        if (!n.containsOnlyTriviaWhiteSpaces) lits.push(span(n.pos, n.end, "string"));
+        return;
+    }
+    ts.forEachChild(n, walk);
+  })(sf);
+  const line = (pos) => sf.getLineAndCharacterOfPosition(pos).line + 1;
+  let importEnd = 0, prologue = 0, inPrologue = true;
+  for (const st of sf.statements) {
+    const directive = ts.isExpressionStatement(st) && ts.isStringLiteral(st.expression);
+    if (inPrologue && directive) prologue = line(st.end);
+    else inPrologue = false;
+    if (ts.isImportDeclaration(st) || ts.isImportEqualsDeclaration(st)) importEnd = Math.max(importEnd, line(st.end));
+  }
+  return {
+    comments: r.comments.map(([s, e, k]) => [s, e, k, buf.slice(s, e).toString("base64")]),
+    literals: lits,
+    diags: r.diags,
+    anchors: { importEnd, prologue },
+  };
+}
+
 // The context-free scan loop the oracle must NOT be: the negative control.
 function naiveComments(name, text) {
   const sc = ts.createScanner(ts.ScriptTarget.Latest, false, ts.LanguageVariant.Standard, text);
@@ -170,8 +219,12 @@ function serve() {
       // assertion, .tsx as JSX): never guessed.
       if (!req.name) throw new Error("request without a file name");
       const text = Buffer.from(req.src, "base64").toString("utf8");
-      const r = analyze("input" + path.extname(req.name), text);
-      resp = r.unaccounted.length ? { error: "unaccounted bytes at " + r.unaccounted.join(",") } : { comments: r.comments.map(([s, e]) => [s, e]), diags: r.diags };
+      if (req.mode === "provider") {
+        resp = providerView("input" + path.extname(req.name), text);
+      } else {
+        const r = analyze("input" + path.extname(req.name), text);
+        resp = r.unaccounted.length ? { error: "unaccounted bytes at " + r.unaccounted.join(",") } : { comments: r.comments.map(([s, e]) => [s, e]), diags: r.diags };
+      }
     } catch (e) {
       resp = { error: String(e && e.message || e) };
     }
