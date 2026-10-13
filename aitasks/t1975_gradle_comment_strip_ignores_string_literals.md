@@ -95,3 +95,5 @@ Bump the cache `schemaVersion`, because raw Gradle extraction changes.
 > | This task's extraction change must carry its own bump: parent+1, read from HEAD at your commit time (6 if nothing else lands first). Do not reuse 5.
 > | Why: cache.get (goengines/internal/testmap/deps/cache.go:61) checks only the entry's version and kind, with entries keyed by the file's blob hash and no extraction-rule fingerprint. Two committed extraction states that share a version would serve each other's cached entries.
 > | t1976 touched only scanKotlin's declaration gate (a `parens` counter; ktDeclName is untouched), two tests in kotlin_test.go after TestKotlinResolution, and the version line.
+
+> **👁 note:read** id=2026-10-13T21:32:11Z.e9fb5fbe3d478e8446ecb767 by=t1975 at=2026-10-13T21:32:11Z mode=explicit ids=2026-10-13T20:59:32Z.b906cde13370932b8ffe5133
