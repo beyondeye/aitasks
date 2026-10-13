@@ -13,7 +13,7 @@ Output branch: main
 
 Parent goal: M2 — Registry and map model (everything that reads and writes
 `aitestmap/` without running a test). This is **M2.4 Axes and variants**, wave
-**C**: variant expansion for the selector, cost and evidence. Providers: M2.1 (`t1853_1`) and **M3.1 (pending: t1854 not decomposed)** — add its child id to `depends:` once t1854's children exist.
+**C**: variant expansion for the selector and evidence. Providers: M2.1 (`t1853_1`) and **M3.1 (`t1854_1`)** — wired into `depends:` at t1854's coarse pass (M3 cut in `6a3a81efc`: `axis:` / `token_format:` are M2.4's alone; M3.1 refuses them until this child lands).
 
 This coarse plan records what the proposal fixes for M2.4. It does not design internals against providers that do not exist yet; the Reality check below does that when this child is picked.
 
@@ -37,7 +37,7 @@ for engine submodules", "Interfaces"). Owns cells read `internal/<pkg>` as
 ## Owned files / provides / consumes
 
 - **Owns:** `goengines/internal/testmap/axes/**`; the `axes` row in `verbs.go`; the axes table + the three rules into M2.1's loader / `check` (named extension of M2.1); `axis:` / `token_format:` in M3.1's `describe` parse (named extension of M3.1).
-- **Provides:** variant expansion and the facet join / forced-facet resolution (M4.1, M3.4, M4.3, M6.4).
+- **Provides:** variant expansion and the facet join / forced-facet resolution (M4.1, M4.3, M6.4; M3.4 treats variant ids as opaque).
 - **Consumes:** M2.1 (loader, `check` registration, `_scanned.yaml` `variants:`); M3.1 (`describe`, `list`).
 
 ## Step 0 — Reality check (MANDATORY, before any code; outcome recorded in this plan file)

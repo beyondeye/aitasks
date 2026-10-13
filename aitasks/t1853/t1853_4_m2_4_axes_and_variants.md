@@ -1,23 +1,24 @@
 ---
 priority: medium
 effort: medium
-depends: [t1853_1]
+depends: [t1853_1, t1854_1]
 issue_type: feature
 status: Ready
 labels: [testing, testmap, go_engine]
 gates: [risk_evaluated]
 anchor: 1852
 created_at: 2026-10-11 17:42
-updated_at: 2026-10-11 17:42
+updated_at: 2026-10-13 19:18
 ---
 
 ## Context
 
 Child **M2.4 — Axes and variants** of t1853 (test map, module M2). Wave **C**.
-Variant expansion for the selector, cost and evidence. **Providers:** M2.1
-(`t1853_1`) and **M3.1 (pending: t1854 not decomposed)** — the runner
-contract's `describe`. The `depends:` entry for M3.1 is added when t1854's
-children exist (t1854's coarse pass, or the cross-linking task t1863).
+Variant expansion for the selector and evidence. **Providers:** M2.1
+(`t1853_1`) and **M3.1 (`t1854_1`)** — the runner contract's `describe`
+(edge wired at t1854's coarse pass; M3 cut fixed in `6a3a81efc`, where
+`axis:` / `token_format:` are this child's extension alone and M3.1 refuses
+them until it lands).
 
 Authoritative specification: `aidocs/testing_engine/n014_explorer_006_proposal.md`
 (M2 cut fixed in `3bc0de8ac`) — Module Map row M2.4, components *Variant axes
@@ -61,7 +62,7 @@ before any code, recorded in the plan) inspects M2.1 and M3.1's actual
 
 ## Provides / consumes
 
-- **Provides:** variant expansion and the facet join (M4.1, M3.4, M4.3, M6.4).
+- **Provides:** variant expansion and the facet join (M4.1, M4.3, M6.4; M3.4 treats variant ids as opaque and does not consume M2.4).
 - **Consumes:** M2.1, M3.1.
 
 ## Implementation plan (coarse)

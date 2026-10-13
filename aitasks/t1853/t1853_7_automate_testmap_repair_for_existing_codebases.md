@@ -1,14 +1,14 @@
 ---
 priority: high
 effort: high
-depends: [t1853_1, t1853_2, t1853_3, t1853_4, t1853_5, t1853_6]
+depends: [t1853_1, t1853_2, t1853_3, t1853_4, t1853_5, t1853_6, t1854_1]
 issue_type: feature
 status: Postponed
 labels: [testing, testmap, go_engine]
 gates: [risk_evaluated]
 anchor: 1852
 created_at: 2026-10-11 23:43
-updated_at: 2026-10-11 23:43
+updated_at: 2026-10-13 19:18
 ---
 
 ## Goal
@@ -37,7 +37,7 @@ The following provider parents have not yet supplied their child IDs at creation
 
 | Required provider module | Parent task | Consumed seam / named extension |
 |---|---|---|
-| M3.1 | [t1854](../t1854_testmap_m3_runners_scheduling_and_cost.md) | Runner-backed enumeration and member identity for whole-corpus reconciliation |
+| M3.1 | [t1854](../t1854_testmap_m3_runners_scheduling_and_cost.md) → **`t1854_1`** (pending; in `depends:` since t1854's coarse pass) | Runner-backed enumeration and member identity for whole-corpus reconciliation |
 | M4.2 | [t1855](../t1855_testmap_m4_selection_freshness_and_feedback.md) | Staleness, retargeting and confirmation operations |
 | M5.1 | [t1856](../t1856_testmap_m5_run_surface.md) | `ait test`, unannotated-test diagnostics and test execution handoff |
 | M6.5 | [t1857](../t1857_testmap_m6_onboarding.md) | Onboarding skill integration after its inventory, seeding and adoption providers |

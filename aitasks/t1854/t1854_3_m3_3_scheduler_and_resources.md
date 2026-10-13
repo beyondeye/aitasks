@@ -1,14 +1,14 @@
 ---
 priority: medium
 effort: high
-depends: []
+depends: [t1854_1, t1853_5]
 issue_type: feature
 status: Ready
 labels: [testing, testmap, go_engine]
 gates: [risk_evaluated]
 anchor: 1852
 created_at: 2026-10-13 19:17
-updated_at: 2026-10-13 19:17
+updated_at: 2026-10-13 19:18
 ---
 
 ## Context
