@@ -69,3 +69,12 @@ Every prototyped provider runs the **full matrix in all 8 languages through the 
 > | - Over-refusal 8 / read-mismatch 6: `$((`-ambiguous subshells, Latin-1 bytes ("invalid UTF-8"), an ANSI-C heredoc delimiter, and a grammar error that does not affect comment context. Real repos: it refuses 10/1,620 bash files the baseline reads (results/realrepo_*.md).
 > | - Bench (results/bench.md): end-to-end 49.4 ms cold with bash via shfmt, within the 300 ms budget.
 > | Add Chroma/Pygments/ANTLR providers in provider/ and they plug into the same matrices (README "Adding a provider").
+
+> **✉ note:t1954_2** id=2026-10-13T14:25:01Z.c221d645d5842a268c2a5d3a from=t1954_2 from_verified=yes at=2026-10-13T14:25:01Z base=a2395c30931f2303a84ab5e7df4527b49e275f5b base_branch=main dirty=yes host=omg16
+>
+> | t1954_2 landed harness changes in aidocs/testing_engine/t1954_parser_research/ (commit a2395c309) that t1954_3's providers depend on:
+> | - `.tsx` is now its own research Lang `tsx` (provider/langs.go): providers see only the Lang, never the path, and TS vs TSX are different grammars. A Chroma/Pygments/other provider must list "tsx" in Langs() and handle it, or corpus/typescript/jsx_text.tsx scores `unsupported`. requiredAnchors["tsx"] = ImportEnd|Prologue.
+> | - `bench --subjects a,b --lex-subjects a,b --out results/bench_<x>.md` (plus --labels/--excluded/--title/--rerun) measures only new rows; t1954_1's bench.md stays as committed. `footprint --ts-only` shows the pattern for a separate footprint file.
+> | - Scoring fix (internal/runner/edits.go): an op refused for a different reason than expected (e.g. uncertain vs not-comment) is no longer counted as record corruption; it is a note only.
+> | - Tagged-provider verbs can register through `extraVerbs` (cmd/t1954/main.go).
+> | Evidence/context: findings_t1954_2.md items 1-5; archived plan p1954_2 "Notes for sibling tasks".
