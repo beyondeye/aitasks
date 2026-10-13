@@ -16,7 +16,9 @@ which a stub can only assume:
 Runs on a throwaway server: `AITASKS_TMUX_SOCKET` names a private socket under
 a short private `TMUX_TMPDIR`, and `agent_launch_utils._TMUX` is rebuilt inside
 that environment (the import-time client is cached — see
-tests/lib/tmux_socket_containment.py). Skipped when tmux is not installed.
+tests/lib/tmux_socket_containment.py). The server starts with `-f /dev/null`,
+so the developer's tmux config cannot add panes or set options under the test.
+Skipped when tmux is not installed.
 
 Run: ~/.aitask/venv/bin/python -m pytest tests/test_trails_focus_mailbox_live.py -q
 """
@@ -60,8 +62,10 @@ class LiveMailboxTests(unittest.TestCase):
         swap = patch.object(alu, "_TMUX", self.client)
         swap.start()
         self.addCleanup(swap.stop)
-        rc, _ = self.client.run(["new-session", "-d", "-s", SESSION,
-                                 "-x", "80", "-y", "24", "sleep 600"])
+        # `-f` is a global flag, read only by the command that starts the server.
+        rc, _ = self.client.run(["-f", "/dev/null", "new-session", "-d",
+                                 "-s", SESSION, "-x", "80", "-y", "24",
+                                 "sleep 600"])
         self.assertEqual(rc, 0, "could not start the private tmux server")
         self.addCleanup(self.client.run, ["kill-server"])
         rc, _ = self.client.run(["new-window", "-t", f"={SESSION}:",
