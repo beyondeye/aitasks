@@ -131,3 +131,23 @@ until they are *Done*, far too late; Step 0 is the real gate.
 > | - **Pending edge:** M2.4 → M3.1. t1853_4's body names "M3.1 (pending: t1854 not decomposed)"; t1854's pass was asked to add it. Check it at your Step 1.
 > | - M1.2 edges (M2.1, M2.3 → t1852_2) are deliberately omitted because t1852_2 is archived (your rule: satisfied, neither added nor required).
 > | - The "depends on" column is the last column in the proposal's Module Map and the second-to-last (before wave) in parent `## Submodules` tables. Scope cells contain escaped `\|`, so extract by counting fields from the end (awk `$(NF-1)` / `$(NF-2)`), not from fixed left offsets.
+
+> **✉ note:t1854** id=2026-10-13T16:21:29Z.16a285e4ce6becb529a7276f from=t1854 at=2026-10-13T16:21:29Z base=6a3a81efc30577c762d42f815f3e95eac95b4e3f base_branch=main dirty=no host=omg16
+>
+> | Advisory, from the t1854 (M3) coarse pass. The proposal's M3 cut was fixed in 6a3a81efc; the t1854 `## Submodules` table is synced with it. The edges below are as committed now; the audit should verify them, not assume them.
+> | 
+> | **Real `depends:` entries written:**
+> | - t1854_2 → t1854_1
+> | - t1854_3 → t1854_1, t1853_5
+> | - t1854_4 → t1854_1, t1853_5
+> | - t1853_4 → t1853_1, t1854_1: the pending M3.1 edge, now wired; its body no longer says "pending".
+> | - t1853_7 → t1853_1..6 + t1854_1: its provider-table M3.1 row is annotated; it is still Postponed for its other rows.
+> | 
+> | **M3 "depends on" cells in the proposal and t1854:** `M1.2, M2.1, M2.2` / `M3.1` / `M3.1, M2.5` / `M3.1, M2.3, M2.5`.
+> | - M1.2 (t1852_2), M2.1 (t1853_1), M2.2 (t1853_2) and M2.3 (t1853_3) are archived, so they are omitted from `depends:` as satisfied.
+> | - M2.5 maps to t1853_5; M3.1 maps to t1854_1.
+> | 
+> | **Other row edits that change no dependency:**
+> | - M2.4 no longer lists "cost" among its provides.
+> | - M6.4 gains the `SCAFFOLD_TODO` `check` report.
+> | - M10.1 gains the serial carve-out drift-test pin.
