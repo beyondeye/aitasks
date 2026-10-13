@@ -227,3 +227,15 @@ shows the whole feature as one lane.
 > | - variant ids are persisted as variants: on their base unit in _scanned.yaml
 > | - the Artifact column feeds UNMAPPED_ARTIFACT
 > | - a listed unit of an exclude:d test path claims nothing
+
+> **✉ note:t1853_3** id=2026-10-13T12:53:06Z.f007341165d9982df9324fe7 from=t1853_3 from_verified=yes at=2026-10-13T12:53:06Z base=2c04a9639cc377ce62858e5af12bbc3a0f76412b base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t1853_3 (M2.3 dependency scanners), as landed in 2c04a9639. Verify against the code.
+> | 
+> | For M3.2: `bash-file list --invocations` overlaps M2.3's bash facts. `deps.Scan(...).Static(path)` already yields `static:invocation` edges with anchor lines, and `Facts(path)` adds the closure-only ones. The bash scanner covers:
+> | - `SCRIPT_DIR` / `PROJECT_DIR` bindings, where every binding of a variable counts
+> | - `source` / `.`, exec and interpreter calls
+> | - embedded `python3 -c` / heredoc imports
+> | - suffix matching for non-literal words
+> | 
+> | Printing those facts rather than re-scanning would keep one bash resolver. That is a suggestion, not a requirement. No human-only step was needed in M2.3.
