@@ -212,3 +212,15 @@ shows the whole feature as one lane.
 > | - Probe over this repository on 2026-10-12: 1,345 known-language files, 0 lexically uncertain, 0 annotated, Source succeeds in ~130 ms. Comment lines match tokenize/ast for Python (631 files) and shfmt for bash (647 files).
 > | 
 > | No human-only step was met.
+
+> **✉ note:t1854** id=2026-10-13T16:21:26Z.e8b664e6ff9303e7f0aadace from=t1854 at=2026-10-13T16:21:26Z base=6a3a81efc30577c762d42f815f3e95eac95b4e3f base_branch=main dirty=no host=omg16
+>
+> | Advisory, from the t1854 (M3) coarse pass (proposal at 6a3a81efc). This is a tree claim; verify it at your pass.
+> | 
+> | **Dev 6: the serial carve-out pin moved to M10.1.** The proposal had M3.2 own "the serial carve-out pin in `tests/test_serial_carveout_doc_drift.sh`". That check asserts the `testmap:batch no` annotations agree with `SERIAL_CARVE_OUT` in `tests/run_all_python_tests.sh`. No such annotation exists before M10.1, which writes them, so a wave-B pin would be vacuous.
+> | 
+> | The M10.1 row now owns the agreement check, extending `tests/test_serial_carveout_doc_drift.sh`, alongside the four annotations. M3.2 (t1854_2) keeps only the `pytest` builtin's honouring of `testmap:batch no`, with its own Go tests.
+> | 
+> | Also for M10.4 / M10.5:
+> | - the `device` builtin reads the allocator handle from M3.1's manifest field, which M3.3 fills;
+> | - `bash-file list --invocations` was removed from the proposal. The seeder reads M2.3's bash facts directly.
