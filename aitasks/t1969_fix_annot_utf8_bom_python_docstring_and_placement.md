@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1852
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-13 11:55
-updated_at: 2026-10-13 12:26
+updated_at: 2026-10-13 13:34
 ---
 
 ## Origin
@@ -45,3 +46,8 @@ Spawned from t1954_1 during Step 8b review. The defect was found by the t1954 pa
 ## Suggested fix
 
 Treat a leading UTF-8 BOM as part of line 1's prefix for the lexers that honour it (Python; also check Kotlin/Go behaviour): classify after the BOM, and never insert at line 0 above a BOM (insert after it, or refuse). Add the t1954 `bom_doc.py` case (docstring read, refused docstring write, placement after DocEnd, BOM preserved) to annot's own tests. The t1954 harness re-runs it (`go run ./cmd/t1954 matrix --provider baseline --lang python`, after moving `baseline/PIN`).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-13T10:34:44Z status=pass attempt=1 type=human
