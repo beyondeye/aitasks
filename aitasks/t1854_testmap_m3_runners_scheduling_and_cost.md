@@ -239,3 +239,5 @@ shows the whole feature as one lane.
 > | - suffix matching for non-literal words
 > | 
 > | Printing those facts rather than re-scanning would keep one bash resolver. That is a suggestion, not a requirement. No human-only step was needed in M2.3.
+
+> **👁 note:read** id=2026-10-13T14:42:18Z.e459ab7e4339e7252aea8abd by=t1854 at=2026-10-13T14:42:18Z mode=explicit ids=2026-09-22T14:31:22Z.ecd6180d0e75396a6f96fae7,2026-09-24T06:18:23Z.806d7ec4977018b28bdd2d48,2026-10-11T14:44:00Z.81faa743d19fd4b459a3bc75,2026-10-12T08:28:19Z.bb643c747c78eef51dac4376,2026-10-13T12:53:06Z.f007341165d9982df9324fe7
