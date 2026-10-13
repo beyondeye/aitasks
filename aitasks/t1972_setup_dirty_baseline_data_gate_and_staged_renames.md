@@ -12,8 +12,9 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1711
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-13 13:26
-updated_at: 2026-10-13 13:36
+updated_at: 2026-10-13 15:45
 ---
 
 ## Origin
@@ -37,3 +38,8 @@ install.sh's fix (t1964, commit 27cc7c7d1) is the reference: each baseline is ga
 ## Suggested fix
 
 In `snapshot_pre_setup_dirty`, capture the data baseline before and independent of the main-repo guards, and gate the main baseline on the same predicate `commit_framework_files` uses (drop the HEAD requirement). Add `--no-renames` to the staged term of `_ait_list_framework_changes`. Extend `tests/test_setup_git.sh` with the three shapes (VERSION untracked + dirty data metadata; HEAD-less + staged VERSION + staged `.gitignore`; staged rename of a framework file that a setup step recreates).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-13T12:45:54Z status=pass attempt=1 type=human
