@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [ait_setup, worktree]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 1711
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-13 08:32
-updated_at: 2026-10-13 11:13
+updated_at: 2026-10-13 11:21
+completed_at: 2026-10-13 11:21
 ---
 
 ## Origin
@@ -42,3 +43,14 @@ Commit the exact staged set by name: `.gitignore` plus the paths the `git rm` ac
 > **✅ gate:plan_approved** run=2026-10-13T08:13:08Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-13T08:17:27Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-13T08:21:28Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:7d1fb2822f4dd410
+
+> **✅ gate:risk_evaluated** run=2026-10-13T08:21:28Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1963/risk_evaluated_2026-10-13T08:21:28Z-risk_evaluated-a1.log`
