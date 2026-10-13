@@ -369,3 +369,99 @@ research outcome itself is open by design.
 ### Planned mitigations
 - timing: post-phase | name: failure_attribution_pass | type: chore | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: mapping/kind-table mistakes blamed on the candidate | desc: cross-check every non-zero gotreesitter cell against tscgo; causes stay open (mapping/table/scanner/runtime/unknown); definitive only when isolated, else heuristic; fix mapping bugs; record in findings
 - timing: post-phase | name: deliverable_completeness_check | type: chore | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: large scope, silently missing deliverables | desc: before the commit, every deliverable is a measured file or an explicit eliminated/not-measured record
+
+## Final Implementation Notes
+- **Actual work done** (all under `aidocs/testing_engine/t1954_parser_research/`, `R` below):
+  - Shared mapping `provider/tsmap.go` (`TSNode`, `MapTree`, per-language
+    kind tables, Python `DocInfo`, anchors, M2.2 policy encoding) with
+    `tsmap_test.go` (kind guard, hardest snippets, docstring shapes,
+    anchors, continuation policy).
+  - Providers: `gotreesitter` (default build), `tscgo` (`t1954cgo && cgo`;
+    one cgo package per grammar under `provider/tscgo/ts<lang>/`) and
+    `tswasm` (`t1954wasm`; wazero + `tswasm/shim.c`).
+  - `tsref/LOCK` + `tsref/fetch.sh` (fail-closed srcsums; Swift's parser
+    generated with tree-sitter CLI 0.26.9; deterministic).
+  - `tswasm/build.sh` (zig 0.17.0, a per-TU WASI reactor, 16.6 MB).
+  - Verbs: `tsdiff` (tagged) and `localpolicy`. `bench` gained
+    `--subjects/--lex-subjects/--labels/--excluded/--title/--rerun`;
+    `footprint` gained `--ts/--ts-only/--ts-out/--zig`.
+  - Results:
+    - `matrix_{gotreesitter,tscgo,tswasm}.md` (+ rows in `matrix.md`);
+    - `ts_differential.md`, `ts/realrepo_*.md` (6 repos);
+    - `ts_local_error_policy.md`, `bench_ts.md`, `footprint_ts.md`;
+    - `ts_scanners.md`, `ts_grammars.md`;
+    - `findings_t1954_2.md`; README updated.
+- **Deviations from plan:**
+  1. **`FullCover` is not declared.** Tree-sitter does not materialise hidden
+     tokens or extras as leaves (string delimiters and content, doc-comment
+     text, line continuations, BOM), so a partition claim would have been
+     false. Range checks use spans only.
+  2. **Mapping policy.** Data nodes are data across their whole range,
+     interpolations included, matching pytokenize and the hand oracles. The
+     planned island subtraction is kept only for bash `$( … )` inside double
+     quotes, as M2.2 and shfmt do.
+  3. **New evidence lives in separate files.** The tree-sitter bench,
+     footprint and real-repo walks write `bench_ts.md`, `footprint_ts.md`
+     and `results/ts/`, so t1954_1's moment-relative files are not
+     regenerated: a footprint regeneration showed 40 bytes of toolchain
+     drift in the goscanner row.
+  4. **The local-error policy is its own report** (`localpolicy` verb), not a
+     matrix column. A column would have changed every committed matrix.
+  5. **The C references compile the pinned grammar sources directly**, one
+     cgo package per grammar, instead of the upstream Go binding modules.
+     This guarantees the same commits as gotreesitter and covers Swift,
+     which has no generated parser at its pin.
+  6. **A first bench run was discarded:** it overlapped compile jobs, and the
+     mapping changed afterwards. The committed bench ran on a quiet host
+     (load 1.9–2.0 on 24 CPUs) with the final binary. The baseline control
+     reproduced 23.8 ms.
+- **Issues encountered:**
+  - zig needed go-tree-sitter's CFLAGS plus `-DHAVE_ENDIAN_H`, and a separate
+    include path per translation unit (the TS/TSX scanners include
+    `../../common/scanner.h`).
+  - A non-static helper clashed across the cgo grammar packages; it was
+    made `static`.
+  - A first reading blamed Python's missing `expression_statement` on
+    gotreesitter. A C-runtime dump showed it is a supertype in both
+    runtimes, and the comment and findings were corrected.
+- **Key decisions:**
+  - One shared mapping for all three runtimes.
+  - The research `tsx` Lang, because providers never see paths.
+  - Cause labels in the differential are heuristic unless one component is
+    isolated.
+  - Whole-file refusal stays the default: the local policy produced 1
+    FP-writable.
+  - Harness scoring fix: a refusal for a different reason is not
+    corruption (`TestRefusalReasonMismatchIsNotCorruption`, with a negative
+    control).
+- **Results headline:**
+  - **Budget:** every tree-sitter runtime is over the 300 ms end-to-end
+    budget — gotreesitter 384.5 ms (1.3×), tscgo 497.7 ms (1.7×, host-only),
+    tswasm 907 ms cold (3.0×).
+  - **Corpus safety:** gotreesitter shares the C reference's failures (bash
+    heredoc-continuation FP-writable; unterminated Swift and Kotlin block
+    comments parsed with no error) and has one of its own (an unterminated
+    Kotlin string).
+  - **tswasm** is identical to tscgo on every input.
+  - **Real repositories:** with both sides certain, there are zero
+    class/record differences against the baseline. Refusals are the cost:
+    Kotlin 24.6% for gotreesitter vs 6.3% for C.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:**
+  - **t1954_3:**
+    - New subjects plug in as before. Use `bench --subjects/--lex-subjects
+      --out` to measure only the new rows.
+    - Any tagged provider's verbs can register through `extraVerbs`
+      (`cmd/t1954/main.go`).
+    - `.tsx` is now the `tsx` Lang. A Chroma/Pygments provider must serve
+      `tsx` explicitly.
+    - The harness scoring fix (refusal-reason mismatch) applies to every
+      subject.
+  - **t1954_4:**
+    - Rerun everything from one full-tag binary:
+      `tsref/fetch.sh`, then `tswasm/build.sh <zig>`, then
+      `go run -tags 't1954cgo t1954wasm' ./cmd/t1954 …`.
+    - Regenerating t1954_1's realrepo reports will add a `tsx | 0` row.
+    - Recommendation inputs: `findings_t1954_2.md` items 17, 20 and 21 (the
+      budget, the Kotlin refusal rate, the attribution table) and
+      `ts_grammars.md` (bundle coupling, conformance gate).
