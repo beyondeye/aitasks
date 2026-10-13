@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -60,3 +62,5 @@ should do with a vanished shadow pane before changing its input.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-10-13T12:45:36Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-10-13T14:01:33Z status=pass attempt=1 type=human
