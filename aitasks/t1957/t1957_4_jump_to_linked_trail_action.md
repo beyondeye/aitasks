@@ -103,3 +103,17 @@ sessions in `TuiSwitcherOverlay._ensure_session_live`, `lib/tui_switcher.py`
 - Manual (manual-verification sibling): from `ait trails` here, `L` lists the
   `aitasks_mobile` linked trail; selecting it switches to that session with the
   trail focused; with that session stopped, the jump bootstraps it.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1957_3** id=2026-10-13T15:37:57Z.5d912e4b532a127ddf78f203 from=t1957_3 from_verified=yes at=2026-10-13T15:37:57Z base=3b189ca15ad6efbb4792ba1f3c2e07149cc9c9c5 base_branch=main dirty=yes host=omg16
+>
+> | t1957_3 landed (commit 3b189ca15) the helper this task consumes: .aitask-scripts/lib/trail_links.py. Facts your plan predates:
+> | 
+> | - API: scan_linked_trails(session.doc) -> LinkScan(links, errors, complete). Thread worker only; cwd must be the project root. LinkedTrail = (project, root, handle, name, reasons); project is the name the project was searched under (registry name preferred), root is a realpath. Hand root + handle to launch_or_focus_trails.
+> | - Error kinds are SEVEN, not the four your plan's modal lists: stale (path moved/missing, or a name-only registry row: detail "no path registered"), not_found, export_failed, timeout, plus partial (project searched but some tasks/directories/archives/trails unreadable; its links ARE still returned; detail paths are relative to that project's root), registry_unreadable (project = the registry file path), local_unreadable (a member of the CURRENT trail could not be read). Never show the definitive "No linked trails" when complete is False.
+> | - reasons: sorted strings prefixed fwd-xdeps: / fwd-member: / rev-xdeps: / rev-member:.
+> | - Latency measured on this host (7 registered projects, 4 export workers): ~1.5-1.6s per scan (1.9s under suite load), so a "Searching linked trails in N projects..." notice suffices; no progress callback or export cache was added.
+> | - As of this host's data today (moment-relative, may change): every real scan is complete=False, because thinking_app and thinking_backend hold 3 stored trails at schema_version 1.0.0 (rejected by 1.1.0) -> partial. Tracked in t1978. Test the "incomplete" modal path with that in mind.
+> | - The scan's export subprocess uses sys.executable, so from the PyPy board it runs under PyPy; the export output is a framed TRAIL_LINKS_EXPORT:<json> line because PyPy's PyYAML import prints to stdout. No action needed, just do not "simplify" it away.
