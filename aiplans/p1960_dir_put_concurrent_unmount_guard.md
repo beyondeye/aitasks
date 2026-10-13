@@ -255,7 +255,7 @@ archive per task-workflow Step 9.
 - `artifact_sha256` / `cat` / `cp` still open the blob after `_artifact_dir_lookup` reported it regular. A FIFO swapped in at that moment would block; that is an adversarial replacement inside the store, already present before this change and not widened by it · severity: low · → mitigation: none
 
 ### Goal-achievement risk: medium
-- The tests simulate an unmount with `mv`/`rm -rf` of the held directory; real `umount` (EBUSY) and `umount -l` (detached fs) are argued, not exercised · severity: medium · → mitigation: dir_backend_real_unmount_probe
+- The tests simulate an unmount with `mv`/`rm -rf` of the held directory; real `umount` (EBUSY) and `umount -l` (detached fs) are argued, not exercised · severity: medium · → mitigation: t1968
 - The simulated-swap probes might not reach the actual validation→write window, which would make them pass vacuously · severity: low (residual — addressed by inline post-phase negative_control_prefix_dirsh) · → mitigation: inline post-phase negative_control_prefix_dirsh
 - Acceptance says the op "fails with an actionable error"; for a store merely moved after entry the held-cwd design correctly *succeeds into the store* — only a gone store fails. The plan tests both outcomes · severity: low · → mitigation: none
 
