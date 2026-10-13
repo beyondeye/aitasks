@@ -885,6 +885,104 @@ assert_eq "27e: HEAD CLAUDE.md keeps the original" "original" "$(git -C "$d" sho
 assert_contains_ci "27e: deleted-then-regenerated file reported" "left alone" "$output"
 rm -rf "$d"
 
+# --- Test 28: each baseline is gated on its own committer's predicate (t1972) ---
+# The data committer has no main-repo guard and the main committer needs no
+# HEAD, so neither baseline may hide behind the main bootstrap check; and a
+# staged rename must be baselined on both sides.
+echo "--- Test 28: baseline gates match the committers; staged renames (t1972) ---"
+
+has_line() { printf '%s\n' "$1" | grep -qxF -- "$2" && echo yes || echo no; }
+
+# A standalone data worktree stand-in (same shape as Test 23).
+new_data_repo() {
+    local d="$1"
+    mkdir -p "$d/.aitask-data/aitasks/metadata" "$d/.aitask-data/aireviewguides"
+    (cd "$d/.aitask-data" && git init --quiet && git config user.email "t@t.com" && git config user.name "T" \
+        && echo "cfg" > aitasks/metadata/tracked.txt && echo "guide" > aireviewguides/g.md \
+        && git add -A && git commit -m "init" --quiet)
+}
+
+# (a) VERSION untracked in the main repo: the data baseline is still captured.
+d="$(setup_fake_project)"
+(cd "$d" && git init --quiet && git config user.email "t@t.com" && git config user.name "T" \
+    && echo "init" > readme.txt && git add readme.txt && git commit -m "init" --quiet)
+new_data_repo "$d"
+SCRIPT_DIR="$d/.aitask-scripts"
+echo "concurrent edit" >> "$d/.aitask-data/aitasks/metadata/tracked.txt"
+snapshot_pre_setup_dirty
+assert_eq "28a: dirty data metadata in the baseline (VERSION untracked)" "yes" \
+    "$(has_line "$AIT_SETUP_DATA_DIRTY_BASELINE" "aitasks/metadata/tracked.txt")"
+echo "new" > "$d/.aitask-data/aitasks/metadata/new_config.yaml"
+commit_framework_data_files </dev/null >/dev/null 2>&1
+data_committed="$(git -C "$d/.aitask-data" show --name-only --format='' HEAD)"
+assert_eq "28a: setup-written data file committed" "yes" \
+    "$(has_line "$data_committed" "aitasks/metadata/new_config.yaml")"
+assert_eq "28a: dirty data metadata NOT committed" "no" \
+    "$(has_line "$data_committed" "aitasks/metadata/tracked.txt")"
+assert_eq "28a: dirty data metadata still modified" " M aitasks/metadata/tracked.txt" \
+    "$(git -C "$d/.aitask-data" status --porcelain -- aitasks/metadata/tracked.txt)"
+AIT_SETUP_BASELINE_ARMED=0
+rm -rf "$d"
+
+# (a2) a whole data framework dir deleted (staged): absent paths are scanned.
+d="$(setup_fake_project)"
+(cd "$d" && git init --quiet && git config user.email "t@t.com" && git config user.name "T" \
+    && git add -A && git commit -m "init" --quiet)
+new_data_repo "$d"
+SCRIPT_DIR="$d/.aitask-scripts"
+git -C "$d/.aitask-data" rm -r -q aireviewguides
+before="$(commit_count "$d/.aitask-data")"
+snapshot_pre_setup_dirty
+mkdir -p "$d/.aitask-data/aireviewguides"
+echo "regenerated" > "$d/.aitask-data/aireviewguides/g.md"
+commit_framework_data_files </dev/null >/dev/null 2>&1
+assert_eq "28a2: no data commit over the deleted dir" "$before" "$(commit_count "$d/.aitask-data")"
+assert_eq "28a2: staged deletion still staged" "D	aireviewguides/g.md" \
+    "$(git -C "$d/.aitask-data" diff --cached --name-status -- aireviewguides)"
+AIT_SETUP_BASELINE_ARMED=0
+rm -rf "$d"
+
+# (b) no HEAD, VERSION staged, user .gitignore staged: the main baseline runs.
+d="$(setup_fake_project)"
+(cd "$d" && git init --quiet && git config user.email "t@t.com" && git config user.name "T" \
+    && git add .aitask-scripts/VERSION && printf 'user-rule.log\n' > .gitignore && git add .gitignore)
+SCRIPT_DIR="$d/.aitask-scripts"
+snapshot_pre_setup_dirty
+printf 'aiwork/\n' >> "$d/.gitignore"
+mkdir -p "$d/aireviewguides"
+echo "guide" > "$d/aireviewguides/x.md"
+output=$(commit_framework_files 2>&1 </dev/null)
+committed="$(git -C "$d" show --name-only --format='' HEAD 2>/dev/null)"
+assert_eq "28b: setup-written file committed" "yes" "$(has_line "$committed" "aireviewguides/x.md")"
+assert_eq "28b: staged user .gitignore NOT committed" "no" "$(has_line "$committed" ".gitignore")"
+assert_eq "28b: index .gitignore is the user's" "user-rule.log" "$(git -C "$d" show :.gitignore)"
+assert_contains_ci "28b: pre-existing changes reported" "left alone" "$output"
+AIT_SETUP_BASELINE_ARMED=0
+rm -rf "$d"
+
+# (c) staged rename whose source setup recreates. diff.renames is pinned
+# repo-locally: an inherited diff.renames=false would list both sides even
+# without --no-renames and void this case's negative control.
+d="$(setup_fake_project)"
+(cd "$d" && git init --quiet && git config user.email "t@t.com" && git config user.name "T" \
+    && git config diff.renames true && git add -A && git commit -m "init" --quiet \
+    && git mv .aitask-scripts/placeholder.sh .aitask-scripts/renamed.sh)
+SCRIPT_DIR="$d/.aitask-scripts"
+snapshot_pre_setup_dirty
+echo "# recreated" > "$d/.aitask-scripts/placeholder.sh"
+echo "# new helper" > "$d/.aitask-scripts/newly_installed.sh"
+commit_framework_files </dev/null >/dev/null 2>&1
+committed="$(git -C "$d" show --name-only --format='' HEAD)"
+assert_eq "28c: setup-written file committed" "yes" \
+    "$(has_line "$committed" ".aitask-scripts/newly_installed.sh")"
+assert_eq "28c: rename source NOT committed" "no" "$(has_line "$committed" ".aitask-scripts/placeholder.sh")"
+assert_eq "28c: rename destination NOT committed" "no" "$(has_line "$committed" ".aitask-scripts/renamed.sh")"
+staged="$(git -C "$d" diff --cached --name-status --no-renames)"
+assert_eq "28c: source deletion still staged" "yes" "$(has_line "$staged" "D	.aitask-scripts/placeholder.sh")"
+assert_eq "28c: destination addition still staged" "yes" "$(has_line "$staged" "A	.aitask-scripts/renamed.sh")"
+AIT_SETUP_BASELINE_ARMED=0
+rm -rf "$d"
+
 # Disarm the baseline for anything later; the sourced setup functions read these.
 # shellcheck disable=SC2034
 {

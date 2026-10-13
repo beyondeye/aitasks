@@ -4187,11 +4187,13 @@ _ait_framework_paths() {
 
 # Print the data-branch framework pathspecs that exist in <data_dir>, one per
 # line. Framework-owned config dirs only — never task or plan content.
+# <include_absent>=1 prints them whether or not they exist, for the same
+# deletion-aware snapshot reason as _ait_framework_paths.
 _ait_data_framework_paths() {
-    local data_dir="$1"
+    local data_dir="$1" include_absent="${2:-0}"
     local p
     for p in "aitasks/metadata/" "aireviewguides/"; do
-        [[ -e "$data_dir/$p" ]] && printf '%s\n' "$p"
+        [[ "$include_absent" == "1" || -e "$data_dir/$p" ]] && printf '%s\n' "$p"
     done
     return 0
 }
@@ -4203,7 +4205,11 @@ _ait_data_framework_paths() {
 # staged before setup runs is invisible to both `ls-files --others` (tracked
 # in the index) and `ls-files --modified` (worktree matches index) — without
 # it the baseline would miss the file and the commit would sweep the user's
-# staged hunk.
+# staged hunk. --no-renames: with rename detection a staged rename lists only
+# its destination, and the source — gone from the index, so invisible to
+# `ls-files --modified` too — would miss the baseline; a setup step that
+# recreates it would then commit it, turning the user's pending rename into an
+# addition. Mirrored by _install_list_changes in install.sh.
 _ait_list_framework_changes() {
     local workdir="$1" extra_exclude_re="$2"
     shift 2
@@ -4214,7 +4220,8 @@ _ait_list_framework_changes() {
     untracked="$(git -C "$workdir" ls-files --others --exclude-standard \
         -- "$@" 2>/dev/null)" || true
     modified="$(git -C "$workdir" ls-files --modified -- "$@" 2>/dev/null)" || true
-    staged="$(git -C "$workdir" diff --cached --name-only -- "$@" 2>/dev/null)" || true
+    staged="$(git -C "$workdir" diff --cached --name-only --no-renames \
+        -- "$@" 2>/dev/null)" || true
     printf '%s\n%s\n%s\n' "$untracked" "$modified" "$staged" \
         | sed '/^$/d' | sort -u | grep -Ev "$exclude_re" || true
 }
@@ -4246,50 +4253,55 @@ _ait_data_branch_exclude_re() {
 # commit_framework_files/commit_framework_data_files subtract this baseline
 # so foreign in-progress work is never swept into a framework commit.
 #
+# Each baseline is gated on its own committer's eligibility, never on the
+# other's: a snapshot skipped in a state its committer acts in would leave that
+# committer working against an empty baseline (t1972).
+#   - Data: the .aitask-data worktree is present — the only guard
+#     commit_framework_data_files has. Independent of the main repo's state.
+#   - Main: a work tree with .aitask-scripts/VERSION in the index. No HEAD is
+#     required — commit_framework_files reads the index, so a repository with
+#     no first commit and a staged VERSION is not a bootstrap.
+#
 # Bootstrap trade-off: when the framework is not yet git-tracked (fresh
-# install — sentinel: .aitask-scripts/VERSION untracked, same signal as
-# install.sh commit_installed_files), the baselines stay empty and the commit
-# functions commit ALL framework-path files. "VERSION not tracked" does not
-# prove there is no foreign work under those paths (partial installs,
-# hand-copied files); it only means no baseline COULD separate installer
-# output from anything else. The non-interactive commit path announces this
-# blast radius explicitly.
+# install — sentinel: .aitask-scripts/VERSION not in the index, same signal as
+# install.sh commit_installed_files), the main baseline stays empty and
+# commit_framework_files commits ALL framework-path files. "VERSION not
+# tracked" does not prove there is no foreign work under those paths (partial
+# installs, hand-copied files); it only means no baseline COULD separate
+# installer output from anything else. The non-interactive commit path
+# announces this blast radius explicitly.
 snapshot_pre_setup_dirty() {
     local project_dir="$SCRIPT_DIR/.."
     local data_dir="$project_dir/.aitask-data"
+    local p
     AIT_SETUP_BASELINE_ARMED=1
     AIT_SETUP_DIRTY_BASELINE=""
     AIT_SETUP_DATA_DIRTY_BASELINE=""
 
-    if ! git -C "$project_dir" rev-parse --is-inside-work-tree &>/dev/null; then
-        return 0
+    # Data-worktree baseline — only if the worktree already exists at snapshot
+    # time. On a first-ever data-branch setup it does not, and an empty data
+    # baseline correctly means "commit all" there too. include_absent=1: a
+    # deleted data framework dir is a pre-existing change.
+    if [[ -d "$data_dir/.git" || -f "$data_dir/.git" ]] && \
+       git -C "$data_dir" rev-parse --is-inside-work-tree &>/dev/null; then
+        local data_paths=()
+        while IFS= read -r p; do data_paths+=("$p"); done < <(_ait_data_framework_paths "$data_dir" 1)
+        AIT_SETUP_DATA_DIRTY_BASELINE="$(_ait_list_framework_changes "$data_dir" "" \
+            "${data_paths[@]}")" || true
     fi
 
-    # Bootstrap: framework not yet tracked → empty baselines (commit-all).
-    if ! git -C "$project_dir" rev-parse --verify HEAD &>/dev/null || \
+    # Bootstrap: framework not yet tracked → empty main baseline (commit-all).
+    if ! git -C "$project_dir" rev-parse --is-inside-work-tree &>/dev/null || \
        ! git -C "$project_dir" ls-files --error-unmatch -- .aitask-scripts/VERSION &>/dev/null; then
         return 0
     fi
 
     # include_absent=1: a deleted tracked framework file is a pre-existing change.
-    local fw_paths=() p
+    local fw_paths=()
     while IFS= read -r p; do fw_paths+=("$p"); done < <(_ait_framework_paths "$project_dir" 1)
     if [[ ${#fw_paths[@]} -gt 0 ]]; then
         AIT_SETUP_DIRTY_BASELINE="$(_ait_list_framework_changes "$project_dir" \
             "$(_ait_data_branch_exclude_re "$project_dir")" "${fw_paths[@]}")" || true
-    fi
-
-    # Data-worktree baseline — only if the worktree already exists at snapshot
-    # time. On a first-ever data-branch setup it does not, and an empty data
-    # baseline correctly means "commit all" there too.
-    if [[ -d "$data_dir/.git" || -f "$data_dir/.git" ]] && \
-       git -C "$data_dir" rev-parse --is-inside-work-tree &>/dev/null; then
-        local data_paths=()
-        while IFS= read -r p; do data_paths+=("$p"); done < <(_ait_data_framework_paths "$data_dir")
-        if [[ ${#data_paths[@]} -gt 0 ]]; then
-            AIT_SETUP_DATA_DIRTY_BASELINE="$(_ait_list_framework_changes "$data_dir" "" \
-                "${data_paths[@]}")" || true
-        fi
     fi
     return 0
 }
