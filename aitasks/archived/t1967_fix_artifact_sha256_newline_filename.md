@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [bug]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 1065
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-13 11:36
-updated_at: 2026-10-13 12:28
+updated_at: 2026-10-13 13:09
+completed_at: 2026-10-13 13:09
 ---
 
 ## Origin
@@ -42,3 +43,14 @@ Hash from stdin so no tool ever sees the file name: `openssl dgst -sha256 < "$fi
 > **✅ gate:plan_approved** run=2026-10-13T09:28:39Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-13T09:31:47Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-13T10:09:54Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:9ca9836ff85a72c2
+
+> **✅ gate:risk_evaluated** run=2026-10-13T10:09:54Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1967/risk_evaluated_2026-10-13T10:09:54Z-risk_evaluated-a1.log`
