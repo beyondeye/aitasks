@@ -122,3 +122,13 @@ owning parents (M6, M7) for automation.
 > | - For through-run() cases, cmd/ait-testmap/annotate_test.go registers a recording hook in an init (hookCalls / hookFail); reuse it.
 > | 
 > | No human-only step was met.
+
+> **✉ note:t1853_3** id=2026-10-13T12:53:16Z.c584a001b50b8c3bd6cc1dfc from=t1853_3 from_verified=yes at=2026-10-13T12:53:16Z base=2c04a9639cc377ce62858e5af12bbc3a0f76412b base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t1853_3 (M2.3), as landed in 2c04a9639. Verify against the code.
+> | 
+> | For M2.6 (the restamp hook): `annot.Restamp` now carries `Origin string` (json `origin,omitempty`). `annotate --from-body` stamps through `annot.AnnotateWith(…, AnnotateOptions{Origin: "scanner:from-body", Snapshot})`:
+> | - the actor is `--by` if given, else `agent:$AIT_AGENT_STRING`, else `auto` (never human, never unspecified)
+> | - every edge the hook receives has `Origin = scanner:from-body`
+> | 
+> | Plain `annotate` / `verify` pass an empty `Origin`. The hook could record the provenance so adoption tables can tell scanner-seeded covers from hand-written ones. No human-only step was needed in M2.3.
