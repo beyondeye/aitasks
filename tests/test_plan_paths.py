@@ -256,6 +256,11 @@ class TaskBodyTests(unittest.TestCase):
         body = "a/b.py\n## Gate Runs\nx/y.py\n## Inbox\nc/d.py\n"
         self.assertEqual(plan_paths.cut_task_framework_sections(body), "a/b.py\n")
 
+    def test_cuts_at_the_folded_history(self):
+        body = "keep a/b.py\n## Folded History\n### t13: x\n> | c/d.py\n## Inbox\n"
+        self.assertEqual(plan_paths.cut_task_framework_sections(body),
+                         "keep a/b.py\n")
+
     def test_trailing_whitespace_after_the_header_still_cuts(self):
         self.assertEqual(
             plan_paths.cut_task_framework_sections("a/b.py\n## Inbox  \nc/d.py\n"),
@@ -273,7 +278,8 @@ class TaskBodyTests(unittest.TestCase):
     def test_the_headers_are_the_owning_modules_constants(self):
         import gate_ledger
         import note_inbox
-        for header in (note_inbox.SECTION_HEADER, gate_ledger.SECTION_HEADER):
+        for header in (note_inbox.SECTION_HEADER, gate_ledger.SECTION_HEADER,
+                       plan_paths.FOLDED_HISTORY_HEADER):
             self.assertEqual(
                 plan_paths.cut_task_framework_sections("a/b.py\n%s\nc/d.py\n"
                                                        % header),

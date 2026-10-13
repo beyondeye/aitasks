@@ -117,18 +117,28 @@ def extract(text: str) -> list[str]:
     return sorted({_strip_dot_slash(m) for m in _TOKEN.findall(text)})
 
 
+#: The reference-only ledger history of FOLDED tasks (t1962). Written by
+#: `aitask_fold_content.sh` (its FRAMEWORK_HEADER_ERE must recognize every header
+#: cut below) ahead of the primary's own `## Inbox` / `## Gate Runs`. The paths
+#: in another task's note bodies and gate logs are not this task's
+#: declarations, so the section is cut like the ledgers it carries.
+FOLDED_HISTORY_HEADER = "## Folded History"
+
+
 def cut_task_framework_sections(body: str) -> str:
     """Truncate a task body at the first framework-appended section.
 
     `## Inbox` (note framework) is inserted BEFORE `## Gate Runs`
     (aitask_note.sh), so cutting only at Gate Runs would leave other agents'
     note prose -- arbitrary paths from other tasks -- in a task-declared
-    surface. Note bodies cannot fake either header: every body line is prefixed
-    `> | `, so an anchored match on the bare header is exact.
+    surface. `## Folded History` (fold framework) precedes both, for the same
+    reason. Note bodies cannot fake any of the headers: every body line is
+    prefixed `> | `, so an anchored match on the bare header is exact.
     """
     import gate_ledger   # lazy: keeps the plan_paths_sh.sh bridge's load path unchanged
     import note_inbox
-    headers = (note_inbox.SECTION_HEADER, gate_ledger.SECTION_HEADER)
+    headers = (FOLDED_HISTORY_HEADER, note_inbox.SECTION_HEADER,
+               gate_ledger.SECTION_HEADER)
     pattern = re.compile(
         r"^(?:%s)[ \t]*$" % "|".join(re.escape(h) for h in headers), re.MULTILINE)
     match = pattern.search(body)

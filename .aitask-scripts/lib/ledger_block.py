@@ -98,6 +98,35 @@ def build_marker_search_re(namespace: str) -> re.Pattern:
         rf"(?m)^>\s*\*\*\S+\s+{_checked_namespace(namespace)}:{_NAME_CHARS}\*\*")
 
 
+#: A marker of ANY namespace -- :func:`build_marker_re` with the namespace and
+#: name charsets in place of one namespace. Only :func:`neutralize_markers` uses
+#: it; parsing stays namespace-bound.
+_ANY_MARKER_RE = re.compile(
+    rf"^>\s*\*\*\S+\s+{_NAMESPACE_CHARS}:{_NAME_CHARS}\*\*")
+
+
+def neutralize_markers(text: str) -> str:
+    """Return ``text`` with every marker line, of any namespace, made inert.
+
+    For text that quotes ANOTHER task's ledger, e.g. a folded task's history
+    carried into a primary (``aitask_fold_content.sh``, t1962). Each matching
+    line gets the ``> | `` sentinel note bodies carry (``note_render_body`` in
+    ``aitask_note.sh``), after which ``^>\\s*\\*\\*`` cannot match. Everything
+    else, including ordinary bold blockquotes, is returned byte-identical.
+
+    Lines are split exactly as :func:`parse_blocks` splits them
+    (``str.splitlines``, which also breaks on U+2028, U+0085, ...) and matched
+    with the parser's own grammar (``\\s`` includes U+00A0). So nothing a
+    ledger parser would read survives.
+    """
+    out = []
+    for line in text.splitlines(keepends=True):
+        if _ANY_MARKER_RE.match(line):
+            line = "> |" + line[1:]
+        out.append(line)
+    return "".join(out)
+
+
 def _normalize_body_key(label: str) -> str:
     """Normalize a rendered blockquote label to a stable dict key."""
     return re.sub(r"[^A-Za-z0-9]+", "_", label.strip().lower()).strip("_")
