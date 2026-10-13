@@ -48,10 +48,10 @@ How to read it*).
 
 | submodule | scope | depends on | wave |
 |---|---|---|---|
-| **M3.1** Runner contract and repository | `describe` / `list` / `run --manifest`, `runners.yaml` bindings, the `builtin:` scheme, `command:` / `cwd:` overrides, shadow-by-name, batching keys, per-unit timeouts, `results.jsonl` / `runner.json`, reconciliation as mechanism failures, the exit contract `0/1/2/75/64`, `subsumed_by:`, `fallback_command:`, `full: true` + `children:`. Owns `internal/runner` (contract, repository, the `run` verb) | M1.2, M2.1 | B |
-| **M3.2** Reference runners | `bash-file` (+ `list --invocations`), `pytest` (junitxml, `testmap:batch no`), `go-test`, `gradle-class`, `suite`, `device`, `engine-test`; the `full` suite wrapper's `children:` post-processors (pytest junitxml, bash-file per-file exit, `go test -json`). Owns `internal/runner/builtin/*`, `ait-testmap runner <name>`, the serial carve-out pin in `tests/test_serial_carveout_doc_drift.sh` | M3.1 | B |
-| **M3.3** Scheduler and resources | resource kinds and scopes, `resources.yaml`, `flock(2)` slot files, admission with 75 deferral and backoff, the allocator with signal-safe release, `errgroup` execution, batching per `group_by`, `broad_after_unit` waves, admission-holding invocations last, `concurrency: serial\|parallel`, the schedule report and its check half. Owns `internal/sched`, verb `schedule` | M3.1 | C |
-| **M3.4** Cost ledger | Welford / P² per `(id, host class)`, `.aitask-testmap/ledger.jsonl`, `costs --update`, `last_pass`, flake rate, the per-group estimate, `costs/predictions.yaml` (store only), `costs --gate-timeout`, the run-id prefixes, the `costs/policy.yaml` file format (read/write helpers only). Owns `internal/cost`, verb `costs` | M3.1 | C |
+| **M3.1** Runner contract and repository | `describe` / `list` / `run --manifest` (with the allocator-handle field), `runners.yaml` bindings, the `builtin:` scheme, `command:` / `cwd:` overrides, shadow-by-name, **the canonical grouping function** `(runner, group_by group, resource set, wave class, batch identity)` (`batch: no` units are singletons; the wave class is the caller's input), per-unit timeouts, `results.jsonl` (top-level / child rows) / `runner.json`, reconciliation as mechanism failures, the engine's per-invocation record (`cause`, HEAD at start and end, the modified-path set), the exit contract `0/1/2/75/64`, `subsumed_by:`, `fallback_command:`, `full: true` + `children:`; the runner-backed unit lister for `scan` / `check` (named extension of M2.1); `batch` / `needs` into the registry (named extension of M2.2); the `run` verb over a plan-executor seam (built-in serial plan refusing a non-empty resource set until M3.3) with an ordered multi-subscriber post-run hook. `axis:` / `token_format:` are M2.4's extension. Owns `internal/runner` (contract, repository, the `run` verb) | M1.2, M2.1, M2.2 | B |
+| **M3.2** Reference runners | `bash-file`, `pytest` (junitxml, `testmap:batch no`), `go-test`, `gradle-class`, `suite`, `device` (reads the manifest's allocator handle), `engine-test`; the `full` suite wrapper's `children:` post-processors (pytest junitxml, bash-file per-file exit, `go test -json`). Owns `internal/runner/builtin/*`, `ait-testmap runner <name>`. (No `list --invocations` — the seeder reads M2.3's facts directly; the serial carve-out drift-test pin is M10.1's.) | M3.1 | B |
+| **M3.3** Scheduler and resources | resource kinds and scopes, `resources.yaml`, `flock(2)` slot files, admission with 75 deferral and backoff, the allocator with signal-safe release (filling the manifest's handle field), `errgroup` execution of the invocations M3.1's grouping function forms (never re-formed), the kind → wave class mapping from M2.5, `broad_after_unit` waves as an ordering over wave-homogeneous invocations, admission-holding invocations last, `concurrency: serial\|parallel`, the schedule report and its check half `schedule --check`; plugs the scheduler into M3.1's `run` (named extension). Owns `internal/sched`, verb `schedule` | M3.1, M2.5 | C |
+| **M3.4** Cost ledger | Welford / P² per `(id, host class)`, `.aitask-testmap/ledger.jsonl` as a subscriber of M3.1's post-run hook, anchor eligibility at run time (no cause, HEAD unmoved, modified paths disjoint from the test, its test-side closure, `covers` sources, the closure's `reads` globs and the runner configuration; empty for an opaque closure), `costs --update`, `last_pass` from eligible passes only, flake rate, the per-group estimate over top-level ids (disjoint accounting) and the full-suite p95, `costs/predictions.yaml` (store only), `costs --gate-timeout` (`GATE_TIMEOUT_SUGGESTED:` homed here), the run-id prefixes, the `costs/policy.yaml` file format (read/write helpers only). Owns `internal/cost`, verb `costs` | M3.1, M2.3, M2.5 | C |
 
 ## Cross-module seams
 
@@ -67,22 +67,41 @@ How to read it*).
   `costs/policy.yaml` format — M3.4 → M4.1 (ranking, budget), M4.3 (anchors),
   M4.4 (score, readiness), M6.5 (`--gate-timeout`), M8.5 (cadence state).
 
-**Consumes:** M1.2 (the binary, the harnesses); the loaded registry (M2.1).
+**Consumes:** M1.2 (the binary, the harnesses); the loaded registry (M2.1); the `batch` / `needs` annotations (M2.2); the dependency closure and plugin `reads` (M2.3, for M3.4's eligibility rule); the kind data and helpers' `testmap:reads` (M2.5, for M3.3 and M3.4).
 
 **Hooks and extensions** (a file has one owner; a later submodule lands its
-edit as the owner's named extension):
+edit as the owner's named extension). The cut was corrected at the coarse
+pass — proposal commit `6a3a81efc`; the rationale is the *Deviations* section
+of `aiplans/p1854_testmap_m3_runners_scheduling_and_cost.md`:
 
+- M3.1's `run` exposes a plan-executor seam; **M3.3** plugs the scheduler in
+  and fills the manifest's allocator-handle field.
+- M3.1's `run` exposes an ordered multi-subscriber post-run hook; **M3.4**
+  subscribes (the ledger); **M4.4**'s `score` may.
+- M3.1 owns the canonical grouping function; M3.3, M4.1 and M3.4's estimate
+  call it with the same inputs; nobody re-forms an invocation.
+- `axis:` / `token_format:` in `describe` are **M2.4**'s named extension.
+- The `SCAFFOLD_TODO` recognition and its `check` report are **M6.4**'s named
+  extension of M3.1's lister and M2.1's `check`.
 - `costs/predictions.yaml` is a store here; **M4.4**'s `score` writes it.
 - `costs/policy.yaml`: the format and its read/write helpers are M3.4's; the
   writer logic (`POLICY_WRITE:`, `approved_by: engine:readiness@<run>`) is
   **M8.5**'s.
 - `component_broad_test_scopes` is split: the registry / staleness half is
   **M2.5**, the scheduling half is M3.3.
-- The `pytest` runner's `testmap:batch no` is what M10.1 uses to pin the
-  aitasks serial carve-out; the pin in `tests/test_serial_carveout_doc_drift.sh`
-  is M3.2's.
+- The `pytest` runner honours `testmap:batch no`; the aitasks carve-out
+  annotations and the agreement check in
+  `tests/test_serial_carveout_doc_drift.sh` are **M10.1**'s.
 - Invariant 1 (the loop can only fail toward running more) and invariant 4
   (the engine never launches a code agent) bind the runner and the scheduler.
+
+**Automation-first (user directive, 2026-10-11).** No M3 verb makes a human
+action a precondition of any path: `concurrency`, `--serial` / `--parallel`,
+`resources.yaml` and `costs --gate-timeout` are values and computed
+suggestions, the schedule report and `schedule --check` are informational,
+and M3 encodes no "awaiting a person" state. The two human-flavoured steps
+next to M3 (trusting `concurrency` after reviewing the schedule report;
+confirming `runners.yaml` per runner) belong to onboarding (M6).
 
 ## Reading list in the proposal
 
