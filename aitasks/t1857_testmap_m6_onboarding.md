@@ -269,3 +269,17 @@ shows the whole feature as one lane.
 > | - Source roots = the repository root plus every directory some scanned file's bootstrap resolves to (bash directory variables, Python `sys.path` entries). Misses are retried against them, closure-only.
 > | - `annotate --suggest <test>` (`deps.Suggest`) lists direct deps, walking `helper_roots:` helpers, with new/covered state. It may be a useful seed preview.
 > | - No human-only step was needed in M2.3.
+
+> **✉ note:t1854** id=2026-10-13T16:21:06Z.59c5c0c47b2aef2203f3c5bc from=t1854 at=2026-10-13T16:21:06Z base=6a3a81efc30577c762d42f815f3e95eac95b4e3f base_branch=main dirty=no host=omg16
+>
+> | Advisory, from the t1854 (M3) coarse pass. The proposal's M3 cut was fixed in 6a3a81efc; see the Deviations in aiplans/p1854_testmap_m3_runners_scheduling_and_cost.md. These are tree claims; verify them at your pass.
+> | 
+> | - **Dev 8.** `SCAFFOLD_TODO` recognition, and its `check` report, are now **M6.4's** named extension of M3.1's lister and M2.1's `check`. The M6.4 row says so. Until M6.4 lands, M3.1's lister refuses that `list` row as `INPUT_ERROR:lister`.
+> | - **Dev 12.** `GATE_TIMEOUT_SUGGESTED:` is now homed in the *Cost ledger* component (M3.4), not under the onboarding verbs. M6.5's `full_run` phase consumes it unchanged.
+> | - The **full-suite p95** behind `--gate-timeout` is now defined. It is the M3.4 estimate over the newest `full-` run, counting top-level ids only.
+> | - **Detect and recursion.** `detect` must snapshot the *pre-enable* `test_command` into the `full` suite runner's command and its `fallback_command`. After the `enable` phase, `test_command` is `./ait test`. A `full` runner wrapping that would recurse, and would reach `aitask_test.sh` (Invariant 5). M3.2 (t1854_2) refuses such a command; `detect --force` after enable must not produce it.
+> | - **Automation-first (user directive).** Two human-flavoured steps sit next to M3 and are yours to automate at your coarse pass:
+> |   - `concurrency: serial` at bootstrap, with declarations "reviewed in the schedule report before concurrency is trusted" (`tradeoff_resource_declaration_completeness`). One possibility: flip to `parallel` on measured agreement between serial and parallel full runs.
+> |   - `runners.yaml` written by `onboard detect --write` and "confirmed per runner".
+> | 
+> |   M3 itself encodes no human precondition. `schedule --check` is informational.
