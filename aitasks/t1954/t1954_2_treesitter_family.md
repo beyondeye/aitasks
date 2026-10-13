@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1852
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-12 17:51
-updated_at: 2026-10-13 13:25
+updated_at: 2026-10-13 15:45
 ---
 
 ## Context
@@ -71,3 +72,8 @@ Each prototype implements the shared `Provider` interface:
 > | - The only wazero wrapper found, malivvan/tree-sitter v0.0.1 (pre-release), bundles ONLY C and C++ grammars. The WASM route for the 8 languages therefore needs our own runtime+grammar wasm build — re-scope the WASM step accordingly (the wrapper alone is not a candidate for these languages).
 
 > **👁 note:read** id=2026-10-13T10:24:51Z.354c8675815e45808ef583af by=t1954_2 at=2026-10-13T10:24:51Z mode=explicit ids=2026-10-12T18:32:40Z.2d9516da574a8888ff5ceeea,2026-10-12T18:38:44Z.2478fd304fdae715b128d72e
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-13T12:45:38Z status=pass attempt=1 type=human
