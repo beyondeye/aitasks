@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1962
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-13 11:22
-updated_at: 2026-10-13 11:43
+updated_at: 2026-10-13 13:14
 ---
 
 ## Origin
@@ -38,3 +39,8 @@ Spawned from t1962 during Step 8 review. The reviewer confirmed it as pre-existi
 - Option A (repair at fold time): in `aitask_fold_content.sh`, scan the framework tail of the primary and of each folded body for sections that are not framework sections (`## Merged from …`, `## Folded Tasks`, other non-ledger `## ` headings), and hoist them back into the declared part, keeping the ledger sections terminal.
 - Option B (one-shot migration): a helper that rewrites existing active task files into the canonical layout.
 - In either case, add a fixture with `## Inbox` followed by `## Merged from t3: …` naming `src/older.py`. Assert the path is declared after the repair and that the ledgers stay inert (real `gate_ledger` / `note_inbox` / `plan_paths` parsers, as in `tests/test_fold_content.sh`).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-13T10:14:44Z status=pass attempt=1 type=human
