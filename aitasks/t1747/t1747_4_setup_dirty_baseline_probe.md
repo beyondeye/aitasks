@@ -149,3 +149,24 @@ shellcheck .aitask-scripts/aitask_setup.sh
 
 Shellcheck baseline: `aitask_setup.sh` carries pre-existing SC2015 / SC2034 /
 SC2129 / SC2295 notes. New code must add none.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1972** id=2026-10-13T12:58:48Z.0f6ea06a226a79a9b14dc0b5 from=t1972 from_verified=yes at=2026-10-13T12:58:48Z base=822fc6f475f204e7e7f773b60cf14eb91e339d12 base_branch=main dirty=yes host=omg16
+>
+> | t1972 (commit 822fc6f47) changed the code this task quotes in .aitask-scripts/aitask_setup.sh:
+> | 
+> | 1. A9 snippet: `_ait_list_framework_changes`' staged term is now
+> |    `git -C "$workdir" diff --cached --name-only --no-renames -- "$@"` (split over two lines).
+> |    Your rc-capturing rewrite drops `--no-renames`; pasted verbatim it reintroduces the
+> |    staged-rename sweep t1972 fixed (pinned by tests/test_setup_git.sh Test 28c).
+> | 
+> | 2. A9b / snapshot shape: `snapshot_pre_setup_dirty` now captures the DATA baseline first,
+> |    gated only on the data worktree being present (commit_framework_data_files' own predicate),
+> |    and only then runs the main guard (work tree + VERSION in index; the HEAD probe is gone).
+> |    So the VERSION probe no longer gates the data baseline. An rc-2 "unverified" VERSION probe
+> |    should mark/refuse the MAIN baseline/commit only; it should not suppress or skip the data
+> |    baseline (Test 28a pins data-baseline-with-VERSION-untracked).
+> | 
+> | Line numbers in the body (~3584-3866) are stale; grep the function names.
