@@ -325,3 +325,42 @@ separately, then archive via `aitask_archive.sh 1966`.
 
 ### Planned mitigations
 - timing: pre-phase | name: characterize_active_corpus_declared_text | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: partition silently changing declared text for canonical tasks | desc: Snapshot extract(task_body_text) over all active/unbundled task files with HEAD plan_paths, diff after the change, explain every row
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-13 13:05)
+- **Requested by user:** Blocking review finding (CONFIRMED). `split_history` emitted an existing `## Folded History` before the rest of the primary's tail. Live records that the partition moved out of the preamble therefore landed after an EOF record appended inside the history section, which reversed their order: `[1 pass, 2 fail]` became `[2 fail, 1 pass]` and `derive_gate_runs` reported `pass`.
+- **Changes made:**
+  - Added `plan_paths.split_folded_history(framework) -> (history, live)`. History is the inert `## Folded History` text, minus any live blocks inside it. Live is every other section and record, in order, with separators recomputed.
+  - Live text that does not open with a `##` header gets a leading separator, so a stray record never reads as part of the preceding section.
+  - Separator lines are always dropped and recomputed, so repeated re-folds are stable.
+  - The shared `_join_runs` helper now builds both framework parts.
+  - `aitask_fold_content.sh`: `split_fw` takes an optional third file. The primary is split into declared / history / live, and the awk `split_history` and `FOLDED_HISTORY_ERE` are removed. Assembly emits history first, then live.
+  - Reproduced the bug before the fix, and confirmed `[1, 2] → fail` after it, stable over 3 re-folds with 2 separators each time.
+- **Files affected:** `.aitask-scripts/lib/plan_paths.py`, `.aitask-scripts/aitask_fold_content.sh`, `tests/test_fold_content.sh` (`test_live_records_keep_order_across_folded_history`, including the re-fold stability check), `tests/test_plan_paths.py` (`test_folded_history_split_keeps_live_records`), `.claude/skills/task-workflow/task-fold-content.md`.
+
+## Final Implementation Notes
+- **Actual work done:**
+  - `ledger_block.marker_block_mask` marks the lines of live marker blocks of any namespace, using the same block extent as `parse_blocks`.
+  - `plan_paths.split_task_framework_sections` is a partition, not a truncation:
+    - Framework is the `## Inbox` / `## Gate Runs` / `## Folded History` sections (any spacing after `##`, CRLF-aware) plus every live record wherever it sits. Everything else is declared.
+    - Non-adjacent framework runs are joined by `FRAMEWORK_RUN_SEPARATOR`, which is itself framework, so a re-split is a fixed point.
+    - `cut_task_framework_sections` returns its declared part.
+  - `plan_paths.split_folded_history` splits a framework part into inert history and live text (order kept, separators recomputed, a leading separator when live opens with a record).
+  - `aitask_fold_content.sh` uses both splits through `split_fw` (python only when a body names a framework section or holds `**`). Assembly is declared → merged → Folded Tasks → Folded History → live. The awk split, `split_history` and both EREs are removed.
+  - Docs: `task-fold-content.md`, `parallel-assessment.md` (agents now read past ledgers to a trailing `## Merged from`), and the `trail_gather.py` docstring.
+- **Deviations from plan:**
+  - Plan-review findings were folded into the plan before approval: spacing-tolerant header matcher, run separator, record-content fixtures.
+  - The "add a newline before the separator" branch was dropped as unreachable, since only the last line can lack a terminator.
+  - Change Request 1 added `split_folded_history`, because `split_history` reordered live records around an existing Folded History.
+  - The fold-script half of the red proof against HEAD was not run: a safety check blocked running scripts whose cleanup trap uses `rm`. The reader half (HEAD fails all 3 legacy cases) and the CR1 reproduction (`[2,1] pass` before the fix) are recorded instead.
+- **Issues encountered:**
+  - Two test fixtures were wrong and were corrected:
+    - Prose under `## Inbox` with no heading of its own is ledger by design.
+    - The mask parity corpus had a gate block adjacent to a note block, and a single-namespace parse absorbs that note. This is the very adjacency the separator prevents.
+  - The corpus diff later showed rows that differed only because other sessions archived or created tasks. A fresh HEAD baseline over the current corpus is identical.
+- **Key decisions:**
+  - No migration helper (Option B). The reader handles legacy layouts in place, the next fold canonicalizes them, and no active task here has the legacy layout.
+  - Header spacing is the union of both former matchers.
+  - Live-record content and order are the invariant, checked with the real parsers on full record tuples.
+- **Upstream defects identified:** None
