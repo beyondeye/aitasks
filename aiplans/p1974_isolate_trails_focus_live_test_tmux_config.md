@@ -67,3 +67,10 @@ None identified.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+- **Actual work done:** `setUp` in `tests/test_trails_focus_mailbox_live.py` now starts the private server with `["-f", "/dev/null", "new-session", ...]` (same comment and layout as `tests/test_monitor_pane_option_live.py`); the module docstring notes the config isolation. The socket-containment assertion and the 2-pane precondition are unchanged.
+- **Deviations from plan:** None.
+- **Issues encountered:** None. Verification: the live test passes 5/5. Negative control in the scratchpad: with a scratch `HOME`/`XDG_CONFIG_HOME` whose `tmux.conf` sets `set-hook -g session-created 'split-window -d "sleep 600"'`, the pre-fix copy (from `git show HEAD:`) failed all 5 tests at the pane-count precondition (`3 != 2`), and the fixed copy passed 5/5.
+- **Key decisions:** Used a `session-created` split hook as the hostile config rather than a global `@aitask_trails_focus` option. A global user option is not reliably visible to a pane-scoped read without `-A`, but an extra pane always breaks the precondition.
+- **Upstream defects identified:** None
