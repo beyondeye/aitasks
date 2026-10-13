@@ -441,6 +441,7 @@ printf 'unrelated bytes\n' > nl.dst
 artifact_backend_get "$HF" "nl.dst$NL"
 assert_file_exists "G: get wrote the exact destination name, newline included" "nl.dst$NL"
 assert_exit_zero "G: the newline-named destination holds the blob" cmp -s f1.bin "nl.dst$NL"
+assert_eq "G: the newline-named destination hashes to the blob" "$HF" "$(artifact_sha256 "nl.dst$NL")"
 assert_eq "G: the file without the newline was not overwritten" "unrelated bytes" "$(cat nl.dst)"
 out="$( ( artifact_backend_get "$HF" "" || true; echo CONTINUED ) 2>&1 )"; rc=$?
 assert_exit_nonzero_rc "G: get with an empty destination dies" "$rc"

@@ -29,15 +29,20 @@ artifact_sha256() {
     local file="$1"
     [[ -f "$file" ]] || die "artifact_sha256: not a file: $file"
 
+    # The file is fed on stdin so no tool ever sees its name: each one echoes a
+    # name argument back (openssl splits its line on a newline in it,
+    # sha256sum/shasum escape it with a leading '\') and option-parses a
+    # leading '-'. An unreadable file fails the redirect, leaving hex empty for
+    # the die below.
     local hex=""
     if command -v openssl >/dev/null 2>&1; then
-        # openssl prints "<ALGO>(<file>)= <hex>" (the exact ALGO label varies
+        # openssl prints "<ALGO>(stdin)= <hex>" (the exact ALGO label varies
         # across versions: SHA256 vs SHA2-256); the hex is always the last field.
-        hex="$(openssl dgst -sha256 "$file" | awk '{print $NF}')"
+        hex="$(openssl dgst -sha256 < "$file" | awk '{print $NF}')"
     elif command -v sha256sum >/dev/null 2>&1; then
-        hex="$(sha256sum "$file" | awk '{print $1}')"
+        hex="$(sha256sum < "$file" | awk '{print $1}')"
     elif command -v shasum >/dev/null 2>&1; then
-        hex="$(shasum -a 256 "$file" | awk '{print $1}')"
+        hex="$(shasum -a 256 < "$file" | awk '{print $1}')"
     else
         die "artifact_sha256: no SHA-256 tool found (need openssl, sha256sum, or shasum)"
     fi

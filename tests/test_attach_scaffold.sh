@@ -42,6 +42,38 @@ hello_hash="$(artifact_sha256 "$TMP/hello")"
 assert_eq "sha256 output is a well-formed sha256:<64hex>" \
     "0" "$( [[ "$hello_hash" =~ ^sha256:[0-9a-f]{64}$ ]]; echo $? )"
 
+# --- Test 1b: the file name never reaches the hashing tool (t1967) --------
+# Every tool echoes a name argument back (openssl splits on a newline in it,
+# sha256sum/shasum escape it). Run each fixture
+# through every backend: the helper takes the first tool on PATH, so a PATH
+# holding one tool plus awk/tr is the only way to reach the fallbacks.
+HELLO_VEC="sha256:5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03"
+NL=$'\n'
+printf 'hello\n' > "$TMP/nl${NL}name.bin"
+printf 'hello\n' > "$TMP/trail.bin${NL}"
+printf 'hello\n' > "$TMP/sp ace name.bin"
+for tool in openssl sha256sum shasum; do
+    tool_path="$(command -v "$tool" 2>/dev/null)" || tool_path=""
+    if [[ -z "$tool_path" ]]; then
+        echo "SKIP: $tool not installed — backend not exercised"
+        continue
+    fi
+    bin="$TMP/bin_$tool"
+    mkdir -p "$bin"
+    ln -s "$tool_path" "$bin/$tool"
+    ln -s "$(command -v awk)" "$bin/awk"
+    ln -s "$(command -v tr)" "$bin/tr"
+    # Positive control: the restricted PATH hashes an ordinary name.
+    assert_eq "$tool: plain name hashes to the known vector" "$HELLO_VEC" \
+        "$(PATH="$bin" artifact_sha256 "$TMP/hello" 2>&1)"
+    assert_eq "$tool: name with an embedded newline" "$HELLO_VEC" \
+        "$(PATH="$bin" artifact_sha256 "$TMP/nl${NL}name.bin" 2>&1)"
+    assert_eq "$tool: name ending in a newline" "$HELLO_VEC" \
+        "$(PATH="$bin" artifact_sha256 "$TMP/trail.bin${NL}" 2>&1)"
+    assert_eq "$tool: name with spaces" "$HELLO_VEC" \
+        "$(PATH="$bin" artifact_sha256 "$TMP/sp ace name.bin" 2>&1)"
+done
+
 # --- Test 2: artifact_validate_hash accept / reject ----------------------
 assert_exit_zero    "validate_hash accepts a canonical hash" artifact_validate_hash "$GOOD_HASH"
 assert_exit_nonzero "validate_hash rejects missing sha256: prefix" \
