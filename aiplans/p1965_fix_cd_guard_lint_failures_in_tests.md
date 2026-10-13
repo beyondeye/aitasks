@@ -146,3 +146,33 @@ archive.
   · severity: low · → mitigation: inline (plan body, section B)
 - Otherwise none identified. The lint result is the acceptance criterion and is checked
   directly. A file that the scratch cwd breaks would fail visibly in verification.
+
+## Final Implementation Notes
+- **Actual work done:** Fixed all 9 sites the lint reported, as planned:
+  - Rewrote the 4 unconfined `&&` chains. `test_aitasks_home.sh` and
+    `test_upgrade_prunes_retired_scripts.sh` use a guarded
+    `cd … || exit 1;` inside their existing subshells.
+    `test_install_engine_binary.sh` drops its cd for `ls -A "$AH/engine"`.
+    `test_setup_hooks_only.sh` collapses its subshell onto one line.
+  - Added `enter_scratch_cwd` to the 5 files that were missing it.
+  - In `test_opencode_models_merge.sh`, the `OPENCODE_MODELS_SCRIPT` and
+    `REGISTRY_CAS_LIB` overrides are now anchored by a local `abs_path`
+    before the cwd moves. This was a review finding during planning.
+- **Deviations from plan:** Added the repo's conventional comment above each new
+  source line: `# Start from an empty read-only dir, never the invoking one (t1826).`
+  251 existing adopters use it.
+- **Issues encountered:** None. Every file passed on the first run.
+- **Key decisions:** I anchored the overrides with a `case`/`$PWD` helper rather
+  than `realpath`. `realpath` would need an existing path, and its `-m` flag is
+  missing on BSD/macOS. The helper never stores the cwd or cds to it, so it is
+  not the "capture the invoking cwd" pattern that the scanner's `_CAPTURE` rule
+  targets.
+- **Verification:**
+  - `test_cd_guard_lint.sh` passes 92/92.
+  - All 8 touched files pass, the same as the baseline.
+  - The merge test with relative overrides passes 32/32, run from the repo root
+    and from `tests/`.
+  - With a bogus override the merge test fails, and `cp` names `<invoking dir>/no_such_script.sh`.
+  - shellcheck shows nothing new apart from the informational SC1091 "not
+    following" note on the new source lines, which the existing adopters share.
+- **Upstream defects identified:** None
