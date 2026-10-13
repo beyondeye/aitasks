@@ -117,3 +117,5 @@ sessions in `TuiSwitcherOverlay._ensure_session_live`, `lib/tui_switcher.py`
 > | - Latency measured on this host (7 registered projects, 4 export workers): ~1.5-1.6s per scan (1.9s under suite load), so a "Searching linked trails in N projects..." notice suffices; no progress callback or export cache was added.
 > | - As of this host's data today (moment-relative, may change): every real scan is complete=False, because thinking_app and thinking_backend hold 3 stored trails at schema_version 1.0.0 (rejected by 1.1.0) -> partial. Tracked in t1978. Test the "incomplete" modal path with that in mind.
 > | - The scan's export subprocess uses sys.executable, so from the PyPy board it runs under PyPy; the export output is a framed TRAIL_LINKS_EXPORT:<json> line because PyPy's PyYAML import prints to stdout. No action needed, just do not "simplify" it away.
+
+> **👁 note:read** id=2026-10-13T16:22:36Z.01b701e1cda0793233892f9e by=t1957_4 at=2026-10-13T16:22:36Z mode=explicit ids=2026-10-13T15:37:57Z.5d912e4b532a127ddf78f203
