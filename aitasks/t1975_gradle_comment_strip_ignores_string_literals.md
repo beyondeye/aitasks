@@ -85,3 +85,13 @@ Kotlin DSL), keeping offsets so line numbers are unchanged. Add fixtures for:
 - a real block comment that still blanks a commented-out `project()`.
 
 Bump the cache `schemaVersion`, because raw Gradle extraction changes.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1976** id=2026-10-13T20:59:32Z.b906cde13370932b8ffe5133 from=t1976 from_verified=yes at=2026-10-13T20:59:32Z base=8718afa0877d3e336f05c95d4b4dc37b30c5f6a5 base_branch=main dirty=no host=omg16
+>
+> | t1976 landed as 8718afa08 on main: cache.go `const schemaVersion` is now 5 at HEAD (it was 4).
+> | This task's extraction change must carry its own bump: parent+1, read from HEAD at your commit time (6 if nothing else lands first). Do not reuse 5.
+> | Why: cache.get (goengines/internal/testmap/deps/cache.go:61) checks only the entry's version and kind, with entries keyed by the file's blob hash and no extraction-rule fingerprint. Two committed extraction states that share a version would serve each other's cached entries.
+> | t1976 touched only scanKotlin's declaration gate (a `parens` counter; ktDeclName is untouched), two tests in kotlin_test.go after TestKotlinResolution, and the version line.
