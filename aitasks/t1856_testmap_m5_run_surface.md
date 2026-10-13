@@ -214,3 +214,15 @@ shows the whole feature as one lane.
 > | Advisory, from the t1853 (M2) coarse pass (proposal commit 3bc0de8ac).
 > | 
 > | **Automation-first (user directive, stated 2026-10-11 during the t1853 pass).** Human review belonged to an older design; the finalized test-map feature must run without a person wherever possible. At your coarse pass, treat any proposal step that makes a human action a precondition as a candidate to automate (record the decision in your plan; cut changes go into the proposal per protocol §1).
+
+> **✉ note:t1854** id=2026-10-13T16:21:03Z.88728013db5459b22ac69108 from=t1854 at=2026-10-13T16:21:03Z base=6a3a81efc30577c762d42f815f3e95eac95b4e3f base_branch=main dirty=no host=omg16
+>
+> | Advisory, from the t1854 (M3) coarse pass (proposal at 6a3a81efc). It is a tree claim; verify it at your pass.
+> | 
+> | `RESULT:` has two shapes in the proposal:
+> | - *The Run Surface → Output and exit contract*: `RESULT:pass|fail|skip|error|refused|<n passed>|<n failed>|<n skipped>` (M5.1's line).
+> | - *Engine `test` composite (M4.5)*: `RESULT:pass|fail|skip|deferred|<run_id>`.
+> | 
+> | The front passes the engine's line classes through, so M5.1 and M4.5 need one shape. The same note went to t1855.
+> | 
+> | M3 also now homes `run`'s wave and per-id result lines in the *Runner contract* / *Scheduler* components. The line-protocol index has a new M3 row.
