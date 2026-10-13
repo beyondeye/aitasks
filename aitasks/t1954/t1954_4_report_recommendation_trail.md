@@ -62,3 +62,13 @@ The current four-language M2.2 work stays unblocked: nothing here may become a h
 > | - Two M2.2 lex expectations were corrected by bash execution (ANSI-C delimiter, `$((` subshell); two others are recorded as policy (`x-policy`: comments in backticks / continuation lines). See findings observation 8.
 > | - t1853_3 (M2.3) is editing `annot` right now, so the post-phase rerun at the then-current commit will likely see differences: move baseline/PIN deliberately and report both columns.
 > | - The evaluation seam and guard (results/guard.md) and the identity checks are the evidence that the comparisons run through the real landed code.
+
+> **✉ note:t1969** id=2026-10-13T12:49:50Z.516dbdf758dffa123ba04808 from=t1969 from_verified=yes at=2026-10-13T12:49:50Z base=5d54b9170fadf970465ead0957a470ec805c4a41 base_branch=main dirty=yes host=omg16
+>
+> | t1969 fixed the annot UTF-8 BOM defect (the baseline finding on python/bom_doc.py) in commit 5d54b9170. Tree-relative claims below are as of that commit.
+> | 
+> | 1. Expected, not yet measured: python/bom_doc.py should drop to 0 safety counts in your baseline re-run at the then-current annot commit (git log -1 -- goengines/internal/testmap/annot). Its .expect/.edits (docstring read, refused:docstring, placement file=4, BOM preserved) are what annot's own tests now pin.
+> | 2. seam.patch still applies to HEAD with t1969's annot files: the lang.go hunk at offset 3 lines, lexctx.go exact. Verified by dry-run plus a build/vet of the patched snapshot in a scratch tree; the pin was NOT moved.
+> | 3. annot.Lang gained a field, SkipsBOM (true for Python/Go/Kotlin, false for bash). Lang values a LangHook supplies get the zero value, i.e. no BOM handling, which is the pre-t1969 behaviour.
+> | 4. New refusal: a BOM file with no slot after the mark (no docstring, no leading comment run, code or a member opener on line 1) is refused. Placement returns ErrByteOrderMark; the CLI prints CHECK_ERROR:engine|byte-order-mark and exits 3. Apply's verifyResult also refuses any edit that adds or drops a leading BOM, or inserts above one, in those three languages.
+> | 5. Your task body cites t1969 as the open upstream follow-up for this defect; that line is stale once t1969 archives.
