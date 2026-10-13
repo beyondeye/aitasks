@@ -68,9 +68,10 @@ from board_trail_view import (
     TrailColumn,
     TrailDetailScreen, TrailSelectScreen, TrailSummaryScreen,
     build_trail_lanes, load_local_project_name, run_trail_drift,
-    trail_drift_by_ref, trail_summary_text,
+    trail_drift_by_ref, trail_summary_text, trail_xdep_refs,
 )
 from board_widgets import LoadingOverlay
+from cross_repo_deps import probe_xdep_status
 from keybinding_registry import resolve_key
 from topic_semantics import task_own_id
 from trail_discovery import (
@@ -137,7 +138,12 @@ class TrailSession:
     ``reload_gen`` names the latest reload request (a superseded reload result
     is discarded), ``drift_gen`` the latest drift request — and it is also
     re-drawn whenever the session's content changes from any source, so a
-    verdict computed for an older document never lands on a newer one."""
+    verdict computed for an older document never lands on a newer one.
+
+    Cross-repo status (t1957_1) has its own stamp, ``xdep_gen``. ``xdep``
+    holds COMPLETED probe results only (``repo#id`` → status) and
+    ``xdep_inflight`` the refs the current probe covers; a ref in neither is
+    rendered "not checked", never as a failure."""
     handle: str
     doc: dict | None = None
     error: str = ""                # fail-closed load error
@@ -147,6 +153,9 @@ class TrailSession:
     owner_archived: bool = False   # §9.2 archived-owner banner
     reload_gen: int = 0
     drift_gen: int = 0
+    xdep: dict = field(default_factory=dict)   # completed xdep probe results
+    xdep_inflight: frozenset = frozenset()     # refs the current probe covers
+    xdep_gen: int = 0
     focus_filename: str = ""       # last focused card, restored on tab switch
     focus_col_id: str = ""
     updated: bool = False          # background change not yet seen (tab's •)
@@ -264,6 +273,8 @@ class TrailScreenMixin:
     _trail_error = _session_field("error", str)
     _trail_versions_fallback = _session_field("versions_fallback", list)
     _trail_drift = _session_field("drift", lambda: None)
+    _trail_xdep = _session_field("xdep", dict)
+    _trail_xdep_inflight = _session_field("xdep_inflight", frozenset)
     _trail_owner_id = _session_field("owner_id", str)
     _trail_owner_archived = _session_field("owner_archived", bool)
 
@@ -337,13 +348,19 @@ class TrailScreenMixin:
 
     def _supersede_trail_workers(self) -> None:
         """Retire every in-flight trail worker result: the pending scan and each
-        session's reload and drift. The board calls this on entering and
-        leaving the By-Trail view (its re-entry points)."""
+        session's reload, drift and xdep probe. The board calls this on
+        entering and leaving the By-Trail view (its re-entry points).
+
+        A retired xdep probe also drops its in-flight coverage, so its refs
+        read "not checked" until the next start rather than "checking…"
+        forever."""
         gen = self._bump_trail_gen()
         self._trail_discovery_gen = gen
         for session in self._trail_sessions.values():
             session.reload_gen = gen
             session.drift_gen = gen
+            session.xdep_gen = gen
+            session.xdep_inflight = frozenset()
 
     def _refresh_trail_tabs(self) -> None:
         """Repaint the host's tab strip. A tabbed host overrides this; the
@@ -405,9 +422,12 @@ class TrailScreenMixin:
         session.drift = None
         session.drift_gen = self._bump_trail_gen()
         if session is self._trail_active:
-            self._rerender_trail()
+            # Start BEFORE rendering: the render reads the xdep probe's
+            # in-flight coverage, so a new member must already read
+            # "checking…" on this first paint (t1957_1).
             if doc is not None and not error:
                 self._start_trail_drift()
+            self._rerender_trail()
             self._refresh_subtitle()
             return
         if changed:
@@ -684,7 +704,9 @@ class TrailScreenMixin:
         xdep_status_cache.clear() the way refresh_board() does. TrailTaskCard
         and TrailGhostCard fully override TaskCard.compose, and every reader of
         modified_files / lock_map / xdep_status_cache lives in that base
-        compose — so By-Trail consumes none of it. Routing this view through
+        compose — so By-Trail consumes none of it. Their cross-repo lines read
+        the session's ``xdep`` / ``xdep_inflight``, which a worker fills off
+        the UI thread (t1957_1) — never a probe in compose. Routing this view through
         refresh_board() would block the UI thread on `git status` (5s timeout)
         and `aitask_lock.sh --list` (10s timeout) to produce an identical
         render (t1268).
@@ -939,7 +961,9 @@ class TrailScreenMixin:
             self._trail_drift[1] if self._trail_drift else [])
         return build_trail_lanes(
             self._trail_doc, self._live_tasks_by_id(), self._get_local_project(),
-            self.manager.find_task_including_archived, drift_by_ref)
+            self.manager.find_task_including_archived, drift_by_ref,
+            xdep_status=self._trail_xdep,
+            xdep_inflight=self._trail_xdep_inflight)
 
     def _open_trail_select(self, rescan: bool = False):
         """Open the trail-selection modal, running discovery when needed."""
@@ -1110,9 +1134,10 @@ class TrailScreenMixin:
             read_seq=info.read_seq if info else 0)
         self._trail_sessions[handle] = session
         self._trail_active = session
-        self.refresh_board()
+        # Start before the render, which reads the xdep probe's coverage.
         if self._trail_doc is not None and not self._trail_error:
             self._start_trail_drift()
+        self.refresh_board()
         self._refresh_subtitle()
         self._refresh_trail_tabs()
         self.refresh_bindings()
@@ -1132,6 +1157,55 @@ class TrailScreenMixin:
         session.drift = None
         session.drift_gen = self._bump_trail_gen()
         self._trail_drift_worker(session.drift_gen, session.handle)
+        self._start_session_xdep(session)
+
+    def _start_session_xdep(self, session):
+        """Probe ``session``'s cross-repo refs off the UI thread (t1957_1).
+
+        Started with every drift check, so it shares drift's triggers:
+        activation, view entry, reload / `d`, sync and background content
+        changes — never `r` or a tab switch, which stay zero-subprocess.
+
+        Callers must START BEFORE THEY RENDER: the render reads
+        ``xdep_inflight`` to tell a ref being checked from one nobody probed.
+        Cached results stay shown while the new probe runs."""
+        if session.doc is None or session.error:
+            return
+        refs = trail_xdep_refs(session.doc, self._live_tasks_by_id(),
+                               self._get_local_project())
+        session.xdep_gen = self._bump_trail_gen()
+        session.xdep_inflight = frozenset(refs)
+        if refs:
+            self._trail_xdep_worker(session.xdep_gen, session.handle, refs)
+
+    @work(thread=True)
+    def _trail_xdep_worker(self, gen: int, handle: str, refs: dict):
+        result = {}
+        try:
+            for key, (repo, task_id) in refs.items():
+                result[key] = probe_xdep_status(repo, task_id)
+        finally:
+            # Even a failed run lands, so its coverage is released; refs it
+            # never reached stay absent from the result ("not checked").
+            self.app.call_from_thread(self._on_trail_xdep, gen, handle, result)
+
+    def _on_trail_xdep(self, gen: int, handle: str, result: dict):
+        # Same supersession guard as drift: a stale stamp, a closed trail or
+        # a different view discards the result.
+        session = self._trail_session(handle)
+        if (session is None or gen != session.xdep_gen
+                or self.base_filter != "bytrail"):
+            return
+        # Replace, not merge: the result holds exactly the refs this probe
+        # covered, so no ref it did not probe can turn into a failure.
+        session.xdep = dict(result)
+        session.xdep_inflight = frozenset()
+        if session is not self._trail_active:
+            session.updated = True
+            self._refresh_trail_tabs()
+            return
+        focused = self._focused_card()
+        self._rerender_trail(focused.task_data.filename if focused else "")
 
     @work(thread=True)
     def _trail_drift_worker(self, gen: int, handle: str):

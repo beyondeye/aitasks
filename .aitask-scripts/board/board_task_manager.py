@@ -43,6 +43,9 @@ from config_utils import (
 from metadata_commit import commit_metadata
 from task_yaml import BOARD_KEYS, normalize_board_idx
 from topic_semantics import _task_id_sort_key, task_own_id, topic_key
+from cross_repo_deps import (
+    classify_xdep_status, probe_xdep_status, xdep_ref_pairs,
+)
 
 from board_task_model import (
     MERGE_METADATA_KEY, MERGE_METADATA_LOCAL_KEY, MERGE_UNVERIFIABLE_KEY,
@@ -936,21 +939,12 @@ class TaskManager:
     def cross_repo_dep_display(self, task: Task) -> tuple[list[str], bool]:
         xdep_display = []
         xdep_blocked = False
-        xdeprepo = task.metadata.get('xdeprepo')
-        xdeps = task.metadata.get('xdeps', []) or []
-        if xdeprepo and xdeps:
-            for xd in xdeps:
-                xid = str(xd).lstrip('t')
-                ref = f"{xdeprepo}#{xid}"
-                xstatus = self.get_xdep_status(xdeprepo, xid)
-                if xstatus == 'Done':
-                    xdep_display.append(ref)
-                elif not xstatus or xstatus == 'NOT_FOUND':
-                    xdep_display.append(f"{ref} (UNREACHABLE)")
-                    xdep_blocked = True
-                else:
-                    xdep_display.append(f"{ref} [{xstatus}]")
-                    xdep_blocked = True
+        for repo, xid in xdep_ref_pairs(task.metadata.get('xdeprepo'),
+                                        task.metadata.get('xdeps', []) or []):
+            display, blocked = classify_xdep_status(
+                f"{repo}#{xid}", self.get_xdep_status(repo, xid))
+            xdep_display.append(display)
+            xdep_blocked = xdep_blocked or blocked
         return xdep_display, xdep_blocked
 
     def _gate_summary(self, result: GateStateResult) -> str:
@@ -1086,26 +1080,13 @@ class TaskManager:
         ``""`` (empty) when the project is unreachable (stale/unregistered)
         or the probe fails — callers treat both empty and ``NOT_FOUND`` as
         UNREACHABLE. Results are cached in ``self.xdep_status_cache`` keyed
-        by ``(repo, task_id)`` so the probe does not fire per redraw.
+        by ``(repo, task_id)`` so the probe does not fire per redraw. The
+        probe itself is ``probe_xdep_status``.
         """
         key = (repo, task_id)
         if key in self.xdep_status_cache:
             return self.xdep_status_cache[key]
-        status = ""
-        try:
-            result = subprocess.run(
-                ["./.aitask-scripts/aitask_query_files.sh",
-                 "--project", repo, "task-status", task_id],
-                capture_output=True, text=True, timeout=10
-            )
-            if result.returncode == 0:
-                for line in result.stdout.splitlines():
-                    line = line.strip()
-                    if line.startswith("STATUS:"):
-                        status = line[len("STATUS:"):].strip()
-                        break
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-            status = ""
+        status = probe_xdep_status(repo, task_id)
         self.xdep_status_cache[key] = status
         return status
 

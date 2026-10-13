@@ -52,7 +52,7 @@ sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "lib"))
 
 import board_fixture as bf  # noqa: E402
 import keybinding_registry  # noqa: E402
-from test_board_bytrail_view import _wave_doc  # noqa: E402
+from test_board_bytrail_view import _wave_doc, _xdep_doc  # noqa: E402
 from trail_discovery import TrailInfo  # noqa: E402
 
 HANDLE = "art:trail-standalone"
@@ -1630,6 +1630,261 @@ class TabbedSessionTests(TrailsAppTestBase):
         self.assertEqual(asyncio.run(run(guarded=False)), x_file,
                          "negative control: an unguarded stale restore must "
                          "land on the shared member, or this test proves nothing")
+
+
+# --- cross-repo status probe (t1957_1) --------------------------------------------
+
+#: A foreign member of trail A — a `cross_repo` ghost whose live status the
+#: session probes. Trail B has no cross-repo refs, so it never starts a probe.
+XREF = "otherproj#3"
+
+
+class XdepSessionTests(TrailsAppTestBase):
+    """The per-session cross-repo status worker: supersession, coverage and
+    the zero-subprocess paths. `probe_xdep_status` is a counting fake, or the
+    worker itself is replaced by a recorder so a result never lands unless the
+    test delivers it."""
+
+    def _doc_a(self, *extra):
+        return _titled(_xdep_doc(self.member_ids, [XREF, *extra]),
+                       "Alpha trail", "ALPHAMARK")
+
+    def _doc_b(self):
+        return _titled(_wave_doc([self.member_ids[1]]), "Beta trail", "BETAMARK")
+
+    def _info_for(self, handle, doc):
+        return TrailInfo(handle=handle, owner_id=self.member_ids[0],
+                         owner_archived=False, owner_folded=False,
+                         name=doc["title"], doc=doc)
+
+    def _patches(self, probes: list, status="Done"):
+        infos = [self._info_for(HANDLE_A, self._doc_a()),
+                 self._info_for(HANDLE_B, self._doc_b())]
+
+        def probe(repo, task_id):
+            probes.append(f"{repo}#{task_id}")
+            return status
+
+        return [patch.object(self.ts, "discover_trails",
+                             lambda: ([TrailInfo(**vars(i)) for i in infos], [])),
+                patch.object(self.ts, "run_trail_drift",
+                             lambda handle: ("CURRENT", [])),
+                patch.object(self.ts, "load_trail_blob",
+                             lambda handle: (next(i.doc for i in infos
+                                                  if i.handle == handle), "", [])),
+                patch.object(self.ts, "probe_xdep_status", probe)]
+
+    @staticmethod
+    def _no_drift_redraw(app) -> None:
+        """Drift's callback re-renders the lanes, which would repaint over a
+        stale first paint within a pause; in real use it can take 15s. Keep
+        it out so a test sees the first paint only."""
+        app._trail_drift_worker = lambda gen, handle: None
+
+    @staticmethod
+    def _recorder(app) -> list:
+        """Replace the worker: record (gen, handle, refs), never deliver."""
+        started = []
+        app._trail_xdep_worker = (
+            lambda gen, handle, refs: started.append((gen, handle, set(refs))))
+        return started
+
+    def _remote(self, app, ref=XREF) -> str:
+        for card in app.query(self.ab.TrailGhostCard):
+            if card.trail_entry.get("task") == ref:
+                labels = card.query(".trail-remote-status")
+                return str(labels.first().render()) if labels else ""
+        return "<no card>"
+
+    async def _open_second(self, app, pilot):
+        await pilot.press("s")
+        await self._wait_screen(app, pilot,
+                                self.ab.board_trail_view.TrailSelectScreen)
+        await pilot.press("down")
+        await pilot.press("enter")
+        await self._settle(app, pilot)
+
+    def _card_ids(self, app):
+        return [id(c) for c in app.query(self.ab.TaskCard)]
+
+    def test_probe_result_reaches_the_ghost_card(self):
+        async def go():
+            probes = []
+            app = bf.make_trails_app()
+            p = self._patches(probes)
+            with p[0], p[1], p[2], p[3]:
+                async with app.run_test(size=(200, 48)) as pilot:
+                    await self._boot_and_select(app, pilot)
+                    self.assertEqual(probes, [XREF])
+                    self.assertEqual(self._remote(app), "📋 Done")
+                    session = app._trail_session(HANDLE_A)
+                    self.assertEqual(session.xdep, {XREF: "Done"})
+                    self.assertEqual(session.xdep_inflight, frozenset())
+                    ghost = next(c for c in app.query(self.ab.TrailGhostCard)
+                                 if c.trail_entry.get("task") == XREF)
+                    self.assertTrue(ghost.trail_view.landed)
+        self._run(go())
+
+    def test_activation_first_render_reads_checking(self):
+        """Start-before-render: the first paint already shows the probe."""
+        async def go():
+            probes = []
+            app = bf.make_trails_app()
+            started = self._recorder(app)
+            self._no_drift_redraw(app)
+            p = self._patches(probes)
+            with p[0], p[1], p[2], p[3]:
+                async with app.run_test(size=(200, 48)) as pilot:
+                    await self._boot_and_select(app, pilot)
+                    self.assertEqual([s[2] for s in started], [{XREF}])
+                    self.assertEqual(self._remote(app), "🌐 (checking…)")
+        self._run(go())
+
+    def test_first_render_after_content_change_reads_checking(self):
+        """A reload that adds a foreign member renders it as being checked on
+        its very first paint — never as unreachable or unprobed — while the
+        cached result for the old member stays shown."""
+        async def go():
+            probes = []
+            app = bf.make_trails_app()
+            p = self._patches(probes)
+            with p[0], p[1], p[2], p[3]:
+                async with app.run_test(size=(200, 48)) as pilot:
+                    await self._boot_and_select(app, pilot)
+                    self.assertEqual(self._remote(app), "📋 Done")
+                    started = self._recorder(app)
+                    self._no_drift_redraw(app)
+                    session = app._trail_session(HANDLE_A)
+                    seen = []
+                    real_rerender = app._rerender_trail
+
+                    def spy(refocus_filename=""):
+                        real_rerender(refocus_filename)
+                        seen.append(None)
+
+                    app._rerender_trail = spy
+                    app._on_trail_reload(
+                        session.reload_gen, HANDLE_A,
+                        self._doc_a("otherproj#9"), "", [],
+                        session.read_seq + 100)
+                    self.assertEqual(len(seen), 1)
+                    await pilot.pause()
+                    self.assertEqual([s[2] for s in started],
+                                     [{XREF, "otherproj#9"}])
+                    self.assertEqual(self._remote(app, "otherproj#9"),
+                                     "🌐 (checking…)")
+                    self.assertEqual(self._remote(app), "📋 Done")
+        self._run(go())
+
+    def test_older_result_never_fails_an_unprobed_ref(self):
+        async def go():
+            probes = []
+            app = bf.make_trails_app()
+            started = self._recorder(app)
+            p = self._patches(probes)
+            with p[0], p[1], p[2], p[3]:
+                async with app.run_test(size=(200, 48)) as pilot:
+                    await self._boot_and_select(app, pilot)
+                    session = app._trail_session(HANDLE_A)
+                    old_gen = session.xdep_gen
+                    app._start_session_xdep(session)
+                    new_gen = session.xdep_gen
+                    self.assertGreater(new_gen, old_gen)
+                    # The superseded probe reports a failure: dropped.
+                    app._on_trail_xdep(old_gen, HANDLE_A, {XREF: ""})
+                    await self._settle(app, pilot)
+                    self.assertEqual(session.xdep, {})
+                    self.assertEqual(self._remote(app), "🌐 (checking…)")
+                    # The current probe lands without covering XREF: unprobed,
+                    # not a failure.
+                    app._on_trail_xdep(new_gen, HANDLE_A, {})
+                    await self._settle(app, pilot)
+                    self.assertEqual(self._remote(app), "🌐 (not checked)")
+                    self.assertEqual(len(started), 2)
+        self._run(go())
+
+    def test_background_result_marks_only_its_tab_and_a_b_a(self):
+        async def go():
+            probes = []
+            app = bf.make_trails_app()
+            started = self._recorder(app)
+            p = self._patches(probes)
+            with p[0], p[1], p[2], p[3]:
+                async with app.run_test(size=(200, 48)) as pilot:
+                    await self._boot_and_select(app, pilot)     # A
+                    await self._open_second(app, pilot)         # B active
+                    self.assertEqual(app.active_trail_handle, HANDLE_B)
+                    session_a = app._trail_session(HANDLE_A)
+                    cards = self._card_ids(app)
+                    app._on_trail_xdep(session_a.xdep_gen, HANDLE_A,
+                                       {XREF: "Implementing"})
+                    await self._settle(app, pilot)
+                    self.assertTrue(session_a.updated)
+                    self.assertFalse(app._trail_session(HANDLE_B).updated)
+                    self.assertEqual(self._card_ids(app), cards,
+                                     "the active tab was re-rendered")
+                    await pilot.press("1")                      # back to A
+                    await self._settle(app, pilot)
+                    self.assertEqual(self._remote(app), "📋 Implementing")
+                    self.assertEqual(probes, [])
+                    self.assertEqual(len(started), 1, "a switch re-probed")
+        self._run(go())
+
+    def test_result_for_a_closed_tab_is_dropped(self):
+        async def go():
+            probes = []
+            app = bf.make_trails_app()
+            self._recorder(app)
+            p = self._patches(probes)
+            with p[0], p[1], p[2], p[3]:
+                async with app.run_test(size=(200, 48)) as pilot:
+                    await self._boot_and_select(app, pilot)
+                    await self._open_second(app, pilot)
+                    gen = app._trail_session(HANDLE_A).xdep_gen
+                    app._close_trail_session(HANDLE_A)
+                    await self._settle(app, pilot)
+                    app._on_trail_xdep(gen, HANDLE_A, {XREF: "Done"})
+                    await self._settle(app, pilot)
+                    self.assertIsNone(app._trail_session(HANDLE_A))
+                    self.assertEqual(app.active_trail_handle, HANDLE_B)
+        self._run(go())
+
+    def test_supersession_releases_in_flight_coverage(self):
+        async def go():
+            probes = []
+            app = bf.make_trails_app()
+            self._recorder(app)
+            p = self._patches(probes)
+            with p[0], p[1], p[2], p[3]:
+                async with app.run_test(size=(200, 48)) as pilot:
+                    await self._boot_and_select(app, pilot)
+                    session = app._trail_session(HANDLE_A)
+                    gen = session.xdep_gen
+                    self.assertEqual(session.xdep_inflight, {XREF})
+                    app._supersede_trail_workers()
+                    self.assertEqual(session.xdep_inflight, frozenset())
+                    app._on_trail_xdep(gen, HANDLE_A, {XREF: "Done"})
+                    app._rerender_trail()
+                    await self._settle(app, pilot)
+                    self.assertEqual(self._remote(app), "🌐 (not checked)")
+        self._run(go())
+
+    def test_local_refresh_and_tab_switch_never_probe(self):
+        async def go():
+            probes = []
+            app = bf.make_trails_app()
+            p = self._patches(probes)
+            with p[0], p[1], p[2], p[3]:
+                async with app.run_test(size=(200, 48)) as pilot:
+                    await self._boot_and_select(app, pilot)
+                    await self._open_second(app, pilot)
+                    self.assertEqual(probes, [XREF])
+                    for key in ("1", "r", "2", "1", "r"):
+                        await pilot.press(key)
+                        await self._settle(app, pilot)
+                    self.assertEqual(probes, [XREF])
+                    self.assertEqual(self._remote(app), "📋 Done")
+        self._run(go())
 
 
 if __name__ == "__main__":

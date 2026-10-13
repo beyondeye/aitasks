@@ -125,6 +125,8 @@ from board_trail_view import (
     _trail_stored_freshness, build_trail_lanes, canonical_trail_ref,
     load_local_project_name, run_trail_drift, trail_drift_by_ref,
     trail_ref_to_local_id, trail_summary_text,
+    XDEP_CHECKING, XDEP_RESOLVED, XDEP_UNCHECKED, _remote_status_text,
+    _xdep_member_display, trail_xdep_refs, xdep_ref_state,
 )
 
 # The By-Trail view's App half — session state, workers, trail actions, the
@@ -5205,11 +5207,13 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
             self.app.call_from_thread(self.notify, f"Sync error: {result.error_message}", severity="error")
 
         self.app.call_from_thread(self.manager.load_tasks)
-        self.app.call_from_thread(self.refresh_board, refresh_locks=True)
         # A sync that pulled new task data can change the drift verdict, so
-        # re-check freshness for the active trail (t1268).
+        # re-check freshness for the active trail (t1268). Started before the
+        # refresh renders: the trail cards read the xdep probe's in-flight
+        # coverage, which this start sets (t1957_1).
         if self.base_filter == "bytrail" and self.active_trail_handle:
             self.app.call_from_thread(self._start_trail_drift)
+        self.app.call_from_thread(self.refresh_board, refresh_locks=True)
 
     def _show_conflict_dialog(self, files: list[str]):
         """Show the conflict resolution dialog (must be called on main thread)."""

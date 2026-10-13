@@ -22,9 +22,11 @@ silently render as a cross-repo ghost — see ``TrailRefResolutionTests``.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import copy
 import json
 import os
+import re
 import subprocess
 import sys
 import textwrap
@@ -1158,6 +1160,360 @@ class ReadOnlyNegativeControlTests(ByTrailTestBase):
                 self.assertIn("trail unavailable", str(app.sub_title))
 
         self._run(go())
+
+
+def _xdep_doc(local_ids, ghost_refs=()) -> dict:
+    """`_wave_doc` over local members, plus foreign `proj#id` ghost entries."""
+    doc = _wave_doc(local_ids)
+    entries = doc["waves"][0]["entries"]
+    for ref in ghost_refs:
+        pos = len(entries) + 1
+        entries.append({"entry_id": f"e{pos}", "task": ref, "topic": ref,
+                        "position": pos, "classification": "core",
+                        "confidence": "high", "rationale": "r",
+                        "snapshot": {"status": "Ready"}})
+    return doc
+
+
+def _first_parent(app):
+    """The fixture's first live parent task and its bare local id."""
+    task = sorted(app.manager.task_datas.values(),
+                  key=lambda t: t.filename)[0]
+    return task, re.match(r"t(\d+)_", task.filename).group(1)
+
+
+class ByTrailNoProbeInComposeTests(ByTrailTestBase):
+    """t1957_1 pre-phase (pin_bytrail_no_probe_in_compose): rendering a trail
+    whose members carry cross-repo deps never probes them on the UI thread.
+
+    `_rerender_trail` relies on trail cards reading none of the state that
+    `refresh_board()` refreshes (t1268). A card that called
+    `TaskManager.get_xdep_status` — or any subprocess — from `compose` would
+    break that precondition and freeze the UI for up to 10s per ref."""
+
+    def test_render_with_xdeps_and_cross_repo_ghost_spawns_nothing(self):
+        ab = self.ab
+
+        def boom(*_a, **_k):
+            raise AssertionError("probed during a trail render")
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                member, local_id = _first_parent(app)
+                member.metadata["xdeprepo"] = "otherrepo"
+                member.metadata["xdeps"] = [7, "t8"]
+                await self._enter_synthetic_bytrail(
+                    app, pilot, _xdep_doc([local_id], ["otherproj#3"]))
+                with patch("subprocess.run", side_effect=boom), \
+                        patch.object(ab.TaskManager, "get_xdep_status", boom):
+                    app._rerender_trail()
+                    await pilot.pause()
+                    await pilot.pause()
+                self.assertEqual(len(app.query(ab.TrailTaskCard)), 1)
+                self.assertEqual(len(app.query(ab.TrailGhostCard)), 1)
+
+        self._run(go())
+
+
+def _label_texts(widget, selector) -> list[str]:
+    out = []
+    for label in widget.query(selector):
+        rendered = label.render()
+        out.append(rendered.plain if hasattr(rendered, "plain")
+                   else str(rendered))
+    return out
+
+
+class XdepModelTests(ByTrailTestBase):
+    """t1957_1: the pure cross-repo status projection."""
+
+    def _xdep_task(self, filename, xdeps, repo="otherrepo", status="Ready"):
+        return self.ab.Task.from_text(
+            Path(filename),
+            f"---\nstatus: {status}\npriority: medium\nxdeprepo: {repo}\n"
+            f"xdeps: {xdeps}\n---\nbody\n")
+
+    def test_classify_strings_fail_closed(self):
+        import cross_repo_deps as cd
+        self.assertEqual(cd.classify_xdep_status("r#1", "Done"), ("r#1", False))
+        self.assertEqual(cd.classify_xdep_status("r#1", "Implementing"),
+                         ("r#1 [Implementing]", True))
+        for failed in ("", "NOT_FOUND"):
+            self.assertEqual(cd.classify_xdep_status("r#1", failed),
+                             ("r#1 (UNREACHABLE)", True))
+
+    def test_ref_pairs_need_both_fields_and_strip_t(self):
+        import cross_repo_deps as cd
+        self.assertEqual(cd.xdep_ref_pairs("repo", [7, "t8", "9_2"]),
+                         [("repo", "7"), ("repo", "8"), ("repo", "9_2")])
+        self.assertEqual(cd.xdep_ref_pairs("repo", []), [])
+        self.assertEqual(cd.xdep_ref_pairs("", [7]), [])
+
+    def test_trail_xdep_refs_collects_members_and_foreign_ghosts(self):
+        tv = self.ab.board_trail_view
+        doc = _xdep_doc(["42", "43"],
+                        ["otherproj#3", "otherproj#t3", "not a ref"])
+        tasks = {"42": self._xdep_task("t42_a.md", "[7, t8]"),
+                 "43": self._mk_task("t43_b.md")}
+        refs = tv.trail_xdep_refs(doc, tasks, "aitasks")
+        self.assertEqual(refs, {"otherrepo#7": ("otherrepo", "7"),
+                                "otherrepo#8": ("otherrepo", "8"),
+                                "otherproj#3": ("otherproj", "3")})
+        # A member whose own id is not live contributes nothing.
+        self.assertEqual(tv.trail_xdep_refs(_xdep_doc(["44"]), tasks,
+                                            "aitasks"), {})
+
+    def test_ref_state_resolved_checking_unchecked(self):
+        tv = self.ab.board_trail_view
+        status = {"r#1": "", "r#2": "Done"}
+        self.assertEqual(tv.xdep_ref_state("r#1", status, ()), tv.XDEP_RESOLVED)
+        self.assertEqual(tv.xdep_ref_state("r#3", status, {"r#3"}),
+                         tv.XDEP_CHECKING)
+        self.assertEqual(tv.xdep_ref_state("r#3", status, ()),
+                         tv.XDEP_UNCHECKED)
+
+    def _member_view(self, xdeps, status_map, inflight=()):
+        lanes = self.ab.build_trail_lanes(
+            _xdep_doc(["42"]), {"42": self._xdep_task("t42_a.md", xdeps)},
+            "aitasks", lambda _id: None, {},
+            xdep_status=status_map, xdep_inflight=inflight)
+        return lanes[0].entries[0]
+
+    def test_member_resolved_refs_block_and_unprobed_refs_do_not(self):
+        view = self._member_view("[7, 8]", {"otherrepo#7": "Implementing",
+                                            "otherrepo#8": "Done"})
+        self.assertEqual(view.xdeps,
+                         ["otherrepo#7 [Implementing]", "otherrepo#8"])
+        self.assertTrue(view.xdep_blocked)
+        # A completed failed probe IS a failure…
+        view = self._member_view("[7]", {"otherrepo#7": ""})
+        self.assertEqual(view.xdeps, ["otherrepo#7 (UNREACHABLE)"])
+        self.assertTrue(view.xdep_blocked)
+        # …an unprobed ref never is, whether or not a probe covers it.
+        view = self._member_view("[7, 8]", {"otherrepo#7": "Done"})
+        self.assertEqual(view.xdeps,
+                         ["otherrepo#7", "otherrepo#8 (not checked)"])
+        self.assertFalse(view.xdep_blocked)
+        view = self._member_view("[7, 8]", {"otherrepo#7": "Done"},
+                                 {"otherrepo#8"})
+        self.assertEqual(view.xdeps,
+                         ["otherrepo#7", "otherrepo#8 (checking…)"])
+        self.assertFalse(view.xdep_blocked)
+        # No xdeps: nothing to show.
+        lanes = self.ab.build_trail_lanes(
+            _xdep_doc(["42"]), {"42": self._mk_task("t42_a.md")}, "aitasks",
+            lambda _id: None)
+        self.assertEqual(lanes[0].entries[0].xdeps, [])
+
+    def test_cross_repo_ghost_lands_only_on_resolved_done(self):
+        tv = self.ab.board_trail_view
+
+        def ghost(status_map, inflight=()):
+            lanes = self.ab.build_trail_lanes(
+                _xdep_doc([], ["otherproj#t3"]), {}, "aitasks",
+                lambda _id: None, xdep_status=status_map,
+                xdep_inflight=inflight)
+            return lanes[0].entries[0]
+
+        done = ghost({"otherproj#3": "Done"})
+        self.assertTrue(done.landed)
+        self.assertEqual((done.remote_state, done.remote_status),
+                         (tv.XDEP_RESOLVED, "Done"))
+        self.assertFalse(ghost({"otherproj#3": "Implementing"}).landed)
+        self.assertFalse(ghost({"otherproj#3": ""}).landed)
+        pending = ghost({}, {"otherproj#3"})
+        self.assertEqual(pending.remote_state, tv.XDEP_CHECKING)
+        self.assertFalse(pending.landed)
+        self.assertEqual(ghost({}).remote_state, tv.XDEP_UNCHECKED)
+
+
+class XdepCardRenderTests(ByTrailTestBase):
+    """t1957_1: the trail cards render the projected xdep state."""
+
+    def _texts(self, card, selectors):
+        from textual.app import App
+        found = {}
+
+        class CardApp(App):
+            def compose(self):
+                yield card
+
+        async def go():
+            async with CardApp().run_test(size=(120, 24)):
+                for sel in selectors:
+                    found[sel] = _label_texts(card, sel)
+
+        self._run(go())
+        return found
+
+    def _entry(self, ref):
+        return {"task": ref, "position": 1, "classification": "core",
+                "confidence": "high"}
+
+    def test_member_card_shows_chip_and_refs(self):
+        ab = self.ab
+        task = self._mk_task("t42_demo.md")
+        view = ab.TrailEntryView(
+            self._entry("aitasks#42"), task, "", False,
+            xdeps=["otherrepo#7 [Implementing]", "otherrepo#8"],
+            xdep_blocked=True)
+        card = ab.TrailTaskCard(view, {"ordinal": 1}, None, "trail-w1")
+        found = self._texts(card, (".trail-xdep-blocked", ".trail-xdeps"))
+        self.assertEqual(found[".trail-xdep-blocked"],
+                         ["🌐 blocked (cross-repo)"])
+        self.assertEqual(found[".trail-xdeps"],
+                         ["↗ otherrepo#7 [Implementing], otherrepo#8"])
+
+    def test_member_card_unprobed_refs_have_no_chip(self):
+        ab = self.ab
+        task = self._mk_task("t42_demo.md")
+        view = ab.TrailEntryView(
+            self._entry("aitasks#42"), task, "", False,
+            xdeps=["otherrepo#7 (checking…)", "otherrepo#8 (not checked)"])
+        card = ab.TrailTaskCard(view, {"ordinal": 1}, None, "trail-w1")
+        found = self._texts(card, (".trail-xdep-blocked", ".trail-xdeps"))
+        self.assertEqual(found[".trail-xdep-blocked"], [])
+        self.assertEqual(found[".trail-xdeps"], [
+            "↗ otherrepo#7 (checking…), otherrepo#8 (not checked)"])
+
+    def test_member_card_without_xdeps_has_no_xdep_lines(self):
+        ab = self.ab
+        view = ab.TrailEntryView(self._entry("aitasks#42"),
+                                 self._mk_task("t42_demo.md"), "", False)
+        card = ab.TrailTaskCard(view, {"ordinal": 1}, None, "trail-w1")
+        found = self._texts(card, (".trail-xdep-blocked", ".trail-xdeps"))
+        self.assertEqual(found, {".trail-xdep-blocked": [], ".trail-xdeps": []})
+
+    def test_cross_repo_ghost_status_line(self):
+        ab = self.ab
+        tv = ab.board_trail_view
+        cases = [
+            ((tv.XDEP_RESOLVED, "Implementing"), "📋 Implementing"),
+            ((tv.XDEP_RESOLVED, ""), "🌐 (UNREACHABLE)"),
+            ((tv.XDEP_RESOLVED, "NOT_FOUND"), "🌐 (UNREACHABLE)"),
+            ((tv.XDEP_CHECKING, ""), "🌐 (checking…)"),
+            ((tv.XDEP_UNCHECKED, ""), "🌐 (not checked)"),
+        ]
+        for (state, status), expected in cases:
+            with self.subTest(state=state, status=status):
+                view = ab.TrailEntryView(
+                    self._entry("otherproj#3"), None, "cross_repo", False,
+                    remote_state=state, remote_status=status)
+                card = ab.TrailGhostCard(view, {"ordinal": 1}, "trail-w1")
+                found = self._texts(card, (".trail-remote-status",))
+                self.assertEqual(found[".trail-remote-status"], [expected])
+
+    def test_non_cross_repo_ghost_has_no_status_line(self):
+        ab = self.ab
+        view = ab.TrailEntryView(self._entry("aitasks#99"), None, "missing",
+                                 False)
+        card = ab.TrailGhostCard(view, {"ordinal": 1}, "trail-w1")
+        self.assertEqual(self._texts(card, (".trail-remote-status",)),
+                         {".trail-remote-status": []})
+
+
+class XdepCacheReconciliationTests(ByTrailTestBase):
+    """t1957_1 (review finding): a dependency added after the session's probe
+    results were populated is shown as unprobed — never as a failure — and
+    `r` stays zero-subprocess. Own class: it rewrites a fixture task file."""
+
+    @staticmethod
+    def _write_xdeps(task, xdeps: str) -> None:
+        text = Path(task.filepath).read_text(encoding="utf-8")
+        head, sep, rest = text.partition("\n---\n")
+        head = "\n".join(line for line in head.splitlines()
+                         if not line.startswith(("xdeprepo:", "xdeps:")))
+        Path(task.filepath).write_text(
+            f"{head}\nxdeprepo: otherrepo\nxdeps: {xdeps}{sep}{rest}",
+            encoding="utf-8")
+
+    def test_dependency_added_by_local_refresh_reads_not_checked(self):
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                member, local_id = _first_parent(app)
+                self._write_xdeps(member, "[7]")
+                await self._enter_synthetic_bytrail(
+                    app, pilot, _xdep_doc([local_id]))
+                app.action_trail_refresh_local()       # picks up xdeps: [7]
+                app._trail_xdep = {"otherrepo#7": "Done"}
+                app._rerender_trail()
+                await pilot.pause()
+                await pilot.pause()
+                self.assertEqual(_label_texts(app, ".trail-xdeps"),
+                                 ["↗ otherrepo#7"])
+
+                member, _ = _first_parent(app)
+                self._write_xdeps(member, "[7, 8]")
+                seen = []
+
+                def fake_run(argv, **kwargs):
+                    seen.append([str(a) for a in argv])
+                    return subprocess.CompletedProcess(argv, 0, "", "")
+
+                with patch("subprocess.run", side_effect=fake_run):
+                    app.action_trail_refresh_local()
+                    await pilot.pause()
+                    await pilot.pause()
+                self.assertEqual(seen, [], f"`r` spawned: {seen}")
+                self.assertEqual(_label_texts(app, ".trail-xdeps"),
+                                 ["↗ otherrepo#7, otherrepo#8 (not checked)"])
+                self.assertEqual(_label_texts(app, ".trail-xdep-blocked"), [])
+
+        self._run(go())
+
+
+class SyncStartsTrailBeforeRenderTests(ByTrailTestBase):
+    """t1957_1: a completed board sync reloads the tasks, starts the trail's
+    drift + xdep probe, and only THEN re-renders. The trail cards read the
+    probe's in-flight coverage, so rendering first would paint a new member's
+    refs "not checked" while their probe runs."""
+
+    def _order(self, base_filter: str) -> list[str]:
+        from types import SimpleNamespace
+        from sync_action_runner import STATUS_SYNCED, SyncResult
+        ab = self.ab
+        calls: list[str] = []
+
+        class Host:
+            _stray_sync_session = None
+            _sync_edit_lock = contextlib.nullcontext()
+            active_trail_handle = "art:trail-x"
+
+            def _stray_sync_blocks(self):
+                return False
+
+            def notify(self, *a, **k):
+                pass
+
+            def refresh_board(self, **kwargs):
+                calls.append("refresh_board")
+
+            def _start_trail_drift(self):
+                calls.append("start_trail_drift")
+
+        host = Host()
+        host.base_filter = base_filter
+        host.manager = SimpleNamespace(
+            load_tasks=lambda: calls.append("load_tasks"))
+        host.app = SimpleNamespace(
+            call_from_thread=lambda fn, *a, **k: fn(*a, **k))
+        with patch.object(ab, "run_sync_batch",
+                          lambda *a, **k: SyncResult(status=STATUS_SYNCED)):
+            ab.KanbanApp._run_sync.__wrapped__(host, show_notification=False)
+        return calls
+
+    def test_bytrail_sync_starts_the_probe_before_rendering(self):
+        self.assertEqual(self._order("bytrail"),
+                         ["load_tasks", "start_trail_drift", "refresh_board"])
+
+    def test_other_views_do_not_start_a_trail_probe(self):
+        self.assertEqual(self._order("all"), ["load_tasks", "refresh_board"])
 
 
 class LocalRefreshTests(ByTrailTestBase):

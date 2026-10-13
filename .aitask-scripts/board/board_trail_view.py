@@ -56,6 +56,7 @@ from cross_repo_notation import parse_ref as parse_cross_repo_ref
 from guarded_dismiss import GuardedModalScreen
 from topic_semantics import task_own_id
 from trail_discovery import TrailInfo, trail_entry_refs
+from cross_repo_deps import classify_xdep_status, xdep_ref_pairs
 
 
 # Artifact-version watch cadence (t1268): how often to poll `artifact
@@ -119,6 +120,15 @@ class TrailEntryView:
     # Drift reasons owned by THIS entry's task ref (t1268). Keyed on the raw
     # entry ref, so ghosts carry their own reasons too.
     drift_reasons: list = field(default_factory=list)
+    # Cross-repo state (t1957_1), from the session's probe results — never
+    # probed here. `xdeps`: a live member's per-ref display strings;
+    # `xdep_blocked`: some COMPLETED probe says not Done. For a cross_repo
+    # ghost, `remote_state` is its XDEP_* coverage and `remote_status` the
+    # probed status (meaningful only when resolved).
+    xdeps: list = field(default_factory=list)
+    xdep_blocked: bool = False
+    remote_state: str = ""
+    remote_status: str = ""
 
 
 @dataclass
@@ -176,8 +186,78 @@ def canonical_trail_ref(ref) -> str:
     return f"{project}#{task_id}"
 
 
+#: Per-ref coverage of the session's cross-repo status probes (t1957_1).
+XDEP_RESOLVED = "resolved"     # a completed probe result exists
+XDEP_CHECKING = "checking"     # the current probe covers it, no result yet
+XDEP_UNCHECKED = "unchecked"   # nobody probed it (e.g. added by `r`)
+
+
+def xdep_ref_state(key: str, status_map, inflight) -> str:
+    """Coverage of one ``repo#id`` ref — the ONE rule cards and tests share.
+
+    Only a key present in ``status_map`` (completed probe results) is
+    resolved; an absent key is never a failure. It is ``checking`` when the
+    in-flight probe covers it and ``unchecked`` otherwise, so a ref nobody
+    probed is never reported UNREACHABLE (t1957_1)."""
+    if key in (status_map or {}):
+        return XDEP_RESOLVED
+    if key in (inflight or ()):
+        return XDEP_CHECKING
+    return XDEP_UNCHECKED
+
+
+def _xdep_member_display(task, status_map, inflight):
+    """``(per-ref display strings, blocked)`` for a live member's xdeps.
+
+    Only resolved refs can block; checking / unchecked refs carry a suffix
+    instead, so an unprobed ref is visibly unknown rather than silently clear
+    or falsely unreachable."""
+    display = []
+    blocked = False
+    for repo, xid in xdep_ref_pairs(task.metadata.get("xdeprepo"),
+                                    task.metadata.get("xdeps", []) or []):
+        key = f"{repo}#{xid}"
+        state = xdep_ref_state(key, status_map, inflight)
+        if state == XDEP_RESOLVED:
+            text, ref_blocked = classify_xdep_status(key, status_map[key])
+            display.append(text)
+            blocked = blocked or ref_blocked
+        elif state == XDEP_CHECKING:
+            display.append(f"{key} (checking…)")
+        else:
+            display.append(f"{key} (not checked)")
+    return display, blocked
+
+
+def trail_xdep_refs(doc, tasks_by_id, local_project) -> dict:
+    """Every ref the trail's cross-repo display needs probed (t1957_1).
+
+    Maps ``repo#id`` to ``(repo, id)``: each live local member's
+    ``xdeprepo``/``xdeps`` pairs, plus each foreign member ref (a
+    ``cross_repo`` ghost) that parses as ``<project>#<id>``. Local and
+    unparseable refs are excluded; duplicates collapse onto one key."""
+    refs: dict = {}
+    for wave in (doc or {}).get("waves") or []:
+        for entry in wave.get("entries") or []:
+            ref = entry.get("task")
+            local_id = trail_ref_to_local_id(ref, local_project)
+            if local_id is None:
+                parsed = parse_cross_repo_ref(str(ref or ""))
+                if parsed:
+                    refs[f"{parsed[0]}#{parsed[1]}"] = parsed
+                continue
+            task = tasks_by_id.get(local_id)
+            if task is None:
+                continue
+            for repo, xid in xdep_ref_pairs(
+                    task.metadata.get("xdeprepo"),
+                    task.metadata.get("xdeps", []) or []):
+                refs[f"{repo}#{xid}"] = (repo, xid)
+    return refs
+
+
 def build_trail_lanes(doc, tasks_by_id, local_project, archived_lookup,
-                      drift_by_ref=None):
+                      drift_by_ref=None, xdep_status=None, xdep_inflight=()):
     """Project a validated trail document onto live board state.
 
     Returns ``TrailWaveLane``s with waves in ``ordinal`` order and entries in
@@ -190,9 +270,16 @@ def build_trail_lanes(doc, tasks_by_id, local_project, archived_lookup,
     reasons (see ``trail_drift_by_ref``). Looked up on the ref rather than the
     resolved local id, so archived / cross-repo ghosts carry their reasons
     too, and through ``canonical_trail_ref`` so a stored ``aitasks#t42``
-    still matches the gatherer's ``aitasks#42``."""
+    still matches the gatherer's ``aitasks#42``.
+
+    ``xdep_status`` (t1957_1) holds COMPLETED cross-repo probe results keyed
+    ``repo#id``; ``xdep_inflight`` the keys the current probe covers. A live
+    member's xdeps and a cross-repo ghost's own status resolve through
+    ``xdep_ref_state``. A cross-repo ghost is landed only when its probed
+    status is ``Done``."""
     lanes = []
     by_ref = drift_by_ref or {}
+    status_map = xdep_status or {}
     for wave in sorted(doc.get("waves") or [],
                        key=lambda w: w.get("ordinal", 0)):
         views = []
@@ -201,13 +288,20 @@ def build_trail_lanes(doc, tasks_by_id, local_project, archived_lookup,
             drift = by_ref.get(canonical_trail_ref(entry.get("task")), [])
             local_id = trail_ref_to_local_id(entry.get("task"), local_project)
             if local_id is None:
-                views.append(TrailEntryView(entry, None, "cross_repo", False,
-                                            drift))
+                key = canonical_trail_ref(entry.get("task"))
+                state = xdep_ref_state(key, status_map, xdep_inflight)
+                remote = status_map.get(key, "") if state == XDEP_RESOLVED else ""
+                views.append(TrailEntryView(
+                    entry, None, "cross_repo", remote == "Done", drift,
+                    remote_state=state, remote_status=remote))
                 continue
             task = tasks_by_id.get(local_id)
             if task is not None:
                 landed = task.metadata.get("status") == "Done"
-                views.append(TrailEntryView(entry, task, "", landed, drift))
+                xdeps, blocked = _xdep_member_display(task, status_map,
+                                                      xdep_inflight)
+                views.append(TrailEntryView(entry, task, "", landed, drift,
+                                            xdeps=xdeps, xdep_blocked=blocked))
                 continue
             archived_task = archived_lookup(local_id)
             if archived_task is not None:
@@ -342,6 +436,17 @@ def _trail_drift_text(reasons, max_shown: int = 2,
     return "⚠ " + " · ".join(parts)
 
 
+def _remote_status_text(view: TrailEntryView) -> str:
+    """A cross-repo ghost's live status line (t1957_1; markup=False)."""
+    if view.remote_state == XDEP_CHECKING:
+        return "🌐 (checking…)"
+    if view.remote_state != XDEP_RESOLVED:
+        return "🌐 (not checked)"
+    if not view.remote_status or view.remote_status == "NOT_FOUND":
+        return "🌐 (UNREACHABLE)"
+    return _status_badge_text(view.remote_status, "")
+
+
 class TrailTaskCard(TaskCard):
     """Card for a live local task inside a By-Trail wave column (RFC §9.1)."""
 
@@ -389,6 +494,15 @@ class TrailTaskCard(TaskCard):
         if status or plan_marker:
             yield Label(_status_badge_text(status, plan_marker),
                         classes="task-info")
+        # Cross-repo deps (t1957_1): the same glyphs and per-ref strings as
+        # TaskCard, but read from the session's probe results carried on the
+        # view — never probed here (see _rerender_trail's precondition).
+        if self.trail_view.xdep_blocked:
+            yield Label("🌐 blocked (cross-repo)",
+                        classes="task-info trail-xdep-blocked", markup=False)
+        if self.trail_view.xdeps:
+            yield Label(f"↗ {', '.join(self.trail_view.xdeps)}",
+                        classes="task-info trail-xdeps", markup=False)
         drift = _trail_drift_text(self.trail_view.drift_reasons)
         if drift:
             yield Label(drift, classes="task-info trail-drift", markup=False)
@@ -442,6 +556,9 @@ class TrailGhostCard(TaskCard):
         kind = _TRAIL_GHOST_LABELS.get(self.trail_view.ghost_kind,
                                        self.trail_view.ghost_kind)
         yield Label(f"👻 {kind} — read-only", classes="task-info")
+        if self.trail_view.ghost_kind == "cross_repo":
+            yield Label(_remote_status_text(self.trail_view),
+                        classes="task-info trail-remote-status", markup=False)
         yield Label(_trail_badge_text(self.trail_entry),
                     classes="task-info trail-badges", markup=False)
         drift = _trail_drift_text(self.trail_view.drift_reasons)
