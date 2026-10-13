@@ -453,3 +453,169 @@ through the standard child Step 9.
 (Confirmed by the user at parent t1954 planning; carried verbatim.)
 - timing: pre-phase | name: feasibility_smoke | type: chore | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: late-surfacing unbuildable candidate | desc: compile-probe every candidate module (CGO_ENABLED=0, 4 targets; cgo reference on host) before the corpus; re-scope children 2-3 by note
 - timing: pre-phase | name: scoped_commits_packaging_check | type: chore | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: tooling pickup of the aidocs Go module; shared dirty worktree | desc: confirm release/install/CI/test discovery exclude the research dir; path-scoped commits only; goengines untouched
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-13 10:35)
+- **Requested by user:** seven verified harness defects (all confirmed by
+  reading the code before fixing):
+  1. file-mode fidelity sampled the mode only after the op;
+  2. a behaviour check that could not run (missing tool / launch failure)
+     was scored as "unchanged";
+  3. the TypeScript oracle request omitted the file name, so `.ts` parsed as
+     `.tsx` (a `<number>1` type assertion lost the following comment);
+  4. the native composite silently dropped an unavailable part, while bench
+     labels still named it;
+  5. raw edit ops bypassed the capability check and discarded hook failures
+     (mis-scored as refused:uncertain + corruption);
+  6. full-cover evidence accepted duplicate or overlapping leaves that
+     happened to rebuild the bytes;
+  7. bench `best()` overwrote the accumulated RSS maxima with the fastest
+     sample's.
+- **Changes made:**
+  1. the mode is sampled before the op, with a test seam `afterApply`;
+  2. `execResult.diff` reports not-measured, counted in
+     `Row.BehaviourNotMeasured` and shown in the matrices;
+  3. `oracle.Comments(name, lang, src)` and `Options.Oracle` carry the file
+     name, and `ts_oracle.js --serve` refuses a request without one;
+  4. `NewComposite` returns an error naming the missing part, and bench
+     labels come from the composition actually constructed;
+  5. raw ops `Check(NeedWrite)`, and hook failures go through `failErr`
+     into unsupported or not-measured (`ProviderError`);
+  6. `partitionViolations` requires in-bounds, ordered, contiguous leaves
+     from 0 to `len(src)`;
+  7. `best()` tracks RSS maxima separately.
+
+  Each fix has a regression test (`internal/runner/review_test.go`, 2 new
+  in `caps_test.go`, `provider/composite_test.go`,
+  `internal/oracle/oracle_test.go`, `cmd/t1954/bench_test.go`, and a
+  `type_assertion.ts` TS self-test case). The guard, matrices, oracle check
+  and bench were regenerated. The matrices are numerically unchanged (no
+  behaviour check was actually skipped), the oracle check still has 0
+  disagreements, and the guard still passes.
+- **Files affected:** `internal/runner/{edits.go,range.go,runner.go,caps_test.go,review_test.go}`,
+  `internal/report/report.go`, `internal/oracle/{oracle.go,oracle_test.go}`,
+  `provider/{composite.go,composite_test.go}`, `oracle/ts_oracle.js`,
+  `cmd/t1954/{bench.go,bench_test.go,oraclecheck.go}`, `findings_t1954_1.md`,
+  and `results/{guard,matrix*,oracle_check,bench}.md`.
+
+### Change Request 2 (2026-10-13 11:49)
+- **Requested by user:** two more verified accounting gaps:
+  1. with behaviour checks disabled (`--behaviour=false`), applied edits of
+     `exec:` fixtures recorded neither a check nor a skip;
+  2. the post-op record re-read ignored the subject's failures and compared
+     an empty list, scoring a correct write as corruption.
+- **Changes made:**
+  1. disabled verification is counted in `BehaviourNotMeasured`, with a
+     note, for every applied edit of an `exec:` fixture;
+  2. the re-read goes through `failErr`. A failure there makes the records
+     "not verified" (`Row.RecordsNotVerified`, shown in the edit-ops cell),
+     while the write stays applied and the fidelity and behaviour checks
+     still run.
+
+  Regressions: `TestDisabledBehaviourIsNotMeasured` and
+  `TestProviderFailingAfterApplyLeavesRecordsUnverified` (a provider
+  failing only after `Apply` succeeded, toggled via the `afterApply`
+  seam). The committed matrices and guard are byte-identical after
+  regeneration (behaviour enabled, no re-read failures).
+- **Files affected:** `internal/runner/{edits.go,runner.go,caps_test.go,review_test.go}`,
+  `internal/report/report.go`, `findings_t1954_1.md`.
+
+## Final Implementation Notes
+- **Actual work done:** all of `aidocs/testing_engine/t1954_parser_research/`:
+  - the separate Go module `…/goengines/t1954research`;
+  - the immutable baseline: `baseline/PIN`, `fetch.sh`, `seam.patch` with
+    exactly two nil hooks, and IDENTITY with commit, tree, seam sha and a
+    new **content_sha256** re-checked on every run, plus a build-info check
+    of the replace target; exit 2 on any mismatch;
+  - the experimental interface + `ToContext` with per-operation capability
+    enforcement (amendment A2);
+  - providers `goscanner`, `pytokenize` (long-lived `oracle/py_oracle.py`)
+    and `shfmt` (mvdan library), and a `native` composite for the bench;
+  - the runner: lexical, record, placement, edit (real
+    `ParseFile → PlanCovers → Apply` on scratch copies), range and
+    behaviour levels;
+  - verbs `matrix`, `edit`, `guard` (unpatched vs patched-unhooked via
+    `-tags unpatched -modfile=go.unpatched.mod`), `classes`,
+    `oraclecheck`, `realrepo`, `bench`/`bench-child` (amendment A3),
+    `footprint`, `env`;
+  - a 213-fixture corpus in 8 languages, generated by
+    `corpus/gen/gen_corpus.py`: 114 fixtures imported from the pinned
+    M2.2 fixtures and test tables, plus hand oracles;
+  - the parser-aware TS oracle `oracle/ts_oracle.js` with self-test and
+    negative control (amendment A1);
+  - committed `results/`: feasibility, guard, matrices (baseline +
+    3 providers), oracle check, 6 read-only real-repo reports, bench,
+    footprint, environment; plus `findings_t1954_1.md` and the README.
+- **Deviations from plan:**
+  1. Tooling:
+     - `shfmt` CLI and `/usr/bin/time` are absent, so the mvdan library is
+       used in-process, and RSS is taken in-process (`RUSAGE_SELF`, plus
+       `RUSAGE_CHILDREN` as an upper bound, since fork-shared pages inflate
+       it);
+     - kotlinc 2.4.21 (zip into scratch) and Swift 6.2.4 (docker) WERE
+       obtained, so no `native: none`.
+  2. Additions to the oracle/metric format:
+     - `.expect` key `comments:` (lexical comment lines, metric
+       Missed-comment);
+     - `x-policy` (real comments the M2.2 policy never treats as annotation
+       lines, reported as a policy divergence, not FP-writable);
+     - `x-native-differs` (explained native disagreements);
+     - `NeedRecords` refines `NeedLexical` (Python docstring records need
+       DocLiterals);
+     - the stale op's `mutate=` is modelled in the generator.
+  3. Corrections to M2.2-derived expectations, decided by bash 5.3
+     execution: the `$'E\x4fF'` heredoc delimiter is decoded (line 3 is a
+     real annotation), and `$(( cd a\n) )` is valid. M2.2's refusals are
+     measured as over-refusal.
+  4. The runner counts lexical metrics only when the subject is certain,
+     and record corruption only when the file changed.
+  5. Two review rounds (Post-Review Changes 1–2) hardened the accounting:
+     - the mode is sampled before the op;
+     - behaviour that is not run or disabled counts as not measured;
+     - the TS oracle gets the file name;
+     - the composite refuses a missing part;
+     - raw ops are capability-checked;
+     - full-cover is an exact partition;
+     - bench RSS maxima are kept across samples;
+     - records unverifiable after a write are flagged "not verified".
+- **Issues encountered:**
+  - The generator's first expectations had errors (a prose comment marked as
+    look-alike, `syntax@1` on M2.2 cases that pin no line, stale mutations
+    not modelled). The native cross-check and the baseline run surfaced
+    them; they were fixed in the generator, and a lint now refuses any
+    token-bearing line without a hand marker.
+  - A benchmark run contended with kotlinc/docker and was discarded; the
+    reported bench ran on an idle host.
+  - `go run` masks exit codes (shows 1); exit 2 was verified with built
+    binaries.
+- **Key decisions:**
+  - The baseline is never forced into the provider interface: range checks
+    are "n/a — not exposed".
+  - Research languages reach `annot` only via `LangHook`, by extension.
+  - Proposed placement rules for TS/JS, Java, Rust and Swift are labelled
+    *proposed*, and the landed default is recorded beside them.
+  - Malformed = native tool rejects, or bash's "here-document delimited by
+    end-of-file" warning. Grammar-only errors stay `certain`.
+- **Upstream defects identified:**
+  - `goengines/internal/testmap/annot/lexctx.go:555 — classifyPython does not skip a leading UTF-8 BOM, so a BOM-prefixed module's docstring (and its testmap: records) is not detected (CPython's ast.get_docstring sees it)`
+  - `goengines/internal/testmap/annot/rewrite.go:420-432 — fixedPosition then places a fresh file-level line at 0, above the BOM; Apply writes it and the module stops running (SyntaxError U+FEFF). Reproduced in corpus/python/bom_doc.py; exposure today nil (0 BOM files in 5,723 sources across the six surveyed repos)`
+- **Notes for sibling tasks:**
+  - Add a provider: implement `provider.Provider`, `register` it, and
+    declare `Capabilities` honestly (undeclared anchors are unknown). Then
+    run `matrix` / `realrepo` / `bench` / `footprint`. Cgo providers go
+    behind a build tag.
+  - Add cases in `corpus/gen/hand_<lang>.py`, regenerate, then run
+    `oraclecheck`.
+  - The bench end-to-end subject delegates unsupported languages to the
+    landed lexer via `seam.Landed`. That is safe only because
+    `annot.Source` is sequential.
+  - `annot.Source` fails the whole scan on one refused file, which matters
+    for any fail-closed provider in production.
+  - shfmt/mvdan findings for t1954_3: a heredoc continuation defect
+    (FP-writable), an unterminated heredoc in backticks not flagged, and
+    refusals of `$((` subshells and Latin-1.
+  - gotreesitter is buildable for all 4 targets; the malivvan wrapper is
+    C/C++ only (notes sent).
+  - t1954_4 reruns at the then-current `annot` commit: t1853_3 (M2.3) is
+    editing `annot` right now, which is exactly why the pin is immutable.
