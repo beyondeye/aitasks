@@ -1758,6 +1758,132 @@ fi
 assert_eq "35: the very next call is commit_framework_files" "commit_framework_files" \
     "$(printf '%s\n' "$main_calls" | sed -n "$((repair_at + 1))p")"
 
+# --- Test 36: Step 9 commits only its own changes, and honours the baseline ---
+# Step 9 used to `git add .gitignore` and then commit with NO pathspec, so a
+# file another session had staged rode into the data-branch commit, and a
+# .gitignore that was dirty before setup was committed with the new rules. A
+# pathspec cannot carry the migration's removals (aitasks/ is a symlink by
+# then), so Step 9 commits through a private index (t1963). Each case stages a
+# foreign file; the dirty cases also edit .gitignore before the snapshot.
+echo "--- Test 36: Step 9 is path-scoped and baseline-aware (t1963) ---"
+
+# Fixture shared with Test 37: a repo whose baseline can be armed (tracked
+# VERSION + committed .gitignore) and whose setup_data_branch can run either
+# path: configure (seed files only) or migrate (task data committed on main).
+setup_step9_fixture() {
+    local mode="$1" proj
+    proj="$(setup_local_repo)"
+    mkdir -p "$proj/.aitask-scripts" "$proj/seed"
+    cp "$PROJECT_DIR/seed/aitasks_agent_instructions.seed.md" "$proj/seed/"
+    cp "$PROJECT_DIR/seed/project_config.yaml" "$proj/seed/"
+    cp "$PROJECT_DIR/.aitask-scripts/gates_reference.yaml" "$proj/.aitask-scripts/"
+    echo "0.0.0" > "$proj/.aitask-scripts/VERSION"
+    printf 'node_modules/\n' > "$proj/.gitignore"
+    git -C "$proj" add -- .aitask-scripts/VERSION .gitignore
+    if [[ "$mode" == "migrate" ]]; then
+        mkdir -p "$proj/aitasks/metadata" "$proj/aiplans"
+        printf -- '---\npriority: high\n---\nTest task content\n' > "$proj/aitasks/t1_test.md"
+        printf -- '---\n---\nTest plan\n' > "$proj/aiplans/p1_test.md"
+        echo "label1" > "$proj/aitasks/metadata/labels.txt"
+        git -C "$proj" add -- aitasks aiplans
+    fi
+    git -C "$proj" commit -q -m "legacy install"
+    echo "$proj"
+}
+
+run_step9_case() {
+    local label="$1" mode="$2" dirty="$3" proj head_before head_body
+    proj="$(setup_step9_fixture "$mode")"
+    SCRIPT_DIR="$proj/.aitask-scripts"
+    echo "foreign work" > "$proj/foreign.txt"
+    git -C "$proj" add -- foreign.txt
+    [[ "$dirty" == "dirty" ]] && echo "user-edit-t1963" >> "$proj/.gitignore"
+    head_before="$(git -C "$proj" rev-parse HEAD)"
+
+    snapshot_pre_setup_dirty
+    (cd "$proj" && setup_data_branch </dev/null >/dev/null 2>&1)
+
+    assert_file_exists "36$label: data worktree created" "$proj/.aitask-data/.git"
+    assert_eq_trim "36$label: foreign file not committed" "" \
+        "$(git -C "$proj" ls-tree --name-only HEAD -- foreign.txt)"
+    assert_eq_trim "36$label: foreign file still staged" "A  foreign.txt" \
+        "$(git -C "$proj" status --porcelain -- foreign.txt)"
+
+    head_body="$(git -C "$proj" show HEAD:.gitignore)"
+    if [[ "$dirty" == "dirty" ]]; then
+        assert_not_contains "36$label: user's .gitignore edit not committed" \
+            "user-edit-t1963" "$head_body"
+        assert_not_contains "36$label: data rules not committed over the dirty baseline" \
+            ".aitask-data" "$head_body"
+        assert_gitignore_line "36$label: user's edit kept on disk" "$proj/.gitignore" "user-edit-t1963"
+        assert_gitignore_line "36$label: data rule applied on disk" "$proj/.gitignore" ".aitask-data"
+        assert_eq_trim "36$label: .gitignore left modified, unstaged" "M .gitignore" \
+            "$(git -C "$proj" status --porcelain -- .gitignore)"
+    else
+        assert_contains "36$label: data rules committed" ".aitask-data" "$head_body"
+        assert_eq_trim "36$label: .gitignore clean (shared index resynced)" "" \
+            "$(git -C "$proj" status --porcelain -- .gitignore)"
+    fi
+
+    if [[ "$mode" == "migrate" ]]; then
+        assert_eq_trim "36$label: commit subject" "ait: Migrate task data to aitask-data branch" \
+            "$(git -C "$proj" log -1 --format=%s)"
+        assert_eq_trim "36$label: task data removed from HEAD" "" \
+            "$(git -C "$proj" ls-tree -r --name-only HEAD -- aitasks aiplans)"
+        assert_eq_trim "36$label: no leftover aitasks/aiplans index entries" "" \
+            "$(git -C "$proj" status --porcelain -- aitasks aiplans)"
+        assert_symlink "36$label: aitasks is the data symlink" "$proj/aitasks"
+    elif [[ "$dirty" == "dirty" ]]; then
+        assert_eq_trim "36$label: nothing to commit, HEAD unchanged" "$head_before" \
+            "$(git -C "$proj" rev-parse HEAD)"
+    else
+        assert_eq_trim "36$label: commit subject" \
+            "ait: Configure task data branch with worktree and symlinks" \
+            "$(git -C "$proj" log -1 --format=%s)"
+    fi
+    rm -rf "$proj"
+}
+run_step9_case "a" configure clean
+run_step9_case "b" configure dirty
+run_step9_case "c" migrate clean
+run_step9_case "d" migrate dirty
+
+# --- Test 37: the commit lands, then the shared-index resync fails ---
+# The private-index commit locks only its own index file and the ref, never the
+# shared index, so a held .git/index.lock lets it land and then stops the
+# `git reset` that re-syncs .gitignore. That is not "not committed" -- saying
+# so would invite a duplicate commit -- so Step 9 must report the landed
+# commit and the command that reconciles the index.
+echo "--- Test 37: committed but index resync failed is reported as such (t1963) ---"
+proj_37="$(setup_step9_fixture configure)"
+SCRIPT_DIR="$proj_37/.aitask-scripts"
+snapshot_pre_setup_dirty
+: > "$proj_37/.git/index.lock"
+out_37="$(cd "$proj_37" && setup_data_branch </dev/null 2>&1)" || true
+assert_eq_trim "37: commit landed" "ait: Configure task data branch with worktree and symlinks" \
+    "$(git -C "$proj_37" log -1 --format=%s)"
+assert_contains "37: committed rules in HEAD" ".aitask-data" "$(git -C "$proj_37" show HEAD:.gitignore)"
+assert_contains "37: reports the commit as landed" "Committed 'ait: Configure task data branch" "$out_37"
+assert_contains "37: names the staged-revert symptom" "staged revert" "$out_37"
+assert_contains "37: gives the reconcile command" "git reset -q -- .gitignore" "$out_37"
+assert_not_contains "37: not reported as an uncommitted switch" "Could not commit" "$out_37"
+# The advice must actually reconcile: before it, .gitignore reads as staged.
+rm -f "$proj_37/.git/index.lock"
+assert_eq_trim "37: .gitignore reads as a staged change before reconciling" ".gitignore" \
+    "$(git -C "$proj_37" diff --cached --name-only -- .gitignore)"
+(cd "$proj_37" && git reset -q -- .gitignore)
+assert_eq_trim "37: the printed command reconciles the index" "" \
+    "$(git -C "$proj_37" status --porcelain -- .gitignore)"
+rm -rf "$proj_37"
+
+# Disarm the baseline for any later test.
+# shellcheck disable=SC2034
+{
+    AIT_SETUP_BASELINE_ARMED=0
+    AIT_SETUP_DIRTY_BASELINE=""
+    AIT_SETUP_DATA_DIRTY_BASELINE=""
+}
+
 # --- Summary ---
 echo ""
 echo "==============================="

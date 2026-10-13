@@ -1511,6 +1511,54 @@ abort_data_branch_setup() {
     fi
 }
 
+# --- Commit setup_data_branch's own changes on the current branch (t1963) ---
+# Commits exactly what Step 9 owns -- .gitignore (when <with_gitignore> is
+# true) and the aitasks/ + aiplans/ removals Step 5 staged (when
+# <with_removals> is true) -- and nothing else that happens to be staged in
+# this shared checkout.
+#
+# A pathspec commit cannot do it: `git commit -- aitasks/...` has --only
+# semantics and reads the worktree, where aitasks/ is by now the symlink into
+# the data worktree, so the removals would not land. Instead a private index
+# is seeded from HEAD, given just these entries, and committed; the shared
+# index keeps any foreign staged work, still staged. Setup is assumed to be the
+# only committer while it runs, so there is no concurrent-commit coordination.
+#
+# Returns 0 committed (or nothing to commit), 1 nothing was committed, 2 the
+# commit LANDED but re-syncing the shared index's .gitignore entry failed.
+_ait_commit_data_branch_switch() {
+    local project_dir="$1" msg="$2" with_gitignore="$3" with_removals="$4"
+    local tmp_dir rc=0
+    tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/ait_setup_index.XXXXXX")" || return 1
+    (
+        cd "$project_dir" || exit 1
+        # Inside a fresh directory: git rejects an existing zero-byte index file.
+        local idx="$tmp_dir/index"
+        if git rev-parse --verify -q HEAD >/dev/null; then
+            GIT_INDEX_FILE="$idx" git read-tree HEAD || exit 1
+        else
+            GIT_INDEX_FILE="$idx" git read-tree --empty || exit 1
+        fi
+        if [[ "$with_removals" == true ]]; then
+            git diff --cached --name-only -z --diff-filter=D -- aitasks aiplans \
+                | GIT_INDEX_FILE="$idx" git update-index -z --force-remove --stdin || exit 1
+        fi
+        if [[ "$with_gitignore" == true ]]; then
+            GIT_INDEX_FILE="$idx" git add -- .gitignore || exit 1
+        fi
+        GIT_INDEX_FILE="$idx" git diff --cached --quiet && exit 0
+        GIT_INDEX_FILE="$idx" git commit -m "$msg" || exit 1
+        # Committed. The shared index's removals already match the new HEAD;
+        # its .gitignore entry still holds the old blob and would read as a
+        # staged revert until re-synced.
+        if [[ "$with_gitignore" == true ]]; then
+            git reset -q -- .gitignore || exit 2
+        fi
+    ) || rc=$?
+    rm -rf "$tmp_dir"
+    return "$rc"
+}
+
 # --- Task data branch setup (aitask-data orphan branch + worktree + symlinks) ---
 setup_data_branch() {
     local project_dir="$SCRIPT_DIR/.."
@@ -1961,29 +2009,44 @@ setup_data_branch() {
     # could never refresh the file. Do not re-add one.
 
     # --- Step 9: Commit on main ---
-    # CLAUDE.md is deliberately absent from files_to_add: nothing above writes it
-    # any more, and this commit is NOT path-scoped, so staging it here could only
-    # sweep a user's unrelated edits into the data-branch commit -- bypassing the
-    # snapshot_pre_setup_dirty baseline. commit_framework_files owns CLAUDE.md
-    # (it is in _ait_framework_paths), commits it path-scoped, and honours that
-    # baseline (t1612).
-    (
-        cd "$project_dir" || exit 1
-        local files_to_add=()
-        if [[ "$gitignore_changed" == true ]]; then
-            files_to_add+=(".gitignore")
+    # Path-scoped through a private index (_ait_commit_data_branch_switch,
+    # t1963): only .gitignore and, on migration, the removals Step 5 staged --
+    # never whatever else is staged in this shared checkout. A .gitignore that
+    # was dirty before setup is left on disk, uncommitted, as every other
+    # .gitignore helper does (t1959). CLAUDE.md is not this step's to commit:
+    # commit_framework_files owns it and honours the same baseline (t1612).
+    local commit_gitignore=false commit_rc=0 commit_msg
+    if [[ "$gitignore_changed" == true ]]; then
+        if _ait_gitignore_predates_setup; then
+            info "  .gitignore had uncommitted changes before setup — data-branch rules added but not committed."
+        else
+            commit_gitignore=true
         fi
-        if [[ ${#files_to_add[@]} -gt 0 ]]; then
-            git add "${files_to_add[@]}" 2>/dev/null || true
-        fi
-        if ! git diff --cached --quiet 2>/dev/null; then
+    fi
+    if [[ "$needs_migration" == true ]]; then
+        commit_msg="ait: Migrate task data to aitask-data branch"
+    else
+        commit_msg="ait: Configure task data branch with worktree and symlinks"
+    fi
+    _ait_commit_data_branch_switch "$project_dir" "$commit_msg" \
+        "$commit_gitignore" "$needs_migration" || commit_rc=$?
+    case "$commit_rc" in
+        0) ;;
+        2)
+            warn "Committed '$commit_msg', but the git index could not be updated afterwards — .gitignore may show as a staged revert."
+            info "  Once the index lock clears, reconcile it with: git reset -q -- .gitignore"
+            ;;
+        *)
+            # The task data is already committed on the data branch, so this
+            # is not worth aborting the rest of setup over.
+            warn "Could not commit the task data branch switch on the current branch (exit $commit_rc)."
             if [[ "$needs_migration" == true ]]; then
-                git commit -m "ait: Migrate task data to aitask-data branch"
+                info "  The aitasks/ and aiplans/ removals are left staged; the .gitignore rules are on disk. Commit them by hand."
             else
-                git commit -m "ait: Configure task data branch with worktree and symlinks"
+                info "  The .gitignore rules are on disk, uncommitted. Commit them by hand."
             fi
-        fi
-    )
+            ;;
+    esac
 
     success "Task data branch configured successfully"
     info "  Worktree: .aitask-data/"
@@ -2279,6 +2342,13 @@ ensure_agent_config_seeds() {
     return 0
 }
 
+# True when .gitignore was already dirty (edited, or deleted — staged or not)
+# at snapshot_pre_setup_dirty, so no setup commit may carry it (t1959). Shared
+# by _ait_commit_gitignore_rule and setup_data_branch's Step 9 (t1963).
+_ait_gitignore_predates_setup() {
+    [[ -n "$(printf '%s\n' .gitignore | _ait_intersect "$AIT_SETUP_DIRTY_BASELINE")" ]]
+}
+
 # --- Commit a rule a .gitignore helper just appended (t1959) ---
 # Every .gitignore helper below commits through here. Path-scoped: a bare
 # `git commit` would carry whatever another session staged in this shared
@@ -2291,7 +2361,7 @@ ensure_agent_config_seeds() {
 _ait_commit_gitignore_rule() {
     local project_dir="$1" msg="$2"
     git -C "$project_dir" rev-parse --is-inside-work-tree &>/dev/null || return 0
-    if [[ -n "$(printf '%s\n' .gitignore | _ait_intersect "$AIT_SETUP_DIRTY_BASELINE")" ]]; then
+    if _ait_gitignore_predates_setup; then
         info "  .gitignore had uncommitted changes before setup — rule added but not committed."
         return 0
     fi
