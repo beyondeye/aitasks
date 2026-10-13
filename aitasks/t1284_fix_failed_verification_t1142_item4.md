@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: medium
 depends: [t1076_3]
 issue_type: bug
@@ -143,3 +145,5 @@ seam in t1283 and use this task for the mount-liveness check.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-10-13T20:42:27Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-10-13T21:32:31Z status=pass attempt=1 type=human
