@@ -62,5 +62,5 @@ the receiver and name have been read. Add fixtures for `val … by lazy`,
 `var … by mutableStateOf(…)` and an extension property `val Foo.bar by …`. Bump the cache
 `schemaVersion`.
 
-This can be fixed together with the constructor-parameter task, which touches the same
+This can be fixed together with t1976 (constructor parameters), which touches the same
 declaration walk.
