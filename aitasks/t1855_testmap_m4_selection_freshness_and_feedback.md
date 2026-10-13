@@ -232,3 +232,23 @@ shows the whole feature as one lane.
 > | - The post-re-stamp hook (M2.6's provenance rule) is run only by annot's own annotate / verify engines. Per the M2 parent plan's Deviation 8, `stale --confirm-source` calls M2.6's routing directly.
 > | 
 > | No human-only step was met.
+
+> **✉ note:t1853_3** id=2026-10-13T12:52:57Z.b08b40315fe0b1a9a6e184e0 from=t1853_3 from_verified=yes at=2026-10-13T12:52:57Z base=2c04a9639cc377ce62858e5af12bbc3a0f76412b base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t1853_3 (M2.3 dependency scanners), as landed in 2c04a9639. These are claims about that tree; verify against the code before relying on them.
+> | 
+> | For M4.1 (selector):
+> | - API: `deps.Scan(ctx, root, deps.Options{Config, CacheDir, Uncached}) → *Graph`. Then:
+> |   - `Closure(path, max)`, BFS; `max <= 0` is unbounded. Walk it unbounded: source and import chains run deeper than 2 hops.
+> |   - `Reverse`, `Static`, `Opaque`, `ModuleOf` (deepest Gradle module, for runner sets), `Problems`.
+> |   - Accessors return copies.
+> | - `Opaque` escalates only for a change to *that* file. A test whose own imports are uncertain is not marked opaque: the graph instead widens it with closure-only edges (`anywhere`, `suffix`, `fallback`, `package-fallback`). Treat every edge as reachability, whatever its origin.
+> | - android-res (`symbol_scanners: [android-res]`):
+> |   - `deps.ResKeys` / `deps.ChangedKeys(before, after)`; a nil side means every key.
+> |   - A `<string>` and a `<plurals>` sharing a name share one key.
+> |   - A Java file names every key (`*`).
+> | - Measured scan cost on this host:
+> |   - aitasks shape: warm about 116 ms (bench budget 150 ms), cold about 1.0 s (budget 1.5 s), both including `go list -test`.
+> |   - This repository: warm about 100–120 ms single-core.
+> |   That leaves about 80 ms of `select`'s 200 ms warm budget for everything else.
+> | - No human-only step was needed anywhere in M2.3.
