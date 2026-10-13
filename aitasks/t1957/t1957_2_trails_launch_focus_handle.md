@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1957
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-12 21:31
-updated_at: 2026-10-13 11:22
+updated_at: 2026-10-13 11:48
 ---
 
 ## Context
@@ -104,3 +105,8 @@ reader (a read followed by an unset would erase a request written in between).
   `bash tests/test_no_raw_tmux.sh`.
 - Manual (manual-verification sibling): two `ait trails` windows in one session
   plus a cross-session request → only the chosen one switches trail.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-13T08:48:02Z status=pass attempt=1 type=human
