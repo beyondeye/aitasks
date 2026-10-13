@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: [t1076_3]
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [verification, bug]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1065
 followup_kind: verification_failure
 created_at: 2026-07-28 11:25
-updated_at: 2026-08-13 23:06
+updated_at: 2026-10-13 22:26
 boardidx: 57344
 ---
 
