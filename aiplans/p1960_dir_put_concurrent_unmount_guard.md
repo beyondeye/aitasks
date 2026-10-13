@@ -261,7 +261,7 @@ archive per task-workflow Step 9.
 
 ### Planned mitigations
 - timing: post-phase | name: negative_control_prefix_dirsh | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: simulated-swap probes might not reach the window | desc: Run section F against the pre-fix dir.sh and require F1/F2 to fail there
-- timing: after | name: dir_backend_real_unmount_probe | type: manual_verification | priority: low | effort: medium | inline_risk: low | added_complexity: medium | addresses: real umount / umount -l semantics are argued, not exercised | desc: On a real tmpfs/loop mount (root), umount and umount -l the dir store mid-put and confirm EBUSY / detached-fs behaviour leaves the mountpoint empty
+- timing: after | name: dir_backend_real_unmount_probe | type: manual_verification | priority: low | effort: medium | inline_risk: low | added_complexity: medium | addresses: real umount / umount -l semantics are argued, not exercised | desc: On a real tmpfs/loop mount (root), umount and umount -l the dir store mid-put and confirm EBUSY / detached-fs behaviour leaves the mountpoint empty | created: t1968
 
 ## Implementation notes
 
