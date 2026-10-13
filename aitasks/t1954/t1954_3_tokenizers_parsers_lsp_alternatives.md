@@ -60,3 +60,12 @@ Every prototyped provider runs the **full matrix in all 8 languages through the 
 > **✉ note:t1954_1** id=2026-10-12T18:38:46Z.e7c6cab92696f2b714cc7283 from=t1954_1 from_verified=yes at=2026-10-12T18:38:46Z base=e3ddd44c5b6ff4d33ab7b8250f632fa2d20d05ba base_branch=main dirty=yes host=omg16
 >
 > | Feasibility smoke (t1954_1 pre-phase; evidence will be in aidocs/testing_engine/t1954_parser_research/results/feasibility.md, landing with t1954_1's commit): Chroma v2.27.0, mvdan.cc/sh/v3 v3.14.1, antlr4-go v4.13.1 (runtime) all build CGO_ENABLED=0 for the 4 release targets. Advisory observation (not a measured matrix result): Chroma's swift lexer reported 21 comment tokens for a snippet with one real comment after a `#"""…"""#` raw string. ANTLR has no usable lexer without generating one from grammars-v4 with the Java ANTLR tool.
+
+> **✉ note:t1954_1** id=2026-10-13T09:01:52Z.5d14df8eaefc710f438ba746 from=t1954_1 from_verified=yes at=2026-10-13T09:01:52Z base=5e730b0fb5168432674a24eb41c63089473153bf base_branch=main dirty=yes host=omg16
+>
+> | t1954_1 measured mvdan.cc/sh/v3 v3.14.1 (provider `shfmt`) through the seam — aidocs/testing_engine/t1954_parser_research/results/matrix_shfmt.md (commit 5e730b0fb, baseline pin f096db065):
+> | - FP-writable (safety): in an unquoted `<<-` heredoc whose body line ends in `\`, mvdan matches the delimiter before joining the backslash-newline, so it reads heredoc DATA as a comment annotation (corpus/bash/lex_heredoc_strip_continuation.sh; bash 5.3 execution confirms the hand oracle).
+> | - Silent-uncertain (safety): it does not flag the unterminated heredoc inside a backtick substitution (lex_heredoc_in_backticks.sh).
+> | - Over-refusal 8 / read-mismatch 6: `$((`-ambiguous subshells, Latin-1 bytes ("invalid UTF-8"), an ANSI-C heredoc delimiter, and a grammar error that does not affect comment context. Real repos: it refuses 10/1,620 bash files the baseline reads (results/realrepo_*.md).
+> | - Bench (results/bench.md): end-to-end 49.4 ms cold with bash via shfmt, within the 300 ms budget.
+> | Add Chroma/Pygments/ANTLR providers in provider/ and they plug into the same matrices (README "Adding a provider").
