@@ -3,12 +3,13 @@ priority: high
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [testing, testmap, go_engine]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1852
 created_at: 2026-10-13 17:39
-updated_at: 2026-10-13 17:39
+updated_at: 2026-10-13 18:44
 ---
 
 ## Origin
