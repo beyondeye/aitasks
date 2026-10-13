@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1711
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-13 08:32
-updated_at: 2026-10-13 08:48
+updated_at: 2026-10-13 11:46
 ---
 
 ## Origin
@@ -35,3 +36,8 @@ install.sh already sources `aitask_setup.sh --source-only`, so the repair could 
 1. Snapshot the dirty framework-path set (untracked + modified + staged, absent paths included) **before** extraction, then in `commit_installed_files` commit only (changed − baseline), path-scoped, and report the rest, mirroring `commit_framework_files`.
 2. Then call `setup_data_gitignore_symlink_safe` after extraction and before `commit_installed_files`. Its `.gitignore` rewrite lands in the upgrade commit only when `.gitignore` was clean before the upgrade.
 3. Tests: dirty `.gitignore` plus legacy line → repair on disk and not committed; clean → committed; foreign staged file never swept.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-13T08:46:44Z status=pass attempt=1 type=human
