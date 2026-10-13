@@ -305,8 +305,8 @@ Each line carries the module that owns it (see *Module Map*).
                 internal/annot        [M2.2, M7.4]  grammar v3 + line-targeted rewriter; adopt, --agent-verdicts and --author are callers
                 internal/deps         [M2.3]        scanners; invocation / import / package facts, anchor lines and declared symbols
                 internal/axes         [M2.4]        axes.yaml, facet join, axes --list|--check|--explain
-                internal/runner       [M3.1, M3.2]  contract + builtins + subsumed_by: · fallback_command: · the `full` suite wrapper · bash-file list --invocations
-                internal/sched        [M3.3]        resources, waves, batching, admission deferral
+                internal/runner       [M3.1, M3.2]  contract + builtins + subsumed_by: · fallback_command: · the `full` suite wrapper · the canonical grouping function · run seam + post-run hook
+                internal/sched        [M3.3]        resources, waves (ordering over M3.1's invocations), admission deferral
                 internal/cost         [M3.4]        ledger + costs --gate-timeout; run_id prefixes test- / gate- / full- / review-; costs/policy.yaml
                 internal/selectr      [M4.1, M4.5]  graded walk + seeded edges at d1 · explain --sources · the `test` composite
                 internal/stale        [M4.2, M4.3]  stale line classes, --confirm*, the evidence join
@@ -358,7 +358,7 @@ aitestmap/
     adopted.yaml         provenance of class-, verdict- and author-adopted edges; a row leaves when a human re-stamps the edge
   costs/
     <hostclass>.yaml · predictions.yaml
-    policy.yaml          {last_full_run: {run_id, at, task, sha}, selected_since_full: n, approved_by: {who, at, mode, statement}} — the engine's, under auto
+    policy.yaml          {contract, last_full_run: {run_id, at, task, sha}, selected_since_full: n, approved_by: {who, at, mode, statement}} — the engine's, under auto
   runners/ · scanners/                           runners/<name>.sh may come from onboard scaffold --runner
 ```
 
@@ -424,7 +424,7 @@ name these rows; they do not restate them.
 | gate declarations | profiles' `default_gates` (`tests_pass`, `testmap_check`, `testmap_fresh`; `rendered_gates` where present); `gates.yaml` `tests_pass.timeout_seconds` | the skill's `enable` phase; the timeout from `costs --gate-timeout` after the first full run |
 | agent instructions | `CLAUDE.md` `>>>aitasks` block, `AGENTS.md`, `.codex/instructions.md`, the OpenCode mirror | `ait setup` from the seed; a hand-maintained `CLAUDE.md` by the level-0 task |
 | model score table | `aitasks/metadata/models_<agent>.json` `verified.testmap-review` per model | the seeds; `aitask-add-model` |
-| runs, ledger, predictions | `.aitask-testmap/runs/<run-id>/`, `.aitask-testmap/ledger.jsonl` (gitignored); `aitestmap/costs/<hostclass>.yaml`, `aitestmap/costs/predictions.yaml` (committed) | every run; `costs --update`; `score` |
+| runs, ledger, predictions | `.aitask-testmap/runs/<run-id>/` (the runner's `results.jsonl` / `runner.json` and the engine's own per-invocation record `{group, cause, head_start, head_end, modified[]}`), `.aitask-testmap/ledger.jsonl` (gitignored) rows `{run_id, id, parent?, status, duration_ms, head_sha, anchor, anchor_reason?}` per result and `{run_id, group, overhead_ms, units_reported, cause}` per invocation; `aitestmap/costs/<hostclass>.yaml` (per id: Welford / P² p95 / last, `last_pass {sha, at, run_id}` from anchor-eligible passes only, flake rate; per group: overhead — never a path list), `aitestmap/costs/predictions.yaml` (committed) | every run, through `run`'s post-run hook (M3.4's subscriber); `costs --update`; `score` |
 | dependency cache | `${XDG_CACHE_HOME:-~/.cache}/aitasks/testmap/deps/<blob-sha1>.json`; the co-change matrix keyed by HEAD sha | the scanners; the seeder |
 
 Every registry file that this feature adds (`seeded.yaml`, `adopted.yaml`,
@@ -446,7 +446,8 @@ Every line class is defined once. This table says where.
 | `ADOPT_REFUSED:` `ADOPT_SKIP:` `ADOPT_SUMMARY:` `WROTE:` `REJECT_REFUSED:` `ADOPTED_ORPHAN` | *The Adoption Model* → Placement |
 | `REVIEW_PAIR:` `REVIEW_ANCHOR:` `REVIEW_TEST:` `REVIEW_SOURCE:` `REVIEW_PROSE:` `REVIEW_MEMBER:` `REVIEW_END:` `REVIEW_BATCH:` `REVIEW_MEMO:` `VERDICT:<id>\|…` `VERDICT_INVALID:` `VERDICT_STALE:` `REVIEW_APPLIED:` `REVIEW_PARKED:` `REVIEW_HUMAN:` `UNSURE:` `REVIEW_AGREEMENT:` `REVIEW_ORIGIN_DEMOTED` `CALIBRATION:` | *The Agent Review Pass* |
 | `AUTHOR_STAMPED:` `AUTHOR_REFUSED:` `AUTHOR_UNCORROBORATED:` | *The Agent Review Pass* → The authoring site; component *Author annotation* |
-| `FRAMEWORK:` `UNIVERSE:` `UNLISTED:` `AGGREGATE_RUNNER:` `SERIAL_LIST:` `RESOURCE_HINT:` `SUITE_CANDIDATE:` `RUNNER_SCRIPT_NEEDED:` `DETECT_DIFF:` `DETECT_UNKNOWN` `UNREGISTERED:` `CLASSIFY:` `KIND_PROPOSALS:` `FINISH:` `SCAFFOLD_TODO` `GATE_TIMEOUT_SUGGESTED:` | component *Onboarding verbs*; *Onboarding* |
+| `FRAMEWORK:` `UNIVERSE:` `UNLISTED:` `AGGREGATE_RUNNER:` `SERIAL_LIST:` `RESOURCE_HINT:` `SUITE_CANDIDATE:` `RUNNER_SCRIPT_NEEDED:` `DETECT_DIFF:` `DETECT_UNKNOWN` `UNREGISTERED:` `CLASSIFY:` `KIND_PROPOSALS:` `FINISH:` `SCAFFOLD_TODO` | component *Onboarding verbs*; *Onboarding* |
+| `run`'s wave lines, per-id result lines and mechanism-failure lines; the `schedule` report and `schedule --check` lines; `costs` lines and `GATE_TIMEOUT_SUGGESTED:` | components *Runner contract*, *Scheduler and resources* (M3.1, M3.3); *Cost ledger* (M3.4) — line names fixed by those submodules |
 | `SURFACE` `EDGES` `STALE_PATH` `STALE` `EVIDENCED` `UNSTAMPED` `STALE_AREA` `REVIEW_DUE` `UNKNOWN` `DISPLAY` `DECISION` `CHECK_STRUCTURAL:` `SEEDED:` `ADOPTED:` | component *Staleness tool* |
 | `PREDICTION_SCORED:` `PREDICTION_FALSE_NEGATIVES:` `PREDICTION_MISSED:` `REJECTION_CONTRADICTED:` `LEVEL:` `NEXT:` `ADOPTED_UNREVIEWED:` `AGENT_ADOPTED:` | component *Feedback tools* |
 | `UNMAPPED_SOURCE:` `ESCALATE:` `DEFERRED:` `edge(…)` `adopted(…)` `axis(…)` `test-dep` `reads(…)` | component *Selector* |
@@ -694,7 +695,7 @@ Everything that reads and writes `aitestmap/` without running a test.
 | **M2.1** Registry core | the directory layout, the id grammar `<path>[#<member>][@<variant>]`, the loader and its one merge rule with the edges / rules / waivers tables (the scopes and areas tables land from M2.5, the axes table from M2.4, the seeds and adopted tables from M2.6), `config.yaml` schema with every key and default, `check` with its rule framework and the rules `STALE_PATH` / `UNSTAMPED` / `UNANNOTATED_MEMBER` / `DEAD_MEMBER` / `UNREGISTERED` / `UNMAPPED_ARTIFACT`, `scan --apply` persisting `variants:` over two injected inputs — the annotation source (M2.2 plugs its scanner in) and the unit lister (M3.1 plugs the runner repository in), deterministic sorted writes, `CONTRACT_MISMATCH`, `exclude:` globs | `component_registry_loader` (core half), `component_cell_enumeration` | `internal/registry`; verbs `scan`, `check`; golden tests for the merges and the id grammar | the loaded registry every other engine package reads; `check` | M1.2 |
 | **M2.2** Annotation grammar and rewriter | grammar v3 (`testmap:unit` blocks and every key), per-language comment leaders incl. Python docstrings read-only, unknown-key refusal, the line-targeted rewriter with `REWRITE_CONFLICT`, fixed per-language insertion positions, `annotate` (`--suggest` / `--from-body` land from M2.3, `--author` from M7.4), `verify`, a post-re-stamp hook in `annotate` and `verify` that M2.6 fills, the annotation source `scan` reads, `# Covers:` prose never matched | `component_annotation_scanner` | `internal/annot` (all but `--suggest`, `--from-body` and `--author`); verbs `annotate`, `verify`; golden files for placement per language | the only writer of `testmap:` lines; the stamp format | M2.1 |
 | **M2.3** Dependency scanners | bash, python, go (the `go list` result cached under a key that changes with any Go source's import set, not `go.sum` alone), kotlin (opaque contract), Gradle module graph, plugin protocol under `aitestmap/scanners/`, the opt-in `android-res` symbol scanner, the XDG blob cache, the exported facts (`static:invocation` / `static:import` / `static:package`, anchor lines, declared symbols); `annotate --suggest` (from the closure) and `annotate --from-body` (from the Kotlin symbol resolution) as named extensions of M2.2's `internal/annot` | `component_dependency_scanners` | `internal/deps`; the `--suggest` / `--from-body` arms in `internal/annot`; one fixture per opaque branch (red-proved); a red-proved fixture for a changed local Go import under an unchanged `go.sum` | the closure for the selector; the facts for the seeder and the packet writer; `annotate --suggest` / `--from-body` | M1.2, M2.2 |
-| **M2.4** Axes and variants | `axes.yaml` and the axes table in the loader, the runner-side `axis:` / `token_format:` (a named extension of M3.1's `describe` parse), `<unit>@<value>` ids, the facet join and forced-facet resolution (the `--axis` flag is parsed by M4.1's `select`), `axes --list\|--check\|--explain`, the three axis check rules `DEAD_AXIS_SOURCE` / `UNKNOWN_VARIANT` / `UNCOVERED_VALUE` | `component_variant_axes`, `component_axes` | `internal/axes`; verb `axes` | variant expansion for the selector, cost and evidence | M2.1, M3.1 |
+| **M2.4** Axes and variants | `axes.yaml` and the axes table in the loader, the runner-side `axis:` / `token_format:` (a named extension of M3.1's `describe` parse), `<unit>@<value>` ids, the facet join and forced-facet resolution (the `--axis` flag is parsed by M4.1's `select`), `axes --list\|--check\|--explain`, the three axis check rules `DEAD_AXIS_SOURCE` / `UNKNOWN_VARIANT` / `UNCOVERED_VALUE` | `component_variant_axes`, `component_axes` | `internal/axes`; verb `axes` | variant expansion for the selector and evidence | M2.1, M3.1 |
 | **M2.5** Scoped rows and areas | `_scoped.yaml`, `registry/areas.yaml` and `areas:` blocks, `areas --import-codemap`, `owns:` by area name, kind ranking data, triggers, `reads`, `DEAD_SCOPE` / `KIND_MISMATCH\|CONVERT_TO_SUITE`, `classify --suggest` with the source-set / directory-convention and resource signals and `fanout:<n>` (the recorded-p95 signal lands from M6.4), the digest-exemption of scoped rows | `component_suite_registry`, `component_broad_test_scopes` (registry half) | the scoped tables in `internal/registry`; verbs `areas`, `classify --suggest` | the scoped join and the kind vocabulary | M2.1 |
 | **M2.6** Adoption tables | the `seeds` and `adopted` tables in the loader, `onboard.yaml`'s `rejections[]` / `reviews[]` / `kind_proposals[]` / `calibration[]` as read tables, the load rules `SEED_SHADOWED` / `ADOPTED_ORPHAN` / absent-`by:`-is-human, the write routing for every verb that touches the three files, `SEEDED:` / `ADOPTED:` counts on `check`, the fill of M2.2's post-re-stamp hook (an automated re-stamp refreshes the matching `adopted.yaml` row and keeps its `by:`; only an explicit human actor deletes it) | `component_registry_loader` (adoption half), `component_adoption_ledger` (data-model half) | the two tables in `internal/registry`; the `onboard.yaml` reader; golden tests for the `by:` merge and the shadow rule | the seeded-edge and adopted-edge rows the selector, `stale`, `readiness` and the `onboard` verbs read and write | M2.1, M2.2 |
 
@@ -704,10 +705,10 @@ Everything that executes a test and records what it cost.
 
 | submodule | scope | components | owns | provides | depends on |
 |---|---|---|---|---|---|
-| **M3.1** Runner contract and repository | `describe` / `list` / `run --manifest`, `runners.yaml` bindings, `builtin:` scheme, `command:` / `cwd:` overrides, shadow-by-name, batching keys, per-unit timeouts, `results.jsonl` / `runner.json`, reconciliation as mechanism failures, exit contract `0/1/2/75/64`, `subsumed_by:`, `fallback_command:`, `full: true` + `children:`, the runner-backed unit lister `scan` and `check` call (a named extension of M2.1) | `component_runner_contract` | `internal/runner` (contract, repository, `run` verb) | the runner interface every builtin and project script implements | M1.2, M2.1 |
-| **M3.2** Reference runners | `bash-file` (+ `list --invocations`), `pytest` (junitxml, `testmap:batch no`), `go-test`, `gradle-class`, `suite`, `device`, `engine-test`; the `full` suite wrapper's `children:` post-processors (pytest junitxml, bash-file per-file exit, `go test -json`) | `component_reference_runners` | `internal/runner/builtin/*`; `ait-testmap runner <name>`; the serial carve-out pin in `tests/test_serial_carveout_doc_drift.sh` | runners for every target repository without a project script | M3.1 |
-| **M3.3** Scheduler and resources | resource kinds and scopes, `resources.yaml`, `flock(2)` slot files, admission with 75 deferral and backoff, allocator with signal-safe release, `errgroup` execution, batching per `group_by`, `broad_after_unit` waves, admission-holding invocations last, `concurrency: serial\|parallel`, the schedule report and its check half | `component_scheduler_resources`, `component_broad_test_scopes` (scheduling half) | `internal/sched`; verb `schedule` | the wave plan `run` executes; exit 75 semantics | M3.1 |
-| **M3.4** Cost ledger | Welford / P² per `(id, host class)`, `.aitask-testmap/ledger.jsonl`, `costs --update`, `last_pass`, flake rate, the per-group estimate, `costs/predictions.yaml` (store only; `score` writes it in M4.4), `costs --gate-timeout`, the run-id prefixes, the `costs/policy.yaml` file format (read/write helpers; the writer logic is M8.5) | `component_cost_ledger` | `internal/cost`; verb `costs` | costs and anchors for the selector, the evidence join, readiness and the cadence | M3.1 |
+| **M3.1** Runner contract and repository | `describe` / `list` / `run --manifest` (with the allocator-handle field, empty until M3.3 fills it), `runners.yaml` bindings, `builtin:` scheme, `command:` / `cwd:` overrides, shadow-by-name, the canonical grouping function (`batch: no` units are singletons; the wave class is the caller's input), per-unit timeouts, `results.jsonl` (top-level and child rows) / `runner.json`, reconciliation as mechanism failures, the engine's per-invocation record (`cause`, HEAD at start and end, the modified-path set), exit contract `0/1/2/75/64`, `subsumed_by:`, `fallback_command:`, `full: true` + `children:`, the runner-backed unit lister `scan` and `check` call (a named extension of M2.1), the `batch` / `needs` annotation fields into the registry (a named extension of M2.2's source), the `run` verb over a plan-executor seam whose built-in serial plan refuses a non-empty resource set until M3.3 plugs in, and an ordered multi-subscriber post-run hook (M3.4 subscribes; M4.4 may) — `axis:` / `token_format:` are M2.4's extension of the `describe` parse | `component_runner_contract` | `internal/runner` (contract, repository, `run` verb) | the runner interface every builtin and project script implements; the grouping function the scheduler, selector and estimate share | M1.2, M2.1, M2.2 |
+| **M3.2** Reference runners | `bash-file`, `pytest` (junitxml, `testmap:batch no`), `go-test`, `gradle-class`, `suite`, `device` (reads the allocator handle from the manifest), `engine-test`; the `full` suite wrapper's `children:` post-processors (pytest junitxml, bash-file per-file exit, `go test -json`) | `component_reference_runners` | `internal/runner/builtin/*`; `ait-testmap runner <name>` | runners for every target repository without a project script | M3.1 |
+| **M3.3** Scheduler and resources | resource kinds and scopes, `resources.yaml`, `flock(2)` slot files, admission with 75 deferral and backoff, allocator with signal-safe release (filling the manifest's handle field), `errgroup` execution of the invocations M3.1's grouping function forms (never re-formed), the kind → wave class mapping from M2.5's kind data, `broad_after_unit` waves as an ordering over wave-homogeneous invocations, admission-holding invocations last, `concurrency: serial\|parallel`, the schedule report and its check half `schedule --check`; plugs the scheduler into M3.1's `run` seam (a named extension of M3.1) | `component_scheduler_resources`, `component_broad_test_scopes` (scheduling half) | `internal/sched`; verb `schedule` | the wave plan `run` executes; exit 75 semantics | M3.1, M2.5 |
+| **M3.4** Cost ledger | Welford / P² per `(id, host class)`, `.aitask-testmap/ledger.jsonl` written as a subscriber of M3.1's post-run hook, anchor eligibility decided at run time (no cause, HEAD unmoved, the modified-path set disjoint from the unit's test file, test-side closure, `covers` sources, the closure's `reads` globs and the runner configuration; empty for an opaque closure), `costs --update`, `last_pass` from eligible passes only, flake rate, the per-group estimate over top-level ids (disjoint accounting) and the full-suite p95, `costs/predictions.yaml` (store only; `score` writes it in M4.4), `costs --gate-timeout`, the run-id prefixes, the `costs/policy.yaml` file format (read/write helpers; the writer logic is M8.5) | `component_cost_ledger` | `internal/cost`; verb `costs` | costs and anchors for the selector, the evidence join, readiness and the cadence | M3.1, M2.3, M2.5 |
 
 #### M4 — Selection, freshness and feedback
 
@@ -741,7 +742,7 @@ Bringing an existing test tree onto the map, in levels, as tasks.
 | **M6.1** Phase ledger, detect, inventory, status, finish | the `onboard.yaml` schema and phase rows, `onboard detect [--write] [--force]` with the closed detector list and `DETECT_DIFF:`, `inventory`, `status`, `finish [--auto]`, `AIT_PROFILE_HEADLESS=1` refusals, `report_testmap_state()`'s `bootstrapping\|<next>` state, `ONBOARD_NEXT:` on the brief | `component_onboarding_engine_verbs` | `internal/onboard/{ledger,detect,inventory,status,finish}.go`; the extension of `report_testmap_state()` | the ledger every phase records into; the level-0 files | M1.5, M2.1, M2.5, M3.1, M5.2 |
 | **M6.2** Seeder and origin table | `onboard seed`, the origins `static:*` / `convention` / `cochange` / `plan` / `prose` / `coverage`, the class column, noisy-OR, `helper_roots` / `helper_fanin` separation, the `SEED_*` lines, `--apply`, `--json --out` | `component_seeder` | `internal/seed`; one fixture repo per origin | `registry/seeded.yaml` | M2.3, M2.6, M3.2, M6.1 |
 | **M6.3** Adoption verbs | `onboard adopt --class [--accept-min] [--scope] [--dry-run]`, `--class --auto` with the autonomous floor enforced (`ADOPT_REFUSED:not-autonomous`), per-row `<test> [<source>]` / `--area --batch` / `--files-from -`, `onboard reject`, `ADOPT_REFUSED:dirty-foreign`, the `ADOPT_SKIP` cases, `WROTE:`, `ADOPT_SUMMARY:`, provenance rows, the reviewed-stamp path deleting provenance rows | `component_adoption_ledger` (transitions half), `component_onboarding_engine_verbs` (the `adopt` / `reject` arms) | `internal/onboard/{adopt,reject}.go` | every non-agent adoption path; the rewriter calls the verdict intake reuses | M2.2, M2.6, M6.2 |
-| **M6.4** Classify and scaffold | `onboard classify [--apply\|--propose]` with `kind_proposals[]`, the level-2 writes (kind / area / scope / reads / batch lines, `needs:` bindings, `resources.yaml` entries), `onboard scaffold --axes \| --runner <builtin> --as <name> \| --members` with `SCAFFOLD_TODO`, the recorded-p95 signal in `classify --suggest` (a named extension of M2.5) | `component_onboarding_engine_verbs` (the `classify` / `scaffold` arms), `component_suite_registry` (the signal consumers) | `internal/onboard/{classify,scaffold}.go` | levels 2 and 3 | M2.4, M2.5, M3.4, M6.1 |
+| **M6.4** Classify and scaffold | `onboard classify [--apply\|--propose]` with `kind_proposals[]`, the level-2 writes (kind / area / scope / reads / batch lines, `needs:` bindings, `resources.yaml` entries), `onboard scaffold --axes \| --runner <builtin> --as <name> \| --members` with `SCAFFOLD_TODO` and its `check` report (a named extension of M3.1's lister and M2.1's `check`; until then the lister refuses the row as `INPUT_ERROR:lister`), the recorded-p95 signal in `classify --suggest` (a named extension of M2.5) | `component_onboarding_engine_verbs` (the `classify` / `scaffold` arms), `component_suite_registry` (the signal consumers) | `internal/onboard/{classify,scaffold}.go` | levels 2 and 3 | M2.4, M2.5, M3.4, M6.1 |
 | **M6.5** Onboarding skill | `aitask-testmap-onboard` stub + `SKILL.md.j2` + one procedure file per phase; the survey and level proposal; task creation and claim; the `enable` phase's edits to `project_config.yaml`, profiles, `gates.yaml`, `docs:` / `notes:`, hand-maintained `CLAUDE.md`; the `full_run` phase (`costs --gate-timeout`, next level's task with `depends:`); `--policy selected` re-entry; `--no-task`; refresh mode; the headless flow; goldens; `tests/test_testmap_onboard_ledger.sh` | `component_onboarding_skill` | `.claude/skills/aitask-testmap-onboard/**`; `tests/golden/skills/aitask-testmap-onboard/`; the ledger test | levels 0 and 1 attended; level 0 and 1 headless once M7.2 and M7.5 exist (the `review.md` sub-phase is M7.5's) | M4.4, M5.1, M6.1, M6.2, M6.3, M8.2, M8.4 |
 
 #### M7 — Agent review and author annotation
@@ -794,7 +795,7 @@ detection table records.
 
 | submodule | scope | depends on |
 |---|---|---|
-| **M10.1** aitasks levels 0–1 | the hand-maintained `CLAUDE.md` paragraph; the pytest serial carve-out pinned as `testmap:batch no`; `repo-git-index` mutex; the review loop over ~718 pairs; level 2 proposals for the ~40 tmux / live-TUI / real-install tests | M6.5, M7.5, M8.3, M9.1 |
+| **M10.1** aitasks levels 0–1 | the hand-maintained `CLAUDE.md` paragraph; the pytest serial carve-out pinned as `testmap:batch no`, with the agreement check extending `tests/test_serial_carveout_doc_drift.sh` (moved here from M3.2: the annotations it checks are written here); `repo-git-index` mutex; the review loop over ~718 pairs; level 2 proposals for the ~40 tmux / live-TUI / real-install tests | M6.5, M7.5, M8.3, M9.1 |
 | **M10.2** aitasks_go levels 0–1 | `static:package` by rule, no reading; `go test -coverprofile` per unit as `coverage`; the parity suite as an e2e suite row with a `tmux` resource | M6.5, M8.3, M9.1 |
 | **M10.3** thinking_backend levels 0–1 | the `verify_build` question (keep by default), `test_command: ./ait test` over 40 units, `golden/` as `reads` | M6.5, M7.5, M8.3, M9.1 |
 | **M10.4** aitasks_mobile levels 0–1 | one `gradle-class` runner per source set, `device` for `androidDeviceTest` with the emulator allocator, `device_policy: filter_by_resource` | M3.2 (`gradle-class`, `device`), M6.5, M7.5, M8.3, M9.1 |
@@ -811,8 +812,10 @@ meet on. Each is defined once, in the section named, and consumed as data.
 | `testmap:` grammar, stamp format `@<date>/<blob10>`, the rewriter API | M2.2 | M4.2 (`--confirm*`), M6.3 (`adopt`), M7.2 (`--agent-verdicts`), M7.4 (`--author`) |
 | scanner facts: closure, invocation / import / package facts, anchor lines, declared symbols | M2.3 | M4.1 (closure), M6.2 (origins), M7.1 (packets), M7.4 (corroboration) |
 | the runner contract and `results.jsonl` | M3.1 | M3.2 (builtins), M3.3 (execution), M3.4 (ledger rows), M6.1 (`detect` writes `runners.yaml`) |
+| `run`'s plan-executor seam, the post-run hook, the engine's per-invocation record (`cause`, worktree provenance), the manifest's allocator-handle field | M3.1 | M3.3 (plugs the scheduler in, fills the handle), M3.4 (hook subscriber, provenance), M4.4 (optional hook subscriber) |
+| the canonical grouping function (`(runner, group_by group, resource set, wave class, batch identity)`) | M3.1 | M3.3 (execution, never re-formed), M4.1 (invocation groups, `SELECTED:` `<groups>`), M3.4 (the estimate) |
 | `resources.yaml` and the wave plan | M3.3 | M4.5, M6.1 (`RESOURCE_HINT` → entries), M6.4 (`needs:` bindings) |
-| cost rows, `last_pass`, the per-group estimate, `predictions.yaml`, `costs/policy.yaml` format | M3.4 | M4.1 (ranking, budget), M4.3 (anchors), M4.4 (score, readiness), M6.5 (`--gate-timeout`), M8.5 (cadence state) |
+| cost rows, `last_pass` (anchor-eligible passes only), the per-group estimate (top-level ids) and the full-suite p95, `predictions.yaml`, `costs/policy.yaml` format | M3.4 | M4.1 (ranking, budget), M4.3 (anchors), M4.4 (score, readiness), M6.5 (`--gate-timeout`), M8.5 (cadence state) |
 | the change-surface line intake `COMMITTED:` / `TASK:` / `OTHER:` / `UNKNOWN:` | `aitask_change_surface.sh` (exists); parsed by M4.1 | M4.2 (`stale --task`), M5.1 (intake), M7.4 (refusal check) |
 | the ranked list, `SELECTED:`, `UNMAPPED_SOURCE:`, the prediction record | M4.1 | M4.5, M5.1 (verdict), M9.1 (procedure), M9.2 (QA) |
 | the `stale` report and `adopted(…)` DISPLAY | M4.2 | M8.2, M8.3 |
@@ -2709,16 +2712,51 @@ run` means the suite budget applies to the interactive loop only.
 ### Runner contract and repository *(M3.1)*
 
 `internal/runner`: `describe` (`unit file|class|method|variant|suite`,
-`axis:`, `batch`, `needs`, `group_by:`, `token_format:`, `filter_scope:`,
-`full:`, `children:`, `artifact_glob:`), `list` as TSV `<id> <kind>
-<lowering> [<artifact>]` with member and variant ids, `run --manifest` with
-ids, lowerings and groups, `results.jsonl` per id with optional child rows
-under a suite parent, `runner.json` with per-group overhead rows,
-first-match bindings and per-test override, the `builtin:` scheme with
-`command:` / `cwd:` overrides and shadow-by-name, batching by `(runner, group,
-resource set, batch flag)`, per-unit timeouts, `units_expected` /
+`batch`, `needs`, `group_by:`, `filter_scope:`, `full:`, `children:`,
+`artifact_glob:`; `axis:` and `token_format:` are M2.4's named extension of
+this parse and are refused as unknown fields until it lands), `list` as TSV
+`<id> <kind> <lowering> [<artifact>]` with member and variant ids (a
+malformed row is `INPUT_ERROR:lister`, never skipped), `run --manifest` with
+ids, lowerings, groups and an allocator-handle field (empty when no
+allocator is held; M3.3 fills it), `results.jsonl` per id with optional
+child rows under a suite parent (every row is marked top-level or child),
+`runner.json` with per-group overhead rows, first-match bindings and
+per-test override, the `builtin:` scheme with `command:` / `cwd:` overrides
+and shadow-by-name (the resolution record says which binding won and why;
+M4.1's `explain` prints it), per-unit timeouts, `units_expected` /
 `units_reported` reconciliation with zero-reported-some-expected and
 no-registered-id as mechanism failures, exit contract `0/1/2/75` plus `64`.
+
+**The canonical grouping function** is defined here once, as one pure
+function the scheduler (M3.3), the selector's invocation groups (M4.1) and
+the cost estimate (M3.4) all call with the same inputs, so `SELECTED:`
+`<groups>`, the estimate and the executed invocations agree by
+construction. Its key is `(runner, group_by group, resource set, wave
+class, batch identity)`: `batch identity` is one shared marker for batchable
+units and the unit's own id for a `batch: no` unit, which is therefore
+always a singleton invocation; `wave class` (`unit` | `broad`) is an input
+the caller derives from M2.5's kind data (`unit` and variant-bearing units
+→ `unit`; `integration|e2e|device` → `broad`), and a unit with no kind data
+is `unit` — sound, because no broad unit exists before M2.5. The grouping
+does not depend on `broad_after_unit`, so an estimate never depends on that
+setting. No other package forms or re-forms an invocation.
+
+**The `run` verb** executes a plan through a plan-executor seam. Until M3.3
+plugs its scheduler in (a named extension of this verb), the built-in plan
+runs one invocation per grouping key serially, with no waves, and refuses
+any invocation whose resource set is non-empty (exit 3) — `needs:` and
+cross-process admission are never silently ignored. `run --all` honours
+`subsumed_by`. For every invocation the engine (never the runner — a runner
+script cannot judge its own reconciliation) keeps its own record under
+`.aitask-testmap/runs/<run-id>/`: the invocation's `cause` (empty, or the
+mechanism-failure, timeout or reconciliation class) and its worktree
+provenance — HEAD at invocation start and end, and the set of paths whose
+content differs from HEAD (staged and unstaged modifications, deletions,
+untracked non-ignored files), captured at both moments. After the run, an
+ordered, multi-subscriber post-run hook receives the run id, the result rows
+and these records; the cost ledger (M3.4) subscribes, and the automatic
+`score` (M4.4) may.
+
 Repository keys: `subsumed_by: <suite>` on a runner whose units are the
 child rows of a `full: true` suite runner, so `run --all` executes the suite
 once and never the subsumed runner beside it (thinking_app: `screen-matrix`
@@ -2728,20 +2766,24 @@ equivalent — which `ait test --gate` runs when the engine is absent and
 `completion.engine_absent` is `fallback_command`. `onboard scaffold --runner
 <builtin> --as <name>` (M6.4) emits `aitestmap/runners/<name>.sh` whose
 `describe` and `run` exec the builtin and whose `list` prints
-`SCAFFOLD_TODO` until the project fills it, which `check` reports.
+`SCAFFOLD_TODO` until the project fills it; recognising that line and
+reporting it in `check` is M6.4's named extension of this lister and of
+M2.1's `check` (until then the row is refused as `INPUT_ERROR:lister`).
 <!-- /section: component_runner_contract -->
 
 <!-- section: component_reference_runners [dimensions: component_reference_runners] -->
 ### Reference runners *(M3.2)*
 
 Built into the binary as `ait-testmap runner <name>`: `bash-file`; `pytest`
-(junitxml; `testmap:batch no` honoured, the serial carve-out pinned by
-extending `tests/test_serial_carveout_doc_drift.sh`); `go-test` (per-file
+(junitxml; `testmap:batch no` honoured — the aitasks serial carve-out's
+annotations, and the agreement check extending
+`tests/test_serial_carveout_doc_drift.sh`, are M10.1's); `go-test` (per-file
 `-run` regex, `-json`); `gradle-class` (`--tests <lowering>` batch, one
 invocation per `group_by` group, JUnit XML inverted to ids through the list
 table, zero-match trap as a mechanism failure); `suite` (any command as one
 unit, optional child rows from a `children:` post-processor); `device`
-(allocator handle); `command:` / `cwd:` overrides; shadow-by-name with
+(reads the allocator handle from the manifest's handle field and refuses
+without one); `command:` / `cwd:` overrides; shadow-by-name with
 `explain` showing which won; `engine-test` over `goengines/`. thinking_app's
 `tools/verification/testmap_runner.sh` (`screen-matrix`: `list` from the
 two membership manifests plus `matrix_classes` with an artifact column, `run`
@@ -2761,9 +2803,9 @@ names it as the suite) whose `children:` post-processor is a builtin
 inverting pytest junitxml, bash-file names from the per-file exit and `go
 test -json` events to registered ids, and whose `fallback_command:` is the
 previous `test_command` — so the existing full gate anchors evidence from
-day one without a project script. The `bash-file` builtin gains `list
---invocations`, printing the literal repo paths a test references, for the
-seeder's `static:invocation` origin.
+day one without a project script. The seeder's `static:invocation` origin
+reads the bash scanner's facts directly (*Dependency scanners*: same scan,
+same cache, read once); no runner re-resolves them.
 <!-- /section: component_reference_runners -->
 
 <!-- section: component_scheduler_resources [dimensions: component_scheduler_resources] -->
@@ -2773,46 +2815,82 @@ seeder's `static:invocation` origin.
 `allocator`, scopes `host` / `worktree` / `run`, `acquired_by` planning;
 `flock(2)` slot files taken in canonical order; admission exec with 75
 deferral and backoff to the run deadline; allocator exec with signal-safe
-release; goroutines under `errgroup`; batching (variants of one runner and
-resource set batch into one invocation per `group_by` group, so
-thinking_app's whole selection is one Gradle run holding one heavy-run
-slot); `broad_after_unit` waves with variant-bearing units in the unit wave
-and, within a wave, invocations holding an admission resource ordered last;
-`concurrency: serial|parallel` defaulting to serial at bootstrap with
-`--serial` / `--parallel` overrides; the schedule report and its check half.
-`detect`'s `RESOURCE_HINT` rows become `resources.yaml` entries the
-scheduler already understands (aitasks: `repo-git-index` mutex, worktree
-scope); a refusal at the deadline is exit 75 (advisory:
-`skip:admission_refused`).
+release, the held handle written into the manifest's handle field;
+goroutines under `errgroup`. It executes the invocations M3.1's canonical
+grouping function forms and never re-forms them — variants of one runner,
+group, resource set and wave class are already one invocation, so
+thinking_app's whole selection is one Gradle run holding one heavy-run slot.
+It maps M2.5's kind data to the grouping's wave class; `broad_after_unit`
+waves are a pure ordering over those wave-homogeneous invocations (the
+`broad` invocations run only after a green `unit` wave, and their skip after
+a red one is printed), variant-bearing units ride the unit wave, and within a
+wave invocations holding an admission resource are ordered last;
+`device_policy: filter_by_resource`; `concurrency: serial|parallel`
+defaulting to serial at bootstrap with `--serial` / `--parallel` overrides;
+the schedule report and its check half, `schedule --check`, which prints its
+own lines (an undeclared resource name, an unsatisfiable resource set) and
+is informational, never a gate. It plugs into M3.1's `run` seam as a named
+extension of that verb. `detect`'s `RESOURCE_HINT` rows become
+`resources.yaml` entries the scheduler already understands (aitasks:
+`repo-git-index` mutex, worktree scope); a refusal at the deadline is exit
+75 (advisory: `skip:admission_refused`).
 <!-- /section: component_scheduler_resources -->
 
 <!-- section: component_cost_ledger [dimensions: component_cost_ledger] -->
 ### Cost ledger *(M3.4; `policy.yaml` writer M8.5)*
 
-`internal/cost`: Welford per `(id, host class)` where id may be a variant,
-with P² p95 and last; the per-repo ledger `.aitask-testmap/ledger.jsonl` with
-`run_id` / `id` / `status` / `duration_ms` / `head_sha` per result and
-`{run_id, group, overhead_ms, units_reported}` per invocation; `costs
---update` folds both into `aitestmap/costs/<hostclass>.yaml` and truncates;
-`last_pass {sha, at, run_id}` per id and a flake rate against
-`flake_threshold`; the estimate for a selection is the sum over invocation
-groups of `overhead.p95` plus the p95 of each selected id, reported per kind;
-`costs/predictions.yaml` holds the last 200 scored full runs. **Run-id
-prefixes**, stated here once: `test-` for interactive and advisory runs,
-`gate-` for completion runs, `full-` for `--all`, `review-` for bulk review
-runs (which write no cost rows); the first three write ordinary rows and
-feed cost and evidence exactly like any run, and the ledger says which
+`internal/cost`: Welford per `(id, host class)` where id may be a variant
+(an opaque string from the run's results), with P² p95 and last; the
+per-repo ledger `.aitask-testmap/ledger.jsonl` (schema under *Where state
+lives*), written by this package as a subscriber of M3.1's post-run hook —
+one row per result and one per invocation; `costs --update` folds both into
+`aitestmap/costs/<hostclass>.yaml` and truncates, under a lock that a
+concurrent append also takes, so no row is lost; a flake rate against
+`flake_threshold`.
+
+**Anchor eligibility** is decided here, at run time, where the registry is
+loaded. A passing result is *anchor-eligible* only when its invocation had
+no `cause`, HEAD did not move across the invocation, and the invocation's
+modified-path set is disjoint from the unit's test file and whole test-side
+closure (every helper it reaches; M2.3), every `covers` source of the unit,
+the `reads` globs of every file in that closure (helpers' `testmap:reads`,
+which reach the registry through M2.5, and scanner-plugin `reads`), and the
+runner's command and configuration (`aitestmap/runners.yaml`,
+`aitestmap/runners/**`, the `children:` post-processor's inputs); when the
+closure is opaque or not computable (a suite or `full: true` child row, a
+whole-run filter) the set must be empty. The ledger row records the
+decision and its reason; `last_pass {sha, at, run_id}` per id advances only
+from eligible passes; no path list is ever written to a committed file.
+Every rejection leaves the edge `STALE`, so it fails toward running more. A
+file edited and reverted within one invocation is invisible to the start and
+end snapshots — the residual this rule accepts.
+
+**The estimate** for a set of invocation groups — formed by M3.1's grouping
+function with the caller's wave inputs — is the sum over groups of
+`overhead.p95` plus the p95 of each **top-level** id in it, reported per kind
+the caller supplies. Accounting is disjoint: a child row of a suite parent
+never adds to an estimate that includes its parent, and an invocation's
+`overhead_ms` is its elapsed time minus the durations of its top-level
+results, clamped at 0. Child rows keep their own cost statistics and their
+evidence. **The full-suite p95** on a host class is that estimate applied to
+the invocation groups and top-level ids of the newest `full-` run on it (a
+100 s suite with 40 s and 60 s children in a 105 s invocation counts 105 s,
+never 205 s). `costs/predictions.yaml` holds the last 200 scored full runs.
+**Run-id prefixes**, stated here once: `test-` for interactive and advisory
+runs, `gate-` for completion runs, `full-` for `--all`, `review-` for bulk
+review runs (which write no cost rows); the first three write ordinary rows
+and feed cost and evidence exactly like any run, and the ledger says which
 surface produced a row. The `SELECTED:` estimate is the same per-group sum
 the budget uses and the number `selection_ratio_above` compares to the
-newest full run's p95 on this host class. `costs --gate-timeout tests_pass`
-prints `GATE_TIMEOUT_SUGGESTED:<gate>|<seconds>` = `max(600, 3 × p95 of the
-newest full run on this host class)`, which the onboarding `full_run` phase
-writes into the project's `gates.yaml` after the first measured full run.
-`aitestmap/costs/policy.yaml` (schema under *Where state lives*) is the
-engine's policy ledger under `auto`: this package owns the file format and
-its read / write helpers; `ait test --gate` (M8.5) is its only writer, and
-it is committed beside the other engine-written cost files so `config.yaml`
-stays human-authored.
+full-suite p95 on this host class. `costs --gate-timeout tests_pass` prints
+`GATE_TIMEOUT_SUGGESTED:<gate>|<seconds>` = `max(600, 3 × the full-suite
+p95 on this host class)` (this package homes the line), which the onboarding
+`full_run` phase writes into the project's `gates.yaml` after the first
+measured full run. `aitestmap/costs/policy.yaml` (schema under *Where state
+lives*) is the engine's policy ledger under `auto`: this package owns the
+file format and its read / write helpers; `ait test --gate` (M8.5) is its
+only writer, and it is committed beside the other engine-written cost files
+so `config.yaml` stays human-authored.
 <!-- /section: component_cost_ledger -->
 
 **M4 — Selection, freshness and feedback**
@@ -2899,9 +2977,14 @@ claim.
 `internal/stale` + `internal/gitx`, reading `internal/cost`: for every edge
 whose stamped blob differs from the current blob, collect `last_pass` shas
 per reached variant from the local ledger and committed costs (any host
-class), drop candidates from invocations with a cause or ids over the flake
-threshold, keep shas that are ancestors of `HEAD` (`merge-base
---is-ancestor`), and run one `git ls-tree` per distinct sha; an edge is
+class) — only anchor-eligible passes ever become `last_pass` (the cost
+ledger already excludes invocations with a cause, a moved HEAD, or a
+modified path the unit reads) — drop ids over the flake threshold and
+anchors whose `at` date is not strictly later than the edge's stamp date
+(an edge stamped after the run was never checked against that run's
+modified paths; a same-day anchor is dropped, which fails toward `STALE`),
+keep shas that are ancestors of `HEAD` (`merge-base --is-ancestor`), and run
+one `git ls-tree` per distinct sha; an edge is
 `EVIDENCED` when every reached variant has a sha whose source object id
 equals the current blob, otherwise `STALE` with the unevidenced variants
 listed. It never rewrites — `stale --confirm-evidenced` is the explicit
@@ -3509,7 +3592,8 @@ gains *Adding a test-framework detector* and *Adding a seed origin* with
 the class column and the autonomous-floor rule. `tests/test_gate_verifiers.sh`
 covers 75 and the env export; `tests/test_codeagent.sh` pins
 `testmap-review` interactive-by-default; `tests/test_serial_carveout_doc_drift.sh`
-is extended for the pytest carve-out pin; `tests/test_no_unscoped_task_commit.sh`
+is extended for the pytest carve-out pin (by M10.1, which writes the
+annotations it checks); `tests/test_no_unscoped_task_commit.sh`
 is unaffected because the skill commits through `aitask_task_commit.sh`.
 <!-- /section: component_workflow_seam -->
 
