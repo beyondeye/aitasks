@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [install, worktree]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1711
 followup_kind: upstream_defect
 created_at: 2026-10-13 13:26
-updated_at: 2026-10-13 13:26
+updated_at: 2026-10-13 13:36
 ---
 
 ## Origin
