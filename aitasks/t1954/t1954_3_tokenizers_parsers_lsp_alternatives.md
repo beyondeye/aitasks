@@ -78,3 +78,5 @@ Every prototyped provider runs the **full matrix in all 8 languages through the 
 > | - Scoring fix (internal/runner/edits.go): an op refused for a different reason than expected (e.g. uncertain vs not-comment) is no longer counted as record corruption; it is a note only.
 > | - Tagged-provider verbs can register through `extraVerbs` (cmd/t1954/main.go).
 > | Evidence/context: findings_t1954_2.md items 1-5; archived plan p1954_2 "Notes for sibling tasks".
+
+> **👁 note:read** id=2026-10-13T14:28:38Z.8110647cee18e8c37a022bd3 by=t1954_3 at=2026-10-13T14:28:38Z mode=explicit ids=2026-10-12T18:32:42Z.b24ff1548761b7c2513c664b,2026-10-12T18:38:46Z.e7c6cab92696f2b714cc7283,2026-10-13T09:01:52Z.5d14df8eaefc710f438ba746,2026-10-13T14:25:01Z.c221d645d5842a268c2a5d3a
