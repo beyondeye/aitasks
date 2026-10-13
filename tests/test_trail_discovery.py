@@ -223,6 +223,63 @@ class DiscoveryTests(_TreeTestCase):
         self.assertEqual(infos, [])
         self.assertEqual(unreadable, [])
 
+    def test_corrupt_archive_bundle_is_reported_on_request(self):
+        """A corrupt bundle could hold a trail owner: with ``scan_errors``
+        it is reported instead of reading as "no archived trails" (t1957_3)."""
+        _task_file(self.tasks, "t80_live.md", handles=["art:trail-live"])
+        bundle = self.tasks / "archived" / "_b0"
+        bundle.mkdir()
+        (bundle / "old0.tar.gz").write_bytes(b"not a gzip stream")
+        scan_errors: list = []
+        infos, unreadable = td.discover_trails(scan_errors=scan_errors)
+        self.assertEqual([i.handle for i in infos], ["art:trail-live"])
+        self.assertEqual(unreadable, [])
+        self.assertEqual(len(scan_errors), 1)
+        self.assertIn("old0.tar.gz", scan_errors[0])
+
+    def test_malformed_archived_owner_is_reported_on_request(self):
+        _task_file(self.tasks / "archived", "t81_old.md", handles=["art:trail-b"])
+        (self.tasks / "archived" / "t82_broken.md").write_text(
+            "---\npriority: [unclosed\n---\n", encoding="utf-8")
+        scan_errors: list = []
+        infos, _ = td.discover_trails(scan_errors=scan_errors)
+        self.assertEqual([i.handle for i in infos], ["art:trail-b"])
+        self.assertEqual(scan_errors, ["t82_broken.md: unparseable frontmatter"])
+
+    def _lock(self, directory):
+        directory.chmod(0o000)
+        self.addCleanup(directory.chmod, 0o755)
+        if os.access(directory, os.R_OK):
+            self.skipTest("running with permissions that ignore mode 000")
+
+    def test_unlistable_archive_dir_is_reported_on_request(self):
+        """Path.glob swallows PermissionError: an inaccessible archive holding
+        a trail owner must not read as "no archived trails"."""
+        _task_file(self.tasks / "archived", "t85_old.md", handles=["art:old"])
+        self._lock(self.tasks / "archived")
+        scan_errors: list = []
+        infos, _ = td.discover_trails(scan_errors=scan_errors)
+        self.assertEqual(infos, [])
+        self.assertTrue(scan_errors)
+
+    def test_unlistable_active_child_dir_is_reported_on_request(self):
+        _task_file(self.tasks / "t86", "t86_1_child.md", handles=["art:c"])
+        self._lock(self.tasks / "t86")
+        scan_errors: list = []
+        infos, unreadable = td.discover_trails(scan_errors=scan_errors)
+        self.assertEqual((infos, unreadable), ([], []))
+        self.assertEqual(len(scan_errors), 1)
+        self.assertIn("t86", scan_errors[0])
+
+    def test_default_call_keeps_the_archived_half_best_effort(self):
+        """Without the list, the same corrupt archive is skipped as before."""
+        _task_file(self.tasks, "t83_live.md", handles=["art:trail-live"])
+        (self.tasks / "archived" / "t84_broken.md").write_text(
+            "---\npriority: [unclosed\n---\n", encoding="utf-8")
+        infos, unreadable = td.discover_trails()
+        self.assertEqual([i.handle for i in infos], ["art:trail-live"])
+        self.assertEqual(unreadable, [])
+
 
 class TaskDirResolutionTests(_TreeTestCase):
     """The task dir is resolved PER CALL, never cached at import (t1647_1).

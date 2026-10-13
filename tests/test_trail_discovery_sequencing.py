@@ -174,7 +174,7 @@ class SequencedReadTests(unittest.TestCase):
                               owner_folded=False)
                  for h in ("art:a", "art:b")]
         with patch.object(td, "_iter_trail_frontmatter_records",
-                          lambda unreadable: iter(infos)), \
+                          lambda unreadable, scan_errors=None: iter(infos)), \
                 patch.object(td, "load_trail_blob",
                              lambda h: ({"title": h}, "", [])):
             found, _unreadable = td.discover_trails()

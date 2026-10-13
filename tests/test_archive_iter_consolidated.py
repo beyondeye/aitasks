@@ -15,6 +15,7 @@ import sys
 import tarfile
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 # Load archive_iter from the lib directory
@@ -23,6 +24,7 @@ sys.path.insert(0, str(_lib_dir))
 
 from archive_iter import (
     _is_child_filename,
+    checked_glob,
     find_archived_markdown_by_id,
     iter_all_archived_markdown,
     iter_archived_frontmatter,
@@ -316,6 +318,234 @@ class TestIterArchivedFrontmatter(unittest.TestCase):
         results = list(iter_archived_frontmatter(self.archived, failing_parse))
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0][0], "t1_good.md")
+
+
+def _big_bundle(count: int = 400, size: int = 16000) -> dict[str, str]:
+    """Enough content that zstd is still writing when a reader stops early."""
+    return {f"t{i}_task.md": "---\nstatus: Done\n---\n" + "x" * size
+            for i in range(1, count + 1)}
+
+
+class TestOptInFailureReporting(unittest.TestCase):
+    """The keyword-only ``errors`` list (t1957_3): every failure that could
+    hide a record is reported, and the default path stays best-effort."""
+
+    def setUp(self):
+        # addCleanup, not tearDown: tearDown would run before the LIFO
+        # cleanups that restore a locked directory's mode (_lock).
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.archived = Path(self.tmp.name) / "archived"
+        self.archived.mkdir()
+        self.bundle_dir = self.archived / "_b0"
+        self.bundle_dir.mkdir()
+
+    def _corrupt(self, name: str, blob: bytes) -> Path:
+        path = self.bundle_dir / name
+        path.write_bytes(blob)
+        return path
+
+    def test_corrupt_tar_gz_is_reported(self):
+        path = self._corrupt("old0.tar.gz", b"not a gzip stream")
+        errors: list = []
+        self.assertEqual(list(iter_all_archived_markdown(self.archived,
+                                                         errors=errors)), [])
+        self.assertEqual(len(errors), 1)
+        self.assertTrue(errors[0].startswith(f"{path}: "), errors)
+
+    def test_truncated_tar_gz_is_reported(self):
+        good = self.bundle_dir / "old0.tar.gz"
+        _make_tar_gz(good, _big_bundle(count=40, size=4000))
+        good.write_bytes(good.read_bytes()[: good.stat().st_size // 2])
+        errors: list = []
+        list(iter_all_archived_markdown(self.archived, errors=errors))
+        self.assertEqual(len(errors), 1)
+        self.assertIn(str(good), errors[0])
+
+    def test_corrupt_tar_zst_is_reported(self):
+        self._corrupt("old0.tar.zst", b"not a zstd frame")
+        errors: list = []
+        self.assertEqual(list(iter_all_archived_markdown(self.archived,
+                                                         errors=errors)), [])
+        self.assertEqual(len(errors), 1)
+
+    def test_truncated_tar_zst_is_reported(self):
+        """A stream cut short can end on a tar block boundary, which tarfile
+        reads as a clean end of archive — only zstd's exit status tells."""
+        path = self.bundle_dir / "old0.tar.zst"
+        _make_archive(path, _big_bundle(count=40, size=4000))
+        path.write_bytes(path.read_bytes()[: path.stat().st_size // 2])
+        errors: list = []
+        list(iter_all_archived_markdown(self.archived, errors=errors))
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn(str(path), errors[0])
+
+    def test_zstd_failure_after_whole_members_is_reported(self):
+        """The case only the exit status catches: zstd emits whole tar members
+        (ending on a block boundary, no end-of-archive marker) and then fails
+        on a corrupt trailing frame. tarfile sees a clean end of archive and
+        yields every member, so nothing but the exit status says the bundle
+        was cut short."""
+        buf = io.BytesIO()
+        tf = tarfile.open(fileobj=buf, mode="w")
+        for name, content in {"t1_a.md": "a", "t2_b.md": "b"}.items():
+            info = tarfile.TarInfo(name=name)
+            info.size = len(content)
+            tf.addfile(info, io.BytesIO(content.encode()))
+        members_only = buf.getvalue()[: buf.tell()]   # before the end marker
+        frame = subprocess.run(["zstd", "-q", "-c"], input=members_only,
+                               capture_output=True, check=True).stdout
+        path = self.bundle_dir / "old0.tar.zst"
+        path.write_bytes(frame + b"\x00garbage trailing frame")
+        errors: list = []
+        names = [n for n, _ in iter_all_archived_markdown(self.archived,
+                                                          errors=errors)]
+        self.assertEqual(names, ["t1_a.md", "t2_b.md"])
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn("zstd exited", errors[0])
+
+    def test_missing_zstd_binary_is_reported(self):
+        _make_archive(self.bundle_dir / "old0.tar.zst", {"t1_a.md": "a"})
+        empty_bin = Path(self.tmp.name) / "empty_bin"
+        empty_bin.mkdir()
+        errors: list = []
+        with unittest.mock.patch.dict(os.environ, {"PATH": str(empty_bin)}):
+            results = list(iter_all_archived_markdown(self.archived,
+                                                      errors=errors))
+        self.assertEqual(results, [])
+        self.assertEqual(len(errors), 1)
+
+    def test_unreadable_loose_file_is_reported(self):
+        path = self.archived / "t1_locked.md"
+        path.write_text("content")
+        path.chmod(0o000)
+        try:
+            if os.access(path, os.R_OK):
+                self.skipTest("running with permissions that ignore mode 000")
+            errors: list = []
+            list(iter_all_archived_markdown(self.archived, errors=errors))
+            self.assertEqual(len(errors), 1)
+            self.assertIn("t1_locked.md", errors[0])
+        finally:
+            path.chmod(0o644)
+
+    def test_unparseable_task_frontmatter_is_reported(self):
+        (self.archived / "t1_good.md").write_text("---\na: 1\n---\n")
+        (self.archived / "t2_raises.md").write_text("---\nbad\n---\n")
+        (self.archived / "t3_none.md").write_text("no frontmatter\n")
+        (self.archived / "tnotes_readme.md").write_text("not a task\n")
+
+        def parse(text):
+            if "bad" in text:
+                raise ValueError("boom")
+            return {"a": 1} if text.startswith("---") else None
+
+        errors: list = []
+        results = list(iter_archived_frontmatter(self.archived, parse,
+                                                 errors=errors))
+        self.assertEqual([name for name, _meta in results], ["t1_good.md"])
+        self.assertEqual(sorted(e.split(":")[0] for e in errors),
+                         ["t2_raises.md", "t3_none.md"])
+
+    def test_lookup_in_a_corrupt_bundle_cannot_prove_absence(self):
+        self._corrupt("old0.tar.gz", b"garbage")
+        errors: list = []
+        self.assertIsNone(find_archived_markdown_by_id("5", self.archived,
+                                                       errors=errors))
+        self.assertEqual(len(errors), 1)
+
+    def test_clean_miss_reports_nothing(self):
+        _make_archive(self.bundle_dir / "old0.tar.zst", {"t1_a.md": "a"})
+        errors: list = []
+        self.assertIsNone(find_archived_markdown_by_id("7", self.archived,
+                                                       errors=errors))
+        self.assertEqual(errors, [])
+
+    def test_early_stop_on_a_running_zstd_is_not_a_failure(self):
+        """The lookup stops at the first match and closes the pipe while zstd
+        is still writing; the SIGPIPE exit that follows must not be reported."""
+        _make_archive(self.bundle_dir / "old0.tar.zst", _big_bundle())
+        errors: list = []
+        found = find_archived_markdown_by_id("1", self.archived, errors=errors)
+        self.assertIsNotNone(found)
+        self.assertEqual(found[0], "t1_task.md")
+        self.assertEqual(errors, [])
+
+    def test_complete_read_of_a_valid_bundle_reports_nothing(self):
+        _make_archive(self.bundle_dir / "old0.tar.zst", _big_bundle())
+        errors: list = []
+        results = list(iter_all_archived_markdown(self.archived, errors=errors))
+        self.assertEqual(len(results), 400)
+        self.assertEqual(errors, [])
+
+    def _lock(self, directory: Path) -> None:
+        """Mode 000 for the test's duration (skips when it is not enforced)."""
+        directory.chmod(0o000)
+        self.addCleanup(directory.chmod, 0o755)
+        if os.access(directory, os.R_OK):
+            self.skipTest("running with permissions that ignore mode 000")
+
+    def test_unlistable_archive_dir_is_reported_not_empty(self):
+        """Path.glob swallows PermissionError: without the check an
+        inaccessible archive would read exactly like an empty one."""
+        (self.archived / "t1_a.md").write_text("a")
+        self._lock(self.archived)
+        errors: list = []
+        self.assertEqual(list(iter_all_archived_markdown(self.archived,
+                                                         errors=errors)), [])
+        self.assertTrue(errors)
+        self.assertTrue(all(str(self.archived) in e for e in errors), errors)
+
+    def test_unlistable_child_dir_is_reported(self):
+        child = self.archived / "t5"
+        child.mkdir()
+        (child / "t5_1_c.md").write_text("c")
+        (self.archived / "t6_p.md").write_text("p")
+        self._lock(child)
+        errors: list = []
+        names = [n for n, _ in iter_all_archived_markdown(self.archived,
+                                                          errors=errors)]
+        self.assertEqual(names, ["t6_p.md"])
+        self.assertEqual(len(errors), 1)
+        self.assertIn(str(child), errors[0])
+
+    def test_unsearchable_bundle_dir_is_reported(self):
+        _make_archive(self.bundle_dir / "old0.tar.zst", {"t5_x.md": "x"})
+        self._lock(self.bundle_dir)
+        errors: list = []
+        self.assertIsNone(find_archived_markdown_by_id("5", self.archived,
+                                                       errors=errors))
+        self.assertTrue(errors)
+        errors = []
+        list(iter_all_archived_markdown(self.archived, errors=errors))
+        self.assertTrue(errors)
+
+    def test_checked_glob_matches_path_glob(self):
+        (self.archived / "t1_a.md").write_text("a")
+        (self.archived / "t2_3_b.md").write_text("b")
+        (self.archived / "notes.md").write_text("n")
+        (self.archived / "t4").mkdir()
+        (self.archived / "t4" / "t4_1_c.md").write_text("c")
+        _make_archive(self.bundle_dir / "old0.tar.zst", {"t5_x.md": "x"})
+        _make_tar_gz(self.bundle_dir / "old0.tar.gz", {"t5_x.md": "x"})
+        for pattern in ("t*_*.md", "t*/t*_*_*.md", "_b*/old*.tar.zst",
+                        "_b*/old*.tar.gz", "t2_3_*.md", "missing/*.md"):
+            errors: list = []
+            self.assertEqual(checked_glob(self.archived, pattern, errors),
+                             sorted(self.archived.glob(pattern)), pattern)
+            self.assertEqual(errors, [], pattern)
+        errors = []
+        self.assertEqual(checked_glob(self.archived / "absent", "*.md",
+                                      errors), [])
+        self.assertEqual(errors, [], "an absent directory is not a failure")
+
+    def test_default_path_stays_best_effort(self):
+        """No list ⇒ the corrupt bundles are skipped silently, as before."""
+        self._corrupt("old0.tar.gz", b"garbage")
+        (self.archived / "_b1").mkdir()
+        (self.archived / "_b1" / "old10.tar.zst").write_bytes(b"garbage")
+        self.assertEqual(list(iter_all_archived_markdown(self.archived)), [])
+        self.assertIsNone(find_archived_markdown_by_id("5", self.archived))
 
 
 if __name__ == "__main__":

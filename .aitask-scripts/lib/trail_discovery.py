@@ -34,7 +34,7 @@ import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from archive_iter import iter_archived_frontmatter
+from archive_iter import checked_glob, iter_archived_frontmatter
 from config_utils import task_dir
 from task_yaml import parse_frontmatter
 from topic_semantics import parse_task_filename, _task_id_sort_key
@@ -135,7 +135,7 @@ def dedupe_trail_records(records):
     return [best[h] for h in order]
 
 
-def _iter_active_task_frontmatter(unreadable=None):
+def _iter_active_task_frontmatter(unreadable=None, scan_errors=None):
     """Yield ``(filename, metadata)`` for every live task file, read from disk.
 
     The two glob patterns mirror ``TaskManager.load_tasks`` /
@@ -177,9 +177,14 @@ def _iter_active_task_frontmatter(unreadable=None):
 
     The task-named qualifier is what keeps that honest without crying wolf: a
     ``.md`` file under the task dir whose name is not ``t<N>_…`` is a document,
-    not a task, and reporting it would warn on every scan forever."""
+    not a task, and reporting it would warn on every scan forever.
+
+    ``Path.glob`` would also swallow a task directory that exists but cannot be
+    listed (a child dir ``t42/`` with no read permission hides its owners).
+    With ``scan_errors`` such a directory is reported there (t1957_3);
+    without it the listing is ``Path.glob``, as before."""
     for pattern in ("*.md", "t*/t*_*.md"):
-        for path in sorted(_tasks_dir().glob(pattern)):
+        for path in checked_glob(_tasks_dir(), pattern, scan_errors):
             try:
                 parsed = parse_frontmatter(
                     path.read_text(encoding="utf-8", errors="replace"))
@@ -192,16 +197,18 @@ def _iter_active_task_frontmatter(unreadable=None):
                 unreadable.append(path.name)
 
 
-def _iter_trail_frontmatter_records(unreadable=None):
+def _iter_trail_frontmatter_records(unreadable=None, scan_errors=None):
     """Yield raw ``TrailInfo`` records from active + archived task frontmatter
     (`artifacts:` entries with kind == implementation_trail). Discovery is
     frontmatter-driven — the artifact manifest stores no kind (RFC §5) — and
     BOTH halves are read from disk, never from the manager's startup snapshot
     (t1365).
 
-    ``unreadable`` collects skipped **active** task files only: the archived
-    half goes through ``iter_archived_frontmatter``, which swallows read and
-    parse failures internally."""
+    ``unreadable`` collects skipped **active** task files only. Everything
+    else that could hide a trail owner is best-effort unless ``scan_errors`` is
+    a list (t1957_3): then a task or archive directory that cannot be listed,
+    an unreadable archived file, a corrupt bundle and an unparseable archived
+    frontmatter are appended to it."""
     def _records(filename, meta, archived):
         task_num, _name = parse_task_filename(filename)
         folded = bool(meta.get("folded_into")) or meta.get("status") == "Folded"
@@ -216,7 +223,7 @@ def _iter_trail_frontmatter_records(unreadable=None):
                     name=str(rec.get("name") or ""),
                 )
 
-    for filename, meta in _iter_active_task_frontmatter(unreadable):
+    for filename, meta in _iter_active_task_frontmatter(unreadable, scan_errors):
         yield from _records(filename, meta, False)
 
     def _parse_meta(text):
@@ -224,7 +231,7 @@ def _iter_trail_frontmatter_records(unreadable=None):
         return result[0] if result else None
 
     for filename, meta in iter_archived_frontmatter(
-            _tasks_dir() / "archived", _parse_meta):
+            _tasks_dir() / "archived", _parse_meta, errors=scan_errors):
         if isinstance(meta, dict):
             yield from _records(filename, meta, True)
 
@@ -323,7 +330,7 @@ def sequenced_trail_read(handle: str, loader):
         return result, next(_TRAIL_READ_SEQ)
 
 
-def discover_trails():
+def discover_trails(scan_errors=None):
     """Frontmatter-driven trail discovery, deduped by handle, blobs loaded and
     validated (fail-closed into ``load_error``). Subprocess-heavy — call from
     a thread worker, never the UI thread.
@@ -331,9 +338,14 @@ def discover_trails():
     Returns ``(infos, unreadable)``. ``unreadable`` names the active task files
     the scan could not read, so a caller can tell "there are no trails" apart
     from "part of the scan failed" — the two must not look alike, because the
-    second is a retryable race (t1365)."""
+    second is a retryable race (t1365).
+
+    Directory listings and the archived half are best-effort unless
+    ``scan_errors`` is a list, which then collects every failure that could
+    hide a trail owner the same way (t1957_3)."""
     unreadable = []
-    infos = dedupe_trail_records(_iter_trail_frontmatter_records(unreadable))
+    infos = dedupe_trail_records(
+        _iter_trail_frontmatter_records(unreadable, scan_errors))
     for info in infos:
         (info.doc, info.load_error, info.versions), info.read_seq = (
             sequenced_trail_read(info.handle, load_trail_blob))
