@@ -324,3 +324,30 @@ this checkout. Three rules follow:
   file. That is under-indexing, the fail-open direction · severity: low · →
   mitigation: none (step 5's frozen corpus diff stops on any non-`val`/`var` removal;
   each step-2 case asserts a declaration after the constructor)
+
+## Progress (implementation, 2026-10-13)
+
+- [x] Step 1: F at `BASE=6a3a81efc` (private repo, c0 `cff1b1c`); pristine deps tests pass.
+- [x] Step 2: red. All five `CtorParams` cases failed with the predicted pre-fix
+  symbols (e.g. `data-class: [class:LoginState val:email var:busy fun:after]`).
+  FromBody returned `[{src/a/LoginState.kt email 5}]`.
+- [x] Step 3: baseline probe over thinking_app at `1dc7b958926f` (`*.kt` clean vs
+  HEAD): 784 files, 2594 declaration rows.
+- [x] Step 4: fix + `schemaVersion` 4 → 5 in F (c1 `6a77aee`). Focused tests are green,
+  full-module `go vet` + `go test` pass, and `gofmt -l` is clean.
+- [x] Step 5, corpus (byte-order sort):
+  - 737 rows removed (666 `val`, 71 `var`) in 225 files; **0 added**; no other kind
+    removed.
+  - **Reconciled exactly with t1973** at its granularity, distinct per-file names that
+    are absent after the fix: **697 in 224 files** (626 `val` + 71 `var`).
+    - The extra rows repeat a parameter name across classes in one file.
+    - `QuestionsListRequestDTO.kt` has `lastQuestionId` / `topicId` / `limit` as both
+      `val` and `var`; t1973 counts them under `var`.
+    - `AnalyticsVocabulary.kt` keeps `wire`, because `val PermissionStep.wire` /
+      `val ProtectionTier.wire` (lines 132/135) are real top-level extension
+      properties. That is the 225th file.
+  - Hand check: 5 random removed rows are all constructor parameters.
+- [x] Step 5, mutant: with the decrement removed, 4 cases fail on their trailing `after`
+  declarations. Restored to c1 (`git diff --quiet c1`), green again.
+- [x] Step 6: `mine.patch` covers exactly the 3 paths (4 `parens` lines, 2 tests,
+  version line).
