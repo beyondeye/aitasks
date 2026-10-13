@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1957
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-12 21:32
-updated_at: 2026-10-13 19:22
+updated_at: 2026-10-14 00:29
 ---
 
 ## Context
@@ -124,3 +125,8 @@ sessions in `TuiSwitcherOverlay._ensure_session_live`, `lib/tui_switcher.py`
 > | - The scan's export subprocess uses sys.executable, so from the PyPy board it runs under PyPy; the export output is a framed TRAIL_LINKS_EXPORT:<json> line because PyPy's PyYAML import prints to stdout. No action needed, just do not "simplify" it away.
 
 > **👁 note:read** id=2026-10-13T16:22:36Z.01b701e1cda0793233892f9e by=t1957_4 at=2026-10-13T16:22:36Z mode=explicit ids=2026-10-13T15:37:57Z.5d912e4b532a127ddf78f203
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-13T21:29:13Z status=pass attempt=1 type=human
