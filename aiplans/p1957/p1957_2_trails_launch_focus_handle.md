@@ -259,7 +259,8 @@ its last child).
   supersession, server-check, baseline-order, same-id and baseline tests each
   fail when their guard is removed; the deferred-request test passes even with
   three of the four layers removed, because the `is_current` layer alone holds.
-- **Upstream defects identified:** None
+- **Upstream defects identified:**
+  - `.aitask-scripts/monitor/monitor_core.py:2246-2250 — get_pane_option uses show-options -pqv and treats rc 0 as a verified read, but tmux answers a MISSING pane with rc 0 and empty output under -q (measured on tmux 3.7c, pinned by tests/test_trails_focus_mailbox_live.py), so a vanished pane reads as (True, "") "verified unset" — the t1451 failure shape its docstring says the tuple exists to prevent`
 - **Notes for sibling tasks:** t1957_4 calls
   `launch_or_focus_trails(session, root, handle)` → `(ok, err)` and then
   switches the client itself. Its version-skew check can test for
