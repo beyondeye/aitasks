@@ -49,3 +49,8 @@ Mirror `tests/test_monitor_pane_option_live.py` (t1971):
 - Optional check: with a scratch config that sets `@aitask_trails_focus`
   globally, passed through `-f`, the old setUp fails the unset-request
   assertion and the new one is unaffected.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-13T15:31:14Z status=pass attempt=1 type=human
