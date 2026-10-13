@@ -228,3 +228,61 @@ Constraints found while exploring:
 - Kotlin's BOM behaviour is an assumption until probed; a wrong guess would mis-scope the fix · severity: low · → mitigation: none (step 0 probe with a no-BOM control under the same invocation and an explicit inconclusive outcome)
 - The no-slot case is refused rather than placed; the task explicitly allows "insert after it, or refuse" · severity: low · → mitigation: none
 - The t1954 harness confirmation needs a PIN move, which this task does not do; confirmation comes from annot's own tests plus a python3 execution test, and t1954_4 gets a note to rerun · severity: low · → mitigation: none
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-13 15:27)
+- **Requested by user:** `verifyResult`'s BOM guard only compared whether the
+  old and new bytes *start with* a BOM. A direct `Apply` `InsertAfter` line 0 edit
+  whose `New` brings its own mark (`﻿# testmap:covers src/a.py` on
+  `﻿import os\nprint('ok')\n`) passed that check. The original mark moved
+  mid-file, `Apply` wrote it, and `python3` failed with U+FEFF. HEAD refused the
+  same edit, because it never read a BOM line 1 as a comment, so this was a
+  regression introduced by the change. Fix it, and add the regression case.
+- **Changes made:** the guard now keys on identity as well as on the prefix: when the
+  old file starts with a mark the language skips, any `InsertAfter` line 0 edit is
+  refused, whatever bytes its `New` carries. The prefix comparison stays, to
+  catch a dropped or added mark. Three regression rows in
+  `TestApplyRefusesNonComments` (Python, the reviewer's exact source; Kotlin;
+  Go) were red before the fix: Python and Kotlin were written, and Go was refused
+  only by the reparse's SyntaxError. They are green after it.
+- **Files affected:** `goengines/internal/testmap/annot/rewrite.go`,
+  `goengines/internal/testmap/annot/rewrite_test.go`
+
+## Final Implementation Notes
+- **Actual work done:** as planned, plus Change Request 1.
+  - `Lang.SkipsBOM`: true for Python, Go and Kotlin; false for bash and for every
+    hook-supplied research language.
+  - `bomLen()` in `lexctx.go`, used by the three classifiers and by `ParseFile`
+    for comment-body extraction. `Line.Text` keeps the mark, so a re-stamp writes
+    it back.
+  - `Placement` refuses a file-level slot above the mark with the new
+    `ErrByteOrderMark`.
+  - `verifyResult` refuses, before the reparse, any edit that adds or drops the
+    mark, or inserts above a BOM-carrying line 1.
+  - `Classify`'s head is untouched, and `seam.patch` still applies (dry-run; the
+    patched snapshot builds and vets).
+- **Deviations from plan:**
+  - The `verifyResult` guard grew an identity check: no `InsertAfter` line 0 when
+    the old file carries the mark. The plan's prefix-only comparison let an
+    inserted line that brings its own BOM through (Change Request 1).
+  - No other deviations.
+- **Issues encountered:**
+  - **Go probe control:** step 0's control failed first (`error obtaining VCS
+    status` in the scratch dir). Per the outcome table that run was inconclusive,
+    not evidence. Re-run with `go build -buildvcs=false` under the same command for
+    all three shapes.
+  - **Edit tool decoded `﻿`:** the Edit tool turned the `﻿` escapes in
+    the new Go test literals into raw U+FEFF characters. The build then failed with
+    "illegal byte order mark". Rewritten to the escape with `sed`; check with
+    `grep $'\xef\xbb\xbf'` after any such edit. (`\x` escapes were not affected.)
+- **Key decisions:**
+  - **Refuse the no-slot case** (`ErrByteOrderMark`) rather than invent a
+    placement after line 1. The task allowed either; exposure is nil.
+  - **How the refusal surfaces:** through `annotate` it is `CHECK_ERROR:engine|byte-order-mark`,
+    exit 3, nothing written. A structured `STAMP_REFUSED` would need
+    `stampverbs.go`, which another session has open.
+  - **Probe evidence:** Go (1.27) and Kotlin (kotlinc 2.3.10) both compile the
+    no-BOM control and the leading-BOM file. Both reject a BOM on line 2 (Go
+    "illegal byte order mark", Kotlin a syntax error), so `SkipsBOM: true` for both.
+- **Upstream defects identified:** None
