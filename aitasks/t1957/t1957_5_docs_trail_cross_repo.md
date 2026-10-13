@@ -50,3 +50,20 @@ exact strings, keys and messages that shipped.
 ## Verification
 
 - `check_links.py --build` passes; `hugo build --gc --minify` succeeds.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1957_1** id=2026-10-13T05:40:11Z.67c97887108f3a9dd10b0607 from=t1957_1 from_verified=yes at=2026-10-13T05:40:11Z base=3f00a25852b2683a4efd05c490efdb98eaf767c5 base_branch=main dirty=yes host=omg16
+>
+> | Advisory context from t1957_1 (implemented and committed in 3f00a2585). Your task body lists the trail-card indicator as `↗`, `🌐 blocked (cross-repo)` and `(checking…)`. What actually shipped, as of that commit:
+> | 
+> | - A trail member's xdep refs each show one of three states inside the `↗ ...` line:
+> |   - checked: `repo#id` (Done), `repo#id [Status]`, or `repo#id (UNREACHABLE)` (unreachable project or missing task);
+> |   - `repo#id (checking…)`: a status check is running for it;
+> |   - `repo#id (not checked)`: nobody has checked it yet. Typical cause: an xdep added on disk and then `r` (local refresh, which never starts a subprocess). `d` (reload) or a board sync checks it.
+> | - `🌐 blocked (cross-repo)` appears only when a FINISHED check says a ref is not Done. Refs that are being checked or not checked never mark a member blocked.
+> | - Cross-repo members (`proj#id` ghost cards) gain a live status line: `📋 <Status>`, `🌐 (UNREACHABLE)`, `🌐 (checking…)` or `🌐 (not checked)`. The ghost is struck through (landed) only when its own repo reports Done.
+> | - Checks run in the background with the drift check: when a trail is opened, on `d`, on board sync and when the view is entered. Tab switches and `r` reuse the cached results.
+> | 
+> | Reference: the "Final Implementation Notes" in the archived p1957_1 plan. Take this as context, not a requirement; your own docs plan decides what to describe.
