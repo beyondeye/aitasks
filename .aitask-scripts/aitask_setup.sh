@@ -2279,6 +2279,25 @@ ensure_agent_config_seeds() {
     return 0
 }
 
+# --- Commit a rule a .gitignore helper just appended (t1959) ---
+# Every .gitignore helper below commits through here. Path-scoped: a bare
+# `git commit` would carry whatever another session staged in this shared
+# checkout. And never over a pre-setup change: when .gitignore was already
+# dirty at snapshot_pre_setup_dirty (edited, or deleted — staged or not),
+# committing it would put the user's uncommitted change into a setup commit,
+# so the rule stays on disk (effective, uncommitted) and commit_framework_files
+# reports the file as left alone. An unarmed or empty baseline (direct calls,
+# a fresh install) commits.
+_ait_commit_gitignore_rule() {
+    local project_dir="$1" msg="$2"
+    git -C "$project_dir" rev-parse --is-inside-work-tree &>/dev/null || return 0
+    if [[ -n "$(printf '%s\n' .gitignore | _ait_intersect "$AIT_SETUP_DIRTY_BASELINE")" ]]; then
+        info "  .gitignore had uncommitted changes before setup — rule added but not committed."
+        return 0
+    fi
+    (cd "$project_dir" && git add -- .gitignore && git commit -m "$msg" -- .gitignore 2>/dev/null) || true
+}
+
 # --- Draft directory and gitignore setup ---
 setup_draft_directory() {
     local project_dir="$SCRIPT_DIR/.."
@@ -2307,10 +2326,7 @@ setup_draft_directory() {
         } > "$gitignore"
     fi
 
-    # Commit the change if inside a git repo
-    if git -C "$project_dir" rev-parse --is-inside-work-tree &>/dev/null; then
-        (cd "$project_dir" && git add .gitignore && git commit -m "ait: Add aitasks/new/ to .gitignore (draft tasks)" 2>/dev/null) || true
-    fi
+    _ait_commit_gitignore_rule "$project_dir" "ait: Add aitasks/new/ to .gitignore (draft tasks)"
 
     success "Draft directory configured (aitasks/new/ in .gitignore)"
 }
@@ -2339,10 +2355,7 @@ setup_python_cache_gitignore() {
         } > "$gitignore"
     fi
 
-    # Commit the change if inside a git repo
-    if git -C "$project_dir" rev-parse --is-inside-work-tree &>/dev/null; then
-        (cd "$project_dir" && git add .gitignore && git commit -m "ait: Add __pycache__/ to .gitignore (Python cache artifacts)" 2>/dev/null) || true
-    fi
+    _ait_commit_gitignore_rule "$project_dir" "ait: Add __pycache__/ to .gitignore (Python cache artifacts)"
 
     success "Python cache rule added to .gitignore"
 }
@@ -2372,9 +2385,7 @@ setup_gate_logs_gitignore() {
         } > "$gitignore"
     fi
 
-    if git -C "$project_dir" rev-parse --is-inside-work-tree &>/dev/null; then
-        (cd "$project_dir" && git add .gitignore && git commit -m "ait: Add .aitask-gates/ to .gitignore (gate sidecar logs)" 2>/dev/null) || true
-    fi
+    _ait_commit_gitignore_rule "$project_dir" "ait: Add .aitask-gates/ to .gitignore (gate sidecar logs)"
 
     success "Gate sidecar-log rule added to .gitignore"
 }
@@ -2650,8 +2661,7 @@ report_testmap_state() {
 
 # --- Test map scratch gitignore rule (t1852_5) ---
 # .aitask-testmap/ holds per-checkout runs, the cost ledger and onboarding
-# scratch; it must never be committed. Unlike the older helpers above, the
-# commit names its one path, so nothing another session staged rides along.
+# scratch; it must never be committed.
 setup_testmap_gitignore() {
     local project_dir="$SCRIPT_DIR/.."
     local gitignore="$project_dir/.gitignore"
@@ -2674,9 +2684,7 @@ setup_testmap_gitignore() {
         } > "$gitignore"
     fi
 
-    if git -C "$project_dir" rev-parse --is-inside-work-tree &>/dev/null; then
-        (cd "$project_dir" && git add .gitignore && git commit -m "ait: Add .aitask-testmap/ to .gitignore (test map scratch)" -- .gitignore 2>/dev/null) || true
-    fi
+    _ait_commit_gitignore_rule "$project_dir" "ait: Add .aitask-testmap/ to .gitignore (test map scratch)"
 
     success "Test map scratch rule added to .gitignore"
 }
@@ -2720,9 +2728,7 @@ setup_worktree_dirs_gitignore() {
         } > "$gitignore"
     fi
 
-    if git -C "$project_dir" rev-parse --is-inside-work-tree &>/dev/null; then
-        (cd "$project_dir" && git add .gitignore && git commit -m "ait: Add worktree directories to .gitignore" 2>/dev/null) || true
-    fi
+    _ait_commit_gitignore_rule "$project_dir" "ait: Add worktree directories to .gitignore"
 
     success "Worktree directory rules added to .gitignore (${new_rules[*]})"
 }
@@ -2797,9 +2803,10 @@ _ait_rewrite_data_gitignore_lines() {
 #
 # It deliberately commits nothing. main() calls it LAST, immediately before
 # commit_framework_files, which commits .gitignore minus the pre-setup dirty
-# baseline. The other .gitignore helpers commit .gitignore themselves without
-# consulting that baseline, so running this ahead of any of them would let a
-# user's uncommitted .gitignore edit ride into a setup commit with the repair.
+# baseline. The other .gitignore helpers commit their own rule (through
+# _ait_commit_gitignore_rule, which honours the same baseline), so running this
+# ahead of one of them would let that helper's commit carry the repair under
+# the helper's message.
 setup_data_gitignore_symlink_safe() {
     local project_dir="$SCRIPT_DIR/.."
     local rc=0
@@ -2841,9 +2848,7 @@ setup_shadow_store_gitignore() {
         } > "$gitignore"
     fi
 
-    if git -C "$project_dir" rev-parse --is-inside-work-tree &>/dev/null; then
-        (cd "$project_dir" && git add .gitignore && git commit -m "ait: Add .aitask-shadow/ to .gitignore (shadow rejection store)" 2>/dev/null) || true
-    fi
+    _ait_commit_gitignore_rule "$project_dir" "ait: Add .aitask-shadow/ to .gitignore (shadow rejection store)"
 
     success "Shadow rejection-store rule added to .gitignore"
 }
@@ -4064,11 +4069,18 @@ AIT_SETUP_DATA_DIRTY_BASELINE=""
 AIT_SETUP_BASELINE_ARMED=0
 
 # Print the framework pathspecs that exist in <project_dir>, one per line.
+# With <include_absent>=1, print every pathspec whether or not it exists: the
+# dirty-baseline snapshot needs that, because a tracked framework file the user
+# deleted (staged or not) is absent on disk yet is exactly a pre-existing
+# change — filtered out here, setup would recreate it and commit over the
+# deletion (t1959). git accepts an unmatched pathspec in the read-only queries
+# the snapshot runs; `git add` (commit_framework_files) does not, so the
+# default stays existence-filtered.
 # NOTE: The base list is duplicated in install.sh commit_installed_files().
 # If you change one, change the other. install.sh runs stand-alone via
 # curl|bash before extraction, so it cannot source a shared helper.
 _ait_framework_paths() {
-    local project_dir="$1"
+    local project_dir="$1" include_absent="${2:-0}"
     local p
     local check_paths=(
         ".aitask-scripts/"
@@ -4087,12 +4099,12 @@ _ait_framework_paths() {
         "opencode.json"
     )
     for p in "${check_paths[@]}"; do
-        [[ -e "$project_dir/$p" ]] && printf '%s\n' "$p"
+        [[ "$include_absent" == "1" || -e "$project_dir/$p" ]] && printf '%s\n' "$p"
     done
     # install.sh may not exist in tarball installs; CI files may have been
     # installed by setup_contribution_check.
     for p in "install.sh" ".gitlab-ci.yml" "bitbucket-pipelines.yml"; do
-        [[ -f "$project_dir/$p" ]] && printf '%s\n' "$p"
+        [[ "$include_absent" == "1" || -f "$project_dir/$p" ]] && printf '%s\n' "$p"
     done
     return 0
 }
@@ -4183,8 +4195,9 @@ snapshot_pre_setup_dirty() {
         return 0
     fi
 
+    # include_absent=1: a deleted tracked framework file is a pre-existing change.
     local fw_paths=() p
-    while IFS= read -r p; do fw_paths+=("$p"); done < <(_ait_framework_paths "$project_dir")
+    while IFS= read -r p; do fw_paths+=("$p"); done < <(_ait_framework_paths "$project_dir" 1)
     if [[ ${#fw_paths[@]} -gt 0 ]]; then
         AIT_SETUP_DIRTY_BASELINE="$(_ait_list_framework_changes "$project_dir" \
             "$(_ait_data_branch_exclude_re "$project_dir")" "${fw_paths[@]}")" || true
@@ -5095,8 +5108,8 @@ main() {
     prune_retired_scripts "$SCRIPT_DIR/.."
 
     # MUST stay the last step before commit_framework_files: it leaves its
-    # .gitignore rewrite for that baseline-protected commit, and every earlier
-    # .gitignore helper self-commits without the baseline (t1711).
+    # .gitignore rewrite for that commit, and an earlier .gitignore helper's own
+    # commit would otherwise carry it under that helper's message (t1711, t1959).
     setup_data_gitignore_symlink_safe
     echo ""
 

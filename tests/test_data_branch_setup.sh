@@ -1672,13 +1672,14 @@ assert_contains "33: second run is a no-op" "already symlink-safe" "$out_33b"
 
 rm -rf "$TMPDIR_33"
 
-# --- Test 34: the repair never rides a commit that ignores the dirty baseline ---
-# main() runs the repair last, right before commit_framework_files. Earlier
-# .gitignore helpers (setup_testmap_gitignore here) self-commit .gitignore
-# without consulting AIT_SETUP_DIRTY_BASELINE. Replay main()'s order with a
-# .gitignore that is dirty before setup AND missing a later helper's rule: the
-# repair must stay on disk, uncommitted. Control: with a clean baseline the
-# same sequence commits the repair, so the fixture can show a commit.
+# --- Test 34: a dirty .gitignore is never swept into a setup commit ---
+# main() runs the repair last, right before commit_framework_files; earlier
+# .gitignore helpers (setup_testmap_gitignore here) commit their own rule.
+# Replay main()'s order with a .gitignore that is dirty before setup AND missing
+# that helper's rule: the helper honours AIT_SETUP_DIRTY_BASELINE (t1959), so
+# neither its rule, the repair nor the user's edit reaches HEAD — all stay on
+# disk, uncommitted. Control: with a clean baseline the same sequence commits
+# the helper's rule and the repair, so the fixture can show a commit.
 echo "--- Test 34: repair is left for the baseline-protected commit (t1711) ---"
 
 run_commit_protection_case() {
@@ -1700,15 +1701,22 @@ run_commit_protection_case() {
 
     local head_body
     head_body="$(git -C "$proj" show HEAD:.gitignore)"
-    assert_contains "34$label: precondition: the earlier helper self-committed its rule" \
-        ".aitask-testmap/" "$head_body"
     assert_gitignore_line "34$label: repair applied on disk" "$proj/.gitignore" ".aitask-data"
+    assert_gitignore_line "34$label: helper rule applied on disk" "$proj/.gitignore" ".aitask-testmap/"
     if [[ "$dirty" == "dirty" ]]; then
+        assert_not_contains "34$label: helper did NOT commit its rule over the dirty baseline" \
+            ".aitask-testmap/" "$head_body"
+        assert_not_contains "34$label: the user's edit is not in HEAD" \
+            "user-edit-t1711" "$head_body"
+        assert_gitignore_line "34$label: the user's edit is kept on disk" "$proj/.gitignore" \
+            "user-edit-t1711"
         assert_contains "34$label: HEAD still has the legacy line — repair NOT committed" \
             ".aitask-data/" "$head_body"
         assert_eq_trim "34$label: .gitignore left modified for the user" "M .gitignore" \
             "$(git -C "$proj" status --porcelain -- .gitignore)"
     else
+        assert_contains "34$label: helper committed its rule on a clean baseline" \
+            ".aitask-testmap/" "$head_body"
         assert_not_contains "34$label: HEAD has no legacy line — repair committed" \
             ".aitask-data/" "$head_body"
         assert_eq_trim "34$label: .gitignore clean after commit" "" \

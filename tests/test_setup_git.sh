@@ -781,6 +781,118 @@ if [[ -n "$agents_line" && -n "$commit_line" && "$agents_line" -lt "$commit_line
 fi
 assert_eq "T26: setup_code_agents precedes commit_framework_files in main()" "yes" "$agents_before_commit"
 
+# --- Test 27: .gitignore helpers commit path-scoped and honour the baseline (t1959) ---
+# Every .gitignore helper commits through _ait_commit_gitignore_rule. With a
+# real armed baseline (tracked VERSION): a .gitignore already dirty before setup
+# — edited, or deleted staged/unstaged — is never committed by a helper, and a
+# helper commit never carries another file someone else staged.
+echo "--- Test 27: .gitignore helpers: path-scoped, baseline-aware commits ---"
+
+# A committed project whose .gitignore lacks every helper rule.
+new_gitignore_repo() {
+    local d
+    d="$(setup_fake_project)"
+    echo "base-rule" > "$d/.gitignore"
+    (cd "$d" && git init --quiet && git config user.email "t@t.com" && git config user.name "T" \
+        && git add -A && git commit -m "init" --quiet)
+    echo "$d"
+}
+commit_count() { git -C "$1" rev-list --count HEAD 2>/dev/null; }
+
+while IFS='|' read -r helper rule; do
+    # (a) pre-setup .gitignore edit: rule added on disk, nothing committed.
+    d="$(new_gitignore_repo)"
+    SCRIPT_DIR="$d/.aitask-scripts"
+    echo "user-edit" >> "$d/.gitignore"
+    before="$(commit_count "$d")"
+    snapshot_pre_setup_dirty
+    "$helper" </dev/null >/dev/null 2>&1
+    head_gi="$(git -C "$d" show HEAD:.gitignore)"
+    assert_eq "27a $helper: no commit over a dirty .gitignore" "$before" "$(commit_count "$d")"
+    assert_not_contains "27a $helper: rule not in HEAD" "$rule" "$head_gi"
+    assert_not_contains "27a $helper: user edit not in HEAD" "user-edit" "$head_gi"
+    assert_eq "27a $helper: rule and user edit both on disk" "yes" \
+        "$(grep -qxF "$rule" "$d/.gitignore" && grep -qxF "user-edit" "$d/.gitignore" && echo yes)"
+    rm -rf "$d"
+
+    # (b) clean .gitignore, foreign file staged: one commit, .gitignore only.
+    d="$(new_gitignore_repo)"
+    SCRIPT_DIR="$d/.aitask-scripts"
+    echo "foreign" > "$d/foreign.txt"
+    git -C "$d" add foreign.txt
+    before="$(commit_count "$d")"
+    snapshot_pre_setup_dirty
+    "$helper" </dev/null >/dev/null 2>&1
+    assert_eq "27b $helper: exactly one new commit" "$((before + 1))" "$(commit_count "$d")"
+    assert_eq "27b $helper: the commit names only .gitignore" ".gitignore" \
+        "$(git -C "$d" show --name-only --format='' HEAD)"
+    assert_eq "27b $helper: rule committed" "yes" \
+        "$(git -C "$d" show HEAD:.gitignore | grep -qxF "$rule" && echo yes)"
+    assert_eq "27b $helper: foreign file still staged" "foreign.txt" \
+        "$(git -C "$d" diff --cached --name-only)"
+    rm -rf "$d"
+done <<'HELPERS'
+setup_draft_directory|aitasks/new/
+setup_python_cache_gitignore|__pycache__/
+setup_gate_logs_gitignore|.aitask-gates/
+setup_testmap_gitignore|.aitask-testmap/
+setup_shadow_store_gitignore|.aitask-shadow/
+setup_worktree_dirs_gitignore|aiwork/
+HELPERS
+
+# (c)/(d) a deleted .gitignore is a pre-existing change too. The gap was in the
+# shared baseline capture (absent paths were never scanned), so one helper
+# stands for all six.
+for mode in unstaged staged; do
+    d="$(new_gitignore_repo)"
+    SCRIPT_DIR="$d/.aitask-scripts"
+    if [[ "$mode" == "staged" ]]; then
+        git -C "$d" rm -q .gitignore
+    else
+        rm "$d/.gitignore"
+    fi
+    before="$(commit_count "$d")"
+    snapshot_pre_setup_dirty
+    assert_eq "27 $mode deletion: .gitignore in the baseline" "yes" \
+        "$(printf '%s\n' "$AIT_SETUP_DIRTY_BASELINE" | grep -qxF ".gitignore" && echo yes)"
+    setup_python_cache_gitignore </dev/null >/dev/null 2>&1
+    assert_eq "27 $mode deletion: no commit over the deletion" "$before" "$(commit_count "$d")"
+    assert_eq "27 $mode deletion: HEAD .gitignore unchanged" "base-rule" \
+        "$(git -C "$d" show HEAD:.gitignore)"
+    assert_eq "27 $mode deletion: recreated rule on disk" "yes" \
+        "$(grep -qxF "__pycache__/" "$d/.gitignore" && echo yes)"
+    if [[ "$mode" == "staged" ]]; then
+        assert_contains_re "27 staged deletion: still staged" "^D[[:space:]]+\.gitignore$" \
+            "$(git -C "$d" diff --cached --name-status -- .gitignore)"
+    else
+        assert_eq "27 unstaged deletion: left modified" " M .gitignore" \
+            "$(git -C "$d" status --porcelain -- .gitignore)"
+    fi
+    rm -rf "$d"
+done
+
+# (e) the deletion-aware capture is shared: commit_framework_files does not
+# commit a regenerated framework file over a pre-setup deletion either.
+d="$(new_gitignore_repo)"
+SCRIPT_DIR="$d/.aitask-scripts"
+echo "original" > "$d/CLAUDE.md"
+(cd "$d" && git add CLAUDE.md && git commit -m "claude" --quiet)
+rm "$d/CLAUDE.md"
+snapshot_pre_setup_dirty
+echo "regenerated" > "$d/CLAUDE.md"
+output=$(commit_framework_files 2>&1 </dev/null)
+assert_eq "27e: HEAD CLAUDE.md keeps the original" "original" "$(git -C "$d" show HEAD:CLAUDE.md)"
+assert_contains_ci "27e: deleted-then-regenerated file reported" "left alone" "$output"
+rm -rf "$d"
+
+# Disarm the baseline for anything later; the sourced setup functions read these.
+# shellcheck disable=SC2034
+{
+    AIT_SETUP_BASELINE_ARMED=0
+    AIT_SETUP_DIRTY_BASELINE=""
+    AIT_SETUP_DATA_DIRTY_BASELINE=""
+}
+
 # --- Summary ---
 echo ""
 echo "==============================="
