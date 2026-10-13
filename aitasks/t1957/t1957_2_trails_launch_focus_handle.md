@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [trails, tmux, cross_repo]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1957
 created_at: 2026-10-12 21:31
-updated_at: 2026-10-12 21:31
+updated_at: 2026-10-13 11:22
 ---
 
 ## Context
