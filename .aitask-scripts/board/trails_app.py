@@ -18,6 +18,15 @@ serves the discovery cache (``r`` inside the selector re-scans), and a drift,
 reload or watch result for a background tab updates only that tab and marks it
 ``•``. Tabs are session-only, never persisted (the t1210_4 rule).
 
+Opening a trail by name (t1957_2): ``--trail <handle>`` opens that trail at
+boot instead of the selector, and a running instance takes later requests from
+its own pane's tmux mailbox (``launch_or_focus_trails`` in agent_launch_utils
+writes it). The App stamps its pane as a receiver only once it has recorded
+the request already sitting there — so nothing left by an earlier instance is
+replayed — polls that one pane, never clears it, and applies each new request
+id once; the latest request wins, including over one held back by a modal or
+still waiting on a rescan.
+
 Shortcut ownership (parent plan C10): this App registers under scope
 ``"board"`` and declares the SAME ``TRAIL_BINDINGS`` objects the board does —
 plus the shared ``PICK_BINDING`` (``p``, t1946) — so a
@@ -42,6 +51,7 @@ interpolated, never copied.
 from __future__ import annotations
 
 import contextlib
+import os
 import shlex
 import sys
 from pathlib import Path
@@ -53,6 +63,7 @@ from module_shadow_guard import assert_lib_not_shadowed  # noqa: E402
 assert_lib_not_shadowed(Path(__file__).resolve().parent.parent / "lib")
 
 from rich.cells import cell_len, set_cell_size
+from textual import work
 from textual.app import App
 from textual.binding import Binding
 from textual.containers import HorizontalScroll, VerticalScroll
@@ -64,13 +75,18 @@ from textual.widgets import DataTable, Header, Input, SelectionList, Static
 from agent_command_screen import build_pick_screen
 from agent_launch_utils import (
     TmuxLaunchConfig, focus_existing_agent_window, launch_in_tmux,
-    maybe_spawn_minimonitor,
+    mark_trails_receiver, maybe_spawn_minimonitor, pane_on_gateway_server,
+    parse_trails_focus_request, read_trails_focus_request,
+    unmark_trails_receiver,
 )
+from artifact_manifest import HANDLE_RE
 from board_task_manager import TaskManager
 from board_trail_screen import (
     CODEAGENT_SCRIPT, PICK_BINDING, TRAIL_BINDINGS, TrailScreenMixin,
 )
-from board_trail_view import TRAIL_CSS, TrailColumn, TrailTaskCard
+from board_trail_view import (
+    TRAIL_CSS, TrailColumn, TrailSelectScreen, TrailTaskCard,
+)
 from board_widgets import WIDGET_CSS, TaskCard
 from multirow_footer import MultiRowFooter
 from shortcuts_mixin import ShortcutsMixin
@@ -95,6 +111,8 @@ class TrailsScreen(Screen):
 
     def on_screen_resume(self) -> None:
         self.app.call_after_refresh(self.app.apply_filter)
+        # A trail request held back by the modal that just closed.
+        self.app.call_after_refresh(self.app._drain_trail_focus)
 
 
 #: Tab keys — trails-only rows under the shared `board` scope (C10): the board
@@ -111,6 +129,9 @@ TRAIL_TAB_BINDINGS = [
 
 #: Widest a tab title may render before it is elided (cells).
 TAB_TITLE_CELLS = 24
+
+#: Seconds between reads of this App's own pane mailbox (t1957_2).
+TRAIL_FOCUS_POLL_SECONDS = 1.0
 
 
 def trail_tab_label(index: int, session) -> str:
@@ -229,7 +250,13 @@ class TrailsApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
     ]
 
     def __init__(self, *, tasks_dir: Path, metadata_file: Path,
-                 gates_registry_file: Path):
+                 gates_registry_file: Path, initial_trail: str | None = None,
+                 focus_pane: str | None = None, focus_tmux_env: str = ""):
+        """``initial_trail`` opens that trail at boot instead of the selector.
+        ``focus_pane`` / ``focus_tmux_env`` are this process's ``$TMUX_PANE`` /
+        ``$TMUX``, passed in by ``main()`` (never read here, so a test App
+        cannot stamp the pane of the terminal running the suite); without a
+        pane there is no mailbox."""
         super().__init__()
         self.current_tui_name = "trails"
         self._tasks_dir = Path(tasks_dir)
@@ -247,6 +274,19 @@ class TrailsApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
         # render exists (t1895: A→B→A switches would otherwise let a restore
         # queued for A's first visit land on A's second).
         self._render_seq = 0
+        # --- Open-by-name: `--trail` and the pane mailbox (t1957_2) ---
+        self._initial_trail = initial_trail
+        self._focus_pane = focus_pane or None
+        self._focus_tmux_env = focus_tmux_env or ""
+        # Id of the last mailbox request seen (the boot baseline included).
+        self._seen_focus_id: str | None = None
+        self._focus_stamped = False      # our receiver stamp is on the pane
+        self._focus_timer = None
+        self._focus_poll_busy = False    # one mailbox read in flight at most
+        # Every accepted request draws a fresh number; an older one — held by
+        # a modal, or waiting on its rescan — is dropped once it is not current.
+        self._focus_delivery_seq = 0
+        self._pending_trail_focus: tuple[int, str] | None = None
 
     # --- Composition -------------------------------------------------------
 
@@ -278,8 +318,116 @@ class TrailsApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
 
     def on_mount(self):
         self.refresh_board()
-        # Boot straight into the selection flow, as the board does on `z`.
-        self.call_after_refresh(self._open_trail_select)
+        if self._initial_trail:
+            self.call_after_refresh(self._deliver_trail_focus,
+                                    self._initial_trail)
+        else:
+            # Boot straight into the selection flow, as the board does on `z`.
+            self.call_after_refresh(self._open_trail_select)
+        if self._focus_pane:
+            self._trail_focus_register_worker(self._focus_pane,
+                                              self._focus_tmux_env)
+
+    def on_unmount(self):
+        if self._focus_timer is not None:
+            self._focus_timer.stop()
+            self._focus_timer = None
+        if self._focus_stamped and self._focus_pane:
+            # Best effort; a stamp left by a crash is ignored by writers once
+            # its pid is gone. The request option itself is never unset.
+            unmark_trails_receiver(self._focus_pane)
+            self._focus_stamped = False
+
+    # --- Open-by-name: `--trail` and the pane mailbox (t1957_2) -----------
+
+    @work(thread=True, group="trails_focus")
+    def _trail_focus_register_worker(self, pane: str, tmux_env: str):
+        """Become a receiver: verify the pane, read the baseline, THEN stamp.
+
+        The pane must be the gateway server's (a ``$TMUX_PANE`` from another
+        tmux server names some unrelated pane there). The baseline read comes
+        before the stamp because writers only target stamped panes: anything
+        written after the stamp is newer than the baseline, and anything
+        already there — a request left by an earlier instance in this pane —
+        is recorded as seen, never replayed. A failed read stops here (fail
+        closed): with no baseline there is no telling a leftover from new."""
+        if not pane_on_gateway_server(pane, tmux_env):
+            return
+        baseline = read_trails_focus_request(pane)
+        if baseline is None:
+            return
+        stamped = mark_trails_receiver(pane)
+        self.call_from_thread(self._on_trail_focus_registered, baseline,
+                              stamped)
+
+    def _on_trail_focus_registered(self, baseline: str, stamped: bool):
+        parsed = parse_trails_focus_request(baseline)
+        self._seen_focus_id = parsed[0] if parsed else None
+        if not stamped:
+            return          # no writer targets an unstamped pane: nothing to poll
+        self._focus_stamped = True
+        self._focus_timer = self.set_interval(TRAIL_FOCUS_POLL_SECONDS,
+                                              self._poll_trail_focus)
+
+    def _poll_trail_focus(self):
+        # Skip while a read is in flight, so reads stay strictly sequential and
+        # a slow older read can never land after a newer one.
+        if self._focus_poll_busy or not self._focus_stamped:
+            return
+        self._focus_poll_busy = True
+        self._trail_focus_poll_worker(self._focus_pane)
+
+    @work(thread=True, group="trails_focus")
+    def _trail_focus_poll_worker(self, pane: str):
+        """Read this App's own pane mailbox — read-only, never another pane's."""
+        self.call_from_thread(self._on_trail_focus_value,
+                              read_trails_focus_request(pane))
+
+    def _on_trail_focus_value(self, value: str | None):
+        self._focus_poll_busy = False
+        parsed = parse_trails_focus_request(value)
+        if parsed is None:
+            return          # read failed, or no request
+        request_id, handle = parsed
+        if request_id == self._seen_focus_id:
+            return
+        self._seen_focus_id = request_id
+        if handle is None:
+            # Untrusted input: recorded as seen (never retried), not echoed.
+            self.notify("Ignored a malformed trail request", severity="warning")
+            return
+        self._deliver_trail_focus(handle)
+
+    def _deliver_trail_focus(self, handle: str):
+        """Accept a request to open ``handle``; it supersedes every older one."""
+        self._focus_delivery_seq += 1
+        self._pending_trail_focus = None
+        self._apply_trail_focus(self._focus_delivery_seq, handle)
+
+    def _apply_trail_focus(self, seq: int, handle: str, *,
+                           announce: bool = True):
+        if seq != self._focus_delivery_seq:
+            return          # a newer request was accepted since
+        if isinstance(self.screen, TrailSelectScreen):
+            # The selector is a question the request answers: close it, and the
+            # base screen's resume hook applies the request.
+            self._pending_trail_focus = (seq, handle)
+            self.screen.dismiss(None)
+            return
+        if self._modal_is_active():
+            self._pending_trail_focus = (seq, handle)
+            if announce:
+                self.notify(f"Trail {handle} opens when this dialog closes")
+            return
+        self._pending_trail_focus = None
+        self._open_trail_by_handle(
+            handle, is_current=lambda: seq == self._focus_delivery_seq)
+
+    def _drain_trail_focus(self):
+        """`TrailsScreen.on_screen_resume`: apply a request a modal held back."""
+        pending = self._pending_trail_focus
+        if pending is not None:
+            self._apply_trail_focus(*pending, announce=False)
 
     def on_resize(self, event):
         # The banner is budgeted against the header width (t1278).
@@ -680,7 +828,12 @@ def main(argv: list[str] | None = None) -> None:
     `--tasks-dir` is therefore the launcher's flag, not a user override: two
     different values on one command line (a user's plus the launcher's) mean
     the manager and discovery would read different trees, and the app refuses
-    to start rather than let either silently win. Set `TASK_DIR` instead."""
+    to start rather than let either silently win. Set `TASK_DIR` instead.
+
+    `--trail <handle>` is a user flag (and the cold path of
+    `launch_or_focus_trails`): validated as an artifact handle here, it opens
+    that trail at boot. `$TMUX_PANE` / `$TMUX` are read here and only here, so
+    the pane mailbox exists only for a real launch."""
     import argparse
 
     parser = argparse.ArgumentParser(description="aitasks implementation-trails TUI")
@@ -689,7 +842,11 @@ def main(argv: list[str] | None = None) -> None:
     # reads `aitasks/` — the same tree discovery's own default names.
     parser.add_argument("--tasks-dir", action="append", type=Path,
                         help=argparse.SUPPRESS)
+    parser.add_argument("--trail", metavar="HANDLE",
+                        help="open this trail (art:...) instead of the selector")
     args = parser.parse_args(argv)
+    if args.trail is not None and not HANDLE_RE.match(args.trail):
+        parser.error(f"invalid trail handle {args.trail!r}: expected art:<id>")
     given = list(dict.fromkeys(args.tasks_dir or []))
     if len(given) > 1:
         parser.error("conflicting --tasks-dir values "
@@ -698,7 +855,10 @@ def main(argv: list[str] | None = None) -> None:
     tasks = given[0] if given else Path("aitasks")
     TrailsApp(tasks_dir=tasks,
               metadata_file=tasks / "metadata" / "board_config.json",
-              gates_registry_file=tasks / "metadata" / "gates.yaml").run()
+              gates_registry_file=tasks / "metadata" / "gates.yaml",
+              initial_trail=args.trail,
+              focus_pane=os.environ.get("TMUX_PANE") or None,
+              focus_tmux_env=os.environ.get("TMUX", "")).run()
 
 
 if __name__ == "__main__":

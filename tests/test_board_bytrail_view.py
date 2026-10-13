@@ -941,7 +941,7 @@ class BoardSingleSessionTests(ByTrailTestBase):
                 stamps = []
                 app._trail_drift_worker = lambda gen, handle: stamps.append(gen)
                 app._start_session_drift(app._trail_active)
-                app._trail_discovery_worker = lambda gen, overlay: None
+                app._trail_discovery_worker = lambda gen, overlay, then=None: None
                 app._open_trail_select(rescan=True)   # pushes the overlay
                 await pilot.pause()
                 app.pop_screen()
@@ -960,7 +960,7 @@ class BoardSingleSessionTests(ByTrailTestBase):
             async with app.run_test(size=(160, 48)) as pilot:
                 await pilot.pause()
                 await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
-                app._trail_discovery_worker = lambda gen, overlay: None
+                app._trail_discovery_worker = lambda gen, overlay, then=None: None
                 app._open_trail_select(rescan=True)
                 await pilot.pause()
                 scan = app._trail_discovery_gen

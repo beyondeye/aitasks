@@ -19,10 +19,12 @@ import shutil
 import stat
 import subprocess
 import sys
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import NamedTuple
 
+from artifact_manifest import HANDLE_RE
 from tui_registry import TUI_NAMES as _DEFAULT_TUI_NAMES
 from tmux_exec import TmuxClient, session_scope_target, tmux_stderr_is
 # The monitor pane marker: rule + classification live in monitor_marker (one
@@ -31,6 +33,7 @@ from tmux_exec import TmuxClient, session_scope_target, tmux_stderr_is
 from monitor_marker import (  # noqa: F401
     MONITOR_KIND_OPTION,
     MONITOR_KINDS,
+    _process_exists,
     monitor_marker_alive,
     monitor_marker_state,
 )
@@ -483,8 +486,26 @@ def current_tmux_session() -> str | None:
     only when the answering server's ``#{socket_path}`` is the socket ``$TMUX``
     names: pane ids are per-server, and ``%0`` exists on every server.
     """
-    tmux_env = os.environ.get("TMUX", "")
-    pane = os.environ.get("TMUX_PANE", "")
+    return _gateway_pane_session(os.environ.get("TMUX_PANE", ""),
+                                 os.environ.get("TMUX", ""))
+
+
+def pane_on_gateway_server(pane: str, tmux_env: str) -> bool:
+    """Is ``pane`` (a ``$TMUX_PANE`` value) a pane of the GATEWAY server?
+
+    ``tmux_env`` is the ``$TMUX`` value of the process that owns ``pane``. The
+    rule is :func:`current_tmux_session`'s: pane ids are per-server, so a pane
+    id read from the environment of a process in another tmux server (the
+    user's personal one) names an unrelated pane on the gateway server — or
+    none. Anything that reads or writes a pane's options on the strength of
+    ``$TMUX_PANE`` must pass this first.
+    """
+    return _gateway_pane_session(pane, tmux_env) is not None
+
+
+def _gateway_pane_session(pane: str, tmux_env: str) -> str | None:
+    """``pane``'s session on the gateway server, or None when the gateway is not
+    verifiably the server ``tmux_env`` names (see :func:`current_tmux_session`)."""
     if not tmux_env or not pane:
         return None
     own_socket = tmux_env.split(",", 1)[0]
@@ -2565,6 +2586,139 @@ def launch_or_focus_codebrowser(
         if rc != 0:
             return False, "tmux new-window failed"
 
+    return True, None
+
+
+# --- `ait trails` focus mailbox (t1957_2) -------------------------------------
+#
+# A request to open a trail in a RUNNING `ait trails` is addressed to exactly one
+# pane, never to a session: every TrailsApp in a session would poll a
+# session-wide variable, and the first to read-and-clear it would win.
+#
+# * Receiver stamp — `@aitask_trails_app <pid>` on the pane of a running
+#   TrailsApp (set by the app on itself, after its baseline read; unset on
+#   exit). A stamp whose pid is gone (crash, kill) is not a receiver.
+# * Request — `@aitask_trails_focus "<32-hex id> <handle>"` on that pane. Writers
+#   only ever OVERWRITE it and nobody ever unsets it: a reader that cleared the
+#   value after reading could erase a request written in between. The reader
+#   instead remembers the last id it saw; a new id is a new request, and the
+#   latest one wins.
+#
+# The reads go through `display-message` with the pane id echoed first, because
+# `show-options -q` and `display-message` both answer a MISSING pane with rc 0
+# and empty output — only the echo separates "no request" from "no such pane".
+
+TRAILS_FOCUS_OPTION = "@aitask_trails_focus"
+TRAILS_RECEIVER_OPTION = "@aitask_trails_app"
+_TRAILS_REQUEST_ID_RE = re.compile(r"^[0-9a-f]{32}$")
+# A receiver stamp is a pid: ASCII digits only (`str.isdigit` also accepts `²`,
+# which `int()` refuses) and within the C int `os.kill` takes.
+_TRAILS_STAMP_RE = re.compile(r"[1-9][0-9]{0,9}")
+_PID_MAX = 2**31 - 1
+
+
+def read_trails_focus_request(pane: str) -> str | None:
+    """``pane``'s raw ``@aitask_trails_focus`` value — ``""`` when it holds no
+    request — or None when the read failed (pane gone, server unreachable)."""
+    rc, out = _TMUX.run(["display-message", "-p", "-t", pane,
+                         f"#{{pane_id}}\t#{{{TRAILS_FOCUS_OPTION}}}"])
+    if rc != 0:
+        return None
+    echoed, sep, value = out.rstrip("\n").partition("\t")
+    if not sep or echoed != pane:
+        return None
+    return value.strip()
+
+
+def parse_trails_focus_request(value: str | None) -> tuple[str, str | None] | None:
+    """A raw request value -> ``(id, handle)``; ``(id, None)`` when malformed.
+
+    None for an empty value (no request). The id is the first token whatever its
+    shape, so a malformed request is still recorded as seen and never retried;
+    the handle is returned only when the id is a 32-hex request id and the rest
+    is a well-formed artifact handle (the value is untrusted input)."""
+    text = (value or "").strip()
+    if not text:
+        return None
+    request_id, _, handle = text.partition(" ")
+    handle = handle.strip()
+    if _TRAILS_REQUEST_ID_RE.match(request_id) and HANDLE_RE.match(handle):
+        return request_id, handle
+    return request_id, None
+
+
+def mark_trails_receiver(pane: str) -> bool:
+    """Stamp ``pane`` as this process's trails receiver; True when written."""
+    rc, _ = _TMUX.run(["set-option", "-p", "-t", pane, TRAILS_RECEIVER_OPTION,
+                       str(os.getpid())])
+    return rc == 0
+
+
+def unmark_trails_receiver(pane: str) -> bool:
+    """Remove ``pane``'s receiver stamp (best effort). The request option is
+    left alone — nobody ever unsets it."""
+    rc, _ = _TMUX.run(["set-option", "-p", "-u", "-t", pane,
+                       TRAILS_RECEIVER_OPTION])
+    return rc == 0
+
+
+def _live_trails_receivers(session: str) -> list[tuple[str, str]] | None:
+    """``(pane_id, window_id)`` of every pane in ``session`` stamped by a live
+    process, in tmux's window/pane order; None when the listing failed."""
+    rc, out = _TMUX.run(
+        ["list-panes", "-s", "-t", tmux_session_scope_target(session),
+         "-F", f"#{{pane_id}} #{{window_id}} #{{{TRAILS_RECEIVER_OPTION}}}"])
+    if rc != 0:
+        return None
+    receivers = []
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) != 3 or not _TRAILS_STAMP_RE.fullmatch(parts[2]):
+            continue
+        pid = int(parts[2])
+        if pid <= _PID_MAX and _process_exists(pid):
+            receivers.append((parts[0], parts[1]))
+    return receivers
+
+
+def launch_or_focus_trails(
+    session: str, project_root: Path, handle: str,
+) -> tuple[bool, str | None]:
+    """Open trail ``handle`` in ``session``'s ``ait trails``.
+
+    A running TrailsApp (a live receiver stamp) gets the request in its own
+    pane's mailbox — ONE receiver, the first in window/pane order, so two
+    trails windows never both act on it — and that pane is selected. With none
+    running, a new ``trails`` window rooted at ``project_root`` runs
+    ``./ait trails --trail <handle>`` (argv form, no shell string). Does not
+    switch the client; the caller does.
+
+    Returns ``(success, error_message)``.
+    """
+    if not HANDLE_RE.match(handle or ""):
+        return False, f"invalid trail handle: {handle!r}"
+    receivers = _live_trails_receivers(session)
+    if receivers is None:
+        return False, "tmux list-panes failed"
+    if receivers:
+        pane, window = receivers[0]
+        rc, _ = _TMUX.run(["set-option", "-p", "-t", pane, TRAILS_FOCUS_OPTION,
+                           f"{uuid.uuid4().hex} {handle}"])
+        if rc != 0:
+            return False, "tmux set-option failed"
+        rc, _ = _TMUX.run(["select-window", "-t", window])
+        if rc != 0:
+            return False, "tmux select-window failed"
+        rc, _ = _TMUX.run(["select-pane", "-t", pane])
+        if rc != 0:
+            return False, "tmux select-pane failed"
+        return True, None
+    rc, _ = _TMUX.run(
+        ["new-window", "-t", tmux_window_target(session, ""),
+         "-c", str(project_root), "-n", "trails",
+         "./ait", "trails", "--trail", handle])
+    if rc != 0:
+        return False, "tmux new-window failed"
     return True, None
 
 

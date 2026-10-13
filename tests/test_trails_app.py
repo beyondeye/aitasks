@@ -37,6 +37,9 @@ Run: bash tests/run_all_python_tests.sh
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import io
+import os
 import subprocess
 import sys
 import tempfile
@@ -1885,6 +1888,448 @@ class XdepSessionTests(TrailsAppTestBase):
                     self.assertEqual(probes, [XREF])
                     self.assertEqual(self._remote(app), "📋 Done")
         self._run(go())
+
+
+# --- open by name: `--trail` and the pane mailbox (t1957_2) ---------------------
+
+HANDLE_C = "art:trail-gamma"
+HANDLE_LATE = "art:trail-late"
+
+
+class _PaneStore:
+    """The tmux side of the mailbox: per-pane options on ONE fake gateway server.
+
+    Patched over the names `trails_app` imports, so the App's real worker code
+    runs against it. `gateway` lists the panes that verify as the gateway
+    server's; a pane outside it is "the same id on another server"."""
+
+    def __init__(self, gateway=("%1", "%2")):
+        import threading
+        self.opts: dict[str, dict[str, str]] = {}
+        self.log: list[tuple[str, str]] = []
+        self.gateway = set(gateway)
+        self.fail_reads = False
+        self.on_read = None          # one-shot hook run after a read is taken
+        self._lock = threading.Lock()
+
+    def verify(self, pane, tmux_env):
+        self.log.append(("verify", pane))
+        return pane in self.gateway
+
+    def read(self, pane):
+        with self._lock:
+            self.log.append(("read", pane))
+            if self.fail_reads:
+                return None
+            value = self.opts.get(pane, {}).get("focus", "")
+            hook, self.on_read = self.on_read, None
+        if hook is not None:
+            hook(pane)
+        return value
+
+    def mark(self, pane):
+        self.log.append(("mark", pane))
+        self.opts.setdefault(pane, {})["stamp"] = "1"
+        return True
+
+    def unmark(self, pane):
+        self.log.append(("unmark", pane))
+        self.opts.get(pane, {}).pop("stamp", None)
+        return True
+
+    def write(self, pane, handle, request_id=None):
+        """What `launch_or_focus_trails` does to the chosen pane: overwrite."""
+        import uuid
+        request_id = request_id or uuid.uuid4().hex
+        self.opts.setdefault(pane, {})["focus"] = f"{request_id} {handle}"
+        return request_id
+
+    def verbs(self, pane):
+        return [verb for verb, p in self.log if p == pane]
+
+    def patches(self, ta):
+        return [patch.object(ta, "pane_on_gateway_server", self.verify),
+                patch.object(ta, "read_trails_focus_request", self.read),
+                patch.object(ta, "mark_trails_receiver", self.mark),
+                patch.object(ta, "unmark_trails_receiver", self.unmark),
+                # Polls are driven by the test, never by the timer.
+                patch.object(ta, "TRAIL_FOCUS_POLL_SECONDS", 3600)]
+
+
+class TrailFocusTests(TrailsAppTestBase):
+    """Opening a trail by name: the cold `--trail` path, and requests to a
+    running App through its own pane's mailbox — each applied once, never
+    cleared, latest wins, one receiver per request."""
+
+    def _info_for(self, handle, title):
+        doc = _titled(_wave_doc(list(self.member_ids)), title, title.upper())
+        return TrailInfo(handle=handle, owner_id=self.member_ids[0],
+                         owner_archived=False, owner_folded=False,
+                         name=title, doc=doc)
+
+    def _seams(self, extra_on_rescan=None, gate=None):
+        """discover / drift / load patches. With `gate` (a threading.Event),
+        every scan after the first waits on it and then also returns
+        `extra_on_rescan` — a trail authored after boot."""
+        infos = [self._info_for(HANDLE_A, "Alpha"),
+                 self._info_for(HANDLE_B, "Beta"),
+                 self._info_for(HANDLE_C, "Gamma")]
+        calls = {"discover": 0}
+
+        def discover():
+            calls["discover"] += 1
+            found = list(infos)
+            if calls["discover"] > 1 and extra_on_rescan is not None:
+                if gate is not None:
+                    gate.wait(10)
+                found.append(extra_on_rescan)
+            return found, []
+
+        def load(handle):
+            return next(i for i in infos if i.handle == handle).doc, "", []
+
+        return calls, [patch.object(self.ts, "discover_trails", discover),
+                       patch.object(self.ts, "run_trail_drift",
+                                    lambda h: ("CURRENT", [])),
+                       patch.object(self.ts, "load_trail_blob", load)]
+
+    def _activations(self, app):
+        log = []
+        original = app._activate_trail
+
+        def spy(handle):
+            log.append(handle)
+            return original(handle)
+        app._activate_trail = spy
+        return log
+
+    def _notices(self, app):
+        log = []
+        original = app.notify
+
+        def spy(message, *args, **kwargs):
+            log.append(str(message))
+            return original(message, *args, **kwargs)
+        app.notify = spy
+        return log
+
+    async def _poll(self, app, pilot):
+        app._poll_trail_focus()
+        await self._settle(app, pilot)
+
+    def _run_app(self, body, *, store=None, seams=None, **app_kwargs):
+        """Boot an App (patched seams + store) and run `body(app, pilot)`."""
+        async def go():
+            _calls, stack = seams or self._seams()
+            patches = stack + (store.patches(self.ta) if store else [])
+            app = bf.make_trails_app(**app_kwargs)
+            app._t_activated = self._activations(app)
+            app._t_notices = self._notices(app)
+            with contextlib.ExitStack() as ctx:
+                for p in patches:
+                    ctx.enter_context(p)
+                async with app.run_test(size=(200, 48)) as pilot:
+                    await self._settle(app, pilot)
+                    await body(app, pilot)
+                    await self._settle(app, pilot)
+            return app
+        return self._run(go())
+
+    # --- main() ------------------------------------------------------------
+
+    def test_main_rejects_a_malformed_handle(self):
+        with patch.object(self.ta, "TrailsApp") as app_cls, \
+                contextlib.redirect_stderr(io.StringIO()):
+            for bad in ("trail-alpha", "art:", "art:Bad Handle", "art:a b"):
+                with self.subTest(bad=bad), self.assertRaises(SystemExit):
+                    self.ta.main(["--trail", bad])
+        app_cls.assert_not_called()
+
+    def test_main_passes_the_handle_and_the_pane_environment(self):
+        with patch.object(self.ta, "TrailsApp") as app_cls, \
+                patch.dict(os.environ, {"TMUX_PANE": "%7",
+                                        "TMUX": "/tmp/s/ait,1,0"}):
+            self.ta.main(["--trail", HANDLE_B])
+        kwargs = app_cls.call_args.kwargs
+        self.assertEqual(kwargs["initial_trail"], HANDLE_B)
+        self.assertEqual(kwargs["focus_pane"], "%7")
+        self.assertEqual(kwargs["focus_tmux_env"], "/tmp/s/ait,1,0")
+        app_cls.return_value.run.assert_called_once()
+
+    def test_main_outside_tmux_has_no_mailbox(self):
+        env = {k: v for k, v in os.environ.items()
+               if k not in ("TMUX", "TMUX_PANE")}
+        with patch.object(self.ta, "TrailsApp") as app_cls, \
+                patch.dict(os.environ, env, clear=True):
+            self.ta.main([])
+        self.assertIsNone(app_cls.call_args.kwargs["focus_pane"])
+        self.assertIsNone(app_cls.call_args.kwargs["initial_trail"])
+
+    # --- the cold path -----------------------------------------------------
+
+    def test_cold_trail_opens_it_instead_of_the_selector(self):
+        async def body(app, pilot):
+            self.assertIsInstance(app.screen, self.ta.TrailsScreen)
+            self.assertEqual(app.active_trail_handle, HANDLE_B)
+            self.assertEqual(list(app._trail_sessions), [HANDLE_B])
+            self.assertIsNotNone(app._trail_doc)
+            self.assertEqual(calls["discover"], 1)
+        calls, stack = self._seams()
+        self._run_app(body, seams=(calls, stack), initial_trail=HANDLE_B)
+
+    def test_cold_unknown_trail_offers_the_selector_with_a_notice(self):
+        async def body(app, pilot):
+            await self._wait_screen(app, pilot,
+                                    self.ab.board_trail_view.TrailSelectScreen)
+            self.assertIsNone(app.active_trail_handle)
+        app = self._run_app(body, initial_trail="art:trail-nope")
+        self.assertTrue(any("art:trail-nope" in n and "not found" in n
+                            for n in app._t_notices), app._t_notices)
+        self.assertEqual(app._t_activated, [])
+
+    # --- registration ------------------------------------------------------
+
+    def test_baseline_is_read_before_the_stamp_and_never_replayed(self):
+        store = _PaneStore()
+        left = store.write("%1", HANDLE_B)      # an earlier instance's request
+
+        async def body(app, pilot):
+            self.assertEqual(store.verbs("%1")[:3], ["verify", "read", "mark"])
+            self.assertEqual(app._seen_focus_id, left)
+            await self._poll(app, pilot)
+            await self._poll(app, pilot)
+            self.assertEqual(app.active_trail_handle, HANDLE_A)
+            self.assertEqual(app._t_activated, [HANDLE_A])
+        app = self._run_app(body, store=store, initial_trail=HANDLE_A,
+                            focus_pane="%1")
+
+    def test_a_failed_baseline_read_registers_nothing(self):
+        store = _PaneStore()
+        store.fail_reads = True
+
+        async def body(app, pilot):
+            self.assertEqual(store.verbs("%1"), ["verify", "read"])
+            self.assertIsNone(app._focus_timer)
+            self.assertFalse(app._focus_stamped)
+        app = self._run_app(body, store=store, initial_trail=HANDLE_A,
+                            focus_pane="%1")
+        self.assertNotIn("unmark", store.verbs("%1"))
+
+    def test_a_pane_of_another_server_is_never_touched(self):
+        # `%9` exists on the gateway server too, but this process's $TMUX names
+        # another server: the id there is somebody else's pane.
+        store = _PaneStore(gateway=())
+        store.write("%9", HANDLE_B)
+
+        async def body(app, pilot):
+            await self._poll(app, pilot)
+            self.assertEqual(store.verbs("%9"), ["verify"])
+            self.assertIsNone(app._focus_timer)
+            self.assertEqual(app.active_trail_handle, HANDLE_A)
+        app = self._run_app(body, store=store, initial_trail=HANDLE_A,
+                            focus_pane="%9")
+        self.assertEqual(store.verbs("%9"), ["verify"])
+        self.assertNotIn("stamp", store.opts.get("%9", {}))
+
+    def test_a_gateway_pane_registers_and_unstamps_on_exit(self):
+        store = _PaneStore()
+
+        async def body(app, pilot):
+            self.assertEqual(store.opts["%1"]["stamp"], "1")
+            self.assertIsNotNone(app._focus_timer)
+        app = self._run_app(body, store=store, initial_trail=HANDLE_A,
+                            focus_pane="%1")
+        self.assertEqual(store.verbs("%1")[-1], "unmark")
+        self.assertNotIn("stamp", store.opts["%1"])
+
+    # --- consumption -------------------------------------------------------
+
+    def test_a_request_applies_once_and_stays_in_the_mailbox(self):
+        store = _PaneStore()
+
+        async def body(app, pilot):
+            rid = store.write("%1", HANDLE_B)
+            await self._poll(app, pilot)
+            self.assertEqual(app.active_trail_handle, HANDLE_B)
+            self.assertEqual(store.opts["%1"]["focus"], f"{rid} {HANDLE_B}")
+            app._switch_trail_session(HANDLE_A)
+            await self._poll(app, pilot)
+            self.assertEqual(app.active_trail_handle, HANDLE_A,
+                             "the same request id was applied twice")
+        app = self._run_app(body, store=store, initial_trail=HANDLE_A,
+                            focus_pane="%1")
+        self.assertEqual(app._t_activated, [HANDLE_A, HANDLE_B])
+
+    def test_a_request_written_during_a_read_is_applied_next(self):
+        store = _PaneStore()
+
+        async def body(app, pilot):
+            store.write("%1", HANDLE_B)
+            store.on_read = lambda pane: store.write(pane, HANDLE_C)
+            await self._poll(app, pilot)
+            self.assertEqual(app.active_trail_handle, HANDLE_B)
+            await self._poll(app, pilot)
+            self.assertEqual(app.active_trail_handle, HANDLE_C)
+        app = self._run_app(body, store=store, initial_trail=HANDLE_A,
+                            focus_pane="%1")
+        self.assertEqual(app._t_activated, [HANDLE_A, HANDLE_B, HANDLE_C])
+
+    def test_two_requests_between_polls_apply_only_the_latest(self):
+        store = _PaneStore()
+
+        async def body(app, pilot):
+            store.write("%1", HANDLE_B)
+            store.write("%1", HANDLE_C)
+            await self._poll(app, pilot)
+            await self._poll(app, pilot)
+        app = self._run_app(body, store=store, initial_trail=HANDLE_A,
+                            focus_pane="%1")
+        self.assertEqual(app._t_activated, [HANDLE_A, HANDLE_C])
+
+    def test_a_malformed_request_is_ignored_and_not_retried(self):
+        store = _PaneStore()
+
+        async def body(app, pilot):
+            for value in ("not-an-id art:trail-beta",
+                          "0123456789abcdef0123456789abcdef no-handle",
+                          "0123456789abcdef0123456789abcdee art:Bad"):
+                store.opts["%1"]["focus"] = value
+                await self._poll(app, pilot)
+                await self._poll(app, pilot)
+            self.assertEqual(app.active_trail_handle, HANDLE_A)
+        app = self._run_app(body, store=store,
+                             initial_trail=HANDLE_A, focus_pane="%1")
+        self.assertEqual(app._t_activated, [HANDLE_A])
+        self.assertEqual(
+            sum("malformed" in n for n in app._t_notices), 3, app._t_notices)
+
+    def test_only_the_addressed_instance_applies_a_request(self):
+        store = _PaneStore()
+
+        async def go():
+            _c1, s1 = self._seams()
+            patches = s1 + store.patches(self.ta)
+            first = bf.make_trails_app(initial_trail=HANDLE_A,
+                                       focus_pane="%1")
+            second = bf.make_trails_app(initial_trail=HANDLE_A,
+                                        focus_pane="%2")
+            with contextlib.ExitStack() as ctx:
+                for p in patches:
+                    ctx.enter_context(p)
+                async with first.run_test(size=(200, 48)) as p1, \
+                        second.run_test(size=(200, 48)) as p2:
+                    await self._settle(first, p1)
+                    await self._settle(second, p2)
+                    store.write("%2", HANDLE_B)
+                    await self._poll(first, p1)
+                    await self._poll(second, p2)
+                    self.assertEqual(first.active_trail_handle, HANDLE_A)
+                    self.assertEqual(second.active_trail_handle, HANDLE_B)
+                    await self._settle(first, p1)
+                    await self._settle(second, p2)
+        self._run(go())
+        # Each instance read its own pane only.
+        reads = [p for verb, p in store.log if verb == "read"]
+        self.assertIn("%1", reads)
+        self.assertIn("%2", reads)
+        self.assertNotIn("focus", store.opts.get("%1", {}))
+
+    # --- delivery under modals and supersession ------------------------------
+
+    def test_a_request_closes_the_open_selector(self):
+        store = _PaneStore()
+
+        async def body(app, pilot):
+            await self._wait_screen(app, pilot,
+                                    self.ab.board_trail_view.TrailSelectScreen)
+            store.write("%1", HANDLE_C)
+            await self._poll(app, pilot)
+            self.assertIsInstance(app.screen, self.ta.TrailsScreen)
+            self.assertEqual(app.active_trail_handle, HANDLE_C)
+        app = self._run_app(body, store=store, focus_pane="%1")
+        self.assertEqual(app._t_activated, [HANDLE_C])
+
+    def test_a_request_under_a_dialog_waits_for_it_to_close(self):
+        store = _PaneStore()
+
+        async def body(app, pilot):
+            await pilot.press("enter")
+            await self._wait_screen(app, pilot,
+                                    self.ab.board_trail_view.TrailDetailScreen)
+            store.write("%1", HANDLE_B)
+            await self._poll(app, pilot)
+            self.assertIsInstance(app.screen,
+                                  self.ab.board_trail_view.TrailDetailScreen)
+            self.assertEqual(app.active_trail_handle, HANDLE_A)
+            await pilot.press("escape")
+            await self._settle(app, pilot)
+            self.assertEqual(app.active_trail_handle, HANDLE_B)
+        app = self._run_app(body, store=store, initial_trail=HANDLE_A,
+                            focus_pane="%1")
+        self.assertEqual(app._t_activated, [HANDLE_A, HANDLE_B])
+
+    def test_a_newer_request_beats_one_a_dialog_held_back(self):
+        store = _PaneStore()
+
+        async def body(app, pilot):
+            await pilot.press("enter")
+            await self._wait_screen(app, pilot,
+                                    self.ab.board_trail_view.TrailDetailScreen)
+            store.write("%1", HANDLE_B)
+            await self._poll(app, pilot)
+            self.assertEqual(app._pending_trail_focus[1], HANDLE_B)
+            # Close the dialog and accept C before the resume hook's queued
+            # drain of B has run.
+            app.pop_screen()
+            app._on_trail_focus_value(store.write("%1", HANDLE_C) + " "
+                                      + HANDLE_C)
+            await self._settle(app, pilot)
+            self.assertEqual(app.active_trail_handle, HANDLE_C)
+        app = self._run_app(body, store=store, initial_trail=HANDLE_A,
+                            focus_pane="%1")
+        self.assertEqual(app._t_activated, [HANDLE_A, HANDLE_C])
+
+    def test_an_unknown_trail_is_found_by_one_rescan(self):
+        store = _PaneStore()
+        seams = self._seams(extra_on_rescan=self._info_for(HANDLE_LATE,
+                                                             "Late"))
+
+        async def body(app, pilot):
+            store.write("%1", HANDLE_LATE)
+            await self._poll(app, pilot)
+            self.assertEqual(app.active_trail_handle, HANDLE_LATE)
+            self.assertEqual(seams[0]["discover"], 2)
+        app = self._run_app(body, store=store, seams=seams,
+                             initial_trail=HANDLE_A, focus_pane="%1")
+        self.assertEqual(app._t_activated, [HANDLE_A, HANDLE_LATE])
+
+    def test_a_superseded_rescan_activates_nothing(self):
+        import threading
+        store = _PaneStore()
+        gate = threading.Event()
+        seams = self._seams(
+            extra_on_rescan=self._info_for(HANDLE_LATE, "Late"), gate=gate)
+
+        async def body(app, pilot):
+            store.write("%1", HANDLE_LATE)
+            app._poll_trail_focus()
+            # The poll's read lands, the rescan starts and blocks on `gate`.
+            await self._wait_until(pilot, lambda: isinstance(
+                app.screen, self.ts.LoadingOverlay))
+            store.write("%1", HANDLE_C)
+            app._poll_trail_focus()
+            await self._wait_until(
+                pilot, lambda: app._pending_trail_focus is not None
+                and app._pending_trail_focus[1] == HANDLE_C)
+            gate.set()
+            await self._settle(app, pilot)
+            self.assertEqual(app.active_trail_handle, HANDLE_C)
+        try:
+            app = self._run_app(body, store=store, seams=seams,
+                                initial_trail=HANDLE_A, focus_pane="%1")
+        finally:
+            gate.set()
+        self.assertEqual(app._t_activated, [HANDLE_A, HANDLE_C])
 
 
 if __name__ == "__main__":

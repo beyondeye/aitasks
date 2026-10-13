@@ -965,8 +965,12 @@ class TrailScreenMixin:
             xdep_status=self._trail_xdep,
             xdep_inflight=self._trail_xdep_inflight)
 
-    def _open_trail_select(self, rescan: bool = False):
-        """Open the trail-selection modal, running discovery when needed."""
+    def _open_trail_select(self, rescan: bool = False, then=None):
+        """Open the trail-selection modal, running discovery when needed.
+
+        ``then`` replaces the selector as the continuation once the discovery
+        cache is current (a fresh scan reconciled, or the cache served as is):
+        `_open_trail_by_handle` uses it to look a handle up after a rescan."""
         if self._modal_is_active():
             return
         # Only the scan is superseded here: open sessions' reloads and drift
@@ -976,19 +980,20 @@ class TrailScreenMixin:
             # Persistent busy affordance for the archive scan + blob loads.
             overlay = LoadingOverlay("Scanning for trails…")
             self.push_screen(overlay)
-            self._trail_discovery_worker(self._trail_discovery_gen, overlay)
+            self._trail_discovery_worker(self._trail_discovery_gen, overlay,
+                                         then)
         else:
-            self._open_trail_select_from_cache()
+            (then or self._open_trail_select_from_cache)()
 
     @work(thread=True)
-    def _trail_discovery_worker(self, gen: int, overlay):
+    def _trail_discovery_worker(self, gen: int, overlay, then=None):
         """Discovery + blob loads off the UI thread (subprocess-heavy)."""
         infos, unreadable = discover_trails()
         self.app.call_from_thread(self._on_trail_discovery, gen, infos,
-                                  unreadable, overlay)
+                                  unreadable, overlay, then)
 
     def _on_trail_discovery(self, gen: int, infos: list, unreadable: list,
-                            overlay):
+                            overlay, then=None):
         # Pop OUR overlay first (even for superseded results — each scan owns
         # its own overlay instance, so a stale callback can never pop a newer
         # scan's overlay).
@@ -1021,7 +1026,7 @@ class TrailScreenMixin:
                 self._rerender_trail()
             return
         self._reconcile_discovered_trails(infos)
-        self._open_trail_select_from_cache()
+        (then or self._open_trail_select_from_cache)()
 
     def _reconcile_discovered_trails(self, infos: list) -> None:
         """Adopt a scan's result without letting it roll anything back.
@@ -1092,6 +1097,37 @@ class TrailScreenMixin:
                 open_handles=set(self._trail_sessions) if tabbed else (),
                 allow_rescan=tabbed),
             on_select)
+
+    def _open_trail_by_handle(self, handle: str, rescan: bool = True,
+                              is_current=None) -> None:
+        """Open ``handle`` by name — `ait trails --trail` and the focus mailbox.
+
+        `_activate_trail` alone cannot: with no discovery entry it builds a
+        session with no document that never loads. So an open tab or a cached
+        handle activates at once; an unknown one is looked up again after ONE
+        rescan (a trail authored after this App's last scan), and a handle still
+        unknown after that is reported and the selector offered instead.
+
+        ``is_current`` lets the caller retire the request: a request superseded
+        while its rescan ran must activate nothing when the scan lands. Never
+        acts under a modal (the caller decides what a modal means)."""
+        if self._modal_is_active():
+            return
+        if is_current is not None and not is_current():
+            return
+        known = (self._TRAIL_TABBED and handle in self._trail_sessions) or any(
+            i.handle == handle for i in (self._trail_infos or []))
+        if known:
+            self._activate_trail(handle)
+        elif rescan:
+            self._open_trail_select(
+                rescan=True,
+                then=lambda: self._open_trail_by_handle(
+                    handle, rescan=False, is_current=is_current))
+        else:
+            self.notify(f"Trail {handle} not found in this project",
+                        severity="warning")
+            self._open_trail_select_from_cache()
 
     def _activate_trail(self, handle: str):
         """Make ``handle`` the active trail and render it.

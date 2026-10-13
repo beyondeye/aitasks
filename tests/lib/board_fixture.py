@@ -636,14 +636,15 @@ def load_trails_app():
     return module
 
 
-def make_trails_app(task_dir=TASK_DIR_VALUE):
+def make_trails_app(task_dir=TASK_DIR_VALUE, **kwargs):
     """A `TrailsApp` bound to `<cwd>/<task_dir>` — the fixture tree's paths,
-    passed explicitly exactly as the launcher passes them."""
+    passed explicitly exactly as the launcher passes them. ``kwargs`` reach the
+    constructor (`initial_trail`, `focus_pane`, `focus_tmux_env`)."""
     tasks = Path(task_dir)
     return load_trails_app().TrailsApp(
         tasks_dir=tasks,
         metadata_file=tasks / "metadata" / "board_config.json",
-        gates_registry_file=tasks / "metadata" / "gates.yaml")
+        gates_registry_file=tasks / "metadata" / "gates.yaml", **kwargs)
 
 
 def enter_fixture_tree(add_cleanup, *, tasks_spec=DEFAULT_TOPOLOGY, tag: str = "fixture",
