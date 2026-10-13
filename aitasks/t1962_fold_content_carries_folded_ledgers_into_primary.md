@@ -11,8 +11,9 @@ active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-12 22:40
-updated_at: 2026-10-12 22:41
+updated_at: 2026-10-13 10:52
 ---
 
 ## Origin
@@ -33,3 +34,8 @@ Found downstream in the thinking_app repo (its t295, Step 8b review, 2026-10-12)
 - In `aitask_fold_content.sh`, demote each folded body's `## Gate Runs` and `## Inbox` sections, for example to `### t<N> gate history (reference only)` / `### Notes t<N> received`, with the `> **✅ gate:` / `> **✉ note:` markers rewritten so neither parser picks them up.
 - Run stdin through `extract_body` when it starts with a frontmatter block.
 - Add tests for both cases: a folded task with a ledger and an inbox, and `--primary-stdin` fed a whole task file.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-13T07:52:25Z status=pass attempt=1 type=human
