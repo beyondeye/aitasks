@@ -8,8 +8,11 @@
 # (cache warmed without a backend get round-trip; store repair), and the
 # store-root guard (t1283: dies in the CURRENT shell, never derives a path from
 # an empty root, refuses an unmarked directory, delete returns instead of
-# dying, init-store). Uses a legacy-mode git repo fixture (no .aitask-data
-# worktree).
+# dying, init-store), and the held root (t1960: a share pulled before entry,
+# after validation, or mid-put never plants anything in the mountpoint left
+# behind; head/delete/list never turn a dead store into "absent" / "deleted" /
+# an empty listing; a FIFO at the blob name is refused without blocking).
+# Uses a legacy-mode git repo fixture (no .aitask-data worktree).
 set -uo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -236,9 +239,14 @@ assert_not_contains "put derives no path from the missing root (no mktemp)" "mkt
 assert_dir_not_exists "the missing root is not created" "$ARTIFACT_DIR_ROOT"
 out="$( ( artifact_backend_list || true; echo CONTINUED ) 2>&1 )"; rc=$?
 assert_exit_nonzero_rc "list on a missing root dies" "$rc"
-out="$(ARTIFACT_DIR_ROOT="" _artifact_dir_blob_path "$HE")"; rc=$?
-assert_exit_nonzero_rc "blob path with an empty root fails" "$rc"
-assert_eq "blob path with an empty root prints nothing (never /<2>/<62>)" "" "$out"
+# An empty root must never leave the held subshell working in the cwd (nor
+# derive /<2>/<62>): put refuses and writes nothing anywhere it can see.
+mkdir -p "$TMP/emptyroot.cwd"
+out="$( cd "$TMP/emptyroot.cwd" && ( ARTIFACT_DIR_ROOT="" artifact_backend_put "$HE" "$REPO/e1.bin" || true; echo CONTINUED ) 2>&1 )"; rc=$?
+assert_exit_nonzero_rc "put with an empty root dies" "$rc"
+assert_contains "empty-root put error names the unset root" "ARTIFACT_DIR_ROOT not set" "$out"
+assert_not_contains "put with an empty root does not carry on" "CONTINUED" "$out"
+assert_eq "put with an empty root wrote nothing into the cwd" "" "$(find "$TMP/emptyroot.cwd" -mindepth 1 -print)"
 
 # D2 — an existing directory that is not the store (wrong path, or the empty
 # persistent mountpoint of an unmounted share — t1284).
@@ -298,6 +306,175 @@ out="$( (ait_atomic_commit "$TMP/race/.marker.probe" "$TMP/race/.ait-artifact-st
 assert_exit_nonzero_rc "atomic commit onto a directory fails" "$rc"
 assert_file_not_exists "atomic commit onto a directory discards the temp" "$TMP/race/.marker.probe"
 assert_eq "atomic commit onto a directory nests nothing inside it" "" "$(ls -A "$TMP/race/.ait-artifact-store")"
+
+# ── F. concurrent unmount (t1960) ─────────────────────────────────────────────
+# Every op enters the root once and works relative to it. The share is pulled
+# by shims at three points: before entry (a `cd` shim), after validation but
+# before the op body (wrap_after_validation), and mid-put (a `mkdir` shim). In
+# each case the left-behind directory at the configured path — the persistent
+# mountpoint of an unmounted share — must receive nothing. Shims live inside
+# the probe's own `( … )`, so they die with it.
+. "$PROJECT_DIR/tests/lib/proc_fixtures.sh"
+FSTORE="$TMP/fstore"
+export ARTIFACT_DIR_ROOT="$FSTORE"
+printf 'concurrent unmount bytes\n' > f1.bin
+HF="$(artifact_sha256 f1.bin)"; SHARD_F="$(artifact_shard_path "$HF")"
+
+new_fstore() {  # new_fstore [seed] -- a fresh initialized store, optionally holding f1
+    rm -rf "$FSTORE" "$FSTORE.moved"
+    mkdir -p "$FSTORE"
+    artifact_backend_init >/dev/null
+    [[ -z "${1:-}" ]] || artifact_backend_put "$HF" f1.bin
+}
+# The share moves away, leaving an empty mountpoint directory at its path.
+swap_store() { command mv "$FSTORE" "$FSTORE.moved" && command mkdir "$FSTORE"; }
+# The held store directory dies (forced unmount / ESTALE), mountpoint left.
+kill_store() { command rm -rf "$FSTORE" && command mkdir "$FSTORE"; }
+# wrap_after_validation <fn> -- kill the store after the held helper entered
+# and validated it, immediately before <fn> (an op body) runs.
+wrap_after_validation() {
+    eval "$(declare -f "$1" | sed "1s/^$1 /_orig_$1 /")"
+    eval "$1() { unset -f $1; kill_store; _orig_$1 \"\$@\"; }"
+}
+mountpoint_empty() {  # <label>
+    assert_eq "$1: nothing landed in the mountpoint directory" "" "$(find "$FSTORE" -mindepth 1 -print)"
+}
+
+# F1 — moved after entry: the held cwd is still the store, so the put lands
+# THERE and succeeds; the mountpoint left behind gets nothing.
+new_fstore
+out="$( ( mkdir() { unset -f mkdir; swap_store; command mkdir "$@"; }
+          artifact_backend_put "$HF" f1.bin; echo "PUT_RC=$?" ) 2>&1 )"
+assert_contains "F1: put whose share moved mid-op completes" "PUT_RC=0" "$out"
+assert_file_exists "F1: the blob landed in the (moved) store it validated" "$FSTORE.moved/$SHARD_F"
+mountpoint_empty "F1"
+assert_eq "F1: no .put.* temp residue anywhere" "" "$(find "$FSTORE" "$FSTORE.moved" -name '.put.*' -print)"
+
+# F2 — the held store dies after entry: put fails actionably, nothing lands.
+new_fstore
+out="$( ( mkdir() { unset -f mkdir; kill_store; command mkdir "$@"; }
+          artifact_backend_put "$HF" f1.bin || true; echo CONTINUED ) 2>&1 )"; rc=$?
+assert_exit_nonzero_rc "F2: put whose store died mid-op dies" "$rc"
+assert_contains "F2: the error says the share went away" "did the share go away" "$out"
+assert_not_contains "F2: put does not carry on" "CONTINUED" "$out"
+mountpoint_empty "F2"
+
+# F3 — swapped before entry (the old validation→write window): the held cwd
+# is the empty mountpoint, so the marker check fails and nothing is written.
+new_fstore
+out="$( ( cd() { unset -f cd; swap_store; builtin cd "$@" || return; }
+          artifact_backend_put "$HF" f1.bin || true; echo CONTINUED ) 2>&1 )"; rc=$?
+assert_exit_nonzero_rc "F3: put into a swapped-out root dies" "$rc"
+assert_contains "F3: the error says it is not a store" "not an initialized artifact store" "$out"
+assert_not_contains "F3: put does not carry on" "CONTINUED" "$out"
+mountpoint_empty "F3"
+assert_file_not_exists "F3: nothing was put into the moved store either" "$FSTORE.moved/$SHARD_F"
+
+# F4 — head and delete across the same swap: never a false "absent", never a
+# false "deleted".
+new_fstore seed
+out="$( ( cd() { unset -f cd; swap_store; builtin cd "$@" || return; }
+          artifact_backend_head "$HF"; echo "HEAD_RC=$?" ) 2>&1 )"; rc=$?
+assert_exit_nonzero_rc "F4: head across a swap dies" "$rc"
+assert_not_contains "F4: head across a swap answers neither present nor absent" "HEAD_RC=" "$out"
+new_fstore seed
+out="$( ( cd() { unset -f cd; swap_store; builtin cd "$@" || return; }
+          artifact_backend_delete "$HF"; echo "DELETE_RC=$?" ) 2>&1 )"
+assert_contains "F4: delete across a swap returns 1" "DELETE_RC=1" "$out"
+assert_file_exists "F4: the blob is still in the store" "$FSTORE.moved/$SHARD_F"
+mountpoint_empty "F4"
+
+# F5–F7 — the store dies AFTER validation, before the op body: a dead
+# directory answers with ENOENT exactly like a real absence.
+new_fstore seed
+out="$( ( wrap_after_validation _artifact_dir_lookup
+          artifact_backend_head "$HF"; echo "HEAD_RC=$?" ) 2>&1 )"; rc=$?
+assert_exit_nonzero_rc "F5: head on a store that died after validation dies" "$rc"
+assert_contains "F5: the error says the store went away" "went away" "$out"
+assert_not_contains "F5: head never answers 'absent' for a dead store" "HEAD_RC=" "$out"
+mountpoint_empty "F5"
+
+new_fstore seed
+out="$( ( wrap_after_validation _artifact_dir_delete_held
+          artifact_backend_delete "$HF"; echo "DELETE_RC=$?"; echo CONTINUED ) 2>&1 )"
+assert_contains "F6: delete on a store that died after validation returns 1" "DELETE_RC=1" "$out"
+assert_contains "F6: delete returns rather than dying" "CONTINUED" "$out"
+assert_contains "F6: delete reports the store went away" "went away" "$out"
+mountpoint_empty "F6"
+
+new_fstore seed
+out="$( ( wrap_after_validation _artifact_dir_list_held
+          artifact_backend_list || true; echo CONTINUED ) 2>&1 )"; rc=$?
+assert_exit_nonzero_rc "F7: list on a store that died after validation dies" "$rc"
+assert_not_contains "F7: list does not carry on" "CONTINUED" "$out"
+assert_not_contains "F7: a dead store yields no listing" "sha256:" "$out"
+mountpoint_empty "F7"
+
+# Positive controls for the qualified negative answers on a healthy store.
+new_fstore seed
+assert_exit_zero "F5-F7 control: head finds the blob" artifact_backend_head "$HF"
+assert_eq "F5-F7 control: list prints the blob" "$HF" "$(artifact_backend_list)"
+assert_exit_zero "F5-F7 control: delete succeeds" artifact_backend_delete "$HF"
+assert_exit_nonzero "F5-F7 control: head misses after delete" artifact_backend_head "$HF"
+assert_eq "F5-F7 control: list of an empty store is empty" "" "$(artifact_backend_list)"
+
+# F8 — a lookup failure is not an absence (chmod does not deny root).
+if [[ "$(id -u)" -ne 0 ]]; then
+    new_fstore seed
+    chmod 000 "$FSTORE/${SHARD_F%/*}"
+    out="$( ( artifact_backend_head "$HF"; echo "HEAD_RC=$?" ) 2>&1 )"; rc=$?
+    chmod 755 "$FSTORE/${SHARD_F%/*}"
+    assert_exit_nonzero_rc "F8: head with an unreadable shard dies" "$rc"
+    assert_contains "F8: the error names the failed lookup" "lookup of" "$out"
+    assert_not_contains "F8: head never answers 'absent' on a lookup failure" "HEAD_RC=" "$out"
+fi
+
+# G — caller-relative paths reach the held subshell byte for byte: a
+# trailing newline is a legal path byte that command substitution would strip,
+# and an empty get destination must not turn into "$PWD/".
+new_fstore
+NL=$'\n'
+cp f1.bin "nl.src$NL"
+assert_exit_zero "G: put from a source whose name ends in a newline" artifact_backend_put "$HF" "nl.src$NL"
+assert_file_exists "G: that put stored the blob" "$FSTORE/$SHARD_F"
+printf 'unrelated bytes\n' > nl.dst
+artifact_backend_get "$HF" "nl.dst$NL"
+assert_file_exists "G: get wrote the exact destination name, newline included" "nl.dst$NL"
+assert_exit_zero "G: the newline-named destination holds the blob" cmp -s f1.bin "nl.dst$NL"
+assert_eq "G: the file without the newline was not overwritten" "unrelated bytes" "$(cat nl.dst)"
+out="$( ( artifact_backend_get "$HF" "" || true; echo CONTINUED ) 2>&1 )"; rc=$?
+assert_exit_nonzero_rc "G: get with an empty destination dies" "$rc"
+assert_contains "G: the error names the empty destination" "empty destination" "$out"
+assert_not_contains "G: get with an empty destination does not carry on" "CONTINUED" "$out"
+assert_file_not_exists "G: nothing named after the blob landed in the cwd" "${SHARD_F##*/}"
+
+# F9 — delete with an invalid hash RETURNS (it runs from rollback hooks).
+out="$( ( artifact_backend_delete not-a-hash; echo "DELETE_RC=$?"; echo CONTINUED ) 2>&1 )"
+assert_contains "F9: delete with an invalid hash returns 1" "DELETE_RC=1" "$out"
+assert_contains "F9: delete with an invalid hash does not die" "CONTINUED" "$out"
+assert_contains "F9: delete names the invalid hash" "invalid hash" "$out"
+
+# F10 — a FIFO squatting on the blob name: the lookup is metadata-only, so
+# head and put refuse at once instead of blocking in open(). Bounded: a hang
+# here would otherwise wedge the suite with the transaction's lock held.
+new_fstore
+mkdir -p "$FSTORE/${SHARD_F%/*}"
+mkfifo "$FSTORE/$SHARD_F"
+FIFO_LIBS='. "$P/.aitask-scripts/lib/terminal_compat.sh"; . "$P/.aitask-scripts/lib/task_utils.sh"; . "$P/.aitask-scripts/lib/python_resolve.sh"; . "$P/.aitask-scripts/lib/artifact_utils.sh"; . "$P/.aitask-scripts/lib/artifact_backend.sh"'
+run_bounded 10 "$TMP/fifo.head.out" \
+    env P="$PROJECT_DIR" bash -c "$FIFO_LIBS"'; artifact_backend_head "$1"; echo "HEAD_RC=$?"' _ "$HF"; rc=$?
+out="$(cat "$TMP/fifo.head.out")"
+assert_eq "F10: head on a FIFO blob does not hang" "no-timeout" "$([[ "$rc" -eq 124 ]] && echo timeout || echo no-timeout)"
+assert_exit_nonzero_rc "F10: head on a FIFO blob dies" "$rc"
+assert_contains "F10: head says the entry is not a regular file" "not a regular file" "$out"
+assert_not_contains "F10: head never answers 'absent' for a FIFO" "HEAD_RC=" "$out"
+run_bounded 10 "$TMP/fifo.put.out" \
+    env P="$PROJECT_DIR" bash -c "$FIFO_LIBS"'; artifact_backend_put "$1" "$2"; echo "PUT_RC=$?"' _ "$HF" "$REPO/f1.bin"; rc=$?
+out="$(cat "$TMP/fifo.put.out")"
+assert_eq "F10: put onto a FIFO blob does not hang" "no-timeout" "$([[ "$rc" -eq 124 ]] && echo timeout || echo no-timeout)"
+assert_exit_nonzero_rc "F10: put onto a FIFO blob dies" "$rc"
+assert_contains "F10: put says the entry is not a regular file" "not a regular file" "$out"
+assert_exit_zero "F10: the FIFO is left untouched" test -p "$FSTORE/$SHARD_F"
 
 echo "=========================="
 echo "Results: $PASS/$TOTAL passed, $FAIL failed"

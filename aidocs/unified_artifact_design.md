@@ -293,8 +293,12 @@ assumption). The store is initialized once, with the share mounted, by
 `ait artifact init-store dir`, which writes a `.ait-artifact-store` marker
 into the root; every `dir` operation refuses a root that is missing or lacks
 the marker, so an unmounted share's empty mountpoint directory or a wrong path
-is never written to as if it were the store. The root is validated at
-operation entry only — a share unmounted mid-operation is not yet guarded. `ait artifact move <handle> --to <backend>` performs the safe
+is never written to as if it were the store. Each operation enters
+the root once, validates the marker through that held directory and works
+relative to it, so a share unmounted mid-operation never redirects a write
+into the mountpoint underneath: the operation completes in the store or fails,
+and a negative answer (blob absent, delete done) is given only while the held
+directory is still the store. `ait artifact move <handle> --to <backend>` performs the safe
 backend move: copy every version blob to the registered target, verify, then
 repoint the manifest — non-destructive and resumable.
 
