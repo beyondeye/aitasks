@@ -64,3 +64,5 @@ Each prototype implements the shared `Provider` interface:
 > | - gotreesitter v0.55.1 builds CGO_ENABLED=0 for all 4 release targets and parsed all 9 research grammars correctly on a fake-comment-in-string snippet. Default binary 35 MB (all grammars); `grammar_subset` + 9 grammars 16.9 MB.
 > | - Official go-tree-sitter v0.25.0 + tree-sitter-go: CGO_ENABLED=0 fails (bindings are cgo-only); cgo builds on the host only — darwin/arm64 cross-cgo fails without C cross toolchains. Host-only reference as planned.
 > | - The only wazero wrapper found, malivvan/tree-sitter v0.0.1 (pre-release), bundles ONLY C and C++ grammars. The WASM route for the 8 languages therefore needs our own runtime+grammar wasm build — re-scope the WASM step accordingly (the wrapper alone is not a candidate for these languages).
+
+> **👁 note:read** id=2026-10-13T10:24:51Z.354c8675815e45808ef583af by=t1954_2 at=2026-10-13T10:24:51Z mode=explicit ids=2026-10-12T18:32:40Z.2d9516da574a8888ff5ceeea,2026-10-12T18:38:44Z.2478fd304fdae715b128d72e
