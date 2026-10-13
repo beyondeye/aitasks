@@ -156,8 +156,13 @@ func ParseFile(path string, data []byte) (*File, error) {
 			return nil, &SyntaxError{Path: path, Line: docAt, Reason: err.Error()}
 		}
 	}
+	skip := bomLen(lang, f.Lines)
 	for i, raw := range f.Lines {
 		text := strings.TrimSuffix(raw, "\r")
+		from := 0 // where the comment starts: after line 1's byte-order mark
+		if i == 0 {
+			from = skip
+		}
 		if i+1 == docAt {
 			// The module docstring, read as Python reads it: its literals
 			// decoded and concatenated, then split into lines.
@@ -172,7 +177,8 @@ func ParseFile(path string, data []byte) (*File, error) {
 		}
 		switch {
 		case f.Ctx.Class[i] == Comment:
-			body := strings.TrimLeft(strings.TrimLeft(text, " \t")[len(lang.Leader):], " \t")
+			// Line.Text keeps the mark, so a re-stamp writes it back.
+			body := strings.TrimLeft(strings.TrimLeft(text[from:], " \t")[len(lang.Leader):], " \t")
 			if rest, ok := strings.CutPrefix(body, Token); ok {
 				if err := p.line(Line{No: i + 1, Text: text}, rest); err != nil {
 					return nil, err

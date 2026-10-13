@@ -86,6 +86,8 @@ func TestClassifyBash(t *testing.T) {
 		{"heredoc-escape-in-quoted-delimiter", "cat <<$'E\\x4fF'\nEOF\n" + look + "\n", "", 1},
 		{"heredoc-escape-in-double-quoted", "cat <<\"E\\\"F\"\nx\n", "", 1},
 		{"escaped-quote", "echo \\' \\\"\n# real\n", "c#", 0},
+		// bash gives a byte-order mark no meaning: U+FEFF'#' is a word.
+		{"bom-is-a-word", "\ufeff# header\n# real\n", "c#", 0},
 		// Refused, never guessed.
 		{"heredoc-in-backticks", "x=`cat <<EOF`\nEOF\n", "", 1},
 		{"unterminated-heredoc", "cat <<EOF\n" + look + "\n", "", 1},
@@ -103,6 +105,8 @@ func TestClassifyPython(t *testing.T) {
 		{"hash-in-string", "x = '#'\ny = \"\"\"a\"\"\"\n# real\n", "cc#", 0},
 		{"continuation", "x = 1 + \\\n" + look + "\n", "cc", 0},
 		{"unterminated", "X = \"\"\"\n" + look + "\n", "", 1},
+		// CPython skips a byte-order mark at the start of the file.
+		{"bom-comment", "\ufeff# c\nimport os\n", "#c", 0},
 	})
 	// The module docstring is the first statement when it is made of string
 	// literals only — as ast.get_docstring decides (verified with CPython).
@@ -121,6 +125,8 @@ func TestClassifyPython(t *testing.T) {
 		{"f\"\"\"f-string\"\"\"\n", 0, 0, ""},
 		{"\"a\" + x\n", 0, 0, ""},
 		{"[\"a\"]\n", 0, 0, ""},
+		// The t1954 corpus case python/bom_doc.py.
+		{"\ufeff\"\"\"Doc after a BOM.\n\ntestmap:covers src/bom_doc.py\n\"\"\"\nprint(\"bom\")\n", 1, 4, "Doc after a BOM."},
 	}
 	for _, d := range docs {
 		c := Classify(Python, []byte(d.src))
@@ -144,10 +150,15 @@ func TestClassifyKotlin(t *testing.T) {
 		{"slashes-in-string", "val s = \"//\" + '\"'\n// real\n", "c#", 0},
 		{"template-string", "val s = \"${f(\"}\")}\"\n// real\n", "c#", 0},
 		{"unterminated-raw", "val s = \"\"\"\n" + kl + "\n", "", 1},
+		// kotlinc skips a byte-order mark at the start of the file.
+		{"bom-comment", "\ufeff" + kl + "\nclass T\n", "#c", 0},
 	})
 	c := Classify(Kotlin, []byte("package a\n\nimport b.C\nimport d.E\n\nclass T {\n  import x\n}\n"))
 	if c.Package != 1 || c.Import != 4 {
 		t.Errorf("package %d import %d", c.Package, c.Import)
+	}
+	if c := Classify(Kotlin, []byte("\ufeffpackage a\n\nclass T\n")); c.Package != 1 {
+		t.Errorf("package after a byte-order mark: line %d", c.Package)
 	}
 }
 
@@ -158,8 +169,13 @@ func TestClassifyGo(t *testing.T) {
 		{"raw-string", "package a\n\nvar s = `\n" + gl + "\n`\n// real\n", "cccLL#", 0},
 		{"block", "package a\n/*\n" + gl + "\n*/\n// real\n", "ccLL#", 0},
 		{"unterminated-raw", "package a\nvar s = `\n" + gl + "\n", "", 2},
+		// gc skips a byte-order mark at the start of the file.
+		{"bom-comment", "\ufeff" + gl + "\npackage a\n", "#c", 0},
 	})
 	if c := Classify(Go, []byte("//go:build x\n\n// Package a.\npackage a\n")); c.Package != 4 {
 		t.Errorf("package line %d", c.Package)
+	}
+	if c := Classify(Go, []byte("\ufeffpackage a\n")); c.Package != 1 {
+		t.Errorf("package after a byte-order mark: line %d", c.Package)
 	}
 }

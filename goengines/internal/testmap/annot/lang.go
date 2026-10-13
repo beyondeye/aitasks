@@ -21,19 +21,22 @@ import (
 	"strings"
 )
 
-// Lang is a language the grammar knows: its comment leader, and whether its
-// module docstring is read.
+// Lang is a language the grammar knows: its comment leader, whether its
+// module docstring is read, and whether its toolchain skips a byte-order mark.
 type Lang struct {
 	Name      string
 	Leader    string
 	Docstring bool
+	// SkipsBOM: the toolchain ignores a UTF-8 byte-order mark that starts the
+	// file (and refuses one anywhere else), so line 1 begins after it.
+	SkipsBOM bool
 }
 
 var (
 	Bash   = Lang{Name: "bash", Leader: "#"}
-	Python = Lang{Name: "python", Leader: "#", Docstring: true}
-	Go     = Lang{Name: "go", Leader: "//"}
-	Kotlin = Lang{Name: "kotlin", Leader: "//"}
+	Python = Lang{Name: "python", Leader: "#", Docstring: true, SkipsBOM: true}
+	Go     = Lang{Name: "go", Leader: "//", SkipsBOM: true}
+	Kotlin = Lang{Name: "kotlin", Leader: "//", SkipsBOM: true}
 )
 
 var byExt = map[string]Lang{

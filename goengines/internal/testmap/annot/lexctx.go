@@ -72,6 +72,18 @@ func splitLines(data []byte) []string {
 	return strings.Split(s, "\n")
 }
 
+// bom is the UTF-8 byte-order mark.
+const bom = "\xef\xbb\xbf"
+
+// bomLen is the length of the byte-order mark that starts line 1 when l
+// skips one — line 1's text then starts after it — and 0 otherwise.
+func bomLen(l Lang, lines []string) int {
+	if l.SkipsBOM && len(lines) > 0 && strings.HasPrefix(lines[0], bom) {
+		return len(bom)
+	}
+	return 0
+}
+
 func indentOf(line string) string {
 	return line[:len(line)-len(strings.TrimLeft(line, " \t"))]
 }
@@ -91,6 +103,16 @@ func markRest(c *Context, i int) {
 
 func classifyGo(data []byte, lines []string) Context {
 	ctx := Context{Class: make([]LineClass, len(lines))}
+	skip := bomLen(Go, lines) // the scanner skips it too; columns count it
+	// lead is the column (0-based) where line no's first token must start for
+	// the line to start with it.
+	lead := func(no int) int {
+		s := 0
+		if no == 1 {
+			s = skip
+		}
+		return s + len(indentOf(lines[no-1][s:]))
+	}
 	fset := token.NewFileSet()
 	file := fset.AddFile("", fset.Base(), len(data))
 	var s scanner.Scanner
@@ -109,7 +131,7 @@ func classifyGo(data []byte, lines []string) Context {
 		case tok == token.PACKAGE && ctx.Package == 0:
 			ctx.Package = p.Line
 		case tok == token.COMMENT && strings.HasPrefix(lit, "//"):
-			if p.Line <= len(lines) && p.Column-1 == len(indentOf(lines[p.Line-1])) {
+			if p.Line <= len(lines) && p.Column-1 == lead(p.Line) {
 				ctx.Class[p.Line-1] = Comment
 			}
 		}
@@ -579,13 +601,18 @@ func classifyPython(lines []string) Context {
 		fs.operand = false
 	}
 	cont := false
+	skip := bomLen(Python, lines)
 	for i, ln := range lines {
 		no := i + 1
+		from := 0 // where the line's text starts: after line 1's byte-order mark
+		if i == 0 {
+			from = skip
+		}
 		top := stack[len(stack)-1]
 		switch {
 		case cont:
 			ctx.Class[i] = Code
-		case top.kind == 'c' && startsWithLeader(ln, "#"):
+		case top.kind == 'c' && startsWithLeader(ln[from:], "#"):
 			ctx.Class[i] = Comment
 		case top.kind == 'c':
 			ctx.Class[i] = Code
@@ -612,7 +639,7 @@ func classifyPython(lines []string) Context {
 			}
 			return j + n
 		}
-		j := 0
+		j := from
 	line:
 		for j < len(ln) {
 			top := &stack[len(stack)-1]
@@ -760,16 +787,21 @@ type kframe struct {
 func classifyKotlin(lines []string) Context {
 	ctx := Context{Class: make([]LineClass, len(lines))}
 	stack := []kframe{{kind: 'c'}}
+	skip := bomLen(Kotlin, lines)
 	for i, ln := range lines {
 		no := i + 1
+		from := 0 // where the line's text starts: after line 1's byte-order mark
+		if i == 0 {
+			from = skip
+		}
 		top := stack[len(stack)-1]
 		switch {
-		case top.kind == 'c' && startsWithLeader(ln, "//"):
+		case top.kind == 'c' && startsWithLeader(ln[from:], "//"):
 			ctx.Class[i] = Comment
 		case top.kind == 'c' || top.kind == 't':
 			ctx.Class[i] = Code
 			if top.kind == 'c' && top.depth == 0 && len(stack) == 1 {
-				t := strings.TrimLeft(ln, " \t")
+				t := strings.TrimLeft(ln[from:], " \t")
 				switch {
 				case strings.HasPrefix(t, "package ") && ctx.Package == 0:
 					ctx.Package = no
@@ -782,7 +814,7 @@ func classifyKotlin(lines []string) Context {
 		}
 		push := func(k byte) { stack = append(stack, kframe{kind: k, line: no}) }
 		pop := func() { stack = stack[:len(stack)-1] }
-		j := 0
+		j := from
 	line:
 		for j < len(ln) {
 			top := &stack[len(stack)-1]

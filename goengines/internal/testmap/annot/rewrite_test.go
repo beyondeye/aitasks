@@ -230,6 +230,10 @@ func TestApplyRefusesNonComments(t *testing.T) {
 		"tests/code.sh":  "#!/bin/sh\n# testmap:covers src/a.sh\n",
 		"tests/join.sh":  "cat <<EOF\nprefix\\\nEOF\n# testmap:covers src/a.sh @2026-01-01/0123456789\nEOF\n",
 		"tests/param.sh": "printf '%s\\n' ${x:-\n# testmap:covers src/a.sh @2026-01-01/0123456789\n}\n",
+		"tests/bom.py":   "\ufeffimport os\n",
+		"tests/bom.go":   "\ufeffpackage a\n",
+		"tests/bom2.py":  "\ufeffimport os\nprint('ok')\n",
+		"tests/bom.kt":   "\ufeffpackage a\n",
 	}
 	for rel, c := range files {
 		writeFile(t, root, rel, c, 0o644)
@@ -261,6 +265,16 @@ func TestApplyRefusesNonComments(t *testing.T) {
 		// before the edit, though the result alone would look clean.
 		{"tests/cont.sh", Edit{Kind: Replace, Line: 3, Want: "  b", New: "# testmap:covers src/a.sh", Source: "src/a.sh"}, ErrNotComment},
 		{"tests/code.sh", Edit{Kind: Replace, Line: 1, Want: "#!/bin/sh", New: "# testmap:covers src/a.sh", Source: "src/a.sh"}, ErrNotComment},
+		// A byte-order mark the language skips may not leave byte 0, whether
+		// or not the moved mark still lexes: in Python it reads as a name, in
+		// Go the reparse would refuse it with a SyntaxError instead.
+		{"tests/bom.py", Edit{Kind: InsertAfter, Line: 0, New: "# testmap:covers src/b.py", Source: "src/b.py"}, ErrNotComment},
+		{"tests/bom.go", Edit{Kind: InsertAfter, Line: 0, New: "// testmap:covers src/b.go", Source: "src/b.go"}, ErrNotComment},
+		// Nor may a line go above it that brings a mark of its own: the file
+		// would still start with one, but the original would sit mid-file.
+		{"tests/bom2.py", Edit{Kind: InsertAfter, Line: 0, New: "\ufeff# testmap:covers src/a.py", Source: "src/a.py"}, ErrNotComment},
+		{"tests/bom.kt", Edit{Kind: InsertAfter, Line: 0, New: "\ufeff// testmap:covers src/A.kt", Source: "src/A.kt"}, ErrNotComment},
+		{"tests/bom.go", Edit{Kind: InsertAfter, Line: 0, New: "\ufeff// testmap:covers src/b.go", Source: "src/b.go"}, ErrNotComment},
 	}
 	for _, tc := range cases {
 		before := readFile(t, root, tc.rel)
@@ -271,6 +285,118 @@ func TestApplyRefusesNonComments(t *testing.T) {
 		if after := readFile(t, root, tc.rel); after != before {
 			t.Errorf("%s written", tc.rel)
 		}
+	}
+}
+
+// bomDoc is the t1954 corpus case python/bom_doc.py: a UTF-8 byte-order mark,
+// then a module docstring carrying a covers line.
+const bomDoc = "\ufeff\"\"\"Doc after a BOM.\n\ntestmap:covers src/bom_doc.py\n\"\"\"\nprint(\"bom\")\n"
+
+// A byte-order mark the language's toolchain skips is not part of line 1: the
+// docstring after it is read, a write into that docstring is refused, a new
+// line goes after it, a line-1 comment is read and re-stamped with the mark
+// kept, and nothing is ever placed above the mark. bash gives a byte-order
+// mark no meaning, so it is not special there.
+func TestByteOrderMark(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "tests/bom_doc.py", bomDoc, 0o644)
+	f, err := ParseFile("tests/bom_doc.py", []byte(bomDoc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c := f.Units[0].Covers; len(c) != 1 || c[0].Source != "src/bom_doc.py" || c[0].Line.No != 3 || !c[0].Line.Docstring {
+		t.Fatalf("the docstring after the mark was not read: %+v", c)
+	}
+	if _, err := PlanCovers(f, "", "src/bom_doc.py", testStamp); !errors.Is(err, ErrDocstring) {
+		t.Errorf("a docstring cover was planned for writing: %v", err)
+	}
+	_, e := planOne(t, root, "tests/bom_doc.py", "", "src/new.py")
+	if e.Kind != InsertAfter || e.Line != 4 {
+		t.Fatalf("plan %+v, want an insertion after the docstring (line 4)", e)
+	}
+	if _, err := Apply(root, EditSet{Path: "tests/bom_doc.py", Snapshot: f.Snapshot(), Edits: []Edit{e}}); err != nil {
+		t.Fatal(err)
+	}
+	want := "\ufeff\"\"\"Doc after a BOM.\n\ntestmap:covers src/bom_doc.py\n\"\"\"\n" +
+		"# testmap:covers src/new.py @2026-10-12/aaaaaaaaaa\nprint(\"bom\")\n"
+	if got := readFile(t, root, "tests/bom_doc.py"); got != want {
+		t.Errorf("got %q want %q", got, want)
+	}
+
+	// A comment on line 1, after the mark, is read and re-stamped in place.
+	for _, c := range []struct{ rel, leader, rest string }{
+		{"tests/one.py", "#", "import os\n"},
+		{"tests/one.go", "//", "package a\n"},
+		{"tests/one.kt", "//", "class T\n"},
+	} {
+		old := "\ufeff" + c.leader + " testmap:covers src/a @2026-01-01/0123456789\n" + c.rest
+		writeFile(t, root, c.rel, old, 0o644)
+		f, e := planOne(t, root, c.rel, "", "src/a")
+		if e.Kind != Replace || e.Line != 1 {
+			t.Errorf("%s: plan %+v, want a re-stamp of line 1", c.rel, e)
+			continue
+		}
+		if _, err := Apply(root, EditSet{Path: c.rel, Snapshot: f.Snapshot(), Edits: []Edit{e}}); err != nil {
+			t.Errorf("%s: %v", c.rel, err)
+			continue
+		}
+		if got, want := readFile(t, root, c.rel), strings.Replace(old, "2026-01-01/0123456789", "2026-10-12/aaaaaaaaaa", 1); got != want {
+			t.Errorf("%s: got %q want %q", c.rel, got, want)
+		}
+	}
+
+	// No slot after the mark and before line 1's code: refused, never placed
+	// above the mark. Both routes to the top: no leading comment run, and a
+	// member opener on line 1.
+	for rel, src := range map[string]string{
+		"tests/code.py": "\ufeffimport os\n",
+		"tests/unit.py": "\ufeff# testmap:unit TestA\n# testmap:covers src/a\n",
+	} {
+		f, err := ParseFile(rel, []byte(src))
+		if err != nil {
+			t.Fatalf("%s: %v", rel, err)
+		}
+		if e, err := PlanCovers(f, "", "src/new", testStamp); !errors.Is(err, ErrByteOrderMark) {
+			t.Errorf("%s: plan %+v %v, want %v", rel, e, err, ErrByteOrderMark)
+		}
+	}
+
+	// bash: the mark is part of line 1's first word, so the top is the top.
+	writeFile(t, root, "tests/bom.sh", "\ufeffecho hi\n", 0o644)
+	f, e = planOne(t, root, "tests/bom.sh", "", "src/new")
+	if _, err := Apply(root, EditSet{Path: "tests/bom.sh", Snapshot: f.Snapshot(), Edits: []Edit{e}}); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := readFile(t, root, "tests/bom.sh"), "# testmap:covers src/new @2026-10-12/aaaaaaaaaa\n\ufeffecho hi\n"; got != want {
+		t.Errorf("bash: got %q want %q", got, want)
+	}
+}
+
+// The behaviour the t1954 case broke: the module runs the same before and
+// after a covers line is added (a mark moved off byte 0 is a SyntaxError).
+func TestByteOrderMarkPythonRuns(t *testing.T) {
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("python3 not on PATH")
+	}
+	root := t.TempDir()
+	writeFile(t, root, "tests/bom_doc.py", bomDoc, 0o644)
+	run := func() string {
+		out, err := exec.Command(python, filepath.Join(root, "tests/bom_doc.py")).CombinedOutput()
+		if err != nil {
+			t.Fatalf("%v: %s", err, out)
+		}
+		return string(out)
+	}
+	if before := run(); before != "bom\n" {
+		t.Fatalf("the fixture prints %q", before)
+	}
+	f, e := planOne(t, root, "tests/bom_doc.py", "", "src/new.py")
+	if _, err := Apply(root, EditSet{Path: "tests/bom_doc.py", Snapshot: f.Snapshot(), Edits: []Edit{e}}); err != nil {
+		t.Fatal(err)
+	}
+	if after := run(); after != "bom\n" {
+		t.Errorf("the module's output changed: %q", after)
 	}
 }
 

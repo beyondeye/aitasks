@@ -78,6 +78,9 @@ var (
 	ErrNoMemberBlock = errors.New("no-member-block")
 	// ErrDocstring: the covers line sits in a Python module docstring.
 	ErrDocstring = errors.New("docstring")
+	// ErrByteOrderMark: the new line would go above a byte-order mark the
+	// language skips, which is one only at the start of the file.
+	ErrByteOrderMark = errors.New("byte-order-mark")
 )
 
 // Apply is the only writer of `testmap:` lines. It re-reads the file without
@@ -220,6 +223,22 @@ func (f *File) render(edits []Edit) ([]byte, []editedLine, error) {
 // naming the edit's source in the edit's block, and every other line keeps
 // its class.
 func verifyResult(old *File, out []byte, edited []editedLine, set EditSet) error {
+	// A byte-order mark the language skips is one only at the start of the
+	// file, and it belongs to line 1: an edit may not add one, drop it, or put
+	// a line above it — not even a line that brings a mark of its own, which
+	// would leave the original mid-file. Checked before the reparse: whether a
+	// moved mark still lexes depends on the language (go/scanner refuses it,
+	// the Python lexer reads it as a name).
+	if old.Lang.SkipsBOM {
+		had := bytes.HasPrefix(old.data, []byte(bom))
+		moved := had != bytes.HasPrefix(out, []byte(bom))
+		for _, e := range edited {
+			moved = moved || had && e.edit.Kind == InsertAfter && e.edit.Line == 0
+		}
+		if moved {
+			return fmt.Errorf("%s: the edit would move the byte-order mark: %w", set.Path, ErrNotComment)
+		}
+	}
 	nf, err := ParseFile(set.Path, out)
 	if err != nil {
 		return fmt.Errorf("%s: the edit would not parse: %w", set.Path, err)
@@ -394,7 +413,8 @@ func RestampLine(text string, s Stamp) (string, error) {
 // leader. A block that already has a comment annotation grows after its last
 // one; a member block without one grows after its opener; the file-level
 // block without one starts at the language's fixed position — and never
-// after the first member opener, which would make the new line a member's.
+// after the first member opener, which would make the new line a member's,
+// nor above a byte-order mark the language skips (ErrByteOrderMark).
 func (f *File) Placement(member string) (after int, indent, leader string, err error) {
 	u, ok := f.Unit(member)
 	if !ok {
@@ -410,9 +430,12 @@ func (f *File) Placement(member string) (after int, indent, leader string, err e
 	after = f.fixedPosition()
 	if len(f.Units) > 1 && after >= f.Units[1].Opener.No {
 		op := f.Units[1].Opener.No
-		return op - 1, indentOf(f.Lines[op-1]), leader, nil
+		after, indent = op-1, indentOf(f.Lines[op-1])
 	}
-	return after, "", leader, nil
+	if after == 0 && bomLen(f.Lang, f.Lines) > 0 {
+		return 0, "", "", ErrByteOrderMark
+	}
+	return after, indent, leader, nil
 }
 
 // fixedPosition is the per-language insertion point of a file-level block
