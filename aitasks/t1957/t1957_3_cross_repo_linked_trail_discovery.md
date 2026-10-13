@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1957
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-12 21:32
-updated_at: 2026-10-13 13:24
+updated_at: 2026-10-13 15:28
 ---
 
 ## Context
@@ -94,3 +95,8 @@ to roots, never compared as strings.
 
 - `python3 -m pytest tests/test_trail_links.py tests/test_trail_discovery.py -q`.
 - Manual: `cd <aitasks_mobile root> && TASK_DIR=aitasks python3 <this repo>/.aitask-scripts/lib/trail_links.py export` prints valid JSON.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-13T12:28:07Z status=pass attempt=1 type=human
