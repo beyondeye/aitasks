@@ -229,3 +229,48 @@ its last child).
 
 ### Planned mitigations
 - timing: pre-phase | name: probe_pane_option_semantics | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — assumed tmux pane-option semantics | desc: live isolated-tmux test pinning show-options -q / list-panes #{@opt} / set-option -u behaviour the mailbox parses
+
+## Final Implementation Notes
+
+- **Actual work done:** All plan steps implemented as written.
+  `agent_launch_utils.py`: `pane_on_gateway_server` (shared
+  `_gateway_pane_session`, which `current_tmux_session` now delegates to),
+  `read_trails_focus_request`, `parse_trails_focus_request`,
+  `mark_trails_receiver` / `unmark_trails_receiver`, `_live_trails_receivers`,
+  `launch_or_focus_trails`. `board_trail_screen.py`: `then` continuation on
+  `_open_trail_select` / discovery worker / `_on_trail_discovery`, and
+  `_open_trail_by_handle(handle, rescan, is_current)`. `trails_app.py`:
+  `--trail`, `initial_trail` / `focus_pane` / `focus_tmux_env`, registration +
+  busy-guarded poll workers, `_deliver_trail_focus` / `_apply_trail_focus` /
+  `_drain_trail_focus` with the delivery seq, `on_unmount` unstamp.
+- **Deviations from plan:** The pre-phase probe changed the read primitive.
+  `show-options -p -q -v` and `display-message` BOTH answer a missing pane with
+  rc 0 and empty output, so neither can distinguish "no request" from "read
+  failed". The read is `display-message -p -t <pane> '#{pane_id}\t#{@opt}'`
+  and is trusted only when the echoed pane id matches. The live test pins this,
+  including the `show-options -q` control.
+- **Issues encountered:** Two existing `test_board_bytrail_view.py` stubs
+  replaced `_trail_discovery_worker` with a two-argument lambda; updated them to
+  accept the new optional `then`.
+- **Key decisions:** The App never reads `$TMUX_PANE` itself (only `main()`
+  does), so a test App can never stamp the developer's real pane. The deferred
+  request is superseded at four layers (delivery clears pending, direct apply
+  clears pending, seq check, `is_current` in the mixin). Mutants confirmed the
+  supersession, server-check, baseline-order, same-id and baseline tests each
+  fail when their guard is removed; the deferred-request test passes even with
+  three of the four layers removed, because the `is_current` layer alone holds.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:** t1957_4 calls
+  `launch_or_focus_trails(session, root, handle)` → `(ok, err)` and then
+  switches the client itself. Its version-skew check can test for
+  `--trail` in the target's `board/trails_app.py`. A mailbox request delivered
+  while a modal is open is held and applied when the modal closes (the trail
+  selector is dismissed instead), and the user gets a notify.
+
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-13)
+- **Requested by user:** (1) the live cold-launch test raced a failing `./ait` (window could vanish before the assertion); (2) receiver-stamp parsing used `str.isdigit()`, so `²` crashed `int()` and an oversized pid overflowed `os.kill`.
+- **Changes made:** (1) the live test installs a controlled `ait` stub in the project root that records its argv and stays alive; the test waits (bounded) for the argv file, asserts `trails --trail <handle>`, then the window. Passed 3/3 runs. (2) stamps must fullmatch `[1-9][0-9]{0,9}` (ASCII) and be ≤ 2**31-1; new writer test covers `²`, `٣`, 20-digit, 2**31, `0`, `-5`, `+12`, each continuing to the next receiver and to the cold-launch path. Negative control: the new test fails with `ValueError` under the old parsing.
+- **Files affected:** `.aitask-scripts/lib/agent_launch_utils.py`, `tests/test_trails_focus_writer.py`, `tests/test_trails_focus_mailbox_live.py`
