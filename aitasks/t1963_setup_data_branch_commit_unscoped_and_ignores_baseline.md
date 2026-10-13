@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1711
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-13 08:32
-updated_at: 2026-10-13 08:48
+updated_at: 2026-10-13 11:13
 ---
 
 ## Origin
@@ -32,3 +33,8 @@ t1959 made the six `.gitignore` helpers commit path-scoped through `_ait_commit_
 ## Suggested fix
 
 Commit the exact staged set by name: `.gitignore` plus the paths the `git rm` actually removed (capture them with `git diff --cached --name-only --diff-filter=D -- aitasks aiplans` right after the rm), using `git commit -- <names>` only for paths whose index state is what should land, or commit with a temporary index (`GIT_INDEX_FILE`) built from HEAD + those entries. Skip the `.gitignore` part when it is in `AIT_SETUP_DIRTY_BASELINE` (reuse `_ait_commit_gitignore_rule`'s check). Add tests for both the configure and the migrate branch with a foreign staged file and a dirty `.gitignore`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-13T08:13:08Z status=pass attempt=1 type=human
