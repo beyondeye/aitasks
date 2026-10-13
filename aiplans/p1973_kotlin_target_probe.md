@@ -281,28 +281,198 @@ Scratch root: `$S=/tmp/claude-1000/-home-ddt-Work-aitasks/33854a44-ea4d-4aa5-948
     - The clone and oracles stay in the session scratchpad. They are not
       repository artifacts.
 
-## Measurements (template, filled in at step 8)
+## Measurements (recorded 2026-10-13)
 
-- Snapshot: thinking_app `<sha>` / tree `<tree>`, plus the files and MB scanned per language.
-- Opaque: per-reason file counts for main / test, and against the proposal's 42 (`const val`/`inline fun`) and 63 (DI) main files.
-- Kotlin edges: counts per `Via`, `Static` count, `package-fallback` edge count and number of distinct files reached, `Unresolved` by category.
-- Oracle: imports classified as external / resolved / unclassified repository
-  candidate, with reconciled totals and the triage categories for the
-  unclassified class. For resolved imports: matched, under-selection misses
-  and precision losses. Declaration coverage: unclassified column-0 patterns,
-  and the hand sample of 12 files vs both the oracle and `Symbols`.
-- Gradle: modules, `ModuleOf` mismatches, `gradle-dynamic` problems.
-- android-res:
-  - `ResKeys` names vs the raw-contract oracle, per XML file;
-  - the unsupported element-kind inventory;
-  - Kotlin files carrying keys, reference keys vs regex refs, `*` files and
-    dangling refs;
-  - `ChangedKeys` agreement over N diffs, with conservative over-reports
-    counted separately.
-- Timing: cold, warm (min / median), uncached, and the live-tree cross-check, against warm 200 ms (`select`) / 150 ms (scan budget) and cold 1.5 s.
-- from-body: per member, the exact line range, refs vs the hand oracle, and
-  misses with their constructs.
-- Defect tasks filed: `t<id>` list.
+### Snapshot
+- thinking_app `1dc7b958926fcede69f9493fca8bd0f110dfce30`, tree
+  `29fee795de0fdb7cf44f0a8c912b83482ea8ef85`, scanned on a clean `--no-hardlinks`
+  clone in the session scratchpad.
+- The live tree's untracked files (`DESIGN/`, `.aitask-explain/`, …) contain no
+  scannable files, so the live scan has the same 1309 files.
+- Scanned files:
+
+  | language | files | MB |
+  |---|---|---|
+  | kotlin | 784 | 7.26 |
+  | python | 277 | 6.70 |
+  | bash | 244 | 4.90 |
+  | gradle | 4 | 0.08 |
+
+  There are no `.java` files, so `java-unscanned` and `*` keys are both 0.
+
+### Pre-phase `oracle_self_control`: PASS
+- Four faults were injected:
+  - a deleted import edge,
+    `BuildConfigBuildInfoTest.kt` → `DiagnosticsViewModel.kt` (import
+    `…settings.formatAppVersion`);
+  - `const-val` dropped from `SmokeComposeTest.kt`;
+  - `ChangedKeys` pair 07 lost `purchase_subscription_already_subscribed`;
+  - `ResKeys(values-ru/strings.xml)` lost `a_new_password_has_been_sent_to_email`.
+- Both oracles reported **exactly** those 4, with no extra or missing findings
+  against the unmutated baseline.
+
+### Opaque files
+Each file is counted under every reason it carries (`scanKotlin(data).Opaque`).
+
+| reason | main (335) | test (445) | androidTest (3) | debug (1) |
+|---|---|---|---|---|
+| const-val | 90 | 125 | 2 | 1 |
+| di | 63 | — | — | — |
+| reflection | 33 | 62 | — | 1 |
+| inline-fun | 3 | 1 | — | — |
+| dynamic-resource | 1 | 2 | — | — |
+| di-koin, untokenizable, generated | 0 | 0 | 0 | 0 |
+
+- **Opaque by the graph's first reason:** 144 of 335 main files (43%) and 168 of 445
+  test files.
+- **Against the proposal:**
+  - DI is **63 main files, matching the proposal's 63 exactly**.
+  - `const val` / `inline fun` is now **90 main files**, against the proposal's 42. 65
+    of those have a non-private `const val`, and 13 files are both DI and const. The
+    tree has grown since the proposal measured it; the scanner and the oracle agree
+    file for file, with 0 disagreements.
+- The independent oracle agrees on every reason for every file: **0 opaque
+  disagreements**.
+- One Gradle file is opaque: `app/build.gradle` with `gradle-dynamic`. This is
+  defect t1975.
+
+### Kotlin edges
+- Edges per `Via`:
+
+  | via | edges |
+  |---|---|
+  | same-package | 59,849 (median 50 per file, max 199) |
+  | package-fallback | 4,128 |
+  | import | 2,761 |
+  | build-input | 2,352 |
+  | module-build | 1,568 |
+  | star-import | 392 |
+  | fq-ref | 4 |
+
+- `Static()` (seeded): 2,765.
+- **`package-fallback`:** 4,128 edges from 190 importer files reach only 22 distinct
+  targets, which are exactly the 22 files of the root package `com.softman.thinking`.
+  Every fallback comes from a generated class:
+  - `Unresolved` holds 195 entries: 179 `com.softman.thinking.R`, 12
+    `com.softman.thinking.BuildConfig`, and 4 fq chains (`…R.string.terms_of_use`,
+    `…R.string.my_children`, `…R.string.return_label`, `…R.drawable.avatar_boy_01`).
+  - There are no nested-member, extension or typealias misses.
+  - This is a bounded precision cost and by design. Treating `<namespace>.R` /
+    `BuildConfig` as generated, rather than falling back to the root package, would
+    remove it. It is small next to the `same-package` breadth, so no task was filed.
+
+### Import oracle
+- 12,283 explicit imports, reconciled: 8,646 external + 3,446 resolved + 191
+  unclassified = 12,283.
+- **Resolved:** 3,446 of 3,446 matched by a graph edge. **0 under-selection misses and
+  0 precision losses.**
+- **Unclassified repository candidates:** 2 distinct paths, `com.softman.thinking.R`
+  (179) and `…BuildConfig` (12). Both are generated, so this is by design.
+- **Declaration coverage:**
+  - 0 unclassified column-0 lines remain. The one oracle gap found,
+    `private val x by lazy`, was fixed in the oracle.
+  - **Hand sample: 14 files** covering every surveyed form:
+    - `sealed interface` and `internal sealed interface`, `fun interface`;
+    - `suspend fun`, `inline fun`, extension `fun` and extension `val`;
+    - `private const val`, enum with a constructor, `abstract class`;
+    - `@HiltViewModel` with `@Inject constructor`, multi-line `@Config(...)`;
+    - `data class`, `internal object`, `val … by lazy`.
+
+    There is no `typealias` in the repository.
+  - **The oracle matches the hand sample on all 14 files.** The scanner's `Symbols`
+    differ only by defects t1976 and t1977, so no form is missed by both sides.
+  - **Scanner declaration disagreements: 225 files.**
+    - 224 files are constructor `val`/`var` parameters indexed as top-level (626
+      `val`s and 71 `var`s), which is **t1976**.
+    - 1 file is `val retrofit by lazy` indexed as `lazy`, which is **t1977**.
+
+### Gradle
+- Modules are `:` (`build.gradle`) and `:app` (`app/build.gradle`), as expected.
+- `ModuleOf` mismatches: 0 of 1,309 (787 → `:app`, 522 → `:`). The stray
+  `tools/…/fork-membership.init.gradle` maps to `:`, is transparent, and is not a build
+  file.
+- **Problem:** `app/build.gradle` reports `gradle-dynamic: include`, and `:app` deps are
+  `[":"]` where `[]` was expected, because `app/build.gradle` has no `project()` refs.
+  - Root cause: the comment stripper is not string-aware. In the glob `'*/*_REVIEW.md'`
+    (line 920), `/*` opens a fake comment that runs up to line 921's `'*/…'` and leaves
+    `include '*`.
+  - In thinking_app this is over-approximation.
+  - A fixture proves the same bug can **silently drop a `project()` dependency**
+    (under-selection, no problem reported). This is **t1975, high**.
+
+### android-res (`symbol_scanners: [android-res]`)
+- **`ResKeys` vs the raw-contract oracle:** 15 `res/values*/*.xml` files, **0
+  disagreements**.
+  - Each `strings.xml` has 531 keys, across 5 locales.
+  - Each `plurals.xml` has 4 keys, across 5 locales.
+  - `system_strings.xml` has 4, `donottranslate.xml` 1, and `colors.xml` /
+    `themes.xml` 0.
+  - The test fixture `asset-inventory-fixtures/res/values/strings.xml` has 0, because
+    it has no depth-1 elements.
+- **Unsupported kinds:** `color` (9) and `style` (1) only. There is no `string-array`
+  at depth 1 (the planning `git grep` hit was in a comment), and Kotlin has 0
+  `R.array.` refs.
+- **Kotlin reference keys:**
+  - 150 Kotlin files carry keys, with 486 distinct keys referenced.
+  - The oracle and graph `Keys` match on every file, after one oracle fix: the oracle
+    had blanked `${…}` template code.
+  - There are 0 `*` files.
+- **Dangling keys:** 1 key, `default_error_message`, in 2 files. It is
+  `androidx.compose.ui.R.string.default_error_message`, a **library** `R`. The scanner
+  attributes it to the app key of the same name, which is by-design
+  over-approximation.
+- **`ChangedKeys`:** 13 history pairs (10 `values/strings.xml`, `values-ru`,
+  `values-iw` and `values/plurals.xml`, none of them a creation commit) contain 46
+  changed keys. Agreement is **13 of 13 exact**, with 0 conservative over-reports
+  against the C14N diff and 0 canonical-only changes.
+
+### Timing
+Wall time per `deps.Scan`, both configurations:
+
+| target | cold | warm (3 runs) | uncached |
+|---|---|---|---|
+| clone | 184–203 ms | 80–92 ms (median ≈ 88 ms) | 180–211 ms |
+| live tree | 222–251 ms | 95–109 ms | 205–235 ms |
+
+All of these are inside warm 150 ms (the scan budget), 200 ms (`select`) and cold
+1.5 s, so no t1855 note was needed.
+
+### `annotate --from-body` (inference only, on the clone with boundary openers)
+The clone was committed at `45ba3b60002e`. For every member, `ParseFile` reported the
+opener and the next opener exactly at the recorded lines.
+
+| member | range | refs | hand oracle |
+|---|---|---|---|
+| `AnalyticsInstallerTest#ProdDebug` (same-package names, explicit imports) | 57–66 | RecordingAnalytics, Analytics, AnalyticsUserProperty | match |
+| `AppLocaleWrapTest#HebrewApp` (imported extension `context.localized()`, fq `…R.string`) | 88–98 | AppLocale.kt | match. `localized` is declared in `AppLocale.kt`, and refs dedupe per file. The generated `R` correctly has no ref. |
+| `AddChildWizardSendLinkExitTest#WalkWizard` (same-package extension `destinationRoutes` in receiver position) | 118–141 | NavPolicyHarness.kt, AddChildError.kt (`StudySubjectsMode`), PopUp.kt | match |
+| `SubscriptionEventsTest#GrantRefused` (fq `…paymentDTO.SubscriptionRequest`) | 463–476 | SubscriptionRequest.kt, AnalyticsVocabulary.kt, BillingTestHarness.kt (`BACKEND_PLAN` via a `Companion` import) | match |
+| `SmokeComposeTest#WelcomeRoot` (androidTest) | 110–118 | MainCoordinator, WelcomeScreen, WelcomeViewModel | match |
+| `ChangeAvatarScreen#DoneButton` (star import `ui.components.*`, receiver extension `doneButtonBackground`) | 85–109 | Backgrounds.kt, Fonts.kt (`assistant`, `AssFont`) | match |
+
+- **Misses: 0** at file granularity. Every other repository name in the ranges is the
+  test file's own member, or an external symbol.
+- **Design limitation (not a defect):** a member called in receiver position on a
+  typed property is not attributed, because receiver types are not inferred. Examples
+  are `coordinator.navigateTo`, `viewModel.submit` and `h.service.subscribeMonthly`. In
+  `WalkWizard`, `MainCoordinator` and the learning-settings ViewModel are therefore
+  exercised but not stamped.
+- t1976 was not triggered by this sample, because no sampled body named a colliding
+  constructor-parameter name. Its fixture proves the spurious `--from-body` ref
+  directly.
+
+### Defect tasks filed
+Each task's fixture was confirmed red against `822fc6f47` in a temporary test, which
+was then deleted.
+
+- **t1975** (bug, high): the Gradle comment stripper ignores string literals. It can
+  silently drop `project()` deps (under-selection), and it collapses thinking_app's
+  `:app` deps.
+- **t1976** (bug, medium): Kotlin primary-constructor `val`/`var` parameters are indexed
+  as top-level declarations (697 symbols in 224 files). This causes spurious
+  `--from-body` covers.
+- **t1977** (bug, low): a delegated property `val x by lazy` is indexed under the
+  delegate's name. The import degrades to `package-fallback`.
 
 ## Verification
 
@@ -334,3 +504,51 @@ Scratch root: `$S=/tmp/claude-1000/-home-ddt-Work-aitasks/33854a44-ea4d-4aa5-948
 Step 8: there are no code changes to commit, only this plan via
 `aitask_task_commit.sh`. Step 9 archival then follows. The work happens on the
 current branch, so nothing is merged.
+
+## Final Implementation Notes
+- **Actual work done:** Executed every planned step on a clean clone of thinking_app
+  at `1dc7b95`:
+  - the temporary env-gated probe `deps/probe_t1973_test.go`, run cold, warm and
+    uncached, with and without android-res, dumping facts, the full opaque sets and
+    `ResKeys`, then `ChangedKeys` and `FromBody`;
+  - the independent Python oracles `kt_oracle.py` / `res_oracle.py` (with a shared
+    `kt_strip.py`), the pre-phase fault injection, the hand declaration sample of 14
+    files, and from-body over 6 boundary-isolated members;
+  - the live-tree timing cross-check, with byte-identical status before and after.
+
+  Measurements are recorded above. Three defects were filed with fixtures, each
+  confirmed red. No repository code changed, and both temporary test files were
+  deleted.
+- **Deviations from plan:**
+  - `reskeys.json` lists files through `gitx.ListFiles`, because XML values files are
+    not part of `Graph.Files()`, which holds only scanned languages.
+  - The hand sample has 14 files rather than 12, so that `internal object` and an
+    extension `val` are covered; no `typealias` exists in the repository.
+  - The star-import from-body member is a main-source composable
+    (`ChangeAvatarScreen#DoneButton`), because no test file star-imports a repository
+    package.
+  - Defect fixtures went into a second temporary file,
+    `probe_t1973_fixtures_test.go`.
+- **Issues encountered:** Three oracle errors were found and fixed before any count
+  was trusted:
+  - `val x by lazy` name extraction;
+  - blanking of `${…}` string-template code;
+  - a wrong first-pass `git grep` for star imports.
+
+  None was a scanner issue. The from-body `localized` "miss" was refs being deduped
+  per file, since `AppLocale.kt` declares both symbols.
+- **Key decisions:**
+  - Defects are filed as separate tasks (t1975, t1976, t1977), as the task requires.
+  - `package-fallback` volume (R/BuildConfig → the 22 root-package files) is recorded
+    as a precision cost and not filed.
+  - The library-`R` key attribution and the receiver-member non-attribution in
+    from-body are recorded as by design.
+- **Upstream defects identified:**
+  - `goengines/internal/testmap/deps/gradle.go:39` — `gradleComment` blanks `/*…*/`
+    and `//` inside string literals, silently dropping `project()` deps (filed as
+    t1975).
+  - `goengines/internal/testmap/deps/kotlin.go:192` — constructor `val`/`var`
+    parameters are recorded as top-level declarations, because depth tracks only
+    braces (filed as t1976).
+  - `goengines/internal/testmap/deps/kotlin.go:262` — `ktDeclName` names
+    `val x by lazy` as `lazy` (filed as t1977).
