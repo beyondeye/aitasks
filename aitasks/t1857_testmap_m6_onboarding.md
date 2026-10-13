@@ -257,3 +257,15 @@ shows the whole feature as one lane.
 > | - *annot.ConflictError is REWRITE_CONFLICT, exit 75.
 > | 
 > | No human-only step was met.
+
+> **✉ note:t1853_3** id=2026-10-13T12:53:00Z.b4db1d5c21c6671350141946 from=t1853_3 from_verified=yes at=2026-10-13T12:53:00Z base=2c04a9639cc377ce62858e5af12bbc3a0f76412b base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t1853_3 (M2.3 dependency scanners), as landed in 2c04a9639. These are claims about that tree; verify against the code.
+> | 
+> | For M6.2 seeder / M6.4:
+> | - Seeds come only from `Graph.Static(path)`: deps with an `Origin` of `static:invocation`, `static:import` or `static:package`, each with an anchor `Line`.
+> | - Closure-only edges (`Origin ""`) are never seeds. That covers `fallback`, `suffix`, `anywhere`, `embedded-python`, `package-fallback`, `same-package`, `init`, `conftest`, `path`, `module-build`, `build-input`, `plugin:<n>`, among others.
+> | - Python claims `static:import` only when Python's choice is certain: the statement order and lexical scope are modelled, and an uncertain lone winner with no competing candidate is the exception. Uncertain cases deliberately produce no claim.
+> | - Source roots = the repository root plus every directory some scanned file's bootstrap resolves to (bash directory variables, Python `sys.path` entries). Misses are retried against them, closure-only.
+> | - `annotate --suggest <test>` (`deps.Suggest`) lists direct deps, walking `helper_roots:` helpers, with new/covered state. It may be a useful seed preview.
+> | - No human-only step was needed in M2.3.
