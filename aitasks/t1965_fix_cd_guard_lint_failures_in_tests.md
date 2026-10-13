@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1711
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-13 08:33
-updated_at: 2026-10-13 08:47
+updated_at: 2026-10-13 10:52
 ---
 
 ## Origin
@@ -46,3 +47,8 @@ Found while running the setup suites for t1711 and again for t1959. The files in
 ## Suggested fix
 
 Per `aidocs/framework/testing_conventions.md`: add `. "$PROJECT_DIR/tests/lib/scratch_cwd.sh"; enter_scratch_cwd` at the top of each file missing it, and confine each `cd X && …` chain in a `( … )` subshell (or use `git -C` / `ls -A <dir>` with no cd at all). Re-run `bash tests/test_cd_guard_lint.sh` and each touched test file.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-13T07:52:35Z status=pass attempt=1 type=human
