@@ -80,6 +80,7 @@ func scanKotlin(data []byte) rawFile {
 		}
 	}
 	depth := 0
+	parens := 0 // open '(': constructor parameters, annotation arguments, calls
 	seenDecl := false
 	refSeen := map[string]bool{}
 	keySeen := map[string]bool{}
@@ -93,6 +94,10 @@ func scanKotlin(data []byte) rawFile {
 				depth++
 			case "}":
 				depth = max(0, depth-1)
+			case "(":
+				parens++
+			case ")":
+				parens = max(0, parens-1)
 			case "@":
 				annots = append(annots, annotationsAt(toks, i)...)
 			case "::":
@@ -162,7 +167,9 @@ func scanKotlin(data []byte) rawFile {
 				k.Keys = append(k.Keys, key)
 			}
 		}
-		if depth == 0 && !prevDot && slices.Contains(declKeywordsKt, t.text) {
+		// Only a keyword outside every brace and parenthesis declares in the
+		// package: `class X(val a: A)` declares X, not a.
+		if depth == 0 && parens == 0 && !prevDot && slices.Contains(declKeywordsKt, t.text) {
 			if name, line, ext := ktDeclName(toks, i); name != "" {
 				seenDecl = true
 				k.Decls = append(k.Decls, Symbol{Name: name, Kind: t.text, Line: line})

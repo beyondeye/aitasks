@@ -65,6 +65,60 @@ func TestKotlinResolution(t *testing.T) {
 	}
 }
 
+// Primary-constructor parameters are members of their class, not top-level
+// declarations of the package: a keyword declares only outside every brace
+// and parenthesis. Every case ends with a real top-level declaration after
+// the constructor, so a parenthesis counter that never closes cannot pass by
+// dropping everything.
+func TestKotlinCtorParamsAreNotTopLevel(t *testing.T) {
+	for name, tc := range map[string]struct {
+		src  string
+		want []string
+	}{
+		"data-class": {lines(`package x`, `data class LoginState(val email: String, var busy: Boolean = false)`, `fun after() = 1`),
+			[]string{"class:LoginState", "fun:after"}},
+		"enum": {lines(`package x`, `enum class Tab(val label: String) {`, `    HOME("home");`, `    val upper get() = label.uppercase()`, `}`, `val after = 1`),
+			[]string{"class:Tab", "val:after"}},
+		"inject-constructor": {lines(`package x`, `class LoginViewModel @Inject constructor(private val repo: Repo) : ViewModel()`, `typealias After = LoginViewModel`),
+			[]string{"class:LoginViewModel", "typealias:After"}},
+		"multi-line": {lines(`package x`, `class Form(`, `    private val mapper: Mapper,`, `    var inProgress: Boolean = false,`, `    val onDone: (Int) -> Unit = { val x = it },`, `) : Base(mapper)`, `object After`),
+			[]string{"class:Form", "object:After"}},
+		// '<' and '>' are comparison operators too: they never nest.
+		"comparison": {lines(`package x`, `val less = 1 < 2`, `class After(val p: Int)`),
+			[]string{"val:less", "class:After"}},
+	} {
+		var got []string
+		for _, s := range scanKotlin([]byte(tc.src)).Symbols {
+			got = append(got, s.Kind+":"+s.Name)
+		}
+		if !slices.Equal(got, tc.want) {
+			t.Errorf("%s: symbols %v, want %v", name, got, tc.want)
+		}
+	}
+}
+
+// End to end through --from-body: a member body's local `email` gets no ref to
+// a file whose constructor has an `email` parameter, and the class the body
+// does name still resolves. `email` comes first because FromBody keeps one ref
+// per file (the first symbol that reaches it), so pre-fix the wrong symbol
+// wins.
+func TestKotlinFromBodyIgnoresCtorParams(t *testing.T) {
+	r := repo(t, map[string]string{
+		"aitestmap/.keep":      "",
+		"src/a/LoginState.kt":  "package com.x.a\n\ndata class LoginState(val email: String, var busy: Boolean = false)\n",
+		"tests/a/LoginTest.kt": lines(`package com.x.a`, ``, `// testmap:unit M`, `fun m() {`, `    val email = "x"`, `    println(LoginState(email))`, `}`),
+	})
+	if f, _ := scanRepo(t, r).Facts("src/a/LoginState.kt"); len(f.Symbols) != 1 || f.Symbols[0].Name != "LoginState" {
+		t.Errorf("symbols %+v, want [LoginState]", f.Symbols)
+	}
+	refused, refs, _, err := FromBody(bg, r.Dir, registry.ID{Path: "tests/a/LoginTest.kt", Member: "M"},
+		Options{Config: registry.Defaults(), Uncached: true})
+	want := []BodyRef{{Source: "src/a/LoginState.kt", Symbol: "LoginState", Line: 6}}
+	if err != nil || refused != "" || !slices.Equal(refs, want) {
+		t.Fatalf("FromBody: refused %q refs %+v err %v, want %+v", refused, refs, err, want)
+	}
+}
+
 // An import of an undeclared name inside a repository package keeps the
 // whole package reachable (closure-only), never nothing.
 func TestKotlinPackageFallback(t *testing.T) {
