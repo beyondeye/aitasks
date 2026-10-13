@@ -3,13 +3,14 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [aitask_fold, bash_scripts, gates]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1962
 followup_kind: upstream_defect
 created_at: 2026-10-13 11:22
-updated_at: 2026-10-13 11:22
+updated_at: 2026-10-13 11:43
 ---
 
 ## Origin
