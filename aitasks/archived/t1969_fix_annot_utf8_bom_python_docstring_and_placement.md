@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [testing, testmap, go_engine]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 1852
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-13 11:55
-updated_at: 2026-10-13 13:34
+updated_at: 2026-10-13 15:50
+completed_at: 2026-10-13 15:50
 ---
 
 ## Origin
@@ -55,3 +56,14 @@ Treat a leading UTF-8 BOM as part of line 1's prefix for the lexers that honour 
 > **✅ gate:plan_approved** run=2026-10-13T10:34:44Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-13T12:45:57Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-13T12:50:07Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:032440b23357ca69
+
+> **✅ gate:risk_evaluated** run=2026-10-13T12:50:07Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1969/risk_evaluated_2026-10-13T12:50:07Z-risk_evaluated-a1.log`
