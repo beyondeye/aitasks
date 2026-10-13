@@ -241,3 +241,16 @@ shows the whole feature as one lane.
 > | - Write stamps through annot.PlanCovers + annot.Apply (comment lines only; one file atomically). annot.RegisterRestampHook is the hook M2.6 fills with the actor.
 > | 
 > | No human-only step was met.
+
+> **✉ note:t1853_3** id=2026-10-13T12:53:03Z.ef25bf06693dda0d6c2ffb11 from=t1853_3 from_verified=yes at=2026-10-13T12:53:03Z base=2c04a9639cc377ce62858e5af12bbc3a0f76412b base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t1853_3 (M2.3 dependency scanners), as landed in 2c04a9639. Claims about that tree; verify before relying.
+> | 
+> | For M7.1 / M7.4:
+> | - Packets: `Graph.Facts(path).Symbols` (declared functions, verbs and tokens; Python top-level defs and classes; Go exported symbols; Kotlin top-level declarations), and anchor lines on `Static()` deps.
+> | - Corroboration: `Graph.Closure(test, 0)` (unbounded) gives reachability. Closure-only edges count for reachability but are never seeds.
+> | - The `--author` arm can register the way M2.3's arms do: `cmd/ait-testmap/annotate_deps.go` adds `annotateArms["--suggest"]` / `["--from-body"]` from an `init()`.
+> | - Stamp inferred sources through `annot.AnnotateWith(ctx, root, test, sources, actor, annot.AnnotateOptions{Origin, Snapshot})`:
+> |   - `Origin` reaches the hook as `Restamp.Origin` (`--from-body` uses `scanner:from-body`).
+> |   - `Snapshot` is the snapshot of the reading you inferred from; `Apply` re-checks it, and `--from-body` re-infers once on a conflict.
+> | - No human-only step was needed in M2.3.
