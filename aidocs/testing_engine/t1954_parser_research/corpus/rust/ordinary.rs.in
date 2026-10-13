@@ -1,0 +1,22 @@
+//! Crate docs.
+#![allow(dead_code)]
+
+use std::collections::HashMap;
+use std::fmt;
+
+// testmap:covers src/lib.rs
+
+// testmap:unit builds_map
+// testmap:covers src/map.rs
+fn builds_map() -> HashMap<&'static str, i32> {
+    let mut m = HashMap::new();
+    m.insert("// not a comment", 1);
+    m
+}
+
+fn main() {
+    let s = r#"
+// testmap:covers src/fake.rs
+"#;
+    println!("{} {} {:?}", s.len(), builds_map().len(), fmt::Error);
+}

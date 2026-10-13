@@ -1,0 +1,10 @@
+lang: java
+expect: certain
+read:
+  - line=6 member= key=covers value=src/real.java stamp= origin=comment
+writable: 6
+readonly: 
+lookalikes: 5
+comments: 6
+refuse: none
+native: javac

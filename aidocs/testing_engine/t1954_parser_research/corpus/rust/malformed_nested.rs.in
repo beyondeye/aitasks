@@ -1,0 +1,3 @@
+/* outer /* inner */
+// testmap:covers src/x.rs
+fn main() {}

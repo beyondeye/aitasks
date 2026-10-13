@@ -1,0 +1,14 @@
+lang: typescript
+expect: certain
+read:
+  - line=4 member= key=covers value=src/join.ts stamp= origin=comment
+  - line=6 member=joinsPaths key=unit value=joinsPaths stamp= origin=comment
+  - line=7 member=joinsPaths key=covers value=src/path.ts stamp= origin=comment
+writable: 4,6-7
+readonly: 
+lookalikes: 
+comments: 4,6-7
+refuse: none
+placement: file=4 member:joinsPaths=7
+native: node-ts+node-exec
+exec: node {file}

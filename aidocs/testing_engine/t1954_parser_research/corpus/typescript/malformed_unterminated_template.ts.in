@@ -1,0 +1,2 @@
+const s = `abc
+// testmap:covers src/x.ts

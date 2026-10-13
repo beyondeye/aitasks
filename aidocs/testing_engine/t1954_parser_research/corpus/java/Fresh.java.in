@@ -1,0 +1,6 @@
+package app.tests;
+
+import java.util.List;
+import static java.util.Map.of;
+
+class Fresh {}

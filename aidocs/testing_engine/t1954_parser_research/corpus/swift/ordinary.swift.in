@@ -1,0 +1,10 @@
+import Foundation
+
+// testmap:covers Sources/App/Main.swift
+
+// testmap:unit testAdds
+// testmap:covers Sources/App/Adder.swift
+func testAdds() -> Bool { return 1 + 1 == 2 }
+
+let url = "https://example.com" // `//` inside a string
+print(testAdds(), url.count)

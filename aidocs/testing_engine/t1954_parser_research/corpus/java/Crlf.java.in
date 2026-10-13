@@ -1,0 +1,4 @@
+package app;
+
+// testmap:covers src/crlf.java
+class Crlf {}

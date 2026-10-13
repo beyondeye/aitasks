@@ -1,0 +1,16 @@
+package app;
+
+import java.util.List;
+
+// testmap:covers src/main/java/app/Lists.java
+public class Ordinary {
+    // testmap:unit sizes
+    // testmap:covers src/main/java/app/Size.java
+    static int sizes() { return List.of(1, 2).size(); }
+
+    public static void main(String[] a) {
+        String s = "// testmap:covers fake";
+        char c = '"';
+        System.out.println(sizes() + s.length() + c);
+    }
+}

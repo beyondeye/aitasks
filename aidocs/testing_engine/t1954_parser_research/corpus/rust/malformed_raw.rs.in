@@ -1,0 +1,3 @@
+fn main() {
+    let s = r#"never closed
+// testmap:covers src/x.rs

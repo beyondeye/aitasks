@@ -1,0 +1,13 @@
+lang: python
+expect: certain
+read:
+  - line=1 member= key=covers value=src/a.sh stamp= origin=docstring
+writable: 
+readonly: 1
+lookalikes: 
+comments: 
+refuse: none
+placement: file=1
+native: python-tokenize+ast
+note: origin: M2.2 annot/lexctx_test.go TestClassifyPython docs[2] @ f096db065a72
+note: docstring literal lines 1-1; placement = the statement's last line (DocEnd)

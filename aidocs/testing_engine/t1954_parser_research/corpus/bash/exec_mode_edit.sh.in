@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# testmap:covers src/exec.sh
+echo exec

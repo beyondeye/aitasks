@@ -1,0 +1,11 @@
+//! Inner doc.
+#![allow(unused)]
+#![cfg_attr(test, allow(dead_code))]
+
+use std::io;
+use std::fmt::{
+    Debug,
+    Display,
+};
+
+fn main() { let _ = io::stdout(); }

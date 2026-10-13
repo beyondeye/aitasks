@@ -1,0 +1,3 @@
+﻿# header after a UTF-8 BOM
+# testmap:covers src/bom.sh
+echo bom

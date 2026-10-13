@@ -1,0 +1,14 @@
+import { strict as assert } from "node:assert";
+import { join } from "node:path";
+
+// testmap:covers src/join.ts
+
+// testmap:unit joinsPaths
+// testmap:covers src/path.ts
+function joinsPaths(): void {
+  assert.equal(join("a", "b"), "a/b"); // trailing
+}
+
+const url = "http://example.com"; // `//` inside a string
+joinsPaths();
+console.log("ok", url.length);

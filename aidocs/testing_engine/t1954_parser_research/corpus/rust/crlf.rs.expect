@@ -1,0 +1,10 @@
+lang: rust
+expect: certain
+read:
+  - line=1 member= key=covers value=src/crlf.rs stamp= origin=comment
+writable: 1
+readonly: 
+lookalikes: 
+comments: 1
+refuse: none
+native: rustc

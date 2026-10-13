@@ -1,0 +1,28 @@
+op: annotate member= source=src/join.ts stamp=@2026-02-02/bbbbbbbbbb from=original
+outcome: applied
+after:
+  - line=4 member= key=covers value=src/join.ts stamp=@2026-02-02/bbbbbbbbbb origin=comment
+  - line=6 member=joinsPaths key=unit value=joinsPaths stamp= origin=comment
+  - line=7 member=joinsPaths key=covers value=src/path.ts stamp= origin=comment
+
+op: annotate member=joinsPaths source=src/more.ts stamp=@2026-10-12/aaaaaaaaaa from=original
+outcome: applied
+after:
+  - line=4 member= key=covers value=src/join.ts stamp= origin=comment
+  - line=6 member=joinsPaths key=unit value=joinsPaths stamp= origin=comment
+  - line=7 member=joinsPaths key=covers value=src/path.ts stamp= origin=comment
+  - line=8 member=joinsPaths key=covers value=src/more.ts stamp=@2026-10-12/aaaaaaaaaa origin=comment
+
+op: annotate member=nope source=src/x.ts stamp=@2026-10-12/aaaaaaaaaa from=original
+outcome: refused:no-member-block
+after:
+  - line=4 member= key=covers value=src/join.ts stamp= origin=comment
+  - line=6 member=joinsPaths key=unit value=joinsPaths stamp= origin=comment
+  - line=7 member=joinsPaths key=covers value=src/path.ts stamp= origin=comment
+
+op: stale member=joinsPaths source=src/path.ts stamp=@2026-02-02/bbbbbbbbbb from=original mutate=append:joinsPaths();
+outcome: refused:conflict
+after:
+  - line=4 member= key=covers value=src/join.ts stamp= origin=comment
+  - line=6 member=joinsPaths key=unit value=joinsPaths stamp= origin=comment
+  - line=7 member=joinsPaths key=covers value=src/path.ts stamp= origin=comment

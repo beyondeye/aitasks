@@ -1,0 +1,9 @@
+lang: bash
+expect: certain
+read:
+writable: 
+readonly: 
+lookalikes: 
+comments: 4
+refuse: none
+note: origin: M2.2 annot/lexctx_test.go TestClassifyBash 'heredoc-body-escaped-backslash' @ f096db065a72

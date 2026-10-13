@@ -1,0 +1,5 @@
+let json = """
+{ "c": "// testmap:covers Sources/in_json.swift" }
+// testmap:covers Sources/in_string.swift
+"""
+// testmap:covers Sources/real.swift

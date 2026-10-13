@@ -1,0 +1,12 @@
+lang: rust
+expect: certain
+read:
+writable: 
+readonly: 
+lookalikes: 
+comments: 1
+refuse: none
+placement: file=9
+native: rustc+rust-exec
+exec: rustc --edition 2021 -o prog {file} 2>/dev/null && ./prog
+note: proposed placement: after the inner attributes and the use block (closing on line 9)

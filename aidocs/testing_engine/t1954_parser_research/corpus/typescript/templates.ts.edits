@@ -1,0 +1,13 @@
+op: annotate member= source=src/real2.ts stamp=@2026-02-02/bbbbbbbbbb
+outcome: applied
+after:
+  - line=5 member= key=covers value=src/real1.ts stamp= origin=comment
+  - line=11 member= key=covers value=src/real2.ts stamp=@2026-02-02/bbbbbbbbbb origin=comment
+  - line=15 member= key=covers value=src/real3.ts stamp= origin=comment
+
+op: raw kind=replace line=3 member= source=src/fake1.ts new=// testmap:covers src/fake1.ts @2026-02-02/bbbbbbbbbb
+outcome: refused:not-comment
+after:
+  - line=5 member= key=covers value=src/real1.ts stamp= origin=comment
+  - line=11 member= key=covers value=src/real2.ts stamp=@2026-02-02/bbbbbbbbbb origin=comment
+  - line=15 member= key=covers value=src/real3.ts stamp= origin=comment

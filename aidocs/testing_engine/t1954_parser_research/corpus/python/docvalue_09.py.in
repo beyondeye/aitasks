@@ -1,0 +1,2 @@
+"Prints \N{BULLET} items."
+# testmap:covers src/e.sh

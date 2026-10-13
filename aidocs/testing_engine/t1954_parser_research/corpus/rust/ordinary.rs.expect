@@ -1,0 +1,14 @@
+lang: rust
+expect: certain
+read:
+  - line=7 member= key=covers value=src/lib.rs stamp= origin=comment
+  - line=9 member=builds_map key=unit value=builds_map stamp= origin=comment
+  - line=10 member=builds_map key=covers value=src/map.rs stamp= origin=comment
+writable: 7,9-10
+readonly: 
+lookalikes: 19
+comments: 1,7,9-10
+refuse: none
+placement: file=7 member:builds_map=10
+native: rustc+rust-exec
+exec: rustc --edition 2021 -o prog {file} 2>/dev/null && ./prog

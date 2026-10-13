@@ -1,0 +1,12 @@
+lang: javascript
+expect: certain
+read:
+writable: 
+readonly: 
+lookalikes: 
+comments: 
+refuse: none
+placement: file=2
+native: node-ts+node-exec
+exec: node {file}
+note: proposed placement: after the shebang and the directive prologue

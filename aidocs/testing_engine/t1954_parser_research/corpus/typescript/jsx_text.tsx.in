@@ -1,0 +1,10 @@
+export function C() {
+  return (
+    <div>
+      // testmap:covers src/jsx_text.tsx
+      /* not a comment either */
+      {/* a real JSX comment */}
+    </div>
+  );
+}
+// testmap:covers src/real.tsx

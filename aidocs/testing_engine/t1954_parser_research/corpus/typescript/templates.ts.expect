@@ -1,0 +1,14 @@
+lang: typescript
+expect: certain
+read:
+  - line=5 member= key=covers value=src/real1.ts stamp= origin=comment
+  - line=11 member= key=covers value=src/real2.ts stamp= origin=comment
+  - line=15 member= key=covers value=src/real3.ts stamp= origin=comment
+writable: 5,11,15
+readonly: 
+lookalikes: 3-4,7,9,13
+comments: 5,11,15
+refuse: none
+native: node-ts+node-exec
+exec: node {file}
+note: the reviewer's repro: a template continuation after ${x}, a fake covers line inside, a real comment after the closing backtick; nested templates; a '}' string inside a substitution

@@ -1,0 +1,11 @@
+lang: swift
+expect: certain
+read:
+writable: 
+readonly: 
+lookalikes: 
+comments: 
+refuse: none
+placement: file=2
+native: swiftc
+note: proposed placement: after the imports

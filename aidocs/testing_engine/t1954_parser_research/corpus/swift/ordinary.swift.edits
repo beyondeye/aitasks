@@ -1,0 +1,14 @@
+op: annotate member= source=Sources/App/Main.swift stamp=@2026-02-02/bbbbbbbbbb from=original
+outcome: applied
+after:
+  - line=3 member= key=covers value=Sources/App/Main.swift stamp=@2026-02-02/bbbbbbbbbb origin=comment
+  - line=5 member=testAdds key=unit value=testAdds stamp= origin=comment
+  - line=6 member=testAdds key=covers value=Sources/App/Adder.swift stamp= origin=comment
+
+op: annotate member=testAdds source=Sources/App/More.swift stamp=@2026-10-12/aaaaaaaaaa from=original
+outcome: applied
+after:
+  - line=3 member= key=covers value=Sources/App/Main.swift stamp= origin=comment
+  - line=5 member=testAdds key=unit value=testAdds stamp= origin=comment
+  - line=6 member=testAdds key=covers value=Sources/App/Adder.swift stamp= origin=comment
+  - line=7 member=testAdds key=covers value=Sources/App/More.swift stamp=@2026-10-12/aaaaaaaaaa origin=comment

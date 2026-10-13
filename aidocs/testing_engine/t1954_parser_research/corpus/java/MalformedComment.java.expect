@@ -1,0 +1,9 @@
+lang: java
+expect: uncertain
+read:
+writable: 
+readonly: 
+lookalikes: 3
+comments: 
+refuse: uncertain
+native: javac

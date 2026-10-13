@@ -1,0 +1,5 @@
+var x = 1;
+<!-- testmap:covers src/html.js
+--> testmap:covers src/html2.js
+// testmap:covers src/real.js
+console.log(x);

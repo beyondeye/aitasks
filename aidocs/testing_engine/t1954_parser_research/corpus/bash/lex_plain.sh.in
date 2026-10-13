@@ -1,0 +1,3 @@
+#!/bin/bash
+# testmap:covers a
+echo hi

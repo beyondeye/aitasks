@@ -1,0 +1,9 @@
+lang: bash
+expect: uncertain
+read:
+writable: 
+readonly: 
+lookalikes: 
+comments: 
+refuse: none
+note: origin: M2.2 annot/lexctx_test.go TestClassifyBash 'heredoc-escape-in-double-quoted' @ f096db065a72

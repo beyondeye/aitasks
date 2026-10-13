@@ -1,0 +1,8 @@
+class EmbeddedSql {
+    static final String Q = """
+        -- testmap:covers src/q.sql
+        // testmap:covers src/in_sql.java
+        SELECT 1;
+        """;
+// testmap:covers src/real.java
+}

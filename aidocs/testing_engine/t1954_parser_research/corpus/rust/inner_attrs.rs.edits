@@ -1,0 +1,4 @@
+op: annotate member= source=src/inner.rs stamp=@2026-10-12/aaaaaaaaaa
+outcome: applied
+after:
+  - line=10 member= key=covers value=src/inner.rs stamp=@2026-10-12/aaaaaaaaaa origin=comment

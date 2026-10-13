@@ -1,0 +1,3 @@
+class MalformedComment {
+/* open
+// testmap:covers src/x.java

@@ -1,0 +1,10 @@
+lang: kotlin
+expect: certain
+read:
+writable: 
+readonly: 
+lookalikes: 
+comments: 
+refuse: none
+placement: file=4
+native: kotlinc

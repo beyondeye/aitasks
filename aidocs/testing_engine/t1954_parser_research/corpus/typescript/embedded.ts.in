@@ -1,0 +1,14 @@
+const css = `
+  /* testmap:covers src/in_css.ts */
+  a { background: url(//example.com/x.png); }
+// testmap:covers src/in_css2.ts
+`;
+const html = `<!-- testmap:covers src/in_html.ts -->
+// testmap:covers src/in_html2.ts
+`;
+const gql = `
+  # testmap:covers src/in_gql.ts
+  query { x }
+`;
+// testmap:covers src/real.ts
+console.log(css.length + html.length + gql.length);

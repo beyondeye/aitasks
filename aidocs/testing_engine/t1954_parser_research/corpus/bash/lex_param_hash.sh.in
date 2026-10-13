@@ -1,0 +1,2 @@
+echo ${x#y} ${#a[@]} $# a#b
+# real

@@ -1,0 +1,15 @@
+fn take<'a>(s: &'a str) -> &'a str { s }
+fn main() {
+    let a = r##"
+// testmap:covers src/fake1.rs
+"# still inside
+// testmap:covers src/fake2.rs
+"##;
+    let q = '"';
+    let b = br#"
+// testmap:covers src/fake3.rs
+"#;
+    let r#type = "raw identifier, not a raw string";
+// testmap:covers src/real.rs
+    println!("{}{}{}{}", take(a).len(), q, b.len(), r#type.len());
+}

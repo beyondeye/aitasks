@@ -1,0 +1,3 @@
+import { a } from "./a";
+// testmap:covers src/crlf.ts
+export const y = a;

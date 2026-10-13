@@ -1,0 +1,12 @@
+lang: java
+expect: certain
+read:
+  - line=6 member= key=covers value=src/real.java stamp= origin=comment
+writable: 6
+readonly: 
+lookalikes: 4,7
+comments: 6
+refuse: none
+native: javac+java-exec
+exec: java {file}
+note: unsupported-construct class: Java translates \uXXXX escapes BEFORE lexing. Line 3 opens a text block with escaped quotes, so line 4 is string data (a lexer that ignores escapes calls it a comment: FP-writable); line 2's escaped newline turns `static int x = 1;` into code; line 7 is a real comment with an escaped leader, never an annotation (the leader must be literal bytes)

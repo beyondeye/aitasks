@@ -1,0 +1,3 @@
+import Foundation
+// testmap:covers Sources/crlf.swift
+print(1)

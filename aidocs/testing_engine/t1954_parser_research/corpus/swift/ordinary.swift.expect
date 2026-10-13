@@ -1,0 +1,13 @@
+lang: swift
+expect: certain
+read:
+  - line=3 member= key=covers value=Sources/App/Main.swift stamp= origin=comment
+  - line=5 member=testAdds key=unit value=testAdds stamp= origin=comment
+  - line=6 member=testAdds key=covers value=Sources/App/Adder.swift stamp= origin=comment
+writable: 3,5-6
+readonly: 
+lookalikes: 
+comments: 3,5-6
+refuse: none
+placement: file=3 member:testAdds=6
+native: swiftc

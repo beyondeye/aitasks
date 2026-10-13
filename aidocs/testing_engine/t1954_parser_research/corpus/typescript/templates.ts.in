@@ -1,0 +1,16 @@
+const x = 1;
+const a = `${x}
+// testmap:covers src/fake1.ts
+`; // testmap:covers src/trailing.ts
+// testmap:covers src/real1.ts
+const b = `outer ${`inner ${x}
+// testmap:covers src/fake2.ts
+`} done
+// testmap:covers src/fake3.ts
+`;
+// testmap:covers src/real2.ts
+const c = `${ "}" }
+// testmap:covers src/fake4.ts
+${ `${ `deep` }` }`;
+// testmap:covers src/real3.ts
+console.log(a.length, b.length, c.length);

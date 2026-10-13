@@ -1,0 +1,10 @@
+lang: typescript
+expect: certain
+read:
+  - line=2 member= key=covers value=src/crlf.ts stamp= origin=comment
+writable: 2
+readonly: 
+lookalikes: 
+comments: 2
+refuse: none
+native: node-ts

@@ -1,0 +1,11 @@
+lang: swift
+expect: certain
+read:
+  - line=6 member= key=covers value=Sources/real.swift stamp= origin=comment
+writable: 6
+readonly: 
+lookalikes: 2
+comments: 4,6
+refuse: none
+native: swiftc
+note: Swift block comments nest

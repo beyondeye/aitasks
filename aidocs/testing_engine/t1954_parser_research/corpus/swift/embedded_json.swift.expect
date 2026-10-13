@@ -1,0 +1,10 @@
+lang: swift
+expect: certain
+read:
+  - line=5 member= key=covers value=Sources/real.swift stamp= origin=comment
+writable: 5
+readonly: 
+lookalikes: 2-3
+comments: 5
+refuse: none
+native: swiftc

@@ -1,0 +1,12 @@
+lang: java
+expect: certain
+read:
+  - line=7 member= key=covers value=src/real.java stamp= origin=comment
+writable: 7
+readonly: 
+lookalikes: 3,5
+comments: 7
+refuse: none
+native: javac+java-exec
+exec: java {file}
+note: a text block with an escaped \""" that does not close it

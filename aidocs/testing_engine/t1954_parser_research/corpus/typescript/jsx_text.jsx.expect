@@ -1,0 +1,10 @@
+lang: javascript
+expect: certain
+read:
+  - line=7 member= key=covers value=src/real.jsx stamp= origin=comment
+writable: 7
+readonly: 
+lookalikes: 3
+comments: 7
+refuse: none
+native: node-ts

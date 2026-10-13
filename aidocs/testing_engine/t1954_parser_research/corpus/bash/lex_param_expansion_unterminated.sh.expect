@@ -1,0 +1,9 @@
+lang: bash
+expect: uncertain
+read:
+writable: 
+readonly: 
+lookalikes: 2
+comments: 
+refuse: uncertain@1
+note: origin: M2.2 annot/lexctx_test.go TestClassifyBash 'param-expansion-unterminated' @ f096db065a72

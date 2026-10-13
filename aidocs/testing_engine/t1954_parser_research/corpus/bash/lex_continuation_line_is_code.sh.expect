@@ -1,0 +1,11 @@
+lang: bash
+expect: certain
+read:
+writable: 
+readonly: 
+lookalikes: 2
+comments: 3
+refuse: none
+note: origin: M2.2 annot/lexctx_test.go TestClassifyBash 'continuation-line-is-code' @ f096db065a72
+note: bash joins the continuation: line 2 is a trailing comment of `echo a`, never an annotation line (M2.2 policy)
+x-policy: 2

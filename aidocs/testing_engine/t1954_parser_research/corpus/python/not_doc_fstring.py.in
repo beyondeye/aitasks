@@ -1,0 +1,3 @@
+f"""testmap:covers src/f.sh
+"""
+# testmap:covers src/real.py

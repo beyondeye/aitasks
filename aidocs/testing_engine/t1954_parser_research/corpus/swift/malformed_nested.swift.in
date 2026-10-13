@@ -1,0 +1,2 @@
+/* outer /* inner */
+// testmap:covers Sources/x.swift

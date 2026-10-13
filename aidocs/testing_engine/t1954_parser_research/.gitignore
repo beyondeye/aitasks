@@ -1,0 +1,7 @@
+# Extracted baseline snapshots (baseline/fetch.sh); never committed.
+/.baseline/
+/.baseline-unpatched/
+/.baseline.tmp*/
+
+# Python bytecode from corpus/gen and oracle/
+__pycache__/

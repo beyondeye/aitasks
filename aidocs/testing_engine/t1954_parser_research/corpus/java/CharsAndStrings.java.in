@@ -1,0 +1,7 @@
+class CharsAndStrings {
+    char a = '\'';
+    char b = '"';
+    String c = "/* not a comment";
+    String d = "\"// testmap:covers src/fake.java";
+// testmap:covers src/real.java
+}

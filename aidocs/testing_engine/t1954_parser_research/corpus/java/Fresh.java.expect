@@ -1,0 +1,11 @@
+lang: java
+expect: certain
+read:
+writable: 
+readonly: 
+lookalikes: 
+comments: 
+refuse: none
+placement: file=4
+native: javac
+note: proposed placement: after the imports

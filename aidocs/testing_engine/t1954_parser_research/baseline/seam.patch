@@ -1,0 +1,45 @@
+diff -ru a/goengines/internal/testmap/annot/lang.go b/goengines/internal/testmap/annot/lang.go
+--- a/goengines/internal/testmap/annot/lang.go
++++ b/goengines/internal/testmap/annot/lang.go
+@@ -43,10 +43,20 @@
+ 	".kt": Kotlin, ".kts": Kotlin,
+ }
+ 
++// LangHook, when set, is consulted first by LangOf. It exists only in the
++// t1954 research snapshot (seam.patch); nil leaves the landed behaviour
++// unchanged.
++var LangHook func(path string, data []byte) (Lang, bool)
++
+ // LangOf returns the language of a file: by extension, or — for a file with
+ // no extension — by its shebang (`sh` / `bash` / `python`). A file of any
+ // other kind has no comment leader the grammar knows.
+ func LangOf(p string, data []byte) (Lang, bool) {
++	if LangHook != nil {
++		if l, ok := LangHook(p, data); ok {
++			return l, true
++		}
++	}
+ 	ext := path.Ext(p)
+ 	if l, ok := byExt[ext]; ok {
+ 		return l, true
+diff -ru a/goengines/internal/testmap/annot/lexctx.go b/goengines/internal/testmap/annot/lexctx.go
+--- a/goengines/internal/testmap/annot/lexctx.go
++++ b/goengines/internal/testmap/annot/lexctx.go
+@@ -45,10 +45,17 @@
+ 	Uncertain *Unclosed   // non-nil: the classes cannot be trusted
+ }
+ 
++// ClassifyHook, when set, replaces Classify. It exists only in the t1954
++// research snapshot (seam.patch); nil leaves the landed behaviour unchanged.
++var ClassifyHook func(Lang, []byte) Context
++
+ // Classify lexes data in language l. Every construct the lexer does not
+ // model falls to Literal or Uncertain, never to Comment: a misreading may
+ // lose an annotation, it can never make data look like one.
+ func Classify(l Lang, data []byte) Context {
++	if ClassifyHook != nil {
++		return ClassifyHook(l, data)
++	}
+ 	lines := splitLines(data)
+ 	switch l.Name {
+ 	case Go.Name:

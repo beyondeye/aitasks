@@ -1,0 +1,11 @@
+lang: typescript
+expect: certain
+read:
+  - line=13 member= key=covers value=src/real.ts stamp= origin=comment
+writable: 13
+readonly: 
+lookalikes: 2,4,6-7,10
+comments: 13
+refuse: none
+native: node-ts+node-exec
+exec: node {file}

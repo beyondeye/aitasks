@@ -1,0 +1,3 @@
+#!/usr/bin/env swift
+// testmap:covers Sources/script.swift
+print("hi")

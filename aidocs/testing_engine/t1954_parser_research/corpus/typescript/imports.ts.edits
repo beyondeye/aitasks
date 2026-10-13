@@ -1,0 +1,4 @@
+op: annotate member= source=src/imports.ts stamp=@2026-10-12/aaaaaaaaaa
+outcome: applied
+after:
+  - line=6 member= key=covers value=src/imports.ts stamp=@2026-10-12/aaaaaaaaaa origin=comment

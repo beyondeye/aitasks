@@ -1,0 +1,8 @@
+const re = /\/\/ testmap:covers src\/fake/;
+const d = 4 / 2 / 1; // division
+const r2 = /[/]\/ testmap/g;
+const r3 = /x\/*/;
+// testmap:covers src/after_regex.ts
+const r4 = d / 2 /* block */ / 1;
+// testmap:covers src/real.ts
+console.log(re.test("// testmap:covers src/fake"), r2.source, r3.source, r4);

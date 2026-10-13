@@ -1,0 +1,9 @@
+lang: go
+expect: certain
+read:
+writable: 
+readonly: 
+lookalikes: 4
+comments: 6
+refuse: none
+note: origin: M2.2 annot/lexctx_test.go TestClassifyGo 'raw-string' @ f096db065a72

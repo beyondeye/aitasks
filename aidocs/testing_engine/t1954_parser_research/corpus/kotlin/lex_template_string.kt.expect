@@ -1,0 +1,9 @@
+lang: kotlin
+expect: certain
+read:
+writable: 
+readonly: 
+lookalikes: 
+comments: 2
+refuse: none
+note: origin: M2.2 annot/lexctx_test.go TestClassifyKotlin 'template-string' @ f096db065a72

@@ -1,0 +1,10 @@
+macro_rules! m {
+    () => { "// testmap:covers src/in_macro.rs" };
+}
+fn main() {
+    let c = '\'';
+    let d = '/';
+    let e = b'"';
+// testmap:covers src/real.rs
+    println!("{}{}{}{}", m!(), c, d, e);
+}

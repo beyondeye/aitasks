@@ -1,0 +1,10 @@
+class Nested {
+/* outer /* Java block comments do not nest
+// testmap:covers src/in_block.java
+*/
+// testmap:covers src/real.java
+    /** Javadoc
+     * // testmap:covers src/javadoc.java
+     */
+    void m() {}
+}

@@ -1,0 +1,6 @@
+/* outer /* inner */
+// testmap:covers Sources/still_comment.swift
+*/
+/// Doc comment.
+func f() {}
+// testmap:covers Sources/real.swift

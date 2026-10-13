@@ -1,0 +1,12 @@
+lang: rust
+expect: certain
+read:
+  - line=13 member= key=covers value=src/real.rs stamp= origin=comment
+writable: 13
+readonly: 
+lookalikes: 4,6,10
+comments: 13
+refuse: none
+native: rustc+rust-exec
+exec: rustc --edition 2021 -o prog {file} 2>/dev/null && ./prog
+note: r##"…"## containing "#, byte raw strings, lifetimes 'a (not char literals), a raw identifier r#type

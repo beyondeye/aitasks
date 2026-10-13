@@ -1,0 +1,7 @@
+export const D = () => (
+  <p>
+    // testmap:covers src/jsx_text.jsx
+    text
+  </p>
+);
+// testmap:covers src/real.jsx

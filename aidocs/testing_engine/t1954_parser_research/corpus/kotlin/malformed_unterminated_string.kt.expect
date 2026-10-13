@@ -1,0 +1,9 @@
+lang: kotlin
+expect: uncertain
+read:
+writable: 
+readonly: 
+lookalikes: 2
+comments: 
+refuse: uncertain
+native: kotlinc

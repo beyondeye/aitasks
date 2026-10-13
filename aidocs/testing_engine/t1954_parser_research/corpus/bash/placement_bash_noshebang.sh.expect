@@ -1,0 +1,10 @@
+lang: bash
+expect: certain
+read:
+writable: 
+readonly: 
+lookalikes: 
+comments: 
+refuse: none
+placement: file=2
+note: origin: M2.2 annot/testdata/placement/bash_noshebang.sh.in (+ .golden) @ f096db065a72

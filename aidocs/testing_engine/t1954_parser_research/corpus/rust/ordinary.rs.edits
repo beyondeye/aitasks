@@ -1,0 +1,21 @@
+op: annotate member= source=src/lib.rs stamp=@2026-02-02/bbbbbbbbbb from=original
+outcome: applied
+after:
+  - line=7 member= key=covers value=src/lib.rs stamp=@2026-02-02/bbbbbbbbbb origin=comment
+  - line=9 member=builds_map key=unit value=builds_map stamp= origin=comment
+  - line=10 member=builds_map key=covers value=src/map.rs stamp= origin=comment
+
+op: annotate member=builds_map source=src/more.rs stamp=@2026-10-12/aaaaaaaaaa from=original
+outcome: applied
+after:
+  - line=7 member= key=covers value=src/lib.rs stamp= origin=comment
+  - line=9 member=builds_map key=unit value=builds_map stamp= origin=comment
+  - line=10 member=builds_map key=covers value=src/map.rs stamp= origin=comment
+  - line=11 member=builds_map key=covers value=src/more.rs stamp=@2026-10-12/aaaaaaaaaa origin=comment
+
+op: raw kind=replace line=19 member= source=src/fake.rs from=original new=// testmap:covers src/fake.rs @2026-02-02/bbbbbbbbbb
+outcome: refused:not-comment
+after:
+  - line=7 member= key=covers value=src/lib.rs stamp= origin=comment
+  - line=9 member=builds_map key=unit value=builds_map stamp= origin=comment
+  - line=10 member=builds_map key=covers value=src/map.rs stamp= origin=comment

@@ -1,0 +1,4 @@
+r"""Raw docstring: \n stays two characters.
+testmap:covers src/raw.sh
+"""
+import os

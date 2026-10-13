@@ -1,0 +1,11 @@
+lang: swift
+expect: certain
+read:
+  - line=3 member= key=covers value=Sources/real.swift stamp= origin=comment
+writable: 3
+readonly: 
+lookalikes: 1
+comments: 3
+refuse: none
+native: swiftc
+note: Swift 5.7 regex literals (bare /…/ and extended #/…/#) containing //; bare /…/ needs Swift 6 mode or -enable-bare-slash-regex (the native check passes the flag)

@@ -1,0 +1,10 @@
+lang: rust
+expect: uncertain
+read:
+writable: 
+readonly: 
+lookalikes: 2
+comments: 
+refuse: uncertain
+native: rustc
+note: only the inner comment is closed: everything after is still the outer comment

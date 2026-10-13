@@ -1,0 +1,11 @@
+lang: typescript
+expect: certain
+read:
+writable: 
+readonly: 
+lookalikes: 
+comments: 1
+refuse: none
+placement: file=5
+native: node-ts
+note: proposed placement: after the import block (the multi-line import closes on line 5)

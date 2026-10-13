@@ -1,0 +1,3 @@
+package p
+var s = "never closed
+// testmap:covers src/x.go

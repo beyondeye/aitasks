@@ -1,0 +1,9 @@
+class UnicodeEscape {
+    // a comment that ends early \u000a static int x = 1;
+    static String s = \u0022\u0022\u0022
+// testmap:covers src/in_textblock.java
+\u0022\u0022\u0022;
+// testmap:covers src/real.java
+    \u002f\u002f testmap:covers src/escaped_leader.java
+    public static void main(String[] a) { System.out.println(x + s.length()); }
+}

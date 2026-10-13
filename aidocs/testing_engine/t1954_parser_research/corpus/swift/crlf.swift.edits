@@ -1,0 +1,4 @@
+op: annotate member= source=Sources/crlf.swift stamp=@2026-02-02/bbbbbbbbbb
+outcome: applied
+after:
+  - line=2 member= key=covers value=Sources/crlf.swift stamp=@2026-02-02/bbbbbbbbbb origin=comment

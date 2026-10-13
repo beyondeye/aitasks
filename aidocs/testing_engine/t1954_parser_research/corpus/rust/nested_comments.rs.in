@@ -1,0 +1,6 @@
+/* outer /* inner */
+// testmap:covers src/still_comment.rs
+*/
+/// Doc comment on main.
+fn main() {}
+// testmap:covers src/real.rs

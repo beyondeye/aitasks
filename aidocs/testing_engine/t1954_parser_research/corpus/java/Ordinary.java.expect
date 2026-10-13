@@ -1,0 +1,14 @@
+lang: java
+expect: certain
+read:
+  - line=5 member= key=covers value=src/main/java/app/Lists.java stamp= origin=comment
+  - line=7 member=sizes key=unit value=sizes stamp= origin=comment
+  - line=8 member=sizes key=covers value=src/main/java/app/Size.java stamp= origin=comment
+writable: 5,7-8
+readonly: 
+lookalikes: 12
+comments: 5,7-8
+refuse: none
+placement: file=5 member:sizes=8
+native: javac+java-exec
+exec: java {file}

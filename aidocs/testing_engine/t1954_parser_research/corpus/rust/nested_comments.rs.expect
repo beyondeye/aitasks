@@ -1,0 +1,12 @@
+lang: rust
+expect: certain
+read:
+  - line=6 member= key=covers value=src/real.rs stamp= origin=comment
+writable: 6
+readonly: 
+lookalikes: 2
+comments: 4,6
+refuse: none
+native: rustc+rust-exec
+exec: rustc --edition 2021 -o prog {file} 2>/dev/null && ./prog
+note: Rust block comments nest; `///` is a line comment (doc)

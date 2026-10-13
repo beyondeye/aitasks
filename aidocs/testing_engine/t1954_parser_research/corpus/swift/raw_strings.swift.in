@@ -1,0 +1,12 @@
+let a = #"""
+// testmap:covers Sources/fake1.swift
+"""
+// testmap:covers Sources/fake2.swift
+"""#
+let b = """
+// testmap:covers Sources/fake3.swift
+\(a.count) \("nested \"quote\"")
+"""
+let c = ##"one "# two"##
+// testmap:covers Sources/real.swift
+print(a.count, b.count, c)

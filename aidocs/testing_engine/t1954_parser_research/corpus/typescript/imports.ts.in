@@ -1,0 +1,7 @@
+// Copyright header.
+import { a } from "./a";
+import type {
+  B,
+} from "./b";
+
+export const x = a;

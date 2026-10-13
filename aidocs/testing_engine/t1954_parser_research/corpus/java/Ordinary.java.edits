@@ -1,0 +1,21 @@
+op: annotate member= source=src/main/java/app/Lists.java stamp=@2026-02-02/bbbbbbbbbb from=original
+outcome: applied
+after:
+  - line=5 member= key=covers value=src/main/java/app/Lists.java stamp=@2026-02-02/bbbbbbbbbb origin=comment
+  - line=7 member=sizes key=unit value=sizes stamp= origin=comment
+  - line=8 member=sizes key=covers value=src/main/java/app/Size.java stamp= origin=comment
+
+op: annotate member=sizes source=src/main/java/app/More.java stamp=@2026-10-12/aaaaaaaaaa from=original
+outcome: applied
+after:
+  - line=5 member= key=covers value=src/main/java/app/Lists.java stamp= origin=comment
+  - line=7 member=sizes key=unit value=sizes stamp= origin=comment
+  - line=8 member=sizes key=covers value=src/main/java/app/Size.java stamp= origin=comment
+  - line=9 member=sizes key=covers value=src/main/java/app/More.java stamp=@2026-10-12/aaaaaaaaaa origin=comment
+
+op: raw kind=replace line=12 member=sizes source=fake from=original new=        // testmap:covers fake
+outcome: refused:not-comment
+after:
+  - line=5 member= key=covers value=src/main/java/app/Lists.java stamp= origin=comment
+  - line=7 member=sizes key=unit value=sizes stamp= origin=comment
+  - line=8 member=sizes key=covers value=src/main/java/app/Size.java stamp= origin=comment

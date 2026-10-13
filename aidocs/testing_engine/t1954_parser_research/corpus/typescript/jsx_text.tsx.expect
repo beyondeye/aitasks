@@ -1,0 +1,11 @@
+lang: typescript
+expect: certain
+read:
+  - line=10 member= key=covers value=src/real.tsx stamp= origin=comment
+writable: 10
+readonly: 
+lookalikes: 4
+comments: 10
+refuse: none
+native: node-ts
+note: JSX text that looks like a line comment; .tsx is not executed (no React runtime)

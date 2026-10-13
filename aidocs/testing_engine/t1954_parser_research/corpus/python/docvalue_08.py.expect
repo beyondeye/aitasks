@@ -1,0 +1,10 @@
+lang: python
+expect: certain
+read:
+writable: 
+readonly: 
+lookalikes: 1
+comments: 
+refuse: syntax
+native: python-tokenize+ast
+note: origin: M2.2 annot/grammar_test.go TestDocstringValue[8] @ f096db065a72

@@ -1,0 +1,11 @@
+lang: bash
+expect: certain
+read:
+  - line=3 member=First key=unit value=First stamp= origin=comment
+writable: 3
+readonly: 
+lookalikes: 
+comments: 3
+refuse: none
+placement: file=2
+note: origin: M2.2 annot/testdata/placement/bash_unit_first.sh.in (+ .golden) @ f096db065a72

@@ -1,0 +1,9 @@
+class TextBlocks {
+    static String t = """
+        // testmap:covers src/fake.java
+        \"""
+        // testmap:covers src/fake2.java
+        """;
+// testmap:covers src/real.java
+    public static void main(String[] a) { System.out.println(t.length()); }
+}

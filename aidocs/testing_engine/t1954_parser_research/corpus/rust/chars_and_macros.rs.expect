@@ -1,0 +1,11 @@
+lang: rust
+expect: certain
+read:
+  - line=8 member= key=covers value=src/real.rs stamp= origin=comment
+writable: 8
+readonly: 
+lookalikes: 2
+comments: 8
+refuse: none
+native: rustc+rust-exec
+exec: rustc --edition 2021 -o prog {file} 2>/dev/null && ./prog

@@ -1,0 +1,3 @@
+class MalformedTextBlock {
+    String s = """
+// testmap:covers src/x.java

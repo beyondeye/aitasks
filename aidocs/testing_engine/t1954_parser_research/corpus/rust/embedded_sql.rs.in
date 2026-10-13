@@ -1,0 +1,6 @@
+const Q: &str = r#"
+-- testmap:covers src/q.sql
+// testmap:covers src/in_sql.rs
+"#;
+// testmap:covers src/real.rs
+fn main() { print!("{}", Q.len()); }

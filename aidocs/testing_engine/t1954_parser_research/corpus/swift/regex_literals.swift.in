@@ -1,0 +1,4 @@
+let r = /\/\/ testmap/
+let r2 = #/a/b/#
+// testmap:covers Sources/real.swift
+let x = 4 / 2 / 1

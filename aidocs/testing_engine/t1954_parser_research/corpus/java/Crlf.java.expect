@@ -1,0 +1,10 @@
+lang: java
+expect: certain
+read:
+  - line=3 member= key=covers value=src/crlf.java stamp= origin=comment
+writable: 3
+readonly: 
+lookalikes: 
+comments: 3
+refuse: none
+native: javac

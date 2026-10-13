@@ -1,0 +1,2 @@
+// testmap:covers src/crlf.rs
+fn main() {}
