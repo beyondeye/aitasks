@@ -26,4 +26,4 @@ t1960 added regression tests for caller paths ending in a newline to the dir art
 
 ## Suggested fix
 
-Hash from stdin so no tool ever sees the file name: `openssl dgst -sha256 < "$file"` / `sha256sum < "$file"` / `shasum -a 256 < "$file"`. All three print just the hex plus a `-`/`(stdin)` marker, which the existing awk parse handles. Add a regression test that hashes a newline-named file and a FIFO-free path with spaces.
+Hash from stdin so no tool ever sees the file name: `openssl dgst -sha256 < "$file"` / `sha256sum < "$file"` / `shasum -a 256 < "$file"`. All three print just the hex plus a `-`/`(stdin)` marker, which the existing awk parse handles. Add a regression test that hashes a newline-named file and a file whose name contains spaces.
