@@ -262,3 +262,38 @@ archive per task-workflow Step 9.
 ### Planned mitigations
 - timing: post-phase | name: negative_control_prefix_dirsh | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: simulated-swap probes might not reach the window | desc: Run section F against the pre-fix dir.sh and require F1/F2 to fail there
 - timing: after | name: dir_backend_real_unmount_probe | type: manual_verification | priority: low | effort: medium | inline_risk: low | added_complexity: medium | addresses: real umount / umount -l semantics are argued, not exercised | desc: On a real tmpfs/loop mount (root), umount and umount -l the dir store mid-put and confirm EBUSY / detached-fs behaviour leaves the mountpoint empty
+
+## Implementation notes
+
+- Implemented as planned in `dir.sh` (`_artifact_dir_held`, `_artifact_dir_still_held`,
+  `_artifact_dir_lookup` via `LC_ALL=C ls -ld`, held bodies per op). Small addition:
+  `_artifact_dir_abs` makes caller-relative `src`/`dest` absolute before entry.
+- Tests: D1's `_artifact_dir_blob_path` assertions replaced by an empty-root put probe
+  (nothing written into the cwd); section F covers F1–F10 plus positive controls for
+  the qualified negative answers on a healthy store. `cd` shims use `|| return`
+  (SC2164). 142/142 pass.
+- **Post-phase [negative_control_prefix_dirsh] done:** with HEAD's pre-fix `dir.sh`
+  sourced over the new one (scratch copy of the test), 29 assertions fail. F1 and F2
+  fail as required, with the shard dir landing in the left-behind mountpoint, and F8
+  shows the old head answering "absent" (rc 1) on EACCES. F3–F7 failures on the old code
+  are weaker evidence (the old code has no `cd` / body functions for those shims to
+  hook). F9 passes by accident on the old code (`rm -f root/` fails on a directory);
+  F10 sources the libraries fresh, so it always exercises the new code — it guards the
+  open()-based lookup hazard raised in review.
+- Other dir-exercising suites green: test_artifact_share_resolution (98), test_artifact_cli
+  (182), test_attach_txn_worktree_isolation (149), test_attach_lock_callback_contract (92),
+  test_txn_snapshot (46).
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-13 11:23)
+- **Requested by user:** (1) `_artifact_dir_abs` used command substitution, stripping trailing-newline path bytes — a get to "requested\n" wrote "requested" (could overwrite another file), a put from "source\n" failed; (2) an empty get destination became "$PWD/", copying the blob into the cwd with rc 0.
+- **Changes made:** removed `_artifact_dir_abs`; put/get absolutize by plain assignment (`[[ "$src" == /* ]] || src="$PWD/$src"`); get dies on an empty destination before absolutizing. New test section G: put from a newline-terminated source, get to a newline-terminated destination (exact name, sibling without the newline untouched; bytes compared with `cmp` because `artifact_sha256` cannot hash a newline-named file), and an empty destination that dies without writing into the cwd. 151/151.
+- **Files affected:** .aitask-scripts/lib/artifact_backends/dir.sh, tests/test_artifact_dir_backend.sh
+
+## Final Implementation Notes
+- **Actual work done:** Every `dir` backend op except `init` runs in a subshell that enters the store root once (`_artifact_dir_held`), validates the marker through that held cwd, and works with root-relative paths only. Negative answers (head "absent", delete "removed", a listing) are qualified through the held cwd: `_artifact_dir_lookup` reads errno via `LC_ALL=C ls -ld` (metadata only, so a FIFO cannot block it) and requires `_artifact_dir_still_held` afterwards. put checks `mkdir -p` explicitly; delete returns (never dies) on an invalid hash, an unusable store, or a store that went away mid-delete. Design doc §6 paragraph and the dir.sh header describe the held-root contract. Tests: section F (F1–F10) and section G, plus D1's empty-root probe.
+- **Deviations from plan:** two plan-review rounds before approval: negative answers are qualified (head/delete/list after-validation window, delete's returning invalid-hash path), and the lookup became metadata-only (`ls -ld`, not an open()). Post-review: caller-relative paths are absolutized by plain assignment (`$( )` stripped trailing-newline bytes), and get rejects an empty destination (it used to become `$PWD/`).
+- **Issues encountered:** a scratch copy of the test needed `PROJECT_DIR` pinned to run the negative control. `artifact_sha256` cannot hash a file whose name contains a newline (openssl's `NAME= hex` output gets split), so G compares bytes with `cmp`.
+- **Key decisions:** `init` is not held, because it has no marker to validate through the cwd. The relative-to-cwd marker post-check is not a pathname re-check of the root and never authorizes a write; it only qualifies negative answers. An after-entry move of the store is a success *into the store* (the held directory), not a failure. Only a dead store fails.
+- **Upstream defects identified:** None
