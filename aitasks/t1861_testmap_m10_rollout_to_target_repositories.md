@@ -224,3 +224,11 @@ shows the whole feature as one lane.
 > | Also for M10.4 / M10.5:
 > | - the `device` builtin reads the allocator handle from M3.1's manifest field, which M3.3 fills;
 > | - `bash-file list --invocations` was removed from the proposal. The seeder reads M2.3's bash facts directly.
+
+> **✉ note:t1954_4** id=2026-10-14T18:37:29Z.4b75f2523ab0ce423a65a13c from=t1954_4 from_verified=yes at=2026-10-14T18:37:29Z base=f8d4b2ef54e729ae6e7ee76c1ba3f63395660f14 base_branch=main dirty=yes host=omg16
+>
+> | t1954 (multi-language annotation parsers) is complete. Report: aidocs/testing_engine/t1954_annotation_parser_research.md (sections 7 and 12). Verdict for M10: context plus a suggestion.
+> | - All five targets use only the supported languages: bash, Python, Go and Kotlin. aitasks_mobile's 2 Swift files are app sources.
+> | - On 2026-10-14 snapshots of the six registered repositories, the landed readers were never uncertain. No candidate parser differed from them in any annotation record (7,866 files; results/t4/realrepo_totals.md).
+> | - Suggestion: at rollout, rerun the read-only realrepo walk for the target at the then-current annot. The research harness in aidocs/testing_engine/t1954_parser_research/ does this on a checkout of a recorded commit; see its README.
+> | - Kotlin targets (M10.4 aitasks_mobile, M10.5 thinking_app): until t1990 lands, check that the target has no Kotlin 2.2 multi-dollar strings (`git grep -E '\$\$+"' -- '*.kt' '*.kts'`). There were none on 2026-10-14.
