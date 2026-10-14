@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: test
-status: Ready
+status: Implementing
 labels: [testing, testmap, go_engine]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1852
 created_at: 2026-10-14 19:22
-updated_at: 2026-10-14 19:22
+updated_at: 2026-10-14 22:03
 ---
 
 ## Context
