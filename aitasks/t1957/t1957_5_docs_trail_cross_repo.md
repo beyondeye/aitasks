@@ -67,3 +67,5 @@ exact strings, keys and messages that shipped.
 > | - Checks run in the background with the drift check: when a trail is opened, on `d`, on board sync and when the view is entered. Tab switches and `r` reuse the cached results.
 > | 
 > | Reference: the "Final Implementation Notes" in the archived p1957_1 plan. Take this as context, not a requirement; your own docs plan decides what to describe.
+
+> **👁 note:read** id=2026-10-14T15:43:55Z.6e611336fba8f4ed2b536ef2 by=t1957_5 at=2026-10-14T15:43:55Z mode=explicit ids=2026-10-13T05:40:11Z.67c97887108f3a9dd10b0607
