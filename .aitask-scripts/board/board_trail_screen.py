@@ -26,8 +26,14 @@ and its ``_suspend_sync_guard(what)`` decides whether a suspended run may start.
 **Patch targets.** The trail launch, drift, discovery and dialog-dispatch
 names (``discover_trails``, ``_trail_versions``, ``load_trail_blob``,
 ``run_trail_drift``, ``resolve_dry_run_command``, ``AgentCommandScreen``,
-``launch_in_tmux``, ``find_terminal`` …) are read from THIS module's namespace
-by the methods below, so a test stub must target ``board_trail_screen``
+``launch_in_tmux``, ``find_terminal`` …) and the linked-trail scan and jump
+names (``scan_linked_trails``, ``current_tmux_session``,
+``live_project_session``, ``bootstrap_project_session``,
+``trails_supports_focus``, ``is_aitasks_project``, ``session_owned_by``,
+``launch_or_focus_trails``, ``switch_client_to``,
+``prepare_linked_trail_jump``, ``finish_linked_trail_jump``) are read from
+THIS module's namespace by the methods below, so a test stub must target
+``board_trail_screen``
 (reachable as ``ab.board_trail_screen``). ``aitask_board.py`` still re-exports
 several of them for its own callers; a stub on the board would be inert for
 the trail paths, which the inert-patch guard in the host-protocol test catches.
@@ -43,6 +49,7 @@ Contracts (see ``board/__init__.py`` and the parent plan):
 
 from __future__ import annotations
 
+import copy
 import dataclasses
 import re
 import shlex
@@ -60,13 +67,17 @@ from textual.widgets import Static
 
 from agent_command_screen import AgentCommandScreen
 from agent_launch_utils import (
-    TmuxLaunchConfig, find_terminal, launch_in_tmux, maybe_spawn_minimonitor,
-    resolve_agent_string, resolve_dry_run_command, spawn_in_terminal,
+    TmuxLaunchConfig, bootstrap_project_session,
+    current_tmux_session, find_terminal, is_aitasks_project, launch_in_tmux,
+    launch_or_focus_trails, live_project_session, maybe_spawn_minimonitor,
+    resolve_agent_string, resolve_dry_run_command, session_owned_by,
+    spawn_in_terminal, switch_client_to, trails_supports_focus,
 )
 from board_trail_view import (
     TRAIL_SELECT_RESCAN, TRAIL_WATCH_INTERVAL, TRAIL_WATCH_MAX_TICKS,
-    TrailColumn,
-    TrailDetailScreen, TrailSelectScreen, TrailSummaryScreen,
+    LinkedTrailsScreen, TrailColumn,
+    TrailDetailScreen, TrailJumpConfirmScreen, TrailSelectScreen,
+    TrailSummaryScreen,
     build_trail_lanes, load_local_project_name, run_trail_drift,
     trail_drift_by_ref, trail_summary_text, trail_xdep_refs,
 )
@@ -78,6 +89,7 @@ from trail_discovery import (
     _trail_versions, compute_trail_overlaps, discover_trails, load_trail_blob,
     sequenced_trail_read,
 )
+from trail_links import scan_linked_trails
 
 
 CODEAGENT_SCRIPT = Path(".aitask-scripts") / "aitask_codeagent.sh"
@@ -106,6 +118,7 @@ TRAIL_BINDINGS = [
     Binding("s", "trail_select", "Select Trail"),
     Binding("S", "trail_sync", "Sync"),
     Binding("v", "trail_summary_expand", "Summary"),
+    Binding("L", "trail_linked", "Linked Trails"),
     Binding("T", "trail_task", "Trail"),
     Binding("M", "trail_move_wave", "Move Wave"),
 ]
@@ -126,6 +139,119 @@ TRAIL_ACTION_CAPABILITIES: dict[str, tuple[str, ...]] = {
                         "_apply_move_to_column"),
     "trail_sync": ("_run_sync",),
 }
+
+
+# --- Linked-trail jump (t1957_4) ------------------------------------------------
+#
+# Two phases, both on a thread. PREPARE finds (or starts) the target project's
+# session and collects warnings, with no effect on the client. FINISH opens the
+# trail there and switches the client. Warnings are shown and confirmed BETWEEN
+# them: once the client switches, this App is no longer on screen, so a notice
+# it showed afterwards would never be read. The resulting invariant — the
+# source App only ever shows a notice on a path where the client did NOT
+# switch — is why `finish_linked_trail_jump` returns nothing on success.
+
+
+@dataclass(frozen=True)
+class TrailJump:
+    """A prepared jump. ``error`` is terminal (nothing switches; the source App
+    shows it); ``launch`` is False when the target's `ait trails` cannot take
+    ``--trail``. Two kinds of message must be confirmed before ``finish``
+    runs, and they age differently:
+
+    * ``warnings`` describe the target as it is NOW (an older framework).
+      Every prepare derives them afresh, so they are never carried over.
+    * ``notices`` record a one-time event of THIS prepare (the bootstrap
+      started the session under a fallback name). A later prepare finds the
+      session running and cannot produce them again, so a notice paused under
+      another dialog is carried to the retry."""
+    link: object
+    session: str = ""
+    launch: bool = False
+    warnings: tuple = ()
+    notices: tuple = ()
+    error: str = ""
+
+    @property
+    def to_confirm(self) -> tuple:
+        return (*self.notices, *self.warnings)
+
+
+def _manual_trail_command(link) -> str:
+    """The command a user can paste instead. Quoted: a registry name may hold
+    spaces, and every value here came from another repository's export."""
+    return shlex.join(["ait", "projects", "exec", str(link.project), "--",
+                       "./ait", "trails", "--trail", str(link.handle)])
+
+
+def prepare_linked_trail_jump(link) -> TrailJump:
+    """Resolve the session ``link`` jumps to — starting it when the project
+    has none running — and collect what the user must read first. Blocking
+    (tmux and the bootstrap subprocess): thread workers only. Opens nothing
+    and does not touch the client."""
+    if current_tmux_session() is None:
+        # Not a pane of the gateway server (outside tmux, or in another tmux
+        # server): switch-client could not reach this client, so start nothing.
+        return TrailJump(link, error=(
+            "Not in an aitasks tmux session — open the trail with: "
+            f"{_manual_trail_command(link)}"))
+    root = Path(link.root)
+    if not is_aitasks_project(root):
+        return TrailJump(link, error=(
+            f"{link.project}: {link.root} is no longer an aitasks project — "
+            "press L to search again"))
+    notices = []
+    session = live_project_session(root)
+    if session is None:
+        boot = bootstrap_project_session(root)
+        if not boot.ok:
+            return TrailJump(link, error=(
+                f"Could not start a tmux session for {link.project}: "
+                f"{boot.error}"))
+        session = live_project_session(root)
+        if session is None:
+            return TrailJump(link, error=(
+                f"Started a tmux session for {link.project}, but could not "
+                "find it — press L to try again"))
+        if boot.default_session_problem:
+            notices.append(
+                f"{link.project}: tmux.default_session is unusable "
+                f"({boot.default_session_problem}); started session "
+                f"'{session}'")
+    warnings = []
+    launch = trails_supports_focus(root)
+    if not launch:
+        warnings.append(
+            f"{link.project} runs an older aitasks without trail jumps — run "
+            f"`ait upgrade` there; you will land in its session without "
+            f"{link.handle} opened")
+    return TrailJump(link, session=session, launch=launch,
+                     warnings=tuple(warnings), notices=tuple(notices))
+
+
+def finish_linked_trail_jump(jump: TrailJump) -> list[tuple[str, str]]:
+    """Open the trail in the prepared session and switch the client there.
+
+    Returns ``(message, severity)`` notices, and only for paths that did NOT
+    switch — after a switch nobody is looking at this App. The destination is
+    checked again first: a warning dialog may have stayed open for any length
+    of time, and the session could have stopped and its name been reused by
+    another project, which would then receive the trail and the client."""
+    link = jump.link
+    root = Path(link.root)
+    if (not is_aitasks_project(root)
+            or not session_owned_by(jump.session, root)):
+        return [(f"The tmux session for {link.project} changed before the "
+                 "jump — press L to try again", "error")]
+    if jump.launch:
+        ok, err = launch_or_focus_trails(jump.session, root, link.handle)
+        if not ok:
+            return [(f"Could not open {link.handle} in {link.project}: {err}",
+                     "error")]
+    if not switch_client_to(jump.session):
+        return [(f"Could not switch to tmux session '{jump.session}' — "
+                 f"{_manual_trail_command(link)}", "error")]
+    return []
 
 
 @dataclass(eq=False)
@@ -311,6 +437,18 @@ class TrailScreenMixin:
         # thinks nothing happened can confirm `R` again and spawn a second
         # expensive refresh agent (t1268).
         self._trail_launch_pending = False
+        # --- Linked trails (t1957_4) ---
+        # The stamp of the linked-trail search whose result may still show;
+        # drawn from `_trail_gen`, re-drawn to retire it.
+        self._trail_link_gen = 0
+        # A jump is between "picked" and "done" (prepare, the warning dialog,
+        # finish): a second pick would race it into a second trails window.
+        self._trail_jump_busy = False
+        # One-time notices (`TrailJump.notices`) of a jump paused under
+        # another dialog, by target root, not yet read. The retry cannot
+        # produce them again — the session already runs — so its dialog shows
+        # them. Warnings are never kept: the retry derives them afresh.
+        self._trail_jump_unread: dict[str, tuple] = {}
 
     # --- Sessions (t1895) ---------------------------------------------------
 
@@ -356,11 +494,18 @@ class TrailScreenMixin:
         forever."""
         gen = self._bump_trail_gen()
         self._trail_discovery_gen = gen
+        self._trail_link_gen = gen
         for session in self._trail_sessions.values():
             session.reload_gen = gen
             session.drift_gen = gen
             session.xdep_gen = gen
             session.xdep_inflight = frozenset()
+
+    def _drop_trail_link_scan(self) -> None:
+        """Retire an in-flight linked-trail search: its result belongs to the
+        trail it started from, so a tab switch, a close or a new activation
+        means it must not show (t1957_4)."""
+        self._trail_link_gen = self._bump_trail_gen()
 
     def _refresh_trail_tabs(self) -> None:
         """Repaint the host's tab strip. A tabbed host overrides this; the
@@ -493,6 +638,7 @@ class TrailScreenMixin:
         session = self._trail_session(handle)
         if session is None or session is self._trail_active:
             return
+        self._drop_trail_link_scan()
         self._store_trail_focus()
         self._show_trail_session(session)
 
@@ -504,6 +650,7 @@ class TrailScreenMixin:
         session = self._trail_session(handle)
         if session is None:
             return
+        self._drop_trail_link_scan()
         order = list(self._trail_sessions)
         idx = order.index(handle)
         del self._trail_sessions[handle]
@@ -896,6 +1043,155 @@ class TrailScreenMixin:
         # not a parallel one.
         self._review_then(names, self._choose_move_destination)
 
+    # --- Linked trails (t1957_4) --------------------------------------------
+    # `L`: search the other registered projects for trails linked to the
+    # active one (lib/trail_links.py), list them, and jump to the chosen one.
+
+    def _trail_link_ready(self) -> bool:
+        """Whether the active trail can be searched from: it has loaded and did
+        not fail closed. An unloaded trail has no known members, and a scan of
+        none comes back COMPLETE and empty — the definitive "no linked trails"
+        for a trail whose members nobody read."""
+        return bool(self.active_trail_handle and self._trail_doc
+                    and not self._trail_error)
+
+    def action_trail_linked(self) -> None:
+        """`L` in By-Trail: search for linked trails off the UI thread.
+
+        The search reads a private SNAPSHOT of the trail and remembers it: a
+        reload or a rescan can replace the session's document in place while
+        the scan runs, and links found for the old members must not show as
+        the new revision's."""
+        if self._modal_is_active():
+            return
+        # A binding gate is not an action guard — the palette and a remap
+        # reach this directly (same reason as action_trail_summary_expand).
+        if self.base_filter != "bytrail":
+            return
+        if not self._trail_link_ready():
+            self.notify("Trail not loaded — nothing to search from",
+                        severity="warning")
+            return
+        origin = self._trail_active
+        source = (copy.deepcopy(origin.doc), origin.error)
+        gen = self._trail_link_gen = self._bump_trail_gen()
+        self.notify("Searching for linked trails in other projects…")
+        self._trail_link_worker(gen, origin, source)
+
+    @work(thread=True)
+    def _trail_link_worker(self, gen: int, origin, source: tuple):
+        scan, error = None, ""
+        try:
+            scan = scan_linked_trails(source[0])
+        except Exception as exc:          # a crash is a result, not silence
+            error = str(exc) or type(exc).__name__
+        finally:
+            self.app.call_from_thread(self._on_trail_links, gen, origin,
+                                      source, scan, error)
+
+    def _on_trail_links(self, gen: int, origin, source: tuple, scan,
+                        error: str) -> None:
+        # Supersession: a newer search, a tab switch / close / activation, or
+        # leaving the view retired this one — the user moved on, say nothing.
+        if (gen != self._trail_link_gen or self.base_filter != "bytrail"
+                or self._trail_active is not origin
+                or self._trail_session(origin.handle) is not origin):
+            return
+        # Same trail, newer content. Equality, not identity: an unchanged
+        # reload still assigns a fresh (equal) document object.
+        if origin.doc != source[0] or origin.error != source[1]:
+            self.notify(f"Trail {origin.handle} changed during the "
+                        "linked-trail search — press L to search again",
+                        severity="warning", markup=False)
+            return
+        if error:
+            self.notify(f"Linked-trail search failed: {error}",
+                        severity="error", markup=False)
+            return
+        if self._modal_is_active():
+            # Stacking on another modal could strand it (a LoadingOverlay pops
+            # itself only while it is on top).
+            self.notify("Linked-trail search finished while a dialog was "
+                        "open — press L again")
+            return
+        if not scan.links and scan.complete:
+            self.notify("No linked trails in other projects")
+            return
+        self.push_screen(
+            LinkedTrailsScreen(scan.links, scan.errors, scan.complete),
+            self._on_linked_trail_chosen)
+
+    def _on_linked_trail_chosen(self, link) -> None:
+        if link is None:
+            return
+        if self._trail_jump_busy:
+            self.notify("A jump is already in progress", severity="warning")
+            return
+        self._trail_jump_busy = True
+        self._trail_jump_prepare_worker(link)
+
+    @work(thread=True)
+    def _trail_jump_prepare_worker(self, link):
+        jump = TrailJump(link, error=f"Jump to {link.handle} failed")
+        try:
+            jump = prepare_linked_trail_jump(link)
+        except Exception as exc:
+            jump = TrailJump(link, error=(
+                f"Jump to {link.handle} failed: "
+                f"{str(exc) or type(exc).__name__}"))
+        finally:
+            self.app.call_from_thread(self._on_trail_jump_prepared, jump)
+
+    def _on_trail_jump_prepared(self, jump: TrailJump) -> None:
+        if jump.error:
+            self._trail_jump_busy = False
+            self.notify(jump.error, severity="error", markup=False,
+                        timeout=12)
+            return
+        carried = self._trail_jump_unread.pop(str(jump.link.root), ())
+        if carried:
+            jump = dataclasses.replace(jump, notices=tuple(
+                dict.fromkeys((*carried, *jump.notices))))
+        if not jump.to_confirm:
+            self._trail_jump_finish_worker(jump)
+            return
+        if self._modal_is_active():
+            # Same no-stacking rule as the search result. Only the one-time
+            # notices are kept for the retry: it cannot produce them again,
+            # while its own warnings describe the target as it is then.
+            if jump.notices:
+                self._trail_jump_unread[str(jump.link.root)] = jump.notices
+            self._trail_jump_busy = False
+            self.notify(f"Jump to {jump.link.handle} paused — a dialog was "
+                        "open. Press L to try again", severity="warning",
+                        markup=False)
+            return
+
+        def on_confirm(go) -> None:
+            if go:
+                self._trail_jump_finish_worker(jump)
+            else:
+                self._trail_jump_busy = False
+
+        self.push_screen(
+            TrailJumpConfirmScreen(jump.session, jump.to_confirm), on_confirm)
+
+    @work(thread=True)
+    def _trail_jump_finish_worker(self, jump: TrailJump):
+        notices = [(f"Jump to {jump.link.handle} failed", "error")]
+        try:
+            notices = finish_linked_trail_jump(jump)
+        except Exception as exc:
+            notices = [(f"Jump to {jump.link.handle} failed: "
+                        f"{str(exc) or type(exc).__name__}", "error")]
+        finally:
+            self.app.call_from_thread(self._on_trail_jump_done, notices)
+
+    def _on_trail_jump_done(self, notices) -> None:
+        self._trail_jump_busy = False
+        for message, severity in notices:
+            self.notify(message, severity=severity, markup=False, timeout=12)
+
     def _get_local_project(self) -> str:
         """Lazily cached project name for canonical-ref resolution."""
         if self._local_project is None:
@@ -1136,6 +1432,7 @@ class TrailScreenMixin:
         activation builds a fresh session from the discovery cache. The board
         keeps one session, so that replaces (and un-watches) the old trail; a
         tabbed host keeps the outgoing tab — its focus, and its watch."""
+        self._drop_trail_link_scan()
         if self._TRAIL_TABBED and handle in self._trail_sessions:
             self._switch_trail_session(handle)
             return

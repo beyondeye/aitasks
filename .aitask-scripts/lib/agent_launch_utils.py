@@ -2722,6 +2722,112 @@ def launch_or_focus_trails(
     return True, None
 
 
+# --- Another project's session (t1957_4) --------------------------------------
+#
+# The linked-trail jump reaches into a DIFFERENT project's tmux session: find
+# it, start it when it is not running, check that a session name still belongs
+# to that project, and move the client there.
+
+
+@dataclass(frozen=True)
+class BootstrapResult:
+    """What ``tmux_bootstrap.sh <root>`` answered.
+
+    ``error`` is one line for the user when ``ok`` is False; ``stale`` marks the
+    ``BOOTSTRAP_FAILED:stale_path`` refusal (the path is not an aitasks project
+    any more); ``default_session_problem`` is the shape of an unreadable
+    ``tmux.default_session`` the bootstrap fell back on, when it succeeded."""
+    ok: bool
+    error: str = ""
+    stale: bool = False
+    default_session_problem: str | None = None
+
+
+def bootstrap_project_session(project_root: Path,
+                              timeout: float = 15) -> BootstrapResult:
+    """Create ``project_root``'s tmux session detached, if it is not running.
+
+    The standalone form of ``lib/tmux_bootstrap.sh`` — the one the TUI switcher
+    runs for a registered-but-inactive project and the linked-trail jump runs
+    for a target with no session. Idempotent; the session it creates is named
+    by that project's ``tmux.default_session`` and stamped with its root."""
+    script = str(Path(__file__).resolve().parent / "tmux_bootstrap.sh")
+    try:
+        result = subprocess.run(
+            ["bash", script, str(project_root)],
+            capture_output=True, text=True, timeout=timeout,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
+        return BootstrapResult(False, error=str(exc))
+    stderr = result.stderr or ""
+    if result.returncode != 0:
+        lines = stderr.strip().splitlines()
+        return BootstrapResult(
+            False, error=lines[-1] if lines else "unknown error",
+            stale="BOOTSTRAP_FAILED:stale_path" in stderr)
+    return BootstrapResult(
+        True, default_session_problem=parse_default_session_unreadable(stderr))
+
+
+def live_project_session(project_root: Path) -> str | None:
+    """A live gateway session attributed to ``project_root``, or None.
+
+    Every live session is attributed by the canonical rule (registration stamp,
+    else pane vote, else legacy registry), so a session the project runs under
+    a non-default name (``ait ide --session foo``) is found too, and the
+    bootstrap is not asked to start a second one. With several, the project's
+    configured ``default_session`` wins, then the first by name."""
+    want = _root_key(Path(project_root))
+    owned = sorted({session for session, root in _collect_live_roots(
+                        _TMUX.run, _read_registry_entry)
+                    if _root_key(root) == want})
+    if not owned:
+        return None
+    default = load_tmux_defaults(Path(project_root))["default_session"]
+    return default if default in owned else owned[0]
+
+
+def is_aitasks_project(root: Path) -> bool:
+    """Does ``root`` hold an aitasks project (its ``project_config.yaml``
+    marker)? The same marker discovery and the registry readers check."""
+    return (Path(root) / "aitasks" / "metadata" / "project_config.yaml").is_file()
+
+
+def session_owned_by(session: str, project_root: Path) -> bool:
+    """Is the live ``session`` still attributed to ``project_root``?
+
+    For a session name learned earlier: in the meantime that session may have
+    stopped and its name been reused by another project. Only this one
+    candidate is attributed (:func:`_sessions_owned_by`)."""
+    if not session:
+        return False
+    return session in _sessions_owned_by(Path(project_root), {session})
+
+
+def trails_supports_focus(project_root: Path) -> bool:
+    """Does ``project_root``'s ``ait trails`` take ``--trail`` (t1957_2)?
+
+    A text probe of the project's own ``board/trails_app.py``: an older
+    framework has no ``--trail`` flag, and ``./ait trails --trail <h>`` would
+    die on argparse in the window it opens. An unreadable or missing file
+    proves nothing, so it answers False and the caller does not launch."""
+    path = Path(project_root) / ".aitask-scripts" / "board" / "trails_app.py"
+    try:
+        return "--trail" in path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+
+
+def switch_client_to(session: str) -> bool:
+    """Move the caller's tmux client to ``session``; True on success.
+
+    tmux resolves "the caller's client" from the calling process's ``$TMUX``,
+    so this only works for a caller that is a pane of the gateway server
+    (:func:`current_tmux_session` is not None)."""
+    rc, _ = _TMUX.run(["switch-client", "-t", tmux_session_target(session)])
+    return rc == 0
+
+
 def load_tmux_defaults(project_root: Path) -> dict:
     """Load tmux defaults from project_config.yaml.
 

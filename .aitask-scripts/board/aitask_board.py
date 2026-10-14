@@ -119,6 +119,8 @@ from board_trail_view import (
     TRAIL_CLASSIFICATION_GLYPHS, TRAIL_CSS, TRAIL_GATHER_SCRIPT,
     TRAIL_SELECT_RESCAN, TRAIL_WATCH_INTERVAL, TRAIL_WATCH_MAX_TICKS,
     _TRAIL_GHOST_LABELS,
+    LinkedTrailItem, LinkedTrailsScreen, TrailJumpConfirmScreen,
+    linked_scan_error_text,
     TrailColumn, TrailDetailScreen, TrailEntryView, TrailGhostCard,
     TrailSelectItem, TrailSelectScreen, TrailSummaryScreen, TrailTaskCard,
     TrailWaveLane, _GhostTaskStub, _trail_badge_text, _trail_drift_text,
@@ -2293,6 +2295,11 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
         # By-Trail summary expand (t1505_1). `v` is free at App level — the
         # `v`/`u` keys live on TaskDetailScreen under the `board.detail` scope.
         TRAIL_BINDING["trail_summary_expand"],
+        # By-Trail linked trails in other projects (t1957_4). Live only in
+        # By-Trail with a loaded trail (check_action). `L` is free at App
+        # level: the detail screen's `L` (lock) is `board.detail`, and `l`
+        # (view_locked) is a different action, not its lowercase primary.
+        TRAIL_BINDING["trail_linked"],
         # Git Commit (shown conditionally via check_action)
         Binding("c", "commit_selected", "Commit"),
         Binding("C", "commit_all", "Commit All"),
@@ -2547,6 +2554,11 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
             if self.base_filter != "bytrail":
                 return False
             if not trail_summary_text(self._trail_doc):
+                return False
+        elif action == "trail_linked":
+            # Same truthful-footer rule: only with a trail that loaded, since
+            # a search needs its members (`action_trail_linked` re-checks).
+            if self.base_filter != "bytrail" or not self._trail_link_ready():
                 return False
         elif action == "toggle_children":
             # The In-Flight, By-Topic and By-Trail views render every relevant

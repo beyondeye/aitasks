@@ -807,6 +807,10 @@ class TrailsApp(TuiSwitcherMixin, ShortcutsMixin, TrailScreenMixin, App):
             from board_trail_view import trail_summary_text
             if not trail_summary_text(self._trail_doc):
                 return False
+        elif action == "trail_linked":
+            # A search needs a loaded trail's members (t1957_4).
+            if not self._trail_link_ready():
+                return False
         elif action in ("trail_task", "view_details"):
             if not self._focused_card():
                 return False

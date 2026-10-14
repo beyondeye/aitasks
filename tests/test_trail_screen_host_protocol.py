@@ -446,7 +446,7 @@ class BindingIdentityTests(bf.FixtureBoardTestBase, unittest.TestCase):
 
     def test_board_declares_the_shared_trail_binding_objects(self):
         ts = self.ab.board_trail_screen
-        self.assertEqual(len(ts.TRAIL_BINDINGS), 9)
+        self.assertEqual(len(ts.TRAIL_BINDINGS), 10)
         self.assertIs(ts.TRAIL_BINDING["trail_select"],
                       next(b for b in ts.TRAIL_BINDINGS
                            if b.action == "trail_select"))

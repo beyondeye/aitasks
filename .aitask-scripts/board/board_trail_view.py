@@ -30,6 +30,11 @@ Contracts (see ``board/__init__.py`` and the parent plan):
 The view state, workers, trail actions and launch live on ``TrailScreenMixin``
 (``board_trail_screen.py``); the board's view switch and footer gating stay in
 ``KanbanApp``.
+
+The linked-trail modals (t1957_4) render rows that come from OTHER
+repositories' exports — project names, handles, error details. They are
+untrusted text: every such value is put on screen as a ``rich.Text``, never
+interpolated into markup.
 """
 
 from __future__ import annotations
@@ -43,7 +48,7 @@ import yaml
 from rich.text import Text
 from textual import on
 from textual.binding import Binding
-from textual.containers import Container, VerticalScroll
+from textual.containers import Container, Horizontal, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Button, Label, Static
 
@@ -56,6 +61,10 @@ from cross_repo_notation import parse_ref as parse_cross_repo_ref
 from guarded_dismiss import GuardedModalScreen
 from topic_semantics import task_own_id
 from trail_discovery import TrailInfo, trail_entry_refs
+from trail_links import (
+    EXPORT_FAILED, LOCAL_UNREADABLE, NOT_FOUND, PARTIAL, REGISTRY_UNREADABLE,
+    STALE, TIMEOUT,
+)
 from cross_repo_deps import classify_xdep_status, xdep_ref_pairs
 
 
@@ -1119,6 +1128,194 @@ class TrailDetailScreen(ModalScreen):
 
     def action_cancel(self):
         self.dismiss(None)
+
+
+def linked_scan_error_text(err, max_detail: int = 200) -> str:
+    """One modal row for a ``trail_links.ProjectScanError`` (t1957_4).
+
+    Every kind says what it means for the result: ``partial`` still returned
+    that project's links, ``local_unreadable`` is about THIS trail, and
+    ``registry_unreadable`` names the registry file rather than a project. A
+    detail longer than ``max_detail`` is cut with `…`."""
+    project, kind = str(err.project), str(err.kind)
+    detail = str(err.detail or "")
+    if len(detail) > max_detail:
+        detail = detail[:max_detail - 1] + "…"
+    tail = f" ({detail})" if detail else ""
+    if kind == STALE:
+        return f"{project}: could not search — stale path{tail}"
+    if kind == NOT_FOUND:
+        return f"{project}: could not search — not registered{tail}"
+    if kind == EXPORT_FAILED:
+        return f"{project}: could not search — export failed{tail}"
+    if kind == TIMEOUT:
+        return f"{project}: could not search — timed out{tail}"
+    if kind == PARTIAL:
+        return f"{project}: searched in part{tail}"
+    if kind == REGISTRY_UNREADABLE:
+        return f"project registry {project} could not be read{tail}"
+    if kind == LOCAL_UNREADABLE:
+        return f"this trail ({project}): member(s) could not be read{tail}"
+    return f"{project}: {kind}{tail}"
+
+
+class LinkedTrailItem(PickerItem):
+    """Focusable row for one linked trail in another project: project ·
+    handle · name, with the link's reasons as sub-lines."""
+
+    MAX_REASONS = 3
+
+    def __init__(self, link):
+        text = Text()
+        text.append(str(link.project), style="bold")
+        text.append(f" · {link.handle} · {link.name}")
+        reasons = list(link.reasons)
+        for reason in reasons[:self.MAX_REASONS]:
+            text.append(f"\n  └ {reason}", style="dim italic")
+        if len(reasons) > self.MAX_REASONS:
+            text.append(f"\n  └ (+{len(reasons) - self.MAX_REASONS} more)",
+                        style="dim italic")
+        super().__init__(text)
+        self.link = link
+
+    def on_key(self, event):
+        if event.key == "enter":
+            self.screen.dismiss(self.link)
+            event.prevent_default()
+            event.stop()
+
+    def on_click(self, event):
+        self.screen.dismiss(self.link)
+
+
+class LinkedTrailsScreen(GuardedModalScreen):
+    """Trails in other projects linked to the active one (t1957_4).
+
+    Dismisses the chosen ``LinkedTrail`` or None. Each scan error is a
+    non-focusable row. An incomplete scan says so above the list, and with no
+    links it never claims there are none — only that none were FOUND."""
+
+    DEFAULT_CSS = """
+    LinkedTrailsScreen {
+        align: center middle;
+    }
+    #dep_picker_dialog {
+        width: 70%;
+        height: auto;
+        max-height: 70%;
+        background: $surface;
+        border: thick $accent;
+        padding: 1 2;
+    }
+    #dep_picker_title {
+        text-align: center;
+        padding: 0 0 1 0;
+        text-style: bold;
+    }
+    #dep_picker_dialog.picker-dialog { overflow-y: auto; }
+    .picker-dialog #dep_picker_title { width: 100%; dock: top; }
+    PickerItem { height: auto; width: 100%; padding: 0 1; }
+    PickerItem.dep-item-focused { background: $primary 20%; outline-left: thick $accent; }
+    .linked-trail-note { padding: 1 1 0 1; }
+    .linked-trail-error { color: $warning; padding: 0 1; }
+    """
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel", show=False),
+    ]
+
+    def __init__(self, links: list, errors: list, complete: bool):
+        super().__init__()
+        self.links = list(links)
+        self.errors = list(errors)
+        self.complete = complete
+
+    def compose(self):
+        with Container(id="dep_picker_dialog", classes="picker-dialog"):
+            yield Label(
+                "Linked trails — [dim]↑/↓ move · Enter jump · Esc cancel[/]",
+                id="dep_picker_title",
+            )
+            for link in self.links:
+                yield LinkedTrailItem(link)
+            if not self.complete:
+                note = ("Some projects could not be fully searched — the list "
+                        "may be incomplete:" if self.links else
+                        "No linked trails found — the search was incomplete:")
+                yield Static(Text(note), classes="linked-trail-note")
+            for err in self.errors:
+                yield Static(Text(linked_scan_error_text(err)),
+                             classes="linked-trail-error")
+            yield Button("Cancel", id="btn_linked_cancel")
+
+    def on_mount(self):
+        items = list(self.query(LinkedTrailItem))
+        if items:
+            items[0].focus()
+
+    @on(Button.Pressed, "#btn_linked_cancel")
+    def cancel_button(self):
+        self.dismiss(None)
+
+    def action_cancel(self):
+        self.dismiss(None)
+
+
+class TrailJumpConfirmScreen(GuardedModalScreen):
+    """Warnings about a linked-trail jump, shown BEFORE the client switches
+    (t1957_4). Once the client is in the other session, this App is no longer
+    on screen, so anything it said afterwards would go unread. Dismisses True
+    to switch, False to stay."""
+
+    DEFAULT_CSS = """
+    TrailJumpConfirmScreen {
+        align: center middle;
+    }
+    #trail_jump_dialog {
+        width: 70%;
+        height: auto;
+        max-height: 70%;
+        background: $surface;
+        border: thick $warning;
+        padding: 1 2;
+    }
+    #trail_jump_buttons { height: auto; padding: 1 0 0 0; }
+    #trail_jump_buttons Button { margin: 0 1 0 0; }
+    """
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Stay here", show=False),
+    ]
+
+    def __init__(self, session: str, warnings):
+        super().__init__()
+        self.session = str(session)
+        self.warnings = [str(w) for w in warnings]
+
+    def compose(self):
+        with Container(id="trail_jump_dialog"):
+            yield Static(Text(
+                f"Before switching to tmux session '{self.session}':",
+                style="bold"))
+            for warning in self.warnings:
+                yield Static(Text(f"• {warning}"))
+            with Horizontal(id="trail_jump_buttons"):
+                yield Button("Switch", id="btn_jump_switch", variant="primary")
+                yield Button("Stay here", id="btn_jump_stay")
+
+    def on_mount(self):
+        self.query_one("#btn_jump_switch", Button).focus()
+
+    @on(Button.Pressed, "#btn_jump_switch")
+    def switch_button(self):
+        self.dismiss(True)
+
+    @on(Button.Pressed, "#btn_jump_stay")
+    def stay_button(self):
+        self.dismiss(False)
+
+    def action_cancel(self):
+        self.dismiss(False)
 
 
 class TrailSummaryScreen(ModalScreen):

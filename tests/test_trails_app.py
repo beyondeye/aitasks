@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import copy
 import io
 import os
 import subprocess
@@ -55,7 +56,9 @@ sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "lib"))
 
 import board_fixture as bf  # noqa: E402
 import keybinding_registry  # noqa: E402
-from test_board_bytrail_view import _wave_doc, _xdep_doc  # noqa: E402
+from test_board_bytrail_view import (  # noqa: E402
+    GatedCalls, NoteRecorder, _wave_doc, _xdep_doc, linked_scan, linked_trail,
+)
 from trail_discovery import TrailInfo  # noqa: E402
 
 HANDLE = "art:trail-standalone"
@@ -2330,6 +2333,215 @@ class TrailFocusTests(TrailsAppTestBase):
         finally:
             gate.set()
         self.assertEqual(app._t_activated, [HANDLE_A, HANDLE_C])
+
+
+# --- Linked trails across tabs (t1957_4) -------------------------------------
+
+
+class LinkedTrailsTabTests(TrailsAppTestBase):
+    """`L` in the tabbed host: a search belongs to the trail — and the revision
+    of it — it started from. Each scan is gated, so the test moves first and
+    the result lands after; the board twin is `LinkedTrailsTests`.
+
+    Between `L` and the release only `pilot.pause()` is used: `_settle` waits
+    for every worker, including the gated scan."""
+
+    _doc_a = TabbedSessionTests._doc_a
+    _doc_b = TabbedSessionTests._doc_b
+    _info_for = TabbedSessionTests._info_for
+    _counting = TabbedSessionTests._counting
+    _open_second = TabbedSessionTests._open_second
+
+    async def _two_tabs(self, app, pilot):
+        await self._boot_and_select(app, pilot)
+        await self._open_second(app, pilot)
+        self.assertEqual(list(app._trail_sessions), [HANDLE_A, HANDLE_B])
+        app._switch_trail_session(HANDLE_A)
+        await self._settle(app, pilot)
+        self.assertEqual(app.active_trail_handle, HANDLE_A)
+
+    async def _release(self, app, pilot, *gated):
+        for g in gated:
+            g.release_all()
+        await app.workers.wait_for_complete()
+        await self._settle(app, pilot)
+
+    def _linked_screens(self, app):
+        return [s for s in app.screen_stack
+                if isinstance(s, self.ab.LinkedTrailsScreen)]
+
+    def _tab_case(self, move):
+        """Search on A, `move` while the scan is in flight, then release: the
+        result must not show, and nothing is said about it."""
+        async def go():
+            calls, stack = self._counting()
+            gated = GatedCalls()
+            gated.add(linked_scan([linked_trail()]))
+            app = bf.make_trails_app()
+            with stack[0], stack[1], stack[2], \
+                    patch.object(self.ts, "scan_linked_trails", gated):
+                async with app.run_test(size=(200, 48)) as pilot:
+                    await self._two_tabs(app, pilot)
+                    app.action_trail_linked()
+                    await pilot.pause()
+                    notes = NoteRecorder(app)
+                    await move(app, pilot)
+                    await self._release(app, pilot, gated)
+                    self.assertEqual(len(gated.calls), 1)
+                    self.assertEqual(self._linked_screens(app), [])
+                    self.assertEqual(notes.texts(), [])
+        self._run(go())
+
+    def test_switching_tabs_drops_the_search(self):
+        async def move(app, pilot):
+            app._switch_trail_session(HANDLE_B)
+            await pilot.pause()
+        self._tab_case(move)
+
+    def test_closing_the_origin_tab_drops_the_search(self):
+        async def move(app, pilot):
+            app._close_trail_session(HANDLE_A)
+            await pilot.pause()
+        self._tab_case(move)
+
+    def test_a_to_b_to_a_drops_the_search(self):
+        """Back on the same trail is not the same search: the result belongs
+        to the moment it was asked for."""
+        async def move(app, pilot):
+            app._switch_trail_session(HANDLE_B)
+            await pilot.pause()
+            app._switch_trail_session(HANDLE_A)
+            await pilot.pause()
+        self._tab_case(move)
+
+    def test_two_searches_show_only_the_newest_in_either_order(self):
+        for order in ("newest_last", "newest_first"):
+            with self.subTest(order=order):
+                self._two_searches(order)
+
+    def _two_searches(self, order):
+        async def go():
+            calls, stack = self._counting()
+            gated = GatedCalls()
+            old = gated.add(linked_scan([linked_trail(name="OLD trail")]))
+            new = gated.add(linked_scan([linked_trail(name="NEW trail")]))
+            app = bf.make_trails_app()
+            with stack[0], stack[1], stack[2], \
+                    patch.object(self.ts, "scan_linked_trails", gated):
+                async with app.run_test(size=(200, 48)) as pilot:
+                    await self._boot_and_select(app, pilot)
+                    app.action_trail_linked()
+                    await pilot.pause()
+                    app.action_trail_linked()
+                    for _ in range(3):
+                        await pilot.pause()
+                    self.assertEqual(len(gated.calls), 2)
+                    first, second = (old, new) if order == "newest_last" else (new, old)
+                    first.set()
+                    for _ in range(5):
+                        await pilot.pause()
+                    second.set()
+                    await self._release(app, pilot, gated)
+                    screens = self._linked_screens(app)
+                    self.assertEqual(len(screens), 1)
+                    self.assertEqual([l.name for l in screens[0].links],
+                                     ["NEW trail"])
+        self._run(go())
+
+    def test_L_needs_a_loaded_trail(self):
+        async def go():
+            calls, stack = self._counting()
+            app = bf.make_trails_app()
+            with stack[0], stack[1], stack[2]:
+                async with app.run_test(size=(200, 48)) as pilot:
+                    await self._settle(app, pilot)
+                    self.assertIs(app.check_action("trail_linked", None), False)
+                    await pilot.press("escape")
+                    await self._settle(app, pilot)
+                    self.assertIs(app.check_action("trail_linked", None), False)
+                    await pilot.press("s")
+                    await self._wait_screen(
+                        app, pilot, self.ab.board_trail_view.TrailSelectScreen)
+                    await pilot.press("enter")
+                    await self._settle(app, pilot)
+                    self.assertIs(app.check_action("trail_linked", None), True)
+                    self.assertIn("trail_linked", {
+                        a.binding.action
+                        for a in app.screen.active_bindings.values()})
+                    app._trail_error = "schema invalid"
+                    self.assertIs(app.check_action("trail_linked", None), False)
+        self._run(go())
+
+    # -- source revision: the REAL reload path -----------------------------------
+
+    def _revision_case(self, change, *, expect_modal):
+        """Search, deliver `change(app, deliver)` through `_on_trail_reload`
+        (the path an `R`/`d` reload or a watch takes), then release."""
+        async def go():
+            gated = GatedCalls()
+            gated.add(linked_scan([linked_trail()]))
+            app = bf.make_trails_app()
+            patches = self._patches()
+            with patches[0], patches[1], \
+                    patch.object(self.ts, "scan_linked_trails", gated):
+                async with app.run_test(size=(200, 48)) as pilot:
+                    await self._boot_and_select(app, pilot)
+                    original = app._trail_active.doc
+                    app.action_trail_linked()
+                    await pilot.pause()
+                    notes = NoteRecorder(app)
+                    gens = []
+                    app._trail_reload_worker = lambda gen, handle: gens.append(gen)
+                    app._reload_active_trail()
+                    self.assertEqual(len(gens), 1)
+
+                    def deliver(doc, error="", versions=(), seq=5):
+                        app._on_trail_reload(gens[0], HANDLE, doc, error,
+                                             list(versions), seq)
+
+                    change(app, deliver, original)
+                    await pilot.pause()
+                    await self._release(app, pilot, gated)
+                    if expect_modal:
+                        self.assertEqual(len(self._linked_screens(app)), 1)
+                        self.assertFalse(notes.has("changed during"))
+                    else:
+                        self.assertEqual(self._linked_screens(app), [])
+                        self.assertTrue(notes.has(
+                            f"Trail {HANDLE} changed during the linked-trail "
+                            "search"))
+        self._run(go())
+
+    def test_a_reload_with_changed_members_drops_the_search(self):
+        def change(app, deliver, original):
+            deliver(_wave_doc([self.member_ids[0]]))
+            self.assertNotEqual(app._trail_active.doc, original)
+        self._revision_case(change, expect_modal=False)
+
+    def test_a_reload_that_adopts_a_load_error_drops_the_search(self):
+        def change(app, deliver, original):
+            deliver(None, error="schema invalid", versions=["v2"])
+            self.assertEqual(app._trail_active.error, "schema invalid")
+        self._revision_case(change, expect_modal=False)
+
+    def test_an_unchanged_reload_keeps_the_search(self):
+        """Control. `restart_drift=True` replaces the document OBJECT even when
+        it is equal, so an identity guard would wrongly drop this search."""
+        def change(app, deliver, original):
+            deliver(copy.deepcopy(original))
+            self.assertIsNot(app._trail_active.doc, original)
+            self.assertEqual(app._trail_active.doc, original)
+        self._revision_case(change, expect_modal=True)
+
+    def test_a_rescan_with_changed_content_drops_the_search(self):
+        def change(app, deliver, original):
+            info = TrailInfo(handle=HANDLE, owner_id=self.member_ids[0],
+                             owner_archived=False, owner_folded=False,
+                             name="Standalone",
+                             doc=_wave_doc([self.member_ids[1]]), read_seq=9)
+            app._reconcile_discovered_trails([info])
+            self.assertNotEqual(app._trail_active.doc, original)
+        self._revision_case(change, expect_modal=False)
 
 
 if __name__ == "__main__":

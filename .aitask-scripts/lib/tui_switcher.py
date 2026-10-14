@@ -51,6 +51,7 @@ from agent_launch_utils import (  # noqa: E402
     DEFAULT_SESSION_FILE_SHAPES,
     AitasksSession,
     advance_group_selection,
+    bootstrap_project_session,
     cross_group_ring,
     cross_group_step,
     current_tmux_session,
@@ -61,7 +62,6 @@ from agent_launch_utils import (  # noqa: E402
     group_members,
     group_sessions,
     load_tmux_defaults,
-    parse_default_session_unreadable,
     resolve_selected_key,
     tmux_session_target,
     tmux_window_target,
@@ -641,7 +641,8 @@ class TuiSwitcherOverlay(ModalScreen):
 
         Called before any action that would spawn a window in
         ``self._session``. Looks up the entry in ``self._all_sessions``;
-        when ``is_live=False``, shells out to ``tmux_bootstrap.sh`` to
+        when ``is_live=False``, runs ``tmux_bootstrap.sh`` (through
+        ``bootstrap_project_session``, shared with the linked-trail jump) to
         create the session, then flips the cached entry's ``is_live``
         flag. No-op for live entries and for sessions not tracked in
         ``self._all_sessions`` (legacy single-session fallback).
@@ -652,21 +653,9 @@ class TuiSwitcherOverlay(ModalScreen):
         entry = self._selected_entry()
         if entry is None or entry.is_live:
             return True
-        script = str(Path(__file__).resolve().parent / "tmux_bootstrap.sh")
-        try:
-            result = subprocess.run(
-                ["bash", script, str(entry.project_root)],
-                capture_output=True, text=True, timeout=15,
-            )
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
-            self.app.notify(
-                f"Failed to bootstrap session for {entry.project_name}: {exc}",
-                severity="error",
-            )
-            return False
-        if result.returncode != 0:
-            stderr_text = (result.stderr or "").strip()
-            if "BOOTSTRAP_FAILED:stale_path" in stderr_text:
+        result = bootstrap_project_session(entry.project_root)
+        if not result.ok:
+            if result.stale:
                 # Race: entry was OK at switcher mount but went STALE
                 # before bootstrap. Push the same modal as the up-front
                 # guard so the user can prune/repoint inline.
@@ -674,9 +663,9 @@ class TuiSwitcherOverlay(ModalScreen):
                     entry.project_name, entry.project_root,
                 )
                 return False
-            err = stderr_text.splitlines()[-1:] or ["unknown error"]
             self.app.notify(
-                f"Failed to bootstrap session for {entry.project_name}: {err[0]}",
+                f"Failed to bootstrap session for {entry.project_name}: "
+                f"{result.error}",
                 severity="error",
             )
             return False
@@ -684,8 +673,7 @@ class TuiSwitcherOverlay(ModalScreen):
         # tmux.default_session could not be read (t1811). This is the one moment
         # the user is creating that session, so say so: the discovery-time field
         # and the helper's stderr sentinel are two routes to the same shape.
-        problem = entry.default_session_problem or parse_default_session_unreadable(
-            result.stderr or "")
+        problem = entry.default_session_problem or result.default_session_problem
         if problem:
             if problem == "illegal_tmux_name":
                 # Read fine, unusable anyway (t1828) — neither sentence below

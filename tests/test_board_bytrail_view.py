@@ -5162,5 +5162,662 @@ class DetachedFocusRescueTests(ByTrailTestBase):
         self._run(go())
 
 
+# --- Linked trails (t1957_4) ------------------------------------------------------
+
+
+class GatedCalls:
+    """A thread-safe stand-in whose N-th call blocks on the N-th gate, then
+    returns that gate's result (or raises it). `scan_linked_trails`,
+    `prepare_linked_trail_jump` and `discover_trails` run on thread workers,
+    so a test opens a gate only after making its move — the result then lands
+    in exactly the order the test chooses.
+
+    Every gate must be released before the `run_test` block exits: a worker
+    still in flight fails the enclosing test
+    (aidocs/framework/testing_conventions.md)."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._gates: list[list] = []
+        self.calls: list[tuple] = []
+
+    def add(self, result) -> threading.Event:
+        event = threading.Event()
+        self._gates.append([event, result])
+        return event
+
+    def release_all(self):
+        for event, _ in self._gates:
+            event.set()
+
+    def __call__(self, *args):
+        with self._lock:
+            index = len(self.calls)
+            self.calls.append(args)
+        event, result = self._gates[index]
+        event.wait(10)
+        if isinstance(result, BaseException):
+            raise result
+        return result
+
+
+def linked_scan(links=(), errors=(), complete=None):
+    import trail_links
+    errors = list(errors)
+    return trail_links.LinkScan(
+        links=list(links), errors=errors,
+        complete=(not errors) if complete is None else complete)
+
+
+def linked_trail(project="proj_y", handle="art:trail-y", name="Y trail",
+                 reasons=("rev-member: aitasks#9000",)):
+    import trail_links
+    return trail_links.LinkedTrail(project=project, root=f"/r/{project}",
+                                   handle=handle, name=name,
+                                   reasons=tuple(reasons))
+
+
+class NoteRecorder:
+    """Records `app.notify` calls (installed as an instance attribute)."""
+
+    def __init__(self, app):
+        self.notes: list[tuple[str, dict]] = []
+        app.notify = lambda message, **kw: self.notes.append((str(message), kw))
+
+    def texts(self) -> list[str]:
+        return [m for m, _ in self.notes]
+
+    def has(self, fragment: str) -> bool:
+        return any(fragment in m for m in self.texts())
+
+
+class LinkedTrailsTests(ByTrailTestBase):
+    """`L` on the board's By-Trail view: gating, the modal, supersession and
+    the jump flow (t1957_4). The scan and the jump phases are stubbed on
+    `board_trail_screen`; the trails-app twin (tabs, source revision) is
+    `LinkedTrailsTabTests` in tests/test_trails_app.py."""
+
+    def setUp(self):
+        self.ts = self.ab.board_trail_screen
+
+    async def _drain(self, app, pilot, gated=()):
+        for g in gated:
+            g.release_all()
+        await app.workers.wait_for_complete()
+        for _ in range(3):
+            await pilot.pause()
+
+    async def _search(self, app, pilot, scan_result):
+        """Enter By-Trail, press `L`, let the (ungated) scan land."""
+        await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
+        app.action_focus_board()
+        await pilot.pause()
+        await pilot.press("L")
+        await app.workers.wait_for_complete()
+        for _ in range(3):
+            await pilot.pause()
+
+    def test_L_is_shown_only_in_bytrail_with_a_loaded_trail(self):
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(200, 48)) as pilot:
+                await pilot.pause()
+                self.assertNotIn("trail_linked", self._footer_actions(app))
+                self.assertIs(app.check_action("trail_linked", None), False)
+                await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
+                self.assertIn("trail_linked", self._footer_actions(app))
+                app._trail_error = "schema invalid"
+                self.assertIs(app.check_action("trail_linked", None), False)
+                app._trail_error = ""
+                app._trail_doc = None
+                self.assertIs(app.check_action("trail_linked", None), False)
+
+        self._run(go())
+
+    def test_the_action_refuses_outside_bytrail_and_without_a_trail(self):
+        """A binding gate is not an action guard: the palette calls it."""
+        ab = self.ab
+
+        async def go():
+            calls = []
+            with patch.object(self.ts, "scan_linked_trails",
+                              lambda doc: calls.append(doc)):
+                app = ab.KanbanApp()
+                async with app.run_test(size=(200, 48)) as pilot:
+                    await pilot.pause()
+                    notes = NoteRecorder(app)
+                    app.action_trail_linked()          # not By-Trail
+                    await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
+                    app._trail_doc = None              # not loaded
+                    app.action_trail_linked()
+                    await self._drain(app, pilot)
+                    self.assertEqual(calls, [])
+                    self.assertTrue(notes.has("Trail not loaded"))
+
+        self._run(go())
+
+    def test_the_modal_lists_links_and_every_error_kind(self):
+        ab = self.ab
+        import trail_links as tl
+        kinds = (tl.STALE, tl.NOT_FOUND, tl.EXPORT_FAILED, tl.TIMEOUT,
+                 tl.PARTIAL, tl.REGISTRY_UNREADABLE, tl.LOCAL_UNREADABLE)
+        errors = [tl.ProjectScanError(f"p_{k}", k, f"d_{k}") for k in kinds]
+        links = [linked_trail(),
+                 linked_trail("proj_w", "art:trail-w", "W trail",
+                              [f"fwd-member: proj_w#{i}" for i in range(5)])]
+        expected_errors = [
+            "p_stale: could not search — stale path (d_stale)",
+            "p_not_found: could not search — not registered (d_not_found)",
+            "p_export_failed: could not search — export failed (d_export_failed)",
+            "p_timeout: could not search — timed out (d_timeout)",
+            "p_partial: searched in part (d_partial)",
+            "project registry p_registry_unreadable could not be read "
+            "(d_registry_unreadable)",
+            "this trail (p_local_unreadable): member(s) could not be read "
+            "(d_local_unreadable)",
+        ]
+
+        async def go():
+            with patch.object(self.ts, "scan_linked_trails",
+                              lambda doc: linked_scan(links, errors)):
+                app = ab.KanbanApp()
+                async with app.run_test(size=(200, 60)) as pilot:
+                    await pilot.pause()
+                    await self._search(app, pilot, None)
+                    self.assertIsInstance(app.screen, ab.LinkedTrailsScreen)
+                    self.assertEqual(
+                        _label_texts(app.screen, ".linked-trail-error"),
+                        expected_errors)
+                    rows = _label_texts(app.screen, "LinkedTrailItem")
+                    self.assertEqual(len(rows), 2)
+                    self.assertIn("proj_y · art:trail-y · Y trail", rows[0])
+                    self.assertIn("└ rev-member: aitasks#9000", rows[0])
+                    self.assertIn("(+2 more)", rows[1])
+                    note = _label_texts(app.screen, ".linked-trail-note")
+                    self.assertEqual(note, ["Some projects could not be fully "
+                                            "searched — the list may be "
+                                            "incomplete:"])
+                    await pilot.press("escape")
+                    await pilot.pause()
+                    self.assertNotIsInstance(app.screen, ab.LinkedTrailsScreen)
+
+        self._run(go())
+
+    def test_a_long_error_detail_is_cut(self):
+        import trail_links as tl
+        text = self.ab.linked_scan_error_text(
+            tl.ProjectScanError("p", tl.PARTIAL, "x" * 500))
+        self.assertTrue(text.endswith("…)"), text)
+        self.assertLess(len(text), 240)
+
+    def test_an_empty_incomplete_search_never_claims_there_are_none(self):
+        ab = self.ab
+        import trail_links as tl
+        stale = tl.ProjectScanError("proj_s", tl.STALE, "/gone")
+
+        async def go():
+            with patch.object(self.ts, "scan_linked_trails",
+                              lambda doc: linked_scan([], [stale])):
+                app = ab.KanbanApp()
+                async with app.run_test(size=(200, 48)) as pilot:
+                    await pilot.pause()
+                    notes = NoteRecorder(app)
+                    await self._search(app, pilot, None)
+                    self.assertIsInstance(app.screen, ab.LinkedTrailsScreen)
+                    self.assertEqual(
+                        _label_texts(app.screen, ".linked-trail-note"),
+                        ["No linked trails found — the search was incomplete:"])
+                    self.assertEqual(app.screen.query("LinkedTrailItem").nodes, [])
+                    self.assertFalse(notes.has("No linked trails in other"))
+
+        self._run(go())
+
+    def test_an_empty_complete_search_notifies_without_a_modal(self):
+        ab = self.ab
+
+        async def go():
+            with patch.object(self.ts, "scan_linked_trails",
+                              lambda doc: linked_scan([], [])):
+                app = ab.KanbanApp()
+                async with app.run_test(size=(200, 48)) as pilot:
+                    await pilot.pause()
+                    notes = NoteRecorder(app)
+                    await self._search(app, pilot, None)
+                    self.assertNotIsInstance(app.screen, ab.LinkedTrailsScreen)
+                    self.assertTrue(notes.has("No linked trails in other projects"))
+
+        self._run(go())
+
+    def test_a_failed_search_is_reported(self):
+        ab = self.ab
+
+        def boom(doc):
+            raise RuntimeError("registry exploded")
+
+        async def go():
+            with patch.object(self.ts, "scan_linked_trails", boom):
+                app = ab.KanbanApp()
+                async with app.run_test(size=(200, 48)) as pilot:
+                    await pilot.pause()
+                    notes = NoteRecorder(app)
+                    await self._search(app, pilot, None)
+                    self.assertNotIsInstance(app.screen, ab.LinkedTrailsScreen)
+                    self.assertTrue(notes.has(
+                        "Linked-trail search failed: registry exploded"))
+
+        self._run(go())
+
+    def test_the_search_reads_a_snapshot_not_the_live_document(self):
+        ab = self.ab
+        seen = []
+
+        async def go():
+            with patch.object(self.ts, "scan_linked_trails",
+                              lambda doc: seen.append(doc) or linked_scan()):
+                app = ab.KanbanApp()
+                async with app.run_test(size=(200, 48)) as pilot:
+                    await pilot.pause()
+                    await self._search(app, pilot, None)
+                    self.assertEqual(seen, [app._trail_doc])
+                    self.assertIsNot(seen[0], app._trail_doc)
+
+        self._run(go())
+
+    def test_leaving_bytrail_drops_the_result(self):
+        ab = self.ab
+
+        async def go():
+            gated = GatedCalls()
+            gated.add(linked_scan([linked_trail()]))
+            with patch.object(self.ts, "scan_linked_trails", gated):
+                app = ab.KanbanApp()
+                async with app.run_test(size=(200, 48)) as pilot:
+                    await pilot.pause()
+                    await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
+                    app.action_trail_linked()
+                    await pilot.pause()
+                    notes = NoteRecorder(app)
+                    app.action_view_all()
+                    await pilot.pause()
+                    await self._drain(app, pilot, [gated])
+                    self.assertEqual(len(gated.calls), 1)
+                    self.assertNotIsInstance(app.screen, ab.LinkedTrailsScreen)
+                    self.assertEqual(notes.texts(), [])
+
+        self._run(go())
+
+    def test_a_result_under_another_modal_is_not_stacked(self):
+        ab = self.ab
+
+        async def go():
+            gated = GatedCalls()
+            gated.add(linked_scan([linked_trail()]))
+            with patch.object(self.ts, "scan_linked_trails", gated):
+                app = ab.KanbanApp()
+                async with app.run_test(size=(200, 48)) as pilot:
+                    await pilot.pause()
+                    await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
+                    app.action_trail_linked()
+                    await pilot.pause()
+                    notes = NoteRecorder(app)
+                    summary = ab.TrailSummaryScreen("text", "title")
+                    app.push_screen(summary)
+                    await pilot.pause()
+                    await self._drain(app, pilot, [gated])
+                    self.assertIs(app.screen, summary)
+                    self.assertTrue(notes.has("press L again"))
+
+        self._run(go())
+
+    # -- the jump ----------------------------------------------------------------
+
+    def _jump_patches(self, prepare, finish):
+        return (patch.object(self.ts, "prepare_linked_trail_jump", prepare),
+                patch.object(self.ts, "finish_linked_trail_jump", finish))
+
+    async def _open_modal(self, app, pilot, link):
+        with patch.object(self.ts, "scan_linked_trails",
+                          lambda doc: linked_scan([link])):
+            await self._search(app, pilot, None)
+        self.assertIsInstance(app.screen, self.ab.LinkedTrailsScreen)
+
+    def test_a_warning_free_jump_finishes_without_a_dialog(self):
+        ab = self.ab
+        link = linked_trail()
+        finished = []
+
+        async def go():
+            jump = self.ts.TrailJump(link, session="ysess", launch=True)
+            p1, p2 = self._jump_patches(lambda l: jump,
+                                        lambda j: finished.append(j) or [])
+            with p1, p2:
+                app = ab.KanbanApp()
+                async with app.run_test(size=(200, 48)) as pilot:
+                    await pilot.pause()
+                    notes = NoteRecorder(app)
+                    await self._open_modal(app, pilot, link)
+                    await pilot.press("enter")
+                    await self._drain(app, pilot)
+                    self.assertEqual(finished, [jump])
+                    self.assertNotIsInstance(app.screen, ab.TrailJumpConfirmScreen)
+                    self.assertFalse(app._trail_jump_busy)
+                    # A successful finish says nothing: the client has moved on.
+                    self.assertEqual(notes.texts(), [
+                        "Searching for linked trails in other projects…"])
+
+        self._run(go())
+
+    def test_warnings_are_confirmed_before_finish_runs(self):
+        ab = self.ab
+        link = linked_trail()
+        finished = []
+
+        async def go():
+            jump = self.ts.TrailJump(link, session="ysess", launch=False,
+                                     warnings=("proj_y runs an older aitasks",))
+            p1, p2 = self._jump_patches(lambda l: jump,
+                                        lambda j: finished.append(j) or [])
+            with p1, p2:
+                app = ab.KanbanApp()
+                async with app.run_test(size=(200, 48)) as pilot:
+                    await pilot.pause()
+                    await self._open_modal(app, pilot, link)
+                    await pilot.press("enter")
+                    await self._drain(app, pilot)
+                    self.assertIsInstance(app.screen, ab.TrailJumpConfirmScreen)
+                    self.assertIn(
+                        "proj_y runs an older aitasks",
+                        self._dialog_text(app, app.screen.query_one(
+                            "#trail_jump_dialog")))
+                    self.assertEqual(finished, [], "finish ran before confirm")
+                    self.assertTrue(app._trail_jump_busy)
+                    await pilot.press("enter")          # Switch is focused
+                    await self._drain(app, pilot)
+                    self.assertEqual(finished, [jump])
+                    self.assertFalse(app._trail_jump_busy)
+
+        self._run(go())
+
+    def test_stay_here_runs_nothing_and_clears_busy(self):
+        ab = self.ab
+        link = linked_trail()
+        finished = []
+
+        async def go():
+            jump = self.ts.TrailJump(link, session="ysess", warnings=("w",))
+            p1, p2 = self._jump_patches(lambda l: jump,
+                                        lambda j: finished.append(j) or [])
+            with p1, p2:
+                app = ab.KanbanApp()
+                async with app.run_test(size=(200, 48)) as pilot:
+                    await pilot.pause()
+                    await self._open_modal(app, pilot, link)
+                    await pilot.press("enter")
+                    await self._drain(app, pilot)
+                    self.assertIsInstance(app.screen, ab.TrailJumpConfirmScreen)
+                    await pilot.press("escape")
+                    await self._drain(app, pilot)
+                    self.assertEqual(finished, [])
+                    self.assertFalse(app._trail_jump_busy)
+
+        self._run(go())
+
+    def test_a_prepare_error_is_shown_and_nothing_finishes(self):
+        ab = self.ab
+        link = linked_trail()
+        finished = []
+
+        async def go():
+            jump = self.ts.TrailJump(link, error="Not in an aitasks tmux session")
+            p1, p2 = self._jump_patches(lambda l: jump,
+                                        lambda j: finished.append(j) or [])
+            with p1, p2:
+                app = ab.KanbanApp()
+                async with app.run_test(size=(200, 48)) as pilot:
+                    await pilot.pause()
+                    notes = NoteRecorder(app)
+                    await self._open_modal(app, pilot, link)
+                    await pilot.press("enter")
+                    await self._drain(app, pilot)
+                    self.assertEqual(finished, [])
+                    self.assertTrue(notes.has("Not in an aitasks tmux session"))
+                    self.assertFalse(app._trail_jump_busy)
+
+        self._run(go())
+
+    def test_a_second_pick_while_busy_is_refused(self):
+        ab = self.ab
+        prepared = []
+
+        async def go():
+            p1, p2 = self._jump_patches(lambda l: prepared.append(l),
+                                        lambda j: [])
+            with p1, p2:
+                app = ab.KanbanApp()
+                async with app.run_test(size=(200, 48)) as pilot:
+                    await pilot.pause()
+                    notes = NoteRecorder(app)
+                    app._trail_jump_busy = True
+                    app._on_linked_trail_chosen(linked_trail())
+                    await self._drain(app, pilot)
+                    self.assertEqual(prepared, [])
+                    self.assertTrue(notes.has("A jump is already in progress"))
+
+        self._run(go())
+
+    def test_busy_clears_when_either_phase_raises(self):
+        ab = self.ab
+        link = linked_trail()
+
+        def boom(*_):
+            raise RuntimeError("kaboom")
+
+        async def go():
+            for phase in ("prepare", "finish"):
+                with self.subTest(phase=phase):
+                    jump = self.ts.TrailJump(link, session="ysess")
+                    prepare = boom if phase == "prepare" else (lambda l: jump)
+                    p1, p2 = self._jump_patches(prepare, boom)
+                    with p1, p2:
+                        app = ab.KanbanApp()
+                        async with app.run_test(size=(200, 48)) as pilot:
+                            await pilot.pause()
+                            notes = NoteRecorder(app)
+                            app._on_linked_trail_chosen(link)
+                            await self._drain(app, pilot)
+                            self.assertFalse(app._trail_jump_busy)
+                            self.assertTrue(notes.has(
+                                f"Jump to {link.handle} failed: kaboom"))
+
+        self._run(go())
+
+    def test_warnings_never_stack_on_a_modal_opened_meanwhile(self):
+        """Pick a link, then `s` while prepare runs: discovery's LoadingOverlay
+        is on top when the warnings land. A dialog pushed over it would strand
+        it (it pops itself only while it is on top)."""
+        ab = self.ab
+        link = linked_trail()
+        finished = []
+
+        async def go():
+            jump = self.ts.TrailJump(link, session="ysess", warnings=("w",))
+            prepare = GatedCalls()
+            prepare.add(jump)
+            prepare.add(jump)                     # the retry, released at once
+            discover = GatedCalls()
+            discover.add(([], []))
+            p1, p2 = self._jump_patches(prepare,
+                                        lambda j: finished.append(j) or [])
+            with p1, p2, patch.object(self.ts, "discover_trails", discover):
+                app = ab.KanbanApp()
+                async with app.run_test(size=(200, 48)) as pilot:
+                    await pilot.pause()
+                    notes = NoteRecorder(app)
+                    await self._open_modal(app, pilot, link)
+                    await pilot.press("enter")              # pick → prepare waits
+                    await pilot.pause()
+                    app.action_trail_select()               # LoadingOverlay up
+                    await pilot.pause()
+                    self.assertIsInstance(app.screen, ab.LoadingOverlay)
+                    prepare._gates[0][0].set()              # warnings land
+                    for _ in range(5):
+                        await pilot.pause()
+                    self.assertIsInstance(app.screen, ab.LoadingOverlay)
+                    self.assertTrue(notes.has("paused — a dialog was open"))
+                    self.assertFalse(app._trail_jump_busy)
+                    self.assertEqual(finished, [])
+                    discover.release_all()                  # overlay pops itself
+                    await self._drain(app, pilot)
+                    self.assertEqual(len(app.screen_stack), 1)
+                    # Busy recovered: a new pick reaches the dialog.
+                    app._on_linked_trail_chosen(link)
+                    await self._drain(app, pilot, [prepare])
+                    self.assertIsInstance(app.screen, ab.TrailJumpConfirmScreen)
+                    await pilot.press("escape")
+                    await self._drain(app, pilot)
+
+        self._run(go())
+
+    def test_a_paused_warning_is_shown_on_the_retry(self):
+        """The fallback-session warning exists only on the prepare that STARTED
+        the session; the retry finds it live and has no warning of its own. A
+        warning paused under a dialog must still be read before the switch."""
+        ab = self.ab
+        link = linked_trail()
+        finished = []
+        warning = ("proj_y: tmux.default_session is unusable (block_scalar); "
+                   "started session 'aitasks'")
+
+        async def go():
+            prepare = GatedCalls()
+            prepare.add(self.ts.TrailJump(link, session="aitasks", launch=True,
+                                          notices=(warning,)))
+            prepare.add(self.ts.TrailJump(link, session="aitasks", launch=True))
+            discover = GatedCalls()
+            discover.add(([], []))
+            p1, p2 = self._jump_patches(prepare,
+                                        lambda j: finished.append(j) or [])
+            with p1, p2, patch.object(self.ts, "discover_trails", discover):
+                app = ab.KanbanApp()
+                async with app.run_test(size=(200, 48)) as pilot:
+                    await pilot.pause()
+                    await self._open_modal(app, pilot, link)
+                    await pilot.press("enter")              # pick → prepare waits
+                    await pilot.pause()
+                    app.action_trail_select()               # LoadingOverlay up
+                    await pilot.pause()
+                    prepare._gates[0][0].set()              # paused under it
+                    for _ in range(5):
+                        await pilot.pause()
+                    self.assertIsInstance(app.screen, ab.LoadingOverlay)
+                    discover.release_all()
+                    await self._drain(app, pilot)
+                    self.assertEqual(finished, [])
+                    # The retry's own prepare is warning-free.
+                    app._on_linked_trail_chosen(link)
+                    await self._drain(app, pilot, [prepare])
+                    self.assertEqual(finished, [], "switched past an unread warning")
+                    self.assertIsInstance(app.screen, ab.TrailJumpConfirmScreen)
+                    self.assertIn(
+                        "block_scalar",
+                        self._dialog_text(app, app.screen.query_one(
+                            "#trail_jump_dialog")))
+                    await pilot.press("enter")              # Switch
+                    await self._drain(app, pilot)
+                    self.assertEqual([j.session for j in finished], ["aitasks"])
+                    self.assertEqual(app._trail_jump_unread, {})
+
+        self._run(go())
+
+    def test_a_retry_rederives_compatibility_and_keeps_only_notices(self):
+        """Paused: a one-time notice AND an "older framework" warning. Before
+        the retry the target is upgraded, so the retry's own prepare says
+        launch=True with no warnings. The retry must show the notice, must NOT
+        replay the stale compatibility warning, and must launch."""
+        ab = self.ab
+        link = linked_trail()
+        finished = []
+        notice = ("proj_y: tmux.default_session is unusable (block_scalar); "
+                  "started session 'aitasks'")
+        stale = "proj_y runs an older aitasks without trail jumps — OLDMARK"
+
+        async def go():
+            prepare = GatedCalls()
+            prepare.add(self.ts.TrailJump(link, session="aitasks", launch=False,
+                                          warnings=(stale,), notices=(notice,)))
+            prepare.add(self.ts.TrailJump(link, session="aitasks", launch=True))
+            discover = GatedCalls()
+            discover.add(([], []))
+            p1, p2 = self._jump_patches(prepare,
+                                        lambda j: finished.append(j) or [])
+            with p1, p2, patch.object(self.ts, "discover_trails", discover):
+                app = ab.KanbanApp()
+                async with app.run_test(size=(200, 48)) as pilot:
+                    await pilot.pause()
+                    await self._open_modal(app, pilot, link)
+                    await pilot.press("enter")
+                    await pilot.pause()
+                    app.action_trail_select()
+                    await pilot.pause()
+                    prepare._gates[0][0].set()              # paused under it
+                    for _ in range(5):
+                        await pilot.pause()
+                    discover.release_all()
+                    await self._drain(app, pilot)
+                    app._on_linked_trail_chosen(link)       # target upgraded
+                    await self._drain(app, pilot, [prepare])
+                    self.assertIsInstance(app.screen, ab.TrailJumpConfirmScreen)
+                    shown = self._dialog_text(
+                        app, app.screen.query_one("#trail_jump_dialog"))
+                    self.assertIn("block_scalar", shown)
+                    self.assertNotIn("OLDMARK", shown)
+                    await pilot.press("enter")              # Switch
+                    await self._drain(app, pilot)
+                    self.assertEqual([j.launch for j in finished], [True])
+
+        self._run(go())
+
+    def test_a_paused_compatibility_warning_alone_is_not_replayed(self):
+        """With no one-time notice there is nothing to carry: an upgraded
+        target's retry goes straight to finish, launching."""
+        ab = self.ab
+        link = linked_trail()
+        finished = []
+
+        async def go():
+            prepare = GatedCalls()
+            prepare.add(self.ts.TrailJump(link, session="ysess", launch=False,
+                                          warnings=("OLDMARK",)))
+            prepare.add(self.ts.TrailJump(link, session="ysess", launch=True))
+            discover = GatedCalls()
+            discover.add(([], []))
+            p1, p2 = self._jump_patches(prepare,
+                                        lambda j: finished.append(j) or [])
+            with p1, p2, patch.object(self.ts, "discover_trails", discover):
+                app = ab.KanbanApp()
+                async with app.run_test(size=(200, 48)) as pilot:
+                    await pilot.pause()
+                    await self._open_modal(app, pilot, link)
+                    await pilot.press("enter")
+                    await pilot.pause()
+                    app.action_trail_select()
+                    await pilot.pause()
+                    prepare._gates[0][0].set()
+                    for _ in range(5):
+                        await pilot.pause()
+                    discover.release_all()
+                    await self._drain(app, pilot)
+                    self.assertEqual(app._trail_jump_unread, {})
+                    app._on_linked_trail_chosen(link)
+                    await self._drain(app, pilot, [prepare])
+                    self.assertNotIsInstance(app.screen, ab.TrailJumpConfirmScreen)
+                    self.assertEqual([(j.launch, j.to_confirm) for j in finished],
+                                     [(True, ())])
+
+        self._run(go())
+
+
 if __name__ == "__main__":
     unittest.main()

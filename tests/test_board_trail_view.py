@@ -65,11 +65,14 @@ MOVED_NAMES = (
 )
 #: Defined by the view after the move, so never in the board's old body:
 #: `TRAIL_CSS` (new with the move), `TRAIL_SELECT_RESCAN` (the selector's
-#: rescan sentinel, t1895) and the cross-repo status projection (t1957_1).
+#: rescan sentinel, t1895), the cross-repo status projection (t1957_1) and
+#: the linked-trail modals (t1957_4).
 VIEW_ONLY_NAMES = (
     "TRAIL_CSS", "TRAIL_SELECT_RESCAN",
     "XDEP_RESOLVED", "XDEP_CHECKING", "XDEP_UNCHECKED", "xdep_ref_state",
     "_xdep_member_display", "trail_xdep_refs", "_remote_status_text",
+    "linked_scan_error_text", "LinkedTrailItem", "LinkedTrailsScreen",
+    "TrailJumpConfirmScreen",
 )
 
 
