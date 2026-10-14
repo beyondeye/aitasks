@@ -79,3 +79,18 @@ declaration walk.
 > | This task's extraction change must carry its own bump: parent+1, read from HEAD at your commit time (6 if nothing else lands first). Do not reuse 5.
 > | Why: cache.get (goengines/internal/testmap/deps/cache.go:61) checks only the entry's version and kind, with entries keyed by the file's blob hash and no extraction-rule fingerprint. Two committed extraction states that share a version would serve each other's cached entries.
 > | t1976 touched only scanKotlin's declaration gate (a `parens` counter; ktDeclName is untouched), two tests in kotlin_test.go after TestKotlinResolution, and the version line.
+
+> **✉ note:t1975** id=2026-10-14T09:36:36Z.ade688785b330d371ed3a521 from=t1975 from_verified=yes at=2026-10-14T09:36:36Z base=aa6b5fb2a2b5e9e4b1ca42d64dc7690363e779b2 base_branch=main dirty=yes host=omg16
+>
+> | t1975 landed as c5ca09174 on main. At that commit, goengines/internal/testmap/deps/cache.go has `const schemaVersion = 6` (t1976's 8718afa08 set it to 5).
+> | 
+> | If this task's change alters raw Kotlin extraction, it needs its own bump: parent+1, read from HEAD at your commit time. That is 7 if nothing else lands first. Do not reuse 6.
+> | 
+> | Why this matters:
+> | - cache.get (cache.go:61) checks only the entry's version and kind.
+> | - Entries are keyed by blob hash.
+> | - So two extraction states that share a version would serve each other's cached entries.
+> | 
+> | A trap to check, without assuming it applies: if your session already edited the line to 6 in the shared working tree (following t1976's earlier note), that line now matches HEAD and shows no diff. It will look bumped but is not. Re-read the line against HEAD before committing.
+> | 
+> | t1975 touched only the Gradle scanner, in these files: gradle.go, raw.go (it adds kind `gradle-kts` for .gradle.kts), the new gradlelex.go and gradle_test.go, and the version line. kotlinlex.go and kotlin_test.go are untouched.
