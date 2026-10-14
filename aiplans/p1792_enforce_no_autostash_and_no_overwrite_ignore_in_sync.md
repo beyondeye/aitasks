@@ -426,3 +426,98 @@ The body records the user's choices:
 ### Planned mitigations
 - timing: post-phase | name: pin_pull_rebase_to_fetched_upstream | type: bug | priority: medium | effort: medium | inline_risk: medium | added_complexity: medium | addresses: residual window between the ignored-file check and pull --rebase's own re-fetch | desc: rebase onto exactly the upstream SHA the guard examined (no second fetch) and test a remote commit arriving between check and apply
 - timing: post-phase | name: document_sync_ignored_refusal | type: documentation | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: new user-visible ERROR:pull_overwrites_ignored refusal with no user doc | desc: document in sync.md that sync never stashes or overwrites ignored files, the refusal token, and verified recovery steps
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-14 17:20)
+- **Requested by user:** (1) the new refusal warnings passed `_gm_show`-quoted
+  paths and git's error text through `warn()`, whose `echo -e` decodes escapes;
+  a newline in a filename split the line and an escape sequence could reach the
+  terminal. Print them verbatim and add a newline/control-character filename
+  assertion. (2) The new test defined `dhead()`, a duplicate of the fixture's
+  `data_head()`.
+- **Changes made:**
+  - `aitask_sync.sh`: new `_warn_verbatim` (colour via `%b`, message via
+    `%s`) and `_one_line` (newline → space, other control characters → `?`).
+    The `pull_overwrites_ignored` and `pull_ff_refused` warnings use them.
+  - Test: `dhead` removed and every call site now uses `data_head`. `sha_of`
+    hashes from stdin, because GNU `sha256sum` escapes a filename that contains
+    a newline. Two cells were added:
+    - **C3b:** a name with a newline and ESC; the `%q` form is printed verbatim
+      on one line.
+    - **C10b:** a name with a newline and a literal `\e`. Git already turns
+      control characters into `?` in its own message, but `echo -e` would
+      decode the `\e`.
+  - New mutants M17 (hit message back to `warn`) and M18 (ff message back to
+    `warn`) turn only C3b and only C10b red, respectively.
+- **Files affected:** `.aitask-scripts/aitask_sync.sh`,
+  `tests/test_sync_autostash_ignored.sh`
+
+## Final Implementation Notes
+- **Actual work done:** Implemented the approved split scope.
+  - `aitask_sync.sh`:
+    - `do_pull_rebase` now pins `PULL_H`/`PULL_U` (`_pull_pin`).
+    - A behind-only branch gets `_pull_ff_ignored_check`, then
+      `merge --ff-only --no-autostash --no-overwrite-ignore "$PULL_U"`, with no
+      rebase fallback. A refusal emits `ERROR:pull_ff_refused`.
+    - The diverged route runs `pull --rebase --no-autostash`.
+    - Main's behind-only special case is folded into `do_pull_rebase`.
+    - `_gm_ignored_hit` is the one indexed ignored-file check, shared with
+      `_guarded_merge_prepare` (slugs and wording unchanged).
+    - New seams: `pre_pull`, `pre_pull_apply`.
+    - New tokens: `ERROR:pull_overwrites_ignored`, `ERROR:pull_ff_refused`,
+      `ERROR:pull_preflight_unverified`.
+  - Fixture: `sync_isolate_git_config` is called in `run_sync` and in the 5
+    direct wrappers.
+  - New `tests/test_sync_autostash_ignored.sh`: 83 assertions; cells C1, C1c,
+    C2, C2c, C3, C3b, C4, C5, C7, C10, C10b, C13, C22.
+  - `sync.md`: How It Works step 5, the Auto-commit policy bullet, and the new
+    "Stashing and ignored files" section (tokens, recovery, the diverged
+    limitation, and the three ways an ignored path can be tracked).
+  - Follow-up **t1984** was created for the diverged route (depends on t1678);
+    it carries all four review rounds' findings and the required cells.
+- **Deviations from plan:**
+  - t1984 was created before the code commit rather than after, so the code
+    comment in `do_pull_rebase` could name its real id.
+  - The ff refusal uses `_warn_verbatim`/`_one_line` (Change Request 1).
+  - `sha_of` hashes from stdin (see Issues encountered).
+- **Issues encountered:**
+  - Probe (c) showed git itself already renders control characters in its
+    "would be overwritten" message as `?`. C10b therefore uses a *literal* `\e`
+    in the filename, which git leaves alone but `echo -e` would decode; that is
+    what makes M18 red.
+  - GNU `sha256sum` escapes a filename containing a newline and prefixes the
+    digest with `\`.
+  - `run_all_python_tests.sh` with positional paths ran the whole suite, so the
+    two sync Python files were run directly with the venv pytest (240 passed).
+- **Key decisions:**
+  - The writer-coordination concern (review round 4) was handed to t1678/t1984
+    instead of being engineered here, by the user's scope decision.
+  - `merge --ff-only` holds `index.lock` across its checkout and moves HEAD only
+    from the HEAD it read, so the behind-only route is safe against concurrent
+    framework writers.
+  - A refused fast-forward is reported, not retried as a rebase.
+- **Verification:**
+  - Probes (a)-(f) were all confirmed on git 2.55.0 in scratch repos. Recovery
+    commands: `git rm` + `commit -- <path>` commits only the deletion and leaves
+    other staged entries staged.
+  - Mutants M1, M2, M3, M4, M9, M11, M16, M17 and M18 each turn only their
+    intended cells red. M3, M4 and M16 also turn red the odd-name variants of
+    their own scenarios (C3b, C10b).
+  - Regression: all 11 shell suites pass (guarded merge 147, automerge 166,
+    deferral 138, task_push 365, …), the 240 Python sync tests pass,
+    shellcheck shows info notes only, and `check_links.py --build` passes.
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/task_utils.sh:1316` — `_task_pull_rebase` runs
+    `pull --rebase` without `--no-autostash` (the pick-time pull; owned by
+    t1956, handed over by note).
+  - `.aitask-scripts/lib/task_utils.sh:1646` — `task_data_converge`'s
+    `merge --ff-only` has neither `--no-autostash` nor `--no-overwrite-ignore`
+    (owned by t1956, handed over by note).
+  - `tests/test_sync.sh`, `tests/test_sync_branch_mode_automerge.sh` and
+    `tests/test_task_push.sh` run `aitask_sync.sh` through their own fixtures,
+    which still inherit the developer's global and system git config (the same
+    leak t1792 fixed in `sync_fixture.sh`).
+  - `tests/test_linked_trail_jump_live.sh:164` — it cd's without calling
+    `enter_scratch_cwd`, so `tests/test_cd_guard_lint.sh` fails on the live
+    tree. This predates t1792 (commit aa6b5fb2a).
