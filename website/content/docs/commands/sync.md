@@ -76,7 +76,7 @@ Anything it cannot vouch for is **skipped and reported on stderr**, and simply s
 
 Skipped files can block the later rebase, since `git pull --rebase` refuses to run while a tracked file is modified. Sync then tries two other ways to catch up, neither of which touches a skipped file:
 
-- If the local branch has no commits of its own, it fast-forwards.
+- If the local branch has no commits of its own, it fast-forwards (see [Stashing and ignored files](#stashing-and-ignored-files)).
 - If local and remote both have new commits, it joins them with a merge commit and pushes, and the run reports `MERGED`. This happens only when the two sides changed different files, git merges them cleanly, and the merge writes none of the skipped files and no ignored file. The skipped files stay exactly as they were, uncommitted.
 
 Otherwise the run reports `DEFERRED:protected_dirty` and exits **successfully**. The deferral clears by itself once the owning session commits its work. Re-running `ait sync` is therefore a recovery attempt, not a guarantee: when both sides changed the same file, it keeps deferring until that session commits or you resolve the overlap yourself.
@@ -105,6 +105,42 @@ It clears on its own once a later commit supersedes the content, or once the own
 
 While a commit is withheld, the run publishes nothing at all — not just that commit.
 
+### Stashing and ignored files
+
+Sync never stashes. It passes `--no-autostash` to every fast-forward and rebase, so a `rebase.autoStash` or `merge.autoStash` setting in your git config does not apply, and a file sync left uncommitted is never stashed and re-applied.
+
+It also protects **ignored files**: files your ignore rules keep out of git, such as `aitasks/metadata/userconfig.yaml`.
+
+- **No local commits.** Sync fast-forwards to exactly the commit the fetch brought in. Git refuses to write over an ignored file at that point, so sync stops and changes nothing.
+- **Local commits to replay.** Sync rebases them with `git pull --rebase`, and a rebase has no such protection: it overwrites an ignored file that an incoming commit writes.
+
+An incoming commit can write a path that your checkout ignores:
+
+- the path was tracked before an ignore rule was added, and later commits update it with an ordinary `git add`;
+- another checkout has different ignore rules (its own `.git/info/exclude` or global excludes file);
+- someone force-added it with `git add -f`.
+
+When sync refuses to fast-forward, it reports one of these:
+
+| Output | Meaning | What to do |
+|--------|---------|------------|
+| `ERROR:pull_overwrites_ignored` | An incoming commit writes over an ignored file you have locally; stderr names both paths | Move your file aside, run `ait sync`, then keep the version you want (see below) |
+| `ERROR:pull_ff_refused` | Git refused the fast-forward; stderr carries git's reason, such as a file in the way or a commit made in the meantime | If git names a file in the way, handle it like the row above; otherwise run `ait sync` again |
+| `ERROR:pull_preflight_unverified` | Sync could not read what the fast-forward would write | Run `ait sync` again |
+
+The TUIs show only the token. Run `ait sync` in a terminal to see the paths.
+
+If the incoming commit shares a file that should stay local, such as a teammate's `userconfig.yaml`, stop tracking it on the branch and then restore your copy:
+
+```bash
+mv aitasks/metadata/userconfig.yaml aitasks/metadata/userconfig.yaml.mine
+ait sync
+./ait git rm aitasks/metadata/userconfig.yaml
+./ait git commit -m "ait: Stop tracking userconfig.yaml" -- aitasks/metadata/userconfig.yaml
+ait sync
+mv aitasks/metadata/userconfig.yaml.mine aitasks/metadata/userconfig.yaml
+```
+
 ### How It Works
 
 The sync flow follows these steps:
@@ -113,7 +149,7 @@ The sync flow follows these steps:
 2. **Remote check** — Verifies a git remote exists; outputs `NO_REMOTE` if not
 3. **Auto-commit** — If there are uncommitted changes to `aitasks/` or `aiplans/`, commits them **grouped by owning task** (see [Auto-commit policy](#auto-commit-policy))
 4. **Fetch** — Fetches from the remote with a 10-second network timeout; outputs `NO_NETWORK` on failure
-5. **Pull with rebase** — If the remote has new commits, pulls them using `git pull --rebase` to maintain linear history. If conflicts occur in task files, the auto-merge system attempts to resolve them automatically (see below)
+5. **Pull** — If the remote has new commits and the local branch has none of its own, fast-forwards to exactly the commit the fetch brought in. It does not fetch again and does not fall back to a rebase. Otherwise it pulls with `git pull --rebase` to maintain linear history. If conflicts occur in task files, the auto-merge system attempts to resolve them automatically (see below). Neither path stashes, and the fast-forward never overwrites an ignored file (see [Stashing and ignored files](#stashing-and-ignored-files))
 6. **Push** — If there are local commits to push, pushes them to the remote (retries once on rejection, in case the remote advanced during rebase)
 7. **Output result** — Reports the final status
 

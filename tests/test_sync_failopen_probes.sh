@@ -39,6 +39,7 @@ run_sync_seam() {
     local tmpdir="$1" point="$2" hook="$3"; shift 3
     (
         cd "$tmpdir/local" || exit 1
+        sync_isolate_git_config
         export PATH="$PWD/bin:$PATH"
         export TEST_HOSTNAME="${TEST_HOSTNAME:-testhost}"
         export AITASKS_LOCK_DIR="$tmpdir/locks"
@@ -54,6 +55,7 @@ run_sync_wt() {
     local tmpdir="$1"; shift
     (
         cd "$tmpdir/wt" || exit 1
+        sync_isolate_git_config
         export PATH="$PWD/bin:$PATH"
         export TEST_HOSTNAME="${TEST_HOSTNAME:-testhost}"
         export AITASKS_LOCK_DIR="$tmpdir/locks"

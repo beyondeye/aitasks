@@ -105,6 +105,7 @@ run_sync_seam() {
     local tmpdir="$1" point="$2" hook="$3"; shift 3
     (
         cd "$tmpdir/local" || exit 1
+        sync_isolate_git_config
         export PATH="$PWD/bin:$PATH"
         export TEST_HOSTNAME="${TEST_HOSTNAME:-testhost}"
         export AITASKS_LOCK_DIR="$tmpdir/locks"
@@ -462,6 +463,7 @@ QF13="$(quarantine_file "$TMP13")"
 awk -F'|' 'BEGIN{OFS="|"} {$4=1; print}' "$QF13" > "$QF13.b" && mv "$QF13.b" "$QF13"
 OUT13B="$(
     cd "$TMP13/local" || exit 1
+    sync_isolate_git_config
     PATH="$PWD/bin:$PATH" TEST_HOSTNAME=testhost AITASKS_LOCK_DIR="$TMP13/locks" \
     AIT_SYNC_QUARANTINE_WARN_AGE=1 \
         ./.aitask-scripts/aitask_sync.sh --batch 2>"$TMP13/sync_stderr"
@@ -797,6 +799,7 @@ advance_remote_overlapping "$TMP30"
 # goes to the fixture's sync_stderr, which assert_deferred_on_overlap reads.
 OUT30="$(
     cd "$TMP30/local" || exit 1
+    sync_isolate_git_config
     export PATH="$PWD/bin:$PATH" TEST_HOSTNAME=testhost
     export AITASKS_LOCK_DIR="$TMP30/locks" TMPDIR="$TMP30/tmpdir_probe"
     ./.aitask-scripts/aitask_sync.sh --batch 2>"$TMP30/sync_stderr"

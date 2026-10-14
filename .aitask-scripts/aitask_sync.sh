@@ -426,6 +426,14 @@ _note_skip() { SKIP_REPORT+=("$1"); }
 #                      its fast-forward (t1731)   (proves the fast-forward itself
 #                      refuses what changed after the checks: a moved HEAD, or
 #                      an ignored file that appeared after the scan)
+#   pre_pull           at the top of do_pull_rebase, BEFORE the pin (t1792): a
+#                      commit landing here turns a behind-only branch into a
+#                      diverged one   (proves the pull never autostashes)
+#   pre_pull_apply     after the behind-only ignored-file check, BEFORE the
+#                      fast-forward (t1792)   (proves the fast-forward refuses an
+#                      ignored file created after the check and a moved HEAD,
+#                      with no rebase fallback, and applies only the pinned
+#                      commit, never one fetched later)
 _sync_test_seams_enabled() {
     local base
     base="$(dirname "$(ait_lock_dir data_index)")" || return 1
@@ -1519,8 +1527,8 @@ _load_incoming() {
 #      which needs no clean tree and declines unless it is provably safe.
 #   4. path is INCOMING -> blocked, tracked or untracked alike. The checkout
 #      would overwrite the file we are protecting.
-#   5. otherwise -> NOT blocked. With local_ahead == 0 main fast-forwards
-#      (a fast-forward never conflicts); with local_ahead > 0 only untracked,
+#   5. otherwise -> NOT blocked. With local_ahead == 0 do_pull_rebase
+#      fast-forwards (a fast-forward never conflicts); with local_ahead > 0 only untracked,
 #      non-incoming files remain, which a rebase ignores.
 _rebase_blocked() {
     local local_ahead="$1" remote_ahead="$2" i
@@ -1587,6 +1595,8 @@ GM_MERGED=""        # the merge commit this run advanced to ("" = none)
 declare -A GM_LOCAL_SIDE=() GM_REMOTE_SIDE=()
 GM_WRITTEN=()
 GM_IGNORED=()
+GM_HIT_W=""         # _gm_ignored_hit: the written path ...
+GM_HIT_P=""         # ... and the ignored file it touches
 
 # _gm_refuse <slug> <detail> — record why the guarded merge declined. Returns 0;
 # the caller returns 1, so recording a refusal can never trip `set -e` itself.
@@ -1643,6 +1653,50 @@ _gm_collides() {
     return 1
 }
 
+# _gm_ignored_hit — does writing any path in GM_WRITTEN touch an ignored file
+# that exists now? 0 = yes (GM_HIT_W / GM_HIT_P name one pair), 1 = no, 2 = the
+# ignored files could not be listed (an unknown set is not an empty one: every
+# caller refuses on it). Shared by the guarded merge and do_pull_rebase (t1792).
+#
+# The relation is exactly _gm_collides's — the same path, one under the other,
+# either of those after case-folding — but INDEXED rather than pairwise: in
+# legacy mode the ignored set is the whole project's (12k+ entries measured on
+# this repository), and an ignored x written loop on every pull would cost
+# seconds. Written paths and every ancestor of each are keyed case-folded; each
+# ignored file is then a lookup plus a walk up its own ancestors.
+_gm_ignored_hit() {
+    GM_IGNORED=(); GM_HIT_W=""; GM_HIT_P=""
+    (( ${#GM_WRITTEN[@]} )) || return 1
+    _gm_names_into ignored ls-files -z -o -i --exclude-standard || return 2
+    (( ${#GM_IGNORED[@]} )) || return 1
+    local -A wpath=() wunder=()
+    local w p k a
+    for w in "${GM_WRITTEN[@]}"; do
+        k="${w,,}"; wpath["$k"]="$w"; a="$k"
+        while [[ "$a" == */* ]]; do
+            a="${a%/*}"
+            [[ -n "${wunder[$a]:-}" ]] && break   # this ancestor and all above it are in
+            wunder["$a"]="$w"
+        done
+    done
+    for p in "${GM_IGNORED[@]}"; do
+        k="${p,,}"
+        # p is written itself, or a written path lies under p ...
+        w="${wpath[$k]:-${wunder[$k]:-}}"
+        # ... or p lies under a written path.
+        a="$k"
+        while [[ -z "$w" && "$a" == */* ]]; do
+            a="${a%/*}"
+            w="${wpath[$a]:-}"
+        done
+        if [[ -n "$w" ]]; then
+            GM_HIT_W="$w"; GM_HIT_P="$p"
+            return 0
+        fi
+    done
+    return 1
+}
+
 # _guarded_merge_prepare <local_ahead> <remote_ahead> — 0 = provably safe (sets
 # GM_H GM_U GM_TREE), 1 = not (sets GM_SLUG / GM_REFUSAL). Writes nothing but
 # merge-tree's loose objects.
@@ -1651,7 +1705,7 @@ _guarded_merge_prepare() {
     GM_SLUG=""; GM_REFUSAL=""; GM_H=""; GM_U=""; GM_TREE=""
     GM_LOCAL_SIDE=(); GM_REMOTE_SIDE=(); GM_WRITTEN=(); GM_IGNORED=()
 
-    # Diverged only. Behind-only belongs to main's fast-forward: with nothing of
+    # Diverged only. Behind-only belongs to do_pull_rebase's fast-forward: with nothing of
     # our own to merge, a merge commit would add nothing but a second parent.
     if [[ "$local_ahead" -le 0 || "$remote_ahead" -le 0 ]]; then
         _gm_refuse not_diverged "local_ahead=$local_ahead remote_ahead=$remote_ahead"
@@ -1735,21 +1789,15 @@ _guarded_merge_prepare() {
     # Ignored files present NOW. The sweep never protects them, and git's default
     # overwrites them silently. This is the early, specific refusal; a file that
     # appears after this scan is stopped by --no-overwrite-ignore instead.
-    if ! _gm_names_into ignored ls-files -z -o -i --exclude-standard; then
-        _gm_refuse unknown_state "could not list ignored files"
-        return 1
-    fi
-    if (( ${#GM_IGNORED[@]} )); then
-        for p in "${GM_IGNORED[@]}"; do
-            for w in "${GM_WRITTEN[@]}"; do
-                if _gm_collides "$p" "$w"; then
-                    _gm_refuse ignored_written \
-                        "the merge writes $(_gm_show "$w"), over ignored $(_gm_show "$p")"
-                    return 1
-                fi
-            done
-        done
-    fi
+    local ig_rc=0
+    _gm_ignored_hit || ig_rc=$?
+    case $ig_rc in
+        0)  _gm_refuse ignored_written \
+                "the merge writes $(_gm_show "$GM_HIT_W"), over ignored $(_gm_show "$GM_HIT_P")"
+            return 1 ;;
+        2)  _gm_refuse unknown_state "could not list ignored files"
+            return 1 ;;
+    esac
     return 0
 }
 
@@ -1884,18 +1932,140 @@ count_remote_ahead() {
     task_git rev-list --count "HEAD..@{u}" 2>/dev/null || echo "0"
 }
 
-# --- Pull with rebase ---
-# Returns: 0 = normal pull, 1 = failure, 2 = automerged
+# --- Converge with the remote: pinned fast-forward, or pull with rebase ---
+#
+# Every route that brings remote commits in comes through here: main's Step 7
+# and do_push's retry. Two routes, chosen from a PINNED view of the branch:
+#
+#   behind-only (no local commits) -> a FAST-FORWARD to the pinned upstream SHA.
+#     It never conflicts, and it is the only convergence available while
+#     protected files are dirty: git refuses it outright if it would overwrite a
+#     dirty file, which _rebase_blocked already excluded (t1658_1's ff-only rule,
+#     t1696). It is also the one route git can make fully protective (t1792):
+#       --no-autostash         a user's merge.autoStash would stash and re-apply
+#                              the files the sweep left protected — the stashing
+#                              t1599_3 and t1658_1 rejected;
+#       --no-overwrite-ignore  git's default silently overwrites an ignored file
+#                              (userconfig.yaml, *.local.json) that an incoming
+#                              commit writes; with it, git refuses AT WRITE TIME,
+#                              including a file created after our own check;
+#       "$PULL_U", not @{u}    a commit fetched after the check is not applied.
+#     `merge --ff-only` holds index.lock for its whole checkout and moves HEAD
+#     only from the HEAD it read, so a framework writer cannot interleave with
+#     it. A refusal is REPORTED and never retried as a rebase: that fallback was
+#     the unprotected path (a behind-only `pull --rebase` fast-forwards with the
+#     default overwrite-ignore). A racing local commit just makes the next sync
+#     take the diverged route.
+#
+#   diverged -> `pull --rebase --no-autostash`. KNOWN EXPOSURE: a rebase has no
+#     --no-overwrite-ignore, so it can overwrite an ignored file that an incoming
+#     commit writes. A preflight check here would not be a guarantee — a rebase
+#     writes the worktree in several steps, and framework writers are only
+#     preflight-checked (assert_data_worktree_clean), never excluded; in legacy
+#     mode not even that. Closing it needs t1678's writer lock: t1984.
+#
+# Returns: 0 = converged (_PULL_AUTOMERGED=true when conflicts were auto-merged),
+# 1 = failure, its ERROR:/CONFLICT: token already emitted.
 _PULL_AUTOMERGED=false
+PULL_H=""           # HEAD, pinned by _pull_pin
+PULL_U=""           # @{u}, pinned by _pull_pin
+PULL_BEHIND=false   # PULL_H is an ancestor of PULL_U
+
+_pull_refuse_unverified() {
+    batch_out "ERROR:pull_preflight_unverified"
+    warn "Pull refused: $1. Nothing was changed. Re-run sync."
+}
+
+# warn() prints through `echo -e`, which DECODES backslash escapes: a
+# _gm_show-quoted path ($'a\nb') would come out as two physical lines, and an
+# escaped control character as a raw one. Text carrying a path or git's own
+# message goes through here instead — the colour codes are decoded (%b), the
+# message is printed verbatim (%s).
+_warn_verbatim() { printf '%b%s%b\n' "${YELLOW}Warning: " "$1" "$NC" >&2; }
+
+# Git's own message on one line: newlines become spaces and any other control
+# character a '?', since a path inside the message may hold either.
+_one_line() {
+    local s="${1//$'\n'/ }"
+    printf '%s' "${s//[[:cntrl:]]/?}"
+}
+
+# _pull_pin — pin HEAD and @{u} to SHAs ONCE, and classify the route from them.
+# 0 = pinned; 1 = refused (token emitted). Reads through _ait_data_git, which
+# never die()s.
+_pull_pin() {
+    local rc=0
+    PULL_H="$(_ait_data_git rev-parse --verify --quiet 'HEAD^{commit}' 2>/dev/null)" || PULL_H=""
+    PULL_U="$(_ait_data_git rev-parse --verify --quiet '@{u}^{commit}' 2>/dev/null)" || PULL_U=""
+    if [[ ! "$PULL_H" =~ ^[0-9a-f]{40,64}$ || ! "$PULL_U" =~ ^[0-9a-f]{40,64}$ ]]; then
+        _pull_refuse_unverified "HEAD or @{u} did not resolve to a commit"
+        return 1
+    fi
+    _ait_data_git merge-base --is-ancestor "$PULL_H" "$PULL_U" 2>/dev/null || rc=$?
+    case $rc in
+        0) PULL_BEHIND=true ;;
+        1) PULL_BEHIND=false ;;
+        *) _pull_refuse_unverified "could not tell whether the branch is behind or diverged (merge-base rc=$rc)"
+           return 1 ;;
+    esac
+    return 0
+}
+
+# _pull_ff_ignored_check — refuse the fast-forward, by name, when a path it
+# writes touches an ignored file that exists now. 0 = clear; 1 = refused (token
+# emitted). This only NAMES the file early; --no-overwrite-ignore is the
+# write-time guard. Deletions are excluded: removing a tracked path never
+# touches an untracked file.
+_pull_ff_ignored_check() {
+    local rc=0
+    GM_WRITTEN=()
+    if ! _gm_names_into written diff --name-only -z --no-renames --diff-filter=d "$PULL_H" "$PULL_U"; then
+        _pull_refuse_unverified "could not list the paths the fast-forward writes"
+        return 1
+    fi
+    _gm_ignored_hit || rc=$?
+    case $rc in
+        1)  return 0 ;;
+        0)  batch_out "ERROR:pull_overwrites_ignored"
+            _warn_verbatim "Pull refused: it would write $(_gm_show "$GM_HIT_W") over the ignored local file $(_gm_show "$GM_HIT_P"). Nothing was changed. Move the local file aside, run sync again, then keep the version you want." ;;
+        *)  _pull_refuse_unverified "could not list the ignored files in the data worktree" ;;
+    esac
+    return 1
+}
+
 do_pull_rebase() {
     local remote_count="$1"
+
+    _sync_test_seam pre_pull
+    _pull_pin || return 1
+
+    if [[ "$PULL_BEHIND" == true ]]; then
+        _pull_ff_ignored_check || return 1
+        _sync_test_seam pre_pull_apply
+        iinfo "Fast-forwarding $remote_count new commits..."
+        local ff_err="" ff_rc=0
+        # Inside $( ): a die() from task_git's wedge assertion stays confined to a
+        # non-zero status and is reported as a refusal.
+        ff_err="$(task_git "${AIT_RECONCILE_GIT_OPTS[@]}" merge --ff-only --no-autostash \
+            --no-overwrite-ignore --quiet "$PULL_U" 2>&1)" || ff_rc=$?
+        if [[ $ff_rc -ne 0 ]]; then
+            batch_out "ERROR:pull_ff_refused"
+            _warn_verbatim "Fast-forward to ${PULL_U:0:12} refused; nothing was changed: $(_one_line "$ff_err")"
+            return 1
+        fi
+        return 0
+    fi
+
     iinfo "Pulling $remote_count new commits (rebase)..."
 
     local pull_exit=0
     # Pinned against rerere and auto-maintenance (AIT_RECONCILE_GIT_OPTS,
     # lib/task_utils.sh — t1789). Every abort below carries it too, through
     # _ait_data_git: task_git's guard reads $1 and would refuse a leading -c.
-    task_git "${AIT_RECONCILE_GIT_OPTS[@]}" pull --rebase --quiet &>/dev/null || pull_exit=$?
+    # --no-autostash (t1792): a user's rebase.autoStash would stash and re-apply
+    # the files the sweep left protected. Without it the pull refuses on a dirty
+    # tracked file, which is the outcome the sweep's protection relies on.
+    task_git "${AIT_RECONCILE_GIT_OPTS[@]}" pull --rebase --no-autostash --quiet &>/dev/null || pull_exit=$?
 
     if [[ $pull_exit -ne 0 ]]; then
         # Check if it's a conflict. A probe that cannot be read is neither answer:
@@ -2236,27 +2406,16 @@ main() {
 
     # Step 7: Converge with the remote when it has commits.
     #
-    # Two ways to converge, and the choice is not a preference. With no local
-    # commits a FAST-FORWARD is the right move and the only one available while
-    # protected files are dirty: it never conflicts, and git refuses it outright
-    # if it would overwrite a dirty file — a case _rebase_blocked already
-    # excluded above. This mirrors task_data_converge's ff-only rule (t1658_1)
-    # and is what lets a behind-only branch converge instead of deferring
-    # forever behind someone else's parked session (t1696).
+    # do_pull_rebase picks the route: a pinned, protected FAST-FORWARD when there
+    # are no local commits (the only convergence available while protected files
+    # are dirty — t1658_1, t1696), otherwise `pull --rebase`. See its header for
+    # why a refused fast-forward is never retried as a rebase (t1792).
     #
     # A guarded merge above has already converged the branch (GM_MERGED): there
     # is nothing left to pull.
     local did_pull=false
     if [[ -z "$GM_MERGED" && "$remote_ahead" -gt 0 ]]; then
-        if [[ "$local_ahead" -eq 0 ]] && (( ${#PROT_REASON[@]} )); then
-            if task_git merge --ff-only --quiet "@{u}" 2>/dev/null; then
-                did_pull=true
-            elif do_pull_rebase "$remote_ahead"; then
-                did_pull=true
-            else
-                exit 1
-            fi
-        elif do_pull_rebase "$remote_ahead"; then
+        if do_pull_rebase "$remote_ahead"; then
             did_pull=true
         else
             # Pull failed (non-batch conflict resolution or error)
