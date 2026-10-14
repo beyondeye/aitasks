@@ -133,6 +133,7 @@ task-planning
 task-workflow
 task_attachments
 task_metadata
+task_relations
 task_workflow
 task_yaml
 test
