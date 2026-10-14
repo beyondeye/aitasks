@@ -421,3 +421,194 @@ Step 9.
 
 ### Planned mitigations
 - timing: post-phase | name: ranking_real_data_check | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — heuristic top-N ranking may give an arbitrary default on real data | desc: Run the ranking on a scratch copy of session 1812 n014, check the overall top-N kept/dropped plausibility (and per-kind counts), adjust the tie-break if clearly wrong, and record the table in Final Implementation Notes
+
+## Final Implementation Notes
+- **Actual work done:** Implemented the plan as approved. `strip_dimension_tags` is in `brainstorm_sections.py`. `dimension_rank_signals` / `rank_dimensions`, `apply_prune_dimensions`, `run_prune_operation`, `PruneRefused` and `PrunePartialFailure` are in `brainstorm_session.py`. The explorer-input `active_dimensions` filter is in `brainstorm_crew.py`, and there is a one-line no-resurrection note in `templates/explorer.md` (two places). The op is in every inventory: `constants.py`, `GROUP_OPERATIONS`, `OP_BADGE_STYLES`, `NodeActionSelectModal._OPS`, `_SINGLE_NODE_OPS`, `_NODE_SELECT_STEP_OPS` and `_WIZARD_STEPS`. The wizard work in `brainstorm_app.py` covers `on_mount` routing, the node-select default to HEAD, `_config_prune_dimensions` with a flat ranked `FuzzyCheckList`, idempotent N/mode/checkbox handlers, Tab groups, collect, summary (with informational per-kind counts), no launch-mode field, and a `_run_design_op` branch that reloads the session on success and on partial failure. `_parse_prune_label` is in `utils.py`. Docs were updated: website reference + how-to, and `aidocs` architecture §3 / §6 / new §7.4a. Tests: new `tests/test_brainstorm_prune_dimensions.py` (34 tests), plus updates to `test_brainstorm_node_action_modal.py` (`_OPS` order and two row-index navigations), `test_brainstorm_node_action_relevance.py` (`_SINGLE`) and `test_brainstorm_wizard_steps.py` (new `PruneDimensionsStepTests`).
+- **Deviations from plan:**
+  - The badge colour is **white `#F8F8F2`**, not purple `#BD93F9`. Module Sync's `#D6ACFF` is already "Purple" in the website legend, so a second purple would be ambiguous there.
+  - `PrunePartialFailure` uses stage `none` when `next_node_id` itself fails. In that case it carries no node id and no `nodes_created` is recorded.
+  - The TUI's `_run_design_op` reloads the session (`_load_existing_session`) after a prune, including after a partial failure. The from-sections decompose path does not do this; it relies on later refreshes.
+- **Issues encountered:**
+  - The first full-suite run failed `tests/test_collection_structure.py` (no class may inherit test methods from a same-module base). The module-subgraph variant of the apply tests had subclassed the umbrella test class. It now extends the test-free `_SessionCase` and carries only its module-specific tests (the child joins the module and moves only its HEAD; a refusal leaves the module HEAD alone). The rerun reports `PYTHON SUITE: PASSED (runner=pytest, exit=0)`.
+  - `test_brainstorm_node_action_modal.py` has two tests that reach `fast_track` by counting down-presses. Inserting `prune_dimensions` after `synthesize` moved `fast_track` from row 6 to row 7, so both counts were updated.
+  - A mutation check confirmed the Back-restore pilot test is a real guard: with the `restored = (...)` condition forced False, `test_confirm_then_back_restores_edited_state` fails; with it restored, it passes.
+- **Key decisions:**
+  - Prune refuses (`PruneRefused`, nothing written, group entry deleted) when:
+    - the kept set is empty, contains unknown keys, or is a no-op prune;
+    - the source YAML is unreadable;
+    - the source proposal is **missing** (an existing empty proposal is allowed).
+  - Every check runs before `next_node_id`, which is the first write. Failures after that keep the group entry with `status: Error`, `error: <stage>: …` and `nodes_created`; nothing is rolled back.
+  - Wizard handlers compare against the last *applied* N/mode, so Changed events posted while restored values mount cannot overwrite the restored checks.
+- **Upstream defects identified:** None
+- **ranking_real_data_check (post-phase mitigation) — table and verdict.** Run on a scratch copy of `.aitask-crews/crew-brainstorm-1812`, source n014 (T=174, N=40). The script, verbatim:
+
+```python
+"""t1983 ranking_real_data_check: rank n014 of a scratch copy of session 1812."""
+import hashlib, sys
+from collections import Counter
+from pathlib import Path
+from unittest.mock import patch
+sys.path.insert(0, ".aitask-scripts")
+import brainstorm.brainstorm_session as bs
+from brainstorm.brainstorm_dag import read_node, get_active_dimensions, read_proposal, get_head
+from brainstorm.brainstorm_schemas import extract_dimensions, DIMENSION_PREFIXES
+from brainstorm.brainstorm_sections import parse_sections, validate_sections
+
+wt = Path(sys.argv[1]); src = "n014_explorer_006"; N = 40
+dims = extract_dimensions(read_node(wt, src))
+text = read_proposal(wt, src); active = get_active_dimensions(wt)
+sig = bs.dimension_rank_signals(dims, text, active)
+ranked = bs.rank_dimensions(dims, text, active)
+kind = lambda k: next(p for p in DIMENSION_PREFIXES if k.startswith(p)).rstrip("_")
+print(f"T={len(dims)} N={N}")
+print("KEPT (rank, kind, key, (tags, mentions, active)):")
+for i, k in enumerate(ranked[:N], 1):
+    print(f"  {i:3d} {kind(k):12s} {k} {sig[k]}")
+print("per kind kept/total:", {kind(p + 'x'): f"{sum(1 for k in ranked[:N] if k.startswith(p))}/{sum(1 for k in dims if k.startswith(p))}" for p in DIMENSION_PREFIXES})
+print("top 5 dropped:")
+for i, k in enumerate(ranked[N:N + 5], N + 1):
+    print(f"  {i:3d} {kind(k):12s} {k} {sig[k]}")
+print("signal distribution (tags>0, mentions>0 only, neither):",
+      sum(1 for k in dims if sig[k][0] > 0), sum(1 for k in dims if sig[k][0] == 0 and sig[k][1] > 0),
+      sum(1 for k in dims if sig[k][0] == 0 and sig[k][1] == 0))
+
+h = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
+src_files = [wt / "br_nodes" / f"{src}.yaml", wt / "br_proposals" / f"{src}.md"]
+before = [h(p) for p in src_files]
+with patch.object(bs, "crew_worktree", return_value=wt):
+    new = bs.run_prune_operation("1812", "prune_dimensions_001", source_node=src, kept=ranked[:N],
+                                 head_at_creation=get_head(wt), subgraph="_umbrella")
+after = [h(p) for p in src_files]
+child = read_node(wt, new); ctext = read_proposal(wt, new)
+print("new node:", new, "HEAD:", get_head(wt))
+print("yaml bytes source -> child:", src_files[0].stat().st_size, "->", (wt / "br_nodes" / f"{new}.yaml").stat().st_size)
+print("sections source -> child:", len(parse_sections(text).sections), "->", len(parse_sections(ctext).sections))
+print("validate child:", validate_sections(parse_sections(ctext), node_keys=list(extract_dimensions(child))))
+print("source unchanged:", before == after)
+```
+
+Output:
+
+```
+T=174 N=40
+KEPT (rank, kind, key, (tags, mentions, active)):
+    1 component    component_agent_review_pass (9, 2, 1)
+    2 component    component_onboarding_engine_verbs (7, 3, 1)
+    3 component    component_author_annotation (7, 3, 1)
+    4 component    component_seeder (7, 1, 1)
+    5 component    component_workflow_integration (6, 1, 1)
+    6 component    component_auto_policy (6, 1, 1)
+    7 component    component_registry_loader (5, 2, 0)
+    8 component    component_completion_policy (5, 1, 1)
+    9 component    component_onboarding_skill (5, 1, 1)
+   10 component    component_test_entrypoint (5, 1, 1)
+   11 component    component_test_front_verb (5, 1, 1)
+   12 component    component_agent_review (4, 5, 1)
+   13 component    component_adoption_ledger (4, 3, 0)
+   14 component    component_gates (4, 3, 0)
+   15 component    component_workflow_seam (4, 1, 1)
+   16 component    component_annotation_scanner (4, 1, 0)
+   17 component    component_freshness (3, 2, 1)
+   18 component    component_agent_brief (3, 1, 1)
+   19 component    component_agent_instructions (3, 1, 1)
+   20 component    component_skill (2, 5, 0)
+   21 component    component_feedback_tools (2, 2, 0)
+   22 assumption   assumption_annotation_is_comment_only (2, 1, 1)
+   23 assumption   assumption_cochange_is_corroboration (2, 1, 1)
+   24 assumption   assumption_helper_degrades_when_absent (2, 1, 1)
+   25 assumption   assumption_onboarding_is_a_task (2, 1, 1)
+   26 assumption   assumption_seeds_select_never_evidence (2, 1, 1)
+   27 assumption   assumption_task_resolvable_from_session (2, 1, 1)
+   28 assumption   assumption_agent_can_judge_verifies (2, 1, 1)
+   29 assumption   assumption_session_agent_is_reviewer (2, 1, 1)
+   30 assumption   assumption_author_annotates_own_surface (2, 1, 1)
+   31 assumption   assumption_agent_reads_verify_vs_drive (2, 1, 1)
+   32 assumption   assumption_wrong_positive_claim_only_overselects (2, 1, 1)
+   33 assumption   assumption_agent_rejection_is_revocable (2, 1, 1)
+   34 assumption   assumption_headless_launch_is_explicit_opt_in (2, 1, 1)
+   35 component    component_engine_binary (2, 1, 1)
+   36 component    component_engine_packaging (2, 1, 1)
+   37 component    component_go_engine (2, 1, 1)
+   38 component    component_qa_integration (2, 1, 1)
+   39 component    component_staleness_tool (2, 1, 1)
+   40 assumption   assumption_gate_exit_contract_reused (2, 1, 0)
+per kind kept/total: {'requirements': '0/32', 'assumption': '14/49', 'component': '26/41', 'tradeoff': '0/52'}
+top 5 dropped:
+   41 component    component_cost_ledger (2, 1, 0)
+   42 component    component_dependency_scanners (2, 1, 0)
+   43 component    component_selector (2, 1, 0)
+   44 component    component_binary_distribution (1, 2, 1)
+   45 component    component_broad_test_scopes (1, 2, 1)
+signal distribution (tags>0, mentions>0 only, neither): 74 79 21
+new node: n015_prune_dimensions_001 HEAD: n015_prune_dimensions_001
+yaml bytes source -> child: 214167 -> 90582
+sections source -> child: 55 -> 55
+validate child: []
+source unchanged: True
+```
+
+  **Verdict:** within each kind the order is plausible. The most cross-referenced components come first (`component_agent_review_pass` is in 9 sections), the assumptions cited by design_decisions/adoption_model follow, and keys that are untagged and unmentioned (21 of them) rank last.
+
+  At the default N=40, however, **requirements (0/32) and tradeoffs (0/52) drop out entirely**. The cause is structural, not a tie-break flaw:
+  - the proposal covers requirements and tradeoffs mainly through `requirements_*` / `tradeoff_*` glob sections, which count for no single key;
+  - requirements carry at most 1 exact tag each, and tradeoffs carry none.
+
+  A variant that discounted a component's self-named leaf section was measured, and it still kept 0 requirements (19 assumptions / 21 components). It was therefore not adopted, and the ranking is unchanged.
+
+  This is the "a kind can drop out" behaviour the user accepted when choosing top-N-overall with no quotas. The confirm summary shows such a kind's count in yellow (e.g. `Requirements 0/32`), and the checklist lets the user tick rows back.
+
+  The prune itself, on the same copy:
+  - n014's YAML went from 214,167 to 90,582 bytes;
+  - the section count stayed at 55 → 55;
+  - `validate_sections(node_keys=…) == []`;
+  - the source file hashes were unchanged.
+
+  The self-section-discount probe, verbatim (`$S` = the scratch copy's parent directory), with its output:
+
+```python
+import sys; sys.path.insert(0,'.aitask-scripts')
+from pathlib import Path
+from brainstorm.brainstorm_dag import read_node, read_proposal, get_active_dimensions
+from brainstorm.brainstorm_schemas import extract_dimensions, DIMENSION_PREFIXES
+from brainstorm.brainstorm_sections import parse_sections
+import brainstorm.brainstorm_session as bs
+wt=Path('$S/crew1812'); src='n014_explorer_006'
+dims=extract_dimensions(read_node(wt,src)); text=read_proposal(wt,src); act=get_active_dimensions(wt)
+p=parse_sections(text)
+sig=bs.dimension_rank_signals(dims,text,act)
+selfsec={k:sum(1 for s in p.sections if s.name==k and k in s.dimensions) for k in dims}
+order={k:i for i,k in enumerate(dims)}
+alt=sorted(dims,key=lambda k:(-(sig[k][0]-selfsec[k]),-sig[k][1],-sig[k][2],order[k]))
+for N in (40,):
+  print("self-discount per kind:",{q:sum(1 for k in alt[:N] if k.startswith(q)) for q in DIMENSION_PREFIXES})
+print("req tag counts:",sorted((sig[k][0] for k in dims if k.startswith('requirements_')),reverse=True)[:12])
+print("tradeoff tag counts:",sorted((sig[k][0] for k in dims if k.startswith('tradeoff_')),reverse=True)[:5])
+print("components with only self tag:",sum(1 for k in dims if k.startswith('component_') and sig[k][0]-selfsec[k]==0))
+```
+
+```
+self-discount per kind: {'requirements_': 0, 'assumption_': 19, 'component_': 21, 'tradeoff_': 0}
+req tag counts: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0]
+tradeoff tag counts: [0, 0, 0, 0, 0]
+components with only self tag: 12
+```
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-14 22:14)
+- **Requested by user:** Two blocking concerns, both confirmed:
+  1. `_prune_check_top_n` set `Checkbox.value` without re-applying the FuzzyCheckList matched-OR-checked visibility rule. With N=1, a filter matching nothing, then N=3, two checked rows stayed hidden.
+  2. The prune preflight did not catch `UnicodeDecodeError` (it is a `ValueError`, not an `OSError`) when reading the source node or proposal. An undecodable source therefore escaped as a non-`PruneRefused` error, and `run_prune_operation` left the agent-less group stuck in `Waiting`.
+- **Changes made:**
+  1. `FuzzyCheckList` (`widgets.py`) now has a public `refresh_visibility()`. It and `on_input_changed` share one `_apply_filter(text)`, so the rule lives in one place. `_prune_check_top_n` calls `refresh_visibility()` after changing checks. The visible behaviour of compare/synthesize is unchanged: they only change checks through user toggles or before any filter text exists.
+  2. All pre-write reads and checks moved into `_prune_preflight`:
+     - its handlers catch `UnicodeDecodeError` for both the node and the proposal;
+     - `apply_prune_dimensions` turns **any** exception from the preflight into `PruneRefused("prune preflight failed: …")`, because the preflight only reads, so the record is safely deleted;
+     - failures after writes begin keep the record (`PrunePartialFailure`), as before.
+
+  New tests:
+  - a pilot test for N changes under an active filter (grow, then shrink);
+  - `run_prune_operation` refusals for an undecodable proposal, an undecodable node YAML, and an unanticipated preflight exception. Each asserts that the record is removed and that the node files, counter and HEAD are unchanged.
+
+  Mutation check: with `refresh_visibility` disabled, the `UnicodeDecodeError` catches removed, and the catch-all narrowed, all 4 new tests fail; restored, all 34 pass. The full suite reports `PYTHON SUITE: PASSED (runner=pytest, exit=0)`.
+- **Files affected:** `.aitask-scripts/brainstorm/widgets.py`, `.aitask-scripts/brainstorm/brainstorm_app.py`, `.aitask-scripts/brainstorm/brainstorm_session.py`, `tests/test_brainstorm_prune_dimensions.py`
