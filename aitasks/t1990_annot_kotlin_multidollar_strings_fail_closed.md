@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [testing, testmap, go_engine]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1852
 followup_kind: upstream_defect
 created_at: 2026-10-14 19:22
-updated_at: 2026-10-14 19:22
+updated_at: 2026-10-14 22:00
 ---
 
 ## Origin
