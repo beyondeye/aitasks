@@ -1,0 +1,344 @@
+package deps
+
+import (
+	"strings"
+	"unicode/utf8"
+)
+
+// blankGradleComments blanks the // and /* */ comments of a Groovy
+// (.gradle) or Kotlin (.gradle.kts) build script to spaces, keeping newlines
+// and so every offset. String literals are skipped with their own dialect's
+// rules, so a /* or // inside a quoted glob or URL is not a comment: one
+// misread boundary flips quote parity and lets a later string's // erase
+// real code.
+//
+// A script this lexer does not understand — a comment, string or template
+// that never closes, a backslash outside every literal (an unmodelled string
+// form), a Kotlin multi-dollar string — returns failAt >= 0 and the source
+// unblanked: the scanner then over-reads and never hides a dependency.
+func blankGradleComments(src string, kts bool) (out string, failAt int) {
+	l := &gradleLexer{b: []byte(src), kts: kts, failAt: -1}
+	l.shebang()
+	if !l.code(false, 0) {
+		return src, l.failAt
+	}
+	return string(l.b), -1
+}
+
+type gradleLexer struct {
+	b      []byte
+	i      int
+	kts    bool
+	failAt int
+}
+
+func (l *gradleLexer) at(n int) byte {
+	if l.i+n < len(l.b) {
+		return l.b[l.i+n]
+	}
+	return 0
+}
+
+// fail records where the script stopped lexing (the innermost construct
+// wins) and returns false.
+func (l *gradleLexer) fail(at int) bool {
+	if l.failAt < 0 {
+		l.failAt = at
+	}
+	return false
+}
+
+// blank blanks b[i:j] to spaces, keeping newlines, and moves i to j.
+func (l *gradleLexer) blank(j int) {
+	for ; l.i < j; l.i++ {
+		if l.b[l.i] != '\n' {
+			l.b[l.i] = ' '
+		}
+	}
+}
+
+// groovyKeywords are the keyword tokens of both Groovy versions Gradle
+// embeds — 3.0.22 (Gradle 8) and 4.0.29 (Gradle 9), measured on their
+// GroovyLangLexer. A slashy string may open after one, as after any token
+// that does not end a value; this, null, true and false end one
+// (REGEX_CHECK_SET), so they are absent.
+var groovyKeywords = wordSet(`as def in trait var threadsafe
+	abstract assert break case catch class const continue default do else enum
+	extends final finally for goto if implements import instanceof interface
+	native new package private protected public return static strictfp super
+	switch synchronized throw throws transient try void volatile while
+	boolean byte char double float int long short`)
+
+// groovyVersionWords are keywords in Groovy 4 and identifiers in Groovy 3,
+// so a / after one is a slashy string in one and a division in the other: a
+// .gradle script does not say which Gradle runs it, so the lexer fails there.
+var groovyVersionWords = wordSet(`yield record sealed permits`)
+
+func wordSet(words string) map[string]bool {
+	m := map[string]bool{}
+	for _, w := range strings.Fields(words) {
+		m[w] = true
+	}
+	return m
+}
+
+func isGradleIdent(c byte, kts bool) bool {
+	return isIdentChar(c) || c >= utf8.RuneSelf || c == '$' && !kts
+}
+
+// shebang blanks the script header: Groovy's SH_COMMENT is every leading #!
+// line, a Kotlin script has one.
+func (l *gradleLexer) shebang() {
+	for l.at(0) == '#' && l.at(1) == '!' {
+		j := l.i
+		for j < len(l.b) && l.b[j] != '\n' {
+			j++
+		}
+		l.blank(j)
+		if l.kts || l.at(1) != '#' || l.at(2) != '!' {
+			return
+		}
+		l.i++
+	}
+}
+
+// code lexes code until EOF or — inTemplate — the } closing the ${
+// template opened at start. In Groovy a / opens a slashy string unless the
+// last token ended a value (an identifier or number that is not a keyword,
+// ) ] }, a literal, ++ or --); a newline is a token that ends none, except
+// inside ( — not try's — or [, where Groovy hides it.
+func (l *gradleLexer) code(inTemplate bool, start int) bool {
+	type bracket struct {
+		c        byte
+		afterTry bool // try-with-resources: its newlines are significant
+	}
+	var stack []bracket
+	afterValue, word := false, "" // word: the last token, when it was a word
+	for l.i < len(l.b) {
+		c := l.b[l.i]
+		value := false
+		switch {
+		case c == ' ' || c == '\t' || c == '\r' || c == '\f' || c == '\v':
+			l.i++
+			continue
+		case c == '\n':
+			l.i++
+			if n := len(stack); n > 0 && stack[n-1].c != '{' && !stack[n-1].afterTry {
+				continue
+			}
+		case c == '/' && l.at(1) == '/':
+			j := l.i
+			for j < len(l.b) && l.b[j] != '\n' {
+				j++
+			}
+			l.blank(j)
+			continue
+		case c == '/' && l.at(1) == '*':
+			if !l.blockComment() {
+				return false
+			}
+			continue // a block comment is hidden: the newline ending its line is the token
+		case c == '\\':
+			// Groovy's LineEscape is whitespace; any other backslash out
+			// here belongs to a literal this lexer did not recognise.
+			switch {
+			case !l.kts && l.at(1) == '\n':
+				l.i += 2
+			case !l.kts && l.at(1) == '\r' && l.at(2) == '\n':
+				l.i += 3
+			default:
+				return l.fail(l.i)
+			}
+			continue
+		case c == '"' || c == '\'':
+			if !l.str(c) {
+				return false
+			}
+			value = true
+		case !l.kts && c == '$' && l.at(1) == '/':
+			if !l.dollarSlashy() {
+				return false
+			}
+			value = true
+		case !l.kts && c == '/' && groovyVersionWords[word]:
+			return l.fail(l.i)
+		case !l.kts && c == '/' && !afterValue:
+			if !l.slashy() {
+				return false
+			}
+			value = true
+		case l.kts && c == '$':
+			// $$"…" is a multi-dollar string: its interpolation threshold
+			// is not modelled.
+			j := l.i
+			for j < len(l.b) && l.b[j] == '$' {
+				j++
+			}
+			if j < len(l.b) && l.b[j] == '"' {
+				return l.fail(l.i)
+			}
+			l.i = j
+		case l.kts && c == '`':
+			j := l.i + 1
+			for j < len(l.b) && l.b[j] != '`' && l.b[j] != '\n' {
+				j++
+			}
+			if j >= len(l.b) || l.b[j] != '`' {
+				return l.fail(l.i)
+			}
+			l.i = j + 1
+			value = true
+		case isGradleIdent(c, l.kts):
+			j := l.i
+			for j < len(l.b) && isGradleIdent(l.b[j], l.kts) {
+				j++
+			}
+			word = string(l.b[l.i:j])
+			l.i = j
+			afterValue = !groovyKeywords[word]
+			continue
+		case (c == '+' || c == '-') && l.at(1) == c:
+			l.i += 2
+			value = true
+		case c == '(' || c == '[' || c == '{':
+			stack = append(stack, bracket{c, c == '(' && word == "try"})
+			l.i++
+		case c == '}' && inTemplate && len(stack) == 0:
+			l.i++
+			return true
+		case c == ')' || c == ']' || c == '}':
+			if len(stack) > 0 {
+				stack = stack[:len(stack)-1]
+			}
+			l.i++
+			value = true
+		default:
+			l.i++
+		}
+		afterValue, word = value, ""
+	}
+	if inTemplate {
+		return l.fail(start)
+	}
+	return true
+}
+
+// blockComment blanks the comment opening at i: nested in Kotlin, not in
+// Groovy.
+func (l *gradleLexer) blockComment() bool {
+	start, depth := l.i, 0
+	for j := l.i; j < len(l.b); {
+		switch {
+		case l.b[j] == '/' && j+1 < len(l.b) && l.b[j+1] == '*' && (l.kts || depth == 0):
+			depth++
+			j += 2
+		case l.b[j] == '*' && j+1 < len(l.b) && l.b[j+1] == '/':
+			depth--
+			j += 2
+			if depth == 0 {
+				l.blank(j)
+				return true
+			}
+		default:
+			j++
+		}
+	}
+	return l.fail(start)
+}
+
+// str skips the quoted literal opening at i: '…' or "…" on one line, or a
+// triple-quoted ”'…”' / """…""" (Kotlin has no ”'; its ' is a char
+// literal). Backslash escapes count everywhere except in a Kotlin raw
+// string; the templates of "…" and """…""" are code. A run of more than
+// three quotes closes on its last three.
+func (l *gradleLexer) str(q byte) bool {
+	start := l.i
+	triple := l.at(1) == q && l.at(2) == q && (q == '"' || !l.kts)
+	if triple {
+		l.i += 3
+	} else {
+		l.i++
+	}
+	escapes := !(l.kts && triple)
+	for l.i < len(l.b) {
+		c := l.b[l.i]
+		switch {
+		case c == '\\' && escapes:
+			l.i += 2
+			if l.i <= len(l.b) && l.b[l.i-1] == '\r' && l.at(0) == '\n' {
+				l.i++ // a \ line escape over CRLF
+			}
+		case c == '\n' && !triple:
+			return l.fail(start)
+		case q == '"' && c == '$' && l.at(1) == '{':
+			l.i += 2
+			if !l.code(true, l.i-2) {
+				return false
+			}
+		case c == q && !triple:
+			l.i++
+			return true
+		case c == q && l.at(1) == q && l.at(2) == q:
+			for l.i < len(l.b) && l.b[l.i] == q {
+				l.i++
+			}
+			return true
+		default:
+			l.i++
+		}
+	}
+	return l.fail(start)
+}
+
+// slashy skips the Groovy slashy string opening at i: only \/ escapes, its
+// templates are code, and it may span lines.
+func (l *gradleLexer) slashy() bool {
+	start := l.i
+	l.i++
+	for l.i < len(l.b) {
+		switch c := l.b[l.i]; {
+		case c == '\\' && l.at(1) == '/':
+			l.i += 2
+		case c == '$' && l.at(1) == '{':
+			l.i += 2
+			if !l.code(true, l.i-2) {
+				return false
+			}
+		case c == '/':
+			l.i++
+			return true
+		default:
+			l.i++
+		}
+	}
+	return l.fail(start)
+}
+
+// dollarSlashy skips the Groovy $/…/$ string opening at i, trying its
+// characters in GroovyLexer's order: $$, $/$ and $/ escape, ${ opens a
+// template, /$ closes.
+func (l *gradleLexer) dollarSlashy() bool {
+	start := l.i
+	l.i += 2
+	for l.i < len(l.b) {
+		switch {
+		case l.b[l.i] == '$' && l.at(1) == '$':
+			l.i += 2
+		case l.b[l.i] == '$' && l.at(1) == '/' && l.at(2) == '$':
+			l.i += 3
+		case l.b[l.i] == '$' && l.at(1) == '/':
+			l.i += 2
+		case l.b[l.i] == '$' && l.at(1) == '{':
+			l.i += 2
+			if !l.code(true, l.i-2) {
+				return false
+			}
+		case l.b[l.i] == '/' && l.at(1) == '$':
+			l.i += 2
+			return true
+		default:
+			l.i++
+		}
+	}
+	return l.fail(start)
+}

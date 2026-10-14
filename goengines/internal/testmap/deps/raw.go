@@ -24,12 +24,13 @@ type rawFile struct {
 
 // Scanner kinds.
 const (
-	kindBash   = "bash"
-	kindPython = "python"
-	kindGo     = "go"
-	kindKotlin = "kotlin"
-	kindJava   = "java"
-	kindGradle = "gradle"
+	kindBash      = "bash"
+	kindPython    = "python"
+	kindGo        = "go"
+	kindKotlin    = "kotlin"
+	kindJava      = "java"
+	kindGradle    = "gradle"     // Groovy DSL
+	kindGradleKts = "gradle-kts" // Kotlin DSL
 )
 
 // kindOf picks the scanner for a path. data is needed only for a file with
@@ -37,8 +38,10 @@ const (
 func kindOf(p string, readData func() []byte) string {
 	base := path.Base(p)
 	switch {
-	case strings.HasSuffix(base, ".gradle") || strings.HasSuffix(base, ".gradle.kts"):
+	case strings.HasSuffix(base, ".gradle"):
 		return kindGradle
+	case strings.HasSuffix(base, ".gradle.kts"):
+		return kindGradleKts
 	case strings.HasSuffix(base, ".java"):
 		return kindJava
 	}
@@ -73,7 +76,9 @@ func scanRaw(kind string, data []byte) rawFile {
 	case kindJava:
 		return scanJava(data)
 	case kindGradle:
-		return scanGradle(data)
+		return scanGradle(data, false)
+	case kindGradleKts:
+		return scanGradle(data, true)
 	}
 	return rawFile{}
 }

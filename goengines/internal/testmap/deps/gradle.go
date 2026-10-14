@@ -36,7 +36,6 @@ type gradleRaw struct {
 }
 
 var (
-	gradleComment   = regexp.MustCompile(`(?m)//[^\n]*$|/\*(?s:.*?)\*/`)
 	includeRe       = regexp.MustCompile(`(?m)^\s*include(?:Flat)?\b\s*\(?([^\n]*)`)
 	strLitRe        = regexp.MustCompile(`"([^"$\n]*)"|'([^'$\n]*)'`)
 	projectDirRe    = regexp.MustCompile(`project\(\s*["']([^"'$]+)["']\s*\)\.projectDir\s*=\s*(?:file\(\s*["']([^"'$]+)["']\s*\)|(?:new\s+)?File\(\s*(?:rootDir|settingsDir|rootProject\.projectDir)\s*,\s*["']([^"'$]+)["']\s*\))`)
@@ -49,17 +48,15 @@ var (
 
 func lineOf(s string, at int) int { return strings.Count(s[:at], "\n") + 1 }
 
-func scanGradle(data []byte) rawFile {
-	// Blank comments out, keeping offsets (and so line numbers).
-	src := gradleComment.ReplaceAllStringFunc(string(data), func(m string) string {
-		return strings.Map(func(r rune) rune {
-			if r == '\n' {
-				return '\n'
-			}
-			return ' '
-		}, m)
-	})
+// scanGradle reads a Groovy (.gradle) or, kts, Kotlin (.gradle.kts) script.
+func scanGradle(data []byte, kts bool) rawFile {
+	// Blank comments out, keeping offsets (and so line numbers). A script the
+	// lexer cannot read is read unblanked and marked dynamic.
+	src, failAt := blankGradleComments(string(data), kts)
 	g := &gradleRaw{}
+	if failAt >= 0 {
+		g.Dynamic = append(g.Dynamic, gradleName{Name: "untokenizable", Line: lineOf(src, failAt)})
+	}
 	for _, m := range includeRe.FindAllStringSubmatchIndex(src, -1) {
 		args := src[m[2]:m[3]]
 		line := lineOf(src, m[0])
@@ -238,7 +235,10 @@ func buildGradle(files map[string]*scanned, u *universe, problem func(p, r strin
 			continue
 		}
 		g := sc.raw.Gradle
-		dyn := len(g.Dynamic) > 0
+		// include is a settings statement; in a build file it is a fileTree /
+		// copy / test-filter pattern and never names a module.
+		dynamic := slices.DeleteFunc(slices.Clone(g.Dynamic), func(d gradleName) bool { return d.Name == "include" })
+		dyn := len(dynamic) > 0
 		for _, r := range g.ProjectRefs {
 			name := ":" + strings.TrimPrefix(r.Name, ":")
 			if r.Name == ":" || r.Name == "" {
@@ -267,8 +267,8 @@ func buildGradle(files map[string]*scanned, u *universe, problem func(p, r strin
 		}
 		if dyn {
 			b.dynamic[m.BuildFile] = true
-			if len(g.Dynamic) > 0 {
-				problem(m.BuildFile, "gradle-dynamic: "+g.Dynamic[0].Name)
+			if len(dynamic) > 0 {
+				problem(m.BuildFile, "gradle-dynamic: "+dynamic[0].Name)
 			}
 			m.Deps = allNames()
 		}
