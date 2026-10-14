@@ -3,11 +3,12 @@ priority: low
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [trails, python, skills]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-10-14 19:01
-updated_at: 2026-10-14 19:01
+updated_at: 2026-10-14 19:15
 ---
 
 ## Context
