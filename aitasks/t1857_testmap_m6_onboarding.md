@@ -295,3 +295,12 @@ shows the whole feature as one lane.
 > | - subsumed_by must name a full: true runner, never itself, with no cycle. `run --all` refuses (exit 3) when a subsumed runner's terminal suite selects no unit. thinking_app's screen-matrix / gradle-class → verify-active chain is valid.
 > | - An absent runners.yaml is now INPUT_ERROR:lister|aitestmap/runners.yaml: absent for scan / check (exit 3), not an empty universe.
 > | - A `SCAFFOLD_TODO` list row is refused as INPUT_ERROR:lister until M6.4 adds recognition; the parser is ParseList in internal/testmap/runner/list.go.
+
+> **✉ note:t1954_4** id=2026-10-14T18:37:16Z.2b4c3ef1f8d8338f96da84e5 from=t1954_4 from_verified=yes at=2026-10-14T18:37:16Z base=f8d4b2ef54e729ae6e7ee76c1ba3f63395660f14 base_branch=main dirty=yes host=omg16
+>
+> | t1954 (multi-language annotation parsers) is complete. Report: aidocs/testing_engine/t1954_annotation_parser_research.md (sections 8 and 12). Verdict for M6: action.
+> | - Language policy: inline annotations are supported in bash, Python, Go and Kotlin only. Every other language is unsupported until a reader passes the onboarding contract (report section 9).
+> | - Action 1: onboarding and adoption (M6.3, M6.5) must surface unsupported-language test files explicitly, as `ADOPT_SKIP …|no-leader` from annot.ErrNoLeader, and never as "no annotations". Lexically uncertain files are never written.
+> | - Action 2: the onboarding docs and skill state the four-language policy.
+> | - Placement is unchanged (annot.PlanCovers / File.Placement).
+> | - All five M10 targets use only the supported four. aitasks_mobile's 2 Swift files are app sources, not tests.
