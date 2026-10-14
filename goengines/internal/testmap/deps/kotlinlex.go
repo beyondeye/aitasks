@@ -20,8 +20,8 @@ var errUntokenizable = errors.New("untokenizable")
 
 // ktLex tokenizes Kotlin. Comments (nested block comments included) and
 // string contents are skipped; the code inside string templates (`${…}`,
-// `$ident`) is kept as tokens. A construct that never closes is an error:
-// the file is opaque.
+// `$ident`) is kept as tokens. A construct that never closes, or a Kotlin
+// multi-dollar string, is an error: the file is opaque.
 func ktLex(src string) ([]ktok, error) {
 	l := &ktLexer{src: src, line: 1}
 	if err := l.code(false); err != nil {
@@ -109,6 +109,21 @@ func (l *ktLexer) code(inTemplate bool) error {
 			}
 			l.emit('n', l.src[l.i:j], l.line)
 			l.i = j
+		case c == '$':
+			// $$"…" is a multi-dollar string (Kotlin 2.2): a single ${ inside
+			// it is literal text. Its interpolation threshold is not
+			// modelled, and lexing it as a plain string would read that ${ as
+			// template code.
+			j := l.i
+			for j < len(l.src) && l.src[j] == '$' {
+				j++
+			}
+			if j < len(l.src) && l.src[j] == '"' {
+				return errUntokenizable
+			}
+			for ; l.i < j; l.i++ {
+				l.emit('o', "$", l.line)
+			}
 		default:
 			l.emit('o', string(c), l.line)
 			l.i++
