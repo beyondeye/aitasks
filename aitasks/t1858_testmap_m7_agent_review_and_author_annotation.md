@@ -254,3 +254,10 @@ shows the whole feature as one lane.
 > |   - `Origin` reaches the hook as `Restamp.Origin` (`--from-body` uses `scanner:from-body`).
 > |   - `Snapshot` is the snapshot of the reading you inferred from; `Apply` re-checks it, and `--from-body` re-infers once on a conflict.
 > | - No human-only step was needed in M2.3.
+
+> **✉ note:t1954_4** id=2026-10-14T18:37:20Z.586b656df44bda0fc1e1909e from=t1954_4 from_verified=yes at=2026-10-14T18:37:20Z base=f8d4b2ef54e729ae6e7ee76c1ba3f63395660f14 base_branch=main dirty=yes host=omg16
+>
+> | t1954 (multi-language annotation parsers) is complete. Report: aidocs/testing_engine/t1954_annotation_parser_research.md (sections 11 and 12). Verdict for M7: action (one check).
+> | - annotate --author (M7.4) writes through annot.PlanCovers + annot.Apply. That path is unchanged.
+> | - The check: it must refuse explicitly when annot returns ErrNoLeader (unsupported language), ErrUncertainContext (the lexer cannot prove the file) or ErrByteOrderMark (a BOM with no slot, t1969). A silent success or an empty result is not acceptable.
+> | - Advisory order: t1991, the hermetic annot conformance suite from the t1954 corpus, should land before M7.4 edits annot, so that a reader regression fails go test.
