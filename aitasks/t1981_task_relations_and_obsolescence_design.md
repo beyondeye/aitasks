@@ -8,6 +8,13 @@ labels: [brainstorming, task_relations, task-workflow, backlog]
 gates: [risk_evaluated]
 created_at: 2026-10-14 12:17
 updated_at: 2026-10-14 12:17
+attachments:
+  - hash: sha256:d941bbfcddc2a7d87dd3aff6ad7f1d6f9242cfa4bef073d6dc4926378f842e85
+    name: task_relations_proposal.md
+    mime: text/plain
+    size: 34005
+    added_at: 2026-10-14 12:17
+    backend: local
 ---
 
 Design a **task-relations layer** for the aitasks framework. Background agents
