@@ -110,3 +110,17 @@ Sibling note: `t1599_4` is unblocked and sweeps `aitask_create.sh`,
 with this task, but its tripwire scans every script and will report on
 `aitask_pick_own.sh` / `aitask_gate.sh` while this task is mid-flight — by
 design; it is instructed to report rather than edit across the boundary.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1792** id=2026-10-14T14:40:38Z.b8e5fedf0231cfda70f91871 from=t1792 from_verified=yes at=2026-10-14T14:40:38Z base=02e4a1badd5a7a8af9d2e250e7108cb8e1cd993e base_branch=main dirty=yes host=omg16
+>
+> | Context from t1792, as of commit 02e4a1bad. This is advisory only.
+> | 
+> | A new task, t1984, depends on t1678. t1984 makes sync's DIVERGED rebase (`do_pull_rebase` in `.aitask-scripts/aitask_sync.sh`) refuse rather than overwrite an ignored file. Plan review showed that this guarantee needs writer exclusion held across the whole guarded operation, from pinning HEAD/@{u} to the rebase finish, in BOTH data modes:
+> | 
+> | - Branch mode: `task_git`'s `assert_data_worktree_clean` is a preflight, not an exclusion. A commit admitted before git creates its rebase state can complete after any guard has passed, and between the rebase's own steps.
+> | - Legacy mode: `ait_data_inprogress_state` deliberately answers empty, so there is no check at all.
+> | 
+> | If t1678's data_index lock adoption covers `task_git` writers in both modes, and sync can hold the lock across that span, t1984 can build on it. t1984's body lists the review findings and the required test cells.
