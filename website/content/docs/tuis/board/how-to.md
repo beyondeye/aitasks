@@ -248,6 +248,12 @@ without the board, the same view runs on its own as
    [work report]({{< relref "/docs/workflows/work-report" >}}) drafted from that column read as a
    plan. Read-only members (archived, cross-repo, missing) cannot move and are
    named rather than silently dropped.
+6. Follow the work into other projects. A member blocked by a task in another
+   project shows `🌐 blocked (cross-repo)`, and a cross-repo ghost shows its
+   live status from its own project. Press **L** to list the trails in other
+   projects that are linked to this one, and **Enter** on one to switch to that
+   project's session with the trail open — see
+   [Cross-repo dependencies in implementation trails]({{< relref "/docs/workflows/cross_project_dependencies" >}}#cross-repo-dependencies-in-implementation-trails).
 
 An amber `⚠` line on a card means that member has **drifted** — its live state no
 longer matches what the trail recorded (its status changed, it was archived, its

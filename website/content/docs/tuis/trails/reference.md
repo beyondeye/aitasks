@@ -23,6 +23,7 @@ Every key below can be rebound — press **?** for the in-place editor, or open
 | `d` | Fetch the active trail again from storage and re-check its freshness | Trail selected |
 | `R` | Open the agent workflow that re-authors the active trail | Trail selected; not while a launch is already starting |
 | `v` | Open the trail's summary in a scrollable dialog | The trail has a summary |
+| `L` | Search the other projects for trails linked to the active one, and jump to one — see [Jumping to a linked trail]({{< relref "/docs/workflows/cross_project_dependencies" >}}#jumping-to-a-linked-trail-in-another-project) | The trail has loaded (hidden while it loads or after it failed to load) |
 | `T` | Open the `/aitask-trail` creation workflow for the focused task — the workflow confirms before it writes | Focused live local card (a ghost card, or no focus, gives a warning) |
 | `p` | Open the `/aitask-pick` launch dialog for the focused task — the same dialog as the board's `p`. If an agent window for that task is already running, switch to it instead | Focused live local card (hidden on a ghost card or with nothing focused) |
 | `Enter` | Open the focused member's detail screen | Focused card |
@@ -47,6 +48,23 @@ Every key below can be rebound — press **?** for the in-place editor, or open
 | `a` | Reveal the whole trail document, or return to the focused member's own material |
 | `Escape` | Close the detail screen |
 
+### In the linked-trails dialog
+
+| Key | Action |
+|-----|--------|
+| `Up` / `Down` | Move between linked trails |
+| `Enter` | Jump to the trail: open it in its project's `ait trails` and switch to that project's tmux session |
+| `Escape` | Close the dialog |
+
+### In the jump confirmation
+
+Shown before the switch when the jump has something to tell you — the other project runs an older aitasks, or its session was started under a fallback name.
+
+| Button | Action |
+|--------|--------|
+| **Switch** | Go ahead and switch to the other project's session |
+| **Stay here** (or `Escape`) | Stay in this session; nothing switches |
+
 ## What each refresh reads
 
 | Key | Task files | Stored trail | List of trails |
@@ -58,7 +76,7 @@ Every key below can be rebound — press **?** for the in-place editor, or open
 | `[` / `]` / `1`–`9` | — | — | — (the tab is redrawn from memory) |
 | `R` | — | A new version is written by the agent after you confirm; the view reloads it when it lands | — |
 
-None of `r`, `d`, `s` and the tab keys writes anything. `r` re-reads the task files for every tab, not only the active one: the other tabs show the new statuses when you switch to them. For the costs of each key and the drift reasons a card can show, see [By-Trail]({{< relref "/docs/tuis/board/reference" >}}#by-trail) in the board reference — the view is the same.
+None of `r`, `d`, `s` and the tab keys writes anything. `r` re-reads the task files for every tab, not only the active one: the other tabs show the new statuses when you switch to them. The statuses of [cross-repo dependencies]({{< relref "/docs/workflows/cross_project_dependencies" >}}#cross-repo-dependencies-in-implementation-trails) are checked together with the freshness check — when a trail opens and on `d`; `r` and the tab keys reuse the last results. For the costs of each key and the drift reasons a card can show, see [By-Trail]({{< relref "/docs/tuis/board/reference" >}}#by-trail) in the board reference — the view is the same.
 
 ## Tabs
 
@@ -110,8 +128,10 @@ The `?` editor inside `ait trails` lists the `board` rows this TUI uses — the 
 | Launch | Notes |
 |--------|-------|
 | `ait trails` | From a shell in the project |
+| `ait trails --trail <handle>` | Opens that trail in a tab at launch instead of the selector. A value that is not an `art:<id>` handle is refused before the TUI starts; a handle the scan does not find opens the selector with `Trail <handle> not found in this project` |
 | `j` → `i` | From any TUI, through the [TUI switcher]({{< relref "/docs/tuis" >}}#navigating-between-tuis); `i` is not shown on the switcher's hint row, but the entry is listed |
 
 - **Task directory** — read from `TASK_DIR` (default `aitasks`).
-- **Read-only** — the TUI never writes a trail, a task, or `board_config.json`; a project without a board configuration file is left without one. `T`, `R` and `p` launch code-agent workflows, and those workflows write only after their own confirmations.
+- **Read-only** — the TUI never writes a trail, a task, or `board_config.json`; a project without a board configuration file is left without one. `T`, `R` and `p` launch code-agent workflows, and those workflows write only after their own confirmations. `L` may start a tmux session for another project and open a trail in its `ait trails`, but writes nothing.
+- **Jump target** — inside the aitasks tmux server, a running `ait trails` accepts a trail sent by an `L` jump from another project and switches to it, opening a tab when the trail is not open yet. When several run in that session, only one of them — the first in window order — receives it. If a dialog is open at that moment, the trail opens when the dialog closes (`Trail <handle> opens when this dialog closes`); an open trail selector is closed instead.
 - **Separate selection** — the open tabs are independent of the trail the board's By-Trail view shows; switching TUIs does not carry them across, and they are not kept when you quit.

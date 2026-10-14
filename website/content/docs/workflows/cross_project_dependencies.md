@@ -6,7 +6,7 @@ description: "Block, read, update, and plan tasks across linked aitasks projects
 depth: [advanced]
 ---
 
-The [Multi-Project]({{< relref "/docs/workflows/multi_project" >}}) page covers the **registry layer**: giving each project a logical name and resolving that name to a path with `ait projects`. This page builds directly on top of it. Once your projects are registered, you can make a task **depend on** work in another project, **read and update** another project's tasks from where you sit, see cross-repo links **on the board**, and **plan** a coordinated change that spans two repos.
+The [Multi-Project]({{< relref "/docs/workflows/multi_project" >}}) page covers the **registry layer**: giving each project a logical name and resolving that name to a path with `ait projects`. This page builds directly on top of it. Once your projects are registered, you can make a task **depend on** work in another project, **read and update** another project's tasks from where you sit, see cross-repo links **on the board** and **in implementation trails**, jump between linked trails in different projects, and **plan** a coordinated change that spans two repos.
 
 > **Start with the registry layer.** Everything here assumes the linked projects are already registered and their logical names resolve. Cross-repo references use the `backend#42` task notation and `backend:path` file notation introduced on the [Multi-Project]({{< relref "/docs/workflows/multi_project" >}}) page.
 
@@ -53,6 +53,114 @@ Register or repoint the project to clear it — see [how a name resolves to a pa
 When a cross-repo dependency is unmet, the card also shows a `🌐 blocked (cross-repo)` status chip — with `(UNREACHABLE)` inline if the project can't be resolved.
 
 Press `#` on a card that has cross-repo references to open a read-only popup of the linked task. If the card points at more than one, a picker lists them; Tab cycles through the references and the Cancel button, and `Esc` closes the popup. The popup is strictly read-only — it shows the linked task's content without taking a lock or starting a pick.
+
+## Cross-repo dependencies in implementation trails
+
+An [implementation trail]({{< relref "/docs/workflows/implementation-trails" >}}) can hold tasks that are blocked by work in another project, and members that live in another project. Both show on the trail's cards, in the board's By-Trail view (`z`) and in [`ait trails`]({{< relref "/docs/tuis/trails" >}}) alike.
+
+### Blocked members
+
+A trail card for a local task with `xdeps` carries the same `↗` line as a board card, one entry per linked task:
+
+```text
+🌐 blocked (cross-repo)
+↗ backend#42 [Implementing], backend#16_2
+```
+
+Each entry shows how far its check has got:
+
+| Entry | Meaning |
+|-------|---------|
+| `backend#42` | Checked — the linked task is `Done` |
+| `backend#42 [Implementing]` | Checked — the linked task is not done; its status is in brackets |
+| `backend#42 (UNREACHABLE)` | Checked — the project can't be resolved, or the task doesn't exist there |
+| `backend#42 (checking…)` | A check for it is running |
+| `backend#42 (not checked)` | Nothing has checked it yet — typically an `xdeps` entry added on disk and picked up with `r` |
+
+`🌐 blocked (cross-repo)` appears only when a **finished** check finds a linked task that is not `Done`; an unreachable one counts as not done, the same rule as in [How blocking works](#how-blocking-works). An entry that is still being checked, or has not been checked, never marks the member blocked — it reads as unknown instead.
+
+### Members from another project
+
+A trail member written as `backend#42` is a cross-repo member. It appears as a read-only ghost card, `👻 cross-repo member — read-only`, with a status line read live from its own project:
+
+| Line | Meaning |
+|------|---------|
+| `📋 <Status>` | The task's current status in `backend` |
+| `🌐 (UNREACHABLE)` | The project can't be resolved, or the task doesn't exist there |
+| `🌐 (checking…)` | A check is running |
+| `🌐 (not checked)` | Nothing has checked it yet |
+
+The ghost is marked landed — `✔` and struck through — only when its own project reports it `Done`.
+
+### When the checks run
+
+The checks run in the background, alongside the trail's freshness check: when a trail is opened, on `d`, and in the board also on a sync and when you enter the By-Trail view. `r` and switching tabs in `ait trails` start no check and reuse the last results, which is why an entry added since reads `(not checked)` until the next `d`.
+
+## Jumping to a linked trail in another project
+
+When two projects coordinate, each usually has its own trail for its side of the work. From a trail in one project you can list the trails in other projects that are **linked** to it, and jump to one in that project's own `ait trails`.
+
+### What makes two trails linked
+
+Trail B in `backend` is linked to trail A in `frontend` when any of these holds:
+
+- a member of A has `xdeprepo: backend` and an `xdeps` entry that is a member of B;
+- A has a cross-repo member `backend#<id>` that is a member of B;
+- a member of B has `xdeprepo: frontend` and an `xdeps` entry that is a member of A;
+- B has a cross-repo member `frontend#<id>` that is a member of A.
+
+Projects are compared by where they live on disk, not by name, so a trail that names its project through a registry alias still links. A task in a third project that both trails mention does not link them. The search covers every project in the [registry]({{< relref "/docs/workflows/multi_project" >}}), plus any project the trail's members name directly.
+
+### Finding a linked trail
+
+Press **`L`** while a loaded trail is on screen — in the board's By-Trail view or in `ait trails`. The search runs in the background and announces itself with `Searching for linked trails in other projects…`; it usually takes a second or two. Each project is searched in its own checkout, with 30 seconds per project.
+
+If every project was searched and none holds a linked trail, the result is `No linked trails in other projects`. Otherwise the **Linked trails** dialog lists each one as `<project> · <handle> · <name>`, with up to three lines saying why it is linked:
+
+```text
+backend · art:trail-wire-protocol · Wire protocol rollout
+  └ fwd-xdeps: frontend#7 xdeps backend#42
+  └ rev-member: frontend#12
+```
+
+The prefixes name the four rules above, in order: `fwd-xdeps` and `fwd-member` come from the trail you started from, `rev-xdeps` and `rev-member` from the other one. Move with `↑`/`↓`, press `Enter` to jump, `Esc` to cancel.
+
+When some project could not be searched completely, the dialog says so instead of claiming there is nothing to find — `Some projects could not be fully searched — the list may be incomplete:` above the links, or `No linked trails found — the search was incomplete:` when it found none — followed by one line per problem:
+
+| Line | Meaning |
+|------|---------|
+| `<project>: could not search — stale path (…)` | The registered path moved, is missing, or was never recorded — repoint it with `ait projects update` |
+| `<project>: could not search — not registered (…)` | A member names a project that is not in the registry — add it with `ait projects add` |
+| `<project>: could not search — export failed (…)` | Listing that project's trails failed |
+| `<project>: could not search — timed out (…)` | No answer within 30 seconds |
+| `<project>: searched in part (…)` | Some of that project's tasks, archives or trails could not be read; the links found there are still listed |
+| `project registry <path> could not be read (…)` | The registry file itself could not be read |
+| `this trail (<project>): member(s) could not be read (…)` | A member of the trail you started from could not be read |
+
+Pressing `L` again while a search is running does not start a second search alongside it: the newest request runs when the current one finishes. Switching tabs, closing the trail or leaving the view drops the result. If the trail you started from reloads with different content before the search finishes, you are told to press `L` again.
+
+### What the jump does
+
+Choosing a trail:
+
+1. finds that project's tmux session — any running session that belongs to it, preferring its configured default session name — and starts one when none is running;
+2. opens the trail in that project's `ait trails`: a running `ait trails` there switches to it, otherwise a new `trails` window starts with `ait trails --trail <handle>`;
+3. switches your terminal to that session.
+
+Anything you need to know about the jump is shown **before** the switch, because once your terminal is in the other session a message left behind would go unseen. A dialog lists it, with **Switch** and **Stay here**:
+
+- the other project runs an older aitasks without trail jumps — run `ait upgrade` there; switching takes you to its session without the trail opened;
+- the project's `tmux.default_session` setting was unusable, so its session was started under another name.
+
+Outside the aitasks tmux server — not in tmux at all, or in a different tmux server — nothing is started or switched. The notice gives the command to run instead:
+
+```bash
+ait projects exec backend -- ./ait trails --trail art:trail-wire-protocol
+```
+
+If the project's session stopped or changed hands while the dialog was open, the jump stops with `The tmux session for <project> changed before the jump — press L to try again`.
+
+A trail stays owned by its task in its own project: the jump opens the other project's own `ait trails`, and a trail from another project is never shown inside this one.
 
 ## Reading another project's tasks and files
 
@@ -124,3 +232,5 @@ The in-repo half of this — assessing complexity, splitting into children, and 
 - [Cross-repo references]({{< relref "/docs/concepts/cross-repo-references" >}}) — the concept: what a cross-repo reference is, and why it names a project instead of a path.
 - [Multi-Project]({{< relref "/docs/workflows/multi_project" >}}) — the registry, `ait projects`, cross-repo task creation, and the reference notation this page builds on.
 - [Parallel Planning]({{< relref "/docs/workflows/parallel-planning" >}}) — front-loading complex task decomposition, the in-repo foundation for paired cross-repo planning.
+- [Implementation Trails]({{< relref "/docs/workflows/implementation-trails" >}}) — creating, reading and refreshing the trails whose cross-repo members and links this page describes.
+- [Trails]({{< relref "/docs/tuis/trails" >}}) — the stand-alone `ait trails` reader, with its `L` key and its `--trail` launch flag.

@@ -13,6 +13,8 @@ Run `ait trails`, or press **j** then **i** from any other TUI. The TUI scans th
 
 If you close the selector without choosing, the subtitle reads `no trail selected — press s`. Press **s** to open the selector again.
 
+To open one trail straight away, pass its handle: `ait trails --trail art:<id>`. The trail opens in a tab without the selector. A handle the scan does not find opens the selector instead, with `Trail <handle> not found in this project`.
+
 If the project has no trails yet, the TUI says so. Create one with the [`/aitask-trail`]({{< relref "/docs/skills/aitask-trail" >}}) skill in your coding agent, or with **T** on a task card in the board — see [Creating a Trail]({{< relref "/docs/workflows/implementation-trails" >}}#creating-a-trail).
 
 ### How to Open Several Trails and Switch Between Them
@@ -29,6 +31,8 @@ The mark at the end of each tab is that trail's freshness (`✓` current, `⚠` 
 
 Each wave is a column headed `W1 · <title>`, with its entries in order; use the arrow keys to move between cards and waves. Each card carries the member's classification glyph, its confidence, its task status and any drift marker. Members that are not live tasks in this repository — archived, cross-repo or deleted — appear as read-only ghost cards.
 
+Work in other projects shows on the cards too: a member blocked by a task in another project carries a `↗` line and `🌐 blocked (cross-repo)`, and a cross-repo ghost shows its live status from its own project. See [Cross-repo dependencies in implementation trails]({{< relref "/docs/workflows/cross_project_dependencies" >}}#cross-repo-dependencies-in-implementation-trails) for every state these lines can show.
+
 The pane under the columns holds the trail's summary, its prose answer to "what should land next, and why". Press **v** to open it in a scrollable dialog when it is longer than the pane. The subtitle states the trail's authoring depth (`· lite` or `· deep`) when the trail records one.
 
 ### How to Read One Member's Reasoning
@@ -39,8 +43,8 @@ Press **Enter** on a card. The detail screen leads with that member's own materi
 
 Pick the key by **what changed** — they read different things, and none of them reads everything:
 
-- **A task's status changed on this machine** → press **r**. It re-reads the task files from disk and redraws the trail it already has loaded. It is instant, but it does not look at the stored trail, so it never picks up a new or updated trail.
-- **The shown trail may have a newer stored version, or you want its freshness re-checked** → press **d**. It fetches the active trail again from storage and re-runs the freshness (drift) check. It never writes the trail.
+- **A task's status changed on this machine** → press **r**. It re-reads the task files from disk and redraws the trail it already has loaded. It is instant, but it does not look at the stored trail, so it never picks up a new or updated trail, and it does not re-check cross-repo dependencies.
+- **The shown trail may have a newer stored version, or you want its freshness re-checked** → press **d**. It fetches the active trail again from storage and re-runs the freshness (drift) check, together with the members' cross-repo statuses. It never writes the trail.
 - **A trail was created since the last scan, or on another machine** → press **s**, then **r** in the selector. The selector re-scans for trails, so the new one is listed.
 - **The trail's reasoning is out of date** → press **R**. This opens the agent workflow that re-authors the shown trail — the slowest option by far. When the new version lands, the view reloads it on its own.
 
@@ -65,6 +69,17 @@ The view does not switch to the result by itself. Once the agent has written the
 Focus a live card and press **p**. This opens the same agent-launch dialog as **p** in the board, for [`/aitask-pick`]({{< relref "/docs/skills/aitask-pick" >}}) on that task. The TUI writes nothing. The launched workflow claims the task and plans it with you. If an agent window for that task is already running, **p** switches to it instead of starting a second one.
 
 **p** is hidden on a ghost card and when nothing is focused.
+
+### How to Jump to a Linked Trail in Another Project
+
+When another project has its own trail for the other side of the work — its members depend on this trail's members, or this trail's members depend on its — you can open it from here:
+
+1. With a loaded trail on screen, press **L**. The TUI searches the other registered projects in the background and announces `Searching for linked trails in other projects…`.
+2. Read the **Linked trails** dialog. Each row names the project, the trail's handle and its name, and the lines under it say why the trail is linked. If the search could not reach every project, the dialog says so and lists the problems, so a short list is never mistaken for a complete one.
+3. Move to a trail with the arrow keys and press **Enter**. The TUI finds or starts that project's tmux session, opens the trail in its `ait trails`, and switches your terminal there.
+4. If a dialog appears first — the other project runs an older aitasks, or its session was started under a fallback name — read it, then choose **Switch** or **Stay here**.
+
+Outside the aitasks tmux server nothing switches; the notice gives the `ait projects exec … ./ait trails --trail …` command to run instead. For what makes two trails linked and every line the dialog can show, see [Jumping to a linked trail in another project]({{< relref "/docs/workflows/cross_project_dependencies" >}}#jumping-to-a-linked-trail-in-another-project).
 
 ### How to Move a Wave onto the Board
 

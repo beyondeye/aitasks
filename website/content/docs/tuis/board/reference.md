@@ -37,6 +37,7 @@ depth: [advanced]
 | `R` | Launch an agent to re-author the trail | By-Trail view (trail selected) |
 | `S` | Sync task data with remote, then redraw the trail | By-Trail view |
 | `v` | Open the trail's summary in a scrollable dialog | By-Trail view (trail has a summary) |
+| `L` | Search other projects for trails linked to the shown trail, and jump to one | By-Trail view (trail loaded) |
 | `g` | Toggle Git add-on (intersect with git-linked tasks) | Board |
 | `t` | Toggle Type add-on (intersect with selected issue types — opens picker dialog) | Board |
 
@@ -271,6 +272,14 @@ classification glyph, its confidence, its task status, and any drift marker.
 tasks in this repository — cross-repo members, archived tasks, and tasks that
 have gone missing — appear as read-only ghost cards.
 
+**Work in other projects.** A member blocked by a task in another project
+carries a `↗` line and `🌐 blocked (cross-repo)`, and a cross-repo ghost shows
+its live status from its own project — see
+[Cross-repo dependencies in implementation trails]({{< relref "/docs/workflows/cross_project_dependencies" >}}#cross-repo-dependencies-in-implementation-trails).
+Press `L` to list the trails in other projects that are linked to this one and
+jump to one — see
+[Jumping to a linked trail in another project]({{< relref "/docs/workflows/cross_project_dependencies" >}}#jumping-to-a-linked-trail-in-another-project).
+
 **The summary pane.** A short pane below the wave columns carries the trail's
 free-form summary — the prose answer to "what should land next, and why". It
 appears only in By-Trail, and only when the trail has a summary to show; the
@@ -297,11 +306,12 @@ different costs:
 |-----|-----------|------|
 | `r` | Re-reads task files from disk and redraws the stored trail | Instant — no subprocess |
 | `s` | Re-scans task files for trails, including any created since the board started | A second or two — one artifact read per trail |
-| `d` | Re-checks the stored trail against live task state (freshness) | About half a second |
+| `d` | Re-checks the stored trail against live task state (freshness), and the members' cross-repo statuses | About half a second |
 | `S` | Runs `ait sync`, then redraws | A full remote sync |
 | `R` | Launches an agent to re-author the trail itself | The slowest by far — an agent run |
 
-Reach for `r` when a task's status changed on this machine — it is free. Reach
+Reach for `r` when a task's status changed on this machine — it is free, and it
+reuses the last cross-repo status results rather than checking again. Reach
 for `s` when a **new trail** was created since the board started: the scan reads
 task files from disk, so the new trail is listed without restarting the board
 (leaving and re-entering the view with `z` re-scans too). Reach
@@ -372,11 +382,12 @@ freshness, so moving cards cannot make one stale.
 always shows what the keys actually do. In By-Trail it reads:
 
 ```
-r Refresh   R Agent Refresh   d Freshness   s Select Trail   S Sync   v Summary   m Move to Col   M Move Wave
+r Refresh   R Agent Refresh   d Freshness   s Select Trail   S Sync   v Summary   L Linked Trails   m Move to Col   M Move Wave
 ```
 
-`v Summary` is listed only while the shown trail actually has a summary — the
-footer advertises the key when there is something behind it, not before.
+`v Summary` is listed only while the shown trail actually has a summary, and
+`L Linked Trails` only while a trail is loaded — the footer advertises a key
+when there is something behind it, not before.
 `m Move to Col` and `M Move Wave` are gated differently, and the difference shows on
 a focused **child** card: `M` needs any focused live card, while `m` additionally
 requires that card not be a child — a child moves with its parent, but it still
