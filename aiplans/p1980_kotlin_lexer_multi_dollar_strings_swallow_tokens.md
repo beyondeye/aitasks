@@ -85,3 +85,17 @@ None identified.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-14 12:30)
+- **Requested by user:** the `$`-run lookahead advanced `l.i` by one on the non-quote path, rescanning every remaining suffix — O(n²) on a long `$` run (reviewer measured ~4 ms original vs ~635 ms for 80,000 dollars).
+- **Changes made:** the non-quote path now emits one `o:$` per dollar and advances `l.i` over the whole checked run in one pass. Pinned `"$$$ x"` → `o:$ o:$ o:$ n:x`. Throwaway probe (deleted): 80,000 dollars + ` x` → 4.8 ms, 80001 tokens, err=nil.
+- **Files affected:** `goengines/internal/testmap/deps/kotlinlex.go`, `goengines/internal/testmap/deps/kotlinlex_test.go`
+
+## Final Implementation Notes
+- **Actual work done:** `ktLexer.code()` (`kotlinlex.go`) gained a `$` case: a run of `$` immediately followed by `"` returns `errUntokenizable` (mirrors `gradlelex.go`'s kts multi-dollar detection); any other run emits one `o:$` per dollar, as before, consumed in one pass. `ktLex` doc comment updated. `kotlinlex_test.go`: bad inputs `$$"""${/*}"""`, `$$"a"`, `"${ $$"x" }"`; positive pins `"a$" + "$$"`, `$ x`, `$$$ x`; new `TestKotlinLexerMultiDollarFailsClosed` runs the task's exact probe through `ktLex` and `scanKotlin` (opaque `untokenizable`). `cache.go` `schemaVersion` 6 → 7 (HEAD was 6 at commit time).
+- **Deviations from plan:** one post-review change (Change Request 1): the non-quote path consumes the whole `$` run instead of advancing one byte, removing an O(n²) rescan.
+- **Issues encountered:** red proof — pre-fix, `$$"a"`, `"${ $$"x" }"` and the probe lexed with err=nil (failed the new tests); the standalone `$$"""${/*}"""` already errored pre-fix only because its comment never closes. Post-fix `go test ./...` across goengines green; gofmt/vet clean.
+- **Key decisions:** fail closed rather than modelling the N-dollar interpolation threshold — over-read (opaque file) is the safe direction and matches t1975's Gradle lexer; a lone `$` before `"` is also rejected (not valid Kotlin code anyway).
+- **Upstream defects identified:** None
