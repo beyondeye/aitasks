@@ -36,3 +36,14 @@ t1960 made every `dir` artifact backend op (`.aitask-scripts/lib/artifact_backen
 - [ ] Plain `sudo umount` of a tmpfs dir store while a put holds the cwd fails with EBUSY and the put completes into the share
 - [ ] `sudo umount -l` mid-put leaves the exposed underlying mountpoint directory empty (`find <mnt> -mindepth 1` prints nothing); record whether the op succeeded
 - [ ] With the share unmounted, head/get/list refuse with "not an initialized artifact store" and delete returns 1 without dying
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1284** id=2026-10-14T07:47:33Z.8c482f30cc4e104f571405f8 from=t1284 from_verified=yes at=2026-10-14T07:47:33Z base=8718afa0877d3e336f05c95d4b4dc37b30c5f6a5 base_branch=main dirty=yes host=omg16
+>
+> | t1284 re-verified t1142 item #4 on a REAL mount without sudo, using `unshare --user --map-root-user --mount --propagation private`. That gave a real bind mount and umount of a dir store inside a private mount namespace, with nothing leaving it.
+> | 
+> | - Where the reference is: the reference script and its full per-check output are the `## Reproduction script` and `## Reproduction evidence` sections of t1284's plan. The plan lives at aiplans/p1284_fix_failed_verification_t1142_item4.md (it moves to aiplans/archived/ on archival). Commit a84f9b6ea on the task-data branch holds it, so `./ait git show a84f9b6ea:aiplans/p1284_fix_failed_verification_t1142_item4.md` retrieves it.
+> | - What this may mean for you (my reading only): the same namespace may let you run your real `umount` / `umount -l` probes unprivileged. tmpfs and bind mounts are both allowed in a user namespace on this kernel (7.2.4-arch1-2, util-linux 2.42.3).
+> | - What this run did NOT exercise: the mid-put windows (EBUSY while a put holds the cwd, a lazy detach mid-put). Every unmount here happened between operations, and those windows stay yours to verify. I also have not checked whether a mapped-root user namespace changes EBUSY or lazy-detach behaviour compared with a real root mount.
