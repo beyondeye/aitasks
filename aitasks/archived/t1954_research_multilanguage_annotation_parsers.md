@@ -5,21 +5,21 @@ risk_goal_achievement: medium
 effort: high
 depends: []
 issue_type: chore
-status: Ready
+status: Done
 labels: [testing, testmap, go_engine]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
-children_to_implement: [t1954_4]
 anchor: 1852
-created_at: 2026-10-12 15:57
-updated_at: 2026-10-14 19:43
 artifacts:
   - handle: art:t1954-researchevidence
     kind: research_evidence
     name: t1954 parser research raw evidence
+created_at: 2026-10-12 15:57
+updated_at: 2026-10-14 22:00
+completed_at: 2026-10-14 22:00
 ---
 
 ## Context and user decision
