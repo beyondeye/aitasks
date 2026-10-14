@@ -32,7 +32,7 @@ from brainstorm.brainstorm_app import (  # noqa: E402
     op_states_for_selection,
 )
 
-_SINGLE = ("explore", "fast_track", "delete")
+_SINGLE = ("explore", "fast_track", "delete", "prune_dimensions")
 _MODULE = ("module_decompose", "module_merge", "module_sync")
 _MULTI = ("compare", "synthesize")
 _ANY = ("discuss",)

@@ -49,7 +49,7 @@ _TERMINAL_AGENT_STATES = {"Error", "Aborted", "Completed"}
 _NODE_SELECT_OPS = {"explore"}
 
 
-_NODE_SELECT_STEP_OPS = _NODE_SELECT_OPS | {"module_decompose"}
+_NODE_SELECT_STEP_OPS = _NODE_SELECT_OPS | {"module_decompose", "prune_dimensions"}
 
 
 _SUBGRAPH_SELECT_OPS = _NODE_SELECT_OPS | {
@@ -71,6 +71,7 @@ _DESIGN_OPS = [
     ("explore", "Explore", "Create new design variants from a base node"),
     ("compare", "Compare", "Run agent comparison across nodes"),
     ("synthesize", "Synthesize", "Merge multiple nodes into a synthesis"),
+    ("prune_dimensions", "Prune Dimensions", "Create a child node keeping only chosen dimensions"),
     ("module_decompose", "Module Decompose", "Fork module subgraph roots"),
     ("module_merge", "Module Merge", "Merge a module up into an ancestor"),
     ("module_sync", "Module Sync", "Pull a linked module's as-implemented design back in"),
@@ -189,6 +190,35 @@ _OPERATION_HELP: dict[str, dict] = {
             "from another into a unified design.",
             "Resolve component-level tradeoffs across siblings into a "
             "single proposal.",
+        ],
+    },
+    # Source: brainstorm_session.apply_prune_dimensions — deterministic, no
+    # agent. Reads the source node's YAML + proposal, writes one child node.
+    "prune_dimensions": {
+        "title": "Prune Dimensions — Deterministic Prune",
+        "summary": (
+            "Create a child of the selected node that keeps only the chosen "
+            "dimensions, and make it the subgraph HEAD. Choose the top N "
+            "dimensions of one overall importance ranking, or tick exactly "
+            "the ones to keep. No agent runs; the source node is unchanged."
+        ),
+        "reads_from_parent": [
+            "YAML metadata of the source node (all dimension fields).",
+            "Proposal markdown of the source node, whose section tags and "
+            "prose mentions rank the dimensions.",
+            "The session's active_dimensions list (a ranking tie-break).",
+        ],
+        "produces": [
+            "A new node with `parents = [source node]`, exactly the kept "
+            "dimensions, and the source's reference_files.",
+            "The source proposal with the dropped keys removed from its "
+            "section markers; the prose itself is kept.",
+            "The subgraph HEAD moves to the new node.",
+        ],
+        "use_cases": [
+            "Shrink a node whose dimension list has grown past what is still "
+            "worth carrying through later explores.",
+            "Keep only the dimensions you care about before exploring further.",
         ],
     },
     "module_decompose": {
@@ -399,6 +429,7 @@ _WIZARD_STEPS: list[_WizardStep] = [
             "explore",
             "compare",
             "synthesize",
+            "prune_dimensions",
             "module_decompose",
             "module_merge",
             "module_sync",
@@ -424,7 +455,7 @@ BROWSE_VIEW_TO_PANE = {"graph": "dag_content", "list": "node_list_pane"}
 BROWSE_PANE_TO_VIEW = {pane: view for view, pane in BROWSE_VIEW_TO_PANE.items()}
 
 
-_SINGLE_NODE_OPS = ("explore", "fast_track", "delete")
+_SINGLE_NODE_OPS = ("explore", "fast_track", "delete", "prune_dimensions")
 
 
 _MODULE_OPS = ("module_decompose", "module_merge", "module_sync")

@@ -334,7 +334,23 @@ class FuzzyCheckList(Container):
                                classes=f"{self._item_class} fcl_item")
 
     def on_input_changed(self, event: Input.Changed) -> None:
-        matched = set(_filter_labels(event.value, self._items))
+        self._apply_filter(event.value)
+
+    def refresh_visibility(self) -> None:
+        """Re-apply the filter rule to the rows as they are now.
+
+        Call after changing checkbox values programmatically: the rule only
+        runs on filter input, so a row checked by code under an active filter
+        would otherwise stay hidden.
+        """
+        try:
+            text = self.query_one(Input).value
+        except Exception:
+            return
+        self._apply_filter(text)
+
+    def _apply_filter(self, text: str) -> None:
+        matched = set(_filter_labels(text, self._items))
         for cb in self.query(Checkbox):
             # A checked row stays visible even when it does not match the
             # filter, so the current selection is never hidden from view.

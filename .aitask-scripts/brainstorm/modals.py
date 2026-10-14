@@ -1247,7 +1247,7 @@ class NodeActionSelectModal(GuardedModalScreen):
 
     Surfaced via the `A` keybinding on the Browse tab. Offers every operation
     that can run from the selection — the single-node ops (explore, the
-    fast-track preset, delete), the module ops (module_decompose / module_merge
+    fast-track preset, delete, prune_dimensions), the module ops (module_decompose / module_merge
     / module_sync, seeded from the node's subgraph), the multi-node ops
     (compare / synthesize), and the any-cardinality advisory ``discuss`` op. Each op is shown disabled with a reason when it does
     not apply to the current selection — single-node ops grey when 2+ nodes are
@@ -1263,8 +1263,8 @@ class NodeActionSelectModal(GuardedModalScreen):
     ]
 
     # Operation keys offered, in contextual display order (parent t983 design:
-    # explore · compare · synthesize · module_* · fast_track · delete, then
-    # discuss). Labels/descriptions are pulled from _OP_LABELS so the picker
+    # explore · compare · synthesize · prune_dimensions · module_* · fast_track
+    # · delete, then discuss). Labels/descriptions are pulled from _OP_LABELS so the picker
     # stays in sync with the wizard. ``fast_track`` (UC-3 preset, t756_6),
     # ``delete`` and ``discuss`` are NOT wizard ops in _OP_LABELS — fast_track
     # seeds a single-module module_decompose, delete is handled inline via
@@ -1272,7 +1272,7 @@ class NodeActionSelectModal(GuardedModalScreen):
     # AgentCommandScreen (t1823_4) — so their labels live in _LOCAL_LABELS.
     # discuss is appended LAST so the first enabled row stays explore.
     _OPS = [
-        "explore", "compare", "synthesize",
+        "explore", "compare", "synthesize", "prune_dimensions",
         "module_decompose", "module_merge", "module_sync",
         "fast_track", "delete", "discuss",
     ]

@@ -80,6 +80,7 @@ OP_BADGE_STYLES = {
     "module_decompose": Style(color="#50FA7B"),  # green
     "module_merge":     Style(color="#FFB86C"),  # orange
     "module_sync":      Style(color="#D6ACFF"),  # bright purple
+    "prune_dimensions": Style(color="#F8F8F2"),  # white
     "bootstrap":  Style(color="#6272A4"),  # dim
 }
 UNKNOWN_OP_STYLE = Style(color="#6272A4", italic=True)

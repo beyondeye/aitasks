@@ -114,6 +114,7 @@ The operation badge is color-coded by the operation that produced the node:
 | Green | module decompose |
 | Orange | module merge |
 | Purple | module sync |
+| White | prune dimensions |
 | Dim grey | bootstrap (seed / initial node) |
 
 ### Module status colors
@@ -131,13 +132,14 @@ Module nodes also carry a fluid status badge (a render of progress, separate fro
 
 ### Operations and agents
 
-Design operations are launched from the Operations dialog (`A`); each dispatches one or more background agents:
+Design operations are launched from the Operations dialog (`A`). Every one except Prune Dimensions dispatches one or more background agents:
 
 | Operation | What it does | Agent |
 |-----------|--------------|-------|
 | Explore | Create new design variants from a base node | explorer |
 | Compare | Run an agent comparison across the marked nodes | comparator |
 | Synthesize | Merge multiple nodes into a synthesis | synthesizer |
+| Prune Dimensions | Create a child node that keeps only the chosen dimensions | none (deterministic) |
 | Module Decompose | Fork module subgraph roots from a proposal | module decomposer |
 | Module Merge | Merge a module up into an ancestor | module merger |
 | Module Sync | Pull a linked module's as-implemented design back in | module syncer |
@@ -148,7 +150,7 @@ Session-lifecycle operations (Session tab) run no agents: **pause**, **resume**,
 
 ### Agent model defaults
 
-Each design operation dispatches a code agent of a fixed **agent type**, and every agent type has a configurable default **model** and **launch mode**. There are seven agent types: the six design-operation agents in the table above (`explorer`, `comparator`, `synthesizer`, `module decomposer`, `module merger`, `module syncer`) plus the **initializer** — the bootstrap agent that reformats an imported markdown draft (`ait brainstorm init --proposal-file`) into the first graph node.
+Each design operation dispatches a code agent of a fixed **agent type**, and every agent type has a configurable default **model** and **launch mode**. There are seven agent types: the six agents of the design operations in the table above (`explorer`, `comparator`, `synthesizer`, `module decomposer`, `module merger`, `module syncer`) plus the **initializer** — the bootstrap agent that reformats an imported markdown draft (`ait brainstorm init --proposal-file`) into the first graph node.
 
 **Where the defaults live.** Per-type defaults are stored in `aitasks/metadata/codeagent_config.json` under `defaults`, keyed `brainstorm-<type>`:
 
@@ -184,7 +186,7 @@ The Module Decompose wizard offers three modes:
 | Agent-proposed (infer) | Left blank; inferred from the decomposition plan | Yes (proposes the module set) |
 | From section markers | Derived from `<!-- section: -->` markers | No (deterministic) |
 
-**Review before apply** is on by default; it routes the result through the module preview (Accept / Re-run / Cancel) before committing. A Re-run steering note overrides the original decomposition plan on conflict, and later revisions override earlier ones. Decompose **forks rather than prunes** — the umbrella proposal stays whole, and **Module Merge** is the convergent path back.
+**Review before apply** is on by default; it routes the result through the module preview (Accept / Re-run / Cancel) before committing. A Re-run steering note overrides the original decomposition plan on conflict, and later revisions override earlier ones. Decompose **forks rather than prunes** — the umbrella proposal stays whole, and **Module Merge** is the convergent path back. To shrink a node's dimension list instead, use **Prune Dimensions** (see [How to Prune Dimensions]({{< relref "/docs/tuis/brainstorm/how-to#how-to-prune-dimensions" >}})).
 
 ### Operation provenance
 

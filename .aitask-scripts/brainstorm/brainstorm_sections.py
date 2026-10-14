@@ -305,3 +305,32 @@ def format_section_header(
 def format_section_footer(name: str) -> str:
     """Generate a closing section tag."""
     return f"<!-- /section: {name} -->"
+
+
+def strip_dimension_tags(text: str, kept_keys) -> str:
+    """Drop exact dimension tags not in *kept_keys* from every open marker.
+
+    Glob tags (``component_*``) are kept — they expand at lookup time, so they
+    stay valid whatever keys survive. A marker left with no tags is rewritten
+    untagged (``<!-- section: name -->``); its section and prose are kept. Only
+    the matched marker span is replaced, so lines that do not change — prose,
+    close markers, untouched open markers — come back byte-identical. Exact tags
+    that name no kept key (including invented ones) are dropped too, which makes
+    ``validate_sections(node_keys=kept_keys)`` pass on the result.
+    """
+    kept = set(kept_keys)
+    lines = text.split("\n")
+    for idx, line in enumerate(lines):
+        m = _OPEN_RE.search(line)
+        if not m or not m.group(2):
+            continue
+        tags = [d.strip() for d in m.group(2).split(",") if d.strip()]
+        new_tags = [t for t in tags if t.endswith("*") or t in kept]
+        if new_tags == tags:
+            continue
+        lines[idx] = (
+            line[:m.start()]
+            + format_section_header(m.group(1), new_tags)
+            + line[m.end():]
+        )
+    return "\n".join(lines)

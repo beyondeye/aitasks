@@ -40,9 +40,12 @@ from .brainstorm_dag import (  # noqa: E402
     update_node,
 )
 from .brainstorm_sections import (  # noqa: E402
+    _CLOSE_RE,
+    _OPEN_RE,
     get_section_by_name,
     get_sections_for_dimension,
     parse_sections,
+    strip_dimension_tags,
     validate_sections,
 )
 from .brainstorm_schemas import extract_dimensions  # noqa: E402
@@ -1404,6 +1407,264 @@ def apply_module_decompose_from_sections(
 
     update_operation(task_num, group_name, status="Completed")
     return created
+
+
+PRUNE_OPERATION = "prune_dimensions"
+
+
+class PruneRefused(ValueError):
+    """A prune was refused before anything was written.
+
+    Raised only by the read-and-check phase of :func:`apply_prune_dimensions`,
+    which runs entirely before the first mutation — so when this propagates the
+    session on disk is exactly as it was, and the operation record may be
+    discarded.
+    """
+
+
+class PrunePartialFailure(RuntimeError):
+    """A prune failed after it had started writing.
+
+    ``stage`` is the last write that completed (``counter_bumped`` /
+    ``node_created`` / ``head_moved``); ``new_node_id`` is the minted child id
+    (``None`` if the counter write itself failed). Nothing is rolled back: the
+    operation record is kept (status ``Error``) so the partial result stays
+    diagnosable.
+    """
+
+    def __init__(
+        self,
+        group_name: str,
+        new_node_id: str | None,
+        stage: str,
+        cause: BaseException,
+    ) -> None:
+        self.group_name = group_name
+        self.new_node_id = new_node_id
+        self.stage = stage
+        self.cause = cause
+        created = f"; created {new_node_id}" if new_node_id else ""
+        super().__init__(
+            f"prune partially applied (stage: {stage}{created}); operation "
+            f"record {group_name} kept: {type(cause).__name__}: {cause}"
+        )
+
+
+def dimension_rank_signals(
+    dims: dict, proposal_text: str, active: list[str],
+) -> dict[str, tuple[int, int, int]]:
+    """Return ``{key: (exact_tag_sections, prose_mentions, in_active)}``.
+
+    * ``exact_tag_sections`` — proposal sections whose ``[dimensions: ...]``
+      tag names the key exactly (glob tags do not count: they cover every key
+      of a prefix and so say nothing about one key).
+    * ``prose_mentions`` — whole-token occurrences of the key on non-marker
+      lines; ``component_agent_review`` does not count a mention of
+      ``component_agent_review_pass``.
+    * ``in_active`` — 1 when the key is in the session's ``active_dimensions``.
+    """
+    parsed = parse_sections(proposal_text) if proposal_text else None
+    prose = "\n".join(
+        line for line in (proposal_text or "").split("\n")
+        if not _OPEN_RE.search(line) and not _CLOSE_RE.search(line)
+    )
+    active_set = set(active or [])
+    signals: dict[str, tuple[int, int, int]] = {}
+    for key in dims:
+        tagged = (
+            sum(1 for sec in parsed.sections if key in sec.dimensions)
+            if parsed else 0
+        )
+        mentions = len(re.findall(
+            rf"(?<![A-Za-z0-9_]){re.escape(key)}(?![A-Za-z0-9_])", prose
+        ))
+        signals[key] = (tagged, mentions, 1 if key in active_set else 0)
+    return signals
+
+
+def rank_dimensions(
+    dims: dict, proposal_text: str, active: list[str],
+) -> list[str]:
+    """Rank a node's dimension keys by importance, most important first.
+
+    One ranking covers all four kinds — the prefix plays no part, so the top N
+    of it can leave a kind with no keys at all. Keys sort descending by
+    :func:`dimension_rank_signals` — sections tagging the key exactly, then
+    prose mentions, then membership in ``active_dimensions`` — and ties keep
+    the node's own key order. Used as the prune op's "keep top N" default.
+    """
+    signals = dimension_rank_signals(dims, proposal_text, active)
+    order = {k: i for i, k in enumerate(dims)}
+    return sorted(dims, key=lambda k: (
+        -signals[k][0], -signals[k][1], -signals[k][2], order[k],
+    ))
+
+
+def _prune_preflight(
+    wt: Path, group_name: str, source_node_id: str, kept,
+) -> tuple[dict, dict, dict, str, str]:
+    """Read and check everything a prune needs; writes nothing.
+
+    Returns ``(source_data, source_dims, kept_dims, new_proposal, subgraph)``.
+    Raises :class:`PruneRefused` for every anticipated problem (empty, unknown
+    or no-op kept set; unreadable or undecodable source node or proposal; a
+    missing proposal).
+    """
+    kept_list = [str(k) for k in (kept or [])]
+    if not kept_list:
+        raise PruneRefused("prune requires at least one dimension to keep")
+    try:
+        source_data = read_node(wt, source_node_id)
+    except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
+        raise PruneRefused(
+            f"source node {source_node_id} unreadable: {exc}"
+        ) from exc
+    if not isinstance(source_data, dict):
+        raise PruneRefused(f"source node {source_node_id} is not a mapping")
+    source_dims = extract_dimensions(source_data)
+    unknown = [k for k in kept_list if k not in source_dims]
+    if unknown:
+        raise PruneRefused(
+            f"kept dimensions not on {source_node_id}: {', '.join(unknown)}"
+        )
+    kept_set = set(kept_list)
+    dims = {k: v for k, v in source_dims.items() if k in kept_set}
+    if len(dims) == len(source_dims):
+        raise PruneRefused("nothing to prune: every dimension is kept")
+    proposal_path = wt / PROPOSALS_DIR / f"{source_node_id}.md"
+    try:
+        source_text = read_proposal(wt, source_node_id)
+    except FileNotFoundError as exc:
+        # Never substitute empty text: finalize exports HEAD's proposal, and a
+        # blank child at HEAD would ship a blank plan. An existing empty file
+        # is legitimate and reads as "".
+        raise PruneRefused(
+            f"source proposal missing for {source_node_id}: {proposal_path}"
+        ) from exc
+    except (OSError, UnicodeDecodeError) as exc:
+        raise PruneRefused(
+            f"source proposal unreadable for {source_node_id}: {exc}"
+        ) from exc
+    new_text = strip_dimension_tags(source_text, dims.keys())
+    unknown_tags = [
+        e for e in validate_sections(parse_sections(new_text), node_keys=list(dims))
+        if "references unknown dimension key" in e
+    ]
+    if unknown_tags:
+        raise PruneRefused(f"pruned proposal tags invalid: {unknown_tags}")
+    subgraph = _group_subgraph(wt, group_name)
+    return source_data, source_dims, dims, new_text, subgraph
+
+
+def apply_prune_dimensions(
+    task_num: int | str, group_name: str, source_node_id: str, kept,
+) -> str:
+    """Create a child of *source_node_id* keeping only the *kept* dimensions.
+
+    Deterministic, no agent. The child carries the source's structural fields
+    and ``reference_files``, exactly the kept dimension keys, and the source
+    proposal with pruned exact keys stripped from its section markers (prose
+    kept, see :func:`strip_dimension_tags`). The child joins the op's subgraph
+    and becomes its HEAD. The source node and ``active_dimensions`` are never
+    touched.
+
+    Failure boundary: every read and check runs in :func:`_prune_preflight`,
+    before the first write, and any failure there — anticipated or not — is
+    :class:`PruneRefused`; a failure after writing started is
+    :class:`PrunePartialFailure`, after a best-effort ``status: Error`` on the
+    operation record. Returns the new node id.
+    """
+    wt = crew_worktree(task_num)
+    try:
+        source_data, source_dims, dims, new_text, subgraph = _prune_preflight(
+            wt, group_name, source_node_id, kept,
+        )
+    except PruneRefused:
+        raise
+    except Exception as exc:
+        # The preflight only reads, so any failure in it — including one no
+        # check anticipated — leaves the session untouched: classify it as a
+        # refusal so the caller may discard the operation record.
+        raise PruneRefused(
+            f"prune preflight failed: {type(exc).__name__}: {exc}"
+        ) from exc
+    dropped = len(source_dims) - len(dims)
+
+    # Write phase. next_node_id() bumps the session counter, so it is the first
+    # mutation; nothing above this line has written anything.
+    stage = "none"
+    new_node_id: str | None = None
+    try:
+        new_node_id = f"n{next_node_id(wt):03d}_{group_name}"
+        stage = "counter_bumped"
+        create_node(
+            session_path=wt,
+            node_id=new_node_id,
+            parents=[source_node_id],
+            description=(
+                f"Pruned {dropped} of {len(source_dims)} dimensions "
+                f"from {source_node_id}"
+            ),
+            dimensions=dims,
+            proposal_content=new_text,
+            group_name=group_name,
+            reference_files=source_data.get("reference_files"),
+            module_label=subgraph,
+        )
+        stage = "node_created"
+        set_head(wt, new_node_id, module=subgraph)
+        stage = "head_moved"
+        update_operation(task_num, group_name, nodes_created=new_node_id)
+        update_operation(task_num, group_name, status="Completed")
+    except Exception as exc:
+        record: dict = {"status": "Error", "error": f"{stage}: {exc}"}
+        if stage in ("node_created", "head_moved"):
+            record["nodes_created"] = new_node_id
+        try:
+            update_operation(task_num, group_name, **record)
+        except Exception:
+            pass
+        raise PrunePartialFailure(
+            group_name,
+            new_node_id if stage != "none" else None,
+            stage,
+            exc,
+        ) from exc
+    return new_node_id
+
+
+def run_prune_operation(
+    task_num: int | str,
+    group_name: str,
+    *,
+    source_node: str,
+    kept,
+    head_at_creation: str | None,
+    subgraph: str = UMBRELLA_SUBGRAPH,
+    **extras,
+) -> str:
+    """Record and run one prune operation; the single entry point for the TUI.
+
+    Owns the operation record's lifecycle: the group entry is deleted only on
+    :class:`PruneRefused` (nothing was written, so there is nothing for the
+    record to explain). Any later failure keeps the record — it already says
+    ``status: Error``, the stage reached and the node created — and re-raises.
+    """
+    record_operation(
+        task_num,
+        group_name=group_name,
+        operation=PRUNE_OPERATION,
+        agents=[],
+        head_at_creation=head_at_creation,
+        subgraph=subgraph,
+        source_node=source_node,
+        **extras,
+    )
+    try:
+        return apply_prune_dimensions(task_num, group_name, source_node, kept)
+    except PruneRefused:
+        delete_group(task_num, group_name)
+        raise
 
 
 def _proposal_excerpt(proposal_text: str, max_lines: int = 12) -> str:

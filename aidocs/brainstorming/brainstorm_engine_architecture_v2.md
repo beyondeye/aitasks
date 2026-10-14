@@ -227,7 +227,7 @@ active_dimensions:                   # Dimensions currently being explored
 | `current_head` | string | Node ID of the active baseline. All new explorations branch from this node unless the user specifies otherwise. |
 | `history` | list of strings | Ordered record of every time `current_head` changed. Used for undo/revert. |
 | `next_node_id` | integer | Auto-incrementing counter. When creating a new node, use this value and increment. |
-| `active_dimensions` | list of strings | The `component_*` and `assumption_*` dimension names currently in play. Updated when nodes introduce new dimensions. |
+| `active_dimensions` | list of strings | The dimension keys currently in play, session-wide and shared by every branch. It only grows: keys an agent lists under `NEW_DIMENSIONS` are appended, and nothing removes them — Prune Dimensions (§7.4a) leaves it untouched. The explorer input lists only the entries the baseline node still carries (§6). |
 
 ### Flat YAML Node Schema (br_nodes/nXXX_name.yaml)
 
@@ -298,7 +298,7 @@ tradeoff_cons:
 3. **`proposal_file`** is always present. Path is relative to the session directory
 4. **`created_by_group`** tracks which AgentCrew operation group produced this node (see Section 5)
 5. **Dimension keys** use underscored prefixes: `requirements_fixed`, `requirements_mutable`, `assumption_*`, `component_*`, `tradeoff_pros`, `tradeoff_cons`
-6. **New dimensions** can be added freely — the schema is extensible. When a node introduces a new `component_*` or `assumption_*` key not present in the parent, add the dimension name to `br_graph_state.yaml`'s `active_dimensions`
+6. **New dimensions** can be added freely — the schema is extensible. When a node introduces a new `component_*` or `assumption_*` key not present in the parent, add the dimension name to `br_graph_state.yaml`'s `active_dimensions`. Agents carry every baseline dimension forward, so a node's dimension set only grows along a lineage; the one operation that removes dimensions is Prune Dimensions (§7.4a), which writes a new child node
 7. **`reference_files`** is a list of references relevant to the proposal — both local file paths and remote URLs. Local paths are relative to the project root. URLs point to external documentation, API specs, or technology references. Each agent updates this list when creating a new node: add references for new components, remove references for removed components. This is the primary mechanism for evolving context across the DAG.
 
 ---
@@ -663,7 +663,7 @@ The session manager builds `_input.md` differently for each agent type:
 - br_url_cache/e5f6g7h8.md (source: https://www.postgresql.org/docs/current/ddl.html)
 
 ## Active Dimensions
-<From br_graph_state.yaml — so the explorer knows which dimensions are in play>
+<From br_graph_state.yaml, keeping only the dimension keys the baseline node carries — so the explorer knows which dimensions are in play and is not offered a key pruned from this lineage>
 
 ## Dimension Keys
 Use these dimension keys in section markers:
@@ -1042,6 +1042,24 @@ The blank initialization path leaves `n000_init.md` as an empty placeholder so t
 - Review the synthesized node for correctness
 - Proceed to finalize / fast-track to an implementation aitask
 - Further refine via exploration or additional synthesis
+
+### 7.4a Prune Dimensions
+
+**Trigger:** A node's dimension list has grown past what is worth carrying forward. The user picks Prune Dimensions on that node in the Operations dialog.
+
+**No agent.** The operation is deterministic (`brainstorm_session.run_prune_operation` → `apply_prune_dimensions`). The wizard offers two modes over one checklist of the node's dimensions, shown in ranked order:
+
+- **Keep top N overall** checks the first N keys of a single importance ranking with no per-kind quota (`rank_dimensions`): the number of proposal sections that tag the key exactly, then whole-token mentions of the key in the proposal prose, then membership in `active_dimensions`, then the node's own key order.
+- **Keep selected** keeps exactly the checked keys.
+
+**What it writes:**
+- A new child node `n<NNN>_prune_dimensions_<seq>` with `parents: [source]`, in the source's subgraph, carrying the kept dimension keys and the source's `reference_files`.
+- The source proposal with the pruned exact keys removed from its `<!-- section: … [dimensions: …] -->` markers. Glob tags stay; a marker left with no tags is written untagged; the prose is unchanged. The child's tags therefore pass `validate_sections(node_keys=…)`.
+- The subgraph HEAD moves to the new node. The source node and `active_dimensions` are not changed.
+
+**Failure boundary.** Every read and check (including a missing source proposal, which is refused rather than treated as empty) runs before the first write, and a refusal deletes the operation's group entry. A failure after writing started keeps the group entry with `status: Error`, the stage reached and the created node; nothing is rolled back.
+
+**Never-drop rules after a prune.** The explorer and synthesizer rules ("never silently drop a dimension") are relative to the baseline / source nodes, so they hold unchanged: an explore from the pruned node must keep the kept set, and it is not offered the pruned keys back, because its input lists only the `active_dimensions` the baseline carries. The explorer template also asks it not to re-add a dimension the baseline lacks unless its mandate calls for one.
 
 ### 7.5 Finalize
 

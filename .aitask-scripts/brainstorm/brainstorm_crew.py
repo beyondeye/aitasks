@@ -39,7 +39,7 @@ from .brainstorm_dag import (  # noqa: E402
     read_proposal,
 )
 from .brainstorm_sections import parse_sections, get_section_by_name  # noqa: E402
-from .brainstorm_schemas import extract_dimensions  # noqa: E402
+from .brainstorm_schemas import extract_dimensions, is_dimension_field  # noqa: E402
 
 TEMPLATE_DIR = Path(__file__).parent / "templates"
 
@@ -242,14 +242,22 @@ def _assemble_input_explorer(
     else:
         lines.append("No reference files.")
 
+    # The session's active_dimensions list only ever grows and is shared by
+    # every branch. Offer only the dimension keys the baseline still carries,
+    # so a key pruned from (or never on) this lineage is not handed back to the
+    # explorer to re-add. Entries that are not dimension-shaped pass through.
+    dims = extract_dimensions(node_data)
+    baseline_active = [
+        d for d in active_dimensions
+        if not is_dimension_field(d) or d in dims
+    ]
     lines.extend([
         "",
         "## Active Dimensions",
-        ", ".join(active_dimensions) if active_dimensions else "(none)",
+        ", ".join(baseline_active) if baseline_active else "(none)",
     ])
 
     # Dimension keys for section markers
-    dims = extract_dimensions(node_data)
     if dims:
         lines.extend(["", "## Dimension Keys",
                       "Use these dimension keys in section markers:"])

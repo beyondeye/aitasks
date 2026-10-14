@@ -45,6 +45,23 @@ You can start from a blank seed or from an existing draft.
 2. Press **A** → **Compare** to run an agent comparison across the marked nodes (yellow badge result), or **A** → **Synthesize** to merge them into a single synthesized proposal (magenta badge result).
 3. For a quick side-by-side without spawning an agent, press **c** to open the dimension-comparison matrix over the marked set.
 
+### How to Prune Dimensions
+
+Every explore and synthesis carries all of its baseline's dimensions (`requirements_*`, `assumption_*`, `component_*`, `tradeoff_*`) forward and may add more, so the list only grows. **Prune Dimensions** creates a child node that keeps only the dimensions you choose. It runs no agent.
+
+1. On the **Browse** tab, focus the node to prune and press **A** → **Prune Dimensions**.
+2. Pick a **mode**:
+   - **Keep top N overall:** enter N; the first N dimensions of the ranked list are checked. Changing N re-checks the list.
+   - **Keep selected:** check exactly the dimensions to keep. Switching to this mode keeps the current checks as a starting point.
+3. Adjust the checklist. It shows every dimension of the node as one list, in ranked order (`1.`, `2.`, …), and you can tick or untick any row in either mode. The line above it shows how many are kept and dropped.
+4. Review the confirm step. It lists the kept and the dropped dimensions and a per-kind count, then **Launch**.
+
+**How dimensions are ranked.** All four kinds are ranked together; the kind plays no part. A dimension ranks higher the more proposal sections tag it by its exact key (a `component_*` glob tag counts for none). Ties are broken by how often the key appears in the proposal text, then by whether it is in the session's active dimensions, then by the node's own order. "Top N overall" has no per-kind quota, so a kind can drop out entirely; the confirm step's per-kind count shows when it does.
+
+**What the new node gets.** It is a child of the source node in the same subgraph, and it becomes that subgraph's HEAD (white badge). It carries the kept dimensions, the source's reference files, and the source proposal with the dropped keys removed from its `<!-- section: … [dimensions: …] -->` markers. The proposal prose is kept as it is; a section whose tags were all dropped stays in place, untagged. The source node is not changed; to return to it, set HEAD back to it (see [How to Set HEAD and Finalize](#how-to-set-head-and-finalize)).
+
+Later explores from the pruned node do not get the dropped keys back in their input. An explorer may still add a dimension when its mandate calls for one.
+
 ### How to Discuss Proposals with an Agent
 
 **Discuss** opens an interactive code agent to talk one or more proposals over with: compare them, explain one, answer your questions, or check a design for flaws. The agent is **advisory-only**. It reads the proposals and never changes the session.

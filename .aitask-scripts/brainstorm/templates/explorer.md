@@ -46,7 +46,8 @@ A flat YAML file following the node schema. Requirements:
 
 Every dimension from the baseline node must appear in your output. You may
 modify values, add new dimensions, or keep them unchanged — but never silently
-drop a dimension.
+drop a dimension. A dimension absent from the baseline may have been pruned on
+purpose — do not re-add it unless your mandate calls for it.
 
 ### File 2: Proposal (Markdown)
 
@@ -160,6 +161,7 @@ applies primarily to the targeted areas.
   - reference_files (updated to reflect new architecture)
   - All requirements_*, assumption_*, component_*, tradeoff_* fields
 - Every dimension from the baseline node must appear — never silently drop one
+- Do not re-add a dimension the baseline does not carry unless your mandate calls for it — it may have been pruned on purpose
 - Mark inherited vs new dimensions in comments
 
 ### Checkpoint 3

@@ -214,6 +214,48 @@ class ModuleDecomposeNodeSelectTests(unittest.TestCase):
         )
 
 
+class PruneDimensionsStepTests(unittest.TestCase):
+    """prune_dimensions (t1983): a source-node step (defaulting to HEAD) then
+    config, never section_select; contextual seeding drops the node step."""
+
+    def _ctx(self, pre_seeded_node=False, node_has_sections=False,
+             subgraph_count=1):
+        return {
+            "op": "prune_dimensions",
+            "node_has_sections": node_has_sections,
+            "subgraph_count": subgraph_count,
+            "pre_seeded_node": pre_seeded_node,
+        }
+
+    def test_node_select_then_config_then_confirm(self):
+        self.assertEqual(
+            active_step_ids(self._ctx()),
+            ["op_select", "node_select", "config", "confirm"],
+        )
+
+    def test_section_select_never_active(self):
+        self.assertNotIn(
+            "section_select",
+            active_step_ids(self._ctx(node_has_sections=True)),
+        )
+        self.assertEqual(
+            next_step_id(self._ctx(node_has_sections=True), "node_select"),
+            "config",
+        )
+
+    def test_no_subgraph_select_step(self):
+        # The child joins the source node's own subgraph, so the selector
+        # never appears, even in a multi-subgraph session.
+        self.assertNotIn(
+            "subgraph_select", active_step_ids(self._ctx(subgraph_count=2))
+        )
+
+    def test_seeded_omits_node_select(self):
+        seeded = self._ctx(pre_seeded_node=True)
+        self.assertEqual(active_step_ids(seeded), ["op_select", "config", "confirm"])
+        self.assertEqual(prev_step_id(seeded, "confirm"), "config")
+
+
 class PreSeededNodeTests(unittest.TestCase):
     """Contextual-launch seeding drops the node_select step (t983_6).
 

@@ -108,7 +108,7 @@ class NodeActionSelectModalTests(unittest.TestCase):
                 rows = list(app.screen.query(OperationRow))
                 self.assertEqual(
                     [r.op_key for r in rows],
-                    ["explore", "compare", "synthesize",
+                    ["explore", "compare", "synthesize", "prune_dimensions",
                      "module_decompose", "module_merge", "module_sync",
                      "fast_track", "delete", "discuss"],
                 )
@@ -170,9 +170,10 @@ class NodeActionSelectModalTests(unittest.TestCase):
                 await pilot.pause()
                 rows = {r.op_key: r for r in app.screen.query(OperationRow)}
                 self.assertIn("Fast-track this module", str(rows["fast_track"].render()))
-                # New order: explore, compare, synthesize, module_*×3,
-                # fast_track(6), delete. Six downs from explore -> fast_track.
-                for _ in range(6):
+                # New order: explore, compare, synthesize, prune_dimensions,
+                # module_*×3, fast_track(7), delete. Seven downs from explore
+                # -> fast_track.
+                for _ in range(7):
                     await pilot.press("down")
                 await pilot.press("enter")
                 await pilot.pause()
@@ -237,8 +238,8 @@ class NodeActionSelectModalTests(unittest.TestCase):
                 app.notify = lambda msg, **kw: notices.append((msg, kw))
                 # fast_track has NO _OPERATION_HELP entry (the session-level
                 # delete/pause/etc. and discuss DO have help). It is row index
-                # 6 — 6 downs from explore reach it.
-                for _ in range(6):
+                # 7 — 7 downs from explore reach it.
+                for _ in range(7):
                     await pilot.press("down")
                 focused = app.screen.focused
                 self.assertIsInstance(focused, OperationRow)

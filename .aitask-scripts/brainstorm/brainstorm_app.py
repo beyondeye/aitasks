@@ -64,6 +64,8 @@ from brainstorm.brainstorm_dag import (
     set_head,
 )
 from brainstorm.brainstorm_schemas import (
+    DIMENSION_PREFIXES,
+    PREFIX_TO_LABEL,
     extract_dimensions,
     group_dimensions_by_prefix,
 )
@@ -90,7 +92,10 @@ from brainstorm.brainstorm_session import (
     finalize_session,
     GROUPS_FILE,
     load_session,
+    PrunePartialFailure,
+    rank_dimensions,
     record_operation,
+    run_prune_operation,
     save_session,
     session_exists,
 )
@@ -181,6 +186,7 @@ from brainstorm.utils import (  # noqa: F401
     _nodes_for_subgraph,
     _open_node_detail_visible,
     _parse_dimension_label,
+    _parse_prune_label,
     _parse_section_label,
     _read_groups,
     _sections_intersection,
@@ -517,6 +523,16 @@ class ActionsWizardScreen(RowNavMixin, GuardedModalScreen):
         self._wizard_fast_track: bool = False
         self._cmp_section_checks: dict = {}
         self._cmp_dim_checks: dict = {}
+        # Prune-dimensions config state (t1983). ``_prune_mode`` /
+        # ``_prune_applied_n`` are the last *applied* values: the change
+        # handlers compare against them, so the Changed events Textual posts
+        # while mounting restored values are no-ops.
+        self._prune_source: str = ""
+        self._prune_dims: dict = {}
+        self._prune_ranked: list[str] = []
+        self._prune_mode: str = "top_n"
+        self._prune_applied_n: int = 0
+        self._prune_initial_kept: set[str] = set()
 
     def compose(self) -> ComposeResult:
         with Container(id="actions_wizard_dialog"):
@@ -539,6 +555,15 @@ class ActionsWizardScreen(RowNavMixin, GuardedModalScreen):
             self._set_total_steps()
             self._wizard_subgraph = _node_module(self.app.session_path, node_id)
             self._wizard_config = {"pre_seeded_node": True}
+            self._actions_show_config()
+        elif op_key == "prune_dimensions":
+            # Single-node op on the contextual node; no section-select step.
+            self._wizard_op = op_key
+            self._set_total_steps()
+            self._wizard_subgraph = _node_module(self.app.session_path, node_id)
+            self._wizard_config = {
+                "_selected_node": node_id, "pre_seeded_node": True,
+            }
             self._actions_show_config()
         elif op_key in ("compare", "synthesize"):
             self._wizard_op = op_key
@@ -638,7 +663,7 @@ class ActionsWizardScreen(RowNavMixin, GuardedModalScreen):
         if (
             event.key in ("tab", "shift+tab")
             and self._wizard_step_id == "config"
-            and self._wizard_op in ("compare", "synthesize")
+            and self._wizard_op in ("compare", "synthesize", "prune_dimensions")
         ):
             if self._cycle_wizard_groups(-1 if event.key == "shift+tab" else 1):
                 event.prevent_default()
@@ -817,6 +842,16 @@ class ActionsWizardScreen(RowNavMixin, GuardedModalScreen):
                 groups.append((ta, ta))
             except Exception:
                 pass
+        elif self._wizard_op == "prune_dimensions":
+            for sel in (".rs_prune_mode", "#prune_top_n"):
+                try:
+                    w = container.query_one(sel)
+                    groups.append((w, w))
+                except Exception:
+                    pass
+            dim_grp = _fcl_group("prune_dims")
+            if dim_grp:
+                groups.append(dim_grp)
         elif self._wizard_op == "compare":
             node_grp = _fcl_group("cmp_nodes")
             if node_grp:
@@ -1078,6 +1113,7 @@ class ActionsWizardScreen(RowNavMixin, GuardedModalScreen):
         desc_map = {
             "explore": "Select Base Node",
             "module_decompose": "Select Source Node",
+            "prune_dimensions": "Select Source Node",
         }
         desc = desc_map.get(self._wizard_op, "Select Node")
         container.mount(
@@ -1123,7 +1159,7 @@ class ActionsWizardScreen(RowNavMixin, GuardedModalScreen):
         # advance immediately; explore requires an explicit pick.
         # Focusing the HEAD row makes on_descendant_focus seed _selected_node
         # and enable Next (the same path explore uses for its first row).
-        if self._wizard_op == "module_decompose" and head in nodes:
+        if self._wizard_op in ("module_decompose", "prune_dimensions") and head in nodes:
             self.call_after_refresh(lambda: self._focus_operation_row(head))
         else:
             self.call_after_refresh(self._focus_first_operation)
@@ -1200,7 +1236,7 @@ class ActionsWizardScreen(RowNavMixin, GuardedModalScreen):
         )
         self._mount_op_context_header(container)
 
-        if op in ("compare", "synthesize"):
+        if op in ("compare", "synthesize", "prune_dimensions"):
             container.mount(Label(
                 "[dim]  ↑↓ Navigate  Space Toggle  "
                 "Tab Switch group  Type to filter[/]"))
@@ -1217,6 +1253,8 @@ class ActionsWizardScreen(RowNavMixin, GuardedModalScreen):
             self._config_compare(container)
         elif op == "synthesize":
             self._config_synthesize(container)
+        elif op == "prune_dimensions":
+            self._config_prune_dimensions(container)
         elif op == "module_decompose":
             self._config_module_decompose(container)
         elif op == "module_merge":
@@ -1493,6 +1531,162 @@ class ActionsWizardScreen(RowNavMixin, GuardedModalScreen):
         container.mount(Button("Next \u25b6", variant="primary", classes="btn_actions_next"))
         self.call_after_refresh(lambda: self._focus_fcl_filter("syn_nodes"))
 
+    def _config_prune_dimensions(self, container: VerticalScroll) -> None:
+        """Prune config: mode + N + one flat checklist of the source node's
+        dimensions in ranked order (t1983).
+
+        The checked set is the dimensions the new child node keeps. "Keep top N
+        overall" checks the first N of one importance ranking (no per-kind
+        quota); "Keep selected" leaves the checks to the user. Returning here
+        from the confirm step (Back) restores the collected mode, N and exact
+        checked set for the same source node; any other entry starts from the
+        defaults.
+        """
+        cfg = self._wizard_config
+        node_id = cfg.get("_selected_node") or get_head(
+            self.app.session_path, module=self._wizard_subgraph
+        ) or ""
+        try:
+            dims = extract_dimensions(read_node(self.app.session_path, node_id))
+        except Exception:
+            dims = {}
+        try:
+            proposal = read_proposal(self.app.session_path, node_id)
+        except Exception:
+            proposal = ""
+        ranked = rank_dimensions(
+            dims, proposal, get_active_dimensions(self.app.session_path)
+        )
+        self._prune_source = node_id
+        self._prune_dims = dims
+        self._prune_ranked = ranked
+
+        default_n = max(1, min(40, len(ranked) - 1))
+        restored = (
+            cfg.get("source_node") == node_id
+            and isinstance(cfg.get("kept"), list)
+        )
+        if restored:
+            self._prune_mode = cfg.get("mode") or "top_n"
+            self._prune_applied_n = int(cfg.get("top_n") or default_n)
+            self._prune_initial_kept = set(cfg["kept"]) & set(dims)
+        else:
+            self._prune_mode = "top_n"
+            self._prune_applied_n = default_n
+            self._prune_initial_kept = set(ranked[:default_n])
+
+        container.mount(Label(f"[bold]Source Node:[/] {node_id or '(none)'}"))
+        container.mount(Label("[bold]Prune mode[/]"))
+        container.mount(RadioSet(
+            RadioButton(
+                "Keep top N overall", value=self._prune_mode == "top_n"
+            ),
+            RadioButton(
+                "Keep selected", value=self._prune_mode == "selected"
+            ),
+            classes="rs_prune_mode",
+        ))
+        container.mount(Label(
+            "[bold]N[/] [dim](top-N mode: changing N re-checks the first N "
+            "rows; you can still adjust the checks)[/]"
+        ))
+        container.mount(Input(
+            value=str(self._prune_applied_n), type="integer", id="prune_top_n",
+        ))
+        container.mount(Label("", id="prune_counts"))
+        container.mount(Label("[bold]Dimensions to keep[/]"))
+        container.mount(FuzzyCheckList(
+            [], item_class="chk_prune_dim",
+            placeholder="Type to filter dimensions\u2026", id="prune_dims"))
+        container.mount(Button("Next \u25b6", variant="primary", classes="btn_actions_next"))
+        self._prune_update_counts()
+        self.call_after_refresh(self._fill_prune_list)
+
+    def _fill_prune_list(self) -> None:
+        """Mount the prune checklist: one flat group in ranked order, checked
+        from the stored initial set (restored or default), never recomputed."""
+        try:
+            fcl = self.query_one("#prune_dims", FuzzyCheckList)
+        except Exception:
+            return
+        rows: list[tuple[str, bool]] = []
+        for i, key in enumerate(self._prune_ranked, start=1):
+            v = str(self._prune_dims.get(key, ""))
+            trunc = v if len(v) <= 60 else v[:57] + "…"
+            rows.append((f"{i}. {key} — {trunc}", key in self._prune_initial_kept))
+        fcl.set_grouped_items(
+            [("Dimensions — ranked by importance", rows)] if rows else []
+        )
+        self._prune_update_counts()
+
+    def _prune_checked_keys(self) -> set[str] | None:
+        """Checked keys from the mounted checklist, or None before it exists."""
+        cbs = list(self.query("Checkbox.chk_prune_dim"))
+        if not cbs:
+            return None
+        return {_parse_prune_label(str(cb.label)) for cb in cbs if cb.value}
+
+    def _prune_read_n(self) -> int | None:
+        """The N field as an int >= 1, or None when empty/invalid."""
+        try:
+            n = int(self.query_one("#prune_top_n", Input).value.strip())
+        except Exception:
+            return None
+        return n if n >= 1 else None
+
+    def _prune_check_top_n(self, n: int) -> None:
+        keep = set(self._prune_ranked[:n])
+        for cb in self.query("Checkbox.chk_prune_dim"):
+            cb.value = _parse_prune_label(str(cb.label)) in keep
+        # Programmatic checks bypass the filter's matched-OR-checked rule;
+        # re-apply it so a newly kept row is never hidden under a filter.
+        try:
+            self.query_one("#prune_dims", FuzzyCheckList).refresh_visibility()
+        except Exception:
+            pass
+        self._prune_update_counts()
+
+    def _prune_update_counts(self) -> None:
+        try:
+            label = self.query_one("#prune_counts", Label)
+        except Exception:
+            return
+        checked = self._prune_checked_keys()
+        if checked is None:
+            checked = self._prune_initial_kept
+        total = len(self._prune_ranked)
+        kept = len(checked)
+        label.update(
+            f"Keeping {kept} of {total} dimensions ({total - kept} dropped)"
+        )
+
+    @on(Input.Changed, "#prune_top_n")
+    def _on_prune_n_changed(self, event: Input.Changed) -> None:
+        if self._wizard_op != "prune_dimensions" or self._prune_mode != "top_n":
+            return
+        n = self._prune_read_n()
+        if n is None or n == self._prune_applied_n:
+            return
+        self._prune_applied_n = n
+        self._prune_check_top_n(n)
+
+    @on(RadioSet.Changed, ".rs_prune_mode")
+    def _on_prune_mode_changed(self, event: RadioSet.Changed) -> None:
+        if self._wizard_op != "prune_dimensions":
+            return
+        mode = "top_n" if event.radio_set.pressed_index == 0 else "selected"
+        if mode == self._prune_mode:
+            return
+        self._prune_mode = mode
+        if mode == "top_n":
+            n = self._prune_read_n() or self._prune_applied_n
+            self._prune_applied_n = n
+            self._prune_check_top_n(n)
+
+    @on(Checkbox.Changed, ".chk_prune_dim")
+    def _on_prune_dim_changed(self, event: Checkbox.Changed) -> None:
+        self._prune_update_counts()
+
     def _config_module_decompose(self, container: VerticalScroll) -> None:
         """Module decompose config: module list + extraction options.
 
@@ -1673,6 +1867,35 @@ class ActionsWizardScreen(RowNavMixin, GuardedModalScreen):
                 self.notify("Merge rules cannot be empty", severity="warning")
                 return False
 
+        elif op == "prune_dimensions":
+            source = selected_node or self._prune_source
+            if not source:
+                self.notify("Select a source node first", severity="warning")
+                return False
+            checked = self._prune_checked_keys() or set()
+            ranked = list(self._prune_ranked)
+            kept = [k for k in ranked if k in checked]
+            dropped = [k for k in ranked if k not in checked]
+            if not kept:
+                self.notify("Keep at least one dimension", severity="warning")
+                return False
+            if not dropped:
+                self.notify(
+                    "Nothing to prune — uncheck at least one dimension",
+                    severity="warning",
+                )
+                return False
+            n = self._prune_read_n()
+            if self._prune_mode == "top_n" and n is None:
+                self.notify("N must be a whole number of at least 1", severity="warning")
+                return False
+            config["source_node"] = source
+            config["mode"] = self._prune_mode
+            config["top_n"] = n or self._prune_applied_n
+            config["kept"] = kept
+            config["dropped"] = dropped
+            config["total"] = len(ranked)
+
         elif op == "module_decompose":
             config["subgraph"] = self._wizard_subgraph
             # Use the node chosen on the source-node step, falling back to the
@@ -1797,17 +2020,20 @@ class ActionsWizardScreen(RowNavMixin, GuardedModalScreen):
         container.mount(Static("\n".join(summary_lines), classes="actions_summary"))
 
         # Session ops left the wizard (t983_8) — the confirm step is design-ops
-        # only, so the launch-mode field always shows.
+        # only, so the launch-mode field shows for every op that launches an
+        # agent. prune_dimensions runs no agent (t1983), so it has none.
+        launches_agent = self._wizard_op != "prune_dimensions"
         default_mode = _brainstorm_launch_mode_default(self._wizard_op)
-        container.mount(
-            CycleField(
-                "Launch mode",
-                sorted(VALID_LAUNCH_MODES),
-                initial=default_mode,
-                id="launch-mode-field",
+        if launches_agent:
+            container.mount(
+                CycleField(
+                    "Launch mode",
+                    sorted(VALID_LAUNCH_MODES),
+                    initial=default_mode,
+                    id="launch-mode-field",
+                )
             )
-        )
-        if not is_tmux_available():
+        if launches_agent and not is_tmux_available():
             container.mount(
                 Static(
                     "[dim]tmux not installed — interactive will fall back "
@@ -1855,6 +2081,36 @@ class ActionsWizardScreen(RowNavMixin, GuardedModalScreen):
             lines.append(f"[bold]Source Nodes:[/] {', '.join(cfg['nodes'])}")
             lines.append("[bold]Merge Rules:[/]")
             lines.append(cfg["merge_rules"])
+        elif op == "prune_dimensions":
+            kept, dropped = cfg["kept"], cfg["dropped"]
+            total = cfg.get("total", len(kept) + len(dropped))
+            lines.append(f"[bold]Source Node:[/] {cfg['source_node']}")
+            mode_txt = (
+                f"Keep top {cfg['top_n']} overall"
+                if cfg["mode"] == "top_n" else "Keep selected"
+            )
+            lines.append(f"[bold]Mode:[/] {mode_txt}")
+            lines.append(
+                f"[bold]Keeping:[/] {len(kept)} of {total} dimensions "
+                f"({len(dropped)} dropped)"
+            )
+            # Informational only — there is no per-kind quota; the counts make
+            # a kind that drops to zero visible before launch.
+            per_kind = []
+            for prefix in DIMENSION_PREFIXES:
+                k = sum(1 for d in kept if d.startswith(prefix))
+                t = k + sum(1 for d in dropped if d.startswith(prefix))
+                if t:
+                    count = f"{k}/{t}" if k else f"[yellow]{k}/{t}[/]"
+                    per_kind.append(f"{PREFIX_TO_LABEL[prefix]} {count}")
+            if per_kind:
+                lines.append(f"[bold]Per kind:[/] {', '.join(per_kind)}")
+            lines.append(f"[bold]Kept:[/] {', '.join(kept)}")
+            lines.append(f"[bold]Dropped ({len(dropped)}):[/] {', '.join(dropped)}")
+            lines.append(
+                "[dim]Section markers lose the dropped tags; proposal prose "
+                "is kept.[/]"
+            )
         elif op == "module_decompose":
             lines.append(f"[bold]Source Subgraph:[/] {cfg['subgraph']}")
             lines.append(f"[bold]Source HEAD:[/] {cfg['source_node']}")
@@ -1895,8 +2151,9 @@ class ActionsWizardScreen(RowNavMixin, GuardedModalScreen):
         if ts:
             lines.append(f"[bold]Sections:[/] {', '.join(ts)}")
 
-        default_mode = _brainstorm_launch_mode_default(op)
-        lines.append(f"[bold]Launch mode:[/] {default_mode} (editable below)")
+        if op != "prune_dimensions":
+            default_mode = _brainstorm_launch_mode_default(op)
+            lines.append(f"[bold]Launch mode:[/] {default_mode} (editable below)")
 
         return lines
 
@@ -5321,7 +5578,11 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, RowNavMixin, App):
         target_sections = cfg.get("target_sections")
         # Scope the op to a subgraph: node-select ops use the selector's choice;
         # compare/synthesize (no selector) derive it from their first input node.
-        if op == "module_merge":
+        if op == "prune_dimensions":
+            # The child joins the source node's own subgraph and becomes its HEAD.
+            subgraph = _node_module(self.session_path, cfg["source_node"])
+            head_at_creation = get_head(self.session_path, module=subgraph)
+        elif op == "module_merge":
             subgraph = cfg.get("destination_subgraph", UMBRELLA_SUBGRAPH)
             head_at_creation = get_head(
                 self.session_path,
@@ -5431,6 +5692,28 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, RowNavMixin, App):
                     agents_list.append(agent)
                     self.call_from_thread(self._register_module_agent, agent)
                     msg = f"Registered module decomposer: {agent}"
+            elif op == "prune_dimensions":
+                # Deterministic, no agent: run_prune_operation owns the group
+                # record (deleted only when refused before any write).
+                try:
+                    new_node = run_prune_operation(
+                        self.task_num,
+                        group_name,
+                        source_node=cfg["source_node"],
+                        kept=cfg["kept"],
+                        head_at_creation=head_at_creation,
+                        subgraph=subgraph,
+                        mode=cfg["mode"],
+                        top_n=cfg["top_n"],
+                        kept_count=len(cfg["kept"]),
+                        pruned_dimensions=cfg["dropped"],
+                    )
+                except PrunePartialFailure:
+                    # The child (and possibly the HEAD move) landed — show it.
+                    self.call_from_thread(self._load_existing_session)
+                    raise
+                self.call_from_thread(self._load_existing_session)
+                msg = f"Pruned {len(cfg['dropped'])} dimensions → {new_node}"
             elif op == "module_merge":
                 agent = register_module_merger(
                     self.session_path,

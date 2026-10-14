@@ -82,6 +82,7 @@ GROUP_OPERATIONS = [
     "module_decompose",
     "module_merge",
     "module_sync",
+    "prune_dimensions",
 ]
 
 # Legacy operation names kept readable for in-flight sessions on disk.

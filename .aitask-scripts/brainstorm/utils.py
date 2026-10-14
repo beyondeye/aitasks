@@ -94,6 +94,16 @@ def _parse_dimension_label(label: str) -> str:
     return label.split(" ", 1)[0]
 
 
+def _parse_prune_label(label: str) -> str:
+    """Recover the raw dimension key from a ``"<rank>. key — value"`` label.
+
+    The prune checklist prefixes each row with its 1-based rank; strip that
+    leading ``"<digits>. "`` and delegate to :func:`_parse_dimension_label`.
+    """
+    m = re.match(r"\d+\.\s+", label)
+    return _parse_dimension_label(label[m.end():] if m else label)
+
+
 def _read_groups(session_path: Path) -> dict:
     """Return the inner ``groups`` dict from br_groups.yaml (or {})."""
     from brainstorm.brainstorm_session import _read_groups_file
@@ -416,8 +426,9 @@ def op_states_for_selection(node_ctx: dict, cardinality: int) -> dict:
     for a lone cursor, else 0).
 
     Greying rules:
-      * single-node ops (explore / fast_track / delete) and module ops are
-        disabled when ``cardinality > 1`` (reason "select a single node");
+      * single-node ops (explore / fast_track / delete / prune_dimensions) and
+        module ops are disabled when ``cardinality > 1`` (reason "select a
+        single node");
       * delete is disabled for the canonical root node;
       * module ops are *also* disabled when their own precondition is unmet
         (umbrella subgraph / no ancestor subgraph / no linked task) — the
