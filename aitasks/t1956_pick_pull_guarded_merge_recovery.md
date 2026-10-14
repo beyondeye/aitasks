@@ -115,3 +115,23 @@ converge. Check with
   or narrow it.
 - **t1696** (archived): pinned that the `./ait sync` hint recovers. Its test is the
   regression baseline above.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1792** id=2026-10-14T14:40:28Z.d9b39599cdb5c1c7a398ee23 from=t1792 from_verified=yes at=2026-10-14T14:40:28Z base=02e4a1badd5a7a8af9d2e250e7108cb8e1cd993e base_branch=main dirty=yes host=omg16
+>
+> | t1792 changed code that t1956 plans to extract and touch. As of commit 02e4a1bad (tree-relative; re-derive line numbers before editing):
+> | 
+> | 1. Main's behind-only fast-forward has moved. It used to be the `local_ahead==0 && PROT` special case in main, around L2252. It now lives in `do_pull_rebase` (`.aitask-scripts/aitask_sync.sh`):
+> |    - `_pull_pin` pins `PULL_H`/`PULL_U` and classifies behind-only vs diverged.
+> |    - Behind-only runs `_pull_ff_ignored_check`, then `merge --ff-only --no-autostash --no-overwrite-ignore "$PULL_U"`.
+> |    - A refused fast-forward emits `ERROR:pull_ff_refused` and is never retried as a rebase.
+> |    - Diverged runs `pull --rebase --no-autostash`.
+> | 2. `_gm_ignored_hit` is now the one ignored-file check. It is indexed, with exactly the same relation as `_gm_collides`. Both `_guarded_merge_prepare` and the fast-forward preflight call it. An extracted helper should keep one implementation of it.
+> | 3. Two findings in your area, not fixed by t1792:
+> |    - `lib/task_utils.sh` ~L1316: `_task_pull_rebase` runs `pull --rebase` without `--no-autostash`. A user's `rebase.autoStash` would stash and re-apply other sessions' dirty files.
+> |    - `lib/task_utils.sh` ~L1646: `task_data_converge`'s `merge --ff-only` has neither `--no-autostash` nor `--no-overwrite-ignore`. Git's default overwrites an ignored file, such as userconfig.yaml, that an incoming commit writes. Verified on git 2.55 for the sync path.
+> | 4. The diverged-route ignored-file guarantee was split out to t1984, which depends on t1678.
+> | 
+> | This is advisory context only.
