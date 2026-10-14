@@ -1095,10 +1095,13 @@ class TrailScreenMixin:
         self._trail_link_running = True
         self._trail_link_worker(gen, origin, source)
 
-    # Its own group: `exclusive` workers in the default group (`_run_sync`,
+    # Every non-exclusive worker in this mixin runs in its own group:
+    # `exclusive` workers in the default group (`_run_sync`,
     # `run_dialog_command`) cancel every worker there, and one cancelled
-    # before it started never runs its `finally` — the scan slot would stay
-    # taken and every later `L` would only queue (t1979).
+    # before it started never runs its body or its `finally` — so state set
+    # before the start and reset only by the callback stays stuck. Here the
+    # scan slot would stay taken and every later `L` would only queue (t1979,
+    # t1988).
     @work(thread=True, group="trail_link")
     def _trail_link_worker(self, gen: int, origin, source: tuple):
         scan, error = None, ""
@@ -1160,7 +1163,9 @@ class TrailScreenMixin:
         self._trail_jump_busy = True
         self._trail_jump_prepare_worker(link)
 
-    @work(thread=True)
+    # Own group (see `_trail_link_worker`): a cancel before start would leave
+    # `_trail_jump_busy` set and refuse every later jump.
+    @work(thread=True, group="trail_jump")
     def _trail_jump_prepare_worker(self, link):
         jump = TrailJump(link, error=f"Jump to {link.handle} failed")
         try:
@@ -1206,7 +1211,7 @@ class TrailScreenMixin:
         self.push_screen(
             TrailJumpConfirmScreen(jump.session, jump.to_confirm), on_confirm)
 
-    @work(thread=True)
+    @work(thread=True, group="trail_jump")      # as the prepare worker
     def _trail_jump_finish_worker(self, jump: TrailJump):
         notices = [(f"Jump to {jump.link.handle} failed", "error")]
         try:
@@ -1311,7 +1316,9 @@ class TrailScreenMixin:
         else:
             (then or self._open_trail_select_from_cache)()
 
-    @work(thread=True)
+    # Own group (see `_trail_link_worker`): a cancel before start would never
+    # pop the overlay.
+    @work(thread=True, group="trail_discovery")
     def _trail_discovery_worker(self, gen: int, overlay, then=None):
         """Discovery + blob loads off the UI thread (subprocess-heavy)."""
         infos, unreadable = discover_trails()
@@ -1541,7 +1548,9 @@ class TrailScreenMixin:
         if refs:
             self._trail_xdep_worker(session.xdep_gen, session.handle, refs)
 
-    @work(thread=True)
+    # Own group (see `_trail_link_worker`): a cancel before start would leave
+    # `xdep_inflight` claiming its refs are being checked.
+    @work(thread=True, group="trail_xdep")
     def _trail_xdep_worker(self, gen: int, handle: str, refs: dict):
         result = {}
         try:
@@ -1570,7 +1579,9 @@ class TrailScreenMixin:
         focused = self._focused_card()
         self._rerender_trail(focused.task_data.filename if focused else "")
 
-    @work(thread=True)
+    # Own group (see `_trail_link_worker`): a cancel before start would leave
+    # the subtitle at "checking freshness…".
+    @work(thread=True, group="trail_drift")
     def _trail_drift_worker(self, gen: int, handle: str):
         verdict, reasons = run_trail_drift(handle)
         self.app.call_from_thread(
@@ -1622,7 +1633,9 @@ class TrailScreenMixin:
             self._refresh_trail_tabs()
         self._trail_reload_worker(gen, session.handle)
 
-    @work(thread=True)
+    # Own group (see `_trail_link_worker`): a cancel before start would drop
+    # the reload and the drift check it restarts.
+    @work(thread=True, group="trail_reload")
     def _trail_reload_worker(self, gen: int, handle: str):
         # Fetch-ordered read: `read_seq` tells this result apart from a scan's
         # read of the same trail, whichever lands first (t1895).
@@ -1700,7 +1713,9 @@ class TrailScreenMixin:
         self._trail_watch_busy = True
         self._trail_watch_worker(self._trail_watch_gen, handle)
 
-    @work(thread=True)
+    # Own group (see `_trail_link_worker`): a cancel before start would leave
+    # `_trail_watch_busy` set, and every tick would skip until the ceiling.
+    @work(thread=True, group="trail_watch")
     def _trail_watch_worker(self, watch_gen: int, handle: str):
         versions = _trail_versions(handle)
         self.app.call_from_thread(self._on_trail_watch, watch_gen, handle,
@@ -1840,7 +1855,9 @@ class TrailScreenMixin:
         self.refresh_bindings()
         self._trail_baseline_worker(watch_handle, then)
 
-    @work(thread=True)
+    # Own group (see `_trail_link_worker`): a cancel before start would never
+    # launch the confirmed agent and leave `_trail_launch_pending` set.
+    @work(thread=True, group="trail_launch")
     def _trail_baseline_worker(self, handle: str, then):
         versions = _trail_versions(handle)
         self.app.call_from_thread(then, versions)

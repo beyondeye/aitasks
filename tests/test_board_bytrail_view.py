@@ -21,6 +21,7 @@ silently render as a cross-repo ghost — see ``TrailRefResolutionTests``.
 """
 from __future__ import annotations
 
+import ast
 import asyncio
 import contextlib
 import copy
@@ -2265,6 +2266,62 @@ class ThreadWorkerTests(ByTrailTestBase):
 
         self._run(go())
 
+    def test_an_exclusive_default_group_worker_cannot_strand_the_watch(self):
+        """An exclusive default-group worker (`_run_sync`, which the
+        auto-refresh timer starts) in the SAME tick as a poll must not cancel
+        the poll before it starts: `_trail_watch_busy` would stay set and
+        every later tick skip, so the refresh is never picked up (t1988)."""
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
+                reloads = []
+                app._reload_active_trail = lambda: reloads.append(1)
+                app.notify = lambda *a, **k: None
+                with patch.object(ab.board_trail_screen, "_trail_versions",
+                                  lambda h: ["v2"]):
+                    app._install_trail_watch("art:trail-test", ["v1"])
+                    app._trail_watch_tick()          # REAL thread worker
+                    app.run_worker(lambda: None, thread=True, exclusive=True)
+                    ok = await self._wait(pilot, lambda: reloads)
+                self.assertTrue(ok, "the poll never reported")
+                self.assertEqual(reloads, [1])
+                self.assertFalse(app._trail_watch_busy)
+                app._stop_trail_watch()
+
+        self._run(go())
+
+    def test_an_exclusive_default_group_worker_cannot_strand_the_launch(self):
+        """Same race for the baseline read behind a confirmed `R`: cancelled
+        before it starts, the agent is never launched and
+        `_trail_launch_pending` keeps `R` disabled until restart (t1988)."""
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
+                launches = []
+                app._reload_active_trail = lambda: None
+                with patch.object(ab.board_trail_screen, "_trail_versions",
+                                  lambda h: ["v1"]):
+                    app._with_trail_baseline(
+                        "art:trail-test",
+                        lambda b: app._finish_trail_launch(
+                            b, "art:trail-test", lambda: launches.append(b)))
+                    app.run_worker(lambda: None, thread=True, exclusive=True)
+                    ok = await self._wait(pilot, lambda: launches)
+                self.assertTrue(ok, "the confirmed launch never ran")
+                self.assertEqual(launches, [["v1"]])
+                self.assertFalse(app._trail_launch_pending)
+                app._stop_trail_watch()
+
+        self._run(go())
+
     def test_real_reload_worker_replaces_the_document(self):
         ab = self.ab
 
@@ -2439,6 +2496,56 @@ class ThreadWorkerTests(ByTrailTestBase):
                 app._stop_trail_watch()
 
         self._run(go())
+
+
+class TrailWorkerGroupTests(unittest.TestCase):
+    """Every non-exclusive worker of the trail mixin names its own group.
+
+    `exclusive` workers in Textual's default group (`_run_sync`,
+    `run_dialog_command`) cancel every worker in it, and a worker cancelled
+    before it starts never runs its body — state its callback would reset
+    stays stuck (t1979, t1988). The jump, watch and launch workers are pinned
+    behaviourally; this covers the rest and any worker added later."""
+
+    SOURCE = REPO_ROOT / ".aitask-scripts" / "board" / "board_trail_screen.py"
+    KNOWN = {"_trail_link_worker", "_trail_jump_prepare_worker",
+             "_trail_jump_finish_worker", "_trail_discovery_worker",
+             "_trail_xdep_worker", "_trail_drift_worker",
+             "_trail_reload_worker", "_trail_watch_worker",
+             "_trail_baseline_worker"}
+
+    @staticmethod
+    def _workers(tree):
+        """(name, keywords) of each function decorated with `work`."""
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            for dec in node.decorator_list:
+                if isinstance(dec, ast.Name) and dec.id == "work":
+                    yield node.name, {}
+                elif (isinstance(dec, ast.Call)
+                      and isinstance(dec.func, ast.Name)
+                      and dec.func.id == "work"):
+                    yield node.name, {k.arg: k.value for k in dec.keywords}
+
+    def test_non_exclusive_workers_run_outside_the_default_group(self):
+        tree = ast.parse(self.SOURCE.read_text(encoding="utf-8"))
+        scanned, offenders = set(), []
+        for name, kw in self._workers(tree):
+            exclusive = kw.get("exclusive")
+            if isinstance(exclusive, ast.Constant) and exclusive.value is True:
+                continue                  # a canceller: its group is deliberate
+            scanned.add(name)
+            group = kw.get("group")
+            if not (isinstance(group, ast.Constant)
+                    and isinstance(group.value, str)
+                    and group.value not in ("", "default")):
+                offenders.append(name)
+        # Vacuity guard: a decorator spelled differently would hide workers.
+        self.assertLessEqual(self.KNOWN, scanned,
+                             f"scan missed workers: {self.KNOWN - scanned}")
+        self.assertEqual(offenders, [],
+                         "non-exclusive workers in the default group")
 
 
 class LaunchFallbackTests(ByTrailTestBase):
@@ -5775,6 +5882,41 @@ class LinkedTrailsTests(ByTrailTestBase):
                             self.assertFalse(app._trail_jump_busy)
                             self.assertTrue(notes.has(
                                 f"Jump to {link.handle} failed: kaboom"))
+
+        self._run(go())
+
+    def test_an_exclusive_default_group_worker_cannot_strand_the_jump(self):
+        """The jump twin of the scan test above (t1988): each phase's worker
+        is started in the SAME tick as an exclusive default-group worker. A
+        phase cancelled before it starts never reaches its UI callback, so
+        `_trail_jump_busy` would stay set and every later pick be refused."""
+        ab = self.ab
+        link = linked_trail()
+
+        async def go():
+            for phase in ("prepare", "finish"):
+                with self.subTest(phase=phase):
+                    finished = []
+                    jump = self.ts.TrailJump(link, session="ysess", launch=True)
+                    p1, p2 = self._jump_patches(
+                        lambda l: jump, lambda j: finished.append(j) or [])
+                    with p1, p2:
+                        app = ab.KanbanApp()
+                        async with app.run_test(size=(200, 48)) as pilot:
+                            await pilot.pause()
+                            notes = NoteRecorder(app)
+                            if phase == "prepare":
+                                app._on_linked_trail_chosen(link)
+                            else:
+                                # Nothing to confirm: starts finish at once.
+                                app._trail_jump_busy = True
+                                app._on_trail_jump_prepared(jump)
+                            app.run_worker(lambda: None, thread=True,
+                                           exclusive=True)
+                            await self._drain(app, pilot)
+                            self.assertEqual(finished, [jump])
+                            self.assertFalse(app._trail_jump_busy)
+                            self.assertFalse(notes.has("already in progress"))
 
         self._run(go())
 
