@@ -895,3 +895,195 @@ via `./ait git`.
 ### Planned mitigations
 - timing: post-phase | name: provenance_mutant_red_proof | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: provenance capture miss (goal-achievement) | desc: isolated mutants prove each provenance status class is load-bearing in TestRecordProvenance*
 - timing: post-phase | name: interface_shape_pins | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: contract-shape drift / wrong-shape rework (code-health + goal-achievement) | desc: each contract shape pinned by a named test and a README Interfaces row
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-14 12:14)
+- **Requested by user:** six review findings, each verified before fixing:
+  1. `RunReport.Exit` skipped child results (a failing child under a passing
+     suite parent with runner exit 1 gave exit 0);
+  2. report files were read with unbounded `os.ReadFile` after the deadline
+     (a FIFO at the results path hung `Run`);
+  3. `/proc` stat / `getsid` errors were treated as "process gone", so an
+     uninspectable session member could yield a false clean sweep;
+  4. numeric boundaries: `CheckEnforced` overflowed `time.Duration`, and
+     config accepted Inf / sub-nanosecond / oversized seconds;
+  5. a malformed row naming an expected id left that id's earlier `pass`
+     standing;
+  6. `describe` (and `runners.yaml`) silently ignored a second YAML
+     document.
+- **Changes made:**
+  1. `Exit` counts failing child rows (passes still top-level only).
+     `RUN_RESULT` gains a `<failed children>` field.
+  2. New `report_unix.go` `readReport`: `O_NOFOLLOW|O_NONBLOCK`, fstat
+     regular-file check, a 64 MiB / 1 MiB cap. Anything else is
+     `report:<file>:<reason>` (reconciliation).
+  3. `proc_linux.go`: an unreadable stat falls back to `getsid(2)` (another
+     session → skip; this session → a member, `getpgid` + kill); otherwise
+     `cleanup_unverified`. `proc_darwin.go`: any non-ESRCH `getsid` error →
+     `cleanup_unverified`. Inspection is injectable for tests.
+  4. `CheckEnforced` compares float milliseconds. `duration_ms` ≤ 2^40 at
+     decode. Config seconds must be finite and in [0.001, 2592000].
+  5. `ownID` attributes a malformed own row (string `id`, no `parent`) to
+     its expected id as `malformed`, invalidating the earlier result.
+  6. `oneDocument` decodes exactly one document and requires EOF (describe
+     and runners.yaml).
+- **Tests added:**
+  - `TestRunAllSubsumedAndChildren` gains the exit-1 failing-child case;
+  - `TestRunReportFilesAreSafe` covers a FIFO, symlink, directory and
+    oversized `results.jsonl`, and a FIFO and invalid `runner.json`;
+  - `TestSweepUninspectableProcesses` covers member / unrelated /
+    unverifiable / vanished, by fault injection;
+  - `TestCheckEnforced` gains the overflow case;
+  - `TestConfigRefusals` gains Inf, NaN, `.inf`, 1e-12 and 1e300;
+  - `TestValidateRowsMalformedAttribution`;
+  - `TestOneDocumentOnly`.
+
+  `TestValidateRows` expectations were updated for fix 5 (two malformed
+  rows naming `c` are now `malformed:c`).
+- **Red proofs (isolated mutants, restored byte-identical):** each fix
+  reverted alone makes its test fail. M6 (plain `ReadFile`) reproduces the
+  FIFO hang as a 60 s test timeout.
+- **Files affected:**
+  - `goengines/internal/testmap/runner/`: `run.go`, `report_unix.go` (new),
+    `invoke.go`, `proc_linux.go`, `proc_darwin.go`, `timeout.go`,
+    `results.go`, `config.go`, `describe.go` and their tests;
+  - `goengines/cmd/ait-testmap/run.go`, `run_test.go`;
+  - `goengines/README.md`.
+
+### Change Request 2 (2026-10-14 12:41)
+- **Requested by user:** three review findings.
+  1. `ownID` refused attribution for any `parent` key. `decodeRow` treats
+     `"parent":""` and `"parent":null` as top-level, so a malformed own row
+     with those encodings left the earlier `pass` (blocking).
+  2. The timing tests assert only after a synchronous `Run`, so a hang waits
+     for the suite timeout (follow-up).
+  3. `runner.Load` re-reads annotations that `registry.readInputs` already
+     read (follow-up).
+- **Changes made:**
+  1. `ownID` classifies `parent` exactly as `decodeRow` does: absent, `null`
+     or `""` is top-level; a string id is a child; any other JSON type is
+     unclassifiable and stays line-level. Regression cases were added to
+     `TestValidateRowsMalformedAttribution`: empty parent, null parent, and
+     numeric parent (line-level). Red proof: restoring the old any-parent
+     refusal reproduces the reported symptom (`a` stays `pass`, only
+     `malformed:line 2`).
+  2. Follow-up task **t1985** `runner_test_hang_watchdog` (test,
+     review_finding).
+  3. Follow-up task **t1986** `runner_lister_share_annotation_snapshot`
+     (performance, review_finding).
+- **Files affected:** `goengines/internal/testmap/runner/results.go`,
+  `outcome_test.go`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Everything in the approved plan landed.
+  - **Package `goengines/internal/testmap/runner/`:**
+    - `describe.go` / `list.go`: the protocol parsers;
+    - `config.go` / `repo.go`: `runners.yaml`, resolution with its record,
+      ownership, `Lister`, `RegisterBuiltin`, `SelfExe`;
+    - `group.go`: the canonical grouping function;
+    - `timeout.go`: the timeout model;
+    - `results.go`: row validation;
+    - `outcome.go`: the invocation outcome table;
+    - `exec_unix.go` + `proc_{linux,darwin,other}.go`: session-owned
+      execution and the sweep;
+    - `report_unix.go`: safe report reads;
+    - `invoke.go`: manifest, provenance, record;
+    - `plan.go`: executor, wave-classifier and post-run-hook seams;
+    - `run.go`: `Run`, selection, subsumption, `Exit`.
+  - **Elsewhere:**
+    - the `run` verb (`cmd/ait-testmap/run.go`, the `run` row of
+      `verbs.go`);
+    - the lister wired in `scancheck.go`;
+    - `gitx.ModifiedPaths` / `gitx.Head` (`internal/gitx/status.go`);
+    - `registry.UnitAnnotation.{Runner,Batch,Needs}` filled by
+      `annot.toRegistry`;
+    - 11 README Interfaces rows, each citing existing tests;
+    - the proposal's D1 / D5 / D13 edits.
+- **Deviations from plan:**
+  - The invocation-cause line is `CAUSE:<n>|<cause>|<detail>`, not
+    `MECHANISM:`, because the cause may be timeout or reconciliation, not
+    only a mechanism failure.
+  - `PROTOCOL_ERROR:<n>|<detail>` lines were added.
+  - `RUN_RESULT` gained `<failed children>` (review round 2).
+  - A start failure gives `not_started` units with a mechanism cause. That
+    is truthful (nothing started) and still a framework error.
+  - An exit-0 suite with a failing child row is `exit_mismatch`, because
+    "failing" covers child rows, as the plan's table says.
+  - `RUN_ERROR:no-runners|…` is the `run` verb's line for an absent
+    `runners.yaml`; the lister's is `INPUT_ERROR:lister|aitestmap/runners.yaml: absent`.
+- **Issues encountered:**
+  - A test helper emitted a blank line for an empty list.
+  - The `runner.json` report test initially never exercised the file
+    (over-escaped `sed`). It is now guarded with `[ -n "$RJ" ] || exit 9`.
+  - The old production `INPUT_UNAVAILABLE:lister` test ran in a non-git
+    dir; it now uses a git fixture.
+  - Two invalid mutants (compile errors) were re-run as valid ones before
+    being counted as red proofs.
+- **Key decisions:** D1–D14 in Step 0 (`runner` in UnitAnnotation, the
+  `gitx` status helper, wire shapes, `group_by` vocabulary, the timeout
+  model, describe overrides, the kind column, fail-closed absent
+  `runners.yaml`, hook-error policy, run ids, state-dir exclusion, the
+  builtin seam, subsumption validation, the outcome table). Plus three
+  review-round decisions:
+  - session (not group) cleanup ownership;
+  - report files read only through `readReport`;
+  - malformed own rows attributed through `ownID` under `decodeRow`'s
+    parent rule.
+- **Red proofs (all isolated mutants, restored byte-identical):**
+  - provenance:
+    - untracked capture off → `TestRecordProvenance` / `TestModifiedPaths`;
+    - deletions skipped → the same two tests;
+    - rename source skipped → `TestModifiedPaths`;
+    - end capture dropped → `TestRecordHeadMoved`;
+  - cleanup: a group-only kill fails all three `TestCleanup*` tests;
+  - review fixes, each failing its own regression test:
+    - children skipped in `Exit`;
+    - plain `ReadFile` (FIFO hang → test timeout);
+    - stat error taken as "gone";
+    - `Duration` overflow;
+    - no own-id attribution;
+    - extra YAML documents ignored;
+    - the old any-parent rule.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:**
+  - **M3.2 (t1854_2):**
+    - register each builtin with `runner.RegisterBuiltin(name)`; it runs as
+      `<self> runner <name> <verb>`, with `AIT_TESTMAP_COMMAND` holding the
+      `command:` override;
+    - declare `timeouts:` per builtin and prove it with your own tests;
+    - a `per_unit` builtin must write `{"id","event":"start"}` before each
+      unit and kill that unit's process group;
+    - never call `setsid`, since the engine sweeps the runner's session;
+    - the manifest is indented JSON (`json.MarshalIndent`, two spaces);
+      parse it as JSON, not with `sed`;
+    - `children:` is an opaque post-processor name;
+    - the `device` builtin reads `handle` from the manifest.
+  - **M3.3 (t1854_3):**
+    - plug in with `runner.RegisterExecutor` (called once) and
+      `runner.RegisterWaveClassifier`;
+    - set `Invocation.Handle` before calling `invoke`;
+    - return one `Outcome` per invocation, in order;
+    - never re-form the invocations.
+  - **M3.4 (t1854_4):**
+    - subscribe with `runner.RegisterPostRunHook`;
+    - an invocation's results may anchor only when its `cause` is empty;
+    - `Record.Modified` is start ∪ end minus `.aitask-testmap/`;
+    - child results have `Child=true` and a `Parent`;
+    - `overhead_ms` already follows Dev 13.
+  - **M2.4 (t1853_4):** `runner.RegisterDescribeKey("axis")` and
+    `("token_format")`; values land in `Describe.Ext`.
+  - **M2.5 (t1853_5):** add your annotation fields next to `Runner` /
+    `Batch` / `Needs` in `toRegistry`.
+  - **Testing harness:** `harness_test.go` (`newRepo`, `put`, `spec`,
+    `runners`) builds bash fixture runners in a few lines; the
+    `withExecutor` / `withHooks` / `withBuiltin` helpers isolate global
+    seams.
+- **Unverified:**
+  - the darwin session sweep (`proc_darwin.go`) is vetted and compiled
+    only; CI runs tests on Ubuntu only;
+  - processes /proc does not list (another uid under hidepid=2) are the
+    stated residual, alongside `setsid()`.
+- **Follow-ups created:** t1985 (hang watchdog for the timing tests), t1986
+  (one annotation read per scan / check).
