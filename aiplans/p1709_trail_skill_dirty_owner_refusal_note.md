@@ -116,3 +116,10 @@ None identified.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+- **Actual work done:** Inserted one paragraph in `.claude/skills/aitask-trail/SKILL.md.j2` Step 2 item 4 (create flow). It sits between the "handle … already exists" guidance and "Any other failure → surface and stop". It routes a `has uncommitted changes` refusal to "commit or revert the path the error names". It names the owner task file as the usual case, notes that create also checks the manifest, and limits "refresh is unaffected" to owner-task edits (a dirty manifest still blocks `update`). Regenerated the 3 goldens with the canonical loop and re-rendered the gitignored `aitask-trail-{default,fast,remote}-` variants locally.
+- **Deviations from plan:** Verification expected 1 `has uncommitted changes` hit per golden. There are 2, because the paragraph uses the phrase twice: once quoting the error, once in "refuses while it has uncommitted changes". The diff contains exactly the inserted lines.
+- **Issues encountered:** A pre-approval review found that the first wording, which treated every such refusal as the owner task file, was wrong. `aitask_artifact.sh:290-291` makes `create` run `txn_require_clean` on both `$task_file` and `$manifest_rel`, and `update` checks the manifest at `:404`. `tests/test_attach_txn_worktree_isolation.sh` P4a/N1 cover both cases. The wording was rewritten to key the advice on the path the error names.
+- **Key decisions:** No port tasks were spawned for `.agents/` / `.opencode/`, although the task's Goal item 4 asked for them. Both are thin stubs that render this same `.claude` template through `aitask_skill_render.sh --agent codex|opencode`, so the edit already reaches them. The website sentence at `website/content/docs/skills/aitask-trail.md:85` was left unchanged: its "it is unaffected" refers to the owner-file refusal it just described, so it is narrower but not wrong.
+- **Upstream defects identified:** None
