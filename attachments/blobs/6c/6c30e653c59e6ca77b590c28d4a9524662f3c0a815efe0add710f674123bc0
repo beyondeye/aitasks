@@ -1,0 +1,845 @@
+{
+  "schema_version": "1.1.0",
+  "trail_id": "trail-testmap-feature",
+  "title": "Test map feature: module landing order",
+  "owner": "aitasks#1852",
+  "scope": {
+    "kind": "topic",
+    "topics": [
+      "aitasks#1852"
+    ],
+    "selection_note": "Topic rooted at t1852, including module parents, their children and topic follow-ups. User-requested research t1954 joins this topic and trail. Archived t1852, t1853_1, t1853_2, t1853_3 and t1854_1 are retained as landed context; live membership is taken from the topic gatherer."
+  },
+  "generation": {
+    "generated_at": "2026-10-14T15:50:03Z",
+    "generator": {
+      "agent_string": "claudecode/opus5_5",
+      "skill": "aitask-trail"
+    },
+    "inputs": [
+      {
+        "kind": "plan_file",
+        "ref": "aitasks:aiplans/p1853/p1853_4_m2_4_axes_and_variants.md"
+      },
+      {
+        "kind": "plan_file",
+        "ref": "aitasks:aiplans/p1853/p1853_5_m2_5_scoped_rows_and_areas.md"
+      },
+      {
+        "kind": "plan_file",
+        "ref": "aitasks:aiplans/p1853/p1853_6_m2_6_adoption_tables.md"
+      },
+      {
+        "kind": "plan_file",
+        "ref": "aitasks:aiplans/p1853_testmap_m2_registry_and_map_model.md"
+      },
+      {
+        "kind": "plan_file",
+        "ref": "aitasks:aiplans/p1854/p1854_2_m3_2_reference_runners.md"
+      },
+      {
+        "kind": "plan_file",
+        "ref": "aitasks:aiplans/p1854/p1854_3_m3_3_scheduler_and_resources.md"
+      },
+      {
+        "kind": "plan_file",
+        "ref": "aitasks:aiplans/p1854/p1854_4_m3_4_cost_ledger.md"
+      },
+      {
+        "kind": "plan_file",
+        "ref": "aitasks:aiplans/p1854_testmap_m3_runners_scheduling_and_cost.md"
+      },
+      {
+        "kind": "plan_file",
+        "ref": "aitasks:aiplans/p1954/p1954_4_report_recommendation_trail.md"
+      },
+      {
+        "kind": "plan_file",
+        "ref": "aitasks:aiplans/p1954_research_multilanguage_annotation_parsers.md"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1853"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1853_4"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1853_5"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1853_6"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1853_7"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1854"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1854_2"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1854_3"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1854_4"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1855"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1856"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1857"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1858"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1859"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1860"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1861"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1863"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1878"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1905"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1906"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1931"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1939"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1954"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1954_4"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1977"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1985"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1986"
+      }
+    ],
+    "input_digest": "3dc1f83da2024e7e"
+  },
+  "freshness": {
+    "state": "current",
+    "checked_at": "2026-10-14T15:50:03Z"
+  },
+  "narrative": {
+    "problem_statement": "Sequence the ait test/testmap module work and its follow-ups, including the user-requested research into maintainable language-aware annotation parsing and safe editing.",
+    "recommendation_summary": "Land the remaining M2 children (M2.5 first, since M3.3 and M3.4 wait on it; M2.6 and M2.4 are also selectable now) and the M3 runner children after the archived M3.1: t1985 (test watchdog) before M3.2, M2.5 before M3.3 / M3.4. Keep the t1954 research synthesis alongside. t1986 is a non-blocking performance follow-up kept on the trail so it is not lost. The selection, onboarding/review, workflow and rollout sequence is unchanged.",
+    "overview": "M1, M2.1, M2.2, M2.3 and M3.1 are archived. Selectable now: M2.5 (t1853_5), M2.6 (t1853_6) and M2.4 (t1853_4), whose M3.1 edge is now recorded and satisfied. M2.5 is the most consequential pick, because both M3.3 (t1854_3) and M3.4 (t1854_4) record it as a prerequisite.\n\nWithin M3, M3.2 (t1854_2) waits on t1985, the hang watchdog for the runner tests (marked Implementing), so the builtins' timeout and cleanup tests are written against it from the start. t1986 (one annotation read per scan / check) blocks nothing and can be picked as background work; it is listed in wave 4 so it is not forgotten.\n\nAlongside: the t1954 research synthesis (t1954_4) and the small Kotlin scanner fix t1977 are marked Implementing; the M1 follow-ups keep t1931 before t1939. The remaining advisory sequence is unchanged: selection and the ait test run surface, onboarding / review / workflow integration, then rollout, with t1863 auditing cross-links and t1853_7 Postponed until its providers have child ids.",
+    "method_note": "Lite refresh using one current topic-1852 gatherer snapshot (27 live members) and targeted reads of the new members t1954_4 and t1977, the t1854 children's task files and t1854_1's archived plan. The explicit --owner 1852 probe again returned ERROR:unknown_task because the owner is archived; the topic-only snapshot emitted OWNER:aitasks#1852, matching the stored owner. Existing ordering is retained; M2.2 and M2.3 are shown as landed in place, M3.1 is added as landed context in wave 4, and t1854 is reclassified coordination_only now that it is decomposed. No task metadata was changed by this refresh (t1854_2's dependency on t1985 was recorded earlier by the user's decision). Not verified: implementation progress beyond recorded status, the live t1985 / t1954_4 / t1977 sessions' plans, parser suitability, and target-repository readiness."
+  },
+  "evidence": [
+    {
+      "evidence_id": "ev-snapshot",
+      "source_type": "command_output",
+      "ref": "./.aitask-scripts/aitask_trail_gather.sh snapshot --scope topic 1852",
+      "observed_at": "2026-10-14T15:50:03Z",
+      "summary": "27 live topic-1852 members, adding t1854_2/3/4, t1954_4, t1977, t1985 and t1986; t1853_2 and t1853_3 archived since the last version; OWNER aitasks#1852; DIGEST 3dc1f83da2024e7e. Archived t1852, t1853_1, t1853_2, t1853_3 and t1854_1 are retained as landed context outside live inputs."
+    }
+  ],
+  "rendering_hints": {
+    "depth": "lite"
+  },
+  "waves": [
+    {
+      "wave_id": "w-foundation",
+      "ordinal": 1,
+      "title": "M1 foundation and M2.1 registry (landed)",
+      "purpose": "The root of the whole graph: the Go engine skeleton, the per-user root, the release pipeline, the shim and version handshake, the install, upgrade and developer verbs, and the home migration verb. Every other engine submodule adds a package to the M1.2 binary. The archived M2.1 registry core is also retained here as a completed provider.",
+      "entries": [
+        {
+          "entry_id": "e-m1",
+          "task": "aitasks#1852",
+          "topic": "aitasks#1852",
+          "classification": "preferred_predecessor",
+          "confidence": "high",
+          "rationale": "Landed. All six children (M1.1 to M1.6) are archived, and the parent was archived with the last of them. Its follow-ups are grouped in wave 3.",
+          "snapshot": {
+            "status": "Done",
+            "priority": "medium",
+            "effort": "high",
+            "depends": [],
+            "gates_pending": []
+          },
+          "position": 1
+        },
+        {
+          "entry_id": "e-m2-1",
+          "task": "aitasks#1853_1",
+          "topic": "aitasks#1852",
+          "classification": "core",
+          "confidence": "high",
+          "rationale": "M2.1 registry core is archived with status Done. Its loader, ID grammar and injected scan/check inputs provide the prerequisite consumed by the remaining M2 children and M3.1.",
+          "snapshot": {
+            "status": "Done",
+            "priority": "medium",
+            "effort": "high",
+            "depends": [],
+            "gates_pending": []
+          },
+          "position": 2
+        }
+      ]
+    },
+    {
+      "wave_id": "w-next-passes",
+      "ordinal": 2,
+      "title": "M2 consumers and the M8.1 root",
+      "purpose": "Land M2's remaining wave-B children in their recorded depends order, and coarse-plan M8, whose earliest submodule M8.1 has no dependencies. M2.2 and M2.3 have landed.",
+      "entries": [
+        {
+          "entry_id": "e-m2-2",
+          "task": "aitasks#1853_2",
+          "topic": "aitasks#1852",
+          "classification": "core",
+          "confidence": "high",
+          "rationale": "Landed: M2.2 is archived (the annotation grammar, the line-targeted rewriter, annotate / verify and the annotation source scan reads). Its consumers M2.3 (landed) and M2.6 no longer wait on it.",
+          "snapshot": {
+            "status": "Done",
+            "priority": "medium",
+            "effort": "high",
+            "depends": [
+              "aitasks#1853_1"
+            ],
+            "gates_pending": []
+          },
+          "position": 1
+        },
+        {
+          "entry_id": "e-m2-3",
+          "task": "aitasks#1853_3",
+          "topic": "aitasks#1852",
+          "classification": "core",
+          "confidence": "medium",
+          "rationale": "Landed: M2.3 dependency scanners are archived. The closure and static facts are available to the selector, the seeder, the packet writer and M3.4's anchor eligibility.",
+          "snapshot": {
+            "status": "Done",
+            "priority": "medium",
+            "effort": "high",
+            "depends": [
+              "aitasks#1853_2"
+            ],
+            "gates_pending": []
+          },
+          "position": 2
+        },
+        {
+          "entry_id": "e-m2-5",
+          "task": "aitasks#1853_5",
+          "topic": "aitasks#1852",
+          "classification": "core",
+          "confidence": "medium",
+          "rationale": "M2.5 scoped rows and areas depends only on the archived t1853_1, so it is selectable now. It is on the M3 critical path: M3.3 (t1854_3) and M3.4 (t1854_4) both depend on it for the kind data and helpers' testmap:reads, so landing it early unblocks two runner children.",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [
+              "aitasks#1853_1"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "priority": "medium",
+            "effort": "medium"
+          },
+          "position": 3
+        },
+        {
+          "entry_id": "e-m2-6",
+          "task": "aitasks#1853_6",
+          "topic": "aitasks#1852",
+          "classification": "core",
+          "confidence": "medium",
+          "rationale": "M2.6 adoption tables. Both recorded prerequisites, t1853_1 and t1853_2, are archived, so it is selectable now. It fills M2.2's post-re-stamp hook and supplies the seeded / adopted tables M4 and M8.2 read.",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [
+              "aitasks#1853_1",
+              "aitasks#1853_2"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "priority": "medium",
+            "effort": "medium"
+          },
+          "position": 4
+        },
+        {
+          "entry_id": "e-kotlin-delegated-name",
+          "topic": "aitasks#1852",
+          "task": "aitasks#1977",
+          "classification": "optional",
+          "confidence": "high",
+          "rationale": "A small, independent bug in the landed M2.3 Kotlin scanner, found by the t1973 probe: a delegated property (`val x by lazy`) is named after its delegate, which degrades one import edge and phantoms a `lazy` symbol. It is marked Implementing and blocks nothing in this trail.",
+          "snapshot": {
+            "status": "Implementing",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "priority": "low",
+            "effort": "low"
+          },
+          "position": 5
+        },
+        {
+          "entry_id": "e-m8",
+          "task": "aitasks#1859",
+          "topic": "aitasks#1852",
+          "classification": "core",
+          "confidence": "medium",
+          "rationale": "Its coarse pass is unblocked because M8.1, the verifier exit contract in lib/gate_verifier_lib.sh, has no dependencies and sits in proposal wave A. Its other children (waves D, E and G) consume M3 to M7 and must wait for them, so only M8.1 is implementable right after planning.",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [],
+            "gates_pending": [],
+            "priority": "medium",
+            "effort": "high"
+          },
+          "position": 6
+        },
+        {
+          "entry_id": "e-m2",
+          "task": "aitasks#1853",
+          "topic": "aitasks#1852",
+          "classification": "coordination_only",
+          "confidence": "high",
+          "rationale": "The M2 parent closes when its children land. M2.1, M2.2 and M2.3 are archived; M2.5 and M2.6 are selectable now, M2.4 (t1853_4) sits in wave 4 beside the runner children because it extends M3.1's describe parse, and t1853_7 is in wave 6.",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "priority": "medium",
+            "effort": "high"
+          },
+          "position": 7
+        }
+      ]
+    },
+    {
+      "wave_id": "w-m1-followups",
+      "ordinal": 3,
+      "title": "M1 follow-ups and parser research (alongside wave 2)",
+      "purpose": "Run the existing M1 hardening/verification work and the user-requested parser research alongside core implementation. The research informs future language expansion without blocking the current M2.2 implementation.",
+      "entries": [
+        {
+          "entry_id": "e-setup-gitignore-scope",
+          "task": "aitasks#1905",
+          "topic": "aitasks#1852",
+          "classification": "optional",
+          "confidence": "high",
+          "rationale": "A real bug from t1852_5's review: setup's sibling .gitignore helpers commit the whole index. It is small and independent, and it edits aitask_setup.sh, which t1939 also edits, so landing it first avoids an overlap.",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "priority": "medium",
+            "effort": "low",
+            "followup_kind": "upstream_defect"
+          },
+          "position": 1
+        },
+        {
+          "entry_id": "e-mv-install-verbs",
+          "task": "aitasks#1906",
+          "topic": "aitasks#1852",
+          "classification": "optional",
+          "confidence": "high",
+          "rationale": "Manual verification of t1852_5: the frozen-agents acceptance run deferred from its install regression sweep, plus the offline install's TESTMAP_BINARY:skipped line. It needs a quiet host with the dedicated tmux server stopped.",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [
+              "aitasks#1852_5"
+            ],
+            "gates_pending": [],
+            "priority": "medium",
+            "effort": "medium",
+            "followup_kind": "manual_verification"
+          },
+          "position": 2
+        },
+        {
+          "entry_id": "e-bench-ci",
+          "task": "aitasks#1878",
+          "topic": "aitasks#1852",
+          "classification": "optional",
+          "confidence": "medium",
+          "rationale": "Validates the bench gate's host normalization on GitHub runners and decides whether the CI bench step becomes required. It was waiting on t1852_3's goengines-check.yml, which now exists. It matters more as M2 onward add benchmarks, and the samples have to be spread over at least two days.",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [
+              "aitasks#1852_3"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "priority": "medium",
+            "effort": "low",
+            "followup_kind": "risk_mitigation"
+          },
+          "position": 3
+        },
+        {
+          "entry_id": "e-home-real-host",
+          "task": "aitasks#1931",
+          "topic": "aitasks#1852",
+          "classification": "hard_prerequisite",
+          "confidence": "high",
+          "rationale": "Real-host check of `ait engine home --migrate` on Linux and macOS, including the BSD userland paths only coded for so far. t1939 depends on it.",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [],
+            "gates_pending": [],
+            "priority": "medium",
+            "effort": "low",
+            "followup_kind": "risk_mitigation"
+          },
+          "position": 4
+        },
+        {
+          "entry_id": "e-home-default-flip",
+          "task": "aitasks#1939",
+          "topic": "aitasks#1852",
+          "classification": "core",
+          "confidence": "medium",
+          "rationale": "The proposal's named follow-up for M1.6: setup migrates the legacy home by default, with --no-home-migration and AIT_HOME_MIGRATE=0 as opt-outs, and the 18 doc files naming ~/.aitask are updated. It must not land before t1931 has run cleanly.",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [
+              "aitasks#1931"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "priority": "medium",
+            "effort": "medium"
+          },
+          "position": 5
+        },
+        {
+          "entry_id": "e-parser-research",
+          "task": "aitasks#1954",
+          "topic": "aitasks#1852",
+          "classification": "preferred_predecessor",
+          "confidence": "high",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "priority": "medium",
+            "effort": "high"
+          },
+          "rationale": "User-requested research compares Tree-sitter deployment options, Chroma/Pygments, established language parsers, external compiler/LSP providers, custom readers and hybrid/sidecar alternatives for actual safe testmap edits. Research has no hard dependencies and can proceed beside M2.2. Consult its result before extending custom readers to more languages or selecting a production replacement.",
+          "expected_outcome": "A versioned, reproducible report under aidocs/testing_engine/ with t1954 in its filename, corpus/harness evidence, a suitability matrix and a justified recommendation. Completion must refresh art:trail-testmap-feature with the exact report path, evidence handles, decision, affected consumers and bounded implementation follow-ups; the research result is not yet available.",
+          "why_order_matters": "An advisory predecessor for broader language support and long-term parser adoption, not a blocker for current four-language work. The result may inform M2.2, M2.3 scanning, M4 stale confirmation, M6 adoption, M7 author annotation, t1853_7 repair, M9 docs/ports, M10 rollout and t1863 cross-linking; resolve actual consumer child IDs when the recommendation is ready.",
+          "position": 6
+        },
+        {
+          "entry_id": "e-parser-research-synthesis",
+          "topic": "aitasks#1852",
+          "task": "aitasks#1954_4",
+          "classification": "preferred_predecessor",
+          "confidence": "high",
+          "rationale": "The synthesis child of the parser research (children 1 to 3 are archived): the report, the recommendation and the trail link-back the parent requires. It is marked Implementing. Its result informs language expansion beyond the four M2.2 languages and must not become a hard prerequisite of current M2 work.",
+          "snapshot": {
+            "status": "Implementing",
+            "depends": [
+              "aitasks#1954_3"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "priority": "medium",
+            "effort": "high"
+          },
+          "position": 7
+        }
+      ]
+    },
+    {
+      "wave_id": "w-runners",
+      "ordinal": 4,
+      "title": "Runners, scheduling and cost (waves B to C)",
+      "purpose": "Land the runner contract, the reference runners, the scheduler and the cost ledger: everything that executes a test and records what it cost. M3.1 has landed; M3.2 follows its test-watchdog prerequisite, and M3.3 / M3.4 follow M2.5.",
+      "entries": [
+        {
+          "entry_id": "e-m3-1",
+          "topic": "aitasks#1852",
+          "task": "aitasks#1854_1",
+          "classification": "core",
+          "confidence": "high",
+          "rationale": "Landed: M3.1 is archived (commit 3d1a2b628). It provides the runner contract (describe / list / run --manifest), runners.yaml with resolution and ownership, the canonical grouping function, the timeout model with session-level cleanup, the engine run verb with its per-invocation record, and the executor, wave-classifier and post-run-hook seams the other M3 children plug into.",
+          "snapshot": {
+            "status": "Done",
+            "priority": "medium",
+            "effort": "high",
+            "depends": [],
+            "gates_pending": []
+          },
+          "position": 1
+        },
+        {
+          "entry_id": "e-runner-test-watchdog",
+          "topic": "aitasks#1852",
+          "task": "aitasks#1985",
+          "classification": "hard_prerequisite",
+          "confidence": "high",
+          "rationale": "The hang watchdog for the runner package's process-starting tests, from t1854_1's review. t1854_2 records it in depends because M3.2's builtin tests need the same hang / leak guard; a note on t1985 asks for it as an importable test-helper package so builtin/ tests can use it. It is marked Implementing.",
+          "snapshot": {
+            "status": "Implementing",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "priority": "medium",
+            "effort": "medium",
+            "followup_kind": "review_finding"
+          },
+          "position": 2
+        },
+        {
+          "entry_id": "e-m3-2",
+          "topic": "aitasks#1852",
+          "task": "aitasks#1854_2",
+          "classification": "core",
+          "confidence": "high",
+          "rationale": "M3.2 reference runners (bash-file, pytest, go-test, gradle-class, suite, device, engine-test). Its provider t1854_1 is archived; its other recorded prerequisite is t1985, so the builtins' timeout and cleanup tests are written against the watchdog from the start. Each builtin must declare and prove its timeouts mode.",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [
+              "aitasks#1854_1",
+              "aitasks#1985"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "priority": "medium",
+            "effort": "high"
+          },
+          "position": 3
+        },
+        {
+          "entry_id": "e-m2-4",
+          "task": "aitasks#1853_4",
+          "topic": "aitasks#1852",
+          "classification": "core",
+          "confidence": "medium",
+          "rationale": "M2.4 axes and variants. Both recorded prerequisites, t1853_1 and t1854_1, are archived, so it is selectable now. It lands axis: / token_format: as a named extension of M3.1's describe parse (runner.RegisterDescribeKey).",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [
+              "aitasks#1853_1",
+              "aitasks#1854_1"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "priority": "medium",
+            "effort": "medium"
+          },
+          "position": 4
+        },
+        {
+          "entry_id": "e-m3-3",
+          "topic": "aitasks#1852",
+          "task": "aitasks#1854_3",
+          "classification": "core",
+          "confidence": "high",
+          "rationale": "M3.3 scheduler and resources. It depends on the archived t1854_1 and on t1853_5 (M2.5), which supplies the kind data its wave classifier maps. It plugs into M3.1's executor seam and fills the manifest's allocator handle.",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [
+              "aitasks#1853_5",
+              "aitasks#1854_1"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "priority": "medium",
+            "effort": "high"
+          },
+          "position": 5
+        },
+        {
+          "entry_id": "e-m3-4",
+          "topic": "aitasks#1852",
+          "task": "aitasks#1854_4",
+          "classification": "core",
+          "confidence": "medium",
+          "rationale": "M3.4 cost ledger. It depends on the archived t1854_1 and on t1853_5 (M2.5) for helpers' testmap:reads in anchor eligibility. It subscribes to M3.1's post-run hook and reads the per-invocation record.",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [
+              "aitasks#1853_5",
+              "aitasks#1854_1"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "priority": "medium",
+            "effort": "medium"
+          },
+          "position": 6
+        },
+        {
+          "entry_id": "e-lister-annotation-snapshot",
+          "topic": "aitasks#1852",
+          "task": "aitasks#1986",
+          "classification": "optional",
+          "confidence": "medium",
+          "rationale": "Kept here so it is not forgotten: a performance follow-up from t1854_1's review. scan / check read the repository's annotations twice (once in M2.1's readInputs, once in runner.Load). No task depends on it and it changes no behaviour. Its choice between a shared snapshot and a change to M2.1's UnitLister interface should account for M6.4's planned lister extension (SCAFFOLD_TODO). It can be picked as background work at any point.",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "priority": "low",
+            "effort": "medium",
+            "followup_kind": "review_finding"
+          },
+          "position": 7
+        },
+        {
+          "entry_id": "e-m3",
+          "task": "aitasks#1854",
+          "topic": "aitasks#1852",
+          "classification": "coordination_only",
+          "confidence": "high",
+          "rationale": "The M3 parent is decomposed into four children (M3.1 archived, M3.2 to M3.4 above). It closes when its children land.",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "priority": "medium",
+            "effort": "high"
+          },
+          "position": 8
+        }
+      ]
+    },
+    {
+      "wave_id": "w-select-run",
+      "ordinal": 5,
+      "title": "Select, freshness and the run surface (waves C to D)",
+      "purpose": "Plan and land the map put to use: the selector, stale, the evidence join, score and readiness, the engine test composite, and the ait test bash front with its brief and agent instructions.",
+      "entries": [
+        {
+          "entry_id": "e-m4",
+          "task": "aitasks#1855",
+          "topic": "aitasks#1852",
+          "classification": "core",
+          "confidence": "high",
+          "rationale": "M4 turns the registry into answers: the ranked list with reasons, the stale report the freshness gate consumes, and the readiness lines the completion policy flips on.",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [],
+            "gates_pending": [],
+            "priority": "medium",
+            "effort": "high"
+          },
+          "position": 1
+        },
+        {
+          "entry_id": "e-m5",
+          "task": "aitasks#1856",
+          "topic": "aitasks#1852",
+          "classification": "core",
+          "confidence": "high",
+          "rationale": "M5 is the one verb every agent, gate and procedure calls. It must still answer when no registry or engine exists, so it can land before onboarding.",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [],
+            "gates_pending": [],
+            "priority": "medium",
+            "effort": "high"
+          },
+          "position": 2
+        }
+      ]
+    },
+    {
+      "wave_id": "w-onboard-review-seams",
+      "ordinal": 6,
+      "title": "Onboarding, the reading loop and workflow seams (waves E to H)",
+      "purpose": "Plan and land onboarding (ledger, seeder, adoption verbs, classify, the onboarding skill), agent review and author annotation, and the workflow, QA, maintenance-skill, docs and port seams. This is where the loop closes without a person.",
+      "entries": [
+        {
+          "entry_id": "e-m6",
+          "task": "aitasks#1857",
+          "topic": "aitasks#1852",
+          "classification": "core",
+          "confidence": "high",
+          "rationale": "M6 brings an existing test tree onto the map in levels. Its engine verbs (M6.1 to M6.3) land in wave E, the skill (M6.5) in F, and classify and scaffold (M6.4) in G.",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [],
+            "gates_pending": [],
+            "priority": "medium",
+            "effort": "high"
+          },
+          "position": 1
+        },
+        {
+          "entry_id": "e-m7",
+          "task": "aitasks#1858",
+          "topic": "aitasks#1852",
+          "classification": "core",
+          "confidence": "high",
+          "rationale": "M7 is the reading: packets out, verdicts in, calibration, author annotation, the review skill and its launch surfaces. Its cycle with M6 and M8 is acyclic only at submodule granularity, which is why the parents interleave here.",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [],
+            "gates_pending": [],
+            "priority": "medium",
+            "effort": "high"
+          },
+          "position": 2
+        },
+        {
+          "entry_id": "e-m9",
+          "task": "aitasks#1860",
+          "topic": "aitasks#1852",
+          "classification": "core",
+          "confidence": "medium",
+          "rationale": "M9 carries the seams into task-workflow and aitask-qa, the maintenance skill, the docs and the Codex and OpenCode ports. M9.1 is wave F; M9.4 and M9.5 are wave H and come last.",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [],
+            "gates_pending": [],
+            "priority": "medium",
+            "effort": "high"
+          },
+          "position": 3
+        },
+        {
+          "entry_id": "e-m2-repair-loop",
+          "task": "aitasks#1853_7",
+          "topic": "aitasks#1852",
+          "classification": "core",
+          "confidence": "low",
+          "rationale": "User-requested automatic check, repair and recheck loop so an existing codebase reaches a clean test map unattended. It depends on all six M2 children and on t1854_1 (archived); its remaining providers in M4.2, M5.1, M6.5, M7, M8 and M9 have no child ids yet, so it stays Postponed until those rows can be encoded as child edges.",
+          "snapshot": {
+            "status": "Postponed",
+            "depends": [
+              "aitasks#1853_1",
+              "aitasks#1853_2",
+              "aitasks#1853_3",
+              "aitasks#1853_4",
+              "aitasks#1853_5",
+              "aitasks#1853_6",
+              "aitasks#1854_1"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "priority": "high",
+            "effort": "high"
+          },
+          "position": 4
+        }
+      ]
+    },
+    {
+      "wave_id": "w-rollout",
+      "ordinal": 7,
+      "title": "Rollout and the cross-linking pass (wave I)",
+      "purpose": "Apply the released feature to the target repositories, and run the one cross-linking pass once every parent has been coarse-planned.",
+      "entries": [
+        {
+          "entry_id": "e-m10",
+          "task": "aitasks#1861",
+          "topic": "aitasks#1852",
+          "classification": "core",
+          "confidence": "medium",
+          "rationale": "M10 is the feature applied: aitasks locally, plus aitasks_go, thinking_backend, aitasks_mobile and thinking_app as cross-repo level tasks. It adds no framework code and waits for a release.",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [],
+            "gates_pending": [],
+            "priority": "medium",
+            "effort": "high"
+          },
+          "position": 1
+        },
+        {
+          "entry_id": "e-crosslink",
+          "task": "aitasks#1863",
+          "topic": "aitasks#1852",
+          "classification": "coordination_only",
+          "confidence": "high",
+          "rationale": "Checks every cross-parent depends cell against real depends entries and the module-to-task maps against real ids, treating archived records as complete evidence, then refreshes this trail with --deep. t1853_4's M3.1 edge (t1854_1) is now recorded; it must still audit t1853_7's provider table and retain the parser-research result connection.",
+          "snapshot": {
+            "status": "Ready",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "priority": "medium",
+            "effort": "low",
+            "followup_kind": "risk_mitigation"
+          },
+          "position": 2
+        }
+      ]
+    }
+  ]
+}
