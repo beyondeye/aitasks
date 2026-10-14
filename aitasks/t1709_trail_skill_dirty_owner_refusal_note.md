@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [documentation]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1661
 followup_kind: risk_mitigation
 created_at: 2026-09-04 15:52
-updated_at: 2026-09-04 15:52
+updated_at: 2026-10-14 11:42
 ---
 
 ## Origin
