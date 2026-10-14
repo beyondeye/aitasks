@@ -436,3 +436,304 @@ Current-branch mode, so there is no merge.
 - All forms named by the task and the review have fixtures: quoted globs, URLs,
   the thinking_app pair, real comments, dollar-slashy, Kotlin raw strings, and the
   line-anchored build-file include.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-14)
+
+- **Requested by user:** `groovyKeywords` listed `val`, but `val` is an
+  identifier in Groovy 4.
+  - Valid code `def val = 4` / `def n = val / 2` / two URLs and a
+    `project(':lib')` lost the dependency silently.
+  - The user confirmed this with a Go overlay and a Groovy runtime.
+  - Requested fix: correct the keyword table for the intended Groovy version and
+    keep the regression.
+- **Changes made:**
+  - **The keyword table is now measured, not copied from master's grammar.**
+    The real `GroovyLangLexer` tokenized `x = <word> / 2 / 3` for every candidate
+    word, in Groovy 4.0.29 (the Groovy bundled with Gradle 9.5.1) and in
+    3.0.22 (the Groovy 3 that Gradle 8 bundles, from the Gradle cache).
+  - **Findings:**
+    - `val`, `async`, `await`, `defer` and `module` are `Identifier` in both
+      versions.
+    - `threadsafe` is a keyword in both. It was missing from my table.
+    - `yield`, `record`, `sealed` and `permits` are keywords in 4 and
+      identifiers in 3.
+  - **Result:**
+    - `groovyKeywords` is now the set that both versions agree on.
+    - `groovyVersionWords` (`yield record sealed permits`): a `/` right after one
+      fails as `untokenizable`. A `.gradle` file does not say whether Gradle 8 or
+      Gradle 9 runs it, and the two read that `/` differently.
+    - `code()` now tracks the last word token (`word`) instead of an `afterTry`
+      bool, so one variable serves both `try (` and the version words.
+  - **Tests:**
+    - New cases `val-is-identifier` (the reviewer's regression),
+      `version-word-division`, `version-word-slashy` and `threadsafe-keyword`.
+    - Red check: with `val` put back in the table, `val-is-identifier` fails with
+      `refs []`. It passes after the fix.
+    - The case table moved to package level (`gradleLexCases`), so a temporary
+      probe could dump every fixture for the oracle runs below.
+  - **Lexer-oracle differential** (scratch only, not committed):
+    - My blanked output was compared against comment spans from the real lexers,
+      after normalising whitespace.
+    - **Groovy:** 41 inputs (the Groovy fixtures plus the 8 Groovy corpus files
+      from thinking_app and teamim). Each was run through `GroovyLangLexer`
+      3.0.22 and 4.0.29. Result: **0 mismatches**, 41 matches per version.
+      - Every non-match is a deliberate failure of mine: stray backslash,
+        unclosed string, unclosed block comment, unclosed dollar-slashy, and the
+        version words.
+      - In each of these, Groovy errors too, or Groovy accepts something this
+        lexer conservatively refuses.
+    - **Kotlin:** 28 kts inputs (the fixtures plus all 21 corpus files from
+      aitasks_mobile and timexchange). Each was run through Gradle 9.5.1's
+      `kotlin-compiler-embeddable` 2.3.20 `KotlinLexer`. Result: **0
+      mismatches**, 26 matches.
+      - The 2 non-matches are the multi-dollar cases, which fail by design.
+- **Files affected:**
+  - `goengines/internal/testmap/deps/gradlelex.go`
+  - `goengines/internal/testmap/deps/gradle_test.go`
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - **`gradlelex.go` (new): `blankGradleComments(src, kts)`.** A byte lexer for
+    two dialects that blanks comments in place and keeps offsets.
+    - Groovy forms: `'…'`, `"…"`, `'''…'''`, `"""…"""` with escapes (including
+      the CRLF line escape), GString templates, slashy and dollar-slashy strings
+      (dollar-slashy escapes tried in `GroovyLexer` order), and `SH_COMMENT`.
+    - Kotlin forms: `"…"`, raw `"""…"""` with no escapes, char literals,
+      backticked names, nested block comments, and the shebang.
+    - The slashy-string start mirrors `GroovyLexer`'s `REGEX_CHECK_SET`: a
+      value-ending token, a significant `NL` outside `(`/`[` (except a `try (`),
+      hidden `LineEscape`, and hidden block comments.
+    - **Fails closed** (the source is returned unblanked and marked
+      `untokenizable`) on:
+      - unclosed comments, strings or templates;
+      - a stray backslash;
+      - a Kotlin multi-dollar string (`$$"…"`);
+      - a `/` after a Groovy-version-dependent word.
+  - **`gradle.go`:**
+    - The `gradleComment` regex is gone. `scanGradle(data, kts)` blanks through
+      the lexer and records `untokenizable` as the first `Dynamic` entry.
+    - The build-file loop of `buildGradle` drops `include` dynamics. `include`
+      is a settings statement; settings files are unchanged.
+  - **`raw.go`:** `.gradle.kts` → `kindGradleKts` (`gradle-kts`) → Kotlin
+    dialect. `.gradle` stays `kindGradle`.
+  - **`cache.go`:** `schemaVersion` 5 → 6. HEAD was 5 after t1976 (8718afa08),
+    as t1976's inbox note said.
+  - **`gradle_test.go` (new):**
+    - `TestGradleCommentInString`: the task fixture, plus a kts module whose raw
+      string ends in a backslash.
+    - `TestGradleUntokenizableWidens`.
+    - `TestGradleBuildFileIncludeIsNotModule`: the include sits on its own line,
+      so the line-anchored `includeRe` exercises it.
+    - `TestScanGradleStringAwareComments` over the package-level
+      `gradleLexCases` (46 cases).
+- **Deviations from plan:**
+  - The lexer lives in its own `gradlelex.go`, mirroring `kotlinlex.go`, not
+    inside `gradle.go`.
+  - **Keyword table** (review round 6):
+    - The table is now *measured* on the real lexers: the Groovy 3.0.22 and
+      4.0.29 `GroovyLangLexer`.
+    - `groovyKeywords` holds the keywords both versions agree on. Changes: `val`
+      removed (an Identifier in both), `threadsafe` added (a keyword in both).
+    - New `groovyVersionWords` = `yield record sealed permits` (keywords in 4,
+      identifiers in 3): a `/` after one fails.
+    - `code()` tracks the last word token instead of an `afterTry` bool.
+  - The case table is package-level (`gradleLexCases`) so the oracle probe can
+    dump it.
+  - The red runs needed a one-line signature shim on the old regex scanner, as
+    the plan allowed.
+- **Issues encountered:**
+  - The first probe walked a non-Gradle file, and `kindOf(p, nil)` dereferences
+    `readData` for extensionless paths. Fixed by filtering on suffix first.
+  - A scripted hoist of the test table mismatched the struct delimiter, so the
+    file was rewritten whole.
+  - Other sessions edit files in this shared checkout (t1976 landed mid-session;
+    another session is now editing `goengines/cmd`, `annot`, `registry`, `gitx`
+    and `runner`). Commits stay path-scoped to this task's five files.
+- **Key decisions:**
+  - Fail closed means *the whole file is unblanked*, never a partial blank. The
+    scanner then over-reads and widens; it never hides a dependency.
+  - Build files never parse `include`.
+  - Kotlin multi-dollar strings are detected and fail; they are not modelled.
+  - The version words fail instead of picking one Groovy version, because a
+    `.gradle` file does not say which Gradle runs it.
+- **Verification evidence:**
+  - **Red before step 3** (old regex plus the shim): all 3 repo-level tests and
+    30 of the 42 table cases at the time. The 12 guards passed: real comments,
+    the division, hidden-newline, line-continuation and shebang cases.
+  - **After step 3, before step 4:** only `TestGradleBuildFileIncludeIsNotModule`
+    was red.
+  - **After step 4:** the whole package is green. `ait engine test` exits 0
+    (go vet plus every package).
+  - **Review round 6 regression:** with `val` in the table,
+    `val-is-identifier` gives `refs []`. It passes after the fix.
+  - **Corpus differential (raw extraction).** 29 files from 4 repos, pinned at
+    HEAD:
+    - thinking_app `1dc7b958926f`
+    - aitasks_mobile `75f4543fb70e`
+    - timexchange `c60e7e05a465`
+    - teamim `18a4679d1c10`
+
+    Before vs after:
+    - The only field change: `thinking_app/app/build.gradle` loses
+      `Dynamic include@920` and gains `Includes` `*/*_REVIEW.md@920` and
+      `*/evidence/t53_*/LEDGER_RECONCILE.tsv@921`.
+    - The 21 `.gradle.kts` files change kind to `gradle-kts`.
+    - 0 files gained `untokenizable`.
+  - **Full `Scan` over a thinking_app Gradle snapshot:** `:app` deps `[]` (was
+    `[":"]`), `app/build.gradle` is not opaque, and there are no problems (was
+    `gradle-dynamic: include`).
+  - **Lexer-oracle differential.** My blanked output is compared with the real
+    lexers' comment spans after whitespace normalisation (scripts below).
+    - **Groovy 3.0.22 and 4.0.29:** 41 inputs → 41 MATCH, 0 MISMATCH per
+      version.
+      - The non-matches are all deliberate failures of mine. In each case Groovy
+        errors too (stray backslash, unclosed string; under 4, `record / 2`
+        also errors), or this lexer is stricter than Groovy (an unclosed block
+        comment or dollar-slashy at EOF, the version words).
+    - **Kotlin** (`kotlin-compiler-embeddable` 2.3.20 `KotlinLexer`): 28 inputs
+      → 26 MATCH, 0 MISMATCH, and 2 MINE_FAIL (the multi-dollar cases, by
+      design).
+- **Upstream defects identified:**
+  - `goengines/internal/testmap/deps/kotlinlex.go:187` — `ktLexer.str` (with `code`'s `$` handling) treats a Kotlin 2.2 multi-dollar string (`$$"""…"""`) as an ordinary string and recurses into a literal `${`, so `val s = $$"""${/*}"""` swallows every token up to a later `*/` with err=nil (measured: `fun f() = Callee()` lost) — silent under-read of .kt sources
+- **Scratch evidence, verbatim** (from the session scratchpad; the jar paths
+  are this machine's):
+
+  Groovy keyword probe (`kwprobe.groovy`). It runs with
+  `java -cp <groovy-3.0.22.jar|groovy-4.0.29.jar> groovy.ui.GroovyMain kwprobe.groovy <comma-separated words>`:
+  ```groovy
+import org.apache.groovy.parser.antlr4.GroovyLangLexer
+import org.apache.groovy.parser.antlr4.GroovyLexer
+import groovyjarjarantlr4.v4.runtime.CharStreams
+def words = args[0].split(',')
+for (w in words) {
+  def lx = new GroovyLangLexer(CharStreams.fromString("x = " + w + " / 2 / 3\n"))
+  def toks = lx.getAllTokens().findAll { it.channel == 0 }
+  def i = toks.findIndexOf { it.text == w }
+  def next = i >= 0 && i + 1 < toks.size() ? toks[i + 1] : null
+  def wt = i >= 0 ? GroovyLexer.VOCABULARY.getSymbolicName(toks[i].type) : 'NONE'
+  def nt = next ? GroovyLexer.VOCABULARY.getSymbolicName(next.type) : 'NONE'
+  println "${w}\t${wt}\t${nt}"
+}
+  ```
+  Groovy comment-span oracle (`groovy_oracle.groovy <dir> g3|g4`):
+  ```groovy
+import org.apache.groovy.parser.antlr4.GroovyLangLexer
+import groovyjarjarantlr4.v4.runtime.CharStreams
+import groovyjarjarantlr4.v4.runtime.BaseErrorListener
+def dir = new File(args[0]); def suffix = args[1]
+dir.listFiles().findAll { it.name.endsWith('.groovy.src') }.sort().each { f ->
+  def src = f.getText('UTF-8')
+  def out = new File(dir, f.name.replace('.src', '.' + suffix))
+  try {
+    def lx = new GroovyLangLexer(CharStreams.fromString(src))
+    lx.removeErrorListeners()
+    lx.addErrorListener(new BaseErrorListener() {
+      void syntaxError(groovyjarjarantlr4.v4.runtime.Recognizer r, Object o, int line, int col, String msg, groovyjarjarantlr4.v4.runtime.RecognitionException e) {
+        throw new RuntimeException("line ${line}:${col} ${msg}")
+      }
+    })
+    def chars = src.toCharArray()
+    if (src.startsWith('#!')) {
+      int i = 0
+      while (true) {
+        while (i < chars.length && chars[i] != '\n') { chars[i] = ' ' as char; i++ }
+        if (i + 2 < chars.length && chars[i + 1] == '#' && chars[i + 2] == '!') { i++ } else break
+      }
+    }
+    for (t in lx.getAllTokens()) {
+      def tx = t.text
+      if (tx != null && (tx.startsWith('//') || tx.startsWith('/*'))) {
+        for (int k = t.startIndex; k <= t.stopIndex; k++) if (chars[k] != '\n') chars[k] = ' ' as char
+      }
+    }
+    out.setText(new String(chars), 'UTF-8')
+  } catch (Throwable e) {
+    out.setText("ERROR: " + e.message, 'UTF-8')
+  }
+}
+  ```
+  Kotlin comment-span oracle (`kotlin_oracle.groovy <dir>`), with the classpath
+  `groovy-4.0.29.jar:kotlin-compiler-embeddable-2.3.20.jar:kotlin-stdlib-2.3.20.jar`:
+  ```groovy
+import org.jetbrains.kotlin.lexer.KotlinLexer
+def dir = new File(args[0])
+dir.listFiles().findAll { it.name.endsWith('.kts.src') }.sort().each { f ->
+  def src = f.getText('UTF-8')
+  def out = new File(dir, f.name.replace('.src', '.kt'))
+  try {
+    def lx = new KotlinLexer()
+    lx.start(src)
+    def chars = src.toCharArray()
+    def bad = []
+    while (lx.tokenType != null) {
+      def name = lx.tokenType.toString()
+      def tx = src.substring(lx.tokenStart, lx.tokenEnd)
+      if (name == 'BAD_CHARACTER') bad << lx.tokenStart
+      if (tx.startsWith('//') || tx.startsWith('/*') || tx.startsWith('#!')) {
+        for (int k = lx.tokenStart; k < lx.tokenEnd; k++) if (chars[k] != '\n') chars[k] = ' ' as char
+      }
+      lx.advance()
+    }
+    out.setText(bad ? "ERROR: BAD_CHARACTER at " + bad : new String(chars), 'UTF-8')
+  } catch (Throwable e) {
+    out.setText("ERROR: " + e, 'UTF-8')
+  }
+}
+  ```
+  Temporary Go dump probe (`probe_t1975_test.go`, deleted). It writes
+  `<id>.src`, `<id>.mine` (the `blankGradleComments` output) and `<id>.fail`
+  (`failAt`) for every `gradleLexCases` entry and corpus file:
+  ```go
+package deps
+
+// TEMPORARY t1975 oracle probe — never committed.
+
+import (
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestProbeT1975Dump(t *testing.T) {
+	out, corpus := os.Getenv("AIT_T1975_ORACLE"), os.Getenv("AIT_T1975_CORPUS")
+	if out == "" {
+		t.Skip("probe")
+	}
+	dump := func(id string, kts bool, src string) {
+		ext := ".groovy"
+		if kts {
+			ext = ".kts"
+		}
+		blanked, failAt := blankGradleComments(src, kts)
+		os.WriteFile(filepath.Join(out, id+ext+".src"), []byte(src), 0o644)
+		os.WriteFile(filepath.Join(out, id+ext+".mine"), []byte(blanked), 0o644)
+		os.WriteFile(filepath.Join(out, id+ext+".fail"), []byte(fmt.Sprint(failAt)), 0o644)
+	}
+	for _, c := range gradleLexCases {
+		dump("case_"+c.name, c.kts, c.src)
+	}
+	if corpus != "" {
+		filepath.WalkDir(corpus, func(p string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() {
+				return err
+			}
+			kts := strings.HasSuffix(p, ".gradle.kts")
+			if !kts && !strings.HasSuffix(p, ".gradle") {
+				return nil
+			}
+			rel, _ := filepath.Rel(corpus, p)
+			data, _ := os.ReadFile(p)
+			dump("corpus_"+strings.ReplaceAll(rel, "/", "__"), kts, string(data))
+			return nil
+		})
+	}
+}
+  ```
+  The comparison is `re.sub(r'\s+',' ',x).strip()` equality of `.mine` against
+  `.g3` / `.g4` / `.kt`, when neither side failed.
