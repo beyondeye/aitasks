@@ -214,3 +214,68 @@ None identified.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-14 12:45)
+- **Requested by user:** the three sibling-repo tasks describe themselves as
+  spawned from aitasks#1978 but carry no `followup_kind`, so `resolve_category`
+  reads them as `type:chore` and `roadmap_origin_facts.collect` skips them. Add
+  a recognized kind with each repo's update helper, keeping `issue_type: chore`.
+- **Changes made:** set `followup_kind: upstream_defect` on thinking_app t506 and
+  t507 and on thinking_backend t152 (`aitask_update.sh --batch <id>
+  --followup-kind upstream_defect`), committed path-scoped in each repo and
+  pushed. I chose `upstream_defect` rather than the suggested `carry_over`.
+  `carry_over` is the seam of `create_carryover_task` in `aitask_archive.sh`
+  (deferred manual-verification items carried over at archival). These tasks
+  instead take over bullet 2 of t1978's `## Upstream defect` section: data
+  defects that t1957_3's Step 8b found. `resolve_category` now returns
+  `kind:upstream_defect` for all three. `issue_type` stays `chore`, and t506
+  keeps `depends: [267]`.
+- **Files affected:** thinking_app `aitasks/t506_*.md`, `aitasks/t507_*.md`;
+  thinking_backend `aitasks/t152_*.md` (no aitasks code change).
+
+## Final Implementation Notes
+- **Actual work done:** `_iter_single_archive`
+  (`.aitask-scripts/lib/archive_iter.py`) now catches `EOFError` in the same
+  read-failure clause as `TarError` / `OSError` / `SubprocessError`. The separate
+  `except EOFError` branch, which re-raised whenever `errors is None`, is gone.
+  A truncated `.tar.gz` is therefore skipped on the best-effort path and still
+  reported on the opt-in `errors=` path. The module docstring now states the
+  current contract ("Leaving ``errors`` unset keeps every reader
+  best-effort.") instead of "exactly as it was". Tests: a shared
+  `_truncated_tar_gz` fixture helper (used by the existing opt-in test) and a
+  new `test_truncated_tar_gz_is_skipped_on_the_default_path`. The new test puts
+  a healthy `_b1/old10.tar.gz` after the truncated `_b0` bundle, so it also
+  proves the scan continues past the bad bundle, and it covers
+  `find_archived_markdown_by_id`. Cross-repo: three regeneration tasks,
+  thinking_app **t506** (`art:trail-localization-programme`, `depends: [267]`),
+  thinking_app **t507** (`art:trail-build-test-speed`) and thinking_backend
+  **t152** (`art:trail-new-prod-and-dev-servers`). All are
+  `issue_type: chore` + `followup_kind: upstream_defect`, committed and pushed
+  in their repos.
+- **Deviations from plan:** (1) During plan review the follow-ups changed from
+  "refresh" to "regenerate". `/aitask-trail --refresh` stops at drift's
+  `ERROR:invalid_trail`, the create flow refuses an existing handle, and no
+  migration tool exists. The tasks therefore spell out path (A) a new handle via
+  the create flow, or path (B) a framework regeneration path requested in
+  aitasks first. Acceptance is scoped to each task's own trail, with a
+  repo-wide schema report that is informational only. (2) thinking_app got two
+  tasks instead of one, so that only the localization task carries
+  `depends: [267]`. (3) `followup_kind` was added after review (Change
+  Request 1).
+- **Issues encountered:** The plan first used `--depends`, but both sibling
+  create scripts accept only `--deps` (unknown options die). The plan was
+  corrected in review before any task was created. The `--project` forwarder
+  passes all non-`--project` arguments through to the target repo's
+  `aitask_create.sh`, so flags must exist in the *target* script.
+- **Key decisions:** `SCHEMA_NORMALIZATION_LOCK` stays single-version, per its
+  own design comment in `trail_gather.py`, so no 1.0.0 trail is admitted.
+  thinking_backend's ad_hoc trail can be regenerated today: snapshots under the
+  live owner t45 succeed even with archived roots (#44, #49, #50). Only an
+  archived *owner/root* (thinking_app t110) hits t267. Red proof before the
+  fix: the new test alone failed, with `EOFError` (1 failed, 41 passed). After
+  the fix: 42 passed, consumer modules 110 passed (`test_local_dep_parity`,
+  `test_trail_discovery*`, `test_trail_links`), full suite
+  `PYTHON SUITE: PASSED (runner=pytest, exit=0)`.
+- **Upstream defects identified:** None
