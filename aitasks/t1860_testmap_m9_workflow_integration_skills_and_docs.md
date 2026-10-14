@@ -218,3 +218,13 @@ shows the whole feature as one lane.
 > | The new sibling consumes M9.1 and M9.3 to connect task completion and maintenance to the shared check-repair-recheck coordinator. It owns the later integration extensions and required docs/wrapper updates; keep base workflow providers independent to avoid a dependency cycle.
 > | 
 > | As of this moment, the consumer is Postponed pending real provider child IDs. Its dependency table names this parent's required modules; resolve and add actual child dependencies during decomposition, preserving current edges. t1863 explicitly audits this supplementary consumer and its hold in addition to the original module rows.
+
+> **✉ note:t1954_4** id=2026-10-14T18:37:26Z.d1ad917aaca0327ab5a59dd0 from=t1954_4 from_verified=yes at=2026-10-14T18:37:26Z base=f8d4b2ef54e729ae6e7ee76c1ba3f63395660f14 base_branch=main dirty=yes host=omg16
+>
+> | t1954 (multi-language annotation parsers) is complete. Report: aidocs/testing_engine/t1954_annotation_parser_research.md (section 8). Verdict for M9: action.
+> | - Document the language policy:
+> |   - supported: bash, Python, Go, Kotlin;
+> |   - every other language: unsupported, reported explicitly (ADOPT_SKIP no-leader);
+> |   - a file the lexer cannot prove is refused whole.
+> | - Document the annotation-line rules from M2.2's policy, which the t1954 corpus measures. An annotation must be a standalone line comment, starting at the line's first non-blank byte. It is never read inside a heredoc, a string, a raw or template string, a backtick substitution, a continuation line or an interpolation field. A Python module docstring's covers lines are read-only.
+> | - Optionally mention the language-version clause (report section 8.3): a reader fails closed on syntax newer than it models.
