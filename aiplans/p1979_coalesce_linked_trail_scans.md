@@ -168,3 +168,52 @@ commit the plan through `./ait git`, then archive per task-workflow Step 9.
 - A pending scan could use a stale snapshot. severity: low. The pending tuple
   is built at the latest press. → mitigation: none (covered by the
   snapshot-identity asserts in both test files)
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-14 16:05)
+- **Requested by user:** A plan-review concern: add a cross-tab replacement
+  test. Press L twice on A, switch to B, then press L on B while A's scan is
+  still in flight.
+- **Changes made:** Added `test_a_search_on_the_new_tab_replaces_the_retired_pending_one`
+  to the plan before approval and implemented it.
+- **Files affected:** tests/test_trails_app.py
+
+### Change Request 2 (2026-10-14 16:40)
+- **Requested by user:** The user reported a confirmed blocking finding.
+  `_trail_link_worker` ran in Textual's default worker group. `exclusive` workers
+  in that group (`aitask_board.py` `_run_sync`, the mixin's
+  `run_dialog_command`) cancel every worker there. A scan cancelled before it
+  started never runs its `finally`, so `_trail_link_running` stayed True and
+  every later `L` only queued.
+- **Changes made:** `@work(thread=True, group="trail_link")` on
+  `_trail_link_worker`. Added the regression test
+  `test_an_exclusive_default_group_worker_cannot_strand_the_scan`, which starts
+  an exclusive default-group worker in the same tick as the press. Before the
+  fix it failed with "expected 1 scan call(s), saw 0".
+- **Files affected:** .aitask-scripts/board/board_trail_screen.py,
+  tests/test_board_bytrail_view.py
+
+## Final Implementation Notes
+- **Actual work done:** At most one linked-trail scan runs at a time. While it
+  runs, an `L` press only records `(gen, origin, deepcopy snapshot)` as the
+  single pending request, and the newest press overwrites it.
+  `_on_trail_links` frees the slot first, then starts the pending request if
+  its gen is still current, then applies the existing supersession and
+  content guards to the result that landed. `_trail_link_worker` runs in its
+  own `trail_link` worker group. Every acceptance case in the task is covered
+  by tests in `tests/test_board_bytrail_view.py` and `tests/test_trails_app.py`.
+- **Deviations from plan:** Added the dedicated worker group and its regression
+  test (Change Request 2). The board `_drain` test helper now waits three times,
+  as planned. Added a `_wait_calls` helper to both test classes.
+  `_revision_case` now returns the scan calls so the snapshot can be asserted.
+- **Issues encountered:** In the cancellation test, `app.workers.wait_for_complete()`
+  re-raised `WorkerCancelled` for the cancelled scan before the fix. The test
+  now waits for the scan call instead, so the red is the user-visible symptom
+  ("saw 0").
+- **Key decisions:** A pending request is dropped by comparing its gen when it
+  is about to start. Every retirement route already bumps `_trail_link_gen`,
+  so there is no per-route cleanup. A content change between two presses is not
+  reported, because the pending request uses the latest press's snapshot.
+- **Upstream defects identified:**
+  - `.aitask-scripts/board/board_trail_screen.py:1164 — _trail_jump_prepare_worker / _trail_jump_finish_worker run in Textual's default worker group; an exclusive default-group worker (_run_sync, run_dialog_command) cancelling one before it starts skips its finally, leaving _trail_jump_busy True so every later linked-trail jump is refused ("A jump is already in progress")`
