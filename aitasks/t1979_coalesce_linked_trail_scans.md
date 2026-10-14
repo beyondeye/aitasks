@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1957
 followup_kind: review_finding
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-14 11:25
-updated_at: 2026-10-14 12:35
+updated_at: 2026-10-14 17:10
 ---
 
 ## Context
@@ -66,3 +67,8 @@ press's snapshot would show links for a stale revision.
   the newest request's result shows. The pending scan uses the latest
   snapshot. The tab-switch / close / content-change drops still hold.
 - `bash tests/run_all_python_tests.sh`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-14T14:10:19Z status=pass attempt=1 type=human
