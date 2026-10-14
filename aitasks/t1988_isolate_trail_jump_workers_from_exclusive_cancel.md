@@ -54,3 +54,8 @@ started in the same tick as the pick; assert the jump completes and
 `_trail_jump_busy` clears). Also audit the other default-group thread workers in
 `board_trail_screen.py` (reload, drift, xdep, discovery) for state that only
 their callback resets.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-14T18:57:31Z status=pass attempt=1 type=human
