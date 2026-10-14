@@ -3,11 +3,12 @@ priority: medium
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [ait_brainstorm, tui]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-10-14 15:52
-updated_at: 2026-10-14 15:52
+updated_at: 2026-10-14 15:55
 ---
 
 ## Problem
