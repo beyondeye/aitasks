@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: high
 depends: [t1957_2, t1957_3]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [trails, board, tmux, cross_repo]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1957
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-12 21:32
-updated_at: 2026-10-14 00:29
+updated_at: 2026-10-14 12:19
+completed_at: 2026-10-14 12:19
 ---
 
 ## Context
@@ -134,3 +135,14 @@ sessions in `TuiSwitcherOverlay._ensure_session_live`, `lib/tui_switcher.py`
 > **✅ gate:plan_approved** run=2026-10-13T21:29:13Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-14T09:06:11Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-14T09:19:13Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:c34b567a80b2557e
+
+> **✅ gate:risk_evaluated** run=2026-10-14T09:19:13Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1957_4/risk_evaluated_2026-10-14T09:19:13Z-risk_evaluated-a1.log`
