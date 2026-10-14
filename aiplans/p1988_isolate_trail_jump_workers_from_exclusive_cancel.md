@@ -154,3 +154,53 @@ None identified.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+- **Actual work done:** As planned. `board_trail_screen.py`: the eight
+  default-group thread workers got dedicated groups — `trail_jump` (prepare +
+  finish), `trail_discovery`, `trail_xdep`, `trail_drift`, `trail_reload`,
+  `trail_watch`, `trail_launch` (baseline). The `_trail_link_worker` comment now
+  states the rule once for the mixin; each site has a one-line comment naming
+  the state a pre-start cancel would strand. `run_dialog_command` stays
+  `exclusive=True` in the default group (the canceller). Tests in
+  `tests/test_board_bytrail_view.py`: `LinkedTrailsTests.test_an_exclusive_default_group_worker_cannot_strand_the_jump`
+  (subTests `prepare` / `finish`), `ThreadWorkerTests.test_an_exclusive_default_group_worker_cannot_strand_the_watch`,
+  `ThreadWorkerTests.test_an_exclusive_default_group_worker_cannot_strand_the_launch`,
+  and the AST guard `TrailWorkerGroupTests.test_non_exclusive_workers_run_outside_the_default_group`
+  (with a vacuity check over the nine known worker names).
+- **Deviations from plan:** None.
+- **Issues encountered:** The jump mutants surface as an ERROR, not a FAIL:
+  `_drain`'s `app.workers.wait_for_complete()` raises
+  `textual.worker.WorkerCancelled` for the cancelled victim before the
+  `_trail_jump_busy` assertion is reached. That signal is the defect itself
+  (only the victim worker is cancelled — the exclusive `lambda: None` is not),
+  so the shared `_drain` helper was left unchanged. A first unittest-based
+  mutant run grepped only `^FAIL:` and so looked green for the jump mutants;
+  re-checked with `ERROR:` included (below).
+- **Red proofs** (isolated copy: `git archive HEAD .aitask-scripts tests seed`
+  extracted to the scratchpad, the two edited files overlaid, one mutant at a
+  time = drop `group=` from one decorator; the shared tree was never mutated,
+  and the copy was byte-compared back to the working tree afterwards):
+  - prepare worker → `ERROR: …cannot_strand_the_jump (phase='prepare')`
+    `WorkerCancelled`; the `finish` subtest passes; AST guard names
+    `['_trail_jump_prepare_worker']`.
+  - finish worker → `ERROR: …cannot_strand_the_jump (phase='finish')`
+    `WorkerCancelled`; the `prepare` subtest passes; AST guard names
+    `['_trail_jump_finish_worker']`.
+  - watch worker → `FAIL …cannot_strand_the_watch` — `AssertionError: [] is not
+    true : the poll never reported`; AST guard fails.
+  - baseline worker → `FAIL …cannot_strand_the_launch` — `AssertionError: [] is
+    not true : the confirmed launch never ran`; AST guard fails.
+  - reload worker → only the AST guard fails, naming `['_trail_reload_worker']`.
+  - vacuity: `@work` → `@textual_work` on the xdep worker → AST guard fails with
+    `scan missed workers: {'_trail_xdep_worker'}`.
+  - restored copy: 5 passed.
+- **Verification:** `pytest tests/test_board_bytrail_view.py tests/test_trails_app.py -n 4 --dist loadfile`
+  → `287 passed in 156.11s`, exit 0.
+- **Key decisions:** Per-family group names (not one shared `trail` group), so a
+  future exclusive worker added to one family cannot cancel another. The four
+  display-only workers (reload, drift, xdep, discovery) are pinned by the AST
+  guard rather than four more real-App tests; the three latching families get
+  behavioural tests.
+- **Upstream defects identified:**
+  - `.aitask-scripts/board/aitask_board.py:6600,6756,6920,6971 — _do_archive / _do_delete / _do_rename_task / _do_git_commit_tasks run as @work(thread=True) in Textual's default group; an exclusive default-group worker (_run_sync from the auto-refresh timer, run_dialog_command, run_aitask_pick, run_codeagent_operation) started before one of them begins cancels it, and the confirmed archive/delete/rename/commit silently never runs (same mechanism as t1979/t1988; not reproduced)`
