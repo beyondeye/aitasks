@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: high
 depends: [t1957_2, t1957_3]
 issue_type: feature
@@ -130,3 +132,5 @@ sessions in `TuiSwitcherOverlay._ensure_session_live`, `lib/tui_switcher.py`
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-10-13T21:29:13Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-10-14T09:06:11Z status=pass attempt=1 type=human
