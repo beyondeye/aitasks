@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1852
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-12 17:51
-updated_at: 2026-10-14 12:00
+updated_at: 2026-10-14 18:59
 ---
 
 ## Context
@@ -87,3 +88,8 @@ The current four-language M2.2 work stays unblocked: nothing here may become a h
 > | - Adapter contract for any production provider: findings items 2 and 4 (byte offsets of the original source, per-token text validation, construct coalescing, shared-oracle labelling).
 
 > **👁 note:read** id=2026-10-14T09:00:39Z.00ea331d0a8fddc5ab4b29c2 by=t1954_4 at=2026-10-14T09:00:39Z mode=explicit ids=2026-10-13T09:01:55Z.bf7d62c470358b1a7ab56e02,2026-10-13T12:49:50Z.516dbdf758dffa123ba04808,2026-10-13T20:58:59Z.882977afb9eecf0b248d2c46
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-14T15:59:35Z status=pass attempt=1 type=human
