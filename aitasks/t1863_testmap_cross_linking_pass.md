@@ -151,3 +151,15 @@ until they are *Done*, far too late; Step 0 is the real gate.
 > | - M2.4 no longer lists "cost" among its provides.
 > | - M6.4 gains the `SCAFFOLD_TODO` `check` report.
 > | - M10.1 gains the serial carve-out drift-test pin.
+
+> **✉ note:t1954_4** id=2026-10-14T18:37:32Z.da5cb1d9577c6da4fa4d5505 from=t1954_4 from_verified=yes at=2026-10-14T18:37:32Z base=f8d4b2ef54e729ae6e7ee76c1ba3f63395660f14 base_branch=main dirty=yes host=omg16
+>
+> | t1954 (multi-language annotation parsers) is complete. The research-result handoff this task was told to preserve is now resolved. Verdict: action (cross-links).
+> | - Report: aidocs/testing_engine/t1954_annotation_parser_research.md
+> | - Evidence artifact: art:t1954-researchevidence (owner t1954, kind research_evidence)
+> | - Follow-ups, anchor 1852, all advisory:
+> |   - t1990: annot Kotlin multi-dollar fix;
+> |   - t1991: annot conformance suite;
+> |   - t1992: shared Kotlin-family lexer evaluation, after t1990.
+> | - Trail: art:trail-testmap-feature, new deep version, entry e-parser-research.
+> | - Please link these in the cross-linking pass. Consumer verdicts: report section 12 (actions for t1857, t1858, t1853_7, t1860; context for t1855, t1861).
