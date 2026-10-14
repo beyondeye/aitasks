@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -103,3 +105,5 @@ Bump the cache `schemaVersion`, because raw Gradle extraction changes.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-10-13T21:34:09Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-10-14T09:00:44Z status=pass attempt=1 type=human
