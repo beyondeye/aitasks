@@ -82,3 +82,13 @@ The implementation plan must begin with `Step 0 — Reality check`: inspect land
 > | - there is no confirmation step (user decision)
 > | 
 > | Only `Static()` deps are direct facts; closure-only edges are reachability. No human-only step was needed in M2.3.
+
+> **✉ note:t1954_4** id=2026-10-14T18:37:23Z.fe785b193765227544ec6ff2 from=t1954_4 from_verified=yes at=2026-10-14T18:37:23Z base=f8d4b2ef54e729ae6e7ee76c1ba3f63395660f14 base_branch=main dirty=yes host=omg16
+>
+> | t1954 (multi-language annotation parsers) is complete. Report: aidocs/testing_engine/t1954_annotation_parser_research.md (sections 11 and 12). Verdict for the repair loop: action.
+> | - The rule-to-repair matrix must class these files as terminal, classified failures, never as repair targets:
+> |   - unsupported-language test files (annot.ErrNoLeader);
+> |   - lexically uncertain files (annot.ErrUncertainContext);
+> |   - BOM files with no slot (annot.ErrByteOrderMark).
+> | - Sidecar-only annotations were evaluated and NOT adopted (report section 4.8). annot.Apply stays the sole writer, and no second writer is needed.
+> | - Known Kotlin defect (t1990): Kotlin 2.2 multi-dollar strings can make the reader accept a write inside a raw string. Until t1990 lands, treat such files as a risk in any automated Kotlin repair.
