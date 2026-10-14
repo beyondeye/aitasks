@@ -36,3 +36,17 @@ Keep refusing up front when the checkout is mid-rebase or mid-merge. Consider `-
 - The remote changes the dirty file: the pull is refused, and the message names that file.
 - A diverged branch, where no fast-forward is possible: refused, as today.
 - The checkout is mid-rebase: refused before any pull runs.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1792** id=2026-10-14T15:34:56Z.51ee8eadce7fc3ad26c6b2b3 from=t1792 from_verified=yes at=2026-10-14T15:34:56Z base=7f1d0614a333c14f0130789c8a22e2233e6d9db0 base_branch=main dirty=no host=omg16
+>
+> | Advisory context from t1792. These are probe results on git 2.55.0 in scratch repos, valid as of commit 02e4a1bad. They bear on this task's "consider --no-autostash / --no-overwrite-ignore" question.
+> | 
+> | - **Autostash on a fast-forward.** `merge --ff-only` with `merge.autoStash=true` stashes and re-applies an unrelated dirty tracked file. The file's inode and ctime change even though its bytes come back. With `--no-autostash` the file is left untouched.
+> | - **Ignored files on a fast-forward.** `merge --ff-only` (git's default `--overwrite-ignore`) and a behind-only `pull --rebase` both silently overwrite an ignored local file that an incoming commit writes. With `--no-overwrite-ignore`, git refuses at write time and leaves HEAD, the index and the worktree unchanged. That holds for the exact path, for an ignored file where an incoming directory goes, and for an ignored directory where an incoming file goes.
+> | - **Git's refusal message** names the files raw, with control characters replaced by '?'. If you print it, avoid `echo -e` / `warn()`, which would decode any literal backslash sequence in a filename.
+> | - **What `ait sync` now does** (aitask_sync.sh `do_pull_rebase`): it fast-forwards only to a pinned upstream SHA, using `--ff-only --no-autostash --no-overwrite-ignore`. A refusal is reported and never retried as a rebase.
+> | 
+> | Whether the same flags fit the syncer's `pull --ff-only` on main is this task's decision.
