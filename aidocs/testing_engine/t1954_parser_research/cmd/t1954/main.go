@@ -16,6 +16,7 @@
 //	t1954 lsp      [--servers a,b] [--workdir d]     do language servers expose comments? (t1954_3)
 //	t1954 sidecar                                    the registry fed from YAML sidecars (t1954_3)
 //	t1954 footprint-t3                               the t1954_3 candidates' footprint
+//	t1954 pindiff  --old d --new d [--out f]         two matrix directories compared case by case (t1954_4)
 package main
 
 import (
@@ -84,7 +85,7 @@ func main() {
 var extraVerbs = map[string]func([]string) int{}
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: t1954 matrix|edit|guard|classes|oraclecheck|realrepo|bench|footprint|env|localpolicy|lsp|sidecar|footprint-t3 [flags]")
+	fmt.Fprintln(os.Stderr, "usage: t1954 matrix|edit|guard|classes|oraclecheck|realrepo|bench|footprint|env|localpolicy|lsp|sidecar|footprint-t3|pindiff [flags]")
 	os.Exit(64)
 }
 

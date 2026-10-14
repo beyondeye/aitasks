@@ -283,3 +283,26 @@ print(len(s), test_latin1())
             ("ins", 7, f"# testmap:covers src/latin1_more.py {NEW}{W}")),
        ]),
 ]
+
+# t1954_4: the newest lexical syntax the landed reader must handle. Python
+# 3.14 template strings (PEP 750) with PEP 701 quote reuse, a real comment
+# inside a multi-line replacement field (never an annotation line: x-policy,
+# as for f-strings), and a raw t-string.
+FIXTURES += [
+    Fx("tstrings_314.py", f'''d = {{"k": 1}}
+x = 1
+s = t"{{d["k"]}} # testmap:covers src/fake_inline.py"{L}
+r = t"""{{x
+# testmap:covers src/fake_field.py{L}
+}}"""
+# testmap:covers src/real.py{W}
+u = t"{{d["k"]}}"
+v = t"{{"\\""}}"
+q = tr"""
+# testmap:covers src/fake_raw.py{L}
+"""
+# testmap:covers src/real2.py{W}
+''', native=NATIVE + ["python-exec"], exec_="python3 {file}", extra={"x-policy": "5"},
+       notes=["t1954_4: Python 3.14 t-strings: quotes reused inside a field, a comment inside a multi-line field (line 5: "
+              "a real tokenize COMMENT that M2.2's policy never treats as an annotation line), a raw t-string"]),
+]

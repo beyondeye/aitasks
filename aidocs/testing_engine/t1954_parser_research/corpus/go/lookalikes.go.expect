@@ -8,4 +8,4 @@ readonly:
 lookalikes: 5-6,9
 comments: 3,11
 refuse: none
-note: origin: M2.2 annot/testdata/parse/lookalikes.go.in (+ .golden) @ f096db065a72
+note: origin: M2.2 annot/testdata/parse/lookalikes.go.in (+ .golden) @ 3d1a2b628fc0

@@ -265,3 +265,21 @@ echo "${{#s}} ${{#t}}" "$(non_ascii)"
             "refused:not-comment"),
        ]),
 ]
+
+# t1954_4: bash 5.3 function substitutions ${ cmd; } and ${| cmd; }, one
+# holding a heredoc, one a quoted brace. bash 5.3.15 runs it (its output
+# prints line 3 as heredoc data).
+FIXTURES += [
+    Fx("funsub_53.sh", f"""#!/bin/bash
+x=${{ cat <<EOF
+# testmap:covers src/fake_heredoc.sh{L}
+EOF
+}}
+y=${{| REPLY="}}"; }}
+# testmap:covers src/real.sh{W}
+z=${{ echo "}}"; echo ok; }}
+# testmap:covers src/real2.sh{W}
+echo "$x $y $z"
+""", native=NATIVE + ["bash-exec"], exec_="bash {file}",
+       notes=["t1954_4: bash 5.3 ${ …; } / ${| …; } function substitutions with a heredoc and a quoted brace inside"]),
+]

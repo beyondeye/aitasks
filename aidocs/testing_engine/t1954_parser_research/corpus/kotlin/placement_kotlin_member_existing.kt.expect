@@ -9,4 +9,4 @@ lookalikes:
 comments: 2-3
 refuse: none
 placement: member:Welcome=3
-note: origin: M2.2 annot/testdata/placement/kotlin_member_existing.kt.in (+ .golden) @ f096db065a72
+note: origin: M2.2 annot/testdata/placement/kotlin_member_existing.kt.in (+ .golden) @ 3d1a2b628fc0

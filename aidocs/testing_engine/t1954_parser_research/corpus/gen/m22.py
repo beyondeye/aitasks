@@ -266,7 +266,10 @@ def lex_fixtures(commit):
             assert len(want) == len(body), (name, want, body)
             for i, (cls, l) in enumerate(zip(want, body)):
                 if cls == "#":
-                    marks[i + 1] = "W" if ANNOT.match(l) else "C"
+                    # t1954_4: the BOM cases (t1969) put the mark before line 1's
+                    # comment; the want class already says whether the language
+                    # skips it (bash keeps it as a word: class "c").
+                    marks[i + 1] = "W" if ANNOT.match(l.lstrip("\ufeff") if i == 0 else l) else "C"
                 elif "testmap:" in l:
                     marks[i + 1] = "L"
             if fn == "TestClassifyPython" and name == "docstring":
@@ -287,7 +290,7 @@ def lex_fixtures(commit):
 
 # TestClassifyPython's docstring-shape table: (src, first, end, content) plus
 # the hand-derived statement end (DocEnd) used for placement.
-DOC_DOCEND = {0: 3, 1: 1, 2: 1, 3: 1, 4: 4}
+DOC_DOCEND = {0: 3, 1: 1, 2: 1, 3: 1, 4: 4, 10: 4}  # 10: t1969's BOM docstring (t1954 python/bom_doc.py), closing on line 4
 
 
 def doc_fixtures(commit):

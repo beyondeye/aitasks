@@ -14,4 +14,4 @@ readonly:
 lookalikes: 
 comments: 5-7,10-11,14-16
 refuse: none
-note: origin: M2.2 annot/testdata/parse/bash_members.sh.in (+ .golden) @ f096db065a72
+note: origin: M2.2 annot/testdata/parse/bash_members.sh.in (+ .golden) @ 3d1a2b628fc0

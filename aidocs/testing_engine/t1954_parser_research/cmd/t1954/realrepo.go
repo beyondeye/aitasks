@@ -38,6 +38,7 @@ func cmdRealrepo(args []string) int {
 	prov := fs.String("provider", "all", "subjects compared with the baseline")
 	out := fs.String("out", "results", "output directory")
 	maxPaths := fs.Int("max-paths", 40, "paths listed per disagreement kind")
+	inputLabel := fs.Bool("input-label", false, "print the walked checkout's commit (and dirty state) under the header")
 	_ = fs.Parse(args)
 	if *repo == "" {
 		fail(64, fmt.Errorf("realrepo: --repo required"))
@@ -159,6 +160,9 @@ func cmdRealrepo(args []string) int {
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "# Real-repository disagreement: %s\n\n%s\n\n", *name, id.Header())
+	if *inputLabel {
+		fmt.Fprintf(&b, "Input: `%s%s`, the walked checkout at that commit.\n\n", *name, describeCheckout(*repo))
+	}
 	b.WriteString("Read-only walk of the repository's git-visible files (`git ls-files --cached --others --exclude-standard`) in the 8 research languages; nothing was executed or written there, and this report holds counts and paths only, never contents. ")
 	fmt.Fprintf(&b, "Each candidate is compared with the baseline (the landed M2.2 lexers) as the reference; a disagreement is evidence to inspect, not a verdict on either side. Files over %d bytes skipped: %d.\n\n", maxFileBytes, skipped)
 	b.WriteString("## Files per language\n\n| lang | files | baseline uncertain |\n|---|---|---|\n")

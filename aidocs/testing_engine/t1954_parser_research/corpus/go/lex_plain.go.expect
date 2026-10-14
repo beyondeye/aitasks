@@ -7,4 +7,4 @@ readonly:
 lookalikes: 
 comments: 3
 refuse: none
-note: origin: M2.2 annot/lexctx_test.go TestClassifyGo 'plain' @ f096db065a72
+note: origin: M2.2 annot/lexctx_test.go TestClassifyGo 'plain' @ 3d1a2b628fc0

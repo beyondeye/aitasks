@@ -284,6 +284,12 @@ func commentAgreement(lang string, c corpus.Case, r *ocRow) string {
 		}
 		ln := provider.LineOf(starts, s.Start)
 		f := starts[ln-1]
+		// A leading UTF-8 BOM is not part of line 1 where the toolchain skips
+		// it (every corpus language but bash, whose BOM is a word): the native
+		// tools report the comment after it (t1969's BOM cases, t1954_4).
+		if ln == 1 && lang != "bash" && bytes.HasPrefix(c.Data, []byte("\xef\xbb\xbf")) {
+			f += 3
+		}
 		for f < len(c.Data) && (c.Data[f] == ' ' || c.Data[f] == '\t') {
 			f++
 		}

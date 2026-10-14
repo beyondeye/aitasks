@@ -169,7 +169,7 @@ func resultKey(r provider.Result) (unc bool, spans, anchors, doc string) {
 
 func cmdTSDiff(args []string) int {
 	fs := flag.NewFlagSet("tsdiff", flag.ExitOnError)
-	repos := fs.String("repos", "aitasks,aitasks_go,aitasks_mobile,thinking_app,thinking_backend,timexchange", "registered repositories walked read-only")
+	repos := fs.String("repos", "aitasks,aitasks_go,aitasks_mobile,thinking_app,thinking_backend,timexchange", "repositories walked read-only: registered names, or name=path for an explicit checkout (labelled name@<sha12>)")
 	out := fs.String("out", "results/ts_differential.md", "output file")
 	maxPaths := fs.Int("max-paths", 25, "paths listed per kind")
 	_ = fs.Parse(args)
@@ -205,19 +205,16 @@ func cmdTSDiff(args []string) int {
 	top, _ := exec.Command("git", "-C", id.Root, "rev-parse", "--show-toplevel").Output()
 	setOrder := []string{"corpus"}
 	unresolved := map[string]string{}
-	for _, n := range strings.Split(*repos, ",") {
-		if n == "" {
+	for _, entry := range splitList(*repos) {
+		ri, err := resolveRepo(strings.TrimSpace(string(top)), entry)
+		if err != nil {
+			unresolved[ri.Name] = "not resolved"
 			continue
 		}
-		res, err := exec.Command(filepath.Join(strings.TrimSpace(string(top)), "ait"), "projects", "resolve", n).Output()
-		path := strings.TrimPrefix(strings.TrimSpace(string(res)), "RESOLVED:")
-		if err != nil || path == "" {
-			unresolved[n] = "not resolved"
-			continue
-		}
+		path, n := ri.Path, ri.Label
 		ls, err := exec.Command("git", "-C", path, "ls-files", "-z", "--cached", "--others", "--exclude-standard").Output()
 		if err != nil {
-			unresolved[n] = "git ls-files failed"
+			unresolved[ri.Name] = "git ls-files failed"
 			continue
 		}
 		setOrder = append(setOrder, n)

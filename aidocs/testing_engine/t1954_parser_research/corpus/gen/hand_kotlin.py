@@ -151,3 +151,63 @@ class NonAsciiTest {{
             "refused:not-comment"),
        ]),
 ]
+
+# t1954_4: Kotlin 2.2 multi-dollar interpolation strings ($$"…", $$"""…""").
+# With N dollars in the prefix only $…${ with N dollars interpolates; a lone
+# ${ is literal text. A reader that takes that ${ for a template mis-places
+# every later string and comment boundary (the deps lexer defect fixed by
+# t1980, the Gradle blanker in t1975). kotlinc 2.4.21 compiles all four.
+FIXTURES += [
+    Fx("multidollar_comment_desync.kt", f"""package app
+
+// testmap:covers app/real.kt{W}
+fun f() {{
+    val s = $${Q3}${{/*{Q3}
+    // */
+}}
+val t = {Q3}
+// testmap:covers app/fake.kt{L}
+{Q3}
+val u = {Q3}x{Q3}
+// {Q3}
+""", native=NATIVE,
+       notes=["t1954_4: a literal ${ then /* inside a multi-dollar raw string; a reader that opens a template there sees a block comment, leaves it at the `// */` line comment, and ends up outside the string that line 9 is really inside"],
+       edits=[
+           (f"raw kind=replace line=9 member= source=app/fake.kt from=original new=// testmap:covers app/fake.kt {RE}",
+            "refused:not-comment"),
+       ]),
+
+    Fx("multidollar_literal_brace.kt", f"""package app
+
+val s = $${Q3}${{
+// testmap:covers app/fake.kt{L}
+}}{Q3}
+
+// testmap:covers app/real.kt{W}
+fun f() = 1
+""", native=NATIVE,
+       notes=["t1954_4: a literal ${ … } spanning lines inside a multi-dollar raw string"]),
+
+    Fx("multidollar_quote_boundary.kt", f"""package app
+
+val a = $${Q3}${{{Q3}
+val b = {Q3}
+// testmap:covers app/fake.kt{L}
+{Q3}
+val c = {Q3}
+}}{Q3}
+// testmap:covers app/real.kt{W}
+fun k() = 3
+""", native=NATIVE,
+       notes=["t1954_4: the closing quotes right after a literal ${ end the multi-dollar string"]),
+
+    Fx("multidollar_interpolation.kt", f"""package app
+
+val x = 1
+val s = $${Q3}$${{x}} ${{not a template}} // testmap:covers app/fake.kt{Q3}{L}
+val r = $$"${{"
+// testmap:covers app/real.kt{W}
+fun h() = "}}"
+""", native=NATIVE,
+       notes=["t1954_4: $${…} interpolates in a $$ string, ${…} does not; a single-quoted $$\"${\" string closes on the same line"]),
+]

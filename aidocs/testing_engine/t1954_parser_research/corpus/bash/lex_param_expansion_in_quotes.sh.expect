@@ -6,4 +6,4 @@ readonly:
 lookalikes: 2
 comments: 4
 refuse: none
-note: origin: M2.2 annot/lexctx_test.go TestClassifyBash 'param-expansion-in-quotes' @ f096db065a72
+note: origin: M2.2 annot/lexctx_test.go TestClassifyBash 'param-expansion-in-quotes' @ 3d1a2b628fc0

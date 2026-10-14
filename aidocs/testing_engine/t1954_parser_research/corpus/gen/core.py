@@ -93,7 +93,10 @@ def records_of(lines, marks, docrecs=()):
     for n in sorted(marks):
         if marks[n] != "W":
             continue
-        m = ANNOT.match(lines[n - 1].rstrip("\r"))
+        text = lines[n - 1].rstrip("\r")
+        if n == 1:
+            text = text.lstrip("\ufeff")  # a leading BOM is not part of line 1 (the marks decide whether it counts)
+        m = ANNOT.match(text)
         if not m:
             raise ValueError("line %d marked W but not an annotation: %r" % (n, lines[n - 1]))
         key, args = m.group(2), m.group(3).split()

@@ -1,5 +1,5 @@
 # Immutable baseline for the t1954 parser research. Moving the pin is a
 # deliberate, committed edit of this file (see README.md).
-commit: f096db065a7249836c9a82f9d05bbd20fc43b961
-tree: 200bd2130a1dc45f27bebdec16392da76bfc018b
+commit: 3d1a2b628fc07f75b279c0c125ed4705316c9368
+tree: 2c26f17fe33a425b88af7ac7e20d731e3499ace9
 seam_sha256: 9a8013a789e79117539ac3e7b2b1dfa924376b301fe6d9628f579ccc127d0296

@@ -208,7 +208,8 @@ func cmdBench(args []string) int {
 	fs := flag.NewFlagSet("bench", flag.ExitOnError)
 	out := fs.String("out", "results/bench.md", "output file")
 	runs := fs.Int("runs", 3, "fresh processes per measurement")
-	siblings := fs.String("siblings", "aitasks_go,aitasks_mobile,thinking_app,thinking_backend,timexchange", "registered sibling projects for the lexical-only sets (read-only)")
+	siblings := fs.String("siblings", "aitasks_go,aitasks_mobile,thinking_app,thinking_backend,timexchange", "sibling projects for the lexical-only sets (read-only): registered names, or name=path for an explicit checkout (labelled name@<sha12>)")
+	aitasksDir := fs.String("aitasks", "", "checkout for the aitasks test-file set (empty = this repository's live toplevel)")
 	subjectsFlag := fs.String("subjects", strings.Join(benchSubjects, ","), "end-to-end subjects (comma list)")
 	lexFlag := fs.String("lex-subjects", strings.Join(lexSubjects, ","), "lexical-only subjects (comma list)")
 	title := fs.String("title", "t1954_1", "task named in the report title")
@@ -239,21 +240,23 @@ func cmdBench(args []string) int {
 	sort.Strings(m22Files)
 	sets = append(sets, lexSet{"M2.2 shape tests (420)", m22Files})
 	top, _ := exec.Command("git", "-C", id.Root, "rev-parse", "--show-toplevel").Output()
-	if f, err := testFiles(strings.TrimSpace(string(top))); err == nil {
-		sets = append(sets, lexSet{"aitasks test files", f})
+	if *aitasksDir == "" {
+		if f, err := testFiles(strings.TrimSpace(string(top))); err == nil {
+			sets = append(sets, lexSet{"aitasks test files", f})
+		}
+	} else if f, err := testFiles(*aitasksDir); err == nil {
+		sets = append(sets, lexSet{"aitasks" + describeCheckout(*aitasksDir) + " test files", f})
+	} else {
+		sets = append(sets, lexSet{Name: "aitasks test files (unreadable: " + *aitasksDir + ")"})
 	}
-	for _, n := range strings.Split(*siblings, ",") {
-		if n == "" {
+	for _, entry := range splitList(*siblings) {
+		ri, err := resolveRepo(strings.TrimSpace(string(top)), entry)
+		if err != nil {
+			sets = append(sets, lexSet{Name: ri.Name + " test files (unresolved)"})
 			continue
 		}
-		p, err := exec.Command(filepath.Join(strings.TrimSpace(string(top)), "ait"), "projects", "resolve", n).Output()
-		path := strings.TrimPrefix(strings.TrimSpace(string(p)), "RESOLVED:")
-		if err != nil || path == "" {
-			sets = append(sets, lexSet{Name: n + " test files (unresolved)"})
-			continue
-		}
-		if f, err := testFiles(path); err == nil {
-			sets = append(sets, lexSet{n + " test files", f})
+		if f, err := testFiles(ri.Path); err == nil {
+			sets = append(sets, lexSet{ri.Label + " test files", f})
 		}
 	}
 	var b strings.Builder
