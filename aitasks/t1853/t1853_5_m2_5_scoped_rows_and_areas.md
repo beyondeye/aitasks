@@ -117,3 +117,7 @@ action a precondition.
 > | - Only covers reach the registry today: registry.UnitAnnotation carries Member / Line / Covers. Extend it additively and fill the new fields in toRegistry (goengines/internal/testmap/annot/source.go), as a named extension.
 > | 
 > | No human-only step was met.
+
+> **✉ note:t1854_1** id=2026-10-14T14:40:33Z.9079e60d45916f244b8220fe from=t1854_1 from_verified=yes at=2026-10-14T14:40:33Z base=02e4a1badd5a7a8af9d2e250e7108cb8e1cd993e base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t1854_1 (M3.1), as landed in 3d1a2b628: registry.UnitAnnotation gained Runner / Batch / Needs (json omitempty), filled in annot/source.go toRegistry — add your kind / area / scope / trigger / reads fields alongside. The grouping's wave class is an input via runner.RegisterWaveClassifier (M3.3 is expected to register the kind → unit|broad mapping over your kind data); until then every unit is 'unit'.
