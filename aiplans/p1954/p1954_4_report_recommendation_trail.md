@@ -274,3 +274,35 @@ Commits as in step 8, then standard child archival. The parent t1954 archives wi
 - The deep trail refresh means hand-authoring JSON for about 28 members while some are being implemented concurrently (t1854_1, t1975, t1977). · severity: low · → mitigation: in-plan (schema validation with `--expect-depth deep`, `drift` CURRENT before the write, the stale-base guard)
 
 Every risk above carries an in-plan mitigation. No spawned task or inline phase is proposed: `risk_mitigations_planned = false`. The parent plan's two post-phase mitigations are carried in the Post-phase block.
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - **Step 0 (inputs).** The six registered repositories were snapshotted as temporary checkouts of their recorded HEADs (`results/t4/inputs.md`). The harness gained `name=path` entries for `tsdiff --repos` and `bench --siblings`, `bench --aitasks <path>`, and `realrepo --input-label`. Each entry is labelled `name@<sha12>`, plus `(dirty: N paths)` when the checkout is dirty (`cmd/t1954/repos.go` + test).
+  - **Step 1 (reproduction).** A `git archive` of the committed research dir, run against the `f096db065` snapshot, reproduced the committed `guard.md`, all 14 `matrix*.md`, `oracle_check.md` and `ts_local_error_policy.md` **byte for byte**.
+  - **Step 2 (pin move).** The PIN moved to `3d1a2b628` (annot as of t1854_1). The seam patch applies unchanged (same sha256), the harness compiled without adaptation, and the guard passes.
+  - **Step 3 (final run).** Every verb, into `results/t4/`, on the final 240-fixture corpus. The new `pindiff` verb (+ test) produces `pin_compare.md`; `tools/agg_realrepo.py` produces `realrepo_totals.md`.
+  - **Steps 4–7.** The report `aidocs/testing_engine/t1954_annotation_parser_research.md`, the evidence artifact `art:t1954-researchevidence`, and follow-ups t1990, t1991 and t1992. Notes and the trail come after the commit.
+- **Deviations from plan:**
+  - **The corpus grew from 229 to 240.**
+    - t1980, a concurrent task, found that Kotlin 2.2 multi-dollar strings break the `deps` Kotlin lexer. The corpus had no such case, so 4 Kotlin multi-dollar fixtures were added, plus language-version probes for the other supported languages: Python 3.14 t-strings and bash 5.3 `${ …; }`.
+    - Moving the PIN made `gen_corpus.py` re-import M2.2's tables from `3d1a2b628`. That changed every imported `.expect`'s `origin:` note (no `.in` changed) and added t1969's 5 BOM cases.
+  - **The multi-dollar fixture contradicted a premise of the expected recommendation.** The landed Kotlin reader reads a raw-string look-alike, and `Apply` writes it: FP-writable 3, record corruption 1. The plan's decision checkpoint fired. The user chose "Amend, advisory": keep the recommendation, add t1990 (advisory, not a hard dependency of M10) and the language-version clause. The user also asked for the shared-lexer evaluation t1992.
+  - **The old-pin run was moved onto the final corpus** (a scratch copy of the sources with the old PIN), so `pin_compare.md` compares like with like. The committed child-era files stay the reproduction reference.
+- **Issues encountered:**
+  - **Two importer defects exposed by t1969's BOM cases** (fixed in `corpus/gen/`):
+    - `m22.py` matched the annotation regex on a line that starts with U+FEFF;
+    - `DOC_DOCEND` had no entry for docs case 10.
+  - **The oracle check compared line 1's first non-blank byte, including a BOM.** It now skips the BOM for every language except bash (`oraclecheck.go`).
+  - **A CPython 3.14.7 quirk.** `(t"{d["k"]}", "\"", t"{"\""})` fails to parse, while each part parses alone. The fixture uses separate statements, and the quirk is not pursued.
+  - **`Template + str` raises `TypeError` (PEP 750).** The first t-string fixture parsed but failed at run time; it was fixed.
+  - **The bench host** ran concurrent agent sessions; the 1-minute load is recorded before and after in `results/t4/bench.md` and in the log.
+- **Key decisions:**
+  - Both code commits use `chore:`, the task's issue_type, as the commit convention requires. The plan had named the report commit `documentation:`.
+  - All repository-derived measurements use commit checkouts; no live-tree run was needed.
+  - The final run lives in `results/t4/`, and the child-era files are untouched.
+  - The README documents both pins.
+  - `native_oracle_gap_followup` was not triggered: no language is `native: none`.
+- **Upstream defects identified:**
+  - `goengines/internal/testmap/annot/lexctx.go:787 — classifyKotlin does not model Kotlin 2.2 multi-dollar strings ($$"…"): a literal ${ is taken for a template, so a raw-string look-alike is read and written (FP-writable + record corruption on valid files). Already filed as t1990 during implementation.`
+- **Notes for sibling tasks:** none remain (t1954_4 is the last child). The consumer notes went to t1855, t1857, t1858, t1853_7, t1860, t1861 and t1863.
