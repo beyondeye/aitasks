@@ -3,13 +3,14 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [trails, cross_repo]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1957
 followup_kind: upstream_defect
 created_at: 2026-10-14 17:54
-updated_at: 2026-10-14 17:54
+updated_at: 2026-10-14 19:14
 ---
 
 ## Origin
