@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1852
 followup_kind: review_finding
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-14 17:26
-updated_at: 2026-10-14 17:46
+updated_at: 2026-10-14 19:09
 ---
 
 ## Context
@@ -80,3 +81,8 @@ and leaves no process behind.
 > | **Moment-relative, may already be stale:** as of this message, your plan draft (`glowing-beaming-treehouse.md`) places these helpers in `runner/*_test.go` files.
 > | 
 > | Advisory input only; your own planning, gates and review decide.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-14T16:09:50Z status=pass attempt=1 type=human
