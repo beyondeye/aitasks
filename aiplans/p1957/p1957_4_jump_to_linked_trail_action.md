@@ -583,3 +583,127 @@ t1957 is archived together with its last child (t1957_5 docs still pending).
 
 ### Planned mitigations
 - timing: post-phase | name: live_jump_bootstrap_path | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — jump tmux path exercised only against a stubbed gateway | desc: live isolated-tmux test running the real prepare_linked_trail_jump + finish_linked_trail_jump: start the target session → find it by root → trails window with --trail; no duplicate session on a second jump; version-skew control
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-14 11:20)
+- **Requested by user:** Three review findings.
+  1. A warning paused under another dialog was lost on retry: the fallback-session warning exists only on the prepare that STARTED the session.
+  2. The manual `ait projects exec …` command was not quoted, so a registry name holding spaces broke.
+  3. Overlapping `L` searches multiply export work. This one was marked as a follow-up.
+- **Changes made:**
+  1. Paused warnings are kept per target root (`_trail_jump_unread`) and merged into the retry's dialog.
+  2. `_manual_trail_command` uses `shlex.join`.
+  3. Follow-up task t1979 (`coalesce_linked_trail_scans`, anchored to t1957_4) was created; the code is unchanged.
+
+  Tests added: `test_a_paused_warning_is_shown_on_the_retry`,
+  `test_the_manual_command_survives_shell_parsing`, and a quoted-name switch
+  failure. Each fails with its fix reverted.
+- **Files affected:** `.aitask-scripts/board/board_trail_screen.py`, `tests/test_board_bytrail_view.py`, `tests/test_linked_trail_jump.py`
+
+### Change Request 2 (2026-10-14 11:50)
+- **Requested by user:** Change Request 1 replayed EVERY cached message. A compatibility warning ("older aitasks") was therefore shown after the target had been upgraded. It also could carry a previous handle's text into another jump.
+- **Changes made:** `TrailJump` now has two message kinds, and `to_confirm` = notices + warnings is what the dialog shows.
+  - `notices` are one-time events of this prepare (the bootstrap's fallback session name).
+  - `warnings` describe the target's current state (version skew).
+
+  Only `notices` are kept across a pause. Warnings are re-derived by every prepare.
+
+  Tests: `test_a_retry_rederives_compatibility_and_keeps_only_notices` and
+  `test_a_paused_compatibility_warning_alone_is_not_replayed`. Both fail under
+  the keep-everything behaviour. The unit test for the fallback case now
+  asserts `notices`.
+- **Files affected:** `.aitask-scripts/board/board_trail_screen.py`, `tests/test_board_bytrail_view.py`, `tests/test_linked_trail_jump.py`
+
+## Final Implementation Notes
+
+- **Actual work done:** All plan steps, findings 1–15, and the
+  `live_jump_bootstrap_path` post-phase.
+  - `lib/agent_launch_utils.py`:
+    - `BootstrapResult` and `bootstrap_project_session` (the subprocess call
+      lifted out of the switcher);
+    - `live_project_session`, `session_owned_by`, `is_aitasks_project`,
+      `trails_supports_focus`, `switch_client_to`.
+  - `lib/tui_switcher.py`: `_ensure_session_live` calls the helper. Its
+    messages and STALE handling are unchanged.
+  - `board/board_trail_view.py`: `linked_scan_error_text` (seven kinds),
+    `LinkedTrailItem`, `LinkedTrailsScreen`, `TrailJumpConfirmScreen`.
+  - `board/board_trail_screen.py`:
+    - the `L` binding in `TRAIL_BINDINGS`;
+    - `_trail_link_gen` / `_drop_trail_link_scan` invalidation (supersede,
+      switch, close, activate);
+    - `action_trail_linked`, which scans a deepcopy snapshot;
+    - `_on_trail_links`, with the gen / view / origin-identity / source-revision
+      (equality) / under-modal guards;
+    - the two-phase jump: `TrailJump`, `prepare_linked_trail_jump`,
+      `finish_linked_trail_jump`, the confirm dialog, the busy flag, and the
+      carried one-time notices.
+  - Both hosts gate `trail_linked` in `check_action`; the board re-exports the
+    new view names.
+- **Deviations from plan:**
+  - The "Searching…" notice has no project count (finding 2).
+  - The fallback-session message names the session actually found, not
+    `DEFAULT_TMUX_SESSION`.
+  - The project-marker check moved into the lib helper `is_aitasks_project`.
+    Both changes were forced by `test_board_fixture_harness.py::FreshLoadC2Tests`:
+    it flags any `board/` module-level value equal to `"aitasks"` or starting
+    with `aitasks/`, imported names included. That covers the imported
+    `DEFAULT_TMUX_SESSION` and a module-level `Path("aitasks")/…` marker. Both
+    are false positives (a session name and a project marker), but routing
+    them through lib keeps the contract simple.
+  - Error rows render below the link rows, under the incomplete-search note.
+  - The keymap golden's docstring was not edited, following the existing
+    style; this plan names the change.
+- **Issues encountered:**
+  - The first live run of case D failed on `tmux set-option -t '=<s>'`, which
+    is "no such session". `set-option` resolves a WINDOW-typed target, so it
+    needs `=<s>:` (the bootstrap's own form). This was test-only.
+  - The pre-tool hook rightly refused an ad-hoc `TMUX_TMPDIR=… tmux` probe;
+    `-L <throwaway>` was used instead.
+  - The first full-suite run caught the C2 false positives above. The
+    re-run passed: `PYTHON SUITE: PASSED (runner=pytest, exit=0)`, 8903
+    passed, 2 skipped.
+- **Key decisions:**
+  - `live_project_session` attributes EVERY live session, not just
+    `owned_lookup_session`'s two candidates. This finds a target running under
+    a non-default name, so the jump does not start a duplicate.
+  - `finish` re-checks the marker and `session_owned_by` on every run (the
+    execution boundary).
+  - The source App only shows notices on paths where the client did not
+    switch.
+  - Mutants confirmed each guard is test-pinned:
+    - no revision check;
+    - no drop on tab switch;
+    - warnings stacked on a modal;
+    - no ownership re-check (unit and live D);
+    - no carry;
+    - unquoted command;
+    - carry-everything.
+  - Live test: 25/25 on 3 consecutive runs. `shellcheck -x -P SCRIPTDIR` is
+    clean.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:** For t1957_5 (docs):
+  - Key: `L` "Linked Trails". It is live only in By-Trail with a loaded trail,
+    on both the board and `ait trails`.
+  - Messages, verbatim:
+    - "Searching for linked trails in other projects…"
+    - "No linked trails in other projects" (a complete, empty search)
+    - dialog note "No linked trails found — the search was incomplete:" or
+      "Some projects could not be fully searched — the list may be
+      incomplete:"
+  - Error rows: `<p>: could not search — stale path|not registered|export
+    failed|timed out (<detail>)`, `<p>: searched in part (<detail>)`, `project
+    registry <path> could not be read (<detail>)`, `this trail (<p>):
+    member(s) could not be read (<detail>)`.
+  - Picking a trail:
+    - it starts the target's tmux session when none runs (tmux_bootstrap.sh);
+    - it opens the trail in that project's `ait trails` (the running instance
+      via the pane mailbox, else a new `trails` window);
+    - then it switches the client.
+  - A target on an older aitasks (no `--trail`) gets a confirm dialog naming
+    `ait upgrade`; the user still lands in its session, without the trail
+    opened.
+  - Outside the aitasks tmux server the user gets the manual
+    `ait projects exec <p> -- ./ait trails --trail <h>`.
+  - `website/content/docs/tuis/board/reference.md` lists the trail keys and
+    needs `L`.
