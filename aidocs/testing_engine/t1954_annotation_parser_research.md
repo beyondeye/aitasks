@@ -648,5 +648,5 @@ Follow-up tasks, all with anchor 1852 and no hard dependencies. Their order is a
 | child-era results (pin `f096db065`, 229 fixtures; live-tree walks) | `R/results/` (top level), `R/results/ts/`, `R/results/t3/` |
 | child findings | `R/findings_t1954_1.md`, `R/findings_t1954_2.md`, `R/findings_t1954_3.md` |
 | raw logs, the old-pin final-corpus matrices, the reproduction outputs | artifact `art:t1954-researchevidence` |
-| plans | `aiplans/p1954_research_multilanguage_annotation_parsers.md` and the child plans (archived under `aiplans/archived/p1954/`) |
+| plans | the parent plan `p1954_research_multilanguage_annotation_parsers.md` and the child plans `p1954_<n>_*.md`, archived with t1954 under `aiplans/archived/` and `aiplans/archived/p1954/` |
 | trail | `art:trail-testmap-feature` |
