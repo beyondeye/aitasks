@@ -89,3 +89,5 @@ own scope at planning time, which is why it was dispositioned as a spawned
 > | Your premises still hold: the website sentence you mirror is at
 > | website/content/docs/skills/aitask-trail.md:85, and no "uncommitted" wording
 > | exists yet in the skill, its .agents / .opencode ports, or the goldens.
+
+> **👁 note:read** id=2026-10-14T08:42:13Z.977aa728d580cce5ec5036a9 by=t1709 at=2026-10-14T08:42:13Z mode=explicit ids=2026-09-10T18:36:50Z.1655c625be73cf1ae036de1e
