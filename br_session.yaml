@@ -1,0 +1,80 @@
+task_id: 1981
+task_file: aitasks/t1981_task_relations_and_obsolescence_design.md
+status: active
+crew_id: brainstorm-1981
+created_at: 2026-10-14 12:38
+updated_at: 2026-10-14 12:38
+created_by: dario-e@beyond-eye.com
+initial_spec: "---\npriority: medium\neffort: high\ndepends: []\nissue_type: feature\n\
+  status: Ready\nlabels: [brainstorming, task_relations, task-workflow, backlog]\n\
+  gates: [risk_evaluated]\ncreated_at: 2026-10-14 12:17\nupdated_at: 2026-10-14 12:17\n\
+  attachments:\n  - hash: sha256:d941bbfcddc2a7d87dd3aff6ad7f1d6f9242cfa4bef073d6dc4926378f842e85\n\
+  \    name: task_relations_proposal.md\n    mime: text/plain\n    size: 34005\n \
+  \   added_at: 2026-10-14 12:17\n    backend: local\n---\n\nDesign a **task-relations\
+  \ layer** for the aitasks framework. Background agents\nmaintain a store of confirmed\
+  \ task-to-task relations, kept separate from the task\nfiles, and the store becomes\
+  \ the source of the end-of-implementation notify list.\nOn the same infrastructure,\
+  \ add a **backlog-obsolescence layer** that gives pending\ntasks an obsolete score\
+  \ with reasons. Both are viewable in a TUI later. The\nrelations data is meant first\
+  \ of all for code agents.\n\n**This is a brainstorming task. Its output is a design\
+  \ document.** The seed\nproposal (three rounds of exploration on 2026-10-14) is\
+  \ attached to this task as\n`task_relations_proposal.md`. It holds the findings,\
+  \ the measurements with\nreproducible scripts (Appendix A), the decisions already\
+  \ taken, and the open\ndesign directions D1\u2013D13. Import it as the brainstorm\
+  \ root node with\n`ait brainstorm init <this task> --proposal-file <the attachment>`.\
+  \ The design is\ndeliberately NOT final. Work from the premises below and analyse\
+  \ the design\ndirections until they are settled.\n\n## Why\n\n- Today, `task-workflow`\
+  \ Step 8e (and the matching offers in `aitask-qa` and\n  `aitask-review`) chooses\
+  \ note recipients by agent judgement alone. With no\n  target, `/aitask-note` runs\
+  \ Related Task Discovery: every pending task's\n  title, labels and first ~5 body\
+  \ lines. No file surfaces, `depends`, trails or\n  past note edges are used.\n-\
+  \ Doing it well costs the implementing session real context. t1794 needed a\n  whole\
+  \ child task (t1794_9) to grep 103 candidates and send 63 notes.\n- Doing it broadly\
+  \ is harmful. There are 373 note commits and 52 read-receipt\n  commits on the shared\
+  \ task-data branch, each one a push race on the hottest\n  files. Over-notification\
+  \ is a defect.\n- Nothing identifies backlog tasks that are obsolete: tasks whose\
+  \ goal was met\n  elsewhere, whose direction was superseded, whose origin was reverted,\
+  \ or whose\n  target code is gone. t1663 / t1655 (premise staleness, not built)\
+  \ explicitly\n  exclude \"is this still worth doing?\".\n\n## Decisions taken so\
+  \ far\n\n1. Precision over recall. Notify only tasks with real connections; in doubt,\n\
+  \   exclude.\n2. A task-relations store, conceptually an extension of task metadata,\
+  \ stored\n   separately from the task files.\n3. Written by background agents when\
+  \ a task is created and when its plan is\n   finalized (approved) before implementation.\n\
+  4. The agents start from static analysis (metadata, task cross-references,\n   labels,\
+  \ file citations) to build candidates, then analyse them and record\n   only confirmed\
+  \ relations, each with a description of the relation.\n5. The end of implementation\
+  \ reads the store for the notify list.\n6. Obsolescence is a second layer on the\
+  \ same infrastructure, with different\n   search logic and an obsolete score with\
+  \ reasons. Never auto-actioned.\n7. A TUI for relations and obsolete tasks comes\
+  \ later. Agents are the first\n   consumers.\n8. Rejected as the primary mechanism:\
+  \ a purely static, in-session dependency\n   analyzer at the end of each task. It\
+  \ stays as the candidate generator.\n\n## Key measurements (details and scripts\
+  \ in the attachment)\n\n- Replay of 13 real senders (143 notes):\n  - Task-id cross-references\
+  \ in task bodies find 86% of actual recipients at\n    ~23 candidates per task.\n\
+  \  - File overlap finds 95%, but at ~290 candidates per task.\n  - Labels find 24%.\
+  \ Metadata edges alone find 26%.\n- Static indexing is cheap: 0.15 s for 594 tasks\
+  \ + 130 plans.\n- Analysis triggers run at about 12 per day (234 tasks and 129 plans\
+  \ in 30 days).\n- Of 577 pending tasks, 184 cite a path missing at HEAD. Most are\
+  \ renames,\n  relative paths or planned-new files. Only 3 cite a truly deleted file.\n\
+  \  Obsolescence needs judgement over static evidence.\n\n## Open design directions\
+  \ (see the attachment)\n\n- D1: store location (separate `aitask-relations` branch\
+  \ written like\n  `aitask-locks`, vs a one-file-per-record directory on the data\
+  \ branch).\n- D2: record schema, vocabulary and provenance digests.\n- D3: single-writer\
+  \ records with forward \u222A reverse lookup.\n- D4: triggers (four `aitask_create.sh`\
+  \ commit sites, plan approval at Step 7\n  and in `plan-approved-stop.md`, landed/archived,\
+  \ fold, sweep).\n- D5: execution (headless `relations` op, spool, single worker,\
+  \ budget,\n  opt-out).\n- D6: static candidate generation.\n- D7: the agent's inclusion\
+  \ test.\n- D8: push (notes) vs pull (pick-time surfacing from the store) vs hybrid.\n\
+  - D9: obsolete score evidence and dispositions.\n- D10: surfaces and TUI.\n- D11:\
+  \ freshness and lifecycle.\n- D12: cross-repo.\n- D13: evaluation.\n\n## Related\
+  \ tasks\n\n- t1663 (+ children) and t1655: premise staleness, the \"needs refresh\"\
+  \ axis.\n  Coordinate; do not duplicate.\n- t1634: fold-candidate clustering, a\
+  \ likely producer or consumer of\n  duplicate-type relations.\n- t1569 / t1718:\
+  \ background-work roadmap.\n- t1657 family and `aidocs/framework/task_note_mailbox.md`:\
+  \ the note mailbox.\n\n## Expected outcome\n\nA finalized design document at `aidocs/framework/task_relations.md`\
+  \ covering\nD1\u2013D13, and a decomposition into child tasks. A plausible split:\n\
+  - relations store and CLI\n- static candidate generator\n- background worker, headless\
+  \ op and spool\n- creation and plan-approval triggers\n- Step 8e / pick-time consumption\n\
+  - obsolescence layer\n- TUI\n- ports of the skill changes to the other code agents\n"
+url_cache: enabled
+initial_proposal_file: /home/ddt/Work/aitasks/aiwork/t1981_task_relations_proposal.md

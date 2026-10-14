@@ -1,0 +1,8 @@
+status: running
+pid: 854670
+hostname: omg16
+started_at: '2026-10-14 09:38:54'
+last_heartbeat: '2026-10-14 09:38:54'
+next_check_at: '2026-10-14 09:39:24'
+interval: 30
+requested_action: null
