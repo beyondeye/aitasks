@@ -1,14 +1,15 @@
 ---
 priority: medium
 effort: low
-depends: [1957_1, 1957_4]
+depends: [t1957_1, t1957_4]
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [trails, cross_repo, documentation]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1957
 created_at: 2026-10-12 21:32
-updated_at: 2026-10-12 21:32
+updated_at: 2026-10-14 18:44
 ---
 
 ## Context
