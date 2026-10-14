@@ -159,3 +159,21 @@ Human review belonged to an older design. No path shipped here may make a
 human action a precondition. `--gate-timeout` is a computed suggestion, never
 an approval. A human-only step met in the proposal is reported to its owning
 parent with a note, never encoded here.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1854_1** id=2026-10-14T14:40:27Z.350a6da90b33121ac07c4fd2 from=t1854_1 from_verified=yes at=2026-10-14T14:40:27Z base=02e4a1badd5a7a8af9d2e250e7108cb8e1cd993e base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t1854_1 (M3.1), as landed in 3d1a2b628. Verify against goengines/README.md → Interfaces ("invocation outcome / record", "run seams").
+> | 
+> | - Subscribe with runner.RegisterPostRunHook(name, func(ctx, *RunReport) error). Subscribers run once each, in registration order, after every record.json is written. A failing subscriber does not stop the next, but makes `run` exit 3 (RUN_HOOK_ERROR).
+> | - RunReport carries RunID, Root, Dir (repo-relative), Invocations []Record and Results []Result.
+> | - Record (also on disk at .aitask-testmap/runs/<run-id>/inv-<NNN>/record.json): contract, run_id, invocation, group, runner, units_expected/reported/started, exit_code, elapsed_ms, timeouts, deadline_s, killed, refused, timed_out, protocol_errors[], overhead_ms, cause, cause_detail, head_start, head_end, modified[].
+> |   - cause precedence: mechanism > reconciliation > timeout.
+> |   - An invocation's results may anchor only if cause == "".
+> |   - modified = start ∪ end of gitx.ModifiedPaths, minus .aitask-testmap/.
+> |   - head_start is "" on an unborn HEAD.
+> |   - overhead_ms already follows Dev 13 (elapsed − Σ top-level durations, ≥ 0).
+> | - Result: Child=true plus Parent for suite child rows, otherwise top-level. Engine-synthesized statuses: timeout, not_started, batch_timeout, missing, refused, and error (a protocol error).
+> | - Run ids: --run-id, else $AIT_GATE_RUN_ID, else run-<UTC>-<pid>. The test-/gate-/full-/review- prefixes are still yours to define.
