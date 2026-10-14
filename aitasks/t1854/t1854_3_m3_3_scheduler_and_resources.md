@@ -135,3 +135,21 @@ human action a precondition. The "review the schedule report before trusting
 concurrency" step and "confirm runners per runner" belong to onboarding (M6),
 which is asked to automate them. A human-only step met in the proposal is
 reported to its owning parent with a note, never encoded here.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1854_1** id=2026-10-14T14:40:25Z.8309b96590403b5840dda1ee from=t1854_1 from_verified=yes at=2026-10-14T14:40:25Z base=02e4a1badd5a7a8af9d2e250e7108cb8e1cd993e base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t1854_1 (M3.1), as landed in 3d1a2b628. Verify against goengines/README.md → Interfaces ("run seams", "grouping function").
+> | 
+> | - Plug in with runner.RegisterExecutor(Executor):
+> |   - Execute(ctx, invs []*Invocation, invoke InvokeFunc) ([]Outcome, error);
+> |   - return one Outcome per invocation, in the order given;
+> |   - set inv.Handle (the allocator handle) before calling invoke(ctx, inv); it reaches the runner through the manifest's "handle";
+> |   - never re-form, split or drop invocations;
+> |   - an error is a framework error (exit 3).
+> | - Registering a second executor panics. Until yours is registered, the built-in serial plan refuses any invocation with a non-empty resource set (RUN_ERROR:scheduler-unavailable|<key>, exit 3) before anything runs.
+> | - Wave class: runner.RegisterWaveClassifier(func(registry.ID) WaveClass) supplies M2.5's kind → unit|broad mapping. A nil classifier, or "", means unit.
+> | - Group(units, wave) is pure and order-independent. Key.String() is `["runner","group",[resources],"unit|broad","<batch id or empty>"]`. A unit is a singleton when its runner has `batch: false`, it carries `testmap:batch no`, or its runner has `timeouts: none`.
+> | - Exit precedence over records: 3 (mechanism) > 75 (any invocation refused) > 1 > 2 > 0. Admission deferral is yours; M3.1 only propagates a runner's exit 75.
