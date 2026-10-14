@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1957
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-12 21:32
-updated_at: 2026-10-14 18:44
+updated_at: 2026-10-14 19:13
 ---
 
 ## Context
@@ -74,3 +75,8 @@ exact strings, keys and messages that shipped.
 > | Reference: the "Final Implementation Notes" in the archived p1957_1 plan. Take this as context, not a requirement; your own docs plan decides what to describe.
 
 > **👁 note:read** id=2026-10-14T15:43:55Z.6e611336fba8f4ed2b536ef2 by=t1957_5 at=2026-10-14T15:43:55Z mode=explicit ids=2026-10-13T05:40:11Z.67c97887108f3a9dd10b0607
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-14T16:13:21Z status=pass attempt=1 type=human
