@@ -15,7 +15,11 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 children_to_implement: [t1954_4]
 anchor: 1852
 created_at: 2026-10-12 15:57
-updated_at: 2026-10-13 23:58
+updated_at: 2026-10-14 19:43
+artifacts:
+  - handle: art:t1954-researchevidence
+    kind: research_evidence
+    name: t1954 parser research raw evidence
 ---
 
 ## Context and user decision
