@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: medium
 depends: [t1076_3]
 issue_type: bug
-status: Implementing
+status: Done
 labels: [verification, bug]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -16,7 +16,8 @@ anchor: 1065
 followup_kind: verification_failure
 implemented_with: claudecode/opus5_5
 created_at: 2026-07-28 11:25
-updated_at: 2026-10-13 23:42
+updated_at: 2026-10-14 10:47
+completed_at: 2026-10-14 10:47
 boardidx: 57344
 ---
 
@@ -147,3 +148,14 @@ seam in t1283 and use this task for the mount-liveness check.
 > **✅ gate:plan_approved** run=2026-10-13T20:42:27Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-13T21:32:31Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-14T07:47:49Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:2fd227084306d4b6
+
+> **✅ gate:risk_evaluated** run=2026-10-14T07:47:49Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1284/risk_evaluated_2026-10-14T07:47:49Z-risk_evaluated-a1.log`
