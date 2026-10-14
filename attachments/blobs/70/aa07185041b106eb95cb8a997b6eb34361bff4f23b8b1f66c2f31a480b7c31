@@ -1,0 +1,1464 @@
+{
+ "schema_version": "1.1.0",
+ "trail_id": "trail-testmap-feature",
+ "title": "Test map feature: module landing order",
+ "owner": "aitasks#1852",
+ "scope": {
+  "kind": "topic",
+  "topics": [
+   "aitasks#1852"
+  ],
+  "selection_note": "Topic rooted at t1852: module parents, their children and topic follow-ups, including the t1954 parser research and its follow-ups t1990-t1992. Archived tasks are retained as landed context; live membership is taken from the topic gatherer."
+ },
+ "generation": {
+  "generated_at": "2026-10-14T18:39:36Z",
+  "generator": {
+   "agent_string": "claudecode/opus5_5",
+   "skill": "aitask-trail"
+  },
+  "input_digest": "a4289db1ee4cebf4",
+  "inputs": [
+   {
+    "kind": "plan_file",
+    "ref": "aitasks:aiplans/p1853/p1853_4_m2_4_axes_and_variants.md"
+   },
+   {
+    "kind": "plan_file",
+    "ref": "aitasks:aiplans/p1853/p1853_5_m2_5_scoped_rows_and_areas.md"
+   },
+   {
+    "kind": "plan_file",
+    "ref": "aitasks:aiplans/p1853/p1853_6_m2_6_adoption_tables.md"
+   },
+   {
+    "kind": "plan_file",
+    "ref": "aitasks:aiplans/p1853_testmap_m2_registry_and_map_model.md"
+   },
+   {
+    "kind": "plan_file",
+    "ref": "aitasks:aiplans/p1854/p1854_2_m3_2_reference_runners.md"
+   },
+   {
+    "kind": "plan_file",
+    "ref": "aitasks:aiplans/p1854/p1854_3_m3_3_scheduler_and_resources.md"
+   },
+   {
+    "kind": "plan_file",
+    "ref": "aitasks:aiplans/p1854/p1854_4_m3_4_cost_ledger.md"
+   },
+   {
+    "kind": "plan_file",
+    "ref": "aitasks:aiplans/p1854_testmap_m3_runners_scheduling_and_cost.md"
+   },
+   {
+    "kind": "plan_file",
+    "ref": "aitasks:aiplans/p1954/p1954_4_report_recommendation_trail.md"
+   },
+   {
+    "kind": "plan_file",
+    "ref": "aitasks:aiplans/p1954_research_multilanguage_annotation_parsers.md"
+   },
+   {
+    "kind": "plan_file",
+    "ref": "aitasks:aiplans/p1985_runner_test_hang_watchdog.md"
+   },
+   {
+    "kind": "task_file",
+    "ref": "aitasks#1853"
+   },
+   {
+    "kind": "task_file",
+    "ref": "aitasks#1853_4"
+   },
+   {
+    "kind": "task_file",
+    "ref": "aitasks#1853_5"
+   },
+   {
+    "kind": "task_file",
+    "ref": "aitasks#1853_6"
+   },
+   {
+    "kind": "task_file",
+    "ref": "aitasks#1853_7"
+   },
+   {
+    "kind": "task_file",
+    "ref": "aitasks#1854"
+   },
+   {
+    "kind": "task_file",
+    "ref": "aitasks#1854_2"
+   },
+   {
+    "kind": "task_file",
+    "ref": "aitasks#1854_3"
+   },
+   {
+    "kind": "task_file",
+    "ref": "aitasks#1854_4"
+   },
+   {
+    "kind": "task_file",
+    "ref": "aitasks#1855"
+   },
+   {
+    "kind": "task_file",
+    "ref": "aitasks#1856"
+   },
+   {
+    "kind": "task_file",
+    "ref": "aitasks#1857"
+   },
+   {
+    "kind": "task_file",
+    "ref": "aitasks#1858"
+   },
+   {
+    "kind": "task_file",
+    "ref": "aitasks#1859"
+   },
+   {
+    "kind": "task_file",
+    "ref": "aitasks#1860"
+   },
+   {
+    "kind": "task_file",
+    "ref": "aitasks#1861"
+   },
+   {
+    "kind": "task_file",
+    "ref": "aitasks#1863"
+   },
+   {
+    "kind": "task_file",
+    "ref": "aitasks#1878"
+   },
+   {
+    "kind": "task_file",
+    "ref": "aitasks#1905"
+   },
+   {
+    "kind": "task_file",
+    "ref": "aitasks#1906"
+   },
+   {
+    "kind": "task_file",
+    "ref": "aitasks#1931"
+   },
+   {
+    "kind": "task_file",
+    "ref": "aitasks#1939"
+   },
+   {
+    "kind": "task_file",
+    "ref": "aitasks#1954"
+   },
+   {
+    "kind": "task_file",
+    "ref": "aitasks#1954_4"
+   },
+   {
+    "kind": "task_file",
+    "ref": "aitasks#1977"
+   },
+   {
+    "kind": "task_file",
+    "ref": "aitasks#1985"
+   },
+   {
+    "kind": "task_file",
+    "ref": "aitasks#1986"
+   },
+   {
+    "kind": "task_file",
+    "ref": "aitasks#1990"
+   },
+   {
+    "kind": "task_file",
+    "ref": "aitasks#1991"
+   },
+   {
+    "kind": "task_file",
+    "ref": "aitasks#1992"
+   }
+  ]
+ },
+ "freshness": {
+  "state": "current",
+  "checked_at": "2026-10-14T18:39:36Z"
+ },
+ "narrative": {
+  "problem_statement": "Sequence the ait test/testmap module work and its follow-ups, including the user-requested research into maintainable language-aware annotation parsing and safe editing.",
+  "recommendation_summary": "The parser research is complete: keep the landed readers, land the t1954 follow-ups beside the module work (t1991's conformance gate and t1990's Kotlin fix advisory before further annot edits and Kotlin rollouts; t1992 after t1990). Land the remaining M2 children (M2.5 first, since M3.3 and M3.4 wait on it; M2.6 and M2.4 are also selectable now) and the M3 runner children after the archived M3.1: t1985 (test watchdog) before M3.2, M2.5 before M3.3 / M3.4. Keep the t1954 research synthesis alongside. t1986 is a non-blocking performance follow-up kept on the trail so it is not lost. The selection, onboarding/review, workflow and rollout sequence is unchanged.",
+  "overview": "The parser research is complete (aidocs/testing_engine/t1954_annotation_parser_research.md, evidence art:t1954-researchevidence). It keeps the landed M2.2 readers for bash, Python, Go and Kotlin: no alternative matched them on safety, the 300 ms budget, the static binary and the dependency allowlist together. It found one defect, Kotlin 2.2 multi-dollar strings (t1990; exposure nil today), and adds a hermetic conformance gate (t1991), worth landing before more annot edits (M2.4-M2.6, M7.4), plus an evaluation of one shared Kotlin lexer for annot and deps (t1992, after t1990). No fifth language is supported until a provider passes the report's onboarding contract. Its consumer verdicts are entry caveats: M6, M7, M9, the repair loop and t1863 have a concrete action; M4 and M10 context.\n\nM1, M2.1, M2.2, M2.3 and M3.1 are archived. Selectable now: M2.5 (t1853_5), M2.6 (t1853_6) and M2.4 (t1853_4), whose M3.1 edge is now recorded and satisfied. M2.5 is the most consequential pick, because both M3.3 (t1854_3) and M3.4 (t1854_4) record it as a prerequisite.\n\nWithin M3, M3.2 (t1854_2) waits on t1985, the hang watchdog for the runner tests (marked Implementing), so the builtins' timeout and cleanup tests are written against it from the start. t1986 (one annotation read per scan / check) blocks nothing and can be picked as background work; it is listed in wave 4 so it is not forgotten.\n\nAlongside: the t1954 research synthesis (t1954_4) and the small Kotlin scanner fix t1977 are marked Implementing; the M1 follow-ups keep t1931 before t1939. The remaining advisory sequence is unchanged: selection and the ait test run surface, onboarding / review / workflow integration, then rollout, with t1863 auditing cross-links and t1853_7 Postponed until its providers have child ids.",
+  "method_note": "Deep refresh by t1954_4 on top of the lite version written 2026-10-14T15:50Z, whose waves, entries and rationale carry over unchanged except: refreshed snapshots from one topic-1852 gatherer snapshot (the explicit --owner 1852 probe returns ERROR:unknown_task because the owner is archived; the topic snapshot echoes OWNER:aitasks#1852); the t1954 entries take the research result; t1990-t1992 join wave 3; t1954 verdicts are added as entry caveats; and the deep sections are added (observations, relations, exclusions, evidence, per-entry evidence_refs). The deep follow-up sweep over members archived since the previously loaded deep-eligible version (t1853_2, t1853_3) found t1853_3's risk mitigation t1973, already landed, and no verifies edges. No task metadata was changed. Not verified: implementation progress beyond recorded status, the in-flight tasks' plans, target-repository readiness, and any timing beyond the research's own measurements."
+ },
+ "evidence": [
+  {
+   "evidence_id": "ev-snapshot",
+   "source_type": "command_output",
+   "ref": "./.aitask-scripts/aitask_trail_gather.sh snapshot --scope topic 1852",
+   "observed_at": "2026-10-14T18:39:36Z",
+   "summary": "30 live topic-1852 members; OWNER aitasks#1852; DIGEST a4289db1ee4cebf4."
+  },
+  {
+   "evidence_id": "ev-report",
+   "source_type": "external",
+   "ref": "aidocs/testing_engine/t1954_annotation_parser_research.md",
+   "observed_at": "2026-10-14T18:39:36Z",
+   "summary": "t1954 research report: decision, language policy, provider contract, migration sketch, consumer evaluation (section 12)."
+  },
+  {
+   "evidence_id": "ev-matrix",
+   "source_type": "test_run",
+   "ref": "aidocs/testing_engine/t1954_parser_research/results/t4/matrix.md",
+   "observed_at": "2026-10-14T18:39:36Z",
+   "summary": "13 subjects x 240 fixtures at annot 3d1a2b628: landed readers 0 on every safety column in bash/Python/Go; Kotlin FP-writable 3 / record corruption 1 on the multi-dollar fixture."
+  },
+  {
+   "evidence_id": "ev-realrepo",
+   "source_type": "test_run",
+   "ref": "aidocs/testing_engine/t1954_parser_research/results/t4/realrepo_totals.md",
+   "observed_at": "2026-10-14T18:39:36Z",
+   "summary": "Six repository snapshots, 7,866 files: 0 record differences for every subject; the landed readers are never uncertain."
+  },
+  {
+   "evidence_id": "ev-inputs",
+   "source_type": "command_output",
+   "ref": "aidocs/testing_engine/t1954_parser_research/results/t4/inputs.md",
+   "observed_at": "2026-10-14T18:39:36Z",
+   "summary": "Recorded commits of the walked repositories; no .kt/.kts file contains a multi-dollar string."
+  },
+  {
+   "evidence_id": "ev-evidence-artifact",
+   "source_type": "external",
+   "ref": "art:t1954-researchevidence",
+   "observed_at": "2026-10-14T18:39:36Z",
+   "summary": "Raw logs of the final run, the old-pin matrices on the final corpus and the reproduction outputs."
+  },
+  {
+   "evidence_id": "ev-t1990",
+   "source_type": "task_file",
+   "ref": "aitasks/t1990_annot_kotlin_multidollar_strings_fail_closed.md",
+   "observed_at": "2026-10-14T18:39:36Z",
+   "summary": "Upstream defect follow-up: Kotlin multi-dollar strings in annot's Kotlin reader."
+  },
+  {
+   "evidence_id": "ev-t1991",
+   "source_type": "task_file",
+   "ref": "aitasks/t1991_annot_conformance_suite_from_t1954_corpus.md",
+   "observed_at": "2026-10-14T18:39:36Z",
+   "summary": "Conformance-suite follow-up."
+  },
+  {
+   "evidence_id": "ev-t1992",
+   "source_type": "task_file",
+   "ref": "aitasks/t1992_kotlin_family_shared_lexical_core_evaluation.md",
+   "observed_at": "2026-10-14T18:39:36Z",
+   "summary": "Shared Kotlin-family lexer evaluation follow-up."
+  },
+  {
+   "evidence_id": "ev-m3-tasks",
+   "source_type": "task_file",
+   "ref": "aitasks/t1854/ (M3.2-M3.4), aitasks/archived/t1854/t1854_1_m3_1_runner_contract_and_repository.md, aitasks/t1985_runner_test_hang_watchdog.md, aitasks/t1986_runner_lister_share_annotation_snapshot.md",
+   "observed_at": "2026-10-14T18:39:36Z",
+   "summary": "M3 children and M3.1 review findings read by the previous (lite) version for the runner wave; carried over."
+  }
+ ],
+ "rendering_hints": {
+  "depth": "deep"
+ },
+ "waves": [
+  {
+   "wave_id": "w-foundation",
+   "ordinal": 1,
+   "title": "M1 foundation and M2.1 registry (landed)",
+   "purpose": "The root of the whole graph: the Go engine skeleton, the per-user root, the release pipeline, the shim and version handshake, the install, upgrade and developer verbs, and the home migration verb. Every other engine submodule adds a package to the M1.2 binary. The archived M2.1 registry core is also retained here as a completed provider.",
+   "entries": [
+    {
+     "entry_id": "e-m1",
+     "task": "aitasks#1852",
+     "topic": "aitasks#1852",
+     "classification": "preferred_predecessor",
+     "confidence": "high",
+     "rationale": "Landed. All six children (M1.1 to M1.6) are archived, and the parent was archived with the last of them. Its follow-ups are grouped in wave 3.",
+     "snapshot": {
+      "status": "Done",
+      "priority": "medium",
+      "effort": "high",
+      "depends": [],
+      "gates_pending": []
+     },
+     "position": 1,
+     "evidence_refs": [
+      "ev-snapshot"
+     ]
+    },
+    {
+     "entry_id": "e-m2-1",
+     "task": "aitasks#1853_1",
+     "topic": "aitasks#1852",
+     "classification": "core",
+     "confidence": "high",
+     "rationale": "M2.1 registry core is archived with status Done. Its loader, ID grammar and injected scan/check inputs provide the prerequisite consumed by the remaining M2 children and M3.1.",
+     "snapshot": {
+      "status": "Done",
+      "priority": "medium",
+      "effort": "high",
+      "depends": [],
+      "gates_pending": []
+     },
+     "position": 2,
+     "evidence_refs": [
+      "ev-snapshot"
+     ]
+    }
+   ]
+  },
+  {
+   "wave_id": "w-next-passes",
+   "ordinal": 2,
+   "title": "M2 consumers and the M8.1 root",
+   "purpose": "Land M2's remaining wave-B children in their recorded depends order, and coarse-plan M8, whose earliest submodule M8.1 has no dependencies. M2.2 and M2.3 have landed.",
+   "entries": [
+    {
+     "entry_id": "e-m2-2",
+     "task": "aitasks#1853_2",
+     "topic": "aitasks#1852",
+     "classification": "core",
+     "confidence": "high",
+     "rationale": "Landed: M2.2 is archived (the annotation grammar, the line-targeted rewriter, annotate / verify and the annotation source scan reads). Its consumers M2.3 (landed) and M2.6 no longer wait on it.",
+     "snapshot": {
+      "status": "Done",
+      "priority": "medium",
+      "effort": "high",
+      "depends": [
+       "aitasks#1853_1"
+      ],
+      "gates_pending": []
+     },
+     "position": 1,
+     "evidence_refs": [
+      "ev-snapshot",
+      "ev-report"
+     ],
+     "caveats": [
+      "t1954: its readers are retained as the production providers; the BOM defect was fixed by t1969; the Kotlin multi-dollar defect is t1990."
+     ]
+    },
+    {
+     "entry_id": "e-m2-3",
+     "task": "aitasks#1853_3",
+     "topic": "aitasks#1852",
+     "classification": "core",
+     "confidence": "medium",
+     "rationale": "Landed: M2.3 dependency scanners are archived. The closure and static facts are available to the selector, the seeder, the packet writer and M3.4's anchor eligibility.",
+     "snapshot": {
+      "status": "Done",
+      "priority": "medium",
+      "effort": "high",
+      "depends": [
+       "aitasks#1853_2"
+      ],
+      "gates_pending": []
+     },
+     "position": 2,
+     "evidence_refs": [
+      "ev-snapshot",
+      "ev-report"
+     ],
+     "caveats": [
+      "t1954: its deps lexers (kotlinlex.go, gradlelex.go) share the Kotlin multi-dollar blind spot class (t1975, t1980); t1992 evaluates one shared lexical core."
+     ]
+    },
+    {
+     "entry_id": "e-m2-5",
+     "task": "aitasks#1853_5",
+     "topic": "aitasks#1852",
+     "classification": "core",
+     "confidence": "medium",
+     "rationale": "M2.5 scoped rows and areas depends only on the archived t1853_1, so it is selectable now. It is on the M3 critical path: M3.3 (t1854_3) and M3.4 (t1854_4) both depend on it for the kind data and helpers' testmap:reads, so landing it early unblocks two runner children.",
+     "snapshot": {
+      "status": "Ready",
+      "depends": [
+       "aitasks#1853_1"
+      ],
+      "gates_pending": [
+       "risk_evaluated"
+      ],
+      "priority": "medium",
+      "effort": "medium"
+     },
+     "position": 3,
+     "evidence_refs": [
+      "ev-snapshot",
+      "ev-t1991"
+     ],
+     "caveats": [
+      "t1954: t1991 (annot conformance gate) is advisory before further annot edits."
+     ]
+    },
+    {
+     "entry_id": "e-m2-6",
+     "task": "aitasks#1853_6",
+     "topic": "aitasks#1852",
+     "classification": "core",
+     "confidence": "medium",
+     "rationale": "M2.6 adoption tables. Both recorded prerequisites, t1853_1 and t1853_2, are archived, so it is selectable now. It fills M2.2's post-re-stamp hook and supplies the seeded / adopted tables M4 and M8.2 read.",
+     "snapshot": {
+      "status": "Ready",
+      "depends": [
+       "aitasks#1853_1",
+       "aitasks#1853_2"
+      ],
+      "gates_pending": [
+       "risk_evaluated"
+      ],
+      "priority": "medium",
+      "effort": "medium"
+     },
+     "position": 4,
+     "evidence_refs": [
+      "ev-snapshot",
+      "ev-t1991"
+     ],
+     "caveats": [
+      "t1954: t1991 (annot conformance gate) is advisory before M2.6 fills annot's restamp hook."
+     ]
+    },
+    {
+     "entry_id": "e-kotlin-delegated-name",
+     "topic": "aitasks#1852",
+     "task": "aitasks#1977",
+     "classification": "optional",
+     "confidence": "high",
+     "rationale": "A small, independent bug in the landed M2.3 Kotlin scanner, found by the t1973 probe: a delegated property (`val x by lazy`) is named after its delegate, which degrades one import edge and phantoms a `lazy` symbol. It is marked Implementing and blocks nothing in this trail.",
+     "snapshot": {
+      "status": "Implementing",
+      "depends": [],
+      "gates_pending": [
+       "risk_evaluated"
+      ],
+      "priority": "low",
+      "effort": "low"
+     },
+     "position": 5,
+     "evidence_refs": [
+      "ev-snapshot",
+      "ev-t1992"
+     ],
+     "caveats": [
+      "t1992 (shared Kotlin-family lexer evaluation) covers the deps Kotlin scanner this fix edits."
+     ]
+    },
+    {
+     "entry_id": "e-m8",
+     "task": "aitasks#1859",
+     "topic": "aitasks#1852",
+     "classification": "core",
+     "confidence": "medium",
+     "rationale": "Its coarse pass is unblocked because M8.1, the verifier exit contract in lib/gate_verifier_lib.sh, has no dependencies and sits in proposal wave A. Its other children (waves D, E and G) consume M3 to M7 and must wait for them, so only M8.1 is implementable right after planning.",
+     "snapshot": {
+      "status": "Ready",
+      "depends": [],
+      "gates_pending": [],
+      "priority": "medium",
+      "effort": "high"
+     },
+     "position": 6,
+     "evidence_refs": [
+      "ev-snapshot"
+     ]
+    },
+    {
+     "entry_id": "e-m2",
+     "task": "aitasks#1853",
+     "topic": "aitasks#1852",
+     "classification": "coordination_only",
+     "confidence": "high",
+     "rationale": "The M2 parent closes when its children land. M2.1, M2.2 and M2.3 are archived; M2.5 and M2.6 are selectable now, M2.4 (t1853_4) sits in wave 4 beside the runner children because it extends M3.1's describe parse, and t1853_7 is in wave 6.",
+     "snapshot": {
+      "status": "Ready",
+      "depends": [],
+      "gates_pending": [
+       "risk_evaluated"
+      ],
+      "priority": "medium",
+      "effort": "high"
+     },
+     "position": 7,
+     "evidence_refs": [
+      "ev-snapshot"
+     ]
+    }
+   ]
+  },
+  {
+   "wave_id": "w-m1-followups",
+   "ordinal": 3,
+   "title": "M1 follow-ups, parser research and annot hardening (alongside wave 2)",
+   "purpose": "Run the existing M1 hardening and verification work alongside core implementation, close the parser research with its measured decision, and land the bounded follow-ups it justified: a conformance gate for the retained readers (t1991), the Kotlin multi-dollar fix (t1990) and an evaluation of one shared Kotlin-family lexer (t1992). None blocks current four-language work.",
+   "entries": [
+    {
+     "entry_id": "e-setup-gitignore-scope",
+     "task": "aitasks#1905",
+     "topic": "aitasks#1852",
+     "classification": "optional",
+     "confidence": "high",
+     "rationale": "A real bug from t1852_5's review: setup's sibling .gitignore helpers commit the whole index. It is small and independent, and it edits aitask_setup.sh, which t1939 also edits, so landing it first avoids an overlap.",
+     "snapshot": {
+      "status": "Ready",
+      "depends": [],
+      "gates_pending": [
+       "risk_evaluated"
+      ],
+      "priority": "medium",
+      "effort": "low",
+      "followup_kind": "upstream_defect"
+     },
+     "position": 1,
+     "evidence_refs": [
+      "ev-snapshot"
+     ]
+    },
+    {
+     "entry_id": "e-mv-install-verbs",
+     "task": "aitasks#1906",
+     "topic": "aitasks#1852",
+     "classification": "optional",
+     "confidence": "high",
+     "rationale": "Manual verification of t1852_5: the frozen-agents acceptance run deferred from its install regression sweep, plus the offline install's TESTMAP_BINARY:skipped line. It needs a quiet host with the dedicated tmux server stopped.",
+     "snapshot": {
+      "status": "Ready",
+      "depends": [
+       "aitasks#1852_5"
+      ],
+      "gates_pending": [],
+      "priority": "medium",
+      "effort": "medium",
+      "followup_kind": "manual_verification"
+     },
+     "position": 2,
+     "evidence_refs": [
+      "ev-snapshot"
+     ]
+    },
+    {
+     "entry_id": "e-bench-ci",
+     "task": "aitasks#1878",
+     "topic": "aitasks#1852",
+     "classification": "optional",
+     "confidence": "medium",
+     "rationale": "Validates the bench gate's host normalization on GitHub runners and decides whether the CI bench step becomes required. It was waiting on t1852_3's goengines-check.yml, which now exists. It matters more as M2 onward add benchmarks, and the samples have to be spread over at least two days.",
+     "snapshot": {
+      "status": "Ready",
+      "depends": [
+       "aitasks#1852_3"
+      ],
+      "gates_pending": [
+       "risk_evaluated"
+      ],
+      "priority": "medium",
+      "effort": "low",
+      "followup_kind": "risk_mitigation"
+     },
+     "position": 3,
+     "evidence_refs": [
+      "ev-snapshot"
+     ]
+    },
+    {
+     "entry_id": "e-home-real-host",
+     "task": "aitasks#1931",
+     "topic": "aitasks#1852",
+     "classification": "hard_prerequisite",
+     "confidence": "high",
+     "rationale": "Real-host check of `ait engine home --migrate` on Linux and macOS, including the BSD userland paths only coded for so far. t1939 depends on it.",
+     "snapshot": {
+      "status": "Ready",
+      "depends": [],
+      "gates_pending": [],
+      "priority": "medium",
+      "effort": "low",
+      "followup_kind": "risk_mitigation"
+     },
+     "position": 4,
+     "evidence_refs": [
+      "ev-snapshot"
+     ]
+    },
+    {
+     "entry_id": "e-home-default-flip",
+     "task": "aitasks#1939",
+     "topic": "aitasks#1852",
+     "classification": "core",
+     "confidence": "medium",
+     "rationale": "The proposal's named follow-up for M1.6: setup migrates the legacy home by default, with --no-home-migration and AIT_HOME_MIGRATE=0 as opt-outs, and the 18 doc files naming ~/.aitask are updated. It must not land before t1931 has run cleanly.",
+     "snapshot": {
+      "status": "Ready",
+      "depends": [
+       "aitasks#1931"
+      ],
+      "gates_pending": [
+       "risk_evaluated"
+      ],
+      "priority": "medium",
+      "effort": "medium"
+     },
+     "position": 5,
+     "evidence_refs": [
+      "ev-snapshot"
+     ]
+    },
+    {
+     "entry_id": "e-parser-research",
+     "task": "aitasks#1954",
+     "topic": "aitasks#1852",
+     "classification": "preferred_predecessor",
+     "confidence": "high",
+     "snapshot": {
+      "status": "Ready",
+      "depends": [],
+      "gates_pending": [
+       "risk_evaluated"
+      ],
+      "priority": "medium",
+      "effort": "high"
+     },
+     "rationale": "Research complete with t1954_4. Decision: keep the landed M2.2 readers (bash, Python, Go, Kotlin) as the production providers: no alternative matched them on safety, the 300 ms budget, the static binary and the dependency allowlist together. Gate them (t1991), fix the one measured defect, Kotlin 2.2 multi-dollar strings (t1990), and evaluate one shared Kotlin-family lexer (t1992). No candidate yet for a fifth language (gotreesitter leads for TS/JS, Java and Rust, with named gaps); sidecar-only annotations recorded, not adopted. Report: aidocs/testing_engine/t1954_annotation_parser_research.md; evidence art:t1954-researchevidence.",
+     "expected_outcome": "Delivered: the report aidocs/testing_engine/t1954_annotation_parser_research.md, the final run in aidocs/testing_engine/t1954_parser_research/results/t4/, the evidence artifact art:t1954-researchevidence, the follow-ups t1990-t1992 and the consumer notes. The parent archives with t1954_4.",
+     "why_order_matters": "An advisory predecessor for any fifth-language work, which must pass the report's onboarding contract (section 9), and context for the consumers in the report's section 12. It is not a prerequisite of current four-language work.",
+     "position": 6,
+     "evidence_refs": [
+      "ev-snapshot",
+      "ev-report",
+      "ev-matrix",
+      "ev-realrepo",
+      "ev-evidence-artifact"
+     ]
+    },
+    {
+     "entry_id": "e-parser-research-synthesis",
+     "topic": "aitasks#1852",
+     "task": "aitasks#1954_4",
+     "classification": "preferred_predecessor",
+     "confidence": "high",
+     "rationale": "The synthesis child (children 1 to 3 are archived): the final rerun at annot 3d1a2b628 on a 240-fixture corpus, the report, the evidence artifact, the follow-ups t1990-t1992, the advisory notes to the consumers and this deep trail version.",
+     "snapshot": {
+      "status": "Implementing",
+      "depends": [
+       "aitasks#1954_3"
+      ],
+      "gates_pending": [
+       "risk_evaluated"
+      ],
+      "priority": "medium",
+      "effort": "high"
+     },
+     "position": 7,
+     "evidence_refs": [
+      "ev-snapshot",
+      "ev-report"
+     ]
+    },
+    {
+     "entry_id": "e-annot-conformance",
+     "task": "aitasks#1991",
+     "topic": "aitasks#1852",
+     "classification": "core",
+     "confidence": "high",
+     "rationale": "The bash/Python/Go/Kotlin part of the research corpus as a hermetic go test gate in annot (safety 0, read records, fidelity, known costs pinned). It is the safeguard that makes keeping the hand readers acceptable: the corpus found two reader defects annot's own tests missed.",
+     "snapshot": {
+      "status": "Ready",
+      "depends": [],
+      "gates_pending": [],
+      "priority": "medium",
+      "effort": "medium"
+     },
+     "evidence_refs": [
+      "ev-t1991",
+      "ev-report"
+     ],
+     "why_order_matters": "Advisory before further annot edits (M2.4-M2.6, M7.4), so a reader regression fails tests instead of shipping.",
+     "position": 8
+    },
+    {
+     "entry_id": "e-kotlin-multidollar",
+     "task": "aitasks#1990",
+     "topic": "aitasks#1852",
+     "classification": "core",
+     "confidence": "high",
+     "rationale": "Upstream defect: on a valid Kotlin 2.2 file the landed Kotlin reader reads a look-alike inside a multi-dollar raw string, and Apply writes into the string (FP-writable 3, record corruption 1). ktpsi and every Tree-sitter runtime are safe on it. Exposure was nil on 2026-10-14.",
+     "snapshot": {
+      "status": "Ready",
+      "depends": [],
+      "gates_pending": [],
+      "priority": "medium",
+      "effort": "low",
+      "followup_kind": "upstream_defect"
+     },
+     "evidence_refs": [
+      "ev-t1990",
+      "ev-matrix",
+      "ev-inputs"
+     ],
+     "why_order_matters": "Advisory before Kotlin target rollouts (M10.4 aitasks_mobile, M10.5 thinking_app) and before t1992.",
+     "position": 9
+    },
+    {
+     "entry_id": "e-kotlin-shared-lexer",
+     "task": "aitasks#1992",
+     "topic": "aitasks#1852",
+     "classification": "optional",
+     "confidence": "medium",
+     "rationale": "Evaluate one shared Kotlin-family lexical core for annot and deps: the same multi-dollar blind spot broke annot (t1990), deps/kotlinlex.go (t1980) and the Gradle blanker (t1975) within one week.",
+     "snapshot": {
+      "status": "Ready",
+      "depends": [],
+      "gates_pending": [],
+      "priority": "low",
+      "effort": "medium"
+     },
+     "evidence_refs": [
+      "ev-t1992",
+      "ev-report"
+     ],
+     "why_order_matters": "After t1990, so all three lexers first agree on failing closed for that construct.",
+     "position": 10
+    }
+   ],
+   "why_now": "annot changed three times after the research pin and more annot edits are queued (M2.4-M2.6, M7.4); the gate and the Kotlin fix protect them.",
+   "consequence_of_delay": "A reader regression stays invisible until the next research rerun, and a Kotlin target that adopts Kotlin 2.2 multi-dollar strings before t1990 lands can get a write into a string literal."
+  },
+  {
+   "wave_id": "w-runners",
+   "ordinal": 4,
+   "title": "Runners, scheduling and cost (waves B to C)",
+   "purpose": "Land the runner contract, the reference runners, the scheduler and the cost ledger: everything that executes a test and records what it cost. M3.1 has landed; M3.2 follows its test-watchdog prerequisite, and M3.3 / M3.4 follow M2.5.",
+   "entries": [
+    {
+     "entry_id": "e-m3-1",
+     "topic": "aitasks#1852",
+     "task": "aitasks#1854_1",
+     "classification": "core",
+     "confidence": "high",
+     "rationale": "Landed: M3.1 is archived (commit 3d1a2b628). It provides the runner contract (describe / list / run --manifest), runners.yaml with resolution and ownership, the canonical grouping function, the timeout model with session-level cleanup, the engine run verb with its per-invocation record, and the executor, wave-classifier and post-run-hook seams the other M3 children plug into.",
+     "snapshot": {
+      "status": "Done",
+      "priority": "medium",
+      "effort": "high",
+      "depends": [],
+      "gates_pending": []
+     },
+     "position": 1,
+     "evidence_refs": [
+      "ev-snapshot",
+      "ev-m3-tasks"
+     ]
+    },
+    {
+     "entry_id": "e-runner-test-watchdog",
+     "topic": "aitasks#1852",
+     "task": "aitasks#1985",
+     "classification": "hard_prerequisite",
+     "confidence": "high",
+     "rationale": "The hang watchdog for the runner package's process-starting tests, from t1854_1's review. t1854_2 records it in depends because M3.2's builtin tests need the same hang / leak guard; a note on t1985 asks for it as an importable test-helper package so builtin/ tests can use it. It is marked Implementing.",
+     "snapshot": {
+      "status": "Implementing",
+      "depends": [],
+      "gates_pending": [
+       "risk_evaluated"
+      ],
+      "priority": "medium",
+      "effort": "medium",
+      "followup_kind": "review_finding"
+     },
+     "position": 2,
+     "evidence_refs": [
+      "ev-snapshot",
+      "ev-m3-tasks"
+     ]
+    },
+    {
+     "entry_id": "e-m3-2",
+     "topic": "aitasks#1852",
+     "task": "aitasks#1854_2",
+     "classification": "core",
+     "confidence": "high",
+     "rationale": "M3.2 reference runners (bash-file, pytest, go-test, gradle-class, suite, device, engine-test). Its provider t1854_1 is archived; its other recorded prerequisite is t1985, so the builtins' timeout and cleanup tests are written against the watchdog from the start. Each builtin must declare and prove its timeouts mode.",
+     "snapshot": {
+      "status": "Ready",
+      "depends": [
+       "aitasks#1854_1",
+       "aitasks#1985"
+      ],
+      "gates_pending": [
+       "risk_evaluated"
+      ],
+      "priority": "medium",
+      "effort": "high"
+     },
+     "position": 3,
+     "evidence_refs": [
+      "ev-snapshot",
+      "ev-m3-tasks"
+     ]
+    },
+    {
+     "entry_id": "e-m2-4",
+     "task": "aitasks#1853_4",
+     "topic": "aitasks#1852",
+     "classification": "core",
+     "confidence": "medium",
+     "rationale": "M2.4 axes and variants. Both recorded prerequisites, t1853_1 and t1854_1, are archived, so it is selectable now. It lands axis: / token_format: as a named extension of M3.1's describe parse (runner.RegisterDescribeKey).",
+     "snapshot": {
+      "status": "Ready",
+      "depends": [
+       "aitasks#1853_1",
+       "aitasks#1854_1"
+      ],
+      "gates_pending": [
+       "risk_evaluated"
+      ],
+      "priority": "medium",
+      "effort": "medium"
+     },
+     "position": 4,
+     "evidence_refs": [
+      "ev-snapshot",
+      "ev-m3-tasks",
+      "ev-t1991"
+     ],
+     "caveats": [
+      "t1954: t1991 (annot conformance gate) is advisory before M2.4 extends annot's grammar."
+     ]
+    },
+    {
+     "entry_id": "e-m3-3",
+     "topic": "aitasks#1852",
+     "task": "aitasks#1854_3",
+     "classification": "core",
+     "confidence": "high",
+     "rationale": "M3.3 scheduler and resources. It depends on the archived t1854_1 and on t1853_5 (M2.5), which supplies the kind data its wave classifier maps. It plugs into M3.1's executor seam and fills the manifest's allocator handle.",
+     "snapshot": {
+      "status": "Ready",
+      "depends": [
+       "aitasks#1853_5",
+       "aitasks#1854_1"
+      ],
+      "gates_pending": [
+       "risk_evaluated"
+      ],
+      "priority": "medium",
+      "effort": "high"
+     },
+     "position": 5,
+     "evidence_refs": [
+      "ev-snapshot",
+      "ev-m3-tasks"
+     ]
+    },
+    {
+     "entry_id": "e-m3-4",
+     "topic": "aitasks#1852",
+     "task": "aitasks#1854_4",
+     "classification": "core",
+     "confidence": "medium",
+     "rationale": "M3.4 cost ledger. It depends on the archived t1854_1 and on t1853_5 (M2.5) for helpers' testmap:reads in anchor eligibility. It subscribes to M3.1's post-run hook and reads the per-invocation record.",
+     "snapshot": {
+      "status": "Ready",
+      "depends": [
+       "aitasks#1853_5",
+       "aitasks#1854_1"
+      ],
+      "gates_pending": [
+       "risk_evaluated"
+      ],
+      "priority": "medium",
+      "effort": "medium"
+     },
+     "position": 6,
+     "evidence_refs": [
+      "ev-snapshot",
+      "ev-m3-tasks"
+     ]
+    },
+    {
+     "entry_id": "e-lister-annotation-snapshot",
+     "topic": "aitasks#1852",
+     "task": "aitasks#1986",
+     "classification": "optional",
+     "confidence": "medium",
+     "rationale": "Kept here so it is not forgotten: a performance follow-up from t1854_1's review. scan / check read the repository's annotations twice (once in M2.1's readInputs, once in runner.Load). No task depends on it and it changes no behaviour. Its choice between a shared snapshot and a change to M2.1's UnitLister interface should account for M6.4's planned lister extension (SCAFFOLD_TODO). It can be picked as background work at any point.",
+     "snapshot": {
+      "status": "Ready",
+      "depends": [],
+      "gates_pending": [
+       "risk_evaluated"
+      ],
+      "priority": "low",
+      "effort": "medium",
+      "followup_kind": "review_finding"
+     },
+     "position": 7,
+     "evidence_refs": [
+      "ev-snapshot",
+      "ev-m3-tasks"
+     ]
+    },
+    {
+     "entry_id": "e-m3",
+     "task": "aitasks#1854",
+     "topic": "aitasks#1852",
+     "classification": "coordination_only",
+     "confidence": "high",
+     "rationale": "The M3 parent is decomposed into four children (M3.1 archived, M3.2 to M3.4 above). It closes when its children land.",
+     "snapshot": {
+      "status": "Ready",
+      "depends": [],
+      "gates_pending": [
+       "risk_evaluated"
+      ],
+      "priority": "medium",
+      "effort": "high"
+     },
+     "position": 8,
+     "evidence_refs": [
+      "ev-snapshot",
+      "ev-m3-tasks"
+     ]
+    }
+   ]
+  },
+  {
+   "wave_id": "w-select-run",
+   "ordinal": 5,
+   "title": "Select, freshness and the run surface (waves C to D)",
+   "purpose": "Plan and land the map put to use: the selector, stale, the evidence join, score and readiness, the engine test composite, and the ait test bash front with its brief and agent instructions.",
+   "entries": [
+    {
+     "entry_id": "e-m4",
+     "task": "aitasks#1855",
+     "topic": "aitasks#1852",
+     "classification": "core",
+     "confidence": "high",
+     "rationale": "M4 turns the registry into answers: the ranked list with reasons, the stale report the freshness gate consumes, and the readiness lines the completion policy flips on.",
+     "snapshot": {
+      "status": "Ready",
+      "depends": [],
+      "gates_pending": [],
+      "priority": "medium",
+      "effort": "high"
+     },
+     "position": 1,
+     "evidence_refs": [
+      "ev-snapshot",
+      "ev-report"
+     ],
+     "caveats": [
+      "t1954 verdict: context only; stale --confirm re-stamps through the unchanged annot."
+     ]
+    },
+    {
+     "entry_id": "e-m5",
+     "task": "aitasks#1856",
+     "topic": "aitasks#1852",
+     "classification": "core",
+     "confidence": "high",
+     "rationale": "M5 is the one verb every agent, gate and procedure calls. It must still answer when no registry or engine exists, so it can land before onboarding.",
+     "snapshot": {
+      "status": "Ready",
+      "depends": [],
+      "gates_pending": [],
+      "priority": "medium",
+      "effort": "high"
+     },
+     "position": 2,
+     "evidence_refs": [
+      "ev-snapshot"
+     ]
+    }
+   ]
+  },
+  {
+   "wave_id": "w-onboard-review-seams",
+   "ordinal": 6,
+   "title": "Onboarding, the reading loop and workflow seams (waves E to H)",
+   "purpose": "Plan and land onboarding (ledger, seeder, adoption verbs, classify, the onboarding skill), agent review and author annotation, and the workflow, QA, maintenance-skill, docs and port seams. This is where the loop closes without a person.",
+   "entries": [
+    {
+     "entry_id": "e-m6",
+     "task": "aitasks#1857",
+     "topic": "aitasks#1852",
+     "classification": "core",
+     "confidence": "high",
+     "rationale": "M6 brings an existing test tree onto the map in levels. Its engine verbs (M6.1 to M6.3) land in wave E, the skill (M6.5) in F, and classify and scaffold (M6.4) in G.",
+     "snapshot": {
+      "status": "Ready",
+      "depends": [],
+      "gates_pending": [],
+      "priority": "medium",
+      "effort": "high"
+     },
+     "position": 1,
+     "evidence_refs": [
+      "ev-snapshot",
+      "ev-report"
+     ],
+     "caveats": [
+      "t1954 verdict: action; surface unsupported-language test files explicitly (ADOPT_SKIP no-leader) and state the four-language policy."
+     ]
+    },
+    {
+     "entry_id": "e-m7",
+     "task": "aitasks#1858",
+     "topic": "aitasks#1852",
+     "classification": "core",
+     "confidence": "high",
+     "rationale": "M7 is the reading: packets out, verdicts in, calibration, author annotation, the review skill and its launch surfaces. Its cycle with M6 and M8 is acyclic only at submodule granularity, which is why the parents interleave here.",
+     "snapshot": {
+      "status": "Ready",
+      "depends": [],
+      "gates_pending": [],
+      "priority": "medium",
+      "effort": "high"
+     },
+     "position": 2,
+     "evidence_refs": [
+      "ev-snapshot",
+      "ev-report",
+      "ev-t1991"
+     ],
+     "caveats": [
+      "t1954 verdict: action; annotate --author refuses explicitly on ErrNoLeader / ErrUncertainContext / ErrByteOrderMark; t1991 advisory before M7.4."
+     ]
+    },
+    {
+     "entry_id": "e-m9",
+     "task": "aitasks#1860",
+     "topic": "aitasks#1852",
+     "classification": "core",
+     "confidence": "medium",
+     "rationale": "M9 carries the seams into task-workflow and aitask-qa, the maintenance skill, the docs and the Codex and OpenCode ports. M9.1 is wave F; M9.4 and M9.5 are wave H and come last.",
+     "snapshot": {
+      "status": "Ready",
+      "depends": [],
+      "gates_pending": [],
+      "priority": "medium",
+      "effort": "high"
+     },
+     "position": 3,
+     "evidence_refs": [
+      "ev-snapshot",
+      "ev-report"
+     ],
+     "caveats": [
+      "t1954 verdict: action; document the language policy and the annotation-line rules."
+     ]
+    },
+    {
+     "entry_id": "e-m2-repair-loop",
+     "task": "aitasks#1853_7",
+     "topic": "aitasks#1852",
+     "classification": "core",
+     "confidence": "low",
+     "rationale": "User-requested automatic check, repair and recheck loop so an existing codebase reaches a clean test map unattended. It depends on all six M2 children and on t1854_1 (archived); its remaining providers in M4.2, M5.1, M6.5, M7, M8 and M9 have no child ids yet, so it stays Postponed until those rows can be encoded as child edges.",
+     "snapshot": {
+      "status": "Postponed",
+      "depends": [
+       "aitasks#1853_1",
+       "aitasks#1853_2",
+       "aitasks#1853_3",
+       "aitasks#1853_4",
+       "aitasks#1853_5",
+       "aitasks#1853_6",
+       "aitasks#1854_1"
+      ],
+      "gates_pending": [
+       "risk_evaluated"
+      ],
+      "priority": "high",
+      "effort": "high"
+     },
+     "position": 4,
+     "evidence_refs": [
+      "ev-snapshot",
+      "ev-report"
+     ],
+     "caveats": [
+      "t1954 verdict: action; unsupported-language, uncertain and BOM-without-slot files are terminal failures; no second writer (sidecars not adopted)."
+     ]
+    }
+   ]
+  },
+  {
+   "wave_id": "w-rollout",
+   "ordinal": 7,
+   "title": "Rollout and the cross-linking pass (wave I)",
+   "purpose": "Apply the released feature to the target repositories, and run the one cross-linking pass once every parent has been coarse-planned.",
+   "entries": [
+    {
+     "entry_id": "e-m10",
+     "task": "aitasks#1861",
+     "topic": "aitasks#1852",
+     "classification": "core",
+     "confidence": "medium",
+     "rationale": "M10 is the feature applied: aitasks locally, plus aitasks_go, thinking_backend, aitasks_mobile and thinking_app as cross-repo level tasks. It adds no framework code and waits for a release.",
+     "snapshot": {
+      "status": "Ready",
+      "depends": [],
+      "gates_pending": [],
+      "priority": "medium",
+      "effort": "high"
+     },
+     "position": 1,
+     "evidence_refs": [
+      "ev-snapshot",
+      "ev-report"
+     ],
+     "caveats": [
+      "t1954 verdict: context; every target is in the supported four; check Kotlin targets for $$\" until t1990 lands."
+     ]
+    },
+    {
+     "entry_id": "e-crosslink",
+     "task": "aitasks#1863",
+     "topic": "aitasks#1852",
+     "classification": "coordination_only",
+     "confidence": "high",
+     "rationale": "Checks every cross-parent depends cell against real depends entries and the module-to-task maps against real ids, treating archived records as complete evidence, then refreshes this trail with --deep. t1853_4's M3.1 edge (t1854_1) is now recorded; it must still audit t1853_7's provider table and retain the parser-research result connection.",
+     "snapshot": {
+      "status": "Ready",
+      "depends": [],
+      "gates_pending": [
+       "risk_evaluated"
+      ],
+      "priority": "medium",
+      "effort": "low",
+      "followup_kind": "risk_mitigation"
+     },
+     "position": 2,
+     "evidence_refs": [
+      "ev-snapshot",
+      "ev-report"
+     ],
+     "caveats": [
+      "t1954 verdict: action; the research handoff is resolved: link the report, the evidence artifact and t1990-t1992."
+     ]
+    }
+   ]
+  }
+ ],
+ "relations": [
+  {
+   "from": "aitasks#1853_1",
+   "to": "aitasks#1853_4",
+   "type": "hard_depends",
+   "provenance": "fact"
+  },
+  {
+   "from": "aitasks#1854_1",
+   "to": "aitasks#1853_4",
+   "type": "hard_depends",
+   "provenance": "fact"
+  },
+  {
+   "from": "aitasks#1853_1",
+   "to": "aitasks#1853_5",
+   "type": "hard_depends",
+   "provenance": "fact"
+  },
+  {
+   "from": "aitasks#1853_1",
+   "to": "aitasks#1853_6",
+   "type": "hard_depends",
+   "provenance": "fact"
+  },
+  {
+   "from": "aitasks#1853_2",
+   "to": "aitasks#1853_6",
+   "type": "hard_depends",
+   "provenance": "fact"
+  },
+  {
+   "from": "aitasks#1853_1",
+   "to": "aitasks#1853_7",
+   "type": "hard_depends",
+   "provenance": "fact"
+  },
+  {
+   "from": "aitasks#1853_2",
+   "to": "aitasks#1853_7",
+   "type": "hard_depends",
+   "provenance": "fact"
+  },
+  {
+   "from": "aitasks#1853_3",
+   "to": "aitasks#1853_7",
+   "type": "hard_depends",
+   "provenance": "fact"
+  },
+  {
+   "from": "aitasks#1853_4",
+   "to": "aitasks#1853_7",
+   "type": "hard_depends",
+   "provenance": "fact"
+  },
+  {
+   "from": "aitasks#1853_5",
+   "to": "aitasks#1853_7",
+   "type": "hard_depends",
+   "provenance": "fact"
+  },
+  {
+   "from": "aitasks#1853_6",
+   "to": "aitasks#1853_7",
+   "type": "hard_depends",
+   "provenance": "fact"
+  },
+  {
+   "from": "aitasks#1854_1",
+   "to": "aitasks#1853_7",
+   "type": "hard_depends",
+   "provenance": "fact"
+  },
+  {
+   "from": "aitasks#1854_1",
+   "to": "aitasks#1854_2",
+   "type": "hard_depends",
+   "provenance": "fact"
+  },
+  {
+   "from": "aitasks#1985",
+   "to": "aitasks#1854_2",
+   "type": "hard_depends",
+   "provenance": "fact"
+  },
+  {
+   "from": "aitasks#1853_5",
+   "to": "aitasks#1854_3",
+   "type": "hard_depends",
+   "provenance": "fact"
+  },
+  {
+   "from": "aitasks#1854_1",
+   "to": "aitasks#1854_3",
+   "type": "hard_depends",
+   "provenance": "fact"
+  },
+  {
+   "from": "aitasks#1853_5",
+   "to": "aitasks#1854_4",
+   "type": "hard_depends",
+   "provenance": "fact"
+  },
+  {
+   "from": "aitasks#1854_1",
+   "to": "aitasks#1854_4",
+   "type": "hard_depends",
+   "provenance": "fact"
+  },
+  {
+   "from": "aitasks#1931",
+   "to": "aitasks#1939",
+   "type": "hard_depends",
+   "provenance": "fact"
+  },
+  {
+   "from": "aitasks#1991",
+   "to": "aitasks#1853_4",
+   "type": "advisory_precedes",
+   "provenance": "advisory",
+   "note": "annot conformance gate before M2.4's grammar extension"
+  },
+  {
+   "from": "aitasks#1991",
+   "to": "aitasks#1853_5",
+   "type": "advisory_precedes",
+   "provenance": "advisory",
+   "note": "annot conformance gate before further annot edits"
+  },
+  {
+   "from": "aitasks#1991",
+   "to": "aitasks#1853_6",
+   "type": "advisory_precedes",
+   "provenance": "advisory",
+   "note": "annot conformance gate before M2.6's restamp-hook extension"
+  },
+  {
+   "from": "aitasks#1991",
+   "to": "aitasks#1858",
+   "type": "advisory_precedes",
+   "provenance": "advisory",
+   "note": "annot conformance gate before M7.4 lands --author in annot"
+  },
+  {
+   "from": "aitasks#1990",
+   "to": "aitasks#1861",
+   "type": "advisory_precedes",
+   "provenance": "advisory",
+   "note": "the Kotlin reader fails closed before Kotlin target rollouts"
+  },
+  {
+   "from": "aitasks#1990",
+   "to": "aitasks#1992",
+   "type": "advisory_precedes",
+   "provenance": "advisory",
+   "note": "all three Kotlin-family lexers fail closed first"
+  },
+  {
+   "from": "aitasks#1954",
+   "to": "aitasks#1855",
+   "type": "informs",
+   "provenance": "advisory",
+   "note": "t1954 consumer verdict (report section 12; advisory note sent)"
+  },
+  {
+   "from": "aitasks#1954",
+   "to": "aitasks#1857",
+   "type": "informs",
+   "provenance": "advisory",
+   "note": "t1954 consumer verdict (report section 12; advisory note sent)"
+  },
+  {
+   "from": "aitasks#1954",
+   "to": "aitasks#1858",
+   "type": "informs",
+   "provenance": "advisory",
+   "note": "t1954 consumer verdict (report section 12; advisory note sent)"
+  },
+  {
+   "from": "aitasks#1954",
+   "to": "aitasks#1860",
+   "type": "informs",
+   "provenance": "advisory",
+   "note": "t1954 consumer verdict (report section 12; advisory note sent)"
+  },
+  {
+   "from": "aitasks#1954",
+   "to": "aitasks#1853_7",
+   "type": "informs",
+   "provenance": "advisory",
+   "note": "t1954 consumer verdict (report section 12; advisory note sent)"
+  },
+  {
+   "from": "aitasks#1954",
+   "to": "aitasks#1861",
+   "type": "informs",
+   "provenance": "advisory",
+   "note": "t1954 consumer verdict (report section 12; advisory note sent)"
+  },
+  {
+   "from": "aitasks#1954",
+   "to": "aitasks#1863",
+   "type": "informs",
+   "provenance": "advisory",
+   "note": "t1954 consumer verdict (report section 12; advisory note sent)"
+  },
+  {
+   "from": "aitasks#1992",
+   "to": "aitasks#1977",
+   "type": "coordinates_with",
+   "provenance": "advisory",
+   "note": "both touch the deps Kotlin scanner"
+  }
+ ],
+ "observations": [
+  {
+   "observation_id": "o-kotlin-multidollar",
+   "kind": "baseline_risk",
+   "statement": "The landed Kotlin reader mis-tokenises Kotlin 2.2 multi-dollar strings: on a valid file it reads a look-alike inside a raw string and Apply writes into the string (FP-writable 3, record corruption 1). Exposure was nil on 2026-10-14.",
+   "affects": [
+    "aitasks#1990",
+    "aitasks#1861",
+    "aitasks#1853_2"
+   ],
+   "evidence_refs": [
+    "ev-matrix",
+    "ev-inputs",
+    "ev-t1990"
+   ]
+  },
+  {
+   "observation_id": "o-parser-decision",
+   "kind": "other",
+   "statement": "t1954 decision: keep the landed readers, gate them (t1991), fix Kotlin (t1990), evaluate a shared Kotlin lexer (t1992); no fifth-language candidate yet; sidecars not adopted. Report aidocs/testing_engine/t1954_annotation_parser_research.md, evidence art:t1954-researchevidence.",
+   "affects": [
+    "aitasks#1954",
+    "aitasks#1855",
+    "aitasks#1857",
+    "aitasks#1858",
+    "aitasks#1860",
+    "aitasks#1853_7",
+    "aitasks#1861",
+    "aitasks#1863"
+   ],
+   "evidence_refs": [
+    "ev-report",
+    "ev-evidence-artifact"
+   ]
+  },
+  {
+   "observation_id": "o-kotlin-lexers",
+   "kind": "shared_surface_collision",
+   "statement": "Three independent hand lexers parse Kotlin-family syntax (annot/lexctx.go, deps/kotlinlex.go, deps/gradlelex.go); the same multi-dollar blind spot was found in each within one week (t1975, t1980, t1990).",
+   "affects": [
+    "aitasks#1992",
+    "aitasks#1977",
+    "aitasks#1990"
+   ],
+   "evidence_refs": [
+    "ev-report",
+    "ev-t1992"
+   ]
+  },
+  {
+   "observation_id": "o-annot-churn",
+   "kind": "baseline_risk",
+   "statement": "annot changed three times after the research pin (t1969, t1853_3, t1854_1) and more annot edits are queued (M2.4-M2.6, M7.4); no hermetic gate covers the corpus cases yet.",
+   "affects": [
+    "aitasks#1991",
+    "aitasks#1853_4",
+    "aitasks#1853_5",
+    "aitasks#1853_6",
+    "aitasks#1858"
+   ],
+   "evidence_refs": [
+    "ev-report",
+    "ev-t1991"
+   ]
+  },
+  {
+   "observation_id": "o-in-flight",
+   "kind": "in_flight_conflict",
+   "statement": "At this snapshot t1954_4, t1977 and t1985 are Implementing; t1977 edits the deps Kotlin scanner that t1992 evaluates, and t1985 gates t1854_2.",
+   "affects": [
+    "aitasks#1977",
+    "aitasks#1985",
+    "aitasks#1854_2",
+    "aitasks#1992"
+   ],
+   "evidence_refs": [
+    "ev-snapshot"
+   ]
+  }
+ ],
+ "exclusions": [
+  {
+   "task": "aitasks#1975",
+   "reason_code": "already_landed",
+   "reason": "Gradle blanker made string-aware and fail-closed on multi-dollar strings (archived); it joined and left the topic between versions. Recorded in o-kotlin-lexers."
+  },
+  {
+   "task": "aitasks#1980",
+   "reason_code": "already_landed",
+   "reason": "deps Kotlin lexer made to fail closed on multi-dollar strings (archived). Recorded in o-kotlin-lexers."
+  },
+  {
+   "task": "aitasks#1973",
+   "reason_code": "already_landed",
+   "reason": "t1853_3's risk-mitigation follow-up (the Kotlin target probe), found by the deep follow-up sweep; archived Done."
+  }
+ ]
+}
