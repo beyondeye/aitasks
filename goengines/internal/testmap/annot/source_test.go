@@ -97,3 +97,25 @@ func TestSourceErrors(t *testing.T) {
 type emptyLister struct{}
 
 func (emptyLister) List(context.Context, string) ([]registry.Listing, error) { return nil, nil }
+
+// The runner keys reach the registry (M3.1's named extension of toRegistry):
+// a file-level override, batch flag and needs, a member's own values, and a
+// member that sets none of them.
+func TestSourceCarriesRunnerBatchNeeds(t *testing.T) {
+	r := repo(t, map[string]string{
+		"tests/r.sh": "#!/bin/sh\n# testmap:runner shell\n# testmap:batch no\n# testmap:needs repo-git-index emulator\n# testmap:needs heavy-run\n" +
+			"# testmap:unit A\n# testmap:runner other\n# testmap:batch yes\n# testmap:needs gpu\n# testmap:unit B\n# testmap:covers src/b.sh\n",
+	})
+	got, err := Source{}.Annotations(bg, r.Dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, _ := json.Marshal(got)
+	want := `[{"Path":"tests/r.sh","Units":[` +
+		`{"Member":"","Line":0,"Covers":null,"Runner":"shell","Batch":"no","Needs":["repo-git-index","emulator","heavy-run"]},` +
+		`{"Member":"A","Line":6,"Covers":null,"Runner":"other","Batch":"yes","Needs":["gpu"]},` +
+		`{"Member":"B","Line":10,"Covers":[{"Source":"src/b.sh","Line":11,"StampedAt":"","StampedBlob":""}]}]}]`
+	if string(out) != want {
+		t.Errorf("got  %s\nwant %s", out, want)
+	}
+}

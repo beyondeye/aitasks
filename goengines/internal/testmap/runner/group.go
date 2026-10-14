@@ -1,0 +1,105 @@
+package runner
+
+import (
+	"encoding/json"
+	"slices"
+	"sort"
+
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/registry"
+)
+
+// WaveClass is the grouping's wave input: `unit` or `broad`. The caller
+// derives it from M2.5's kind data (`unit` and variant-bearing units →
+// unit; integration | e2e | device → broad); a unit with no kind data is
+// `unit`, which is sound because no broad unit exists before M2.5.
+type WaveClass string
+
+const (
+	WaveUnit  WaveClass = "unit"
+	WaveBroad WaveClass = "broad"
+)
+
+// Key is the canonical grouping key: units with equal keys run as one
+// invocation. Batch is the batch identity — "" (one shared marker) for a
+// batchable unit, the unit's own id for a `batch: no` unit, which is
+// therefore always a singleton.
+type Key struct {
+	Runner    string    `json:"runner"`
+	Group     string    `json:"group"`
+	Resources []string  `json:"resources"`
+	Wave      WaveClass `json:"wave"`
+	Batch     string    `json:"batch"`
+}
+
+// KeyOf is the grouping key of u under wave class w ("" = unit).
+func KeyOf(u Unit, w WaveClass) Key {
+	if w == "" {
+		w = WaveUnit
+	}
+	k := Key{Runner: u.Runner, Group: u.Group, Resources: slices.Clone(u.Resources), Wave: w}
+	if k.Resources == nil {
+		k.Resources = []string{}
+	}
+	if u.BatchNo {
+		k.Batch = u.ID.String()
+	}
+	return k
+}
+
+// String renders the key as a compact JSON array — deterministic, and safe
+// in a line-protocol field (no '|', no line break: every component is a
+// runner or resource name, a path-derived group or an id).
+func (k Key) String() string {
+	b, _ := json.Marshal([]any{k.Runner, k.Group, k.Resources, k.Wave, k.Batch})
+	return string(b)
+}
+
+// Invocation is one runner process: a set of units sharing a key.
+type Invocation struct {
+	Index  int    // 1-based, in key order
+	Key    Key    //
+	Runner string //
+	Units  []Unit // sorted by id
+	// Handle is the allocator handle the executor holds for this invocation
+	// (M3.3 fills it); it reaches the runner in the manifest. Empty when no
+	// allocator is held.
+	Handle string
+}
+
+// Group is the canonical grouping function — the one place an invocation is
+// formed. The scheduler (M3.3) executes its output and never re-forms it;
+// the selector's groups (M4.1) and the cost estimate (M3.4) call it with the
+// same inputs, so they agree with what runs by construction. It is pure:
+// the output depends only on the units' fields and wave, never on their
+// order or on any setting (`broad_after_unit` orders invocations, it does
+// not form them). wave may be nil (every unit is `unit`).
+func Group(units []Unit, wave func(registry.ID) WaveClass) []*Invocation {
+	byKey := map[string]*Invocation{}
+	for _, u := range units {
+		var w WaveClass
+		if wave != nil {
+			w = wave(u.ID)
+		}
+		k := KeyOf(u, w)
+		ks := k.String()
+		inv := byKey[ks]
+		if inv == nil {
+			inv = &Invocation{Key: k, Runner: u.Runner}
+			byKey[ks] = inv
+		}
+		inv.Units = append(inv.Units, u)
+	}
+	keys := make([]string, 0, len(byKey))
+	for ks := range byKey {
+		keys = append(keys, ks)
+	}
+	sort.Strings(keys)
+	out := make([]*Invocation, len(keys))
+	for i, ks := range keys {
+		inv := byKey[ks]
+		sort.Slice(inv.Units, func(a, b int) bool { return inv.Units[a].ID.String() < inv.Units[b].ID.String() })
+		inv.Index = i + 1
+		out[i] = inv
+	}
+	return out
+}

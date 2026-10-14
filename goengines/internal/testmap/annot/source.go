@@ -17,8 +17,8 @@ import (
 // path. A file it cannot read, or whose annotations the grammar refuses, is
 // an error: scan never runs on a partial map.
 //
-// M2.4 / M2.5 extend registry.UnitAnnotation additively and fill the new
-// fields in toRegistry below (named extensions).
+// M3.1 (runner / batch / needs), M2.4 and M2.5 extend registry.UnitAnnotation
+// additively and fill the new fields in toRegistry below (named extensions).
 type Source struct{}
 
 // Annotations implements registry.AnnotationSource.
@@ -88,6 +88,17 @@ func toRegistry(f *File) registry.FileAnnotations {
 			ua.Covers = append(ua.Covers, registry.Cover{
 				Source: c.Source, Line: c.Line.No, StampedAt: c.Stamp.Date, StampedBlob: c.Stamp.Blob,
 			})
+		}
+		// The runner keys: M3.1's named extension (the grammar guarantees
+		// one argument for runner and batch, at least one for needs).
+		if u.Runner != nil {
+			ua.Runner = u.Runner.Args[0]
+		}
+		if u.Batch != nil {
+			ua.Batch = u.Batch.Args[0]
+		}
+		for _, n := range u.Needs {
+			ua.Needs = append(ua.Needs, n.Args...)
 		}
 		fa.Units = append(fa.Units, ua)
 	}

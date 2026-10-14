@@ -1,0 +1,469 @@
+package runner
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"slices"
+	"sort"
+	"strings"
+	"sync"
+
+	"github.com/beyondeye/aitasks/goengines/internal/gitx"
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/annot"
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/registry"
+	"github.com/bmatcuk/doublestar/v4"
+)
+
+var (
+	builtinMu sync.Mutex
+	builtins  = map[string]bool{}
+)
+
+// RegisterBuiltin makes `builtin: <name>` resolvable (M3.2 registers each
+// builtin it ships). An unregistered builtin is refused at resolution, never
+// run. Registering a name twice panics.
+func RegisterBuiltin(name string) {
+	builtinMu.Lock()
+	defer builtinMu.Unlock()
+	if builtins[name] {
+		panic("runner: builtin registered twice: " + name)
+	}
+	builtins[name] = true
+}
+
+func builtinRegistered(name string) bool {
+	builtinMu.Lock()
+	defer builtinMu.Unlock()
+	return builtins[name]
+}
+
+// SelfExe is the engine binary a builtin runs as (`<self> runner <name>
+// <verb>`). Tests stand in a script for it.
+var SelfExe = os.Executable
+
+// Resolution sources.
+const (
+	SourceScript  = "script"  // an explicit script:
+	SourceShadow  = "shadow"  // aitestmap/runners/<name>.sh, shadow-by-name
+	SourceBuiltin = "builtin" // builtin:<name>
+)
+
+// Resolution records which declaration of a runner won and why; M4.1's
+// `explain` prints it.
+type Resolution struct {
+	Runner string `json:"runner"`
+	Source string `json:"source"` // script | shadow | builtin
+	Path   string `json:"path"`   // the script path, or builtin:<name>
+	Reason string `json:"reason"`
+}
+
+// resolve picks what a runner name runs: an explicit script:, else an
+// executable aitestmap/runners/<name>.sh (shadowing any builtin:), else a
+// registered builtin:. A shadow script that exists but is not an executable
+// regular file is refused rather than silently falling back to the builtin.
+func resolve(root string, e Entry) (Resolution, error) {
+	r := Resolution{Runner: e.Name}
+	if e.Script != "" {
+		if err := executable(root, e.Script); err != nil {
+			return r, lineErr(ClassUnresolved, e.Name, "script: "+err.Error())
+		}
+		r.Source, r.Path, r.Reason = SourceScript, e.Script, "script: "+e.Script
+		return r, nil
+	}
+	shadow := RunnersDir + "/" + e.Name + ".sh"
+	switch err := executable(root, shadow); {
+	case err == nil:
+		r.Source, r.Path = SourceShadow, shadow
+		r.Reason = shadow + " (shadow-by-name)"
+		if e.Builtin != "" {
+			r.Reason = shadow + " shadows builtin:" + e.Builtin
+		}
+		return r, nil
+	case !errors.Is(err, fs.ErrNotExist):
+		return r, lineErr(ClassUnresolved, e.Name, err.Error())
+	}
+	if e.Builtin != "" {
+		if !builtinRegistered(e.Builtin) {
+			return r, lineErr(ClassUnresolved, e.Name, "builtin "+e.Builtin+" is not registered")
+		}
+		r.Source, r.Path, r.Reason = SourceBuiltin, "builtin:"+e.Builtin, "builtin:"+e.Builtin
+		return r, nil
+	}
+	return r, lineErr(ClassUnresolved, e.Name, "no script:, builtin: or "+shadow)
+}
+
+// executable checks that rel is an executable regular file under root.
+func executable(root, rel string) error {
+	fi, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel)))
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("%s: %w", rel, fs.ErrNotExist)
+		}
+		return err
+	}
+	if !fi.Mode().IsRegular() || fi.Mode().Perm()&0o111 == 0 {
+		return fmt.Errorf("%s is not an executable file", rel)
+	}
+	return nil
+}
+
+// Runner is a resolved runner with its effective describe and list.
+type Runner struct {
+	Entry          Entry
+	Resolution     Resolution
+	Describe       Describe // the runner's own describe with the runners.yaml overrides over it
+	TimeoutS       float64  // effective per-unit bound
+	MaxInvocationS float64  // effective invocation ceiling
+	Listed         []ListRow
+	Dir            string // absolute working directory
+}
+
+// Name is the runner's declared name.
+func (r *Runner) Name() string { return r.Entry.Name }
+
+// command builds the process for verb (+ args).
+func (r *Runner) command(root string, env []string, args ...string) (command, error) {
+	env = append(env, "AIT_TESTMAP_ROOT="+root, "AIT_TESTMAP_RUNNER="+r.Name())
+	if r.Resolution.Source == SourceBuiltin {
+		self, err := SelfExe()
+		if err != nil {
+			return command{}, err
+		}
+		env = append(env, "AIT_TESTMAP_COMMAND="+r.Entry.Command)
+		return command{Path: self, Args: append([]string{"runner", r.Entry.Builtin}, args...), Dir: r.Dir, Env: env}, nil
+	}
+	return command{Path: filepath.Join(root, filepath.FromSlash(r.Resolution.Path)), Args: args, Dir: r.Dir, Env: env}, nil
+}
+
+// Unit is one owned, runnable unit.
+type Unit struct {
+	ID        registry.ID `json:"id"`
+	Kind      string      `json:"kind"`
+	Lowering  string      `json:"lowering"`
+	Artifact  string      `json:"artifact,omitempty"`
+	Runner    string      `json:"runner"`
+	Group     string      `json:"group"`               // the describe group_by group
+	Resources []string    `json:"resources,omitempty"` // sorted, deduplicated
+	BatchNo   bool        `json:"batch_no,omitempty"`  // must run as a singleton invocation
+	TimeoutS  float64     `json:"timeout_s"`
+}
+
+// Repository is the loaded runner repository: every runner resolved,
+// described and listed, and every listed unit assigned to exactly one owner.
+type Repository struct {
+	Root    string
+	Config  Config
+	Runners []*Runner // runners.yaml order
+	Units   []Unit    // owned units, sorted by id
+	Bound   map[string][]string
+	byName  map[string]*Runner
+	owned   map[registry.ID]bool
+}
+
+// Runner returns the runner named name.
+func (r *Repository) Runner(name string) *Runner { return r.byName[name] }
+
+// Registered reports whether id is an owned unit of some runner.
+func (r *Repository) Registered(id registry.ID) bool { return r.owned[id] }
+
+// Load reads runners.yaml, resolves every runner, runs its `describe` and
+// `list`, and assigns each listed unit to its owner:
+//
+//  1. a `testmap:runner` annotation — a member block's for that member, the
+//     file-level block's for the file and all its units;
+//  2. else the first runner (in runners.yaml order) whose bind: matches the
+//     path;
+//  3. else the single runner that listed it (two unbound runners listing the
+//     same id is an error).
+//
+// A unit is owned only if its owner lists it; a runner that lists a unit it
+// does not own drops it. Excluded paths are dropped. Bound[runner] is the
+// git-visible files whose owner is that runner (UNREGISTERED candidates).
+func Load(ctx context.Context, root string) (*Repository, error) {
+	cfg, err := LoadConfig(root)
+	if err != nil {
+		return nil, err
+	}
+	rcfg, err := registry.LoadConfig(root)
+	if err != nil {
+		return nil, err
+	}
+	repo := &Repository{Root: root, Config: cfg, byName: map[string]*Runner{}, owned: map[registry.ID]bool{}, Bound: map[string][]string{}}
+	for _, e := range cfg.Runners {
+		r, err := loadRunner(ctx, root, cfg, e)
+		if err != nil {
+			return nil, err
+		}
+		repo.Runners = append(repo.Runners, r)
+		repo.byName[e.Name] = r
+	}
+	if err := repo.checkDescribed(); err != nil {
+		return nil, err
+	}
+	anns, err := annot.Source{}.Annotations(ctx, root)
+	if err != nil {
+		return nil, err
+	}
+	ov := indexAnnotations(anns)
+	for _, f := range anns {
+		for _, u := range f.Units {
+			if u.Runner != "" && repo.byName[u.Runner] == nil {
+				id := registry.ID{Path: f.Path, Member: u.Member}
+				return nil, lineErr(ClassUnknown, id.String(), u.Runner)
+			}
+		}
+	}
+	if err := repo.assign(rcfg, ov); err != nil {
+		return nil, err
+	}
+	files, err := gitx.Repo{Dir: root}.ListFiles(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, p := range files {
+		if rcfg.Excluded(p) {
+			continue
+		}
+		if owner := repo.ownerOf(registry.ID{Path: p}, ov); owner != "" {
+			repo.Bound[owner] = append(repo.Bound[owner], p)
+		}
+	}
+	return repo, nil
+}
+
+func loadRunner(ctx context.Context, root string, cfg Config, e Entry) (*Runner, error) {
+	res, err := resolve(root, e)
+	if err != nil {
+		return nil, err
+	}
+	r := &Runner{Entry: e, Resolution: res, TimeoutS: timeoutFor(e), MaxInvocationS: cfg.maxFor(e), Dir: root}
+	if e.Cwd != "" && e.Cwd != "." {
+		r.Dir = filepath.Join(root, filepath.FromSlash(e.Cwd))
+		if fi, err := os.Stat(r.Dir); err != nil || !fi.IsDir() {
+			return nil, lineErr(ClassInvalid, e.Name, "cwd "+e.Cwd+" is not a directory")
+		}
+	}
+	out, err := r.call(ctx, root, "describe")
+	if err != nil {
+		return nil, err
+	}
+	d, err := ParseDescribe(out)
+	if err != nil {
+		return nil, lineErr(ClassProtocol, e.Name, "describe", err.Error())
+	}
+	r.Describe = d.Merge(e.Overrides, e.OverrideKeys)
+	if err := r.Describe.Validate(); err != nil {
+		return nil, lineErr(ClassInvalid, e.Name, err.Error())
+	}
+	if err := r.checkTimeouts(); err != nil {
+		return nil, err
+	}
+	out, err = r.call(ctx, root, "list")
+	if err != nil {
+		return nil, err
+	}
+	rows, err := ParseList(out)
+	if err != nil {
+		return nil, lineErr(ClassProtocol, e.Name, "list", err.Error())
+	}
+	for _, row := range rows {
+		if _, err := r.Describe.GroupOf(row.Unit.ID); err != nil {
+			return nil, lineErr(ClassProtocol, e.Name, "list", fmt.Sprintf("list line %d: %v", row.Line, err))
+		}
+	}
+	r.Listed = rows
+	return r, nil
+}
+
+// checkTimeouts applies the timeout model's key rules to the effective mode.
+func (r *Runner) checkTimeouts() error {
+	switch {
+	case r.Describe.Timeouts == TimeoutsBatch && r.Entry.BatchTimeoutS == 0:
+		return lineErr(ClassInvalid, r.Name(), "timeouts: batch needs batch_timeout_s (the bounded batch timeout)")
+	case r.Describe.Timeouts != TimeoutsBatch && r.Entry.BatchTimeoutS != 0:
+		return lineErr(ClassInvalid, r.Name(), "batch_timeout_s is only valid with timeouts: batch")
+	}
+	return nil
+}
+
+// call runs `describe` or `list` and returns its stdout.
+func (r *Runner) call(ctx context.Context, root, verb string) ([]byte, error) {
+	c, err := r.command(root, os.Environ(), verb)
+	if err != nil {
+		return nil, lineErr(ClassUnresolved, r.Name(), err.Error())
+	}
+	res := execRunner(ctx, c, ListTimeout)
+	if res.Sweep != nil {
+		return nil, lineErr(ClassProtocol, r.Name(), verb, res.Sweep.Error())
+	}
+	if res.StartErr != nil || res.Overflow || res.Killed || res.Exit != 0 {
+		return nil, lineErr(ClassProtocol, r.Name(), verb, res.exitText())
+	}
+	return res.Stdout, nil
+}
+
+// checkDescribed applies the rules that need every runner's effective
+// describe: a subsumption target is full: true (so every chain ends at a
+// full terminal), and fallback_command sits only on a unit: suite runner.
+func (repo *Repository) checkDescribed() error {
+	for _, r := range repo.Runners {
+		if t := r.Entry.SubsumedBy; t != "" && !repo.byName[t].Describe.Full {
+			return lineErr(ClassInvalid, r.Name(), "subsumed_by "+t+" is not a full: true runner")
+		}
+		if r.Entry.FallbackCommand != "" && r.Describe.Unit != "suite" {
+			return lineErr(ClassInvalid, r.Name(), "fallback_command is only valid on a unit: suite runner")
+		}
+	}
+	return nil
+}
+
+// annIndex holds the runner keys of the annotated test files.
+type annIndex map[string]map[string]registry.UnitAnnotation // path -> member ("" = file) -> block
+
+func indexAnnotations(anns []registry.FileAnnotations) annIndex {
+	ix := annIndex{}
+	for _, f := range anns {
+		m := map[string]registry.UnitAnnotation{}
+		for _, u := range f.Units {
+			m[u.Member] = u
+		}
+		ix[f.Path] = m
+	}
+	return ix
+}
+
+// override is the runner a `testmap:runner` annotation names for id.
+func (ix annIndex) override(id registry.ID) string {
+	m := ix[id.Path]
+	if m == nil {
+		return ""
+	}
+	if id.Member != "" && m[id.Member].Runner != "" {
+		return m[id.Member].Runner
+	}
+	return m[""].Runner
+}
+
+// batchNo reports `testmap:batch no` on id (a member's own value over the
+// file's).
+func (ix annIndex) batchNo(id registry.ID) bool {
+	m := ix[id.Path]
+	if m == nil {
+		return false
+	}
+	if id.Member != "" && m[id.Member].Batch != "" {
+		return m[id.Member].Batch == "no"
+	}
+	return m[""].Batch == "no"
+}
+
+// needs is the file-level needs ∪ the member's.
+func (ix annIndex) needs(id registry.ID) []string {
+	m := ix[id.Path]
+	if m == nil {
+		return nil
+	}
+	n := slices.Clone(m[""].Needs)
+	if id.Member != "" {
+		n = append(n, m[id.Member].Needs...)
+	}
+	return n
+}
+
+// ownerOf is the override, else the first matching binding ("" for none).
+func (repo *Repository) ownerOf(id registry.ID, ix annIndex) string {
+	if o := ix.override(id); o != "" {
+		return o
+	}
+	for _, r := range repo.Runners {
+		for _, g := range r.Entry.Bind {
+			if ok, _ := doublestar.Match(g, id.Path); ok {
+				return r.Name()
+			}
+		}
+	}
+	return ""
+}
+
+func (repo *Repository) assign(rcfg registry.Config, ix annIndex) error {
+	listers := map[registry.ID][]*Runner{}
+	rows := map[registry.ID]map[*Runner]registry.ListedUnit{}
+	var ids []registry.ID
+	for _, r := range repo.Runners {
+		for _, row := range r.Listed {
+			id := row.Unit.ID
+			if rcfg.Excluded(id.Path) {
+				continue
+			}
+			if rows[id] == nil {
+				rows[id] = map[*Runner]registry.ListedUnit{}
+				ids = append(ids, id)
+			}
+			listers[id] = append(listers[id], r)
+			rows[id][r] = row.Unit
+		}
+	}
+	for _, id := range ids {
+		owner := repo.ownerOf(id, ix)
+		if owner == "" {
+			if ls := listers[id]; len(ls) > 1 {
+				names := make([]string, len(ls))
+				for i, r := range ls {
+					names[i] = r.Name()
+				}
+				return lineErr(ClassInvalid, names[0], fmt.Sprintf("%s is listed by %s and no bind: or testmap:runner decides its owner", id, strings.Join(names, ", ")))
+			}
+			owner = listers[id][0].Name()
+		}
+		r := repo.byName[owner]
+		lu, ok := rows[id][r]
+		if !ok {
+			continue // its owner does not list it: no runner runs it (UNREGISTERED if bound)
+		}
+		group, _ := r.Describe.GroupOf(id) // checked at load
+		res := slices.Concat(r.Describe.Needs, ix.needs(id))
+		slices.Sort(res)
+		res = slices.Compact(res)
+		repo.Units = append(repo.Units, Unit{
+			ID: id, Kind: lu.Kind, Lowering: lu.Lowering, Artifact: lu.Artifact,
+			Runner: owner, Group: group, Resources: res, TimeoutS: r.TimeoutS,
+			BatchNo: !r.Describe.Batch || ix.batchNo(id) || r.Describe.Timeouts == TimeoutsNone,
+		})
+		repo.owned[id] = true
+	}
+	sort.Slice(repo.Units, func(i, j int) bool { return repo.Units[i].ID.String() < repo.Units[j].ID.String() })
+	return nil
+}
+
+// Listings is the repository as M2.1's lister input: per runner, its owned
+// units, its bound files and its artifact globs.
+func (repo *Repository) Listings() []registry.Listing {
+	var out []registry.Listing
+	for _, r := range repo.Runners {
+		l := registry.Listing{Runner: r.Name(), Bound: repo.Bound[r.Name()], ArtifactGlobs: r.Describe.ArtifactGlob}
+		for _, u := range repo.Units {
+			if u.Runner == r.Name() {
+				l.Units = append(l.Units, registry.ListedUnit{ID: u.ID, Kind: u.Kind, Lowering: u.Lowering, Artifact: u.Artifact})
+			}
+		}
+		out = append(out, l)
+	}
+	return out
+}
+
+// Lister is the runner-backed registry.UnitLister `scan` and `check` read
+// (a named extension of M2.1, wired in cmd/ait-testmap/scancheck.go).
+type Lister struct{}
+
+// List implements registry.UnitLister.
+func (Lister) List(ctx context.Context, root string) ([]registry.Listing, error) {
+	repo, err := Load(ctx, root)
+	if err != nil {
+		return nil, err
+	}
+	return repo.Listings(), nil
+}

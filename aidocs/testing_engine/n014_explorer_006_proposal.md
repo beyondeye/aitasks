@@ -705,7 +705,7 @@ Everything that executes a test and records what it cost.
 
 | submodule | scope | components | owns | provides | depends on |
 |---|---|---|---|---|---|
-| **M3.1** Runner contract and repository | `describe` / `list` / `run --manifest` (with the allocator-handle field, empty until M3.3 fills it), `runners.yaml` bindings, `builtin:` scheme, `command:` / `cwd:` overrides, shadow-by-name, the canonical grouping function (`batch: no` units are singletons; the wave class is the caller's input), per-unit timeouts, `results.jsonl` (top-level and child rows) / `runner.json`, reconciliation as mechanism failures, the engine's per-invocation record (`cause`, HEAD at start and end, the modified-path set), exit contract `0/1/2/75/64`, `subsumed_by:`, `fallback_command:`, `full: true` + `children:`, the runner-backed unit lister `scan` and `check` call (a named extension of M2.1), the `batch` / `needs` annotation fields into the registry (a named extension of M2.2's source), the `run` verb over a plan-executor seam whose built-in serial plan refuses a non-empty resource set until M3.3 plugs in, and an ordered multi-subscriber post-run hook (M3.4 subscribes; M4.4 may) — `axis:` / `token_format:` are M2.4's extension of the `describe` parse | `component_runner_contract` | `internal/runner` (contract, repository, `run` verb) | the runner interface every builtin and project script implements; the grouping function the scheduler, selector and estimate share | M1.2, M2.1, M2.2 |
+| **M3.1** Runner contract and repository | `describe` / `list` / `run --manifest` (with the allocator-handle field, empty until M3.3 fills it), `runners.yaml` bindings, `builtin:` scheme, `command:` / `cwd:` overrides, shadow-by-name, the canonical grouping function (`batch: no` units are singletons; the wave class is the caller's input), per-unit timeouts under the runner-declared timeout model with a separate `max_invocation_s` ceiling and session-level process cleanup, `results.jsonl` (top-level and child rows) / `runner.json`, reconciliation as mechanism failures, the engine's per-invocation record (`cause`, HEAD at start and end, the modified-path set), exit contract `0/1/2/75/64`, `subsumed_by:`, `fallback_command:`, `full: true` + `children:`, the runner-backed unit lister `scan` and `check` call (a named extension of M2.1), the `runner` / `batch` / `needs` annotation fields into the registry (a named extension of M2.2's source), the `run` verb over a plan-executor seam whose built-in serial plan refuses a non-empty resource set until M3.3 plugs in, and an ordered multi-subscriber post-run hook (M3.4 subscribes; M4.4 may) — `axis:` / `token_format:` are M2.4's extension of the `describe` parse | `component_runner_contract` | `internal/runner` (contract, repository, `run` verb) | the runner interface every builtin and project script implements; the grouping function the scheduler, selector and estimate share | M1.2, M2.1, M2.2 |
 | **M3.2** Reference runners | `bash-file`, `pytest` (junitxml, `testmap:batch no`), `go-test`, `gradle-class`, `suite`, `device` (reads the allocator handle from the manifest), `engine-test`; the `full` suite wrapper's `children:` post-processors (pytest junitxml, bash-file per-file exit, `go test -json`) | `component_reference_runners` | `internal/runner/builtin/*`; `ait-testmap runner <name>` | runners for every target repository without a project script | M3.1 |
 | **M3.3** Scheduler and resources | resource kinds and scopes, `resources.yaml`, `flock(2)` slot files, admission with 75 deferral and backoff, allocator with signal-safe release (filling the manifest's handle field), `errgroup` execution of the invocations M3.1's grouping function forms (never re-formed), the kind → wave class mapping from M2.5's kind data, `broad_after_unit` waves as an ordering over wave-homogeneous invocations, admission-holding invocations last, `concurrency: serial\|parallel`, the schedule report and its check half `schedule --check`; plugs the scheduler into M3.1's `run` seam (a named extension of M3.1) | `component_scheduler_resources`, `component_broad_test_scopes` (scheduling half) | `internal/sched`; verb `schedule` | the wave plan `run` executes; exit 75 semantics | M3.1, M2.5 |
 | **M3.4** Cost ledger | Welford / P² per `(id, host class)`, `.aitask-testmap/ledger.jsonl` written as a subscriber of M3.1's post-run hook, anchor eligibility decided at run time (no cause, HEAD unmoved, the modified-path set disjoint from the unit's test file, test-side closure, `covers` sources, the closure's `reads` globs and the runner configuration; empty for an opaque closure), `costs --update`, `last_pass` from eligible passes only, flake rate, the per-group estimate over top-level ids (disjoint accounting) and the full-suite p95, `costs/predictions.yaml` (store only; `score` writes it in M4.4), `costs --gate-timeout`, the run-id prefixes, the `costs/policy.yaml` file format (read/write helpers; the writer logic is M8.5) | `component_cost_ledger` | `internal/cost`; verb `costs` | costs and anchors for the selector, the evidence join, readiness and the cadence | M3.1, M2.3, M2.5 |
@@ -2713,7 +2713,7 @@ run` means the suite budget applies to the interactive loop only.
 
 `internal/runner`: `describe` (`unit file|class|method|variant|suite`,
 `batch`, `needs`, `group_by:`, `filter_scope:`, `full:`, `children:`,
-`artifact_glob:`; `axis:` and `token_format:` are M2.4's named extension of
+`artifact_glob:`, `timeouts:`; `axis:` and `token_format:` are M2.4's named extension of
 this parse and are refused as unknown fields until it lands), `list` as TSV
 `<id> <kind> <lowering> [<artifact>]` with member and variant ids (a
 malformed row is `INPUT_ERROR:lister`, never skipped), `run --manifest` with
@@ -2726,6 +2726,29 @@ and shadow-by-name (the resolution record says which binding won and why;
 M4.1's `explain` prints it), per-unit timeouts, `units_expected` /
 `units_reported` reconciliation with zero-reported-some-expected and
 no-registered-id as mechanism failures, exit contract `0/1/2/75` plus `64`.
+
+**Per-unit timeouts** are guaranteed by a runner-declared model
+(`describe` `timeouts:`). A `per_unit` runner bounds each unit by the
+manifest's `timeout_s`, writes a start row before it and reports `timeout`.
+A `batch` runner supports only an explicitly bounded batch timeout
+(`batch_timeout_s`). Under `none`, the default, the engine bounds each unit
+itself as a singleton invocation. Every invocation is also bounded by a
+separate engine ceiling, `max_invocation_s`. After an engine kill an
+unreported unit is `timeout` (it had started), `not_started`, or
+`batch_timeout` (a batch with no start rows, where attribution is unknown).
+After the runner's own exit an unreported unit is `missing`. A `per_unit`
+result reported past its bound is a reconciliation failure. Every runner
+leads its own session, and the engine sweeps every process in it on every
+exit path. Process groups do not nest, so a test given its own group would
+survive a kill of the runner's group alone. A test that calls `setsid()`
+escapes the sweep; the contract forbids it.
+
+`subsumed_by:` is validated so that `run --all` can never drop tests behind a
+suite that does not run:
+
+- no self-reference and no cycle;
+- every chain ends at a `full: true` runner;
+- `run --all` refuses when a subsumed runner's terminal suite selects no unit.
 
 **The canonical grouping function** is defined here once, as one pure
 function the scheduler (M3.3), the selector's invocation groups (M4.1) and

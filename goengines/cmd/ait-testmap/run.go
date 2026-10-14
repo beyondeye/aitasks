@@ -1,0 +1,123 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"strconv"
+
+	"github.com/beyondeye/aitasks/goengines/internal/lineproto"
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/runner"
+)
+
+// runExits is the exit contract of `run`: 0 every unit passed, 1 a unit
+// failed or an invocation has a cause, 2 nothing ran (no unit selected, or
+// every unit skipped; also TESTMAP_ABSENT), 3 framework error (a mechanism
+// failure, a refused plan, a hook error), 64 usage, 75 a runner refused
+// admission.
+var runExits = lineproto.ExitContract{
+	lineproto.ExitOK, lineproto.ExitFail, lineproto.ExitNothingRan, lineproto.ExitFramework, lineproto.ExitUsage, lineproto.ExitRefused,
+}
+
+// runRun is `run [--all] [--run-id <id>] [--json] [<id>...]`:
+//
+//	RUN:<run-id>
+//	INVOCATION:<n>|<runner>|<units expected>|<group key>
+//	UNIT:<id>|<status>|<duration_ms>|top|            (per manifest id)
+//	UNIT:<id>|<status>|<duration_ms>|child|<parent>  (per valid child row)
+//	CAUSE:<n>|<cause>|<detail>                       (an invocation with a cause)
+//	PROTOCOL_ERROR:<n>|<detail>                      (each results.jsonl violation)
+//	RUN_RESULT:<pass|fail|nothing|refused|error>|<passed>|<failed>|<skipped>|<failed children>|<invocations with a cause>
+//
+// The three unit counts are over top-level results (disjoint accounting);
+// failing child rows are counted apart and fail the run on their own.
+//
+// A framework error before execution prints RUN_ERROR / RUNNER_* /
+// CONTRACT_MISMATCH on stderr and exits 3; a failed post-run subscriber
+// prints RUN_HOOK_ERROR:<hook>|<detail> on stderr and exits 3.
+func runRun(e env, args []string) int {
+	const usage = "ait-testmap run [--all] [--run-id <id>] [--json] [<id>...]"
+	fs := flag.NewFlagSet("run", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	all := fs.Bool("all", false, "every unit, honouring subsumed_by")
+	runID := fs.String("run-id", "", "the run id (default $AIT_GATE_RUN_ID, else generated)")
+	asJSON := fs.Bool("json", false, "print one JSON object")
+	if err := fs.Parse(args); err != nil || (*all == (fs.NArg() > 0)) {
+		return lineproto.Usage(e.stderr, usage)
+	}
+	root, err := cwd()
+	if err != nil {
+		return reportError(e, err)
+	}
+	rep, err := runner.Run(context.Background(), root, runner.Options{All: *all, IDs: fs.Args(), RunID: *runID})
+	if err != nil {
+		if errors.Is(err, runner.ErrNoRunners) {
+			fmt.Fprintln(e.stderr, "RUN_ERROR:no-runners|"+runner.RunnersPath+" is absent")
+			return lineproto.ExitFramework
+		}
+		return reportError(e, err)
+	}
+	code := rep.Exit()
+	for _, h := range rep.HookErrors {
+		fmt.Fprintf(e.stderr, "RUN_HOOK_ERROR:%s|%s\n", h.Hook, oneLine(h.Err.Error()))
+		code = lineproto.ExitFramework
+	}
+	if *asJSON {
+		if err := lineproto.NewWriter(e.stdout, true).Emit(rep); err != nil {
+			return reportError(e, err)
+		}
+		return code
+	}
+	lines := [][]string{{"RUN", rep.RunID}}
+	for _, rec := range rep.Invocations {
+		n := strconv.Itoa(rec.Invocation)
+		lines = append(lines, []string{"INVOCATION", n, rec.Runner, strconv.Itoa(rec.UnitsExpected), rec.Group})
+		for _, res := range rep.Results {
+			if res.Invocation != rec.Invocation {
+				continue
+			}
+			if res.Child {
+				lines = append(lines, []string{"UNIT", res.ID.String(), res.Status, strconv.FormatInt(res.DurationMS, 10), "child", res.Parent.String()})
+			} else {
+				lines = append(lines, []string{"UNIT", res.ID.String(), res.Status, strconv.FormatInt(res.DurationMS, 10), "top", ""})
+			}
+		}
+		if rec.Cause != "" {
+			lines = append(lines, []string{"CAUSE", n, rec.Cause, oneLine(rec.CauseDetail)})
+		}
+		for _, p := range rec.ProtocolErrors {
+			lines = append(lines, []string{"PROTOCOL_ERROR", n, oneLine(p)})
+		}
+	}
+	passed, failed, skipped, childFailed, causes := 0, 0, 0, 0, 0
+	for _, res := range rep.Results {
+		switch {
+		case res.Child:
+			if res.Status != runner.StatusPass && res.Status != runner.StatusSkip {
+				childFailed++
+			}
+		case res.Status == runner.StatusPass:
+			passed++
+		case res.Status == runner.StatusSkip:
+			skipped++
+		default:
+			failed++
+		}
+	}
+	for _, rec := range rep.Invocations {
+		if rec.Cause != "" {
+			causes++
+		}
+	}
+	verdict := map[int]string{
+		lineproto.ExitOK: "pass", lineproto.ExitFail: "fail", lineproto.ExitNothingRan: "nothing",
+		lineproto.ExitRefused: "refused", lineproto.ExitFramework: "error",
+	}[code]
+	lines = append(lines, []string{"RUN_RESULT", verdict, strconv.Itoa(passed), strconv.Itoa(failed), strconv.Itoa(skipped), strconv.Itoa(childFailed), strconv.Itoa(causes)})
+	if c := printLines(e, lines); c != lineproto.ExitOK {
+		return c
+	}
+	return code
+}

@@ -1,0 +1,135 @@
+package runner
+
+import (
+	"context"
+	"sync"
+
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/registry"
+)
+
+// Outcome is one executed invocation: the engine's record and its results.
+type Outcome struct {
+	Record  Record
+	Results []Result
+}
+
+// InvokeFunc runs one invocation and returns its outcome. It is the engine's
+// own callback (manifest, provenance, the runner process, validation,
+// outcome, record); an executor calls it once per invocation, after setting
+// any allocator Handle.
+type InvokeFunc func(ctx context.Context, inv *Invocation) Outcome
+
+// Executor runs a plan: the invocations the canonical grouping function
+// formed, which it must neither re-form nor drop. It returns one Outcome per
+// invocation, in the order given. An error is a framework error (exit 3).
+type Executor interface {
+	Execute(ctx context.Context, invs []*Invocation, invoke InvokeFunc) ([]Outcome, error)
+}
+
+var (
+	seamMu   sync.Mutex
+	executor Executor
+	waveOf   func(registry.ID) WaveClass
+)
+
+// RegisterExecutor plugs a plan executor into `run` (M3.3's scheduler, a
+// named extension of this verb). Until one is registered the built-in serial
+// plan runs. Registering twice panics.
+func RegisterExecutor(e Executor) {
+	seamMu.Lock()
+	defer seamMu.Unlock()
+	if executor != nil {
+		panic("runner: executor registered twice")
+	}
+	executor = e
+}
+
+// RegisterWaveClassifier supplies the grouping's wave input (the kind →
+// wave class mapping over M2.5's kind data, M3.3). Until one is registered
+// every unit is `unit`. Registering twice panics.
+func RegisterWaveClassifier(f func(registry.ID) WaveClass) {
+	seamMu.Lock()
+	defer seamMu.Unlock()
+	if waveOf != nil {
+		panic("runner: wave classifier registered twice")
+	}
+	waveOf = f
+}
+
+func seams() (Executor, func(registry.ID) WaveClass) {
+	seamMu.Lock()
+	defer seamMu.Unlock()
+	e := executor
+	if e == nil {
+		e = serialExecutor{}
+	}
+	return e, waveOf
+}
+
+// serialExecutor is the built-in plan: one invocation per grouping key, in
+// key order, one at a time, no waves. Resources are M3.3's: an invocation
+// with a non-empty resource set is refused before anything runs, so
+// `needs:` and cross-process admission are never silently ignored.
+type serialExecutor struct{}
+
+func (serialExecutor) Execute(ctx context.Context, invs []*Invocation, invoke InvokeFunc) ([]Outcome, error) {
+	for _, inv := range invs {
+		if len(inv.Key.Resources) > 0 {
+			return nil, lineErr(ClassRun, "scheduler-unavailable", inv.Key.String())
+		}
+	}
+	out := make([]Outcome, 0, len(invs))
+	for _, inv := range invs {
+		out = append(out, invoke(ctx, inv))
+	}
+	return out, nil
+}
+
+// PostRunHook receives a finished run. It must not change the report.
+type PostRunHook func(ctx context.Context, r *RunReport) error
+
+type namedHook struct {
+	name string
+	fn   PostRunHook
+}
+
+var (
+	hookMu sync.Mutex
+	hooks  []namedHook
+)
+
+// RegisterPostRunHook subscribes fn to every run (M3.4's ledger; M4.4's
+// automatic score may). Subscribers run once each, in registration order,
+// after the run's records are written; a failing subscriber does not stop
+// the next. Registering a name twice panics.
+func RegisterPostRunHook(name string, fn PostRunHook) {
+	hookMu.Lock()
+	defer hookMu.Unlock()
+	for _, h := range hooks {
+		if h.name == name {
+			panic("runner: post-run hook registered twice: " + name)
+		}
+	}
+	hooks = append(hooks, namedHook{name, fn})
+}
+
+// HookError is a subscriber that failed.
+type HookError struct {
+	Hook string
+	Err  error
+}
+
+func (e HookError) Error() string { return e.Hook + ": " + e.Err.Error() }
+
+func runHooks(ctx context.Context, r *RunReport) []HookError {
+	hookMu.Lock()
+	hs := append([]namedHook(nil), hooks...)
+	hookMu.Unlock()
+	var errs []HookError
+	for _, h := range hs {
+		if err := h.fn(ctx, r); err != nil {
+			errs = append(errs, HookError{Hook: h.name, Err: err})
+		}
+	}
+	return errs
+}

@@ -1,0 +1,118 @@
+package runner
+
+import (
+	"fmt"
+	"time"
+
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/registry"
+)
+
+// The timeout model. A runner's describe declares how each unit is bounded:
+//
+//	per_unit  the runner runs each unit under the manifest's timeout_s, kills
+//	          that unit's process tree on expiry, reports `status: timeout`
+//	          and goes on; it writes a start row before each unit. The engine
+//	          bounds the invocation by max_invocation_s.
+//	batch     only a bounded batch timeout is supported: the invocation is
+//	          bounded by min(batch_timeout_s, max_invocation_s).
+//	none      the engine bounds each unit: the unit runs as a singleton
+//	          invocation (Unit.BatchNo) under min(timeout_s, max_invocation_s).
+//
+// When the engine ends an invocation (Killed), AttributeKill says what each
+// still-unreported unit was; when the runner exits on its own, an
+// unreported unit is `missing` instead — never `not_started`.
+
+// Bounds of a killed invocation, recorded as `timed_out`.
+const (
+	BoundUnit          = "unit"
+	BoundBatch         = "batch"
+	BoundInvocationMax = "invocation_max"
+)
+
+// Unit statuses. The runner reports pass|fail|skip|error, and `timeout`
+// only in per_unit mode; the engine synthesizes the rest.
+const (
+	StatusPass         = "pass"
+	StatusFail         = "fail"
+	StatusSkip         = "skip"
+	StatusError        = "error"
+	StatusTimeout      = "timeout"       // runner-enforced (per_unit), or engine-killed while attributably running
+	StatusNotStarted   = "not_started"   // engine-killed before its start row; or the runner never started
+	StatusBatchTimeout = "batch_timeout" // the bounded batch timeout fired and no start row could attribute it
+	StatusMissing      = "missing"       // the runner exited on its own without reporting it
+	StatusRefused      = "refused"       // a clean exit-75 refusal
+)
+
+// TimeoutSlack is how far past its timeout_s a per_unit runner's reported
+// duration may be before the engine judges the bound not enforced.
+var TimeoutSlack = 2 * time.Second
+
+// Deadline is the engine's deadline for an invocation of units under mode,
+// and the bound it represents.
+func Deadline(mode string, units []Unit, batchTimeoutS, maxInvocationS float64) (time.Duration, string, error) {
+	maxD := secondsD(maxInvocationS)
+	switch mode {
+	case TimeoutsPerUnit:
+		return maxD, BoundInvocationMax, nil
+	case TimeoutsBatch:
+		if b := secondsD(batchTimeoutS); b > 0 && b < maxD {
+			return b, BoundBatch, nil
+		}
+		return maxD, BoundInvocationMax, nil
+	case TimeoutsNone:
+		if len(units) != 1 {
+			return 0, "", fmt.Errorf("timeouts: none invocation with %d units (must be a singleton)", len(units))
+		}
+		if u := secondsD(units[0].TimeoutS); u < maxD {
+			return u, BoundUnit, nil
+		}
+		return maxD, BoundInvocationMax, nil
+	}
+	return 0, "", fmt.Errorf("unknown timeouts mode %q", mode)
+}
+
+// AttributeKill says, for each expected unit with no result when the engine
+// killed the invocation, whether it timed out or never started:
+//
+//   - none: the singleton's invocation was running it → timeout;
+//   - per_unit, and batch with start rows: a started unit → timeout, an
+//     unstarted one → not_started;
+//   - batch with no start row at all: which unit was running is unknown →
+//     batch_timeout for every unreported unit.
+func AttributeKill(mode string, expected []registry.ID, started, reported map[registry.ID]bool) map[registry.ID]string {
+	out := map[registry.ID]string{}
+	anyStart := len(started) > 0
+	for _, id := range expected {
+		if reported[id] {
+			continue
+		}
+		switch {
+		case mode == TimeoutsNone:
+			out[id] = StatusTimeout
+		case mode == TimeoutsBatch && !anyStart:
+			out[id] = StatusBatchTimeout
+		case started[id]:
+			out[id] = StatusTimeout
+		default:
+			out[id] = StatusNotStarted
+		}
+	}
+	return out
+}
+
+// CheckEnforced judges a per_unit runner's top-level result against the
+// unit's bound: a non-timeout result that took longer than timeout_s plus
+// TimeoutSlack means the runner did not enforce the bound it declared.
+func CheckEnforced(mode string, timeoutS float64, status string, durationMS int64) error {
+	if mode != TimeoutsPerUnit || status == StatusTimeout {
+		return nil
+	}
+	// Compare in milliseconds as floats: converting a runner-reported
+	// duration to a time.Duration could overflow and wrap negative.
+	if float64(durationMS) > timeoutS*1000+float64(TimeoutSlack.Milliseconds()) {
+		return fmt.Errorf("reported %d ms past its %s s bound", durationMS, fmtS(timeoutS))
+	}
+	return nil
+}
+
+func secondsD(s float64) time.Duration { return time.Duration(s * float64(time.Second)) }

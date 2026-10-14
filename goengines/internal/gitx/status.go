@@ -1,0 +1,93 @@
+package gitx
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"os/exec"
+	"slices"
+	"strings"
+)
+
+// ModifiedPaths returns every path whose content differs from HEAD in the
+// working tree or the index: staged and unstaged modifications, additions,
+// deletions (staged or not), both sides of a rename or copy, unmerged paths,
+// and untracked files that no ignore rule excludes — `git status
+// --porcelain=v1 -z --untracked-files=all`. Paths are relative to Dir,
+// deduplicated and sorted. On an unborn HEAD every staged or untracked path
+// is reported.
+//
+// It runs with `--no-optional-locks`, so it never takes `index.lock` or
+// refreshes the index: it is safe beside a concurrent writer and never
+// writes. As with ListFiles, any stderr output is a failure (git can skip an
+// unreadable directory while exiting 0), so a partial answer is never
+// returned as a complete one.
+func (r Repo) ModifiedPaths(ctx context.Context) ([]string, error) {
+	args := []string{"--no-optional-locks", "status", "--porcelain=v1", "-z", "--untracked-files=all"}
+	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", r.Dir}, args...)...)
+	cmd.Env = Env()
+	var out, errb bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &errb
+	if err := cmd.Run(); err != nil {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
+			return nil, &Error{Args: args, ExitCode: ee.ExitCode(), Stderr: errb.String()}
+		}
+		return nil, err
+	}
+	if errb.Len() > 0 {
+		return nil, &Error{Args: args, ExitCode: 0, Stderr: errb.String()}
+	}
+	return parsePorcelainZ(out.Bytes())
+}
+
+// parsePorcelainZ reads `XY <path>` records separated by NUL. A rename or
+// copy (R or C in either column) is followed by one more record, its source
+// path, which is reported too: both sides changed relative to HEAD.
+func parsePorcelainZ(data []byte) ([]string, error) {
+	recs := strings.Split(string(data), "\x00")
+	var paths []string
+	for i := 0; i < len(recs); i++ {
+		rec := recs[i]
+		if rec == "" {
+			continue
+		}
+		if len(rec) < 4 || rec[2] != ' ' {
+			return nil, fmt.Errorf("gitx: malformed status record %q", rec)
+		}
+		xy := rec[:2]
+		paths = append(paths, rec[3:])
+		if strings.ContainsAny(xy, "RC") {
+			i++
+			if i >= len(recs) || recs[i] == "" {
+				return nil, fmt.Errorf("gitx: status rename record %q has no source path", rec)
+			}
+			paths = append(paths, recs[i])
+		}
+	}
+	slices.Sort(paths)
+	return slices.Compact(paths), nil
+}
+
+// Head returns the object id HEAD points to, or "" when HEAD is unborn (a
+// repository with no commit yet on the current branch). Any other failure —
+// a detached HEAD that names nothing, a broken repository — is an error,
+// never "".
+func (r Repo) Head(ctx context.Context) (string, error) {
+	out, err := r.Run(ctx, "rev-parse", "--verify", "-q", "HEAD")
+	if err == nil {
+		return strings.TrimSpace(string(out)), nil
+	}
+	var ge *Error
+	if !errors.As(err, &ge) || ge.ExitCode != 1 {
+		return "", err
+	}
+	// HEAD did not resolve: unborn only if it is a symbolic ref to a branch
+	// that does not exist yet.
+	if _, serr := r.Run(ctx, "symbolic-ref", "-q", "HEAD"); serr != nil {
+		return "", fmt.Errorf("gitx: HEAD does not resolve: %w", err)
+	}
+	return "", nil
+}

@@ -1,0 +1,61 @@
+// Package runner is the runner contract and repository (M3.1): the
+// `describe` / `list` / `run --manifest` protocol every builtin and project
+// script implements, `aitestmap/runners.yaml` with its bindings, overrides
+// and shadow-by-name resolution, the canonical grouping function, the timeout
+// model, the engine's per-invocation record, and the `run` verb's engine with
+// its plan-executor seam and post-run hook.
+//
+// Seams later submodules land into (each a named extension):
+//
+//   - RegisterBuiltin — M3.2's builtins (`ait-testmap runner <name>`);
+//   - RegisterExecutor, RegisterWaveClassifier — M3.3's scheduler and the
+//     kind → wave class mapping from M2.5's kind data;
+//   - RegisterPostRunHook — M3.4's ledger, M4.4's automatic score;
+//   - RegisterDescribeKey — M2.4's `axis:` / `token_format:`.
+package runner
+
+import (
+	"strings"
+
+	"github.com/beyondeye/aitasks/goengines/internal/lineproto"
+)
+
+// LineError is a failure that renders as one protocol line on stderr and
+// exits 3 (framework error).
+type LineError struct {
+	Class  string
+	Fields []string
+}
+
+func (e *LineError) Error() string { return e.Class + ":" + strings.Join(e.Fields, "|") }
+
+// Line is CLASS:<fields>, each field made line-safe.
+func (e *LineError) Line() (string, error) {
+	fs := make([]string, len(e.Fields))
+	for i, f := range e.Fields {
+		fs[i] = oneLine(f)
+	}
+	return lineproto.Format(e.Class, fs...)
+}
+
+// ExitCode is the framework-error exit.
+func (e *LineError) ExitCode() int { return lineproto.ExitFramework }
+
+// Line classes of repository and run failures.
+const (
+	ClassConfig     = "RUNNER_CONFIG"     // runners.yaml cannot be read or parsed
+	ClassInvalid    = "RUNNER_INVALID"    // RUNNER_INVALID:<runner>|<detail>
+	ClassUnresolved = "RUNNER_UNRESOLVED" // RUNNER_UNRESOLVED:<runner>|<detail>
+	ClassUnknown    = "RUNNER_UNKNOWN"    // RUNNER_UNKNOWN:<test id>|<runner named by testmap:runner>
+	ClassProtocol   = "RUNNER_PROTOCOL"   // RUNNER_PROTOCOL:<runner>|<verb>|<detail>
+	ClassRun        = "RUN_ERROR"         // RUN_ERROR:<class>|<detail>
+)
+
+func lineErr(class string, fields ...string) *LineError {
+	return &LineError{Class: class, Fields: fields}
+}
+
+// oneLine makes free text safe for one line-protocol field.
+func oneLine(s string) string {
+	return strings.NewReplacer("|", "/", "\n", " ", "\r", " ").Replace(s)
+}

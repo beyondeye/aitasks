@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/fixture"
 	"github.com/beyondeye/aitasks/goengines/internal/testmap/registry"
 )
 
@@ -89,12 +90,17 @@ func TestScanCheckAbsentRegistry(t *testing.T) {
 	}
 }
 
-// Production wiring before M2.2 / M3.1 land: both verbs refuse, exit 3.
+// Production wiring with M3.1's lister and no runners.yaml: a registry with
+// no runner declaration has no unit universe, so both verbs refuse, exit 3,
+// rather than pass over zero runners.
 func TestScanCheckInputUnavailable(t *testing.T) {
-	repo(t)
+	r := fixture.New(t)
+	r.Write(t, registry.ConfigPath, "contract: 1\n")
+	r.Commit(t, "1", "test", "registry only")
+	t.Chdir(r.Dir)
 	for _, verb := range []string{"scan", "check"} {
 		code, out, errs := call(verb)
-		if code != 3 || out != "" || errs != "INPUT_UNAVAILABLE:lister\n" {
+		if code != 3 || out != "" || errs != "INPUT_ERROR:lister|aitestmap/runners.yaml: absent\n" {
 			t.Errorf("%s: %d %q %q", verb, code, out, errs)
 		}
 	}

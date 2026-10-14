@@ -55,7 +55,7 @@ func TestStubsExit64(t *testing.T) {
 	var calls [][]string
 	for _, v := range proposalVerbs {
 		switch v {
-		case "version", "scan", "check", "annotate", "verify": // implemented: scan and check by M2.1, annotate and verify by M2.2
+		case "version", "scan", "check", "annotate", "verify", "run": // implemented: scan and check by M2.1, annotate and verify by M2.2, run by M3.1
 		case "onboard":
 			for _, s := range proposalOnboard {
 				calls = append(calls, []string{"onboard", s, "--flag"})

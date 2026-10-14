@@ -32,6 +32,14 @@ type UnitAnnotation struct {
 	Member string // "" for the file-level block
 	Line   int    // line of the `testmap:unit` opener; 0 for the file-level block
 	Covers []Cover
+
+	// The runner keys (a named extension of M2.2, filled by M3.1): the
+	// per-test runner override, the batch flag and the resources the unit
+	// needs. A member block's values apply to that member; the file-level
+	// block's to the file and every unit in it.
+	Runner string   `json:",omitempty"` // `testmap:runner <name>`; "" = the bindings decide
+	Batch  string   `json:",omitempty"` // `testmap:batch yes|no`; "" = unset
+	Needs  []string `json:",omitempty"` // `testmap:needs <resource>…`, every line's names in file order
 }
 
 // Cover is one `testmap:covers <source> [@<date>/<blob10>]` line. The stamp

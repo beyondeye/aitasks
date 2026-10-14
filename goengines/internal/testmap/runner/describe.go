@@ -1,0 +1,343 @@
+package runner
+
+import (
+	"bytes"
+	"errors"
+	"fmt"
+	"io"
+	"path"
+	"regexp"
+	"slices"
+	"strings"
+	"sync"
+
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/registry"
+	"github.com/bmatcuk/doublestar/v4"
+	"gopkg.in/yaml.v3"
+)
+
+// Unit granularities: what one `list` row (and describe's `unit:`) names.
+var unitKinds = []string{"file", "class", "method", "variant", "suite"}
+
+// Timeout modes (`describe` key `timeouts:`), the Timeout model: who bounds
+// each unit, and whether the runner may batch.
+const (
+	TimeoutsPerUnit = "per_unit" // the runner bounds each unit, reports `timeout`, writes start rows
+	TimeoutsBatch   = "batch"    // only a bounded batch timeout (`batch_timeout_s`) is supported
+	TimeoutsNone    = "none"     // the engine bounds each unit as a singleton invocation
+)
+
+// Filter scopes: whether the runner's filter selects units one by one or
+// restricts a whole run (`tradeoff_whole_run_filter_soundness`).
+const (
+	FilterPerUnit  = "per_unit"
+	FilterWholeRun = "whole_run"
+)
+
+// Describe is a runner's `describe` output: one YAML mapping. Unknown keys
+// are refused, so a misspelt key never silently changes how units are run.
+// Keys a later submodule owns are registered with RegisterDescribeKey and
+// land raw in Ext.
+type Describe struct {
+	Unit         string   `json:"unit"`
+	Batch        bool     `json:"batch"`
+	Needs        []string `json:"needs,omitempty"`
+	GroupBy      string   `json:"group_by"`
+	FilterScope  string   `json:"filter_scope"`
+	Full         bool     `json:"full"`
+	Children     string   `json:"children,omitempty"`
+	ArtifactGlob []string `json:"artifact_glob,omitempty"`
+	Timeouts     string   `json:"timeouts"`
+	// Ext holds the values of keys registered by RegisterDescribeKey.
+	Ext map[string]yaml.Node `json:"-"`
+}
+
+// defaultDescribe is what every key defaults to.
+func defaultDescribe() Describe {
+	return Describe{Batch: true, GroupBy: "none", FilterScope: FilterPerUnit, Timeouts: TimeoutsNone}
+}
+
+// The describe keys M3.1 owns, in documentation order.
+var describeKeys = []string{"unit", "batch", "needs", "group_by", "filter_scope", "full", "children", "artifact_glob", "timeouts"}
+
+var (
+	extMu   sync.Mutex
+	extKeys = map[string]bool{}
+)
+
+// RegisterDescribeKey lets a later submodule own a describe key (M2.4:
+// `axis`, `token_format`). Until it is registered the key is refused as
+// unknown. Registering one of M3.1's own keys, or the same key twice, panics.
+func RegisterDescribeKey(key string) {
+	extMu.Lock()
+	defer extMu.Unlock()
+	if slices.Contains(describeKeys, key) || extKeys[key] {
+		panic("runner: describe key registered twice: " + key)
+	}
+	extKeys[key] = true
+}
+
+func isExtKey(key string) bool {
+	extMu.Lock()
+	defer extMu.Unlock()
+	return extKeys[key]
+}
+
+// ParseDescribe decodes a runner's `describe` output. It checks each value's
+// shape; Validate checks the merged result.
+func ParseDescribe(data []byte) (Describe, error) {
+	top, err := oneDocument(data)
+	if err != nil {
+		return Describe{}, fmt.Errorf("describe: %v", err)
+	}
+	d, _, err := parseDescribeMap(top, nil)
+	return d, err
+}
+
+// oneDocument decodes exactly one YAML document and returns its top node. A
+// second document is an error, never silently dropped: a key in it would
+// otherwise disappear unvalidated. Empty input is an error.
+func oneDocument(data []byte) (*yaml.Node, error) {
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	var doc yaml.Node
+	if err := dec.Decode(&doc); err != nil {
+		if errors.Is(err, io.EOF) {
+			return nil, errors.New("empty")
+		}
+		return nil, err
+	}
+	var extra yaml.Node
+	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
+		if err != nil {
+			return nil, err
+		}
+		return nil, errors.New("more than one YAML document")
+	}
+	if len(doc.Content) == 0 {
+		return nil, errors.New("empty")
+	}
+	return doc.Content[0], nil
+}
+
+// parseDescribeMap decodes the describe keys of a mapping into a Describe
+// starting from the defaults. Keys in other (the caller's own keys) are
+// skipped; any key neither describe's, registered, nor other is refused. It
+// returns the set of describe keys present.
+func parseDescribeMap(n *yaml.Node, other map[string]bool) (Describe, map[string]bool, error) {
+	d := defaultDescribe()
+	set := map[string]bool{}
+	if n.Kind != yaml.MappingNode {
+		return d, nil, errors.New("describe: not a mapping")
+	}
+	for i := 0; i+1 < len(n.Content); i += 2 {
+		k, v := n.Content[i].Value, n.Content[i+1]
+		if set[k] {
+			return d, nil, fmt.Errorf("describe: key %q repeated", k)
+		}
+		if other[k] {
+			continue
+		}
+		set[k] = true
+		if isExtKey(k) {
+			if d.Ext == nil {
+				d.Ext = map[string]yaml.Node{}
+			}
+			d.Ext[k] = *v
+			continue
+		}
+		var err error
+		switch k {
+		case "unit":
+			d.Unit, err = scalar(k, v)
+		case "batch":
+			d.Batch, err = yesNo(k, v)
+		case "needs":
+			d.Needs, err = stringList(k, v)
+		case "group_by":
+			d.GroupBy, err = scalar(k, v)
+		case "filter_scope":
+			d.FilterScope, err = scalar(k, v)
+		case "full":
+			d.Full, err = yesNo(k, v)
+		case "children":
+			d.Children, err = scalar(k, v)
+		case "artifact_glob":
+			d.ArtifactGlob, err = stringList(k, v)
+		case "timeouts":
+			d.Timeouts, err = scalar(k, v)
+		default:
+			return d, nil, fmt.Errorf("describe: unknown key %q", k)
+		}
+		if err != nil {
+			return d, nil, err
+		}
+	}
+	return d, set, nil
+}
+
+// Merge returns d with every key in set taken from o (the runners.yaml
+// overrides of a runner entry over the runner's own describe).
+func (d Describe) Merge(o Describe, set map[string]bool) Describe {
+	if set["unit"] {
+		d.Unit = o.Unit
+	}
+	if set["batch"] {
+		d.Batch = o.Batch
+	}
+	if set["needs"] {
+		d.Needs = o.Needs
+	}
+	if set["group_by"] {
+		d.GroupBy = o.GroupBy
+	}
+	if set["filter_scope"] {
+		d.FilterScope = o.FilterScope
+	}
+	if set["full"] {
+		d.Full = o.Full
+	}
+	if set["children"] {
+		d.Children = o.Children
+	}
+	if set["artifact_glob"] {
+		d.ArtifactGlob = o.ArtifactGlob
+	}
+	if set["timeouts"] {
+		d.Timeouts = o.Timeouts
+	}
+	for k, v := range o.Ext {
+		if d.Ext == nil {
+			d.Ext = map[string]yaml.Node{}
+		}
+		d.Ext[k] = v
+	}
+	return d
+}
+
+// Validate checks an effective describe (after the runners.yaml overrides).
+func (d Describe) Validate() error {
+	if d.Unit == "" {
+		return errors.New("describe: unit is required")
+	}
+	if !slices.Contains(unitKinds, d.Unit) {
+		return fmt.Errorf("describe: unit %q is not one of %s", d.Unit, strings.Join(unitKinds, "|"))
+	}
+	for _, r := range d.Needs {
+		if !validName(r) {
+			return fmt.Errorf("describe: needs: invalid resource name %q", r)
+		}
+	}
+	if _, err := d.grouper(); err != nil {
+		return err
+	}
+	if d.FilterScope != FilterPerUnit && d.FilterScope != FilterWholeRun {
+		return fmt.Errorf("describe: filter_scope %q is not per_unit|whole_run", d.FilterScope)
+	}
+	if d.Children != "" {
+		if !d.Full {
+			return errors.New("describe: children requires full: true")
+		}
+		if !validName(d.Children) {
+			return fmt.Errorf("describe: children: invalid post-processor name %q", d.Children)
+		}
+	}
+	for _, g := range d.ArtifactGlob {
+		if g == "" || !doublestar.ValidatePattern(g) {
+			return fmt.Errorf("describe: invalid artifact_glob %q", g)
+		}
+	}
+	switch d.Timeouts {
+	case TimeoutsPerUnit, TimeoutsBatch, TimeoutsNone:
+	default:
+		return fmt.Errorf("describe: timeouts %q is not per_unit|batch|none", d.Timeouts)
+	}
+	return nil
+}
+
+// grouper returns the function that maps an id to its `group_by` group:
+// `none` (one group), `file` (the id's path), `dir` (the path's directory)
+// or `regex:<re>` (the first submatch of <re> on the path — a path it does
+// not match, or a regex with no group, is an error).
+func (d Describe) grouper() (func(registry.ID) (string, error), error) {
+	switch g := d.GroupBy; {
+	case g == "none" || g == "":
+		return func(registry.ID) (string, error) { return "", nil }, nil
+	case g == "file":
+		return func(id registry.ID) (string, error) { return id.Path, nil }, nil
+	case g == "dir":
+		return func(id registry.ID) (string, error) { return path.Dir(id.Path), nil }, nil
+	case strings.HasPrefix(g, "regex:"):
+		re, err := regexp.Compile(strings.TrimPrefix(g, "regex:"))
+		if err != nil {
+			return nil, fmt.Errorf("describe: group_by: %v", err)
+		}
+		if re.NumSubexp() < 1 {
+			return nil, fmt.Errorf("describe: group_by %q has no capture group", g)
+		}
+		return func(id registry.ID) (string, error) {
+			m := re.FindStringSubmatch(id.Path)
+			if m == nil {
+				return "", fmt.Errorf("group_by %q does not match %s", g, id.Path)
+			}
+			return m[1], nil
+		}, nil
+	default:
+		return nil, fmt.Errorf("describe: group_by %q is not none|file|dir|regex:<re>", g)
+	}
+}
+
+// GroupOf returns id's `group_by` group under d.
+func (d Describe) GroupOf(id registry.ID) (string, error) {
+	f, err := d.grouper()
+	if err != nil {
+		return "", err
+	}
+	return f(id)
+}
+
+var nameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+
+// validName is a runner, resource or post-processor name: a word that can
+// travel in a line field and a file name.
+func validName(s string) bool { return nameRe.MatchString(s) }
+
+func scalar(k string, v *yaml.Node) (string, error) {
+	if v.Kind != yaml.ScalarNode || v.Tag == "!!null" {
+		return "", fmt.Errorf("describe: %s must be a string", k)
+	}
+	return v.Value, nil
+}
+
+// yesNo accepts true|false|yes|no (YAML 1.1 and 1.2 spellings agree here).
+func yesNo(k string, v *yaml.Node) (bool, error) {
+	if v.Kind == yaml.ScalarNode {
+		switch strings.ToLower(v.Value) {
+		case "true", "yes":
+			return true, nil
+		case "false", "no":
+			return false, nil
+		}
+	}
+	return false, fmt.Errorf("describe: %s must be true|false|yes|no", k)
+}
+
+// stringList accepts a sequence of strings or one string.
+func stringList(k string, v *yaml.Node) ([]string, error) {
+	switch v.Kind {
+	case yaml.ScalarNode:
+		if v.Tag == "!!null" {
+			return nil, nil
+		}
+		return []string{v.Value}, nil
+	case yaml.SequenceNode:
+		var out []string
+		for _, e := range v.Content {
+			if e.Kind != yaml.ScalarNode || e.Tag == "!!null" {
+				return nil, fmt.Errorf("describe: %s must be a list of strings", k)
+			}
+			out = append(out, e.Value)
+		}
+		return out, nil
+	}
+	return nil, fmt.Errorf("describe: %s must be a list of strings", k)
+}

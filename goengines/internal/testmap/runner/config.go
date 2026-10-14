@@ -1,0 +1,330 @@
+package runner
+
+import (
+	"errors"
+	"fmt"
+	"io/fs"
+	"math"
+	"os"
+	"path/filepath"
+	"slices"
+	"strconv"
+	"strings"
+
+	"github.com/beyondeye/aitasks/goengines/internal/testmap"
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/registry"
+	"github.com/bmatcuk/doublestar/v4"
+	"gopkg.in/yaml.v3"
+)
+
+// Paths of the runner repository, repository-relative.
+const (
+	RunnersPath = registry.Dir + "/runners.yaml"
+	RunnersDir  = registry.Dir + "/runners" // shadow-by-name scripts: <name>.sh
+)
+
+// Defaults of the timeout model.
+const (
+	DefaultTimeoutS       = 600.0  // a unit's bound
+	DefaultMaxInvocationS = 3600.0 // the engine's ceiling on one invocation
+)
+
+// Config is `aitestmap/runners.yaml`.
+type Config struct {
+	Contract       int
+	MaxInvocationS float64 // the engine ceiling for every runner (default 3600)
+	Runners        []Entry // in file order: bindings match first-to-last
+}
+
+// Entry is one runner declaration.
+type Entry struct {
+	Name            string
+	Builtin         string   // builtin:<name> (M3.2's `ait-testmap runner <name>`)
+	Script          string   // an explicit project script, repo-relative
+	Command         string   // builtin only: the tool command the builtin wraps
+	Cwd             string   // repo-relative directory the runner runs in ("" = root)
+	Bind            []string // globs over test paths; first match across runners wins
+	TimeoutS        float64  // per-unit bound (0 = DefaultTimeoutS)
+	BatchTimeoutS   float64  // the bounded batch timeout; required iff timeouts: batch
+	MaxInvocationS  float64  // per-runner ceiling (0 = the config's)
+	SubsumedBy      string   // a full: true runner whose child rows cover this runner's units
+	FallbackCommand string   // only on a unit: suite runner (used by `ait test` when the engine is absent)
+
+	// The describe keys this entry overrides (D6: a generic builtin such as
+	// `suite` cannot know `full` / `children` itself).
+	Overrides    Describe
+	OverrideKeys map[string]bool
+}
+
+// entryKeys are the runner-entry keys that are not describe overrides.
+var entryKeys = map[string]bool{
+	"name": true, "builtin": true, "script": true, "command": true, "cwd": true, "bind": true,
+	"timeout_s": true, "batch_timeout_s": true, "max_invocation_s": true,
+	"subsumed_by": true, "fallback_command": true,
+}
+
+// ErrNoRunners is an absent runners.yaml. A registry with no runner
+// declaration has no unit universe, so the lister refuses rather than report
+// an empty one — `check` must never pass over zero runners.
+var ErrNoRunners = errors.New(RunnersPath + ": absent")
+
+// LoadConfig reads and validates `aitestmap/runners.yaml`: strict keys, the
+// contract checked, every static rule applied. Rules that need a runner's
+// describe (subsumption targets being full, fallback_command on a suite,
+// the timeout mode's keys) are applied by Load.
+func LoadConfig(root string) (Config, error) {
+	data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(RunnersPath)))
+	if errors.Is(err, fs.ErrNotExist) {
+		return Config{}, ErrNoRunners
+	}
+	if err != nil {
+		return Config{}, lineErr(ClassConfig, RunnersPath, err.Error())
+	}
+	if err := testmap.CheckContract(RunnersPath, data); err != nil {
+		var cm *testmap.ContractMismatchError
+		if errors.As(err, &cm) {
+			return Config{}, cm
+		}
+		return Config{}, lineErr(ClassConfig, RunnersPath, err.Error())
+	}
+	cfg, err := ParseConfig(data)
+	if err != nil {
+		return Config{}, lineErr(ClassConfig, RunnersPath, err.Error())
+	}
+	return cfg, nil
+}
+
+// ParseConfig decodes runners.yaml content and applies the static rules.
+func ParseConfig(data []byte) (Config, error) {
+	cfg := Config{MaxInvocationS: DefaultMaxInvocationS}
+	top, err := oneDocument(data)
+	if err != nil {
+		return cfg, err
+	}
+	if top.Kind != yaml.MappingNode {
+		return cfg, errors.New("top level is not a mapping")
+	}
+	seen := map[string]bool{}
+	for i := 0; i+1 < len(top.Content); i += 2 {
+		k, v := top.Content[i].Value, top.Content[i+1]
+		if seen[k] {
+			return cfg, fmt.Errorf("key %q repeated", k)
+		}
+		seen[k] = true
+		switch k {
+		case "contract":
+			// checked by CheckContract
+		case "max_invocation_s":
+			s, err := seconds(k, v)
+			if err != nil {
+				return cfg, err
+			}
+			cfg.MaxInvocationS = s
+		case "runners":
+			if v.Kind != yaml.SequenceNode {
+				return cfg, errors.New("runners must be a list")
+			}
+			for j, rn := range v.Content {
+				e, err := parseEntry(rn)
+				if err != nil {
+					return cfg, fmt.Errorf("runners[%d]: %v", j, err)
+				}
+				cfg.Runners = append(cfg.Runners, e)
+			}
+		default:
+			return cfg, fmt.Errorf("unknown key %q", k)
+		}
+	}
+	return cfg, cfg.validate()
+}
+
+func parseEntry(n *yaml.Node) (Entry, error) {
+	var e Entry
+	if n.Kind != yaml.MappingNode {
+		return e, errors.New("not a mapping")
+	}
+	d, set, err := parseDescribeMap(n, entryKeys)
+	if err != nil {
+		return e, err
+	}
+	e.Overrides, e.OverrideKeys = d, set
+	seen := map[string]bool{}
+	for i := 0; i+1 < len(n.Content); i += 2 {
+		k, v := n.Content[i].Value, n.Content[i+1]
+		if !entryKeys[k] {
+			continue // a describe override, parsed above
+		}
+		if seen[k] {
+			return e, fmt.Errorf("key %q repeated", k)
+		}
+		seen[k] = true
+		var err error
+		switch k {
+		case "name":
+			e.Name, err = str(k, v)
+		case "builtin":
+			e.Builtin, err = str(k, v)
+		case "script":
+			e.Script, err = str(k, v)
+		case "command":
+			e.Command, err = str(k, v)
+		case "cwd":
+			e.Cwd, err = str(k, v)
+		case "bind":
+			e.Bind, err = stringList(k, v)
+		case "timeout_s":
+			e.TimeoutS, err = seconds(k, v)
+		case "batch_timeout_s":
+			e.BatchTimeoutS, err = seconds(k, v)
+		case "max_invocation_s":
+			e.MaxInvocationS, err = seconds(k, v)
+		case "subsumed_by":
+			e.SubsumedBy, err = str(k, v)
+		case "fallback_command":
+			e.FallbackCommand, err = str(k, v)
+		}
+		if err != nil {
+			return e, err
+		}
+	}
+	return e, nil
+}
+
+// validate applies the rules that need only the file: names, the scheme
+// keys, paths and globs, timeouts, and the shape of every subsumption chain
+// (no self-reference, no cycle, every target declared).
+func (c Config) validate() error {
+	byName := map[string]*Entry{}
+	for i := range c.Runners {
+		e := &c.Runners[i]
+		if !validName(e.Name) {
+			return fmt.Errorf("runners[%d]: invalid name %q", i, e.Name)
+		}
+		if byName[e.Name] != nil {
+			return fmt.Errorf("runner %s declared twice", e.Name)
+		}
+		byName[e.Name] = e
+		if e.Builtin != "" && e.Script != "" {
+			return fmt.Errorf("runner %s: builtin: and script: are exclusive", e.Name)
+		}
+		if e.Builtin != "" && !validName(e.Builtin) {
+			return fmt.Errorf("runner %s: invalid builtin name %q", e.Name, e.Builtin)
+		}
+		if e.Command != "" && e.Builtin == "" {
+			return fmt.Errorf("runner %s: command: overrides a builtin's tool command and needs builtin:", e.Name)
+		}
+		if e.Script != "" {
+			if err := registry.CheckPath(e.Script); err != nil {
+				return fmt.Errorf("runner %s: script: %v", e.Name, err)
+			}
+		}
+		if e.Cwd != "" && e.Cwd != "." {
+			if err := registry.CheckPath(e.Cwd); err != nil {
+				return fmt.Errorf("runner %s: cwd: %v", e.Name, err)
+			}
+		}
+		for _, g := range e.Bind {
+			if g == "" || !doublestar.ValidatePattern(g) {
+				return fmt.Errorf("runner %s: invalid bind glob %q", e.Name, g)
+			}
+		}
+		if e.SubsumedBy == e.Name {
+			return fmt.Errorf("runner %s: subsumed_by names itself", e.Name)
+		}
+		if e.FallbackCommand != "" && strings.TrimSpace(e.FallbackCommand) == "" {
+			return fmt.Errorf("runner %s: empty fallback_command", e.Name)
+		}
+		if e.TimeoutS > c.maxFor(*e) {
+			return fmt.Errorf("runner %s: timeout_s %s exceeds max_invocation_s %s", e.Name, fmtS(e.TimeoutS), fmtS(c.maxFor(*e)))
+		}
+		if e.BatchTimeoutS > c.maxFor(*e) {
+			return fmt.Errorf("runner %s: batch_timeout_s %s exceeds max_invocation_s %s", e.Name, fmtS(e.BatchTimeoutS), fmtS(c.maxFor(*e)))
+		}
+		if e.TimeoutS == 0 && DefaultTimeoutS > c.maxFor(*e) {
+			return fmt.Errorf("runner %s: the default timeout_s %s exceeds max_invocation_s %s; set timeout_s", e.Name, fmtS(DefaultTimeoutS), fmtS(c.maxFor(*e)))
+		}
+	}
+	for _, e := range c.Runners {
+		if e.SubsumedBy == "" {
+			continue
+		}
+		chain := []string{e.Name}
+		for cur := e; cur.SubsumedBy != ""; {
+			next := byName[cur.SubsumedBy]
+			if next == nil {
+				return fmt.Errorf("runner %s: subsumed_by names undeclared runner %s", cur.Name, cur.SubsumedBy)
+			}
+			if slices.Contains(chain, next.Name) {
+				return fmt.Errorf("runner %s: subsumption cycle %s", e.Name, strings.Join(append(chain, next.Name), "→"))
+			}
+			chain = append(chain, next.Name)
+			cur = *next
+		}
+	}
+	return nil
+}
+
+// maxFor is a runner's effective invocation ceiling.
+func (c Config) maxFor(e Entry) float64 {
+	if e.MaxInvocationS > 0 {
+		return e.MaxInvocationS
+	}
+	return c.MaxInvocationS
+}
+
+// timeoutFor is a runner's effective per-unit bound.
+func timeoutFor(e Entry) float64 {
+	if e.TimeoutS > 0 {
+		return e.TimeoutS
+	}
+	return DefaultTimeoutS
+}
+
+// Terminal follows name's subsumption chain to its end (the runner with no
+// subsumed_by). The config has been validated, so the chain is finite.
+func (c Config) Terminal(name string) string {
+	for {
+		e := c.entry(name)
+		if e == nil || e.SubsumedBy == "" {
+			return name
+		}
+		name = e.SubsumedBy
+	}
+}
+
+func (c Config) entry(name string) *Entry {
+	for i := range c.Runners {
+		if c.Runners[i].Name == name {
+			return &c.Runners[i]
+		}
+	}
+	return nil
+}
+
+func str(k string, v *yaml.Node) (string, error) {
+	if v.Kind != yaml.ScalarNode || v.Tag == "!!null" {
+		return "", fmt.Errorf("%s must be a string", k)
+	}
+	return v.Value, nil
+}
+
+// The accepted range of every timeout: finite, at least a millisecond (a
+// smaller value would round to a zero deadline) and at most 30 days (far
+// inside time.Duration, so no deadline arithmetic can overflow).
+const (
+	minSeconds = 0.001
+	maxSeconds = 30 * 24 * 3600.0
+)
+
+// seconds is a finite number of seconds in [minSeconds, maxSeconds]
+// (fractions allowed).
+func seconds(k string, v *yaml.Node) (float64, error) {
+	if v.Kind == yaml.ScalarNode {
+		if f, err := strconv.ParseFloat(v.Value, 64); err == nil && !math.IsInf(f, 0) && !math.IsNaN(f) && f >= minSeconds && f <= maxSeconds {
+			return f, nil
+		}
+	}
+	return 0, fmt.Errorf("%s must be a number of seconds in [%s, %s]", k, fmtS(minSeconds), fmtS(maxSeconds))
+}
+
+func fmtS(f float64) string { return strconv.FormatFloat(f, 'f', -1, 64) }

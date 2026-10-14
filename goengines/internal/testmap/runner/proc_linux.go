@@ -1,0 +1,108 @@
+//go:build linux
+
+package runner
+
+import (
+	"errors"
+	"fmt"
+	"os"
+	"strconv"
+	"strings"
+	"syscall"
+)
+
+// Process inspection, injectable so tests can fault-inject what a real
+// restricted process (another uid under a hidepid /proc) would answer.
+var (
+	readStat = func(pid int) ([]byte, error) { return os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat") }
+	getsid   = func(pid int) (int, error) {
+		sid, _, errno := syscall.RawSyscall(syscall.SYS_GETSID, uintptr(pid), 0, 0)
+		if errno != 0 {
+			return 0, errno
+		}
+		return int(sid), nil
+	}
+	getpgid = syscall.Getpgid
+)
+
+// gone reports an error that means the process no longer exists.
+func gone(err error) bool { return errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ESRCH) }
+
+// sessionProcs lists the processes whose session id is sid. It reads
+// /proc/<pid>/stat; a process that vanished meanwhile (ENOENT / ESRCH) is
+// skipped. A stat it cannot read for another reason (EACCES under a hidepid
+// /proc, an LSM) is never taken as "gone": its session is asked with
+// getsid(2) — another session is unrelated and skipped, this session is a
+// member whose state is unknown (so live) and whose group comes from
+// getpgid(2). If neither can establish the process's session, the session
+// cannot be proven empty: an error (cleanup_unverified).
+//
+// Residual: a process /proc does not list at all (another uid under
+// hidepid=2) cannot be enumerated; only a setuid descendant could be one,
+// and the engine could not kill it either.
+func sessionProcs(sid int) ([]proc, error) {
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return nil, err
+	}
+	var out []proc
+	for _, e := range entries {
+		pid, err := strconv.Atoi(e.Name())
+		if err != nil {
+			continue
+		}
+		data, err := readStat(pid)
+		if err == nil {
+			p, s, ok := parseStat(pid, string(data))
+			if !ok {
+				return nil, fmt.Errorf("unparsable /proc/%d/stat", pid)
+			}
+			if s == sid {
+				out = append(out, p)
+			}
+			continue
+		}
+		if gone(err) {
+			continue
+		}
+		s, serr := getsid(pid)
+		switch {
+		case serr == nil && s != sid:
+			continue // unrelated, merely uninspectable
+		case serr != nil && gone(serr):
+			continue
+		case serr != nil:
+			return nil, fmt.Errorf("pid %d: stat: %v; getsid: %v", pid, err, serr)
+		}
+		pgid, gerr := getpgid(pid)
+		if gerr != nil {
+			if gone(gerr) {
+				continue
+			}
+			return nil, fmt.Errorf("pid %d (session %d): getpgid: %v", pid, sid, gerr)
+		}
+		out = append(out, proc{Pid: pid, Pgid: pgid})
+	}
+	return out, nil
+}
+
+// parseStat reads state, process group and session from a stat line. The
+// command name is in parentheses and may itself contain spaces or ')', so
+// the fields are read after the last ')'.
+func parseStat(pid int, line string) (proc, int, bool) {
+	i := strings.LastIndexByte(line, ')')
+	if i < 0 {
+		return proc{}, 0, false
+	}
+	f := strings.Fields(line[i+1:])
+	// state ppid pgrp session …
+	if len(f) < 4 {
+		return proc{}, 0, false
+	}
+	pgid, err1 := strconv.Atoi(f[2])
+	sid, err2 := strconv.Atoi(f[3])
+	if err1 != nil || err2 != nil {
+		return proc{}, 0, false
+	}
+	return proc{Pid: pid, Pgid: pgid, Zombie: f[0] == "Z" || f[0] == "X"}, sid, true
+}

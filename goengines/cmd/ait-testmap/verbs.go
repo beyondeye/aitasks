@@ -38,7 +38,7 @@ var verbs = []verb{
 	stub("test"),
 	stub("select"),
 	stub("schedule"),
-	stub("run"),
+	{Name: "run", Run: runRun, Exits: runExits},
 	{Name: "scan", Run: runScan, Exits: scanCheckExits},
 	{Name: "check", Run: runCheck, Exits: scanCheckExits},
 	stub("stale"),

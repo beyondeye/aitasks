@@ -13,6 +13,7 @@ import (
 	"github.com/beyondeye/aitasks/goengines/internal/lineproto"
 	"github.com/beyondeye/aitasks/goengines/internal/testmap/annot"
 	"github.com/beyondeye/aitasks/goengines/internal/testmap/registry"
+	"github.com/beyondeye/aitasks/goengines/internal/testmap/runner"
 )
 
 // testmapInputs returns the injected inputs `scan` and `check` read. It is
@@ -21,7 +22,7 @@ import (
 // repository). A nil field makes both verbs refuse with INPUT_UNAVAILABLE,
 // exit 3 — they never run on an empty input as if it were the repository.
 var testmapInputs = func() registry.Inputs {
-	return registry.Inputs{Annotations: annot.Source{}}
+	return registry.Inputs{Annotations: annot.Source{}, Lister: runner.Lister{}}
 }
 
 // scanCheckExits is the exit contract of `scan` and `check`: 0 clean, 1 a

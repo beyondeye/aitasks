@@ -1,0 +1,53 @@
+//go:build darwin
+
+package runner
+
+import (
+	"bytes"
+	"errors"
+	"fmt"
+	"os/exec"
+	"strconv"
+	"strings"
+	"syscall"
+)
+
+// sessionProcs lists the processes whose session id is sid: `ps` enumerates
+// every process with its process group and state, and getsid(2) gives each
+// one's session (darwin's ps has no session-id column). A process that exits
+// between the two (ESRCH) is skipped. Any other getsid failure means the
+// process's session cannot be established, so the session cannot be proven
+// empty: an error (cleanup_unverified), never a silent skip. A failing ps is
+// an error too.
+func sessionProcs(sid int) ([]proc, error) {
+	cmd := exec.Command("/bin/ps", "-A", "-o", "pid=,pgid=,stat=")
+	var out, errb bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &errb
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("ps: %v: %s", err, strings.TrimSpace(errb.String()))
+	}
+	var procs []proc
+	for _, line := range strings.Split(out.String(), "\n") {
+		f := strings.Fields(line)
+		if len(f) < 3 {
+			continue
+		}
+		pid, err1 := strconv.Atoi(f[0])
+		pgid, err2 := strconv.Atoi(f[1])
+		if err1 != nil || err2 != nil {
+			return nil, fmt.Errorf("ps: unparsable line %q", line)
+		}
+		s, err := syscall.Getsid(pid)
+		if errors.Is(err, syscall.ESRCH) {
+			continue // exited since ps listed it
+		}
+		if err != nil {
+			return nil, fmt.Errorf("pid %d: getsid: %v", pid, err)
+		}
+		if s == sid {
+			procs = append(procs, proc{Pid: pid, Pgid: pgid, Zombie: strings.HasPrefix(f[2], "Z")})
+		}
+	}
+	return procs, nil
+}
