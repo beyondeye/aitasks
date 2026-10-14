@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -13,8 +15,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1957
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-14 17:54
-updated_at: 2026-10-14 19:14
+updated_at: 2026-10-14 21:57
 ---
 
 ## Origin
@@ -59,3 +62,5 @@ their callback resets.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-10-14T18:57:31Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-10-14T19:12:18Z status=pass attempt=1 type=human
