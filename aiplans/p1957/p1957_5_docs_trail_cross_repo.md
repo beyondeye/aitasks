@@ -321,3 +321,70 @@ this is its last child.
   would be documentation that misleads · severity: low · → mitigation: none
   (addressed in-plan: every string was verified against HEAD during planning,
   and the Verification step re-greps each one)
+
+## Final Implementation Notes
+
+- **Actual work done:** All seven planned pages were updated (176 lines added,
+  13 removed).
+  - `workflows/cross_project_dependencies.md` gained two sections:
+    - `## Cross-repo dependencies in implementation trails`, with three
+      subsections: Blocked members (the five `↗` entry forms), Members from
+      another project (the ghost status lines) and When the checks run.
+    - `## Jumping to a linked trail in another project`, with three
+      subsections: What makes two trails linked (four rules), Finding a linked
+      trail (the dialog, reason prefixes, the seven error lines, merged
+      presses) and What the jump does (the three steps, the confirm dialog,
+      the outside-tmux command, the changed-session error and ownership).
+  - Also on that page: the intro line, and two See-also entries.
+  - Trails pages:
+    - `_index`: `L` in the relationship table, the read-only note, and a
+      `--trail` launch bullet.
+    - `how-to`: the `--trail` paragraph, the cross-repo card sentence, the
+      `r`/`d` cross-repo semantics, and the new "How to Jump to a Linked Trail
+      in Another Project".
+    - `reference`: the `L` key row, two new dialog key tables, a refresh
+      sentence, a `--trail` launch row, and the Read-only and new Jump target
+      bullets.
+  - Board pages:
+    - `reference`: the `L` row, a By-Trail paragraph, the `d` row and the `r`
+      sentence, and the footer literal with its `L Linked Trails` gating
+      sentence.
+    - `how-to`: By-Trail step 6.
+  - `workflows/implementation-trails.md`: one pointer sentence.
+- **Deviations from plan:**
+  - The timeout error line is documented as `timed out (…)`, not `timed out`.
+    `trail_links._run_export` always sets the detail
+    `export exceeded 30s`, and `linked_scan_error_text` appends any detail.
+  - The jump-confirmation table has a `Button` column (Switch / Stay here, or
+    `Escape`) rather than `Key`, because those are buttons.
+  - The new trails `_index` link to Launch and environment uses relref, not a
+    relative path.
+- **Issues encountered:** The string cross-check showed 0 hits for
+  `Some projects could not be fully searched — the list may be incomplete:`.
+  The cause: `LinkedTrailsScreen.compose` splits that literal across two
+  source lines. Both halves were confirmed at `board_trail_view.py:1242-1243`.
+  Every other quoted string matched at least once in
+  `board_trail_screen.py`, `board_trail_view.py`, `trails_app.py`,
+  `cross_repo_deps.py` and `trail_links.py`.
+- **Key decisions:**
+  - There is one canonical explanation, on the cross-project dependencies
+    page. The trails and board pages carry only key rows, a short paragraph
+    and relrefs to its two anchors, so the error-line table and the link rules
+    exist in one place.
+  - The `L` coalescing behaviour from t1979 is documented as current
+    behaviour: a second press while a search runs is queued, and the newest
+    one runs when the current search lands.
+- **Verification:**
+  - `cd website && python3 check_links.py --build` gave `SWEEP: PASSED`,
+    `broken: 0`, with every control true.
+  - `hugo build --gc --minify --destination <scratch>` exited 0, and both new
+    anchors are present in the built `cross_project_dependencies` page.
+    `website/public/` was not touched.
+  - `check_link_relevance.py` (the optional report) was not run.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:** Last child of t1957, so there are no siblings
+  left. A later change to the `L` dialog texts, the xdep card states or the
+  `--trail` notices must update
+  `website/content/docs/workflows/cross_project_dependencies.md` (both trail
+  sections) and the trails `reference.md` Launch and environment table, which
+  quote them verbatim.
