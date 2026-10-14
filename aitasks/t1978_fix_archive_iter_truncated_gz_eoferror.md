@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1957
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-13 18:36
-updated_at: 2026-10-13 19:20
+updated_at: 2026-10-14 12:18
 ---
 
 ## Origin
@@ -63,3 +64,8 @@ error cards.
    `SCHEMA_NORMALIZATION_LOCK` (`lib/trail_gather.py`) should let 1.0.0
    documents load. Track this part in those repos if preferred
    (`ait create --batch --project <name>`).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-14T09:19:00Z status=pass attempt=1 type=human
