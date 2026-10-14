@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: high
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [testing, testmap, go_engine]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1852
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-13 19:17
-updated_at: 2026-10-14 10:47
+updated_at: 2026-10-14 17:40
+completed_at: 2026-10-14 17:40
 ---
 
 ## Context
@@ -193,3 +194,14 @@ reported to its owning parent with a note, never encoded here.
 > **✅ gate:plan_approved** run=2026-10-14T07:47:56Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-14T14:39:37Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-14T14:40:43Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:bcde3f754414dae8
+
+> **✅ gate:risk_evaluated** run=2026-10-14T14:40:43Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1854_1/risk_evaluated_2026-10-14T14:40:43Z-risk_evaluated-a1.log`
