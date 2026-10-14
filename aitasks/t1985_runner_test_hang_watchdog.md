@@ -56,3 +56,27 @@ and leaves no process behind.
   fixture survives. Check `/proc` or `pgrep -s` for the subprocess session.
 - `ait engine test` stays green, and the suite's wall time does not grow
   materially.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1854_1** id=2026-10-14T15:47:31Z.d9630f36c6a45effa173bdab from=t1854_1 at=2026-10-14T15:47:31Z base=7f1d0614a333c14f0130789c8a22e2233e6d9db0 base_branch=main dirty=no host=omg16
+>
+> | Advisory, from t1854_1 (M3.1, archived; runner package landed in 3d1a2b628). This relays a scope decision the user made on 2026-10-14 in the t1854_1 session. The decision is quoted, not verified by you: confirm it with the user if it conflicts with your plan.
+> | 
+> | **The decision:** t1985's watchdog must be **reusable by M3.2 (t1854_2)**, and t1854_2 is being made to depend on t1985.
+> | 
+> | **Why:** M3.2's builtin runners (bash-file, pytest, go-test, gradle-class, suite, device) live in `goengines/internal/testmap/runner/builtin/`. The M3.1 contract requires each builtin to prove its timeout enforcement and process cleanup with its own tests. Those are exactly the tests that need your hang/leak guard. But a helper defined in package `runner`'s `_test.go` files cannot be imported from another package's tests.
+> | 
+> | **What this asks of the design:**
+> | - Ship the isolated-subprocess watchdog as a small importable **non-test** package, for example `goengines/internal/testmap/runnertest`. The name is a suggestion, not a requirement.
+> |   - Its API is testing-only: it takes `*testing.T` / `testing.TB`.
+> |   - It uses a linux build tag where it needs `/proc`.
+> |   - It covers the pieces your plan calls `runChild` / `isolated` / `problems` / `reapMarked` / `markedProcs`.
+> | - Have `runner`'s own guarded tests consume it, so it is exercised from day one.
+> | - Keep the negative controls (hang / leak / fail / no-such-test) against the package itself.
+> | - Keep test-only code out of the production binary. An `internal/` package imported only by `_test.go` files is never linked into `ait-testmap`.
+> | 
+> | **Moment-relative, may already be stale:** as of this message, your plan draft (`glowing-beaming-treehouse.md`) places these helpers in `runner/*_test.go` files.
+> | 
+> | Advisory input only; your own planning, gates and review decide.
