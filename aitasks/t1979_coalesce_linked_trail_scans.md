@@ -3,13 +3,14 @@ priority: low
 effort: medium
 depends: []
 issue_type: performance
-status: Ready
+status: Implementing
 labels: [trails, performance, cross_repo]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1957
 followup_kind: review_finding
 created_at: 2026-10-14 11:25
-updated_at: 2026-10-14 11:25
+updated_at: 2026-10-14 12:35
 ---
 
 ## Context
