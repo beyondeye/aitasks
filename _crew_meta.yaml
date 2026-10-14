@@ -2,7 +2,7 @@ id: brainstorm-1981
 name: Brainstorm t1981
 created_at: 2026-10-14 09:38:51
 created_by: dario-e@beyond-eye.com
-agents: []
+agents: [initializer_bootstrap]
 agent_types:
   explorer:
     agent_string: claudecode/opus5_5
