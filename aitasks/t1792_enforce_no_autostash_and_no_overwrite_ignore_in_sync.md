@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: low
 depends: [t1747_3]
 issue_type: bug
@@ -54,3 +56,5 @@ This task depends on t1747_3, which is Implementing and editing `do_pull_rebase`
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-10-14T13:38:36Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-10-14T14:40:12Z status=pass attempt=1 type=human
