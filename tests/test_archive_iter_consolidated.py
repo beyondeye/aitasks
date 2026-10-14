@@ -345,6 +345,13 @@ class TestOptInFailureReporting(unittest.TestCase):
         path.write_bytes(blob)
         return path
 
+    def _truncated_tar_gz(self, directory: Path, name: str) -> Path:
+        """A valid bundle cut in half: gzip raises EOFError reading it."""
+        path = directory / name
+        _make_tar_gz(path, _big_bundle(count=40, size=4000))
+        path.write_bytes(path.read_bytes()[: path.stat().st_size // 2])
+        return path
+
     def test_corrupt_tar_gz_is_reported(self):
         path = self._corrupt("old0.tar.gz", b"not a gzip stream")
         errors: list = []
@@ -354,13 +361,11 @@ class TestOptInFailureReporting(unittest.TestCase):
         self.assertTrue(errors[0].startswith(f"{path}: "), errors)
 
     def test_truncated_tar_gz_is_reported(self):
-        good = self.bundle_dir / "old0.tar.gz"
-        _make_tar_gz(good, _big_bundle(count=40, size=4000))
-        good.write_bytes(good.read_bytes()[: good.stat().st_size // 2])
+        path = self._truncated_tar_gz(self.bundle_dir, "old0.tar.gz")
         errors: list = []
         list(iter_all_archived_markdown(self.archived, errors=errors))
         self.assertEqual(len(errors), 1)
-        self.assertIn(str(good), errors[0])
+        self.assertIn(str(path), errors[0])
 
     def test_corrupt_tar_zst_is_reported(self):
         self._corrupt("old0.tar.zst", b"not a zstd frame")
@@ -545,6 +550,18 @@ class TestOptInFailureReporting(unittest.TestCase):
         (self.archived / "_b1").mkdir()
         (self.archived / "_b1" / "old10.tar.zst").write_bytes(b"garbage")
         self.assertEqual(list(iter_all_archived_markdown(self.archived)), [])
+        self.assertIsNone(find_archived_markdown_by_id("5", self.archived))
+
+    def test_truncated_tar_gz_is_skipped_on_the_default_path(self):
+        """gzip raises EOFError on a truncated stream and tarfile does not
+        convert it; without a list the bundle is skipped like any other
+        unreadable one, and the scan goes on to the next bundle."""
+        self._truncated_tar_gz(self.bundle_dir, "old0.tar.gz")
+        _make_tar_gz(self.archived / "_b1" / "old10.tar.gz",
+                     {"t1000_ok.md": "ok"})
+        self.assertEqual(
+            [name for name, _ in iter_all_archived_markdown(self.archived)],
+            ["t1000_ok.md"])
         self.assertIsNone(find_archived_markdown_by_id("5", self.archived))
 
 

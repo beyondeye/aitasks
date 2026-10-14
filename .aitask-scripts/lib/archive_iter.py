@@ -15,7 +15,7 @@ skipped without a trace, so "no record" and "could not read" look alike. A
 caller that must tell them apart (a scan that reports itself complete, t1957_3)
 passes a list as the keyword-only ``errors`` argument; every failure that could
 hide a record is then appended to it as ``"<path>: <reason>"``. Leaving
-``errors`` unset keeps the best-effort path exactly as it was.
+``errors`` unset keeps every reader best-effort.
 """
 
 import fnmatch
@@ -344,12 +344,9 @@ def _iter_single_archive(
                         continue
                     text = extracted.read().decode("utf-8", errors="replace")
                     yield os.path.basename(member.name), text
-    except (tarfile.TarError, OSError, subprocess.SubprocessError) as exc:
+    except (tarfile.TarError, OSError, subprocess.SubprocessError,
+            EOFError) as exc:
+        # EOFError: a truncated .tar.gz — gzip raises it and tarfile does not
+        # convert it to a TarError.
         _note(errors, archive_path, exc)
         return
-    except EOFError as exc:
-        # A truncated .tar.gz. The best-effort path has always let this escape
-        # to its caller; only the reporting path turns it into a failure entry.
-        if errors is None:
-            raise
-        _note(errors, archive_path, exc)
