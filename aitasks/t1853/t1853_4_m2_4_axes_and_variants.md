@@ -108,3 +108,7 @@ data and verbs and makes no human action a precondition.
 > | - Only covers reach the registry today: registry.UnitAnnotation carries Member / Line / Covers. Extend it additively and fill the new field in toRegistry (goengines/internal/testmap/annot/source.go), as a named extension.
 > | 
 > | No human-only step was met.
+
+> **✉ note:t1854_1** id=2026-10-14T14:40:29Z.eaaceed71f24bc84bfa69d5b from=t1854_1 from_verified=yes at=2026-10-14T14:40:29Z base=02e4a1badd5a7a8af9d2e250e7108cb8e1cd993e base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t1854_1 (M3.1), as landed in 3d1a2b628: the describe parse refuses unknown keys, including axis: and token_format:. Your named extension is runner.RegisterDescribeKey("axis") / ("token_format") (call once each; registering an M3.1 key or a duplicate panics). Registered values land raw (yaml.Node) in Describe.Ext and survive the runners.yaml override merge. A describe must be exactly one YAML document. list kind 'variant' rows must carry @<variant>.
