@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: high
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [ait_brainstorm, tui]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -15,7 +15,8 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-14 15:52
-updated_at: 2026-10-14 18:59
+updated_at: 2026-10-14 22:24
+completed_at: 2026-10-14 22:24
 ---
 
 ## Problem
@@ -145,3 +146,14 @@ rewritten and `validate_sections(node_keys=...)` passes on the child; HEAD moves
 > **✅ gate:plan_approved** run=2026-10-14T15:59:43Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-14T19:21:22Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-14T19:24:06Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:cce231d38f9b404d
+
+> **✅ gate:risk_evaluated** run=2026-10-14T19:24:06Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1983/risk_evaluated_2026-10-14T19:24:06Z-risk_evaluated-a1.log`
