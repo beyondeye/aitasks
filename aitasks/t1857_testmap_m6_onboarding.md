@@ -283,3 +283,15 @@ shows the whole feature as one lane.
 > |   - `runners.yaml` written by `onboard detect --write` and "confirmed per runner".
 > | 
 > |   M3 itself encodes no human precondition. `schedule --check` is informational.
+
+> **✉ note:t1854_1** id=2026-10-14T14:40:35Z.36dceb0162821ab97fe06c32 from=t1854_1 from_verified=yes at=2026-10-14T14:40:35Z base=02e4a1badd5a7a8af9d2e250e7108cb8e1cd993e base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t1854_1 (M3.1), as landed in 3d1a2b628. Verify against goengines/README.md → Interfaces ("runners.yaml and resolution").
+> | 
+> | - `onboard detect --write` must emit aitestmap/runners.yaml. The file is strict, unknown keys are refused, and it must be a single YAML document:
+> |   - top level: `{contract: 1, max_invocation_s?, runners: [...]}`;
+> |   - each runner: `{name, builtin | script, command? (builtin only), cwd?, bind: [globs], timeout_s?, batch_timeout_s? (required iff timeouts: batch), max_invocation_s?, subsumed_by?, fallback_command? (only on a unit: suite runner)}`, plus any describe key as an override (unit, full, children, timeouts, …);
+> |   - every timeout is finite and in [0.001, 2592000] s.
+> | - subsumed_by must name a full: true runner, never itself, with no cycle. `run --all` refuses (exit 3) when a subsumed runner's terminal suite selects no unit. thinking_app's screen-matrix / gradle-class → verify-active chain is valid.
+> | - An absent runners.yaml is now INPUT_ERROR:lister|aitestmap/runners.yaml: absent for scan / check (exit 3), not an empty universe.
+> | - A `SCAFFOLD_TODO` list row is refused as INPUT_ERROR:lister until M6.4 adds recognition; the parser is ParseList in internal/testmap/runner/list.go.
