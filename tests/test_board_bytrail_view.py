@@ -5241,11 +5241,22 @@ class LinkedTrailsTests(ByTrailTestBase):
         self.ts = self.ab.board_trail_screen
 
     async def _drain(self, app, pilot, gated=()):
+        # Repeated: a coalesced search starts its pending scan from the UI
+        # callback of the one that landed, i.e. after a single wait returned.
         for g in gated:
             g.release_all()
-        await app.workers.wait_for_complete()
+        for _ in range(3):
+            await app.workers.wait_for_complete()
+            await pilot.pause()
         for _ in range(3):
             await pilot.pause()
+
+    async def _wait_calls(self, pilot, gated, n, tries=40):
+        for _ in range(tries):
+            if len(gated.calls) >= n:
+                return
+            await pilot.pause()
+        self.fail(f"expected {n} scan call(s), saw {len(gated.calls)}")
 
     async def _search(self, app, pilot, scan_result):
         """Enter By-Trail, press `L`, let the (ungated) scan land."""
@@ -5468,6 +5479,140 @@ class LinkedTrailsTests(ByTrailTestBase):
                     await self._drain(app, pilot, [gated])
                     self.assertIs(app.screen, summary)
                     self.assertTrue(notes.has("press L again"))
+
+        self._run(go())
+
+    # -- coalescing (t1979): one scan in flight, at most one pending ---------------
+
+    @staticmethod
+    def _revision(title):
+        doc = _ghost_doc()
+        doc["title"] = title
+        return doc
+
+    def test_presses_during_a_scan_coalesce_into_one_pending_scan(self):
+        ab = self.ab
+
+        async def go():
+            gated = GatedCalls()
+            old = gated.add(linked_scan([linked_trail(name="OLD trail")]))
+            gated.add(linked_scan([linked_trail(name="NEW trail")]))
+            with patch.object(self.ts, "scan_linked_trails", gated):
+                app = ab.KanbanApp()
+                async with app.run_test(size=(200, 48)) as pilot:
+                    await pilot.pause()
+                    await self._enter_synthetic_bytrail(
+                        app, pilot, self._revision("v1"))
+                    notes = NoteRecorder(app)
+                    app.action_trail_linked()
+                    await pilot.pause()
+                    app._trail_doc = self._revision("v2")
+                    app.action_trail_linked()
+                    app._trail_doc = self._revision("v3")
+                    app.action_trail_linked()
+                    for _ in range(3):
+                        await pilot.pause()
+                    self.assertEqual(len(gated.calls), 1)
+                    old.set()
+                    await self._wait_calls(pilot, gated, 2)
+                    # The pending scan reads the LATEST press's snapshot.
+                    self.assertEqual(gated.calls[1][0], self._revision("v3"))
+                    self.assertIsNot(gated.calls[1][0], app._trail_doc)
+                    await self._drain(app, pilot, [gated])
+                    self.assertEqual(len(gated.calls), 2)
+                    self.assertIsInstance(app.screen, ab.LinkedTrailsScreen)
+                    self.assertEqual([l.name for l in app.screen.links],
+                                     ["NEW trail"])
+                    self.assertFalse(notes.has("changed during"))
+                    self.assertFalse(app._trail_link_running)
+
+        self._run(go())
+
+    def test_leaving_bytrail_drops_the_pending_scan(self):
+        ab = self.ab
+
+        async def go():
+            gated = GatedCalls()
+            gated.add(linked_scan([linked_trail(name="OLD trail")]))
+            gated.add(linked_scan([linked_trail(name="NEW trail")]))
+            with patch.object(self.ts, "scan_linked_trails", gated):
+                app = ab.KanbanApp()
+                async with app.run_test(size=(200, 48)) as pilot:
+                    await pilot.pause()
+                    await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
+                    app.action_trail_linked()
+                    await pilot.pause()
+                    app.action_trail_linked()
+                    await pilot.pause()
+                    notes = NoteRecorder(app)
+                    app.action_view_all()
+                    await pilot.pause()
+                    await self._drain(app, pilot, [gated])
+                    self.assertEqual(len(gated.calls), 1)
+                    self.assertNotIsInstance(app.screen, ab.LinkedTrailsScreen)
+                    self.assertEqual(notes.texts(), [])
+                    self.assertFalse(app._trail_link_running)
+
+        self._run(go())
+
+    def test_an_exclusive_default_group_worker_cannot_strand_the_scan(self):
+        """`_run_sync` and `run_dialog_command` are `exclusive` in Textual's
+        default group: they cancel every worker in it, including a scan that
+        has not started yet — whose `finally` then never runs, leaving the scan
+        slot taken and every later `L` merely queued. The exclusive worker is
+        started in the SAME tick as the press, i.e. before the scan's task
+        ran."""
+        ab = self.ab
+
+        async def go():
+            gated = GatedCalls()
+            gated.add(linked_scan([linked_trail(name="NEW trail")]))
+            with patch.object(self.ts, "scan_linked_trails", gated):
+                app = ab.KanbanApp()
+                async with app.run_test(size=(200, 48)) as pilot:
+                    await pilot.pause()
+                    await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
+                    app.action_trail_linked()
+                    app.run_worker(lambda: None, thread=True, exclusive=True)
+                    gated.release_all()
+                    await self._wait_calls(pilot, gated, 1)
+                    await self._drain(app, pilot)
+                    self.assertEqual(len(gated.calls), 1)
+                    self.assertFalse(app._trail_link_running)
+                    self.assertIsInstance(app.screen, ab.LinkedTrailsScreen)
+                    self.assertEqual([l.name for l in app.screen.links],
+                                     ["NEW trail"])
+
+        self._run(go())
+
+    def test_a_failed_scan_still_runs_the_pending_one(self):
+        """The slot is released on the error path too — otherwise every later
+        `L` would only queue and never scan."""
+        ab = self.ab
+
+        async def go():
+            gated = GatedCalls()
+            gated.add(RuntimeError("registry exploded"))
+            gated.add(linked_scan([linked_trail(name="NEW trail")]))
+            with patch.object(self.ts, "scan_linked_trails", gated):
+                app = ab.KanbanApp()
+                async with app.run_test(size=(200, 48)) as pilot:
+                    await pilot.pause()
+                    await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
+                    notes = NoteRecorder(app)
+                    app.action_trail_linked()
+                    await pilot.pause()
+                    app.action_trail_linked()
+                    for _ in range(3):
+                        await pilot.pause()
+                    self.assertEqual(len(gated.calls), 1)
+                    await self._drain(app, pilot, [gated])
+                    self.assertEqual(len(gated.calls), 2)
+                    self.assertIsInstance(app.screen, ab.LinkedTrailsScreen)
+                    self.assertEqual([l.name for l in app.screen.links],
+                                     ["NEW trail"])
+                    self.assertFalse(notes.has("search failed"))
+                    self.assertFalse(app._trail_link_running)
 
         self._run(go())
 

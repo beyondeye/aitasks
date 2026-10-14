@@ -441,6 +441,13 @@ class TrailScreenMixin:
         # The stamp of the linked-trail search whose result may still show;
         # drawn from `_trail_gen`, re-drawn to retire it.
         self._trail_link_gen = 0
+        # At most one scan runs at a time (t1979): a press while one is in
+        # flight only records the newest request — with its OWN snapshot — and
+        # it starts when the running scan lands. Every scan runs one export
+        # subprocess per registered project, so held or repeated `L` presses
+        # would otherwise multiply them for results that are superseded anyway.
+        self._trail_link_running = False
+        self._trail_link_pending: tuple | None = None
         # A jump is between "picked" and "done" (prepare, the warning dialog,
         # finish): a second pick would race it into a second trails window.
         self._trail_jump_busy = False
@@ -1061,7 +1068,10 @@ class TrailScreenMixin:
         The search reads a private SNAPSHOT of the trail and remembers it: a
         reload or a rescan can replace the session's document in place while
         the scan runs, and links found for the old members must not show as
-        the new revision's."""
+        the new revision's.
+
+        Presses while a scan runs coalesce: only the newest is kept, and it
+        runs when that scan lands (`_on_trail_links`)."""
         if self._modal_is_active():
             return
         # A binding gate is not an action guard — the palette and a remap
@@ -1076,9 +1086,20 @@ class TrailScreenMixin:
         source = (copy.deepcopy(origin.doc), origin.error)
         gen = self._trail_link_gen = self._bump_trail_gen()
         self.notify("Searching for linked trails in other projects…")
+        if self._trail_link_running:
+            self._trail_link_pending = (gen, origin, source)
+            return
+        self._start_trail_link_scan(gen, origin, source)
+
+    def _start_trail_link_scan(self, gen: int, origin, source: tuple) -> None:
+        self._trail_link_running = True
         self._trail_link_worker(gen, origin, source)
 
-    @work(thread=True)
+    # Its own group: `exclusive` workers in the default group (`_run_sync`,
+    # `run_dialog_command`) cancel every worker there, and one cancelled
+    # before it started never runs its `finally` — the scan slot would stay
+    # taken and every later `L` would only queue (t1979).
+    @work(thread=True, group="trail_link")
     def _trail_link_worker(self, gen: int, origin, source: tuple):
         scan, error = None, ""
         try:
@@ -1091,6 +1112,15 @@ class TrailScreenMixin:
 
     def _on_trail_links(self, gen: int, origin, source: tuple, scan,
                         error: str) -> None:
+        # Free the scan slot FIRST — before any early return — or every later
+        # `L` would only queue. The pending request runs only while it is
+        # still current: a tab switch / close / activation and leaving the view
+        # retire it by drawing a new `_trail_link_gen`, exactly as they retire
+        # a running scan's result.
+        self._trail_link_running = False
+        pending, self._trail_link_pending = self._trail_link_pending, None
+        if pending is not None and pending[0] == self._trail_link_gen:
+            self._start_trail_link_scan(*pending)
         # Supersession: a newer search, a tab switch / close / activation, or
         # leaving the view retired this one — the user moved on, say nothing.
         if (gen != self._trail_link_gen or self.base_filter != "bytrail"

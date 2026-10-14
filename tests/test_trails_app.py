@@ -2370,20 +2370,24 @@ class LinkedTrailsTabTests(TrailsAppTestBase):
         return [s for s in app.screen_stack
                 if isinstance(s, self.ab.LinkedTrailsScreen)]
 
-    def _tab_case(self, move):
-        """Search on A, `move` while the scan is in flight, then release: the
-        result must not show, and nothing is said about it."""
+    def _tab_case(self, move, presses=1):
+        """Search on A (`presses` times — the later ones coalesce into one
+        pending request), `move` while the scan is in flight, then release:
+        the result must not show, no pending scan starts, and nothing is said
+        about it."""
         async def go():
             calls, stack = self._counting()
             gated = GatedCalls()
-            gated.add(linked_scan([linked_trail()]))
+            for _ in range(2):
+                gated.add(linked_scan([linked_trail()]))
             app = bf.make_trails_app()
             with stack[0], stack[1], stack[2], \
                     patch.object(self.ts, "scan_linked_trails", gated):
                 async with app.run_test(size=(200, 48)) as pilot:
                     await self._two_tabs(app, pilot)
-                    app.action_trail_linked()
-                    await pilot.pause()
+                    for _ in range(presses):
+                        app.action_trail_linked()
+                        await pilot.pause()
                     notes = NoteRecorder(app)
                     await move(app, pilot)
                     await self._release(app, pilot, gated)
@@ -2414,38 +2418,95 @@ class LinkedTrailsTabTests(TrailsAppTestBase):
             await pilot.pause()
         self._tab_case(move)
 
-    def test_two_searches_show_only_the_newest_in_either_order(self):
-        for order in ("newest_last", "newest_first"):
-            with self.subTest(order=order):
-                self._two_searches(order)
+    def test_switching_tabs_drops_a_pending_search(self):
+        async def move(app, pilot):
+            app._switch_trail_session(HANDLE_B)
+            await pilot.pause()
+        self._tab_case(move, presses=3)
 
-    def _two_searches(self, order):
+    def test_closing_the_origin_tab_drops_a_pending_search(self):
+        async def move(app, pilot):
+            app._close_trail_session(HANDLE_A)
+            await pilot.pause()
+        self._tab_case(move, presses=3)
+
+    async def _wait_calls(self, pilot, gated, n):
+        await self._wait_until(pilot, lambda: len(gated.calls) >= n)
+
+    def test_overlapping_searches_coalesce_and_show_only_the_newest(self):
+        """At most one scan runs (t1979): presses during it collapse into ONE
+        pending request, started when the running scan lands. The landed
+        (older) result is dropped; the newest request's result shows."""
         async def go():
             calls, stack = self._counting()
             gated = GatedCalls()
             old = gated.add(linked_scan([linked_trail(name="OLD trail")]))
-            new = gated.add(linked_scan([linked_trail(name="NEW trail")]))
+            gated.add(linked_scan([linked_trail(name="NEW trail")]))
             app = bf.make_trails_app()
             with stack[0], stack[1], stack[2], \
                     patch.object(self.ts, "scan_linked_trails", gated):
                 async with app.run_test(size=(200, 48)) as pilot:
                     await self._boot_and_select(app, pilot)
-                    app.action_trail_linked()
-                    await pilot.pause()
-                    app.action_trail_linked()
+                    for _ in range(3):
+                        app.action_trail_linked()
+                        await pilot.pause()
                     for _ in range(3):
                         await pilot.pause()
-                    self.assertEqual(len(gated.calls), 2)
-                    first, second = (old, new) if order == "newest_last" else (new, old)
-                    first.set()
-                    for _ in range(5):
-                        await pilot.pause()
-                    second.set()
+                    self.assertEqual(len(gated.calls), 1)
+                    self.assertTrue(app._trail_link_running)
+                    old.set()
+                    await self._wait_calls(pilot, gated, 2)
                     await self._release(app, pilot, gated)
+                    self.assertEqual(len(gated.calls), 2)
                     screens = self._linked_screens(app)
                     self.assertEqual(len(screens), 1)
                     self.assertEqual([l.name for l in screens[0].links],
                                      ["NEW trail"])
+                    self.assertFalse(app._trail_link_running)
+        self._run(go())
+
+    def test_a_search_on_the_new_tab_replaces_the_retired_pending_one(self):
+        """A's pending request is retired by the tab switch; B's press, made
+        while A's scan still holds the slot, takes its place and runs on B's
+        snapshot once A's scan lands."""
+        async def go():
+            calls, stack = self._counting()
+            gated = GatedCalls()
+            a_scan = gated.add(linked_scan([linked_trail(name="OLD trail")]))
+            gated.add(linked_scan([linked_trail(name="NEW trail")]))
+            app = bf.make_trails_app()
+            with stack[0], stack[1], stack[2], \
+                    patch.object(self.ts, "scan_linked_trails", gated):
+                async with app.run_test(size=(200, 48)) as pilot:
+                    await self._two_tabs(app, pilot)
+                    app.action_trail_linked()
+                    await pilot.pause()
+                    app.action_trail_linked()
+                    await pilot.pause()
+                    notes = NoteRecorder(app)
+                    app._switch_trail_session(HANDLE_B)
+                    await pilot.pause()
+                    session_b = app._trail_session(HANDLE_B)
+                    self.assertIs(app._trail_active, session_b)
+                    app.action_trail_linked()
+                    await pilot.pause()
+                    self.assertEqual(len(gated.calls), 1)
+                    self.assertTrue(app._trail_link_running)
+                    self.assertIs(app._trail_link_pending[1], session_b)
+                    a_scan.set()
+                    await self._wait_calls(pilot, gated, 2)
+                    self.assertEqual(gated.calls[1][0], session_b.doc)
+                    self.assertIsNot(gated.calls[1][0], session_b.doc)
+                    self.assertNotEqual(gated.calls[1][0],
+                                        app._trail_session(HANDLE_A).doc)
+                    await self._release(app, pilot, gated)
+                    self.assertEqual(len(gated.calls), 2)
+                    screens = self._linked_screens(app)
+                    self.assertEqual(len(screens), 1)
+                    self.assertEqual([l.name for l in screens[0].links],
+                                     ["NEW trail"])
+                    self.assertFalse(notes.has("changed during"))
+                    self.assertFalse(app._trail_link_running)
         self._run(go())
 
     def test_L_needs_a_loaded_trail(self):
@@ -2474,12 +2535,17 @@ class LinkedTrailsTabTests(TrailsAppTestBase):
 
     # -- source revision: the REAL reload path -----------------------------------
 
-    def _revision_case(self, change, *, expect_modal):
-        """Search, deliver `change(app, deliver)` through `_on_trail_reload`
-        (the path an `R`/`d` reload or a watch takes), then release."""
+    def _revision_case(self, change, *, expect_modal, presses=1,
+                       press_after_change=False):
+        """Search (`presses` times), deliver `change(app, deliver)` through
+        `_on_trail_reload` (the path an `R`/`d` reload or a watch takes),
+        optionally press once more, then release. Returns the scan calls."""
+        scans = []
+
         async def go():
             gated = GatedCalls()
-            gated.add(linked_scan([linked_trail()]))
+            for _ in range(2):
+                gated.add(linked_scan([linked_trail()]))
             app = bf.make_trails_app()
             patches = self._patches()
             with patches[0], patches[1], \
@@ -2487,8 +2553,9 @@ class LinkedTrailsTabTests(TrailsAppTestBase):
                 async with app.run_test(size=(200, 48)) as pilot:
                     await self._boot_and_select(app, pilot)
                     original = app._trail_active.doc
-                    app.action_trail_linked()
-                    await pilot.pause()
+                    for _ in range(presses):
+                        app.action_trail_linked()
+                        await pilot.pause()
                     notes = NoteRecorder(app)
                     gens = []
                     app._trail_reload_worker = lambda gen, handle: gens.append(gen)
@@ -2501,7 +2568,12 @@ class LinkedTrailsTabTests(TrailsAppTestBase):
 
                     change(app, deliver, original)
                     await pilot.pause()
+                    if press_after_change:
+                        app.action_trail_linked()
+                        await pilot.pause()
                     await self._release(app, pilot, gated)
+                    scans.extend(gated.calls)
+                    self.assertFalse(app._trail_link_running)
                     if expect_modal:
                         self.assertEqual(len(self._linked_screens(app)), 1)
                         self.assertFalse(notes.has("changed during"))
@@ -2511,12 +2583,33 @@ class LinkedTrailsTabTests(TrailsAppTestBase):
                             f"Trail {HANDLE} changed during the linked-trail "
                             "search"))
         self._run(go())
+        return scans
 
     def test_a_reload_with_changed_members_drops_the_search(self):
         def change(app, deliver, original):
             deliver(_wave_doc([self.member_ids[0]]))
             self.assertNotEqual(app._trail_active.doc, original)
         self._revision_case(change, expect_modal=False)
+
+    def test_a_reload_between_presses_scans_the_newest_snapshot(self):
+        """The pending request carries the snapshot of the press that made it,
+        so a change BEFORE that press is not a change during its search."""
+        new_doc = _wave_doc([self.member_ids[0]])
+
+        def change(app, deliver, original):
+            deliver(copy.deepcopy(new_doc))
+            self.assertNotEqual(app._trail_active.doc, original)
+        scans = self._revision_case(change, expect_modal=True,
+                                    press_after_change=True)
+        self.assertEqual(len(scans), 2)
+        self.assertEqual(scans[1][0], new_doc)
+
+    def test_a_reload_after_a_pending_press_drops_the_search(self):
+        def change(app, deliver, original):
+            deliver(_wave_doc([self.member_ids[0]]))
+            self.assertNotEqual(app._trail_active.doc, original)
+        scans = self._revision_case(change, expect_modal=False, presses=2)
+        self.assertEqual(len(scans), 2)
 
     def test_a_reload_that_adopts_a_load_error_drops_the_search(self):
         def change(app, deliver, original):
