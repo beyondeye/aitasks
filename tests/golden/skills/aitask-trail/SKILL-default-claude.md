@@ -486,7 +486,15 @@ this step) / "Discard" (stop; nothing was written).
    (`ait artifact ls <owner_id>` now lists it). If the command fails with
    "handle … already exists", the slug is taken: re-prompt for a new slug
    (step 1 above) and retry — never overwrite an existing trail from the
-   create flow. Any other failure → surface and stop.
+   create flow. If it fails because a path "has uncommitted changes", tell
+   the user to commit or revert **the path the error names** (the message
+   also prints the commit command), then retry. Usually that is the owner
+   task's file — creating a trail writes it, so `ait artifact create`
+   refuses while it has uncommitted changes — but create also checks the
+   trail's manifest, so the error can name that instead. Refreshing a trail
+   only rewrites the manifest, so the refresh flow (Step 3) is unaffected by
+   uncommitted owner-task edits; a dirty manifest still blocks it. Any other
+   failure → surface and stop.
 
 5. **Print the run summary** after the `HANDLE:` line — see **Run summary
    print** below, **all three parts**. This is what removes the board
