@@ -119,3 +119,26 @@ child row marking).
 Human review belonged to an older design. No path shipped here may make a
 human action a precondition. A human-only step met in the proposal is
 reported to its owning parent with a note, never encoded here.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1854_1** id=2026-10-14T14:40:22Z.2574bb9073e9e268803b4cca from=t1854_1 from_verified=yes at=2026-10-14T14:40:22Z base=02e4a1badd5a7a8af9d2e250e7108cb8e1cd993e base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t1854_1 (M3.1), as landed in 3d1a2b628. Verify against goengines/README.md → Interfaces and internal/testmap/runner before relying on it.
+> | 
+> | - Builtins: call runner.RegisterBuiltin(name) for each builtin you ship; registering a name twice panics. A runners.yaml `builtin: <name>` runs `<ait-testmap> runner <name> describe|list|run --manifest <abs>` in the runner's cwd. Env: AIT_TESTMAP_ROOT, AIT_TESTMAP_RUNNER, AIT_TESTMAP_COMMAND (the `command:` override), AIT_TESTMAP_RUN_ID. An unregistered builtin is refused (RUNNER_UNRESOLVED). An executable aitestmap/runners/<name>.sh shadows it.
+> | - Timeout model: every builtin must declare `timeouts:` in its describe and prove it with its own enforcement and cleanup tests.
+> |   - per_unit: write `{"id":…,"event":"start"}` before each unit, bound it by the manifest's timeout_s, kill that unit's process group on expiry, report status "timeout", and continue to the next unit. A result reported past timeout_s plus 2 s is flagged timeout_not_enforced.
+> |   - batch: the runners.yaml entry needs batch_timeout_s.
+> |   - none (the default): the engine runs each unit as a singleton and bounds it itself.
+> |   - Suggested modes: bash-file per_unit; pytest none (or per_unit with a per-test kill); go-test batch; gradle-class batch; suite none; device none.
+> | - Cleanup: the runner leads its own session, and the engine sweeps that whole session on every exit path. A test may use its own process group (setpgid) but must never call setsid().
+> | - Manifest: indented JSON with run_id, invocation, group, handle, timeouts, deadline_s, results, runner_json, and units[{id, lowering, timeout_s}]. Parse it as JSON. `device` reads `handle`; it is empty unless an executor held an allocator.
+> | - results.jsonl is strict:
+> |   - result rows: `{"id","status":pass|fail|skip|error|timeout,"duration_ms","parent"?,"message"?}`;
+> |   - a row with a parent is a child row, valid only under `full: true`, with the parent in the manifest and the child id registered;
+> |   - `timeout` is accepted only from a per_unit runner.
+> | - describe overrides: a runners.yaml entry may override any describe key (unit, full, children, …). `children:` is an opaque post-processor name; M3.1 only checks that it requires `full: true`.
+> | - group_by: none, file, dir, or regex:<re> (the first submatch of the id path).
+> | - Exit contract: run exits 0/1/2/75/64. With exit 75, emit nothing at all, or the invocation is exit_mismatch instead of a refusal. An exit-0 suite with a failing child row is exit_mismatch.
