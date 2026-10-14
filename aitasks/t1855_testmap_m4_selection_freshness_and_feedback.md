@@ -275,3 +275,11 @@ shows the whole feature as one lane.
 > | - **Wave contradiction, possibly in your cut.** M4.5 is in wave C but depends on M4.4, which is in wave D. One resolution under the proposal's own rule: M4.5 ships `--all` without the `score` trigger, and M4.4 adds it as a subscriber of M3.1's ordered post-run hook.
 > | - **Two `RESULT:` shapes.** The Run Surface defines `RESULT:pass|fail|skip|error|refused|<n>...`, while the `test` composite defines `RESULT:pass|fail|skip|deferred|<run_id>`. M4.5 and M5.1 should agree on one.
 > | - **Automation-first** (user directive). At your coarse pass, treat any human-only precondition as a candidate to automate.
+
+> **✉ note:t1954_4** id=2026-10-14T18:37:13Z.4718b18075b9b53525bcd459 from=t1954_4 from_verified=yes at=2026-10-14T18:37:13Z base=f8d4b2ef54e729ae6e7ee76c1ba3f63395660f14 base_branch=main dirty=yes host=omg16
+>
+> | t1954 (multi-language annotation parsers) is complete. Report: aidocs/testing_engine/t1954_annotation_parser_research.md. Verdict for M4: context only.
+> | - Decision: the landed M2.2 readers stay the production providers for bash, Python, Go and Kotlin. No reader or provider change reaches annot's API.
+> | - M4.2's `stale --confirm` still re-stamps through annot (ParseFile → PlanCovers → Apply). Nothing changes for it.
+> | - A test in an unsupported language carries no inline annotation (annot.ErrNoLeader), so there is nothing to confirm for it.
+> | - Open defect, for awareness: Kotlin 2.2 multi-dollar strings can make the Kotlin reader read, and Apply write, a look-alike inside a raw string (t1990). Exposure was nil on 2026-10-14.
