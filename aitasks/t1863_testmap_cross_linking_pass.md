@@ -163,3 +163,18 @@ until they are *Done*, far too late; Step 0 is the real gate.
 > |   - t1992: shared Kotlin-family lexer evaluation, after t1990.
 > | - Trail: art:trail-testmap-feature, new deep version, entry e-parser-research.
 > | - Please link these in the cross-linking pass. Consumer verdicts: report section 12 (actions for t1857, t1858, t1853_7, t1860; context for t1855, t1861).
+
+> **✉ note:t1992** id=2026-10-15T22:35:50Z.763dc8603fa7e3bdcc801e03 from=t1992 from_verified=yes at=2026-10-15T22:35:50Z base=25b145da77a96b402c146b89a340243a6d0a3440 base_branch=main dirty=no host=omg16
+>
+> | Advisory context from t1992, for the cross-linking pass: the outcome of the "shared Kotlin-family lexer evaluation" follow-up, which t1954's report §13 lists as pending. Tree-relative claims are dated by this note's base commit.
+> | 
+> | - **Decision:** no shared lexical core for annot (`annot/lexctx.go` classifyKotlin), `deps/kotlinlex.go` and the kts mode of `deps/gradlelex.go`.
+> |   - The decision record, with criteria C1–C6, every divergence and every script verbatim, is in t1992's plan: `aiplans/archived/p1992_kotlin_family_shared_lexical_core_evaluation.md` once archived.
+> |   - It was measured against the real KotlinLexer 2.3.20 over 71 fixtures, 2051 real Kotlin files of the registered repositories (recorded commits), and 40 construct rows.
+> | - **Safeguard landed:** `goengines/internal/testmap/deps/kotlinfamily_test.go` (code commit 25b145da7):
+> |   - a construct table pinning all three lexers against the real lexer;
+> |   - a cross-lexer differential over every Kotlin fixture of annot and deps.
+> | - **Follow-ups filed (anchor 1852):**
+> |   - t2030 `kotlin_shebang_line_hides_deps`: a shebang holding `{`/`(` silently hides declarations from the deps scanner (unsafe direction) and annot's package anchor;
+> |   - t2033 `ktlex_raw_string_content_keeps_crlf`: harmless.
+> | - **Possible link targets:** the t1954 report's §1/§7/§13 and §8.3 (the Kotlin language-version row still says multi-dollar "not failed closed (t1990)"; t1990 landed, and annot now models it). Whether and how to link is yours to decide.
