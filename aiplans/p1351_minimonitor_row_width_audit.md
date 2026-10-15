@@ -273,7 +273,7 @@ target to that width and cannot expose the mismatch.
 - Routing `classify_pane` through the new `match_agent_prefix` could misclassify panes in both monitors if the swap is not exact · severity: low · → mitigation: none (covered in-plan: the step 7 agreement table runs against a real `TmuxMonitor`, and the existing classify-dependent suites run in step 9)
 
 ### Goal-achievement risk: medium
-- Budgets read the configured `target_width`, but `_maybe_pin_width` only shrinks a pane that is wider than the target. When the window is too narrow, the real pane stays narrower (e.g. target 40, pane 32: a scrolling card has 28 cells while rows are built for 36), so rows still wrap there · severity: medium · → mitigation: budget_actual_pane_width
+- Budgets read the configured `target_width`, but `_maybe_pin_width` only shrinks a pane that is wider than the target. When the window is too narrow, the real pane stays narrower (e.g. target 40, pane 32: a scrolling card has 28 cells while rows are built for 36), so rows still wrap there · severity: medium · → mitigation: t2007
 - The budget counts ★ ☆ ● ◆ ≈ … ○ as 1 cell each. A terminal configured to render East Asian Ambiguous characters as wide would still overflow · severity: low · → mitigation: none (stated as an explicit assumption in the budget block; the real-tmux capture in Verification §2 confirms the standard-locale case the AC asks for)
 - Headless compositing could disagree with a real terminal · severity: low · → mitigation: none (covered in-plan: Verification §2 captures from a real tmux pane both before and after the change, with `◆!` forced in both)
 
