@@ -206,3 +206,96 @@ shared tree has foreign dirty brainstorm files), then archive the task and plan.
 ### Goal-achievement risk: low
 None identified. The task's fixture, its three requested fixture forms and the
 schemaVersion bump are all covered directly.
+
+## Final Implementation Notes
+
+- **Actual work done:** Steps 1–3 implemented as planned:
+  - `ktDeclName` now walks the optional receiver and then the name, through the new `skipTypeArgs` helper, which the type-parameter prefix also uses.
+  - Two tests were added: `TestKotlinDeclNameStopsAfterName` (17 rows, 8 of them controls — two added in post-review Change Request 1) and `TestKotlinDelegatedPropertyImport`.
+  - `schemaVersion` went from 7 to 8, read from HEAD at implementation time (HEAD was `4f4d5e4a7`).
+- **Red proof:** before Step 1, the `lazy`, `mutable-state`, `dotted-delegate`, `ext-delegate`, `accessor`, `star-receiver` and `arrow-arg` rows and the e2e test failed. Every control row, plus `nested-args` and `nullable-generic`, passed. After Step 1, everything passes.
+- **Deviations from plan:** one correction to the plan's Context. On `val y by Delegates.notNull<Int>()` the old walk gave `Int` (marked ext), not `notNull`: it skipped `<`/`>` and kept the last identifier. The fix and the expected values are unchanged.
+- **Issues encountered:** none. Another session had uncommitted work in `goengines/internal/testmap/runner/`, a separate package. It was left untouched and excluded from this commit. `ait engine test` was green with it present.
+- **Key decisions:** the fix is a structural rule ("an identifier continues the receiver only when `.` follows"), not a `by` stop-word. Every `?` before the `.` is skipped, per Kotlin's `quest+` and as the old loop did; this was raised in plan review.
+- **Upstream defects identified:** None
+
+### Verification evidence — thinking_app before/after declaration diff
+
+Scanned committed tree thinking_app `33b7fcd4923df066b4f7d7753dafbd4d22900cd8` (`git archive` into a scratch directory; 784 `.kt` files; 1858 declarations both before and after). Full `diff decls_before.txt decls_after.txt` output:
+
+```
+1159c1159
+< app/src/test/java/com/softman/thinking/network/dto/WireContract.kt	val:lazy:24
+---
+> app/src/test/java/com/softman/thinking/network/dto/WireContract.kt	val:retrofit:24
+```
+
+Source line 24 of that file: `private val retrofit by lazy { buildAppRetrofit() }`. This is the only changed declaration, and it is exactly the expected one. No other form changed on real code.
+
+The probe was run as `T1977_ROOT=<snapshot> T1977_OUT=<file> go test ./internal/testmap/deps/ -run TestProbeT1977Decls -count=1`, once before Step 1 and once after. It was deleted before commit. Its source, verbatim:
+
+```go
+package deps
+
+// Temporary t1977 probe — not committed. Dumps every Kotlin file's
+// declarations under T1977_ROOT into T1977_OUT.
+
+import (
+	"io/fs"
+	"os"
+	"path/filepath"
+	"slices"
+	"strconv"
+	"strings"
+	"testing"
+)
+
+func TestProbeT1977Decls(t *testing.T) {
+	root, out := os.Getenv("T1977_ROOT"), os.Getenv("T1977_OUT")
+	if root == "" || out == "" {
+		t.Skip("T1977_ROOT / T1977_OUT unset")
+	}
+	var rows []string
+	files := 0
+	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(p, ".kt") {
+			return err
+		}
+		data, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		files++
+		rel, _ := filepath.Rel(root, p)
+		raw := scanKotlin(data)
+		for _, s := range raw.Symbols {
+			row := rel + "\t" + s.Kind + ":" + s.Name + ":" + strconv.Itoa(s.Line)
+			if slices.Contains(raw.Kt.Exts, s.Name) {
+				row += ":ext"
+			}
+			rows = append(rows, row)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	slices.Sort(rows)
+	if err := os.WriteFile(out, []byte(strings.Join(rows, "\n")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("files=%d decls=%d", files, len(rows))
+}
+```
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-14 22:25)
+- **Requested by user:** `skipTypeArgs` recognised an arrow only by `toks[j-1].text != "-"`. But `ktLex` emits a backticked identifier `` `-` `` as `kind='n', text="-"`, so its closing `>` was ignored. `fun Box<`-`>.render()` returned `Box` (no ext), and `fun <T : `-`> T.render()` returned no declaration. The original walk named both `render`, with ext. The request: require an operator-kind `-`, and add regression rows for a receiver argument and a type-parameter bound.
+- **Changes made:**
+  - Confirmed both cases red against the Step 1 code (`[fun:Box]` and `[]`).
+  - Changed the arrow test to `!(toks[j-1].kind == 'o' && toks[j-1].text == "-")` and updated the helper's comment.
+  - Added control rows `backticked-minus-arg` and `backticked-minus-bound`. Both now pass, and `arrow-arg` still passes.
+  - Re-ran the thinking_app probe on the final code. Its diff is byte-identical to the one above (`cmp` equal: only `WireContract.kt:24 val:lazy → val:retrofit`). Deleted the probe again.
+  - `ait engine test` is green.
+- **Files affected:** `goengines/internal/testmap/deps/kotlin.go`, `goengines/internal/testmap/deps/kotlin_test.go`
