@@ -11,8 +11,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-15 10:07
-updated_at: 2026-10-15 14:45
+updated_at: 2026-10-15 22:14
 ---
 
 Three usability defects in the `ait frozenagent` viewer, plus a requested change to its copy keys. Reported live on 2026-10-15 while reading a frozen Claude Code agent's stand-in pane in a downstream project (`thinking_backend`, window `agent-pick-153`). Textual 8.2.7, tmux 3.7c with `set-clipboard on`, theme `textual-dark`. The downstream `.aitask-scripts/frozenagent/` is byte-identical to this repo's.
@@ -106,3 +107,8 @@ The keys *are* received. After `/` and typing `step`, focus is on `#fa-search` a
 ## Out of scope (observed, not investigated)
 
 Two defunct `[tmux: client]` zombie children sat under the live viewer process (`frozenagent_app.py --record f5d2ad20`). Some fire-and-forget tmux spawn is not being reaped. If it matters, file it as a separate task.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-15T19:14:49Z status=pass attempt=1 type=human
