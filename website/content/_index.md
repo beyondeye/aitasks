@@ -146,9 +146,9 @@ Supported via WSL.
 <div class="row justify-content-center">
 <div class="col-lg-8">
 
+- **[v0.38.0: The test map takes shape, Trails that cross projects, and Prune a brainstorm down to what matters](blog/v0380-the-test-map-takes-shape-trails-that-cross-projects-prune-a-brainstorm-dow/)** -- Oct 16, 2026
 - **[v0.37.0: Several trails at once in `ait trails`, Keep your default models current, and Let an agent untangle a sync conflict](blog/v0370-several-trails-at-once-in-ait-trails-keep-your-default-models-current-let/)** -- Oct 11, 2026
 - **[v0.36.1: Hand your agent a screen recording, and Sonnet 5.5 and GPT-6.1 Sol take over as defaults](blog/v0361-hand-your-agent-a-screen-recording-sonnet-5-5-and-gpt-6-1-sol-take-over-as/)** -- Oct 5, 2026
-- **[v0.36.0: Discuss your brainstorm proposals, Frozen agents come back when you start `ait ide`, and Notes that cross repositories](blog/v0360-discuss-your-brainstorm-proposals-frozen-agents-come-back-when-you-start-a/)** -- Sep 25, 2026
 
 [All releases &rarr;](blog/)
 
