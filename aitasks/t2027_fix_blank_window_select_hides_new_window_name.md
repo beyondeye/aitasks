@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2013
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-16 00:50
-updated_at: 2026-10-16 00:52
+updated_at: 2026-10-16 00:58
 ---
 
 ## Origin
@@ -59,3 +60,8 @@ Select with `allow_blank=False`, but check what the new-session path's
 t2025's in `tests/test_agent_command_dialog_narrow.py`: blank the window Select
 on an existing session, then assert that the visible rows match the
 `TmuxLaunchConfig` produced by `r`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-15T21:58:34Z status=pass attempt=1 type=human
