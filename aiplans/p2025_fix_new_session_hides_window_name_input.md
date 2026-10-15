@@ -162,3 +162,45 @@ task and plan after the Step 8 review commit.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+- **Actual work done:** As planned. `.aitask-scripts/lib/agent_command_screen.py`
+  gained `_new_session_pending()` (reads the live `#tmux_session_select` value),
+  and `_on_window_changed` now shows the window-name row when
+  `value == _NEW_WINDOW_SENTINEL or self._new_session_pending()`. In
+  `tests/test_agent_command_dialog_narrow.py`: a t2025 docstring paragraph, a
+  `_assert_window_rows` helper,
+  `test_new_session_shows_window_name_row` (narrow 40x44 and wide 120x40 ×
+  prior window = new-window default / existing window "1"; checks the row is
+  shown and the split row hidden, `m` focuses the input inside the dialog,
+  `end`+`ctrl+u`+typing edits it, and `r` launches
+  `TmuxLaunchConfig(new_session=True, session="aitasks", new_window=True, window="my-win")`),
+  `test_switching_back_to_existing_session_follows_window_select`, and
+  `"tmux_new_window_row"` added to the `shown` list of
+  `test_tallest_state_buttons_reachable` (with the `_enter_tallest_state`
+  docstring updated).
+- **Deviations from plan:** None. The new tests are methods of the existing
+  `AgentCommandDialogNarrowTests` class, as the revised plan said.
+- **Issues encountered:** None. Red proof, taken before the source fix:
+  `test_new_session_shows_window_name_row` failed with
+  `#tmux_new_window_row Region(x=0, y=0, width=0, height=0)`, and the
+  strengthened `test_tallest_state_buttons_reachable` failed with
+  `#tmux_new_window_row not shown`. The switch-back test passed both before and
+  after, as intended. After the fix, the four dialog test modules (45 tests) and
+  `tests/test_textual_markup_colours.py` (48 tests) all pass.
+- **Key decisions:** The row is keyed on the session Select's live value, not on
+  `_selected_session` (which is also `None` for a blank session) and not on
+  the window `value == NULL`. This mirrors `_build_tmux_config`'s rule (a new
+  session always gets a new window) and does not depend on the order in which
+  the two Selects' `Changed` messages arrive. Textual 8.2.7 detail: the
+  `Changed(NULL)` comes from `set_options([])` → `_init_selected_option()`; the
+  following `clear()` is a no-op on an already-NULL value. The no-sessions
+  open path therefore never had the bug, because NULL→NULL posts nothing.
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/agent_command_screen.py:1294-1297` — on an existing
+    session, choosing the window Select's blank entry (`allow_blank=True`) hides
+    both the window-name row and the split row, yet `_build_tmux_config` falls
+    through to "Default to new window" and launches a new window under the
+    hidden default name. A hidden control decides the launch, the same class of
+    problem as t2025, reached through the blank option instead of the
+    new-session path.
