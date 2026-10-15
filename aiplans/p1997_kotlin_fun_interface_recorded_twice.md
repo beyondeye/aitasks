@@ -180,3 +180,19 @@ None identified.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-15 09:41)
+- **Requested by user:** `esc` appended after `line` grew `ktok` from 32 to 40 bytes on 64-bit (alignment padding); move it beside `kind`.
+- **Changes made:** field order is now `kind, esc, text, line`. An overlay probe (`unsafe.Sizeof(ktok{})`) reads 32. The constructors already use keyed literals, so behaviour is unchanged. The `deps` and `cmd/ait-testmap` tests and `go vet` pass again.
+- **Files affected:** `goengines/internal/testmap/deps/kotlinlex.go`
+
+## Final Implementation Notes
+- **Actual work done:** Implemented as planned. `kotlinlex.go`: `ktok` gains `esc` for backticked identifiers. The kind and text are unchanged, and `emit` now uses a keyed literal. `kotlin.go`: a new `isFunInterface` predicate is shared by `ktDeclName` and `scanKotlin`. The declaration gate adds `!t.esc` and `i != funIface`, and `funIface` is set only when an unescaped `fun` passes the gate. New `TestKotlinLexerMarksEscapedIdentifiers` and `TestKotlinFunInterfaceDeclaredOnce` (10 exact-equality rows). `cache.go`: `schemaVersion` 8 → 9 (HEAD still had 8 at commit time).
+- **Deviations from plan:** Only Change Request 1: `esc` moved beside `kind`, so `ktok` stays 32 bytes instead of 40.
+- **Issues encountered:** The plan went through two review rounds before approval. The task's literal "previous token is `fun`" rule dropped the real `interface:Y` after `` obj.`fun` ``. Tying the skip to the consuming `fun` but leaving it escape-blind deleted the correct `interface:Y` after ``val a = `fun` ``. Making the pair predicate escape-aware while the gate stayed blind gave a phantom `fun:interface`. The fix that holds is the lexer flag plus the escape check on the gate itself.
+- **Key decisions:** The surviving entry for `fun interface X` is `fun:X`, which was already listed first; `Symbol.Kind` feeds no Kotlin resolution. Escaped tokens are refused at the declaration gate, so they never reach `ktDeclName`. That removes the old escaped-keyword phantoms (`fun:Y`, `object:fun`) as well. `` fun `interface`() `` now declares `fun:interface` (it declared nothing before).
+- **Evidence:** Red run on the lexer field + tests before the scanner change: exactly 6 rows failed, with `[val:a fun:Y interface:Y]`, `[]`, `[val:b object:fun fun:g]`, `[fun:Listener interface:Listener]`, `[fun:P interface:P]` and `[fun:Q interface:Q]`. All 4 controls passed. The overlay mutants each failed their named rows: naive previous-token rule failed on `dotted-escaped-fun` (`[val:a]`) and 3 more; gate without `!t.esc` failed on `escaped-fun` (`[val:a fun:interface interface:Y]`) and `escaped-object`; predicate without `toks[i+1].esc` failed on `escaped-interface-name` (`[]`). Green: `go test ./internal/testmap/deps/ ./cmd/ait-testmap/` (its only importer), `go vet`, `gofmt -l` and `go build ./...` all clean.
+- **Upstream defects identified:**
+  - goengines/internal/testmap/deps/kotlin.go:128 — the escape-blind `import` branch reads a backticked `` `import` `` identifier at depth 0 as an import directive. `` val x = `import` `` followed by `fun f() = 1` yields imports `[fun]` and decls `[val:x]`: the next token is consumed as the import path, so the real `fun f()` declaration is lost. Measured on the t1997 tree via an overlay probe; the control `val x = y` keeps `fun:f`. Fix: add `!t.esc` to the `package` / `import` cases (and to the keyword-text opaque checks), using the `esc` flag t1997 added to the lexer.
