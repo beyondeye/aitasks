@@ -5673,9 +5673,19 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, RowNavMixin, App):
                         subgraph=subgraph,
                         **operation_extra,
                     )
-                    created = apply_module_decompose_from_sections(
-                        self.task_num, group_name
-                    )
+                    # Deterministic, no agent: no apply poller will reload, so
+                    # the worker does — on failure too, since sections are
+                    # validated per module inside the creation loop.
+                    try:
+                        created = apply_module_decompose_from_sections(
+                            self.task_num, group_name
+                        )
+                    except Exception:
+                        # Roots created before the failure (and their HEAD
+                        # moves) are already on disk — show them.
+                        self.call_from_thread(self._load_existing_session)
+                        raise
+                    self.call_from_thread(self._load_existing_session)
                     msg = "Created module roots from sections: " + ", ".join(created)
                 else:
                     agent = register_module_decomposer(
