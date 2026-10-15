@@ -151,3 +151,10 @@ None identified.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+- **Actual work done:** Added `format_elapsed_compact()` to `.aitask-scripts/monitor/monitor_shared.py` directly above `format_pane_status()`, and switched the PROMPT / DONE / IDLE branches to it. Updated the name-cap comment in `minimonitor_app.py` to say the status is bounded at `PROMPT 999s` (11 cells). In both TUI how-to pages, rewrote the badge as `<t>`, saying what it measures and how its unit changes. Added `tests/test_monitor_elapsed_badge.py` with 8 tests: boundary table, round-down, a ≤4-char sweep near every threshold plus a geometric spread, the three states through `format_pane_status`, a negative control (`18734` → `IDLE 5h`), and a bounded-badge check.
+- **Deviations from plan:** None in code. One review-driven correction to the doc wording came before approval, folded into §3 above: `<t>` is "time since the monitor last saw the pane's output change", not "how long the pane has been in that state" (`idle_seconds = now - last_change`, `monitor_core.py` `_apply_bookkeeping`).
+- **Issues encountered:** A first draft computed the elapsed string once at the top of `format_pane_status()`. That would make the Active branch read `snap.idle_seconds`, which it never did before, and could break duck-typed snapshot doubles. It was reverted to a per-branch call, so the Active path is byte-for-byte unchanged.
+- **Key decisions:** The helper's docstring makes no claim about state duration, and `format_stale_duration()` is untouched. Red proof: with the helper import removed, 4 of the 5 `FormatPaneStatusCompactTests` failed on the pre-change code (`PROMPT 5000s`, `DONE 14460s`, `IDLE 18734s`, and unbounded badge length). The 999 s ceiling case passes on both versions by design. Verification: the 6 targeted modules pass, all 46 non-live `tests/test_*monitor*.py` modules pass, and `check_links.py --build` reports SWEEP: PASSED.
+- **Upstream defects identified:** None
