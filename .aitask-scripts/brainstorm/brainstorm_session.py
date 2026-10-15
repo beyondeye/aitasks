@@ -1596,9 +1596,11 @@ class PrunePartialFailure(RuntimeError):
 
     ``stage`` is the last write that completed (``counter_bumped`` /
     ``node_created`` / ``head_moved``); ``new_node_id`` is the minted child id
-    (``None`` if the counter write itself failed). Nothing is rolled back: the
-    operation record is kept (status ``Error``) so the partial result stays
-    diagnosable.
+    (``None`` if the counter write itself failed). ``incomplete_node_id`` is
+    that child when its ``create_node`` raised part-way — it may have partial
+    artifacts on disk, and ``new_node_id`` still names it — else ``None``.
+    Nothing is rolled back: the operation record is kept (status ``Error``) so
+    the partial result stays diagnosable.
     """
 
     def __init__(
@@ -1607,14 +1609,22 @@ class PrunePartialFailure(RuntimeError):
         new_node_id: str | None,
         stage: str,
         cause: BaseException,
+        *,
+        incomplete_node_id: str | None = None,
     ) -> None:
         self.group_name = group_name
         self.new_node_id = new_node_id
         self.stage = stage
+        self.incomplete_node_id = incomplete_node_id
         self.cause = cause
-        created = f"; created {new_node_id}" if new_node_id else ""
+        if incomplete_node_id:
+            node = f"; incomplete node {incomplete_node_id}"
+        elif new_node_id:
+            node = f"; created {new_node_id}"
+        else:
+            node = ""
         super().__init__(
-            f"prune partially applied (stage: {stage}{created}); operation "
+            f"prune partially applied (stage: {stage}{node}); operation "
             f"record {group_name} kept: {type(cause).__name__}: {cause}"
         )
 
@@ -1741,7 +1751,9 @@ def apply_prune_dimensions(
     before the first write, and any failure there — anticipated or not — is
     :class:`PruneRefused`; a failure after writing started is
     :class:`PrunePartialFailure`, after a best-effort ``status: Error`` on the
-    operation record. Returns the new node id.
+    operation record. A child whose ``create_node`` stopped part-way is named
+    on that record as ``incomplete_node``, never in ``nodes_created``. Returns
+    the new node id.
     """
     wt = crew_worktree(task_num)
     try:
@@ -1787,7 +1799,14 @@ def apply_prune_dimensions(
         update_operation(task_num, group_name, status="Completed")
     except Exception as exc:
         record: dict = {"status": "Error", "error": f"{stage}: {exc}"}
-        if stage in ("node_created", "head_moved"):
+        incomplete: str | None = None
+        if stage == "counter_bumped":
+            # create_node raised part-way: it writes the node YAML before the
+            # proposal, so the attempted child may be partly on disk. Name it,
+            # but never as a created node.
+            incomplete = new_node_id
+            record["incomplete_node"] = incomplete
+        elif stage in ("node_created", "head_moved"):
             record["nodes_created"] = new_node_id
         try:
             update_operation(task_num, group_name, **record)
@@ -1798,6 +1817,7 @@ def apply_prune_dimensions(
             new_node_id if stage != "none" else None,
             stage,
             exc,
+            incomplete_node_id=incomplete,
         ) from exc
     return new_node_id
 

@@ -455,11 +455,13 @@ class RunPruneFailureBoundaryTests(_SessionCase):
         exc = ctx.exception
         self.assertEqual(exc.stage, "node_created")
         self.assertEqual(exc.new_node_id, "n002_prune_dimensions_001")
+        self.assertIsNone(exc.incomplete_node_id)
         grp = _groups(self.wt).get("prune_dimensions_001")
         self.assertIsNotNone(grp, "operation record must survive a partial failure")
         self.assertEqual(grp["status"], "Error")
         self.assertIn("node_created", grp["error"])
         self.assertEqual(grp["nodes_created"], ["n002_prune_dimensions_001"])
+        self.assertNotIn("incomplete_node", grp)
         # No rollback: the child exists, HEAD still points at the source.
         self.assertTrue((self.wt / NODES_DIR / "n002_prune_dimensions_001.yaml").is_file())
         self.assertEqual(get_head(self.wt), SOURCE)
@@ -477,11 +479,47 @@ class RunPruneFailureBoundaryTests(_SessionCase):
             with self.assertRaises(PrunePartialFailure) as ctx:
                 self._run()
         self.assertEqual(ctx.exception.stage, "head_moved")
+        self.assertIsNone(ctx.exception.incomplete_node_id)
         self.assertEqual(get_head(self.wt), "n002_prune_dimensions_001")
         grp = _groups(self.wt).get("prune_dimensions_001")
         self.assertIsNotNone(grp, "operation record must survive a partial failure")
         self.assertEqual(grp["status"], "Error")
         self.assertIn("head_moved", grp["error"])
+        self.assertNotIn("incomplete_node", grp)
+
+    def test_proposal_write_fault_records_incomplete_node(self):
+        # create_node writes the node YAML before the proposal; fail only the
+        # child's proposal write so the real create_node stops in between.
+        child = "n002_prune_dimensions_001"
+        real_write_text = Path.write_text
+        target = self.wt / PROPOSALS_DIR / f"{child}.md"
+
+        def flaky(path_self, *args, **kwargs):
+            if path_self == target:
+                raise OSError("disk full")
+            return real_write_text(path_self, *args, **kwargs)
+
+        with patch.object(Path, "write_text", flaky):
+            with self.assertRaises(PrunePartialFailure) as ctx:
+                self._run()
+        # Precondition: the fault fired after the YAML landed.
+        self.assertTrue((self.wt / NODES_DIR / f"{child}.yaml").is_file())
+        self.assertFalse(target.exists())
+        exc = ctx.exception
+        self.assertEqual(exc.stage, "counter_bumped")
+        self.assertEqual(exc.new_node_id, child)
+        self.assertEqual(exc.incomplete_node_id, child)
+        self.assertIn(f"incomplete node {child}", str(exc))
+        self.assertNotIn(f"created {child}", str(exc))
+        grp = _groups(self.wt).get("prune_dimensions_001")
+        self.assertIsNotNone(grp, "operation record must survive a partial failure")
+        self.assertEqual(grp["status"], "Error")
+        self.assertEqual(grp["incomplete_node"], child)
+        self.assertIn("counter_bumped", grp["error"])
+        # The incomplete child is named, never listed as created.
+        self.assertEqual(grp["nodes_created"], [])
+        self.assertEqual(get_head(self.wt), SOURCE)
+        self._assert_source_untouched()
 
 
 # --------------------------------------------------------------------------

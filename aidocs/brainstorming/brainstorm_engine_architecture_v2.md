@@ -1057,7 +1057,7 @@ The blank initialization path leaves `n000_init.md` as an empty placeholder so t
 - The source proposal with the pruned exact keys removed from its `<!-- section: … [dimensions: …] -->` markers. Glob tags stay; a marker left with no tags is written untagged; the prose is unchanged. The child's tags therefore pass `validate_sections(node_keys=…)`.
 - The subgraph HEAD moves to the new node. The source node and `active_dimensions` are not changed.
 
-**Failure boundary.** Every read and check (including a missing source proposal, which is refused rather than treated as empty) runs before the first write, and a refusal deletes the operation's group entry. A failure after writing started keeps the group entry with `status: Error`, the stage reached and the created node; nothing is rolled back.
+**Failure boundary.** Every read and check (including a missing source proposal, which is refused rather than treated as empty) runs before the first write, and a refusal deletes the operation's group entry. A failure after writing started keeps the group entry with `status: Error`, the stage reached and the created node. A child whose creation stopped part-way (its node file written but not its proposal) is named separately as `incomplete_node`, never as created. Nothing is rolled back.
 
 **Never-drop rules after a prune.** The explorer and synthesizer rules ("never silently drop a dimension") are relative to the baseline / source nodes, so they hold unchanged: an explore from the pruned node must keep the kept set, and it is not offered the pruned keys back, because its input lists only the `active_dimensions` the baseline carries. The explorer template also asks it not to re-add a dimension the baseline lacks unless its mandate calls for one.
 
