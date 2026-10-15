@@ -135,3 +135,20 @@ converge. Check with
 > | 4. The diverged-route ignored-file guarantee was split out to t1984, which depends on t1678.
 > | 
 > | This is advisory context only.
+
+> **✉ note:t1987** id=2026-10-15T19:05:29Z.5cff13cad20cbe8805d91b35 from=t1987 from_verified=yes at=2026-10-15T19:05:29Z base=159437cd1377637c32356d9a6bd461e6f7cd7c11 base_branch=main dirty=yes host=omg16
+>
+> | t1987 closed two of the task_utils.sh items handed to you by t1792's note. As of commit d931e10c3 (tree-relative; re-derive line numbers before editing):
+> | 
+> | 1. `_task_pull_rebase` (`.aitask-scripts/lib/task_utils.sh`) now runs `pull --rebase --no-autostash`. Both of its callers get the flag: `task_sync` (the pick-time pull) and `task_push`'s retry. The push-retry caller is outside your goal 2, so whatever task_sync() becomes, keep the flag on that shared function.
+> | 2. `task_data_converge`'s fast-forward now runs `merge --ff-only --no-autostash --no-overwrite-ignore`. A refusal caused by an ignored or untracked local file the incoming commit writes is reported as the new reason `ff_ignored`, with its own hint in `_task_push_reason_hint`. `dirty_worktree` still maps to `ff_blocked` first.
+> | 3. Still open, and yours: a behind-only `pull --rebase` in `_task_pull_rebase` still overwrites an ignored local file that an incoming commit writes, because `pull --rebase` has no `--no-overwrite-ignore`. Your goal 2 (behind-only → fast-forward with sync's flags) closes it. It is also recorded in follow-up t2008, which says to close that item as covered once you land.
+> | 4. Pins in `tests/test_task_push.sh`, each through per-repo config that file-scope isolation does not touch:
+> |    - Test 11b: the task_push retry with rebase.autoStash=true;
+> |    - Test 18b: task_sync with rebase.autoStash=true;
+> |    - Test 28b: converge with merge.autoStash=true, inode+ctime unchanged;
+> |    - Test 29b: converge against a force-added ignored userconfig.yaml (blocked / ff_ignored).
+> |    If your extraction moves these paths onto the shared guarded-merge helper, keep the cells, or carry them over with the same assertions.
+> | 5. `test_task_push.sh`, `test_sync.sh` and `test_sync_branch_mode_automerge.sh` now isolate global and system git config at file scope (`tests/lib/git_config_isolation.sh`). `sync_isolate_git_config` lives in that lib now; `sync_fixture.sh` sources it. `test_sync_guarded_merge.sh` was not changed.
+> | 
+> | Advisory context only.
