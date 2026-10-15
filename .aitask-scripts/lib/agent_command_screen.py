@@ -314,9 +314,29 @@ class AgentCommandScreen(GuardedDismissMixin, ShortcutsMixin, ModalScreen):
         min-width: 30;
         padding: 0 1;
         border: round $accent;
+        /* Scroll instead of clipping when the content outgrows the pane (a
+           short pane, (U)se previous shown, the new-session row shown).
+           Screen.set_focus scrolls a focused control into view. */
+        overflow-y: auto;
+        scrollbar-size-vertical: 1;
     }
+    AgentCommandScreen.narrow #agent_cmd_title {
+        padding: 0;
+    }
+    AgentCommandScreen.narrow #agent_cmd_input {
+        margin: 0;
+    }
+    /* Neither the wide max-height (it clips the taller stacked tmux tab
+       inside the TabbedContent) nor 1fr (it inflates the tabs to the whole
+       dialog): size to the content and let the dialog scroll. */
     AgentCommandScreen.narrow #agent_cmd_tabs {
-        max-height: 1fr;
+        max-height: initial;
+    }
+    /* Container defaults to height: 1fr, which in the auto-height dialog
+       fills it with blank rows below the buttons. */
+    AgentCommandScreen.narrow #direct_content,
+    AgentCommandScreen.narrow #tmux_content {
+        height: auto;
     }
     AgentCommandScreen.narrow #agent_row,
     AgentCommandScreen.narrow #profile_row,
@@ -326,12 +346,20 @@ class AgentCommandScreen(GuardedDismissMixin, ShortcutsMixin, ModalScreen):
         height: auto;
         align: left top;
     }
+    AgentCommandScreen.narrow #agent_row,
+    AgentCommandScreen.narrow #profile_row {
+        margin: 0;
+    }
+    AgentCommandScreen.narrow #agent_row Label,
+    AgentCommandScreen.narrow #profile_row Label {
+        height: auto;
+    }
     AgentCommandScreen.narrow #agent_row Button,
     AgentCommandScreen.narrow #profile_row Button,
     AgentCommandScreen.narrow .agent-cmd-copy-row Button,
     AgentCommandScreen.narrow .agent-cmd-buttons Button {
         width: 1fr;
-        margin: 0 0 1 0;
+        margin: 0;
     }
     AgentCommandScreen.narrow #agent_cmd_prompt_label {
         width: 1fr;
@@ -343,6 +371,7 @@ class AgentCommandScreen(GuardedDismissMixin, ShortcutsMixin, ModalScreen):
     AgentCommandScreen.narrow #tmux_split_row {
         layout: vertical;
         height: auto;
+        margin: 0;
     }
     AgentCommandScreen.narrow .tmux-field-row Label,
     AgentCommandScreen.narrow #tmux_new_session_row Label,
