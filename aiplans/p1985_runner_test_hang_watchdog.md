@@ -426,7 +426,7 @@ Runs after Verification 1–4 pass, before the Step 8 review.
 
 ### Planned mitigations
 - timing: post-phase | name: stress_isolation_suite | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — watchdog flakiness under load (false LEAK/HANG) | desc: run the runner package -count=10 under concurrent ait engine test load; require zero HANG/LEAK/FAIL and no surviving marked process
-- timing: after | name: isolation_tripwire | type: test | priority: medium | effort: medium | inline_risk: low | added_complexity: medium | addresses: goal-achievement — future process-starting runner tests omitting the isolated() guard | desc: go/ast tripwire test failing when a runner Test* transitively reaches a process-starting call without starting with `if !isolated(t, hangLimit) { return }`, with its own negative control
+- timing: after | name: isolation_tripwire | type: test | priority: medium | effort: medium | inline_risk: low | added_complexity: medium | addresses: goal-achievement — future process-starting runner tests omitting the isolated() guard | desc: go/ast tripwire test failing when a runner Test* transitively reaches a process-starting call without starting with `if !isolated(t, hangLimit) { return }`, with its own negative control | created: t1998
 
 ## Post-Review Changes
 
