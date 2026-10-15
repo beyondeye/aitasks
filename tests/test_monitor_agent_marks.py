@@ -356,16 +356,23 @@ class KeyHintsTests(unittest.TestCase):
 
 
 class WidthBudgetTests(_MarksFixture):
-    """The mark costs two columns on every minimonitor row; the name budget was
-    cut 22 -> 20 to pay for it."""
+    """The mark costs two columns on every minimonitor row, and the name's tail
+    pays for it: the name gets what the row budget leaves (t1351)."""
 
-    def test_long_window_name_is_truncated_to_20(self):
+    def test_long_window_name_pays_for_the_mark(self):
+        from rich.cells import cell_len
+        from monitor import minimonitor_app as mm
+        from monitor.monitor_shared import PANE_STATUS_MAX_CELLS
+
         app = self.app(MiniMonitorApp)
         long_name = "agent-" + "x" * 40
         plain = Text.from_markup(self.row(app, snapshot(long_name))).plain
         head = plain.split("  ")[0]
         name_part = head.split(" ")[-1]
-        self.assertEqual(len(name_part), 20)
+        # `☆ ● ≈ ` — the mark is two of these six cells.
+        room = (mm._row_budget(app._target_width) - cell_len("☆ ● ≈ ")
+                - 2 - PANE_STATUS_MAX_CELLS)
+        self.assertEqual(cell_len(name_part), room)
         self.assertTrue(name_part.endswith("…"))
 
     def test_full_monitor_does_not_truncate(self):

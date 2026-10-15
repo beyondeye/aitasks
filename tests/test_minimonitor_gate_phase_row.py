@@ -66,12 +66,13 @@ from monitor import minimonitor_app as mm  # noqa: E402
 from monitor.monitor_core import PaneCategory, TaskInfo  # noqa: E402
 from monitor.prompt_patterns import agent_key_from_command  # noqa: E402
 
-# 40-wide tmux pane minus MiniPaneCard's `padding: 0 1`; the detail rows carry a
-# further 2-space indent. Same arithmetic as `mm._row_budget` / `_detail_budget`,
+# 40-wide tmux pane minus MiniPaneCard's `padding: 0 1` and the pane list's
+# always-reserved 2-cell scrollbar (t1351); the detail rows carry a further
+# 2-space indent. Same arithmetic as `mm._row_budget` / `_detail_budget`,
 # restated here only as the value under test.
 _TARGET_WIDTH = 40
-_ROW_WIDTH_BUDGET = 38
-_DETAIL_BUDGET = 36
+_ROW_WIDTH_BUDGET = 36
+_DETAIL_BUDGET = 34
 
 
 def _sig(**kwargs) -> workflow_phase.PhaseSignal:
@@ -309,8 +310,8 @@ class MergedRowLadderTests(unittest.TestCase):
         """`tmux.minimonitor.width` is user-configurable with no minimum, so a
         floor in the helper would hand callers more cells than the pane has and
         the row would wrap — the exact outcome the budget prevents."""
-        self.assertEqual(mm._detail_budget(10), 6)
-        self.assertEqual(mm._row_budget(10), 8)
+        self.assertEqual(mm._detail_budget(10), 4)
+        self.assertEqual(mm._row_budget(10), 6)
         self.assertEqual(mm._detail_budget(3), 0)
 
     def test_gates_only_row_fits_a_width_10_pane(self):

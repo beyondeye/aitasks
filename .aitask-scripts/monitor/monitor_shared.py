@@ -2147,8 +2147,8 @@ def format_elapsed_compact(seconds: float) -> str:
     """Elapsed time in at most 4 characters, rounded down (t1996).
 
     ``0s``…``999s``, then whole minutes up to ``240m``, then whole hours,
-    capped at ``999h``. Keeps the PROMPT/DONE/IDLE badge bounded (at most
-    ``PROMPT 999s``, 11 cells). Not :func:`format_stale_duration`, which is
+    capped at ``999h``. Keeps the PROMPT/DONE/IDLE badge bounded at
+    :data:`PANE_STATUS_MAX_CELLS`. Not :func:`format_stale_duration`, which is
     the ``2m05s``-style banner formatter.
     """
     s = int(max(0.0, seconds))
@@ -2160,10 +2160,19 @@ def format_elapsed_compact(seconds: float) -> str:
     return f"{min(s // 3600, 999)}h"
 
 
+#: Widest badge :func:`format_pane_status` can return, in terminal cells:
+#: ``"PROMPT "`` (7) + :func:`format_elapsed_compact`'s 4-character cap. The
+#: minimonitor reserves exactly this much for the status column so a name never
+#: re-truncates as the counter grows (t1351); a test pins it EQUAL to the widest
+#: output, so widening the badge fails loudly instead of overflowing rows.
+PANE_STATUS_MAX_CELLS = 11
+
+
 def format_pane_status(snap: PaneSnapshot, completed: bool = False) -> str:
     """Render a pane's status badge with awaiting_input > completed > is_idle >
     active priority (t1322). See :func:`_state_color` for why ``completed`` is
-    an explicit parameter rather than something derived from ``snap``."""
+    an explicit parameter rather than something derived from ``snap``. Never
+    wider than :data:`PANE_STATUS_MAX_CELLS`."""
     if getattr(snap, "awaiting_input", False):
         return f"[{STATE_STYLE_PROMPT}]PROMPT {format_elapsed_compact(snap.idle_seconds)}[/]"
     if completed:

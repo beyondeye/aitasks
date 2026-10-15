@@ -56,8 +56,9 @@ from monitor import minimonitor_app as mm  # noqa: E402
 from monitor.monitor_app import MonitorApp  # noqa: E402
 from monitor.monitor_core import PaneCategory  # noqa: E402
 
-# 40-wide tmux pane minus MiniPaneCard's `padding: 0 1`.
-_ROW_WIDTH_BUDGET = 38
+# 40-wide tmux pane minus MiniPaneCard's `padding: 0 1` and the pane list's
+# always-reserved 2-cell scrollbar (t1351).
+_ROW_WIDTH_BUDGET = 36
 
 
 def _snap(
@@ -242,29 +243,28 @@ class OtherCardTextTests(unittest.TestCase):
         self.assertIn("…", text)
 
     def test_row_fits_the_column_budget(self):
-        """Terminal width of the worst case must fit the ~38 usable columns.
+        """Terminal width of the worst case must fit the row budget.
 
         Measured with ``cell_len``, not ``len``: cells are what the budget is
-        denominated in. **Single-cell input only** — the caps in
-        ``_other_card_text`` are applied with ``len()``, so a double-width name
-        still overflows (36 code points, 64 cells). That gap is inherited from
-        ``_agent_card_text`` and is deferred to the row-width audit in t1351,
-        which owns both rows; add a wide-character case here when it lands.
+        denominated in, and the double-width case (1 code point, 2 cells) is
+        the one a ``len()``-based cap got wrong.
         """
         from rich.cells import cell_len
         from rich.text import Text
 
         app = mm.MiniMonitorApp.__new__(mm.MiniMonitorApp)
-        markup = app._other_card_text(_snap(
-            "%2", window_name="w" * 60, category=PaneCategory.OTHER,
-            command="c" * 60,
-        ))
-        plain = Text.from_markup(markup).plain
-        self.assertLessEqual(
-            cell_len(plain), _ROW_WIDTH_BUDGET,
-            f"other row is {cell_len(plain)} cells, budget is "
-            f"{_ROW_WIDTH_BUDGET}: {plain!r}",
-        )
+        for name, command in (("w" * 60, "c" * 60), ("漢" * 30, "字" * 30)):
+            with self.subTest(name=name[:3]):
+                markup = app._other_card_text(_snap(
+                    "%2", window_name=name, category=PaneCategory.OTHER,
+                    command=command,
+                ))
+                plain = Text.from_markup(markup).plain
+                self.assertLessEqual(
+                    cell_len(plain), _ROW_WIDTH_BUDGET,
+                    f"other row is {cell_len(plain)} cells, budget is "
+                    f"{_ROW_WIDTH_BUDGET}: {plain!r}",
+                )
 
 
 class _RowHost(App):

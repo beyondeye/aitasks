@@ -44,7 +44,7 @@ Each agent card in the list shows:
 
 - An agent mark: **★** when the agent is prioritized, **P** when it is parked, dim **☆** when neither. In the list this is **display only** — it shows marks set from [`ait monitor`]({{< relref "/docs/tuis/monitor" >}}) or from another project, and `Space` here marks the *followed* agent instead (see [How to Mark an Agent as Prioritized](#how-to-mark-an-agent-as-prioritized)). A parked card shows only the **P**, the name and a dim `parked`; a [frozen]({{< relref "/docs/tuis/frozenagent" >}}) card shows the mark plus a cyan **F**, the name and a dim `frozen`. Press **P** to hide parked and frozen agents from this list
 - A status dot: **green** when the agent has produced recent output, **magenta** when it is waiting for your input, **blue** when its task is finished, **yellow** when it is idle
-- The agent window name (truncated to 20 characters on narrow layouts)
+- The agent window name without the agent prefix — `agent-pick-42` shows as `pick-42`, since every card in this list carries that prefix. A name too long for the row is shortened at its end with `…`. The pinned card for the agent you follow, and cards in the **other** section, show the full window name
 - A matching label: `PROMPT <t>` when the agent is waiting for you, `DONE <t>` when its task is finished, or `IDLE <t>` when the pane has been quiet longer than `tmux.monitor.idle_threshold_seconds` (default 5 seconds). `<t>` is the time since the pane's output last changed — not how long it has been in that state — in at most four characters: seconds up to `999s`, then whole minutes up to `240m`, then whole hours up to `999h`, always rounded down. `DONE` reflects the pane's *task* — its status reads `Done`, or it has been archived — so an agent still printing output after its task landed reads `DONE`, while an agent waiting on you reads `PROMPT` even when its task is done
 - For agents whose window name carries a task ID, a second dimmed line showing the task's title
 - For those same agents, a third dimmed line carrying the task's **workflow phase** and its **gate summary** together — `IMPLEMENT ⏸ · 1/4 1p 1f`. Either half may be empty; the line is omitted only when both are
@@ -324,11 +324,11 @@ The agent's pane does not close. It is taken over by the
 captured output in place, so the window keeps its name and its layout.
 
 In the scrollable list a frozen agent renders as its mark followed by a cyan
-**F**, the window name, and a dim `frozen`:
+**F**, the window name without its agent prefix, and a dim `frozen`:
 
 ```
-☆F agent-pick-1705  frozen
-★F agent-qa-1699  frozen
+☆F pick-1705  frozen
+★F qa-1699  frozen
 ```
 
 There is no state dot and no captured preview — a frozen agent has no current

@@ -51,6 +51,9 @@ from monitor.tmux_monitor import (  # noqa: E402
     _SHADOW_DEEP_RETRY_LINES,
     _SHADOW_TRUNCATED_MSG,
 )
+# Shares `classify_pane`'s prefix matcher (t1351), so a row is never stripped by
+# a rule the classifier did not use.
+from monitor.monitor_core import agent_display_name  # noqa: E402
 from monitor import review_loop  # noqa: E402  (auto-recheck decision core, t1159_2)
 from monitor import review_loop_log  # noqa: E402  (durable disarm/hold record, t1606)
 from monitor.tmux_control import TmuxControlState  # noqa: E402
@@ -64,7 +67,7 @@ from monitor.monitor_shared import (  # noqa: E402
     TaskPickConfirmDialog, ShadowRejectionsMixin, STATE_STYLE_DONE,
     FROZEN_GLYPH,
     format_compare_mode_glyph, format_mark_glyph, format_frozen_prefix,
-    format_pane_status,
+    format_pane_status, PANE_STATUS_MAX_CELLS,
     format_section_header, format_session_divider, format_shadow_glyph,
     format_state_dot, is_task_completed,
     format_shadow_stale_banner, format_staleness_detail,
@@ -106,6 +109,7 @@ import gate_ledger  # noqa: E402  (narrow gate-summary shed; same import path as
 from rich.cells import cell_len, set_cell_size  # noqa: E402
 import agent_sessions  # noqa: E402
 from rich.markup import escape  # noqa: E402
+from rich.text import Text  # noqa: E402
 from textual.app import App, ComposeResult  # noqa: E402
 from textual.binding import Binding  # noqa: E402
 from textual.containers import VerticalScroll  # noqa: E402
@@ -148,30 +152,86 @@ AUTO_CLOSE_CONFIRMATIONS = 2
 
 # -- Row width budget ---------------------------------------------------------
 #
-# The one place this pane's column arithmetic lives (t1479):
+# The one place this pane's column arithmetic lives (t1479, t1351). Every value
+# is in terminal **cells**, not code points — `cell_len`, never `len` — because
+# a double-width character costs two columns. Anything that can exceed its
+# budget is cut by `_clip`: `Static` wraps rather than clips, so an overflowing
+# row silently costs a whole extra screen row.
 #
 #     target_width (default 40, `mm_cfg["width"]`)
-#       − 2   MiniPaneCard `padding: 0 1`      ⇒ usable row      = _row_budget()
+#       − 2   MiniPaneCard `padding: 0 1`
+#       − 2   #mini-pane-list's vertical scrollbar, reserved ALWAYS: it appears
+#             only once the list overflows, and a row sized for the scrollbar-
+#             less width wraps the moment it does
+#       = 36  at the default width     ⇒ row 1          = _row_budget()
 #       − 2   the "  " indent every detail row under the name line carries
-#       = 36  at the default width             ⇒ detail content  = _detail_budget()
+#       = 34  at the default width     ⇒ detail content = _detail_budget()
 #
-# Budgets are denominated in terminal **cells**, not code points — `cell_len`,
-# never `len` — because a double-width character costs two columns.
-_ROW_PADDING = 2      # MiniPaneCard `padding: 0 1`
-_DETAIL_INDENT = 2    # the "  " prefix on the title / gate-phase rows
-_MIN_PHASE_CELLS = 4  # below this a clipped phase carries no information
+# Row 1 at the default width, per shape (`␠` = one space):
+#
+#     live    <mark>␠<dot>[␠<shadow>]␠<glyph>␠<name>␠␠<status>
+#             prefix 6 | 8 with ◆ | 9 with ◆! (◆! is `ait monitor`'s; this pane
+#             never asks for it, but would pay for it automatically)
+#             status reserved at PANE_STATUS_MAX_CELLS = 11 (`PROMPT 999s`)
+#             name = 36 − prefix − 2 − 11 = 17 | 15 | 14
+#     parked  P␠<name>␠␠parked          name = 36 − 2 − 8      = 26
+#     frozen  <mark>F␠<name>␠␠frozen    name = 36 − 3 − 8      = 25
+#     other   ␠␠○␠<name>␠␠<cmd ≤ 10>    name = 36 − 4 − 2 − 10 = 20
+#     title   ␠␠<title>                 ≤ min(30, detail)      = 30
+#     gates   ␠␠<gate+phase>            ≤ detail               = 34
+#
+# What gives way, in order (t1351 — decided, not reflexive):
+#
+#   1. Agent rows never show the agent prefix (`agent-pick-1351_12` renders as
+#      `pick-1351_12`): every row in that section carries it, so it is the one
+#      part of the name that says nothing — and the tail it would push out is
+#      where the task id lives. The `other` section and the docked panel keep
+#      full names.
+#   2. A glyph added to row 1 is paid for by the NAME'S TAIL — automatically,
+#      because `_name_room` measures the row's own rendered prefix; nothing here
+#      restates it as a constant. The status is reserved at its bound, not its
+#      current width, so a name does not re-truncate as the counter grows or as
+#      the agent flips between Active and IDLE.
+#   3. Floor: at the default width the widest live prefix must still leave
+#      `_MIN_NAME_CELLS`, pinned by tests/test_minimonitor_row_budget.py. A glyph
+#      that breaks it sheds STATUS VERBOSITY (the elapsed counter) next — never a
+#      second line, which would cost a whole row per agent in a pane whose
+#      scarce resource is rows (why t1479 merged the gate and phase rows).
+#   4. No floor below that: at a configured width too narrow for the fixed
+#      parts the name renders empty and the row may wrap. Rejecting an absurd
+#      width belongs at the config seam (see `_detail_budget`).
+#
+# Assumptions, stated so they can be revisited: ★ ☆ ● ◆ ≈ … ○ are East Asian
+# Ambiguous and are counted as ONE cell each (what `cell_len` and a non-CJK
+# terminal both do). The width is the CONFIGURED `target_width`;
+# `_maybe_pin_width` only shrinks a pane that is wider than it, so a window too
+# narrow for the target leaves the real pane narrower and these budgets
+# overshoot it — owned by a follow-up (t1351's `budget_actual_pane_width`).
+_ROW_PADDING = 2       # MiniPaneCard `padding: 0 1`
+_LIST_SCROLLBAR = 2    # #mini-pane-list `scrollbar-size-vertical` (CSS below)
+_DETAIL_INDENT = 2     # the "  " prefix on the title / gate-phase rows
+_MIN_PHASE_CELLS = 4   # below this a clipped phase carries no information
+_NAME_GAP = 2          # "  " between the name and whatever follows it on row 1
+_OTHER_CMD_CELLS = 10  # an OTHER row's command: enough for `claude`, `nvim`, `python3`
+_TITLE_MAX_CELLS = 30  # task title row; a wide pane does not need a longer title
+_MIN_NAME_CELLS = 12   # `pick-NNNN_NN`: the commonest launch name, 4-digit id + child
 
 
 def _row_budget(target_width: int) -> int:
-    """Cells available to a card's first (name/status) row.
-
-    Not consumed by the gate-phase row below — it is here so **row 1's** owner
-    (t1351, the row-width audit that replaces the `len()`-based name/command
-    caps with cell-aware truncation) can adopt this arithmetic rather than
-    restate it. The two tasks share this pane's budget; this module is where it
-    is stated once.
+    """Cells available to a card's first (name/status) row — see the budget
+    block above. Clamped only at zero, for the reason ``_detail_budget`` gives.
     """
-    return max(0, target_width - _ROW_PADDING)
+    return max(0, target_width - _ROW_PADDING - _LIST_SCROLLBAR)
+
+
+def _name_room(prefix_markup: str, reserve: int, target_width: int) -> int:
+    """Cells left for the name on row 1, given everything before it (as markup)
+    and the cells reserved for what follows the ``_NAME_GAP``.
+
+    May be zero or negative at an absurd width; ``_clip`` answers both.
+    """
+    prefix = cell_len(Text.from_markup(prefix_markup).plain)
+    return _row_budget(target_width) - prefix - _NAME_GAP - reserve
 
 
 def _detail_budget(target_width: int) -> int:
@@ -187,7 +247,7 @@ def _detail_budget(target_width: int) -> int:
     which is honest; rejecting an absurd configured width belongs at the config
     seam, not here.
     """
-    return max(0, target_width - _ROW_PADDING - _DETAIL_INDENT)
+    return max(0, _row_budget(target_width) - _DETAIL_INDENT)
 
 
 def _clip(text: str, budget: int) -> str:
@@ -1074,8 +1134,12 @@ class MiniMonitorApp(
         padding: 0 1;
     }
 
+    /* `scrollbar-size-vertical` is spelled out rather than left to Textual's
+       default: `_LIST_SCROLLBAR` reserves exactly this many cells in every
+       row's budget (t1351), and a test pins the two equal. */
     #mini-pane-list {
         height: 1fr;
+        scrollbar-size-vertical: 2;
     }
 
     MiniPaneCard {
@@ -2327,24 +2391,16 @@ class MiniMonitorApp(
             # statement — there is no agent process at all. The mark glyph still
             # renders, composed by `format_frozen_prefix`, so `space` keeping its
             # meaning on this row stays visible.
-            name = snap.pane.window_name
-            if len(name) > 20:
-                name = name[:19] + "…"
-            return (
-                f"{format_frozen_prefix(self._mark_kind(snap))} "
-                f"{name}  [dim]frozen[/]"
-            )
+            prefix = f"{format_frozen_prefix(self._mark_kind(snap))} "
+            name = self._row_name(snap, prefix, cell_len("frozen"))
+            return f"{prefix}{name}  [dim]frozen[/]"
         if snap.parked:
             # The whole row, deliberately (t1685) — see
             # MonitorApp._format_agent_card_text for why nothing capture-derived
-            # may appear on a pane that was not captured. The name budget is
-            # unchanged: the mark column is still one cell.
-            name = snap.pane.window_name
-            if len(name) > 20:
-                name = name[:19] + "…"
-            return (
-                f"{format_mark_glyph(agent_marks.KIND_PARKED)} {name}  [dim]parked[/]"
-            )
+            # may appear on a pane that was not captured.
+            prefix = f"{format_mark_glyph(agent_marks.KIND_PARKED)} "
+            name = self._row_name(snap, prefix, cell_len("parked"))
+            return f"{prefix}{name}  [dim]parked[/]"
 
         # Per-tick set is the SOLE source of the completed flag (t1322) — the
         # `info` lookup below supplies the title and gate summary but must never
@@ -2368,34 +2424,26 @@ class MiniMonitorApp(
                 self._monitor.get_shadow_snapshot(snap.pane.pane_id)
             )
 
-        # Truncate long window names for narrow display. 20, not 22: the
-        # prioritized-mark pair (t1326) is always-on and costs two columns on
-        # every row, and this pane lays out at ~38 usable columns — already
-        # short of the worst-case row (● ◆! ≈ <name>  <status>). The status is
-        # bounded since t1996: at most `PROMPT 999s` (11 cells), because
-        # format_elapsed_compact caps the counter at 4 characters. The name's
-        # tail is context; the mark is signal, so the tail is what gives way.
-        name = snap.pane.window_name
-        max_name = 20
-        if len(name) > max_name:
-            name = name[:max_name - 1] + "…"
-
         # Leftmost: a durable user annotation, deliberately outside the live
         # state cluster (dot / shadow / compare-mode), and first to survive
         # truncation.
         mark = format_mark_glyph(self._mark_kind(snap))
         shadow_part = f" {shadow}" if shadow else ""
-        line1 = f"{mark} {dot}{shadow_part} {glyph} {name}  {status}"
+        prefix = f"{mark} {dot}{shadow_part} {glyph} "
+        # The name gets what the row leaves after the prefix it actually has and
+        # the status at its BOUND — see the budget block at the top of this
+        # module for the arithmetic and for what gives way, in order.
+        name = self._row_name(snap, prefix, PANE_STATUS_MAX_CELLS)
+        line1 = f"{prefix}{name}  {status}"
 
         # Optional task title line
         task_id = self._task_cache.get_task_id_for_pane(snap.pane)
         if task_id:
             info = self._task_cache.get_task_info(task_id, snap.pane.session_name)
             if info:
-                title = info.title
-                if len(title) > 30:
-                    title = title[:29] + "…"
-                line1 += f"\n  [dim]{title}[/]"
+                title = _clip(info.title, min(
+                    _TITLE_MAX_CELLS, _detail_budget(self._target_width)))
+                line1 += f"\n  [dim]{escape(title)}[/]"
                 # Gate summary + advisory phase share ONE row (t1479): they
                 # describe one thing between them, and two rows of a four-row
                 # card is too much of this pane to spend on it. Either half may
@@ -2410,6 +2458,29 @@ class MiniMonitorApp(
                 if merged:
                     line1 += f"\n  [dim]{merged}[/]"
         return line1
+
+    def _display_name(self, snap: PaneSnapshot) -> str:
+        """An agent row's name: the window name without the agent prefix that
+        classified it (t1351 — see the budget block for why).
+
+        Reads the prefixes the classifier itself used. With no monitor (a
+        ``__new__``-built stub, or before mount) there is nothing to mirror, so
+        the full window name is shown rather than a guessed strip.
+        """
+        prefixes = getattr(self._monitor, "agent_prefixes", None)
+        if not isinstance(prefixes, (list, tuple)):
+            return snap.pane.window_name
+        return agent_display_name(snap.pane.window_name, prefixes)
+
+    def _row_name(self, snap: PaneSnapshot, prefix: str, reserve: int) -> str:
+        """``_display_name`` clipped to the cells row 1 leaves it, then escaped.
+
+        Clip BEFORE escaping (as ``_own_header_text`` does): the budget is about
+        rendered cells, and a window name is tmux-side user input whose ``[/]``
+        would otherwise close a span early or raise on render.
+        """
+        room = _name_room(prefix, reserve, self._target_width)
+        return escape(_clip(self._display_name(snap), room))
 
     def _phase_for_snap(self, snap: PaneSnapshot, info) -> "workflow_phase.PhaseSignal":
         """Advisory phase for one pane: cached ledger half + this tick's live
@@ -2434,37 +2505,17 @@ class MiniMonitorApp(
         line — none of those mean anything for a pane that is not an agent, and
         the row has no columns to spare for them.
 
-        Column budget, against the ~38 usable columns of this pane (the 40-wide
-        ``target_width`` minus ``MiniPaneCard``'s ``padding: 0 1``):
-
-            2  leading blanks (aligns under the agent rows' always-on mark glyph)
-          + 1  ``○``
-          + 1  space
-          + 20 window name (same cap as ``_agent_card_text``)
-          + 2  spaces
-          + 10 current command
-          = 36
-
-        The window name is what gives way first, exactly as on the agent row.
-
-        **The budget above assumes single-cell characters.** The caps are applied
-        with ``len()``, which counts code points, so a name of 20 double-width
-        characters occupies 40 cells and the row overflows (measured: 36 code
-        points, 64 cells) and Rich clips it. This is inherited from
-        ``_agent_card_text``, which caps its name the same way — so the fix is
-        cell-width-aware truncation (``rich.cells.cell_len`` /
-        ``set_cell_size``) applied to **both** rows, and it belongs with the
-        row-width audit in t1351 rather than to this row alone.
+        The two leading blanks align the ``○`` under the agent rows' always-on
+        mark glyph. The command is reserved at ``_OTHER_CMD_CELLS`` and the
+        window name — shown in full, since an OTHER pane has no agent prefix to
+        drop — gets the rest, so it is what gives way first, exactly as on the
+        agent row. Arithmetic: the budget block at the top of this module.
         """
-        name = snap.pane.window_name
-        max_name = 20
-        if len(name) > max_name:
-            name = name[:max_name - 1] + "…"
-        cmd = snap.pane.current_command
-        max_cmd = 10
-        if len(cmd) > max_cmd:
-            cmd = cmd[:max_cmd - 1] + "…"
-        return f"  [dim]○[/] {name}  [dim]{cmd}[/]"
+        prefix = "  [dim]○[/] "
+        cmd = escape(_clip(snap.pane.current_command, _OTHER_CMD_CELLS))
+        room = _name_room(prefix, _OTHER_CMD_CELLS, self._target_width)
+        name = escape(_clip(snap.pane.window_name, room))
+        return f"{prefix}{name}  [dim]{cmd}[/]"
 
     def _own_agent_identity_text(self, snap: PaneSnapshot) -> str:
         """Static identity line for the followed agent: window name + optional
@@ -2563,8 +2614,9 @@ class MiniMonitorApp(
         name folds and the glyph is left on a line of its own. A non-breaking
         separator does NOT avoid that (Rich splits on ``\\s``, which matches
         U+00A0), and truncating here would drop the tail of the identity this
-        panel exists to show — so the fold is accepted. Row-width tuning for
-        this pane belongs to t1351.
+        panel exists to show — so the fold is accepted. The list rows' budget
+        (t1351) deliberately does not reach here: this panel has no scrollbar
+        and keeps the full window name, agent prefix included.
         """
         # `None` means NOTHING IS MARKABLE here (a window renamed off the
         # `agent-` prefix), and renders no glyph at all — distinct from

@@ -163,6 +163,32 @@ class PaneCategory(Enum):
 DEFAULT_AGENT_PREFIXES = ["agent-"]
 DEFAULT_TUI_NAMES = TUI_NAMES
 
+
+def match_agent_prefix(window_name: str, prefixes) -> str | None:
+    """The agent prefix ``window_name`` starts with — the FIRST in list order,
+    not the longest — or ``None``. The one matcher behind both
+    :meth:`TmuxMonitor.classify_pane` and :func:`agent_display_name`, so a
+    display name can never be stripped by a rule the classifier did not use."""
+    for prefix in prefixes:
+        if window_name.startswith(prefix):
+            return prefix
+    return None
+
+
+def agent_display_name(window_name: str, prefixes) -> str:
+    """``window_name`` without the agent prefix that classified it (t1351).
+
+    Every row in an agent list carries that prefix — it is what put the row
+    there — so showing it spends the narrow minimonitor row on the one part of
+    the name that says nothing. Returned unchanged when no prefix matches, when
+    the match is empty, or when nothing would remain (a window named exactly
+    ``agent-``), so the result is never blank.
+    """
+    prefix = match_agent_prefix(window_name, prefixes)
+    if not prefix or len(prefix) >= len(window_name):
+        return window_name
+    return window_name[len(prefix):]
+
 # Idle-detection comparison modes.
 #   stripped — strip ANSI escape codes from captured pane content before
 #     equality check. Required to detect Codex CLI agents as idle: Codex
@@ -2351,9 +2377,8 @@ class TmuxMonitor:
         return {s.session: s.project_root for s in sessions}
 
     def classify_pane(self, window_name: str) -> PaneCategory:
-        for prefix in self.agent_prefixes:
-            if window_name.startswith(prefix):
-                return PaneCategory.AGENT
+        if match_agent_prefix(window_name, self.agent_prefixes) is not None:
+            return PaneCategory.AGENT
         if window_name in self.tui_names:
             return PaneCategory.TUI
         if window_name.startswith(BRAINSTORM_PREFIX):
