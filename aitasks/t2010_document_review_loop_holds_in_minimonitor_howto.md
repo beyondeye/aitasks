@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [website, documentation, minimonitor, review_loop, shadow]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2001
 created_at: 2026-10-15 22:10
-updated_at: 2026-10-15 22:10
+updated_at: 2026-10-15 22:30
 ---
 
 ## Context
