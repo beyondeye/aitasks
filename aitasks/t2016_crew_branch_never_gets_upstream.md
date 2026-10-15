@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1599
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-15 23:07
-updated_at: 2026-10-15 23:11
+updated_at: 2026-10-16 00:13
 ---
 
 ## Origin
@@ -42,3 +43,8 @@ t2008's `tests/test_crew_pull_no_autostash.sh` sets the upstream by hand in its 
 First decide whether crew branches are meant to be published. If they are: when a remote exists, have `aitask_crew_init.sh` publish the branch with an upstream (`git -C <wt> push -u origin crew-<id>`, best-effort), or have the push sites use `push -u origin HEAD`. Also make the push warning report git's actual stderr instead of "offline?". If they are meant to be local-only, drop the pushes and pulls, and the `push origin --delete` cleanup.
 
 Keep t2008's `--no-autostash` on the pulls. Note the runner-pull recovery follow-up from t2008's plan (`crew_runner_pull_refusal_recovery`): once branches really sync, that convergence gap becomes reachable for every user, not only `push.autoSetupRemote` users.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-15T21:13:30Z status=pass attempt=1 type=human
