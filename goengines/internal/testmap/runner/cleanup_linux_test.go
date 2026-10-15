@@ -53,6 +53,9 @@ func waitFile(t *testing.T, path string) {
 // descendant, and the engine's max_invocation_s fires while both are alive.
 // Both must be gone the moment Run returns — no polling.
 func TestCleanupSeparateTestGroupOnInvocationTimeout(t *testing.T) {
+	if !isolated(t, hangLimit) {
+		return
+	}
 	r := newRepo(t, map[string]string{"tests/a.sh": ""})
 	st := stateOf(t, r)
 	put(t, r, "shell", spec{describe: "unit: file\ntimeouts: per_unit", list: "tests/a.sh|file|a\n", run: `echo $$ > "$D/runner.pid"
@@ -101,6 +104,9 @@ wait`})
 // in a separate one — has them swept before Run returns, and the clean sweep
 // adds no cause.
 func TestCleanupAfterNormalExit(t *testing.T) {
+	if !isolated(t, hangLimit) {
+		return
+	}
 	r := newRepo(t, map[string]string{"tests/a.sh": ""})
 	st := stateOf(t, r)
 	put(t, r, "shell", spec{describe: "unit: file", list: "tests/a.sh|file|a\n", run: `sleep 300 & echo $! > "$D/same.pid"
@@ -121,6 +127,9 @@ row tests/a.sh pass; exit 0`})
 // Every engine-kill path sweeps: the unit bound (none), the batch bound and
 // the invocation ceiling (per_unit).
 func TestCleanupEveryKillPath(t *testing.T) {
+	if !isolated(t, hangLimit) {
+		return
+	}
 	for _, tc := range []struct{ describe, yaml, bound string }{
 		{"unit: file", "runners:\n  - name: shell\n    timeout_s: 0.5\n", BoundUnit},
 		{"unit: file\ntimeouts: batch", "runners:\n  - name: shell\n    timeout_s: 0.5\n    batch_timeout_s: 0.5\n", BoundBatch},
@@ -145,6 +154,9 @@ func TestCleanupEveryKillPath(t *testing.T) {
 // sessionProcs finds a session's members (a zombie reported as such) and
 // nothing outside it; sweepSession leaves none alive.
 func TestSweepEnumeration(t *testing.T) {
+	if !isolated(t, hangLimit) {
+		return
+	}
 	cmd := exec.Command("sh", "-c", "sleep 0.05 & exec sleep 300")
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
@@ -217,6 +229,9 @@ func injectStat(t *testing.T, errno syscall.Errno, sidFn func(int) (int, error),
 // alone; an uninspectable process whose session cannot be established makes
 // the sweep cleanup_unverified, never a false clean.
 func TestSweepUninspectableProcesses(t *testing.T) {
+	if !isolated(t, hangLimit) {
+		return
+	}
 	t.Run("member", func(t *testing.T) {
 		target := startSession(t)
 		injectStat(t, syscall.EACCES, nil, target)

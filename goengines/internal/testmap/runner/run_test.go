@@ -28,6 +28,9 @@ func batchRepo(t *testing.T, run string) *fixture.Repo {
 }
 
 func TestRunPassFail(t *testing.T) {
+	if !isolated(t, hangLimit) {
+		return
+	}
 	r := batchRepo(t, "row tests/a.sh pass 5; row tests/b.sh fail 7; exit 1")
 	rep := runAll(t, r)
 	if got := statuses(rep); !reflect.DeepEqual(got, map[string]string{"tests/a.sh": StatusPass, "tests/b.sh": StatusFail}) {
@@ -52,6 +55,9 @@ func TestRunPassFail(t *testing.T) {
 
 // Reconciliation failures are causes (no anchor) and fail the run.
 func TestRunReconciliation(t *testing.T) {
+	if !isolated(t, hangLimit) {
+		return
+	}
 	for run, want := range map[string]struct {
 		cause, detail string
 		status        map[string]string
@@ -72,6 +78,9 @@ func TestRunReconciliation(t *testing.T) {
 // The exit / status table through the real run: rows, cause, refused flag
 // and the final exit together.
 func TestRunExitOutcomes(t *testing.T) {
+	if !isolated(t, hangLimit) {
+		return
+	}
 	for run, want := range map[string]struct {
 		status  map[string]string
 		cause   string
@@ -104,6 +113,9 @@ func TestRunExitOutcomes(t *testing.T) {
 // path still validates every complete row, keeps the protocol errors and the
 // timeout together, and the primary cause is reconciliation.
 func TestKilledRunValidatesRows(t *testing.T) {
+	if !isolated(t, hangLimit) {
+		return
+	}
 	r := newRepo(t, map[string]string{"tests/a.sh": "", "tests/b.sh": "", "tests/c.sh": ""})
 	put(t, r, "shell", spec{describe: "unit: file\ntimeouts: per_unit",
 		list: "tests/a.sh|file|a\ntests/b.sh|file|b\ntests/c.sh|file|c\n",
@@ -126,6 +138,9 @@ func TestKilledRunValidatesRows(t *testing.T) {
 // run --all executes a subsumed runner's units only through its full suite;
 // the suite's child rows land under their parent.
 func TestRunAllSubsumedAndChildren(t *testing.T) {
+	if !isolated(t, hangLimit) {
+		return
+	}
 	r := newRepo(t, map[string]string{"tests/a.sh": "", "tests/b.sh": "", "suite.cfg": ""})
 	st := stateOfRepoless(t)
 	put(t, r, "shell", spec{describe: "unit: file", list: "tests/a.sh|file|a\ntests/b.sh|file|b\n",
@@ -175,6 +190,9 @@ func TestRunAllSubsumedAndChildren(t *testing.T) {
 
 // Child rows are refused without full: true.
 func TestChildRowsNeedFull(t *testing.T) {
+	if !isolated(t, hangLimit) {
+		return
+	}
 	r := batchRepo(t, "row tests/a.sh pass; row tests/b.sh pass; row tests/a.sh pass 1 tests/b.sh; exit 0")
 	rep := runAll(t, r)
 	if rec := rep.Invocations[0]; rec.Cause != CauseReconciliation || !slices.Equal(rec.ProtocolErrors, []string{"invalid_child:tests/a.sh"}) {
@@ -185,6 +203,9 @@ func TestChildRowsNeedFull(t *testing.T) {
 // A cyclic subsumption plus an unrelated passing runner never yields a
 // passing run: Load refuses, so run and check exit 3.
 func TestSubsumptionCycleWithPassingRunner(t *testing.T) {
+	if !isolated(t, hangLimit) {
+		return
+	}
 	r := newRepo(t, map[string]string{"tests/a.sh": "", "x.cfg": "", "y.cfg": ""})
 	put(t, r, "ok", spec{describe: "unit: file", list: "tests/a.sh|file|a\n", run: "row tests/a.sh pass"})
 	put(t, r, "x", spec{describe: "unit: suite\nfull: true", list: "x.cfg|suite|x\n", run: "row x.cfg fail"})
@@ -207,6 +228,9 @@ func TestSubsumptionCycleWithPassingRunner(t *testing.T) {
 // A valid chain whose terminal suite selects no unit refuses before
 // anything runs.
 func TestSubsumptionTerminalSelectsNothing(t *testing.T) {
+	if !isolated(t, hangLimit) {
+		return
+	}
 	st := stateOfRepoless(t)
 	for name, files := range map[string]map[string]string{
 		"lists nothing": {"tests/a.sh": ""},
@@ -234,6 +258,9 @@ func TestSubsumptionTerminalSelectsNothing(t *testing.T) {
 // The built-in serial plan refuses any invocation holding resources, before
 // anything runs.
 func TestSerialPlanRefusesResources(t *testing.T) {
+	if !isolated(t, hangLimit) {
+		return
+	}
 	st := stateOfRepoless(t)
 	r := newRepo(t, map[string]string{"tests/a.sh": "", "tests/b.sh": "#!/bin/sh\n# testmap:needs repo-git-index\n"})
 	put(t, r, "shell", spec{describe: "unit: file\ntimeouts: batch", list: "tests/a.sh|file|a\ntests/b.sh|file|b\n", run: "echo x >> " + st + "/ran"})
@@ -264,6 +291,9 @@ func (h *handleExecutor) Execute(ctx context.Context, invs []*Invocation, invoke
 // grouping function's invocations, and its allocator handle reaches the
 // runner through the manifest.
 func TestExecutorSeamAndHandle(t *testing.T) {
+	if !isolated(t, hangLimit) {
+		return
+	}
 	h := &handleExecutor{}
 	withExecutor(t, h)
 	r := newRepo(t, map[string]string{"tests/a.sh": "#!/bin/sh\n# testmap:needs emulator\n"})
@@ -280,6 +310,9 @@ func TestExecutorSeamAndHandle(t *testing.T) {
 // Subscribers fire once each, in registration order, after the records are
 // written; a failing one does not stop the next.
 func TestPostRunHookOrder(t *testing.T) {
+	if !isolated(t, hangLimit) {
+		return
+	}
 	withHooks(t)
 	var calls []string
 	RegisterPostRunHook("first", func(_ context.Context, rep *RunReport) error {
@@ -309,6 +342,9 @@ func TestPostRunHookOrder(t *testing.T) {
 }
 
 func TestRunErrors(t *testing.T) {
+	if !isolated(t, hangLimit) {
+		return
+	}
 	if _, err := Run(bg, t.TempDir(), Options{All: true}); !errors.Is(err, registry.ErrAbsent) {
 		t.Errorf("no registry: %v", err)
 	}
@@ -345,6 +381,9 @@ func stateOfRepoless(t *testing.T) string { return t.TempDir() }
 // without blocking or growing, for results.jsonl and runner.json alike; the
 // run returns promptly instead of hanging past its deadline.
 func TestRunReportFilesAreSafe(t *testing.T) {
+	if !isolated(t, hangLimit) {
+		return
+	}
 	old := resultsMax
 	resultsMax = 4096
 	t.Cleanup(func() { resultsMax = old })

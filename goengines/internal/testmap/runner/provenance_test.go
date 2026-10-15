@@ -42,6 +42,9 @@ func record(t *testing.T, r *fixture.Repo, rep *RunReport) Record {
 // Negative control: a clean tree records an empty set — also when nothing
 // ignores the engine's own state directory.
 func TestRecordProvenance(t *testing.T) {
+	if !isolated(t, hangLimit) {
+		return
+	}
 	for _, ignore := range []bool{true, false} {
 		r := provRepo(t, "row tests/a.sh pass", ignore)
 		head := r.Head(t)
@@ -69,6 +72,9 @@ func TestRecordProvenance(t *testing.T) {
 // A change made during the invocation is captured at its end: HEAD moving
 // and a file dirtied mid-run are both recorded.
 func TestRecordHeadMoved(t *testing.T) {
+	if !isolated(t, hangLimit) {
+		return
+	}
 	r := provRepo(t, `git -C "$AIT_TESTMAP_ROOT" commit -q --allow-empty -m moved
 echo mid > "$AIT_TESTMAP_ROOT/src/mod"
 row tests/a.sh pass`, true)
@@ -82,6 +88,9 @@ row tests/a.sh pass`, true)
 
 // A mechanism failure carries its cause in the written record.
 func TestRecordMechanismCause(t *testing.T) {
+	if !isolated(t, hangLimit) {
+		return
+	}
 	r := provRepo(t, "exit 5", true)
 	rep := runAll(t, r)
 	rec := record(t, r, rep)

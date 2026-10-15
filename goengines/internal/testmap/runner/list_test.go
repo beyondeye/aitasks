@@ -57,6 +57,9 @@ func TestListMalformed(t *testing.T) {
 // Through the real lister and M2.1's scan, a malformed row is
 // INPUT_ERROR:lister|… (exit 3), and scan writes nothing.
 func TestListMalformedThroughScan(t *testing.T) {
+	if !isolated(t, hangLimit) {
+		return
+	}
 	r := newRepo(t, map[string]string{"tests/test_a.sh": "#!/bin/sh\n"})
 	put(t, r, "shell", spec{describe: "unit: file", list: "tests/test_a.sh|file\n"})
 	runners(t, r, "runners:\n  - name: shell\n    bind: ['tests/*.sh']\n")

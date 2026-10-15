@@ -72,6 +72,9 @@ func TestLoadConfigAbsentAndContract(t *testing.T) {
 // belongs to the runner that listed it, and a lister that does not own a
 // unit drops it.
 func TestOwnership(t *testing.T) {
+	if !isolated(t, hangLimit) {
+		return
+	}
 	r := newRepo(t, map[string]string{
 		"tests/test_a.sh":         "#!/bin/sh\n",
 		"tests/special/test_s.sh": "#!/bin/sh\n",
@@ -127,6 +130,9 @@ func TestOwnership(t *testing.T) {
 }
 
 func TestOwnershipRefusals(t *testing.T) {
+	if !isolated(t, hangLimit) {
+		return
+	}
 	r := newRepo(t, map[string]string{"tests/x.sh": "#!/bin/sh\n# testmap:runner nobody\n"})
 	put(t, r, "a", spec{describe: "unit: file", list: "tests/x.sh|file|x\n"})
 	runners(t, r, "runners:\n  - name: a\n    bind: ['tests/*']\n")
@@ -149,6 +155,9 @@ func TestOwnershipRefusals(t *testing.T) {
 // `<self> runner <builtin> <verb>` with the command override in its env; an
 // unregistered builtin and a non-executable shadow are refused.
 func TestShadowByNameAndBuiltins(t *testing.T) {
+	if !isolated(t, hangLimit) {
+		return
+	}
 	withBuiltin(t, "pytest")
 	r := newRepo(t, map[string]string{"tests/test_a.py": ""})
 	put(t, r, "pytest", spec{describe: "unit: file", list: "tests/test_a.py|file|a\n"})
@@ -201,6 +210,9 @@ func TestShadowByNameAndBuiltins(t *testing.T) {
 // suite builtin cannot know full / children), and the merged result is
 // validated.
 func TestDescribeOverrideValidated(t *testing.T) {
+	if !isolated(t, hangLimit) {
+		return
+	}
 	r := newRepo(t, map[string]string{"suite.cfg": ""})
 	put(t, r, "full", spec{describe: "unit: file", list: "suite.cfg|suite|all\n"})
 	runners(t, r, "runners:\n  - name: full\n    unit: suite\n    full: true\n    children: pytest-junitxml\n    fallback_command: make test\n")
@@ -239,6 +251,9 @@ func TestDescribeOverrideValidated(t *testing.T) {
 // sorted; testmap:batch no (member over file) and timeouts: none make a unit
 // a singleton.
 func TestUnitAttributes(t *testing.T) {
+	if !isolated(t, hangLimit) {
+		return
+	}
 	r := newRepo(t, map[string]string{
 		"tests/m.sh": "#!/bin/sh\n# testmap:needs b\n# testmap:batch no\n# testmap:unit A\n# testmap:needs c a\n# testmap:batch yes\n# testmap:unit B\n",
 		"tests/n.sh": "#!/bin/sh\n",

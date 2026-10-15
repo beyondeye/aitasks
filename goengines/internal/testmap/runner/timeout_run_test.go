@@ -35,6 +35,9 @@ func timedRun(t *testing.T, r *fixture.Repo, limit time.Duration) *RunReport {
 // `timeout`, the next unit in the same invocation still runs and passes, and
 // the invocation carries no cause (a unit result, not a mechanism failure).
 func TestTimeoutPerUnitRunnerEnforced(t *testing.T) {
+	if !isolated(t, hangLimit) {
+		return
+	}
 	r := threeRepo(t, "unit: file\ntimeouts: per_unit", "runners:\n  - name: shell\n    timeout_s: 1\n",
 		`for i in $IDS; do start $i
   if [ $i = tests/a.sh ]; then d=30; else d=0; fi
@@ -49,6 +52,9 @@ done; exit 1`)
 
 // A per_unit runner that reports a result past its bound did not enforce it.
 func TestTimeoutPerUnitNotEnforced(t *testing.T) {
+	if !isolated(t, hangLimit) {
+		return
+	}
 	r := threeRepo(t, "unit: file\ntimeouts: per_unit", "runners:\n  - name: shell\n    timeout_s: 1\n",
 		`for i in $IDS; do start $i; row $i pass 1; done
 sed -i 's|"id":"tests/b.sh","status":"pass","duration_ms":1|"id":"tests/b.sh","status":"pass","duration_ms":9000|' "$R"`)
@@ -63,6 +69,9 @@ sed -i 's|"id":"tests/b.sh","status":"pass","duration_ms":1|"id":"tests/b.sh","s
 // killed at max_invocation_s — a keeps its pass, the started b is
 // `timeout`, the never-started c is `not_started`.
 func TestTimeoutInvocationMax(t *testing.T) {
+	if !isolated(t, hangLimit) {
+		return
+	}
 	r := threeRepo(t, "unit: file\ntimeouts: per_unit", "max_invocation_s: 1\nrunners:\n  - name: shell\n    timeout_s: 1\n",
 		"start tests/a.sh; row tests/a.sh pass; start tests/b.sh; exec sleep 30")
 	rep := timedRun(t, r, 10*time.Second)
@@ -77,6 +86,9 @@ func TestTimeoutInvocationMax(t *testing.T) {
 // rows the kill is attributed per unit; without any, every unreported unit
 // is `batch_timeout`. Reported results survive either way.
 func TestTimeoutBatchBounded(t *testing.T) {
+	if !isolated(t, hangLimit) {
+		return
+	}
 	yaml := "runners:\n  - name: shell\n    timeout_s: 1\n    batch_timeout_s: 1\n"
 	for run, want := range map[string]map[string]string{
 		"start tests/a.sh; row tests/a.sh pass; start tests/b.sh; exec sleep 30": {"tests/a.sh": StatusPass, "tests/b.sh": StatusTimeout, "tests/c.sh": StatusNotStarted},
@@ -94,6 +106,9 @@ func TestTimeoutBatchBounded(t *testing.T) {
 // invocations, the hanging one is killed at its own timeout_s, the other
 // passes in its own invocation.
 func TestTimeoutNoneSingletons(t *testing.T) {
+	if !isolated(t, hangLimit) {
+		return
+	}
 	r := newRepo(t, map[string]string{"tests/a.sh": "", "tests/b.sh": ""})
 	put(t, r, "shell", spec{describe: "unit: file", list: "tests/a.sh|file|a\ntests/b.sh|file|b\n",
 		run: "for i in $IDS; do [ $i = tests/a.sh ] && exec sleep 30; row $i pass; done"})
@@ -115,6 +130,9 @@ func TestTimeoutNoneSingletons(t *testing.T) {
 // not_started is reserved for engine kills: a runner that exits on its own
 // after starting b without a result leaves b `missing` (reconciliation).
 func TestTimeoutNotStartedVsMissing(t *testing.T) {
+	if !isolated(t, hangLimit) {
+		return
+	}
 	r := threeRepo(t, "unit: file\ntimeouts: per_unit", "runners:\n  - name: shell\n    timeout_s: 1\n",
 		"start tests/a.sh; row tests/a.sh pass; start tests/b.sh; exit 1")
 	rep := timedRun(t, r, 10*time.Second)
