@@ -300,3 +300,17 @@ not touch prune. The gap is reported at review time as a possible follow-up.
 
 Current-branch profile: commit the code with `bug: … (t2005)`, then run Step 9
 for archival and the commit of the plan and task data.
+
+## Final Implementation Notes
+- **Actual work done:** Implemented as planned. `brainstorm_session.py` gained `ModuleDecomposeRefused` (a `ValueError`), `ModuleDecomposePartialFailure` (a `RuntimeError` carrying `module`, `stage`, `created`, `incomplete_node_id`), a read-only `_from_sections_preflight` that resolves every module's section, dimensions and proposal text before any write, a rewritten `apply_module_decompose_from_sections` with prune's write-phase stage tracking plus the `incomplete_node` branch, and `run_module_decompose_from_sections`, which owns the record and deletes it only on a refusal. `brainstorm_app.py` `_run_design_op` calls the runner and reloads only on `ModuleDecomposePartialFailure`. There is a new suite `tests/test_brainstorm_from_sections_failure_boundary.py` (10 tests), and the t1995 TUI test was retargeted. A failure-boundary bullet was added to `aidocs/brainstorming/module_decomposition_design.md` §4.2.
+- **Deviations from plan:** One test was added beyond the plan, `test_single_missing_section_keeps_the_singular_message`, which pins the unchanged one-module refusal text that the TUI notify and the t1995 test rely on. The TUI refusal test also checks that the Browse surfaces stay in their before state.
+- **Issues encountered:** The first mutation-runner anchors for "drop the Error write" and "drop the except-path nodes_created append" matched prune's identical code as well. They were made unique with the `elif` line before the mutants were applied. The full Python suite reported 6 failures, all outside brainstorm: `test_textual_markup_colours`, `test_settings_shortcuts_tab`, `test_monitor_sessions_purge` and three `test_shortcut_scopes` tests. Their failure output points at another session's uncommitted monitor work, not this change: `monitor_app` fails to import during the shortcut sweep, and the markup scan flags the untracked `tests/test_monitor_markup_escape.py`.
+- **Key decisions:**
+  - A failure at stage `counter_bumped` can only come from inside `create_node`. That function writes the node YAML (`brainstorm_dag.py:102`) before the proposal (`:105`), so the attempted id is recorded as `incomplete_node` and never added to `created` or `nodes_created`. This was raised during plan review.
+  - A refusal triggers no TUI reload, because it wrote nothing. This matches prune.
+  - When several modules have no section, one refusal names them all. A single missing module keeps the previous message.
+- **Verification:**
+  - The five brainstorm suites pass: 74 tests.
+  - Seven mutants were each run in an isolated scratch copy, and each was caught by its intended test: the section check moved into the loop, the Error write dropped, delete on every exception, the except-path `nodes_created` append dropped, the `incomplete_node` branch dropped, the incomplete root recorded as created, and the TUI reload on partial failure dropped.
+- **Upstream defects identified:**
+  - `.aitask-scripts/brainstorm/brainstorm_session.py:1789` — `apply_prune_dimensions`'s write-phase handler has the same `create_node` non-atomicity gap: a fault at stage `counter_bumped` (proposal write after the child YAML landed) leaves a YAML-only child that the `status: Error` record never names (`PrunePartialFailure.new_node_id` carries it, the record does not).
