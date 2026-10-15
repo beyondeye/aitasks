@@ -196,7 +196,7 @@ refused pull recovers.
   `merge.autoStash` users, stash → merge → pop could sometimes get through, so
   this change removes an accidental recovery path for them. Cell 6 pins the
   refusal; nothing here claims recovery. · severity: medium · → mitigation:
-  crew_runner_pull_refusal_recovery
+  t2018
 
 ### Goal-achievement risk: low
 - A vacuous test: without an upstream the pull dies before any stash, so a
