@@ -3,12 +3,13 @@ priority: low
 effort: low
 depends: []
 issue_type: chore
-status: Ready
+status: Implementing
 labels: [aitask_monitormini, tui]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1326
 created_at: 2026-07-30 10:34
-updated_at: 2026-08-03 16:08
+updated_at: 2026-10-15 09:37
 boardidx: 109568
 ---
 
