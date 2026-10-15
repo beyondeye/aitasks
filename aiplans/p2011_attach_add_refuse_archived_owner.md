@@ -327,3 +327,48 @@ commit, Step 9 archives t2011 and its plan.
   · severity: low · → mitigation: none (step 0 runs before any edit; the
   wording and the L6 assertions follow the measured result, and step 1b checks
   that every surface agrees)
+
+## Final Implementation Notes
+- **Actual work done:**
+  - `task_file_is_active` (`lib/task_utils.sh`, right after `resolve_task_file`) is t2004's `_artifact_owner_is_active`, moved and renamed with its body unchanged. `aitask_artifact.sh` now calls it, and the old definition is deleted.
+  - `cmd_add` in `aitask_attach.sh` now refuses an owner whose resolved file is not in the active tree. The check runs immediately after `resolve_task_file` and before `with_attach_lock`, so a refused add takes no lock and leaves no blob, ledger file or commit. The error names the loose archived path, or says "a .tar.zst archive bundle".
+  - The help text and die message of both CLIs, plus the docs, now say that `ls`/`get` accept any archived owner, and `rm` only one not yet packed into a bundle.
+  - `tests/test_attach_local_backend.sh` gained section L:
+    - L1 loose parent, L2 loose child, L3 bundled;
+    - L4, the same id in both directions: add accepted while active, refused once archived, while `ls`/`get`/`rm` keep working;
+    - L5, trailing-slash `TASK_DIR`/`ARCHIVED_DIR`: active child and parent accepted, archived ones refused;
+    - L6, a bundled owner with a real attachment: `ls`/`get` work, `rm` is refused at the transaction boundary after a successful lookup, with no mutation.
+  - `tests/test_artifact_cli.sh` gained the matching L6 for `ait artifact rm`, with the bundle rebuilt beside t22.
+  - Docs updated: `commands/attach.md` (add refusal bullet, rm scope paragraph), `concepts/attachments.md`, `development/task-format.md` (both rows) and `development/_index.md` (new helper entry).
+- **Step 0 probe (pre-edit, current code, scratch legacy-mode repo; t26 got an attachment and an artifact while active, then was packed into `_b0/old0.tar.zst` and `git rm`'d):**
+  - `resolve_task_file 26` returned a `/tmp/.../t26_packed.md` extraction that lists both entries.
+  - `attach ls`/`get` and `artifact ls`/`get` all exit 0.
+  - `attach rm 26 p.bin` and `artifact rm 26 art:t26-report` both exit 1 with `fatal: … is outside repository` followed by `Error: ait … rm: could not read the git status of /tmp/…/t26_packed.md — refusing to start a transaction whose paths cannot be verified`. Neither reports "no … matching", so the lookup succeeded.
+  - Both left the commit delta at 0, `git status` unchanged and ledger refs `["26"]`.
+  - This matched the trace, so the scoped wording was used everywhere.
+- **Deviations from plan:**
+  1. Added a `task_file_is_active` entry to `website/content/docs/development/_index.md`, which documents `task_utils.sh`'s public functions.
+  2. Test hygiene in both edited test files:
+     - The L3/L6 precondition "extraction is outside aitasks/" was a substring test on an absolute path. It false-failed whenever the host `TMPDIR` contained `aitasks/` (measured: 2 failures with `TMPDIR` under the Claude scratchpad `/tmp/claude-1000/-home-ddt-Work-aitasks/...`). t2004's L3 had the same flaw. It is now `outside_repo` (absolute and not under `$REPO`).
+     - Sourcing `task_utils.sh` replaces the tests' `trap 'rm -rf "$TMP"' EXIT` with `_ait_archive_cleanup`, so the fixture dir leaked (HEAD version: 2 leftovers). The new bundled cases would add one leaked extraction dir per bundled resolve (measured: 8 dirs + the shared cwd). Both files now re-arm the trap after sourcing and export `TMPDIR="$TMP/tmpdir"`. After the fix, the only leftover is the intentional `ait-test-cwd-<uid>` from `enter_scratch_cwd`.
+- **Issues encountered:** The "outside aitasks/" precondition failure above, found while measuring the leak. Nothing else.
+- **Key decisions:**
+  - Attaching to an archived task is not supported: archived tasks are browsable history, the loose and bundled behaviour diverged, and this matches t2004. No in-repo caller adds to an archived owner, and every regression suite still passes.
+  - Only the predicate is shared. Each verb keeps its own refusal wording.
+  - t2004's artifact wording was narrowed in the same edit, because it made the same bundled-`rm` overclaim in the block step 2 rewrites.
+  - No bundle-editing support was added.
+- **Verification:**
+  - `test_attach_local_backend.sh` 98/98, `test_artifact_cli.sh` 241/241 (the earlier 227 + 14), `test_attach_lock_callback_contract.sh` 92/92. Each ALLOWLIST pin was re-located by exact match on its HEAD line: attach 335→351, 614→630; artifact 193→180, 377→366, 484→473, 700→689.
+  - Regression runs all pass: `test_attach_archive_gc` 15/15, `test_attach_fold_rebind` 20/20, `test_attach_task_delete_decref` 45/45, `test_attach_txn_worktree_isolation`, `test_attach_scaffold` 51/51, `test_artifact_fold_transfer` 10/10, `test_artifact_share_resolution` 98/98, `test_task_filename_invariant` 9/9, `test_yaml_utils` 148/148, `test_resolve_tar_zst`.
+  - Shellcheck findings are identical to HEAD for all three scripts. `check_links.py --build` passes (SWEEP: PASSED).
+  - Both test files also pass with `TMPDIR` set to a path containing `aitasks/`.
+- **Red proof (pre-fix `aitask_attach.sh` from HEAD, run in a scratchpad copy of `.aitask-scripts/` + `tests/`; the live tree was untouched):**
+  - 74/98 passed, 24 failed, all in L1–L5.
+  - Pre-fix, L1/L2 and L4's archived add committed an `attachments:` entry plus a blob and a ledger file into the loose archived task.
+  - L3 and L5's bundled add died at `txn_require_clean` with git's "outside repository", leaving no commit or blob.
+  - L4's "rm committed" count missed only because of the extra commit the unrefused add made.
+  - L6 and all active controls passed pre-fix, as expected: they pin existing behaviour.
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/archive_utils.sh:142 — _extract_from_archive records its temp dir in _AIT_ARCHIVE_TMPDIR, but resolve_task_file is always called inside $( ), so the variable is set only in the subshell and the EXIT-trap cleanup never sees it: every bundled-task resolve by ait attach/artifact (and any other $(resolve_task_file) caller) leaks one mktemp dir holding the extracted task file (measured: one dir per bundled resolve in the step-0 probe)`
+  - `.aitask-scripts/lib/archive_utils.sh:117 — sourcing archive_utils.sh (via task_utils.sh) runs a bare 'trap _ait_archive_cleanup EXIT', replacing any EXIT trap the caller set first; tests that trap 'rm -rf $TMP' before sourcing task_utils.sh leak their fixture dir (fixed locally in test_attach_local_backend.sh and test_artifact_cli.sh; still present in test_label_vocabulary_lib.sh, test_last_used_labels.sh, test_userconfig_writer_collision.sh, test_xdeps_parser.sh by static scan)`
+  - `.aitask-scripts/aitask_attach.sh:406 / aitask_artifact.sh:623 — rm on a bundled owner refuses correctly (no mutation, pinned by L6) but with the misleading 'could not read the git status of /tmp/… — refusing to start a transaction whose paths cannot be verified' instead of naming the archive bundle; a clear refusal (e.g. task_file_is_active / bundle check before the lock) is a separate change`
