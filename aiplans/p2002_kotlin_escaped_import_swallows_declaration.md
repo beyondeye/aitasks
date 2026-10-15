@@ -134,3 +134,17 @@ no merge.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+- **Actual work done:** As planned. In `scanKotlin` (`goengines/internal/testmap/deps/kotlin.go`), the `package` / `import` / `inline` / `const` / `typealias` keyword gates now require `!t.esc`. The `inline` modifier walk also stops at an escaped token (`!toks[j].esc`), and `const` requires an unescaped following `val`. One comment above the `switch` records the rule: keywords are escape-aware, identifier matches are escape-neutral. `cache.go` `schemaVersion` 10 → 11; at commit time HEAD was still 10, since no concurrent `goengines/` commit landed after `159437cd1`. `kotlin_test.go` has two new tests. `TestKotlinEscapedKeywordsAreIdentifiers` has 11 defect rows and 7 controls, each comparing package/decls/imports/opaque exactly. `TestKotlinEscapedImportKeepsDeclaration` is the end-to-end test: symbols, the `static:import` edge, and no unresolved import.
+- **Deviations from plan:** None.
+- **Issues encountered:** None. Verification as planned:
+  - `go test ./internal/testmap/deps/` and `./ait engine test` both green.
+  - Red proof: overlaying HEAD's `kotlin.go`, every one of the 11 defect rows fails, and so does every assertion of the end-to-end test. All 7 controls pass on HEAD.
+  - Mutants: an overlay with any single `!esc` condition removed fails exactly its own row(s).
+- **Key decisions:**
+  - Each opaque check was decided separately. Keyword gates (`inline`, `const`, `typealias`, and the `fun` / modifier walk) ignore escaped tokens, because a backticked token is never a Kotlin keyword or modifier. Identifier matches (`Class.forName`, `getIdentifier`, `R.string|plurals`) stay escape-neutral.
+  - `::class.java` is unchanged: `` x::`class` `` is still a callable reference, so the over-mark stays fail-closed.
+  - The realistic `package` failure is a file annotation, `` @file:Ann(`package` to 1) ``. It previously set the file's package to `to` and made the real `package` directive be ignored.
+- **Upstream defects identified:**
+  - `goengines/internal/testmap/deps/kotlin.go:154-163` — the `inline` / `const` opaque checks fail OPEN when an annotation sits between modifiers. The modifier walk stops at `@` (kind `o`), and `const` only looks at the very next token. So `inline @JvmSynthetic fun f()` and `const @Ann val y` are never marked `inline-fun` / `const-val`, while `@JvmSynthetic inline fun` is. This is valid Kotlin (`modifiers: (annotation | modifier)+`). It was measured by overlay probe and is present on HEAD independently of this task (unescaped tokens).
