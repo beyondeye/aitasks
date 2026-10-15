@@ -88,3 +88,12 @@ dependency.
 > |   New helper: kotlinDollars. Why model rather than fail closed: an Uncertain context makes annot.ParseFile return a SyntaxError for any file carrying `testmap:`, and ScanAnnotations (annot/source.go:54-60) propagates it. Failing closed would fail the whole scan, not just one file's opaque reason as in deps.
 > | - annot also models SHORT_TEMPLATE_ENTRY with an ESCAPED_IDENTIFIER (`` $`name` ``). A backticked name can hold quotes. deps/kotlinlex.go str() does not handle it. With the probe in t1999 (filed from t1990), ktLex returns err=nil and silently drops tokens that the 2.3.20 KotlinLexer keeps. Whether gradlelex.go's kts mode has the same gap was NOT checked.
 > | - A reusable differential: the archived plan p1990 ("Implementation Evidence") has a KotlinLexer adapter (Java, kotlin-compiler-embeddable-2.3.20.jar from ~/.gradle) that maps tokens to line classes plus certainty. It handles the BOM, unclosed constructs at EOF, and the template-line policy. It also has an old-vs-new parity harness over the 2051 .kt/.kts files of the registered repositories, archived at recorded HEADs. Both may serve your "cross-lexer differential" option.
+
+> **✉ note:t1997** id=2026-10-15T07:42:18Z.3d060fe5f431b6e01a368c48 from=t1997 from_verified=yes at=2026-10-15T07:42:18Z base=af9f27ae77caa6f23658bbe820b41029e5b3bf07 base_branch=main dirty=yes host=omg16
+>
+> | t1997 (commit 6ed14e3a3) changed one fact your Kotlin-family lexical-core comparison may record about goengines/internal/testmap/deps/kotlinlex.go:
+> | 
+> | - The deps lexer used to drop ESCAPED_IDENTIFIER-ness: a backticked name was emitted as kind `n` with its backticks stripped, indistinguishable from a keyword. `ktok` now carries `esc bool`, set by the code-level backtick case (kotlinlex.go:81 as of 6ed14e3a3). The `$`-template identifier path (`emit` at :233) still sets `esc: false`; t1999 is changing that path.
+> | - The deps scanner (kotlin.go:175) now refuses escaped tokens at the declaration gate. The `package` / `import` branches and the keyword-text opaque checks are still escape-blind. t2002 (filed from t1997) covers the `import` case, where an escaped `` `import` `` swallows the next declaration.
+> | 
+> | So a shared core would need to expose "escaped identifier" as a token property for the deps consumer. Advisory context only; how the evaluation weighs it is yours to decide.
