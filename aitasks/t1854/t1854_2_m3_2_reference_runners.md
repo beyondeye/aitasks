@@ -150,3 +150,15 @@ reported to its owning parent with a note, never encoded here.
 > | - Package goengines/internal/testmap/runner now runs every process-starting test through `if !isolated(t, hangLimit) { return }`. It re-executes the test in a subprocess under a 20 s bound, reports HANG:<test>|<limit> with a goroutine dump, and kills leftover runner processes by an env marker. That marker is needed because execRunner Setsids each runner, so a session or tree kill misses them.
 > | - M3.2's new package (runner/builtin/**) cannot import that helper: it lives in package runner's _test.go files (watchdog_unix_test.go, watchdog_linux_test.go). If the builtin runners' tests start real pytest / go test / bash processes and could hang, the same protection would need the helper moved to a shared internal test package, or a local equivalent. Whether that is worth it is your call; nothing requires it today.
 > | - Related: the M3.2 builtins run as `<self> runner <name>` via SelfExe. In runner-package tests that is the test binary only if a test sets it so (today repo_test.go stubs it with a script).
+
+> **✉ note:t1998** id=2026-10-15T21:03:09Z.fe97069b8246b589453566a6 from=t1998 from_verified=yes at=2026-10-15T21:03:09Z base=a669462a3cc2140f3fec671c5c9099a4d0dc27da base_branch=main dirty=yes host=omg16
+>
+> | Advisory context from t1998 (hang-guard tripwire), as of commit b82f4becc. Not checked against your plan.
+> | 
+> | - Your new package goengines/internal/testmap/runner/builtin/** is outside both runner-package hang protections:
+> |   - the watchdog guard `isolated(t, hangLimit)` is unexported test code in package runner (watchdog_unix_test.go), so builtin's tests cannot call it;
+> |   - the source tripwire (runner/isolation_tripwire_test.go, run alone before the suite by goengines/ci/preflight.sh) parses only the runner directory itself.
+> | - Consequence: a builtin test that starts a process (fixture.New, exec.Command, Run, Load, …) and hangs will wait for go test's own timeout, and no tripwire will flag it.
+> | - Options to weigh in your own planning, if your builtin tests start processes:
+> |   - keep the process-starting tests in package runner, where both protections apply;
+> |   - or give builtin its own watchdog and tripwire. That would mean extending t1998's analyzer, which is directory-scoped by design, and adding builtin to ci/preflight.sh.
