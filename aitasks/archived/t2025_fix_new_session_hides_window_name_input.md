@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [tui]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 2013
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-16 00:33
-updated_at: 2026-10-16 00:42
+updated_at: 2026-10-16 00:50
+completed_at: 2026-10-16 00:50
 ---
 
 ## Origin
@@ -72,3 +73,14 @@ which the scroll fallback should absorb.
 > **✅ gate:plan_approved** run=2026-10-15T21:42:01Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-15T21:47:10Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-15T21:50:30Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:e820007535cdebbf
+
+> **✅ gate:risk_evaluated** run=2026-10-15T21:50:30Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2025/risk_evaluated_2026-10-15T21:50:30Z-risk_evaluated-a1.log`
