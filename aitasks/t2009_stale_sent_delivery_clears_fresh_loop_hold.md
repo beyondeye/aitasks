@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2001
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-15 21:34
-updated_at: 2026-10-15 22:10
+updated_at: 2026-10-15 23:08
 ---
 
 ## Origin
@@ -30,3 +31,8 @@ The `"sent"` route is the one outcome t2001 left alone: after the post-Enter dra
 
 ## Suggested fix
 Gate the clear on the confirmation: `if ctrl.confirm_fire(token, time.monotonic()): self._clear_loop_hold()`. A test in the style of `SupersessionDuringDeliveryAwaitsTests`: re-arm at the post-Enter capture with a submitting composer, set a hold reason on the fresh lifecycle in the hook, assert it survives the stale "sent".
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-15T20:08:37Z status=pass attempt=1 type=human
