@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -61,3 +63,5 @@ measured on Textual 8.2.7:
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-10-15T21:05:41Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-10-15T21:19:18Z status=pass attempt=1 type=human
