@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1983
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-14 22:22
-updated_at: 2026-10-14 22:26
+updated_at: 2026-10-15 09:24
 ---
 
 ## Origin
@@ -39,3 +40,8 @@ t1983's own deterministic op, `prune_dimensions`, avoids the same gap: its `_run
 1. Confirm the symptom live: run a from-sections decompose and check whether the new module roots appear without a manual reload.
 2. If they don't, add `self.call_from_thread(self._load_existing_session)` after `apply_module_decompose_from_sections(...)` in the from-sections branch, mirroring the prune branch.
 3. Consider a pilot or unit test asserting the reload is triggered.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-15T06:24:20Z status=pass attempt=1 type=human
