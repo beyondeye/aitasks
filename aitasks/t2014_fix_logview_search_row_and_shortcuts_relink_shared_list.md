@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2003
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-15 23:01
-updated_at: 2026-10-15 23:51
+updated_at: 2026-10-16 00:05
 ---
 
 ## Origin
@@ -55,3 +56,8 @@ measured on Textual 8.2.7:
 - shortcuts_mixin: `mapping[new_key] = [*mapping.get(new_key, []), active_b]`, plus a test that
   rebinds onto an already-bound key, then asserts that `type(app)._merged_bindings` is unchanged
   and that a second instance without the override is unaffected.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-15T21:05:41Z status=pass attempt=1 type=human
