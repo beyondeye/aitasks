@@ -128,3 +128,32 @@ None identified.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+- **Actual work done:** Implemented steps 1–7 as planned. The four post-creation
+  decision prompts now name the created task: explore / pr-import →
+  `Task t\<N\> created successfully. …`, revert → `Revert task t\<N\> created
+  successfully. …`, review single → `Task t\<N\> created successfully. …`,
+  review parent+children → `Tasks created under parent t\<parent_N\>. …`. Added
+  a naming + escaping hint to the `question` param doc in
+  `_auto_continue_block.j2` (Jinja comment, render-neutral). Updated the four
+  Test 2 needles and regenerated the 12 goldens.
+- **Deviations from plan:** None.
+- **Issues encountered:** The golden-audit filter in the plan
+  (`grep '^[-+][^-+]'`) hides the macro-rendered lines, because they start with
+  `- Question:` and so appear as `-- …` / `+- …` in the diff. The audit used
+  the unfiltered changed lines instead: exactly 15 −/+ pairs across 12 goldens
+  (one per explore / pr-import / revert golden, two per review golden), all
+  question strings, nothing else.
+- **Key decisions:** The review parent+children prompt uses `<parent_N>`, not
+  `<N>`, to match the placeholder its own "Save all for later" option already
+  uses. The optional id-in-auto-continue-display-line change was not made (no
+  committed profile sets `explore_auto_continue`). Codex / OpenCode variants of
+  these skills are gitignored renders of the same template, so this change
+  covers them without a porting task.
+- **Verification:** `aitask_skill_verify.sh` OK (14 templates, 3 agents).
+  `test_skill_render_aitask_{explore,pr_import,revert,review,fold}.sh` all
+  pass: 128 / 90 / 93 / 96 / 90 tests, 0 failed. Negative control: each new
+  needle has 0 matches in the HEAD goldens and 1 in the regenerated ones. A
+  per-profile explore render (default / fast / remote) shows the new question.
+- **Upstream defects identified:** None
