@@ -1,4 +1,5 @@
-"""Tests for AgentCommandScreen narrow mode (t1012, t2013).
+"""Tests for AgentCommandScreen narrow mode (t1012, t2013) and the wide dialog's
+short-terminal fallback (t2020).
 
 The minimonitor companion pane is ~40 cols wide. Pressing `n` (pick next
 sibling) eventually pushes AgentCommandScreen ("Pick Task t<N>"), which in its
@@ -10,7 +11,12 @@ t2013 adds the vertical axis: at real minimonitor pane sizes (31-40 cols x 44
 rows) the pick dialog's Run / Cancel sat below the dialog's bottom edge and were
 clipped. The narrow layout is now compact enough to show them on open, and the
 dialog body scrolls (a focused button is scrolled into view) when the content
-still cannot fit. The wide dialog must render exactly as before.
+still cannot fit. t2013 left the wide dialog untouched.
+
+t2020 gives the wide dialog (board, monitor, codebrowser, trails, brainstorm)
+the same fallback: the tab content is sized to its content instead of padded to
+a 20-row cap, and the dialog body scrolls on terminals shorter than about 40
+rows, where Run / Cancel used to sit below the dialog's edge out of reach.
 
 Mirrors tests/test_kill_confirm_dialog.py::test_buttons_fit_inside_narrow_dialog
 — drive the screen with a small terminal and assert every control's region sits
@@ -62,24 +68,26 @@ _PANE_SIZES = ((31, 44), (35, 44), (40, 44))
 # Short enough that the tallest state cannot fit, so it must scroll.
 _SHORT_PANE = (40, 30)
 
-# Wide-mode regions (x, y, width, height) at 120x40, captured from the pre-t2013
-# code (Textual 8.2.x) under this file's isolated environment. Every t2013 rule
-# is scoped under `AgentCommandScreen.narrow`, so these must not move.
-# Regenerate only for a deliberate wide-mode layout change.
+# Wide-mode regions (x, y, width, height) at 120x40 under this file's isolated
+# environment (Textual 8.2.x), captured after t2020. Relative to the t2013
+# layout only the tab heights (20 -> 17 / 10) and the Direct-tab dialog height
+# (36 -> 29) changed: the tab content is sized to its content instead of padded
+# to the old 20-row cap, and every control is where it was. Regenerate only for
+# a deliberate wide-mode layout change.
 _WIDE_SIZE = (120, 40)
 _WIDE_HEADER = {
-    "agent_cmd_dialog": (0, 0, 96, 36),
     "agent_cmd_title": (3, 2, 14, 2),
     "profile_row": (3, 4, 90, 3),
     "btn_edit_profile": (19, 4, 10, 3),
     "agent_row": (3, 8, 90, 3),
     "btn_change_agent": (31, 8, 10, 3),
     "agent_cmd_input": (3, 13, 90, 3),
-    "agent_cmd_tabs": (3, 17, 90, 20),
 }
 _WIDE_GOLDEN = {
     "tab_tmux": {
         **_WIDE_HEADER,
+        "agent_cmd_dialog": (0, 0, 96, 36),
+        "agent_cmd_tabs": (3, 17, 90, 17),
         "tmux_session_select": (15, 19, 78, 3),
         "tmux_window_select": (15, 23, 78, 3),
         "tmux_new_window_input": (15, 27, 78, 3),
@@ -88,6 +96,8 @@ _WIDE_GOLDEN = {
     },
     "tab_direct": {
         **_WIDE_HEADER,
+        "agent_cmd_dialog": (0, 0, 96, 29),
+        "agent_cmd_tabs": (3, 17, 90, 10),
         "agent_cmd_prompt_label": (3, 20, 75, 1),
         "btn_copy_prompt": (78, 20, 15, 3),
         "btn_copy_command": (21, 24, 16, 3),
@@ -95,6 +105,31 @@ _WIDE_GOLDEN = {
         "btn_cancel": (58, 24, 16, 3),
     },
 }
+# The same dialog in a host whose Screen is centered (board, trails,
+# brainstorm). There the Direct-tab dialog, 7 rows shorter since t2020,
+# re-centers, so every Direct control sits 3 rows lower than it did (dialog
+# y=2 -> 5, Run in terminal y=26 -> 29) and switching tabs shifts the tab bar.
+# That movement is the accepted cost of dropping the filler rows that clipped
+# the buttons. The tmux tab is unchanged.
+_CENTERED_GOLDEN = {
+    "tab_tmux": {
+        "agent_cmd_dialog": (12, 2, 96, 36),
+        "agent_cmd_tabs": (15, 19, 90, 17),
+        "btn_run_tmux": (43, 33, 16, 3),
+        "btn_tmux_cancel": (60, 33, 16, 3),
+    },
+    "tab_direct": {
+        "agent_cmd_dialog": (12, 5, 96, 29),
+        "agent_cmd_tabs": (15, 22, 90, 10),
+        "btn_copy_prompt": (90, 25, 15, 3),
+        "btn_copy_command": (33, 29, 16, 3),
+        "btn_run_terminal": (50, 29, 19, 3),
+        "btn_cancel": (70, 29, 16, 3),
+    },
+}
+# Wide terminals that clipped the tmux tab's Run / Cancel before t2020; the
+# shortest also clips the Direct tab's buttons.
+_WIDE_SHORT_SIZES = ((120, 38), (120, 34), (120, 30))
 
 
 def _isolate(test: unittest.TestCase) -> None:
@@ -171,6 +206,14 @@ class _DialogHost(App):
                 narrow=self._narrow,
             )
         self.push_screen(screen, self.results.append)
+
+
+class _CenteredDialogHost(_DialogHost):
+    """A host whose Screen CSS centers pushed modals, as board, trails and
+    brainstorm do (`Screen { align: center middle; }`). `_DialogHost` leaves
+    the modal top-anchored, which hides a height change's re-centering."""
+
+    CSS = "Screen { align: center middle; }"
 
 
 async def _settle(pilot, rounds: int = 4) -> None:
@@ -325,12 +368,13 @@ class AgentCommandDialogNarrowTests(unittest.TestCase):
                     self._run(runner(size))
 
     def test_tab_content_has_no_filler_rows(self):
-        """The tab content ends at its last action button. A `1fr` content
-        container used to fill the whole dialog with blank rows — dead space
-        that a scrollable dialog would make the user scroll through."""
-        async def runner(tab, container_id, last_id):
-            app = _DialogHost()
-            async with app.run_test(size=(40, 44)) as pilot:
+        """The tab content ends at its last action button, in both modes. A
+        `1fr` content container used to fill the dialog (narrow) or the 20-row
+        tab cap (wide) with blank rows — dead space that a scrollable dialog
+        would make the user scroll through."""
+        async def runner(narrow, size, tab, container_id, last_id):
+            app = _DialogHost(narrow=narrow)
+            async with app.run_test(size=size) as pilot:
                 await _settle(pilot)
                 if tab != "tab_tmux":
                     await _show_tab(app, pilot, tab)
@@ -342,21 +386,23 @@ class AgentCommandDialogNarrowTests(unittest.TestCase):
                     f"#{container_id} {container} vs #{last_id} {last}",
                 )
 
-        for tab, container_id, last_id in (
-            ("tab_tmux", "tmux_content", "btn_tmux_cancel"),
-            ("tab_direct", "direct_content", "btn_cancel"),
-        ):
-            with self.subTest(tab=tab):
-                self._run(runner(tab, container_id, last_id))
+        for narrow, size in ((True, (40, 44)), (False, (120, 44))):
+            for tab, container_id, last_id in (
+                ("tab_tmux", "tmux_content", "btn_tmux_cancel"),
+                ("tab_direct", "direct_content", "btn_cancel"),
+            ):
+                with self.subTest(narrow=narrow, tab=tab):
+                    self._run(runner(narrow, size, tab, container_id, last_id))
 
     def test_tallest_state_buttons_reachable(self):
         """With the Profile row, (U)se previous and the new-session row all
-        shown in a short pane the content cannot fit; the dialog scrolls and
-        focusing each action button brings it fully into view."""
-        async def runner(tab):
+        shown in a short pane (narrow) or short terminal (wide) the content
+        cannot fit; the dialog scrolls and focusing each action button brings
+        it fully into view."""
+        async def runner(narrow, size, tab):
             AgentCommandScreen._previous_agent_override["pick"] = "codex/gpt5_codex"
-            app = _DialogHost()
-            async with app.run_test(size=_SHORT_PANE) as pilot:
+            app = _DialogHost(narrow=narrow)
+            async with app.run_test(size=size) as pilot:
                 await _settle(pilot)
                 await _enter_tallest_state(app, pilot)
                 screen = app.screen
@@ -374,20 +420,53 @@ class AgentCommandDialogNarrowTests(unittest.TestCase):
                     screen.query_one(f"#{button_id}", Button).focus()
                     await _settle(pilot)
                     self._assert_inside_dialog(
-                        screen, button_id, _SHORT_PANE, f"focused, {tab}",
+                        screen, button_id, size, f"focused, {tab}",
                     )
 
-        for tab in ("tab_tmux", "tab_direct"):
-            with self.subTest(tab=tab):
-                self._run(runner(tab))
+        for narrow, size in ((True, _SHORT_PANE), (False, (120, 30))):
+            for tab in ("tab_tmux", "tab_direct"):
+                with self.subTest(narrow=narrow, tab=tab):
+                    self._run(runner(narrow, size, tab))
 
-    def test_keys_work_in_scrolled_narrow_dialog(self):
+    def test_wide_buttons_reachable_on_short_terminal(self):
+        """On a wide terminal shorter than the dialog's content, every action
+        button is brought fully into view by focusing it, in a top-anchored
+        and a centered host, on both tabs. Before t2020 the buttons sat below
+        the dialog's edge with no way to scroll to them."""
+        async def runner(host, size, tab):
+            app = host(narrow=False)
+            async with app.run_test(size=size) as pilot:
+                await _settle(pilot)
+                if tab != "tab_tmux":
+                    await _show_tab(app, pilot, tab)
+                screen = app.screen
+                where = f"{host.__name__} {size} {tab}"
+                if tab == "tab_tmux":
+                    # Every size in the matrix really overflows on this tab, so
+                    # reachability is what is under test.
+                    dialog = screen.query_one("#agent_cmd_dialog")
+                    self.assertGreater(dialog.max_scroll_y, 0, f"no overflow: {where}")
+                for button_id in _ACTIONS[tab]:
+                    screen.query_one(f"#{button_id}", Button).focus()
+                    await _settle(pilot)
+                    self._assert_inside_dialog(
+                        screen, button_id, size, f"focused, {where}",
+                    )
+
+        for host in (_DialogHost, _CenteredDialogHost):
+            for size in _WIDE_SHORT_SIZES:
+                for tab in ("tab_tmux", "tab_direct"):
+                    with self.subTest(host=host.__name__, size=size, tab=tab):
+                        self._run(runner(host, size, tab))
+
+    def test_keys_work_in_scrolled_dialog(self):
         """`r` and Escape keep working when the dialog overflows and nothing is
-        focused: `r` launches into the new session, Escape cancels."""
-        async def runner(key):
+        focused, in both modes: `r` launches into the new session, Escape
+        cancels. The scrollable dialog Container must not take the keys."""
+        async def runner(narrow, size, key):
             AgentCommandScreen._previous_agent_override["pick"] = "codex/gpt5_codex"
-            app = _DialogHost()
-            async with app.run_test(size=_SHORT_PANE) as pilot:
+            app = _DialogHost(narrow=narrow)
+            async with app.run_test(size=size) as pilot:
                 await _settle(pilot)
                 await _enter_tallest_state(app, pilot)
                 screen = app.screen
@@ -399,35 +478,54 @@ class AgentCommandDialogNarrowTests(unittest.TestCase):
                 self.assertNotIsInstance(app.screen, AgentCommandScreen)
                 return app.results
 
-        results = self._run(runner("r"))
-        self.assertEqual(len(results), 1)
-        config = results[0]
-        self.assertIsInstance(config, TmuxLaunchConfig)
-        self.assertTrue(config.new_session)
-        self.assertEqual(config.session, "aitasks")
-        self.assertTrue(config.new_window)
-        self.assertEqual(config.window, "agent-pick-5_5")
+        for narrow, size in ((True, _SHORT_PANE), (False, (120, 30))):
+            with self.subTest(narrow=narrow, key="r"):
+                results = self._run(runner(narrow, size, "r"))
+                self.assertEqual(len(results), 1)
+                config = results[0]
+                self.assertIsInstance(config, TmuxLaunchConfig)
+                self.assertTrue(config.new_session)
+                self.assertEqual(config.session, "aitasks")
+                self.assertTrue(config.new_window)
+                self.assertEqual(config.window, "agent-pick-5_5")
+            with self.subTest(narrow=narrow, key="escape"):
+                self.assertEqual(self._run(runner(narrow, size, "escape")), [None])
 
-        self.assertEqual(self._run(runner("escape")), [None])
-
-    def test_wide_layout_unchanged(self):
-        """The wide dialog (board, monitor, codebrowser, ...) renders exactly
-        as before t2013, on both tabs."""
-        async def runner(tab):
-            app = _DialogHost(narrow=False)
+    def _wide_regions(self, host, tab, widget_ids):
+        async def runner():
+            app = host(narrow=False)
             async with app.run_test(size=_WIDE_SIZE) as pilot:
                 await _settle(pilot)
                 if tab != "tab_tmux":
                     await _show_tab(app, pilot, tab)
                 got = {}
-                for widget_id in _WIDE_GOLDEN[tab]:
+                for widget_id in widget_ids:
                     r = app.screen.query_one(f"#{widget_id}").region
                     got[widget_id] = (r.x, r.y, r.width, r.height)
                 return got
 
+        return self._run(runner())
+
+    def test_wide_layout_unchanged(self):
+        """The wide dialog (board, monitor, codebrowser, ...) renders at the
+        pinned regions on both tabs: the t2013 layout with content-sized tabs
+        (t2020), every control where it was."""
         for tab, expected in _WIDE_GOLDEN.items():
             with self.subTest(tab=tab):
-                self.assertEqual(self._run(runner(tab)), expected)
+                self.assertEqual(
+                    self._wide_regions(_DialogHost, tab, expected), expected,
+                )
+
+    def test_wide_layout_in_centered_host(self):
+        """In a centered host the content-sized Direct-tab dialog re-centers,
+        moving its controls 3 rows down; the tmux tab keeps its place. Pinned
+        so the movement stays a deliberate, documented layout choice."""
+        for tab, expected in _CENTERED_GOLDEN.items():
+            with self.subTest(tab=tab):
+                self.assertEqual(
+                    self._wide_regions(_CenteredDialogHost, tab, expected),
+                    expected,
+                )
 
 
 if __name__ == "__main__":

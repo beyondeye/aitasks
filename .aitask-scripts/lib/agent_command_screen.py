@@ -206,6 +206,11 @@ class AgentCommandScreen(GuardedDismissMixin, ShortcutsMixin, ModalScreen):
         background: $surface;
         border: thick $accent;
         padding: 1 2;
+        /* Scroll instead of clipping when the content outgrows the terminal
+           (a short terminal, a narrow pane, the new-session row shown).
+           Screen.set_focus scrolls a focused control into view. */
+        overflow-y: auto;
+        scrollbar-size-vertical: 1;
     }
     #agent_cmd_title {
         text-align: center;
@@ -231,9 +236,15 @@ class AgentCommandScreen(GuardedDismissMixin, ShortcutsMixin, ModalScreen):
         width: auto;
         min-width: 10;
     }
+    /* No max-height: once the dialog scrolls, a cap only clips the tab
+       content inside the TabbedContent, the Run / Cancel row first. */
     #agent_cmd_tabs {
         height: auto;
-        max-height: 20;
+    }
+    /* Container defaults to height: 1fr, which in the auto-height dialog
+       fills it with blank rows below the buttons. */
+    #direct_content, #tmux_content {
+        height: auto;
     }
     .agent-cmd-copy-row {
         height: 3;
@@ -314,29 +325,12 @@ class AgentCommandScreen(GuardedDismissMixin, ShortcutsMixin, ModalScreen):
         min-width: 30;
         padding: 0 1;
         border: round $accent;
-        /* Scroll instead of clipping when the content outgrows the pane (a
-           short pane, (U)se previous shown, the new-session row shown).
-           Screen.set_focus scrolls a focused control into view. */
-        overflow-y: auto;
-        scrollbar-size-vertical: 1;
     }
     AgentCommandScreen.narrow #agent_cmd_title {
         padding: 0;
     }
     AgentCommandScreen.narrow #agent_cmd_input {
         margin: 0;
-    }
-    /* Neither the wide max-height (it clips the taller stacked tmux tab
-       inside the TabbedContent) nor 1fr (it inflates the tabs to the whole
-       dialog): size to the content and let the dialog scroll. */
-    AgentCommandScreen.narrow #agent_cmd_tabs {
-        max-height: initial;
-    }
-    /* Container defaults to height: 1fr, which in the auto-height dialog
-       fills it with blank rows below the buttons. */
-    AgentCommandScreen.narrow #direct_content,
-    AgentCommandScreen.narrow #tmux_content {
-        height: auto;
     }
     AgentCommandScreen.narrow #agent_row,
     AgentCommandScreen.narrow #profile_row,
