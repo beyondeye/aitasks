@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1852
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-15 08:50
-updated_at: 2026-10-15 08:53
+updated_at: 2026-10-15 09:32
 ---
 
 ## Origin
@@ -44,3 +45,8 @@ Impact is limited. `buildKtIndex` dedups `ix.decls` per file (`slices.Contains`)
 ## Suggested fix
 
 In `scanKotlin`, skip the declaration-keyword match for `interface` when the previous token is `fun` (it is the `fun interface` form `ktDeclName` already consumed). Add a fixture asserting `[fun:Listener]` for `fun interface Listener { fun on() }`, plus a control that a plain `interface Foo` is still `[interface:Foo]`. Bump the cache `schemaVersion` to HEAD + 1 at commit time, since raw Kotlin extraction changes.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-15T06:32:27Z status=pass attempt=1 type=human
