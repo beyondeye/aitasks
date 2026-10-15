@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1957
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-14 22:13
-updated_at: 2026-10-14 22:31
+updated_at: 2026-10-15 08:55
 ---
 
 ## Origin
@@ -71,3 +72,8 @@ group does not cancel). Add a same-tick exclusive-worker regression test per
 worker, and consider extending an AST guard like t1988's to `aitask_board.py`'s
 non-exclusive workers. While there, audit the board's other non-exclusive
 default-group workers too.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-15T05:56:06Z status=pass attempt=1 type=human
