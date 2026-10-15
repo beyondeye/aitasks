@@ -71,7 +71,7 @@ from monitor.monitor_shared import (  # noqa: E402
     format_pane_status, PANE_STATUS_MAX_CELLS,
     format_section_header, format_session_divider, format_shadow_glyph,
     format_state_dot, is_task_completed,
-    format_shadow_stale_banner, format_staleness_detail,
+    format_shadow_stale_banner, format_staleness_detail, markup_literal,
     uncertified_round_block_msg, unparsed_concerns_msg,
 )
 from monitor.concern_parser import (  # noqa: E402
@@ -109,9 +109,9 @@ import gate_ledger  # noqa: E402  (narrow gate-summary shed; same import path as
 
 from rich.cells import cell_len, set_cell_size  # noqa: E402
 import agent_sessions  # noqa: E402
-from rich.markup import escape  # noqa: E402
 from rich.text import Text  # noqa: E402
 from textual.app import App, ComposeResult  # noqa: E402
+from textual.content import Content  # noqa: E402
 from textual.binding import Binding  # noqa: E402
 from textual.containers import VerticalScroll  # noqa: E402
 from textual.css.query import NoMatches  # noqa: E402
@@ -306,10 +306,12 @@ def _own_header_text(label: str, session: str, target_width: int) -> str:
     exact failure this function exists to prevent. **Post-condition, on every
     rung:** the rendered plain text is ``<= max(0, target_width - 2)`` cells.
 
-    The session name is tmux-side user input, so it is escaped: an unescaped
-    ``[/]`` would close the ``[dim]`` span early and an unescaped ``[dim]``
-    would be eaten outright. Escaped AFTER truncation, so the backslashes never
-    count against the budget (they vanish again in the rendered plain text).
+    The session name is tmux-side user input, so it is made literal with
+    ``markup_literal`` (not ``escape``, which is wrong under Textual's parser —
+    t2017): unescaped, ``[/]`` would close the ``[dim]`` span early and
+    ``[dim]`` would be eaten outright. It is followed by `` ──``, never directly
+    by a tag. Escaped AFTER truncation, so the backslashes never count against
+    the budget (they vanish again in the rendered plain text).
     ``label`` is framework-controlled and deliberately NOT escaped — the same
     rule ``format_section_header`` records for its own caller-built label.
     """
@@ -317,7 +319,8 @@ def _own_header_text(label: str, session: str, target_width: int) -> str:
     bare = f"── {label} ──"
     room = usable - cell_len(bare) - cell_len(_OWN_HEADER_SEP)
     if session and room >= _MIN_SESSION_CELLS:
-        body = f"── {label}{_OWN_HEADER_SEP}{escape(_clip(session, room))} ──"
+        body = (f"── {label}{_OWN_HEADER_SEP}"
+                f"{markup_literal(_clip(session, room))} ──")
     elif cell_len(bare) <= usable:
         body = bare
     else:
@@ -1305,7 +1308,7 @@ class MiniMonitorApp(
         # so the per-tick repaint (t1383/t1420, _refresh_own_live_state) never needs a
         # snapshot it may no longer have.
         self._own_card: Static | None = None
-        self._own_identity_text: str = ""
+        self._own_identity_text: Content | str = ""
         # Tri-state, deliberately: True/False are the two mark glyphs, None means
         # "nothing markable here" (never an agent, or renamed off the `agent-`
         # prefix after the panel was built) and renders NO glyph. It is both the
@@ -2370,7 +2373,9 @@ class MiniMonitorApp(
             bar.update(f"multi: {n}s · {total}a{awaiting_str}{done_str}{idle_str}{parked_str}{frozen_str}{desync}{state_badge}")
         else:
             bar.update(
-                f"{self._session}  {total} agent{'s' if total != 1 else ''}{awaiting_str}{done_str}{idle_str}{parked_str}{frozen_str}{desync}{state_badge}"
+                # The session name is tmux-side user input, followed by two
+                # spaces — never by a tag — so `markup_literal` is exact (t2017).
+                f"{markup_literal(self._session)}  {total} agent{'s' if total != 1 else ''}{awaiting_str}{done_str}{idle_str}{parked_str}{frozen_str}{desync}{state_badge}"
             )
 
     def _compute_completed_panes(self) -> frozenset[str]:
@@ -2464,7 +2469,15 @@ class MiniMonitorApp(
             if info:
                 title = _clip(info.title, min(
                     _TITLE_MAX_CELLS, _detail_budget(self._target_width)))
-                line1 += f"\n  [dim]{escape(title)}[/]"
+                # No closing tag, deliberately (t2017): a (clipped) title can
+                # end in a backslash, which would turn a `[/]` here into text,
+                # and no escaping can prevent that (see `markup_literal`). The
+                # open `[dim]` is harmless: the only row that can follow is the
+                # gate/phase row below, which is `[dim]…[/]` in full, so it
+                # renders exactly as before; Textual closes the span at end of
+                # input. A row added after this one must not assume it starts
+                # unstyled.
+                line1 += f"\n  [dim]{markup_literal(title)}"
                 # Gate summary + advisory phase share ONE row (t1479): they
                 # describe one thing between them, and two rows of a four-row
                 # card is too much of this pane to spend on it. Either half may
@@ -2498,10 +2511,12 @@ class MiniMonitorApp(
 
         Clip BEFORE escaping (as ``_own_header_text`` does): the budget is about
         rendered cells, and a window name is tmux-side user input whose ``[/]``
-        would otherwise close a span early or raise on render.
+        would otherwise close a span early or raise on render. ``markup_literal``
+        (t2017), not ``escape``: every caller follows the name with two spaces,
+        never directly with a tag.
         """
         room = _name_room(prefix, reserve, self._target_width)
-        return escape(_clip(self._display_name(snap), room))
+        return markup_literal(_clip(self._display_name(snap), room))
 
     def _phase_for_snap(self, snap: PaneSnapshot, info) -> "workflow_phase.PhaseSignal":
         """Advisory phase for one pane: cached ledger half + this tick's live
@@ -2533,12 +2548,15 @@ class MiniMonitorApp(
         agent row. Arithmetic: the budget block at the top of this module.
         """
         prefix = "  [dim]○[/] "
-        cmd = escape(_clip(snap.pane.current_command, _OTHER_CMD_CELLS))
+        cmd = markup_literal(_clip(snap.pane.current_command, _OTHER_CMD_CELLS))
         room = _name_room(prefix, _OTHER_CMD_CELLS, self._target_width)
-        name = escape(_clip(snap.pane.window_name, room))
-        return f"{prefix}{name}  [dim]{cmd}[/]"
+        name = markup_literal(_clip(snap.pane.window_name, room))
+        # The command ends the row with its `[dim]` left open (t2017), as in
+        # `MonitorApp._format_other_card_text`: a command ending in a backslash
+        # cannot sit before a closing tag.
+        return f"{prefix}{name}  [dim]{cmd}"
 
-    def _own_agent_identity_text(self, snap: PaneSnapshot) -> str:
+    def _own_agent_identity_text(self, snap: PaneSnapshot) -> Content:
         """Static identity line for the followed agent: window name + optional
         task title. Deliberately omits live status (idle/prompt/active) and the
         idle-detection glyph — the docked panel is built once and is not a
@@ -2555,6 +2573,14 @@ class MiniMonitorApp(
         panel's worst case was an artifact of 40 columns and grew as the pane
         narrowed. Wrapping it here to at most two lines is what makes
         ``_OWN_PANEL_MAX_ROWS`` true at 22 columns as well as at 40.
+
+        **A ``Content``, not a markup string (t2017).** The window name and the
+        title are user text and every wrapped line of them sits directly before
+        its closing tag, where a trailing backslash would turn the tag into
+        text — a case no escaping can express (see ``markup_literal``). So each
+        line is a ``$variable`` of one template, substituted after tokenizing,
+        and ``_own_card_text`` concatenates the result as ``Content`` — it is
+        never parsed again.
         """
         # One budget for both blocks, and NOT a round number: `padding: 0 1`
         # leaves `target_width - 2` usable and the mark glyph costs 2 more, so
@@ -2581,19 +2607,21 @@ class MiniMonitorApp(
         # The glyph is prefixed to the whole string later by _own_card_text, so
         # it lands on the first line; the continuation carries no indent, which
         # is how it read before this wrapping was made explicit.
-        line = "\n".join(f"[bold]{part}[/]" for part in name_lines)
+        rows = [f"[bold]$n{i}[/]" for i in range(len(name_lines))]
+        variables = {f"n{i}": part for i, part in enumerate(name_lines)}
         task_id = self._task_cache.get_task_id_for_pane(snap.pane)
         if task_id:
             info = self._task_cache.get_task_info(task_id, snap.pane.session_name)
             if info:
                 # Wrap the task description over up to two lines, sized to the
                 # companion column (minus its padding + the 2-space indent).
-                for wline in _fold(info.title):
-                    line += f"\n  [dim]{wline}[/]"
-        return line
+                for i, wline in enumerate(_fold(info.title)):
+                    rows.append(f"  [dim]$t{i}[/]")
+                    variables[f"t{i}"] = wline
+        return Content.from_markup("\n".join(rows), **variables)
 
     def _own_card_text(self, mark_kind: str | None, phase: str = "",
-                       frozen_at: str | None = None) -> str:
+                       frozen_at: str | None = None) -> Content:
         """Docked-panel card text: the frozen identity line, the mark glyph, and
         the advisory workflow phase.
 
@@ -2644,6 +2672,13 @@ class MiniMonitorApp(
         # `KIND_NONE`, which is a markable agent that simply carries no mark and
         # renders `☆`. Keeping the two apart is what stops a read-only `☆`
         # appearing on a pane whose `space` refuses (t1383).
+        #
+        # Assembled as `Content` (t2017): the identity is user text already
+        # built as Content (see `_own_agent_identity_text`), so only the
+        # framework parts here are parsed, each on its own — never the whole
+        # card. (`Content + str` would add a str as PLAIN text, which is why
+        # every framework part goes through `Content.from_markup`.)
+        identity = self._own_identity_text
         if frozen_at is not None:
             # A frozen followed agent: this window's own pane now holds the
             # stand-in viewer, so there is no agent process to have a phase.
@@ -2653,13 +2688,15 @@ class MiniMonitorApp(
             # current answer for it (t1705_7).
             prefix = (f"[bold cyan]{FROZEN_GLYPH}[/]" if mark_kind is None
                       else format_frozen_prefix(mark_kind))
-            line = f"{prefix} {self._own_identity_text}"
             stamp = f" {frozen_at}" if frozen_at else ""
-            return line + f"\n  [dim]frozen{stamp}[/]"
-        line = (self._own_identity_text if mark_kind is None
-                else f"{format_mark_glyph(mark_kind)} {self._own_identity_text}")
+            return (Content.from_markup(f"{prefix} ") + identity
+                    + Content.from_markup("\n  [dim]frozen$stamp[/]",
+                                          stamp=stamp))
+        line = (identity if mark_kind is None
+                else Content.from_markup(f"{format_mark_glyph(mark_kind)} ")
+                + identity)
         if phase:
-            line += f"\n  [dim]{phase}[/]"
+            line += Content.from_markup(f"\n  [dim]{phase}[/]")
         return line
 
     def _refresh_own_live_state(self) -> None:
@@ -3105,11 +3142,17 @@ class MiniMonitorApp(
                 # `ack = "hook"` branch). Only a failed or liveness-only one
                 # keeps it, so the only reliable way to keep the transcript is
                 # to copy it out of the viewer (t1777).
-                f"[bold]{escape(window)}[/]\n\n"
-                "[bold red]Its captured output is deleted[/] along with the "
-                "record, and the stand-in pane is closed. This cannot be "
-                "undone. A verified restore or re-pick deletes it too — "
-                "copy it first.",
+                #
+                # The window name sits directly before `[/]`, so it is a
+                # `$variable`, never interpolated (t2017).
+                Content.from_markup(
+                    "[bold]$window[/]\n\n"
+                    "[bold red]Its captured output is deleted[/] along with "
+                    "the record, and the stand-in pane is closed. This cannot "
+                    "be undone. A verified restore or re-pick deletes it too "
+                    "— copy it first.",
+                    window=window,
+                ),
                 # The button must name THIS verb, not the screen's default one:
                 # a "Freeze" button here would read as the reversible operation
                 # while deleting the only copy of the agent's output (t1705_7).
@@ -3131,10 +3174,12 @@ class MiniMonitorApp(
             # with it — the notify/refresh may never render. Otherwise drop the
             # killed card on the next refresh.
             if not killed_window:
-                self.notify(f"Killed {name}")
+                # Window names are tmux-side input; unstyled (t2017).
+                self.notify(f"Killed {name}", markup=False)
                 self.call_later(self._refresh_data)
         else:
-            self.notify(f"Failed to kill {name}", severity="error")
+            self.notify(f"Failed to kill {name}", severity="error",
+                        markup=False)
 
     def action_pick_next_for_own(self) -> None:
         """Find and launch the next sibling task for the followed agent.
@@ -3267,7 +3312,9 @@ class MiniMonitorApp(
                 #    even if killing the current window tears down this app.
                 _, err = launch_in_tmux(screen.full_command, pick_result)
                 if err:
-                    self.notify(f"Launch failed: {err}", severity="error")
+                    # tmux's stderr names the session (t2017).
+                    self.notify(f"Launch failed: {err}", severity="error",
+                                markup=False)
                     return
                 if pick_result.new_window:
                     maybe_spawn_minimonitor(pick_result.session, pick_result.window)
@@ -4216,8 +4263,10 @@ class MiniMonitorApp(
             # told once that the durable record did not land, so a silently
             # unwritable log cannot masquerade as "it never happened".
             message += " (not recorded)"
+        # `message` can embed the shadow's pane command (`subject`); the
+        # toast carries no styling, so it is never parsed (t2017).
         self.notify(f"Auto-recheck loop disarmed: {message}",
-                    severity="warning")
+                    severity="warning", markup=False)
 
     def _loop_hold(self, reason_code: str, *,
                    detail: dict | None = None, live: bool = True) -> None:
@@ -4376,7 +4425,7 @@ class MiniMonitorApp(
                 f"Auto-recheck unavailable for "
                 f"'{snap.pane.current_command or 'unknown'}' — the recheck loop "
                 f"supports {supported}",
-                severity="warning")
+                severity="warning", markup=False)  # pane command (t2017)
             return
         ok, shadow_pane, shadow_command, shadow_pid = (
             await find_shadow_pane_info_async(
@@ -4417,7 +4466,7 @@ class MiniMonitorApp(
             self.notify(
                 f"Auto-recheck unavailable: shadow agent "
                 f"'{shadow_command or 'unknown'}' has no readiness detection "
-                "yet", severity="warning")
+                "yet", severity="warning", markup=False)  # pane command (t2017)
             return
         # Arm. pending_work covers an episode already pending at arm time via
         # the explicit user action; a fresh arm keeps the work latch closed so
@@ -5266,7 +5315,7 @@ class MiniMonitorApp(
         if self._monitor.switch_to_pane(pane_id, prefer_companion=True):
             snap = self._snapshots.get(pane_id)
             name = f"{snap.pane.window_name}" if snap else pane_id
-            self.notify(f"Switched to {name}")
+            self.notify(f"Switched to {name}", markup=False)
         else:
             self.notify("Failed to switch", severity="error")
 

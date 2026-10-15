@@ -44,7 +44,6 @@ from monitor.tmux_monitor import (  # noqa: E402
 )
 from monitor.tmux_control import TmuxControlState  # noqa: E402
 import agent_marks  # noqa: E402
-from rich.markup import escape  # noqa: E402
 from monitor.monitor_shared import (  # noqa: E402
     _ansi_to_rich_text, _TASK_ID_RE, GateSummaryCache, TaskInfo, TaskInfoCache,
     workflow_phase,
@@ -287,11 +286,16 @@ class SessionRenameDialog(ModalScreen):
 
     def compose(self) -> ComposeResult:
         with Container(id="rename-dialog"):
+            # Session names are tmux-side user input and each sits directly
+            # before `[/]`, so they are `$variables`, never interpolated (t2017).
             yield Label(
-                f"[bold yellow]Session name mismatch[/]\n\n"
-                f"Current session: [bold]{self._current}[/]\n"
-                f"Expected session: [bold]{self._expected}[/]\n\n"
-                f"Rename session to [bold]{self._expected}[/]?",
+                Content.from_markup(
+                    "[bold yellow]Session name mismatch[/]\n\n"
+                    "Current session: [bold]$current[/]\n"
+                    "Expected session: [bold]$expected[/]\n\n"
+                    "Rename session to [bold]$expected[/]?",
+                    current=self._current, expected=self._expected,
+                ),
                 id="rename-message",
             )
             with Container(id="rename-buttons"):
@@ -352,19 +356,27 @@ class RestartConfirmDialog(ModalScreen):
     def compose(self) -> ComposeResult:
         with Container(id="restart-dialog"):
             yield Static("[bold yellow]Restart Task[/]", id="restart-header")
+            # Title and status are task-file text, so they are `$variables`
+            # (t2017) — the `KillConfirmDialog` pattern. Only framework
+            # markup stays in the template.
+            variables = {
+                "task_id": self._task_id, "title": self._title,
+                "status": self._status,
+            }
             lines = [
-                f"Current:   [bold]t{self._task_id}[/]: {self._title}  (Status: {self._status})",
+                "Current:   [bold]t$task_id[/]: $title  (Status: $status)",
                 f"Terminal:  idle for {int(self._idle_seconds)}s",
             ]
             if self._status != "Ready":
                 lines.append(
-                    f"\n[yellow]⚠ Task status is '{self._status}' (not Ready) — "
-                    f"pick workflow may behave unexpectedly[/]"
+                    "\n[yellow]⚠ Task status is '$status' (not Ready) — "
+                    "pick workflow may behave unexpectedly[/]"
                 )
             lines.append(
                 "\n[dim]The current pane will be killed after you confirm the spawn dialog.[/]"
             )
-            yield Static("\n".join(lines), id="restart-details")
+            yield Static(Content.from_markup("\n".join(lines), **variables),
+                         id="restart-details")
             with Container(id="restart-buttons"):
                 yield Button("Restart", variant="warning", id="btn-restart")
                 yield Button("Cancel", variant="default", id="btn-cancel")
@@ -780,6 +792,7 @@ class MonitorApp(
                         f"'{self._expected_session}' (which already exists)",
                         severity="warning",
                         timeout=8,
+                        markup=False,  # session names, unstyled (t2017)
                     )
                 else:
                     # Offer to rename
@@ -797,7 +810,7 @@ class MonitorApp(
         """Callback after session rename dialog."""
         if renamed:
             self._session = self._expected_session  # type: ignore[assignment]
-            self.notify(f"Session renamed to '{self._session}'")
+            self.notify(f"Session renamed to '{self._session}'", markup=False)
         self._start_monitoring()
 
     def _teardown_prior_monitoring(self) -> None:
@@ -1712,7 +1725,9 @@ class MonitorApp(
             bar.update(
                 f"tmux Monitor — {len(sessions)} {session_word} "
                 f"· {total} {pane_word} · multi "
-                f"(attached: {attached})"
+                # Session names are tmux-side user input; each is followed by
+                # `)` / ` (`, never by a tag, so `markup_literal` is exact (t2017).
+                f"(attached: {markup_literal(attached)})"
                 f"{awaiting_str}"
                 f"{done_str}"
                 f"{idle_str}"
@@ -1725,7 +1740,7 @@ class MonitorApp(
             )
         else:
             bar.update(
-                f"tmux Monitor — session: {self._session} "
+                f"tmux Monitor — session: {markup_literal(self._session)} "
                 f"({total} pane{'s' if total != 1 else ''})"
                 f"{awaiting_str}"
                 f"{done_str}"
@@ -2974,7 +2989,7 @@ class MonitorApp(
         if self._monitor.switch_to_pane(pane_id):
             snap = self._snapshots.get(pane_id)
             name = f"{snap.pane.window_name}" if snap else pane_id
-            self.notify(f"Switched to {name}")
+            self.notify(f"Switched to {name}", markup=False)
         else:
             self.notify("Failed to switch", severity="error")
 
@@ -3542,9 +3557,10 @@ class MonitorApp(
                     log_path = candidate
                     break
         if log_path is None:
+            # `agent_name` is cut from the window name: tmux-side input (t2017).
             self.notify(
                 f"No log file found for {agent_name}",
-                severity="warning",
+                severity="warning", markup=False,
             )
             return
         try:
@@ -3553,7 +3569,7 @@ class MonitorApp(
                 cwd=str(root),
                 start_new_session=True,  # outlive the monitor TUI (esp. outside tmux)
             )
-            self.notify(f"Opening log for {agent_name}")
+            self.notify(f"Opening log for {agent_name}", markup=False)
         except OSError as exc:
             self.notify(f"Failed to launch log viewer: {exc}", severity="error")
 
@@ -3574,11 +3590,17 @@ class MonitorApp(
                 # `ack = "hook"` branch). Only a failed or liveness-only one
                 # keeps it, so the only reliable way to keep the transcript is
                 # to copy it out of the viewer (t1777).
-                f"[bold]{escape(window)}[/]\n\n"
-                "[bold red]Its captured output is deleted[/] along with the "
-                "record, and the stand-in pane is closed. This cannot be "
-                "undone. A verified restore or re-pick deletes it too — "
-                "copy it first.",
+                #
+                # The window name sits directly before `[/]`, so it is a
+                # `$variable`, never interpolated (t2017).
+                Content.from_markup(
+                    "[bold]$window[/]\n\n"
+                    "[bold red]Its captured output is deleted[/] along with "
+                    "the record, and the stand-in pane is closed. This cannot "
+                    "be undone. A verified restore or re-pick deletes it too "
+                    "— copy it first.",
+                    window=window,
+                ),
                 # The button must name THIS verb, not the screen's default one:
                 # a "Freeze" button here would read as the reversible operation
                 # while deleting the only copy of the agent's output (t1705_7).
@@ -3637,10 +3659,11 @@ class MonitorApp(
         ok, _ = self._monitor.kill_agent_pane_smart(pane_id)
         if ok:
             self._focused_pane_id = None
-            self.notify(f"Killed {name}")
+            self.notify(f"Killed {name}", markup=False)
             self.call_later(self._refresh_data)
         else:
-            self.notify(f"Failed to kill {name}", severity="error")
+            self.notify(f"Failed to kill {name}", severity="error",
+                        markup=False)
 
     def action_pick_next_sibling(self) -> None:
         """Find and launch next sibling task for the focused agent pane."""
@@ -3742,13 +3765,15 @@ class MonitorApp(
             old_name = snap.pane.window_name
             self._monitor.kill_agent_pane_smart(pane_id)
             self._focused_pane_id = None
-            self.notify(f"Killed {old_name}")
+            self.notify(f"Killed {old_name}", markup=False)
 
         def on_pick_result(pick_result):
             if isinstance(pick_result, TmuxLaunchConfig):
                 _, err = launch_in_tmux(screen.full_command, pick_result)
                 if err:
-                    self.notify(f"Launch failed: {err}", severity="error")
+                    # tmux's stderr names the session (t2017).
+                    self.notify(f"Launch failed: {err}", severity="error",
+                                markup=False)
                     return
                 if pick_result.new_window:
                     maybe_spawn_minimonitor(pick_result.session, pick_result.window)
@@ -3839,10 +3864,12 @@ class MonitorApp(
                     if ok:
                         if self._focused_pane_id == pane_id:
                             self._focused_pane_id = None
-                        self.notify(f"Killed {old_window_name}")
+                        self.notify(f"Killed {old_window_name}", markup=False)
                 _, err = launch_in_tmux(screen.full_command, pick_result)
                 if err:
-                    self.notify(f"Launch failed: {err}", severity="error")
+                    # tmux's stderr names the session (t2017).
+                    self.notify(f"Launch failed: {err}", severity="error",
+                                markup=False)
                     return
                 if pick_result.new_window:
                     maybe_spawn_minimonitor(pick_result.session, pick_result.window)

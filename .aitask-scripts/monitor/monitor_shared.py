@@ -350,15 +350,17 @@ def format_session_divider(label: str) -> str:
     of this seam.
 
     ``label`` is a **tmux session name**, i.e. user-controlled text reaching a
-    markup-enabled renderer, so it is escaped (t1580). Unescaped, a session
-    named ``[/]`` raises ``MarkupError`` and takes the whole pane list down
-    with it, and one named ``[dim]`` is silently swallowed — the same hazard
-    already recorded on :meth:`ColumnPickerModal` below, and the reason the
-    minimonitor's own-panel header (``_own_header_text``) escapes the same
-    value. Contrast :func:`format_section_header`, whose label is built by the
-    framework and needs none.
+    markup-enabled renderer, so it is made literal (t1580). Unescaped, a
+    session named ``[/]`` raises ``MarkupError`` and takes the whole pane list
+    down with it, and one named ``[dim]`` is silently swallowed — the same
+    hazard already recorded on :meth:`ColumnPickerModal` below, and the reason
+    the minimonitor's own-panel header (``_own_header_text``) treats the same
+    value alike. :func:`markup_literal`, not ``escape`` (t2017): this markup is
+    parsed by Textual, see that helper. The label is followed by `` ──``, never
+    directly by a tag. Contrast :func:`format_section_header`, whose label is
+    built by the framework and needs none.
     """
-    return f"[{SESSION_DIVIDER_STYLE}]── {escape(label)} ──[/]"
+    return f"[{SESSION_DIVIDER_STYLE}]── {markup_literal(label)} ──[/]"
 
 
 def markup_literal(value: str) -> str:
@@ -383,7 +385,13 @@ def markup_literal(value: str) -> str:
     a tag: end the markup with it (Textual closes open styles at end of input),
     or build the widget content with ``Content.from_markup(template,
     **variables)``, whose ``$name`` values are substituted after tokenizing
-    and so are always literal.
+    and so are always literal. In such a template EVERY user value must be a
+    variable: substitution runs over all template text, so a ``$title`` inside
+    an interpolated name would be expanded.
+
+    The other two boundaries need no markup at all (t2017): a toast that
+    carries no styling takes ``notify(..., markup=False)``, and a ``Static``
+    whose text has no tags takes ``Content(text)``.
     """
     return value.replace("[", "\\[")
 
@@ -866,8 +874,11 @@ class AgentMarksMixin:
         rc, out = await self._run_marks_cmd(["cycle", root, window])
         first = out.splitlines()[0] if out else ""
 
+        # Every toast below names the window (tmux-side user input) or, on
+        # failure, quotes the marks store's own error, which embeds stored
+        # window names. None carries styling, so none is parsed (t2017).
         if first.startswith("MARKED:"):
-            self.notify(f"Prioritized {window}", timeout=3)
+            self.notify(f"Prioritized {window}", timeout=3, markup=False)
         elif first.startswith("PARKED:"):
             # With the filter on the row is about to vanish, and the only way
             # back is P then space. Say so here rather than leaving the user to
@@ -876,17 +887,18 @@ class AgentMarksMixin:
                 self.notify(
                     f"Parked {window} — hidden. Press P to show parked/frozen "
                     "agents, then Space to unpark.",
-                    timeout=6,
+                    timeout=6, markup=False,
                 )
             else:
-                self.notify(f"Parked {window}", timeout=3)
+                self.notify(f"Parked {window}", timeout=3, markup=False)
         elif first.startswith("UNMARKED:"):
-            self.notify(f"Unmarked {window}", timeout=3)
+            self.notify(f"Unmarked {window}", timeout=3, markup=False)
         elif first == "LOCK_BUSY" or rc == 3:
             self.notify("Marks file busy — try again", severity="warning")
             return
         else:
-            self.notify(f"Mark failed: {first or f'exit {rc}'}", severity="error")
+            self.notify(f"Mark failed: {first or f'exit {rc}'}",
+                        severity="error", markup=False)
             return
 
         # The write may land inside the same coarse mtime tick as the last read,
@@ -1075,7 +1087,12 @@ class AgentMarksMixin:
                     timer.stop()      # type: ignore[attr-defined]
                 except Exception:     # noqa: BLE001 - already stopped
                     pass
-            self.notify(note, severity="warning" if warn else "information")
+            # Plain text in every branch, but not framework-only: a failed
+            # restore's note carries the record's `last_error`, and a survivor
+            # refusal stores `restore_survivor:<session>:<window>|pane:<id>`
+            # there — tmux-side names (t2017).
+            self.notify(note, severity="warning" if warn else "information",
+                        markup=False)
             self.call_later(self._refresh_data)
 
         timers["t"] = self.set_interval(_FROZEN_POLL_INTERVAL, tick)
@@ -1155,9 +1172,15 @@ class AgentMarksMixin:
         self.push_screen(
             FreezeConfirmDialog(
                 "Freeze this agent?",
-                f"[bold]{escape(window)}[/]\n\n"
-                "The agent process ends. Its terminal output is captured and "
-                "kept, and it can be restored or re-picked later.",
+                # The window name sits directly before `[/]`, so it is a
+                # `$variable`, never interpolated (t2017): a name ending in a
+                # backslash would otherwise turn the tag into text.
+                Content.from_markup(
+                    "[bold]$window[/]\n\n"
+                    "The agent process ends. Its terminal output is captured "
+                    "and kept, and it can be restored or re-picked later.",
+                    window=window,
+                ),
             ),
             confirmed,
         )
@@ -2268,13 +2291,19 @@ class TaskDetailDialog(ModalScreen):
         ``#task-detail-scroll`` — is inherited verbatim.
         """
         info = self._info
+        # The title sits directly before `[/]`, so it is a `$variable`; the
+        # meta line is frontmatter with no markup at all, so it is plain
+        # Content and cannot be parsed (t2017).
         yield Static(
-            f"[bold]t{info.task_id}: {info.title}[/]",
+            Content.from_markup("[bold]t$task_id: $title[/]",
+                                task_id=info.task_id, title=info.title),
             id="task-detail-header",
         )
         yield Static(
-            f"Priority: {info.priority}  Effort: {info.effort}  "
-            f"Type: {info.issue_type}  Status: {info.status}",
+            Content(
+                f"Priority: {info.priority}  Effort: {info.effort}  "
+                f"Type: {info.issue_type}  Status: {info.status}"
+            ),
             id="task-detail-meta",
         )
         yield VerticalScroll(
@@ -2310,7 +2339,14 @@ class TaskDetailDialog(ModalScreen):
         scroll.mount(Markdown(content or "*No content*"))
 
         header = self.query_one("#task-detail-header", Static)
-        header.update(f"[bold]t{self._info.task_id}: {self._info.title}[/] [{label}]")
+        # `$label` carries its own brackets as a variable: the literal
+        # `[Plan]` / `[Task]` it replaces was read as an unknown tag and never
+        # rendered (t2017).
+        header.update(Content.from_markup(
+            "[bold]t$task_id: $title[/] $label",
+            task_id=self._info.task_id, title=self._info.title,
+            label=f"[{label}]",
+        ))
 
 
 class TaskNumberInputModal(ModalScreen):
@@ -2510,6 +2546,9 @@ class TaskPickConfirmDialog(TaskDetailDialog):
         it is ticked — only the colour differs. That is too weak a signal for a
         control that closes down a running agent, especially in a ~40-column
         pane, so the state is restated here in text.
+
+        Plain text — the label names the followed window — so every widget
+        it reaches wraps it in ``Content`` rather than parsing it (t2017).
         """
         verb = "KILLS" if kill else "keeps"
         return f"{verb} {self._kill_target_label}"
@@ -2518,7 +2557,7 @@ class TaskPickConfirmDialog(TaskDetailDialog):
         if event.checkbox.id != "pick-kill":
             return
         self.query_one("#pick-kill-detail", Static).update(
-            self._kill_detail_text(event.value)
+            Content(self._kill_detail_text(event.value))
         )
 
     def _eligibility_lines(self) -> list[str]:
@@ -2550,10 +2589,14 @@ class TaskPickConfirmDialog(TaskDetailDialog):
                     eligibility = self._eligibility_lines()
                     if eligibility:
                         yield Static(
-                            "\n".join(eligibility), id="pick-eligibility"
+                            # Plain text with a frontmatter status in it,
+                            # like the two Statics below (t2017).
+                            Content("\n".join(eligibility)),
+                            id="pick-eligibility",
                         )
                     if self._already_running:
-                        yield Static(self._already_running, id="pick-running")
+                        yield Static(Content(self._already_running),
+                                     id="pick-running")
                     if self._kill_target_label is not None:
                         # Short label on purpose: ToggleButton is `text-wrap:
                         # nowrap; text-overflow: ellipsis`, so a long one is
@@ -2564,7 +2607,8 @@ class TaskPickConfirmDialog(TaskDetailDialog):
                             "kill followed agent", value=False, id="pick-kill"
                         )
                         yield Static(
-                            self._kill_detail_text(False), id="pick-kill-detail"
+                            Content(self._kill_detail_text(False)),
+                            id="pick-kill-detail",
                         )
                     with Container(id="pick-buttons"):
                         if self.has_eligibility_warning:
@@ -2668,9 +2712,12 @@ class FreezeConfirmDialog(ModalScreen):
     #freeze-buttons Button { width: auto; min-width: 10; margin: 0 1; }
     """
 
-    def __init__(self, title: str, body: str, *,
+    def __init__(self, title: str, body: str | Content, *,
                  confirm_label: str = "Freeze",
                  destructive: bool = False) -> None:
+        """``body`` is markup, or a ``Content`` when it names user text (a
+        window name): build that with ``Content.from_markup(template,
+        **variables)`` so the name is never parsed (t2017)."""
         super().__init__()
         self._title = title
         self._body = body
@@ -2851,17 +2898,29 @@ class NextSiblingDialog(ModalScreen):
         will_kill = self._current_status == "Done" or is_parent_with_children
         with Container(id="next-sib-dialog"):
             yield Static("[bold yellow]Pick Next Sibling[/]", id="next-sib-header")
+            # Task titles and status are `$variables` (t2017), the
+            # `KillConfirmDialog` pattern: substituted after tokenizing, so
+            # they are literal whatever follows them. Only framework markup
+            # (including `_followup_prefix`) stays in the template.
+            variables = {
+                "cur_id": self._current_task_id,
+                "cur_title": self._current_title,
+                "cur_status": self._current_status,
+                "sug_id": self._suggested_id,
+                "sug_title": self._suggested_title,
+            }
             lines = [
-                f"Current:   [bold]t{self._current_task_id}[/]: {self._current_title}  (Status: {self._current_status})",
+                "Current:   [bold]t$cur_id[/]: $cur_title  (Status: $cur_status)",
                 f"Suggested: {_followup_prefix(self._suggested_followup_kind)}"
-                f"[bold]t{self._suggested_id}[/]: {self._suggested_title}",
+                "[bold]t$sug_id[/]: $sug_title",
             ]
             if will_kill:
                 if is_parent_with_children:
                     lines.append("\n[yellow]Parent agent pane will be killed (parent is split into children)[/]")
                 else:
                     lines.append("\n[yellow]Current agent pane will be killed (task is Done)[/]")
-            yield Static("\n".join(lines), id="next-sib-details")
+            yield Static(Content.from_markup("\n".join(lines), **variables),
+                         id="next-sib-details")
             with Container(id="next-sib-buttons"):
                 yield Button(f"Pick t{self._suggested_id}", variant="warning", id="btn-pick-suggested")
                 yield Button("Choose sibling", variant="primary", id="btn-choose-sibling")
@@ -2926,7 +2985,11 @@ class _SiblingRow(Static):
         return self._sib_id
 
     def render(self) -> str:
-        base = f"{_followup_prefix(self._followup_kind)}[bold #7aa2f7]t{self._sib_id}[/]  {self._title}"
+        # The title is followed by two spaces or by the end of the markup,
+        # never directly by a tag, so `markup_literal` is exact (t2017).
+        base = (f"{_followup_prefix(self._followup_kind)}"
+                f"[bold #7aa2f7]t{self._sib_id}[/]  "
+                f"{markup_literal(self._title)}")
         if self._blocking_ids:
             blockers = " ".join(f"t{b}" for b in self._blocking_ids)
             base += f"  [bold red]⛔ blocked by {blockers}[/]"

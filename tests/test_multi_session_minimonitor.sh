@@ -392,7 +392,7 @@ print("OWN_NOT_CROSS:" + str(own.pane.pane_id == "%1"))
 del app._snapshots["%3"]
 
 # Identity text carries the window name but NO live status / idle glyph.
-text = app._own_agent_identity_text(app._snapshots["%1"])
+text = app._own_agent_identity_text(app._snapshots["%1"]).plain  # Content (t2017)
 print("IDENTITY_NAME:" + str("agent-own" in text))
 print("IDENTITY_NO_STATUS:" + str(
     all(tok not in text for tok in ("IDLE", "Active", "PROMPT", "●", "≈"))

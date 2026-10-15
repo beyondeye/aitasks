@@ -505,7 +505,8 @@ class RowRenderTests(unittest.TestCase):
         agent_pane = _pane("%1", window_name="agent-t42")
         shadow_snap = _snapshot(_pane("%9", shadow_target="%1"), awaiting=True)
         app = self._mini_app({"%1": shadow_snap})
-        panel = app._own_agent_identity_text(_snapshot(agent_pane))
+        # A `Content` since t2017; assert on what it shows.
+        panel = app._own_agent_identity_text(_snapshot(agent_pane)).plain
         self.assertNotIn(SHADOW_GLYPH, panel)
         self.assertNotIn("●", panel)  # no live status at all
 

@@ -1380,8 +1380,8 @@ class MinimonitorOwnPanelTests(_Fixture):
         app._own_identity_text = "agent-f"
         app._own_frozen_at = lambda s: frozen_at
         mark_kind = app._mark_kind(snap)
-        return Text.from_markup(
-            app._own_card_text(mark_kind, "", frozen_at)).plain
+        # `_own_card_text` returns `Content` since t2017 — read it directly.
+        return app._own_card_text(mark_kind, "", frozen_at).plain
 
     def test_it_shows_the_marker_and_the_stamp(self):
         plain = self._panel(snapshot("agent-f", frozen=True),
@@ -1395,8 +1395,8 @@ class MinimonitorOwnPanelTests(_Fixture):
         agent has no current answer for it — a stale one would read as now."""
         app = self.app(MiniMonitorApp, [])
         app._own_identity_text = "agent-f"
-        plain = Text.from_markup(
-            app._own_card_text(None, "planning", "2026-09-04T09:20:00Z")).plain
+        plain = app._own_card_text(
+            None, "planning", "2026-09-04T09:20:00Z").plain
         self.assertNotIn("planning", plain)
 
     def test_an_unreadable_record_still_says_frozen(self):
@@ -1410,8 +1410,7 @@ class MinimonitorOwnPanelTests(_Fixture):
         """Positive control for the suppression above."""
         app = self.app(MiniMonitorApp, [])
         app._own_identity_text = "agent-live"
-        plain = Text.from_markup(
-            app._own_card_text(None, "planning", None)).plain
+        plain = app._own_card_text(None, "planning", None).plain
         self.assertIn("planning", plain)
 
 
