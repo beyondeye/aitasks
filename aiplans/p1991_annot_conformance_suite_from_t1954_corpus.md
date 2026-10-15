@@ -420,3 +420,170 @@ Step 8e: offer an advisory `/aitask-note` to t1990 (still in flight). It says
 that `confKnown` pins its two fixtures with `tracking: "t1990"`, and that
 whichever lands second updates those pins. It also says that the four
 multi-dollar fixtures are already in `testdata/conformance/kotlin/`.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-15 10:05)
+- **Requested by user:** (1) the oracle reader silently replaced a second
+  `outcome:` / `after:` within one `.edits` op and accepted a reversed range
+  (`4-1`) as an empty line list, contradicting the strict-reader guarantee;
+  reject both, with focused malformed-input checks. (2) `TestConformance`
+  summed sensitive-probe counts inside the selected subtests but compared them
+  with full-corpus totals, so `-run` on one case failed; make the coverage
+  check selection-independent.
+- **Changes made:**
+  - `parseConfEdits` rejects a duplicate `outcome:` or `after:` within an op
+    (and an empty `outcome:`); `parseConfLines` rejects a reversed range (it
+    applies to every `.expect` line list too).
+  - New `TestConformanceReaderRejectsMalformed`: 9 malformed `.edits`, 2
+    reversed ranges, 5 malformed `.expect`, each with its expected error, plus
+    positive controls (two well-formed ops; `3,5-5,7-8`). Against the unfixed
+    reader (isolated copy) it fails on exactly the three reported behaviours.
+  - The sensitive-probe aggregate moved out of `TestConformance` into
+    `TestConformanceProbeCoverage`, which builds (never runs) the probes of
+    every case; `confProtected` is shared by both. `-run
+    '^TestConformance$/^go$/^ordinary.go$'` now passes.
+- **Files affected:** `goengines/internal/testmap/annot/conformance_reader_test.go`,
+  `goengines/internal/testmap/annot/conformance_test.go`
+
+## Final Implementation Notes
+- **Actual work done:**
+  - `goengines/internal/testmap/annot/testdata/conformance/{bash,python,go,kotlin}/`:
+    445 files (189 cases: 69 / 67 / 22 / 31), `cp -p` copies of the corpus at
+    `07713a9c445128840b674d7b4d015db60530d591` (the `100755` of
+    `bash/exec_mode_edit.sh.in` kept). Every one of the 445 PROVENANCE hashes
+    was cross-checked against `git show <commit>:<corpus>/<path> | sha256sum`
+    (0 mismatches). PROVENANCE header: `source:`, `commit:` (the corpus commit)
+    and `research-pin:` (annot `3d1a2b628`, where the research measured).
+  - `conformance_reader_test.go`: the strict test-only reader of the
+    `.expect` / `.edits` format, plus `TestConformanceReaderRejectsMalformed`.
+  - `conformance_test.go`, the gate:
+    - `TestConformance` (one subtest per case): lexical, records, placement,
+      `.edits` replay through the real `ParseFile → PlanCovers → Apply`,
+      fidelity, and protected-line write probes;
+    - `TestConformanceProbeCoverage`: sensitive probes per language, pinned at
+      bash 39, python 16, go 13, kotlin 16;
+    - `TestConformanceKnownTable`: every pin has a why, and a safety pin needs
+      `tracking`;
+    - `TestConformanceProvenance`: every hash, no unlisted file, no stray
+      top-level entry, a 40-hex `commit:`;
+    - `TestConformanceCheckerCatches`: the harness self-checks, plus probe
+      validity in all four languages (member blocks included) and a malformed
+      probe that is a `probe-error`, never a pass.
+  - `tests/test_annot_conformance_corpus_sync.sh` (the inline post-phase
+    `conformance_corpus_drift_guard`) checks file lists, bytes and exec bits,
+    with 7 negative controls (17 assertions). It is wired into
+    `.github/workflows/goengines-check.yml`: the corpus and the guard are in
+    both trigger lists, and the check job has an `annot conformance corpus sync
+    guard` step. `tests/test_release_workflow_goengines.py` pins both
+    (`CHECK_PATHS` and the guard list), and `aidocs/framework/go_engine.md`
+    documents them.
+- **Deviations from plan:**
+  - **t1990 landed before the measurement** (`cf210a9e9`, which models Kotlin
+    2.2 multi-dollar strings exactly). The four multi-dollar fixtures are
+    therefore clean at HEAD, `confKnown` has no t1990 entries, and no pin needs
+    `tracking`.
+  - Final `confKnown`, which matches `results/t4/matrix_baseline.md` case for
+    case:
+    - `bash/heredoc_in_backtick_subst.sh`: over-refusal @2, a refusal
+      mismatch, and the probe cost on line 3;
+    - `bash/lex_arith_or_subshell_across_lines.sh`: over-refusal @1;
+    - `bash/lex_heredoc_escape_in_quoted_delimiter.sh`: over-refusal @1 and a
+      refusal mismatch;
+    - x-policy class readings: `bash/lex_backtick_spanning.sh:2` Literal,
+      `bash/lex_continuation_line_is_code.sh:2` Code,
+      `python/lex_continuation.py:2` Code, `python/tstrings_314.py:5` Literal.
+  - Python has 16 sensitive probes, not "≈39". Most protected Python lines are
+    mid-line tokens or docstring content, which get the non-sensitive probe
+    forms.
+- **Issues encountered:**
+  - The first draft of the "look-alike classed Comment" self-check also had to
+    drop line 4 from `read:`. The records check flags only *extra* records,
+    exactly as research does.
+  - The review found that the reader silently replaced a duplicated
+    `outcome:` / `after:` and accepted a reversed range, and that the probe
+    aggregate depended on `-run` selection. Both were fixed (Post-Review Changes
+    above).
+- **Key decisions:**
+  - Finding texts follow the research runner's notes, so pins can be traced to
+    the research matrix.
+  - Every finding must be pinned, and a pin that stops occurring fails too.
+  - Probes run on a fresh copy each, and expect the file's protective refusal.
+    A conflict or an `error:` outcome is a `probe-error`, never a pass.
+  - Behaviour (`exec:`) is not run: the gate is hermetic. The drift guard is a
+    repo-level CI step, because the Go tests must not read `aidocs/`.
+  - All measurements and probes were taken with the `annot` package clean in
+    the shared tree (checked before each run); the controls below ran in
+    isolated `git archive` copies.
+- **Negative control (mutated classifier), recorded verbatim.** In an isolated
+  `git archive HEAD goengines` copy plus the new test files and testdata, the
+  unmutated copy passed (`ok … annot 0.256s`). Then this mutation (bash heredocs
+  never registered, so their bodies are lexed as code):
+
+  ```diff
+  --- lexctx.go.orig
+  +++ lexctx.go
+  @@ -451,7 +451,7 @@
+   				return false, &Unclosed{Line: no, Construct: "heredoc delimiter"}
+   			}
+   			h.line = no
+  -			*pending = append(*pending, h)
+  +			_ = h // NEGATIVE CONTROL: heredoc never registered
+   			i = next
+   			wordStart = true
+   		case top.kind == 'P' && c == '(':
+  ```
+
+  Command: `cd <scratch>/nc/goengines && go test ./internal/testmap/annot/ -run 'TestConformance$' -count=1`
+  → `exit=1`, `FAIL github.com/beyondeye/aitasks/goengines/internal/testmap/annot 0.063s`.
+  - 17 cases failed: `bash/{edits_members, edits_uncertain, embedded,
+    heredoc_matrix, lex_delayed_by_continuation, lex_delayed_by_spanning_quote,
+    lex_heredoc, lex_heredoc_ansi_c_delimiter, lex_heredoc_body_continuation,
+    lex_heredoc_in_cmdsubst, lex_heredoc_locale_delimiter,
+    lex_heredoc_partly_quoted, lex_heredoc_strip_continuation,
+    lex_heredoc_strip_quoted, lex_two_heredocs, lex_unterminated_heredoc,
+    lookalikes}.sh`.
+  - 107 unpinned findings: 58 FP-writable, 18 read, 17 cost, 5 refusal, 4
+    record-corruption, 3 silent-uncertain, 2 over-refusal.
+  - Excerpt:
+
+    ```
+    --- FAIL: TestConformance/bash/embedded.sh (0.00s)
+    conformance_test.go:136: unpinned finding: FP-writable: line 4 classed Comment (look-alike/read-only)
+    conformance_test.go:136: unpinned finding: read: extra line=4 member= key=covers value=src/py_in_heredoc.py stamp= origin=comment
+    conformance_test.go:136: unpinned finding: FP-writable: look-alike/read-only line 4 read as a comment annotation
+    conformance_test.go:136: unpinned finding: FP-writable: probe line 4 applied
+    ```
+
+  - The write probes alone caught 17 accepted writes in 13 cases. 12 of those
+    fixtures have no `.edits` (`bash/embedded.sh`,
+    `bash/lex_heredoc*.sh`, …), so without the probes their write path would
+    not have been exercised.
+- **Second control (a real historical defect).** The same gate, run against
+  `git archive 3d1a2b628 goengines` (the pre-t1990 reader), exits 1 on exactly
+  the research's Kotlin row, and nothing else changes:
+  `kotlin/multidollar_comment_desync.kt` gives FP-writable line 9 classed
+  Comment, `read: extra line=9 …`, FP-writable record, FP-writable `op 1 (raw
+  …): outcome applied, want refused:not-comment`, `record-corruption: op 1 …:
+  records after differ`, and `FP-writable: probe line 9 applied`.
+  `kotlin/multidollar_interpolation.kt` gives over-refusal @5, `refusal: got
+  uncertain@5, want none`, and `cost: probe line 4: refused:uncertain, want
+  refused:not-comment`.
+- **Other controls:**
+  - the drift guard's 7 scratch-pair controls (in the test itself);
+  - the workflow structure guard fails on a scratch workflow without the new
+    step (`test_check_job_runs_the_guards`) and without the corpus path
+    (`test_triggers_on_everything_the_guards_protect`);
+  - `TestConformanceReaderRejectsMalformed`, against the unfixed reader, fails
+    on duplicate outcome, duplicate after and the reversed ranges.
+- **Verification:**
+  - `go test ./internal/testmap/annot/... -count=1` ok (0.3 s);
+  - `go vet ./...` clean and `gofmt -l` empty;
+  - `go test -run 'TestDependencyAllowlist|TestInvariant5' .` ok, with
+    `guards_test.go`, `go.mod` and `go.sum` unchanged;
+  - `bash tests/test_annot_conformance_corpus_sync.sh`: 17/17;
+  - `python3 -m unittest tests/test_release_workflow_goengines.py`: 9 tests
+    OK;
+  - `shellcheck -x` clean.
+- **Upstream defects identified:**
+  - `tests/test_linked_trail_jump_live.sh:164 — no enter_scratch_cwd before the first cd, so tests/test_cd_guard_lint.sh fails (91/92) on HEAD (committed by t1957_4)`
