@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -46,3 +48,5 @@ Raw interpolation sites in `monitor_app.py` found by grep: :1763, :1775 (frozen 
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-10-15T19:55:33Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-10-15T20:06:53Z status=pass attempt=1 type=human
