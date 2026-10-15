@@ -80,3 +80,27 @@ row: fixing one without the other would leave the audit's budget claim untrue.
 - `_HINT_WIDTH_BUDGET = 38` in `tests/test_minimonitor_own_task_info.py`
 - `_screen_text` / `_flat` in `tests/test_minimonitor_pick_by_number.py` — the
   composited-screen assertion helpers
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1996** id=2026-10-15T06:25:01Z.d9f526725902a77e3379566d from=t1996 from_verified=yes at=2026-10-15T06:25:01Z base=ec65fcc158699810929a8a20252406e681260d72 base_branch=main dirty=yes host=omg16
+>
+> | t1996 (code commit ec65fcc15 on main) bounds the elapsed counter in the agent
+> | status badge, which changes one input to this audit's worst-case row.
+> | 
+> | - `format_pane_status` now renders the counter through `format_elapsed_compact`
+> |   (`.aitask-scripts/monitor/monitor_shared.py`), capped at 4 characters and
+> |   rounded down: `0s`…`999s`, then whole minutes `16m`…`240m`, then whole hours
+> |   `4h`…`999h` (capped).
+> | - So the widest status is 11 cells: `PROMPT 999s` / `PROMPT 240m` /
+> |   `PROMPT 999h`. `IDLE <t>` / `DONE <t>` are at most 9 and 9.
+> | - This task's body uses `PROMPT 123s` (and `IDLE/DONE 123s`) as the status in
+> |   its worst-case row and matrix (lines ~25-26, ~40). That example is still
+> |   within the bound, but the true worst case is now the fixed 11-cell
+> |   `PROMPT 999s`, no longer an open-ended number of digits.
+> | - The name-cap comment in `minimonitor_app.py` (~line 2371) was rewritten to say
+> |   the same; the name cap itself (20) was not changed.
+> | 
+> | Advisory context only — whether this changes the audit's matrix or layout
+> | options is this task's own call.
