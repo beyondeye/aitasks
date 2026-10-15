@@ -161,6 +161,39 @@ func TestKotlinDeclNameStopsAfterName(t *testing.T) {
 	}
 }
 
+// `fun interface X` declares X once, under its `fun`: the `interface` token
+// after the keyword is part of that declaration, not a second one. A
+// backticked name is an identifier, never a keyword — it neither opens a
+// declaration nor forms the `fun interface` pair. Every row is compared
+// exactly, so a phantom declaration fails as surely as a lost one.
+func TestKotlinFunInterfaceDeclaredOnce(t *testing.T) {
+	for name, tc := range map[string]struct {
+		src  string
+		want []string
+	}{
+		"fun-interface":    {`fun interface Listener { fun on() }`, []string{"fun:Listener"}},
+		"modified-generic": {`public fun interface P<T> { fun on(t: T) }`, []string{"fun:P"}},
+		"split-lines":      {lines(`fun`, `interface Q`), []string{"fun:Q"}},
+		"escaped-fun":      {lines("val a = `fun`", `interface Y`), []string{"val:a", "interface:Y"}},
+		"escaped-object":   {lines("val b = `object`", `fun g() = 1`), []string{"val:b", "fun:g"}},
+		// A function named `interface`.
+		"escaped-interface-name": {"fun `interface`() = 1", []string{"fun:interface"}},
+		// Controls.
+		"plain-interface":    {`interface Foo`, []string{"interface:Foo"}},
+		"fun-then-interface": {lines(`fun f() = 1`, `interface I`), []string{"fun:f", "interface:I"}},
+		"dotted-escaped-fun": {lines("val a = obj.`fun`", `interface Y`), []string{"val:a", "interface:Y"}},
+		"escaped-val-name":   {"val `fun` = 1", []string{"val:fun"}},
+	} {
+		var got []string
+		for _, s := range scanKotlin([]byte(lines(`package x`, tc.src))).Symbols {
+			got = append(got, s.Kind+":"+s.Name)
+		}
+		if !slices.Equal(got, tc.want) {
+			t.Errorf("%s: symbols %v, want %v", name, got, tc.want)
+		}
+	}
+}
+
 // End to end: an import of a delegated property resolves to its declaring
 // file as a static import, not a closure-only package fallback.
 func TestKotlinDelegatedPropertyImport(t *testing.T) {

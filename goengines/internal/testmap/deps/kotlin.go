@@ -82,6 +82,7 @@ func scanKotlin(data []byte) rawFile {
 	depth := 0
 	parens := 0 // open '(': constructor parameters, annotation arguments, calls
 	seenDecl := false
+	funIface := -1 // the `interface` token of a `fun interface` its `fun` already declared
 	refSeen := map[string]bool{}
 	keySeen := map[string]bool{}
 	var annots [][]string            // every annotation's written chain
@@ -167,9 +168,14 @@ func scanKotlin(data []byte) rawFile {
 				k.Keys = append(k.Keys, key)
 			}
 		}
-		// Only a keyword outside every brace and parenthesis declares in the
-		// package: `class X(val a: A)` declares X, not a.
-		if depth == 0 && parens == 0 && !prevDot && slices.Contains(declKeywordsKt, t.text) {
+		// Only an unescaped keyword outside every brace and parenthesis
+		// declares in the package: `class X(val a: A)` declares X, not a, and
+		// a backticked `fun` is an identifier. The `interface` of
+		// `fun interface X` belongs to its `fun`'s declaration, not a second one.
+		if depth == 0 && parens == 0 && !prevDot && !t.esc && i != funIface && slices.Contains(declKeywordsKt, t.text) {
+			if isFunInterface(toks, i) {
+				funIface = i + 1
+			}
 			if name, line, ext := ktDeclName(toks, i); name != "" {
 				seenDecl = true
 				k.Decls = append(k.Decls, Symbol{Name: name, Kind: t.text, Line: line})
@@ -263,6 +269,15 @@ func isDIAnnotation(segs []string, aliases map[string][]string) bool {
 
 func isLowerStart(s string) bool { return s != "" && s[0] >= 'a' && s[0] <= 'z' }
 
+// isFunInterface reports whether toks[i] is the `fun` of `fun interface X`:
+// ktDeclName reads X past the `interface` token, which therefore opens no
+// declaration of its own. Backticked `fun` / `interface` are identifiers,
+// not the keyword pair.
+func isFunInterface(toks []ktok, i int) bool {
+	return toks[i].text == "fun" && !toks[i].esc && i+1 < len(toks) &&
+		toks[i+1].kind == 'n' && toks[i+1].text == "interface" && !toks[i+1].esc
+}
+
 // ktDeclName returns the declared name of the declaration whose keyword is
 // toks[i]: for fun / val / var the identifier after the optional receiver
 // type (`a.B<T>?.`; ext reports one). An identifier continues the receiver
@@ -272,7 +287,7 @@ func isLowerStart(s string) bool { return s != "" && s[0] >= 'a' && s[0] <= 'z' 
 func ktDeclName(toks []ktok, i int) (name string, line int, ext bool) {
 	kw := toks[i].text
 	j := i + 1
-	if kw == "fun" && j < len(toks) && toks[j].text == "interface" {
+	if isFunInterface(toks, i) {
 		j++
 	}
 	if j < len(toks) && toks[j].text == "<" { // generics

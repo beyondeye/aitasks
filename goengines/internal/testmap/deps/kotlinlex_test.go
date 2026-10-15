@@ -2,6 +2,7 @@ package deps
 
 import (
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -60,5 +61,21 @@ func TestKotlinLexerMultiDollarFailsClosed(t *testing.T) {
 	}
 	if got := scanKotlin([]byte(src)).Opaque; !slices.Contains(got, "untokenizable") {
 		t.Fatalf("opaque %v, want untokenizable", got)
+	}
+}
+
+// A backticked name keeps its unquoted text and kind, and is marked so that
+// `fun` the identifier is never read as `fun` the keyword.
+func TestKotlinLexerMarksEscapedIdentifiers(t *testing.T) {
+	toks, err := ktLex("`fun` fun `interface` interface")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, k := range toks {
+		got = append(got, fmt.Sprintf("%c:%s:%t", k.kind, k.text, k.esc))
+	}
+	if want := []string{"n:fun:true", "n:fun:false", "n:interface:true", "n:interface:false"}; !slices.Equal(got, want) {
+		t.Errorf("tokens %v, want %v", got, want)
 	}
 }

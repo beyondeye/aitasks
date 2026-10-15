@@ -12,6 +12,7 @@ import (
 // number.
 type ktok struct {
 	kind byte
+	esc  bool // a backticked identifier: never a keyword (beside kind: no padding)
 	text string
 	line int
 }
@@ -38,7 +39,7 @@ type ktLexer struct {
 }
 
 func (l *ktLexer) emit(kind byte, text string, line int) {
-	l.toks = append(l.toks, ktok{kind, text, line})
+	l.toks = append(l.toks, ktok{kind: kind, text: text, line: line})
 }
 
 // code lexes code until EOF, or — inTemplate — until the '}' closing a
@@ -77,7 +78,7 @@ func (l *ktLexer) code(inTemplate bool) error {
 			if j >= len(l.src) || l.src[j] != '`' {
 				return errUntokenizable
 			}
-			l.emit('n', l.src[l.i+1:j], l.line)
+			l.toks = append(l.toks, ktok{kind: 'n', text: l.src[l.i+1 : j], line: l.line, esc: true})
 			l.i = j + 1
 		case c == '{':
 			depth++
