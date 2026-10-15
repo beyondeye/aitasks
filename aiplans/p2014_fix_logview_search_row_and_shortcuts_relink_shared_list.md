@@ -136,3 +136,37 @@ None identified.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+
+- **Actual work done:** All four steps were done as planned, test-first.
+  - Logview: `#search-box` now has `border: none`, plus a CSS comment
+    (`.aitask-scripts/logview/logview_app.py`). The new
+    `tests/test_logview_search_box.py` pins the drawn placeholder, the drawn
+    typed term, the layout order and Enter-submit.
+  - Mixin: `_relink_live_bindings` now assigns
+    `mapping[new_key] = [*mapping.get(new_key, []), active_b]`
+    (`.aitask-scripts/lib/shortcuts_mixin.py`). `_CollidingApp` and
+    `SharedKeyRebindTests` were added to `tests/test_shortcuts_mixin_live_remap.py`.
+- **Red proofs (pre-fix):**
+  - The logview test failed `0 not greater than or equal to 1` on
+    `content_region.height`.
+  - The remap test failed `class-level keymap mutated`. The diff showed
+    `Binding(key='y', action='do_thing')` appended to the class list.
+  - That first failure masks the later assertions, so the test was also run on
+    the unfixed code with the equality assertions neutralised. The key-press
+    assertion then failed `leaked override fired on 'y'`: a later instance with
+    no override fired `do_thing` on `y` once `other` raised `SkipAction`.
+- **Deviations from plan:** None.
+- **Issues encountered:** The full Python suite (pytest) ran 1 failed,
+  9091 passed, 2 skipped. The failure is
+  `test_textual_markup_colours.py::MarkupStructureScanTests::test_every_closing_tag_matches_an_open_tag`.
+  It flags the hostile fixture literal `'Fix [/] and [dim]x[/dim]'` at
+  `tests/test_monitor_markup_escape.py:69`, which t2006 committed
+  (337d0f6e0) before this task. It is unrelated to this change and already
+  tracked by t2021 (exempt markup escape fixture from markup scanner).
+- **Key decisions:** The logview test lives in its own file, not in
+  `test_textual_markup_structure.py`. That file's scope is markup plus
+  startup focus. The new test App class is separate from `_DemoApp`, so a red
+  run's class-level leak cannot cascade into the existing tests.
+- **Upstream defects identified:** None.
