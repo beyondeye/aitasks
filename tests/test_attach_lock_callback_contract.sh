@@ -423,14 +423,14 @@ ALLOWLIST=(
   # still matches no ACCEPT_RE form, so it is still exempted here, but the
   # reason is "the failure is REPORTED", not "the failure is harmless".
   ".aitask-scripts/aitask_attach.sh:335"      # _attach_rollback_add_blobs
-  ".aitask-scripts/aitask_artifact.sh:350"    # _artifact_rollback_create_blobs (create AND update)
-  ".aitask-scripts/aitask_artifact.sh:457"    # _artifact_rollback_move_blobs
+  ".aitask-scripts/aitask_artifact.sh:377"    # _artifact_rollback_create_blobs (create AND update)
+  ".aitask-scripts/aitask_artifact.sh:484"    # _artifact_rollback_move_blobs
 
   # Pipeline HEAD, not a swallow: every script here runs under `set -o pipefail`,
   # so the pipeline's status carries this failure to the function's return value,
   # and both callers of _artifact_manifest_backend check it with `|| die`. The
   # guard cannot see a non-final pipeline position — its documented blind spot.
-  ".aitask-scripts/aitask_artifact.sh:176"
+  ".aitask-scripts/aitask_artifact.sh:193"
 
   # TAIL position: this is the last command of _attach_gc_blocking_hashes, so its
   # status IS the function's return value, and the sole caller checks it —
@@ -446,7 +446,7 @@ ALLOWLIST=(
   # in a bare `warn`, and the bare-warn version is exactly the t1675 bug.
   # Exempted here, by line, so the verification stays a human-checked citation
   # instead of a blanket rule.
-  ".aitask-scripts/aitask_artifact.sh:673"
+  ".aitask-scripts/aitask_artifact.sh:700"
 )
 
 # ACCEPTED status handlers — forms whose failure handling is visible in the line

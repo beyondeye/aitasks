@@ -7,7 +7,9 @@
 # versions, the decref-deleted artifact guard, aitask_update.sh preservation of
 # the artifacts: block, the gc interplay (manifest block lifts after rm), and
 # rm after a move off `local` (J: local blobs still swept, t1135 gap still
-# reported; K: dirty / uncommitted / ignored candidate blobs refuse the rm).
+# reported; K: dirty / uncommitted / ignored candidate blobs refuse the rm),
+# and L: create refuses an archived owner, loose or bundled, while rm/ls/get
+# keep accepting one (t2004).
 # Uses a legacy-mode git repo fixture (no .aitask-data worktree ->
 # _ait_detect_data_worktree returns ".", task_git passes through to plain git).
 set -uo pipefail
@@ -504,6 +506,101 @@ check_repair() {  # check_repair <label> <handle> <blob-relpath> <refusal-output
 }
 check_repair K6 art:t5-k6 "$KB6" "$K6_OUT"
 check_repair K7 art:t5-k7 "$KB7" "$K7_OUT"
+
+# ── L. create refuses an archived owner; rm/ls/get still accept one (t2004) ───
+# resolve_task_file also answers with loose archived files and with temp
+# extractions from .tar.zst bundles. create must write into neither: each
+# refusal leaves no commit, no manifest, no blob and no task-data change.
+mkdir -p aitasks/archived/t21 aitasks/archived/_b0 "$TMP/bundle_src"
+mk_task t20_loose Done > aitasks/archived/t20_loose.md
+mk_task t21_1_child Done > aitasks/archived/t21/t21_1_child.md
+mk_task t22_bundled Done > "$TMP/bundle_src/t22_bundled.md"
+tar -cf - -C "$TMP/bundle_src" . | zstd -q -o aitasks/archived/_b0/old0.tar.zst
+mk_task t23_live > aitasks/t23_live.md
+git add -- aitasks/archived/t20_loose.md aitasks/archived/t21 aitasks/archived/_b0 aitasks/t23_live.md
+git commit -q -m "fixture: archived owners" \
+    -- aitasks/archived/t20_loose.md aitasks/archived/t21 aitasks/archived/_b0 aitasks/t23_live.md
+# Fixture shape: t22 must really resolve through the bundle tier (a temp
+# extraction outside aitasks/), or L3 would test the loose path twice.
+l3_resolved="$(resolve_task_file 22 2>/dev/null)"
+assert_eq "L3 precondition: t22 resolves to a bundle extraction" "t22_bundled.md" "$(basename "$l3_resolved")"
+assert_not_contains "L3 precondition: the extraction is outside aitasks/" "aitasks/" "$l3_resolved"
+
+LAST_OUT=""
+check_archived_refusal() {  # <label> <id> <manifest-id> [archived-file]
+    local label="$1" id="$2" mid="$3" afile="${4:-}" out rc before st_before payload shard
+    # Per-case payload: a blob one case stored cannot mask another case's.
+    payload="l_${label}.txt"; printf '%s payload\n' "$label" > "$payload"
+    shard="$(artifact_shard_path "$(artifact_sha256 "$payload")")"
+    before="$(git rev-list --count HEAD)"
+    st_before="$(git status --porcelain -- aitasks artifacts attachments)"
+    out="$("$ART" create "$id" "$payload" --kind report 2>&1)"; rc=$?
+    assert_exit_nonzero_rc "$label: create on an archived owner dies" "$rc"
+    assert_contains "$label: error names the owner as archived" "is archived" "$out"
+    assert_eq "$label: no commit" "$before" "$(git rev-list --count HEAD)"
+    assert_file_not_exists "$label: no manifest minted" "artifacts/manifests/${mid}-report.json"
+    assert_file_not_exists "$label: no blob stored" "attachments/blobs/$shard"
+    assert_eq "$label: no task-data change" "$st_before" \
+        "$(git status --porcelain -- aitasks artifacts attachments)"
+    if [[ -n "$afile" ]]; then
+        assert_eq "$label: archived file gained no artifacts: key" "0" "$(grep -c '^artifacts:' "$afile")"
+    fi
+    LAST_OUT="$out"
+}
+check_archived_refusal L1 20 t20 aitasks/archived/t20_loose.md
+assert_contains "L1: error names the loose archived file" "aitasks/archived/t20_loose.md" "$LAST_OUT"
+check_archived_refusal L2 21_1 t21.1 aitasks/archived/t21/t21_1_child.md
+check_archived_refusal L3 22 t22
+assert_contains "L3: error says the owner is in an archive bundle" "archive bundle" "$LAST_OUT"
+
+# L4. Same id, both directions: create is accepted while t23 is active, refused
+# once it is archived, and rm/ls/get keep working on the archived owner.
+printf 'L4 payload\n' > l4.txt
+out="$("$ART" create 23 l4.txt --kind report 2>&1)"; rc=$?
+assert_exit_zero_rc "L4 control: create on the ACTIVE owner succeeds" "$rc"
+assert_contains "L4 control: handle minted" "HANDLE:art:t23-report" "$out"
+git mv aitasks/t23_live.md aitasks/archived/t23_live.md
+git commit -q -m "fixture: archive t23" -- aitasks/t23_live.md aitasks/archived/t23_live.md
+assert_contains "L4: ls still lists an archived owner's artifact" "art:t23-report" "$("$ART" ls 23 2>&1)"
+"$ART" get art:t23-report --out l4.got >/dev/null 2>&1; rc=$?
+assert_exit_zero_rc "L4: get still works for an archived owner's artifact" "$rc"
+assert_eq "L4: get returns the stored bytes" "$(cat l4.txt)" "$(cat l4.got 2>/dev/null)"
+before="$(git rev-list --count HEAD)"
+out="$("$ART" create 23 l4.txt --kind mockup 2>&1)"; rc=$?
+assert_exit_nonzero_rc "L4: create on the now-archived owner dies" "$rc"
+assert_contains "L4: refusal names the owner as archived" "is archived" "$out"
+assert_eq "L4: refused create made no commit" "$before" "$(git rev-list --count HEAD)"
+assert_file_not_exists "L4: refused create minted no manifest" "artifacts/manifests/t23-mockup.json"
+out="$("$ART" rm 23 art:t23-report 2>&1)"; rc=$?
+assert_exit_zero_rc "L4: rm still works on an archived owner" "$rc"
+assert_eq "L4: rm committed" "$((before + 1))" "$(git rev-list --count HEAD)"
+assert_not_contains "L4: archived file lost the entry" "art:t23-report" "$(cat aitasks/archived/t23_live.md)"
+
+# L5. The active/archived decision must not depend on how TASK_DIR /
+# ARCHIVED_DIR are SPELLED. resolve_task_file keeps them verbatim, so a
+# trailing slash yields `aitasks//t24/t24_1_kid.md` for a child while dirname
+# collapses a parent's `aitasks//t25_par.md` to `aitasks`. Both active owners
+# must still be accepted, and the archived ones still refused.
+mkdir -p aitasks/t24
+mk_task t24_1_kid > aitasks/t24/t24_1_kid.md
+mk_task t25_par > aitasks/t25_par.md
+git add -- aitasks/t24/t24_1_kid.md aitasks/t25_par.md
+git commit -q -m "fixture: active owners for L5" -- aitasks/t24/t24_1_kid.md aitasks/t25_par.md
+printf 'L5 payload\n' > l5.txt
+out="$(TASK_DIR=aitasks/ ARCHIVED_DIR=aitasks/archived/ "$ART" create 24_1 l5.txt --kind report 2>&1)"; rc=$?
+assert_exit_zero_rc "L5: trailing-slash TASK_DIR: ACTIVE child accepted" "$rc"
+assert_contains "L5: trailing-slash TASK_DIR: child handle minted" "HANDLE:art:t24.1-report" "$out"
+out="$(TASK_DIR=aitasks/ ARCHIVED_DIR=aitasks/archived/ "$ART" create 25 l5.txt --kind report 2>&1)"; rc=$?
+assert_exit_zero_rc "L5: trailing-slash TASK_DIR: ACTIVE parent accepted" "$rc"
+assert_contains "L5: trailing-slash TASK_DIR: parent handle minted" "HANDLE:art:t25-report" "$out"
+before="$(git rev-list --count HEAD)"
+out="$(TASK_DIR=aitasks/ ARCHIVED_DIR=aitasks/archived/ "$ART" create 21_1 l5.txt --kind report 2>&1)"; rc=$?
+assert_exit_nonzero_rc "L5: trailing-slash dirs: loose archived child still refused" "$rc"
+assert_contains "L5: trailing-slash dirs: refusal names the archived file" "aitasks/archived/" "$out"
+out="$(TASK_DIR=aitasks/ ARCHIVED_DIR=aitasks/archived/ "$ART" create 22 l5.txt --kind report 2>&1)"; rc=$?
+assert_exit_nonzero_rc "L5: trailing-slash dirs: bundled owner still refused" "$rc"
+assert_contains "L5: trailing-slash dirs: bundled refusal says archived" "is archived" "$out"
+assert_eq "L5: the two refusals made no commit" "$before" "$(git rev-list --count HEAD)"
 
 echo ""
 echo "=========================="

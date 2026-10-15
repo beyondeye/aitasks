@@ -95,10 +95,27 @@ the leading `t`. <kind> classifies the render type (html_plan, mockup, report,
 ...) — lowercase [a-z0-9_], open set. The default handle is derived as
 art:t<task>-<kind-without-underscores> (child `_` becomes `.`), e.g.
 `ait artifact create 774 plan.html --kind html_plan` -> art:t774-htmlplan.
+`create` refuses an archived <task> (loose or bundled): a new artifact must
+attach to an active task, while `rm`, `ls` and `get` still accept archived owners.
 EOF
 }
 
 # ── Shared helpers ───────────────────────────────────────────────────────────
+
+# _artifact_owner_is_active <task_id> <task_file> -- true iff the file that
+# resolve_task_file returned lives in the ACTIVE task tree: its directory is
+# exactly $TASK_DIR (parent) or $TASK_DIR/t<parent> (child). Anything else is a
+# loose file under $ARCHIVED_DIR or a temp extraction from a .tar.zst bundle.
+# A positive match on the active location, so an unexpected path fails closed
+# (refused, never written). Compared by IDENTITY (-ef: same device + inode),
+# never by spelling: resolve_task_file keeps $TASK_DIR verbatim, so a trailing
+# slash yields `aitasks//t16/...` for a child while dirname collapses a
+# parent's `aitasks//t5_x.md` to `aitasks` -- no one string form fits both.
+_artifact_owner_is_active() {
+    local task_id="$1" task_file="$2" active_dir="$TASK_DIR"
+    [[ "$task_id" =~ ^([0-9]+)_[0-9]+$ ]] && active_dir="$TASK_DIR/t${BASH_REMATCH[1]}"
+    [[ "$(dirname "$task_file")" -ef "$active_dir" ]]
+}
 
 # _artifact_records <task_file> -- print "<handle>\t<kind>\t<name>" per
 # `artifacts:` frontmatter entry.
@@ -239,6 +256,16 @@ cmd_create() {
     [[ "$handle" =~ $HANDLE_RE ]] \
         || die "ait artifact create: invalid handle '$handle' (expected art:[a-z0-9][a-z0-9._-]{0,127})"
     local task_file; task_file="$(resolve_task_file "$task_id")"
+    # A new artifact attaches to an ACTIVE task (t2004) -- the substrate half
+    # of the trail gatherer's archived_owner rule (t1989). resolve_task_file
+    # also answers with loose archived files and bundle extractions; writing
+    # into either would commit into an archived record or a temp file. Only
+    # create refuses: rm/ls/get still resolve archived owners.
+    if ! _artifact_owner_is_active "$task_id" "$task_file"; then
+        local where="a .tar.zst archive bundle"
+        [[ "$task_file" == "${ARCHIVED_DIR%/}"/* ]] && where="$task_file"
+        die "ait artifact create: t${task_id} is archived (${where}) — a new artifact must attach to an active task; rm, ls and get still accept archived owners"
+    fi
     with_attach_lock _artifact_create_txn "$task_id" "$task_file" "$file" "$kind" "$name" "$handle" "$backend"
 }
 
