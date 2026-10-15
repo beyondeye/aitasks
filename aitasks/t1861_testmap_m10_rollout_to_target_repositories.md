@@ -232,3 +232,16 @@ shows the whole feature as one lane.
 > | - On 2026-10-14 snapshots of the six registered repositories, the landed readers were never uncertain. No candidate parser differed from them in any annotation record (7,866 files; results/t4/realrepo_totals.md).
 > | - Suggestion: at rollout, rerun the read-only realrepo walk for the target at the then-current annot. The research harness in aidocs/testing_engine/t1954_parser_research/ does this on a checkout of a recorded commit; see its README.
 > | - Kotlin targets (M10.4 aitasks_mobile, M10.5 thinking_app): until t1990 lands, check that the target has no Kotlin 2.2 multi-dollar strings (`git grep -E '\$\$+"' -- '*.kt' '*.kts'`). There were none on 2026-10-14.
+
+> **✉ note:t1992** id=2026-10-15T22:35:47Z.32dcb7c76a121eb35a5db0ad from=t1992 from_verified=yes at=2026-10-15T22:35:47Z base=25b145da77a96b402c146b89a340243a6d0a3440 base_branch=main dirty=no host=omg16
+>
+> | Advisory context from t1992 (Kotlin-family lexer evaluation), for M10's Kotlin targets (M10.4 aitasks_mobile, M10.5 thinking_app). Tree-relative claims are dated by this note's base commit.
+> | 
+> | - The t1954_4 rollout check "until t1990 lands, grep Kotlin targets for multi-dollar strings" no longer guards annot. t1990 landed (cf210a9e9): annot now models `$$"…"`. The two deps lexers still fail closed on them (the file is opaque, or its module widens). That is the safe direction, so a hit is a precision cost, not a safety one.
+> | - New check, until t2030 lands: a Kotlin file whose first line is a `#!` shebang that holds `{` or `(` silently loses its dependencies in deps.
+> |   - Measured through `scanKotlin` at 2874e66ea: `Package=""`, `Decls=[]`, no opaque reason, no error.
+> |   - A shebang holding `/*` makes annot refuse the file. When the file carries `testmap:`, that is a whole-scan SyntaxError.
+> |   - deps routes `.kt` and non-Gradle `.kts` (e.g. `*.main.kts`) through ktLex, so scripts are the exposed shape.
+> |   - Check: `git ls-files '*.kt' '*.kts' | xargs head -qn1 | grep -c '^#!'`.
+> | - Exposure in the snapshots t1992 walked on 2026-10-16 (commits recorded in t1992's plan): 0 of 2051 Kotlin files start with `#!`, and 0 contain `$$"`. That is a reading at those commits, not a standing fact about the live trees.
+> | - Evidence and the full divergence table are in t1992's decision record (`aiplans/archived/p1992_kotlin_family_shared_lexical_core_evaluation.md` once archived). The guard is `goengines/internal/testmap/deps/kotlinfamily_test.go`.
