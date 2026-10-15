@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1852
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-15 22:52
-updated_at: 2026-10-15 23:06
+updated_at: 2026-10-15 23:54
 ---
 
 ## Origin
@@ -48,3 +49,8 @@ package x\nconst @Ann val y = 1\n               -> decls [val:y] opaque []      
 - Apply the same skip between `const` and `val`. Keep the walk bounded, and keep `!esc` on modifiers and on `fun` / `val`.
 - Add exact-equality rows to `kotlin_test.go` next to `TestKotlinEscapedKeywordsAreIdentifiers`. Include an annotation with arguments, e.g. `inline @JvmName("x") fun f()`, and controls for the annotation-first order.
 - Bump the cache `schemaVersion` to HEAD + 1 at commit time.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-15T20:54:48Z status=pass attempt=1 type=human
