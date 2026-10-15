@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1599
 followup_kind: risk_mitigation
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-16 00:29
-updated_at: 2026-10-16 00:32
+updated_at: 2026-10-16 01:35
 ---
 
 ## Origin
@@ -38,3 +39,8 @@ Time-limit the crew git network operations so an unreachable-but-routable origin
 Constraints: portable — macOS has no `timeout` binary, so the shell side needs the framework's existing portable timeout helper if one exists (search `.aitask-scripts/lib/` before writing one) or a bounded alternative such as git's own transport timeouts. A timed-out push must leave the branch exactly as a failed push does (upstream set on the next success). Keep t2008's `--no-autostash` on the pulls, and coordinate with t2018 (runner pull ordering) if it is still in flight.
 
 Tests: extend `tests/test_crew_publish_upstream.sh` (t2016) with a cell whose origin never answers (e.g. a `GIT_SSH_COMMAND`/`ext::` transport that sleeps) and assert init/addwork return within the bound and still print CREATED:/ADDED:.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-15T22:35:07Z status=pass attempt=1 type=human
