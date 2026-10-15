@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [aitask_monitormini, tui]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 1326
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-15 15:29
-updated_at: 2026-10-15 22:55
+updated_at: 2026-10-15 23:08
+completed_at: 2026-10-15 23:08
 ---
 
 ## Origin
@@ -50,3 +51,14 @@ Raw interpolation sites in `monitor_app.py` found by grep: :1763, :1775 (frozen 
 > **✅ gate:plan_approved** run=2026-10-15T19:55:33Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-15T20:06:53Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-15T20:08:32Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:85e1d901cbdc7765
+
+> **✅ gate:risk_evaluated** run=2026-10-15T20:08:32Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2006/risk_evaluated_2026-10-15T20:08:32Z-risk_evaluated-a1.log`
