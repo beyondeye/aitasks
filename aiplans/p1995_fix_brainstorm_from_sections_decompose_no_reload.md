@@ -167,3 +167,81 @@ None identified. Before the fix, the red test proves the symptom on the real
 app and the real worker, on every surface the reload refreshes (node list,
 DAG, module summary). It also covers the partial-failure path the task
 description missed.
+
+## Final Implementation Notes
+- **Actual work done:** Implemented as planned.
+  - `.aitask-scripts/brainstorm/brainstorm_app.py`: the from-sections branch of
+    `_run_design_op` now wraps `apply_module_decompose_from_sections(...)` the
+    same way the prune branch is wrapped. It calls
+    `self.call_from_thread(self._load_existing_session)` after success, and
+    again in an `except Exception:` handler before re-raising to the existing
+    outer "Operation failed" notify.
+  - New `tests/test_brainstorm_from_sections_reload.py`: two Textual pilot
+    tests that drive the real worker on a real temp session. They assert all
+    three surfaces the reload rebuilds (the `NodeRow` ids, `DAGDisplay._node_order`
+    and the `#module_status_info` text), after a stale-before precondition
+    (`{n000_init}` / `[n000_init]` / `no modules`).
+- **Deviations from plan:** None. The module-summary assertions were added at
+  plan review, before implementation (the user's concern: a list-and-graph-only
+  refresh would otherwise pass).
+- **Issues encountered:** None. The symptom reproduced exactly as predicted
+  from reading the code.
+- **Key decisions:**
+  - The failure handler catches every `Exception` rather than a typed partial
+    failure. `apply_module_decompose_from_sections` has no refused/partial
+    distinction (prune has `PruneRefused` / `PrunePartialFailure`), and a reload
+    after a write-free refusal only redraws the same state.
+  - Each test reads every surface rather than one representative surface.
+- **Upstream defects identified:**
+  - `.aitask-scripts/brainstorm/brainstorm_session.py:1355-1408` —
+    `apply_module_decompose_from_sections` never marks its operation record
+    `Error` when it raises mid-loop. The group record that
+    `record_operation(...)` writes in `_run_design_op` stays `status: Waiting`
+    with `agents: []`, even though some module roots, their HEAD moves and
+    `nodes_created` entries may already be on disk. By contrast,
+    `apply_prune_dimensions` writes `status: Error` plus the stage reached
+    (`brainstorm_session.py:1620`), and `run_prune_operation` keeps that
+    record.
+
+## Verification evidence (red → green, mutants)
+
+Red run (unfixed code): both tests failed with
+`AssertionError: 'n001_module_decomposer_sections_parser' not found in {'n000_init'}`,
+after the on-disk and notify assertions had passed. A probe printing all three
+surfaces on the unfixed code showed every surface stale in both cases:
+
+```
+['parser', 'cache'] disk: ['n001_module_decomposer_sections_parser', 'n002_module_decomposer_sections_cache']
+  rows: ['n000_init']
+  dag: ['n000_init']
+  summary: — no modules —
+['parser', 'missing'] disk: ['n001_module_decomposer_sections_parser']
+  rows: ['n000_init']
+  dag: ['n000_init']
+  summary: — no modules —
+```
+
+After the fix, the same probe printed:
+
+```
+['parser', 'cache'] … rows/dag: n000_init, n001_…_parser, n002_…_cache
+  summary: unstarted  cache (1) | unstarted  parser (1) | merged  root (1)
+['parser', 'missing'] … rows/dag: n000_init, n001_…_parser
+  summary: unstarted  parser (1) | merged  root (1)
+```
+
+Mutants, each run in an isolated copy of `.aitask-scripts/` + the test file:
+
+| mutant | success test | partial-failure test |
+|---|---|---|
+| success-path reload removed | FAIL | pass |
+| failure-path reload removed | pass | FAIL |
+| both reloads → list + DAG only (no `_update_module_status`) | FAIL (`'no modules' unexpectedly found`) | FAIL (same) |
+
+The neighbouring suites (`from_sections_reload`, `module_ops_integration`,
+`apply_module_ops`, `prune_dimensions`, `group_recovery`, `node_action_modal`,
+`module_status_contract`) passed: 117 tests.
+
+Full suite (`bash tests/run_all_python_tests.sh --test-dir tests`, rc=0):
+`PYTHON SUITE: PASSED (runner=pytest, exit=0)`. The parallel lane reported
+8995 passed, 2 skipped; the serial carve-out reported 11 passed.
