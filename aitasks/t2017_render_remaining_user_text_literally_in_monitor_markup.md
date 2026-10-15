@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1326
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-15 23:07
-updated_at: 2026-10-15 23:10
+updated_at: 2026-10-16 00:13
 ---
 
 ## Origin
@@ -72,3 +73,8 @@ Migrate the existing `escape()` users onto them. For the toasts, `notify(..., ma
 > | RICH_RENDERER_WAIVERS covers Rule B colour tokens only. It does not fit this structural finding.
 
 > **👁 note:read** id=2026-10-15T21:12:29Z.46e9673e344e04e33ab0c3eb by=t2017 at=2026-10-15T21:12:29Z mode=explicit ids=2026-10-15T21:00:34Z.16494a049c73006bdc3488ff
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-15T21:13:38Z status=pass attempt=1 type=human
