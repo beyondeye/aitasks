@@ -69,7 +69,11 @@ as one `ait: Attach <name> to t<N>` commit.
 - a file whose bytes are already attached to the same task (the error names the
   existing attachment);
 - a name already used by another attachment on the same task — pass `--name` to
-  choose a different one.
+  choose a different one;
+- an archived task, whether its file is still under `aitasks/archived/` or
+  already packed into a numbered archive by `ait zip-old`. A new attachment must
+  go on an active task. `ls` and `get` keep working on archived tasks, and so
+  does `rm` within the limit described under [rm](#rm).
 
 Attaching the same bytes to a *different* task is allowed and stores nothing
 new: the existing blob gains a second reference.
@@ -95,6 +99,11 @@ on fetch is an error; the bytes are not written.
 Removes the attachment's entry from the task file and the task from the blob's
 reference ledger, committed together as one commit. `<name-or-hash>` resolves
 exactly as for `get`.
+
+`rm` works on an archived task whose file is still under `aitasks/archived/`.
+It does not work on one already packed into a numbered archive: that task file
+exists only inside the archive, outside the repository, so `rm` refuses it and
+changes nothing.
 
 `rm` **does not delete the blob.** When it removes the last reference, the
 ledger records the time the blob became orphaned; the blob itself is reclaimed

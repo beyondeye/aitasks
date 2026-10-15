@@ -422,21 +422,21 @@ ALLOWLIST=(
   # longer announce a complete rollback over a blob that survived. The line
   # still matches no ACCEPT_RE form, so it is still exempted here, but the
   # reason is "the failure is REPORTED", not "the failure is harmless".
-  ".aitask-scripts/aitask_attach.sh:335"      # _attach_rollback_add_blobs
-  ".aitask-scripts/aitask_artifact.sh:377"    # _artifact_rollback_create_blobs (create AND update)
-  ".aitask-scripts/aitask_artifact.sh:484"    # _artifact_rollback_move_blobs
+  ".aitask-scripts/aitask_attach.sh:351"      # _attach_rollback_add_blobs
+  ".aitask-scripts/aitask_artifact.sh:366"    # _artifact_rollback_create_blobs (create AND update)
+  ".aitask-scripts/aitask_artifact.sh:473"    # _artifact_rollback_move_blobs
 
   # Pipeline HEAD, not a swallow: every script here runs under `set -o pipefail`,
   # so the pipeline's status carries this failure to the function's return value,
   # and both callers of _artifact_manifest_backend check it with `|| die`. The
   # guard cannot see a non-final pipeline position — its documented blind spot.
-  ".aitask-scripts/aitask_artifact.sh:193"
+  ".aitask-scripts/aitask_artifact.sh:180"
 
   # TAIL position: this is the last command of _attach_gc_blocking_hashes, so its
   # status IS the function's return value, and the sole caller checks it —
   # `blocking="$(_attach_gc_blocking_hashes)" || die` in _attach_gc_txn, whose
   # comment records that the `|| die` is load-bearing for exactly this reason.
-  ".aitask-scripts/aitask_attach.sh:614"
+  ".aitask-scripts/aitask_attach.sh:630"
 
   # `if ! remaining="$(artifact_manifest referenced-hashes)"; then` — the ONE
   # `if !` in the tree. Its branch is genuinely terminating: since t1698 it calls
@@ -446,7 +446,7 @@ ALLOWLIST=(
   # in a bare `warn`, and the bare-warn version is exactly the t1675 bug.
   # Exempted here, by line, so the verification stays a human-checked citation
   # instead of a blanket rule.
-  ".aitask-scripts/aitask_artifact.sh:700"
+  ".aitask-scripts/aitask_artifact.sh:689"
 )
 
 # ACCEPTED status handlers — forms whose failure handling is visible in the line

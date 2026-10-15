@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # test_attach_local_backend.sh - e2e for the local attachment backend, cache, and
-# the single-transaction add/get/rm verbs (t1030_2). Uses a legacy-mode git repo
+# the single-transaction add/get/rm verbs (t1030_2), and L: add refuses an
+# archived owner, loose or bundled, while ls/get keep accepting one and rm a
+# loose one (t2011). Uses a legacy-mode git repo
 # fixture (no .aitask-data worktree -> _ait_detect_data_worktree returns ".",
 # task_git passes through to plain git in the fixture cwd).
 set -uo pipefail
@@ -35,6 +37,16 @@ source "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh"
 source "$PROJECT_DIR/.aitask-scripts/lib/artifact_utils.sh"
 # shellcheck source=/dev/null
 source "$PROJECT_DIR/.aitask-scripts/lib/artifact_backend.sh"
+# task_utils.sh (via archive_utils.sh) REPLACES the EXIT trap set above with
+# its own extraction cleanup, so re-arm ours. And route every bundle
+# extraction into the fixture: resolve_task_file inside `$( )` -- in the CLIs
+# and in section L's preconditions -- never cleans up its temp dir.
+trap 'rm -rf "$TMP"' EXIT
+export TMPDIR="$TMP/tmpdir"; mkdir -p "$TMPDIR"
+# outside_repo <path> -- "outside" iff <path> is absolute and not under the
+# fixture repo. A substring test for "aitasks/" would misfire whenever the
+# host's TMPDIR itself contains that segment.
+outside_repo() { [[ "$1" == /* && "$1" != "$REPO"/* ]] && echo outside || echo "inside: $1"; }
 
 meta_refs() { "$PY" "$PROJECT_DIR/.aitask-scripts/lib/attachment_meta.py" --meta-dir attachments/meta refs "$1" | paste -sd, -; }
 
@@ -176,6 +188,136 @@ assert_not_contains "no misleading blob-not-found for a malformed hash" "blob no
 assert_dir_not_exists "no traversal dir created in the cache root" "$TMP/xdg/ait/bad"
 ( artifact_cache_path "../bad/hash" ) >/dev/null 2>&1; k_rc=$?
 assert_exit_nonzero_rc "artifact_cache_path dies on a malformed hash" "$k_rc"
+
+# ── L. add refuses an archived owner; ls/get/rm still accept one (t2011) ─────
+# resolve_task_file also answers with loose archived files and with temp
+# extractions from .tar.zst bundles. add must write into neither: each refusal
+# leaves no commit, no blob, no ledger file and no task-data change.
+mk_task_at() {  # <path> <status>
+    printf -- '---\npriority: medium\nstatus: %s\nupdated_at: 2026-01-01 00:00\n---\n\nTask body.\n' "$2" > "$1"
+}
+mkdir -p aitasks/archived/t21 aitasks/archived/_b0 aitasks/t24 "$TMP/bundle_src"
+mk_task_at aitasks/archived/t20_loose.md Done
+mk_task_at aitasks/archived/t21/t21_1_child.md Done
+mk_task_at "$TMP/bundle_src/t22_bundled.md" Done
+mk_task_at aitasks/t23_live.md Implementing
+mk_task_at aitasks/t24/t24_1_kid.md Implementing
+mk_task_at aitasks/t25_par.md Implementing
+mk_task_at aitasks/t26_packed.md Implementing
+L_PATHS=(aitasks/archived/t20_loose.md aitasks/archived/t21 aitasks/t23_live.md
+         aitasks/t24 aitasks/t25_par.md aitasks/t26_packed.md)
+git add -- "${L_PATHS[@]}"
+git commit -q -m "fixture: L owners" -- "${L_PATHS[@]}"
+# t26 gets a REAL attachment while active, then is packed into the bundle with
+# t22, so L6's rm finds an entry to remove and reaches the transaction.
+printf 'L6 attach payload\n' > l6.bin; HL6="$(artifact_sha256 l6.bin)"
+"$ATT" add 26 l6.bin >/dev/null 2>&1; rc=$?
+assert_exit_zero_rc "L6 fixture: add on t26 while it is ACTIVE succeeds" "$rc"
+cp aitasks/t26_packed.md "$TMP/bundle_src/t26_packed.md"
+tar -cf - -C "$TMP/bundle_src" . | zstd -q -o aitasks/archived/_b0/old0.tar.zst
+git rm -q -- aitasks/t26_packed.md
+git add -- aitasks/archived/_b0
+git commit -q -m "fixture: bundle t22 and t26" -- aitasks/t26_packed.md aitasks/archived/_b0
+# Fixture shape: t22 must really resolve through the bundle tier (a temp
+# extraction outside aitasks/), or L3 would test the loose path twice.
+l3_resolved="$(resolve_task_file 22 2>/dev/null)"
+assert_eq "L3 precondition: t22 resolves to a bundle extraction" "t22_bundled.md" "$(basename "$l3_resolved")"
+assert_eq "L3 precondition: the extraction is outside the repo" "outside" "$(outside_repo "$l3_resolved")"
+
+LAST_OUT=""
+check_archived_refusal() {  # <label> <id> [archived-file]
+    local label="$1" id="$2" afile="${3:-}" out rc before st_before payload shard
+    # Per-case payload: a blob one case stored cannot mask another case's.
+    payload="l_${label}.bin"; printf '%s attach payload\n' "$label" > "$payload"
+    shard="$(artifact_shard_path "$(artifact_sha256 "$payload")")"
+    before="$(git rev-list --count HEAD)"
+    st_before="$(git status --porcelain -- aitasks attachments)"
+    out="$("$ATT" add "$id" "$payload" 2>&1)"; rc=$?
+    assert_exit_nonzero_rc "$label: add on an archived owner dies" "$rc"
+    assert_contains "$label: error names the owner as archived" "is archived" "$out"
+    assert_eq "$label: no commit" "$before" "$(git rev-list --count HEAD)"
+    assert_file_not_exists "$label: no blob stored" "attachments/blobs/$shard"
+    assert_file_not_exists "$label: no ledger file written" "attachments/meta/$shard.json"
+    assert_eq "$label: no task-data change" "$st_before" \
+        "$(git status --porcelain -- aitasks attachments)"
+    if [[ -n "$afile" ]]; then
+        assert_eq "$label: archived file gained no attachments: key" "0" "$(grep -c '^attachments:' "$afile")"
+    fi
+    LAST_OUT="$out"
+}
+check_archived_refusal L1 20 aitasks/archived/t20_loose.md
+assert_contains "L1: error names the loose archived file" "aitasks/archived/t20_loose.md" "$LAST_OUT"
+check_archived_refusal L2 21_1 aitasks/archived/t21/t21_1_child.md
+check_archived_refusal L3 22
+assert_contains "L3: error says the owner is in an archive bundle" "archive bundle" "$LAST_OUT"
+
+# L4. Same id, both directions: add is accepted while t23 is active, refused
+# once it is archived, and ls/get/rm keep working on the (loose) archived owner.
+printf 'L4 attach payload\n' > l4.bin
+out="$("$ATT" add 23 l4.bin 2>&1)"; rc=$?
+assert_exit_zero_rc "L4 control: add on the ACTIVE owner succeeds" "$rc"
+git mv aitasks/t23_live.md aitasks/archived/t23_live.md
+git commit -q -m "fixture: archive t23" -- aitasks/t23_live.md aitasks/archived/t23_live.md
+assert_contains "L4: ls still lists an archived owner's attachment" "l4.bin" "$("$ATT" ls 23 2>&1)"
+"$ATT" get 23 l4.bin --out l4.got >/dev/null 2>&1; rc=$?
+assert_exit_zero_rc "L4: get still works on an archived owner" "$rc"
+assert_eq "L4: get returns the stored bytes" "$(cat l4.bin)" "$(cat l4.got 2>/dev/null)"
+printf 'L4b attach payload\n' > l4b.bin; SHARD_L4B="$(artifact_shard_path "$(artifact_sha256 l4b.bin)")"
+before="$(git rev-list --count HEAD)"
+out="$("$ATT" add 23 l4b.bin 2>&1)"; rc=$?
+assert_exit_nonzero_rc "L4: add on the now-archived owner dies" "$rc"
+assert_contains "L4: refusal names the owner as archived" "is archived" "$out"
+assert_eq "L4: refused add made no commit" "$before" "$(git rev-list --count HEAD)"
+assert_file_not_exists "L4: refused add wrote no ledger file" "attachments/meta/$SHARD_L4B.json"
+out="$("$ATT" rm 23 l4.bin 2>&1)"; rc=$?
+assert_exit_zero_rc "L4: rm still works on a loose archived owner" "$rc"
+assert_eq "L4: rm committed" "$((before + 1))" "$(git rev-list --count HEAD)"
+assert_not_contains "L4: archived file lost the entry" "l4.bin" "$(cat aitasks/archived/t23_live.md)"
+
+# L5. The active/archived decision must not depend on how TASK_DIR /
+# ARCHIVED_DIR are SPELLED. resolve_task_file keeps them verbatim, so a
+# trailing slash yields `aitasks//t24/t24_1_kid.md` for a child while dirname
+# collapses a parent's `aitasks//t25_par.md` to `aitasks`. Both active owners
+# must still be accepted, and the archived ones still refused.
+printf 'L5 attach payload\n' > l5.bin
+out="$(TASK_DIR=aitasks/ ARCHIVED_DIR=aitasks/archived/ "$ATT" add 24_1 l5.bin 2>&1)"; rc=$?
+assert_exit_zero_rc "L5: trailing-slash TASK_DIR: ACTIVE child accepted" "$rc"
+assert_contains "L5: trailing-slash TASK_DIR: child entry written" "l5.bin" "$(cat aitasks/t24/t24_1_kid.md)"
+out="$(TASK_DIR=aitasks/ ARCHIVED_DIR=aitasks/archived/ "$ATT" add 25 l5.bin 2>&1)"; rc=$?
+assert_exit_zero_rc "L5: trailing-slash TASK_DIR: ACTIVE parent accepted" "$rc"
+assert_contains "L5: trailing-slash TASK_DIR: parent entry written" "l5.bin" "$(cat aitasks/t25_par.md)"
+before="$(git rev-list --count HEAD)"
+out="$(TASK_DIR=aitasks/ ARCHIVED_DIR=aitasks/archived/ "$ATT" add 21_1 l5.bin 2>&1)"; rc=$?
+assert_exit_nonzero_rc "L5: trailing-slash dirs: loose archived child still refused" "$rc"
+assert_contains "L5: trailing-slash dirs: refusal names the archived file" "aitasks/archived/" "$out"
+out="$(TASK_DIR=aitasks/ ARCHIVED_DIR=aitasks/archived/ "$ATT" add 22 l5.bin 2>&1)"; rc=$?
+assert_exit_nonzero_rc "L5: trailing-slash dirs: bundled owner still refused" "$rc"
+assert_contains "L5: trailing-slash dirs: bundled refusal says archived" "is archived" "$out"
+assert_eq "L5: the two refusals made no commit" "$before" "$(git rev-list --count HEAD)"
+
+# L6. A BUNDLED owner with a real attachment pins the scope the help and the
+# refusal message state: ls and get work on it, but rm cannot -- the entry it
+# would remove lives in a temp extraction outside the repo, so the transaction
+# refuses before any mutation. The lookup must SUCCEED first (an rm that died
+# at "no attachment matching" would prove nothing about the transaction).
+l6_resolved="$(resolve_task_file 26 2>/dev/null)"
+assert_eq "L6 precondition: t26 resolves to a bundle extraction" "t26_packed.md" "$(basename "$l6_resolved")"
+assert_eq "L6 precondition: the extraction is outside the repo" "outside" "$(outside_repo "$l6_resolved")"
+assert_contains "L6 precondition: the extraction lists the attachment" "$HL6" "$(cat "$l6_resolved" 2>/dev/null)"
+assert_contains "L6: ls lists a bundled owner's attachment" "l6.bin" "$("$ATT" ls 26 2>&1)"
+"$ATT" get 26 l6.bin --out l6.got >/dev/null 2>&1; rc=$?
+assert_exit_zero_rc "L6: get works on a bundled owner" "$rc"
+assert_eq "L6: get returns the stored bytes" "$(cat l6.bin)" "$(cat l6.got 2>/dev/null)"
+before="$(git rev-list --count HEAD)"
+st_before="$(git status --porcelain -- aitasks attachments)"
+out="$("$ATT" rm 26 l6.bin 2>&1)"; rc=$?
+assert_exit_nonzero_rc "L6: rm on a bundled owner is refused" "$rc"
+assert_not_contains "L6: rm got past the attachment lookup" "no attachment matching" "$out"
+assert_contains "L6: rm was refused at the transaction boundary" "could not read the git status" "$out"
+assert_eq "L6: refused rm made no commit" "$before" "$(git rev-list --count HEAD)"
+assert_eq "L6: the ledger still lists t26" "26" "$(meta_refs "$HL6")"
+assert_eq "L6: refused rm changed no task data" "$st_before" \
+    "$(git status --porcelain -- aitasks attachments)"
 
 echo ""
 echo "test_attach_local_backend.sh: $PASS passed, $FAIL failed, $TOTAL total"

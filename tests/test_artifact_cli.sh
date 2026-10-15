@@ -8,8 +8,8 @@
 # the artifacts: block, the gc interplay (manifest block lifts after rm), and
 # rm after a move off `local` (J: local blobs still swept, t1135 gap still
 # reported; K: dirty / uncommitted / ignored candidate blobs refuse the rm),
-# and L: create refuses an archived owner, loose or bundled, while rm/ls/get
-# keep accepting one (t2004).
+# and L: create refuses an archived owner, loose or bundled, while ls/get keep
+# accepting one and rm a loose one (t2004; L6, bundled rm refused: t2011).
 # Uses a legacy-mode git repo fixture (no .aitask-data worktree ->
 # _ait_detect_data_worktree returns ".", task_git passes through to plain git).
 set -uo pipefail
@@ -56,6 +56,16 @@ source "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh"
 source "$PROJECT_DIR/.aitask-scripts/lib/yaml_utils.sh"
 # shellcheck source=/dev/null
 source "$PROJECT_DIR/.aitask-scripts/lib/artifact_utils.sh"
+# task_utils.sh (via archive_utils.sh) REPLACES the EXIT trap set above with
+# its own extraction cleanup, so re-arm ours. And route every bundle
+# extraction into the fixture: resolve_task_file inside `$( )` -- in the CLIs
+# and in section L's preconditions -- never cleans up its temp dir.
+trap 'rm -rf "$TMP"' EXIT
+export TMPDIR="$TMP/tmpdir"; mkdir -p "$TMPDIR"
+# outside_repo <path> -- "outside" iff <path> is absolute and not under the
+# fixture repo. A substring test for "aitasks/" would misfire whenever the
+# host's TMPDIR itself contains that segment.
+outside_repo() { [[ "$1" == /* && "$1" != "$REPO"/* ]] && echo outside || echo "inside: $1"; }
 
 manifest_of() { cat "artifacts/manifests/${1#art:}.json" 2>/dev/null; }
 
@@ -524,7 +534,7 @@ git commit -q -m "fixture: archived owners" \
 # extraction outside aitasks/), or L3 would test the loose path twice.
 l3_resolved="$(resolve_task_file 22 2>/dev/null)"
 assert_eq "L3 precondition: t22 resolves to a bundle extraction" "t22_bundled.md" "$(basename "$l3_resolved")"
-assert_not_contains "L3 precondition: the extraction is outside aitasks/" "aitasks/" "$l3_resolved"
+assert_eq "L3 precondition: the extraction is outside the repo" "outside" "$(outside_repo "$l3_resolved")"
 
 LAST_OUT=""
 check_archived_refusal() {  # <label> <id> <manifest-id> [archived-file]
@@ -601,6 +611,45 @@ out="$(TASK_DIR=aitasks/ ARCHIVED_DIR=aitasks/archived/ "$ART" create 22 l5.txt 
 assert_exit_nonzero_rc "L5: trailing-slash dirs: bundled owner still refused" "$rc"
 assert_contains "L5: trailing-slash dirs: bundled refusal says archived" "is archived" "$out"
 assert_eq "L5: the two refusals made no commit" "$before" "$(git rev-list --count HEAD)"
+
+# L6. A BUNDLED owner with a real artifact pins the scope the help and the
+# create refusal state (t2011): ls and get work on it, but rm cannot -- the
+# entry it would remove lives in a temp extraction outside the repo, so the
+# transaction refuses before any mutation. The lookup must SUCCEED first (an
+# rm that died at "no artifact matching" would prove nothing about the
+# transaction). The bundle is rebuilt with t22 still in it, so L3/L5's bundle
+# tier is unchanged.
+mk_task t26_packed > aitasks/t26_packed.md
+git add -- aitasks/t26_packed.md
+git commit -q -m "fixture: active owner for L6" -- aitasks/t26_packed.md
+printf 'L6 payload\n' > l6.txt
+out="$("$ART" create 26 l6.txt --kind report 2>&1)"; rc=$?
+assert_exit_zero_rc "L6 fixture: create on t26 while it is ACTIVE succeeds" "$rc"
+cp aitasks/t26_packed.md "$TMP/bundle_src/t26_packed.md"
+tar -cf - -C "$TMP/bundle_src" . | zstd -q -f -o aitasks/archived/_b0/old0.tar.zst
+git rm -q -- aitasks/t26_packed.md
+git add -- aitasks/archived/_b0
+git commit -q -m "fixture: bundle t26 beside t22" -- aitasks/t26_packed.md aitasks/archived/_b0
+l6_resolved="$(resolve_task_file 26 2>/dev/null)"
+assert_eq "L6 precondition: t26 resolves to a bundle extraction" "t26_packed.md" "$(basename "$l6_resolved")"
+assert_eq "L6 precondition: the extraction is outside the repo" "outside" "$(outside_repo "$l6_resolved")"
+assert_contains "L6 precondition: the extraction lists the artifact" "art:t26-report" "$(cat "$l6_resolved" 2>/dev/null)"
+assert_eq "L6 precondition: t22 still resolves from the rebuilt bundle" "t22_bundled.md" \
+    "$(basename "$(resolve_task_file 22 2>/dev/null)")"
+assert_contains "L6: ls lists a bundled owner's artifact" "art:t26-report" "$("$ART" ls 26 2>&1)"
+"$ART" get art:t26-report --out l6.got >/dev/null 2>&1; rc=$?
+assert_exit_zero_rc "L6: get works for a bundled owner's artifact" "$rc"
+assert_eq "L6: get returns the stored bytes" "$(cat l6.txt)" "$(cat l6.got 2>/dev/null)"
+before="$(git rev-list --count HEAD)"
+st_before="$(git status --porcelain -- aitasks artifacts attachments)"
+out="$("$ART" rm 26 art:t26-report 2>&1)"; rc=$?
+assert_exit_nonzero_rc "L6: rm on a bundled owner is refused" "$rc"
+assert_not_contains "L6: rm got past the artifact lookup" "no artifact matching" "$out"
+assert_contains "L6: rm was refused at the transaction boundary" "could not read the git status" "$out"
+assert_eq "L6: refused rm made no commit" "$before" "$(git rev-list --count HEAD)"
+assert_file_exists "L6: refused rm kept the manifest" "artifacts/manifests/t26-report.json"
+assert_eq "L6: refused rm changed no task data" "$st_before" \
+    "$(git status --porcelain -- aitasks artifacts attachments)"
 
 echo ""
 echo "=========================="

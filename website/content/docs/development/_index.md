@@ -50,6 +50,7 @@ Task and plan file resolution utilities. Sources `terminal_compat.sh` automatica
 **Functions:**
 
 - **`resolve_task_file(task_id)`** — Find a task file by number (e.g., `"53"` or `"53_6"`). Searches active directory first, then archived loose files, then numbered archives (`_bN/oldM.tar.gz`), with legacy `old.tar.gz` fallback. Dies if not found or if multiple matches exist.
+- **`task_file_is_active(task_id, task_file)`** — Succeeds only when `task_file` (as returned by `resolve_task_file`) lies in the active tree: `$TASK_DIR` for a parent, `$TASK_DIR/t<parent>` for a child. A loose archived file or an extraction from a numbered archive fails. Directories are compared by identity, so a trailing slash in `TASK_DIR` does not change the answer. Writers that must not touch archived tasks (`ait attach add`, `ait artifact create`) use it to refuse them.
 - **`resolve_plan_file(task_id)`** — Find the corresponding plan file using `t→p` prefix conversion (e.g., `t53_name.md` → `p53_name.md`). Searches the same three tiers as `resolve_task_file`. Returns empty string if not found.
 - **`extract_issue_url(file_path)`** — Parse the `issue:` field from a task file's YAML frontmatter. Returns empty string if not present.
 - **`extract_final_implementation_notes(plan_path)`** — Extract the `## Final Implementation Notes` section from a plan file. Stops at the next `##` heading. Trims leading/trailing blank lines.

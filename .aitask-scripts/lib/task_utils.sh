@@ -2425,6 +2425,21 @@ resolve_task_file() {
     echo "$files"
 }
 
+# task_file_is_active <task_id> <task_file> -- true iff the file that
+# resolve_task_file returned lives in the ACTIVE task tree: its directory is
+# exactly $TASK_DIR (parent) or $TASK_DIR/t<parent> (child). Anything else is a
+# loose file under $ARCHIVED_DIR or a temp extraction from a .tar.zst bundle.
+# A positive match on the active location, so an unexpected path fails closed.
+# Compared by IDENTITY (-ef: same device + inode), never by spelling:
+# resolve_task_file keeps $TASK_DIR verbatim, so a trailing slash yields
+# `aitasks//t16/...` for a child while dirname collapses a parent's
+# `aitasks//t5_x.md` to `aitasks` -- no one string form fits both (t2004).
+task_file_is_active() {
+    local task_id="$1" task_file="$2" active_dir="$TASK_DIR"
+    [[ "$task_id" =~ ^([0-9]+)_[0-9]+$ ]] && active_dir="$TASK_DIR/t${BASH_REMATCH[1]}"
+    [[ "$(dirname "$task_file")" -ef "$active_dir" ]]
+}
+
 # Resolve plan file from task number, checking both active and archived
 # Plan naming convention:
 #   Parent task t53_name.md -> plan p53_name.md

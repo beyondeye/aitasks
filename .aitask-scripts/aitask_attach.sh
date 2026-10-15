@@ -77,6 +77,11 @@ Internal (used by the board on hard-delete; not for routine manual use):
 
 <task> accepts a parent id (e.g. 16) or a child id (e.g. 16_2), with or without
 the leading `t`.
+
+`add` refuses an archived <task> (loose or bundled): a new attachment must go
+on an active task. `ls` and `get` still accept any archived <task>, and `rm`
+one whose file is still loose under aitasks/archived/ (not one packed into a
+.tar.zst bundle).
 EOF
 }
 
@@ -231,6 +236,17 @@ cmd_add() {
     [[ -f "$file" ]] || die "ait attach add: not a file: $file"
     [[ "$backend" == "local" ]] || die "ait attach add: backend '$backend' not yet supported (local only in t1030_2)"
     local task_file; task_file="$(resolve_task_file "$task_id")"
+    # A new attachment goes on an ACTIVE task (t2011, mirroring t2004's
+    # artifact create). resolve_task_file also answers with loose archived
+    # files and bundle extractions; writing into either would commit into an
+    # archived record or target a temp file. Only add refuses: ls/get still
+    # resolve archived owners; rm too, until the owner is bundled (its
+    # extraction is outside the repo, so the transaction refuses it).
+    if ! task_file_is_active "$task_id" "$task_file"; then
+        local where="a .tar.zst archive bundle"
+        [[ "$task_file" == "${ARCHIVED_DIR%/}"/* ]] && where="$task_file"
+        die "ait attach add: t${task_id} is archived (${where}) — a new attachment must go on an active task; ls and get still accept any archived owner, rm only one not yet packed into a bundle"
+    fi
     [[ -n "$name" ]] || name="$(basename "$file")"
     with_attach_lock _attach_add_txn "$task_id" "$task_file" "$file" "$backend" "$name"
 }

@@ -113,7 +113,9 @@ How the references change over a task's life:
   file. It **does not delete the blob**. When the last reference goes, the
   ledger records the time the blob became orphaned.
 - **Archiving** changes nothing. An archived task is still a real referrer — its
-  history stays browsable — so its attachments are kept indefinitely.
+  history stays browsable — so its attachments are kept indefinitely. They stay
+  listable and fetchable, but the task cannot gain new ones: `ait attach add`
+  refuses an archived task.
 - **Folding** a task into another moves its references to the primary task
   (see [Folded tasks]({{< relref "/docs/concepts/folded-tasks" >}})).
 - **Deleting** a task from `ait board` releases its references, or hands them to
