@@ -314,3 +314,187 @@ This runs on the current branch (profile `fast`). Commit the code as
 `test: … (t1998)` with `git commit -F - -- <the ten paths above>`, then commit
 the plan via `aitask_task_commit.sh`, then archive with
 `aitask_archive.sh 1998`.
+
+## Final Implementation Notes
+
+- **Actual work done:** everything in Steps 1–7 of the plan, across the ten
+  paths listed under **Commit scope**:
+  - `isolation_tripwire_test.go` holds the analyzer, `TestIsolationTripwire`
+    (real tree) and `TestIsolationTripwireCatches` (synthetic control plus a
+    real-tree red proof per guarded test).
+  - `watchdog_unix_test.go` gets one header sentence.
+  - `goengines/ci/preflight.sh` runs
+    `go test -count=1 -run '^TestIsolationTripwire(Catches)?$' ./internal/testmap/runner/`.
+  - A "Hang-guard preflight" step sits between `go vet` and `go test` in
+    `goengines-check.yml` (`check`) and `release.yml` (`goengines`).
+  - `cmd_test` in `aitask_engine.sh` runs `go vet`, then the preflight, then
+    `go test ./... "$@"`.
+  - Ordering pins:
+    - `test_preflight_precedes_the_suite` in both classes of
+      `tests/test_release_workflow_goengines.py`. It checks that exactly one
+      preflight step exists and runs before the first `go test ./...` step,
+      that the preflight step has no `continue-on-error`, and that the suite
+      step has no `if:`.
+    - E7 in `tests/test_install_engine_binary.sh`: the real engine script
+      with a stub `go`. When every step passes, the log shows the order
+      vet → preflight → `test ./... -short`. When the preflight fails, the
+      exit is non-zero and no `test ./...` line appears.
+  - Docs: `goengines/README.md` and `aidocs/framework/go_engine.md`.
+- **Deviations from plan:**
+  - The guard is excluded once, in `firstReach`, instead of twice. The
+    drafted code also dropped `isolated` from the node graph in `add()`.
+    Mutant 2 below showed that each exclusion hid the other's removal from the
+    synthetic control. One exclusion is enough, and that one is now pinned.
+  - The checks shown in the plan as `go test … -v` were run without `-v`;
+    the survey line was read from the `-v` run.
+- **Issues encountered:**
+  - A concurrent session landed t1993 (`cbfc74fed`, `TestScanOutput` plus
+    the watchdog's bounded output reads) during planning. The tripwire
+    classifies `TestScanOutput` as pure, and the header sentence was
+    unaffected.
+  - Two review rounds at plan approval added the preflight (execution order)
+    and the ten-path commit scope.
+- **Key decisions:**
+  - The analysis is name-based `go/ast`, standard library only. Selector
+    names, struct-literal keys, field names and labels are excluded.
+  - Import selectors resolve by path.
+  - The starters are local `Run`, `Load` and `sweepSession`; exec, os and
+    syscall process starts; `registry.Scan`/`Check`; `fixture.New`; and all
+    of `gitx`.
+  - The "guarded but unseen" finding keeps the starter list honest.
+  - The real-tree mutant compares against baseline findings plus one test,
+    so a pre-existing violation reports once.
+  - The user accepted the lexical residual (methods, interfaces and
+    func-typed fields are not followed) with no follow-up task.
+- **Upstream defects identified:** None
+- **Verification evidence (survey):** `go test -count=1 -run 'TestIsolationTripwire' -v ./internal/testmap/runner/`
+  logged `33 guarded, 24 pure, 2 allowlisted tests` and passed.
+- **Analyzer mutants (scratch module, repo file untouched):** each was
+  applied with `sed` to a copy of `isolation_tripwire_test.go` in its own
+  module, running `TestIsolationTripwireCatches`. The table shows the
+  difference against the expected flagged set:
+
+  | mutant | result |
+  |---|---|
+  | selector `.Sel` counted | extra `TestPure:unguarded` |
+  | guard reference counted (`firstReach` exclusion removed) | missing `TestGuardedPure:unseen` |
+  | guard not tied to the test parameter | `TestGuardWrongT` no longer flagged |
+  | struct-literal keys counted | extra `TestPure:unguarded` |
+  | labels counted | extra `TestPure:unguarded` |
+  | guard accepted anywhere in the body | missing `TestGuardNotFirst:unguarded` |
+  | import starters ignored | missing `TestFixture`, `TestGitx`, `TestPkgVar`, `TestRenamedImport` |
+
+  The unmutated copy passes the synthetic part. Its only failure is the
+  expected "red proof is vacuous", because the scratch module holds no
+  guarded tests.
+- **Red proof on disk (verbatim).** The 3-line guard was removed from
+  `TestRunPassFail` in `run_test.go` with the Edit tool, then:
+
+  ```
+  $ ./ci/preflight.sh   # guard removed from TestRunPassFail
+  --- FAIL: TestIsolationTripwire (0.01s)
+      isolation_tripwire_test.go:420: run_test.go:30:1: TestRunPassFail starts a process (TestRunPassFail → batchRepo → newRepo → github.com/beyondeye/aitasks/goengines/internal/testmap/fixture.New) but does not begin with the hang guard
+          	if !isolated(t, hangLimit) {
+          		return
+          	}
+          (or, for one of the watchdog's own controls, an isolationAllow entry with its reason)
+      isolation_tripwire_test.go:444: 32 guarded, 24 pure, 2 allowlisted tests
+  FAIL
+  FAIL	github.com/beyondeye/aitasks/goengines/internal/testmap/runner	0.095s
+  FAIL
+  rc=1
+  ```
+
+  Through the real entry point, `./ait engine test -count=1` printed the
+  same `TestRunPassFail` failure and exited 1 after 1 s. No other package
+  printed `ok`, which confirms the suite never started. The guard was then
+  restored with the Edit tool. `git diff --stat -- goengines/internal/testmap/runner/run_test.go`
+  was empty, and `./ci/preflight.sh` passed again.
+- **Order pins, red first:** before the workflow and `aitask_engine.sh`
+  edits, both `test_preflight_precedes_the_suite` cases failed
+  (`0 != 1 : exactly one step runs ./ci/preflight.sh`), and E7 failed 4 of
+  its 5 assertions (`Results: 218 passed, 4 failed, 222 total`). After the
+  edits, the Python test reports `Ran 11 tests … OK` and the engine test
+  reports `222 passed, 0 failed`.
+- **Lint and module guards:**
+  - `shellcheck goengines/ci/preflight.sh` is clean.
+  - `shellcheck -x aitask_engine.sh` is clean. Without `-x` the only output
+    is the three pre-existing SC1091 info lines for its `source`s.
+  - `gofmt -l .` prints nothing.
+  - `go vet ./...` is OK.
+  - `go test -count=1 -run 'TestInvariant5|TestDependencyAllowlist' .`
+    reports `ok`.
+- **Full package:** `go test -count=1 ./internal/testmap/runner/` →
+  `ok … 15.954s`.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-15 23:20)
+- **Requested by user:** two blocking review findings, both confirmed. First,
+  `isTestFunc` matched the parameter's selector name `testing` literally, so
+  `import tt "testing"` with `func TestAlias(t *tt.T)` escaped discovery.
+  Second, `importNames` dropped dot imports, so `. "os/exec"` plus a bare
+  `Command(...)` was missed.
+- **Changes made:**
+  - `isTestFunc(fd, imports)` now resolves the parameter's package through
+    the file's import map; the `X` must map to the path `testing`.
+  - `parseRunnerPkg` refuses any dot import with an error ("dot import of …,
+    which the tripwire cannot resolve: import it by name"). It fails closed
+    because both starters (`Command`) and the parameter type (`*T`) would
+    arrive unqualified. The real tree has no dot imports.
+  - New controls:
+    - `alias_test.go`: `TestAlias` with `tt "testing"` must be flagged as
+      unguarded, and `TestAliasGuarded` must not be.
+    - `decoy_test.go`: `TestDecoy` imports `example.com/notesting` under the
+      name `testing`, so it is not a test and must not be flagged.
+    - Dot imports of `os/exec` and of `testing` are both refused.
+  - Mutants, each caught:
+    - matching the literal name `testing`: `TestAlias` goes unflagged and
+      `TestDecoy` gets flagged;
+    - accepting any `*X.T`: `TestDecoy` gets flagged;
+    - removing the dot-import refusal: both dot-import cases return `err <nil>`.
+  - Re-verified: the survey still reads `33 guarded, 24 pure, 2 allowlisted`,
+    `./ci/preflight.sh` passes, the full runner package passes (`ok … 16.023s`),
+    and gofmt and vet are clean.
+- **Files affected:** `goengines/internal/testmap/runner/isolation_tripwire_test.go`
+
+### Change Request 2 (2026-10-15 23:45)
+- **Requested by user:** two review findings, both confirmed.
+  - Blocking: `isTestFunc` still required a selector parameter type, so
+    `type T = testing.T` with `func TestTypeAlias(t *T)` was skipped.
+  - Low priority, offered as a follow-up but done inline because the effort
+    was low: `assert_preflight_precedes_suite` accepted an `if: false` on the
+    preflight step.
+- **Changes made:**
+  - `isTestFunc` now mirrors go test's own discovery rule
+    (`cmd/go/internal/load` `isTestFunc`): a Test name and one parameter of
+    type `*T` or `*<anything>.T`. In a package that compiles, that parameter
+    is `testing.T`, whether through a renamed import or a type alias, so
+    nothing go test runs is left unclassified. This replaces Change Request
+    1's import-map resolution, which it subsumes.
+  - The `decoy_test.go` control is removed, because go test treats `*x.T` as
+    a test whatever `x` names. Its replacement is `typealias_test.go`:
+    `TestTypeAlias(t *T)` with `type T = testing.T` must be flagged, and
+    `TestNotATest(m *testing.M)` must not be.
+  - The dot-import refusal is kept for starters.
+  - The workflow guard now also asserts that the preflight step has no `if:`.
+    A new `PreflightOrderControls` class covers the wired order passing and
+    seven bypass shapes being rejected: no preflight, preflight after the
+    suite, two preflights, no suite, a skipped preflight, a tolerated
+    preflight failure, and a suite run after a failure.
+- **Evidence:**
+  - Mutants:
+    - the selector-only rule is caught (`TestTypeAlias` unflagged);
+    - ignoring `T` is caught (`TestNotATest` flagged);
+    - the py guard without the preflight `if:` check is caught (the "skipped
+      preflight" bypass subtest fails).
+  - The reviewer's scenario (`if: false` added to scratch copies of both
+    workflows via `AIT_WORKFLOWS_DIR`) now fails both
+    `test_preflight_precedes_the_suite` cases.
+  - Re-verified:
+    - the survey still reads `33 guarded, 24 pure, 2 allowlisted`;
+    - the Python guard reports `Ran 13 tests … OK`;
+    - the preflight passes;
+    - the full runner package passes (`ok … 15.448s`);
+    - `gofmt -l .` prints nothing.
+- **Files affected:** `goengines/internal/testmap/runner/isolation_tripwire_test.go`, `tests/test_release_workflow_goengines.py`
