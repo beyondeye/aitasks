@@ -8,7 +8,8 @@ These assertions pin the wiring statically:
   needs it, downloads them and attaches them in BOTH gh-release steps, the
   VERSION guard still runs first, and `packaging` is unchanged.
 - goengines-check.yml: it triggers on every file these guards protect and
-  runs them, and only its bench job is advisory.
+  runs them (the annot conformance corpus sync guard included, with the t1954
+  research corpus among the trigger paths), and only its bench job is advisory.
 
 AIT_WORKFLOWS_DIR overrides the workflow directory (negative controls run
 against a scratch copy, never the real files).
@@ -32,6 +33,8 @@ CHECK_PATHS = [
     "tests/test_goengines_build.sh",
     "tests/test_goengines_benchci.sh",
     "tests/test_release_workflow_goengines.py",
+    "aidocs/testing_engine/t1954_parser_research/corpus/**",
+    "tests/test_annot_conformance_corpus_sync.sh",
 ]
 
 
@@ -118,7 +121,8 @@ class GoenginesCheckWorkflow(unittest.TestCase):
         runs = "\n".join(str(s.get("run", "")) for s in self.jobs["check"]["steps"])
         for guard in ("tests/test_release_workflow_goengines.py",
                       "tests/test_goengines_build.sh",
-                      "tests/test_goengines_benchci.sh"):
+                      "tests/test_goengines_benchci.sh",
+                      "tests/test_annot_conformance_corpus_sync.sh"):
             self.assertIn(guard, runs)
         self.assertIn("gofmt", runs)
         self.assertIn("./build.sh all", runs)

@@ -1,0 +1,2 @@
+val s = "never closed
+// testmap:covers app/x.kt

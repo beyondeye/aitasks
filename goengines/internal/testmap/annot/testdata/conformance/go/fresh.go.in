@@ -1,0 +1,8 @@
+//go:build linux
+
+// Package a does things.
+package a
+
+import "testing"
+
+func TestX(t *testing.T) {}

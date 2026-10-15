@@ -114,8 +114,9 @@ run on every push that touches `goengines/`, so a breakage surfaces before a tag
 ## CI: `.github/workflows/goengines-check.yml`
 
 Triggers on push and pull request touching any of `goengines/**`, the workflow
-itself, `.github/workflows/release.yml` and the three guard tests below, and on
-`workflow_dispatch`.
+itself, `.github/workflows/release.yml`, the t1954 research corpus
+(`aidocs/testing_engine/t1954_parser_research/corpus/**`) and the four guard
+tests below, and on `workflow_dispatch`.
 
 **`check`** (required):
 
@@ -131,6 +132,13 @@ itself, `.github/workflows/release.yml` and the three guard tests below, and on
    - `tests/test_goengines_build.sh` — asset names, build identity, the matrix
      and its sums, usage refusals.
    - `tests/test_goengines_benchci.sh` — the bench helper below.
+   - `tests/test_annot_conformance_corpus_sync.sh` — the `annot` conformance
+     fixtures (`goengines/internal/testmap/annot/testdata/conformance/`) are
+     exact copies of the bash, Python, Go and Kotlin fixtures of the research
+     corpus: the same file lists, bytes and executable bits. The Go conformance
+     test never reads `aidocs/`, so this step is what fails when a research
+     fixture has not been copied; the refresh commands are in the header of
+     `conformance_test.go`.
 
 **`bench`** (`continue-on-error: true`, **advisory**): runs the benchmark gate,
 `go run ./internal/tools/benchgate -baseline <baseline>` in full mode. The gate

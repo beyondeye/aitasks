@@ -1,0 +1,4 @@
+package app
+
+// testmap:covers app/crlf.kt
+class T

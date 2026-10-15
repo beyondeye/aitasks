@@ -1,0 +1,4 @@
+package p
+
+func {
+// testmap:covers src/x.go

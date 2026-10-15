@@ -1,0 +1,8 @@
+package a
+
+import b.C
+import d.E
+
+class T {
+  import x
+}

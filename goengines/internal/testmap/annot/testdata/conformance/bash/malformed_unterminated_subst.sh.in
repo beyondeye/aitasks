@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+x=$(echo a
+# testmap:covers src/x.sh

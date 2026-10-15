@@ -1,0 +1,4 @@
+# -*- coding: latin-1 -*-
+# café
+# testmap:covers src/latin1.py
+s = "naïve"

@@ -1,0 +1,5 @@
+"""Doc.
+testmap:covers src/crlf_doc.py
+"""
+# testmap:covers src/crlf.py
+print("crlf")
