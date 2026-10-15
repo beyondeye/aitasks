@@ -7,7 +7,8 @@ set -euo pipefail
 #   build              build this checkout's engine into the dev slot
 #                      ($AITASKS_HOME/engine/dev/), version <VERSION>-dev+<sha>;
 #                      use it with AIT_ENGINE=dev ait testmap …
-#   test [args]        go vet + go test over goengines/ (args go to go test)
+#   test [args]        go vet, the hang-guard preflight (goengines/ci/preflight.sh),
+#                      then go test over goengines/ (args go to the suite's go test)
 #   cross [args]       the release matrix: goengines/build.sh all [args]
 #   prune [--dry-run] [--force]
 #                      remove release slots $AITASKS_HOME/engine/v*/ that no
@@ -131,6 +132,9 @@ cmd_test() {
     require_source
     cd "$GOENGINES"
     go vet ./...
+    # The hang-guard tripwire alone first: inside the suite it would run after
+    # tests that could already hang. The caller's args are the suite's only.
+    "$GOENGINES/ci/preflight.sh"
     go test ./... "$@"
 }
 

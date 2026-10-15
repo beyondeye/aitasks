@@ -28,7 +28,7 @@ Specification: `aidocs/testing_engine/n014_explorer_006_proposal.md`
 
 ```bash
 cd goengines
-test -z "$(gofmt -l .)" && go vet ./... && go test ./...      # -short skips the build-a-binary tests
+test -z "$(gofmt -l .)" && go vet ./... && ./ci/preflight.sh && go test ./...  # -short skips the build-a-binary tests
 go run ./internal/tools/benchgate -baseline bench/baseline.txt  # the gate (full mode)
 go run ./internal/tools/benchgate -baseline bench/baseline.txt -partial -- \
     go test -run '^$' -bench BlobDigest ./internal/gitx          # a developer subset, never the gate

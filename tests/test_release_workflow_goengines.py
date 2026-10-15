@@ -10,6 +10,8 @@ These assertions pin the wiring statically:
 - goengines-check.yml: it triggers on every file these guards protect and
   runs them (the annot conformance corpus sync guard included, with the t1954
   research corpus among the trigger paths), and only its bench job is advisory.
+- both: the hang-guard preflight (goengines/ci/preflight.sh) runs alone before
+  `go test ./...`, and the suite runs only when it passes (t1998).
 
 AIT_WORKFLOWS_DIR overrides the workflow directory (negative controls run
 against a scratch copy, never the real files).
@@ -57,6 +59,21 @@ def needs(job: dict) -> list:
     return [n] if isinstance(n, str) else list(n)
 
 
+def assert_preflight_precedes_suite(tc: unittest.TestCase, steps: list) -> None:
+    # Inside `go test ./...` the runner package's hang-guard tripwire runs in
+    # file order, after tests that could already hang, and its failure does not
+    # stop them — so it runs alone first, and a failure ends the job.
+    runs = [str(s.get("run", "")) for s in steps]
+    pre = [i for i, r in enumerate(runs) if "./ci/preflight.sh" in r]
+    suite = [i for i, r in enumerate(runs) if "go test ./..." in r]
+    tc.assertEqual(len(pre), 1, "exactly one step runs ./ci/preflight.sh")
+    tc.assertTrue(suite, "no step runs go test ./...")
+    tc.assertLess(pre[0], min(suite), "the preflight must run before the suite")
+    tc.assertNotIn("if", steps[pre[0]], "the preflight must not be skippable")
+    tc.assertNotIn("continue-on-error", steps[pre[0]], "a failing preflight must end the job")
+    tc.assertNotIn("if", steps[min(suite)], "the suite must not run after a failed preflight")
+
+
 class ReleaseWorkflow(unittest.TestCase):
     def setUp(self):
         self.jobs = load("release.yml")["jobs"]
@@ -76,6 +93,9 @@ class ReleaseWorkflow(unittest.TestCase):
         self.assertEqual(up[0]["with"]["if-no-files-found"], "error")
         setup = [s for s in steps if uses(s, "actions/setup-go")]
         self.assertEqual(setup[0]["with"]["go-version-file"], "goengines/go.mod")
+
+    def test_preflight_precedes_the_suite(self):
+        assert_preflight_precedes_suite(self, self.jobs["goengines"]["steps"])
 
     def test_release_downloads_the_assets(self):
         down = [s for s in self.jobs["release"]["steps"] if uses(s, "actions/download-artifact")]
@@ -127,6 +147,9 @@ class GoenginesCheckWorkflow(unittest.TestCase):
         self.assertIn("gofmt", runs)
         self.assertIn("./build.sh all", runs)
 
+    def test_preflight_precedes_the_suite(self):
+        assert_preflight_precedes_suite(self, self.jobs["check"]["steps"])
+
     def test_only_bench_is_advisory(self):
         self.assertIs(self.jobs["bench"].get("continue-on-error"), True)
         self.assertNotIn("continue-on-error", self.jobs["check"])
@@ -134,6 +157,31 @@ class GoenginesCheckWorkflow(unittest.TestCase):
         self.assertIn("go run ./internal/tools/benchgate -baseline", runs)
         self.assertNotIn("-partial", runs)
         self.assertIn("./ci/benchci.sh summary", runs)
+
+
+class PreflightOrderControls(unittest.TestCase):
+    """Negative controls for assert_preflight_precedes_suite: every way the
+    suite could run without a passing preflight must be rejected."""
+
+    PRE = {"name": "Hang-guard preflight", "run": "./ci/preflight.sh"}
+    SUITE = {"name": "go test", "run": "go test ./..."}
+
+    def test_the_wired_order_passes(self):
+        assert_preflight_precedes_suite(self, [{"run": "go vet ./..."}, self.PRE, self.SUITE])
+
+    def test_every_bypass_is_rejected(self):
+        bypasses = {
+            "no preflight": [self.SUITE],
+            "preflight after the suite": [self.SUITE, self.PRE],
+            "two preflights": [self.PRE, self.PRE, self.SUITE],
+            "no suite": [self.PRE],
+            "skipped preflight": [{**self.PRE, "if": "false"}, self.SUITE],
+            "preflight failure tolerated": [{**self.PRE, "continue-on-error": True}, self.SUITE],
+            "suite run after a failure": [self.PRE, {**self.SUITE, "if": "always()"}],
+        }
+        for name, steps in bypasses.items():
+            with self.subTest(name), self.assertRaises(AssertionError):
+                assert_preflight_precedes_suite(self, steps)
 
 
 if __name__ == "__main__":

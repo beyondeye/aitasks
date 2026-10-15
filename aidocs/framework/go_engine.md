@@ -98,6 +98,7 @@ Verify a download with `sha256sum -c ait-testmap_<V>_SHA256SUMS.txt` (or
 `plan → goengines → release → packaging`:
 
 - **`goengines`** (`needs: plan`) — setup-go from `goengines/go.mod`, `go vet`,
+  the hang-guard preflight (`./ci/preflight.sh`, see the `check` job below),
   `go test`, `./build.sh all`, `sha256sum -c` over the result, and upload of
   `goengines/dist/` as the `goengines-dist` artifact (`if-no-files-found: error`).
 - **`release`** (`needs: [plan, goengines]`) — downloads `goengines-dist` into
@@ -120,14 +121,20 @@ tests below, and on `workflow_dispatch`.
 
 **`check`** (required):
 
-1. gofmt (fails listing the unformatted files), `go vet ./...`, `go test ./...`.
+1. gofmt (fails listing the unformatted files), `go vet ./...`, the hang-guard
+   preflight `./ci/preflight.sh`, then `go test ./...`. The preflight runs the
+   runner package's isolation tripwire alone: inside `go test ./...` it would run
+   in file order, after tests that could already hang, so a process-starting test
+   that omits the `isolated` guard fails here in seconds and the suite never
+   starts. `ait engine test` runs the same sequence.
 2. `./build.sh all` into a scratch directory plus `sha256sum -c` — the release
    matrix, cross-compiled on every change.
 3. The repository-side guards:
    - `tests/test_release_workflow_goengines.py` — the release wiring above
      (`needs`, the artifact hand-off, both release steps' `files`, the VERSION
-     guard's position, `packaging`) and this workflow's own trigger paths and
-     advisory split. It is why `release.yml` is among the trigger paths: an edit
+     guard's position, `packaging`), this workflow's own trigger paths and
+     advisory split, and in both workflows the hang-guard preflight's position
+     before `go test ./...`. It is why `release.yml` is among the trigger paths: an edit
      to it alone still runs the guard.
    - `tests/test_goengines_build.sh` — asset names, build identity, the matrix
      and its sums, usage refusals.

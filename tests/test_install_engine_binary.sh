@@ -10,7 +10,7 @@
 #   F*  failure handling under both call shapes (errexit on, and `|| true`)
 #   P*  a directory where the binary or sidecar belongs, in every publish mode
 #   S*  the source tier;  T*  TESTMAP: states;  W*  main() wiring;
-#   G*  the gitignore rule;  E*  ait engine prune / build / usage
+#   G*  the gitignore rule;  E*  ait engine prune / build / test / usage
 #
 # Zero network except where a case says otherwise (none do): every release
 # fetch is served from a file:// mirror, and HOME / AITASKS_HOME / SHIM_DIR are
@@ -706,6 +706,34 @@ if command -v go >/dev/null 2>&1; then
 else
     echo "SKIP: E4 (go not installed)"
 fi
+
+# E7: `ait engine test` runs the hang-guard preflight alone, between vet and
+# the suite, and a failing preflight never starts the suite (t1998). go is a
+# stub that logs its directory and arguments; preflight.sh is the real one.
+E7="$WORK/e7"
+mkdir -p "$E7/goengines/ci" "$E7/bin"
+cp -R "$T/.aitask-scripts" "$E7/.aitask-scripts"
+: >"$E7/goengines/build.sh"
+cp -p "$PROJECT_DIR/goengines/ci/preflight.sh" "$E7/goengines/ci/preflight.sh"
+cat >"$E7/bin/go" <<'EOF'
+#!/usr/bin/env bash
+printf '%s|%s\n' "$PWD" "$*" >>"$E7_LOG"
+[[ -n "${E7_FAIL_PREFLIGHT:-}" && "$*" == *TestIsolationTripwire* ]] && exit 1
+exit 0
+EOF
+chmod +x "$E7/bin/go"
+G="$(cd "$E7/goengines" && pwd)"
+want="$G|vet ./...
+$G|test -count=1 -run ^TestIsolationTripwire(Catches)?\$ ./internal/testmap/runner/
+$G|test ./... -short"
+out="$(E7_LOG="$E7/log" PATH="$E7/bin:$PATH" bash "$E7/.aitask-scripts/aitask_engine.sh" test -short 2>&1)"; rc=$?
+assert_exit_zero_rc_out "E7 ait engine test exits 0 when every step passes" "$rc" "$out"
+assert_eq "E7 vet, then the preflight alone, then the suite with the caller's args" "$want" "$(cat "$E7/log" 2>/dev/null)"
+rm -f "$E7/log"
+out="$(E7_LOG="$E7/log" E7_FAIL_PREFLIGHT=1 PATH="$E7/bin:$PATH" bash "$E7/.aitask-scripts/aitask_engine.sh" test 2>&1)"; rc=$?
+assert_exit_nonzero_rc "E7 a failing preflight fails ait engine test" "$rc"
+assert_contains "E7 … the preflight ran" "TestIsolationTripwire" "$(cat "$E7/log" 2>/dev/null)"
+assert_not_contains "E7 … and the suite never started" "|test ./..." "$(cat "$E7/log" 2>/dev/null)"
 
 # --- footer ---------------------------------------------------------------------
 assert_counters_load

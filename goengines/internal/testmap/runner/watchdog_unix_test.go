@@ -33,7 +33,10 @@ package runner
 // the parent's files.
 //
 // TestIsolationControls and TestReapMarkedUncertainty start processes but
-// are not isolated: they are the watchdog's own controls.
+// are not isolated: they are the watchdog's own controls. The convention is
+// enforced by isolation_tripwire_test.go, which fails a test that reaches a
+// process start without the guard as its first statement — these two are its
+// allowlist — and which ci/preflight.sh runs before the suite.
 //
 // Debugging: the subprocess path is plain in-process execution, so
 //

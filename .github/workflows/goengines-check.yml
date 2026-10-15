@@ -71,6 +71,11 @@ jobs:
       - name: go vet
         run: go vet ./...
 
+      # The hang-guard tripwire alone, so a process-starting test that omits
+      # the guard fails here in seconds instead of hanging the suite below.
+      - name: Hang-guard preflight
+        run: ./ci/preflight.sh
+
       - name: go test
         run: go test ./...
 
