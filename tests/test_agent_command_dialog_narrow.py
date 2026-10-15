@@ -18,6 +18,11 @@ the same fallback: the tab content is sized to its content instead of padded to
 a 20-row cap, and the dialog body scrolls on terminals shorter than about 40
 rows, where Run / Cancel used to sit below the dialog's edge out of reach.
 
+t2025: choosing "+ Create new session" used to hide the window-name row in both
+modes — the window Select's set_options([]) posts a Changed(NULL) that reached
+the hide branch after the row was shown — so the user could neither see nor
+edit the window name the launch used.
+
 Mirrors tests/test_kill_confirm_dialog.py::test_buttons_fit_inside_narrow_dialog
 — drive the screen with a small terminal and assert every control's region sits
 within the dialog's region.
@@ -227,7 +232,8 @@ async def _show_tab(app: App, pilot, tab: str) -> None:
 
 
 async def _enter_tallest_state(app: App, pilot) -> None:
-    """Profile row + (U)se previous + the new-session row, all at once.
+    """Profile row + (U)se previous + the new-session and window-name rows,
+    all at once.
 
     The new-session row is shown the way a user reaches it after the dialog
     opened — choosing "+ Create new session" — since that growth is what used
@@ -407,7 +413,10 @@ class AgentCommandDialogNarrowTests(unittest.TestCase):
                 await _enter_tallest_state(app, pilot)
                 screen = app.screen
                 # The tallest combination is really on screen...
-                shown = ["profile_row", "btn_use_last_agent", "tmux_new_session_row"]
+                shown = [
+                    "profile_row", "btn_use_last_agent",
+                    "tmux_new_session_row", "tmux_new_window_row",
+                ]
                 for widget_id in shown:
                     region = screen.query_one(f"#{widget_id}").region
                     self.assertTrue(region.height, f"#{widget_id} not shown")
@@ -490,6 +499,94 @@ class AgentCommandDialogNarrowTests(unittest.TestCase):
                 self.assertEqual(config.window, "agent-pick-5_5")
             with self.subTest(narrow=narrow, key="escape"):
                 self.assertEqual(self._run(runner(narrow, size, "escape")), [None])
+
+    def _assert_window_rows(self, screen, name_row: bool, where: str) -> None:
+        """The window-name row is displayed iff `name_row`; the split row is
+        displayed exactly when it is not."""
+        for widget_id, displayed in (
+            ("tmux_new_window_row", name_row),
+            ("tmux_split_row", not name_row),
+        ):
+            region = screen.query_one(f"#{widget_id}").region
+            self.assertEqual(
+                bool(region.width and region.height), displayed,
+                f"{where}: #{widget_id} {region}",
+            )
+
+    def test_new_session_shows_window_name_row(self):
+        """Choosing "+ Create new session" keeps the window-name row shown, in
+        both modes and whether the window Select held the new-window default
+        or an existing window. `m` reaches the input, the typed name is the
+        one launched."""
+        async def runner(narrow, size, prior):
+            app = _DialogHost(narrow=narrow)
+            async with app.run_test(size=size) as pilot:
+                await _settle(pilot)
+                screen = app.screen
+                where = f"narrow={narrow} prior={prior}"
+                if prior == "existing":
+                    screen.query_one("#tmux_window_select", Select).value = "1"
+                    await _settle(pilot)
+                    self._assert_window_rows(screen, False, f"{where} before")
+                await _enter_tallest_state(app, pilot)
+                self._assert_window_rows(screen, True, where)
+                screen.set_focus(None)
+                await pilot.press("m")
+                await _settle(pilot)
+                name_input = screen.query_one("#tmux_new_window_input", Input)
+                self.assertIs(app.focused, name_input, where)
+                self._assert_inside_dialog(
+                    screen, "tmux_new_window_input", size, where,
+                )
+                # The Input selects all on focus: `end` drops the selection,
+                # ctrl+u deletes everything left of the cursor.
+                await pilot.press("end", "ctrl+u", *"my-win")
+                await _settle(pilot)
+                self.assertEqual(name_input.value, "my-win", where)
+                screen.set_focus(None)
+                await pilot.press("r")
+                await _settle(pilot)
+                self.assertNotIsInstance(app.screen, AgentCommandScreen, where)
+                return app.results
+
+        for narrow, size in ((True, (40, 44)), (False, _WIDE_SIZE)):
+            for prior in ("new", "existing"):
+                with self.subTest(narrow=narrow, prior=prior):
+                    results = self._run(runner(narrow, size, prior))
+                    self.assertEqual(len(results), 1)
+                    config = results[0]
+                    self.assertIsInstance(config, TmuxLaunchConfig)
+                    self.assertTrue(config.new_session)
+                    self.assertEqual(config.session, "aitasks")
+                    self.assertTrue(config.new_window)
+                    self.assertEqual(config.window, "my-win")
+
+    def test_switching_back_to_existing_session_follows_window_select(self):
+        """After "+ Create new session", choosing an existing session hands the
+        window rows back to the window Select: the new-window default shows
+        the name row, an existing window shows the split row instead."""
+        async def runner(narrow, size):
+            app = _DialogHost(narrow=narrow)
+            async with app.run_test(size=size) as pilot:
+                await _settle(pilot)
+                await _enter_tallest_state(app, pilot)
+                screen = app.screen
+                where = f"narrow={narrow}"
+                screen.query_one("#tmux_session_select", Select).value = "other"
+                await _settle(pilot)
+                self.assertEqual(
+                    screen.query_one("#tmux_window_select", Select).value,
+                    acs._NEW_WINDOW_SENTINEL,
+                    where,
+                )
+                self._assert_window_rows(screen, True, f"{where} new window")
+                screen.query_one("#tmux_window_select", Select).value = "1"
+                await _settle(pilot)
+                self._assert_window_rows(screen, False, f"{where} window 1")
+
+        for narrow, size in ((True, (40, 44)), (False, _WIDE_SIZE)):
+            with self.subTest(narrow=narrow):
+                self._run(runner(narrow, size))
 
     def _wide_regions(self, host, tab, widget_ids):
         async def runner():

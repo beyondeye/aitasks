@@ -755,8 +755,20 @@ class AgentCommandScreen(GuardedDismissMixin, ShortcutsMixin, ModalScreen):
         except Exception:
             pass
 
+    def _new_session_pending(self) -> bool:
+        """True while the session selector holds "+ Create new session"."""
+        try:
+            sess_select = self.query_one("#tmux_session_select", Select)
+        except Exception:
+            return False
+        return sess_select.value == _NEW_SESSION_SENTINEL
+
     def _on_window_changed(self, value) -> None:
-        if value == _NEW_WINDOW_SENTINEL:
+        # A new session always launches into a new window (_build_tmux_config),
+        # so its name row stays shown whatever the window Select holds — the
+        # Changed(NULL) that _show_new_session_input's set_options([]) posts
+        # arrives here after that row was shown.
+        if value == _NEW_WINDOW_SENTINEL or self._new_session_pending():
             self._show_new_window_input()
             self._selected_window = None
         elif value and value != Select.NULL:
