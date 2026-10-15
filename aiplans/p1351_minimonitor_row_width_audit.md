@@ -285,3 +285,247 @@ target to that width and cannot expose the mismatch.
 Current-branch mode under profile `fast`: no worktree and no merge. Step 9
 runs the gate orchestrator (`risk_evaluated` is active) and then archives with
 `aitask_archive.sh 1351`.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-15 13:05)
+- **Requested by user:** `test_widest_live_row_leaves_the_floor` derived the name width as row width minus a hard-coded `★ ● ◆! ≈ ` prefix. Clipping keeps the row full, so extra prefix cells were miscounted as name cells (a probe widening the compare glyph to `≈abc` left an 11-cell name while the test still passed the 12-cell floor).
+- **Changes made:** the test now measures the rendered name itself (the single `x+…` run on the row) and asserts there is exactly one. Re-ran the reviewer's probe: patching `format_compare_mode_glyph` to `≈abc` now fails the test with `11 not greater than or equal to 12`; unpatched, it passes.
+- **Files affected:** `tests/test_minimonitor_row_budget.py`
+
+## Final Implementation Notes
+- **Actual work done:** Implemented the plan as approved. `PANE_STATUS_MAX_CELLS = 11` (`monitor_shared.py`); `match_agent_prefix` / `agent_display_name` with `classify_pane` routed through the shared matcher (`monitor_core.py`); in `minimonitor_app.py` the budget block now holds the full cell arithmetic and the shed order, `_row_budget`/`_detail_budget` reserve the 2-cell list scrollbar (36 / 34 at width 40), `_name_room` derives the name budget from the row's own rendered prefix, `_display_name`/`_row_name` drop the agent prefix and clip-then-escape, the title and the OTHER row use `_clip`, and `#mini-pane-list` spells out `scrollbar-size-vertical: 2`. New `tests/test_minimonitor_row_budget.py` (15 tests). Docs: minimonitor how-to (name description, frozen-row prose and example).
+- **Deviations from plan:** (1) The composited test's "scrollbar hidden" scenario uses a 40-row screen (the visible one 24): at 24 rows the pre-fix wrapping alone made 3 cards scroll, so that precondition depended on the bug under test. (2) The composited check counts only cards wholly inside `#mini-pane-list`'s own region — below it the docked key hints own those screen rows. (3) `tests/test_monitor_agent_marks.py::WidthBudgetTests` pinned the old 20-character cap; renamed to `test_long_window_name_pays_for_the_mark` and now derives the expected name width from `_row_budget` and `PANE_STATUS_MAX_CELLS` (found by the full suite, not by the targeted runs). (4) The docked-panel docstring that handed row tuning to t1351 now records that the list budget deliberately does not reach that panel.
+- **Issues encountered:** The first full suite run failed only on the agent-marks pin above; the rerun passed (`PYTHON SUITE: PASSED (runner=pytest, exit=0)`). Red proof before the change: the composited worst-case cards were 5-6 rows instead of 3 (`AssertionError: 5 != 3 : card wrapped`, row 1 wrapping `999s` and the CJK title wrapping), the matrix produced rows of 40/42/55 cells and `MarkupError: closing tag '[/]' … has nothing to close` for markup-looking names. Concurrent session t2001 edited `minimonitor_app.py` / `monitor_core.py` / `tmux_monitor.py` in the same working tree during review; the code commit carries only this task's hunks, built in a temporary index (HEAD + whitelisted hunks, verified to contain none of t2001's symbols) rather than a whole-file pathspec commit.
+- **Key decisions:** Width source stays the configured `target_width` (the AC's 40-column target); the real-pane-narrower case is the planned `after` mitigation `budget_actual_pane_width`. Status reserved at its bound so names never re-truncate as the counter grows. `_display_name` strips nothing when the monitor's prefix list is unknown (stubs, pre-mount) rather than guessing. The floor test measures the rendered name run itself (post-review change 1).
+- **Upstream defects identified:** None
+- **Real tmux capture at 40 columns (AC) — script, verbatim.** Run as `python3 t1351_live_capture.py drive <agents> <height>` for `3 40` (scrollbar hidden) and `30 24` (scrollbar visible), before and after the change:
+
+```python
+"""t1351 — real-tmux capture of minimonitor's worst-case rows at 40 columns.
+
+Two roles in one file:
+
+  python3 t1351_live_capture.py drive <agents> <height>
+      Starts a private tmux server (`-L t1351cap<pid>`, `-f /dev/null`), opens a
+      40-column detached session running this script in the `app` role, waits
+      until the screen settles, prints `capture-pane -p`, and kills ONLY that
+      server.
+
+  python3 t1351_live_capture.py app <agents>
+      Runs inside the pane: the REAL MiniMonitorApp via the test module's
+      `_WorstCaseHost` (real compose + CSS, only tmux-facing collaborators
+      stubbed), with `format_shadow_glyph` forced to `◆!` — the widest
+      combination, which production minimonitor never renders on its own.
+"""
+from __future__ import annotations
+
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+from unittest import mock
+
+REPO = Path("/home/ddt/Work/aitasks")
+PY = str(Path.home() / ".aitask/venv/bin/python")
+
+
+def app_role(count: int) -> None:
+    sys.path.insert(0, str(REPO / "tests"))
+    import test_minimonitor_row_budget as rb  # pops TMUX/TMUX_PANE on import
+    from monitor import minimonitor_app as mm
+
+    class LiveHost(rb._WorstCaseHost):
+        async def on_ready(self) -> None:
+            await self._refresh_data()
+            self.set_timer(20.0, self.exit)
+
+    with mock.patch.object(mm, "format_shadow_glyph", rb._shadow_with_concerns):
+        LiveHost(count).run()
+
+
+def tmux(sock: str, *args: str, check: bool = True) -> str:
+    return subprocess.run(["tmux", "-L", sock, "-f", "/dev/null", *args],
+                          capture_output=True, text=True, check=check).stdout
+
+
+def drive(count: int, height: int) -> None:
+    sock = f"t1351cap{os.getpid()}"
+    cmd = (f"env -u TMUX -u TMUX_PANE TERM=xterm-256color "
+           f"{PY} {Path(__file__).resolve()} app {count}")
+    tmux(sock, "new-session", "-d", "-s", "cap", "-x", "40", "-y", str(height), cmd)
+    try:
+        width = tmux(sock, "display-message", "-p", "-t", "cap",
+                     "#{pane_width}x#{pane_height}").strip()
+        prev, stable, shot = None, 0, ""
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            time.sleep(0.5)
+            shot = tmux(sock, "capture-pane", "-p", "-t", "cap", check=False)
+            if "PROMPT" in shot and shot == prev:
+                stable += 1
+                if stable >= 3:
+                    break
+            else:
+                stable = 0
+            prev = shot
+        print(f"# pane {width}, agents={count}, settled={stable >= 3}")
+        print(shot.rstrip("\n"))
+    finally:
+        tmux(sock, "kill-server", check=False)
+
+
+if __name__ == "__main__":
+    role = sys.argv[1]
+    if role == "app":
+        app_role(int(sys.argv[2]))
+    else:
+        drive(int(sys.argv[2]), int(sys.argv[3]))
+```
+
+- **Pre-fix capture** (unchanged code): row 1 wraps `999s` onto its own line and the CJK title wraps, in both list states:
+
+```
+# pane 40x40, agents=3, settled=True
+ ★ ● ◆! ≈ agent-pick-1351_12  PROMPT
+ 999s
+   漢字漢字漢字漢字漢字漢字漢字漢字漢字
+ 漢字漢字漢字漢字漢字漢…
+   IMPLEMENT ⏸ · 0/4 1p 1f 1s
+ ★ ● ◆! ≈ agent-xxxxxxxxxxxxx…  PROMPT
+ 999s
+   漢字漢字漢字漢字漢字漢字漢字漢字漢字
+ 漢字漢字漢字漢字漢字漢…
+   IMPLEMENT ⏸ · 0/4 1p 1f 1s
+ ★ ● ◆! ≈
+ agent-漢漢漢漢漢漢漢漢漢漢漢漢漢…
+ PROMPT 999s
+   漢字漢字漢字漢字漢字漢字漢字漢字漢字
+ 漢字漢字漢字漢字漢字漢…
+   IMPLEMENT ⏸ · 0/4 1p 1f 1s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ i:info  q:quit  tab:agent
+ I:info (followed agent)
+ s/↑↓:switch  enter:send
+ d:detect (≈ strip, = raw)
+ j:switcher  m:monitor
+ k:kill  n:next  e/E:shadow
+ c:concerns  p:pick  P:parked/frozen
+ f:freeze  Z:all  R:restore
+ L:loop ?:keys M:multi
+ space:mark ★ (followed agent)
+----
+# pane 40x24, agents=30, settled=True
+ ★ ● ◆! ≈ agent-pick-1351_12  PROMPT
+ 999s                                 ▆▆
+   漢字漢字漢字漢字漢字漢字漢字漢字漢
+ 字漢字漢字漢字漢字漢字漢…
+   IMPLEMENT ⏸ · 0/4 1p 1f 1s
+ ★ ● ◆! ≈ agent-pick-1351_12  PROMPT
+ 999s
+   漢字漢字漢字漢字漢字漢字漢字漢字漢
+ 字漢字漢字漢字漢字漢字漢…
+   IMPLEMENT ⏸ · 0/4 1p 1f 1s
+ ★ ● ◆! ≈ agent-pick-1351_12  PROMPT
+ 999s
+   漢字漢字漢字漢字漢字漢字漢字漢字漢
+ 字漢字漢字漢字漢字漢字漢…
+ i:info  q:quit  tab:agent
+ I:info (followed agent)
+ s/↑↓:switch  enter:send
+ d:detect (≈ strip, = raw)
+ j:switcher  m:monitor
+ k:kill  n:next  e/E:shadow
+ c:concerns  p:pick  P:parked/frozen
+ f:freeze  Z:all  R:restore
+ L:loop ?:keys M:multi
+ space:mark ★ (followed agent)
+----
+```
+
+- **Post-fix capture:** every card is exactly 3 lines, `◆!` visible, in both list states (`▆▆` is the scrollbar):
+
+```
+# pane 40x40, agents=3, settled=True
+ ★ ● ◆! ≈ pick-1351_12  PROMPT 999s
+   漢字漢字漢字漢字漢字漢字漢字…
+   IMPLEMENT ⏸ · 0/4 1p 1f 1s
+ ★ ● ◆! ≈ xxxxxxxxxxxxx…  PROMPT 999s
+   漢字漢字漢字漢字漢字漢字漢字…
+   IMPLEMENT ⏸ · 0/4 1p 1f 1s
+ ★ ● ◆! ≈ 漢漢漢漢漢漢…  PROMPT 999s
+   漢字漢字漢字漢字漢字漢字漢字…
+   IMPLEMENT ⏸ · 0/4 1p 1f 1s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ i:info  q:quit  tab:agent
+ I:info (followed agent)
+ s/↑↓:switch  enter:send
+ d:detect (≈ strip, = raw)
+ j:switcher  m:monitor
+ k:kill  n:next  e/E:shadow
+ c:concerns  p:pick  P:parked/frozen
+ f:freeze  Z:all  R:restore
+ L:loop ?:keys M:multi
+ space:mark ★ (followed agent)
+----
+# pane 40x24, agents=30, settled=True
+ ★ ● ◆! ≈ pick-1351_12  PROMPT 999s
+   漢字漢字漢字漢字漢字漢字漢字…
+   IMPLEMENT ⏸ · 0/4 1p 1f 1s         ▆▆
+ ★ ● ◆! ≈ pick-1351_12  PROMPT 999s
+   漢字漢字漢字漢字漢字漢字漢字…
+   IMPLEMENT ⏸ · 0/4 1p 1f 1s
+ ★ ● ◆! ≈ pick-1351_12  PROMPT 999s
+   漢字漢字漢字漢字漢字漢字漢字…
+   IMPLEMENT ⏸ · 0/4 1p 1f 1s
+ ★ ● ◆! ≈ pick-1351_12  PROMPT 999s
+   漢字漢字漢字漢字漢字漢字漢字…
+   IMPLEMENT ⏸ · 0/4 1p 1f 1s
+ ★ ● ◆! ≈ pick-1351_12  PROMPT 999s
+   漢字漢字漢字漢字漢字漢字漢字…
+ i:info  q:quit  tab:agent
+ I:info (followed agent)
+ s/↑↓:switch  enter:send
+ d:detect (≈ strip, = raw)
+ j:switcher  m:monitor
+ k:kill  n:next  e/E:shadow
+ c:concerns  p:pick  P:parked/frozen
+ f:freeze  Z:all  R:restore
+ L:loop ?:keys M:multi
+ space:mark ★ (followed agent)
+----
+```
