@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1599
 followup_kind: risk_mitigation
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-15 23:08
-updated_at: 2026-10-15 23:11
+updated_at: 2026-10-16 00:21
 ---
 
 ## Origin
@@ -49,3 +50,8 @@ Fix direction (decide in planning):
 Pinning: `tests/test_crew_pull_no_autostash.sh` Test 6 pins today's clean refusal (no stash, no rewrite, HEAD unchanged, no MERGE_HEAD) for the overlapping `_runner_alive.yaml` case. Update that cell to assert convergence once the fix lands, and keep its no-stash / no-rewrite assertions.
 
 Reachability: crew branches currently get an upstream only under `push.autoSetupRemote` or a manual `push -u` (see t2016). If t2016 makes crew branches publish by default, this gap becomes reachable for every user. Sequence the two accordingly.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-15T21:21:47Z status=pass attempt=1 type=human
