@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: bug
@@ -112,3 +114,5 @@ Two defunct `[tmux: client]` zombie children sat under the live viewer process (
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-10-15T19:14:49Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-10-15T20:00:24Z status=pass attempt=1 type=human
