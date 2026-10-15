@@ -307,7 +307,7 @@ The script automatically handles transitive folds and removes folded child tasks
 
 
 Use `AskUserQuestion`:
-- Question: "Task created successfully. How would you like to proceed?"
+- Question: "Task t\<N\> created successfully. How would you like to proceed?"
 - Header: "Proceed"
 - Options:
   - "Continue to implementation" (description: "Start implementing the task now via the standard workflow")

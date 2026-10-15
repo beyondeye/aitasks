@@ -232,13 +232,13 @@ Read back the created task file:
 
 **If single task was created:**
 
-Use `AskUserQuestion`: "Task created successfully. How would you like to proceed?"
+Use `AskUserQuestion`: "Task t\<N\> created successfully. How would you like to proceed?"
 - "Continue to implementation" (description: "Start implementing the fixes now via the standard workflow")
 - "Save for later" (description: "Task saved — pick it up later with /aitask-pick <N>")
 
 **If multiple tasks (parent + children) were created:**
 
-Use `AskUserQuestion`: "Tasks created. How would you like to proceed?"
+Use `AskUserQuestion`: "Tasks created under parent t\<parent_N\>. How would you like to proceed?"
 - "Pick one to start" (description: "Select a child task to implement now")
 - "Save all for later" (description: "Tasks saved — pick them up later with /aitask-pick <parent_N>")
 

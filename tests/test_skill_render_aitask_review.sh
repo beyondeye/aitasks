@@ -91,7 +91,7 @@ for profile in "${PROFILES[@]}"; do
     assert_contains "$profile/claude: review_default_modes else fires" \
         'Select review guides to apply:' "$rendered"
     assert_contains "$profile/claude: review_auto_continue else fires" \
-        'Task created successfully. How would you like to proceed?' "$rendered"
+        'Task t\<N\> created successfully. How would you like to proceed?' "$rendered"
     # if arms must NOT fire (apostrophe-colon prefix avoids matching Notes prose)
     assert_not_contains "$profile/claude: no review_auto_continue if-arm" \
         "': continuing to implementation" "$rendered"

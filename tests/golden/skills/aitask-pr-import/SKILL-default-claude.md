@@ -258,7 +258,7 @@ The script automatically handles transitive folds and removes folded child tasks
 
 
 Use `AskUserQuestion`:
-- Question: "Task created successfully. How would you like to proceed?"
+- Question: "Task t\<N\> created successfully. How would you like to proceed?"
 - Header: "Proceed"
 - Options:
   - "Save for later" (description: "Task saved — pick it up later with /aitask-pick <N>")

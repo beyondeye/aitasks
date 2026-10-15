@@ -320,7 +320,7 @@ The script automatically handles transitive folds and removes folded child tasks
 
 ### Step 4: Decision Point
 {% from "_auto_continue_block.j2" import auto_continue_block %}
-{{ auto_continue_block(question="Task created successfully. How would you like to proceed?", continue_description="Start implementing the task now via the standard workflow", continue_target="the handoff below", inform_filename="t\\<N\\>_\\<name\\>.md", feedback_skill_name="explore") }}
+{{ auto_continue_block(question="Task t\\<N\\> created successfully. How would you like to proceed?", continue_description="Start implementing the task now via the standard workflow", continue_target="the handoff below", inform_filename="t\\<N\\>_\\<name\\>.md", feedback_skill_name="explore") }}
 
 ### Step 5: Hand Off to Shared Workflow
 

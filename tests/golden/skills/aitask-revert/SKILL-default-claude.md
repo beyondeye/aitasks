@@ -625,7 +625,7 @@ Read back the created task file to confirm the assigned task ID:
 
 
 Use `AskUserQuestion`:
-- Question: "Revert task created successfully. How would you like to proceed?"
+- Question: "Revert task t\<N\> created successfully. How would you like to proceed?"
 - Header: "Proceed"
 - Options:
   - "Continue to implementation" (description: "Start implementing the revert now via the standard workflow")

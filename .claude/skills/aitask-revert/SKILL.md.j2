@@ -623,7 +623,7 @@ Read back the created task file to confirm the assigned task ID:
 
 ### Step 5: Decision Point
 {% from "_auto_continue_block.j2" import auto_continue_block %}
-{{ auto_continue_block(question="Revert task created successfully. How would you like to proceed?", continue_description="Start implementing the revert now via the standard workflow", continue_target="Step 6", inform_label="Revert task", inform_filename="t\\<N\\>_revert_t\\<original_id\\>.md", feedback_skill_name="revert") }}
+{{ auto_continue_block(question="Revert task t\\<N\\> created successfully. How would you like to proceed?", continue_description="Start implementing the revert now via the standard workflow", continue_target="Step 6", inform_label="Revert task", inform_filename="t\\<N\\>_revert_t\\<original_id\\>.md", feedback_skill_name="revert") }}
 
 ### Step 6: Hand Off to Shared Workflow
 

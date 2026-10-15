@@ -92,7 +92,7 @@ echo "=== Test 2: profile branches fire correctly ==="
 for profile in "${PROFILES[@]}"; do
     rendered="$($RENDER "$TEMPLATE" "$PROFILES_DIR/$profile.yaml" claude 2>&1)"
     assert_contains "$profile/claude: AskUserQuestion branch fires" \
-        'Revert task created successfully. How would you like to proceed?' "$rendered"
+        'Revert task t\<N\> created successfully. How would you like to proceed?' "$rendered"
     assert_not_contains "$profile/claude: no auto-continue branch" \
         "': continuing to implementation" "$rendered"
 done

@@ -8,7 +8,10 @@ profile sets this) — verbiage matches the pre-t777_28 inline blocks. The
 ELSE arm renders the AskUserQuestion with per-skill parameters.
 
 Parameters:
-  question                Full AskUserQuestion `Question:` string.
+  question                Full AskUserQuestion `Question:` string. Name the
+                          task the prompt is about, e.g. "Task t\\<N\\>
+                          created successfully. …" (the doubled backslashes
+                          render as t\<N\>).
   continue_description    The "Continue to implementation" option description.
   continue_target         Where "Continue to implementation" jumps in the ELSE
                           arm (e.g. "the handoff below", "Step 6", "Step 7").
