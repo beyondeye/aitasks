@@ -104,3 +104,5 @@ row: fixing one without the other would leave the audit's budget claim untrue.
 > | 
 > | Advisory context only — whether this changes the audit's matrix or layout
 > | options is this task's own call.
+
+> **👁 note:read** id=2026-10-15T06:37:32Z.e8369c2f3edce66d9ff43320 by=t1351 at=2026-10-15T06:37:32Z mode=explicit ids=2026-10-15T06:25:01Z.d9f526725902a77e3379566d
