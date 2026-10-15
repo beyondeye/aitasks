@@ -185,3 +185,55 @@ naming the convention that landed in `STRUCTURE_REMEDIES`.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+- **Actual work done:** Implemented steps 1–4 as planned.
+  - `tests/test_monitor_markup_escape.py`: `TITLES[0]` is now
+    `"Fix [/] and " + "[dim]x[/dim]"` (same runtime value, inline comment
+    naming Rule C). Added `from textual.markup import MarkupError` and
+    `MarkupLiteralTests::test_the_split_title_fixture_is_still_hostile`.
+  - `tests/test_textual_markup_colours.py`: added
+    `StructureScannerDiscriminationTests::test_gap_constant_only_concatenation_is_not_folded`.
+    Added the coverage-table row `"Fix [/] and " + "[dim]x[/dim]" MISSED
+    (constant + constant)`. Added a sentence to the "Markup assembled across
+    expressions" bullet of "Not in scope", and a "Hostile-input fixture" bullet
+    in `STRUCTURE_REMEDIES`.
+- **Deviations from plan:** None. Step 3 (the exact-shape gap pin) came from a
+  plan-review concern before approval. The concern: the existing
+  `test_gap_markup_assembled_across_expressions` uses a variable-separated
+  `"[bold]" + name + "[/bolt]"`, so a scanner folding only constant-only `+`
+  would close the fixture's gap and still leave that test green.
+- **Issues encountered:**
+  - The full suite (`bash tests/run_all_python_tests.sh`) ended
+    `PYTHON SUITE: FAILED (runner=pytest, exit=1)`: 9095 passed, 4 failed, all
+    in `tests/test_monitor_frozen_filter.py::MinimonitorOwnPanelTests`.
+  - These are not attributable to this change. Neither changed file is
+    imported by that module, and during the 7-minute run another session was
+    editing `.aitask-scripts/monitor/minimonitor_app.py`,
+    `.aitask-scripts/monitor/monitor_shared.py` and
+    `tests/test_monitor_frozen_filter.py` itself.
+  - On rerun against the current tree with this change still in place, all
+    72 tests in that file pass.
+  - Both changed files pass in full: 48 tests and 9 tests.
+- **Verification evidence:** probe run in-process from the scratchpad; no
+  tracked file was mutated.
+  - Live tree: `scan_repo_structure()` gives 0 findings, `gated 179`
+    (unchanged). The escape file is still scanned (`gated 1`).
+  - Scanner control: the old single literal gives 1 finding; the split form
+    gives 0.
+  - Hostility-pin control: the escaped variant `"Fix \\[/] and [dim]x[/dim]"`
+    parses, so the pin would fail on an escape. The real `TITLES[0]` raises
+    `MarkupError`.
+  - Mutant: `_markup_expressions` was wrapped to fold constant-only `+`
+    BinOps. Under it, `test_gap_constant_only_concatenation_is_not_folded`
+    FAILS, `test_gap_markup_assembled_across_expressions` PASSES, and the real
+    escape file shows 1 finding.
+- **Key decisions:**
+  - Chose option (b), splitting the literal, over (a), `SELF_REFERENTIAL_MODULES`.
+    Option (a) would take the 3rd of 3 allowed slots
+    (`test_the_exclusion_list_stays_small`) and remove Rules A, B and C from
+    the whole file. The file is also not *about* the defect class.
+  - The hostility pin avoids writing the joined literal, which would re-trip
+    Rule C. The scanner file can hold the joined literal because it is itself
+    in `SELF_REFERENTIAL_MODULES`.
+- **Upstream defects identified:** None
