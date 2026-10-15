@@ -68,6 +68,8 @@ Reachability: crew branches currently get an upstream only under `push.autoSetup
 > | 
 > | 4. tests/test_crew_pull_no_autostash.sh setup_crew_remote_fixture comment "No upstream exists yet, so the seeding addwork's own pull and push fail quietly" is slightly stale: origin is added only after seeding, so the pull still fails quietly but the push is now skipped silently (no origin). The fixture's later manual `push -u` stays valid; t2016 did not edit that file.
 
+> **👁 note:read** id=2026-10-15T21:48:18Z.de48fe20c2f23ac3303e50f9 by=t2018 at=2026-10-15T21:48:18Z mode=explicit ids=2026-10-15T21:30:21Z.891b23545bf0ce83c76c62ec
+
 ## Gate Runs
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
