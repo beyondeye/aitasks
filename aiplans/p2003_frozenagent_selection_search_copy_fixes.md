@@ -362,3 +362,69 @@ This task runs in current-branch mode. Commit the code; commit the plan through
 - The contrast-fallback threshold is a heuristic. It applies only to captured
   colours, so it can leave a near-but-not-equal captured foreground hard to
   read. · severity: low · → mitigation: none
+
+## Final Implementation Notes
+- **Actual work done:** Implemented as planned. `capture_log.py`: `_selection_style()` keeps the
+  theme's blended background and drops the foreground when the theme's is transparent, honouring an
+  explicit one verbatim. A contrast fallback, limited to that transparent branch, swaps a captured
+  foreground within 48 RGB units of the selection background. Added the `CaptureLog.SelectionChanged`
+  message. `frozenagent_app.py`: `#fa-search` is `height: 1; border: none`. Added `ctrl+c →
+  copy_or_quit_hint` (priority, registered under `frozenagent`), a `_ViewerScreen` default screen
+  whose `action_copy_text` runs the same routine, the shared `_copy_or_quit_hint` /
+  `_copy_selected` / `_selected_text` helpers, and `_sync_copy_keys()`. That last one toggles the
+  footer `show` flag on new per-key lists and is called from mount, open, the keyboard range paths
+  and the mouse message. Updated four doc pages. Added 21 tests (79 in the file; the 21st came with Change Request 1). The footer is the shared `MultiRowFooter` (Change Request 1).
+- **Deviations from plan:**
+  1. `SelectionChanged` is posted through `call_next` from `selection_updated`, not inline.
+     Measured: `Screen._watch_selections` runs on the screen's pump, so an inline post makes the
+     screen the message's `_sender`, and Textual stops a bubbling message at its sender
+     (`message_pump.py` "parent is sender"), so the App handler never ran. The mouse footer test
+     caught this.
+  2. The reference's `Escape` row was updated: "close the search box, else clear the keyboard
+     range; every Escape also clears a mouse selection". This was verified first and is pinned by
+     `SearchBoxTests.test_escape_closes_the_box_and_a_mouse_selection_but_keeps_a_range`. `_index.md`
+     mentions that Escape or a click clears a mouse selection.
+  3. In list mode `y` now says "Nothing selected" instead of returning silently, as planned.
+- **Issues encountered:** The first `aitask_task_commit.sh` for the plan failed transiently and
+  succeeded on retry. A concurrent session was the likely cause; no state was lost.
+- **Key decisions:** All as in the Decisions section. The verification evidence:
+  - Red proof against HEAD (a `git archive` tree in the scratchpad plus the new test file):
+    15 of the 19 new tests in the selected classes fail. The 4 that pass at HEAD are
+    non-regression pins (no-selection fallbacks, modal, negative control, explicit theme).
+  - An unconditional-fallback mutant fails exactly the explicit-theme test.
+  - The old `_selection_style` / `_paint_span` fail both readability tests.
+- **Upstream defects identified:**
+  - `.aitask-scripts/logview/logview_app.py:48` — `#search-box { display: none; height: 1; }` on a
+    stock `Input` leaves a 0-row content area, the same defect as frozenagent's `/` box: typed
+    search text is received but never drawn.
+  - `.aitask-scripts/lib/shortcuts_mixin.py:140` — `_relink_live_bindings` does
+    `mapping.setdefault(new_key, []).append(active_b)`. `BindingsMap.copy()` is shallow, so when
+    the override key is already bound, this appends to the CLASS-level `_merged_bindings` list,
+    which leaks the moved binding into every later instance of the App in the process.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-10-15 22:50)
+- **Requested by user:** The new `ctrl+c` Copy entry widened the single-row stock Footer.
+  At split-pane widths with a selection active, it pushed operations out of reach: at 95 columns
+  Re-pick's centre hit the command-palette button and Drop was off-screen. The request was to adopt
+  the shared `MultiRowFooter` (`tui_conventions.md`) and add a narrow-width visibility/hit-test
+  assertion with a selection active.
+- **Verified first:** A probe reproduced it exactly: at 95 columns, `repick` x=80..91 hit
+  `command_palette` and `drop` was off-screen. At 80 columns, Restore's centre hit the palette.
+- **Changes made:**
+  - `frozenagent_app.py` composes `MultiRowFooter(hint_action="open_shortcuts_editor")` with
+    `can_focus = False`, following the board/trails precedent, instead of the stock `Footer`.
+  - New `FooterCopyKeysTests.test_every_key_stays_visible_and_clickable_at_split_pane_widths`
+    runs at 80 and 95 columns with a selection active. The row cap is pinned to the default. The
+    test checks that no `OverflowHint` appears, and that every `FooterKey` is unclipped and its
+    centre hit-tests to itself. Red proof: with the stock `Footer` patched back in, it fails at
+    both widths.
+  - `settle()` now waits three pauses, to allow for the multi-row reflow.
+  - A probe checked that the footer growing to 2 rows on selection keeps the log's `scroll_y`
+    (182 → 182), so the text under a drag does not move.
+  - Docs that listed the multi-row adopters were made accurate:
+    `aidocs/framework/tui_conventions.md` and `website/content/docs/tuis/_index.md` now name the
+    board, trails and frozenagent.
+- **Files affected:** `.aitask-scripts/frozenagent/frozenagent_app.py`, `tests/test_frozenagent_app.py`,
+  `aidocs/framework/tui_conventions.md`, `website/content/docs/tuis/_index.md`
