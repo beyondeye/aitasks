@@ -9,7 +9,7 @@ gates: [risk_evaluated]
 anchor: 2001
 followup_kind: upstream_defect
 created_at: 2026-10-15 23:57
-updated_at: 2026-10-15 23:57
+updated_at: 2026-10-16 00:00
 ---
 
 ## Origin
@@ -35,4 +35,12 @@ Related in-flight task: t2017 (`render_remaining_user_text_literally_in_monitor_
 
 ## Suggested fix
 
-Follow the scanner's own failure message, which explains how fixtures are expected to opt out: either construct the hostile strings so the scanner does not see a literal (e.g. by concatenation), or add the file or its fixture lists to the scanner's exemption mechanism. Then confirm that the scanner's negative controls still fail when they should.
+`tests/test_textual_markup_colours.py` has two opt-out mechanisms (checked at t2009's commit):
+- `RICH_RENDERER_WAIVERS`, keyed `(path, qualname, token)`. Its header says it covers Rule B (colour tokens) only, so it does not fit a structural closing-tag finding.
+- `SELF_REFERENTIAL_MODULES`, a whole-file exclusion with a stated reason, meant for modules whose "every occurrence ... is *data about* this defect class, not markup that renders". `tests/test_monitor_markup_escape.py` holds hostile-input fixtures, which arguably fits that description. The scanner comments, however, warn that a file-level exclusion is the blanket exemption the waiver key exists to avoid.
+
+Pick one of these:
+- (a) add the file to `SELF_REFERENTIAL_MODULES` with a reason; or
+- (b) build the hostile strings so they are not a single literal the scanner can see (e.g. by concatenation). This keeps the file scanned.
+
+Whichever is chosen, confirm that the scanner's own waiver-rot and negative-control tests still pass.
