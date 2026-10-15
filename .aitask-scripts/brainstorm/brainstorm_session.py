@@ -1317,6 +1317,55 @@ def _create_linked_module_task(
     return match.group(1)
 
 
+class ModuleDecomposeRefused(ValueError):
+    """A from-sections Module Decompose was refused before anything was written.
+
+    Raised only by the read-and-check phase of
+    :func:`apply_module_decompose_from_sections`, which runs entirely before
+    the first mutation — so when this propagates the session on disk is
+    exactly as it was, and the operation record may be discarded.
+    """
+
+
+class ModuleDecomposePartialFailure(RuntimeError):
+    """A from-sections Module Decompose failed after it had started writing.
+
+    ``module`` is the module whose root was being created; ``stage`` is the
+    last write that completed for it (``none`` / ``counter_bumped`` /
+    ``node_created`` / ``head_moved`` / ``node_recorded`` / ``task_created`` /
+    ``task_recorded``); ``created`` lists every root whose ``create_node``
+    completed. ``incomplete_node_id`` is the root whose ``create_node`` raised
+    part-way — it may have partial artifacts on disk — else ``None``. Nothing
+    is rolled back: the operation record is kept (status ``Error``) so the
+    partial result stays diagnosable.
+    """
+
+    def __init__(
+        self,
+        group_name: str,
+        module: str,
+        stage: str,
+        created: list[str],
+        incomplete_node_id: str | None,
+        cause: BaseException,
+    ) -> None:
+        self.group_name = group_name
+        self.module = module
+        self.stage = stage
+        self.created = created
+        self.incomplete_node_id = incomplete_node_id
+        self.cause = cause
+        detail = f"module {module!r}, stage: {stage}"
+        if created:
+            detail += f"; created {', '.join(created)}"
+        if incomplete_node_id:
+            detail += f"; incomplete node {incomplete_node_id}"
+        super().__init__(
+            f"module decompose partially applied ({detail}); operation "
+            f"record {group_name} kept: {type(cause).__name__}: {cause}"
+        )
+
+
 def _section_for_module(parsed, module: str):
     section = get_section_by_name(parsed, module)
     if section is not None:
@@ -1328,21 +1377,30 @@ def _section_for_module(parsed, module: str):
     return None
 
 
-def apply_module_decompose_from_sections(
-    task_num: int | str, group_name: str,
-) -> list[str]:
-    """Create module roots directly from clean source proposal sections."""
-    wt = crew_worktree(task_num)
+def _from_sections_preflight(
+    wt: Path, group_name: str,
+) -> tuple[str, dict, bool, list[tuple[str, str, dict, str]]]:
+    """Read and check everything a from-sections decompose needs; writes nothing.
+
+    Returns ``(source_node_id, source_data, link_to_task, plans)`` where each
+    plan is ``(module, safe_module, dimensions, proposal_text)``. Raises
+    :class:`ModuleDecomposeRefused` for every anticipated problem (no modules,
+    no source head, invalid source sections, a module with no section).
+    """
     groups = _read_groups_file(str(wt / GROUPS_FILE)).get("groups", {})
     group_info = groups.get(group_name, {}) if isinstance(groups, dict) else {}
     modules = [str(m) for m in (group_info.get("modules") or [])]
     if not modules:
-        raise ValueError("module_decompose from_sections requires modules")
+        raise ModuleDecomposeRefused(
+            "module_decompose from_sections requires modules"
+        )
     source_node_id = group_info.get("head_at_creation")
     if not source_node_id:
         source_node_id = get_head(wt, module=_group_subgraph(wt, group_name))
     if not source_node_id:
-        raise ValueError("module_decompose from_sections requires a source head")
+        raise ModuleDecomposeRefused(
+            "module_decompose from_sections requires a source head"
+        )
 
     source_data = read_node(wt, source_node_id)
     source_dims = extract_dimensions(source_data)
@@ -1350,19 +1408,18 @@ def apply_module_decompose_from_sections(
     parsed = parse_sections(source_proposal)
     section_errors = validate_sections(parsed, node_keys=list(source_dims.keys()))
     if section_errors:
-        raise ValueError(f"source proposal sections invalid: {section_errors}")
+        raise ModuleDecomposeRefused(
+            f"source proposal sections invalid: {section_errors}"
+        )
 
-    created: list[str] = []
+    plans: list[tuple[str, str, dict, str]] = []
+    missing: list[str] = []
     for module in modules:
         section = _section_for_module(parsed, module)
         if section is None:
-            raise ValueError(
-                f"no section found for module {module!r}; expected a section "
-                f"named {module!r} or tagged with component_{module}"
-            )
-        node_num = next_node_id(wt)
+            missing.append(module)
+            continue
         safe_module = "".join(ch if ch.isalnum() else "_" for ch in module).strip("_")
-        new_node_id = f"n{node_num:03d}_module_decomposer_sections_{safe_module}"
         dimensions = {
             k: v for k, v in source_dims.items()
             if any(k == tag or (tag.endswith("*") and k.startswith(tag[:-1]))
@@ -1382,31 +1439,143 @@ def apply_module_decompose_from_sections(
             f"<!-- /section: {section.name} -->",
             "",
         ])
-        create_node(
-            session_path=wt,
-            node_id=new_node_id,
-            parents=[source_node_id],
-            description=f"{module} module root",
-            dimensions=dimensions,
-            proposal_content=proposal_text,
-            group_name=group_name,
-            reference_files=source_data.get("reference_files"),
-            module_label=module,
+        plans.append((module, safe_module, dimensions, proposal_text))
+    if len(missing) == 1:
+        module = missing[0]
+        raise ModuleDecomposeRefused(
+            f"no section found for module {module!r}; expected a section "
+            f"named {module!r} or tagged with component_{module}"
         )
-        set_head(wt, new_node_id, module=module)
-        update_operation(task_num, group_name, nodes_created=new_node_id)
-        created.append(new_node_id)
+    if missing:
+        names = ", ".join(repr(m) for m in missing)
+        raise ModuleDecomposeRefused(
+            f"no section found for modules {names}; expected a section named "
+            f"after each module or tagged with component_<module>"
+        )
+    return source_node_id, source_data, bool(group_info.get("link_to_task")), plans
 
-        if bool(group_info.get("link_to_task")):
-            task_id = _create_linked_module_task(
-                task_num,
-                module,
-                f"Implement/refine brainstorm module `{module}` from t{task_num}.",
+
+def apply_module_decompose_from_sections(
+    task_num: int | str, group_name: str,
+) -> list[str]:
+    """Create module roots directly from clean source proposal sections.
+
+    Failure boundary (as :func:`apply_prune_dimensions`): every read and check
+    — including that every module has a section — runs in
+    :func:`_from_sections_preflight`, before the first write, and any failure
+    there — anticipated or not — is :class:`ModuleDecomposeRefused`; a failure
+    after writing started is :class:`ModuleDecomposePartialFailure`, after a
+    best-effort ``status: Error`` on the operation record. Returns the created
+    root node ids.
+    """
+    wt = crew_worktree(task_num)
+    try:
+        source_node_id, source_data, link_to_task, plans = (
+            _from_sections_preflight(wt, group_name)
+        )
+    except ModuleDecomposeRefused:
+        raise
+    except Exception as exc:
+        # The preflight only reads, so any failure in it — including one no
+        # check anticipated — leaves the session untouched: classify it as a
+        # refusal so the caller may discard the operation record.
+        raise ModuleDecomposeRefused(
+            f"module decompose preflight failed: {type(exc).__name__}: {exc}"
+        ) from exc
+
+    # Write phase. next_node_id() bumps the session counter, so it is the first
+    # mutation; nothing above this line has written anything.
+    created: list[str] = []
+    module = plans[0][0]
+    stage = "none"
+    new_node_id: str | None = None
+    try:
+        for module, safe_module, dimensions, proposal_text in plans:
+            stage = "none"
+            new_node_id = None
+            new_node_id = (
+                f"n{next_node_id(wt):03d}_module_decomposer_sections_{safe_module}"
             )
-            _write_module_task(wt, module, task_id)
-
-    update_operation(task_num, group_name, status="Completed")
+            stage = "counter_bumped"
+            create_node(
+                session_path=wt,
+                node_id=new_node_id,
+                parents=[source_node_id],
+                description=f"{module} module root",
+                dimensions=dimensions,
+                proposal_content=proposal_text,
+                group_name=group_name,
+                reference_files=source_data.get("reference_files"),
+                module_label=module,
+            )
+            created.append(new_node_id)
+            stage = "node_created"
+            set_head(wt, new_node_id, module=module)
+            stage = "head_moved"
+            update_operation(task_num, group_name, nodes_created=new_node_id)
+            stage = "node_recorded"
+            if link_to_task:
+                task_id = _create_linked_module_task(
+                    task_num,
+                    module,
+                    f"Implement/refine brainstorm module `{module}` from t{task_num}.",
+                )
+                stage = "task_created"
+                _write_module_task(wt, module, task_id)
+                stage = "task_recorded"
+        update_operation(task_num, group_name, status="Completed")
+    except Exception as exc:
+        record: dict = {"status": "Error", "error": f"{module}: {stage}: {exc}"}
+        incomplete: str | None = None
+        if stage == "counter_bumped":
+            # create_node raised part-way: it writes the node YAML before the
+            # proposal, so the attempted root may be partly on disk. Name it,
+            # but never as a created node.
+            incomplete = new_node_id
+            record["incomplete_node"] = incomplete
+        elif stage in ("node_created", "head_moved"):
+            record["nodes_created"] = new_node_id
+        try:
+            update_operation(task_num, group_name, **record)
+        except Exception:
+            pass
+        raise ModuleDecomposePartialFailure(
+            group_name, module, stage, list(created), incomplete, exc,
+        ) from exc
     return created
+
+
+def run_module_decompose_from_sections(
+    task_num: int | str,
+    group_name: str,
+    *,
+    head_at_creation: str | None,
+    subgraph: str = UMBRELLA_SUBGRAPH,
+    **extras,
+) -> list[str]:
+    """Record and run one from-sections Module Decompose; the TUI's entry point.
+
+    Owns the operation record's lifecycle exactly as
+    :func:`run_prune_operation` does: the group entry is deleted only on
+    :class:`ModuleDecomposeRefused` (nothing was written, so there is nothing
+    for the record to explain). Any later failure keeps the record — it
+    already says ``status: Error``, the module and stage reached and the roots
+    created — and re-raises.
+    """
+    record_operation(
+        task_num,
+        group_name=group_name,
+        operation="module_decompose",
+        agents=[],
+        head_at_creation=head_at_creation,
+        subgraph=subgraph,
+        **extras,
+    )
+    try:
+        return apply_module_decompose_from_sections(task_num, group_name)
+    except ModuleDecomposeRefused:
+        delete_group(task_num, group_name)
+        raise
 
 
 PRUNE_OPERATION = "prune_dimensions"

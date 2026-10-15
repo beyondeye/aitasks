@@ -294,6 +294,13 @@ subgraph it joins.
 - **Side effect.** The umbrella's HEAD does **not** change; only the
   per-module HEADs are added. The umbrella stays evolvable so the
   user can keep refining the framework while modules diverge.
+- **Failure boundary (`--from-sections`).** Every read and check —
+  including that every module has a section — runs before the first
+  write, and a refusal deletes the operation's group entry. A failure
+  after writing started keeps the group entry with `status: Error`,
+  the module and stage reached, and the roots created; a root whose
+  creation stopped part-way is named separately as `incomplete_node`,
+  never as created. Nothing is rolled back.
 
 ### 4.3 New op: `sync` (pull as-implemented design back into the subgraph)
 

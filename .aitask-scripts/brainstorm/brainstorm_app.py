@@ -92,9 +92,11 @@ from brainstorm.brainstorm_session import (
     finalize_session,
     GROUPS_FILE,
     load_session,
+    ModuleDecomposePartialFailure,
     PrunePartialFailure,
     rank_dimensions,
     record_operation,
+    run_module_decompose_from_sections,
     run_prune_operation,
     save_session,
     session_exists,
@@ -5661,26 +5663,19 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, RowNavMixin, App):
                     "launch_mode": launch_mode,
                 }
                 if cfg["from_sections"]:
-                    from brainstorm.brainstorm_session import (
-                        apply_module_decompose_from_sections,
-                    )
-                    record_operation(
-                        self.task_num,
-                        group_name=group_name,
-                        operation=op,
-                        agents=[],
-                        head_at_creation=head_at_creation,
-                        subgraph=subgraph,
-                        **operation_extra,
-                    )
-                    # Deterministic, no agent: no apply poller will reload, so
-                    # the worker does — on failure too, since sections are
-                    # validated per module inside the creation loop.
+                    # Deterministic, no agent: run_module_decompose_from_sections
+                    # owns the group record (deleted only when refused before
+                    # any write), and no apply poller will reload, so the
+                    # worker does.
                     try:
-                        created = apply_module_decompose_from_sections(
-                            self.task_num, group_name
+                        created = run_module_decompose_from_sections(
+                            self.task_num,
+                            group_name,
+                            head_at_creation=head_at_creation,
+                            subgraph=subgraph,
+                            **operation_extra,
                         )
-                    except Exception:
+                    except ModuleDecomposePartialFailure:
                         # Roots created before the failure (and their HEAD
                         # moves) are already on disk — show them.
                         self.call_from_thread(self._load_existing_session)

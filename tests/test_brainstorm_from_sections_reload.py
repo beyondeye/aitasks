@@ -8,8 +8,10 @@ temp session, drive the real worker, and assert every Browse surface the reload
 rebuilds — the node list, the DAG and the module summary — shows the new roots.
 
 The partial-failure case mirrors the prune branch's ``PrunePartialFailure``
-reload: sections are validated inside the creation loop, so a module with no
-matching section raises only after the earlier modules' roots are on disk.
+reload: a fault after the first root landed (here a failing linked-task create)
+leaves that root on disk, so the worker reloads before re-raising. A module with
+no matching section is refused before any write (t2005), so nothing changes and
+no operation record is left behind.
 """
 
 from __future__ import annotations
@@ -20,7 +22,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import yaml
 
@@ -101,13 +103,13 @@ class FromSectionsReloadTests(unittest.TestCase):
     def _created_roots(self):
         return [n for n in list_nodes(self.wt) if n != "n000_init"]
 
-    async def _run_from_sections(self, app, pilot, modules):
+    async def _run_from_sections(self, app, pilot, modules, link_to_task=False):
         """Drive the real design-op worker for a from-sections decompose."""
         app._wizard_op = "module_decompose"
         app._wizard_config = {
             "modules": modules,
             "from_sections": True,
-            "link_to_task": False,
+            "link_to_task": link_to_task,
             "subgraph": UMBRELLA_SUBGRAPH,
             "review_before_apply": True,
             "instructions": "",
@@ -159,7 +161,48 @@ class FromSectionsReloadTests(unittest.TestCase):
 
         asyncio.run(runner())
 
+    def _group_record(self, group_name="module_decompose_001"):
+        path = self.wt / bs_mod.GROUPS_FILE
+        if not path.is_file():
+            return None
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        return (data.get("groups") or {}).get(group_name)
+
     def test_partial_failure_shows_roots_created_before_the_error(self):
+        async def runner():
+            app = BrainstormApp(self.TASK_NUM)
+            async with app.run_test(size=(160, 50)) as pilot:
+                await self._assert_stale_before(app, pilot)
+                notes = MagicMock()
+                app.notify = notes
+
+                # parser's root and HEAD land, then its linked-task create fails.
+                with patch.object(
+                    bs_mod, "_create_linked_module_task",
+                    side_effect=RuntimeError("aitask_create.sh failed: boom"),
+                ):
+                    await self._run_from_sections(
+                        app, pilot, ["parser", "cache"], link_to_task=True,
+                    )
+
+                created = self._created_roots()
+                self.assertEqual(
+                    created, ["n001_module_decomposer_sections_parser"],
+                )
+                self.assertIn("partially applied", notes.call_args.args[0])
+                self.assertIn("boom", notes.call_args.args[0])
+                self.assertEqual(notes.call_args.kwargs.get("severity"), "error")
+                self.assertEqual(self._group_record()["status"], "Error")
+                rows, dag, summary = self._surfaces(app)
+                self.assertIn(created[0], rows)
+                self.assertIn(created[0], dag)
+                self.assertNotIn("no modules", summary)
+                self.assertIn("parser", summary)
+                self.assertNotIn("cache", summary)
+
+        asyncio.run(runner())
+
+    def test_missing_section_is_refused_without_writing(self):
         async def runner():
             app = BrainstormApp(self.TASK_NUM)
             async with app.run_test(size=(160, 50)) as pilot:
@@ -169,22 +212,17 @@ class FromSectionsReloadTests(unittest.TestCase):
 
                 await self._run_from_sections(app, pilot, ["parser", "missing"])
 
-                # parser's root landed before "missing" raised.
-                created = self._created_roots()
-                self.assertEqual(
-                    created, ["n001_module_decomposer_sections_parser"],
-                )
+                self.assertEqual(self._created_roots(), [])
                 self.assertIn(
                     "no section found for module 'missing'",
                     notes.call_args.args[0],
                 )
                 self.assertEqual(notes.call_args.kwargs.get("severity"), "error")
+                self.assertIsNone(self._group_record())
                 rows, dag, summary = self._surfaces(app)
-                self.assertIn(created[0], rows)
-                self.assertIn(created[0], dag)
-                self.assertNotIn("no modules", summary)
-                self.assertIn("parser", summary)
-                self.assertNotIn("missing", summary)
+                self.assertEqual(rows, {"n000_init"})
+                self.assertEqual(dag, ["n000_init"])
+                self.assertIn("no modules", summary)
 
         asyncio.run(runner())
 
