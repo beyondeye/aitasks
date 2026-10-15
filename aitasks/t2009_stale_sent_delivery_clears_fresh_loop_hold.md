@@ -1,0 +1,27 @@
+---
+priority: medium
+effort: low
+depends: []
+issue_type: bug
+status: Ready
+labels: [shadow, aitask_monitormini, review_loop]
+gates: [risk_evaluated]
+anchor: 2001
+followup_kind: upstream_defect
+created_at: 2026-10-15 21:34
+updated_at: 2026-10-15 21:34
+---
+
+## Origin
+Spawned from t2001 during Step 8b review.
+
+## Upstream defect
+- `.aitask-scripts/monitor/minimonitor_app.py:4653-4656` (as of commit 159437cd1) — the `"sent"` branch of `_service_review_loop` calls `_clear_loop_hold()` unconditionally, even when `ctrl.confirm_fire(token, …)` returns `False` because the delivery was superseded (a disarm + re-arm during the post-Enter drain/capture, which `_submit_shadow_prompt` does not re-check before returning `"sent"`). A stale delivery can therefore clear a hold reason the fresh lifecycle set. Low impact (no key is sent, no disarm; the next hold re-records), out of scope for t2001.
+
+## Diagnostic context
+t2001 established that the delivery methods must re-check the delivery token after their last await and before deciding ANY outcome, because `_service_review_loop` acts on every outcome without a lifecycle check: a stale `"failed"` used to disarm a freshly re-armed loop (fixed in t2001 for the pre-Enter READY/WORKING dispatch and the budget-exhausted `submit_unconfirmed` return — see `SupersessionDuringDeliveryAwaitsTests` in `tests/test_minimonitor_concern_action.py`).
+
+The `"sent"` route is the one outcome t2001 left alone: after the post-Enter drain + capture, `_submit_shadow_prompt` returns `"sent"` with no token check. The caller then runs `ctrl.confirm_fire(token, …)` — a no-op returning `False` for a stale token — and `_clear_loop_hold()` regardless, mutating the live (fresh) lifecycle's `_loop_hold_reason`. Effects: a hold banner the fresh lifecycle is showing can vanish for a tick, and the edge-triggered hold toast/record fires again on the next occurrence.
+
+## Suggested fix
+Gate the clear on the confirmation: `if ctrl.confirm_fire(token, time.monotonic()): self._clear_loop_hold()`. A test in the style of `SupersessionDuringDeliveryAwaitsTests`: re-arm at the post-Enter capture with a submitting composer, set a hold reason on the fresh lifecycle in the hook, assert it survives the stale "sent".
