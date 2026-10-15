@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [tui]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 2013
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-15 23:56
-updated_at: 2026-10-16 00:16
+updated_at: 2026-10-16 00:34
+completed_at: 2026-10-16 00:34
 ---
 
 ## Origin
@@ -76,3 +77,14 @@ the fix, and a short-terminal reachability test added (cf. t2013's
 > **✅ gate:plan_approved** run=2026-10-15T21:15:58Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-15T21:32:48Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-15T21:34:57Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:eaa704d23b3d52b3
+
+> **✅ gate:risk_evaluated** run=2026-10-15T21:34:57Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2020/risk_evaluated_2026-10-15T21:34:57Z-risk_evaluated-a1.log`
