@@ -155,3 +155,41 @@ the standard Step 9 flow. Create the single upstream follow-up at Step 8b.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+- **Actual work done:** Implemented as planned:
+  - `markup_literal()` in `monitor_shared.py` prefixes each `[` with `\` and never doubles a backslash. It is applied to the window name in the live, parked, frozen and OTHER card rows of `monitor_app.py`, and to the task title and OTHER-row command. Those two end their row with the style left open, so a trailing backslash is safe.
+  - The preview header (`_update_content_preview`) and `KillConfirmDialog`'s `#kill-details` are built with `Content.from_markup(template, **variables)`.
+  - Tests:
+    - new `tests/test_monitor_markup_escape.py` (8 tests: helper round-trip, a `rich.escape` negative control, the row-shape matrix, mounted cards and header)
+    - a new hostile-field case in `tests/test_kill_confirm_dialog.py`
+- **Deviations from plan:**
+  - The kill dialog's `priority` and `status` also became `$variables`; the plan had kept them as template text. They are read raw from frontmatter, so as template text a `$`-bearing value would reach `string.Template` substitution. It is the same surface and costs nothing.
+  - The test files reach the helper module-qualified (`ms.markup_literal`), so the red run errored only in the helper test.
+- **Issues encountered:**
+  - The first plan used `rich.markup.escape`. Review found, and probes confirmed, that under Textual's parser it doubles the backslashes before a bracket, and that a trailing backslash turns the next tag into text. Redesigned as above.
+  - Red proof before the fix:
+    - mounted cards and the kill dialog: MarkupError
+    - `agent-[bold]y`: swallowed to `agent-y`
+    - title `ends with \` rendered as `ends with [/]`
+    - command `cmd\` rendered as `cmd[/]`
+  - Green after the fix. Neighbouring suites all pass:
+    - agent_marks, parked/frozen filter, completed/shadow status, concern_action, phase_restamp
+    - preview_offload, finalize_offload, focus_switch, shadow_zone, frozen_capture
+    - minimonitor_row_budget, frozenagent_app, test_multi_session_monitor.sh 47/47
+- **Key decisions:**
+  - The card builders keep returning markup `str`. About 8 test files pin their markup substrings and byte-identical-row invariants (t1133).
+  - The header and the dialog are single sinks that nothing else reads, so they use `Content` templates.
+  - Textual facts the design rests on:
+    - A `[` preceded by a backslash never opens a tag.
+    - Text un-escapes exactly `\[`.
+    - A style still open at end of input closes there.
+    - `$variables` are substituted after tokenizing.
+- **Upstream defects identified:** These are the deferred markup sinks outside this task's selected surfaces. Line numbers are as of this commit.
+  - `.aitask-scripts/monitor/monitor_app.py:2977` — `Switched to {name}` toast. This is one of several window-name toasts in this file (also `No log file found for` / `Opening log for {agent_name}`, `Killed` / `Failed to kill {name}`, `Killed {old_name}` and `Killed {old_window_name}` at :3842). None of them crash; a `[dim]`-style name is swallowed.
+  - `.aitask-scripts/monitor/monitor_app.py:356` — `RestartConfirmDialog` "Current:" row interpolates the task title raw into a Static. `[/]` raises MarkupError.
+  - `.aitask-scripts/monitor/monitor_shared.py:2272` — `TaskDetailDialog` title Static interpolates `info.title` raw. The header `update` at :2313 does the same.
+  - `.aitask-scripts/monitor/monitor_shared.py:2855` — `NextSiblingDialog` current and suggested rows (:2855, :2857) interpolate task titles raw.
+  - `.aitask-scripts/monitor/monitor_shared.py:2929` — `_SiblingRow.render` interpolates the sibling title raw.
+  - `.aitask-scripts/monitor/monitor_app.py:1728` — the status bar interpolates session names raw (`session: …` / `(attached: …)`), as does the `Session renamed to` toast at :800.
+  - `.aitask-scripts/monitor/monitor_shared.py:361` — `format_session_divider` uses `rich.markup.escape`, which is wrong under Textual: it doubles the backslashes before a bracket. The same applies to `monitor_shared.py:1158`, `monitor_app.py:3577`, and minimonitor `_row_name` / title / `_own_header_text` and its toasts.
