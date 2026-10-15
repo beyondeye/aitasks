@@ -241,3 +241,38 @@ From `goengines/`:
 Current-branch mode: commit code (`test: … (t1993)`) naming only the two
 `_test.go` paths (other sessions' dirty files must not ride along), plan via
 `aitask_task_commit.sh`, then archival per Step 9.
+
+## Final Implementation Notes
+
+- **Actual work done:** Steps 1–4 as planned. `scanOutput` (chunked read with a
+  `len(marker)-1` carry, `readChunk = 32 KiB`) replaces the `os.ReadFile` +
+  `string()` read in `runChild`; `TestScanOutput` (differential vs the old code,
+  straddle sweep over every split position, four reader shapes, read-error
+  propagation, bounded allocation over a generated 1 MiB / 32 MiB stream); a
+  `noisy` fixture mode (10 MiB before the PASS line) and `noisy` subtest in
+  `TestIsolationControls` (pass detected past the cap, report = first
+  `outputCap` bytes + truncation note, no problems; no allocation claim).
+- **Deviations from plan:** none in substance. The plan was revised once at
+  review (user, blocking): the allocation bound moved from a noisy-vs-quiet
+  `runChild` comparison (its region held `reapMarked`'s host-dependent `/proc`
+  scans) to `scanOutput` over a generated stream.
+- **measure_alloc_margin (raw, `-count=5`):** 1 MiB stream — 331496, 327728,
+  327728, 330936, 327728 bytes; 32 MiB stream — 327728, 327728, 327728,
+  327728, 327952 bytes. Size-independent, ≈12× under the 4 MiB bound.
+  Mutant (d) (old algorithm behind the new signature): 3370264 bytes at 1 MiB,
+  110898328 bytes at 32 MiB → only the allocation assertion failed.
+- **Mutants (isolated scratch copies, presence grep-verified):** (a) `keep := 0`
+  and (b) `keep := len(pass) - 2` → `TestScanOutput` differential/straddle
+  failures; (c) search `head` instead of `win` → `TestScanOutput` past-the-cap
+  cases and the noisy control (`passed false`) failed; (d) as above.
+- **Verification:** `go test -count=1 ./internal/testmap/runner/` ok (16.3 s);
+  `go vet ./...` clean; `gofmt -l` empty; `ait engine test` exit 0.
+- **Issues encountered:** none.
+- **Key decisions:** the bounded-allocation assertion brackets only
+  `scanOutput` over a generated stream (`xs`), never a subprocess launch — the
+  noisy control explicitly makes no allocation claim; the scanner reads until
+  EOF exactly as `os.ReadFile` did (no size snapshot); the output is reopened
+  with `os.Open` rather than seeking the writer fd, whose offset the child shares.
+- **Upstream defects identified:** None
+- **Residual (named in `## Risk`):** `runChild`'s single `scanOutput(f, name,
+  readChunk)` call carries no allocation assertion of its own.
