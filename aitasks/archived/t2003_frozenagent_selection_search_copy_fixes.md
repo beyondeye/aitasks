@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [frozen, tui, textual, clipboard]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -15,7 +15,8 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-15 10:07
-updated_at: 2026-10-15 22:14
+updated_at: 2026-10-15 23:06
+completed_at: 2026-10-15 23:06
 ---
 
 Three usability defects in the `ait frozenagent` viewer, plus a requested change to its copy keys. Reported live on 2026-10-15 while reading a frozen Claude Code agent's stand-in pane in a downstream project (`thinking_backend`, window `agent-pick-153`). Textual 8.2.7, tmux 3.7c with `set-clipboard on`, theme `textual-dark`. The downstream `.aitask-scripts/frozenagent/` is byte-identical to this repo's.
@@ -116,3 +117,14 @@ Two defunct `[tmux: client]` zombie children sat under the live viewer process (
 > **✅ gate:plan_approved** run=2026-10-15T19:14:49Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-15T20:00:24Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-15T20:06:32Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:be831927e032c51f
+
+> **✅ gate:risk_evaluated** run=2026-10-15T20:06:32Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2003/risk_evaluated_2026-10-15T20:06:32Z-risk_evaluated-a1.log`
