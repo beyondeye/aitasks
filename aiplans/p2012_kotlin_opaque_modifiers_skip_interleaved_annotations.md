@@ -226,3 +226,35 @@ fields at Step 7, after approval: the t2002 slip must not repeat.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+- **Actual work done:** As planned.
+  - In `scanKotlin` (`goengines/internal/testmap/deps/kotlin.go`), the `inline` and `const` cases now share one walk, `modifiersReach(toks, i, kw)`. It walks over unescaped modifiers and over whole annotations, then reaches an unescaped kind-`n` `fun` / `val`. It is bounded by `ktModifierWalk = 32` units (modifiers and annotations, not tokens), and running past the bound reports true, so it fails closed.
+  - `skipAnnotation` handles an optional use-site target, then either a `@[…]` multi-annotation, or a dotted name with optional `<…>` type arguments and an optional balanced `(…)`.
+  - `skipBalanced` counts only operator tokens, so a string literal's content is never treated as a bracket.
+  - `cache.go`: `schemaVersion` 11 → 12. HEAD was still 11 at commit time.
+  - `kotlin_test.go`: new `TestKotlinAnnotationsBetweenModifiers`, 14 defect rows and 7 controls. Every row compares symbols and opaque exactly.
+- **Deviations from plan:** None.
+- **Issues encountered:** None. Verification was run as planned, and all of it was green:
+  - `gofmt -l` is clean.
+  - `go vet` and `go test ./internal/testmap/deps/` pass, and `./ait engine test` passes for every package.
+  - **Red proof:** an overlay with HEAD's `kotlin.go` (plus the `ktModifierWalk` constant, so the test compiles). Exactly the 14 defect rows fail. All 7 controls pass, and so does every row of `TestKotlinEscapedKeywordsAreIdentifiers`.
+  - **Mutants:** each of the 10 overlay mutants fails exactly its own rows:
+    - drop `@` branch → all 13 annotation rows
+    - const next-token → the 3 const rows
+    - `skipBalanced` without kind check → `inline-paren-in-string`
+    - token bound `j<i+8` → long-args, nested-args, multi, type-args, long-list, exhaustion
+    - exhaustion returns false → `exhaustion-fails-closed`
+    - kw without `!esc` → both escaped-fun/val controls, plus the t2002 `inline-escaped-fun` / `const-escaped-val`
+    - modifier without `!esc` → both escaped-modifier rows
+    - drop type-args → `inline-type-args`
+    - drop use-site → `inline-use-site`
+    - drop `[` branch → `inline-multi-annotation`
+- **Key decisions:**
+  - The bound counts units, not tokens. With a token bound, any long annotation argument list would fail open again.
+  - Exhausting the bound marks the file (fail closed), and the `exhaustion-fails-closed` / `under-bound-not-a-fun` pair pins the boundary.
+  - Sharing one walk deliberately widens `const`: `const <modifier> val` is now marked. The new over-marks are an identifier `inline` / `const` followed by an annotated declaration, and exhaustion. Both are in the safe direction.
+  - `const` now requires a kind-`n` `val`. A string `"val"` is never the keyword.
+- **Upstream defects identified:**
+  - `goengines/internal/testmap/deps/kotlin.go:226-241` — `annotationsAt` counts string-literal content as brackets: it switches on `toks[k].text` without checking `kind == 'o'`. As a result, in `@[Foo("]") Inject] class C` the `"]"` string drops the depth, so the `)` that closes `Foo(` is read as the end of the list and `Inject` is never seen, so the file is not marked `di` (fail OPEN). The control `@[Foo("x") Inject] class C` is marked `[di]`. Measured by overlay probe on this tree.
+  - `goengines/internal/testmap/deps/kotlin.go:153-154` — inline properties get no opaque reason: neither `inline val x: Int get() = 1` nor `val x: Int inline get() = 1` is marked. Their accessors are inlined into call sites exactly like an inline function's body, which is the rationale for `inline-fun`, so the closure is under-approximated (fail OPEN). The control `inline fun f() = 1` is marked `[inline-fun]`. Measured by overlay probe on this tree.
