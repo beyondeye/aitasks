@@ -11,8 +11,9 @@ active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1852
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-14 19:22
-updated_at: 2026-10-14 22:03
+updated_at: 2026-10-15 09:31
 ---
 
 ## Context
@@ -90,3 +91,8 @@ conformance gate inside goengines**, so that a reader regression fails
 > | Overlap, intended: the same four sources are inlined as unit rows (ktDollar* constants and 4 TestClassifyKotlin rows in lexctx_test.go, plus TestKotlinMultiDollar and one TestApplyRefusesNonComments case in rewrite_test.go). A corpus copy under testdata/conformance/kotlin/ would duplicate them; keeping both seems fine.
 > | 
 > | Evidence (archived plan p1990, "Implementation Evidence"): every TestClassifyKotlin row agrees with the 2.3.20 KotlinLexer through an adapter, and old-vs-new classifier parity is 0 differences over 2051 registered-repo Kotlin files.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-15T06:31:38Z status=pass attempt=1 type=human
