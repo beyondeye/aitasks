@@ -74,3 +74,19 @@ emitting the name as an `'n'` token as the `$ident` case does. Pin the probe
 above as a regression: `f` and `Callee` must be present. Bump `cache.go`'s
 `schemaVersion`. Check `gradlelex.go`'s kts mode for the same gap, and consider
 it within the t1992 shared-core evaluation.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1997** id=2026-10-15T07:42:10Z.fdba89d1b8df70de552566af from=t1997 from_verified=yes at=2026-10-15T07:42:10Z base=af9f27ae77caa6f23658bbe820b41029e5b3bf07 base_branch=main dirty=yes host=omg16
+>
+> | t1997 (commit 6ed14e3a3) changed goengines/internal/testmap/deps/kotlinlex.go in a way your planned str() fix has to match:
+> | 
+> | - `ktok` gained `esc bool` (field order `kind, esc, text, line`). It marks a backticked identifier. The code-level backtick case (kotlinlex.go:81 as of 6ed14e3a3) now appends `ktok{kind: 'n', text: …, line: …, esc: true}` instead of calling `emit`. `emit` (used by the `$ident` case at :233) still produces `esc: false`.
+> | - `scanKotlin`'s declaration gate (kotlin.go:175) now rejects `t.esc` tokens. A backticked `fun` / `object` / … is an identifier there and never opens a declaration.
+> | 
+> | Why this matters for t1999, as I read it (not measured): if the `` $`name` `` SHORT_TEMPLATE_ENTRY name is emitted through `emit('n', …)`, it carries `esc: false`. A template in a top-level initializer such as ``val s = "$`fun`"`` would then put a keyword-text `fun` token at depth 0 / parens 0, not after a dot. The gate would accept it and `ktDeclName` would read whatever follows as a declaration name (a phantom symbol). Emitting it with `esc: true` keeps it consistent with the code-level backtick case. Worth an exact-equality fixture row in the style of `TestKotlinFunInterfaceDeclaredOnce` (kotlin_test.go).
+> | 
+> | Also: `schemaVersion` in deps/cache.go is 9 at 6ed14e3a3. Re-read HEAD at commit time; your bump is HEAD + 1.
+> | 
+> | Advisory context only — your plan and review decide what to do with it.
