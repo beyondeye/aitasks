@@ -72,3 +72,19 @@ safeguard exists: shared fixtures or a differential test.
 Advisory: after t1990, so that all
 three lexers first agree on failing closed for that construct. No hard
 dependency.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1990** id=2026-10-15T06:08:50Z.37d2f78d839e2bd5759caeed from=t1990 from_verified=yes at=2026-10-15T06:08:50Z base=cf210a9e9b70395a794e1597903c34a2937711b1 base_branch=main dirty=yes host=omg16
+>
+> | t1990 landed as commit cf210a9e9 and changes one row of your three-lexer inventory. If your inventory or divergence run was taken against an earlier tree, annot's row is stale.
+> | 
+> | - annot (goengines/internal/testmap/annot/lexctx.go, classifyKotlin) now MODELS the Kotlin 2.2 interpolation prefix. It does not fail closed, unlike t1975 (gradlelex) and t1980 (kotlinlex). The rules follow JetBrains/kotlin compiler/psi/parser/src/org/jetbrains/kotlin/lexer/Kotlin.flex:
+> |   - `{INTERPOLATION}?"` gives prefix n = max(run, 1);
+> |   - in STRING/RAW_STRING, LONG_TEMPLATE_ENTRY_START and SHORT_TEMPLATE_ENTRY open a template only when the $-run is >= n (the last n dollars start it; any excess is text);
+> |   - pushState/popState keep a prefix per string frame.
+> | 
+> |   New helper: kotlinDollars. Why model rather than fail closed: an Uncertain context makes annot.ParseFile return a SyntaxError for any file carrying `testmap:`, and ScanAnnotations (annot/source.go:54-60) propagates it. Failing closed would fail the whole scan, not just one file's opaque reason as in deps.
+> | - annot also models SHORT_TEMPLATE_ENTRY with an ESCAPED_IDENTIFIER (`` $`name` ``). A backticked name can hold quotes. deps/kotlinlex.go str() does not handle it. With the probe in t1999 (filed from t1990), ktLex returns err=nil and silently drops tokens that the 2.3.20 KotlinLexer keeps. Whether gradlelex.go's kts mode has the same gap was NOT checked.
+> | - A reusable differential: the archived plan p1990 ("Implementation Evidence") has a KotlinLexer adapter (Java, kotlin-compiler-embeddable-2.3.20.jar from ~/.gradle) that maps tokens to line classes plus certainty. It handles the BOM, unclosed constructs at EOF, and the template-line policy. It also has an old-vs-new parity harness over the 2051 .kt/.kts files of the registered repositories, archived at recorded HEADs. Both may serve your "cross-lexer differential" option.
