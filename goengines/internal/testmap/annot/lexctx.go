@@ -779,9 +779,10 @@ func classifyPython(lines []string) Context {
 // A Kotlin frame: 'c' code, 't' a ${…} template (code), 's' "…",
 // 'r' """…""", 'b' a block comment.
 type kframe struct {
-	kind  byte
-	depth int // braces in 't'; nesting in 'b'
-	line  int
+	kind    byte
+	depth   int // braces in 't'; nesting in 'b'
+	dollars int // 's' / 'r': the interpolation prefix, the $-run a template needs
+	line    int
 }
 
 func classifyKotlin(lines []string) Context {
@@ -840,9 +841,12 @@ func classifyKotlin(lines []string) Context {
 				switch {
 				case c == '\\':
 					j += 2
-				case strings.HasPrefix(rest, "${"):
-					push('t')
-					j += 2
+				case c == '$':
+					next, template := kotlinDollars(ln, j, top.dollars)
+					if template {
+						push('t')
+					}
+					j = next
 				case c == '"':
 					pop()
 					j++
@@ -852,9 +856,12 @@ func classifyKotlin(lines []string) Context {
 				continue
 			case 'r':
 				switch {
-				case strings.HasPrefix(rest, "${"):
-					push('t')
-					j += 2
+				case c == '$':
+					next, template := kotlinDollars(ln, j, top.dollars)
+					if template {
+						push('t')
+					}
+					j = next
 				case strings.HasPrefix(rest, `"""`):
 					n := len(rest) - len(strings.TrimLeft(rest, `"`))
 					pop()
@@ -872,12 +879,24 @@ func classifyKotlin(lines []string) Context {
 				push('b')
 				stack[len(stack)-1].depth = 1
 				j += 2
-			case strings.HasPrefix(rest, `"""`):
-				push('r')
-				j += 3
-			case c == '"':
-				push('s')
-				j++
+			case c == '"' || c == '$':
+				// A $-run before the opening quote is the string's interpolation
+				// prefix (Kotlin 2.2 multi-dollar strings; Kotlin.flex
+				// {INTERPOLATION}?\"): none, or one, is the usual one dollar.
+				n := len(rest) - len(strings.TrimLeft(rest, "$"))
+				q := rest[n:]
+				switch {
+				case strings.HasPrefix(q, `"""`):
+					push('r')
+					stack[len(stack)-1].dollars = max(n, 1)
+					j += n + 3
+				case strings.HasPrefix(q, `"`):
+					push('s')
+					stack[len(stack)-1].dollars = max(n, 1)
+					j += n + 1
+				default:
+					j += n // dollars before no quote are code
+				}
 			case c == '\'':
 				j = skipKotlinChar(ln, j)
 			case c == '`':
@@ -911,6 +930,31 @@ func classifyKotlin(lines []string) Context {
 		ctx.Uncertain = &Unclosed{Line: stack[1].line, Construct: names[stack[1].kind]}
 	}
 	return ctx
+}
+
+// kotlinDollars reads the $-run at ln[j] in a string whose interpolation
+// prefix is n (Kotlin.flex: LONG_TEMPLATE_ENTRY_START, SHORT_TEMPLATE_ENTRY,
+// LONELY_DOLLAR). A run of at least n dollars before '{' opens a template —
+// its last n dollars start it, any before them are text; one before a
+// backticked name is a short template, whose name may hold quotes. A shorter
+// run, or one before anything else, is text. next is where lexing resumes.
+func kotlinDollars(ln string, j, n int) (next int, template bool) {
+	k := j
+	for k < len(ln) && ln[k] == '$' {
+		k++
+	}
+	if k-j < n || k == len(ln) {
+		return k, false
+	}
+	switch ln[k] {
+	case '{':
+		return k + 1, true
+	case '`':
+		if e := strings.IndexByte(ln[k+1:], '`'); e > 0 {
+			return k + e + 2, false
+		}
+	}
+	return k, false
 }
 
 // skipKotlinChar skips a char literal at ln[j] ('x', '\n', 'A', '"'),

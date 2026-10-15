@@ -2,6 +2,7 @@ package annot
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -234,6 +235,7 @@ func TestApplyRefusesNonComments(t *testing.T) {
 		"tests/bom.go":   "\ufeffpackage a\n",
 		"tests/bom2.py":  "\ufeffimport os\nprint('ok')\n",
 		"tests/bom.kt":   "\ufeffpackage a\n",
+		"tests/multi.kt": ktDollarDesync,
 	}
 	for rel, c := range files {
 		writeFile(t, root, rel, c, 0o644)
@@ -275,6 +277,10 @@ func TestApplyRefusesNonComments(t *testing.T) {
 		{"tests/bom2.py", Edit{Kind: InsertAfter, Line: 0, New: "\ufeff# testmap:covers src/a.py", Source: "src/a.py"}, ErrNotComment},
 		{"tests/bom.kt", Edit{Kind: InsertAfter, Line: 0, New: "\ufeff// testmap:covers src/A.kt", Source: "src/A.kt"}, ErrNotComment},
 		{"tests/bom.go", Edit{Kind: InsertAfter, Line: 0, New: "\ufeff// testmap:covers src/b.go", Source: "src/b.go"}, ErrNotComment},
+		// Line 9 is inside a raw string once the literal ${ of the
+		// multi-dollar string on line 5 is read as text (corpus .edits).
+		{"tests/multi.kt", Edit{Kind: Replace, Line: 9, Want: "// testmap:covers app/fake.kt",
+			New: "// testmap:covers app/fake.kt @2026-02-02/bbbbbbbbbb", Source: "app/fake.kt"}, ErrNotComment},
 	}
 	for _, tc := range cases {
 		before := readFile(t, root, tc.rel)
@@ -284,6 +290,39 @@ func TestApplyRefusesNonComments(t *testing.T) {
 		}
 		if after := readFile(t, root, tc.rel); after != before {
 			t.Errorf("%s written", tc.rel)
+		}
+	}
+}
+
+// The four t1954 multi-dollar corpus cases read exactly their .expect read:
+// list — one file-level, unstamped comment record each — and no look-alike
+// inside a string.
+func TestKotlinMultiDollar(t *testing.T) {
+	cases := []struct {
+		name, src string
+		line      int
+	}{
+		{"multidollar_comment_desync", ktDollarDesync, 3},
+		{"multidollar_interpolation", ktDollarInterpolation, 6},
+		{"multidollar_literal_brace", ktDollarLiteralBrace, 7},
+		{"multidollar_quote_boundary", ktDollarQuoteBoundary, 9},
+	}
+	for _, tc := range cases {
+		f, err := ParseFile("tests/"+tc.name+".kt", []byte(tc.src))
+		if err != nil {
+			t.Errorf("%s: %v", tc.name, err)
+			continue
+		}
+		var got []string
+		for _, u := range f.Units {
+			for _, c := range u.Covers {
+				got = append(got, fmt.Sprintf("line=%d member=%s value=%s stamped=%t docstring=%t",
+					c.Line.No, u.Member, c.Source, c.Stamp != Stamp{}, c.Line.Docstring))
+			}
+		}
+		want := fmt.Sprintf("line=%d member= value=app/real.kt stamped=false docstring=false", tc.line)
+		if len(got) != 1 || got[0] != want {
+			t.Errorf("%s: records %q, want [%q]", tc.name, got, want)
 		}
 	}
 }

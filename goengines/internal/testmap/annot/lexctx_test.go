@@ -141,6 +141,55 @@ func TestClassifyPython(t *testing.T) {
 	}
 }
 
+// The t1954 corpus cases kotlin/multidollar_*.kt
+// (aidocs/testing_engine/t1954_parser_research/corpus/kotlin/): Kotlin 2.2
+// multi-dollar strings, where only a $-run as long as the prefix starts a
+// template. kotlinc compiles all four; each reads one record, the comment
+// outside every string.
+const (
+	ktDollarDesync = `package app
+
+// testmap:covers app/real.kt
+fun f() {
+    val s = $$"""${/*"""
+    // */
+}
+val t = """
+// testmap:covers app/fake.kt
+"""
+val u = """x"""
+// """
+`
+	ktDollarInterpolation = `package app
+
+val x = 1
+val s = $$"""$${x} ${not a template} // testmap:covers app/fake.kt"""
+val r = $$"${"
+// testmap:covers app/real.kt
+fun h() = "}"
+`
+	ktDollarLiteralBrace = `package app
+
+val s = $$"""${
+// testmap:covers app/fake.kt
+}"""
+
+// testmap:covers app/real.kt
+fun f() = 1
+`
+	ktDollarQuoteBoundary = `package app
+
+val a = $$"""${"""
+val b = """
+// testmap:covers app/fake.kt
+"""
+val c = """
+}"""
+// testmap:covers app/real.kt
+fun k() = 3
+`
+)
+
 func TestClassifyKotlin(t *testing.T) {
 	kl := strings.Replace(look, "#", "//", 1)
 	runLex(t, Kotlin, []lexCase{
@@ -152,6 +201,24 @@ func TestClassifyKotlin(t *testing.T) {
 		{"unterminated-raw", "val s = \"\"\"\n" + kl + "\n", "", 1},
 		// kotlinc skips a byte-order mark at the start of the file.
 		{"bom-comment", "\ufeff" + kl + "\nclass T\n", "#c", 0},
+		// Multi-dollar strings: a template needs a $-run at least as long as
+		// the prefix; a shorter one is text.
+		{"multidollar-comment-desync", ktDollarDesync, "cc#cc#ccLLc#", 0},
+		{"multidollar-interpolation", ktDollarInterpolation, "ccccc#c", 0},
+		{"multidollar-literal-brace", ktDollarLiteralBrace, "cccLLc#c", 0},
+		{"multidollar-quote-boundary", ktDollarQuoteBoundary, "ccccLLcL#c", 0},
+		{"dollar-prefix-3", "val s = $$$\"\"\"$${/*\"\"\"\n// real\n", "c#", 0},
+		// A longer run opens one: its last two dollars start the template.
+		{"dollar-run-longer", "val s = $$\"\"\"$$${\"\"\"\n" + kl + "\n\"\"\"}\"\"\"\n// real\n", "cLL#", 0},
+		{"dollar-run-before-close", "val s = $$\"\"\"a$$\"\"\"\n// real\n", "c#", 0},
+		// Each string keeps its own prefix across nested templates.
+		{"dollar-inside-template", "val s = \"${ $$\"${\" }\"\n// real\n", "c#", 0},
+		{"dollar-prefix-restored", "val s = $$\"\"\"$${ \"${x}\" }${/*\"\"\"\n// real\n", "c#", 0},
+		// $`name` is a short template: the backticked name may hold quotes.
+		{"short-template-backticks", "val s = \"$`x\"/*`\"\n// real\n", "c#", 0},
+		{"short-template-backticks-dollar", "val s = $$\"$$`x\"/*`\"\n// real\n", "c#", 0},
+		{"short-template-below-prefix", "val s = $$\"$`x\" + 1 + '`'\n// real\n", "c#", 0},
+		{"short-template-unclosed-backtick", "val s = \"$`x\"\n// real\n", "c#", 0},
 	})
 	c := Classify(Kotlin, []byte("package a\n\nimport b.C\nimport d.E\n\nclass T {\n  import x\n}\n"))
 	if c.Package != 1 || c.Import != 4 {
