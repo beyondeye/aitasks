@@ -12,8 +12,9 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1852
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-14 19:22
-updated_at: 2026-10-14 22:00
+updated_at: 2026-10-15 08:46
 ---
 
 ## Origin
@@ -85,3 +86,8 @@ Never let the classifier continue with a guessed boundary.
 - Optional: rerun `go run ./cmd/t1954 matrix --provider baseline --lang kotlin`
   in the research dir after moving its pin to the fix commit. The
   multidollar rows must show 0 on every safety column.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-10-15T05:47:01Z status=pass attempt=1 type=human
