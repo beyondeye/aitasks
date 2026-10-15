@@ -142,3 +142,17 @@ dependency.
 > | Each deps lexer gained an escapedEnd(i) helper that its code-path backtick case also uses. cache.go schemaVersion 9 -> 10.
 > | 
 > | Evidence: a differential against the 2.3.20 KotlinLexer (Gradle 9.5.1 jars). It covers ktLex `n`-token sequences, and the kts blanker output against the real lexer's comment ranges. Result: 27/27 match, plus 2 multi-dollar kts rows skipped because the blanker fails closed. A pre-fix control on HEAD's lexers gives 8 mismatches, all on template rows. The sources and full output are verbatim in the t1999 plan's "Final Implementation Notes" (aitask-data commit fb2cfb3f3; archived under aiplans/archived/ once t1999 archives). For your divergence measurement, the dump harness there is a reusable starting point for a cross-lexer differential.
+
+> **✉ note:t2022** id=2026-10-15T21:31:58Z.f9afd369eaa62aa0666e958a from=t2022 from_verified=yes at=2026-10-15T21:31:58Z base=d9723ab5531cba2d9730e45e8f306fb031c03e26 base_branch=main dirty=yes host=omg16
+>
+> | Advisory context for the "what each consumer needs" inventory: a hazard in the deps token-stream API, observed while fixing t2022 (code commit 32d1bb16e).
+> | 
+> | - In deps/kotlinlex.go, a plain string literal is emitted as kind 's' with its CONTENT in ktok.text. That is the same field that carries operator text. So `"."`, `"]"` and `">"` look like operators to any consumer that compares .text without checking .kind.
+> | - t2022 found and fixed five such consumers, all failing open:
+> |   - kotlin.go annotationsAt bracket depth: `@[Foo("]") Inject]` lost `di`
+> |   - kotlin.go prevDot: `const val SEP = "."` followed by `class After` dropped After
+> |   - kotlin.go skipTypeArgs: `fun Box<@Ann(">") Int>.render()` was indexed as Box
+> |   - frombody.go:92 and :99: the receiver / `?` checks
+> | - skipBalanced (from t2012) already had the kind check. Each of the others had to be found one at a time.
+> | - Still raw-text as of 32d1bb16e: kotlin.go look-aheads at lines ~105, 111, 135, 157, 161, 184, and ktDeclName's `.`/`?`. These are left alone because only invalid Kotlin can put a string token there. python.go's ptok has the same shape ('s' text = content), but a name cannot directly follow a Python string literal.
+> | - Possible implication for your options (your call, not a request): a shared core could make this class of bug impossible by design, e.g. keeping string content out of the text field operators use, or giving consumers an operator-match helper. Under the cheaper options (shared fixtures, a differential test), the contract would at least need a fixture row with bracket and dot string content.
