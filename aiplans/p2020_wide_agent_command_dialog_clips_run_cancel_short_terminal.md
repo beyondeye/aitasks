@@ -242,3 +242,84 @@ Current-branch mode under profile `fast`: commit the code as
   wide layout so they fit on open is not what the task asks for. · severity:
   low · → mitigation: none needed (the task's suggested fix is this exact
   fallback; Step 2 test 4 pins reachability at 38/34/30 rows)
+
+## Final Implementation Notes
+
+- **Actual work done:** Steps 1–3 as planned.
+  - Step 1 (`.aitask-scripts/lib/agent_command_screen.py`, CSS only):
+    - the base `#agent_cmd_dialog` gains `overflow-y: auto` and
+      `scrollbar-size-vertical: 1`;
+    - the base `#agent_cmd_tabs` loses `max-height: 20`;
+    - a new base rule sets `#direct_content, #tmux_content { height: auto; }`;
+    - the three narrow-only duplicates are removed (the narrow dialog's
+      overflow/scrollbar, `narrow #agent_cmd_tabs { max-height: initial }`,
+      and the narrow content-height rule).
+
+    No DOM, compose, focus or key change.
+  - Step 2 (`tests/test_agent_command_dialog_narrow.py`):
+    - regenerated `_WIDE_GOLDEN`: dialog and tabs moved per tab; tabs
+      (3,17,90,17) / (3,17,90,10); Direct dialog (0,0,96,29);
+    - added `_CENTERED_GOLDEN`, `_WIDE_SHORT_SIZES` and `_CenteredDialogHost`;
+    - new tests `test_wide_buttons_reachable_on_short_terminal` (2 hosts × 3
+      sizes × 2 tabs) and `test_wide_layout_in_centered_host`;
+    - `test_tab_content_has_no_filler_rows` and
+      `test_tallest_state_buttons_reachable` now also run wide;
+    - `test_keys_work_in_scrolled_narrow_dialog` is renamed
+      `test_keys_work_in_scrolled_dialog` and runs both modes;
+    - a shared `_wide_regions()` helper backs both golden tests.
+- **Deviations from plan:** None. The centered-host golden and host axis were
+  added at plan review (before approval), so they are in the plan above.
+- **Negative control (red run, HEAD module):**
+  - Setup: `git diff --quiet HEAD -- .aitask-scripts/lib/agent_command_screen.py`
+    → `MODULE_AT_HEAD`, then
+    `~/.aitask/venv/bin/python tests/test_agent_command_dialog_narrow.py` →
+    exit 1, `Ran 11 tests`, `FAILED (failures=16)`.
+  - Failing, all wide, exactly the predicted set:
+    - golden ×2 and centered golden ×2;
+    - wide filler-row ×2 (`37 != 34`, `37 != 27`: the content ran 3 / 10
+      rows past the last button);
+    - wide tallest reachability ×2;
+    - short-terminal ×8 (tmux at 38/34/30 and Direct at 30, both hosts). E.g.
+      `bottom clipped: focused, _DialogHost (120, 34) tab_tmux #btn_run_tmux
+      Region(y=31,h=3) vs dialog content Region(y=2,h=26)`.
+  - Passing pre-fix: every narrow subTest and the wide keys subTests (the
+    keys test is a regression pin).
+- **Green run:** same command → `Ran 11 tests … OK`, exit 0.
+  - All 26 test files referencing `AgentCommandScreen` plus
+    `test_settings_reload_all.py`
+    (`pytest -n 4 --dist loadfile`) → 951 passed.
+  - Full suite (`bash tests/run_all_python_tests.sh`) →
+    `PYTHON SUITE: FAILED (runner=pytest, exit=1)`: 4 failed, 9095 passed, 2
+    skipped; serial lane 11 passed. All 4 failures are in
+    `tests/test_monitor_frozen_filter.py::MinimonitorOwnPanelTests`, a
+    `TypeError: expected string or bytes-like object, got 'Content'` from
+    `Text.from_markup` in the minimonitor panel. At run time
+    `.aitask-scripts/monitor/{minimonitor_app,monitor_app,monitor_shared}.py`
+    and that test file carried a concurrent session's uncommitted edits
+    (+239/−101) that were not in the tree when this task started. The test
+    never constructs `AgentCommandScreen`. This is not caused by this change,
+    but the suite verdict was not green.
+- **Issues encountered:** The first draft of the plan claimed "no control
+  moves" from a probe in the top-anchored test host only. Plan review pointed
+  out that board, trails and brainstorm set `Screen { align: center middle; }`.
+  There the Direct dialog re-centers, and its controls drop 3 rows. The plan
+  now accepts that movement explicitly, and `test_wide_layout_in_centered_host`
+  pins it.
+- **Key decisions:**
+  - The scroll and content-sizing rules moved from the narrow block to the
+    base rules rather than being duplicated. A probe showed 0 region
+    differences in the narrow layout over 12 cases.
+  - The dialog height following the active tab is accepted. A stable height
+    would need filler (the bug) or a `min-height` coupled to the tmux tab's
+    row count, which is fragile.
+  - Buttons below the fold when the dialog opens (~30–38 rows) are reached by
+    Tab, wheel or hotkey. Compacting the wide layout is out of scope.
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/agent_command_screen.py:727-735` — choosing
+    "+ Create new session" hides the window-name input.
+    `_show_new_session_input()` calls `_show_new_window_input()`, but the
+    `win_select.clear()` just before it posts a `Select.Changed(NULL)`. That
+    reaches `_on_window_changed` (:758), whose else-branch calls
+    `_hide_new_window_input()` (:771). `tmux_new_window_row` ends up 0×0 in
+    both modes, so the user cannot see or edit the window name; the launch
+    uses the hidden default (`agent-pick-5_5` in the keys test).
