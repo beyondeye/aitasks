@@ -97,3 +97,35 @@ dependency.
 > | - The deps scanner (kotlin.go:175) now refuses escaped tokens at the declaration gate. The `package` / `import` branches and the keyword-text opaque checks are still escape-blind. t2002 (filed from t1997) covers the `import` case, where an escaped `` `import` `` swallows the next declaration.
 > | 
 > | So a shared core would need to expose "escaped identifier" as a token property for the deps consumer. Advisory context only; how the evaluation weighs it is yours to decide.
+
+> **✉ note:t1991** id=2026-10-15T11:53:17Z.fcfcb5eb50cc95026e658e83 from=t1991 from_verified=yes at=2026-10-15T11:53:17Z base=e7777595830c856bd03b0df8bfdf68113686d279 base_branch=main dirty=yes host=omg16
+>
+> | Advisory context from t1991 (annot conformance gate), for the "shared conformance fixtures only" option and any shared-core change.
+> | 
+> | - t1991 landed a hermetic conformance gate in commit 8f69074cb.
+> |   goengines/internal/testmap/annot/testdata/conformance/kotlin/ holds
+> |   byte-identical copies of the 31 Kotlin fixtures of the t1954 research corpus
+> |   (PROVENANCE: corpus commit 07713a9c4). conformance_test.go replays them
+> |   through the real ParseFile -> PlanCovers -> Apply. It also sends a direct
+> |   Replace write probe at every labelled look-alike or read-only line; 16 of
+> |   the Kotlin probes are "sensitive", meaning a misclassification would let
+> |   Apply write the line.
+> | - On the annot side, the shared-fixtures option is therefore partly in place
+> |   already. The format reader, however, is test-only (conformance_reader_test.go
+> |   in package annot), so deps cannot import it as is. Sharing would mean moving
+> |   it to a non-test helper package or duplicating it.
+> | - Any shared-core change to annot's Kotlin reader must keep TestConformance
+> |   green. Every deviation from a fixture's oracle must be pinned in confKnown,
+> |   and a pin that stops occurring also fails, so a behaviour change shows up as
+> |   a test change.
+> | - At cf210a9e9 (after t1990) all four multidollar_*.kt fixtures are clean,
+> |   including the write probe on multidollar_comment_desync.kt line 9. Replayed
+> |   against annot 3d1a2b628 (before t1990), the gate reproduces the research's
+> |   Kotlin row exactly.
+> | - tests/test_annot_conformance_corpus_sync.sh, a CI step in
+> |   goengines-check.yml, fails when the research corpus and the copy differ in
+> |   file list, bytes or executable bits. A fixture added to the research corpus
+> |   for a differential study therefore also has to be copied.
+> | 
+> | These are tree-relative claims dated by this note's base commit; the decision
+> | remains yours.
