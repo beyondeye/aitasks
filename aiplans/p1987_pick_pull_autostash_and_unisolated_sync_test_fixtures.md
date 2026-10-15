@@ -288,3 +288,48 @@ rewrites the file. Add it as a local helper in `test_task_push.sh`.
 
 ### Planned mitigations
 - timing: pre-phase | name: baseline_isolated_fixture_run | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: file-scope isolation breaking a fixture that silently depends on global git config | desc: run the three test files as-is and under invoker-exported GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 before editing, and fix any fixture whose result differs
+
+## Final Implementation Notes
+- **Actual work done:**
+  - **Code** (`.aitask-scripts/lib/task_utils.sh`):
+    - `_task_pull_rebase` runs `pull --rebase --no-autostash`. Both callers get it: `task_sync`, the pick-time pull, and `task_push`'s retry.
+    - `task_data_converge`'s fast-forward runs `merge --ff-only --no-autostash --no-overwrite-ignore`.
+    - A refusal containing git's "untracked working tree files would be overwritten" is now the new reason `ff_ignored`. It is checked only after the existing `dirty_worktree → ff_blocked` remap.
+    - The new hint arm in `_task_push_reason_hint` says to move the local file aside, then run `./ait sync`.
+  - **Tests:**
+    - New `tests/lib/git_config_isolation.sh` (side-effect free). It holds `sync_isolate_git_config`, moved from `sync_fixture.sh`, which now sources the lib, so the 6 existing callers are unchanged. It also holds `assert_git_config_isolated`: planted global (temp `HOME`) and system (`GIT_CONFIG_SYSTEM`) configs, each probe paired with a control that removes one isolation variable for one command.
+    - `test_sync.sh`, `test_sync_branch_mode_automerge.sh` and `test_task_push.sh` are isolated at file scope. The block sits after the counter init in every file. In `test_task_push.sh` that is after `CLEANUP_DIRS=()`, not next to the `asserts.sh` source.
+    - `test_task_push.sh` gains Tests 11b, 18b, 28b and 29b (27 assertions) and the `file_sha` / `file_ident` helpers.
+    - `test_linked_trail_jump_live.sh` calls `enter_scratch_cwd`, which fixes the cd-guard lint failure.
+  - **Pre-phase `baseline_isolated_fixture_run`:** run on a `git archive HEAD` copy. As-is and under invoker-exported isolation the results were identical: test_sync 42/42, automerge 166/166, task_push 365/365. No fixture depended on global config, so no fixture needed per-repo fixes.
+  - **Results after the change:**
+    - task_push 396/396, test_sync 46/46, automerge 170/170 (4/4 passes run concurrently after the flake fix);
+    - cd_guard_lint 92/92, linked_trail_jump_live 25/25;
+    - sync_autostash_ignored 83/83 (C7 green);
+    - sync_guarded_merge 147, sync_deferral_and_quarantine 138, sync_failopen_probes 51 and metadata_partial_sync_recovery 38, all passing.
+  - **Mutants** (isolated scratchpad copies):
+    - M1 fails 11b+18b only. With autostash on, the pulls succeed and the in-flight file is rewritten (inode+ctime change).
+    - M2 fails 28b's identity check only.
+    - M3 fails only 29b; the ignored file really is overwritten ("mine" → "theirs").
+    - M4 fails 29b's reason and hint only (`unknown`).
+    - M5, run on each file, fails both "never reaches" probes and the file exits 1. In `test_task_push.sh` the FAIL count includes the probes, which pins the placement after the counter init.
+    - M6 fails the system probe in all three files, and C7 stays green.
+  - `shellcheck` finding count for `task_utils.sh` is unchanged.
+- **Deviations from plan:**
+  - **Pre-approval review.** The user flagged two problems. (1) The isolation assertion was first placed right after the `asserts.sh` source, but `test_task_push.sh` sets its counters later, which would have erased a failure. (2) The first tripwire read ambient config and was machine-dependent. Both were fixed before approval: the placement rule, and planted-config probes with controls.
+  - **Baseline contamination.** The first baseline ran against the live tree while `task_utils.sh` was being edited; those tests source it live. It was stopped and re-run from a `git archive HEAD` copy.
+  - **Added with user approval:** the `_local_log_has` fix in `test_sync_branch_mode_automerge.sh`.
+- **Issues encountered:** `test_sync_branch_mode_automerge.sh` failed one "commit is still reachable/intact" cell intermittently under parallel load. It failed in 3 of 4 runs after the change, a different cell each time, and passed when run alone. The cause predates this task:
+  - `_local_log_has` ran `git log --format=%s | grep -qxF` under the file's `set -o pipefail`.
+  - `git log` flushes per commit into a pipe. `grep -q` exits on the first match, git's next write raises SIGPIPE, and pipefail turns a present commit into "absent".
+  - Reproduced with both processes pinned to one CPU: 27/400 false negatives with pipefail, 0/400 without it.
+  - With the user's approval it was fixed here by dropping `-q` and redirecting to `/dev/null`. The pinned probe then gave 0/400, with no false positives on an absent subject.
+  - `_local_log_lacks` (`! _local_log_has`) had the mirror-image false pass.
+  - The code change could not cause it: `aitask_sync.sh` calls none of the edited functions, and it also failed in M5, where isolation is removed.
+- **Key decisions:**
+  - **Fixed here, not left to t1956.** t1956 rewires only `task_sync()`, so the push-retry caller of `_task_pull_rebase` is outside its scope. `task_data_converge` is in its scope only conditionally, pending t1912. Both fixes match t1956's goal 3.
+  - **Isolation at file scope, not per call site.** There are 53 inline `aitask_sync.sh` sites, and `test_task_push.sh` runs the code under test in-process.
+  - **The new reason is converge-local.** The `ff_ignored` arm lives in `task_data_converge`, not in the shared `_task_push_classify`, so push and pull classification is unchanged.
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/task_utils.sh:1319` — a behind-only `pull --rebase` in `_task_pull_rebase` still overwrites an ignored local file that an incoming commit writes (`pull --rebase` has no `--no-overwrite-ignore`). This is t1956's scope: its goal 2 routes behind-only through the fast-forward. Handed over by note, not a new task.
+  - `.aitask-scripts/aitask_crew_addwork.sh:328` and `.aitask-scripts/aitask_crew_setmode.sh:125` — raw `git pull --rebase` without `--no-autostash`, the same class as this task's fix. Found by code reading; whether crew worktrees ever hold another live session's uncommitted edits was not verified.
