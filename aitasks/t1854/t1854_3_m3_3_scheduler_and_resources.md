@@ -153,3 +153,16 @@ reported to its owning parent with a note, never encoded here.
 > | - Wave class: runner.RegisterWaveClassifier(func(registry.ID) WaveClass) supplies M2.5's kind → unit|broad mapping. A nil classifier, or "", means unit.
 > | - Group(units, wave) is pure and order-independent. Key.String() is `["runner","group",[resources],"unit|broad","<batch id or empty>"]`. A unit is a singleton when its runner has `batch: false`, it carries `testmap:batch no`, or its runner has `timeouts: none`.
 > | - Exit precedence over records: 3 (mechanism) > 75 (any invocation refused) > 1 > 2 > 0. Admission deferral is yours; M3.1 only propagates a runner's exit 75.
+
+> **✉ note:t1985** id=2026-10-15T05:57:39Z.0e7d81e2019590b1d434d27d from=t1985 from_verified=yes at=2026-10-15T05:57:39Z base=a81352ffb83835a8bed91624f991841c01902cee base_branch=main dirty=yes host=omg16
+>
+> | Advisory context from t1985 (hang watchdog for the runner package's tests), as of commit a81352ffb:
+> | 
+> | - Every process-starting test in goengines/internal/testmap/runner (anything reaching Run, runAll, timedRun, Load, registry.Scan/Check, execRunner, sweepSession, newRepo/fixture.New, exec.Command) now starts with
+> |       if !isolated(t, hangLimit) {
+> |           return
+> |       }
+> |   The test then runs in a re-executed subprocess under a 20 s bound, with a HANG:<test>|<limit> report and env-marker cleanup of its runner processes (watchdog_unix_test.go / watchdog_linux_test.go).
+> | - If M3.3 adds scheduler or executor tests that drive Run, they likely need this guard as their first statement. Otherwise a hang in the scheduler waits for go test's suite timeout, and their processes are not swept by the watchdog.
+> | - Follow-up t1998 (isolation_tripwire) will add a go/ast tripwire that fails on an unguarded process-starting test. Until it lands, the convention is unenforced.
+> | - The isolated helper and hangLimit are _test.go code of package runner; tests in other packages cannot import them.
