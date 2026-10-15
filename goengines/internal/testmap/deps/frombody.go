@@ -89,14 +89,14 @@ func FromBody(ctx context.Context, root string, test registry.ID, o Options) (re
 		if t.line < start || t.line > end || t.kind != 'n' {
 			continue
 		}
-		if i > 0 && (toks[i-1].text == "." || toks[i-1].text == "::") {
+		if i > 0 && toks[i-1].kind == 'o' && (toks[i-1].text == "." || toks[i-1].text == "::") {
 			// A receiver position (`"hi".render()`, `x?.render`,
 			// `String::render`): only an extension the file imports or
 			// can see resolves here — the receiver's type is not inferred.
 			add(resolveExt(t.text, self, g.kt), t.text, t.line)
 			continue
 		}
-		if i > 0 && toks[i-1].text == "?" {
+		if i > 0 && toks[i-1].kind == 'o' && toks[i-1].text == "?" {
 			continue
 		}
 		segs, next := chainAt(toks, i)

@@ -118,7 +118,9 @@ func scanKotlin(data []byte) rawFile {
 		if t.kind != 'n' {
 			continue
 		}
-		prevDot := i > 0 && (toks[i-1].text == "." || toks[i-1].text == "::" || toks[i-1].text == "?")
+		// Only an operator precedes as a dot: a string literal's content
+		// (`"."` before a keyword) is never one.
+		prevDot := i > 0 && toks[i-1].kind == 'o' && (toks[i-1].text == "." || toks[i-1].text == "::" || toks[i-1].text == "?")
 		// A backticked name is an identifier, never a keyword or modifier:
 		// every keyword case below requires !esc. The identifier matches
 		// (Class.forName, getIdentifier, R.string) are escape-neutral —
@@ -150,7 +152,9 @@ func scanKotlin(data []byte) rawFile {
 			}
 			i = j - 1
 			continue
-		case t.text == "inline" && !t.esc && modifiersReach(toks, i, "fun"):
+		// An inline property (`inline val`) or accessor (`inline get`) is
+		// inlined into its call sites exactly like an inline function's body.
+		case t.text == "inline" && !t.esc && modifiersReach(toks, i, "fun", "val", "var", "get", "set"):
 			add("inline-fun")
 		case t.text == "const" && !t.esc && modifiersReach(toks, i, "val"):
 			add("const-val")
@@ -208,7 +212,9 @@ func scanKotlin(data []byte) rawFile {
 
 // annotationsAt returns the annotation chains written at the '@' toks[i]:
 // `@Inject`, `@dagger.Module`, `@field:Inject`, and each entry of the
-// multi-annotation forms `@[A B]` / `@set:[A B]`.
+// multi-annotation forms `@[A B]` / `@set:[A B]`. Only operator tokens
+// count as brackets: a string literal's content never does (as in
+// skipBalanced).
 func annotationsAt(toks []ktok, i int) [][]string {
 	j := i + 1
 	// A use-site target (`field:`, `get:`, `file:` …) precedes the annotation.
@@ -225,13 +231,15 @@ func annotationsAt(toks []ktok, i int) [][]string {
 	var out [][]string
 	depth := 0
 	for k := j; k < len(toks); k++ {
-		switch toks[k].text {
-		case "[", "(":
-			depth++
-		case "]", ")":
-			depth--
-			if depth == 0 {
-				return out
+		if toks[k].kind == 'o' {
+			switch toks[k].text {
+			case "[", "(":
+				depth++
+			case "]", ")":
+				depth--
+				if depth == 0 {
+					return out
+				}
 			}
 		}
 		if depth == 1 && toks[k].kind == 'n' && toks[k-1].text != "." {
@@ -249,11 +257,11 @@ func annotationsAt(toks []ktok, i int) [][]string {
 const ktModifierWalk = 32
 
 // modifiersReach reports whether the modifier list after the modifier
-// toks[i] reaches the keyword kw. It walks over unescaped modifiers and
-// whole annotations (`modifiers: (annotation | modifier)+`), so
-// `inline @JvmName("x") suspend fun` reaches fun. A list that runs past
+// toks[i] reaches one of the keywords kws. It walks over unescaped
+// modifiers and whole annotations (`modifiers: (annotation | modifier)+`),
+// so `inline @JvmName("x") suspend fun` reaches fun. A list that runs past
 // ktModifierWalk entries reports true: fail closed.
-func modifiersReach(toks []ktok, i int, kw string) bool {
+func modifiersReach(toks []ktok, i int, kws ...string) bool {
 	j := i + 1
 	for n := 0; n < ktModifierWalk; n++ {
 		if j >= len(toks) {
@@ -265,7 +273,7 @@ func modifiersReach(toks []ktok, i int, kw string) bool {
 			j = skipAnnotation(toks, j)
 		case t.kind != 'n' || t.esc:
 			return false
-		case t.text == kw:
+		case slices.Contains(kws, t.text):
 			return true
 		case slices.Contains(ktModifiers, t.text):
 			j++
@@ -391,14 +399,16 @@ func ktDeclName(toks []ktok, i int) (name string, line int, ext bool) {
 
 // skipTypeArgs returns the index after the '>' closing the '<' at toks[j]
 // (len(toks) when it never closes). A function type's '->' does not close;
-// a backticked identifier `-` is not half of one.
+// a backticked identifier `-` is not half of one. Only operator tokens
+// count: a type annotation's string argument (`@Ann(">")`) is never a
+// bracket.
 func skipTypeArgs(toks []ktok, j int) int {
 	d := 0
 	for ; j < len(toks); j++ {
 		switch {
-		case toks[j].text == "<":
+		case toks[j].kind == 'o' && toks[j].text == "<":
 			d++
-		case toks[j].text == ">" && !(toks[j-1].kind == 'o' && toks[j-1].text == "-"):
+		case toks[j].kind == 'o' && toks[j].text == ">" && !(toks[j-1].kind == 'o' && toks[j-1].text == "-"):
 			if d--; d == 0 {
 				return j + 1
 			}

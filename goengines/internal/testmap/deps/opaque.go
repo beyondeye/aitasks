@@ -8,8 +8,8 @@ import "slices"
 // opaque_test.go, which fails when a reason has no fixture).
 //
 //   - Kotlin content rules (assumption_kotlin_scanner_fail_closed): constructs
-//     that defeat the closed construct list — inline functions and `const val`
-//     (inlined into callers), DI bindings and Koin modules (a binding no
+//     that defeat the closed construct list — inline functions and inline
+//     property accessors, and `const val` (inlined into callers), DI bindings and Koin modules (a binding no
 //     import names), reflection (`Class.forName`, `::class.java`), and a file
 //     the tokenizer cannot finish.
 //   - Path / config rules: generated or KSP sources, Java sources (indexed for

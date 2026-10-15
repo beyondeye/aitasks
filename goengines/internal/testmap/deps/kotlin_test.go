@@ -150,6 +150,9 @@ func TestKotlinDeclNameStopsAfterName(t *testing.T) {
 		// A backticked `-` is an identifier: its '>' closes, unlike an arrow's.
 		"backticked-minus-arg":   {"fun Box<`-`>.render() = 0", []string{"fun:render"}, []string{"render"}},
 		"backticked-minus-bound": {"fun <T : `-`> T.render() = 0", []string{"fun:render"}, []string{"render"}},
+		// A type annotation's string argument is not a bracket.
+		"string-gt-arg": {`fun Box<@Ann(">") Int>.render() = 0`, []string{"fun:render"}, []string{"render"}},
+		"string-lt-arg": {`fun Box<@Ann("<") Int>.render() = 0`, []string{"fun:render"}, []string{"render"}},
 	} {
 		raw := scanKotlin([]byte(lines(`package x`, tc.src)))
 		var got []string
@@ -286,6 +289,105 @@ func TestKotlinAnnotationsBetweenModifiers(t *testing.T) {
 		}
 		if !slices.Equal(decls, tc.decls) || !slices.Equal(raw.Opaque, tc.opaque) {
 			t.Errorf("%s: symbols %v opaque %v, want %v %v", name, decls, raw.Opaque, tc.decls, tc.opaque)
+		}
+	}
+}
+
+// An inline property's accessors are inlined into their call sites exactly
+// like an inline function's body: `inline` on the property (both accessors)
+// or on one accessor marks the file inline-fun. Every row is compared
+// exactly; the controls pin what stays transparent.
+func TestKotlinInlineProperties(t *testing.T) {
+	for name, tc := range map[string]struct {
+		src    string
+		decls  []string
+		opaque []string
+	}{
+		"inline-val":               {lines(`package x`, `inline val x: Int get() = 1`), []string{"val:x"}, []string{"inline-fun"}},
+		"inline-var":               {lines(`package x`, `inline var x: Int`, `    get() = 1`, `    set(v) {}`), []string{"var:x"}, []string{"inline-fun"}},
+		"inline-getter":            {lines(`package x`, `val x: Int inline get() = 1`), []string{"val:x"}, []string{"inline-fun"}},
+		"inline-setter":            {lines(`package x`, `var x: Int`, `    get() = 1`, `    inline set(v) {}`), []string{"var:x"}, []string{"inline-fun"}},
+		"inline-private-setter":    {lines(`package x`, `var x: Int`, `    get() = 1`, `    private inline set(v) {}`), []string{"var:x"}, []string{"inline-fun"}},
+		"inline-ext-val":           {lines(`package x`, `inline val String.size2: Int get() = length`), []string{"val:size2"}, []string{"inline-fun"}},
+		"inline-annotation-val":    {lines(`package x`, `inline @JvmSynthetic val x: Int get() = 1`), []string{"val:x"}, []string{"inline-fun"}},
+		"annotation-inline-getter": {lines(`package x`, `val x: Int @JvmName("a") inline get() = 1`), []string{"val:x"}, []string{"inline-fun"}},
+		"member-inline-val":        {lines(`package x`, `class C {`, `    inline val x: Int get() = 1`, `}`), []string{"class:C"}, []string{"inline-fun"}},
+		// Controls.
+		"plain-getter":       {lines(`package x`, `val x: Int get() = 1`), []string{"val:x"}, nil},
+		"inline-escaped-get": {lines(`package x`, `fun g() {`, `    val a = inline`, "    `get`()", `}`), []string{"fun:g"}, nil},
+		"inline-escaped-val": {lines(`package x`, `fun g() {`, `    val a = inline`, "    `val`()", `}`), []string{"fun:g"}, nil},
+		"inline-dot-get":     {lines(`package x`, `val a = inline.get()`), []string{"val:a"}, nil},
+		"inline-class":       {lines(`package x`, `inline class V(val v: Int)`), []string{"class:V"}, nil},
+	} {
+		raw := scanKotlin([]byte(tc.src))
+		var decls []string
+		for _, s := range raw.Symbols {
+			decls = append(decls, s.Kind+":"+s.Name)
+		}
+		if !slices.Equal(decls, tc.decls) || !slices.Equal(raw.Opaque, tc.opaque) {
+			t.Errorf("%s: symbols %v opaque %v, want %v %v", name, decls, raw.Opaque, tc.decls, tc.opaque)
+		}
+	}
+}
+
+// The lexer emits a plain string literal as a kind-s token whose text is its
+// content, so a `"]"` or `"."` is never a bracket or a dot: a multi-annotation
+// list reads past a bracket in a string argument, and a string before a
+// keyword or a chain hides neither. Every field is compared exactly.
+func TestKotlinStringContentIsNotSyntax(t *testing.T) {
+	for name, tc := range map[string]struct {
+		src    string
+		decls  []string
+		refs   []string
+		opaque []string
+	}{
+		"multi-close-bracket": {lines(`package x`, `@[Foo("]") Inject] class C`), []string{"class:C"}, nil, []string{"di"}},
+		"multi-close-paren":   {lines(`package x`, `@[Foo(")") Inject] class C`), []string{"class:C"}, nil, []string{"di"}},
+		"multi-open-bracket":  {lines(`package x`, `@[Foo("[") Inject] class C`), []string{"class:C"}, nil, []string{"di"}},
+		"multi-open-paren":    {lines(`package x`, `@[Foo("(") Inject] class C`), []string{"class:C"}, nil, []string{"di"}},
+		// A template's code stays tokens; the string inside it is content.
+		"multi-template-bracket": {lines(`package x`, `@[Foo("${"]"}") Inject] class C`), []string{"class:C"}, nil, []string{"di"}},
+		"dot-before-class":       {lines(`package x`, `const val SEP = "."`, `class After`), []string{"val:SEP", "class:After"}, nil, []string{"const-val"}},
+		"scope-before-fun":       {lines(`package x`, `val s = "::"`, `fun after() = 1`), []string{"val:s", "fun:after"}, nil, nil},
+		"quest-before-object":    {lines(`package x`, `val q = "?"`, `object After`), []string{"val:q", "object:After"}, nil, nil},
+		"dot-before-typealias": {lines(`package x`, `val s = "."`, `typealias Wire = javax.inject.Inject`, `@Wire class C`),
+			[]string{"val:s", "typealias:Wire", "class:C"}, []string{"javax.inject.Inject"}, []string{"di"}},
+		"dot-before-ref": {lines(`package x`, `fun f() {`, `    val s = "."`, `    com.x.util.helper()`, `}`), []string{"fun:f"}, []string{"com.x.util.helper"}, nil},
+		// Controls.
+		"multi-plain-arg":      {lines(`package x`, `@[Foo("x") Inject] class C`), []string{"class:C"}, nil, []string{"di"}},
+		"multi-bracket-not-di": {lines(`package x`, `@[Foo("]") Bar] class C`), []string{"class:C"}, nil, nil},
+		"plain-before-class":   {lines(`package x`, `val s = "a"`, `class After`), []string{"val:s", "class:After"}, nil, nil},
+		"plain-before-ref":     {lines(`package x`, `fun f() {`, `    val s = "a"`, `    com.x.util.helper()`, `}`), []string{"fun:f"}, []string{"com.x.util.helper"}, nil},
+	} {
+		raw := scanKotlin([]byte(tc.src))
+		var decls, refs []string
+		for _, s := range raw.Symbols {
+			decls = append(decls, s.Kind+":"+s.Name)
+		}
+		for _, r := range raw.Kt.Refs {
+			refs = append(refs, r.Chain)
+		}
+		if !slices.Equal(decls, tc.decls) || !slices.Equal(refs, tc.refs) || !slices.Equal(raw.Opaque, tc.opaque) {
+			t.Errorf("%s: symbols %v refs %v opaque %v, want %v %v %v", name, decls, refs, raw.Opaque, tc.decls, tc.refs, tc.opaque)
+		}
+	}
+}
+
+// End to end through --from-body: a name after a string literal `"."`,
+// `"::"` or `"?"` is not in a receiver position, so it resolves as a simple
+// name rather than as an extension (no ref) or not at all.
+func TestKotlinFromBodyStringBeforeName(t *testing.T) {
+	for name, str := range map[string]string{"dot": `"."`, "scope": `"::"`, "quest": `"?"`} {
+		r := repo(t, map[string]string{
+			"aitestmap/.keep":      "",
+			"src/a/LoginState.kt":  "package com.x.a\n\ndata class LoginState(val email: String)\n",
+			"tests/a/LoginTest.kt": lines(`package com.x.a`, ``, `// testmap:unit M`, `fun m() {`, `    val sep = `+str, `    LoginState(sep)`, `}`),
+		})
+		refused, refs, _, err := FromBody(bg, r.Dir, registry.ID{Path: "tests/a/LoginTest.kt", Member: "M"},
+			Options{Config: registry.Defaults(), Uncached: true})
+		want := []BodyRef{{Source: "src/a/LoginState.kt", Symbol: "LoginState", Line: 6}}
+		if err != nil || refused != "" || !slices.Equal(refs, want) {
+			t.Errorf("%s: FromBody: refused %q refs %+v err %v, want %+v", name, refused, refs, err, want)
 		}
 	}
 }
