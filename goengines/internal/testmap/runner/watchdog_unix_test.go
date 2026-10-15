@@ -42,9 +42,11 @@ package runner
 // (or the same environment under dlv test) runs TestX's body in-process.
 
 import (
+	"bytes"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -54,6 +56,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"testing/iotest"
 	"time"
 )
 
@@ -69,6 +72,7 @@ const (
 	quitGrace = 2 * time.Second // for the goroutine dump SIGQUIT asks for
 	reapBound = 5 * time.Second // for killing the marked processes left over
 	outputCap = 64 << 10        // subprocess output kept for a report
+	readChunk = 32 << 10        // subprocess output read at a time
 )
 
 // errNoEnumeration is reapMarked where processes cannot be enumerated.
@@ -360,18 +364,56 @@ func runChild(t *testing.T, name string, limit time.Duration, s childSettings, e
 	c.elapsed = time.Since(start)
 	c.state = cmd.ProcessState
 	c.leftover, c.cleanupErr = reapMarked(marker, reapBound)
-	data, err := os.ReadFile(outPath)
+	f, err := os.Open(outPath) // its own offset: the child's fd shares the writer's
 	if err != nil {
 		t.Fatal(err)
 	}
-	full := string(data)
-	c.passed = strings.Contains(full, "\n--- PASS: "+name+" (")
-	c.skipped = strings.Contains(full, "\n--- SKIP: "+name+" (")
-	c.output = full
-	if len(full) > outputCap {
-		c.output = full[:outputCap] + fmt.Sprintf("\n[truncated %d bytes]", len(full)-outputCap)
+	defer f.Close()
+	c.output, c.passed, c.skipped, err = scanOutput(f, name, readChunk)
+	if err != nil {
+		t.Fatal(err)
 	}
 	return c
+}
+
+// scanOutput reads a subprocess's output from r, chunk bytes at a time, and
+// returns its first outputCap bytes (with a note of how many more there were)
+// and whether the whole output holds name's PASS or SKIP line. Each search
+// runs over the previous chunk's last len(marker)-1 bytes plus the new chunk,
+// so a marker split across reads is still found, and memory stays bounded by
+// outputCap and the chunk whatever the output's size.
+func scanOutput(r io.Reader, name string, chunk int) (output string, passed, skipped bool, err error) {
+	pass, skip := []byte("\n--- PASS: "+name+" ("), []byte("\n--- SKIP: "+name+" (")
+	keep := len(pass) - 1 // PASS and SKIP are the same length
+	var head []byte
+	var total int64
+	buf, win := make([]byte, chunk), make([]byte, 0, keep+chunk)
+	for {
+		n, rerr := r.Read(buf)
+		if n > 0 {
+			total += int64(n)
+			if room := outputCap - len(head); room > 0 {
+				head = append(head, buf[:min(n, room)]...)
+			}
+			win = append(win, buf[:n]...)
+			passed = passed || bytes.Contains(win, pass)
+			skipped = skipped || bytes.Contains(win, skip)
+			if len(win) > keep {
+				win = append(win[:0], win[len(win)-keep:]...)
+			}
+		}
+		if rerr == io.EOF {
+			break
+		}
+		if rerr != nil {
+			return "", false, false, rerr
+		}
+	}
+	output = string(head)
+	if total > outputCap {
+		output += fmt.Sprintf("\n[truncated %d bytes]", total-outputCap)
+	}
+	return output, passed, skipped, nil
 }
 
 // problems is what the parent reports for name, one entry per t.Error.
@@ -444,5 +486,107 @@ func TestChildRunPattern(t *testing.T) {
 		if got, err := childRunPattern("TestX", run); err == nil {
 			t.Errorf("childRunPattern(TestX, %q) = %q, want an error", run, got)
 		}
+	}
+}
+
+// xs yields 'x' forever without holding what it has yielded.
+type xs struct{}
+
+func (xs) Read(p []byte) (int, error) {
+	for i := range p {
+		p[i] = 'x'
+	}
+	return len(p), nil
+}
+
+// scanOutput against the read it replaced — the whole output in memory,
+// searched with strings.Contains, the report capped afterwards — under every
+// way a reader may split the output, each marker split at every position
+// across a read boundary; and its memory does not grow with the output.
+func TestScanOutput(t *testing.T) {
+	const name = "TestX"
+	pass, skip := "\n--- PASS: "+name+" (", "\n--- SKIP: "+name+" ("
+	ref := func(full string) (string, bool, bool) {
+		out := full
+		if len(full) > outputCap {
+			out = full[:outputCap] + fmt.Sprintf("\n[truncated %d bytes]", len(full)-outputCap)
+		}
+		return out, strings.Contains(full, pass), strings.Contains(full, skip)
+	}
+	readers := map[string]func(string) io.Reader{
+		"chunk-sized":   func(s string) io.Reader { return strings.NewReader(s) },
+		"one byte":      func(s string) io.Reader { return iotest.OneByteReader(strings.NewReader(s)) },
+		"half":          func(s string) io.Reader { return iotest.HalfReader(strings.NewReader(s)) },
+		"data with EOF": func(s string) io.Reader { return iotest.DataErrReader(strings.NewReader(s)) },
+	}
+	check := func(full string, chunk int) {
+		t.Helper()
+		wantOut, wantPass, wantSkip := ref(full)
+		for rn, rd := range readers {
+			out, p, s, err := scanOutput(rd(full), name, chunk)
+			if err != nil || out != wantOut || p != wantPass || s != wantSkip {
+				t.Errorf("%s reads, chunk %d, %d bytes ending %q: passed %v skipped %v, want %v %v; output %d bytes, want %d; err %v",
+					rn, chunk, len(full), full[max(0, len(full)-40):], p, s, wantPass, wantSkip, len(out), len(wantOut), err)
+			}
+		}
+	}
+
+	long := strings.Repeat("x", outputCap+100)
+	for _, in := range []string{
+		"",
+		"--- PASS: TestX (0.00s)\n", // at offset 0 no newline precedes it
+		"=== RUN   TestX\n--- PASS: TestX (0.00s)\nPASS\n",
+		"=== RUN   TestX\n    x_test.go:1: skipping\n--- SKIP: TestX (0.00s)\nPASS\n",
+		"=== RUN   TestXY\n--- PASS: TestXY (0.00s)\n",
+		"=== RUN   TestX\n--- PASS: TestX",
+		"=== RUN   TestX\n=== RUN   TestX/sub\n    --- PASS: TestX/sub (0.00s)\n",
+		"=== RUN   TestX\n--- FAIL: TestX (0.00s)\n",
+		strings.Repeat("x", outputCap-1),
+		strings.Repeat("x", outputCap),
+		strings.Repeat("x", outputCap+1),
+		long + pass + "0.00s)\n", // the markers lie past the cap
+		long + skip + "0.00s)\n",
+	} {
+		for _, chunk := range []int{1, 7, len(pass) - 1, readChunk} {
+			check(in, chunk)
+		}
+	}
+
+	// The marker starts pad bytes in, so with chunk-sized reads a read
+	// boundary falls after each of its prefixes, and a chunk shorter than the
+	// marker puts several boundaries inside it.
+	for _, marker := range []string{pass, skip} {
+		for chunk := 1; chunk <= len(marker)+1; chunk++ {
+			for pad := 0; pad <= chunk; pad++ {
+				check(strings.Repeat("x", pad)+marker+"0.00s)\n", chunk)
+			}
+		}
+	}
+
+	e := errors.New("read failed")
+	if _, _, _, err := scanOutput(io.MultiReader(strings.NewReader("abc"), iotest.ErrReader(e)), name, readChunk); !errors.Is(err, e) {
+		t.Errorf("read error: got %v, want %v", err, e)
+	}
+
+	// The stream is generated, so the measured region holds the scan alone:
+	// what it allocates — the report and two chunks — does not grow with the
+	// output, where a whole read holds all of it.
+	line := pass + "0.00s)\n"
+	for _, n := range []int64{1 << 20, 32 << 20} {
+		r := io.MultiReader(io.LimitReader(xs{}, n), strings.NewReader(line))
+		var before, after runtime.MemStats
+		runtime.ReadMemStats(&before)
+		out, p, s, err := scanOutput(r, name, readChunk)
+		runtime.ReadMemStats(&after)
+		alloc := after.TotalAlloc - before.TotalAlloc
+		total := n + int64(len(line))
+		if want := strings.Repeat("x", outputCap) + fmt.Sprintf("\n[truncated %d bytes]", total-outputCap); err != nil || !p || s || out != want {
+			t.Fatalf("%d bytes: passed %v skipped %v err %v; output %d bytes ending %q, want %d",
+				total, p, s, err, len(out), out[max(0, len(out)-40):], len(want))
+		}
+		if alloc >= 4<<20 {
+			t.Errorf("scanning %d bytes allocated %d bytes; the bound is 4 MiB whatever the size", total, alloc)
+		}
+		t.Logf("scanning %d bytes allocated %d bytes", total, alloc)
 	}
 }

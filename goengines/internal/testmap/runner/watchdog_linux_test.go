@@ -265,6 +265,10 @@ func reapMarked(entry string, bound time.Duration) ([]string, error) {
 // controlEnv puts TestIsolationControls in fixture mode: `<mode>|<dir>`.
 const controlEnv = "AIT_RUNNER_TEST_CONTROL"
 
+// noisyBytes is what the noisy fixture writes before its PASS line: far past
+// outputCap.
+const noisyBytes = 10 << 20
+
 // procLive reads /proc directly (not through the injectable readers): pid
 // exists and is not a zombie.
 func procLive(pid int) bool {
@@ -372,6 +376,13 @@ func controlFixture(t *testing.T, mode, dir string) {
 		spawnEscaped(t, dir)
 	case "fail":
 		t.Fatal("control failure")
+	case "noisy":
+		block := bytes.Repeat(append(bytes.Repeat([]byte("x"), 1023), '\n'), 64)
+		for range noisyBytes / len(block) {
+			if _, err := os.Stdout.Write(block); err != nil {
+				t.Fatal(err)
+			}
+		}
 	case "subtests":
 		recordSubtests(t, dir)
 	case "guarded":
@@ -387,8 +398,9 @@ func controlFixture(t *testing.T, mode, dir string) {
 // The watchdog's negative controls: a hang is killed within its bound with a
 // goroutine dump, and the processes it left outside the subprocess's session
 // are killed by the marker sweep; a leak after a passing run is reported and
-// killed; a failure and a run that selected nothing are reported; and the
-// subprocess selects subtests and runs at the CPU setting exactly as the
+// killed; a failure and a run that selected nothing are reported; a PASS line
+// far past the report cap still reads as a pass, with the report capped; and
+// the subprocess selects subtests and runs at the CPU setting exactly as the
 // parent's own testing flags would.
 func TestIsolationControls(t *testing.T) {
 	if v, ok := os.LookupEnv(controlEnv); ok {
@@ -465,6 +477,28 @@ func TestIsolationControls(t *testing.T) {
 		p := c.problems("TestNoSuchTestExists", hangLimit)
 		if c.hung || !c.state.Success() || len(p) != 1 || !strings.Contains(p[0], "ran no such test") {
 			t.Fatalf("hung %v state %v problems %q", c.hung, c.state, p)
+		}
+	})
+	// No allocation claim here: runChild's reap scans every process's
+	// environment, a cost set by the host. TestScanOutput bounds the read.
+	t.Run("noisy", func(t *testing.T) {
+		c := runChild(t, name, hangLimit, settings, controlEnv+"=noisy|"+t.TempDir())
+		end := c.output[max(0, len(c.output)-80):]
+		if c.hung || !c.state.Success() || !c.passed || c.skipped {
+			t.Fatalf("hung %v state %v passed %v skipped %v; output %d bytes ending %q", c.hung, c.state, c.passed, c.skipped, len(c.output), end)
+		}
+		if p := c.problems(name, hangLimit); len(p) != 0 {
+			t.Errorf("%d problems, the first starting %.200q", len(p), p[0])
+		}
+		var rest string
+		if len(c.output) > outputCap {
+			rest = c.output[outputCap:]
+		}
+		var n int
+		_, err := fmt.Sscanf(rest, "\n[truncated %d bytes]", &n)
+		if err != nil || rest != fmt.Sprintf("\n[truncated %d bytes]", n) || n+outputCap < noisyBytes ||
+			!strings.HasPrefix(c.output, "=== RUN   "+name+"\n") {
+			t.Errorf("report not the output's first %d bytes plus a truncation note: %d bytes ending %q", outputCap, len(c.output), end)
 		}
 	})
 
