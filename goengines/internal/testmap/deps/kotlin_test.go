@@ -119,6 +119,70 @@ func TestKotlinFromBodyIgnoresCtorParams(t *testing.T) {
 	}
 }
 
+// A fun / val / var is named by the identifier after its optional receiver
+// type: whatever follows the name — a delegate (`by lazy`), an accessor
+// (`get()`), the parameter list — is never read as the name. The control rows
+// are forms the name walk already got right; they pin it to its old answers.
+func TestKotlinDeclNameStopsAfterName(t *testing.T) {
+	for name, tc := range map[string]struct {
+		src  string
+		want []string
+		exts []string
+	}{
+		"lazy":             {`val retrofit by lazy { cache }`, []string{"val:retrofit"}, nil},
+		"mutable-state":    {`var counter by mutableStateOf(0)`, []string{"var:counter"}, nil},
+		"dotted-delegate":  {`val y by Delegates.notNull<Int>()`, []string{"val:y"}, nil},
+		"ext-delegate":     {`val Foo.bar by lazy { 1 }`, []string{"val:bar"}, []string{"bar"}},
+		"accessor":         {`val isEmpty get() = true`, []string{"val:isEmpty"}, nil},
+		"star-receiver":    {`fun List<*>.firstOrBlank() = ""`, []string{"fun:firstOrBlank"}, []string{"firstOrBlank"}},
+		"nested-args":      {`fun Map<String, List<Int>>.total() = 0`, []string{"fun:total"}, []string{"total"}},
+		"arrow-arg":        {`fun Box<(Int) -> Unit>.run() = 0`, []string{"fun:run"}, []string{"run"}},
+		"nullable-generic": {`fun <T> List<T>?.orEmpty2() = 0`, []string{"fun:orEmpty2"}, []string{"orEmpty2"}},
+		// Controls.
+		"typed":               {`val plain: Int = 1`, []string{"val:plain"}, nil},
+		"type-param-receiver": {`fun <T> T.also2() = 0`, []string{"fun:also2"}, []string{"also2"}},
+		"nullable-receiver":   {`fun Foo?.orDefault() = 0`, []string{"fun:orDefault"}, []string{"orDefault"}},
+		// Redundant nullability is legal (`quest+`): every '?' is skipped.
+		"double-nullable":    {`fun String??.f() = 1`, []string{"fun:f"}, []string{"f"}},
+		"qualified-receiver": {`fun a.b.C.helper() = 0`, []string{"fun:helper"}, []string{"helper"}},
+		"paren-receiver":     {lines(`fun (A).f() = 0`, `val after = 1`), []string{"val:after"}, nil},
+		// A backticked `-` is an identifier: its '>' closes, unlike an arrow's.
+		"backticked-minus-arg":   {"fun Box<`-`>.render() = 0", []string{"fun:render"}, []string{"render"}},
+		"backticked-minus-bound": {"fun <T : `-`> T.render() = 0", []string{"fun:render"}, []string{"render"}},
+	} {
+		raw := scanKotlin([]byte(lines(`package x`, tc.src)))
+		var got []string
+		for _, s := range raw.Symbols {
+			got = append(got, s.Kind+":"+s.Name)
+		}
+		if !slices.Equal(got, tc.want) || !slices.Equal(raw.Kt.Exts, tc.exts) {
+			t.Errorf("%s: symbols %v exts %v, want %v exts %v", name, got, raw.Kt.Exts, tc.want, tc.exts)
+		}
+	}
+}
+
+// End to end: an import of a delegated property resolves to its declaring
+// file as a static import, not a closure-only package fallback.
+func TestKotlinDelegatedPropertyImport(t *testing.T) {
+	r := repo(t, map[string]string{
+		"src/b/Net.kt":  "package com.x.b\n\nprivate val cache = 1\nval retrofit by lazy { cache }\n",
+		"src/c/User.kt": "package com.x.c\n\nimport com.x.b.retrofit\n\nfun u() = retrofit\n",
+	})
+	g := scanRepo(t, r)
+	f, _ := g.Facts("src/b/Net.kt")
+	var names []string
+	for _, s := range f.Symbols {
+		names = append(names, s.Kind+":"+s.Name)
+	}
+	if want := []string{"val:cache", "val:retrofit"}; !slices.Equal(names, want) {
+		t.Errorf("symbols %v, want %v", names, want)
+	}
+	requireEdge(t, g, "src/c/User.kt", "src/b/Net.kt", Import, "import")
+	if u, _ := g.Facts("src/c/User.kt"); slices.Contains(u.Unresolved, "com.x.b.retrofit") {
+		t.Errorf("unresolved: %v", u.Unresolved)
+	}
+}
+
 // An import of an undeclared name inside a repository package keeps the
 // whole package reachable (closure-only), never nothing.
 func TestKotlinPackageFallback(t *testing.T) {

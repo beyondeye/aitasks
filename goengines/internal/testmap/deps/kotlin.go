@@ -264,8 +264,11 @@ func isDIAnnotation(segs []string, aliases map[string][]string) bool {
 func isLowerStart(s string) bool { return s != "" && s[0] >= 'a' && s[0] <= 'z' }
 
 // ktDeclName returns the declared name of the declaration whose keyword is
-// toks[i]: for fun / val / var the last identifier before the parameter list
-// or type (an extension's receiver is skipped, and ext reports it).
+// toks[i]: for fun / val / var the identifier after the optional receiver
+// type (`a.B<T>?.`; ext reports one). An identifier continues the receiver
+// only when a '.' follows it, so a delegate (`by lazy`), an accessor
+// (`get()`), the parameter list, the type and the initializer all end the
+// walk.
 func ktDeclName(toks []ktok, i int) (name string, line int, ext bool) {
 	kw := toks[i].text
 	j := i + 1
@@ -273,18 +276,7 @@ func ktDeclName(toks []ktok, i int) (name string, line int, ext bool) {
 		j++
 	}
 	if j < len(toks) && toks[j].text == "<" { // generics
-		d := 0
-		for ; j < len(toks); j++ {
-			if toks[j].text == "<" {
-				d++
-			} else if toks[j].text == ">" {
-				d--
-				if d == 0 {
-					j++
-					break
-				}
-			}
-		}
+		j = skipTypeArgs(toks, j)
 	}
 	switch kw {
 	case "class", "interface", "object", "typealias":
@@ -293,19 +285,40 @@ func ktDeclName(toks []ktok, i int) (name string, line int, ext bool) {
 		}
 		return "", 0, false
 	}
-	for ; j < len(toks); j++ {
-		switch {
-		case toks[j].kind == 'n':
-			name, line = toks[j].text, toks[j].line
-		case toks[j].text == ".":
-			ext = true
-		case toks[j].text == "?":
-		case toks[j].text == "<" || toks[j].text == ">" || toks[j].text == ",":
-		default:
-			return name, line, ext
+	for j < len(toks) && toks[j].kind == 'n' {
+		name, line = toks[j].text, toks[j].line
+		j++
+		if j < len(toks) && toks[j].text == "<" {
+			j = skipTypeArgs(toks, j)
 		}
+		for j < len(toks) && toks[j].text == "?" { // `Foo?.`, and the legal (redundant) `Foo??.`
+			j++
+		}
+		if j >= len(toks) || toks[j].text != "." {
+			break
+		}
+		ext = true
+		j++
 	}
 	return name, line, ext
+}
+
+// skipTypeArgs returns the index after the '>' closing the '<' at toks[j]
+// (len(toks) when it never closes). A function type's '->' does not close;
+// a backticked identifier `-` is not half of one.
+func skipTypeArgs(toks []ktok, j int) int {
+	d := 0
+	for ; j < len(toks); j++ {
+		switch {
+		case toks[j].text == "<":
+			d++
+		case toks[j].text == ">" && !(toks[j-1].kind == 'o' && toks[j-1].text == "-"):
+			if d--; d == 0 {
+				return j + 1
+			}
+		}
+	}
+	return j
 }
 
 var javaPkgRe = regexp.MustCompile(`(?m)^\s*package\s+([\w.]+)\s*;`)
