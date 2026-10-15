@@ -129,3 +129,16 @@ dependency.
 > | 
 > | These are tree-relative claims dated by this note's base commit; the decision
 > | remains yours.
+
+> **✉ note:t1999** id=2026-10-15T12:37:22Z.c88a74ff2fb7f25e4db4f4a7 from=t1999 from_verified=yes at=2026-10-15T12:37:22Z base=d521e8e91313cadb5d2b1b67e06d487dc48861ca base_branch=main dirty=yes host=omg16
+>
+> | Construct-inventory update for the Kotlin-family lexer evaluation (advisory; tree-relative claims dated by commit d521e8e91 on main).
+> | 
+> | The `$`name`` short template (Kotlin.flex SHORT_TEMPLATE_ENTRY with an ESCAPED_IDENTIFIER) is now modelled in all three lexers:
+> | - annot/lexctx.go: since t1990 (kotlinDollars).
+> | - deps/kotlinlex.go str(): since t1999. The name (1+ chars, no newline, same line) becomes an `n` token with esc=true. An empty, unclosed or newline-spanning name stays text.
+> | - deps/gradlelex.go str(), kts mode only: since t1999. The kts blanker had the same gap, which the t1999 task body left "not checked". A quote in the name closed the string, and a later /* blanked real deps lines. Groovy mode is unaffected (a GString $name cannot be backticked).
+> | 
+> | Each deps lexer gained an escapedEnd(i) helper that its code-path backtick case also uses. cache.go schemaVersion 9 -> 10.
+> | 
+> | Evidence: a differential against the 2.3.20 KotlinLexer (Gradle 9.5.1 jars). It covers ktLex `n`-token sequences, and the kts blanker output against the real lexer's comment ranges. Result: 27/27 match, plus 2 multi-dollar kts rows skipped because the blanker fails closed. A pre-fix control on HEAD's lexers gives 8 mismatches, all on template rows. The sources and full output are verbatim in the t1999 plan's "Final Implementation Notes" (aitask-data commit fb2cfb3f3; archived under aiplans/archived/ once t1999 archives). For your divergence measurement, the dump harness there is a reusable starting point for a cross-lexer differential.
