@@ -162,3 +162,24 @@ is rolled back.
 This is a current-branch profile. Commit the code with
 `bug: Name a prune child whose creation stopped part-way as incomplete_node (t2019)`,
 then run Step 9 to archive the task and commit the plan and task data.
+
+## Final Implementation Notes
+- **Actual work done:** Implemented as planned. `PrunePartialFailure` gained a keyword-only `incomplete_node_id`. Its message now reads `incomplete node <id>` for a child whose `create_node` raised part-way, and `created <id>` only for a child that was actually created. `apply_prune_dimensions`'s except handler records the attempted id as `incomplete_node` at stage `counter_bumped` and never adds it to `nodes_created`. The success path is unchanged. `RunPruneFailureBoundaryTests` gained `test_proposal_write_fault_records_incomplete_node`, which runs the real `create_node` and fails only the child's proposal write. The two existing fault tests now assert that `incomplete_node_id` / `incomplete_node` are absent. In `brainstorm_engine_architecture_v2.md`, the §7.4a failure-boundary paragraph now names `incomplete_node`.
+- **Deviations from plan:** None.
+- **Issues encountered:**
+  - The scratch copy used for the mutation runs has no `aitasks/metadata/codeagent_config.json`. Without it, the four `PruneWizardTests` fail on setup, so the mutants were scoped with `-k RunPruneFailureBoundaryTests`, whose baseline in the copy was 8/8 green.
+  - The full Python suite reported `PYTHON SUITE: FAILED` with 2 failures, both outside brainstorm:
+    - `test_textual_markup_colours` flags `tests/test_monitor_markup_escape.py:69`, a file t2006 committed in `337d0f6e0`. This failure is already on `main`.
+    - `test_shortcuts_mixin_live_remap::test_override_onto_bound_key_leaves_class_and_later_instances_alone` runs against another session's uncommitted edits to `.aitask-scripts/lib/shortcuts_mixin.py` and its test.
+- **Key decisions:**
+  - `incomplete_node_id` is keyword-only with a `None` default, so the existing positional signature is unchanged. `new_node_id` still carries the minted id at `counter_bumped`, so existing readers keep it.
+  - The `counter_bumped` classification is mirrored from t2005 rather than shared with the decompose handler. The error strings differ, because decompose prefixes the module, and each handler has its own `incomplete_node` test.
+- **Verification:**
+  - `test_brainstorm_prune_dimensions.py`, `test_brainstorm_from_sections_failure_boundary.py` and `test_brainstorm_from_sections_reload.py` pass, 48 tests in total.
+  - Four mutants ran in an isolated scratch copy, each anchored inside the prune function or class. Each was caught by its intended test:
+    - dropping the `incomplete_node` branch was caught by the new test;
+    - recording the id in `nodes_created` was caught by the new test;
+    - setting `incomplete_node` at every stage was caught by both pinned fault tests, on `assertNotIn("incomplete_node", grp)`;
+    - reverting the message to `created` was caught by the new test.
+  - The pre-fix control (the HEAD module) fails the new test and the two pinned tests.
+- **Upstream defects identified:** None
