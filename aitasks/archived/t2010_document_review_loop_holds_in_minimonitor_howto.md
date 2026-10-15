@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [website, documentation, minimonitor, review_loop, shadow]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 2001
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-15 22:10
-updated_at: 2026-10-15 22:54
+updated_at: 2026-10-15 23:01
+completed_at: 2026-10-15 23:01
 ---
 
 ## Context
@@ -97,3 +98,14 @@ Keep `diffviewer` out of the page (CLAUDE.md project note).
 > **✅ gate:plan_approved** run=2026-10-15T19:54:07Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-15T19:56:46Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-15T20:01:35Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:be831927e032c51f
+
+> **✅ gate:risk_evaluated** run=2026-10-15T20:01:35Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2010/risk_evaluated_2026-10-15T20:01:35Z-risk_evaluated-a1.log`
