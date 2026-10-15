@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [testing, testmap, go_engine]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 1852
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-15 09:01
-updated_at: 2026-10-15 15:26
+updated_at: 2026-10-15 15:37
+completed_at: 2026-10-15 15:37
 ---
 
 ## Origin
@@ -100,3 +101,14 @@ it within the t1992 shared-core evaluation.
 > **✅ gate:plan_approved** run=2026-10-15T12:26:39Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-10-15T12:35:52Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-10-15T12:37:31Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:d2937b7251d6e7f4
+
+> **✅ gate:risk_evaluated** run=2026-10-15T12:37:31Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1999/risk_evaluated_2026-10-15T12:37:31Z-risk_evaluated-a1.log`
