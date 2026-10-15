@@ -45,7 +45,10 @@ class LogViewApp(App):  # type: ignore[misc]
 
     CSS = """
     #header-info { background: $boost; padding: 0 1; height: 1; }
-    #search-box { display: none; height: 1; }
+    /* `border: none` is what gives the box a text row: the stock Input's 2-row
+       `tall` border filled `height: 1` entirely, leaving a 0-row content area,
+       so typed text was received but never drawn (t2014). */
+    #search-box { display: none; height: 1; border: none; }
     #search-box.visible { display: block; }
     RichLog { background: $background; }
     """

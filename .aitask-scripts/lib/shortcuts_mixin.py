@@ -137,7 +137,11 @@ class ShortcutsMixin:
                     mapping[old_key] = remaining
                 else:
                     del mapping[old_key]
-            mapping.setdefault(new_key, []).append(active_b)
+            # A new list, never `setdefault(...).append`: `BindingsMap.copy()`
+            # is shallow, so an existing per-key list here IS the class-level
+            # `_merged_bindings` list, and appending to it would leak this
+            # override into every later instance of the class (t2014).
+            mapping[new_key] = [*mapping.get(new_key, []), active_b]
 
     def label(self, action_id: str, text: str, *, style: str = "wrap") -> str:
         key = resolve_key(self._shortcuts_scope, action_id) or ""

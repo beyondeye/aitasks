@@ -33,6 +33,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts"))
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "lib"))
 
+from textual.actions import SkipAction  # noqa: E402
 from textual.app import App  # noqa: E402
 from textual.binding import Binding  # noqa: E402
 from textual.screen import ModalScreen  # noqa: E402
@@ -72,6 +73,31 @@ class _DemoModal(ShortcutsMixin, ModalScreen):
 
     def action_do_thing(self) -> None:
         self.fired = True
+
+
+class _CollidingApp(ShortcutsMixin, App):
+    """Two bindings, so an override can move one onto a key the class binds.
+
+    Its own class, so a leak a red run causes cannot reach ``_DemoApp``'s tests.
+    """
+
+    _shortcuts_scope = "demo_collide"
+    BINDINGS = [
+        Binding("e", "do_thing", "Thing"),
+        Binding("y", "other", "Other"),
+    ]
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.fired = False
+
+    def action_do_thing(self) -> None:
+        self.fired = True
+
+    def action_other(self) -> None:
+        # Declines, so the key falls through to the next binding on it — the
+        # path a leaked binding takes.
+        raise SkipAction()
 
 
 class _ModalHostApp(App):
@@ -198,6 +224,54 @@ class ModalScopeTests(_Fixture):
                 keys = app.modal._bindings.key_to_bindings
                 self.assertIn("x", keys)
                 self.assertNotIn("e", keys)
+        self._run(runner())
+
+
+class SharedKeyRebindTests(_Fixture):
+    """A rebind onto a key the class already binds must stay per-instance (t2014).
+
+    ``BindingsMap.copy()`` is shallow: each per-key list in ``self._bindings``
+    IS the class-level ``_merged_bindings`` list. Appending the moved binding
+    to it leaked the override into every later instance of the App in the
+    process — there, a key the user never rebound fired the moved action
+    whenever the key's own action declined.
+    """
+
+    def test_override_onto_bound_key_leaves_class_and_later_instances_alone(self):
+        def snapshot():
+            return {
+                key: list(bucket)
+                for key, bucket in
+                _CollidingApp._merged_bindings.key_to_bindings.items()
+            }
+
+        async def runner():
+            before = snapshot()
+            shortcut_persist.save_override("demo_collide", "do_thing", "y")
+            keybinding_registry.refresh_all()
+            app = _CollidingApp()
+            # Precondition: the override really landed on the shared key.
+            self.assertEqual(
+                ["other", "do_thing"],
+                [b.action for b in app._bindings.key_to_bindings["y"]],
+            )
+            self.assertEqual(before, snapshot(), "class-level keymap mutated")
+
+            shortcut_persist.clear_override("demo_collide", "do_thing")
+            keybinding_registry.refresh_all()
+            later = _CollidingApp()
+            self.assertEqual(
+                ["other"],
+                [b.action for b in later._bindings.key_to_bindings["y"]],
+            )
+            async with later.run_test() as pilot:
+                await pilot.pause()
+                await pilot.press("y")
+                await pilot.pause()
+                self.assertFalse(later.fired, "leaked override fired on 'y'")
+                await pilot.press("e")
+                await pilot.pause()
+                self.assertTrue(later.fired, "default key 'e' did not fire")
         self._run(runner())
 
 
