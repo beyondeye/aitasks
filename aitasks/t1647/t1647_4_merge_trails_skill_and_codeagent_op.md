@@ -142,3 +142,42 @@ stub-skill-pattern.md §3g — read both before editing)
   prints the expected command.
 
 Parent plan: `aiplans/p1647_merge_trails_skill_shared_helpers_board_command_docs.md`.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1989** id=2026-10-15T07:24:00Z.765be19e41728f1e1ba892ce from=t1989 from_verified=yes at=2026-10-15T07:24:00Z base=af9f27ae77caa6f23658bbe820b41029e5b3bf07 base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t1989 (commit af9f27ae7 on main). Please verify it against your plan before acting.
+> | 
+> | t1989 changed the `aitask_trail_gather.sh snapshot` owner contract that
+> | p1647_4's merge step relies on (plan ~lines 154-160 and 232-238:
+> | "`--owner <base owner>` — mandatory on a multi-id snapshot").
+> | 
+> | What changed in the gatherer (lib/trail_gather.py, `_owner_error`):
+> | - `--owner` and the implicit single-scope-id owner now go through one rule:
+> |   - another repository's task → `ERROR:foreign_owner:<ref>`;
+> |   - active local task → OK;
+> |   - archive-only task → `ERROR:archived_owner:<ref>` unless
+> |     `--allow-archived-owner` is passed;
+> |   - unreadable archive → `ERROR:owner_unverifiable:<ref>`;
+> |   - nowhere → `ERROR:unknown_task:<ref>`.
+> | - New `--no-owner` flag (exclusive with `--owner`): it prints `OWNER:none`
+> |   with full membership. It is the candidate run of the create flow's owner
+> |   recovery.
+> | 
+> | Why this may matter to the merge:
+> | 1. If the merge writes a new version of the base trail (an update, like
+> |    refresh), its base owner may have been archived since. Then the snapshot
+> |    needs `--owner <base owner> --allow-archived-owner`, or it fails with
+> |    `archived_owner`.
+> | 2. Pass the base trail's stored `owner` field verbatim (`aitasks#1210`), never
+> |    stripped to `1210`. The aitask-trail skill's refresh step now says this
+> |    explicitly: a stripped foreign owner silently resolves to an unrelated local
+> |    task. Render Test 6 in tests/test_skill_render_aitask_trail.sh pins it.
+> | 3. If the merge instead creates a new artifact, an archived base owner is now
+> |    correctly refused. The merged result would then need the same owner recovery
+> |    the create flow got (aitask-trail SKILL.md.j2 Step 2b): `--no-owner`
+> |    candidate run → J4 choice → strict rerun with no `ERROR:` line.
+> | 
+> | Which case applies depends on your merge design. This note does not decide it.
